@@ -86,6 +86,11 @@ In scope:
   - in-memory config replace/patch/delete,
   - in-memory team create/activate/delete/rename/copy/reset,
   - static tools, memory metadata, MCP server, skill, and preset listing.
+- Agent management compatibility:
+  - list current active-team agents in the Python registry response shape,
+  - create and delete agent configs in memory,
+  - protect the default/core entry agent from deletion,
+  - keep reload as a compatibility no-op until the TS runtime reload exists.
 - Model adapter config compatibility:
   - provider type metadata,
   - in-memory provider create/update/delete/list,
@@ -140,6 +145,10 @@ These effects are intentional and covered by tests:
 - Permission policy changes are stored in the TS process memory until runtime configuration persistence is migrated.
 - Agent config and team changes are stored in TS process memory until runtime config-file persistence is migrated.
 - Agent config export/import and preset application return HTTP 501 until YAML/JSON config persistence is migrated.
+- Agent management create/delete changes are stored in TS process memory until runtime config-file
+  persistence is migrated.
+- `POST /api/agent/agents/reload` returns success with `reloaded=false` while TS runtime reload
+  remains unavailable.
 - Model provider config changes are stored in TS process memory until model adapter config-file
   persistence is migrated.
 - Model provider availability checks and `POST /api/model-adapter/test` return HTTP 501 until

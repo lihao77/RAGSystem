@@ -86,11 +86,21 @@ export const CopyAgentsRequestSchema = z.object({
   agent_names: z.array(z.string()).optional().default([]),
 });
 
+export const CreateAgentRequestSchema = z.object({
+  agent_name: z.string().min(1),
+  display_name: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  default_entry: z.boolean().optional().default(false),
+  custom_params: z.record(z.unknown()).nullable().optional(),
+  llm: AgentLlmConfigSchema.nullable().optional(),
+});
+
 export type AgentLlmConfig = z.infer<typeof AgentLlmConfigSchema>;
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 export type CreateTeamRequest = z.infer<typeof CreateTeamRequestSchema>;
 export type RenameTeamRequest = z.infer<typeof RenameTeamRequestSchema>;
 export type CopyAgentsRequest = z.infer<typeof CopyAgentsRequestSchema>;
+export type CreateAgentRequest = z.infer<typeof CreateAgentRequestSchema>;
 
 export interface TeamInfo {
   team_name: string;
@@ -103,4 +113,20 @@ export interface TeamInfo {
 export interface TeamSummary {
   active_team: string;
   teams: TeamInfo[];
+}
+
+export interface AgentInfo {
+  name: string;
+  agent_name: string;
+  display_name: string | null;
+  description: string | null;
+  capabilities: string[];
+  tools: string[];
+  enabled: boolean;
+  default_entry: boolean;
+  config: {
+    enabled: boolean;
+    llm_tiers?: Record<string, AgentLlmConfig> | null;
+    custom_params: Record<string, unknown>;
+  };
 }

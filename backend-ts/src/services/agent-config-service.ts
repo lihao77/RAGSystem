@@ -1,4 +1,4 @@
-import type { AgentConfig, TeamInfo, TeamSummary } from "../contracts/agent-config.js";
+import type { AgentConfig, AgentInfo, CreateAgentRequest, TeamInfo, TeamSummary } from "../contracts/agent-config.js";
 
 type TeamConfigs = Map<string, AgentConfig>;
 
@@ -24,9 +24,30 @@ export class AgentConfigService {
     return configsToRecord(this.getActiveConfigs());
   }
 
+  listAgents(): AgentInfo[] {
+    return Array.from(this.getActiveConfigs().values())
+      .map((config) => configToAgentInfo(config))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
   getConfig(agentName: string): AgentConfig | null {
     const config = this.getActiveConfigs().get(agentName);
     return config ? cloneConfig(config) : null;
+  }
+
+  createAgent(payload: CreateAgentRequest): AgentConfig {
+    const agentName = normalizeAgentName(payload.agent_name);
+    if (this.getActiveConfigs().has(agentName)) {
+      throw new Error(`智能体 ${agentName} 已存在`);
+    }
+
+    const config = buildCustomAgentConfig({
+      ...payload,
+      agent_name: agentName,
+    });
+    this.enforceSingleDefaultEntry(agentName, config.default_entry);
+    this.getActiveConfigs().set(agentName, config);
+    return cloneConfig(config);
   }
 
   replaceConfig(agentName: string, payload: AgentConfig): AgentConfig {
@@ -53,6 +74,18 @@ export class AgentConfigService {
 
   deleteConfig(agentName: string): boolean {
     return this.getActiveConfigs().delete(agentName);
+  }
+
+  deleteAgent(agentName: string): boolean {
+    const normalized = normalizeAgentName(agentName);
+    const config = this.getActiveConfigs().get(normalized);
+    if (!config) {
+      return false;
+    }
+    if (config.default_entry || normalized === "orchestrator_agent") {
+      throw new Error("系统核心智能体禁止删除");
+    }
+    return this.getActiveConfigs().delete(normalized);
   }
 
   listTeams(): TeamSummary {
@@ -340,6 +373,68 @@ function buildSystemAgentConfig(input: {
   });
 }
 
+function buildCustomAgentConfig(input: CreateAgentRequest): AgentConfig {
+  const systemPrompt =
+    getNestedString(input.custom_params, ["behavior", "system_prompt"]) ??
+    `${input.display_name ?? input.agent_name} 是当前 team 中的自定义智能体。`;
+  return normalizeConfig({
+    agent_name: input.agent_name,
+    display_name: input.display_name ?? input.agent_name,
+    description: input.description ?? "",
+    enabled: true,
+    default_entry: input.default_entry ?? false,
+    llm_tiers: { default: input.llm ? { ...input.llm } : { ...defaultLlmTier } },
+    tools: { enabled_tools: ["read_file", "preview_data_structure"] },
+    skills: { enabled_skills: [], auto_inject: true },
+    mcp: { enabled_servers: [] },
+    memory: {
+      auto_inject: true,
+      allowed_scopes: ["team", "session"],
+      write_scopes: ["session"],
+      archive_scopes: ["session"],
+    },
+    tasks: { workflow: false, background: false },
+    delegation: { enabled_agents: [] },
+    knowledge_base: {
+      enabled: false,
+      default_collection: "documents",
+      default_search_mode: "hybrid",
+      default_top_k: 5,
+      default_rerank: false,
+      default_reranker_key: null,
+    },
+    custom_params: {
+      type: "orchestrator",
+      ...(input.custom_params ?? {}),
+      behavior: {
+        system_prompt: systemPrompt,
+        compression_trigger_ratio: 0.85,
+        summarize_max_tokens: 300,
+        preserve_recent_turns: 3,
+        ...(isRecord(input.custom_params?.behavior) ? input.custom_params.behavior : {}),
+      },
+    },
+  });
+}
+
+function configToAgentInfo(config: AgentConfig): AgentInfo {
+  return {
+    name: config.agent_name,
+    agent_name: config.agent_name,
+    display_name: config.display_name ?? config.agent_name,
+    description: config.description ?? null,
+    capabilities: [],
+    tools: config.tools?.enabled_tools ?? [],
+    enabled: config.enabled,
+    default_entry: config.default_entry,
+    config: {
+      enabled: config.enabled,
+      llm_tiers: config.llm_tiers ?? null,
+      custom_params: config.custom_params,
+    },
+  };
+}
+
 function configsToRecord(configs: TeamConfigs): Record<string, AgentConfig> {
   return Object.fromEntries(Array.from(configs.entries()).map(([name, config]) => [name, cloneConfig(config)]));
 }
@@ -389,6 +484,25 @@ function normalizeTeamName(teamName: string): string {
     throw new Error("team_name 不能为空");
   }
   return normalized;
+}
+
+function normalizeAgentName(agentName: string): string {
+  const normalized = agentName.trim();
+  if (!normalized) {
+    throw new Error("智能体名称不能为空");
+  }
+  return normalized;
+}
+
+function getNestedString(value: unknown, path: string[]): string | undefined {
+  let current = value;
+  for (const key of path) {
+    if (!isRecord(current)) {
+      return undefined;
+    }
+    current = current[key];
+  }
+  return typeof current === "string" && current.trim() ? current : undefined;
 }
 
 function deepMerge(base: unknown, patch: unknown): unknown {

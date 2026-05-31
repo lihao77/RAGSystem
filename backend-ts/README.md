@@ -39,6 +39,7 @@ Node.js 24+ is required because the first persistence milestone uses the built-i
 - In-memory permission policy API compatible with the Python `/api/permissions/*` route shapes
 - In-memory agent config/team API compatible with the Python `/api/agent-config/*` bootstrap and
   Team Builder route shapes
+- In-memory agent management API compatible with the Python `/api/agent/agents*` route shapes
 - In-memory model provider config API compatible with the Python `/api/model-adapter/*` provider
   management route shapes
 - In-memory system config API compatible with the Python `/api/system-config/*` schema form route
