@@ -1,46 +1,90 @@
 import type { AgentConfig } from "../contracts/agent-config.js";
 import type { ModelProviderConfig } from "../contracts/model-adapter.js";
-import type {
-  ChatCompletionRequest,
-  ChatCompletionResult,
-  ChatMessage,
-  LlmChatClient,
-} from "./llm-chat-client.js";
+import type { ChatCompletionRequest, ChatMessage, LlmChatClient } from "./llm-chat-client.js";
 
-export type AgentRuntimeCoreEvent =
+export type AgentRuntimeEvent =
   | {
-      type: "llm.first_token";
+      type: "runtime.first_token";
       data: {
         elapsed_ms: number;
         agent_name: string;
       };
     }
   | {
-      type: "output.chunk";
+      type: "runtime.output_delta";
       data: {
         content: string;
         agent_name: string;
       };
+    }
+  | {
+      type: "runtime.done";
+      data: {
+        content: string;
+        agent_name: string;
+        finish_reason: string | null;
+      };
+    }
+  | {
+      type: "runtime.error";
+      data: {
+        message: string;
+        agent_name: string;
+      };
     };
 
-export interface AgentRuntimeCoreRunInput {
+export type AgentRuntimeEventHandler = (event: AgentRuntimeEvent) => void | Promise<void>;
+
+export interface AgentRuntimeRequest {
   agent: AgentConfig;
   provider: ModelProviderConfig;
   modelName: string;
   conversation: ChatMessage[];
   signal?: AbortSignal;
-  onEvent?: (event: AgentRuntimeCoreEvent) => void | Promise<void>;
+  onEvent?: AgentRuntimeEventHandler;
+}
+
+export interface AgentRuntimeResult {
+  content: string;
+  raw?: unknown;
+  finish_reason: string | null;
+  metadata: {
+    agent_name: string;
+    provider_key: string | null;
+    provider_type: string;
+    model_name: string;
+  };
 }
 
 export class AgentRuntimeCore {
   constructor(private readonly llmChatClient: LlmChatClient) {}
 
-  async runText(input: AgentRuntimeCoreRunInput): Promise<ChatCompletionResult> {
+  async runText(input: AgentRuntimeRequest): Promise<AgentRuntimeResult> {
     const request = this.buildChatRequest(input);
-    if (this.llmChatClient.stream) {
-      return this.runStreamingText(input, request);
+    try {
+      const result = this.llmChatClient.stream
+        ? await this.runStreamingText(input, request)
+        : await this.llmChatClient.complete(request);
+      const runtimeResult = toRuntimeResult(input, result);
+      await input.onEvent?.({
+        type: "runtime.done",
+        data: {
+          content: runtimeResult.content,
+          agent_name: input.agent.agent_name,
+          finish_reason: runtimeResult.finish_reason,
+        },
+      });
+      return runtimeResult;
+    } catch (error) {
+      await input.onEvent?.({
+        type: "runtime.error",
+        data: {
+          message: error instanceof Error ? error.message : String(error),
+          agent_name: input.agent.agent_name,
+        },
+      });
+      throw error;
     }
-    return this.llmChatClient.complete(request);
   }
 
   buildMessages(agent: AgentConfig, conversation: ChatMessage[]): ChatMessage[] {
@@ -53,7 +97,7 @@ export class AgentRuntimeCore {
     return messages;
   }
 
-  private buildChatRequest(input: AgentRuntimeCoreRunInput): ChatCompletionRequest {
+  private buildChatRequest(input: AgentRuntimeRequest): ChatCompletionRequest {
     const request: ChatCompletionRequest = {
       messages: this.buildMessages(input.agent, input.conversation),
       model: input.modelName,
@@ -69,9 +113,9 @@ export class AgentRuntimeCore {
   }
 
   private async runStreamingText(
-    input: AgentRuntimeCoreRunInput,
+    input: AgentRuntimeRequest,
     request: ChatCompletionRequest,
-  ): Promise<ChatCompletionResult> {
+  ): Promise<{ content: string; raw?: unknown }> {
     let firstChunkSeen = false;
     const providerStartedAt = Date.now();
     return this.llmChatClient.stream!(request, async (chunk) => {
@@ -81,7 +125,7 @@ export class AgentRuntimeCore {
       if (!firstChunkSeen) {
         firstChunkSeen = true;
         await input.onEvent?.({
-          type: "llm.first_token",
+          type: "runtime.first_token",
           data: {
             elapsed_ms: Date.now() - providerStartedAt,
             agent_name: input.agent.agent_name,
@@ -89,7 +133,7 @@ export class AgentRuntimeCore {
         });
       }
       await input.onEvent?.({
-        type: "output.chunk",
+        type: "runtime.output_delta",
         data: {
           content: chunk.content,
           agent_name: input.agent.agent_name,
@@ -97,6 +141,23 @@ export class AgentRuntimeCore {
       });
     });
   }
+}
+
+function toRuntimeResult(input: AgentRuntimeRequest, result: { content: string; raw?: unknown }): AgentRuntimeResult {
+  const runtimeResult: AgentRuntimeResult = {
+    content: result.content,
+    finish_reason: null,
+    metadata: {
+      agent_name: input.agent.agent_name,
+      provider_key: input.provider.key ?? null,
+      provider_type: input.provider.provider_type,
+      model_name: input.modelName,
+    },
+  };
+  if (result.raw !== undefined) {
+    runtimeResult.raw = result.raw;
+  }
+  return runtimeResult;
 }
 
 function getSystemPrompt(agent: AgentConfig): string | null {

@@ -18,7 +18,7 @@ import type { ModelProviderConfig } from "../contracts/model-adapter.js";
 import type { AgentSessionApplication } from "./agent-session-application.js";
 import type { ConversationStore } from "./conversation-store.js";
 import type { InMemoryEventBus } from "./event-bus.js";
-import type { AgentRuntimeCore } from "./agent-runtime-core.js";
+import type { AgentRuntimeCore, AgentRuntimeEvent } from "./agent-runtime-core.js";
 import type { ChatMessage } from "./llm-chat-client.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 
@@ -360,33 +360,7 @@ export class AgentExecutionService {
         signal: input.abortController.signal,
         conversation: this.buildConversationMessages(input.sessionId),
         onEvent: async (event) => {
-          if (event.type === "llm.first_token") {
-            this.events.publish(input.sessionId, {
-              type: "llm.first_token",
-              session_id: input.sessionId,
-              run_id: input.runId,
-              ...mirrorEventData({
-                elapsed_ms: event.data.elapsed_ms,
-                agent_name: event.data.agent_name,
-                run_id: input.runId,
-                task_id: input.taskId,
-                request_id: input.requestId,
-              }),
-            });
-            return;
-          }
-          this.events.publish(input.sessionId, {
-            type: "output.chunk",
-            session_id: input.sessionId,
-            run_id: input.runId,
-            ...mirrorEventData({
-              content: event.data.content,
-              agent_name: event.data.agent_name,
-              run_id: input.runId,
-              task_id: input.taskId,
-              request_id: input.requestId,
-            }),
-          });
+          this.publishRuntimeEvent(input, event);
         },
       });
       const assistantMessage = this.sessions.addMessage({
@@ -533,6 +507,46 @@ export class AgentExecutionService {
       }
     }
     return messages;
+  }
+
+  private publishRuntimeEvent(
+    input: {
+      sessionId: string;
+      runId: string;
+      taskId: string;
+      requestId: string;
+    },
+    event: AgentRuntimeEvent,
+  ): void {
+    if (event.type === "runtime.first_token") {
+      this.events.publish(input.sessionId, {
+        type: "llm.first_token",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        ...mirrorEventData({
+          elapsed_ms: event.data.elapsed_ms,
+          agent_name: event.data.agent_name,
+          run_id: input.runId,
+          task_id: input.taskId,
+          request_id: input.requestId,
+        }),
+      });
+      return;
+    }
+    if (event.type === "runtime.output_delta") {
+      this.events.publish(input.sessionId, {
+        type: "output.chunk",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        ...mirrorEventData({
+          content: event.data.content,
+          agent_name: event.data.agent_name,
+          run_id: input.runId,
+          task_id: input.taskId,
+          request_id: input.requestId,
+        }),
+      });
+    }
   }
 
   private addExecutionStep(sessionId: string, runId: string, payload: Record<string, unknown>): void {

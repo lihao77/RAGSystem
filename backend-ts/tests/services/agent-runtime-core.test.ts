@@ -2,14 +2,19 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
-import { AgentRuntimeCore, type AgentRuntimeCoreEvent } from "../../src/services/agent-runtime-core.js";
+import { AgentRuntimeCore, type AgentRuntimeEvent } from "../../src/services/agent-runtime-core.js";
 import type { ChatCompletionRequest, LlmChatClient } from "../../src/services/llm-chat-client.js";
 
 class FakeChatClient implements LlmChatClient {
   readonly requests: ChatCompletionRequest[] = [];
 
+  constructor(private readonly error: Error | null = null) {}
+
   async complete(request: ChatCompletionRequest) {
     this.requests.push(request);
+    if (this.error) {
+      throw this.error;
+    }
     return { content: "core answer" };
   }
 }
@@ -41,7 +46,16 @@ describe("AgentRuntimeCore", () => {
       conversation: [{ role: "user", content: "hello" }],
     });
 
-    expect(result).toEqual({ content: "core answer" });
+    expect(result).toEqual({
+      content: "core answer",
+      finish_reason: null,
+      metadata: {
+        agent_name: "orchestrator_agent",
+        provider_key: "my_deepseek",
+        provider_type: "deepseek",
+        model_name: "deepseek-chat",
+      },
+    });
     expect(client.requests).toHaveLength(1);
     expect(client.requests[0]).toMatchObject({
       model: "deepseek-chat",
@@ -58,7 +72,7 @@ describe("AgentRuntimeCore", () => {
   it("emits provider-stream events without depending on backend session state", async () => {
     const client = new FakeStreamingChatClient();
     const core = new AgentRuntimeCore(client);
-    const events: AgentRuntimeCoreEvent[] = [];
+    const events: AgentRuntimeEvent[] = [];
 
     const result = await core.runText({
       agent: minimalAgent(),
@@ -70,26 +84,71 @@ describe("AgentRuntimeCore", () => {
       },
     });
 
-    expect(result).toEqual({ content: "hello core" });
+    expect(result).toEqual({
+      content: "hello core",
+      finish_reason: null,
+      metadata: {
+        agent_name: "orchestrator_agent",
+        provider_key: "my_deepseek",
+        provider_type: "deepseek",
+        model_name: "deepseek-chat",
+      },
+    });
     expect(events).toEqual([
       {
-        type: "llm.first_token",
+        type: "runtime.first_token",
         data: {
           elapsed_ms: expect.any(Number),
           agent_name: "orchestrator_agent",
         },
       },
       {
-        type: "output.chunk",
+        type: "runtime.output_delta",
         data: {
           content: "hello ",
           agent_name: "orchestrator_agent",
         },
       },
       {
-        type: "output.chunk",
+        type: "runtime.output_delta",
         data: {
           content: "core",
+          agent_name: "orchestrator_agent",
+        },
+      },
+      {
+        type: "runtime.done",
+        data: {
+          content: "hello core",
+          agent_name: "orchestrator_agent",
+          finish_reason: null,
+        },
+      },
+    ]);
+  });
+
+  it("emits a runtime error event before rethrowing provider failures", async () => {
+    const client = new FakeChatClient(new Error("provider failed"));
+    const core = new AgentRuntimeCore(client);
+    const events: AgentRuntimeEvent[] = [];
+
+    await expect(
+      core.runText({
+        agent: minimalAgent(),
+        provider: minimalProvider(),
+        modelName: "deepseek-chat",
+        conversation: [{ role: "user", content: "fail" }],
+        onEvent: (event) => {
+          events.push(event);
+        },
+      }),
+    ).rejects.toThrow("provider failed");
+
+    expect(events).toEqual([
+      {
+        type: "runtime.error",
+        data: {
+          message: "provider failed",
           agent_name: "orchestrator_agent",
         },
       },
