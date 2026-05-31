@@ -35,7 +35,7 @@ export interface RuntimeCoreProviderInfo {
 
 export interface RuntimeCoreReadiness {
   kind: "runtime_core";
-  status: "configuration_missing" | "runtime_not_migrated";
+  status: "configuration_missing" | "ready";
   configuration_ready: boolean;
   execution_runtime_migrated: boolean;
   can_execute: boolean;

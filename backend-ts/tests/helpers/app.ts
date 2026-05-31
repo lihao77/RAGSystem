@@ -1,6 +1,7 @@
 import { buildApp } from "../../src/app.js";
 import type { AppEnv } from "../../src/config/env.js";
 import { createRuntimeContainer } from "../../src/services/runtime-container.js";
+import type { LlmChatClient } from "../../src/services/llm-chat-client.js";
 
 export const testEnv: AppEnv = {
   host: "127.0.0.1",
@@ -18,11 +19,12 @@ export async function buildTestApp() {
   return app;
 }
 
-export async function buildTestHarness() {
+export async function buildTestHarness(options: { llmChatClient?: LlmChatClient } = {}) {
   const container = createRuntimeContainer({
     dbPath: ":memory:",
     checkpointDbPath: ":memory:",
     dataRoot: testEnv.dataRoot,
+    llmChatClient: options.llmChatClient,
   });
   const app = await buildApp({ env: testEnv, container });
   await app.ready();

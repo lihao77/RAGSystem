@@ -28,7 +28,7 @@ describe("runtime core readiness routes", () => {
         kind: "runtime_core",
         status: "configuration_missing",
         configuration_ready: false,
-        execution_runtime_migrated: false,
+        execution_runtime_migrated: true,
         can_execute: false,
         agent: {
           agent_name: "orchestrator_agent",
@@ -58,8 +58,7 @@ describe("runtime core readiness routes", () => {
         expect.objectContaining({
           key: "agent_runtime",
           category: "execution_runtime",
-          satisfied: false,
-          code: "not_migrated",
+          satisfied: true,
         }),
       ]),
     );
@@ -90,10 +89,10 @@ describe("runtime core readiness routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       data: {
-        status: "runtime_not_migrated",
+        status: "ready",
         configuration_ready: true,
-        execution_runtime_migrated: false,
-        can_execute: false,
+        execution_runtime_migrated: true,
+        can_execute: true,
         agent: {
           agent_name: "general_agent",
         },
@@ -108,12 +107,7 @@ describe("runtime core readiness routes", () => {
     const failedRequirements = response.json().data.requirements.filter(
       (item: { satisfied: boolean }) => !item.satisfied,
     );
-    expect(failedRequirements).toEqual([
-      expect.objectContaining({
-        key: "agent_runtime",
-        code: "not_migrated",
-      }),
-    ]);
+    expect(failedRequirements).toEqual([]);
   });
 
   it("supports frontend selectedLLM override parsing for runtime-core preflight", async () => {

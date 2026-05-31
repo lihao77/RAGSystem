@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { FastifyPluginAsync } from "fastify";
 
 import { ClientToServerMessageSchema, type ClientEvent } from "../../contracts/events.js";
@@ -65,11 +67,31 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
           const message = ClientToServerMessageSchema.parse(JSON.parse(raw));
           switch (message.type) {
             case "send":
-              send({
-                type: "send.error",
-                session_id: sessionId,
-                error: "Agent stream execution has not been migrated to TypeScript yet",
-              });
+              options.container.agentExecution
+                .startStream(
+                  {
+                    task: message.task,
+                    session_id: sessionId,
+                    user_id: message.user_id,
+                    selected_llm: message.selected_llm,
+                    attachments: [],
+                  },
+                  message.request_id ?? randomUUID(),
+                )
+                .then((result) => {
+                  send({
+                    type: result.started ? "send.ack" : "send.error",
+                    ...result,
+                    session_id: sessionId,
+                  });
+                })
+                .catch((error) => {
+                  send({
+                    type: "send.error",
+                    session_id: sessionId,
+                    error: error instanceof Error ? error.message : "Agent stream execution failed",
+                  });
+                });
               break;
             case "stop":
               options.container.agentExecution.stopSession(sessionId).catch(() => undefined);

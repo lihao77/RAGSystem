@@ -8,6 +8,7 @@ import { DaemonService } from "./daemon-service.js";
 import { EmbeddingModelService } from "./embedding-model-service.js";
 import { FileIndexService } from "./file-index-service.js";
 import { InMemoryEventBus } from "./event-bus.js";
+import { OpenAiCompatibleChatClient, type LlmChatClient } from "./llm-chat-client.js";
 import { McpService } from "./mcp-service.js";
 import { ModelAdapterService } from "./model-adapter-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
@@ -38,6 +39,7 @@ export interface RuntimeContainerOptions {
   dbPath: string;
   checkpointDbPath?: string | undefined;
   dataRoot?: string | undefined;
+  llmChatClient?: LlmChatClient | undefined;
 }
 
 export function createRuntimeContainer(options: RuntimeContainerOptions): RuntimeContainer {
@@ -45,7 +47,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const sessionApplication = new AgentSessionApplication(conversationStore);
   const checkpointManager = new CheckpointManager({ dbPath: options.checkpointDbPath ?? options.dbPath });
   const events = new InMemoryEventBus();
-  const agentExecution = new AgentExecutionService(sessionApplication, events);
   const permissionPolicy = new PermissionPolicyService();
   const agentConfig = new AgentConfigService();
   const modelAdapter = new ModelAdapterService();
@@ -57,6 +58,8 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   const embeddingModels = new EmbeddingModelService(vectorLibrary);
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
+  const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
+  const agentExecution = new AgentExecutionService(sessionApplication, events, conversationStore, runtimeCore, llmChatClient);
   return {
     conversationStore,
     sessionApplication,

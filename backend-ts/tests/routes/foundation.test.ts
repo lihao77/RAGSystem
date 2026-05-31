@@ -74,7 +74,7 @@ describe("foundation routes", () => {
     });
   });
 
-  it("keeps agent stream route visible but explicitly not migrated", async () => {
+  it("keeps agent stream route visible and reports runtime-core configuration gaps", async () => {
     app = await buildTestApp();
 
     const response = await app.inject({
@@ -86,10 +86,10 @@ describe("foundation routes", () => {
       },
     });
 
-    expect(response.statusCode).toBe(501);
+    expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({
       success: false,
-      code: "not_migrated",
+      code: "invalid_request",
     });
   });
 
