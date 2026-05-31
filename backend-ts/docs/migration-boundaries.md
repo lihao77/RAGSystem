@@ -86,6 +86,10 @@ In scope:
   - in-memory config replace/patch/delete,
   - in-memory team create/activate/delete/rename/copy/reset,
   - static tools, memory metadata, MCP server, skill, and preset listing.
+- Model adapter config compatibility:
+  - provider type metadata,
+  - in-memory provider create/update/delete/list,
+  - in-memory provider ordering.
 
 Out of scope:
 
@@ -93,6 +97,7 @@ Out of scope:
 - Tool registry execution.
 - MCP connection management.
 - LLM provider calls.
+- Model provider availability checks and live provider tests.
 - Vector indexing/retrieval.
 - Checkpoint recovery execution:
   - `POST /api/agent/sessions/:sessionId/recover` parses the Python-compatible body but returns `501 not_migrated` until agent execution exists.
@@ -125,6 +130,10 @@ These effects are intentional and covered by tests:
 - Permission policy changes are stored in the TS process memory until runtime configuration persistence is migrated.
 - Agent config and team changes are stored in TS process memory until runtime config-file persistence is migrated.
 - Agent config export/import and preset application return HTTP 501 until YAML/JSON config persistence is migrated.
+- Model provider config changes are stored in TS process memory until model adapter config-file
+  persistence is migrated.
+- Model provider availability checks and `POST /api/model-adapter/test` return HTTP 501 until
+  provider runtime calls are migrated.
 
 ## Rule
 
