@@ -1,4 +1,5 @@
 import { AgentExecutionService } from "./agent-execution-service.js";
+import { AgentRuntimeCore } from "./agent-runtime-core.js";
 import { AgentConfigService } from "./agent-config-service.js";
 import { AgentSessionApplication } from "./agent-session-application.js";
 import { ArtifactService } from "./artifact-service.js";
@@ -33,6 +34,7 @@ export interface RuntimeContainer {
   readonly artifacts: ArtifactService;
   readonly embeddingModels: EmbeddingModelService;
   readonly runtimeCore: RuntimeCoreService;
+  readonly agentRuntimeCore: AgentRuntimeCore;
 }
 
 export interface RuntimeContainerOptions {
@@ -64,7 +66,14 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const embeddingModels = new EmbeddingModelService(vectorLibrary);
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
-  const agentExecution = new AgentExecutionService(sessionApplication, events, conversationStore, runtimeCore, llmChatClient);
+  const agentRuntimeCore = new AgentRuntimeCore(llmChatClient);
+  const agentExecution = new AgentExecutionService(
+    sessionApplication,
+    events,
+    conversationStore,
+    runtimeCore,
+    agentRuntimeCore,
+  );
   return {
     conversationStore,
     sessionApplication,
@@ -82,5 +91,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     artifacts,
     embeddingModels,
     runtimeCore,
+    agentRuntimeCore,
   };
 }

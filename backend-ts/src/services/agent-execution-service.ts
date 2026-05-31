@@ -14,10 +14,12 @@ import type {
   StreamExecuteRequest,
 } from "../contracts/execution.js";
 import { getSelectedLlm as resolveSelectedLlm } from "../contracts/execution.js";
+import type { ModelProviderConfig } from "../contracts/model-adapter.js";
 import type { AgentSessionApplication } from "./agent-session-application.js";
 import type { ConversationStore } from "./conversation-store.js";
 import type { InMemoryEventBus } from "./event-bus.js";
-import type { ChatCompletionRequest, LlmChatClient, ChatMessage } from "./llm-chat-client.js";
+import type { AgentRuntimeCore } from "./agent-runtime-core.js";
+import type { ChatMessage } from "./llm-chat-client.js";
 import type { RuntimeCoreService } from "./runtime-core-service.js";
 
 interface ExecutionHandle {
@@ -36,7 +38,7 @@ export class AgentExecutionService {
     private readonly events: InMemoryEventBus,
     private readonly conversationStore: ConversationStore,
     private readonly runtimeCore: RuntimeCoreService,
-    private readonly llmChatClient: LlmChatClient,
+    private readonly agentRuntimeCore: AgentRuntimeCore,
   ) {}
 
   async startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult> {
@@ -346,23 +348,47 @@ export class AgentExecutionService {
     abortController: AbortController;
     status: ExecutionTaskStatus;
     agent: AgentConfig;
-    provider: ChatCompletionRequest["provider"];
+    provider: ModelProviderConfig;
     modelName: string;
     userMessageId: string;
   }): Promise<void> {
     try {
-      const chatRequest: ChatCompletionRequest = {
-        messages: this.buildChatMessages(input.sessionId, input.agent),
-        model: input.modelName,
-        provider: input.provider,
+      const response = await this.agentRuntimeCore.runText({
         agent: input.agent,
+        provider: input.provider,
+        modelName: input.modelName,
         signal: input.abortController.signal,
-        temperature: input.agent.llm_tiers?.default?.temperature ?? null,
-        maxCompletionTokens: input.agent.llm_tiers?.default?.max_completion_tokens ?? null,
-      };
-      const response = this.llmChatClient.stream
-        ? await this.runStreamingChat(input, chatRequest)
-        : await this.llmChatClient.complete(chatRequest);
+        conversation: this.buildConversationMessages(input.sessionId),
+        onEvent: async (event) => {
+          if (event.type === "llm.first_token") {
+            this.events.publish(input.sessionId, {
+              type: "llm.first_token",
+              session_id: input.sessionId,
+              run_id: input.runId,
+              ...mirrorEventData({
+                elapsed_ms: event.data.elapsed_ms,
+                agent_name: event.data.agent_name,
+                run_id: input.runId,
+                task_id: input.taskId,
+                request_id: input.requestId,
+              }),
+            });
+            return;
+          }
+          this.events.publish(input.sessionId, {
+            type: "output.chunk",
+            session_id: input.sessionId,
+            run_id: input.runId,
+            ...mirrorEventData({
+              content: event.data.content,
+              agent_name: event.data.agent_name,
+              run_id: input.runId,
+              task_id: input.taskId,
+              request_id: input.requestId,
+            }),
+          });
+        },
+      });
       const assistantMessage = this.sessions.addMessage({
         sessionId: input.sessionId,
         role: "assistant",
@@ -499,65 +525,14 @@ export class AgentExecutionService {
     }
   }
 
-  private buildChatMessages(sessionId: string, agent: AgentConfig): ChatMessage[] {
+  private buildConversationMessages(sessionId: string): ChatMessage[] {
     const messages: ChatMessage[] = [];
-    const systemPrompt = getSystemPrompt(agent);
-    if (systemPrompt) {
-      messages.push({ role: "system", content: systemPrompt });
-    }
     for (const message of this.conversationStore.getRecentMessages(sessionId, 20, "root")) {
       if (message.role === "user" || message.role === "assistant") {
         messages.push({ role: message.role, content: message.content });
       }
     }
     return messages;
-  }
-
-  private async runStreamingChat(
-    input: {
-      sessionId: string;
-      runId: string;
-      taskId: string;
-      requestId: string;
-      startedAt: Date;
-      agent: AgentConfig;
-    },
-    request: ChatCompletionRequest,
-  ): Promise<{ content: string; raw?: unknown }> {
-    let firstChunkSeen = false;
-    const providerStartedAt = Date.now();
-    return this.llmChatClient.stream!(request, (chunk) => {
-      if (!chunk.content) {
-        return;
-      }
-      if (!firstChunkSeen) {
-        firstChunkSeen = true;
-        this.events.publish(input.sessionId, {
-          type: "llm.first_token",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          ...mirrorEventData({
-            elapsed_ms: Date.now() - providerStartedAt,
-            agent_name: input.agent.agent_name,
-            run_id: input.runId,
-            task_id: input.taskId,
-            request_id: input.requestId,
-          }),
-        });
-      }
-      this.events.publish(input.sessionId, {
-        type: "output.chunk",
-        session_id: input.sessionId,
-        run_id: input.runId,
-        ...mirrorEventData({
-          content: chunk.content,
-          agent_name: input.agent.agent_name,
-          run_id: input.runId,
-          task_id: input.taskId,
-          request_id: input.requestId,
-        }),
-      });
-    });
   }
 
   private addExecutionStep(sessionId: string, runId: string, payload: Record<string, unknown>): void {
@@ -600,18 +575,6 @@ function mirrorEventData<T extends Record<string, unknown>>(data: T): { data: T;
   };
 }
 
-function getSystemPrompt(agent: AgentConfig): string | null {
-  const behavior = agent.custom_params.behavior;
-  if (!isRecord(behavior)) {
-    return null;
-  }
-  return typeof behavior.system_prompt === "string" && behavior.system_prompt.trim() ? behavior.system_prompt.trim() : null;
-}
-
 function cloneStatus(status: ExecutionTaskStatus | null): ExecutionTaskStatus | null {
   return status ? { ...status } : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
