@@ -113,6 +113,11 @@ In scope:
   - in-memory daemon config updates,
   - disconnected agent/platform status and empty heartbeat history,
   - in-memory cron task create/update/delete/list/history.
+- Vector library management compatibility:
+  - uploaded-file based `/api/vector-library/file-status` reads,
+  - in-memory vectorizer config create/list/activate/delete/docs reads,
+  - in-memory reranker config create/list/get/activate/delete,
+  - empty vector collection/document management reads and vector health status.
 
 Out of scope:
 
@@ -124,7 +129,7 @@ Out of scope:
 - MCP Registry network search and Registry install.
 - LLM provider calls.
 - Model provider availability checks and live provider tests.
-- Vector indexing/retrieval.
+- Vector indexing/retrieval, vector data migration, vector document deletion, and collection deletion.
 - System config YAML persistence and runtime cache refresh.
 - Checkpoint recovery execution:
   - `POST /api/agent/sessions/:sessionId/recover` parses the Python-compatible body but returns `501 not_migrated` until agent execution exists.
@@ -176,6 +181,11 @@ These effects are intentional and covered by tests:
   is migrated.
 - Daemon start/stop, outbound send, test message dispatch, and cron trigger return HTTP 501 until
   the daemon runtime and social-platform adapters are migrated.
+- Vectorizer and reranker config changes are stored in TS process memory until vector-store YAML
+  persistence and runtime reload are migrated.
+- Vector file indexing, indexed-file deletion, vector document indexing/deletion, collection
+  deletion, vector search, and vector data migration return HTTP 501 until the TS vector runtime is
+  migrated.
 
 ## Rule
 

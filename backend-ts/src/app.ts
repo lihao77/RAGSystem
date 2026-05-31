@@ -11,6 +11,8 @@ import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerModelAdapterRoutes } from "./routes/model-adapter.js";
 import { registerPermissionRoutes } from "./routes/permissions.js";
 import { registerSystemConfigRoutes } from "./routes/system-config.js";
+import { registerVectorRoutes } from "./routes/vector.js";
+import { registerVectorLibraryRoutes } from "./routes/vector-library.js";
 import { registerAgentRoutes } from "./routes/agent/index.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { HttpError, formatError } from "./utils/errors.js";
@@ -109,6 +111,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
   await app.register(registerDaemonRoutes, {
     prefix: "/api/daemon",
+    container,
+  });
+  await app.register(registerVectorLibraryRoutes, {
+    prefix: "/api/vector-library",
+    container,
+  });
+  await app.register(registerVectorRoutes, {
+    prefix: "/api/vector",
     container,
   });
   await app.register(registerAgentRoutes, {

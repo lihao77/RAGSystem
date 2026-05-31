@@ -10,6 +10,7 @@ import { McpService } from "./mcp-service.js";
 import { ModelAdapterService } from "./model-adapter-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
 import { SystemConfigService } from "./system-config-service.js";
+import { VectorLibraryService } from "./vector-library-service.js";
 
 export interface RuntimeContainer {
   readonly conversationStore: ConversationStore;
@@ -24,6 +25,7 @@ export interface RuntimeContainer {
   readonly mcp: McpService;
   readonly daemon: DaemonService;
   readonly fileIndex: FileIndexService;
+  readonly vectorLibrary: VectorLibraryService;
 }
 
 export interface RuntimeContainerOptions {
@@ -45,6 +47,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const mcp = new McpService();
   const daemon = new DaemonService();
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
+  const vectorLibrary = new VectorLibraryService(fileIndex, modelAdapter);
   return {
     conversationStore,
     sessionApplication,
@@ -58,5 +61,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     mcp,
     daemon,
     fileIndex,
+    vectorLibrary,
   };
 }

@@ -49,6 +49,10 @@ Node.js 24+ is required because the first persistence milestone uses the built-i
 - In-memory MCP server config API compatible with the Python `/api/mcp/*` management route shapes
 - In-memory daemon config and cron-task API compatible with the Python `/api/daemon/*` management
   route shapes
+- In-memory vectorizer/reranker config API and vector library status reads compatible with the
+  Python `/api/vector-library/*` management route shapes
+- Empty vector collection/document reads and vector health status compatible with the Python
+  `/api/vector/*` management route shapes
 - Explicit `501` responses for agent runtime operations that have not been migrated yet
 
 ## Test-First Boundary
