@@ -20,7 +20,7 @@ import type { ConversationStore } from "./conversation-store.js";
 import type { InMemoryEventBus } from "./event-bus.js";
 import type { AgentRuntimeCore } from "./agent-runtime-core.js";
 import type { ChatMessage } from "./llm-chat-client.js";
-import type { RuntimeCoreService } from "./runtime-core-service.js";
+import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 
 interface ExecutionHandle {
   abortController: AbortController;
@@ -37,7 +37,7 @@ export class AgentExecutionService {
     private readonly sessions: AgentSessionApplication,
     private readonly events: InMemoryEventBus,
     private readonly conversationStore: ConversationStore,
-    private readonly runtimeCore: RuntimeCoreService,
+    private readonly runtimeCore: RuntimeExecutionConfigResolver,
     private readonly agentRuntimeCore: AgentRuntimeCore,
   ) {}
 

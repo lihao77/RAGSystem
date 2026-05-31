@@ -1,12 +1,31 @@
 import type { AgentConfig } from "../contracts/agent-config.js";
 import type { RuntimeCoreReadiness, RuntimeCoreRequirement } from "../contracts/runtime-core.js";
 import type { ModelProviderConfig, ModelMapValue } from "../contracts/model-adapter.js";
-import type { AgentConfigService } from "./agent-config-service.js";
-import type { ModelAdapterService } from "./model-adapter-service.js";
 
-interface RuntimeCoreReadinessInput {
+export interface RuntimeCoreReadinessInput {
   agentName?: string | null;
   selectedLlm?: string | null;
+}
+
+export interface RuntimeAgentConfigPort {
+  getConfig(agentName: string): AgentConfig | null;
+  listConfigs(): Record<string, AgentConfig>;
+}
+
+export interface RuntimeModelProviderPort {
+  listProviders(): ModelProviderConfig[];
+}
+
+export interface RuntimeExecutionConfig {
+  readiness: RuntimeCoreReadiness;
+  agent: AgentConfig | null;
+  provider: ModelProviderConfig | null;
+  modelName: string | null;
+}
+
+export interface RuntimeExecutionConfigResolver {
+  getReadiness(input?: RuntimeCoreReadinessInput): RuntimeCoreReadiness;
+  resolveExecutionConfig(input?: RuntimeCoreReadinessInput): RuntimeExecutionConfig;
 }
 
 interface ResolvedLlm {
@@ -18,8 +37,8 @@ interface ResolvedLlm {
 
 export class RuntimeCoreService {
   constructor(
-    private readonly agentConfig: AgentConfigService,
-    private readonly modelAdapter: ModelAdapterService,
+    private readonly agentConfigs: RuntimeAgentConfigPort,
+    private readonly modelProviders: RuntimeModelProviderPort,
   ) {}
 
   getReadiness(input: RuntimeCoreReadinessInput = {}): RuntimeCoreReadiness {
@@ -65,12 +84,7 @@ export class RuntimeCoreService {
     };
   }
 
-  resolveExecutionConfig(input: RuntimeCoreReadinessInput = {}): {
-    readiness: RuntimeCoreReadiness;
-    agent: AgentConfig | null;
-    provider: ModelProviderConfig | null;
-    modelName: string | null;
-  } {
+  resolveExecutionConfig(input: RuntimeCoreReadinessInput = {}): RuntimeExecutionConfig {
     const agent = this.resolveAgent(input.agentName);
     const llm = this.resolveLlm(agent, input.selectedLlm);
     const provider = this.resolveProviderConfig(llm);
@@ -85,15 +99,15 @@ export class RuntimeCoreService {
   private resolveAgent(agentName: string | null | undefined): AgentConfig | null {
     const requested = agentName?.trim();
     if (requested) {
-      return this.agentConfig.getConfig(requested);
+      return this.agentConfigs.getConfig(requested);
     }
 
-    const configs = this.agentConfig.listConfigs();
+    const configs = this.agentConfigs.listConfigs();
     const defaultEntry = Object.values(configs).find((config) => config.default_entry);
     if (defaultEntry) {
       return defaultEntry;
     }
-    return this.agentConfig.getConfig("orchestrator_agent");
+    return this.agentConfigs.getConfig("orchestrator_agent");
   }
 
   private resolveLlm(agent: AgentConfig | null, selectedLlm: string | null | undefined): ResolvedLlm {
@@ -145,7 +159,7 @@ export class RuntimeCoreService {
   }
 
   private resolveProviderConfig(llm: ResolvedLlm): ModelProviderConfig | null {
-    return findProvider(this.modelAdapter.listProviders(), llm);
+    return findProvider(this.modelProviders.listProviders(), llm);
   }
 
   private buildRequirements(
