@@ -112,6 +112,25 @@ describe("foundation routes", () => {
     });
   });
 
+  it("preserves request validation errors instead of reporting internal errors", async () => {
+    app = await buildTestApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/agent-config/configs/general_agent/preset",
+      headers: {
+        "content-type": "text/plain",
+      },
+      payload: "preset=fast",
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      success: false,
+      code: "invalid_request",
+    });
+  });
+
   it("does not report stream stop success without an active execution", async () => {
     app = await buildTestApp();
 

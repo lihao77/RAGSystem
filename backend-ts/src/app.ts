@@ -2,6 +2,7 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
+import { ZodError } from "zod";
 
 import type { AppEnv } from "./config/env.js";
 import { registerAgentConfigRoutes } from "./routes/agent-config.js";
@@ -54,6 +55,26 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         success: false,
         message: error instanceof Error ? error.message : "validation error",
         details: [JSON.stringify(validation)],
+      });
+      return;
+    }
+
+    if (error instanceof ZodError) {
+      reply.code(400).send({
+        success: false,
+        message: "validation error",
+        code: "invalid_request",
+        details: error.issues.map((issue) => `${issue.path.join(".") || "body"}: ${issue.message}`),
+      });
+      return;
+    }
+
+    const statusCode = fastifyClientErrorStatusCode(error);
+    if (statusCode !== null) {
+      reply.code(statusCode).send({
+        success: false,
+        message: error instanceof Error ? error.message : "request error",
+        code: statusCode === 415 ? "unsupported_media_type" : "invalid_request",
       });
       return;
     }
@@ -137,4 +158,30 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
 
   return app;
+}
+
+function fastifyClientErrorStatusCode(error: unknown): number | null {
+  if (typeof error !== "object" || error === null) {
+    return null;
+  }
+  const maybeError = error as { code?: unknown; status?: unknown; statusCode?: unknown };
+  const statusCode = numericStatus(maybeError.statusCode) ?? numericStatus(maybeError.status);
+  if (statusCode !== null && statusCode >= 400 && statusCode < 500) {
+    return statusCode;
+  }
+  if (maybeError.code === "FST_ERR_CTP_INVALID_MEDIA_TYPE") {
+    return 415;
+  }
+  return null;
+}
+
+function numericStatus(value: unknown): number | null {
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) ? parsed : null;
+  }
+  return null;
 }

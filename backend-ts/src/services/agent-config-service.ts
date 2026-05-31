@@ -1,6 +1,15 @@
 import type { AgentConfig, AgentInfo, CreateAgentRequest, TeamInfo, TeamSummary } from "../contracts/agent-config.js";
 
 type TeamConfigs = Map<string, AgentConfig>;
+type ExportFormat = "json" | "yaml";
+
+const agentConfigPresets = {
+  fast: { temperature: 0.1, max_completion_tokens: 2048 },
+  balanced: { temperature: 0.5, max_completion_tokens: 4096 },
+  accurate: { temperature: 0.1, max_completion_tokens: 8192 },
+  creative: { temperature: 0.9, max_completion_tokens: 4096 },
+  cheap: { temperature: 0.5, max_completion_tokens: 2048 },
+} as const;
 
 const defaultLlmTier = {
   provider: "my",
@@ -74,6 +83,57 @@ export class AgentConfigService {
 
   deleteConfig(agentName: string): boolean {
     return this.getActiveConfigs().delete(agentName);
+  }
+
+  listPresets(): Record<string, { temperature: number; max_completion_tokens: number }> {
+    return structuredClone(agentConfigPresets);
+  }
+
+  applyPreset(agentName: string, presetName: string): AgentConfig | null {
+    const config = this.getActiveConfigs().get(agentName);
+    if (!config) {
+      return null;
+    }
+    const preset = agentConfigPresets[presetName as keyof typeof agentConfigPresets];
+    if (!preset) {
+      throw new Error(`未知预设 '${presetName}'`);
+    }
+
+    const updated = normalizeConfig({
+      ...cloneConfig(config),
+      llm_tiers: Object.fromEntries(
+        Object.entries(config.llm_tiers ?? { default: { ...defaultLlmTier } }).map(([tierName, llm]) => [
+          tierName,
+          {
+            ...llm,
+            temperature: preset.temperature,
+            max_completion_tokens: preset.max_completion_tokens,
+          },
+        ]),
+      ),
+    });
+    this.getActiveConfigs().set(agentName, updated);
+    return cloneConfig(updated);
+  }
+
+  exportConfig(agentName: string, format: ExportFormat): { content: string; contentType: string; fileExtension: string } | null {
+    const config = this.getActiveConfigs().get(agentName);
+    if (!config) {
+      return null;
+    }
+    const cloned = cloneConfig(config);
+    if (format === "json") {
+      return {
+        content: `${JSON.stringify(cloned, null, 2)}\n`,
+        contentType: "application/json; charset=utf-8",
+        fileExtension: "json",
+      };
+    }
+    return {
+      content: toYaml(cloned),
+      contentType: "application/x-yaml; charset=utf-8",
+      fileExtension: "yaml",
+    };
   }
 
   deleteAgent(agentName: string): boolean {
@@ -518,4 +578,60 @@ function deepMerge(base: unknown, patch: unknown): unknown {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function toYaml(value: unknown): string {
+  return `${yamlValue(value, 0)}\n`;
+}
+
+function yamlValue(value: unknown, indent: number): string {
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return "[]";
+    }
+    return value.map((item) => yamlArrayItem(item, indent)).join("\n");
+  }
+  if (isRecord(value)) {
+    const entries = Object.entries(value);
+    if (entries.length === 0) {
+      return "{}";
+    }
+    return entries.map(([key, item]) => yamlObjectEntry(key, item, indent)).join("\n");
+  }
+  return yamlScalar(value);
+}
+
+function yamlObjectEntry(key: string, value: unknown, indent: number): string {
+  const prefix = `${" ".repeat(indent)}${key}:`;
+  if (Array.isArray(value)) {
+    return value.length === 0 ? `${prefix} []` : `${prefix}\n${yamlValue(value, indent + 2)}`;
+  }
+  if (isRecord(value)) {
+    return Object.keys(value).length === 0 ? `${prefix} {}` : `${prefix}\n${yamlValue(value, indent + 2)}`;
+  }
+  return `${prefix} ${yamlScalar(value)}`;
+}
+
+function yamlArrayItem(value: unknown, indent: number): string {
+  const prefix = `${" ".repeat(indent)}-`;
+  if (Array.isArray(value)) {
+    return value.length === 0 ? `${prefix} []` : `${prefix}\n${yamlValue(value, indent + 2)}`;
+  }
+  if (isRecord(value)) {
+    return Object.keys(value).length === 0 ? `${prefix} {}` : `${prefix}\n${yamlValue(value, indent + 2)}`;
+  }
+  return `${prefix} ${yamlScalar(value)}`;
+}
+
+function yamlScalar(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "null";
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (typeof value === "string") {
+    return JSON.stringify(value);
+  }
+  return JSON.stringify(value);
 }

@@ -40,7 +40,7 @@ Node.js 24+ is required because the first persistence milestone uses the built-i
 - SQLite-backed uploaded file index and file management API compatible with the Python `/api/files/*`
   and `/api/agent/sessions/:sessionId/files/*` route shapes
 - In-memory agent config/team API compatible with the Python `/api/agent-config/*` bootstrap and
-  Team Builder route shapes
+  Team Builder route shapes, including config export and built-in preset application
 - In-memory agent management API compatible with the Python `/api/agent/agents*` route shapes
 - In-memory model provider config API compatible with the Python `/api/model-adapter/*` provider
   management route shapes

@@ -89,6 +89,8 @@ In scope:
 - Agent config/team compatibility:
   - default system team and default agent config reads,
   - in-memory config replace/patch/delete,
+  - config export as JSON/YAML attachment text,
+  - built-in preset application in memory,
   - in-memory team create/activate/delete/rename/copy/reset,
   - static tools, memory metadata, MCP server, skill, and preset listing.
 - Agent management compatibility:
@@ -174,7 +176,8 @@ These effects are intentional and covered by tests:
 - Uploaded files and their index records are written to the TS data root and shared SQLite database.
 - Session-scoped files are isolated by `scope_type='session'` and `scope_id=session_id`.
 - Agent config and team changes are stored in TS process memory until runtime config-file persistence is migrated.
-- Agent config export/import and preset application return HTTP 501 until YAML/JSON config persistence is migrated.
+- Agent config export returns JSON/YAML attachment text and preset application updates the in-memory
+  config; config import returns HTTP 501 until YAML/JSON config persistence is migrated.
 - Agent management create/delete changes are stored in TS process memory until runtime config-file
   persistence is migrated.
 - `POST /api/agent/agents/reload` returns success with `reloaded=false` while TS runtime reload

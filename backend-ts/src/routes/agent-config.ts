@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { ok } from "../contracts/common.js";
 import {
   AgentConfigSchema,
+  ApplyPresetRequestSchema,
   CopyAgentsRequestSchema,
   CreateTeamRequestSchema,
   RenameTeamRequestSchema,
@@ -16,6 +17,10 @@ interface AgentParams {
 
 interface TeamParams {
   teamName: string;
+}
+
+interface ExportQuery {
+  format?: string;
 }
 
 export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
@@ -60,12 +65,32 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
     return ok(undefined, `智能体 "${request.params.agentName}" 配置已删除`);
   });
 
-  app.get<{ Params: AgentParams }>("/configs/:agentName/export", async () => {
-    throw new NotMigratedError("Agent config export");
+  app.get<{ Params: AgentParams; Querystring: ExportQuery }>("/configs/:agentName/export", async (request, reply) => {
+    const format = normalizeExportFormat(request.query.format);
+    const exported = options.container.agentConfig.exportConfig(request.params.agentName, format);
+    if (!exported) {
+      throw new HttpError(404, "not_found", `智能体 "${request.params.agentName}" 不存在`);
+    }
+    reply
+      .type(exported.contentType)
+      .header("content-disposition", `attachment; filename="${request.params.agentName}.${exported.fileExtension}"`);
+    return exported.content;
   });
 
-  app.post<{ Params: AgentParams }>("/configs/:agentName/preset", async () => {
-    throw new NotMigratedError("Agent config presets");
+  app.post<{ Params: AgentParams }>("/configs/:agentName/preset", async (request) => {
+    const payload = ApplyPresetRequestSchema.parse(request.body);
+    try {
+      const config = options.container.agentConfig.applyPreset(request.params.agentName, payload.preset);
+      if (!config) {
+        throw new HttpError(404, "not_found", `智能体 "${request.params.agentName}" 不存在`);
+      }
+      return ok(config, `智能体 "${request.params.agentName}" 已应用预设 "${payload.preset}"`);
+    } catch (error) {
+      if (error instanceof HttpError) {
+        throw error;
+      }
+      throw new HttpError(400, "invalid_request", errorMessage(error));
+    }
   });
 
   app.post<{ Params: AgentParams }>("/configs/:agentName/import", async () => {
@@ -136,13 +161,7 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
 
   app.get("/presets", async () =>
     ok(
-      {
-        fast: { temperature: 0.1, max_completion_tokens: 2048 },
-        balanced: { temperature: 0.5, max_completion_tokens: 4096 },
-        accurate: { temperature: 0.1, max_completion_tokens: 8192 },
-        creative: { temperature: 0.9, max_completion_tokens: 4096 },
-        cheap: { temperature: 0.5, max_completion_tokens: 2048 },
-      },
+      options.container.agentConfig.listPresets(),
       "共有 5 个预设",
     ),
   );
@@ -171,4 +190,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function normalizeExportFormat(format: string | undefined): "json" | "yaml" {
+  if (format === undefined || format === "" || format === "yaml" || format === "yml") {
+    return "yaml";
+  }
+  if (format === "json") {
+    return "json";
+  }
+  throw new HttpError(400, "invalid_request", "format 只支持 json 或 yaml");
 }

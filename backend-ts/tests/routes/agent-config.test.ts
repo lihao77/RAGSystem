@@ -144,7 +144,7 @@ describe("agent config compatibility routes", () => {
     expect(configs.json().data.orchestrator_agent.default_entry).toBe(false);
   });
 
-  it("returns static supplementary metadata and explicit export boundary", async () => {
+  it("returns static supplementary metadata and exports configs", async () => {
     app = await buildTestApp();
 
     const memory = await app.inject({
@@ -166,12 +166,74 @@ describe("agent config compatibility routes", () => {
     expect(tools.statusCode).toBe(200);
     expect(tools.json().data.map((tool: { name: string }) => tool.name)).toContain("read_file");
 
-    const exported = await app.inject({
+    const exportedJson = await app.inject({
+      method: "GET",
+      url: "/api/agent-config/configs/general_agent/export?format=json",
+    });
+    expect(exportedJson.statusCode).toBe(200);
+    expect(exportedJson.headers["content-type"]).toContain("application/json");
+    expect(JSON.parse(exportedJson.body)).toMatchObject({
+      agent_name: "general_agent",
+      llm_tiers: {
+        default: {
+          model_name: "deepseek-chat",
+        },
+      },
+    });
+
+    const exportedYaml = await app.inject({
       method: "GET",
       url: "/api/agent-config/configs/general_agent/export",
     });
-    expect(exported.statusCode).toBe(501);
-    expect(exported.json()).toMatchObject({
+    expect(exportedYaml.statusCode).toBe(200);
+    expect(exportedYaml.headers["content-type"]).toContain("application/x-yaml");
+    expect(exportedYaml.body).toContain('agent_name: "general_agent"');
+  });
+
+  it("applies built-in presets in memory and keeps import as an explicit boundary", async () => {
+    app = await buildTestApp();
+
+    const preset = await app.inject({
+      method: "POST",
+      url: "/api/agent-config/configs/general_agent/preset",
+      payload: {
+        preset: "fast",
+      },
+    });
+    expect(preset.statusCode).toBe(200);
+    expect(preset.json()).toMatchObject({
+      success: true,
+      data: {
+        agent_name: "general_agent",
+        llm_tiers: {
+          default: {
+            temperature: 0.1,
+            max_completion_tokens: 2048,
+          },
+        },
+      },
+    });
+
+    const invalidPreset = await app.inject({
+      method: "POST",
+      url: "/api/agent-config/configs/general_agent/preset",
+      payload: {
+        preset: "missing",
+      },
+    });
+    expect(invalidPreset.statusCode).toBe(400);
+    expect(invalidPreset.json()).toMatchObject({
+      success: false,
+      code: "invalid_request",
+    });
+
+    const imported = await app.inject({
+      method: "POST",
+      url: "/api/agent-config/configs/general_agent/import",
+      payload: {},
+    });
+    expect(imported.statusCode).toBe(501);
+    expect(imported.json()).toMatchObject({
       success: false,
       code: "not_migrated",
     });

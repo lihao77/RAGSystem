@@ -95,12 +95,17 @@ export const CreateAgentRequestSchema = z.object({
   llm: AgentLlmConfigSchema.nullable().optional(),
 });
 
+export const ApplyPresetRequestSchema = z.object({
+  preset: z.string().min(1),
+});
+
 export type AgentLlmConfig = z.infer<typeof AgentLlmConfigSchema>;
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 export type CreateTeamRequest = z.infer<typeof CreateTeamRequestSchema>;
 export type RenameTeamRequest = z.infer<typeof RenameTeamRequestSchema>;
 export type CopyAgentsRequest = z.infer<typeof CopyAgentsRequestSchema>;
 export type CreateAgentRequest = z.infer<typeof CreateAgentRequestSchema>;
+export type ApplyPresetRequest = z.infer<typeof ApplyPresetRequestSchema>;
 
 export interface TeamInfo {
   team_name: string;
