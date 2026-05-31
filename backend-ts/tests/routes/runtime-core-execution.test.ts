@@ -124,8 +124,42 @@ describe("minimal runtime core execution", () => {
       },
     });
 
-    const eventTypes = harness.container.events.getHistory("runtime-session").map((event) => event.type);
-    expect(eventTypes).toEqual(expect.arrayContaining(["run.start", "execution.step", "run.end", "session.updated"]));
+    const history = harness.container.events.getHistory("runtime-session");
+    const eventTypes = history.map((event) => event.type);
+    expect(eventTypes).toEqual(
+      expect.arrayContaining([
+        "output.message_saved",
+        "session.run_started",
+        "run.start",
+        "execution.step",
+        "output.final_answer",
+        "run.end",
+        "session.updated",
+      ]),
+    );
+    expect(history.filter((event) => event.type === "output.message_saved").map((event) => event.data)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: expect.any(String), seq: expect.any(Number), role: "user" }),
+        expect.objectContaining({ id: expect.any(String), seq: expect.any(Number), role: "assistant" }),
+      ]),
+    );
+    expect(history.find((event) => event.type === "execution.step")?.data).toMatchObject({
+      kind: "run",
+      phase: "start",
+    });
+    expect(history.find((event) => event.type === "output.final_answer")?.data).toMatchObject({
+      content: "hello from ts core",
+      metadata: expect.objectContaining({
+        run_id: started.json().data.run_id,
+        request_id: "req-runtime-1",
+        execution_kind: "agent_stream",
+        execution_time: expect.any(Number),
+      }),
+    });
+    expect(history.find((event) => event.type === "run.end")?.data).toMatchObject({
+      status: "completed",
+      final_message_id: expect.any(String),
+    });
   });
 
   it("can interrupt a running minimal runtime-core request", async () => {

@@ -124,26 +124,60 @@ export class AgentExecutionService {
         execution_kind: "agent_stream",
       },
     });
-    this.addExecutionStep(sessionId, runId, {
+    const userMessageSavedPayload = {
+      id: userMessage.id,
+      seq: userMessage.seq,
+      role: userMessage.role,
+      run_id: runId,
+      task_id: taskId,
+      request_id: requestId,
+    };
+    this.events.publish(sessionId, {
+      type: "output.message_saved",
+      session_id: sessionId,
+      run_id: runId,
+      ...mirrorEventData(userMessageSavedPayload),
+    });
+
+    const startStepPayload = {
       kind: "run",
       phase: "start",
       agent_name: resolved.agent.agent_name,
       task_id: taskId,
+      run_id: runId,
+      request_id: requestId,
+    };
+    this.addExecutionStep(sessionId, runId, startStepPayload);
+    this.events.publish(sessionId, {
+      type: "execution.step",
+      session_id: sessionId,
+      run_id: runId,
+      ...mirrorEventData(startStepPayload),
+    });
+
+    const runStartPayload = {
+      task_id: taskId,
+      agent_name: resolved.agent.agent_name,
+      run_id: runId,
+      request_id: requestId,
+    };
+    this.events.publish(sessionId, {
+      type: "session.run_started",
+      session_id: sessionId,
+      run_id: runId,
+      ...mirrorEventData(runStartPayload),
     });
     this.events.publish(sessionId, {
       type: "run.start",
       session_id: sessionId,
       run_id: runId,
-      content: {
-        task_id: taskId,
-        agent_name: resolved.agent.agent_name,
-      },
+      ...mirrorEventData(runStartPayload),
     });
     this.events.publish(sessionId, {
       type: "session.updated",
       session_id: sessionId,
       run_id: runId,
-      content: { source: "agent_stream", status: "running" },
+      ...mirrorEventData({ source: "agent_stream", status: "running", run_id: runId }),
     });
 
     const promise = this.runMinimalAgent({
@@ -348,57 +382,113 @@ export class AgentExecutionService {
       this.conversationStore.updateRunStepsMessageId(input.sessionId, input.runId, assistantMessage.id);
       this.conversationStore.updateRunStatus(input.runId, input.sessionId, "completed", assistantMessage.id);
       this.finishStatus(input.status, "completed", input.startedAt);
+      const finalMetadata = {
+        agent: input.agent.agent_name,
+        run_id: input.runId,
+        request_id: input.requestId,
+        execution_kind: "agent_stream",
+        execution_time: input.status.elapsed_seconds,
+      };
+      const finalStepPayload = {
+        kind: "final",
+        phase: "complete",
+        message_id: assistantMessage.id,
+        run_id: input.runId,
+        task_id: input.taskId,
+        request_id: input.requestId,
+      };
       this.events.publish(input.sessionId, {
         type: "execution.step",
         session_id: input.sessionId,
         run_id: input.runId,
-        content: {
-          kind: "final",
-          phase: "complete",
-          message_id: assistantMessage.id,
-        },
+        ...mirrorEventData(finalStepPayload),
+      });
+      this.events.publish(input.sessionId, {
+        type: "output.final_answer",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        ...mirrorEventData({
+          content: response.content,
+          metadata: finalMetadata,
+        }),
+      });
+      this.events.publish(input.sessionId, {
+        type: "output.message_saved",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        ...mirrorEventData({
+          id: assistantMessage.id,
+          seq: assistantMessage.seq,
+          role: assistantMessage.role,
+          run_id: input.runId,
+          task_id: input.taskId,
+          request_id: input.requestId,
+        }),
       });
       this.events.publish(input.sessionId, {
         type: "run.end",
         session_id: input.sessionId,
         run_id: input.runId,
-        content: {
+        ...mirrorEventData({
           status: "completed",
           final_message_id: assistantMessage.id,
-        },
+          metadata: finalMetadata,
+        }),
       });
       this.events.publish(input.sessionId, {
         type: "session.updated",
         session_id: input.sessionId,
         run_id: input.runId,
-        content: { source: "agent_stream", status: "completed" },
+        ...mirrorEventData({ source: "agent_stream", status: "completed", run_id: input.runId }),
       });
     } catch (error) {
       const interrupted = input.abortController.signal.aborted;
       const finalStatus = interrupted ? "interrupted" : "failed";
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.addExecutionStep(input.sessionId, input.runId, {
         kind: "run",
         phase: finalStatus,
         agent_name: input.agent.agent_name,
         task_id: input.taskId,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
       });
       this.conversationStore.updateRunStatus(input.runId, input.sessionId, finalStatus);
       this.finishStatus(input.status, finalStatus, input.startedAt);
+      if (!interrupted) {
+        this.events.publish(input.sessionId, {
+          type: "agent.error",
+          session_id: input.sessionId,
+          run_id: input.runId,
+          ...mirrorEventData({
+            error: errorMessage,
+            content: errorMessage,
+            run_id: input.runId,
+            task_id: input.taskId,
+            request_id: input.requestId,
+          }),
+        });
+      }
       this.events.publish(input.sessionId, {
         type: "run.end",
         session_id: input.sessionId,
         run_id: input.runId,
-        content: {
+        ...mirrorEventData({
           status: finalStatus,
-          error: error instanceof Error ? error.message : String(error),
-        },
+          error: errorMessage,
+          metadata: {
+            agent: input.agent.agent_name,
+            run_id: input.runId,
+            request_id: input.requestId,
+            execution_kind: "agent_stream",
+            execution_time: input.status.elapsed_seconds,
+          },
+        }),
       });
       this.events.publish(input.sessionId, {
         type: "session.updated",
         session_id: input.sessionId,
         run_id: input.runId,
-        content: { source: "agent_stream", status: finalStatus },
+        ...mirrorEventData({ source: "agent_stream", status: finalStatus, run_id: input.runId }),
       });
     } finally {
       this.taskBySession.delete(input.sessionId);
@@ -451,6 +541,13 @@ function buildObservability(status: ExecutionTaskStatus): ExecutionObservability
 function summarizeReadinessFailure(requirements: Array<{ category: string; satisfied: boolean; message: string }>): string {
   const failures = requirements.filter((item) => item.category !== "execution_runtime" && !item.satisfied);
   return failures.length ? failures.map((item) => item.message).join("; ") : "Runtime core configuration is not ready";
+}
+
+function mirrorEventData<T extends Record<string, unknown>>(data: T): { data: T; content: T } {
+  return {
+    data,
+    content: data,
+  };
 }
 
 function getSystemPrompt(agent: AgentConfig): string | null {

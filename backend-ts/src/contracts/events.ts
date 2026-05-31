@@ -10,11 +10,17 @@ export const ClientEventTypeSchema = z.enum([
   "stop.ack",
   "approve.error",
   "user_input.error",
+  "session.run_started",
   "run.start",
   "run.end",
   "session.updated",
   "command.result",
   "execution.step",
+  "agent.error",
+  "llm.first_token",
+  "output.chunk",
+  "output.final_answer",
+  "output.message_saved",
   "user.approval_required",
   "user.input_required",
 ]);
@@ -27,6 +33,7 @@ export interface ClientEvent {
   run_id?: string;
   stream_seq?: number;
   timestamp?: number | string;
+  data?: unknown;
   content?: unknown;
   error?: string;
   [key: string]: unknown;
