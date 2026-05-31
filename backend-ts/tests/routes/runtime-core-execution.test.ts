@@ -41,6 +41,26 @@ class FakeChatClient implements LlmChatClient {
   }
 }
 
+class FakeStreamingChatClient implements LlmChatClient {
+  readonly requests: ChatCompletionRequest[] = [];
+
+  constructor(private readonly chunks: string[]) {}
+
+  async complete(): Promise<{ content: string }> {
+    throw new Error("complete should not be called when stream is available");
+  }
+
+  async stream(request: ChatCompletionRequest, onChunk: (chunk: { content: string }) => void | Promise<void>) {
+    this.requests.push(request);
+    let content = "";
+    for (const chunk of this.chunks) {
+      content += chunk;
+      await onChunk({ content: chunk });
+    }
+    return { content };
+  }
+}
+
 describe("minimal runtime core execution", () => {
   it("starts a configured single-agent text run and persists the final answer", async () => {
     const chatClient = new FakeChatClient("hello from ts core");
@@ -160,6 +180,57 @@ describe("minimal runtime core execution", () => {
       status: "completed",
       final_message_id: expect.any(String),
     });
+  });
+
+  it("publishes first-token and output chunk events when the chat client supports streaming", async () => {
+    const chatClient = new FakeStreamingChatClient(["hello ", "from ", "stream"]);
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+
+    await createDefaultChatProvider(app);
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      headers: {
+        "x-request-id": "req-runtime-stream",
+      },
+      payload: {
+        task: "stream hello",
+        session_id: "runtime-stream-session",
+      },
+    });
+
+    expect(started.statusCode).toBe(200);
+    await waitFor(
+      () => harness.container.agentExecution.getSessionTaskStatus("runtime-stream-session").task_info?.status === "completed",
+    );
+
+    expect(chatClient.requests).toHaveLength(1);
+    const history = harness.container.events.getHistory("runtime-stream-session");
+    const firstToken = history.find((event) => event.type === "llm.first_token");
+    expect(firstToken?.data).toMatchObject({
+      elapsed_ms: expect.any(Number),
+      request_id: "req-runtime-stream",
+    });
+    expect(history.filter((event) => event.type === "llm.first_token")).toHaveLength(1);
+    expect(history.filter((event) => event.type === "output.chunk").map((event) => event.data)).toEqual([
+      expect.objectContaining({ content: "hello " }),
+      expect.objectContaining({ content: "from " }),
+      expect.objectContaining({ content: "stream" }),
+    ]);
+    expect(history.find((event) => event.type === "output.final_answer")?.data).toMatchObject({
+      content: "hello from stream",
+    });
+
+    const messages = await app.inject({
+      method: "GET",
+      url: "/api/agent/sessions/runtime-stream-session/messages?expand=1",
+    });
+    expect(messages.json().data.items).toMatchObject([
+      expect.objectContaining({ role: "user", content: "stream hello" }),
+      expect.objectContaining({ role: "assistant", content: "hello from stream" }),
+    ]);
   });
 
   it("can interrupt a running minimal runtime-core request", async () => {

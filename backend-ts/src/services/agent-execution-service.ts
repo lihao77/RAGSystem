@@ -17,7 +17,7 @@ import { getSelectedLlm as resolveSelectedLlm } from "../contracts/execution.js"
 import type { AgentSessionApplication } from "./agent-session-application.js";
 import type { ConversationStore } from "./conversation-store.js";
 import type { InMemoryEventBus } from "./event-bus.js";
-import type { LlmChatClient, ChatMessage } from "./llm-chat-client.js";
+import type { ChatCompletionRequest, LlmChatClient, ChatMessage } from "./llm-chat-client.js";
 import type { RuntimeCoreService } from "./runtime-core-service.js";
 
 interface ExecutionHandle {
@@ -346,12 +346,12 @@ export class AgentExecutionService {
     abortController: AbortController;
     status: ExecutionTaskStatus;
     agent: AgentConfig;
-    provider: Parameters<LlmChatClient["complete"]>[0]["provider"];
+    provider: ChatCompletionRequest["provider"];
     modelName: string;
     userMessageId: string;
   }): Promise<void> {
     try {
-      const response = await this.llmChatClient.complete({
+      const chatRequest: ChatCompletionRequest = {
         messages: this.buildChatMessages(input.sessionId, input.agent),
         model: input.modelName,
         provider: input.provider,
@@ -359,7 +359,10 @@ export class AgentExecutionService {
         signal: input.abortController.signal,
         temperature: input.agent.llm_tiers?.default?.temperature ?? null,
         maxCompletionTokens: input.agent.llm_tiers?.default?.max_completion_tokens ?? null,
-      });
+      };
+      const response = this.llmChatClient.stream
+        ? await this.runStreamingChat(input, chatRequest)
+        : await this.llmChatClient.complete(chatRequest);
       const assistantMessage = this.sessions.addMessage({
         sessionId: input.sessionId,
         role: "assistant",
@@ -508,6 +511,53 @@ export class AgentExecutionService {
       }
     }
     return messages;
+  }
+
+  private async runStreamingChat(
+    input: {
+      sessionId: string;
+      runId: string;
+      taskId: string;
+      requestId: string;
+      startedAt: Date;
+      agent: AgentConfig;
+    },
+    request: ChatCompletionRequest,
+  ): Promise<{ content: string; raw?: unknown }> {
+    let firstChunkSeen = false;
+    const providerStartedAt = Date.now();
+    return this.llmChatClient.stream!(request, (chunk) => {
+      if (!chunk.content) {
+        return;
+      }
+      if (!firstChunkSeen) {
+        firstChunkSeen = true;
+        this.events.publish(input.sessionId, {
+          type: "llm.first_token",
+          session_id: input.sessionId,
+          run_id: input.runId,
+          ...mirrorEventData({
+            elapsed_ms: Date.now() - providerStartedAt,
+            agent_name: input.agent.agent_name,
+            run_id: input.runId,
+            task_id: input.taskId,
+            request_id: input.requestId,
+          }),
+        });
+      }
+      this.events.publish(input.sessionId, {
+        type: "output.chunk",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        ...mirrorEventData({
+          content: chunk.content,
+          agent_name: input.agent.agent_name,
+          run_id: input.runId,
+          task_id: input.taskId,
+          request_id: input.requestId,
+        }),
+      });
+    });
   }
 
   private addExecutionStep(sessionId: string, runId: string, payload: Record<string, unknown>): void {
