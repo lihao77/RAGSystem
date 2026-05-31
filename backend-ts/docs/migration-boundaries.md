@@ -118,6 +118,10 @@ In scope:
   - in-memory vectorizer config create/list/activate/delete/docs reads,
   - in-memory reranker config create/list/get/activate/delete,
   - empty vector collection/document management reads and vector health status.
+- Artifact management compatibility:
+  - read Python-compatible visualization configs from session `viz_index.jsonl` records,
+  - list visualization summaries by session,
+  - delete one visualization or all visualizations for a session.
 
 Out of scope:
 
@@ -130,6 +134,7 @@ Out of scope:
 - LLM provider calls.
 - Model provider availability checks and live provider tests.
 - Vector indexing/retrieval, vector data migration, vector document deletion, and collection deletion.
+- Artifact generation/revision from tool execution.
 - System config YAML persistence and runtime cache refresh.
 - Checkpoint recovery execution:
   - `POST /api/agent/sessions/:sessionId/recover` parses the Python-compatible body but returns `501 not_migrated` until agent execution exists.
@@ -186,6 +191,8 @@ These effects are intentional and covered by tests:
 - Vector file indexing, indexed-file deletion, vector document indexing/deletion, collection
   deletion, vector search, and vector data migration return HTTP 501 until the TS vector runtime is
   migrated.
+- Artifact routes read and delete existing visualization files only. New visualization generation
+  and revision remain tied to the unmigrated TS tool/runtime execution path.
 
 ## Rule
 

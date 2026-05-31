@@ -1,6 +1,7 @@
 import { AgentExecutionService } from "./agent-execution-service.js";
 import { AgentConfigService } from "./agent-config-service.js";
 import { AgentSessionApplication } from "./agent-session-application.js";
+import { ArtifactService } from "./artifact-service.js";
 import { CheckpointManager } from "./checkpoint-manager.js";
 import { ConversationStore } from "./conversation-store.js";
 import { DaemonService } from "./daemon-service.js";
@@ -26,6 +27,7 @@ export interface RuntimeContainer {
   readonly daemon: DaemonService;
   readonly fileIndex: FileIndexService;
   readonly vectorLibrary: VectorLibraryService;
+  readonly artifacts: ArtifactService;
 }
 
 export interface RuntimeContainerOptions {
@@ -48,6 +50,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const daemon = new DaemonService();
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
   const vectorLibrary = new VectorLibraryService(fileIndex, modelAdapter);
+  const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   return {
     conversationStore,
     sessionApplication,
@@ -62,5 +65,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     daemon,
     fileIndex,
     vectorLibrary,
+    artifacts,
   };
 }

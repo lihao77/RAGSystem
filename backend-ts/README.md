@@ -53,6 +53,8 @@ Node.js 24+ is required because the first persistence milestone uses the built-i
   Python `/api/vector-library/*` management route shapes
 - Empty vector collection/document reads and vector health status compatible with the Python
   `/api/vector/*` management route shapes
+- Visualization artifact read/list/delete API compatible with the Python `/api/artifacts/*` route
+  shapes for existing session visualization files
 - Explicit `501` responses for agent runtime operations that have not been migrated yet
 
 ## Test-First Boundary
