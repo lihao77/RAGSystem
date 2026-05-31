@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 
 import type { AppEnv } from "./config/env.js";
 import { registerAgentConfigRoutes } from "./routes/agent-config.js";
+import { registerDaemonRoutes } from "./routes/daemon.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerModelAdapterRoutes } from "./routes/model-adapter.js";
 import { registerPermissionRoutes } from "./routes/permissions.js";
@@ -92,6 +93,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
   await app.register(registerMcpRoutes, {
     prefix: "/api/mcp",
+    container,
+  });
+  await app.register(registerDaemonRoutes, {
+    prefix: "/api/daemon",
     container,
   });
   await app.register(registerAgentRoutes, {

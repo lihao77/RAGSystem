@@ -103,10 +103,17 @@ In scope:
   - empty Registry search result,
   - in-memory server add/update/delete/list,
   - empty server/global tool listing.
+- Daemon management compatibility:
+  - idle status and default config reads,
+  - in-memory daemon config updates,
+  - disconnected agent/platform status and empty heartbeat history,
+  - in-memory cron task create/update/delete/list/history.
 
 Out of scope:
 
 - Real agent execution and streaming output generation.
+- Daemon runtime start/stop, social-platform adapters, outbound messages, webhook handling, and
+  cron execution.
 - Tool registry execution.
 - MCP connection management.
 - MCP Registry network search and Registry install.
@@ -158,6 +165,10 @@ These effects are intentional and covered by tests:
 - MCP server config changes are stored in TS process memory until MCP YAML persistence is migrated.
 - MCP connect/disconnect/test and Registry install return HTTP 501 until MCP runtime management is
   migrated.
+- Daemon config and cron task changes are stored in TS process memory until daemon YAML persistence
+  is migrated.
+- Daemon start/stop, outbound send, test message dispatch, and cron trigger return HTTP 501 until
+  the daemon runtime and social-platform adapters are migrated.
 
 ## Rule
 

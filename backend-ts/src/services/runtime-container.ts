@@ -3,6 +3,7 @@ import { AgentConfigService } from "./agent-config-service.js";
 import { AgentSessionApplication } from "./agent-session-application.js";
 import { CheckpointManager } from "./checkpoint-manager.js";
 import { ConversationStore } from "./conversation-store.js";
+import { DaemonService } from "./daemon-service.js";
 import { InMemoryEventBus } from "./event-bus.js";
 import { McpService } from "./mcp-service.js";
 import { ModelAdapterService } from "./model-adapter-service.js";
@@ -20,6 +21,7 @@ export interface RuntimeContainer {
   readonly modelAdapter: ModelAdapterService;
   readonly systemConfig: SystemConfigService;
   readonly mcp: McpService;
+  readonly daemon: DaemonService;
 }
 
 export interface RuntimeContainerOptions {
@@ -39,6 +41,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const modelAdapter = new ModelAdapterService();
   const systemConfig = new SystemConfigService();
   const mcp = new McpService();
+  const daemon = new DaemonService();
   return {
     conversationStore,
     sessionApplication,
@@ -50,5 +53,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     modelAdapter,
     systemConfig,
     mcp,
+    daemon,
   };
 }
