@@ -6,6 +6,7 @@ import { ConversationStore } from "./conversation-store.js";
 import { InMemoryEventBus } from "./event-bus.js";
 import { ModelAdapterService } from "./model-adapter-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
+import { SystemConfigService } from "./system-config-service.js";
 
 export interface RuntimeContainer {
   readonly conversationStore: ConversationStore;
@@ -16,6 +17,7 @@ export interface RuntimeContainer {
   readonly permissionPolicy: PermissionPolicyService;
   readonly agentConfig: AgentConfigService;
   readonly modelAdapter: ModelAdapterService;
+  readonly systemConfig: SystemConfigService;
 }
 
 export interface RuntimeContainerOptions {
@@ -33,6 +35,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const permissionPolicy = new PermissionPolicyService();
   const agentConfig = new AgentConfigService();
   const modelAdapter = new ModelAdapterService();
+  const systemConfig = new SystemConfigService();
   return {
     conversationStore,
     sessionApplication,
@@ -42,5 +45,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     permissionPolicy,
     agentConfig,
     modelAdapter,
+    systemConfig,
   };
 }

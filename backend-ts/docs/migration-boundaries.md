@@ -90,6 +90,10 @@ In scope:
   - provider type metadata,
   - in-memory provider create/update/delete/list,
   - in-memory provider ordering.
+- System config compatibility:
+  - schema-form metadata for the editable AppConfig simple fields,
+  - in-memory config reads and deep-merge updates,
+  - reload resets the TS process copy to defaults until config-file loading is migrated.
 
 Out of scope:
 
@@ -99,6 +103,7 @@ Out of scope:
 - LLM provider calls.
 - Model provider availability checks and live provider tests.
 - Vector indexing/retrieval.
+- System config YAML persistence and runtime cache refresh.
 - Checkpoint recovery execution:
   - `POST /api/agent/sessions/:sessionId/recover` parses the Python-compatible body but returns `501 not_migrated` until agent execution exists.
 - File-history snapshot rewind during rollback.
@@ -134,6 +139,8 @@ These effects are intentional and covered by tests:
   persistence is migrated.
 - Model provider availability checks and `POST /api/model-adapter/test` return HTTP 501 until
   provider runtime calls are migrated.
+- System config changes are stored in TS process memory until YAML persistence and runtime refresh
+  are migrated.
 
 ## Rule
 
