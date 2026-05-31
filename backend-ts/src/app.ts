@@ -7,6 +7,7 @@ import type { AppEnv } from "./config/env.js";
 import { registerAgentConfigRoutes } from "./routes/agent-config.js";
 import { registerArtifactRoutes } from "./routes/artifacts.js";
 import { registerDaemonRoutes } from "./routes/daemon.js";
+import { registerEmbeddingModelRoutes } from "./routes/embedding-models.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerModelAdapterRoutes } from "./routes/model-adapter.js";
@@ -124,6 +125,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
   await app.register(registerVectorRoutes, {
     prefix: "/api/vector",
+    container,
+  });
+  await app.register(registerEmbeddingModelRoutes, {
+    prefix: "/api/embedding-models",
     container,
   });
   await app.register(registerAgentRoutes, {

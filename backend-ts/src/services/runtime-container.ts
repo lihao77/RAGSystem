@@ -5,6 +5,7 @@ import { ArtifactService } from "./artifact-service.js";
 import { CheckpointManager } from "./checkpoint-manager.js";
 import { ConversationStore } from "./conversation-store.js";
 import { DaemonService } from "./daemon-service.js";
+import { EmbeddingModelService } from "./embedding-model-service.js";
 import { FileIndexService } from "./file-index-service.js";
 import { InMemoryEventBus } from "./event-bus.js";
 import { McpService } from "./mcp-service.js";
@@ -28,6 +29,7 @@ export interface RuntimeContainer {
   readonly fileIndex: FileIndexService;
   readonly vectorLibrary: VectorLibraryService;
   readonly artifacts: ArtifactService;
+  readonly embeddingModels: EmbeddingModelService;
 }
 
 export interface RuntimeContainerOptions {
@@ -51,6 +53,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
   const vectorLibrary = new VectorLibraryService(fileIndex, modelAdapter);
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
+  const embeddingModels = new EmbeddingModelService(vectorLibrary);
   return {
     conversationStore,
     sessionApplication,
@@ -66,5 +69,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     fileIndex,
     vectorLibrary,
     artifacts,
+    embeddingModels,
   };
 }

@@ -122,6 +122,11 @@ In scope:
   - read Python-compatible visualization configs from session `viz_index.jsonl` records,
   - list visualization summaries by session,
   - delete one visualization or all visualizations for a session.
+- Embedding model management compatibility:
+  - model list and stats derived from in-memory vectorizer config,
+  - model activation mapped to vectorizer activation,
+  - forced model deletion mapped to vectorizer deletion,
+  - empty sync-status reads.
 
 Out of scope:
 
@@ -135,6 +140,7 @@ Out of scope:
 - Model provider availability checks and live provider tests.
 - Vector indexing/retrieval, vector data migration, vector document deletion, and collection deletion.
 - Artifact generation/revision from tool execution.
+- Embedding vector sync/recompute.
 - System config YAML persistence and runtime cache refresh.
 - Checkpoint recovery execution:
   - `POST /api/agent/sessions/:sessionId/recover` parses the Python-compatible body but returns `501 not_migrated` until agent execution exists.
@@ -193,6 +199,8 @@ These effects are intentional and covered by tests:
   migrated.
 - Artifact routes read and delete existing visualization files only. New visualization generation
   and revision remain tied to the unmigrated TS tool/runtime execution path.
+- Embedding model routes expose the management shape backed by current TS vectorizer config. Vector
+  sync returns HTTP 501 until embedding runtime execution is migrated.
 
 ## Rule
 
