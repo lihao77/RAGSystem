@@ -94,12 +94,17 @@ In scope:
   - schema-form metadata for the editable AppConfig simple fields,
   - in-memory config reads and deep-merge updates,
   - reload resets the TS process copy to defaults until config-file loading is migrated.
+- MCP management compatibility:
+  - empty Registry search result,
+  - in-memory server add/update/delete/list,
+  - empty server/global tool listing.
 
 Out of scope:
 
 - Real agent execution and streaming output generation.
 - Tool registry execution.
 - MCP connection management.
+- MCP Registry network search and Registry install.
 - LLM provider calls.
 - Model provider availability checks and live provider tests.
 - Vector indexing/retrieval.
@@ -141,6 +146,9 @@ These effects are intentional and covered by tests:
   provider runtime calls are migrated.
 - System config changes are stored in TS process memory until YAML persistence and runtime refresh
   are migrated.
+- MCP server config changes are stored in TS process memory until MCP YAML persistence is migrated.
+- MCP connect/disconnect/test and Registry install return HTTP 501 until MCP runtime management is
+  migrated.
 
 ## Rule
 

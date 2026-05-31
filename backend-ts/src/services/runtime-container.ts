@@ -4,6 +4,7 @@ import { AgentSessionApplication } from "./agent-session-application.js";
 import { CheckpointManager } from "./checkpoint-manager.js";
 import { ConversationStore } from "./conversation-store.js";
 import { InMemoryEventBus } from "./event-bus.js";
+import { McpService } from "./mcp-service.js";
 import { ModelAdapterService } from "./model-adapter-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
 import { SystemConfigService } from "./system-config-service.js";
@@ -18,6 +19,7 @@ export interface RuntimeContainer {
   readonly agentConfig: AgentConfigService;
   readonly modelAdapter: ModelAdapterService;
   readonly systemConfig: SystemConfigService;
+  readonly mcp: McpService;
 }
 
 export interface RuntimeContainerOptions {
@@ -36,6 +38,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const agentConfig = new AgentConfigService();
   const modelAdapter = new ModelAdapterService();
   const systemConfig = new SystemConfigService();
+  const mcp = new McpService();
   return {
     conversationStore,
     sessionApplication,
@@ -46,5 +49,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     agentConfig,
     modelAdapter,
     systemConfig,
+    mcp,
   };
 }
