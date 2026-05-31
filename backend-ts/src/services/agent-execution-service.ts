@@ -16,10 +16,10 @@ import type {
 import { getSelectedLlm as resolveSelectedLlm } from "../contracts/execution.js";
 import type { ModelProviderConfig } from "../contracts/model-adapter.js";
 import type { AgentSessionApplication } from "./agent-session-application.js";
+import type { AgentRuntimeContextBuilder } from "./agent-runtime-context-builder.js";
 import type { ConversationStore } from "./conversation-store.js";
 import type { InMemoryEventBus } from "./event-bus.js";
 import type { AgentRuntimeCore, AgentRuntimeEvent } from "./agent-runtime-core.js";
-import type { ChatMessage } from "./llm-chat-client.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 
 interface ExecutionHandle {
@@ -39,6 +39,7 @@ export class AgentExecutionService {
     private readonly conversationStore: ConversationStore,
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
     private readonly agentRuntimeCore: AgentRuntimeCore,
+    private readonly contextBuilder: AgentRuntimeContextBuilder,
   ) {}
 
   async startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult> {
@@ -358,7 +359,7 @@ export class AgentExecutionService {
         provider: input.provider,
         modelName: input.modelName,
         signal: input.abortController.signal,
-        conversation: this.buildConversationMessages(input.sessionId),
+        conversation: this.contextBuilder.buildContext({ sessionId: input.sessionId }).conversation,
         onEvent: async (event) => {
           this.publishRuntimeEvent(input, event);
         },
@@ -497,16 +498,6 @@ export class AgentExecutionService {
       this.taskBySession.delete(input.sessionId);
       this.handlesByTask.delete(input.taskId);
     }
-  }
-
-  private buildConversationMessages(sessionId: string): ChatMessage[] {
-    const messages: ChatMessage[] = [];
-    for (const message of this.conversationStore.getRecentMessages(sessionId, 20, "root")) {
-      if (message.role === "user" || message.role === "assistant") {
-        messages.push({ role: message.role, content: message.content });
-      }
-    }
-    return messages;
   }
 
   private publishRuntimeEvent(
