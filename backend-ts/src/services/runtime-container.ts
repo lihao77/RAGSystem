@@ -4,6 +4,7 @@ import { AgentSessionApplication } from "./agent-session-application.js";
 import { CheckpointManager } from "./checkpoint-manager.js";
 import { ConversationStore } from "./conversation-store.js";
 import { DaemonService } from "./daemon-service.js";
+import { FileIndexService } from "./file-index-service.js";
 import { InMemoryEventBus } from "./event-bus.js";
 import { McpService } from "./mcp-service.js";
 import { ModelAdapterService } from "./model-adapter-service.js";
@@ -22,6 +23,7 @@ export interface RuntimeContainer {
   readonly systemConfig: SystemConfigService;
   readonly mcp: McpService;
   readonly daemon: DaemonService;
+  readonly fileIndex: FileIndexService;
 }
 
 export interface RuntimeContainerOptions {
@@ -42,6 +44,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const systemConfig = new SystemConfigService();
   const mcp = new McpService();
   const daemon = new DaemonService();
+  const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
   return {
     conversationStore,
     sessionApplication,
@@ -54,5 +57,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     systemConfig,
     mcp,
     daemon,
+    fileIndex,
   };
 }

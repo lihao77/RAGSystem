@@ -81,6 +81,11 @@ In scope:
   - get/replace policy,
   - update mode,
   - add/remove/clear auto-accept patterns.
+- File management compatibility:
+  - SQLite-backed `uploaded_files` index with Python-compatible fields,
+  - global file list/upload/get/delete/download/validate routes,
+  - session-scoped file list/upload/get/delete/download/validate routes,
+  - uploaded bytes are stored below TS `dataRoot` in global and session upload directories.
 - Agent config/team compatibility:
   - default system team and default agent config reads,
   - in-memory config replace/patch/delete,
@@ -150,6 +155,8 @@ These effects are intentional and covered by tests:
 - Monitoring metrics return real empty TS runtime metrics while agent execution is unavailable.
 - Agent context snapshot still returns HTTP 501; message-content and raw-result sidecar reads are served from persisted data.
 - Permission policy changes are stored in the TS process memory until runtime configuration persistence is migrated.
+- Uploaded files and their index records are written to the TS data root and shared SQLite database.
+- Session-scoped files are isolated by `scope_type='session'` and `scope_id=session_id`.
 - Agent config and team changes are stored in TS process memory until runtime config-file persistence is migrated.
 - Agent config export/import and preset application return HTTP 501 until YAML/JSON config persistence is migrated.
 - Agent management create/delete changes are stored in TS process memory until runtime config-file
