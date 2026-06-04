@@ -16,6 +16,7 @@ import { FileIndexService } from "./file-index-service.js";
 import { InMemoryEventBus } from "./event-bus.js";
 import { OpenAiCompatibleChatClient, type LlmChatClient } from "./llm-chat-client.js";
 import { MemoryStore } from "./memory-store.js";
+import { MemoryToolService } from "./memory-tool-service.js";
 import { McpService } from "./mcp-service.js";
 import { ModelAdapterService } from "./model-adapter-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
@@ -40,6 +41,7 @@ export interface RuntimeContainer {
   readonly artifacts: ArtifactService;
   readonly embeddingModels: EmbeddingModelService;
   readonly memoryStore: MemoryStore;
+  readonly memoryTools: MemoryToolService;
   readonly runtimeCore: RuntimeCoreService;
   readonly agentRuntimeCore: AgentRuntimeCore;
   readonly agentRuntimeContextBuilder: AgentRuntimeContextBuilder;
@@ -73,6 +75,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   const embeddingModels = new EmbeddingModelService(vectorLibrary);
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
+  const memoryTools = new MemoryToolService(memoryStore, conversationStore);
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
   const agentRuntimeCore = new AgentRuntimeCore(llmChatClient);
@@ -105,6 +108,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     artifacts,
     embeddingModels,
     memoryStore,
+    memoryTools,
     runtimeCore,
     agentRuntimeCore,
     agentRuntimeContextBuilder,
