@@ -359,7 +359,7 @@ export class AgentExecutionService {
         provider: input.provider,
         modelName: input.modelName,
         signal: input.abortController.signal,
-        conversation: this.contextBuilder.buildContext({ sessionId: input.sessionId }).conversation,
+        conversation: this.contextBuilder.buildContext({ sessionId: input.sessionId, agent: input.agent }).conversation,
         onEvent: async (event) => {
           this.publishRuntimeEvent(input, event);
         },

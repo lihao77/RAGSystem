@@ -89,11 +89,23 @@ export class AgentRuntimeCore {
 
   buildMessages(agent: AgentConfig, conversation: ChatMessage[]): ChatMessage[] {
     const messages: ChatMessage[] = [];
+    const systemParts: string[] = [];
     const systemPrompt = getSystemPrompt(agent);
     if (systemPrompt) {
-      messages.push({ role: "system", content: systemPrompt });
+      systemParts.push(systemPrompt);
     }
-    messages.push(...conversation);
+    let conversationIndex = 0;
+    while (conversation[conversationIndex]?.role === "system") {
+      const content = conversation[conversationIndex]?.content.trim();
+      if (content) {
+        systemParts.push(content);
+      }
+      conversationIndex += 1;
+    }
+    if (systemParts.length > 0) {
+      messages.push({ role: "system", content: systemParts.join("\n\n") });
+    }
+    messages.push(...conversation.slice(conversationIndex));
     return messages;
   }
 

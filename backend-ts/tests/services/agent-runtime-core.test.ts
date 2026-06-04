@@ -69,6 +69,29 @@ describe("AgentRuntimeCore", () => {
     });
   });
 
+  it("merges leading system context with the agent system prompt", async () => {
+    const client = new FakeChatClient();
+    const core = new AgentRuntimeCore(client);
+
+    await core.runText({
+      agent: minimalAgent(),
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [
+        { role: "system", content: "[Memory Scope Capabilities]\n- 可读取 scope: session" },
+        { role: "user", content: "hello" },
+      ],
+    });
+
+    expect(client.requests[0]?.messages).toEqual([
+      {
+        role: "system",
+        content: "You are the core.\n\n[Memory Scope Capabilities]\n- 可读取 scope: session",
+      },
+      { role: "user", content: "hello" },
+    ]);
+  });
+
   it("emits provider-stream events without depending on backend session state", async () => {
     const client = new FakeStreamingChatClient();
     const core = new AgentRuntimeCore(client);

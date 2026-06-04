@@ -1,7 +1,7 @@
 import { AgentExecutionService } from "./agent-execution-service.js";
 import {
   AgentRuntimeContextBuilder,
-  EmptyMemoryContextSource,
+  MemoryIndexContextSource,
   RecentMessagesContextSource,
 } from "./agent-runtime-context-builder.js";
 import { AgentRuntimeCore } from "./agent-runtime-core.js";
@@ -74,8 +74,8 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
   const agentRuntimeCore = new AgentRuntimeCore(llmChatClient);
   const agentRuntimeContextBuilder = new AgentRuntimeContextBuilder([
+    new MemoryIndexContextSource(conversationStore, { dataRoot: options.dataRoot }),
     new RecentMessagesContextSource(conversationStore),
-    new EmptyMemoryContextSource(),
   ]);
   const agentExecution = new AgentExecutionService(
     sessionApplication,

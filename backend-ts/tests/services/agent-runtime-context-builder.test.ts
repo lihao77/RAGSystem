@@ -1,13 +1,28 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
+import { afterEach, describe, expect, it } from "vitest";
+
+import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { MessageInfo } from "../../src/contracts/session.js";
 import {
   AgentRuntimeContextBuilder,
   EmptyMemoryContextSource,
+  MemoryIndexContextSource,
   RecentMessagesContextSource,
   type AgentRuntimeContextSource,
   type RuntimeConversationHistoryPort,
+  type RuntimeSessionMetadataPort,
 } from "../../src/services/agent-runtime-context-builder.js";
+
+const tempRoots: string[] = [];
+
+afterEach(() => {
+  for (const root of tempRoots.splice(0)) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 class InMemoryHistory implements RuntimeConversationHistoryPort {
   readonly calls: Array<{ sessionId: string; limit: number | undefined; threadKey: string | null | undefined }> = [];
@@ -17,6 +32,14 @@ class InMemoryHistory implements RuntimeConversationHistoryPort {
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): MessageInfo[] {
     this.calls.push({ sessionId, limit, threadKey });
     return this.messages.slice(0, limit);
+  }
+}
+
+class InMemorySessions implements RuntimeSessionMetadataPort {
+  constructor(private readonly metadata: Record<string, unknown>) {}
+
+  getSession() {
+    return { metadata: this.metadata };
   }
 }
 
@@ -117,6 +140,107 @@ describe("AgentRuntimeContextBuilder", () => {
       },
     ]);
   });
+
+  it("loads Python-compatible memory indices from the shared data root", () => {
+    const dataRoot = makeTempDataRoot();
+    writeMemoryIndex(dataRoot, ["teams", "alpha-team"], "# Team Memory\n");
+    writeMemoryIndex(dataRoot, ["sessions", "s4"], "# Session Memory\n");
+    writeMemoryIndex(dataRoot, ["teams", "alpha-team", "agents", "chart_agent"], "# Agent Memory\n");
+    writeMemoryIndex(
+      dataRoot,
+      ["workspaces", "E-Python-RAGSystem-workspaces-demo-workspace"],
+      "# Workspace Memory\n",
+    );
+    const sessions = new InMemorySessions({
+      team: "alpha-team",
+      workspace_root: "E:/Python/RAGSystem/workspaces/demo-workspace",
+    });
+    const builder = new AgentRuntimeContextBuilder([
+      new MemoryIndexContextSource(sessions, {
+        dataRoot,
+      }),
+    ]);
+
+    const context = builder.buildContext({
+      sessionId: "s4",
+      agent: minimalAgent({
+        agentName: "chart_agent",
+        allowedScopes: ["team", "session", "agent", "workspace"],
+      }),
+    });
+
+    expect(context.conversation).toHaveLength(1);
+    expect(context.conversation[0]).toMatchObject({
+      role: "system",
+      content: expect.stringContaining("[Memory Scope Capabilities]"),
+    });
+    expect(context.conversation[0]?.content).toContain("[Team Memory Index]\n# Team Memory");
+    expect(context.conversation[0]?.content).toContain("[Session Memory Index]\n# Session Memory");
+    expect(context.conversation[0]?.content).toContain("[Agent Memory Index]\n# Agent Memory");
+    expect(context.conversation[0]?.content).toContain("[Workspace Memory Index]\n# Workspace Memory");
+    expect(context.metadata.sources).toEqual([
+      {
+        name: "memory",
+        message_count: 1,
+        metadata: {
+          status: "loaded",
+          snapshot: expect.objectContaining({
+            baseline_key: "root::chart_agent",
+            session_id: "s4",
+            thread_key: "root",
+            agent_name: "chart_agent",
+            scope_capabilities: {
+              allowed_scopes: ["team", "session", "agent", "workspace"],
+              write_scopes: ["session"],
+              archive_scopes: ["session"],
+            },
+            indices: {
+              team: "# Team Memory",
+              session: "# Session Memory",
+              agent: "# Agent Memory",
+              workspace: "# Workspace Memory",
+            },
+            fingerprint: expect.objectContaining({
+              fingerprint: expect.stringMatching(/^[a-f0-9]{16}$/),
+            }),
+          }),
+        },
+      },
+    ]);
+  });
+
+  it("can expose memory capabilities without auto-injecting memory indices", () => {
+    const dataRoot = makeTempDataRoot();
+    writeMemoryIndex(dataRoot, ["sessions", "s5"], "# Session Memory\n");
+    const builder = new AgentRuntimeContextBuilder([
+      new MemoryIndexContextSource(new InMemorySessions({}), {
+        dataRoot,
+      }),
+    ]);
+
+    const context = builder.buildContext({
+      sessionId: "s5",
+      agent: minimalAgent({
+        agentName: "chart_agent",
+        autoInject: false,
+        allowedScopes: ["session"],
+      }),
+    });
+
+    expect(context.conversation).toEqual([
+      {
+        role: "system",
+        content: expect.stringContaining("[Memory Scope Capabilities]"),
+      },
+    ]);
+    expect(context.conversation[0]?.content).not.toContain("# Session Memory");
+    expect(context.metadata.sources[0]?.metadata).toMatchObject({
+      status: "loaded",
+      snapshot: {
+        indices: {},
+      },
+    });
+  });
 });
 
 function message(role: MessageInfo["role"], content: string): MessageInfo {
@@ -130,5 +254,59 @@ function message(role: MessageInfo["role"], content: string): MessageInfo {
     thread_key: "root",
     child_agent_id: null,
     created_at: "2026-01-01T00:00:00Z",
+  };
+}
+
+function makeTempDataRoot(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-runtime-context-"));
+  tempRoots.push(root);
+  return root;
+}
+
+function writeMemoryIndex(dataRoot: string, scopeParts: string[], content: string): void {
+  const filePath = path.join(dataRoot, "memory", ...scopeParts, "MEMORY.md");
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content, "utf8");
+}
+
+function minimalAgent(input: {
+  agentName: string;
+  allowedScopes: string[];
+  autoInject?: boolean;
+}): AgentConfig {
+  return {
+    agent_name: input.agentName,
+    display_name: input.agentName,
+    description: null,
+    enabled: true,
+    default_entry: true,
+    llm_tiers: {
+      default: {
+        provider: "my",
+        provider_type: "deepseek",
+        model_name: "deepseek-chat",
+        extra_params: {},
+      },
+    },
+    tools: { enabled_tools: [] },
+    skills: { enabled_skills: [], auto_inject: true },
+    mcp: { enabled_servers: [] },
+    memory: {
+      auto_inject: input.autoInject ?? true,
+      allowed_scopes: input.allowedScopes,
+      write_scopes: ["session"],
+      archive_scopes: ["session"],
+    },
+    tasks: { workflow: false, background: false },
+    delegation: { enabled_agents: [] },
+    knowledge_base: {
+      enabled: false,
+      default_collection: "documents",
+      default_search_mode: "hybrid",
+      default_top_k: 5,
+      default_rerank: false,
+      default_reranker_key: null,
+    },
+    custom_params: {},
   };
 }
