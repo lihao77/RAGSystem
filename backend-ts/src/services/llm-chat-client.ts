@@ -2,8 +2,29 @@ import type { AgentConfig } from "../contracts/agent-config.js";
 import type { ModelProviderConfig } from "../contracts/model-adapter.js";
 
 export interface ChatMessage {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  name?: string | undefined;
+  tool_call_id?: string | undefined;
+  tool_calls?: ChatToolCall[] | undefined;
+}
+
+export interface ChatToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description?: string | undefined;
+    parameters: Record<string, unknown>;
+  };
+}
+
+export interface ChatToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
 }
 
 export interface ChatCompletionRequest {
@@ -14,11 +35,15 @@ export interface ChatCompletionRequest {
   signal?: AbortSignal;
   temperature?: number | null;
   maxCompletionTokens?: number | null;
+  tools?: ChatToolDefinition[] | undefined;
+  toolChoice?: "auto" | "none" | undefined;
 }
 
 export interface ChatCompletionResult {
   content: string;
   raw?: unknown;
+  finishReason?: string | null | undefined;
+  toolCalls?: ChatToolCall[] | undefined;
 }
 
 export interface ChatStreamChunk {
@@ -53,13 +78,19 @@ export class OpenAiCompatibleChatClient implements LlmChatClient {
       throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
     }
     const content = extractAssistantContent(body);
-    if (!content) {
+    const toolCalls = extractAssistantToolCalls(body);
+    if (!content && toolCalls.length === 0) {
       throw new Error("LLM response did not include assistant content");
     }
-    return {
-      content,
+    const result: ChatCompletionResult = {
+      content: content ?? "",
       raw: body,
+      finishReason: extractFinishReason(body),
     };
+    if (toolCalls.length > 0) {
+      result.toolCalls = toolCalls;
+    }
+    return result;
   }
 
   async stream(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler): Promise<ChatCompletionResult> {
@@ -112,6 +143,8 @@ function buildChatCompletionBody(request: ChatCompletionRequest, stream: boolean
     messages: request.messages,
     temperature: request.temperature ?? undefined,
     max_tokens: request.maxCompletionTokens ?? undefined,
+    tools: request.tools?.length ? request.tools : undefined,
+    tool_choice: request.tools?.length ? (request.toolChoice ?? "auto") : undefined,
     stream: stream ? true : undefined,
   };
 }
@@ -210,15 +243,8 @@ async function readJsonResponseBody(response: Response): Promise<unknown> {
 }
 
 function extractAssistantContent(body: unknown): string | null {
-  if (!isRecord(body)) {
-    return null;
-  }
-  const choices = body.choices;
-  if (!Array.isArray(choices) || choices.length === 0) {
-    return null;
-  }
-  const first = choices[0];
-  if (!isRecord(first)) {
+  const first = extractFirstChoice(body);
+  if (!first) {
     return null;
   }
   const message = first.message;
@@ -229,6 +255,56 @@ function extractAssistantContent(body: unknown): string | null {
     return first.text;
   }
   return null;
+}
+
+function extractAssistantToolCalls(body: unknown): ChatToolCall[] {
+  const first = extractFirstChoice(body);
+  if (!first) {
+    return [];
+  }
+  const message = first.message;
+  if (!isRecord(message) || !Array.isArray(message.tool_calls)) {
+    return [];
+  }
+  const toolCalls: ChatToolCall[] = [];
+  for (const [index, item] of message.tool_calls.entries()) {
+    if (!isRecord(item)) {
+      continue;
+    }
+    const fn = item.function;
+    if (!isRecord(fn) || typeof fn.name !== "string") {
+      continue;
+    }
+    toolCalls.push({
+      id: typeof item.id === "string" && item.id.trim() ? item.id : `tool_call_${index}`,
+      type: "function",
+      function: {
+        name: fn.name,
+        arguments: typeof fn.arguments === "string" ? fn.arguments : JSON.stringify(fn.arguments ?? {}),
+      },
+    });
+  }
+  return toolCalls;
+}
+
+function extractFinishReason(body: unknown): string | null {
+  const first = extractFirstChoice(body);
+  if (!first) {
+    return null;
+  }
+  return typeof first.finish_reason === "string" ? first.finish_reason : null;
+}
+
+function extractFirstChoice(body: unknown): Record<string, unknown> | null {
+  if (!isRecord(body)) {
+    return null;
+  }
+  const choices = body.choices;
+  if (!Array.isArray(choices) || choices.length === 0) {
+    return null;
+  }
+  const first = choices[0];
+  return isRecord(first) ? first : null;
 }
 
 function extractAssistantDeltaContent(body: unknown): string | null {

@@ -1,29 +1,110 @@
 import type { AgentConfig } from "../contracts/agent-config.js";
 import {
-  type MemoryToolRuntimeContext,
   type ToolExecutionResult,
   type MemoryToolService,
 } from "./memory-tool-service.js";
-
-export interface RuntimeToolCall {
-  toolName: string;
-  arguments?: Record<string, unknown> | undefined;
-}
-
-export type RuntimeToolExecutionContext = MemoryToolRuntimeContext;
+import type {
+  RuntimeToolCall,
+  RuntimeToolDefinition,
+  RuntimeToolExecutionContext,
+  RuntimeToolExecutor,
+} from "./runtime-tool-types.js";
 
 const READ_ONLY_MEMORY_TOOL_NAMES = ["list_memory_index", "read_memory_entry"] as const;
 type ReadOnlyMemoryToolName = (typeof READ_ONLY_MEMORY_TOOL_NAMES)[number];
 
-export class RuntimeToolBridge {
+const READ_ONLY_MEMORY_TOOLS: RuntimeToolDefinition[] = [
+  {
+    name: "list_memory_index",
+    description: "List the MEMORY.md index for an allowed memory scope before selecting an entry file to read.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["scope"],
+      properties: {
+        scope: {
+          type: "string",
+          enum: ["team", "session", "agent", "workspace"],
+          description: "Memory scope to inspect.",
+        },
+        session_id: {
+          type: "string",
+          description: "Optional session id. Omit it when the current session context should be used.",
+        },
+        agent_name: {
+          type: "string",
+          description: "Optional agent name for agent-scoped memory.",
+        },
+        workspace_key: {
+          type: "string",
+          description: "Optional normalized workspace memory key.",
+        },
+        team_name: {
+          type: "string",
+          description: "Optional team name for team-scoped or agent-scoped memory.",
+        },
+        workspace_root: {
+          type: "string",
+          description: "Optional workspace root path used to derive workspace memory.",
+        },
+      },
+    },
+  },
+  {
+    name: "read_memory_entry",
+    description: "Read one memory entry file from an allowed memory scope after checking the index.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["scope", "file_name"],
+      properties: {
+        scope: {
+          type: "string",
+          enum: ["team", "session", "agent", "workspace"],
+          description: "Memory scope containing the entry file.",
+        },
+        file_name: {
+          type: "string",
+          description: "Memory entry file name from the index, for example fact_alpha.md.",
+        },
+        session_id: {
+          type: "string",
+          description: "Optional session id. Omit it when the current session context should be used.",
+        },
+        agent_name: {
+          type: "string",
+          description: "Optional agent name for agent-scoped memory.",
+        },
+        workspace_key: {
+          type: "string",
+          description: "Optional normalized workspace memory key.",
+        },
+        team_name: {
+          type: "string",
+          description: "Optional team name for team-scoped or agent-scoped memory.",
+        },
+        workspace_root: {
+          type: "string",
+          description: "Optional workspace root path used to derive workspace memory.",
+        },
+      },
+    },
+  },
+];
+
+export class RuntimeToolBridge implements RuntimeToolExecutor {
   constructor(private readonly memoryTools: MemoryToolService) {}
 
-  listVisibleToolNames(agent: AgentConfig | null): string[] {
+  listVisibleTools(agent: AgentConfig | null): RuntimeToolDefinition[] {
     const memoryConfig = agent?.memory;
     if (memoryConfig?.allowed_scopes?.length) {
-      return [...READ_ONLY_MEMORY_TOOL_NAMES];
+      return READ_ONLY_MEMORY_TOOLS.map((tool) => ({ ...tool }));
     }
     return [];
+  }
+
+  listVisibleToolNames(agent: AgentConfig | null): string[] {
+    return this.listVisibleTools(agent).map((tool) => tool.name);
   }
 
   canExecuteTool(toolName: string, agent: AgentConfig | null): boolean {

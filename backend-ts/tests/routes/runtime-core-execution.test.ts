@@ -1,9 +1,10 @@
+import fs from "node:fs";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
-import type { ChatCompletionRequest, LlmChatClient } from "../../src/services/llm-chat-client.js";
+import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/llm-chat-client.js";
 import { buildTestHarness } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
@@ -60,6 +61,21 @@ class FakeStreamingChatClient implements LlmChatClient {
       await onChunk({ content: chunk });
     }
     return { content };
+  }
+}
+
+class FakeToolCallingChatClient implements LlmChatClient {
+  readonly requests: ChatCompletionRequest[] = [];
+
+  constructor(private readonly responses: ChatCompletionResult[]) {}
+
+  async complete(request: ChatCompletionRequest) {
+    this.requests.push(request);
+    const response = this.responses.shift();
+    if (!response) {
+      throw new Error("missing fake LLM response");
+    }
+    return response;
   }
 }
 
@@ -189,6 +205,7 @@ describe("minimal runtime core execution", () => {
     const harness = await buildTestHarness({ llmChatClient: chatClient });
     app = harness.app;
 
+    disableDefaultAgentMemoryTools(harness);
     await createDefaultChatProvider(app);
 
     const started = await app.inject({
@@ -233,6 +250,102 @@ describe("minimal runtime core execution", () => {
       expect.objectContaining({ role: "user", content: "stream hello" }),
       expect.objectContaining({ role: "assistant", content: "hello from stream" }),
     ]);
+  });
+
+  it("executes read-only memory tool calls during a minimal runtime-core run", async () => {
+    const chatClient = new FakeToolCallingChatClient([
+      {
+        content: "",
+        finishReason: "tool_calls",
+        toolCalls: [
+          {
+            id: "call_memory_1",
+            type: "function",
+            function: {
+              name: "list_memory_index",
+              arguments: JSON.stringify({ scope: "session" }),
+            },
+          },
+        ],
+      },
+      {
+        content: "The session memory index is available.",
+        finishReason: "stop",
+      },
+    ]);
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+
+    await createDefaultChatProvider(app);
+    writeTestMemoryFile(["memory", "sessions", "tool-runtime-session", "MEMORY.md"], "# Runtime Tool Memory\n");
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      headers: {
+        "x-request-id": "req-runtime-tool",
+      },
+      payload: {
+        task: "use memory",
+        session_id: "tool-runtime-session",
+      },
+    });
+
+    expect(started.statusCode).toBe(200);
+    await waitFor(
+      () => harness.container.agentExecution.getSessionTaskStatus("tool-runtime-session").task_info?.status === "completed",
+    );
+
+    expect(chatClient.requests).toHaveLength(2);
+    expect(chatClient.requests[0]?.tools?.map((tool) => tool.function.name)).toEqual([
+      "list_memory_index",
+      "read_memory_entry",
+    ]);
+    expect(chatClient.requests[1]?.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "call_memory_1",
+          name: "list_memory_index",
+          content: expect.stringContaining("# Runtime Tool Memory"),
+        }),
+      ]),
+    );
+
+    const history = harness.container.events.getHistory("tool-runtime-session");
+    expect(history.filter((event) => event.type === "execution.step").map((event) => event.data)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "tool",
+          phase: "call",
+          tool_name: "list_memory_index",
+          tool_call_id: "call_memory_1",
+        }),
+        expect.objectContaining({
+          kind: "tool",
+          phase: "result",
+          success: true,
+          summary: "已读取 session MEMORY 索引",
+        }),
+      ]),
+    );
+    expect(history.find((event) => event.type === "output.final_answer")?.data).toMatchObject({
+      content: "The session memory index is available.",
+    });
+
+    const messages = await app.inject({
+      method: "GET",
+      url: "/api/agent/sessions/tool-runtime-session/messages?expand=1",
+    });
+    expect(messages.json().data.items.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "The session memory index is available.",
+      execution_steps: expect.arrayContaining([
+        expect.objectContaining({ kind: "tool", phase: "call" }),
+        expect.objectContaining({ kind: "tool", phase: "result" }),
+        expect.objectContaining({ kind: "final", phase: "complete" }),
+      ]),
+    });
   });
 
   it("uses session team, entry agent, and workspace metadata when resolving runtime config", async () => {
@@ -364,6 +477,26 @@ async function createDefaultChatProvider(app: FastifyInstance): Promise<void> {
     },
   });
   expect(provider.statusCode).toBe(200);
+}
+
+function disableDefaultAgentMemoryTools(harness: Awaited<ReturnType<typeof buildTestHarness>>): void {
+  const config = harness.container.agentConfig.getConfig("orchestrator_agent");
+  expect(config).not.toBeNull();
+  harness.container.agentConfig.replaceConfig("orchestrator_agent", {
+    ...config!,
+    memory: {
+      ...config!.memory,
+      allowed_scopes: [],
+      write_scopes: [],
+      archive_scopes: [],
+    },
+  });
+}
+
+function writeTestMemoryFile(parts: string[], content: string): void {
+  const filePath = path.join(".test-data", ...parts);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content, "utf8");
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void> {

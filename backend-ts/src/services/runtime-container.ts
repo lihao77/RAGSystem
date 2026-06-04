@@ -93,6 +93,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     runtimeCore,
     agentRuntimeCore,
     agentRuntimeContextBuilder,
+    runtimeToolBridge,
   );
   return {
     conversationStore,

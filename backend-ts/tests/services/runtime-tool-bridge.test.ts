@@ -35,6 +35,20 @@ describe("RuntimeToolBridge", () => {
       "list_memory_index",
       "read_memory_entry",
     ]);
+    expect(bridge.listVisibleTools(minimalAgent(["session"]))).toEqual([
+      expect.objectContaining({
+        name: "list_memory_index",
+        parameters: expect.objectContaining({
+          required: ["scope"],
+        }),
+      }),
+      expect.objectContaining({
+        name: "read_memory_entry",
+        parameters: expect.objectContaining({
+          required: ["scope", "file_name"],
+        }),
+      }),
+    ]);
     expect(bridge.listVisibleToolNames(minimalAgent([]))).toEqual([]);
   });
 

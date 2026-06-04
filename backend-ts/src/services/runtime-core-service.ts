@@ -81,7 +81,7 @@ export class RuntimeCoreService {
       provider,
       requirements,
       boundary:
-        "Minimal single-agent text execution is available in TypeScript when configuration is ready. Tool execution, multi-agent delegation, MCP runtime, vector retrieval, and advanced streaming semantics are still not migrated.",
+        "Minimal single-agent text execution and non-streaming read-only memory tool calls are available in TypeScript when configuration is ready. Other tool execution, multi-agent delegation, MCP runtime, vector retrieval, and streaming tool-call semantics are still not migrated.",
     };
   }
 
@@ -179,7 +179,13 @@ export class RuntimeCoreService {
       requirement("model_provider_config", "provider", provider.configured, provider.configured ? `Provider 配置已找到: ${provider.provider_key}` : "缺少匹配的 Model Provider 配置", "missing_provider_config"),
       requirement("model_available", "provider", provider.model_available, provider.model_available ? "Provider 中已配置该 chat 模型" : "Provider 中缺少匹配的 chat 模型", "missing_provider_model"),
       requirement("provider_api_key", "provider", provider.api_key_configured, provider.api_key_configured ? "Provider API key 已配置" : "缺少 Provider API key", "missing_provider_api_key"),
-      requirement("agent_runtime", "execution_runtime", true, "最小单 Agent 文本执行 runtime 已迁移到 TypeScript", "not_migrated"),
+      requirement(
+        "agent_runtime",
+        "execution_runtime",
+        true,
+        "最小单 Agent 文本执行 runtime 与非 streaming 只读 memory tool loop 已迁移到 TypeScript",
+        "not_migrated",
+      ),
     ];
   }
 }

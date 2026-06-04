@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest";
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
 import { AgentRuntimeCore, type AgentRuntimeEvent } from "../../src/services/agent-runtime-core.js";
-import type { ChatCompletionRequest, LlmChatClient } from "../../src/services/llm-chat-client.js";
+import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/llm-chat-client.js";
+import type {
+  RuntimeToolCall,
+  RuntimeToolDefinition,
+  RuntimeToolExecutionContext,
+  RuntimeToolExecutor,
+} from "../../src/services/runtime-tool-types.js";
 
 class FakeChatClient implements LlmChatClient {
   readonly requests: ChatCompletionRequest[] = [];
@@ -31,6 +37,58 @@ class FakeStreamingChatClient implements LlmChatClient {
     await onChunk({ content: "hello " });
     await onChunk({ content: "core" });
     return { content: "hello core" };
+  }
+}
+
+class FakeToolCallingChatClient implements LlmChatClient {
+  readonly requests: ChatCompletionRequest[] = [];
+
+  constructor(private readonly responses: ChatCompletionResult[]) {}
+
+  async complete(request: ChatCompletionRequest) {
+    this.requests.push(request);
+    const response = this.responses.shift();
+    if (!response) {
+      throw new Error("missing fake LLM response");
+    }
+    return response;
+  }
+}
+
+class FakeRuntimeToolExecutor implements RuntimeToolExecutor {
+  readonly calls: Array<{ call: RuntimeToolCall; context: RuntimeToolExecutionContext }> = [];
+
+  listVisibleTools(): RuntimeToolDefinition[] {
+    return [
+      {
+        name: "list_memory_index",
+        description: "List memory index",
+        parameters: {
+          type: "object",
+          required: ["scope"],
+          properties: {
+            scope: { type: "string" },
+          },
+        },
+      },
+    ];
+  }
+
+  executeTool(call: RuntimeToolCall, context: RuntimeToolExecutionContext) {
+    this.calls.push({ call, context });
+    return {
+      success: true,
+      tool_name: call.toolName,
+      summary: "已读取 session MEMORY 索引",
+      answer: null,
+      output_type: "text",
+      content: "# Session Memory\n- fact_alpha.md",
+      metadata: {
+        scope: "session",
+      },
+      artifacts: [],
+      llm_hint: null,
+    };
   }
 }
 
@@ -145,6 +203,122 @@ describe("AgentRuntimeCore", () => {
           content: "hello core",
           agent_name: "orchestrator_agent",
           finish_reason: null,
+        },
+      },
+    ]);
+  });
+
+  it("runs a non-streaming tool-call loop through the runtime tool executor", async () => {
+    const client = new FakeToolCallingChatClient([
+      {
+        content: "",
+        finishReason: "tool_calls",
+        toolCalls: [
+          {
+            id: "call_memory_1",
+            type: "function",
+            function: {
+              name: "list_memory_index",
+              arguments: JSON.stringify({ scope: "session" }),
+            },
+          },
+        ],
+      },
+      {
+        content: "I used the session memory index.",
+        finishReason: "stop",
+      },
+    ]);
+    const tools = new FakeRuntimeToolExecutor();
+    const core = new AgentRuntimeCore(client);
+    const agent = minimalAgent();
+    const events: AgentRuntimeEvent[] = [];
+
+    const result = await core.runText({
+      agent,
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [{ role: "user", content: "check memory" }],
+      toolExecutor: tools,
+      toolContext: {
+        agent,
+        sessionId: "s1",
+        currentAgentName: "orchestrator_agent",
+      },
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(result).toMatchObject({
+      content: "I used the session memory index.",
+      finish_reason: "stop",
+    });
+    expect(client.requests).toHaveLength(2);
+    expect(client.requests[0]?.tools).toEqual([
+      expect.objectContaining({
+        type: "function",
+        function: expect.objectContaining({ name: "list_memory_index" }),
+      }),
+    ]);
+    expect(tools.calls).toMatchObject([
+      {
+        call: {
+          toolName: "list_memory_index",
+          arguments: { scope: "session" },
+          callId: "call_memory_1",
+        },
+        context: {
+          sessionId: "s1",
+          currentAgentName: "orchestrator_agent",
+        },
+      },
+    ]);
+    expect(client.requests[1]?.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "assistant",
+          tool_calls: [
+            expect.objectContaining({
+              id: "call_memory_1",
+              function: expect.objectContaining({ name: "list_memory_index" }),
+            }),
+          ],
+        }),
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "call_memory_1",
+          name: "list_memory_index",
+          content: expect.stringContaining("# Session Memory"),
+        }),
+      ]),
+    );
+    expect(events).toEqual([
+      {
+        type: "runtime.tool_call",
+        data: {
+          agent_name: "orchestrator_agent",
+          tool_call_id: "call_memory_1",
+          tool_name: "list_memory_index",
+          round: 0,
+        },
+      },
+      {
+        type: "runtime.tool_result",
+        data: {
+          agent_name: "orchestrator_agent",
+          tool_call_id: "call_memory_1",
+          tool_name: "list_memory_index",
+          success: true,
+          summary: "已读取 session MEMORY 索引",
+        },
+      },
+      {
+        type: "runtime.done",
+        data: {
+          content: "I used the session memory index.",
+          agent_name: "orchestrator_agent",
+          finish_reason: "stop",
         },
       },
     ]);

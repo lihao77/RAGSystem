@@ -1,6 +1,14 @@
 import type { AgentConfig } from "../contracts/agent-config.js";
 import type { ModelProviderConfig } from "../contracts/model-adapter.js";
-import type { ChatCompletionRequest, ChatMessage, LlmChatClient } from "./llm-chat-client.js";
+import type {
+  ChatCompletionRequest,
+  ChatCompletionResult,
+  ChatMessage,
+  ChatToolCall,
+  ChatToolDefinition,
+  LlmChatClient,
+} from "./llm-chat-client.js";
+import type { RuntimeToolDefinition, RuntimeToolExecutionContext, RuntimeToolExecutor } from "./runtime-tool-types.js";
 
 export type AgentRuntimeEvent =
   | {
@@ -26,6 +34,25 @@ export type AgentRuntimeEvent =
       };
     }
   | {
+      type: "runtime.tool_call";
+      data: {
+        agent_name: string;
+        tool_call_id: string;
+        tool_name: string;
+        round: number;
+      };
+    }
+  | {
+      type: "runtime.tool_result";
+      data: {
+        agent_name: string;
+        tool_call_id: string;
+        tool_name: string;
+        success: boolean;
+        summary: string;
+      };
+    }
+  | {
       type: "runtime.error";
       data: {
         message: string;
@@ -42,6 +69,9 @@ export interface AgentRuntimeRequest {
   conversation: ChatMessage[];
   signal?: AbortSignal;
   onEvent?: AgentRuntimeEventHandler;
+  toolExecutor?: RuntimeToolExecutor | undefined;
+  toolContext?: RuntimeToolExecutionContext | undefined;
+  maxToolRounds?: number | undefined;
 }
 
 export interface AgentRuntimeResult {
@@ -62,9 +92,11 @@ export class AgentRuntimeCore {
   async runText(input: AgentRuntimeRequest): Promise<AgentRuntimeResult> {
     const request = this.buildChatRequest(input);
     try {
-      const result = this.llmChatClient.stream
-        ? await this.runStreamingText(input, request)
-        : await this.llmChatClient.complete(request);
+      const result = shouldRunToolLoop(input, request)
+        ? await this.runToolCallingText(input, request)
+        : this.llmChatClient.stream
+          ? await this.runStreamingText(input, request)
+          : await this.llmChatClient.complete(request);
       const runtimeResult = toRuntimeResult(input, result);
       await input.onEvent?.({
         type: "runtime.done",
@@ -118,10 +150,80 @@ export class AgentRuntimeCore {
       temperature: input.agent.llm_tiers?.default?.temperature ?? null,
       maxCompletionTokens: input.agent.llm_tiers?.default?.max_completion_tokens ?? null,
     };
+    if (input.toolExecutor && input.toolContext) {
+      const visibleTools = input.toolExecutor.listVisibleTools(input.agent);
+      if (visibleTools.length > 0) {
+        request.tools = visibleTools.map(toChatToolDefinition);
+        request.toolChoice = "auto";
+      }
+    }
     if (input.signal) {
       request.signal = input.signal;
     }
     return request;
+  }
+
+  private async runToolCallingText(
+    input: AgentRuntimeRequest,
+    request: ChatCompletionRequest,
+  ): Promise<ChatCompletionResult> {
+    const toolExecutor = input.toolExecutor;
+    const toolContext = input.toolContext;
+    if (!toolExecutor || !toolContext) {
+      return this.llmChatClient.complete(request);
+    }
+
+    const maxToolRounds = input.maxToolRounds ?? 4;
+    let messages = [...request.messages];
+    for (let round = 0; round <= maxToolRounds; round += 1) {
+      const result = await this.llmChatClient.complete({ ...request, messages });
+      const toolCalls = result.toolCalls ?? [];
+      if (toolCalls.length === 0) {
+        return result;
+      }
+      if (round === maxToolRounds) {
+        throw new Error(`Tool calling exceeded max rounds (${maxToolRounds})`);
+      }
+
+      messages = [...messages, buildAssistantToolCallMessage(result, toolCalls)];
+      for (const toolCall of toolCalls) {
+        const toolName = toolCall.function.name;
+        await input.onEvent?.({
+          type: "runtime.tool_call",
+          data: {
+            agent_name: input.agent.agent_name,
+            tool_call_id: toolCall.id,
+            tool_name: toolName,
+            round,
+          },
+        });
+        const toolResult = toolExecutor.executeTool(
+          {
+            toolName,
+            arguments: parseToolArguments(toolCall),
+            callId: toolCall.id,
+          },
+          toolContext,
+        );
+        await input.onEvent?.({
+          type: "runtime.tool_result",
+          data: {
+            agent_name: input.agent.agent_name,
+            tool_call_id: toolCall.id,
+            tool_name: toolName,
+            success: toolResult.success,
+            summary: toolResult.summary,
+          },
+        });
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          name: toolName,
+          content: JSON.stringify(toolResult),
+        });
+      }
+    }
+    throw new Error(`Tool calling exceeded max rounds (${maxToolRounds})`);
   }
 
   private async runStreamingText(
@@ -155,10 +257,14 @@ export class AgentRuntimeCore {
   }
 }
 
-function toRuntimeResult(input: AgentRuntimeRequest, result: { content: string; raw?: unknown }): AgentRuntimeResult {
+function shouldRunToolLoop(input: AgentRuntimeRequest, request: ChatCompletionRequest): boolean {
+  return Boolean(input.toolExecutor && input.toolContext && request.tools?.length);
+}
+
+function toRuntimeResult(input: AgentRuntimeRequest, result: ChatCompletionResult): AgentRuntimeResult {
   const runtimeResult: AgentRuntimeResult = {
     content: result.content,
-    finish_reason: null,
+    finish_reason: result.finishReason ?? null,
     metadata: {
       agent_name: input.agent.agent_name,
       provider_key: input.provider.key ?? null,
@@ -170,6 +276,40 @@ function toRuntimeResult(input: AgentRuntimeRequest, result: { content: string; 
     runtimeResult.raw = result.raw;
   }
   return runtimeResult;
+}
+
+function toChatToolDefinition(tool: RuntimeToolDefinition): ChatToolDefinition {
+  return {
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+    },
+  };
+}
+
+function buildAssistantToolCallMessage(result: ChatCompletionResult, toolCalls: ChatToolCall[]): ChatMessage {
+  return {
+    role: "assistant",
+    content: result.content,
+    tool_calls: toolCalls,
+  };
+}
+
+function parseToolArguments(toolCall: ChatToolCall): Record<string, unknown> {
+  const raw = toolCall.function.arguments.trim();
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return isRecord(parsed) ? parsed : { value: parsed };
+  } catch {
+    return {
+      _raw_arguments: raw,
+    };
+  }
 }
 
 function getSystemPrompt(agent: AgentConfig): string | null {

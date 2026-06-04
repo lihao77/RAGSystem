@@ -12,6 +12,82 @@ afterEach(() => {
 });
 
 describe("OpenAI-compatible chat client", () => {
+  it("sends tool definitions and returns assistant tool calls for non-streaming requests", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        model: "deepseek-chat",
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "list_memory_index",
+            },
+          },
+        ],
+        tool_choice: "auto",
+      });
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "tool_calls",
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: "call_1",
+                    type: "function",
+                    function: {
+                      name: "list_memory_index",
+                      arguments: "{\"scope\":\"session\"}",
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const client = new OpenAiCompatibleChatClient();
+    const result = await client.complete({
+      ...buildRequest(),
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "list_memory_index",
+            description: "List memory index",
+            parameters: {
+              type: "object",
+              properties: {
+                scope: { type: "string" },
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      content: "",
+      finishReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "call_1",
+          type: "function",
+          function: {
+            name: "list_memory_index",
+            arguments: "{\"scope\":\"session\"}",
+          },
+        },
+      ],
+    });
+  });
+
   it("streams OpenAI-compatible SSE chunks and returns the final content", async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       expect(JSON.parse(String(init?.body))).toMatchObject({

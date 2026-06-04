@@ -21,6 +21,7 @@ import type { ConversationStore } from "./conversation-store.js";
 import type { InMemoryEventBus } from "./event-bus.js";
 import type { AgentRuntimeCore, AgentRuntimeEvent } from "./agent-runtime-core.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
+import type { RuntimeToolExecutionContext, RuntimeToolExecutor } from "./runtime-tool-types.js";
 
 interface ExecutionHandle {
   abortController: AbortController;
@@ -40,6 +41,7 @@ export class AgentExecutionService {
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
     private readonly agentRuntimeCore: AgentRuntimeCore,
     private readonly contextBuilder: AgentRuntimeContextBuilder,
+    private readonly runtimeTools: RuntimeToolExecutor | null = null,
   ) {}
 
   async startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult> {
@@ -359,12 +361,18 @@ export class AgentExecutionService {
     userMessageId: string;
   }): Promise<void> {
     try {
+      const context = this.contextBuilder.buildContext({ sessionId: input.sessionId, agent: input.agent });
+      const sessionMetadata = this.sessions.getSession(input.sessionId)?.metadata ?? {};
       const response = await this.agentRuntimeCore.runText({
         agent: input.agent,
         provider: input.provider,
         modelName: input.modelName,
         signal: input.abortController.signal,
-        conversation: this.contextBuilder.buildContext({ sessionId: input.sessionId, agent: input.agent }).conversation,
+        conversation: context.conversation,
+        toolExecutor: this.runtimeTools ?? undefined,
+        toolContext: this.runtimeTools
+          ? buildRuntimeToolContext(input.agent, input.sessionId, sessionMetadata)
+          : undefined,
         onEvent: async (event) => {
           this.publishRuntimeEvent(input, event);
         },
@@ -542,6 +550,49 @@ export class AgentExecutionService {
           request_id: input.requestId,
         }),
       });
+      return;
+    }
+    if (event.type === "runtime.tool_call") {
+      const payload = {
+        kind: "tool",
+        phase: "call",
+        agent_name: event.data.agent_name,
+        tool_name: event.data.tool_name,
+        tool_call_id: event.data.tool_call_id,
+        round: event.data.round,
+        run_id: input.runId,
+        task_id: input.taskId,
+        request_id: input.requestId,
+      };
+      this.addExecutionStep(input.sessionId, input.runId, payload);
+      this.events.publish(input.sessionId, {
+        type: "execution.step",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        ...mirrorEventData(payload),
+      });
+      return;
+    }
+    if (event.type === "runtime.tool_result") {
+      const payload = {
+        kind: "tool",
+        phase: "result",
+        agent_name: event.data.agent_name,
+        tool_name: event.data.tool_name,
+        tool_call_id: event.data.tool_call_id,
+        success: event.data.success,
+        summary: event.data.summary,
+        run_id: input.runId,
+        task_id: input.taskId,
+        request_id: input.requestId,
+      };
+      this.addExecutionStep(input.sessionId, input.runId, payload);
+      this.events.publish(input.sessionId, {
+        type: "execution.step",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        ...mirrorEventData(payload),
+      });
     }
   }
 
@@ -615,6 +666,20 @@ function applySessionAgentOverrides(agent: AgentConfig, sessionMetadata: Record<
       ...agent.custom_params,
       workspace_root: workspaceRoot,
     },
+  };
+}
+
+function buildRuntimeToolContext(
+  agent: AgentConfig,
+  sessionId: string,
+  sessionMetadata: Record<string, unknown>,
+): RuntimeToolExecutionContext {
+  return {
+    agent,
+    sessionId,
+    currentAgentName: agent.agent_name,
+    teamName: asString(sessionMetadata.team),
+    workspaceRoot: asString(sessionMetadata.workspace_root) ?? asString(agent.custom_params.workspace_root),
   };
 }
 
