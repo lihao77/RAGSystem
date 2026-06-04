@@ -8,7 +8,22 @@ import type {
   ChatToolDefinition,
   LlmChatClient,
 } from "./llm-chat-client.js";
-import type { RuntimeToolDefinition, RuntimeToolExecutionContext, RuntimeToolExecutor } from "./runtime-tool-types.js";
+import type {
+  RuntimeToolCall,
+  RuntimeToolDefinition,
+  RuntimeToolExecutionContext,
+  RuntimeToolExecutor,
+} from "./runtime-tool-types.js";
+import {
+  isSemanticTaggedContent,
+  parseRuntimeToolCallsXml,
+  renderProtocolFeedbackMessage,
+  renderRuntimeXmlProtocolInstruction,
+  renderSemanticBlock,
+  renderToolResultContent,
+  renderToolResultMessage,
+  StreamingRuntimeXmlParser,
+} from "./runtime-xml-protocol.js";
 
 export type AgentRuntimeEvent =
   | {
@@ -23,6 +38,22 @@ export type AgentRuntimeEvent =
       data: {
         content: string;
         agent_name: string;
+      };
+    }
+  | {
+      type: "runtime.intent_delta";
+      data: {
+        content: string;
+        agent_name: string;
+        round: number;
+      };
+    }
+  | {
+      type: "runtime.intent_complete";
+      data: {
+        content: string;
+        agent_name: string;
+        round: number;
       };
     }
   | {
@@ -92,7 +123,9 @@ export class AgentRuntimeCore {
   async runText(input: AgentRuntimeRequest): Promise<AgentRuntimeResult> {
     const request = this.buildChatRequest(input);
     try {
-      const result = shouldRunToolLoop(input, request)
+      const result = shouldRunXmlToolLoop(input, request, this.llmChatClient)
+        ? await this.runXmlToolCallingText(input, request)
+        : shouldRunToolLoop(input, request)
         ? await this.runToolCallingText(input, request)
         : this.llmChatClient.stream
           ? await this.runStreamingText(input, request)
@@ -119,48 +152,160 @@ export class AgentRuntimeCore {
     }
   }
 
-  buildMessages(agent: AgentConfig, conversation: ChatMessage[]): ChatMessage[] {
+  buildMessages(
+    agent: AgentConfig,
+    conversation: ChatMessage[],
+    options: { xmlProtocolTools?: RuntimeToolDefinition[] } = {},
+  ): ChatMessage[] {
     const messages: ChatMessage[] = [];
     const systemParts: string[] = [];
     const systemPrompt = getSystemPrompt(agent);
     if (systemPrompt) {
-      systemParts.push(systemPrompt);
+      systemParts.push(renderSemanticBlock("system_instruction", systemPrompt, { source: "agent_config" }));
     }
     let conversationIndex = 0;
     while (conversation[conversationIndex]?.role === "system") {
       const content = conversation[conversationIndex]?.content.trim();
       if (content) {
-        systemParts.push(content);
+        systemParts.push(renderSystemContextBlock(content));
       }
       conversationIndex += 1;
+    }
+    if (options.xmlProtocolTools?.length) {
+      systemParts.push(renderRuntimeXmlProtocolInstruction(options.xmlProtocolTools));
     }
     if (systemParts.length > 0) {
       messages.push({ role: "system", content: systemParts.join("\n\n") });
     }
-    messages.push(...conversation.slice(conversationIndex));
+    messages.push(...conversation.slice(conversationIndex).map((message) => renderSemanticChatMessage(message)));
     return messages;
   }
 
   private buildChatRequest(input: AgentRuntimeRequest): ChatCompletionRequest {
+    const visibleTools =
+      input.toolExecutor && input.toolContext ? input.toolExecutor.listVisibleTools(input.agent) : [];
     const request: ChatCompletionRequest = {
-      messages: this.buildMessages(input.agent, input.conversation),
+      messages: this.buildMessages(input.agent, input.conversation, {
+        xmlProtocolTools: visibleTools,
+      }),
       model: input.modelName,
       provider: input.provider,
       agent: input.agent,
       temperature: input.agent.llm_tiers?.default?.temperature ?? null,
       maxCompletionTokens: input.agent.llm_tiers?.default?.max_completion_tokens ?? null,
     };
-    if (input.toolExecutor && input.toolContext) {
-      const visibleTools = input.toolExecutor.listVisibleTools(input.agent);
-      if (visibleTools.length > 0) {
-        request.tools = visibleTools.map(toChatToolDefinition);
-        request.toolChoice = "auto";
-      }
+    if (visibleTools.length > 0) {
+      request.tools = visibleTools.map(toChatToolDefinition);
+      request.toolChoice = "auto";
     }
     if (input.signal) {
       request.signal = input.signal;
     }
     return request;
+  }
+
+  private async runXmlToolCallingText(
+    input: AgentRuntimeRequest,
+    request: ChatCompletionRequest,
+  ): Promise<ChatCompletionResult> {
+    const toolExecutor = input.toolExecutor;
+    const toolContext = input.toolContext;
+    if (!toolExecutor || !toolContext || !this.llmChatClient.stream) {
+      return this.runToolCallingText(input, request);
+    }
+
+    const maxToolRounds = input.maxToolRounds ?? 4;
+    const maxProtocolRepairAttempts = 2;
+    let protocolRepairAttempts = 0;
+    let messages = [...request.messages];
+    const xmlRequest = withoutNativeTools(request);
+
+    for (let round = 0; round <= maxToolRounds; ) {
+      const roundResult = await this.runXmlStreamRound(input, { ...xmlRequest, messages }, round);
+      if (roundResult.error) {
+        if (protocolRepairAttempts >= maxProtocolRepairAttempts) {
+          throw new Error(`XML protocol repair exceeded max attempts: ${roundResult.error}`);
+        }
+        protocolRepairAttempts += 1;
+        messages = [
+          ...messages,
+          { role: "assistant", content: roundResult.rawContent },
+          renderProtocolFeedbackMessage(roundResult.error, protocolRepairAttempts, maxProtocolRepairAttempts),
+        ];
+        continue;
+      }
+
+      protocolRepairAttempts = 0;
+      if (roundResult.toolCalls.length > 0) {
+        if (round === maxToolRounds) {
+          throw new Error(`Tool calling exceeded max rounds (${maxToolRounds})`);
+        }
+
+        messages = [...messages, { role: "assistant", content: roundResult.rawContent }];
+        for (const [index, call] of roundResult.toolCalls.entries()) {
+          const toolName = call.toolName;
+          const callId = call.callId ?? `xml_round_${round}_call_${index + 1}`;
+          await input.onEvent?.({
+            type: "runtime.tool_call",
+            data: {
+              agent_name: input.agent.agent_name,
+              tool_call_id: callId,
+              tool_name: toolName,
+              round,
+            },
+          });
+          const toolResult = toolExecutor.executeTool(
+            {
+              toolName,
+              arguments: call.arguments,
+              callId,
+            },
+            toolContext,
+          );
+          await input.onEvent?.({
+            type: "runtime.tool_result",
+            data: {
+              agent_name: input.agent.agent_name,
+              tool_call_id: callId,
+              tool_name: toolName,
+              success: toolResult.success,
+              summary: toolResult.summary,
+            },
+          });
+          messages.push(renderToolResultMessage({ callId, toolName, result: toolResult }));
+        }
+        round += 1;
+        continue;
+      }
+
+      const content = roundResult.finalAnswer.trim() ? roundResult.finalAnswer : roundResult.fallbackAnswer;
+      if (content.trim()) {
+        return {
+          content,
+          raw: {
+            protocol: "xml",
+            raw_content: roundResult.rawContent,
+          },
+          finishReason: roundResult.finishReason,
+        };
+      }
+
+      if (protocolRepairAttempts >= maxProtocolRepairAttempts) {
+        throw new Error("XML protocol repair exceeded max attempts: no final_answer or tool_calls found");
+      }
+      protocolRepairAttempts += 1;
+      messages = [
+        ...messages,
+        { role: "assistant", content: roundResult.rawContent },
+        renderProtocolFeedbackMessage(
+          "no final_answer or tool_calls found",
+          protocolRepairAttempts,
+          maxProtocolRepairAttempts,
+        ),
+      ];
+    }
+
+    throw new Error(`Tool calling exceeded max rounds (${maxToolRounds})`);
   }
 
   private async runToolCallingText(
@@ -219,11 +364,122 @@ export class AgentRuntimeCore {
           role: "tool",
           tool_call_id: toolCall.id,
           name: toolName,
-          content: JSON.stringify(toolResult),
+          content: renderToolResultContent({
+            callId: toolCall.id,
+            toolName,
+            result: toolResult,
+          }),
         });
       }
     }
     throw new Error(`Tool calling exceeded max rounds (${maxToolRounds})`);
+  }
+
+  private async runXmlStreamRound(
+    input: AgentRuntimeRequest,
+    request: ChatCompletionRequest,
+    round: number,
+  ): Promise<{
+    rawContent: string;
+    finalAnswer: string;
+    fallbackAnswer: string;
+    toolCalls: RuntimeToolCall[];
+    finishReason: string | null;
+    error: string | null;
+  }> {
+    const parser = new StreamingRuntimeXmlParser();
+    let firstChunkSeen = false;
+    const providerStartedAt = Date.now();
+    let intent = "";
+    let finalAnswer = "";
+    let toolCallsClosed = false;
+    let finalAnswerStarted = false;
+    let ignoredToolCallsAfterFinal = false;
+    let error: string | null = null;
+    const toolCalls: RuntimeToolCall[] = [];
+
+    const result = await this.llmChatClient.stream!(request, async (chunk) => {
+      if (!chunk.content) {
+        return;
+      }
+      if (!firstChunkSeen) {
+        firstChunkSeen = true;
+        await input.onEvent?.({
+          type: "runtime.first_token",
+          data: {
+            elapsed_ms: Date.now() - providerStartedAt,
+            agent_name: input.agent.agent_name,
+          },
+        });
+      }
+      const events = parser.feed(chunk.content);
+      for (const event of events) {
+        if (event.type === "tag_open" && event.tag === "final_answer") {
+          finalAnswerStarted = true;
+        }
+        if (event.type === "tag_open" && event.tag === "tool_calls" && finalAnswerStarted) {
+          ignoredToolCallsAfterFinal = true;
+        }
+        if (event.type === "content" && event.tag === "intent") {
+          intent += event.content;
+          await input.onEvent?.({
+            type: "runtime.intent_delta",
+            data: {
+              content: event.content,
+              agent_name: input.agent.agent_name,
+              round,
+            },
+          });
+        }
+        if (event.type === "content" && event.tag === "final_answer" && !toolCallsClosed) {
+          finalAnswer += event.content;
+          await input.onEvent?.({
+            type: "runtime.output_delta",
+            data: {
+              content: event.content,
+              agent_name: input.agent.agent_name,
+            },
+          });
+        }
+        if (event.type === "tag_close" && event.tag === "intent") {
+          await input.onEvent?.({
+            type: "runtime.intent_complete",
+            data: {
+              content: intent,
+              agent_name: input.agent.agent_name,
+              round,
+            },
+          });
+        }
+        if (event.type === "tag_close" && event.tag === "tool_calls" && !ignoredToolCallsAfterFinal) {
+          toolCallsClosed = true;
+          const parsed = parseRuntimeToolCallsXml(parser.getTagContent("tool_calls"));
+          if (parsed.error) {
+            error = parsed.error;
+          }
+          toolCalls.push(...parsed.calls);
+        }
+      }
+    });
+
+    const rawContent = parser.getFullResponse() || result.content;
+    if (parser.currentState !== null && !error) {
+      error = `unclosed <${parser.currentState}> tag`;
+    }
+    const sawProtocolTag = Boolean(
+      parser.getTagContent("intent").trim() ||
+        parser.getTagContent("tool_calls").trim() ||
+        parser.getTagContent("final_answer").trim(),
+    );
+    const fallbackAnswer = sawProtocolTag ? "" : rawContent;
+    return {
+      rawContent,
+      finalAnswer,
+      fallbackAnswer,
+      toolCalls,
+      finishReason: result.finishReason ?? null,
+      error,
+    };
   }
 
   private async runStreamingText(
@@ -261,6 +517,14 @@ function shouldRunToolLoop(input: AgentRuntimeRequest, request: ChatCompletionRe
   return Boolean(input.toolExecutor && input.toolContext && request.tools?.length);
 }
 
+function shouldRunXmlToolLoop(
+  input: AgentRuntimeRequest,
+  request: ChatCompletionRequest,
+  llmChatClient: LlmChatClient,
+): boolean {
+  return shouldRunToolLoop(input, request) && Boolean(llmChatClient.stream);
+}
+
 function toRuntimeResult(input: AgentRuntimeRequest, result: ChatCompletionResult): AgentRuntimeResult {
   const runtimeResult: AgentRuntimeResult = {
     content: result.content,
@@ -295,6 +559,50 @@ function buildAssistantToolCallMessage(result: ChatCompletionResult, toolCalls: 
     content: result.content,
     tool_calls: toolCalls,
   };
+}
+
+function withoutNativeTools(request: ChatCompletionRequest): ChatCompletionRequest {
+  const { tools: _tools, toolChoice: _toolChoice, ...rest } = request;
+  return rest;
+}
+
+function renderSystemContextBlock(content: string): string {
+  if (isSemanticTaggedContent(content)) {
+    return content;
+  }
+  if (content.includes("[Memory Scope Capabilities]") || content.includes("Memory Index]")) {
+    return renderSemanticBlock("context", content, { source: "memory" });
+  }
+  return renderSemanticBlock("runtime_instruction", content, { source: "runtime_context" });
+}
+
+function renderSemanticChatMessage(message: ChatMessage): ChatMessage {
+  if (isSemanticTaggedContent(message.content)) {
+    return { ...message };
+  }
+  if (message.role === "user") {
+    return {
+      ...message,
+      content: renderSemanticBlock("user_input", message.content, { source: "conversation" }),
+    };
+  }
+  if (message.role === "assistant") {
+    return {
+      ...message,
+      content: renderSemanticBlock("assistant_final", message.content, { source: "conversation" }),
+    };
+  }
+  if (message.role === "tool") {
+    return {
+      ...message,
+      content: renderSemanticBlock("tool_result", message.content, {
+        source: "native_tool_message",
+        call_id: message.tool_call_id ?? "",
+        name: message.name ?? "",
+      }),
+    };
+  }
+  return { ...message, content: renderSystemContextBlock(message.content) };
 }
 
 function parseToolArguments(toolCall: ChatToolCall): Record<string, unknown> {

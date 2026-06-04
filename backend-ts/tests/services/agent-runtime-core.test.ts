@@ -40,6 +40,30 @@ class FakeStreamingChatClient implements LlmChatClient {
   }
 }
 
+class FakeXmlStreamingToolChatClient implements LlmChatClient {
+  readonly requests: ChatCompletionRequest[] = [];
+
+  constructor(private readonly responses: string[][]) {}
+
+  async complete(): Promise<{ content: string }> {
+    throw new Error("complete should not be called for XML streaming tool loops");
+  }
+
+  async stream(request: ChatCompletionRequest, onChunk: (chunk: { content: string }) => void | Promise<void>) {
+    this.requests.push(request);
+    const response = this.responses.shift();
+    if (!response) {
+      throw new Error("missing fake XML stream response");
+    }
+    let content = "";
+    for (const chunk of response) {
+      content += chunk;
+      await onChunk({ content: chunk });
+    }
+    return { content, finishReason: "stop" };
+  }
+}
+
 class FakeToolCallingChatClient implements LlmChatClient {
   readonly requests: ChatCompletionRequest[] = [];
 
@@ -121,10 +145,12 @@ describe("AgentRuntimeCore", () => {
       temperature: 0.2,
       maxCompletionTokens: 1024,
       messages: [
-        { role: "system", content: "You are the core." },
-        { role: "user", content: "hello" },
+        { role: "system", content: expect.stringContaining("<system_instruction") },
+        { role: "user", content: expect.stringContaining("<user_input") },
       ],
     });
+    expect(client.requests[0]?.messages[0]?.content).toContain("You are the core.");
+    expect(client.requests[0]?.messages[1]?.content).toContain("hello");
   });
 
   it("merges leading system context with the agent system prompt", async () => {
@@ -144,10 +170,12 @@ describe("AgentRuntimeCore", () => {
     expect(client.requests[0]?.messages).toEqual([
       {
         role: "system",
-        content: "You are the core.\n\n[Memory Scope Capabilities]\n- 可读取 scope: session",
+        content: expect.stringContaining("<context source=\"memory\">"),
       },
-      { role: "user", content: "hello" },
+      { role: "user", content: expect.stringContaining("<user_input") },
     ]);
+    expect(client.requests[0]?.messages[0]?.content).toContain("You are the core.");
+    expect(client.requests[0]?.messages[0]?.content).toContain("[Memory Scope Capabilities]");
   });
 
   it("emits provider-stream events without depending on backend session state", async () => {
@@ -206,6 +234,133 @@ describe("AgentRuntimeCore", () => {
         },
       },
     ]);
+  });
+
+  it("streams XML intent, executes XML tool calls, and returns final_answer", async () => {
+    const client = new FakeXmlStreamingToolChatClient([
+      [
+        "<intent>",
+        "我先查看 session 记忆。",
+        "</intent><tool_calls>",
+        '<tool name="list_memory_index"><scope>session</scope></tool>',
+        "</tool_calls>",
+      ],
+      ["<final_answer>", "I used the session memory index.", "</final_answer>"],
+    ]);
+    const tools = new FakeRuntimeToolExecutor();
+    const core = new AgentRuntimeCore(client);
+    const agent = minimalAgent();
+    const events: AgentRuntimeEvent[] = [];
+
+    const result = await core.runText({
+      agent,
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [{ role: "user", content: "check memory" }],
+      toolExecutor: tools,
+      toolContext: {
+        agent,
+        sessionId: "s1",
+        currentAgentName: "orchestrator_agent",
+      },
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(result).toMatchObject({
+      content: "I used the session memory index.",
+      finish_reason: "stop",
+    });
+    expect(client.requests).toHaveLength(2);
+    expect(client.requests[0]?.tools).toBeUndefined();
+    expect(client.requests[0]?.toolChoice).toBeUndefined();
+    expect(client.requests[0]?.messages[0]?.content).toContain("<runtime_instruction");
+    expect(client.requests[0]?.messages[0]?.content).toContain("<tool_manifest>");
+    expect(client.requests[1]?.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "assistant",
+          content: expect.stringContaining("<tool_calls>"),
+        }),
+        expect.objectContaining({
+          role: "user",
+          content: expect.stringContaining("<tool_result"),
+        }),
+      ]),
+    );
+    expect(tools.calls).toMatchObject([
+      {
+        call: {
+          toolName: "list_memory_index",
+          arguments: { scope: "session" },
+          callId: "xml_round_0_call_1",
+        },
+      },
+    ]);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "runtime.intent_delta",
+          data: expect.objectContaining({ content: "我先查看 session 记忆。", round: 0 }),
+        }),
+        expect.objectContaining({
+          type: "runtime.intent_complete",
+          data: expect.objectContaining({ content: "我先查看 session 记忆。", round: 0 }),
+        }),
+        expect.objectContaining({
+          type: "runtime.tool_call",
+          data: expect.objectContaining({ tool_name: "list_memory_index" }),
+        }),
+        expect.objectContaining({
+          type: "runtime.tool_result",
+          data: expect.objectContaining({ success: true }),
+        }),
+        expect.objectContaining({
+          type: "runtime.output_delta",
+          data: expect.objectContaining({ content: "I used the session memory index." }),
+        }),
+        expect.objectContaining({
+          type: "runtime.done",
+          data: expect.objectContaining({ content: "I used the session memory index." }),
+        }),
+      ]),
+    );
+  });
+
+  it("feeds protocol feedback back to the model when XML tool calls are malformed", async () => {
+    const client = new FakeXmlStreamingToolChatClient([
+      ["<tool_calls>not a tool</tool_calls>"],
+      ["<final_answer>repaired answer</final_answer>"],
+    ]);
+    const tools = new FakeRuntimeToolExecutor();
+    const core = new AgentRuntimeCore(client);
+    const agent = minimalAgent();
+
+    const result = await core.runText({
+      agent,
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [{ role: "user", content: "check memory" }],
+      toolExecutor: tools,
+      toolContext: {
+        agent,
+        sessionId: "s1",
+        currentAgentName: "orchestrator_agent",
+      },
+    });
+
+    expect(result.content).toBe("repaired answer");
+    expect(client.requests).toHaveLength(2);
+    expect(client.requests[1]?.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "user",
+          content: expect.stringContaining("<protocol_feedback"),
+        }),
+      ]),
+    );
+    expect(tools.calls).toHaveLength(0);
   });
 
   it("runs a non-streaming tool-call loop through the runtime tool executor", async () => {

@@ -17,6 +17,8 @@ export const ClientEventTypeSchema = z.enum([
   "command.result",
   "execution.step",
   "agent.error",
+  "agent.intent_delta",
+  "agent.intent_complete",
   "llm.first_token",
   "output.chunk",
   "output.final_answer",

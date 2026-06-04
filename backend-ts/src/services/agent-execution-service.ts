@@ -552,6 +552,38 @@ export class AgentExecutionService {
       });
       return;
     }
+    if (event.type === "runtime.intent_delta") {
+      this.events.publish(input.sessionId, {
+        type: "agent.intent_delta",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        ...mirrorEventData({
+          content: event.data.content,
+          agent_name: event.data.agent_name,
+          round: event.data.round,
+          run_id: input.runId,
+          task_id: input.taskId,
+          request_id: input.requestId,
+        }),
+      });
+      return;
+    }
+    if (event.type === "runtime.intent_complete") {
+      this.events.publish(input.sessionId, {
+        type: "agent.intent_complete",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        ...mirrorEventData({
+          content: event.data.content,
+          agent_name: event.data.agent_name,
+          round: event.data.round,
+          run_id: input.runId,
+          task_id: input.taskId,
+          request_id: input.requestId,
+        }),
+      });
+      return;
+    }
     if (event.type === "runtime.tool_call") {
       const payload = {
         kind: "tool",

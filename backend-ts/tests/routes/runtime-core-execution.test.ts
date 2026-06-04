@@ -79,6 +79,30 @@ class FakeToolCallingChatClient implements LlmChatClient {
   }
 }
 
+class FakeXmlStreamingToolChatClient implements LlmChatClient {
+  readonly requests: ChatCompletionRequest[] = [];
+
+  constructor(private readonly responses: string[][]) {}
+
+  async complete(): Promise<{ content: string }> {
+    throw new Error("complete should not be called for XML streaming tool loops");
+  }
+
+  async stream(request: ChatCompletionRequest, onChunk: (chunk: { content: string }) => void | Promise<void>) {
+    this.requests.push(request);
+    const response = this.responses.shift();
+    if (!response) {
+      throw new Error("missing fake XML stream response");
+    }
+    let content = "";
+    for (const chunk of response) {
+      content += chunk;
+      await onChunk({ content: chunk });
+    }
+    return { content, finishReason: "stop" };
+  }
+}
+
 describe("minimal runtime core execution", () => {
   it("starts a configured single-agent text run and persists the final answer", async () => {
     const chatClient = new FakeChatClient("hello from ts core");
@@ -121,10 +145,11 @@ describe("minimal runtime core execution", () => {
     });
     expect(chatClient.requests[0]?.messages).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ role: "system" }),
-        expect.objectContaining({ role: "user", content: "hello" }),
+        expect.objectContaining({ role: "system", content: expect.stringContaining("<system_instruction") }),
+        expect.objectContaining({ role: "user", content: expect.stringContaining("<user_input") }),
       ]),
     );
+    expect(chatClient.requests[0]?.messages.at(-1)?.content).toContain("hello");
 
     const messages = await app.inject({
       method: "GET",
@@ -345,6 +370,76 @@ describe("minimal runtime core execution", () => {
         expect.objectContaining({ kind: "tool", phase: "result" }),
         expect.objectContaining({ kind: "final", phase: "complete" }),
       ]),
+    });
+  });
+
+  it("publishes agent intent events for XML streaming tool runs", async () => {
+    const chatClient = new FakeXmlStreamingToolChatClient([
+      [
+        "<intent>",
+        "我先读取 session 记忆。",
+        "</intent><tool_calls>",
+        '<tool name="list_memory_index"><scope>session</scope></tool>',
+        "</tool_calls>",
+      ],
+      ["<final_answer>", "The XML runtime read memory.", "</final_answer>"],
+    ]);
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+
+    await createDefaultChatProvider(app);
+    writeTestMemoryFile(["memory", "sessions", "xml-tool-runtime-session", "MEMORY.md"], "# XML Runtime Memory\n");
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      headers: {
+        "x-request-id": "req-runtime-xml-tool",
+      },
+      payload: {
+        task: "use memory through xml",
+        session_id: "xml-tool-runtime-session",
+      },
+    });
+
+    expect(started.statusCode).toBe(200);
+    await waitFor(
+      () => harness.container.agentExecution.getSessionTaskStatus("xml-tool-runtime-session").task_info?.status === "completed",
+    );
+
+    expect(chatClient.requests).toHaveLength(2);
+    expect(chatClient.requests[0]?.tools).toBeUndefined();
+    expect(chatClient.requests[0]?.messages[0]?.content).toContain("<tool_manifest>");
+    expect(chatClient.requests[1]?.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "user",
+          content: expect.stringContaining("<tool_result"),
+        }),
+      ]),
+    );
+
+    const history = harness.container.events.getHistory("xml-tool-runtime-session");
+    expect(history.find((event) => event.type === "agent.intent_delta")?.data).toMatchObject({
+      content: "我先读取 session 记忆。",
+      round: 0,
+      request_id: "req-runtime-xml-tool",
+    });
+    expect(history.find((event) => event.type === "agent.intent_complete")?.data).toMatchObject({
+      content: "我先读取 session 记忆。",
+      round: 0,
+    });
+    expect(history.find((event) => event.type === "output.final_answer")?.data).toMatchObject({
+      content: "The XML runtime read memory.",
+    });
+
+    const messages = await app.inject({
+      method: "GET",
+      url: "/api/agent/sessions/xml-tool-runtime-session/messages?expand=1",
+    });
+    expect(messages.json().data.items.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "The XML runtime read memory.",
     });
   });
 
