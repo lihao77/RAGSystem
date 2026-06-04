@@ -5,14 +5,21 @@ import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
 import { RuntimeCoreService, type RuntimeAgentConfigPort, type RuntimeModelProviderPort } from "../../src/services/runtime-core-service.js";
 
 class InMemoryAgentConfigs implements RuntimeAgentConfigPort {
-  constructor(private readonly configs: Record<string, AgentConfig>) {}
+  constructor(
+    private readonly configs: Record<string, AgentConfig>,
+    private readonly configsByTeam: Record<string, Record<string, AgentConfig>> = {},
+  ) {}
 
-  getConfig(agentName: string): AgentConfig | null {
-    return this.configs[agentName] ?? null;
+  getConfig(agentName: string, options: { teamName?: string | null } = {}): AgentConfig | null {
+    return this.selectConfigs(options.teamName)[agentName] ?? null;
   }
 
-  listConfigs(): Record<string, AgentConfig> {
-    return structuredClone(this.configs) as Record<string, AgentConfig>;
+  listConfigs(options: { teamName?: string | null } = {}): Record<string, AgentConfig> {
+    return structuredClone(this.selectConfigs(options.teamName)) as Record<string, AgentConfig>;
+  }
+
+  private selectConfigs(teamName?: string | null): Record<string, AgentConfig> {
+    return teamName ? (this.configsByTeam[teamName] ?? {}) : this.configs;
   }
 }
 
@@ -94,6 +101,38 @@ describe("RuntimeCoreService ports", () => {
         key: "other_deepseek",
       },
       modelName: "deepseek-alt",
+    });
+  });
+
+  it("resolves entry agents from a session-scoped team view", () => {
+    const service = new RuntimeCoreService(
+      new InMemoryAgentConfigs(
+        {
+          orchestrator_agent: minimalAgent("orchestrator_agent", true),
+        },
+        {
+          research: {
+            research_agent: minimalAgent("research_agent", true),
+          },
+        },
+      ),
+      new InMemoryModelProviders([minimalProvider()]),
+    );
+
+    const resolved = service.resolveExecutionConfig({
+      teamName: "research",
+    });
+
+    expect(resolved).toMatchObject({
+      readiness: {
+        configuration_ready: true,
+        agent: {
+          agent_name: "research_agent",
+        },
+      },
+      agent: {
+        agent_name: "research_agent",
+      },
     });
   });
 });

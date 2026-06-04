@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { AgentSessionApplication } from "../../src/services/agent-session-application.js";
@@ -19,6 +21,33 @@ describe("AgentSessionApplication", () => {
       user_id: "u1",
       metadata: { team: "default" },
     });
+    store.close();
+  });
+
+  it("normalizes Python-compatible session runtime metadata", () => {
+    const store = new ConversationStore({ dbPath: ":memory:" });
+    const app = new AgentSessionApplication(store);
+    const workspaceRoot = path.resolve("workspace-demo");
+
+    const created = app.createSession({
+      sessionId: "s-meta",
+      metadata: {
+        team: "  ",
+        entry_agent: "  orchestrator  ",
+        workspace_root: `\"${workspaceRoot}\"`,
+      },
+    });
+
+    expect(created.metadata).toEqual({
+      entry_agent: "orchestrator",
+      workspace_root: workspaceRoot,
+    });
+    expect(() =>
+      app.createSession({
+        sessionId: "s-invalid",
+        metadata: { workspace_root: "relative/path" },
+      }),
+    ).toThrow("metadata.workspace_root 必须是绝对路径");
     store.close();
   });
 

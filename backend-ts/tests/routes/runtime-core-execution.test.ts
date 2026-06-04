@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
@@ -231,6 +233,82 @@ describe("minimal runtime core execution", () => {
       expect.objectContaining({ role: "user", content: "stream hello" }),
       expect.objectContaining({ role: "assistant", content: "hello from stream" }),
     ]);
+  });
+
+  it("uses session team, entry agent, and workspace metadata when resolving runtime config", async () => {
+    const chatClient = new FakeChatClient("team scoped answer");
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+
+    await createDefaultChatProvider(app);
+    harness.container.agentConfig.createTeam("research", "default");
+    harness.container.agentConfig.activateTeam("research");
+    harness.container.agentConfig.createAgent({
+      agent_name: "research_agent",
+      display_name: "Research Agent",
+      default_entry: true,
+      llm: {
+        provider: "my",
+        provider_type: "deepseek",
+        model_name: "deepseek-chat",
+        extra_params: {},
+      },
+      custom_params: {
+        behavior: {
+          system_prompt: "You are research.",
+        },
+      },
+    });
+    harness.container.agentConfig.activateTeam("default");
+    const workspaceRoot = path.resolve("runtime-workspace");
+    harness.container.sessionApplication.createSession({
+      sessionId: "team-runtime-session",
+      metadata: {
+        team: "research",
+        entry_agent: "research_agent",
+        workspace_root: workspaceRoot,
+      },
+    });
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      headers: {
+        "x-request-id": "req-team-runtime",
+      },
+      payload: {
+        task: "use session metadata",
+        session_id: "team-runtime-session",
+      },
+    });
+
+    expect(started.statusCode).toBe(200);
+    await waitFor(() => harness.container.agentExecution.getSessionTaskStatus("team-runtime-session").task_info?.status === "completed");
+
+    expect(chatClient.requests).toHaveLength(1);
+    expect(chatClient.requests[0]).toMatchObject({
+      agent: {
+        agent_name: "research_agent",
+        custom_params: expect.objectContaining({
+          workspace_root: workspaceRoot,
+        }),
+      },
+    });
+    expect(chatClient.requests[0]?.messages[0]).toMatchObject({
+      role: "system",
+      content: expect.stringContaining("You are research."),
+    });
+    const messages = await app.inject({
+      method: "GET",
+      url: "/api/agent/sessions/team-runtime-session/messages?expand=1",
+    });
+    expect(messages.json().data.items.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "team scoped answer",
+      metadata: {
+        agent: "research_agent",
+      },
+    });
   });
 
   it("can interrupt a running minimal runtime-core request", async () => {

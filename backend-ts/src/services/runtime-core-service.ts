@@ -4,12 +4,13 @@ import type { ModelProviderConfig, ModelMapValue } from "../contracts/model-adap
 
 export interface RuntimeCoreReadinessInput {
   agentName?: string | null;
+  teamName?: string | null;
   selectedLlm?: string | null;
 }
 
 export interface RuntimeAgentConfigPort {
-  getConfig(agentName: string): AgentConfig | null;
-  listConfigs(): Record<string, AgentConfig>;
+  getConfig(agentName: string, options?: { teamName?: string | null }): AgentConfig | null;
+  listConfigs(options?: { teamName?: string | null }): Record<string, AgentConfig>;
 }
 
 export interface RuntimeModelProviderPort {
@@ -42,7 +43,7 @@ export class RuntimeCoreService {
   ) {}
 
   getReadiness(input: RuntimeCoreReadinessInput = {}): RuntimeCoreReadiness {
-    const agent = this.resolveAgent(input.agentName);
+    const agent = this.resolveAgent(input);
     const llm = this.resolveLlm(agent, input.selectedLlm);
     const provider = this.resolveProvider(llm);
     const requirements = this.buildRequirements(agent, llm, provider);
@@ -85,7 +86,7 @@ export class RuntimeCoreService {
   }
 
   resolveExecutionConfig(input: RuntimeCoreReadinessInput = {}): RuntimeExecutionConfig {
-    const agent = this.resolveAgent(input.agentName);
+    const agent = this.resolveAgent(input);
     const llm = this.resolveLlm(agent, input.selectedLlm);
     const provider = this.resolveProviderConfig(llm);
     return {
@@ -96,18 +97,19 @@ export class RuntimeCoreService {
     };
   }
 
-  private resolveAgent(agentName: string | null | undefined): AgentConfig | null {
-    const requested = agentName?.trim();
+  private resolveAgent(input: RuntimeCoreReadinessInput): AgentConfig | null {
+    const requested = input.agentName?.trim();
+    const teamName = input.teamName?.trim() || null;
     if (requested) {
-      return this.agentConfigs.getConfig(requested);
+      return this.agentConfigs.getConfig(requested, { teamName });
     }
 
-    const configs = this.agentConfigs.listConfigs();
+    const configs = this.agentConfigs.listConfigs({ teamName });
     const defaultEntry = Object.values(configs).find((config) => config.default_entry);
     if (defaultEntry) {
       return defaultEntry;
     }
-    return this.agentConfigs.getConfig("orchestrator_agent");
+    return this.agentConfigs.getConfig("orchestrator_agent", { teamName });
   }
 
   private resolveLlm(agent: AgentConfig | null, selectedLlm: string | null | undefined): ResolvedLlm {

@@ -43,8 +43,9 @@ export class AgentConfigService {
     this.loadTeamsFromDisk();
   }
 
-  listConfigs(): Record<string, AgentConfig> {
-    return configsToRecord(this.getActiveConfigs());
+  listConfigs(options: { teamName?: string | null } = {}): Record<string, AgentConfig> {
+    const configs = this.resolveConfigsForRead(options.teamName);
+    return configs ? configsToRecord(configs) : {};
   }
 
   listAgents(): AgentInfo[] {
@@ -53,8 +54,9 @@ export class AgentConfigService {
       .sort((left, right) => left.name.localeCompare(right.name));
   }
 
-  getConfig(agentName: string): AgentConfig | null {
-    const config = this.getActiveConfigs().get(agentName);
+  getConfig(agentName: string, options: { teamName?: string | null } = {}): AgentConfig | null {
+    const configs = this.resolveConfigsForRead(options.teamName);
+    const config = configs?.get(agentName);
     return config ? cloneConfig(config) : null;
   }
 
@@ -335,6 +337,14 @@ export class AgentConfigService {
 
   private getActiveConfigs(): TeamConfigs {
     return this.getTeamConfigs(this.activeTeam);
+  }
+
+  private resolveConfigsForRead(teamName?: string | null): TeamConfigs | null {
+    const normalized = teamName?.trim();
+    if (!normalized) {
+      return this.getActiveConfigs();
+    }
+    return this.teams.get(normalized) ?? null;
   }
 
   private getTeamConfigs(teamName: string): TeamConfigs {

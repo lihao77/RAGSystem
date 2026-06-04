@@ -1,11 +1,23 @@
+import path from "node:path";
+
 import { z } from "zod";
 
-export const SessionMetadataSchema = z.record(z.string(), z.unknown()).default({});
+export const SessionMetadataSchema = z.unknown().optional().transform((value, context) => {
+  try {
+    return normalizeSessionMetadata(value);
+  } catch (error) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return z.NEVER;
+  }
+});
 
 export const CreateSessionRequestSchema = z.object({
   session_id: z.string().nullable().optional(),
   user_id: z.string().nullable().optional(),
-  metadata: SessionMetadataSchema.optional().default({}),
+  metadata: SessionMetadataSchema,
 });
 
 export const UpdateMessageRequestSchema = z.object({
@@ -56,4 +68,84 @@ export interface MessageInfo {
   child_agent_id: string | null;
   has_execution?: boolean;
   execution_steps?: Record<string, unknown>[];
+}
+
+export function normalizeSessionMetadata(value: unknown): Record<string, unknown> {
+  if (value === undefined || value === null) {
+    return {};
+  }
+  if (!isRecord(value)) {
+    throw new Error("metadata 必须是对象");
+  }
+
+  const metadata: Record<string, unknown> = { ...value };
+  if ("workspace_root" in metadata) {
+    metadata.workspace_root = normalizeWorkspaceRoot(metadata.workspace_root);
+  }
+  if ("entry_agent" in metadata) {
+    metadata.entry_agent = normalizeEntryAgent(metadata.entry_agent);
+  }
+  if ("team" in metadata) {
+    const team = normalizeTeam(metadata.team);
+    if (team === null) {
+      delete metadata.team;
+    } else {
+      metadata.team = team;
+    }
+  }
+  return metadata;
+}
+
+function normalizeWorkspaceRoot(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new Error("metadata.workspace_root 必须是字符串或 null");
+  }
+  const normalized = stripWrappedQuotes(value);
+  if (!normalized) {
+    throw new Error("metadata.workspace_root 不能为空字符串");
+  }
+  if (!path.isAbsolute(normalized)) {
+    throw new Error("metadata.workspace_root 必须是绝对路径");
+  }
+  return normalized;
+}
+
+function normalizeEntryAgent(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new Error("metadata.entry_agent 必须是字符串或 null");
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new Error("metadata.entry_agent 不能为空字符串");
+  }
+  return normalized;
+}
+
+function normalizeTeam(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new Error("metadata.team 必须是字符串或 null");
+  }
+  const normalized = value.trim();
+  return normalized || null;
+}
+
+function stripWrappedQuotes(value: string): string {
+  const normalized = value.trim();
+  if (normalized.length >= 2 && normalized[0] === normalized.at(-1) && (normalized[0] === "\"" || normalized[0] === "'")) {
+    return normalized.slice(1, -1).trim();
+  }
+  return normalized;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

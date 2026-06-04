@@ -1,5 +1,5 @@
 import type { PaginatedResult } from "../contracts/common.js";
-import type { MessageInfo, SessionInfo, SessionListItem } from "../contracts/session.js";
+import { normalizeSessionMetadata, type MessageInfo, type SessionInfo, type SessionListItem } from "../contracts/session.js";
 import type { ConversationStore } from "./conversation-store.js";
 
 export class AgentSessionApplication {
@@ -163,20 +163,6 @@ export class AgentSessionApplication {
       message_count: messages.items.length,
     };
   }
-}
-
-export function normalizeSessionMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
-  const normalized = { ...metadata };
-  if (typeof normalized.team === "string" && !normalized.team.trim()) {
-    delete normalized.team;
-  }
-  if (typeof normalized.team === "string") {
-    normalized.team = normalized.team.trim();
-  }
-  if (typeof normalized.entry_agent === "string") {
-    normalized.entry_agent = normalized.entry_agent.trim();
-  }
-  return normalized;
 }
 
 function isVisibleRootMessage(item: MessageInfo): boolean {

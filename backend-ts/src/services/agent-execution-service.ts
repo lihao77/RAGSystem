@@ -74,7 +74,10 @@ export class AgentExecutionService {
       };
     }
 
+    const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
     const resolved = this.runtimeCore.resolveExecutionConfig({
+      agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
+      teamName: asString(sessionMetadata.team),
       selectedLlm: resolveSelectedLlm(request),
     });
     if (!resolved.readiness.configuration_ready || !resolved.agent || !resolved.provider || !resolved.modelName) {
@@ -106,6 +109,8 @@ export class AgentExecutionService {
     if (!this.sessions.getSession(sessionId)) {
       this.sessions.createSession({ sessionId, userId: request.user_id ?? null });
     }
+    const runtimeAgent = applySessionAgentOverrides(resolved.agent, sessionMetadata);
+
     this.conversationStore.createRun({
       runId,
       sessionId,
@@ -113,7 +118,7 @@ export class AgentExecutionService {
       status: "running",
       taskSummary: task.slice(0, 200),
       userId: request.user_id ?? null,
-      agentName: resolved.agent.agent_name,
+      agentName: runtimeAgent.agent_name,
       threadKey: "root",
     });
     const userMessage = this.sessions.addMessage({
@@ -121,7 +126,7 @@ export class AgentExecutionService {
       role: "user",
       content: task,
       metadata: {
-        agent: resolved.agent.agent_name,
+        agent: runtimeAgent.agent_name,
         run_id: runId,
         request_id: requestId,
         execution_kind: "agent_stream",
@@ -145,7 +150,7 @@ export class AgentExecutionService {
     const startStepPayload = {
       kind: "run",
       phase: "start",
-      agent_name: resolved.agent.agent_name,
+      agent_name: runtimeAgent.agent_name,
       task_id: taskId,
       run_id: runId,
       request_id: requestId,
@@ -160,7 +165,7 @@ export class AgentExecutionService {
 
     const runStartPayload = {
       task_id: taskId,
-      agent_name: resolved.agent.agent_name,
+      agent_name: runtimeAgent.agent_name,
       run_id: runId,
       request_id: requestId,
     };
@@ -192,7 +197,7 @@ export class AgentExecutionService {
       startedAt,
       abortController,
       status,
-      agent: resolved.agent,
+      agent: runtimeAgent,
       provider: resolved.provider,
       modelName: resolved.modelName,
       userMessageId: userMessage.id,
@@ -582,4 +587,37 @@ function mirrorEventData<T extends Record<string, unknown>>(data: T): { data: T;
 
 function cloneStatus(status: ExecutionTaskStatus | null): ExecutionTaskStatus | null {
   return status ? { ...status } : null;
+}
+
+function normalizeSessionEntryAgent(value: unknown): string | null {
+  const normalized = asString(value);
+  if (!normalized) {
+    return null;
+  }
+  const lowered = normalized.toLowerCase();
+  if (lowered === "default") {
+    return null;
+  }
+  if (lowered === "orchestrator") {
+    return "orchestrator_agent";
+  }
+  return normalized;
+}
+
+function applySessionAgentOverrides(agent: AgentConfig, sessionMetadata: Record<string, unknown>): AgentConfig {
+  const workspaceRoot = asString(sessionMetadata.workspace_root);
+  if (!workspaceRoot) {
+    return agent;
+  }
+  return {
+    ...agent,
+    custom_params: {
+      ...agent.custom_params,
+      workspace_root: workspaceRoot,
+    },
+  };
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
