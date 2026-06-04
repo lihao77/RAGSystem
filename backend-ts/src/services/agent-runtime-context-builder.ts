@@ -1,11 +1,9 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
 import type { AgentConfig } from "../contracts/agent-config.js";
 import type { MessageInfo, SessionInfo } from "../contracts/session.js";
 import type { ChatMessage } from "./llm-chat-client.js";
+import { getWorkspaceMemoryKey, MemoryStore, type MemoryScopeSpec } from "./memory-store.js";
 
 export interface RuntimeConversationHistoryPort {
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): MessageInfo[];
@@ -118,18 +116,9 @@ export class EmptyMemoryContextSource implements AgentRuntimeContextSource {
 
 interface MemoryIndexContextSourceOptions {
   dataRoot?: string | undefined;
+  memoryStore?: MemoryStore | undefined;
   indexMaxLines?: number | undefined;
   indexMaxChars?: number | undefined;
-}
-
-type MemoryScopeName = "team" | "session" | "agent" | "workspace";
-
-interface MemoryScopeSpec {
-  scope: MemoryScopeName;
-  team_name?: string;
-  session_id?: string;
-  agent_name?: string;
-  workspace_key?: string;
 }
 
 interface MemoryScopeCapabilities {
@@ -153,7 +142,7 @@ interface MemoryPrefixFingerprint {
 
 export class MemoryIndexContextSource implements AgentRuntimeContextSource {
   readonly name = "memory";
-  private readonly dataRoot: string;
+  private readonly memoryStore: MemoryStore;
   private readonly indexMaxLines: number;
   private readonly indexMaxChars: number;
 
@@ -161,7 +150,7 @@ export class MemoryIndexContextSource implements AgentRuntimeContextSource {
     private readonly sessions: RuntimeSessionMetadataPort,
     options: MemoryIndexContextSourceOptions = {},
   ) {
-    this.dataRoot = path.resolve(options.dataRoot?.trim() || path.join(os.homedir(), ".ragsystem"));
+    this.memoryStore = options.memoryStore ?? new MemoryStore({ dataRoot: options.dataRoot });
     this.indexMaxLines = options.indexMaxLines ?? DEFAULT_INDEX_MAX_LINES;
     this.indexMaxChars = options.indexMaxChars ?? DEFAULT_INDEX_MAX_CHARS;
   }
@@ -209,7 +198,10 @@ export class MemoryIndexContextSource implements AgentRuntimeContextSource {
     const indices: Record<string, string> = {};
     if (memoryConfig.auto_inject !== false) {
       for (const scopeSpec of scopeSpecs) {
-        const content = this.loadIndexHead(scopeSpec);
+        const content = this.memoryStore.loadIndexHead(scopeSpec, {
+          maxLines: this.indexMaxLines,
+          maxChars: this.indexMaxChars,
+        });
         if (content) {
           indices[scopeSpec.scope] = content;
         }
@@ -238,34 +230,6 @@ export class MemoryIndexContextSource implements AgentRuntimeContextSource {
         snapshot,
       },
     };
-  }
-
-  private loadIndexHead(scopeSpec: MemoryScopeSpec): string {
-    const indexPath = path.join(this.resolveScopeRoot(scopeSpec), "MEMORY.md");
-    try {
-      if (!fs.existsSync(indexPath)) {
-        return "";
-      }
-      const text = fs.readFileSync(indexPath, "utf8");
-      const limited = text.split(/\r?\n/).slice(0, this.indexMaxLines).join("\n");
-      return limited.slice(0, this.indexMaxChars).trim();
-    } catch {
-      return "";
-    }
-  }
-
-  private resolveScopeRoot(scopeSpec: MemoryScopeSpec): string {
-    const memoryRoot = path.join(this.dataRoot, "memory");
-    if (scopeSpec.scope === "team") {
-      return path.join(memoryRoot, "teams", scopeSpec.team_name ?? "");
-    }
-    if (scopeSpec.scope === "session") {
-      return path.join(memoryRoot, "sessions", scopeSpec.session_id ?? "");
-    }
-    if (scopeSpec.scope === "agent") {
-      return path.join(memoryRoot, "teams", scopeSpec.team_name ?? "", "agents", scopeSpec.agent_name ?? "");
-    }
-    return path.join(memoryRoot, "workspaces", scopeSpec.workspace_key ?? "");
   }
 }
 
@@ -381,23 +345,6 @@ function renderMemoryPrefixBlock(input: {
 
 function memoryBaselineKey(threadKey: string, agentName: string | null): string {
   return `${threadKey.trim() || DEFAULT_THREAD_KEY}::${agentName?.trim() || "_anonymous_"}`;
-}
-
-function getWorkspaceMemoryKey(workspaceRoot: string | null): string | null {
-  if (!workspaceRoot) {
-    return null;
-  }
-  const raw = workspaceRoot.trim();
-  if (!raw) {
-    return null;
-  }
-  const normalized = raw
-    .replace(/\\/g, "-")
-    .replace(/\//g, "-")
-    .replace(/:/g, "")
-    .replace(/[^a-zA-Z0-9._-]+/g, "-")
-    .replace(/^[-._]+|[-._]+$/g, "");
-  return normalized || "workspace";
 }
 
 function pythonStableJsonStringify(value: unknown): string {

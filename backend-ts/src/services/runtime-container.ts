@@ -15,6 +15,7 @@ import { EmbeddingModelService } from "./embedding-model-service.js";
 import { FileIndexService } from "./file-index-service.js";
 import { InMemoryEventBus } from "./event-bus.js";
 import { OpenAiCompatibleChatClient, type LlmChatClient } from "./llm-chat-client.js";
+import { MemoryStore } from "./memory-store.js";
 import { McpService } from "./mcp-service.js";
 import { ModelAdapterService } from "./model-adapter-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
@@ -38,6 +39,7 @@ export interface RuntimeContainer {
   readonly vectorLibrary: VectorLibraryService;
   readonly artifacts: ArtifactService;
   readonly embeddingModels: EmbeddingModelService;
+  readonly memoryStore: MemoryStore;
   readonly runtimeCore: RuntimeCoreService;
   readonly agentRuntimeCore: AgentRuntimeCore;
   readonly agentRuntimeContextBuilder: AgentRuntimeContextBuilder;
@@ -70,11 +72,12 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const vectorLibrary = new VectorLibraryService(fileIndex, modelAdapter);
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   const embeddingModels = new EmbeddingModelService(vectorLibrary);
+  const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
   const agentRuntimeCore = new AgentRuntimeCore(llmChatClient);
   const agentRuntimeContextBuilder = new AgentRuntimeContextBuilder([
-    new MemoryIndexContextSource(conversationStore, { dataRoot: options.dataRoot }),
+    new MemoryIndexContextSource(conversationStore, { memoryStore }),
     new RecentMessagesContextSource(conversationStore),
   ]);
   const agentExecution = new AgentExecutionService(
@@ -101,6 +104,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     vectorLibrary,
     artifacts,
     embeddingModels,
+    memoryStore,
     runtimeCore,
     agentRuntimeCore,
     agentRuntimeContextBuilder,
