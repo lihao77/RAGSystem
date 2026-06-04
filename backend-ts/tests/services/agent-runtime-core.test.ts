@@ -4,6 +4,7 @@ import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
 import { AgentRuntimeCore, type AgentRuntimeEvent } from "../../src/services/agent-runtime-core.js";
 import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/llm-chat-client.js";
+import { renderToolResultContent } from "../../src/services/runtime-xml-protocol.js";
 import type {
   RuntimeToolCall,
   RuntimeToolDefinition,
@@ -289,6 +290,13 @@ describe("AgentRuntimeCore", () => {
         }),
       ]),
     );
+    const xmlToolResultMessage = client.requests[1]?.messages.find((message) =>
+      message.role === "user" && message.content.includes("<tool_result"),
+    );
+    expect(xmlToolResultMessage?.content).toContain('id="xml_round_0_call_1"');
+    expect(xmlToolResultMessage?.content).toContain('ok="true"');
+    expect(xmlToolResultMessage?.content).toContain("# Session Memory");
+    expect(xmlToolResultMessage?.content).not.toContain('"artifacts"');
     expect(tools.calls).toMatchObject([
       {
         call: {
@@ -361,6 +369,28 @@ describe("AgentRuntimeCore", () => {
       ]),
     );
     expect(tools.calls).toHaveLength(0);
+  });
+
+  it("renders request_user_input tool results as compact semantic observations", () => {
+    const content = renderToolResultContent({
+      callId: "input_call_1",
+      toolName: "request_user_input",
+      result: {
+        success: true,
+        tool_name: "request_user_input",
+        summary: "用户已回复",
+        answer: null,
+        output_type: "text",
+        content: "使用 session memory",
+        metadata: {},
+        artifacts: [],
+        llm_hint: null,
+      },
+    });
+
+    expect(content).toBe(
+      '<tool_result id="input_call_1" name="request_user_input" ok="true" semantic="user_input_response"><![CDATA[使用 session memory]]></tool_result>',
+    );
   });
 
   it("runs a non-streaming tool-call loop through the runtime tool executor", async () => {
@@ -448,6 +478,11 @@ describe("AgentRuntimeCore", () => {
         }),
       ]),
     );
+    const nativeToolResultMessage = client.requests[1]?.messages.find((message) => message.role === "tool");
+    expect(nativeToolResultMessage?.content).toContain('id="call_memory_1"');
+    expect(nativeToolResultMessage?.content).toContain('ok="true"');
+    expect(nativeToolResultMessage?.content).toContain("# Session Memory");
+    expect(nativeToolResultMessage?.content).not.toContain('"artifacts"');
     expect(events).toEqual([
       {
         type: "runtime.tool_call",

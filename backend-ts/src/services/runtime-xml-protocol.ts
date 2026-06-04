@@ -270,10 +270,12 @@ export function renderToolResultContent(input: {
   toolName: string;
   result: ToolExecutionResult;
 }): string {
-  return renderSemanticBlock("tool_result", JSON.stringify(input.result, null, 2), {
-    call_id: input.callId,
+  const semantic = inferToolResultSemantic(input.toolName, input.result);
+  return renderSemanticBlock("tool_result", renderCompactToolObservation(input.result), {
+    id: input.callId,
     name: input.toolName,
-    status: input.result.success ? "success" : "error",
+    ok: input.result.success ? "true" : "false",
+    ...(semantic ? { semantic } : {}),
   });
 }
 
@@ -301,6 +303,67 @@ function renderToolManifest(tools: RuntimeToolDefinition[]): string {
     )
     .join("\n");
   return `<tool_manifest>\n${renderedTools}\n</tool_manifest>`;
+}
+
+function renderCompactToolObservation(result: ToolExecutionResult): string {
+  if (!result.success) {
+    return JSON.stringify({
+      error: stringifyToolContent(result.content) || result.summary,
+      retryable: false,
+    });
+  }
+
+  const preferredContent = result.llm_hint?.trim() || result.answer?.trim() || result.content;
+  const source = getObservationSource(result.metadata);
+  if (typeof preferredContent === "string") {
+    if (source && result.tool_name === "read_memory_entry") {
+      return JSON.stringify({
+        content: preferredContent,
+        source,
+      });
+    }
+    return preferredContent;
+  }
+  if (preferredContent !== null && preferredContent !== undefined) {
+    const payload = source && isRecord(preferredContent)
+      ? { ...preferredContent, source }
+      : preferredContent;
+    return JSON.stringify(payload);
+  }
+  return result.summary;
+}
+
+function inferToolResultSemantic(toolName: string, result: ToolExecutionResult): string | null {
+  const semantic = result.metadata.semantic;
+  if (typeof semantic === "string" && semantic.trim()) {
+    return semantic.trim();
+  }
+  return toolName === "request_user_input" ? "user_input_response" : null;
+}
+
+function getObservationSource(metadata: Record<string, unknown>): string | null {
+  for (const key of ["file_path", "index_file_path", "source", "path"]) {
+    const value = metadata[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  const scope = metadata.scope;
+  return typeof scope === "string" && scope.trim() ? scope.trim() : null;
+}
+
+function stringifyToolContent(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (content === null || content === undefined) {
+    return "";
+  }
+  try {
+    return JSON.stringify(content);
+  } catch {
+    return String(content);
+  }
 }
 
 function collectToolMatches(content: string, pattern: RegExp): Array<{ attrs: string; content: string }> {
