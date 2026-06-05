@@ -58,7 +58,15 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
   );
 
   app.post<{ Params: InputParams }>("/sessions/:sessionId/inputs/:inputId/respond", async (request) => {
-    UserInputRequestSchema.parse(request.body);
-    throw new NotMigratedError("User input resolution");
+    const payload = UserInputRequestSchema.parse(request.body);
+    const resolved = options.container.pendingInteractions.respondUserInput(
+      request.params.sessionId,
+      request.params.inputId,
+      payload,
+    );
+    if (!resolved) {
+      throw new HttpError(404, "not_found", "未找到对应的输入请求，可能已被取消或不存在");
+    }
+    return ok({ resolved: true });
   });
 };

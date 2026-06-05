@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import { MemoryStore } from "../../src/services/memory-store.js";
 import { MemoryToolService, type RuntimeMemorySessionPort } from "../../src/services/memory-tool-service.js";
+import { InMemoryEventBus } from "../../src/services/event-bus.js";
+import { PendingInteractionService } from "../../src/services/pending-interaction-service.js";
 import { RuntimeToolBridge } from "../../src/services/runtime-tool-bridge.js";
 
 const tempRoots: string[] = [];
@@ -113,6 +115,75 @@ describe("RuntimeToolBridge", () => {
       success: false,
       output_type: "error",
       content: "工具未暴露或暂未迁移: write_memory",
+    });
+  });
+
+  it("runs request_user_input through pending user input interactions", async () => {
+    const events = new InMemoryEventBus();
+    const pendingInteractions = new PendingInteractionService(events);
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})),
+      pendingInteractions,
+    );
+
+    expect(bridge.listVisibleToolNames(minimalAgent([]))).toEqual(["request_user_input"]);
+
+    const resultPromise = Promise.resolve(
+      bridge.executeTool(
+        {
+          toolName: "request_user_input",
+          callId: "input-call-1",
+          arguments: {
+            prompt: "使用哪个 memory scope？",
+            input_type: "select",
+            options: ["session", "workspace"],
+          },
+        },
+        {
+          agent: minimalAgent([]),
+          sessionId: "s1",
+          runId: "run-1",
+          taskId: "task-1",
+          requestId: "req-1",
+          currentAgentName: "orchestrator_agent",
+        },
+      ),
+    );
+
+    const inputRequired = events.getHistory("s1").find((event) => event.type === "user.input_required");
+    expect(inputRequired?.data).toMatchObject({
+      input_id: expect.any(String),
+      tool_call_id: "input-call-1",
+      tool_name: "request_user_input",
+      prompt: "使用哪个 memory scope？",
+      input_type: "select",
+      options: ["session", "workspace"],
+      run_id: "run-1",
+      task_id: "task-1",
+      request_id: "req-1",
+    });
+
+    const inputId = (inputRequired?.data as { input_id: string }).input_id;
+    expect(bridge.listVisibleToolNames(minimalAgent(["session"]))).toEqual([
+      "request_user_input",
+      "list_memory_index",
+      "read_memory_entry",
+    ]);
+    expect(inputId).toBeTruthy();
+    expect(pendingInteractions.isUserInputPending("s1", inputId)).toBe(true);
+    expect(pendingInteractions.respondUserInput("s1", inputId, { value: "session" })).toBe(true);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      success: true,
+      tool_name: "request_user_input",
+      summary: "用户输入已接收",
+      content: "session",
+      metadata: {
+        input_id: inputId,
+        input_type: "select",
+        options: ["session", "workspace"],
+        degraded: false,
+      },
     });
   });
 });

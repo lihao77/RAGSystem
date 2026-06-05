@@ -323,6 +323,7 @@ describe("minimal runtime core execution", () => {
 
     expect(chatClient.requests).toHaveLength(2);
     expect(chatClient.requests[0]?.tools?.map((tool) => tool.function.name)).toEqual([
+      "request_user_input",
       "list_memory_index",
       "read_memory_entry",
     ]);
@@ -342,13 +343,15 @@ describe("minimal runtime core execution", () => {
       expect.arrayContaining([
         expect.objectContaining({
           kind: "tool",
-          phase: "call",
+          phase: "start",
           tool_name: "list_memory_index",
+          call_id: "call_memory_1",
           tool_call_id: "call_memory_1",
+          arguments: { scope: "session" },
         }),
         expect.objectContaining({
           kind: "tool",
-          phase: "result",
+          phase: "end",
           success: true,
           summary: "已读取 session MEMORY 索引",
         }),
@@ -366,8 +369,8 @@ describe("minimal runtime core execution", () => {
       role: "assistant",
       content: "The session memory index is available.",
       execution_steps: expect.arrayContaining([
-        expect.objectContaining({ kind: "tool", phase: "call" }),
-        expect.objectContaining({ kind: "tool", phase: "result" }),
+        expect.objectContaining({ kind: "tool", phase: "start" }),
+        expect.objectContaining({ kind: "tool", phase: "end" }),
         expect.objectContaining({ kind: "final", phase: "complete" }),
       ]),
     });
@@ -440,6 +443,109 @@ describe("minimal runtime core execution", () => {
     expect(messages.json().data.items.at(-1)).toMatchObject({
       role: "assistant",
       content: "The XML runtime read memory.",
+    });
+  });
+
+  it("resumes an XML request_user_input tool call through the HTTP input response route", async () => {
+    const chatClient = new FakeXmlStreamingToolChatClient([
+      [
+        "<intent>",
+        "我需要确认记忆范围。",
+        "</intent><tool_calls>",
+        '<tool name="request_user_input"><prompt>使用哪个 memory scope？</prompt><input_type>select</input_type><options>["session","workspace"]</options></tool>',
+        "</tool_calls>",
+      ],
+      ["<final_answer>", "已按 session memory 继续。", "</final_answer>"],
+    ]);
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+
+    await createDefaultChatProvider(app);
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      headers: {
+        "x-request-id": "req-runtime-input",
+      },
+      payload: {
+        task: "需要时询问我",
+        session_id: "input-runtime-session",
+      },
+    });
+
+    expect(started.statusCode).toBe(200);
+    await waitFor(() =>
+      harness.container.events.getHistory("input-runtime-session").some((event) => event.type === "user.input_required"),
+    );
+
+    const inputRequired = harness.container.events
+      .getHistory("input-runtime-session")
+      .find((event) => event.type === "user.input_required");
+    expect(inputRequired?.data).toMatchObject({
+      input_id: expect.any(String),
+      tool_call_id: "xml_round_0_call_1",
+      tool_name: "request_user_input",
+      prompt: "使用哪个 memory scope？",
+      input_type: "select",
+      options: ["session", "workspace"],
+      run_id: started.json().data.run_id,
+      request_id: "req-runtime-input",
+    });
+
+    const inputId = (inputRequired?.data as { input_id: string }).input_id;
+    const responded = await app.inject({
+      method: "POST",
+      url: `/api/agent/sessions/input-runtime-session/inputs/${inputId}/respond`,
+      payload: {
+        value: "session",
+      },
+    });
+    expect(responded.statusCode).toBe(200);
+    expect(responded.json()).toMatchObject({
+      success: true,
+      data: {
+        resolved: true,
+      },
+    });
+
+    await waitFor(
+      () => harness.container.agentExecution.getSessionTaskStatus("input-runtime-session").task_info?.status === "completed",
+    );
+
+    expect(chatClient.requests).toHaveLength(2);
+    expect(chatClient.requests[0]?.messages[0]?.content).toContain("request_user_input");
+    const toolResultMessage = chatClient.requests[1]?.messages.find((message) =>
+      message.role === "user" && message.content.includes("request_user_input"),
+    );
+    expect(toolResultMessage?.content).toContain('semantic="user_input_response"');
+    expect(toolResultMessage?.content).toContain("session");
+
+    const history = harness.container.events.getHistory("input-runtime-session");
+    expect(history.filter((event) => event.type === "execution.step").map((event) => event.data)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "tool",
+          phase: "start",
+          tool_name: "request_user_input",
+          call_id: "xml_round_0_call_1",
+          arguments: {
+            prompt: "使用哪个 memory scope？",
+            input_type: "select",
+            options: ["session", "workspace"],
+          },
+        }),
+        expect.objectContaining({
+          kind: "tool",
+          phase: "end",
+          tool_name: "request_user_input",
+          success: true,
+          summary: "用户输入已接收",
+        }),
+      ]),
+    );
+    expect(history.find((event) => event.type === "output.final_answer")?.data).toMatchObject({
+      content: "已按 session memory 继续。",
     });
   });
 

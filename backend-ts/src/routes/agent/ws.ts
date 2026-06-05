@@ -109,12 +109,14 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
               });
               break;
             case "user_input":
-              send({
-                type: "user_input.error",
-                session_id: sessionId,
-                input_id: message.input_id,
-                error: "User input resolution has not been migrated to TypeScript yet",
-              });
+              if (!options.container.pendingInteractions.respondUserInput(sessionId, message.input_id, { value: message.value })) {
+                send({
+                  type: "user_input.error",
+                  session_id: sessionId,
+                  input_id: message.input_id,
+                  error: "未找到对应的输入请求，可能已被取消或不存在",
+                });
+              }
               break;
           }
         } catch (error) {

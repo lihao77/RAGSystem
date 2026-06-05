@@ -371,7 +371,14 @@ export class AgentExecutionService {
         conversation: context.conversation,
         toolExecutor: this.runtimeTools ?? undefined,
         toolContext: this.runtimeTools
-          ? buildRuntimeToolContext(input.agent, input.sessionId, sessionMetadata)
+          ? buildRuntimeToolContext(input.agent, {
+              sessionId: input.sessionId,
+              runId: input.runId,
+              taskId: input.taskId,
+              requestId: input.requestId,
+              sessionMetadata,
+              signal: input.abortController.signal,
+            })
           : undefined,
         onEvent: async (event) => {
           this.publishRuntimeEvent(input, event);
@@ -587,10 +594,13 @@ export class AgentExecutionService {
     if (event.type === "runtime.tool_call") {
       const payload = {
         kind: "tool",
-        phase: "call",
+        phase: "start",
+        legacy_phase: "call",
         agent_name: event.data.agent_name,
         tool_name: event.data.tool_name,
+        call_id: event.data.tool_call_id,
         tool_call_id: event.data.tool_call_id,
+        arguments: event.data.arguments,
         round: event.data.round,
         run_id: input.runId,
         task_id: input.taskId,
@@ -608,12 +618,16 @@ export class AgentExecutionService {
     if (event.type === "runtime.tool_result") {
       const payload = {
         kind: "tool",
-        phase: "result",
+        phase: "end",
+        legacy_phase: "result",
         agent_name: event.data.agent_name,
         tool_name: event.data.tool_name,
+        call_id: event.data.tool_call_id,
         tool_call_id: event.data.tool_call_id,
+        status: event.data.success ? "success" : "error",
         success: event.data.success,
         summary: event.data.summary,
+        result_preview: event.data.summary,
         run_id: input.runId,
         task_id: input.taskId,
         request_id: input.requestId,
@@ -703,15 +717,25 @@ function applySessionAgentOverrides(agent: AgentConfig, sessionMetadata: Record<
 
 function buildRuntimeToolContext(
   agent: AgentConfig,
-  sessionId: string,
-  sessionMetadata: Record<string, unknown>,
+  input: {
+    sessionId: string;
+    runId: string;
+    taskId: string;
+    requestId: string;
+    sessionMetadata: Record<string, unknown>;
+    signal: AbortSignal;
+  },
 ): RuntimeToolExecutionContext {
   return {
     agent,
-    sessionId,
+    sessionId: input.sessionId,
+    runId: input.runId,
+    taskId: input.taskId,
+    requestId: input.requestId,
     currentAgentName: agent.agent_name,
-    teamName: asString(sessionMetadata.team),
-    workspaceRoot: asString(sessionMetadata.workspace_root) ?? asString(agent.custom_params.workspace_root),
+    teamName: asString(input.sessionMetadata.team),
+    workspaceRoot: asString(input.sessionMetadata.workspace_root) ?? asString(agent.custom_params.workspace_root),
+    signal: input.signal,
   };
 }
 

@@ -19,6 +19,7 @@ import { MemoryStore } from "./memory-store.js";
 import { MemoryToolService } from "./memory-tool-service.js";
 import { McpService } from "./mcp-service.js";
 import { ModelAdapterService } from "./model-adapter-service.js";
+import { PendingInteractionService } from "./pending-interaction-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
 import { RuntimeCoreService } from "./runtime-core-service.js";
 import { RuntimeToolBridge } from "./runtime-tool-bridge.js";
@@ -43,6 +44,7 @@ export interface RuntimeContainer {
   readonly embeddingModels: EmbeddingModelService;
   readonly memoryStore: MemoryStore;
   readonly memoryTools: MemoryToolService;
+  readonly pendingInteractions: PendingInteractionService;
   readonly runtimeToolBridge: RuntimeToolBridge;
   readonly runtimeCore: RuntimeCoreService;
   readonly agentRuntimeCore: AgentRuntimeCore;
@@ -78,7 +80,8 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const embeddingModels = new EmbeddingModelService(vectorLibrary);
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
   const memoryTools = new MemoryToolService(memoryStore, conversationStore);
-  const runtimeToolBridge = new RuntimeToolBridge(memoryTools);
+  const pendingInteractions = new PendingInteractionService(events);
+  const runtimeToolBridge = new RuntimeToolBridge(memoryTools, pendingInteractions);
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
   const agentRuntimeCore = new AgentRuntimeCore(llmChatClient);
@@ -113,6 +116,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     embeddingModels,
     memoryStore,
     memoryTools,
+    pendingInteractions,
     runtimeToolBridge,
     runtimeCore,
     agentRuntimeCore,

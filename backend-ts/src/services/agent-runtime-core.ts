@@ -70,6 +70,7 @@ export type AgentRuntimeEvent =
         agent_name: string;
         tool_call_id: string;
         tool_name: string;
+        arguments: Record<string, unknown>;
         round: number;
       };
     }
@@ -245,19 +246,21 @@ export class AgentRuntimeCore {
         for (const [index, call] of roundResult.toolCalls.entries()) {
           const toolName = call.toolName;
           const callId = call.callId ?? `xml_round_${round}_call_${index + 1}`;
+          const toolArguments = call.arguments ?? {};
           await input.onEvent?.({
             type: "runtime.tool_call",
             data: {
               agent_name: input.agent.agent_name,
               tool_call_id: callId,
               tool_name: toolName,
+              arguments: toolArguments,
               round,
             },
           });
-          const toolResult = toolExecutor.executeTool(
+          const toolResult = await toolExecutor.executeTool(
             {
               toolName,
-              arguments: call.arguments,
+              arguments: toolArguments,
               callId,
             },
             toolContext,
@@ -333,19 +336,21 @@ export class AgentRuntimeCore {
       messages = [...messages, buildAssistantToolCallMessage(result, toolCalls)];
       for (const toolCall of toolCalls) {
         const toolName = toolCall.function.name;
+        const toolArguments = parseToolArguments(toolCall);
         await input.onEvent?.({
           type: "runtime.tool_call",
           data: {
             agent_name: input.agent.agent_name,
             tool_call_id: toolCall.id,
             tool_name: toolName,
+            arguments: toolArguments,
             round,
           },
         });
-        const toolResult = toolExecutor.executeTool(
+        const toolResult = await toolExecutor.executeTool(
           {
             toolName,
-            arguments: parseToolArguments(toolCall),
+            arguments: toolArguments,
             callId: toolCall.id,
           },
           toolContext,
@@ -396,6 +401,7 @@ export class AgentRuntimeCore {
     let finalAnswerStarted = false;
     let ignoredToolCallsAfterFinal = false;
     let error: string | null = null;
+    let protocolTagSeen = false;
     const toolCalls: RuntimeToolCall[] = [];
 
     const result = await this.llmChatClient.stream!(request, async (chunk) => {
@@ -414,6 +420,9 @@ export class AgentRuntimeCore {
       }
       const events = parser.feed(chunk.content);
       for (const event of events) {
+        if (event.type === "tag_open") {
+          protocolTagSeen = true;
+        }
         if (event.type === "tag_open" && event.tag === "final_answer") {
           finalAnswerStarted = true;
         }
@@ -459,6 +468,15 @@ export class AgentRuntimeCore {
           }
           toolCalls.push(...parsed.calls);
         }
+      }
+      if (!protocolTagSeen && parser.currentState === null && events.length === 0 && !chunk.content.trimStart().startsWith("<")) {
+        await input.onEvent?.({
+          type: "runtime.output_delta",
+          data: {
+            content: chunk.content,
+            agent_name: input.agent.agent_name,
+          },
+        });
       }
     });
 

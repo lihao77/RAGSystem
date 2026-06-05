@@ -490,6 +490,7 @@ describe("AgentRuntimeCore", () => {
           agent_name: "orchestrator_agent",
           tool_call_id: "call_memory_1",
           tool_name: "list_memory_index",
+          arguments: { scope: "session" },
           round: 0,
         },
       },
