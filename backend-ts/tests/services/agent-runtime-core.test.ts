@@ -4,7 +4,7 @@ import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
 import { AgentRuntimeCore, type AgentRuntimeEvent } from "../../src/services/agent-runtime-core.js";
 import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/llm-chat-client.js";
-import { renderToolResultContent } from "../../src/services/runtime-xml-protocol.js";
+import { renderSemanticBlock, renderToolResultContent } from "../../src/services/runtime-xml-protocol.js";
 import type {
   RuntimeToolCall,
   RuntimeToolDefinition,
@@ -513,6 +513,66 @@ describe("AgentRuntimeCore", () => {
         },
       },
     ]);
+  });
+
+  it("injects queued followup messages before the next llm request", async () => {
+    const client = new FakeToolCallingChatClient([
+      {
+        content: "",
+        finishReason: "tool_calls",
+        toolCalls: [
+          {
+            id: "call_memory_1",
+            type: "function",
+            function: {
+              name: "list_memory_index",
+              arguments: JSON.stringify({ scope: "session" }),
+            },
+          },
+        ],
+      },
+      {
+        content: "I used the session memory index.",
+        finishReason: "stop",
+      },
+    ]);
+    const tools = new FakeRuntimeToolExecutor();
+    const core = new AgentRuntimeCore(client);
+    const agent = minimalAgent();
+    let updateCount = 0;
+
+    await core.runText({
+      agent,
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [{ role: "user", content: "check memory" }],
+      conversationUpdateProvider: () => {
+        updateCount += 1;
+        return updateCount === 2
+          ? [
+              {
+                role: "user",
+                content: renderSemanticBlock("user_followup", "补充说明：优先使用 session memory。", {
+                  source: "running_session",
+                }),
+              },
+            ]
+          : [];
+      },
+      toolExecutor: tools,
+      toolContext: {
+        agent,
+        sessionId: "s1",
+        currentAgentName: "orchestrator_agent",
+      },
+    });
+
+    expect(client.requests).toHaveLength(2);
+    const followupMessage = client.requests[1]?.messages.find(
+      (message) => message.role === "user" && message.content.includes("<user_followup"),
+    );
+    expect(followupMessage?.content).toContain("补充说明：优先使用 session memory。");
+    expect(followupMessage?.content).toContain('source="running_session"');
   });
 
   it("emits a runtime error event before rethrowing provider failures", async () => {

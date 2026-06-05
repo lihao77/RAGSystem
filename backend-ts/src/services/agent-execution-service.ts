@@ -20,6 +20,8 @@ import type { AgentRuntimeContextBuilder } from "./agent-runtime-context-builder
 import type { ConversationStore } from "./conversation-store.js";
 import type { InMemoryEventBus } from "./event-bus.js";
 import type { AgentRuntimeCore, AgentRuntimeEvent } from "./agent-runtime-core.js";
+import type { ChatMessage } from "./llm-chat-client.js";
+import { renderSemanticBlock } from "./runtime-xml-protocol.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { RuntimeToolExecutionContext, RuntimeToolExecutor } from "./runtime-tool-types.js";
 
@@ -33,6 +35,7 @@ export class AgentExecutionService {
   private readonly handlesByTask = new Map<string, ExecutionHandle>();
   private readonly taskBySession = new Map<string, string>();
   private readonly statusHistory = new Map<string, ExecutionTaskStatus>();
+  private readonly pendingFollowupsBySession = new Map<string, ChatMessage[]>();
 
   constructor(
     private readonly sessions: AgentSessionApplication,
@@ -68,15 +71,59 @@ export class AgentExecutionService {
         error: "Slash commands are not supported by the minimal TypeScript runtime core yet",
       };
     }
-    if (this.getStatusBySession(sessionId)?.status === "running") {
-      return {
-        started: false,
+    const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
+    const runningStatus = this.getStatusBySession(sessionId);
+    if (runningStatus?.status === "running") {
+      const runningRunId = runningStatus.run_id ?? null;
+      const runningTaskId = runningStatus.task_id ?? null;
+      const currentAgentName = normalizeSessionEntryAgent(sessionMetadata.entry_agent) ?? "orchestrator_agent";
+      const followupMessage = this.sessions.addMessage({
+        sessionId,
+        role: "user",
+        content: task,
+        metadata: {
+          agent: currentAgentName,
+          ...(runningRunId ? { run_id: runningRunId } : {}),
+          request_id: requestId,
+          execution_kind: "session_followup",
+          source: "running_session",
+        },
+      });
+      this.queueFollowup(sessionId, followupMessage.content);
+      const followupPayload = {
+        id: followupMessage.id,
+        seq: followupMessage.seq,
+        role: followupMessage.role,
+        run_id: runningStatus.run_id,
+        task_id: runningStatus.task_id,
+        request_id: requestId,
+      };
+      this.events.publish(sessionId, {
+        type: "output.message_saved",
         session_id: sessionId,
-        error: "该会话正在执行任务，请等待完成或停止当前任务",
+        ...(runningRunId ? { run_id: runningRunId } : {}),
+        ...mirrorEventData(followupPayload),
+      });
+      this.events.publish(sessionId, {
+        type: "session.updated",
+        session_id: sessionId,
+        ...(runningRunId ? { run_id: runningRunId } : {}),
+        ...mirrorEventData({
+          source: "running_session_followup",
+          status: "running",
+          run_id: runningRunId,
+        }),
+      });
+      return {
+        started: true,
+        session_id: sessionId,
+        ...(runningRunId ? { run_id: runningRunId } : {}),
+        ...(runningTaskId ? { task_id: runningTaskId } : {}),
+        request_id: requestId,
+        kind: "agent_run",
       };
     }
 
-    const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
     const resolved = this.runtimeCore.resolveExecutionConfig({
       agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
       teamName: asString(sessionMetadata.team),
@@ -200,10 +247,11 @@ export class AgentExecutionService {
       abortController,
       status,
       agent: runtimeAgent,
-      provider: resolved.provider,
-      modelName: resolved.modelName,
-      userMessageId: userMessage.id,
-    });
+        provider: resolved.provider,
+        modelName: resolved.modelName,
+        userMessageId: userMessage.id,
+        conversationUpdateProvider: () => this.drainFollowups(sessionId),
+      });
     this.handlesByTask.set(taskId, { abortController, status, promise });
     this.taskBySession.set(sessionId, taskId);
     this.statusHistory.set(taskId, status);
@@ -359,6 +407,7 @@ export class AgentExecutionService {
     provider: ModelProviderConfig;
     modelName: string;
     userMessageId: string;
+    conversationUpdateProvider?: (() => Promise<ChatMessage[]> | ChatMessage[]) | undefined;
   }): Promise<void> {
     try {
       const context = this.contextBuilder.buildContext({ sessionId: input.sessionId, agent: input.agent });
@@ -369,6 +418,7 @@ export class AgentExecutionService {
         modelName: input.modelName,
         signal: input.abortController.signal,
         conversation: context.conversation,
+        conversationUpdateProvider: input.conversationUpdateProvider,
         toolExecutor: this.runtimeTools ?? undefined,
         toolContext: this.runtimeTools
           ? buildRuntimeToolContext(input.agent, {
@@ -649,6 +699,24 @@ export class AgentExecutionService {
       stepType: "execution.step",
       payload,
     });
+  }
+
+  private queueFollowup(sessionId: string, content: string): void {
+    const followups = this.pendingFollowupsBySession.get(sessionId) ?? [];
+    followups.push({
+      role: "user",
+      content: renderSemanticBlock("user_followup", content, { source: "running_session" }),
+    });
+    this.pendingFollowupsBySession.set(sessionId, followups);
+  }
+
+  private drainFollowups(sessionId: string): ChatMessage[] {
+    const followups = this.pendingFollowupsBySession.get(sessionId);
+    if (!followups?.length) {
+      return [];
+    }
+    this.pendingFollowupsBySession.delete(sessionId);
+    return followups.map((message) => ({ ...message }));
   }
 
   private finishStatus(status: ExecutionTaskStatus, finalStatus: string, startedAt: Date): void {

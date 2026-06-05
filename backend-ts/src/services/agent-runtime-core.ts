@@ -99,6 +99,7 @@ export interface AgentRuntimeRequest {
   provider: ModelProviderConfig;
   modelName: string;
   conversation: ChatMessage[];
+  conversationUpdateProvider?: (() => Promise<ChatMessage[]> | ChatMessage[]) | undefined;
   signal?: AbortSignal;
   onEvent?: AgentRuntimeEventHandler;
   toolExecutor?: RuntimeToolExecutor | undefined;
@@ -130,7 +131,7 @@ export class AgentRuntimeCore {
         ? await this.runToolCallingText(input, request)
         : this.llmChatClient.stream
           ? await this.runStreamingText(input, request)
-          : await this.llmChatClient.complete(request);
+          : await this.llmChatClient.complete(await this.refreshChatRequest(input, request));
       const runtimeResult = toRuntimeResult(input, result);
       await input.onEvent?.({
         type: "runtime.done",
@@ -205,6 +206,20 @@ export class AgentRuntimeCore {
     return request;
   }
 
+  private async refreshChatRequest(
+    input: AgentRuntimeRequest,
+    request: ChatCompletionRequest,
+  ): Promise<ChatCompletionRequest> {
+    const updates = input.conversationUpdateProvider ? await input.conversationUpdateProvider() : [];
+    if (!updates.length) {
+      return request;
+    }
+    return {
+      ...request,
+      messages: [...request.messages, ...updates],
+    };
+  }
+
   private async runXmlToolCallingText(
     input: AgentRuntimeRequest,
     request: ChatCompletionRequest,
@@ -222,6 +237,7 @@ export class AgentRuntimeCore {
     const xmlRequest = withoutNativeTools(request);
 
     for (let round = 0; round <= maxToolRounds; ) {
+      messages = await this.refreshChatMessages(input, messages);
       const roundResult = await this.runXmlStreamRound(input, { ...xmlRequest, messages }, round);
       if (roundResult.error) {
         if (protocolRepairAttempts >= maxProtocolRepairAttempts) {
@@ -324,6 +340,7 @@ export class AgentRuntimeCore {
     const maxToolRounds = input.maxToolRounds ?? 4;
     let messages = [...request.messages];
     for (let round = 0; round <= maxToolRounds; round += 1) {
+      messages = await this.refreshChatMessages(input, messages);
       const result = await this.llmChatClient.complete({ ...request, messages });
       const toolCalls = result.toolCalls ?? [];
       if (toolCalls.length === 0) {
@@ -504,9 +521,10 @@ export class AgentRuntimeCore {
     input: AgentRuntimeRequest,
     request: ChatCompletionRequest,
   ): Promise<{ content: string; raw?: unknown }> {
+    const refreshedRequest = await this.refreshChatRequest(input, request);
     let firstChunkSeen = false;
     const providerStartedAt = Date.now();
-    return this.llmChatClient.stream!(request, async (chunk) => {
+    return this.llmChatClient.stream!(refreshedRequest, async (chunk) => {
       if (!chunk.content) {
         return;
       }
@@ -528,6 +546,14 @@ export class AgentRuntimeCore {
         },
       });
     });
+  }
+
+  private async refreshChatMessages(input: AgentRuntimeRequest, messages: ChatMessage[]): Promise<ChatMessage[]> {
+    const updates = input.conversationUpdateProvider ? await input.conversationUpdateProvider() : [];
+    if (!updates.length) {
+      return messages;
+    }
+    return [...messages, ...updates];
   }
 }
 
