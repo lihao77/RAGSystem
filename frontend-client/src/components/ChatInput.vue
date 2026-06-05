@@ -65,7 +65,6 @@
               <span class="stop-icon">■</span>
             </button>
             <button
-              v-else
               class="send-btn"
               :disabled="sendDisabled"
               @click="handleSend"
@@ -94,6 +93,10 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  canSendWhileLoading: {
+    type: Boolean,
+    default: false
+  },
   attachments: {
     type: Array,
     default: () => []
@@ -106,7 +109,7 @@ const inputText = ref(props.modelValue);
 const textareaRef = ref(null);
 const isDragOver = ref(false);
 
-const sendDisabled = computed(() => props.isLoading || (!inputText.value.trim() && !props.attachments.length));
+const sendDisabled = computed(() => (props.isLoading && !props.canSendWhileLoading) || (!inputText.value.trim() && !props.attachments.length));
 
 watch(() => props.modelValue, (newValue) => {
   inputText.value = newValue;
@@ -201,7 +204,7 @@ const handleEnter = (event) => {
 
 const handleSend = () => {
   const content = inputText.value.trim();
-  if (props.isLoading || (!content && !props.attachments.length)) return;
+  if ((props.isLoading && !props.canSendWhileLoading) || (!content && !props.attachments.length)) return;
 
   emit('send', {
     content,

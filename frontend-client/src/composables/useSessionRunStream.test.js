@@ -215,6 +215,48 @@ test('output.final_answer 会合并 metadata 并保留已有字段', () => {
   assert.equal(deps.messages.value[0].finished, true);
 });
 
+test('output.message_saved 会按 request_id 合并运行中 followup 的 id 和 seq', () => {
+  const { deps, calls } = createDeps();
+  deps.messages.value = [
+    { role: 'user', content: '原始任务', metadata: {}, attachments: [] },
+    {
+      role: 'user',
+      content: '运行中补充',
+      metadata: {
+        request_id: 'req-followup',
+        execution_kind: 'session_followup',
+        source: 'running_session',
+        persistence_status: 'pending',
+      },
+      attachments: [],
+    },
+    createAssistantMessage({ content: 'partial answer' }),
+  ];
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 2;
+
+  const stream = useSessionRunStream(deps);
+  stream.handleWSMessage({
+    type: 'output.message_saved',
+    data: {
+      id: 'msg-followup',
+      seq: 12,
+      role: 'user',
+      request_id: 'req-followup',
+      run_id: 'run-1',
+      task_id: 'task-1',
+    },
+  }, 'session-1');
+
+  assert.equal(deps.messages.value[0].id, undefined);
+  assert.equal(deps.messages.value[1].id, 'msg-followup');
+  assert.equal(deps.messages.value[1].seq, 12);
+  assert.equal(deps.messages.value[1].metadata.persistence_status, undefined);
+  assert.equal(deps.messages.value[1].metadata.run_id, 'run-1');
+  assert.equal(deps.messages.value[1].metadata.task_id, 'task-1');
+  assert.deepEqual(calls.cacheMessages, [['session-1', deps.messages.value]]);
+});
+
 test('run.end 会把执行时间写入当前 assistant metadata 并收尾', () => {
   const { deps } = createDeps();
   deps.messages.value = [createAssistantMessage({ content: 'final answer' })];

@@ -1,5 +1,5 @@
 import { nextTick, ref } from 'vue';
-import { createAssistantMessage } from './useMessageExecution';
+import { createAssistantMessage } from './useMessageExecution.js';
 
 const resetActiveRunForSend = (activeRun, assistantMsgIndex) => {
   activeRun.active = true;
@@ -38,11 +38,36 @@ const serializeAttachmentForSend = ({ file_id, original_name, stored_name, mime,
   kind,
 });
 
-const createUserMessage = (content, attachments) => ({
+const createRequestId = () => {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const buildUserMetadata = (attachments, metadata = {}) => ({
+  ...(attachments.length ? { attachments } : {}),
+  ...metadata,
+});
+
+const createUserMessage = (content, attachments, metadata = {}) => ({
   role: 'user',
   content,
   attachments,
-  metadata: attachments.length ? { attachments } : {},
+  metadata: buildUserMetadata(attachments, metadata),
+});
+
+const createAgentStreamMetadata = (requestId) => ({
+  request_id: requestId,
+  execution_kind: 'agent_stream',
+});
+
+const createFollowupMetadata = (requestId, activeRun) => ({
+  request_id: requestId,
+  execution_kind: 'session_followup',
+  source: 'running_session',
+  persistence_status: 'pending',
+  ...(activeRun.runId ? { run_id: activeRun.runId } : {}),
 });
 
 function normalizeSessionSendDeps(deps) {
@@ -118,16 +143,30 @@ export function useSessionSend(deps) {
       : deps.pendingAttachments.value.slice();
     const replaceFromIndex = Number.isInteger(payload?.replaceFromIndex) ? payload.replaceFromIndex : null;
     const clearEditing = payload?.clearEditing === true;
-    if ((!content && !draftAttachments.length) || deps.isLoading.value) return;
+    const isRunningFollowup = Boolean(
+      deps.currentSessionId.value
+      && deps.activeRun.active
+      && replaceFromIndex == null
+    );
+    if ((!content && !draftAttachments.length) || (deps.isLoading.value && !isRunningFollowup)) return;
+    if (isRunningFollowup && draftAttachments.length) {
+      deps.showToast('运行中补充暂不支持附件', 'warning');
+      return;
+    }
 
     const startsDraftSession = !deps.currentSessionId.value && replaceFromIndex == null;
+    const requestId = createRequestId();
+    const userMetadata = isRunningFollowup
+      ? createFollowupMetadata(requestId, deps.activeRun)
+      : createAgentStreamMetadata(requestId);
     let sessionId = deps.currentSessionId.value;
     let assistantMsgIndex = -1;
     let userMsgIndex = -1;
     let attachments = draftAttachments;
+    let followupMsgIndex = -1;
 
     if (startsDraftSession) {
-      userMsgIndex = deps.messages.value.push(createUserMessage(content, draftAttachments)) - 1;
+      userMsgIndex = deps.messages.value.push(createUserMessage(content, draftAttachments, userMetadata)) - 1;
       deps.inputMessage.value = '';
       deps.clearComposerAttachments();
       deps.stickToBottom();
@@ -168,7 +207,7 @@ export function useSessionSend(deps) {
         if (result.data?.observability) {
           deps.mergeExecutionObservability(result.data.observability);
         }
-        if (result.data?.has_running_task) {
+        if (result.data?.has_running_task && !isRunningFollowup) {
           deps.showToast('该会话正在执行任务，请等待完成或先停止', 'warning');
           if (startsDraftSession) {
             const currentMsg = deps.messages.value[assistantMsgIndex];
@@ -187,7 +226,9 @@ export function useSessionSend(deps) {
     }
 
     try {
-      attachments = await deps.materializeAttachmentsForSend(draftAttachments, sessionId);
+      attachments = isRunningFollowup
+        ? []
+        : await deps.materializeAttachmentsForSend(draftAttachments, sessionId);
     } catch (error) {
       if (startsDraftSession) {
         const currentMsg = deps.messages.value[assistantMsgIndex];
@@ -219,24 +260,40 @@ export function useSessionSend(deps) {
       const userMsg = deps.messages.value[userMsgIndex];
       if (userMsg) {
         userMsg.attachments = attachments;
-        userMsg.metadata = attachments.length ? { attachments } : {};
+        userMsg.metadata = buildUserMetadata(attachments, userMetadata);
       }
       deps.cacheMessages(sessionId, deps.messages.value);
+    } else if (isRunningFollowup) {
+      const followupMsg = createUserMessage(content, [], userMetadata);
+      const insertIndex = deps.activeRun.assistantMsgIndex >= 0
+        ? Math.min(deps.activeRun.assistantMsgIndex, deps.messages.value.length)
+        : deps.messages.value.length;
+      deps.messages.value.splice(insertIndex, 0, followupMsg);
+      followupMsgIndex = insertIndex;
+      if (deps.activeRun.assistantMsgIndex >= insertIndex) {
+        deps.activeRun.assistantMsgIndex += 1;
+      }
+      deps.inputMessage.value = '';
+      deps.clearComposerAttachments();
+      deps.cacheMessages(sessionId, deps.messages.value);
+      deps.stickToBottom();
     } else {
-      deps.messages.value.push(createUserMessage(content, attachments));
+      deps.messages.value.push(createUserMessage(content, attachments, userMetadata));
       deps.inputMessage.value = '';
       deps.clearComposerAttachments();
       deps.stickToBottom();
     }
     deps.updateRecentSession(sessionId, content, new Date().toISOString());
 
-    if (!startsDraftSession) {
+    if (!startsDraftSession && !isRunningFollowup) {
       assistantMsgIndex = deps.messages.value.push(createAssistantMessage()) - 1;
       resetActiveRunForSend(deps.activeRun, assistantMsgIndex);
     }
 
-    deps.beginOptimisticExecutionState(sessionId);
-    if (!startsDraftSession) {
+    if (!isRunningFollowup) {
+      deps.beginOptimisticExecutionState(sessionId);
+    }
+    if (!startsDraftSession && !isRunningFollowup) {
       deps.isLoading.value = true;
       deps.contextUsage.value = { used: 0, max: 0 };
     }
@@ -256,14 +313,16 @@ export function useSessionSend(deps) {
       const ws = deps.getWS?.();
       if (ws?.readyState === WebSocket.OPEN) {
         // 通过 WS 发送，ack 结果由 handleWSMessage 中的 send.ack / send.error 处理
-        ws.send(JSON.stringify({ type: 'send', ...body }));
-        deps.scheduleCommandFallback(sessionId, assistantMsgIndex, 30000);
+        ws.send(JSON.stringify({ type: 'send', ...body, request_id: requestId }));
+        if (!isRunningFollowup) {
+          deps.scheduleCommandFallback(sessionId, assistantMsgIndex, 30000);
+        }
         return;
       }
 
       const response = await fetch('/api/agent/stream', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-request-id': requestId },
         body: JSON.stringify(body),
       });
 
@@ -278,22 +337,40 @@ export function useSessionSend(deps) {
         throw new Error(errorMsg);
       }
 
-      deps.activeRun.runId = result.run_id;
-      deps.activeRun.phase = 'llm_waiting_first_token';
+      if (result.run_id) {
+        deps.activeRun.runId = result.run_id;
+      }
+      if (!isRunningFollowup) {
+        deps.activeRun.phase = 'llm_waiting_first_token';
+      }
 
       if (result.kind === 'command') {
         deps.scheduleCommandFallback(sessionId, assistantMsgIndex, 60000);
       }
     } catch (error) {
       console.error('Error sending message:', error);
-      const currentMsg = deps.messages.value[assistantMsgIndex];
-      if (currentMsg) {
-        currentMsg.content += `\n\n[System Error: ${error.message || 'Request failed'}]`;
-        currentMsg.finished = true;
+      if (isRunningFollowup) {
+        const followupMsg = deps.messages.value[followupMsgIndex];
+        if (followupMsg) {
+          followupMsg.status = [
+            ...(followupMsg.status || []),
+            { type: 'error', content: error.message || '补充说明发送失败' },
+          ];
+          followupMsg.metadata = {
+            ...(followupMsg.metadata || {}),
+            persistence_status: 'failed',
+          };
+        }
+      } else {
+        const currentMsg = deps.messages.value[assistantMsgIndex];
+        if (currentMsg) {
+          currentMsg.content += `\n\n[System Error: ${error.message || 'Request failed'}]`;
+          currentMsg.finished = true;
+        }
+        deps.sessionTaskInfo.value = { ...(deps.sessionTaskInfo.value || {}), status: 'failed' };
+        resetActiveRunAfterSendError(deps.activeRun);
+        deps.isLoading.value = false;
       }
-      deps.sessionTaskInfo.value = { ...(deps.sessionTaskInfo.value || {}), status: 'failed' };
-      resetActiveRunAfterSendError(deps.activeRun);
-      deps.isLoading.value = false;
       deps.showToast('消息发送失败', async () => {
         if (lastFailedSendContent.value) {
           deps.inputMessage.value = lastFailedSendContent.value;

@@ -1,5 +1,5 @@
-import { buildExecutionState, createExecutionState } from '../utils/executionProjector';
-import { getMessageRunSteps } from '../api/monitoring';
+import { buildExecutionState, createExecutionState } from '../utils/executionProjector.js';
+import { getMessageRunSteps } from '../api/monitoring.js';
 
 export const createAssistantMessage = (overrides = {}) => ({
   role: 'assistant',

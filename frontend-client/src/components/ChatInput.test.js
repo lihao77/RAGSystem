@@ -112,3 +112,12 @@ test('输入框底部不再渲染拖拽提示文案', async () => {
   assert.equal(source.includes('支持 Ctrl+V 粘贴截图，也可将文件拖到当前窗口'), false);
   assert.equal(source.includes('input-dropzone-hint'), false);
 });
+
+test('运行中允许通过 canSendWhileLoading 继续发送文本补充', async () => {
+  const filePath = new URL('./ChatInput.vue', import.meta.url);
+  const source = await readFile(filePath, 'utf8');
+
+  assert.equal(source.includes('canSendWhileLoading'), true);
+  assert.equal(source.includes('(props.isLoading && !props.canSendWhileLoading)'), true);
+  assert.equal(source.includes('v-else\n              class="send-btn"'), false);
+});

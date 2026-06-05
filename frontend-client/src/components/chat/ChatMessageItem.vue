@@ -1,6 +1,10 @@
 <template>
   <div
-    :class="['message', msg.role]"
+    :class="[
+      'message',
+      msg.role,
+      { 'message--session-followup': msg.metadata?.execution_kind === 'session_followup' || msg.metadata?.source === 'running_session' },
+    ]"
     :data-msg-index="index"
     @mouseenter="emit('hover', index)"
     @mouseleave="emit('hover', null)"

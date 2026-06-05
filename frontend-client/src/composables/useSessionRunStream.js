@@ -204,6 +204,39 @@ export function useSessionRunStream(deps) {
     return source.run_id || source.data?.run_id || source.metadata?.run_id || null;
   };
 
+  const findUserMessageSavedTarget = (eventData) => {
+    const requestId = eventData.request_id || null;
+    if (requestId) {
+      const byRequestId = deps.messages.value.find(
+        msg => msg?.role === 'user' && msg.metadata?.request_id === requestId
+      );
+      if (byRequestId) return byRequestId;
+    }
+    const pendingFollowup = deps.messages.value.findLast?.(
+      msg => msg?.role === 'user'
+        && msg.metadata?.execution_kind === 'session_followup'
+        && msg.metadata?.persistence_status === 'pending'
+    );
+    if (pendingFollowup) return pendingFollowup;
+    return deps.messages.value[deps.activeRun.assistantMsgIndex - 1] || null;
+  };
+
+  const applyMessageSaved = (target, eventData, sessionId) => {
+    if (!target) return;
+    if (eventData.id != null) target.id = eventData.id;
+    if (eventData.seq != null) target.seq = eventData.seq;
+    target.metadata = {
+      ...(target.metadata || {}),
+      ...(eventData.request_id ? { request_id: eventData.request_id } : {}),
+      ...(eventData.run_id ? { run_id: eventData.run_id } : {}),
+      ...(eventData.task_id ? { task_id: eventData.task_id } : {}),
+    };
+    if (target.metadata.persistence_status) {
+      delete target.metadata.persistence_status;
+    }
+    deps.cacheMessages(sessionId, deps.messages.value);
+  };
+
   const rememberFinalizedRun = (sessionId, currentMsg) => {
     _lastFinalizedRun = {
       sessionId,
@@ -330,15 +363,10 @@ export function useSessionRunStream(deps) {
         }
       }
     } else if (eventType === 'output.message_saved') {
-      const assistantMsgIndex = deps.activeRun.assistantMsgIndex;
       const target = eventData.role === 'user'
-        ? deps.messages.value[assistantMsgIndex - 1]
+        ? findUserMessageSavedTarget(eventData)
         : currentMsg;
-      if (target) {
-        if (eventData.id != null) target.id = eventData.id;
-        if (eventData.seq != null) target.seq = eventData.seq;
-      }
-      deps.cacheMessages(sessionId, deps.messages.value);
+      applyMessageSaved(target, eventData, sessionId);
     } else if (eventType === 'agent.end' && deps.isMasterEvent(event)) {
       if (!currentMsg.finished) {
         currentMsg.finished = true;

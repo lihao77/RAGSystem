@@ -634,6 +634,11 @@
     transform    0.3s;
 }
 
+.message.user.message--session-followup .user-text {
+  border-color: rgba(var(--color-brand-accent-rgb), 0.24);
+  box-shadow: 0 3px 12px rgba(var(--color-brand-accent-rgb), 0.08);
+}
+
 /* 编辑态：同一个元素，切换样式 */
 
 /* 编辑态确定/取消按钮 */

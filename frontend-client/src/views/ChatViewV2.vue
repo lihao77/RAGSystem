@@ -73,6 +73,7 @@
             v-model="inputMessage"
             :attachments="pendingAttachments"
             :isLoading="isLoading"
+            :can-send-while-loading="_activeRun.active"
             @send="handleSend"
             @stop="handleStop"
             @openAttachments="() => openSessionFilesDrawer('composer')"
