@@ -142,6 +142,39 @@ test('运行中发送会作为 session followup 插入当前 assistant 前并复
   assert.equal(calls.wsSend[0].request_id, deps.messages.value[1].metadata.request_id);
 });
 
+test('本地 activeRun 丢失但服务端仍 running 时发送会升级为 session followup', async (t) => {
+  installBrowserGlobals(t);
+  globalThis.fetch = async () => jsonResponse({
+    data: {
+      has_running_task: true,
+      task_info: { status: 'running', run_id: 'run-from-status' },
+    },
+  });
+
+  const { deps, calls } = createDeps();
+  deps.messages.value = [
+    { role: 'user', content: '原始任务', metadata: {}, attachments: [] },
+    createAssistantMessage({ content: '已有输出', finished: false }),
+  ];
+  deps.activeRun.active = false;
+  deps.activeRun.assistantMsgIndex = -1;
+  deps.isLoading.value = false;
+
+  const sender = useSessionSend(deps);
+  await sender.handleSend({ content: '后台仍在跑时补充', attachments: [] });
+
+  assert.equal(deps.messages.value.length, 3);
+  assert.equal(deps.messages.value[2].role, 'user');
+  assert.equal(deps.messages.value[2].metadata.execution_kind, 'session_followup');
+  assert.equal(deps.messages.value[2].metadata.source, 'running_session');
+  assert.equal(deps.messages.value[2].metadata.run_id, 'run-from-status');
+  assert.equal(deps.isLoading.value, false);
+  assert.equal(calls.beginOptimisticExecutionState.length, 0);
+  assert.equal(calls.scheduleCommandFallback.length, 0);
+  assert.equal(calls.wsSend.length, 1);
+  assert.equal(calls.wsSend[0].request_id, deps.messages.value[2].metadata.request_id);
+});
+
 test('普通发送仍会创建 assistant 占位并启动新的 active run', async (t) => {
   installBrowserGlobals(t);
   globalThis.fetch = async () => jsonResponse({ data: { has_running_task: false, task_info: null } });

@@ -62,12 +62,12 @@ const createAgentStreamMetadata = (requestId) => ({
   execution_kind: 'agent_stream',
 });
 
-const createFollowupMetadata = (requestId, activeRun) => ({
+const createFollowupMetadata = (requestId, activeRun, fallbackRunId = null) => ({
   request_id: requestId,
   execution_kind: 'session_followup',
   source: 'running_session',
   persistence_status: 'pending',
-  ...(activeRun.runId ? { run_id: activeRun.runId } : {}),
+  ...(activeRun.runId || fallbackRunId ? { run_id: activeRun.runId || fallbackRunId } : {}),
 });
 
 function normalizeSessionSendDeps(deps) {
@@ -143,7 +143,7 @@ export function useSessionSend(deps) {
       : deps.pendingAttachments.value.slice();
     const replaceFromIndex = Number.isInteger(payload?.replaceFromIndex) ? payload.replaceFromIndex : null;
     const clearEditing = payload?.clearEditing === true;
-    const isRunningFollowup = Boolean(
+    let isRunningFollowup = Boolean(
       deps.currentSessionId.value
       && deps.activeRun.active
       && replaceFromIndex == null
@@ -156,7 +156,7 @@ export function useSessionSend(deps) {
 
     const startsDraftSession = !deps.currentSessionId.value && replaceFromIndex == null;
     const requestId = createRequestId();
-    const userMetadata = isRunningFollowup
+    let userMetadata = isRunningFollowup
       ? createFollowupMetadata(requestId, deps.activeRun)
       : createAgentStreamMetadata(requestId);
     let sessionId = deps.currentSessionId.value;
@@ -208,17 +208,22 @@ export function useSessionSend(deps) {
           deps.mergeExecutionObservability(result.data.observability);
         }
         if (result.data?.has_running_task && !isRunningFollowup) {
-          deps.showToast('该会话正在执行任务，请等待完成或先停止', 'warning');
-          if (startsDraftSession) {
-            const currentMsg = deps.messages.value[assistantMsgIndex];
-            if (currentMsg) {
-              currentMsg.content += '\n\n[System Error: 该会话正在执行任务，请等待完成或先停止]';
-              currentMsg.finished = true;
+          if (sessionId && replaceFromIndex == null && !startsDraftSession) {
+            isRunningFollowup = true;
+            userMetadata = createFollowupMetadata(requestId, deps.activeRun, result.data?.task_info?.run_id || null);
+          } else {
+            deps.showToast('该会话正在执行任务，请等待完成或先停止', 'warning');
+            if (startsDraftSession) {
+              const currentMsg = deps.messages.value[assistantMsgIndex];
+              if (currentMsg) {
+                currentMsg.content += '\n\n[System Error: 该会话正在执行任务，请等待完成或先停止]';
+                currentMsg.finished = true;
+              }
+              resetActiveRunAfterSendError(deps.activeRun);
+              deps.isLoading.value = false;
             }
-            resetActiveRunAfterSendError(deps.activeRun);
-            deps.isLoading.value = false;
+            return;
           }
-          return;
         }
       }
     } catch (_) {
