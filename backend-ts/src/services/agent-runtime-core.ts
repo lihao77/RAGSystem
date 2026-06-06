@@ -82,6 +82,7 @@ export type AgentRuntimeEvent =
         tool_name: string;
         success: boolean;
         summary: string;
+        metadata: Record<string, unknown>;
       };
     }
   | {
@@ -289,6 +290,7 @@ export class AgentRuntimeCore {
               tool_name: toolName,
               success: toolResult.success,
               summary: toolResult.summary,
+              metadata: toolResult.metadata,
             },
           });
           messages.push(renderToolResultMessage({ callId, toolName, result: toolResult }));
@@ -380,6 +382,7 @@ export class AgentRuntimeCore {
             tool_name: toolName,
             success: toolResult.success,
             summary: toolResult.summary,
+            metadata: toolResult.metadata,
           },
         });
         messages.push({
@@ -419,6 +422,7 @@ export class AgentRuntimeCore {
     let ignoredToolCallsAfterFinal = false;
     let error: string | null = null;
     let protocolTagSeen = false;
+    const pendingFallbackDeltas: string[] = [];
     const toolCalls: RuntimeToolCall[] = [];
 
     const result = await this.llmChatClient.stream!(request, async (chunk) => {
@@ -487,13 +491,7 @@ export class AgentRuntimeCore {
         }
       }
       if (!protocolTagSeen && parser.currentState === null && events.length === 0 && !chunk.content.trimStart().startsWith("<")) {
-        await input.onEvent?.({
-          type: "runtime.output_delta",
-          data: {
-            content: chunk.content,
-            agent_name: input.agent.agent_name,
-          },
-        });
+        pendingFallbackDeltas.push(chunk.content);
       }
     });
 
@@ -506,6 +504,17 @@ export class AgentRuntimeCore {
         parser.getTagContent("tool_calls").trim() ||
         parser.getTagContent("final_answer").trim(),
     );
+    if (!sawProtocolTag) {
+      for (const content of pendingFallbackDeltas) {
+        await input.onEvent?.({
+          type: "runtime.output_delta",
+          data: {
+            content,
+            agent_name: input.agent.agent_name,
+          },
+        });
+      }
+    }
     const fallbackAnswer = sawProtocolTag ? "" : rawContent;
     return {
       rawContent,

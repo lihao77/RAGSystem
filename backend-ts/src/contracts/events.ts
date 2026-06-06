@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { InteractionRespondMessageSchema } from "./interactions.js";
+
 export const ClientEventTypeSchema = z.enum([
   "heartbeat",
   "error",
@@ -9,6 +11,9 @@ export const ClientEventTypeSchema = z.enum([
   "send.error",
   "stop.ack",
   "approve.error",
+  "interaction.ack",
+  "interaction.error",
+  "user_input.ack",
   "user_input.error",
   "session.run_started",
   "run.start",
@@ -19,11 +24,15 @@ export const ClientEventTypeSchema = z.enum([
   "agent.error",
   "agent.intent_delta",
   "agent.intent_complete",
+  "context.usage",
   "llm.first_token",
   "output.chunk",
   "output.final_answer",
   "output.message_saved",
+  "interaction.required",
   "user.approval_required",
+  "user.approval_granted",
+  "user.approval_denied",
   "user.input_required",
 ]);
 
@@ -59,6 +68,7 @@ export const ClientToServerMessageSchema = z.discriminatedUnion("type", [
     approved: z.boolean(),
     message: z.string().optional().default(""),
   }),
+  InteractionRespondMessageSchema,
   z.object({
     type: z.literal("user_input"),
     input_id: z.string(),

@@ -35,6 +35,62 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
         const stamped = increment ? { ...payload, stream_seq: ++streamSeq } : payload;
         ws.send(JSON.stringify(stamped));
       };
+      const sendInteractionAck = (
+        interactionId: string,
+        kind: "user_input" | "approval",
+        data: Record<string, unknown> = {},
+      ): void => {
+        const payload = {
+          interaction_id: interactionId,
+          kind,
+          resolved: true,
+          ...data,
+        };
+        send({
+          type: "interaction.ack",
+          session_id: sessionId,
+          interaction_id: interactionId,
+          kind,
+          data: payload,
+          content: payload,
+        });
+      };
+      const sendInteractionError = (
+        interactionId: string,
+        kind: "user_input" | "approval",
+        error: string,
+      ): void => {
+        const payload = {
+          interaction_id: interactionId,
+          kind,
+          resolved: false,
+        };
+        send({
+          type: "interaction.error",
+          session_id: sessionId,
+          interaction_id: interactionId,
+          kind,
+          error,
+          data: payload,
+          content: payload,
+        });
+      };
+      const sendApprovalResolved = (approvalId: string, approved: boolean, message: string): void => {
+        const payload = {
+          interaction_id: approvalId,
+          kind: "approval",
+          approval_id: approvalId,
+          approved,
+          message,
+        };
+        send({
+          type: approved ? "user.approval_granted" : "user.approval_denied",
+          session_id: sessionId,
+          approval_id: approvalId,
+          data: payload,
+          content: payload,
+        });
+      };
 
       const unsubscribe = options.container.events.subscribe(sessionId, (event) => send(event));
       const heartbeat = setInterval(() => {
@@ -101,15 +157,68 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
               });
               break;
             case "approve":
-              send({
-                type: "approve.error",
-                session_id: sessionId,
-                approval_id: message.approval_id,
-                error: "Tool approval resolution has not been migrated to TypeScript yet",
-              });
+              if (
+                options.container.pendingInteractions.respondApproval(sessionId, message.approval_id, {
+                  approved: message.approved,
+                  message: message.message,
+                })
+              ) {
+                sendInteractionAck(message.approval_id, "approval", {
+                  approval_id: message.approval_id,
+                  approved: message.approved,
+                  message: message.message,
+                });
+                sendApprovalResolved(message.approval_id, message.approved, message.message);
+              } else {
+                send({
+                  type: "approve.error",
+                  session_id: sessionId,
+                  approval_id: message.approval_id,
+                  error: "未找到对应的审批请求，可能已被取消或不存在",
+                });
+              }
               break;
+            case "interaction.respond": {
+              const result = options.container.pendingInteractions.respondInteraction(
+                sessionId,
+                message.interaction_id,
+                message,
+              );
+              if (result.resolved) {
+                sendInteractionAck(message.interaction_id, result.kind, {
+                  value: message.value,
+                  approved: result.approved ?? message.approved ?? null,
+                  message: result.message ?? message.message ?? "",
+                  ...(result.kind === "approval" ? { approval_id: message.interaction_id } : {}),
+                });
+                if (result.kind === "approval") {
+                  sendApprovalResolved(message.interaction_id, result.approved ?? false, result.message ?? "");
+                }
+              } else {
+                sendInteractionError(
+                  message.interaction_id,
+                  result.kind,
+                  result.error ?? "未找到对应的交互请求，可能已被取消或不存在",
+                );
+              }
+              break;
+            }
             case "user_input":
-              if (!options.container.pendingInteractions.respondUserInput(sessionId, message.input_id, { value: message.value })) {
+              if (options.container.pendingInteractions.respondUserInput(sessionId, message.input_id, { value: message.value })) {
+                send({
+                  type: "user_input.ack",
+                  session_id: sessionId,
+                  input_id: message.input_id,
+                  data: {
+                    input_id: message.input_id,
+                    resolved: true,
+                  },
+                  content: {
+                    input_id: message.input_id,
+                    resolved: true,
+                  },
+                });
+              } else {
                 send({
                   type: "user_input.error",
                   session_id: sessionId,

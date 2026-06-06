@@ -210,6 +210,18 @@ describe("minimal runtime core execution", () => {
       kind: "run",
       phase: "start",
     });
+    expect(history.find((event) => event.type === "context.usage")).toMatchObject({
+      agent_name: "orchestrator_agent",
+      data: {
+        used_tokens: expect.any(Number),
+        system_prompt_tokens: expect.any(Number),
+        total_tokens: expect.any(Number),
+        budget_tokens: 128000,
+        round: 0,
+        compressing: false,
+        request_id: "req-runtime-1",
+      },
+    });
     expect(history.find((event) => event.type === "output.final_answer")?.data).toMatchObject({
       content: "hello from ts core",
       metadata: expect.objectContaining({
@@ -324,6 +336,9 @@ describe("minimal runtime core execution", () => {
     expect(chatClient.requests).toHaveLength(2);
     expect(chatClient.requests[0]?.tools?.map((tool) => tool.function.name)).toEqual([
       "request_user_input",
+      "read_file",
+      "write_file",
+      "edit_file",
       "list_memory_index",
       "read_memory_entry",
     ]);
@@ -373,6 +388,108 @@ describe("minimal runtime core execution", () => {
         expect.objectContaining({ kind: "tool", phase: "end" }),
         expect.objectContaining({ kind: "final", phase: "complete" }),
       ]),
+    });
+  });
+
+  it("pauses runtime tool execution for approval when permission policy asks", async () => {
+    const chatClient = new FakeToolCallingChatClient([
+      {
+        content: "",
+        finishReason: "tool_calls",
+        toolCalls: [
+          {
+            id: "call_memory_approval",
+            type: "function",
+            function: {
+              name: "list_memory_index",
+              arguments: JSON.stringify({ scope: "session" }),
+            },
+          },
+        ],
+      },
+      {
+        content: "The approved memory index is available.",
+        finishReason: "stop",
+      },
+    ]);
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+
+    await createDefaultChatProvider(app);
+    harness.container.permissionPolicy.setMode("strict");
+    writeTestMemoryFile(["memory", "sessions", "approval-runtime-session", "MEMORY.md"], "# Approval Runtime Memory\n");
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      headers: {
+        "x-request-id": "req-runtime-tool-approval",
+      },
+      payload: {
+        task: "use memory with approval",
+        session_id: "approval-runtime-session",
+      },
+    });
+
+    expect(started.statusCode).toBe(200);
+    await waitFor(() =>
+      harness.container.events.getHistory("approval-runtime-session").some((event) => {
+        const data = event.data as { kind?: string } | undefined;
+        return event.type === "interaction.required" && data?.kind === "approval";
+      }),
+    );
+
+    const approvalRequired = harness.container.events
+      .getHistory("approval-runtime-session")
+      .find((event) => {
+        const data = event.data as { kind?: string } | undefined;
+        return event.type === "interaction.required" && data?.kind === "approval";
+      });
+    expect(approvalRequired?.data).toMatchObject({
+      approval_id: expect.any(String),
+      tool_call_id: "call_memory_approval",
+      tool_name: "list_memory_index",
+      risk_level: "low",
+      permission_mode: "strict",
+      approval_reason: "严格模式：low 风险工具需要审批",
+    });
+
+    const approvalId = (approvalRequired?.data as { approval_id: string }).approval_id;
+    const responded = await app.inject({
+      method: "POST",
+      url: `/api/agent/sessions/approval-runtime-session/interactions/${approvalId}/respond`,
+      payload: {
+        kind: "approval",
+        approved: true,
+        message: "允许读取",
+      },
+    });
+    expect(responded.statusCode).toBe(200);
+
+    await waitFor(
+      () => harness.container.agentExecution.getSessionTaskStatus("approval-runtime-session").task_info?.status === "completed",
+    );
+
+    expect(chatClient.requests).toHaveLength(2);
+    const history = harness.container.events.getHistory("approval-runtime-session");
+    expect(history.filter((event) => event.type === "execution.step").map((event) => event.data)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "tool",
+          phase: "end",
+          tool_name: "list_memory_index",
+          success: true,
+          approval_message: "允许读取",
+          approval: expect.objectContaining({
+            reason: "严格模式：low 风险工具需要审批",
+            note: "允许读取",
+            reason_codes: ["ask-risk"],
+          }),
+        }),
+      ]),
+    );
+    expect(history.find((event) => event.type === "output.final_answer")?.data).toMatchObject({
+      content: "The approved memory index is available.",
     });
   });
 
@@ -446,7 +563,7 @@ describe("minimal runtime core execution", () => {
     });
   });
 
-  it("resumes an XML request_user_input tool call through the HTTP input response route", async () => {
+  it("resumes an XML request_user_input tool call through the HTTP interaction response route", async () => {
     const chatClient = new FakeXmlStreamingToolChatClient([
       [
         "<intent>",
@@ -496,8 +613,9 @@ describe("minimal runtime core execution", () => {
     const inputId = (inputRequired?.data as { input_id: string }).input_id;
     const responded = await app.inject({
       method: "POST",
-      url: `/api/agent/sessions/input-runtime-session/inputs/${inputId}/respond`,
+      url: `/api/agent/sessions/input-runtime-session/interactions/${inputId}/respond`,
       payload: {
+        kind: "user_input",
         value: "session",
       },
     });
@@ -506,6 +624,8 @@ describe("minimal runtime core execution", () => {
       success: true,
       data: {
         resolved: true,
+        interaction_id: inputId,
+        kind: "user_input",
       },
     });
 

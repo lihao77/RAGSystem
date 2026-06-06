@@ -14,6 +14,7 @@ import { DaemonService } from "./daemon-service.js";
 import { EmbeddingModelService } from "./embedding-model-service.js";
 import { FileIndexService } from "./file-index-service.js";
 import { InMemoryEventBus } from "./event-bus.js";
+import { LocalDocumentToolService } from "./local-document-tool-service.js";
 import { OpenAiCompatibleChatClient, type LlmChatClient } from "./llm-chat-client.js";
 import { MemoryStore } from "./memory-store.js";
 import { MemoryToolService } from "./memory-tool-service.js";
@@ -44,6 +45,7 @@ export interface RuntimeContainer {
   readonly embeddingModels: EmbeddingModelService;
   readonly memoryStore: MemoryStore;
   readonly memoryTools: MemoryToolService;
+  readonly documentTools: LocalDocumentToolService;
   readonly pendingInteractions: PendingInteractionService;
   readonly runtimeToolBridge: RuntimeToolBridge;
   readonly runtimeCore: RuntimeCoreService;
@@ -80,8 +82,9 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const embeddingModels = new EmbeddingModelService(vectorLibrary);
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
   const memoryTools = new MemoryToolService(memoryStore, conversationStore);
+  const documentTools = new LocalDocumentToolService({ dataRoot: options.dataRoot });
   const pendingInteractions = new PendingInteractionService(events);
-  const runtimeToolBridge = new RuntimeToolBridge(memoryTools, pendingInteractions);
+  const runtimeToolBridge = new RuntimeToolBridge(memoryTools, pendingInteractions, permissionPolicy, documentTools);
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
   const agentRuntimeCore = new AgentRuntimeCore(llmChatClient);
@@ -116,6 +119,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     embeddingModels,
     memoryStore,
     memoryTools,
+    documentTools,
     pendingInteractions,
     runtimeToolBridge,
     runtimeCore,

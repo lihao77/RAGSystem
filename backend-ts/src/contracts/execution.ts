@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { InteractionResponsePayloadSchema } from "./interactions.js";
+
 export const AttachmentRefSchema = z.object({
   file_id: z.string().min(1),
   original_name: z.string().nullable().optional(),
@@ -47,6 +49,7 @@ export const ApprovalRequestSchema = z.object({
 export const UserInputRequestSchema = z.object({
   value: z.string().optional().default(""),
 });
+export const InteractionRequestSchema = InteractionResponsePayloadSchema;
 
 export type AttachmentRef = z.infer<typeof AttachmentRefSchema>;
 export type ExecuteRequest = z.infer<typeof ExecuteRequestSchema>;
@@ -56,6 +59,7 @@ export type CollaborateTask = z.infer<typeof CollaborateTaskSchema>;
 export type CollaborateRequest = z.infer<typeof CollaborateRequestSchema>;
 export type ApprovalRequest = z.infer<typeof ApprovalRequestSchema>;
 export type UserInputRequest = z.infer<typeof UserInputRequestSchema>;
+export type InteractionRequest = z.infer<typeof InteractionRequestSchema>;
 
 export interface AgentRunStartResult {
   started: boolean;
@@ -65,6 +69,12 @@ export interface AgentRunStartResult {
   request_id?: string;
   kind?: "agent_run" | "command";
   error?: string;
+}
+
+export interface CheckpointRecoveryStartResult extends AgentRunStartResult {
+  checkpoint_id: string;
+  round: number;
+  agent_name: string;
 }
 
 export interface ExecutionObservability {

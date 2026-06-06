@@ -81,7 +81,7 @@ export class RuntimeCoreService {
       provider,
       requirements,
       boundary:
-        "Minimal single-agent text execution and non-streaming read-only memory tool calls are available in TypeScript when configuration is ready. Other tool execution, multi-agent delegation, MCP runtime, vector retrieval, and streaming tool-call semantics are still not migrated.",
+        "Single-agent text execution, XML streaming tool loops, request_user_input, read-only memory tools, and managed read_file are available in TypeScript when configuration is ready. Write/edit/bash tools, multi-agent delegation, MCP runtime execution, vector retrieval, and context compression are still being migrated.",
     };
   }
 
@@ -183,7 +183,7 @@ export class RuntimeCoreService {
         "agent_runtime",
         "execution_runtime",
         true,
-        "最小单 Agent 文本执行 runtime 与非 streaming 只读 memory tool loop 已迁移到 TypeScript",
+        "单 Agent 文本执行、XML streaming tool loop、request_user_input、只读 memory 工具与 read_file 已迁移到 TypeScript",
         "not_migrated",
       ),
     ];

@@ -52,25 +52,75 @@ describe("monitoring compatibility routes", () => {
     });
   });
 
-  it("keeps context snapshot boundary explicit while serving persisted message content", async () => {
+  it("serves a Python-compatible context snapshot and persisted message content", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
     harness.container.sessionApplication.createSession({ sessionId: "s1" });
+    const systemMessage = harness.container.sessionApplication.addMessage({
+      sessionId: "s1",
+      role: "system",
+      content: "S".repeat(300),
+    });
     const message = harness.container.sessionApplication.addMessage({
       sessionId: "s1",
       role: "user",
-      content: "full content",
+      content: "U".repeat(300),
     });
 
     const snapshot = await app.inject({
       method: "GET",
       url: "/api/agent/context-snapshot?session_id=s1",
     });
-    expect(snapshot.statusCode).toBe(501);
+    expect(snapshot.statusCode).toBe(200);
     expect(snapshot.json()).toMatchObject({
-      success: false,
-      code: "not_migrated",
+      success: true,
+      message: "获取上下文快照成功",
+      data: {
+        system_prompt: expect.stringContaining("系统默认主编排器"),
+        available_agent_tools: expect.arrayContaining([
+          expect.objectContaining({
+            name: "general_agent",
+          }),
+        ]),
+        available_tools: expect.arrayContaining([
+          expect.objectContaining({
+            name: "request_user_input",
+          }),
+          expect.objectContaining({
+            name: "list_memory_index",
+          }),
+        ]),
+        token_stats: {
+          system_prompt_tokens: expect.any(Number),
+          history_tokens: expect.any(Number),
+          total_tokens: expect.any(Number),
+          budget_tokens: 128000,
+        },
+        config: {
+          agent_name: "orchestrator_agent",
+          runtime: {
+            execution_runtime: "ts",
+            context_snapshot: "ts_compat",
+          },
+        },
+        conversation_history: [
+          expect.objectContaining({
+            seq: systemMessage.seq,
+            role: "system",
+            content_preview: "S".repeat(300),
+            is_preview_truncated: false,
+            can_load_full_content: false,
+          }),
+          expect.objectContaining({
+            seq: message.seq,
+            role: "user",
+            content_preview: `${"U".repeat(200)}...`,
+            is_preview_truncated: true,
+            can_load_full_content: true,
+          }),
+        ],
+      },
     });
 
     const content = await app.inject({
@@ -85,8 +135,8 @@ describe("monitoring compatibility routes", () => {
         id: message.id,
         seq: message.seq,
         role: "user",
-        content: "full content",
-        content_length: "full content".length,
+        content: "U".repeat(300),
+        content_length: 300,
       },
     });
   });

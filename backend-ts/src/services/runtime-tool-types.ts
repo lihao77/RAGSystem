@@ -1,4 +1,5 @@
 import type { AgentConfig } from "../contracts/agent-config.js";
+import type { RiskLevel } from "../contracts/permissions.js";
 import type { ToolExecutionResult } from "./memory-tool-service.js";
 
 export interface RuntimeToolCall {
@@ -11,8 +12,10 @@ export interface RuntimeToolDefinition {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
-  source?: "runtime_builtin" | "memory" | "agent_tool" | "mcp" | undefined;
+  source?: "runtime_builtin" | "memory" | "document" | "agent_tool" | "mcp" | undefined;
   category?: string | undefined;
+  riskLevel?: RiskLevel | undefined;
+  approvalExempt?: boolean | undefined;
 }
 
 export interface RuntimeToolExecutionContext {

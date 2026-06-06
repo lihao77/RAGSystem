@@ -336,6 +336,53 @@ describe("AgentRuntimeCore", () => {
     );
   });
 
+  it("does not stream untagged XML prelude as final answer content", async () => {
+    const client = new FakeXmlStreamingToolChatClient([
+      [
+        "我先查看 session 记忆。",
+        "<tool_calls>",
+        '<tool name="list_memory_index"><scope>session</scope></tool>',
+        "</tool_calls>",
+      ],
+      [
+        "准备回答。",
+        "<final_answer>",
+        "I used the session memory index.",
+        "</final_answer>",
+      ],
+    ]);
+    const tools = new FakeRuntimeToolExecutor();
+    const core = new AgentRuntimeCore(client);
+    const agent = minimalAgent();
+    const events: AgentRuntimeEvent[] = [];
+
+    const result = await core.runText({
+      agent,
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [{ role: "user", content: "check memory" }],
+      toolExecutor: tools,
+      toolContext: {
+        agent,
+        sessionId: "s1",
+        currentAgentName: "orchestrator_agent",
+      },
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(result.content).toBe("I used the session memory index.");
+    const outputDeltas = events.filter((event) => event.type === "runtime.output_delta");
+    expect(outputDeltas).toEqual([
+      expect.objectContaining({
+        data: expect.objectContaining({ content: "I used the session memory index." }),
+      }),
+    ]);
+    expect(outputDeltas.map((event) => event.data.content).join("")).not.toContain("我先查看");
+    expect(outputDeltas.map((event) => event.data.content).join("")).not.toContain("准备回答");
+  });
+
   it("feeds protocol feedback back to the model when XML tool calls are malformed", async () => {
     const client = new FakeXmlStreamingToolChatClient([
       ["<tool_calls>not a tool</tool_calls>"],
@@ -502,6 +549,9 @@ describe("AgentRuntimeCore", () => {
           tool_name: "list_memory_index",
           success: true,
           summary: "已读取 session MEMORY 索引",
+          metadata: {
+            scope: "session",
+          },
         },
       },
       {

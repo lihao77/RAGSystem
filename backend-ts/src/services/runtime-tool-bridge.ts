@@ -3,6 +3,7 @@ import {
   type ToolExecutionResult,
   type MemoryToolService,
 } from "./memory-tool-service.js";
+import type { LocalDocumentToolService } from "./local-document-tool-service.js";
 import type {
   RuntimeToolCall,
   RuntimeToolDefinition,
@@ -10,16 +11,25 @@ import type {
   RuntimeToolExecutor,
 } from "./runtime-tool-types.js";
 import type { PendingInteractionService } from "./pending-interaction-service.js";
+import type {
+  PermissionPolicyService,
+  RuntimeToolApprovalDecision,
+} from "./permission-policy-service.js";
 
 const READ_ONLY_MEMORY_TOOL_NAMES = ["list_memory_index", "read_memory_entry"] as const;
 type ReadOnlyMemoryToolName = (typeof READ_ONLY_MEMORY_TOOL_NAMES)[number];
 
 const REQUEST_USER_INPUT_TOOL_NAME = "request_user_input";
+const READ_FILE_TOOL_NAME = "read_file";
+const WRITE_FILE_TOOL_NAME = "write_file";
+const EDIT_FILE_TOOL_NAME = "edit_file";
 
 const REQUEST_USER_INPUT_TOOL: RuntimeToolDefinition = {
   name: REQUEST_USER_INPUT_TOOL_NAME,
   source: "runtime_builtin",
   category: "interaction",
+  riskLevel: "low",
+  approvalExempt: true,
   description:
     "Ask the user for missing information that is required to continue. Use only when the answer cannot be inferred or obtained with available tools.",
   parameters: {
@@ -45,11 +55,130 @@ const REQUEST_USER_INPUT_TOOL: RuntimeToolDefinition = {
   },
 };
 
+const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
+  {
+    name: READ_FILE_TOOL_NAME,
+    source: "document",
+    category: "filesystem",
+    riskLevel: "low",
+    description:
+      "Read a managed workspace/session file by line range. Defaults to line 1 and at most 2000 lines. Use offset/limit for large files.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["file_path"],
+      properties: {
+        file_path: {
+          type: "string",
+          description: "File path. Relative paths resolve against the current workspace first, then session managed directories.",
+        },
+        file_path_space: {
+          type: "string",
+          enum: ["workspace", "transient", "exports"],
+          description: "Optional managed path space for relative file_path.",
+        },
+        encoding: {
+          type: "string",
+          description: "Text encoding. Defaults to utf-8.",
+        },
+        offset: {
+          type: "integer",
+          minimum: 1,
+          description: "1-based starting line number. Defaults to 1.",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 10000,
+          description: "Maximum lines to read. Defaults to 2000.",
+        },
+      },
+    },
+  },
+  {
+    name: WRITE_FILE_TOOL_NAME,
+    source: "document",
+    category: "filesystem",
+    riskLevel: "high",
+    description:
+      "Write text or JSON content to a managed workspace/session file. If file_path is omitted, the runtime allocates a managed output path.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["content"],
+      properties: {
+        content: {
+          description: "Content to write. Strings are written as text; objects are serialized when mode=json.",
+        },
+        file_path: {
+          type: "string",
+          description: "Optional file path. Relative paths resolve to managed workspace/session roots.",
+        },
+        file_path_space: {
+          type: "string",
+          enum: ["workspace", "transient", "exports"],
+          description: "Optional managed path space for relative file_path.",
+        },
+        mode: {
+          type: "string",
+          enum: ["text", "json"],
+          description: "Write mode. Defaults to text.",
+        },
+        encoding: {
+          type: "string",
+          description: "Text encoding. Defaults to utf-8.",
+        },
+      },
+    },
+  },
+  {
+    name: EDIT_FILE_TOOL_NAME,
+    source: "document",
+    category: "filesystem",
+    riskLevel: "high",
+    description:
+      "Edit a managed file by exact string replacement. old_string must match uniquely unless replace_all=true.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["file_path", "old_string", "new_string"],
+      properties: {
+        file_path: {
+          type: "string",
+          description: "File path to edit. Relative paths resolve to managed workspace/session roots.",
+        },
+        old_string: {
+          type: "string",
+          description: "Exact text to replace. Must include whitespace/newlines exactly.",
+        },
+        new_string: {
+          type: "string",
+          description: "Replacement text. Empty string deletes old_string.",
+        },
+        replace_all: {
+          type: "boolean",
+          description: "Replace all matches instead of requiring a unique match.",
+        },
+        file_path_space: {
+          type: "string",
+          enum: ["workspace", "transient", "exports"],
+          description: "Optional managed path space for relative file_path.",
+        },
+        encoding: {
+          type: "string",
+          description: "Text encoding. Defaults to utf-8.",
+        },
+      },
+    },
+  },
+];
+
 const READ_ONLY_MEMORY_TOOLS: RuntimeToolDefinition[] = [
   {
     name: "list_memory_index",
     source: "memory",
     category: "memory",
+    riskLevel: "low",
     description: "List the MEMORY.md index for an allowed memory scope before selecting an entry file to read.",
     parameters: {
       type: "object",
@@ -88,6 +217,7 @@ const READ_ONLY_MEMORY_TOOLS: RuntimeToolDefinition[] = [
     name: "read_memory_entry",
     source: "memory",
     category: "memory",
+    riskLevel: "low",
     description: "Read one memory entry file from an allowed memory scope after checking the index.",
     parameters: {
       type: "object",
@@ -132,12 +262,22 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
   constructor(
     private readonly memoryTools: MemoryToolService,
     private readonly pendingInteractions: PendingInteractionService | null = null,
+    private readonly permissionPolicy: PermissionPolicyService | null = null,
+    private readonly documentTools: LocalDocumentToolService | null = null,
   ) {}
 
   listVisibleTools(agent: AgentConfig | null): RuntimeToolDefinition[] {
     const tools: RuntimeToolDefinition[] = [];
     if (this.pendingInteractions) {
       tools.push({ ...REQUEST_USER_INPUT_TOOL });
+    }
+    if (this.documentTools) {
+      const enabledTools = new Set(agent?.tools.enabled_tools ?? []);
+      for (const tool of DOCUMENT_TOOLS) {
+        if (enabledTools.has(tool.name)) {
+          tools.push({ ...tool });
+        }
+      }
     }
     const memoryConfig = agent?.memory;
     if (memoryConfig?.allowed_scopes?.length) {
@@ -156,11 +296,46 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
 
   executeTool(call: RuntimeToolCall, context: RuntimeToolExecutionContext): ToolExecutionResult | Promise<ToolExecutionResult> {
     const toolName = call.toolName.trim();
-    if (!this.canExecuteTool(toolName, context.agent)) {
+    const tool = this.getVisibleTool(toolName, context.agent);
+    if (!tool) {
       return errorResult(`工具未暴露或暂未迁移: ${toolName}`, toolName || "unknown");
     }
+
+    const approvalDecision = this.permissionPolicy?.evaluateToolApproval({
+      toolName,
+      riskLevel: tool.riskLevel,
+      description: tool.description,
+      arguments: call.arguments ?? {},
+      sessionId: context.sessionId,
+      approvalExempt: tool.approvalExempt,
+    });
+    if (approvalDecision?.action === "ask") {
+      return this.executeToolAfterApproval(call, context, approvalDecision);
+    }
+
+    return this.executeAllowedTool(toolName, call, context);
+  }
+
+  private getVisibleTool(toolName: string, agent: AgentConfig | null): RuntimeToolDefinition | null {
+    return this.listVisibleTools(agent).find((tool) => tool.name === toolName) ?? null;
+  }
+
+  private executeAllowedTool(
+    toolName: string,
+    call: RuntimeToolCall,
+    context: RuntimeToolExecutionContext,
+  ): ToolExecutionResult | Promise<ToolExecutionResult> {
     if (toolName === REQUEST_USER_INPUT_TOOL_NAME) {
       return this.requestUserInput(call, context);
+    }
+    if (toolName === READ_FILE_TOOL_NAME && this.documentTools) {
+      return this.documentTools.readFile(readFileArguments(call.arguments), context);
+    }
+    if (toolName === WRITE_FILE_TOOL_NAME && this.documentTools) {
+      return this.documentTools.writeFile(writeFileArguments(call.arguments), context);
+    }
+    if (toolName === EDIT_FILE_TOOL_NAME && this.documentTools) {
+      return this.documentTools.editFile(editFileArguments(call.arguments), context);
     }
     if (toolName === "list_memory_index") {
       return this.memoryTools.listMemoryIndex(readListMemoryIndexArguments(call.arguments), context);
@@ -169,6 +344,63 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       return this.memoryTools.readMemoryEntry(readMemoryEntryArguments(call.arguments), context);
     }
     return errorResult(`工具未暴露或暂未迁移: ${toolName}`, toolName);
+  }
+
+  private async executeToolAfterApproval(
+    call: RuntimeToolCall,
+    context: RuntimeToolExecutionContext,
+    approvalDecision: RuntimeToolApprovalDecision,
+  ): Promise<ToolExecutionResult> {
+    const toolName = approvalDecision.toolName;
+    const approvalMetadata = buildApprovalMetadata(approvalDecision);
+    if (!this.pendingInteractions) {
+      return errorResult(`工具 ${toolName} 需要用户授权，但当前上下文不支持审批`, toolName, {
+        approval: approvalMetadata,
+      });
+    }
+
+    const sessionId = context.sessionId?.trim();
+    if (!sessionId) {
+      return errorResult(`工具 ${toolName} 需要用户授权，但当前上下文无法等待审批`, toolName, {
+        approval: approvalMetadata,
+      });
+    }
+
+    let resolution;
+    try {
+      resolution = await this.pendingInteractions.waitForApproval({
+        sessionId,
+        runId: context.runId,
+        taskId: context.taskId,
+        requestId: context.requestId,
+        toolCallId: call.callId ?? null,
+        agentName: context.currentAgentName ?? context.agent?.agent_name ?? null,
+        approvalType: "tool_execution",
+        toolName,
+        arguments: call.arguments ?? {},
+        riskLevel: approvalDecision.riskLevel,
+        description: approvalDecision.description,
+        permissionMode: approvalDecision.permissionMode,
+        approvalReason: approvalDecision.reason,
+        approvalReasonCodes: approvalDecision.reasonCodes,
+        approvalSecondaryReasons: approvalDecision.secondaryReasons,
+        signal: context.signal,
+      });
+    } catch (error) {
+      return errorResult(`审批流程异常: ${error instanceof Error ? error.message : String(error)}`, toolName, {
+        approval: approvalMetadata,
+      });
+    }
+
+    if (!resolution.approved) {
+      const denyReason = resolution.message || "用户拒绝执行此操作";
+      return errorResult(`工具 ${toolName} 执行已被拒绝：${denyReason}`, toolName, {
+        approval: buildApprovalMetadata(approvalDecision, resolution.message),
+      });
+    }
+
+    const result = await this.executeAllowedTool(toolName, call, context);
+    return withApprovalMetadata(result, approvalDecision, resolution.message);
   }
 
   private async requestUserInput(
@@ -260,7 +492,61 @@ function readMemoryEntryArguments(value: Record<string, unknown> | undefined): {
   };
 }
 
-function errorResult(message: string, toolName: string): ToolExecutionResult<string> {
+function readFileArguments(value: Record<string, unknown> | undefined): {
+  filePath: string;
+  encoding?: string | null;
+  offset?: number | null;
+  limit?: number | null;
+  filePathSpace?: string | null;
+} {
+  return {
+    filePath: asString(value?.file_path) ?? asString(value?.filePath) ?? "",
+    encoding: asString(value?.encoding),
+    offset: asInteger(value?.offset),
+    limit: asInteger(value?.limit),
+    filePathSpace: asString(value?.file_path_space) ?? asString(value?.filePathSpace),
+  };
+}
+
+function writeFileArguments(value: Record<string, unknown> | undefined): {
+  content: unknown;
+  filePath?: string | null;
+  encoding?: string | null;
+  mode?: string | null;
+  filePathSpace?: string | null;
+} {
+  return {
+    content: value?.content ?? "",
+    filePath: asString(value?.file_path) ?? asString(value?.filePath),
+    encoding: asString(value?.encoding),
+    mode: asString(value?.mode),
+    filePathSpace: asString(value?.file_path_space) ?? asString(value?.filePathSpace),
+  };
+}
+
+function editFileArguments(value: Record<string, unknown> | undefined): {
+  filePath: string;
+  oldString: string;
+  newString: string;
+  encoding?: string | null;
+  replaceAll?: boolean | null;
+  filePathSpace?: string | null;
+} {
+  return {
+    filePath: asString(value?.file_path) ?? asString(value?.filePath) ?? "",
+    oldString: asString(value?.old_string) ?? asString(value?.oldString) ?? "",
+    newString: typeof value?.new_string === "string" ? value.new_string : typeof value?.newString === "string" ? value.newString : "",
+    encoding: asString(value?.encoding),
+    replaceAll: typeof value?.replace_all === "boolean" ? value.replace_all : typeof value?.replaceAll === "boolean" ? value.replaceAll : null,
+    filePathSpace: asString(value?.file_path_space) ?? asString(value?.filePathSpace),
+  };
+}
+
+function errorResult(
+  message: string,
+  toolName: string,
+  metadata: Record<string, unknown> = {},
+): ToolExecutionResult<string> {
   return {
     success: false,
     tool_name: toolName,
@@ -270,6 +556,7 @@ function errorResult(message: string, toolName: string): ToolExecutionResult<str
     content: message,
     metadata: {
       source_shape: "error",
+      ...metadata,
     },
     artifacts: [],
     llm_hint: null,
@@ -302,6 +589,10 @@ function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function asInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
 function readPrompt(value: Record<string, unknown> | undefined): string | null {
   return asString(value?.prompt) ?? asString(value?.question) ?? asString(value?.message);
 }
@@ -315,6 +606,33 @@ function readOptions(value: Record<string, unknown> | undefined): string[] {
     return [];
   }
   return value.options.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function buildApprovalMetadata(
+  decision: RuntimeToolApprovalDecision,
+  note = "",
+): Record<string, unknown> {
+  return {
+    reason: decision.reason,
+    note,
+    ...(decision.reasonCodes.length ? { reason_codes: decision.reasonCodes } : {}),
+    ...(decision.secondaryReasons.length ? { secondary_reasons: decision.secondaryReasons } : {}),
+  };
+}
+
+function withApprovalMetadata<T>(
+  result: ToolExecutionResult<T>,
+  decision: RuntimeToolApprovalDecision,
+  note: string,
+): ToolExecutionResult<T> {
+  return {
+    ...result,
+    metadata: {
+      ...result.metadata,
+      approval: buildApprovalMetadata(decision, note),
+      ...(note ? { approval_message: note } : {}),
+    },
+  };
 }
 
 export function isReadOnlyMemoryToolName(toolName: string): toolName is ReadOnlyMemoryToolName {

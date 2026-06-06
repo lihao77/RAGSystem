@@ -8,7 +8,9 @@ import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import { MemoryStore } from "../../src/services/memory-store.js";
 import { MemoryToolService, type RuntimeMemorySessionPort } from "../../src/services/memory-tool-service.js";
 import { InMemoryEventBus } from "../../src/services/event-bus.js";
+import { LocalDocumentToolService } from "../../src/services/local-document-tool-service.js";
 import { PendingInteractionService } from "../../src/services/pending-interaction-service.js";
+import { PermissionPolicyService } from "../../src/services/permission-policy-service.js";
 import { RuntimeToolBridge } from "../../src/services/runtime-tool-bridge.js";
 
 const tempRoots: string[] = [];
@@ -95,6 +97,104 @@ describe("RuntimeToolBridge", () => {
     });
   });
 
+  it("exposes and executes read_file when enabled by agent config", () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace-alpha");
+    writeAbsoluteFile(path.join(workspaceRoot, "notes", "sample.txt"), "line 1\nline 2\nline 3\n");
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      null,
+      null,
+      new LocalDocumentToolService({ dataRoot }),
+    );
+    const agent = minimalAgent([], ["read_file"]);
+
+    expect(bridge.listVisibleToolNames(agent)).toEqual(["read_file"]);
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "read_file",
+          arguments: { file_path: "notes/sample.txt", offset: 2, limit: 1 },
+        },
+        {
+          agent,
+          sessionId: "s1",
+          workspaceRoot,
+        },
+      ),
+    ).toMatchObject({
+      success: true,
+      tool_name: "read_file",
+      content: "line 2",
+      metadata: {
+        total_lines: 3,
+        start_line: 2,
+        end_line: 2,
+        has_more: true,
+        next_offset: 3,
+      },
+    });
+  });
+
+  it("executes write_file and edit_file through managed workspace paths", () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace-beta");
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      null,
+      null,
+      new LocalDocumentToolService({ dataRoot }),
+    );
+    const agent = minimalAgent([], ["write_file", "edit_file"]);
+    const context = {
+      agent,
+      sessionId: "s1",
+      workspaceRoot,
+    };
+
+    expect(bridge.listVisibleToolNames(agent)).toEqual(["write_file", "edit_file"]);
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "write_file",
+          arguments: {
+            file_path: "notes/todo.txt",
+            content: "before\n",
+          },
+        },
+        context,
+      ),
+    ).toMatchObject({
+      success: true,
+      tool_name: "write_file",
+      content: {
+        display_path: expect.stringContaining("notes/todo.txt"),
+      },
+    });
+
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "edit_file",
+          arguments: {
+            file_path: "notes/todo.txt",
+            old_string: "before",
+            new_string: "after",
+          },
+        },
+        context,
+      ),
+    ).toMatchObject({
+      success: true,
+      tool_name: "edit_file",
+      content: {
+        replacements: 1,
+        diff_preview: expect.stringContaining("-before"),
+      },
+    });
+    expect(fs.readFileSync(path.join(workspaceRoot, "notes", "todo.txt"), "utf8")).toBe("after\n");
+  });
+
   it("rejects tools that are not visible for the current agent", () => {
     const bridge = new RuntimeToolBridge(
       new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})),
@@ -150,8 +250,25 @@ describe("RuntimeToolBridge", () => {
       ),
     );
 
+    const interactionRequired = events.getHistory("s1").find((event) => event.type === "interaction.required");
+    expect(interactionRequired?.data).toMatchObject({
+      interaction_id: expect.any(String),
+      kind: "user_input",
+      input_id: expect.any(String),
+      tool_call_id: "input-call-1",
+      tool_name: "request_user_input",
+      prompt: "使用哪个 memory scope？",
+      input_type: "select",
+      options: ["session", "workspace"],
+      run_id: "run-1",
+      task_id: "task-1",
+      request_id: "req-1",
+    });
+
     const inputRequired = events.getHistory("s1").find((event) => event.type === "user.input_required");
     expect(inputRequired?.data).toMatchObject({
+      interaction_id: expect.any(String),
+      kind: "user_input",
       input_id: expect.any(String),
       tool_call_id: "input-call-1",
       tool_name: "request_user_input",
@@ -164,6 +281,7 @@ describe("RuntimeToolBridge", () => {
     });
 
     const inputId = (inputRequired?.data as { input_id: string }).input_id;
+    expect((interactionRequired?.data as { interaction_id: string }).interaction_id).toBe(inputId);
     expect(bridge.listVisibleToolNames(minimalAgent(["session"]))).toEqual([
       "request_user_input",
       "list_memory_index",
@@ -186,6 +304,131 @@ describe("RuntimeToolBridge", () => {
       },
     });
   });
+
+  it("waits for approval before executing tools when policy asks", async () => {
+    const dataRoot = makeTempDataRoot();
+    writeFile(dataRoot, ["memory", "sessions", "s1", "MEMORY.md"], "# Approved Memory\n");
+    const events = new InMemoryEventBus();
+    const pendingInteractions = new PendingInteractionService(events);
+    const permissionPolicy = new PermissionPolicyService();
+    permissionPolicy.setMode("strict");
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
+      pendingInteractions,
+      permissionPolicy,
+    );
+
+    const resultPromise = Promise.resolve(
+      bridge.executeTool(
+        {
+          toolName: "list_memory_index",
+          callId: "approval-call-1",
+          arguments: { scope: "session" },
+        },
+        {
+          agent: minimalAgent(["session"]),
+          sessionId: "s1",
+          runId: "run-approval-1",
+          taskId: "task-approval-1",
+          requestId: "req-approval-1",
+          currentAgentName: "orchestrator_agent",
+        },
+      ),
+    );
+
+    const approvalRequired = events.getHistory("s1").find((event) => event.type === "interaction.required");
+    expect(approvalRequired?.data).toMatchObject({
+      interaction_id: expect.any(String),
+      kind: "approval",
+      approval_id: expect.any(String),
+      approval_type: "tool_execution",
+      tool_call_id: "approval-call-1",
+      tool_name: "list_memory_index",
+      risk_level: "low",
+      permission_mode: "strict",
+      approval_reason: "严格模式：low 风险工具需要审批",
+      approval_reason_codes: ["ask-risk"],
+    });
+
+    const approvalId = (approvalRequired?.data as { approval_id: string }).approval_id;
+    expect(pendingInteractions.isApprovalPending("s1", approvalId)).toBe(true);
+    expect(
+      pendingInteractions.respondInteraction("s1", approvalId, {
+        kind: "approval",
+        approved: true,
+        message: "允许读取",
+      }),
+    ).toMatchObject({
+      resolved: true,
+      kind: "approval",
+    });
+
+    await expect(resultPromise).resolves.toMatchObject({
+      success: true,
+      tool_name: "list_memory_index",
+      content: "# Approved Memory",
+      metadata: {
+        approval_message: "允许读取",
+        approval: {
+          reason: "严格模式：low 风险工具需要审批",
+          note: "允许读取",
+          reason_codes: ["ask-risk"],
+        },
+      },
+    });
+  });
+
+  it("returns a tool error when approval is denied", async () => {
+    const events = new InMemoryEventBus();
+    const pendingInteractions = new PendingInteractionService(events);
+    const permissionPolicy = new PermissionPolicyService();
+    permissionPolicy.setMode("strict");
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({ s1: {} })),
+      pendingInteractions,
+      permissionPolicy,
+    );
+
+    const resultPromise = Promise.resolve(
+      bridge.executeTool(
+        {
+          toolName: "list_memory_index",
+          callId: "approval-call-deny",
+          arguments: { scope: "session" },
+        },
+        {
+          agent: minimalAgent(["session"]),
+          sessionId: "s1",
+        },
+      ),
+    );
+    const approvalRequired = events.getHistory("s1").find((event) => event.type === "interaction.required");
+    const approvalId = (approvalRequired?.data as { approval_id: string }).approval_id;
+
+    expect(
+      pendingInteractions.respondInteraction("s1", approvalId, {
+        kind: "approval",
+        approved: false,
+        message: "不允许",
+      }),
+    ).toMatchObject({
+      resolved: true,
+      kind: "approval",
+    });
+
+    await expect(resultPromise).resolves.toMatchObject({
+      success: false,
+      output_type: "error",
+      content: "工具 list_memory_index 执行已被拒绝：不允许",
+      metadata: {
+        approval: {
+          reason: "严格模式：low 风险工具需要审批",
+          note: "不允许",
+          reason_codes: ["ask-risk"],
+        },
+      },
+    });
+  });
 });
 
 function makeTempDataRoot(): string {
@@ -196,11 +439,15 @@ function makeTempDataRoot(): string {
 
 function writeFile(dataRoot: string, parts: string[], content: string): void {
   const filePath = path.join(dataRoot, ...parts);
+  writeAbsoluteFile(filePath, content);
+}
+
+function writeAbsoluteFile(filePath: string, content: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content, "utf8");
 }
 
-function minimalAgent(allowedScopes: string[]): AgentConfig {
+function minimalAgent(allowedScopes: string[], enabledTools: string[] = []): AgentConfig {
   return {
     agent_name: "orchestrator_agent",
     display_name: "Orchestrator Agent",
@@ -215,7 +462,7 @@ function minimalAgent(allowedScopes: string[]): AgentConfig {
         extra_params: {},
       },
     },
-    tools: { enabled_tools: [] },
+    tools: { enabled_tools: enabledTools },
     skills: { enabled_skills: [], auto_inject: true },
     mcp: { enabled_servers: [] },
     memory: {

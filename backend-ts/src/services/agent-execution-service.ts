@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentConfig } from "../contracts/agent-config.js";
 import type {
   AgentRunStartResult,
+  CheckpointRecoveryStartResult,
   ExecutionDiagnostics,
   ExecutionOverview,
   ExecutionObservability,
@@ -17,6 +18,7 @@ import { getSelectedLlm as resolveSelectedLlm } from "../contracts/execution.js"
 import type { ModelProviderConfig } from "../contracts/model-adapter.js";
 import type { AgentSessionApplication } from "./agent-session-application.js";
 import type { AgentRuntimeContextBuilder } from "./agent-runtime-context-builder.js";
+import type { CheckpointInfo } from "./checkpoint-manager.js";
 import type { ConversationStore } from "./conversation-store.js";
 import type { InMemoryEventBus } from "./event-bus.js";
 import type { AgentRuntimeCore, AgentRuntimeEvent } from "./agent-runtime-core.js";
@@ -362,6 +364,189 @@ export class AgentExecutionService {
     };
   }
 
+  async startCheckpointRecovery(input: {
+    sessionId: string;
+    userId?: string | null;
+    checkpoint: CheckpointInfo;
+    requestId: string;
+  }): Promise<CheckpointRecoveryStartResult> {
+    const sessionId = input.sessionId.trim();
+    const baseResult = {
+      session_id: sessionId || input.sessionId,
+      checkpoint_id: input.checkpoint.checkpoint_id,
+      round: input.checkpoint.round,
+      agent_name: input.checkpoint.agent_name,
+    };
+    if (!sessionId) {
+      return {
+        started: false,
+        ...baseResult,
+        error: "session_id is required",
+      };
+    }
+
+    const task = findLatestCheckpointUserTask(input.checkpoint);
+    if (!task) {
+      return {
+        started: false,
+        ...baseResult,
+        session_id: sessionId,
+        error: "检查点中没有用户消息",
+      };
+    }
+
+    const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
+    const runningStatus = this.getStatusBySession(sessionId);
+    if (runningStatus?.status === "running") {
+      return {
+        started: false,
+        ...baseResult,
+        session_id: sessionId,
+        error: "该会话正在执行任务，请等待完成或停止当前任务",
+      };
+    }
+
+    const resolved = this.runtimeCore.resolveExecutionConfig({
+      agentName: normalizeSessionEntryAgent(input.checkpoint.agent_name),
+      teamName: asString(sessionMetadata.team),
+    });
+    if (!resolved.readiness.configuration_ready || !resolved.agent || !resolved.provider || !resolved.modelName) {
+      return {
+        started: false,
+        ...baseResult,
+        session_id: sessionId,
+        error: summarizeReadinessFailure(resolved.readiness.requirements),
+      };
+    }
+
+    if (!this.sessions.getSession(sessionId)) {
+      this.sessions.createSession({ sessionId, userId: input.userId ?? null });
+    }
+
+    const runtimeAgent = applySessionAgentOverrides(resolved.agent, sessionMetadata);
+    const runId = randomUUID();
+    const taskId = randomUUID();
+    const startedAt = new Date();
+    const abortController = new AbortController();
+    const executionKind = "checkpoint_recovery";
+    const status: ExecutionTaskStatus = {
+      task_id: taskId,
+      session_id: sessionId,
+      run_id: runId,
+      request_id: input.requestId,
+      execution_kind: executionKind,
+      task,
+      status: "running",
+      elapsed_seconds: null,
+      started_at: startedAt.toISOString(),
+      finished_at: null,
+      thread_alive: true,
+    };
+    const baseContext = this.contextBuilder.buildContext({
+      sessionId,
+      agent: runtimeAgent,
+      historyLimit: 0,
+    });
+    const recoveryConversation = [
+      ...baseContext.conversation,
+      ...checkpointMessagesToConversation(input.checkpoint.messages),
+    ];
+
+    this.conversationStore.createRun({
+      runId,
+      sessionId,
+      entrypoint: executionKind,
+      status: "running",
+      taskSummary: task.slice(0, 200),
+      userId: input.userId ?? null,
+      agentName: runtimeAgent.agent_name,
+      threadKey: "root",
+    });
+
+    const startStepPayload = {
+      kind: "run",
+      phase: "start",
+      agent_name: runtimeAgent.agent_name,
+      task_id: taskId,
+      run_id: runId,
+      request_id: input.requestId,
+      execution_kind: executionKind,
+      recovered_from: input.checkpoint.checkpoint_id,
+      checkpoint_id: input.checkpoint.checkpoint_id,
+      checkpoint_round: input.checkpoint.round,
+    };
+    this.addExecutionStep(sessionId, runId, startStepPayload);
+    this.events.publish(sessionId, {
+      type: "execution.step",
+      session_id: sessionId,
+      run_id: runId,
+      ...mirrorEventData(startStepPayload),
+    });
+
+    const runStartPayload = {
+      task_id: taskId,
+      agent_name: runtimeAgent.agent_name,
+      run_id: runId,
+      request_id: input.requestId,
+      execution_kind: executionKind,
+      recovered_from: input.checkpoint.checkpoint_id,
+    };
+    this.events.publish(sessionId, {
+      type: "session.run_started",
+      session_id: sessionId,
+      run_id: runId,
+      ...mirrorEventData(runStartPayload),
+    });
+    this.events.publish(sessionId, {
+      type: "run.start",
+      session_id: sessionId,
+      run_id: runId,
+      ...mirrorEventData(runStartPayload),
+    });
+    this.events.publish(sessionId, {
+      type: "session.updated",
+      session_id: sessionId,
+      run_id: runId,
+      ...mirrorEventData({ source: executionKind, status: "running", run_id: runId }),
+    });
+
+    const promise = this.runMinimalAgent({
+      sessionId,
+      runId,
+      taskId,
+      requestId: input.requestId,
+      task,
+      startedAt,
+      abortController,
+      status,
+      agent: runtimeAgent,
+      provider: resolved.provider,
+      modelName: resolved.modelName,
+      executionKind,
+      contextConversation: recoveryConversation,
+      finalMetadataExtra: {
+        recovered_from: input.checkpoint.checkpoint_id,
+        checkpoint_id: input.checkpoint.checkpoint_id,
+        checkpoint_round: input.checkpoint.round,
+      },
+    });
+    this.handlesByTask.set(taskId, { abortController, status, promise });
+    this.taskBySession.set(sessionId, taskId);
+    this.statusHistory.set(taskId, status);
+
+    return {
+      started: true,
+      session_id: sessionId,
+      run_id: runId,
+      task_id: taskId,
+      request_id: input.requestId,
+      kind: "agent_run",
+      checkpoint_id: input.checkpoint.checkpoint_id,
+      round: input.checkpoint.round,
+      agent_name: runtimeAgent.agent_name,
+    };
+  }
+
   private getStatus(taskId: string): ExecutionTaskStatus | null {
     return cloneStatus(this.statusHistory.get(taskId) ?? null);
   }
@@ -406,12 +591,34 @@ export class AgentExecutionService {
     agent: AgentConfig;
     provider: ModelProviderConfig;
     modelName: string;
-    userMessageId: string;
+    userMessageId?: string | undefined;
     conversationUpdateProvider?: (() => Promise<ChatMessage[]> | ChatMessage[]) | undefined;
+    executionKind?: string | undefined;
+    contextConversation?: ChatMessage[] | undefined;
+    finalMetadataExtra?: Record<string, unknown> | undefined;
   }): Promise<void> {
     try {
-      const context = this.contextBuilder.buildContext({ sessionId: input.sessionId, agent: input.agent });
+      const context = input.contextConversation
+        ? { conversation: input.contextConversation }
+        : this.contextBuilder.buildContext({ sessionId: input.sessionId, agent: input.agent });
       const sessionMetadata = this.sessions.getSession(input.sessionId)?.metadata ?? {};
+      const executionKind = input.executionKind ?? "agent_stream";
+      const contextUsagePayload = buildContextUsagePayload({
+        agent: input.agent,
+        provider: input.provider,
+        messages: context.conversation,
+        round: 0,
+        runId: input.runId,
+        taskId: input.taskId,
+        requestId: input.requestId,
+      });
+      this.events.publish(input.sessionId, {
+        type: "context.usage",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        agent_name: input.agent.agent_name,
+        ...mirrorEventData(contextUsagePayload),
+      });
       const response = await this.agentRuntimeCore.runText({
         agent: input.agent,
         provider: input.provider,
@@ -443,7 +650,8 @@ export class AgentExecutionService {
           run_id: input.runId,
           request_id: input.requestId,
           msg_type: "assistant_final",
-          execution_kind: "agent_stream",
+          execution_kind: executionKind,
+          ...(input.finalMetadataExtra ?? {}),
         },
       });
       this.addExecutionStep(input.sessionId, input.runId, {
@@ -460,8 +668,9 @@ export class AgentExecutionService {
         agent: input.agent.agent_name,
         run_id: input.runId,
         request_id: input.requestId,
-        execution_kind: "agent_stream",
+        execution_kind: executionKind,
         execution_time: input.status.elapsed_seconds,
+        ...(input.finalMetadataExtra ?? {}),
       };
       const finalStepPayload = {
         kind: "final",
@@ -513,12 +722,13 @@ export class AgentExecutionService {
         type: "session.updated",
         session_id: input.sessionId,
         run_id: input.runId,
-        ...mirrorEventData({ source: "agent_stream", status: "completed", run_id: input.runId }),
+        ...mirrorEventData({ source: executionKind, status: "completed", run_id: input.runId }),
       });
     } catch (error) {
       const interrupted = input.abortController.signal.aborted;
       const finalStatus = interrupted ? "interrupted" : "failed";
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const executionKind = input.executionKind ?? "agent_stream";
       this.addExecutionStep(input.sessionId, input.runId, {
         kind: "run",
         phase: finalStatus,
@@ -553,8 +763,9 @@ export class AgentExecutionService {
             agent: input.agent.agent_name,
             run_id: input.runId,
             request_id: input.requestId,
-            execution_kind: "agent_stream",
+            execution_kind: executionKind,
             execution_time: input.status.elapsed_seconds,
+            ...(input.finalMetadataExtra ?? {}),
           },
         }),
       });
@@ -562,7 +773,7 @@ export class AgentExecutionService {
         type: "session.updated",
         session_id: input.sessionId,
         run_id: input.runId,
-        ...mirrorEventData({ source: "agent_stream", status: finalStatus, run_id: input.runId }),
+        ...mirrorEventData({ source: executionKind, status: finalStatus, run_id: input.runId }),
       });
     } finally {
       this.taskBySession.delete(input.sessionId);
@@ -666,6 +877,8 @@ export class AgentExecutionService {
       return;
     }
     if (event.type === "runtime.tool_result") {
+      const approvalMessage = asString(event.data.metadata.approval_message);
+      const approvalMetadata = isRecord(event.data.metadata.approval) ? event.data.metadata.approval : null;
       const payload = {
         kind: "tool",
         phase: "end",
@@ -678,6 +891,8 @@ export class AgentExecutionService {
         success: event.data.success,
         summary: event.data.summary,
         result_preview: event.data.summary,
+        ...(approvalMessage ? { approval_message: approvalMessage } : {}),
+        ...(approvalMetadata ? { approval: approvalMetadata } : {}),
         run_id: input.runId,
         task_id: input.taskId,
         request_id: input.requestId,
@@ -754,6 +969,31 @@ function cloneStatus(status: ExecutionTaskStatus | null): ExecutionTaskStatus | 
   return status ? { ...status } : null;
 }
 
+function findLatestCheckpointUserTask(checkpoint: CheckpointInfo): string | null {
+  for (let index = checkpoint.messages.length - 1; index >= 0; index -= 1) {
+    const message = checkpoint.messages[index];
+    if (message?.role === "user" && typeof message.content === "string" && message.content.trim()) {
+      return message.content;
+    }
+  }
+  return null;
+}
+
+function checkpointMessagesToConversation(messages: Array<Record<string, unknown>>): ChatMessage[] {
+  const conversation: ChatMessage[] = [];
+  for (const message of messages) {
+    const role = message.role;
+    const content = message.content;
+    if (typeof content !== "string" || !content.trim()) {
+      continue;
+    }
+    if (role === "system" || role === "user" || role === "assistant") {
+      conversation.push({ role, content });
+    }
+  }
+  return conversation;
+}
+
 function normalizeSessionEntryAgent(value: unknown): string | null {
   const normalized = asString(value);
   if (!normalized) {
@@ -807,6 +1047,69 @@ function buildRuntimeToolContext(
   };
 }
 
+function buildContextUsagePayload(input: {
+  agent: AgentConfig;
+  provider: ModelProviderConfig;
+  messages: ChatMessage[];
+  round: number;
+  runId: string;
+  taskId: string;
+  requestId: string;
+}): Record<string, unknown> {
+  const rawSystemPromptTokens = estimateTokens(getSystemPrompt(input.agent));
+  const systemContextTokens = input.messages
+    .filter((message) => message.role === "system")
+    .reduce((total, message) => total + estimateTokens(message.content), 0);
+  const historyTokens = input.messages
+    .filter((message) => message.role !== "system")
+    .reduce((total, message) => total + estimateTokens(message.content), 0);
+  const systemPromptTokens = rawSystemPromptTokens + systemContextTokens;
+  const totalTokens = systemPromptTokens + historyTokens;
+  return {
+    used_tokens: totalTokens,
+    system_prompt_tokens: systemPromptTokens,
+    total_tokens: totalTokens,
+    budget_tokens: resolveContextBudget(input.agent, input.provider),
+    round: input.round,
+    compressing: false,
+    agent_name: input.agent.agent_name,
+    run_id: input.runId,
+    task_id: input.taskId,
+    request_id: input.requestId,
+  };
+}
+
+function getSystemPrompt(agent: AgentConfig): string {
+  const behavior = agent.custom_params.behavior;
+  if (!isRecord(behavior)) {
+    return "";
+  }
+  return asString(behavior.system_prompt) ?? "";
+}
+
+function resolveContextBudget(agent: AgentConfig, provider: ModelProviderConfig): number {
+  return positiveInt(provider.max_context_tokens)
+    ?? positiveInt(agent.llm_tiers?.default?.max_context_tokens)
+    ?? 128000;
+}
+
+function estimateTokens(content: string): number {
+  if (!content) {
+    return 0;
+  }
+  const cjkChars = content.match(/[\u3400-\u9fff]/g)?.length ?? 0;
+  const nonCjk = content.length - cjkChars;
+  return Math.max(1, cjkChars + Math.ceil(nonCjk / 4));
+}
+
+function positiveInt(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+}
+
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
