@@ -60,7 +60,7 @@ Node.js 24+ is required because the first persistence milestone uses the built-i
   derived from the current TS vectorizer config
 - Minimal runtime-core execution for configured single-agent text runs, with LLM calls through an
   OpenAI-compatible chat client, migrated built-in tool loop, and persisted user/final messages
-- Built-in runtime tools for `request_user_input`, read-only memory, managed file
+- Built-in runtime tools for `request_user_input`, memory read/write/archive, managed file
   read/write/edit/preview, foreground/background `execute_bash`, task tracking/background control,
   and synchronous agent delegation
 - Explicit `501` responses for agent runtime operations that have not been migrated yet

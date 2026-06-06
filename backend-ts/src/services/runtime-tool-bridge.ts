@@ -41,6 +41,8 @@ const TASK_UPDATE_TOOL_NAME = "task_update";
 const TASK_LIST_TOOL_NAME = "task_list";
 const TASK_OUTPUT_TOOL_NAME = "task_output";
 const TASK_STOP_TOOL_NAME = "task_stop";
+const WRITE_MEMORY_TOOL_NAME = "write_memory";
+const ARCHIVE_MEMORY_TOOL_NAME = "archive_memory";
 
 const REQUEST_USER_INPUT_TOOL: RuntimeToolDefinition = {
   name: REQUEST_USER_INPUT_TOOL_NAME,
@@ -362,6 +364,123 @@ const READ_ONLY_MEMORY_TOOLS: RuntimeToolDefinition[] = [
   },
 ];
 
+const WRITE_MEMORY_TOOL: RuntimeToolDefinition = {
+  name: WRITE_MEMORY_TOOL_NAME,
+  source: "memory",
+  category: "memory",
+  riskLevel: "low",
+  description: "Create or update one memory entry in an allowed writable scope and rebuild that scope's MEMORY.md index.",
+  parameters: {
+    type: "object",
+    additionalProperties: false,
+    required: ["scope", "name", "description", "memory_type", "content"],
+    properties: {
+      scope: {
+        type: "string",
+        enum: ["team", "session", "agent", "workspace"],
+        description: "Memory scope to write.",
+      },
+      name: {
+        type: "string",
+        description: "Memory name.",
+      },
+      description: {
+        type: "string",
+        description: "Short memory summary used in MEMORY.md.",
+      },
+      memory_type: {
+        type: "string",
+        enum: ["preference", "constraint", "goal", "fact", "profile"],
+        description: "Memory type.",
+      },
+      content: {
+        type: "string",
+        description: "Memory body.",
+      },
+      why: {
+        type: "string",
+        description: "Optional Why section.",
+      },
+      how_to_apply: {
+        type: "string",
+        description: "Optional How to apply section.",
+      },
+      source_run_id: {
+        type: "string",
+        description: "Optional source run id.",
+      },
+      source_message_id: {
+        type: "string",
+        description: "Optional source message id.",
+      },
+      session_id: {
+        type: "string",
+        description: "Optional session id. Omit it when the current session context should be used.",
+      },
+      agent_name: {
+        type: "string",
+        description: "Optional agent name for agent-scoped memory.",
+      },
+      workspace_key: {
+        type: "string",
+        description: "Optional normalized workspace memory key.",
+      },
+      team_name: {
+        type: "string",
+        description: "Optional team name for team-scoped or agent-scoped memory.",
+      },
+      workspace_root: {
+        type: "string",
+        description: "Optional workspace root path used to derive workspace memory.",
+      },
+    },
+  },
+};
+
+const ARCHIVE_MEMORY_TOOL: RuntimeToolDefinition = {
+  name: ARCHIVE_MEMORY_TOOL_NAME,
+  source: "memory",
+  category: "memory",
+  riskLevel: "low",
+  description: "Archive one memory entry in an allowed archive scope and rebuild that scope's MEMORY.md index.",
+  parameters: {
+    type: "object",
+    additionalProperties: false,
+    required: ["scope", "file_name"],
+    properties: {
+      scope: {
+        type: "string",
+        enum: ["team", "session", "agent", "workspace"],
+        description: "Memory scope containing the entry file.",
+      },
+      file_name: {
+        type: "string",
+        description: "Memory entry file name to archive.",
+      },
+      session_id: {
+        type: "string",
+        description: "Optional session id. Omit it when the current session context should be used.",
+      },
+      agent_name: {
+        type: "string",
+        description: "Optional agent name for agent-scoped memory.",
+      },
+      workspace_key: {
+        type: "string",
+        description: "Optional normalized workspace memory key.",
+      },
+      team_name: {
+        type: "string",
+        description: "Optional team name for team-scoped or agent-scoped memory.",
+      },
+      workspace_root: {
+        type: "string",
+        description: "Optional workspace root path used to derive workspace memory.",
+      },
+    },
+  },
+};
+
 const TASK_WORKFLOW_TOOLS: RuntimeToolDefinition[] = [
   {
     name: TASK_CREATE_TOOL_NAME,
@@ -590,6 +709,12 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     if (memoryConfig?.allowed_scopes?.length) {
       tools.push(...READ_ONLY_MEMORY_TOOLS.map((tool) => ({ ...tool })));
     }
+    if (memoryConfig?.write_scopes?.length) {
+      tools.push({ ...WRITE_MEMORY_TOOL });
+    }
+    if (memoryConfig?.archive_scopes?.length) {
+      tools.push({ ...ARCHIVE_MEMORY_TOOL });
+    }
     if (this.agentDelegation && agent?.delegation.enabled_agents?.length) {
       tools.push(...AGENT_DELEGATION_TOOLS.map((tool) => ({ ...tool })));
     }
@@ -677,6 +802,12 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     }
     if (toolName === "read_memory_entry") {
       return this.memoryTools.readMemoryEntry(readMemoryEntryArguments(call.arguments), context);
+    }
+    if (toolName === WRITE_MEMORY_TOOL_NAME) {
+      return this.memoryTools.writeMemory(readWriteMemoryArguments(call.arguments), context);
+    }
+    if (toolName === ARCHIVE_MEMORY_TOOL_NAME) {
+      return this.memoryTools.archiveMemory(readArchiveMemoryArguments(call.arguments), context);
     }
     if (toolName === CALL_AGENT_TOOL_NAME && this.agentDelegation) {
       return this.agentDelegation.callAgent(readCallAgentArguments(call.arguments, call.callId), context);
@@ -997,6 +1128,49 @@ function readMemoryEntryArguments(value: Record<string, unknown> | undefined): {
     ...readListMemoryIndexArguments(value),
     fileName: asString(value?.file_name) ?? asString(value?.fileName) ?? "",
   };
+}
+
+function readWriteMemoryArguments(value: Record<string, unknown> | undefined): {
+  scope: string;
+  name: string;
+  description: string;
+  memoryType: string;
+  content: string;
+  why?: string | null;
+  howToApply?: string | null;
+  sourceRunId?: string | null;
+  sourceMessageId?: string | null;
+  sessionId?: string | null;
+  agentName?: string | null;
+  workspaceKey?: string | null;
+  currentAgentName?: string | null;
+  teamName?: string | null;
+  workspaceRoot?: string | null;
+} {
+  return {
+    ...readListMemoryIndexArguments(value),
+    name: asString(value?.name) ?? "",
+    description: asString(value?.description) ?? "",
+    memoryType: asString(value?.memory_type) ?? asString(value?.memoryType) ?? "",
+    content: typeof value?.content === "string" ? value.content : "",
+    why: asString(value?.why),
+    howToApply: asString(value?.how_to_apply) ?? asString(value?.howToApply),
+    sourceRunId: asString(value?.source_run_id) ?? asString(value?.sourceRunId),
+    sourceMessageId: asString(value?.source_message_id) ?? asString(value?.sourceMessageId),
+  };
+}
+
+function readArchiveMemoryArguments(value: Record<string, unknown> | undefined): {
+  scope: string;
+  fileName: string;
+  sessionId?: string | null;
+  agentName?: string | null;
+  workspaceKey?: string | null;
+  currentAgentName?: string | null;
+  teamName?: string | null;
+  workspaceRoot?: string | null;
+} {
+  return readMemoryEntryArguments(value);
 }
 
 function readFileArguments(value: Record<string, unknown> | undefined): {

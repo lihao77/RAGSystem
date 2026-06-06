@@ -459,7 +459,7 @@ describe("minimal runtime core execution", () => {
     ]);
   });
 
-  it("executes read-only memory tool calls during a minimal runtime-core run", async () => {
+  it("executes memory tool calls during a minimal runtime-core run", async () => {
     const chatClient = new FakeToolCallingChatClient([
       {
         content: "",
@@ -518,6 +518,8 @@ describe("minimal runtime core execution", () => {
       "task_stop",
       "list_memory_index",
       "read_memory_entry",
+      "write_memory",
+      "archive_memory",
       "call_agent",
       "list_child_agents",
       "send_message",

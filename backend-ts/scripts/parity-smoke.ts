@@ -106,6 +106,8 @@ const CORE_TOOL_NAMES = [
   "task_stop",
   "list_memory_index",
   "read_memory_entry",
+  "write_memory",
+  "archive_memory",
   "call_agent",
   "list_child_agents",
   "send_message",

@@ -58,7 +58,61 @@ describe("MemoryStore", () => {
       file_path: path.join(scopeRoot, "fact_alpha.md"),
       content: expect.stringContaining("body"),
     });
-    expect(store.readEntryFile({ scope: "session", session_id: "s1" }, "MEMORY.md")).toBeNull();
+    expect(store.readEntryFile({ scope: "session", session_id: "s1" }, "MEMORY.md")).toMatchObject({
+      file_name: "MEMORY.md",
+    });
+  });
+
+  it("writes Python-compatible memory markdown and rebuilds active index entries", () => {
+    const dataRoot = makeTempDataRoot();
+    const store = new MemoryStore({ dataRoot });
+
+    const saved = store.saveMemory({
+      scope: "session",
+      session_id: "s1",
+      name: "Alpha Preference",
+      description: "prefer alpha",
+      memory_type: "preference",
+      content: "Use alpha by default.",
+      why: "The user asked for it.",
+      how_to_apply: "Apply on related tasks.",
+      source_run_id: "run-1",
+      source_message_id: "msg-1",
+    });
+
+    expect(saved).toMatchObject({
+      scope: "session",
+      file_name: "preference_Alpha-Preference.md",
+      file_path: path.join(dataRoot, "memory", "sessions", "s1", "preference_Alpha-Preference.md"),
+    });
+    const entryText = fs.readFileSync(saved.file_path, "utf8");
+    expect(entryText).toContain("name: Alpha Preference");
+    expect(entryText).toContain("memory_type: preference");
+    expect(entryText).toContain("status: active");
+    expect(entryText).toContain("source_run_id: run-1");
+    expect(entryText).toContain("**Why:** The user asked for it.");
+    expect(entryText).toContain("**How to apply:** Apply on related tasks.");
+    expect(store.loadIndexHead({ scope: "session", session_id: "s1" })).toContain(
+      "- [Alpha Preference](preference_Alpha-Preference.md) - prefer alpha",
+    );
+  });
+
+  it("archives memory by status flag and removes it from MEMORY.md", () => {
+    const dataRoot = makeTempDataRoot();
+    const store = new MemoryStore({ dataRoot });
+    const saved = store.saveMemory({
+      scope: "session",
+      session_id: "s1",
+      name: "Temporary Fact",
+      description: "temporary",
+      memory_type: "fact",
+      content: "temporary fact",
+    });
+
+    expect(store.archiveMemory({ scope: "session", session_id: "s1" }, saved.file_name)).toBe(true);
+    expect(fs.readFileSync(saved.file_path, "utf8")).toContain("status: archived");
+    expect(store.loadIndexHead({ scope: "session", session_id: "s1" })).toBe("# Session Memory\n\n暂无记忆。");
+    expect(store.archiveMemory({ scope: "session", session_id: "s1" }, saved.file_name)).toBe(false);
   });
 
   it("uses the same workspace memory key normalization as Python", () => {

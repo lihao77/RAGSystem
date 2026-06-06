@@ -29,7 +29,7 @@ Current TS runtime-core scope:
 - XML streaming tool-call loop,
 - request_user_input interactions,
 - permission approval waits for migrated tools,
-- read-only memory tools,
+- memory read/write/archive tools,
 - managed file read/write/edit/structure-preview tools,
 - foreground execute_bash,
 - background execute_bash start, completion event, output file, and stop support,

@@ -80,7 +80,7 @@ In scope:
 - Minimal runtime-core execution:
   - `POST /api/agent/stream` starts configured single-agent text runs,
   - supports the XML streaming tool-call loop,
-  - executes migrated built-in tools: `request_user_input`, read-only memory tools, managed file
+  - executes migrated built-in tools: `request_user_input`, memory read/write/archive tools, managed file
     tools, `execute_bash`, task tracking/background tools, and synchronous agent delegation,
   - persists user and final assistant messages,
   - records run status and compact execution steps,

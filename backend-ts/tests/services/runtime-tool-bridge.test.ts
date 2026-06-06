@@ -34,7 +34,7 @@ class InMemorySessions implements RuntimeMemorySessionPort {
 }
 
 describe("RuntimeToolBridge", () => {
-  it("exposes read-only memory tools from agent memory allowed scopes", () => {
+  it("exposes memory tools from agent memory scope capabilities", () => {
     const bridge = new RuntimeToolBridge(
       new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})),
     );
@@ -42,6 +42,12 @@ describe("RuntimeToolBridge", () => {
     expect(bridge.listVisibleToolNames(minimalAgent(["session"]))).toEqual([
       "list_memory_index",
       "read_memory_entry",
+    ]);
+    expect(bridge.listVisibleToolNames(minimalAgent(["session"], [], [], ["session"], ["session"]))).toEqual([
+      "list_memory_index",
+      "read_memory_entry",
+      "write_memory",
+      "archive_memory",
     ]);
     expect(bridge.listVisibleTools(minimalAgent(["session"]))).toEqual([
       expect.objectContaining({
@@ -155,6 +161,59 @@ describe("RuntimeToolBridge", () => {
       content: "alpha body\n",
       metadata: {
         scope: "session",
+      },
+    });
+  });
+
+  it("dispatches write_memory and archive_memory calls to memory tools", () => {
+    const dataRoot = makeTempDataRoot();
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
+    );
+    const context = {
+      agent: minimalAgent(["session"], [], [], ["session"], ["session"]),
+      sessionId: "s1",
+    };
+
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "write_memory",
+          arguments: {
+            scope: "session",
+            name: "Alpha Fact",
+            description: "alpha fact",
+            memory_type: "fact",
+            content: "alpha body",
+          },
+        },
+        context,
+      ),
+    ).toMatchObject({
+      success: true,
+      tool_name: "write_memory",
+      content: {
+        file_name: "fact_Alpha-Fact.md",
+        scope: "session",
+      },
+    });
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "archive_memory",
+          arguments: {
+            scope: "session",
+            file_name: "fact_Alpha-Fact.md",
+          },
+        },
+        context,
+      ),
+    ).toMatchObject({
+      success: true,
+      tool_name: "archive_memory",
+      content: {
+        archived: true,
+        file_name: "fact_Alpha-Fact.md",
       },
     });
   });
@@ -1270,7 +1329,13 @@ function delegationSuccess<T>(toolName: string, content: T) {
   };
 }
 
-function minimalAgent(allowedScopes: string[], enabledTools: string[] = [], delegatedAgents: string[] = []): AgentConfig {
+function minimalAgent(
+  allowedScopes: string[],
+  enabledTools: string[] = [],
+  delegatedAgents: string[] = [],
+  writeScopes: string[] = [],
+  archiveScopes: string[] = [],
+): AgentConfig {
   return {
     agent_name: "orchestrator_agent",
     display_name: "Orchestrator Agent",
@@ -1291,8 +1356,8 @@ function minimalAgent(allowedScopes: string[], enabledTools: string[] = [], dele
     memory: {
       auto_inject: true,
       allowed_scopes: allowedScopes,
-      write_scopes: [],
-      archive_scopes: [],
+      write_scopes: writeScopes,
+      archive_scopes: archiveScopes,
     },
     tasks: { workflow: false, background: false },
     delegation: { enabled_agents: delegatedAgents },

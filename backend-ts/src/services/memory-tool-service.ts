@@ -28,6 +28,21 @@ export interface ReadMemoryEntryInput extends ListMemoryIndexInput {
   fileName: string;
 }
 
+export interface WriteMemoryInput extends ListMemoryIndexInput {
+  name: string;
+  description: string;
+  memoryType: string;
+  content: string;
+  why?: string | null;
+  howToApply?: string | null;
+  sourceRunId?: string | null;
+  sourceMessageId?: string | null;
+}
+
+export interface ArchiveMemoryInput extends ListMemoryIndexInput {
+  fileName: string;
+}
+
 export interface ToolExecutionResult<T = unknown> {
   success: boolean;
   tool_name: string;
@@ -98,10 +113,101 @@ export class MemoryToolService {
     });
   }
 
+  writeMemory(
+    input: WriteMemoryInput,
+    context: MemoryToolRuntimeContext,
+  ): ToolExecutionResult<{ file_path: string; file_name: string; scope: string } | string> {
+    const toolName = "write_memory";
+    const setup = this.resolveMemoryScope(input, context, toolName, "write");
+    if ("error" in setup) {
+      return errorResult(setup.error, toolName);
+    }
+
+    try {
+      const saved = this.memoryStore.saveMemory({
+        ...setup.scopeSpec,
+        name: input.name,
+        description: input.description,
+        memory_type: input.memoryType,
+        content: input.content,
+        why: input.why,
+        how_to_apply: input.howToApply,
+        source_run_id: input.sourceRunId,
+        source_message_id: input.sourceMessageId,
+      });
+      return successResult(
+        {
+          file_path: saved.file_path,
+          file_name: saved.file_name,
+          scope: saved.scope,
+        },
+        {
+          summary: `已写入 ${saved.scope} memory: ${saved.file_name}`,
+          outputType: "json",
+          metadata: {
+            file_path: saved.file_path,
+            scope: saved.scope,
+          },
+          toolName,
+        },
+      );
+    } catch (error) {
+      return errorResult(`写入 memory 失败: ${error instanceof Error ? error.message : String(error)}`, toolName);
+    }
+  }
+
+  archiveMemory(
+    input: ArchiveMemoryInput,
+    context: MemoryToolRuntimeContext,
+  ): ToolExecutionResult<{ archived: boolean; file_name: string; scope: string } | string> {
+    const toolName = "archive_memory";
+    const setup = this.resolveMemoryScope(input, context, toolName, "archive");
+    if ("error" in setup) {
+      return errorResult(setup.error, toolName);
+    }
+
+    try {
+      const archived = this.memoryStore.archiveMemory(setup.scopeSpec, input.fileName);
+      if (!archived) {
+        return errorResult(
+          `未找到可归档的 memory: ${input.fileName}。请先通过 list_memory_index 确认当前 scope 下的真实文件名。`,
+          toolName,
+        );
+      }
+      return successResult(
+        {
+          archived: true,
+          file_name: input.fileName,
+          scope: setup.scopeSpec.scope,
+        },
+        {
+          summary: `已归档 ${setup.scopeSpec.scope} memory: ${input.fileName}`,
+          outputType: "json",
+          metadata: {
+            file_name: input.fileName,
+            scope: setup.scopeSpec.scope,
+          },
+          toolName,
+        },
+      );
+    } catch (error) {
+      return errorResult(`归档 memory 失败: ${error instanceof Error ? error.message : String(error)}`, toolName);
+    }
+  }
+
   private resolveReadableScope(
     input: ListMemoryIndexInput,
     context: MemoryToolRuntimeContext,
     toolName: string,
+  ): { error: string } | ResolvedMemoryScopeInputs {
+    return this.resolveMemoryScope(input, context, toolName, "read");
+  }
+
+  private resolveMemoryScope(
+    input: ListMemoryIndexInput,
+    context: MemoryToolRuntimeContext,
+    toolName: string,
+    mode: "read" | "write" | "archive",
   ): { error: string } | ResolvedMemoryScopeInputs {
     const memoryConfig = context.agent?.memory;
     const currentAgentName = normalizeString(input.currentAgentName) ?? normalizeString(context.currentAgentName) ?? context.agent?.agent_name ?? null;
@@ -116,6 +222,18 @@ export class MemoryToolService {
     const allowedScopes = new Set((memoryConfig.allowed_scopes?.length ? memoryConfig.allowed_scopes : ["team", "session"]).map((item) => item.toLowerCase()));
     if (!allowedScopes.has(normalizedScope)) {
       return { error: `当前 Agent 不允许访问 memory scope: ${input.scope}` };
+    }
+    if (mode === "write") {
+      const writeScopes = new Set((memoryConfig.write_scopes ?? []).map((item) => item.toLowerCase()));
+      if (!writeScopes.has(normalizedScope)) {
+        return { error: `当前 Agent 不允许写入 memory scope: ${input.scope}` };
+      }
+    }
+    if (mode === "archive") {
+      const archiveScopes = new Set((memoryConfig.archive_scopes ?? []).map((item) => item.toLowerCase()));
+      if (!archiveScopes.has(normalizedScope)) {
+        return { error: `当前 Agent 不允许归档 memory scope: ${input.scope}` };
+      }
     }
 
     const scopeSpec = this.resolveScopeSpec(input, context, normalizedScope, currentAgentName);

@@ -128,6 +128,106 @@ describe("MemoryToolService", () => {
       },
     });
   });
+
+  it("writes and archives session memory using configured write/archive scopes", () => {
+    const dataRoot = makeTempDataRoot();
+    const service = new MemoryToolService(
+      new MemoryStore({ dataRoot }),
+      new InMemorySessions({
+        s1: {},
+      }),
+    );
+    const context = {
+      agent: minimalAgent(["session"], ["session"], ["session"]),
+      sessionId: "s1",
+    };
+
+    const writeResult = service.writeMemory(
+      {
+        scope: "session",
+        name: "Alpha Fact",
+        description: "alpha fact",
+        memoryType: "fact",
+        content: "alpha body",
+        sourceRunId: "run-1",
+      },
+      context,
+    );
+
+    expect(writeResult).toMatchObject({
+      success: true,
+      tool_name: "write_memory",
+      output_type: "json",
+      content: {
+        file_name: "fact_Alpha-Fact.md",
+        scope: "session",
+      },
+      metadata: {
+        file_path: path.join(dataRoot, "memory", "sessions", "s1", "fact_Alpha-Fact.md"),
+        scope: "session",
+      },
+    });
+    expect(fs.readFileSync(path.join(dataRoot, "memory", "sessions", "s1", "MEMORY.md"), "utf8")).toContain(
+      "- [Alpha Fact](fact_Alpha-Fact.md) - alpha fact",
+    );
+
+    const archiveResult = service.archiveMemory(
+      {
+        scope: "session",
+        fileName: "fact_Alpha-Fact.md",
+      },
+      context,
+    );
+    expect(archiveResult).toMatchObject({
+      success: true,
+      tool_name: "archive_memory",
+      content: {
+        archived: true,
+        file_name: "fact_Alpha-Fact.md",
+        scope: "session",
+      },
+    });
+    expect(fs.readFileSync(path.join(dataRoot, "memory", "sessions", "s1", "fact_Alpha-Fact.md"), "utf8")).toContain(
+      "status: archived",
+    );
+  });
+
+  it("rejects write and archive scopes independently from readable scopes", () => {
+    const dataRoot = makeTempDataRoot();
+    const service = new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} }));
+    const context = {
+      agent: minimalAgent(["session"], [], []),
+      sessionId: "s1",
+    };
+
+    expect(
+      service.writeMemory(
+        {
+          scope: "session",
+          name: "Alpha Fact",
+          description: "alpha fact",
+          memoryType: "fact",
+          content: "alpha body",
+        },
+        context,
+      ),
+    ).toMatchObject({
+      success: false,
+      content: "当前 Agent 不允许写入 memory scope: session",
+    });
+    expect(
+      service.archiveMemory(
+        {
+          scope: "session",
+          fileName: "fact_Alpha-Fact.md",
+        },
+        context,
+      ),
+    ).toMatchObject({
+      success: false,
+      content: "当前 Agent 不允许归档 memory scope: session",
+    });
+  });
 });
 
 function makeTempDataRoot(): string {
@@ -142,7 +242,7 @@ function writeFile(dataRoot: string, parts: string[], content: string): void {
   fs.writeFileSync(filePath, content, "utf8");
 }
 
-function minimalAgent(allowedScopes: string[]): AgentConfig {
+function minimalAgent(allowedScopes: string[], writeScopes: string[] = [], archiveScopes: string[] = []): AgentConfig {
   return {
     agent_name: "orchestrator_agent",
     display_name: "Orchestrator Agent",
@@ -163,8 +263,8 @@ function minimalAgent(allowedScopes: string[]): AgentConfig {
     memory: {
       auto_inject: true,
       allowed_scopes: allowedScopes,
-      write_scopes: [],
-      archive_scopes: [],
+      write_scopes: writeScopes,
+      archive_scopes: archiveScopes,
     },
     tasks: { workflow: false, background: false },
     delegation: { enabled_agents: [] },
