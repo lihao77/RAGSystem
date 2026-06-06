@@ -6,142 +6,28 @@ import { createRequire } from "node:module";
 
 import type { PaginatedResult, RunStepInfo } from "../contracts/common.js";
 import type { MessageInfo, SessionInfo, SessionListItem } from "../contracts/session.js";
+import { asNullableString, asString, isPathUnder, parseJsonObject, stringifyJson } from "./conversation-store/helpers.js";
+import { rowToChildAgent, rowToMessage, rowToResource, rowToRun, rowToSession, rowToSessionListItem } from "./conversation-store/mappers.js";
+import type {
+  ChildAgentInfo,
+  ChildAgentRow,
+  MessageRow,
+  ResourceInfo,
+  ResourceRow,
+  RunInfo,
+  RunRow,
+  RunStepRow,
+  SessionListRow,
+  SessionRow,
+  SqlInputValue,
+} from "./conversation-store/types.js";
+
+export type { ChildAgentInfo, ResourceInfo, RunInfo } from "./conversation-store/types.js";
 
 export interface ConversationStoreOptions {
   dbPath: string;
   dataRoot?: string | undefined;
 }
-
-interface MessageRow {
-  seq: number;
-  id: string;
-  session_id: string;
-  role: MessageInfo["role"];
-  content: string;
-  metadata: string | null;
-  thread_key: string | null;
-  child_agent_id: string | null;
-  created_at: string;
-}
-
-interface SessionRow {
-  session_id: string;
-  user_id: string | null;
-  metadata: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface SessionListRow extends SessionRow {
-  last_content: string | null;
-  last_created_at: string | null;
-  first_content: string | null;
-}
-
-interface RunStepRow {
-  id: number;
-  run_id: string;
-  session_id: string;
-  message_id: string | null;
-  step_order: number;
-  step_type: string;
-  payload: string | null;
-  created_at: string;
-}
-
-interface RunRow {
-  run_id: string;
-  session_id: string;
-  entrypoint: string | null;
-  status: string;
-  task_summary: string | null;
-  user_id: string | null;
-  agent_name: string | null;
-  thread_key: string;
-  parent_run_id: string | null;
-  parent_call_id: string | null;
-  child_agent_id: string | null;
-  final_message_id: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ResourceRow {
-  resource_id: string;
-  session_id: string;
-  run_id: string | null;
-  path: string;
-  resource_type: string;
-  sub_type: string | null;
-  title: string | null;
-  scope: string;
-  source_tool: string | null;
-}
-
-interface ChildAgentRow {
-  child_agent_id: string;
-  session_id: string;
-  agent_name: string;
-  thread_key: string;
-  status: string;
-  created_seq: number | null;
-  created_by_run_id: string | null;
-  created_by_call_id: string | null;
-  parent_run_id: string | null;
-  parent_call_id: string | null;
-  last_run_id: string | null;
-  metadata: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ChildAgentInfo {
-  child_agent_id: string;
-  session_id: string;
-  agent_name: string;
-  thread_key: string;
-  status: string;
-  created_seq: number | null;
-  created_by_run_id: string | null;
-  created_by_call_id: string | null;
-  parent_run_id: string | null;
-  parent_call_id: string | null;
-  last_run_id: string | null;
-  metadata: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface RunInfo {
-  run_id: string;
-  session_id: string;
-  entrypoint: string | null;
-  status: string;
-  task_summary: string | null;
-  user_id: string | null;
-  agent_name: string | null;
-  thread_key: string;
-  parent_run_id: string | null;
-  parent_call_id: string | null;
-  child_agent_id: string | null;
-  final_message_id: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ResourceInfo {
-  resource_id: string;
-  session_id: string;
-  run_id: string | null;
-  path: string;
-  resource_type: string;
-  sub_type: string | null;
-  title: string | null;
-  scope: string;
-  source_tool: string | null;
-}
-
-type SqlInputValue = string | number | bigint | Uint8Array | null;
 
 export class ConversationStore {
   private readonly db: import("node:sqlite").DatabaseSync;
@@ -1060,125 +946,3 @@ export class ConversationStore {
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
-
-function rowToSession(row: SessionRow): SessionInfo {
-  return {
-    session_id: row.session_id,
-    user_id: row.user_id,
-    metadata: parseJsonObject(row.metadata),
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  };
-}
-
-function rowToSessionListItem(row: SessionListRow): SessionListItem {
-  const metadata = parseJsonObject(row.metadata);
-  const firstMessage = row.first_content ?? "";
-  const title = asString(metadata.title) || firstMessage.trim().slice(0, 30);
-  return {
-    session_id: row.session_id,
-    user_id: row.user_id,
-    metadata,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-    title,
-    last_message: row.last_content ?? "",
-    last_message_at: row.last_created_at ?? row.updated_at,
-    first_message: firstMessage,
-    unread_count: Number(metadata.unread_count ?? 0) || 0,
-  };
-}
-
-function rowToMessage(row: MessageRow): MessageInfo {
-  return {
-    seq: row.seq,
-    id: row.id,
-    session_id: row.session_id,
-    role: row.role,
-    content: row.content,
-    metadata: parseJsonObject(row.metadata),
-    thread_key: row.thread_key ?? "root",
-    child_agent_id: row.child_agent_id,
-    created_at: row.created_at,
-  };
-}
-
-function rowToChildAgent(row: ChildAgentRow): ChildAgentInfo {
-  return {
-    child_agent_id: row.child_agent_id,
-    session_id: row.session_id,
-    agent_name: row.agent_name,
-    thread_key: row.thread_key,
-    status: row.status,
-    created_seq: row.created_seq,
-    created_by_run_id: row.created_by_run_id,
-    created_by_call_id: row.created_by_call_id,
-    parent_run_id: row.parent_run_id,
-    parent_call_id: row.parent_call_id,
-    last_run_id: row.last_run_id,
-    metadata: parseJsonObject(row.metadata),
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  };
-}
-
-function rowToRun(row: RunRow): RunInfo {
-  return {
-    run_id: row.run_id,
-    session_id: row.session_id,
-    entrypoint: row.entrypoint,
-    status: row.status,
-    task_summary: row.task_summary,
-    user_id: row.user_id,
-    agent_name: row.agent_name,
-    thread_key: row.thread_key,
-    parent_run_id: row.parent_run_id,
-    parent_call_id: row.parent_call_id,
-    child_agent_id: row.child_agent_id,
-    final_message_id: row.final_message_id,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  };
-}
-
-function rowToResource(row: ResourceRow): ResourceInfo {
-  return {
-    resource_id: row.resource_id,
-    session_id: row.session_id,
-    run_id: row.run_id,
-    path: row.path,
-    resource_type: row.resource_type,
-    sub_type: row.sub_type,
-    title: row.title,
-    scope: row.scope,
-    source_tool: row.source_tool,
-  };
-}
-
-function parseJsonObject(rawValue: string | null | undefined): Record<string, unknown> {
-  if (!rawValue) {
-    return {};
-  }
-  const parsed = JSON.parse(rawValue) as unknown;
-  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-    return parsed as Record<string, unknown>;
-  }
-  return {};
-}
-
-function stringifyJson(value: Record<string, unknown>): string {
-  return JSON.stringify(value);
-}
-
-function asString(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
-}
-
-function asNullableString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value : null;
-}
-
-function isPathUnder(candidate: string, root: string): boolean {
-  const relative = path.relative(path.resolve(root), path.resolve(candidate));
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-}
