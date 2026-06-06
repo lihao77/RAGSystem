@@ -61,8 +61,6 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const history = sessionId
       ? resolveRuntimeHistoryView(
           options.container.conversationStore.listMessages(sessionId, 500, 0, threadKey).items,
-          options.container.conversationStore,
-          sessionId,
         )
           .map(toContextHistoryItem)
       : [];

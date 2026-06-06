@@ -1,19 +1,12 @@
 import crypto from "node:crypto";
 
 import type { AgentConfig } from "../contracts/agent-config.js";
-import type { RunStepInfo } from "../contracts/common.js";
 import type { MessageInfo, SessionInfo } from "../contracts/session.js";
 import type { ChatMessage } from "./llm-chat-client.js";
 import { getWorkspaceMemoryKey, MemoryStore, type MemoryScopeSpec } from "./memory-store.js";
 
 export interface RuntimeConversationHistoryPort {
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): MessageInfo[];
-  listRunSteps?(input: {
-    runId?: string | null;
-    messageId?: string | null;
-    sessionId?: string | null;
-    limit?: number;
-  }): RunStepInfo[];
 }
 
 export interface RuntimeSessionMetadataPort {
@@ -60,18 +53,7 @@ interface CompressionViewResolution {
   replacesUpToSeq: number | null;
 }
 
-export type RuntimeHistoryMessageInfo = Omit<MessageInfo, "seq"> & { seq: number | null };
-
-interface OrderedExecutionStep {
-  payload: Record<string, unknown>;
-  stepOrder: number;
-}
-
-interface SyntheticRoundBucket {
-  intent: OrderedExecutionStep[];
-  starts: OrderedExecutionStep[];
-  ends: OrderedExecutionStep[];
-}
+export type RuntimeHistoryMessageInfo = MessageInfo;
 
 interface ResolvedAgentRuntimeContextRequest {
   sessionId: string;
@@ -127,11 +109,7 @@ export class RecentMessagesContextSource implements AgentRuntimeContextSource {
     const messages = this.history.getRecentMessages(request.sessionId, request.historyLimit, request.threadKey);
     const filteredMessages = filterRuntimeHistoryMessages(messages);
     const compressionView = resolveCompressionViewDetailed(filteredMessages);
-    const historyMessages = expandMessagesWithRunStepIntermediates(
-      compressionView.messages,
-      this.history,
-      request.sessionId,
-    );
+    const historyMessages = compressionView.messages;
     const microcompact = request.microcompact
       ? microcompactRuntimeHistoryMessages(historyMessages, request.microcompactKeepRecentTools)
       : {
@@ -320,12 +298,10 @@ export function resolveCompressionView(messages: MessageInfo[]): MessageInfo[] {
 
 export function resolveRuntimeHistoryView(
   messages: MessageInfo[],
-  history: RuntimeConversationHistoryPort,
-  sessionId: string,
 ): RuntimeHistoryMessageInfo[] {
   const filteredMessages = filterRuntimeHistoryMessages(messages);
   const compressionView = resolveCompressionViewDetailed(filteredMessages);
-  return expandMessagesWithRunStepIntermediates(compressionView.messages, history, sessionId);
+  return compressionView.messages;
 }
 
 export function filterRuntimeHistoryMessages(messages: MessageInfo[]): MessageInfo[] {
@@ -477,245 +453,6 @@ function microcompactClearedContent(message: RuntimeHistoryMessageInfo): string 
     : MICROCOMPACT_CLEARED_LABEL;
 }
 
-function expandMessagesWithRunStepIntermediates(
-  messages: MessageInfo[],
-  history: RuntimeConversationHistoryPort,
-  sessionId: string,
-): RuntimeHistoryMessageInfo[] {
-  const persistedIntermediateRunIds = new Set<string>();
-  for (const message of messages) {
-    const runId = getString(message.metadata.run_id);
-    if (runId && message.metadata.react_intermediate) {
-      persistedIntermediateRunIds.add(runId);
-    }
-  }
-
-  const expanded: RuntimeHistoryMessageInfo[] = [];
-  for (const message of messages) {
-    const runId = getString(message.metadata.run_id);
-    const shouldSynthesize =
-      Boolean(history.listRunSteps) &&
-      message.role === "assistant" &&
-      Boolean(runId) &&
-      !message.metadata.react_intermediate &&
-      !persistedIntermediateRunIds.has(runId!);
-    if (shouldSynthesize && runId) {
-      expanded.push(...synthesizeRunStepIntermediateMessages(message, history, sessionId, runId));
-    }
-    expanded.push(message);
-  }
-  return expanded;
-}
-
-function synthesizeRunStepIntermediateMessages(
-  finalMessage: MessageInfo,
-  history: RuntimeConversationHistoryPort,
-  sessionId: string,
-  runId: string,
-): RuntimeHistoryMessageInfo[] {
-  const steps = history.listRunSteps?.({ runId, sessionId, limit: 2000 }) ?? [];
-  const executionSteps = steps
-    .filter((step) => step.step_type === "execution.step")
-    .filter((step) => isRecord(step.payload))
-    .map((step) => ({ payload: step.payload, stepOrder: step.step_order }))
-    .sort((left, right) => left.stepOrder - right.stepOrder);
-  if (executionSteps.length === 0) {
-    return [];
-  }
-
-  const byRound = new Map<number, SyntheticRoundBucket>();
-  const toolStartRoundByCallId = new Map<string, number>();
-  let latestRound = 0;
-  for (const step of executionSteps) {
-    const kind = getString(step.payload.kind);
-    const phase = getString(step.payload.phase);
-    if (kind !== "intent" && kind !== "tool") {
-      continue;
-    }
-    const callId = getString(step.payload.call_id) ?? getString(step.payload.tool_call_id);
-    const payloadRound = numberOrNull(step.payload.round);
-    const round =
-      kind === "tool" && phase === "end" && callId && toolStartRoundByCallId.has(callId)
-        ? toolStartRoundByCallId.get(callId)!
-        : payloadRound ?? latestRound;
-    latestRound = round;
-    if (kind === "tool" && phase === "start" && callId) {
-      toolStartRoundByCallId.set(callId, round);
-    }
-    const bucket = byRound.get(round) ?? { intent: [], starts: [], ends: [] };
-    if (kind === "intent" && phase === "complete") {
-      bucket.intent.push(step);
-    } else if (kind === "tool" && phase === "start") {
-      bucket.starts.push(step);
-    } else if (kind === "tool" && phase === "end") {
-      bucket.ends.push(step);
-    }
-    byRound.set(round, bucket);
-  }
-
-  const synthesized: RuntimeHistoryMessageInfo[] = [];
-  const rounds = [...byRound.keys()].sort((left, right) => left - right);
-  for (const round of rounds) {
-    const bucket = byRound.get(round);
-    if (!bucket) {
-      continue;
-    }
-    const intentContent = renderSyntheticIntentContent(bucket.intent, bucket.starts);
-    if (intentContent) {
-      synthesized.push(makeSyntheticIntermediateMessage(finalMessage, {
-        role: "assistant",
-        content: intentContent,
-        msgType: "intent",
-        round: toPythonDisplayRound(round),
-        runId,
-      }));
-    }
-    const observationContent = renderSyntheticObservationContent(bucket.ends);
-    if (observationContent) {
-      synthesized.push(makeSyntheticIntermediateMessage(finalMessage, {
-        role: "user",
-        content: observationContent,
-        msgType: "observation",
-        round: toPythonDisplayRound(round),
-        runId,
-      }));
-    }
-  }
-
-  return synthesized;
-}
-
-function renderSyntheticIntentContent(intentSteps: OrderedExecutionStep[], toolStarts: OrderedExecutionStep[]): string {
-  const explicitIntent = intentSteps
-    .map((step) => getString(step.payload.content))
-    .filter((content): content is string => Boolean(content))
-    .join("\n")
-    .trim();
-  const toolXml = renderSyntheticToolCallsXml(toolStarts);
-  if (explicitIntent && toolXml) {
-    return `${explicitIntent}\n\n${toolXml}`;
-  }
-  return explicitIntent || toolXml;
-}
-
-function renderSyntheticToolCallsXml(toolStarts: OrderedExecutionStep[]): string {
-  const orderedToolStarts = sortStepsByActionOrder(toolStarts);
-  if (!orderedToolStarts.length) {
-    return "";
-  }
-  const tools = orderedToolStarts
-    .map((step) => {
-      const toolName = getString(step.payload.tool_name) ?? "unknown_tool";
-      const args = isRecord(step.payload.arguments) ? step.payload.arguments : {};
-      const params = Object.entries(args).map(([key, value]) => renderXmlParameter(key, value)).join("\n");
-      return [`<tool name="${escapeXmlAttribute(toolName)}">`, params, "</tool>"].filter(Boolean).join("\n");
-    })
-    .join("\n");
-  return `<tools>\n${tools}\n</tools>`;
-}
-
-function renderXmlParameter(key: string, value: unknown): string {
-  const safeKey = /^[A-Za-z_][\w:-]*$/.test(key) ? key : "param";
-  if (Array.isArray(value)) {
-    const items = value.map((item) => `  <item>${escapeXmlText(renderArgumentValue(item))}</item>`).join("\n");
-    return `<${safeKey}>\n${items}\n</${safeKey}>`;
-  }
-  return `<${safeKey}>${escapeXmlText(renderArgumentValue(value))}</${safeKey}>`;
-}
-
-function renderArgumentValue(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (value === null || value === undefined) {
-    return "";
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  return JSON.stringify(value, null, 2);
-}
-
-function renderSyntheticObservationContent(steps: OrderedExecutionStep[]): string {
-  return sortStepsByActionOrder(steps)
-    .map(renderSingleSyntheticObservationContent)
-    .filter((content): content is string => Boolean(content))
-    .join("\n\n");
-}
-
-function sortStepsByActionOrder(steps: OrderedExecutionStep[]): OrderedExecutionStep[] {
-  return [...steps].sort((left, right) => {
-    const leftOrder = numberOrNull(left.payload.order) ?? numberOrNull(left.payload.round_index);
-    const rightOrder = numberOrNull(right.payload.order) ?? numberOrNull(right.payload.round_index);
-    if (leftOrder !== null && rightOrder !== null && leftOrder !== rightOrder) {
-      return leftOrder - rightOrder;
-    }
-    if (leftOrder !== null && rightOrder === null) {
-      return -1;
-    }
-    if (leftOrder === null && rightOrder !== null) {
-      return 1;
-    }
-    return left.stepOrder - right.stepOrder;
-  });
-}
-
-function renderSingleSyntheticObservationContent(step: OrderedExecutionStep): string {
-  const payload = step.payload;
-  const toolName = getString(payload.tool_name) ?? "tool";
-  const rawResult =
-    getString(payload.observation) ??
-    getString(payload.result_preview) ??
-    getString(payload.result) ??
-    getString(payload.summary) ??
-    "";
-  if (!rawResult.trim()) {
-    return "";
-  }
-  if (rawResult.trimStart().startsWith("<task-notification")) {
-    return rawResult;
-  }
-  if (rawResult.trimStart().startsWith("<tool_result")) {
-    return rawResult;
-  }
-  return rawResult.trimStart().startsWith(`[${toolName}]`) ? rawResult : `[${toolName}]\n${rawResult}`;
-}
-
-function toPythonDisplayRound(round: number): number {
-  return round + 1;
-}
-
-function makeSyntheticIntermediateMessage(
-  base: MessageInfo,
-  input: {
-    role: "user" | "assistant";
-    content: string;
-    msgType: string;
-    round: number;
-    runId: string;
-  },
-): RuntimeHistoryMessageInfo {
-  return {
-    ...base,
-    id: `${base.id}:synthetic:${input.msgType}:${input.round}:${crypto
-      .createHash("sha1")
-      .update(input.content)
-      .digest("hex")
-      .slice(0, 8)}`,
-    seq: null,
-    role: input.role,
-    content: input.content,
-    metadata: {
-      ...base.metadata,
-      react_intermediate: true,
-      synthetic: true,
-      msg_type: input.msgType,
-      round: input.round,
-      run_id: input.runId,
-    },
-  };
-}
-
 function buildMemoryScopeCapabilities(memoryConfig: AgentConfig["memory"]): MemoryScopeCapabilities {
   return {
     allowed_scopes: [...(memoryConfig.allowed_scopes ?? [])],
@@ -840,17 +577,6 @@ function numberOrNull(value: unknown): number | null {
 
 function positiveIntegerOrDefault(value: unknown, defaultValue: number): number {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : defaultValue;
-}
-
-function escapeXmlText(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function escapeXmlAttribute(value: string): string {
-  return escapeXmlText(value).replace(/"/g, "&quot;");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

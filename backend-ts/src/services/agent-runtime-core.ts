@@ -65,6 +65,14 @@ export type AgentRuntimeEvent =
       };
     }
   | {
+      type: "runtime.assistant_intermediate";
+      data: {
+        content: string;
+        agent_name: string;
+        round: number;
+      };
+    }
+  | {
       type: "runtime.done";
       data: {
         content: string;
@@ -101,6 +109,14 @@ export type AgentRuntimeEvent =
         round: number;
         order: number;
         round_index: number;
+      };
+    }
+  | {
+      type: "runtime.observation_complete";
+      data: {
+        content: string;
+        agent_name: string;
+        round: number;
       };
     }
   | {
@@ -297,7 +313,16 @@ export class AgentRuntimeCore {
           throw new Error(`Tool calling exceeded max rounds (${maxToolRounds})`);
         }
 
-        messages = [...messages, { role: "assistant", content: roundResult.rawContent }];
+        const assistantContent = roundResult.rawContent;
+        await input.onEvent?.({
+          type: "runtime.assistant_intermediate",
+          data: {
+            content: assistantContent,
+            agent_name: input.agent.agent_name,
+            round,
+          },
+        });
+        messages = [...messages, { role: "assistant", content: assistantContent }];
         const roundExecutions = await this.executeToolCallRound({
           input,
           toolExecutor,
@@ -316,9 +341,18 @@ export class AgentRuntimeCore {
           .sort((left, right) => left.index - right.index)
           .map((execution) => execution.observation);
         if (roundObservationMessages.length > 0) {
+          const observationContent = roundObservationMessages.join("\n\n");
           messages.push({
             role: "user",
-            content: roundObservationMessages.join("\n\n"),
+            content: observationContent,
+          });
+          await input.onEvent?.({
+            type: "runtime.observation_complete",
+            data: {
+              content: observationContent,
+              agent_name: input.agent.agent_name,
+              round,
+            },
           });
         }
         round += 1;
@@ -378,7 +412,16 @@ export class AgentRuntimeCore {
         throw new Error(`Tool calling exceeded max rounds (${maxToolRounds})`);
       }
 
-      messages = [...messages, buildAssistantToolCallMessage(result, toolCalls)];
+      const assistantMessage = buildAssistantToolCallMessage(result, toolCalls);
+      await input.onEvent?.({
+        type: "runtime.assistant_intermediate",
+        data: {
+          content: renderNativeAssistantIntermediateContent(result, toolCalls),
+          agent_name: input.agent.agent_name,
+          round,
+        },
+      });
+      messages = [...messages, assistantMessage];
       const roundExecutions = await this.executeToolCallRound({
         input,
         toolExecutor,
@@ -404,6 +447,20 @@ export class AgentRuntimeCore {
           tool_call_id: toolCall.id,
           name: execution.toolName,
           content: execution.observation,
+        });
+      }
+      const observationContent = roundExecutions
+        .sort((left, right) => left.index - right.index)
+        .map((execution) => execution.observation)
+        .join("\n\n");
+      if (observationContent.trim()) {
+        await input.onEvent?.({
+          type: "runtime.observation_complete",
+          data: {
+            content: observationContent,
+            agent_name: input.agent.agent_name,
+            round,
+          },
         });
       }
     }
@@ -762,6 +819,49 @@ function buildAssistantToolCallMessage(result: ChatCompletionResult, toolCalls: 
     content: result.content,
     tool_calls: toolCalls,
   };
+}
+
+function renderNativeAssistantIntermediateContent(result: ChatCompletionResult, toolCalls: ChatToolCall[]): string {
+  const content = result.content.trim();
+  const toolXml = renderNativeToolCallsXml(toolCalls);
+  if (content && toolXml) {
+    return `${content}\n\n${toolXml}`;
+  }
+  return content || toolXml;
+}
+
+function renderNativeToolCallsXml(toolCalls: ChatToolCall[]): string {
+  const tools = toolCalls
+    .map((toolCall) => {
+      const toolName = toolCall.function.name || "unknown_tool";
+      const args = parseToolArguments(toolCall);
+      const params = Object.entries(args).map(([key, value]) => renderXmlParameter(key, value)).join("\n");
+      return [`<tool name="${escapeXmlAttribute(toolName)}">`, params, "</tool>"].filter(Boolean).join("\n");
+    })
+    .join("\n");
+  return tools ? `<tool_calls>\n${tools}\n</tool_calls>` : "";
+}
+
+function renderXmlParameter(key: string, value: unknown): string {
+  const safeKey = /^[A-Za-z_][\w:-]*$/.test(key) ? key : "param";
+  if (Array.isArray(value)) {
+    const items = value.map((item) => `  <item>${escapeXmlText(renderArgumentValue(item))}</item>`).join("\n");
+    return `<${safeKey}>\n${items}\n</${safeKey}>`;
+  }
+  return `<${safeKey}>${escapeXmlText(renderArgumentValue(value))}</${safeKey}>`;
+}
+
+function renderArgumentValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return stringifyJsonPretty(value);
 }
 
 function withoutNativeTools(request: ChatCompletionRequest): ChatCompletionRequest {
@@ -1516,6 +1616,10 @@ function escapeXmlText(value: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+function escapeXmlAttribute(value: string): string {
+  return escapeXmlText(value).replace(/"/g, "&quot;");
 }
 
 function buildRawResultRef(

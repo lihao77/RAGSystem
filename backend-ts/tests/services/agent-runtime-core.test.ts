@@ -645,12 +645,27 @@ describe("AgentRuntimeCore", () => {
           data: expect.objectContaining({ content: "我先查看 session 记忆。", round: 0 }),
         }),
         expect.objectContaining({
+          type: "runtime.assistant_intermediate",
+          data: expect.objectContaining({
+            content:
+              '<intent>我先查看 session 记忆。</intent><tool_calls><tool name="list_memory_index"><scope>session</scope></tool></tool_calls>',
+            round: 0,
+          }),
+        }),
+        expect.objectContaining({
           type: "runtime.tool_call",
           data: expect.objectContaining({ tool_name: "list_memory_index" }),
         }),
         expect.objectContaining({
           type: "runtime.tool_result",
           data: expect.objectContaining({ success: true }),
+        }),
+        expect.objectContaining({
+          type: "runtime.observation_complete",
+          data: expect.objectContaining({
+            content: expect.stringContaining("<tool_result"),
+            round: 0,
+          }),
         }),
         expect.objectContaining({
           type: "runtime.output_delta",
@@ -1327,6 +1342,14 @@ describe("AgentRuntimeCore", () => {
     expect(nativeToolResultMessage?.content).not.toContain('"artifacts"');
     expect(events).toEqual([
       {
+        type: "runtime.assistant_intermediate",
+        data: {
+          content: "<tool_calls>\n<tool name=\"list_memory_index\">\n<scope>session</scope>\n</tool>\n</tool_calls>",
+          agent_name: "orchestrator_agent",
+          round: 0,
+        },
+      },
+      {
         type: "runtime.tool_call",
         data: {
           agent_name: "orchestrator_agent",
@@ -1365,6 +1388,14 @@ describe("AgentRuntimeCore", () => {
           round: 0,
           order: 1,
           round_index: 1,
+        },
+      },
+      {
+        type: "runtime.observation_complete",
+        data: {
+          content: expect.stringContaining("<tool_result"),
+          agent_name: "orchestrator_agent",
+          round: 0,
         },
       },
       {

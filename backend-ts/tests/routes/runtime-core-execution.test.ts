@@ -782,10 +782,79 @@ describe("minimal runtime core execution", () => {
       method: "GET",
       url: "/api/agent/sessions/xml-tool-runtime-session/messages?expand=1",
     });
+    expect(messages.json().data.items).toHaveLength(2);
     expect(messages.json().data.items.at(-1)).toMatchObject({
       role: "assistant",
       content: "The XML runtime read memory.",
     });
+
+    const rawMessages = harness.container.conversationStore.listMessages("xml-tool-runtime-session", 20, 0, "root").items;
+    expect(rawMessages).toHaveLength(4);
+    expect(rawMessages.map((message) => [message.role, message.metadata.react_intermediate ?? false, message.metadata.msg_type ?? null])).toEqual([
+      ["user", false, null],
+      ["assistant", true, "intent"],
+      ["user", true, "observation"],
+      ["assistant", false, "assistant_final"],
+    ]);
+
+    const intent = rawMessages[1]!;
+    expect(intent.content).toContain("我先读取 session 记忆。");
+    expect(intent.content).toContain("<tool_calls>");
+    expect(intent.content).toContain('<tool name="list_memory_index"><scope>session</scope></tool>');
+    expect(intent.metadata).toMatchObject({
+      react_intermediate: true,
+      msg_type: "intent",
+      round: 1,
+      run_id: started.json().data.run_id,
+      request_id: "req-runtime-xml-tool",
+      agent: "orchestrator_agent",
+      thread_key: "root",
+      conversation_scope: "root",
+      visible_to_user: true,
+      execution_kind: "agent_stream",
+    });
+
+    const observation = rawMessages[2]!;
+    expect(observation.content).toContain("<tool_result");
+    expect(observation.content).toContain("# XML Runtime Memory");
+    expect(observation.metadata).toMatchObject({
+      react_intermediate: true,
+      msg_type: "observation",
+      round: 1,
+      run_id: started.json().data.run_id,
+      request_id: "req-runtime-xml-tool",
+      agent: "orchestrator_agent",
+      thread_key: "root",
+      conversation_scope: "root",
+      visible_to_user: true,
+      execution_kind: "agent_stream",
+    });
+
+    const snapshot = await app.inject({
+      method: "GET",
+      url: "/api/agent/context-snapshot?session_id=xml-tool-runtime-session",
+    });
+    expect(snapshot.statusCode).toBe(200);
+    expect(snapshot.json().data.conversation_history).toEqual([
+      expect.objectContaining({ role: "user", content_preview: "use memory through xml" }),
+      expect.objectContaining({
+        seq: intent.seq,
+        role: "assistant",
+        react_intermediate: true,
+        msg_type: "intent",
+        round: 1,
+        content_preview: intent.content,
+      }),
+      expect.objectContaining({
+        seq: observation.seq,
+        role: "user",
+        react_intermediate: true,
+        msg_type: "observation",
+        round: 1,
+        content_preview: expect.stringContaining("<tool_result"),
+      }),
+      expect.objectContaining({ role: "assistant", content_preview: "The XML runtime read memory." }),
+    ]);
   });
 
   it("injects completed background task notifications into the next run context", async () => {

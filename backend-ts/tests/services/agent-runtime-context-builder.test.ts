@@ -5,7 +5,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
-import type { RunStepInfo } from "../../src/contracts/common.js";
 import type { MessageInfo } from "../../src/contracts/session.js";
 import {
   AgentRuntimeContextBuilder,
@@ -28,17 +27,11 @@ afterEach(() => {
 class InMemoryHistory implements RuntimeConversationHistoryPort {
   readonly calls: Array<{ sessionId: string; limit: number | undefined; threadKey: string | null | undefined }> = [];
 
-  constructor(private readonly messages: MessageInfo[], private readonly runSteps: RunStepInfo[] = []) {}
+  constructor(private readonly messages: MessageInfo[]) {}
 
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): MessageInfo[] {
     this.calls.push({ sessionId, limit, threadKey });
     return this.messages.slice(0, limit);
-  }
-
-  listRunSteps(input: { runId?: string | null; sessionId?: string | null; limit?: number }): RunStepInfo[] {
-    return this.runSteps
-      .filter((step) => (!input.runId || step.run_id === input.runId) && (!input.sessionId || step.session_id === input.sessionId))
-      .slice(0, input.limit ?? this.runSteps.length);
   }
 }
 
@@ -175,29 +168,19 @@ describe("AgentRuntimeContextBuilder", () => {
     ]);
   });
 
-  it("expands assistant run steps into Python-compatible ReAct history", () => {
-    const history = new InMemoryHistory(
-      [
-        message("user", "测试工具", { seq: 1, metadata: { run_id: "run-1" } }),
-        message("assistant", "工具测试完成", { seq: 2, metadata: { run_id: "run-1" } }),
-      ],
-      [
-        runStep("run-1", 1, {
-          kind: "tool",
-          phase: "start",
-          tool_name: "execute_bash",
-          arguments: { command: "pwd" },
-          round: 1,
-        }),
-        runStep("run-1", 2, {
-          kind: "tool",
-          phase: "end",
-          tool_name: "execute_bash",
-          observation: "[execute_bash]\n命令执行完成，返回码 0",
-          round: 1,
-        }),
-      ],
-    );
+  it("includes persisted ReAct intermediate messages in runtime conversation history", () => {
+    const history = new InMemoryHistory([
+      message("user", "测试工具", { seq: 1, metadata: { run_id: "run-1" } }),
+      message("assistant", "我先执行一个只读命令。\n\n<tool_calls>\n<tool name=\"execute_bash\"><command>pwd</command></tool>\n</tool_calls>", {
+        seq: 2,
+        metadata: { react_intermediate: true, msg_type: "intent", round: 1, run_id: "run-1" },
+      }),
+      message("user", '<tool_result id="call-1" name="execute_bash" ok="true"><![CDATA[命令执行完成，返回码 0]]></tool_result>', {
+        seq: 3,
+        metadata: { react_intermediate: true, msg_type: "observation", round: 1, run_id: "run-1" },
+      }),
+      message("assistant", "工具测试完成", { seq: 4, metadata: { run_id: "run-1" } }),
+    ]);
     const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
 
     const context = builder.buildContext({ sessionId: "s1" });
@@ -206,82 +189,44 @@ describe("AgentRuntimeContextBuilder", () => {
       { role: "user", content: "测试工具" },
       {
         role: "assistant",
-        content: "<tools>\n<tool name=\"execute_bash\">\n<command>pwd</command>\n</tool>\n</tools>",
+        content:
+          "我先执行一个只读命令。\n\n<tool_calls>\n<tool name=\"execute_bash\"><command>pwd</command></tool>\n</tool_calls>",
       },
-      { role: "user", content: "[execute_bash]\n命令执行完成，返回码 0" },
+      {
+        role: "user",
+        content:
+          '<tool_result id="call-1" name="execute_bash" ok="true"><![CDATA[命令执行完成，返回码 0]]></tool_result>',
+      },
       { role: "assistant", content: "工具测试完成" },
     ]);
     expect(context.metadata.sources[0]).toMatchObject({
       name: "recent_messages",
       message_count: 4,
       metadata: {
-        source_message_count: 2,
-        filtered_message_count: 2,
+        source_message_count: 4,
+        filtered_message_count: 4,
         resolved_message_count: 4,
       },
     });
   });
 
-  it("merges same-round synthetic observations and keeps result steps in the tool start round", () => {
-    const history = new InMemoryHistory(
-      [
-        message("user", "连续测试工具", { seq: 1, metadata: { run_id: "run-1" } }),
-        message("assistant", "测试完成", { seq: 2, metadata: { run_id: "run-1" } }),
-      ],
-      [
-        runStep("run-1", 1, {
-          kind: "intent",
-          phase: "complete",
-          content: "先执行 pwd。",
-          round: 0,
-        }),
-        runStep("run-1", 2, {
-          kind: "tool",
-          phase: "start",
-          call_id: "call-1",
-          tool_name: "execute_bash",
-          arguments: { command: "pwd" },
-          round: 0,
-        }),
-        runStep("run-1", 3, {
-          kind: "tool",
-          phase: "end",
-          call_id: "call-1",
-          tool_name: "execute_bash",
-          summary: "命令执行完成，返回码 0",
-        }),
-        runStep("run-1", 4, {
-          kind: "tool",
-          phase: "start",
-          call_id: "call-1b",
-          tool_name: "task_list",
-          arguments: {},
-          round: 0,
-        }),
-        runStep("run-1", 5, {
-          kind: "tool",
-          phase: "end",
-          call_id: "call-1b",
-          tool_name: "task_list",
-          summary: "共 0 个任务",
-        }),
-        runStep("run-1", 6, {
-          kind: "tool",
-          phase: "start",
-          call_id: "call-2",
-          tool_name: "read_file",
-          arguments: {},
-          round: 1,
-        }),
-        runStep("run-1", 7, {
-          kind: "tool",
-          phase: "end",
-          call_id: "call-2",
-          tool_name: "read_file",
-          summary: "文件读取成功",
-        }),
-      ],
-    );
+  it("keeps one persisted observation message for a whole tool round", () => {
+    const history = new InMemoryHistory([
+      message("user", "连续测试工具", { seq: 1, metadata: { run_id: "run-1" } }),
+      message("assistant", "先执行 pwd。\n\n<tool_calls>\n<tool name=\"execute_bash\"><command>pwd</command></tool>\n<tool name=\"task_list\"></tool>\n</tool_calls>", {
+        seq: 2,
+        metadata: { react_intermediate: true, msg_type: "intent", round: 1 },
+      }),
+      message(
+        "user",
+        '<tool_result id="call-1" name="execute_bash" ok="true"><![CDATA[命令执行完成，返回码 0]]></tool_result>\n\n<tool_result id="call-2" name="task_list" ok="true"><![CDATA[共 0 个任务]]></tool_result>',
+        {
+          seq: 3,
+          metadata: { react_intermediate: true, msg_type: "observation", round: 1 },
+        },
+      ),
+      message("assistant", "测试完成", { seq: 4, metadata: { run_id: "run-1" } }),
+    ]);
     const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
 
     const context = builder.buildContext({ sessionId: "s1" });
@@ -291,14 +236,13 @@ describe("AgentRuntimeContextBuilder", () => {
       {
         role: "assistant",
         content:
-          "先执行 pwd。\n\n<tools>\n<tool name=\"execute_bash\">\n<command>pwd</command>\n</tool>\n<tool name=\"task_list\">\n</tool>\n</tools>",
+          "先执行 pwd。\n\n<tool_calls>\n<tool name=\"execute_bash\"><command>pwd</command></tool>\n<tool name=\"task_list\"></tool>\n</tool_calls>",
       },
-      { role: "user", content: "[execute_bash]\n命令执行完成，返回码 0\n\n[task_list]\n共 0 个任务" },
       {
-        role: "assistant",
-        content: "<tools>\n<tool name=\"read_file\">\n</tool>\n</tools>",
+        role: "user",
+        content:
+          '<tool_result id="call-1" name="execute_bash" ok="true"><![CDATA[命令执行完成，返回码 0]]></tool_result>\n\n<tool_result id="call-2" name="task_list" ok="true"><![CDATA[共 0 个任务]]></tool_result>',
       },
-      { role: "user", content: "[read_file]\n文件读取成功" },
       { role: "assistant", content: "测试完成" },
     ]);
   });
@@ -372,70 +316,7 @@ describe("AgentRuntimeContextBuilder", () => {
     });
   });
 
-  it("orders synthetic tool history by action order when run steps are persisted out of order", () => {
-    const history = new InMemoryHistory(
-      [
-        message("user", "并发工具", { seq: 1, metadata: { run_id: "run-1" } }),
-        message("assistant", "并发完成", { seq: 2, metadata: { run_id: "run-1" } }),
-      ],
-      [
-        runStep("run-1", 1, {
-          kind: "tool",
-          phase: "start",
-          call_id: "call-2",
-          tool_name: "seed_file",
-          arguments: {},
-          round: 0,
-          order: 2,
-          round_index: 2,
-        }),
-        runStep("run-1", 2, {
-          kind: "tool",
-          phase: "start",
-          call_id: "call-1",
-          tool_name: "read_file",
-          arguments: { file_path: "{result_2.content.file_path}" },
-          round: 0,
-          order: 1,
-          round_index: 1,
-        }),
-        runStep("run-1", 3, {
-          kind: "tool",
-          phase: "end",
-          call_id: "call-2",
-          tool_name: "seed_file",
-          observation: "[seed_file]\nseeded",
-          order: 2,
-          round_index: 2,
-        }),
-        runStep("run-1", 4, {
-          kind: "tool",
-          phase: "end",
-          call_id: "call-1",
-          tool_name: "read_file",
-          observation: "[read_file]\nread ok",
-          order: 1,
-          round_index: 1,
-        }),
-      ],
-    );
-    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
-
-    const context = builder.buildContext({ sessionId: "s1" });
-
-    expect(context.conversation).toEqual([
-      { role: "user", content: "并发工具" },
-      {
-        role: "assistant",
-        content:
-          "<tools>\n<tool name=\"read_file\">\n<file_path>{result_2.content.file_path}</file_path>\n</tool>\n<tool name=\"seed_file\">\n</tool>\n</tools>",
-      },
-      { role: "user", content: "[read_file]\nread ok\n\n[seed_file]\nseeded" },
-      { role: "assistant", content: "并发完成" },
-    ]);
-  });
-
-  it("keeps background task notification observations unprefixed", () => {
+  it("keeps persisted background task notification observations unchanged", () => {
     const notification = [
       "<task-notification>",
       "<task-id>bg-1</task-id>",
@@ -443,30 +324,18 @@ describe("AgentRuntimeContextBuilder", () => {
       "<summary>后台任务 bg-1 已完成，输出已写入文件</summary>",
       "</task-notification>",
     ].join("\n");
-    const history = new InMemoryHistory(
-      [
-        message("user", "等待后台任务", { seq: 1, metadata: { run_id: "run-1" } }),
-        message("assistant", "任务完成", { seq: 2, metadata: { run_id: "run-1" } }),
-      ],
-      [
-        runStep("run-1", 1, {
-          kind: "tool",
-          phase: "start",
-          call_id: "call-1",
-          tool_name: "task_output",
-          arguments: { task_id: "bg-1", block: true },
-          round: 0,
-        }),
-        runStep("run-1", 2, {
-          kind: "tool",
-          phase: "end",
-          call_id: "call-1",
-          tool_name: "task_output",
-          observation: notification,
-          round: 0,
-        }),
-      ],
-    );
+    const history = new InMemoryHistory([
+      message("user", "等待后台任务", { seq: 1, metadata: { run_id: "run-1" } }),
+      message("assistant", '<tool_calls><tool name="task_output"><task_id>bg-1</task_id><block>true</block></tool></tool_calls>', {
+        seq: 2,
+        metadata: { react_intermediate: true, msg_type: "intent", round: 1 },
+      }),
+      message("user", notification, {
+        seq: 3,
+        metadata: { react_intermediate: true, msg_type: "observation", round: 1 },
+      }),
+      message("assistant", "任务完成", { seq: 4, metadata: { run_id: "run-1" } }),
+    ]);
     const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
 
     const context = builder.buildContext({ sessionId: "s1" });
@@ -475,7 +344,7 @@ describe("AgentRuntimeContextBuilder", () => {
       { role: "user", content: "等待后台任务" },
       {
         role: "assistant",
-        content: "<tools>\n<tool name=\"task_output\">\n<task_id>bg-1</task_id>\n<block>true</block>\n</tool>\n</tools>",
+        content: '<tool_calls><tool name="task_output"><task_id>bg-1</task_id><block>true</block></tool></tool_calls>',
       },
       { role: "user", content: notification },
       { role: "assistant", content: "任务完成" },
@@ -665,19 +534,6 @@ function message(
     metadata: input.metadata ?? {},
     thread_key: input.threadKey ?? "root",
     child_agent_id: null,
-    created_at: "2026-01-01T00:00:00Z",
-  };
-}
-
-function runStep(runId: string, order: number, payload: Record<string, unknown>): RunStepInfo {
-  return {
-    id: order,
-    run_id: runId,
-    session_id: "s1",
-    message_id: "assistant-1",
-    step_order: order,
-    step_type: "execution.step",
-    payload,
     created_at: "2026-01-01T00:00:00Z",
   };
 }

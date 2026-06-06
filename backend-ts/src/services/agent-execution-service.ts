@@ -1063,6 +1063,26 @@ export class AgentExecutionService {
       });
       return;
     }
+    if (event.type === "runtime.assistant_intermediate") {
+      this.persistReactIntermediate(input, {
+        role: "assistant",
+        msgType: "intent",
+        content: event.data.content,
+        round: event.data.round,
+        agentName: event.data.agent_name,
+      });
+      return;
+    }
+    if (event.type === "runtime.observation_complete") {
+      this.persistReactIntermediate(input, {
+        role: "user",
+        msgType: "observation",
+        content: event.data.content,
+        round: event.data.round,
+        agentName: event.data.agent_name,
+      });
+      return;
+    }
     if (event.type === "runtime.intent_complete") {
       const payload = {
         kind: "intent",
@@ -1173,7 +1193,50 @@ export class AgentExecutionService {
         run_id: input.runId,
         ...mirrorEventData(payload),
       });
+      return;
     }
+  }
+
+  private persistReactIntermediate(
+    input: {
+      sessionId: string;
+      runId: string;
+      taskId: string;
+      requestId: string;
+      agent: AgentConfig;
+    },
+    event: {
+      role: "assistant" | "user";
+      msgType: "intent" | "observation";
+      content: string;
+      round: number;
+      agentName: string;
+    },
+  ): void {
+    if (!event.content.trim()) {
+      return;
+    }
+    this.sessions.addMessage({
+      sessionId: input.sessionId,
+      role: event.role,
+      content: event.content,
+      threadKey: "root",
+      childAgentId: null,
+      metadata: {
+        react_intermediate: true,
+        msg_type: event.msgType,
+        round: event.round + 1,
+        run_id: input.runId,
+        task_id: input.taskId,
+        request_id: input.requestId,
+        agent: input.agent.agent_name,
+        agent_name: event.agentName,
+        thread_key: "root",
+        conversation_scope: "root",
+        visible_to_user: true,
+        execution_kind: "agent_stream",
+      },
+    });
   }
 
   private addExecutionStep(sessionId: string, runId: string, payload: Record<string, unknown>): void {
