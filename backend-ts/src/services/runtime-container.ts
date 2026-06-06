@@ -14,6 +14,7 @@ import { DaemonService } from "./daemon-service.js";
 import { EmbeddingModelService } from "./embedding-model-service.js";
 import { FileIndexService } from "./file-index-service.js";
 import { InMemoryEventBus } from "./event-bus.js";
+import { LocalBashToolService } from "./local-bash-tool-service.js";
 import { LocalDocumentToolService } from "./local-document-tool-service.js";
 import { OpenAiCompatibleChatClient, type LlmChatClient } from "./llm-chat-client.js";
 import { MemoryStore } from "./memory-store.js";
@@ -46,6 +47,7 @@ export interface RuntimeContainer {
   readonly memoryStore: MemoryStore;
   readonly memoryTools: MemoryToolService;
   readonly documentTools: LocalDocumentToolService;
+  readonly bashTools: LocalBashToolService;
   readonly pendingInteractions: PendingInteractionService;
   readonly runtimeToolBridge: RuntimeToolBridge;
   readonly runtimeCore: RuntimeCoreService;
@@ -83,8 +85,15 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
   const memoryTools = new MemoryToolService(memoryStore, conversationStore);
   const documentTools = new LocalDocumentToolService({ dataRoot: options.dataRoot });
+  const toolsConfig = asRecord(systemConfig.getConfig().tools);
+  const bashTools = new LocalBashToolService({
+    dataRoot: options.dataRoot,
+    defaultTimeoutSeconds: asNumber(toolsConfig?.bash_default_timeout),
+    maxTimeoutSeconds: asNumber(toolsConfig?.bash_max_timeout),
+    maxOutputChars: asNumber(toolsConfig?.bash_max_output),
+  });
   const pendingInteractions = new PendingInteractionService(events);
-  const runtimeToolBridge = new RuntimeToolBridge(memoryTools, pendingInteractions, permissionPolicy, documentTools);
+  const runtimeToolBridge = new RuntimeToolBridge(memoryTools, pendingInteractions, permissionPolicy, documentTools, bashTools);
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
   const agentRuntimeCore = new AgentRuntimeCore(llmChatClient);
@@ -120,10 +129,19 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     memoryStore,
     memoryTools,
     documentTools,
+    bashTools,
     pendingInteractions,
     runtimeToolBridge,
     runtimeCore,
     agentRuntimeCore,
     agentRuntimeContextBuilder,
   };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }

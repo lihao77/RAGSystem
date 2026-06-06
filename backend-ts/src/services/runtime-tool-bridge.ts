@@ -5,6 +5,11 @@ import {
 } from "./memory-tool-service.js";
 import type { LocalDocumentToolService } from "./local-document-tool-service.js";
 import type {
+  BashExecutionInput,
+  BashExecutionPlan,
+  LocalBashToolService,
+} from "./local-bash-tool-service.js";
+import type {
   RuntimeToolCall,
   RuntimeToolDefinition,
   RuntimeToolExecutionContext,
@@ -23,6 +28,7 @@ const REQUEST_USER_INPUT_TOOL_NAME = "request_user_input";
 const READ_FILE_TOOL_NAME = "read_file";
 const WRITE_FILE_TOOL_NAME = "write_file";
 const EDIT_FILE_TOOL_NAME = "edit_file";
+const EXECUTE_BASH_TOOL_NAME = "execute_bash";
 
 const REQUEST_USER_INPUT_TOOL: RuntimeToolDefinition = {
   name: REQUEST_USER_INPUT_TOOL_NAME,
@@ -173,6 +179,49 @@ const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
   },
 ];
 
+const EXECUTE_BASH_TOOL: RuntimeToolDefinition = {
+  name: EXECUTE_BASH_TOOL_NAME,
+  source: "execution",
+  category: "execution",
+  riskLevel: "high",
+  description:
+    "Execute a shell command in a managed workspace directory. Read-only commands run directly; write, unknown, network, destructive, and interpreter commands may require approval.",
+  parameters: {
+    type: "object",
+    additionalProperties: false,
+    required: ["command"],
+    properties: {
+      command: {
+        type: "string",
+        description: "Shell command to execute. Command substitution, hidden newlines, dangerous env overrides, and write redirection are blocked.",
+      },
+      working_dir: {
+        type: "string",
+        description: "Optional working directory. Relative paths resolve against the selected managed space, defaulting to workspace.",
+      },
+      working_dir_space: {
+        type: "string",
+        enum: ["workspace", "transient", "exports"],
+        description: "Managed directory space for working_dir.",
+      },
+      timeout: {
+        type: "integer",
+        minimum: 1,
+        maximum: 600,
+        description: "Timeout in seconds. Defaults to 120 and is capped at 600.",
+      },
+      run_in_background: {
+        type: "boolean",
+        description: "Background execution is not yet migrated in the TypeScript runtime.",
+      },
+      description: {
+        type: "string",
+        description: "Short purpose shown in approval prompts and execution logs.",
+      },
+    },
+  },
+};
+
 const READ_ONLY_MEMORY_TOOLS: RuntimeToolDefinition[] = [
   {
     name: "list_memory_index",
@@ -264,20 +313,24 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     private readonly pendingInteractions: PendingInteractionService | null = null,
     private readonly permissionPolicy: PermissionPolicyService | null = null,
     private readonly documentTools: LocalDocumentToolService | null = null,
+    private readonly bashTools: LocalBashToolService | null = null,
   ) {}
 
   listVisibleTools(agent: AgentConfig | null): RuntimeToolDefinition[] {
     const tools: RuntimeToolDefinition[] = [];
+    const enabledTools = new Set(agent?.tools.enabled_tools ?? []);
     if (this.pendingInteractions) {
       tools.push({ ...REQUEST_USER_INPUT_TOOL });
     }
     if (this.documentTools) {
-      const enabledTools = new Set(agent?.tools.enabled_tools ?? []);
       for (const tool of DOCUMENT_TOOLS) {
         if (enabledTools.has(tool.name)) {
           tools.push({ ...tool });
         }
       }
+    }
+    if (this.bashTools && enabledTools.has(EXECUTE_BASH_TOOL_NAME)) {
+      tools.push({ ...EXECUTE_BASH_TOOL });
     }
     const memoryConfig = agent?.memory;
     if (memoryConfig?.allowed_scopes?.length) {
@@ -299,6 +352,10 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     const tool = this.getVisibleTool(toolName, context.agent);
     if (!tool) {
       return errorResult(`工具未暴露或暂未迁移: ${toolName}`, toolName || "unknown");
+    }
+
+    if (toolName === EXECUTE_BASH_TOOL_NAME && this.bashTools) {
+      return this.executeBashTool(call, context);
     }
 
     const approvalDecision = this.permissionPolicy?.evaluateToolApproval({
@@ -344,6 +401,105 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       return this.memoryTools.readMemoryEntry(readMemoryEntryArguments(call.arguments), context);
     }
     return errorResult(`工具未暴露或暂未迁移: ${toolName}`, toolName);
+  }
+
+  private async executeBashTool(
+    call: RuntimeToolCall,
+    context: RuntimeToolExecutionContext,
+  ): Promise<ToolExecutionResult> {
+    if (!this.bashTools) {
+      return errorResult(`工具未暴露或暂未迁移: ${EXECUTE_BASH_TOOL_NAME}`, EXECUTE_BASH_TOOL_NAME);
+    }
+    const prepared = this.bashTools.prepareExecution(readBashArguments(call.arguments), context);
+    if (!prepared.ok) {
+      return prepared.result;
+    }
+
+    const plan = prepared.plan;
+    const approvalDecision = this.permissionPolicy?.evaluateToolApproval({
+      toolName: EXECUTE_BASH_TOOL_NAME,
+      riskLevel: plan.riskLevel,
+      description: plan.approvalDescription,
+      arguments: plan.approvalArguments,
+      sessionId: context.sessionId,
+      forceAsk: plan.approvalRequired,
+    });
+
+    if (approvalDecision?.action === "ask") {
+      return this.executeBashAfterApproval(plan, call, context, approvalDecision);
+    }
+    if (!approvalDecision && plan.approvalRequired) {
+      return errorResult(`工具 ${EXECUTE_BASH_TOOL_NAME} 需要用户授权，但当前上下文不支持审批`, EXECUTE_BASH_TOOL_NAME, {
+        ...plan.metadata,
+      });
+    }
+
+    return this.bashTools.executePlan(plan, context);
+  }
+
+  private async executeBashAfterApproval(
+    plan: BashExecutionPlan,
+    call: RuntimeToolCall,
+    context: RuntimeToolExecutionContext,
+    approvalDecision: RuntimeToolApprovalDecision,
+  ): Promise<ToolExecutionResult> {
+    const bashTools = this.bashTools;
+    if (!bashTools) {
+      return errorResult(`工具未暴露或暂未迁移: ${EXECUTE_BASH_TOOL_NAME}`, EXECUTE_BASH_TOOL_NAME);
+    }
+    const approvalMetadata = buildApprovalMetadata(approvalDecision);
+    if (!this.pendingInteractions) {
+      return errorResult(`工具 ${EXECUTE_BASH_TOOL_NAME} 需要用户授权，但当前上下文不支持审批`, EXECUTE_BASH_TOOL_NAME, {
+        ...plan.metadata,
+        approval: approvalMetadata,
+      });
+    }
+
+    const sessionId = context.sessionId?.trim();
+    if (!sessionId) {
+      return errorResult(`工具 ${EXECUTE_BASH_TOOL_NAME} 需要用户授权，但当前上下文无法等待审批`, EXECUTE_BASH_TOOL_NAME, {
+        ...plan.metadata,
+        approval: approvalMetadata,
+      });
+    }
+
+    let resolution;
+    try {
+      resolution = await this.pendingInteractions.waitForApproval({
+        sessionId,
+        runId: context.runId,
+        taskId: context.taskId,
+        requestId: context.requestId,
+        toolCallId: call.callId ?? null,
+        agentName: context.currentAgentName ?? context.agent?.agent_name ?? null,
+        approvalType: "bash_command",
+        toolName: EXECUTE_BASH_TOOL_NAME,
+        arguments: plan.approvalArguments,
+        riskLevel: approvalDecision.riskLevel,
+        description: approvalDecision.description,
+        permissionMode: approvalDecision.permissionMode,
+        approvalReason: approvalDecision.reason,
+        approvalReasonCodes: approvalDecision.reasonCodes,
+        approvalSecondaryReasons: approvalDecision.secondaryReasons,
+        signal: context.signal,
+      });
+    } catch (error) {
+      return errorResult(`审批流程异常: ${error instanceof Error ? error.message : String(error)}`, EXECUTE_BASH_TOOL_NAME, {
+        ...plan.metadata,
+        approval: approvalMetadata,
+      });
+    }
+
+    if (!resolution.approved) {
+      const denyReason = resolution.message || "用户拒绝执行此操作";
+      return errorResult(`execute_bash 执行已被拒绝：${denyReason}`, EXECUTE_BASH_TOOL_NAME, {
+        ...plan.metadata,
+        approval: buildApprovalMetadata(approvalDecision, resolution.message),
+      });
+    }
+
+    const result = await bashTools.executePlan(plan, context);
+    return withApprovalMetadata(result, approvalDecision, resolution.message);
   }
 
   private async executeToolAfterApproval(
@@ -539,6 +695,21 @@ function editFileArguments(value: Record<string, unknown> | undefined): {
     encoding: asString(value?.encoding),
     replaceAll: typeof value?.replace_all === "boolean" ? value.replace_all : typeof value?.replaceAll === "boolean" ? value.replaceAll : null,
     filePathSpace: asString(value?.file_path_space) ?? asString(value?.filePathSpace),
+  };
+}
+
+function readBashArguments(value: Record<string, unknown> | undefined): BashExecutionInput {
+  return {
+    command: asString(value?.command) ?? "",
+    workingDir: asString(value?.working_dir) ?? asString(value?.workingDir),
+    workingDirSpace: asString(value?.working_dir_space) ?? asString(value?.workingDirSpace),
+    timeout: asInteger(value?.timeout),
+    runInBackground: typeof value?.run_in_background === "boolean"
+      ? value.run_in_background
+      : typeof value?.runInBackground === "boolean"
+        ? value.runInBackground
+        : null,
+    description: asString(value?.description),
   };
 }
 

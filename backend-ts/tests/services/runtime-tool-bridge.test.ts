@@ -8,6 +8,7 @@ import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import { MemoryStore } from "../../src/services/memory-store.js";
 import { MemoryToolService, type RuntimeMemorySessionPort } from "../../src/services/memory-tool-service.js";
 import { InMemoryEventBus } from "../../src/services/event-bus.js";
+import { LocalBashToolService } from "../../src/services/local-bash-tool-service.js";
 import { LocalDocumentToolService } from "../../src/services/local-document-tool-service.js";
 import { PendingInteractionService } from "../../src/services/pending-interaction-service.js";
 import { PermissionPolicyService } from "../../src/services/permission-policy-service.js";
@@ -193,6 +194,207 @@ describe("RuntimeToolBridge", () => {
       },
     });
     expect(fs.readFileSync(path.join(workspaceRoot, "notes", "todo.txt"), "utf8")).toBe("after\n");
+  });
+
+  it("exposes and executes execute_bash when enabled by agent config", async () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace-bash");
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      null,
+      null,
+      null,
+      new LocalBashToolService({ dataRoot, bashExecutable: null }),
+    );
+    const agent = minimalAgent([], ["execute_bash"]);
+
+    expect(bridge.listVisibleToolNames(agent)).toEqual(["execute_bash"]);
+    await expect(
+      bridge.executeTool(
+        {
+          toolName: "execute_bash",
+          arguments: {
+            command: "echo hello",
+          },
+        },
+        {
+          agent,
+          sessionId: "s1",
+          workspaceRoot,
+        },
+      ),
+    ).resolves.toMatchObject({
+      success: true,
+      tool_name: "execute_bash",
+      content: {
+        stdout: expect.stringContaining("hello"),
+        return_code: 0,
+        interrupted: false,
+        background_started: false,
+        classification: "read_only",
+      },
+      metadata: {
+        classification: "read_only",
+        risk_level: "low",
+      },
+    });
+  });
+
+  it("blocks unsafe execute_bash command syntax before approval", async () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace-bash-block");
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      null,
+      null,
+      null,
+      new LocalBashToolService({ dataRoot, bashExecutable: null }),
+    );
+    const agent = minimalAgent([], ["execute_bash"]);
+
+    await expect(
+      bridge.executeTool(
+        {
+          toolName: "execute_bash",
+          arguments: {
+            command: "echo $(whoami)",
+          },
+        },
+        {
+          agent,
+          sessionId: "s1",
+          workspaceRoot,
+        },
+      ),
+    ).resolves.toMatchObject({
+      success: false,
+      tool_name: "execute_bash",
+      content: expect.stringContaining("命令安全检查失败"),
+    });
+  });
+
+  it("asks for approval before execute_bash write commands", async () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace-bash-approval");
+    fs.mkdirSync(workspaceRoot, { recursive: true });
+    const events = new InMemoryEventBus();
+    const pendingInteractions = new PendingInteractionService(events);
+    const permissionPolicy = new PermissionPolicyService();
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      pendingInteractions,
+      permissionPolicy,
+      null,
+      new LocalBashToolService({ dataRoot, bashExecutable: null }),
+    );
+    const agent = minimalAgent([], ["execute_bash"]);
+
+    const resultPromise = Promise.resolve(
+      bridge.executeTool(
+        {
+          toolName: "execute_bash",
+          callId: "bash-approval-call",
+          arguments: {
+            command: "mkdir created_dir",
+            description: "create a test directory",
+          },
+        },
+        {
+          agent,
+          sessionId: "s1",
+          runId: "run-bash-approval",
+          taskId: "task-bash-approval",
+          requestId: "req-bash-approval",
+          workspaceRoot,
+        },
+      ),
+    );
+
+    const approvalRequired = events.getHistory("s1").find((event) => event.type === "interaction.required");
+    expect(approvalRequired?.data).toMatchObject({
+      interaction_id: expect.any(String),
+      kind: "approval",
+      approval_id: expect.any(String),
+      approval_type: "bash_command",
+      tool_call_id: "bash-approval-call",
+      tool_name: "execute_bash",
+      risk_level: "medium",
+      approval_reason: "当前策略要求人工审批",
+      arguments: expect.objectContaining({
+        command: "mkdir created_dir",
+        command_segments: ["mkdir"],
+        classification: "write",
+      }),
+    });
+
+    const approvalId = (approvalRequired?.data as { approval_id: string }).approval_id;
+    expect(
+      pendingInteractions.respondInteraction("s1", approvalId, {
+        kind: "approval",
+        approved: true,
+        message: "允许创建目录",
+      }),
+    ).toMatchObject({
+      resolved: true,
+      kind: "approval",
+    });
+
+    await expect(resultPromise).resolves.toMatchObject({
+      success: true,
+      tool_name: "execute_bash",
+      metadata: {
+        approval_required_commands: ["mkdir"],
+        approval_message: "允许创建目录",
+        approval: {
+          reason: "当前策略要求人工审批",
+          note: "允许创建目录",
+        },
+      },
+    });
+    expect(fs.existsSync(path.join(workspaceRoot, "created_dir"))).toBe(true);
+  });
+
+  it("terminates execute_bash when timeout is reached", async () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace-bash-timeout");
+    const permissionPolicy = new PermissionPolicyService();
+    permissionPolicy.setMode("dangerously_skip_permissions");
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      null,
+      permissionPolicy,
+      null,
+      new LocalBashToolService({ dataRoot, bashExecutable: null }),
+    );
+    const agent = minimalAgent([], ["execute_bash"]);
+
+    await expect(
+      bridge.executeTool(
+        {
+          toolName: "execute_bash",
+          arguments: {
+            command: "node -e \"setTimeout(function(){}, 2000)\"",
+            timeout: 1,
+          },
+        },
+        {
+          agent,
+          sessionId: "s1",
+          workspaceRoot,
+        },
+      ),
+    ).resolves.toMatchObject({
+      success: true,
+      tool_name: "execute_bash",
+      summary: expect.stringContaining("命令执行超时"),
+      content: {
+        interrupted: true,
+      },
+      metadata: {
+        classification: "interpreter",
+        risk_level: "high",
+      },
+    });
   });
 
   it("rejects tools that are not visible for the current agent", () => {

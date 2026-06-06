@@ -180,8 +180,9 @@ describe("agent config compatibility routes", () => {
         }),
         expect.objectContaining({
           name: "execute_bash",
-          runtime_status: "not_migrated",
-          implemented: false,
+          runtime_status: "implemented",
+          implemented: true,
+          risk_level: "high",
         }),
       ]),
     );

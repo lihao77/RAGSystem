@@ -294,8 +294,8 @@ export class AgentConfigService {
       implementedTool("read_file", "Read a file from the managed workspace", "filesystem", "low"),
       implementedTool("write_file", "Write a file in the managed workspace", "filesystem", "high"),
       implementedTool("edit_file", "Edit an existing file in the managed workspace", "filesystem", "high"),
+      implementedTool("execute_bash", "Execute a foreground shell command with approval boundaries", "execution", "high"),
       notMigratedTool("preview_data_structure", "Preview structured data files", "data", "medium"),
-      notMigratedTool("execute_bash", "Execute a shell command with approval boundaries", "execution", "high"),
     ];
   }
 

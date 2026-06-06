@@ -12,7 +12,7 @@ export interface RuntimeToolDefinition {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
-  source?: "runtime_builtin" | "memory" | "document" | "agent_tool" | "mcp" | undefined;
+  source?: "runtime_builtin" | "memory" | "document" | "execution" | "agent_tool" | "mcp" | undefined;
   category?: string | undefined;
   riskLevel?: RiskLevel | undefined;
   approvalExempt?: boolean | undefined;
