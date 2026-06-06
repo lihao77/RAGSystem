@@ -303,6 +303,69 @@ describe("AgentRuntimeContextBuilder", () => {
     ]);
   });
 
+  it("orders synthetic tool history by action order when run steps are persisted out of order", () => {
+    const history = new InMemoryHistory(
+      [
+        message("user", "并发工具", { seq: 1, metadata: { run_id: "run-1" } }),
+        message("assistant", "并发完成", { seq: 2, metadata: { run_id: "run-1" } }),
+      ],
+      [
+        runStep("run-1", 1, {
+          kind: "tool",
+          phase: "start",
+          call_id: "call-2",
+          tool_name: "seed_file",
+          arguments: {},
+          round: 0,
+          order: 2,
+          round_index: 2,
+        }),
+        runStep("run-1", 2, {
+          kind: "tool",
+          phase: "start",
+          call_id: "call-1",
+          tool_name: "read_file",
+          arguments: { file_path: "{result_2.content.file_path}" },
+          round: 0,
+          order: 1,
+          round_index: 1,
+        }),
+        runStep("run-1", 3, {
+          kind: "tool",
+          phase: "end",
+          call_id: "call-2",
+          tool_name: "seed_file",
+          observation: "[seed_file]\nseeded",
+          order: 2,
+          round_index: 2,
+        }),
+        runStep("run-1", 4, {
+          kind: "tool",
+          phase: "end",
+          call_id: "call-1",
+          tool_name: "read_file",
+          observation: "[read_file]\nread ok",
+          order: 1,
+          round_index: 1,
+        }),
+      ],
+    );
+    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
+
+    const context = builder.buildContext({ sessionId: "s1" });
+
+    expect(context.conversation).toEqual([
+      { role: "user", content: "并发工具" },
+      {
+        role: "assistant",
+        content:
+          "<tools>\n<tool name=\"read_file\">\n<file_path>{result_2.content.file_path}</file_path>\n</tool>\n<tool name=\"seed_file\">\n</tool>\n</tools>",
+      },
+      { role: "user", content: "[read_file]\nread ok\n\n[seed_file]\nseeded" },
+      { role: "assistant", content: "并发完成" },
+    ]);
+  });
+
   it("supports explicit thread key and history limit", () => {
     const history = new InMemoryHistory([message("user", "child hello"), message("assistant", "child answer")]);
     const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);

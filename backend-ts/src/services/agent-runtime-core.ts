@@ -73,6 +73,8 @@ export type AgentRuntimeEvent =
         tool_name: string;
         arguments: Record<string, unknown>;
         round: number;
+        order: number;
+        round_index: number;
       };
     }
   | {
@@ -85,6 +87,12 @@ export type AgentRuntimeEvent =
         summary: string;
         observation: string;
         metadata: Record<string, unknown>;
+        raw_result: Record<string, unknown>;
+        raw_result_ref: Record<string, unknown>;
+        raw_result_available: boolean;
+        elapsed_time: number;
+        order: number;
+        round_index: number;
       };
     }
   | {
@@ -268,48 +276,23 @@ export class AgentRuntimeCore {
         }
 
         messages = [...messages, { role: "assistant", content: roundResult.rawContent }];
-        const roundResults = new Map<number, ToolExecutionResult>();
-        const roundObservationMessages: string[] = [];
-        for (const [index, call] of roundResult.toolCalls.entries()) {
-          const toolName = call.toolName;
-          const callId = call.callId ?? `xml_round_${round}_call_${index + 1}`;
-          const toolArguments = resolveToolArgumentReferences(call.arguments ?? {}, roundResults);
-          await input.onEvent?.({
-            type: "runtime.tool_call",
-            data: {
-              agent_name: input.agent.agent_name,
-              tool_call_id: callId,
-              tool_name: toolName,
-              arguments: toolArguments,
-              round,
-            },
-          });
-          const unresolvedPlaceholders = collectResultPlaceholders(toolArguments);
-          const toolResult = unresolvedPlaceholders.length
-            ? buildToolReferenceErrorResult(toolName, unresolvedPlaceholders)
-            : await toolExecutor.executeTool(
-                {
-                  toolName,
-                  arguments: toolArguments,
-                  callId,
-                },
-                buildToolCallExecutionContext(toolContext, { callId, round, index }),
-              );
-          roundResults.set(index + 1, toolResult);
-          await input.onEvent?.({
-            type: "runtime.tool_result",
-            data: {
-              agent_name: input.agent.agent_name,
-              tool_call_id: callId,
-              tool_name: toolName,
-              success: toolResult.success,
-              summary: toolResult.summary,
-              observation: renderToolResultContent({ callId, toolName, result: toolResult }),
-              metadata: toolResult.metadata,
-            },
-          });
-          roundObservationMessages.push(renderToolResultContent({ callId, toolName, result: toolResult }));
-        }
+        const roundExecutions = await this.executeToolCallRound({
+          input,
+          toolExecutor,
+          toolContext,
+          round,
+          dependencyAware: true,
+          parallelIndependent: true,
+          calls: roundResult.toolCalls.map((call, index) => ({
+            index,
+            callId: call.callId ?? `xml_round_${round}_call_${index + 1}`,
+            toolName: call.toolName,
+            arguments: call.arguments ?? {},
+          })),
+        });
+        const roundObservationMessages = roundExecutions
+          .sort((left, right) => left.index - right.index)
+          .map((execution) => execution.observation);
         if (roundObservationMessages.length > 0) {
           messages.push({
             role: "user",
@@ -374,53 +357,31 @@ export class AgentRuntimeCore {
       }
 
       messages = [...messages, buildAssistantToolCallMessage(result, toolCalls)];
-      const roundResults = new Map<number, ToolExecutionResult>();
+      const roundExecutions = await this.executeToolCallRound({
+        input,
+        toolExecutor,
+        toolContext,
+        round,
+        dependencyAware: false,
+        parallelIndependent: false,
+        calls: toolCalls.map((toolCall, index) => ({
+          index,
+          callId: toolCall.id,
+          toolName: toolCall.function.name,
+          arguments: parseToolArguments(toolCall),
+        })),
+      });
+      const roundExecutionByIndex = new Map(roundExecutions.map((execution) => [execution.index, execution]));
       for (const [index, toolCall] of toolCalls.entries()) {
-        const toolName = toolCall.function.name;
-        const toolArguments = resolveToolArgumentReferences(parseToolArguments(toolCall), roundResults);
-        await input.onEvent?.({
-          type: "runtime.tool_call",
-          data: {
-            agent_name: input.agent.agent_name,
-            tool_call_id: toolCall.id,
-            tool_name: toolName,
-            arguments: toolArguments,
-            round,
-          },
-        });
-        const unresolvedPlaceholders = collectResultPlaceholders(toolArguments);
-        const toolResult = unresolvedPlaceholders.length
-          ? buildToolReferenceErrorResult(toolName, unresolvedPlaceholders)
-          : await toolExecutor.executeTool(
-              {
-                toolName,
-                arguments: toolArguments,
-                callId: toolCall.id,
-              },
-              buildToolCallExecutionContext(toolContext, { callId: toolCall.id, round, index }),
-            );
-        roundResults.set(index + 1, toolResult);
-        await input.onEvent?.({
-          type: "runtime.tool_result",
-          data: {
-            agent_name: input.agent.agent_name,
-            tool_call_id: toolCall.id,
-            tool_name: toolName,
-            success: toolResult.success,
-            summary: toolResult.summary,
-            observation: renderToolResultContent({ callId: toolCall.id, toolName, result: toolResult }),
-            metadata: toolResult.metadata,
-          },
-        });
+        const execution = roundExecutionByIndex.get(index);
+        if (!execution) {
+          continue;
+        }
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
-          name: toolName,
-          content: renderToolResultContent({
-            callId: toolCall.id,
-            toolName,
-            result: toolResult,
-          }),
+          name: execution.toolName,
+          content: execution.observation,
         });
       }
     }
@@ -591,6 +552,129 @@ export class AgentRuntimeCore {
     }
     return [...messages, ...updates];
   }
+
+  private async executeToolCallRound(input: {
+    input: AgentRuntimeRequest;
+    toolExecutor: RuntimeToolExecutor;
+    toolContext: RuntimeToolExecutionContext;
+    round: number;
+    dependencyAware: boolean;
+    parallelIndependent: boolean;
+    calls: PreparedRoundToolCall[];
+  }): Promise<RuntimeToolRoundExecution[]> {
+    const roundResults = new Map<number, ToolExecutionResult>();
+    const executions = new Map<number, RuntimeToolRoundExecution>();
+    const batches = input.dependencyAware
+      ? buildExecutionBatches(input.calls)
+      : input.calls.map((call) => [call]);
+    for (const batch of batches) {
+      const runCall = (call: PreparedRoundToolCall) =>
+        this.executeSingleToolCall({
+          input: input.input,
+          toolExecutor: input.toolExecutor,
+          toolContext: input.toolContext,
+          round: input.round,
+          call,
+          previousResults: roundResults,
+        });
+      const batchExecutions =
+        input.parallelIndependent && batch.length > 1
+          ? await Promise.all(batch.map((call) => runCall(call)))
+          : await runSequentially(batch, runCall);
+      for (const execution of batchExecutions) {
+        roundResults.set(execution.index + 1, execution.result);
+        executions.set(execution.index, execution);
+      }
+    }
+    return [...executions.values()].sort((left, right) => left.index - right.index);
+  }
+
+  private async executeSingleToolCall(input: {
+    input: AgentRuntimeRequest;
+    toolExecutor: RuntimeToolExecutor;
+    toolContext: RuntimeToolExecutionContext;
+    round: number;
+    call: PreparedRoundToolCall;
+    previousResults: Map<number, ToolExecutionResult>;
+  }): Promise<RuntimeToolRoundExecution> {
+    const order = input.call.index + 1;
+    const toolArguments = resolveToolArgumentReferences(input.call.arguments, input.previousResults);
+    await input.input.onEvent?.({
+      type: "runtime.tool_call",
+      data: {
+        agent_name: input.input.agent.agent_name,
+        tool_call_id: input.call.callId,
+        tool_name: input.call.toolName,
+        arguments: toolArguments,
+        round: input.round,
+        order,
+        round_index: order,
+      },
+    });
+
+    const startedAt = Date.now();
+    const unresolvedPlaceholders = collectResultPlaceholders(toolArguments);
+    const toolResult = unresolvedPlaceholders.length
+      ? buildToolReferenceErrorResult(input.call.toolName, unresolvedPlaceholders)
+      : await executeToolSafely({
+          toolExecutor: input.toolExecutor,
+          toolContext: input.toolContext,
+          callId: input.call.callId,
+          toolName: input.call.toolName,
+          toolArguments,
+          round: input.round,
+          index: input.call.index,
+        });
+    const elapsedTime = (Date.now() - startedAt) / 1000;
+    const observation = renderToolResultContent({
+      callId: input.call.callId,
+      toolName: input.call.toolName,
+      result: toolResult,
+    });
+    await input.input.onEvent?.({
+      type: "runtime.tool_result",
+      data: {
+        agent_name: input.input.agent.agent_name,
+        tool_call_id: input.call.callId,
+        tool_name: input.call.toolName,
+        success: toolResult.success,
+        summary: toolResult.summary,
+        observation,
+        metadata: toolResult.metadata,
+        raw_result: materializeToolResult(toolResult),
+        raw_result_ref: buildRawResultRef(input.toolContext, input.call.callId, input.call.toolName),
+        raw_result_available: true,
+        elapsed_time: elapsedTime,
+        order,
+        round_index: order,
+      },
+    });
+
+    return {
+      index: input.call.index,
+      callId: input.call.callId,
+      toolName: input.call.toolName,
+      arguments: toolArguments,
+      result: toolResult,
+      observation,
+    };
+  }
+}
+
+interface PreparedRoundToolCall {
+  index: number;
+  callId: string;
+  toolName: string;
+  arguments: Record<string, unknown>;
+}
+
+interface RuntimeToolRoundExecution {
+  index: number;
+  callId: string;
+  toolName: string;
+  arguments: Record<string, unknown>;
+  result: ToolExecutionResult;
+  observation: string;
 }
 
 function shouldRunToolLoop(input: AgentRuntimeRequest, request: ChatCompletionRequest): boolean {
@@ -661,6 +745,89 @@ function buildToolCallExecutionContext(
     round: input.round,
     order,
     roundIndex: order,
+  };
+}
+
+function buildExecutionBatches(calls: PreparedRoundToolCall[]): PreparedRoundToolCall[][] {
+  const batches: PreparedRoundToolCall[][] = [];
+  const completed = new Set<number>();
+  let remaining = [...calls];
+  while (remaining.length > 0) {
+    const batch: PreparedRoundToolCall[] = [];
+    const nextRemaining: PreparedRoundToolCall[] = [];
+    for (const call of remaining) {
+      if (toolCallHasUnmetDependencies(call, completed)) {
+        nextRemaining.push(call);
+      } else {
+        batch.push(call);
+      }
+    }
+    if (batch.length === 0) {
+      const [first, ...rest] = remaining;
+      if (first) {
+        batch.push(first);
+      }
+      remaining = rest;
+    } else {
+      remaining = nextRemaining;
+    }
+    for (const call of batch) {
+      completed.add(call.index + 1);
+    }
+    batches.push(batch);
+  }
+  return batches;
+}
+
+function toolCallHasUnmetDependencies(call: PreparedRoundToolCall, completed: Set<number>): boolean {
+  const dependencies = collectResultReferenceIndexes(call.arguments);
+  return dependencies.some((index) => !completed.has(index));
+}
+
+async function runSequentially<T, R>(items: T[], run: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  for (const item of items) {
+    results.push(await run(item));
+  }
+  return results;
+}
+
+async function executeToolSafely(input: {
+  toolExecutor: RuntimeToolExecutor;
+  toolContext: RuntimeToolExecutionContext;
+  callId: string;
+  toolName: string;
+  toolArguments: Record<string, unknown>;
+  round: number;
+  index: number;
+}): Promise<ToolExecutionResult> {
+  try {
+    return await input.toolExecutor.executeTool(
+      {
+        toolName: input.toolName,
+        arguments: input.toolArguments,
+        callId: input.callId,
+      },
+      buildToolCallExecutionContext(input.toolContext, {
+        callId: input.callId,
+        round: input.round,
+        index: input.index,
+      }),
+    );
+  } catch (error) {
+    return buildToolExecutionErrorResult(input.toolName, error);
+  }
+}
+
+function buildRawResultRef(
+  context: RuntimeToolExecutionContext,
+  callId: string,
+  toolName: string,
+): Record<string, unknown> {
+  return {
+    session_id: context.sessionId ?? null,
+    call_id: callId,
+    tool_name: toolName,
   };
 }
 
@@ -919,6 +1086,36 @@ function collectResultPlaceholders(value: unknown): string[] {
   return Array.from(new Set(found));
 }
 
+function collectResultReferenceIndexes(value: unknown): number[] {
+  const found = new Set<number>();
+  const scan = (item: unknown): void => {
+    if (typeof item === "string") {
+      RESULT_REFERENCE_PATTERN.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = RESULT_REFERENCE_PATTERN.exec(item)) !== null) {
+        const index = Number.parseInt(match[1] ?? "", 10);
+        if (Number.isInteger(index)) {
+          found.add(index);
+        }
+      }
+      return;
+    }
+    if (Array.isArray(item)) {
+      for (const child of item) {
+        scan(child);
+      }
+      return;
+    }
+    if (isRecord(item)) {
+      for (const child of Object.values(item)) {
+        scan(child);
+      }
+    }
+  };
+  scan(value);
+  return [...found];
+}
+
 function buildToolReferenceErrorResult(toolName: string, placeholders: string[]): ToolExecutionResult<string> {
   const summary = `参数中包含未替换的占位符: ${placeholders.join(", ")}，请检查引用路径是否正确`;
   return {
@@ -931,6 +1128,23 @@ function buildToolReferenceErrorResult(toolName: string, placeholders: string[])
     metadata: {
       source_shape: "error",
       unresolved_placeholders: placeholders,
+    },
+    artifacts: [],
+    llm_hint: null,
+  };
+}
+
+function buildToolExecutionErrorResult(toolName: string, error: unknown): ToolExecutionResult<string> {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    success: false,
+    tool_name: toolName,
+    summary: message,
+    answer: null,
+    output_type: "error",
+    content: message,
+    metadata: {
+      source_shape: "error",
     },
     artifacts: [],
     llm_hint: null,

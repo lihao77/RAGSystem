@@ -512,10 +512,11 @@ function renderSyntheticIntentContent(intentSteps: OrderedExecutionStep[], toolS
 }
 
 function renderSyntheticToolCallsXml(toolStarts: OrderedExecutionStep[]): string {
-  if (!toolStarts.length) {
+  const orderedToolStarts = sortStepsByActionOrder(toolStarts);
+  if (!orderedToolStarts.length) {
     return "";
   }
-  const tools = toolStarts
+  const tools = orderedToolStarts
     .map((step) => {
       const toolName = getString(step.payload.tool_name) ?? "unknown_tool";
       const args = isRecord(step.payload.arguments) ? step.payload.arguments : {};
@@ -549,10 +550,27 @@ function renderArgumentValue(value: unknown): string {
 }
 
 function renderSyntheticObservationContent(steps: OrderedExecutionStep[]): string {
-  return steps
+  return sortStepsByActionOrder(steps)
     .map(renderSingleSyntheticObservationContent)
     .filter((content): content is string => Boolean(content))
     .join("\n\n");
+}
+
+function sortStepsByActionOrder(steps: OrderedExecutionStep[]): OrderedExecutionStep[] {
+  return [...steps].sort((left, right) => {
+    const leftOrder = numberOrNull(left.payload.order) ?? numberOrNull(left.payload.round_index);
+    const rightOrder = numberOrNull(right.payload.order) ?? numberOrNull(right.payload.round_index);
+    if (leftOrder !== null && rightOrder !== null && leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+    if (leftOrder !== null && rightOrder === null) {
+      return -1;
+    }
+    if (leftOrder === null && rightOrder !== null) {
+      return 1;
+    }
+    return left.stepOrder - right.stepOrder;
+  });
 }
 
 function renderSingleSyntheticObservationContent(step: OrderedExecutionStep): string {

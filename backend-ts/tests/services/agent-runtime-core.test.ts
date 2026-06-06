@@ -183,6 +183,101 @@ class FakeReferenceToolExecutor implements RuntimeToolExecutor {
   }
 }
 
+class FakeDependencyToolExecutor implements RuntimeToolExecutor {
+  readonly calls: Array<{ call: RuntimeToolCall; context: RuntimeToolExecutionContext; startedAt: number; finishedAt: number }> = [];
+
+  listVisibleTools(): RuntimeToolDefinition[] {
+    return [
+      {
+        name: "seed_file",
+        description: "Seed file",
+        parameters: { type: "object", properties: {} },
+      },
+      {
+        name: "read_file",
+        description: "Read file",
+        parameters: {
+          type: "object",
+          required: ["file_path"],
+          properties: { file_path: { type: "string" } },
+        },
+      },
+      {
+        name: "list_memory_index",
+        description: "List memory index",
+        parameters: { type: "object", properties: {} },
+      },
+    ];
+  }
+
+  async executeTool(call: RuntimeToolCall, context: RuntimeToolExecutionContext) {
+    const startedAt = Date.now();
+    if (call.toolName === "seed_file" || call.toolName === "list_memory_index") {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const finishedAt = Date.now();
+    this.calls.push({ call, context, startedAt, finishedAt });
+    if (call.toolName === "seed_file") {
+      return {
+        success: true,
+        tool_name: "seed_file",
+        summary: "seeded",
+        answer: null,
+        output_type: "json",
+        content: {
+          file_path: "E:/tmp/seed.txt",
+        },
+        metadata: {},
+        artifacts: [],
+        llm_hint: null,
+      };
+    }
+    if (call.toolName === "read_file") {
+      return {
+        success: true,
+        tool_name: "read_file",
+        summary: "read",
+        answer: null,
+        output_type: "text",
+        content: `read ${String(call.arguments?.file_path ?? "")}`,
+        metadata: {},
+        artifacts: [],
+        llm_hint: null,
+      };
+    }
+    return {
+      success: true,
+      tool_name: "list_memory_index",
+      summary: "listed",
+      answer: null,
+      output_type: "text",
+      content: "# Session Memory",
+      metadata: {},
+      artifacts: [],
+      llm_hint: null,
+    };
+  }
+}
+
+class FakeThrowingToolExecutor implements RuntimeToolExecutor {
+  readonly calls: RuntimeToolCall[] = [];
+
+  listVisibleTools(): RuntimeToolDefinition[] {
+    return [
+      {
+        name: "list_memory_index",
+        description: "List memory index",
+        parameters: { type: "object", properties: {} },
+      },
+    ];
+  }
+
+  executeTool(call: RuntimeToolCall) {
+    this.calls.push(call);
+    throw new Error("tool exploded");
+  }
+}
+
 describe("AgentRuntimeCore", () => {
   it("runs text with only agent, provider, model, and conversation input", async () => {
     const client = new FakeChatClient();
@@ -604,6 +699,120 @@ describe("AgentRuntimeCore", () => {
     expect(userToolMessages?.[0]?.content).toContain("</tool_result>\n\n<tool_result");
   });
 
+  it("executes XML tool calls in Python-style dependency batches", async () => {
+    const client = new FakeXmlStreamingToolChatClient([
+      [
+        "<tool_calls>",
+        '<tool name="read_file"><file_path>{result_2.content.file_path}</file_path></tool>',
+        '<tool name="seed_file"></tool>',
+        '<tool name="list_memory_index"></tool>',
+        "</tool_calls>",
+      ],
+      ["<final_answer>", "done", "</final_answer>"],
+    ]);
+    const tools = new FakeDependencyToolExecutor();
+    const core = new AgentRuntimeCore(client);
+    const agent = minimalAgent();
+    const events: AgentRuntimeEvent[] = [];
+
+    await core.runText({
+      agent,
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [{ role: "user", content: "dependency batch" }],
+      toolExecutor: tools,
+      toolContext: {
+        agent,
+        sessionId: "s1",
+        runId: "run-1",
+        requestId: "req-1",
+        currentAgentName: "orchestrator_agent",
+        parentCallId: "call-root",
+      },
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(tools.calls.map((item) => item.call.toolName)).toEqual(["seed_file", "list_memory_index", "read_file"]);
+    expect(tools.calls[2]?.call.arguments).toEqual({ file_path: "E:/tmp/seed.txt" });
+    expect(tools.calls[0]?.startedAt).toBeLessThanOrEqual(tools.calls[1]?.finishedAt ?? 0);
+    expect(tools.calls[1]?.startedAt).toBeLessThanOrEqual(tools.calls[0]?.finishedAt ?? 0);
+    expect(tools.calls.map((item) => item.context.roundIndex)).toEqual([2, 3, 1]);
+
+    const userToolMessages = client.requests[1]?.messages.filter((message) =>
+      message.role === "user" && message.content.includes("<tool_result"),
+    );
+    expect(userToolMessages).toHaveLength(1);
+    const content = userToolMessages?.[0]?.content ?? "";
+    expect(content.indexOf('id="xml_round_0_call_1"')).toBeLessThan(content.indexOf('id="xml_round_0_call_2"'));
+    expect(content.indexOf('id="xml_round_0_call_2"')).toBeLessThan(content.indexOf('id="xml_round_0_call_3"'));
+
+    const toolEvents = events.filter((event) => event.type === "runtime.tool_call" || event.type === "runtime.tool_result");
+    expect(toolEvents.map((event) => event.data.tool_name)).toEqual([
+      "seed_file",
+      "list_memory_index",
+      "seed_file",
+      "list_memory_index",
+      "read_file",
+      "read_file",
+    ]);
+  });
+
+  it("turns XML tool execution exceptions into failed observations", async () => {
+    const client = new FakeXmlStreamingToolChatClient([
+      ["<tool_calls>", '<tool name="list_memory_index"></tool>', "</tool_calls>"],
+      ["<final_answer>", "recovered", "</final_answer>"],
+    ]);
+    const tools = new FakeThrowingToolExecutor();
+    const core = new AgentRuntimeCore(client);
+    const agent = minimalAgent();
+    const events: AgentRuntimeEvent[] = [];
+
+    const result = await core.runText({
+      agent,
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [{ role: "user", content: "tool failure" }],
+      toolExecutor: tools,
+      toolContext: {
+        agent,
+        sessionId: "s1",
+        runId: "run-1",
+        requestId: "req-1",
+        currentAgentName: "orchestrator_agent",
+        parentCallId: "call-root",
+      },
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(result.content).toBe("recovered");
+    const userToolMessage = client.requests[1]?.messages.find((message) =>
+      message.role === "user" && message.content.includes("<tool_result"),
+    );
+    expect(userToolMessage?.content).toContain('ok="false"');
+    expect(userToolMessage?.content).toContain("tool exploded");
+    expect(events).toEqual(
+      expect.arrayContaining([
+        {
+          type: "runtime.tool_result",
+          data: expect.objectContaining({
+            tool_name: "list_memory_index",
+            success: false,
+            summary: "tool exploded",
+            raw_result_available: true,
+          }),
+        },
+        {
+          type: "runtime.done",
+          data: expect.objectContaining({ content: "recovered" }),
+        },
+      ]),
+    );
+  });
+
   it("renders request_user_input tool results as compact semantic observations", () => {
     const content = renderToolResultContent({
       callId: "input_call_1",
@@ -735,6 +944,8 @@ describe("AgentRuntimeCore", () => {
           tool_name: "list_memory_index",
           arguments: { scope: "session" },
           round: 0,
+          order: 1,
+          round_index: 1,
         },
       },
       {
@@ -749,6 +960,20 @@ describe("AgentRuntimeCore", () => {
           metadata: {
             scope: "session",
           },
+          raw_result: expect.objectContaining({
+            success: true,
+            tool_name: "list_memory_index",
+            content: "# Session Memory\n- fact_alpha.md",
+          }),
+          raw_result_ref: {
+            session_id: "s1",
+            call_id: "call_memory_1",
+            tool_name: "list_memory_index",
+          },
+          raw_result_available: true,
+          elapsed_time: expect.any(Number),
+          order: 1,
+          round_index: 1,
         },
       },
       {
