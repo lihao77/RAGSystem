@@ -117,6 +117,72 @@ class FakeRuntimeToolExecutor implements RuntimeToolExecutor {
   }
 }
 
+class FakeReferenceToolExecutor implements RuntimeToolExecutor {
+  readonly calls: Array<{ call: RuntimeToolCall; context: RuntimeToolExecutionContext }> = [];
+
+  listVisibleTools(): RuntimeToolDefinition[] {
+    return [
+      {
+        name: "write_file",
+        description: "Write file",
+        parameters: {
+          type: "object",
+          required: ["content"],
+          properties: {
+            content: { type: "string" },
+          },
+        },
+      },
+      {
+        name: "read_file",
+        description: "Read file",
+        parameters: {
+          type: "object",
+          required: ["file_path"],
+          properties: {
+            file_path: { type: "string" },
+          },
+        },
+      },
+    ];
+  }
+
+  executeTool(call: RuntimeToolCall, context: RuntimeToolExecutionContext) {
+    this.calls.push({ call, context });
+    if (call.toolName === "write_file") {
+      return {
+        success: true,
+        tool_name: "write_file",
+        summary: "文件已写入",
+        answer: null,
+        output_type: "json",
+        content: {
+          file_path: "E:/tmp/generated.txt",
+          display_path: "./data/sessions/s1/workspace/generated.txt",
+        },
+        metadata: {
+          file_path: "E:/tmp/generated.txt",
+        },
+        artifacts: [],
+        llm_hint: null,
+      };
+    }
+    return {
+      success: true,
+      tool_name: call.toolName,
+      summary: "文件已读取",
+      answer: null,
+      output_type: "text",
+      content: "read ok",
+      metadata: {
+        file_path: String(call.arguments?.file_path ?? ""),
+      },
+      artifacts: [],
+      llm_hint: null,
+    };
+  }
+}
+
 describe("AgentRuntimeCore", () => {
   it("runs text with only agent, provider, model, and conversation input", async () => {
     const client = new FakeChatClient();
@@ -426,6 +492,42 @@ describe("AgentRuntimeCore", () => {
     expect(tools.calls).toHaveLength(0);
   });
 
+  it("resolves same-round XML tool result placeholders before executing dependent tools", async () => {
+    const client = new FakeXmlStreamingToolChatClient([
+      [
+        "<tool_calls>",
+        '<tool name="write_file"><content>demo</content></tool>',
+        '<tool name="read_file"><file_path>{result_1.content.file_path}</file_path></tool>',
+        "</tool_calls>",
+      ],
+      ["<final_answer>", "done", "</final_answer>"],
+    ]);
+    const tools = new FakeReferenceToolExecutor();
+    const core = new AgentRuntimeCore(client);
+    const agent = minimalAgent();
+
+    await core.runText({
+      agent,
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [{ role: "user", content: "write then read" }],
+      toolExecutor: tools,
+      toolContext: {
+        agent,
+        sessionId: "s1",
+        currentAgentName: "orchestrator_agent",
+      },
+    });
+
+    expect(tools.calls).toHaveLength(2);
+    expect(tools.calls[1]?.call).toMatchObject({
+      toolName: "read_file",
+      arguments: {
+        file_path: "E:/tmp/generated.txt",
+      },
+    });
+  });
+
   it("renders request_user_input tool results as compact semantic observations", () => {
     const content = renderToolResultContent({
       callId: "input_call_1",
@@ -571,6 +673,61 @@ describe("AgentRuntimeCore", () => {
         },
       },
     ]);
+  });
+
+  it("resolves same-round native tool-call result placeholders before executing dependent tools", async () => {
+    const client = new FakeToolCallingChatClient([
+      {
+        content: "",
+        finishReason: "tool_calls",
+        toolCalls: [
+          {
+            id: "call_write",
+            type: "function",
+            function: {
+              name: "write_file",
+              arguments: JSON.stringify({ content: "demo" }),
+            },
+          },
+          {
+            id: "call_read",
+            type: "function",
+            function: {
+              name: "read_file",
+              arguments: JSON.stringify({ file_path: "{result_1.content.file_path}" }),
+            },
+          },
+        ],
+      },
+      {
+        content: "done",
+        finishReason: "stop",
+      },
+    ]);
+    const tools = new FakeReferenceToolExecutor();
+    const core = new AgentRuntimeCore(client);
+    const agent = minimalAgent();
+
+    await core.runText({
+      agent,
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [{ role: "user", content: "write then read" }],
+      toolExecutor: tools,
+      toolContext: {
+        agent,
+        sessionId: "s1",
+        currentAgentName: "orchestrator_agent",
+      },
+    });
+
+    expect(tools.calls).toHaveLength(2);
+    expect(tools.calls[1]?.call).toMatchObject({
+      toolName: "read_file",
+      arguments: {
+        file_path: "E:/tmp/generated.txt",
+      },
+    });
   });
 
   it("injects queued followup messages before the next llm request", async () => {

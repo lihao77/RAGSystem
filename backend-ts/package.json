@@ -11,8 +11,10 @@
     "start": "node dist/main.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:scripts": "tsc -p tsconfig.scripts.json --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "smoke:parity": "tsx scripts/parity-smoke.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.0",

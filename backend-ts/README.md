@@ -13,6 +13,7 @@ npm install
 npm run dev
 npm run typecheck
 npm run build
+npm run smoke:parity -- --session-id <existing-session-id>
 ```
 
 Default development port: `5002`.
@@ -88,6 +89,24 @@ npm run typecheck:test
 npm test
 npm run build
 ```
+
+Optional live parity smoke against Python `5001` and TypeScript `5002`:
+
+```bash
+npm run smoke:parity -- --session-id <existing-session-id>
+npm run smoke:parity -- --session-id <existing-session-id> --include-execution --execution-profile core
+```
+
+The default smoke is read-only. `--include-execution` starts real `/api/agent/stream`
+runs on both backends and uses `selected_llm=rag|deepseek|deepseek-v4-pro` unless overridden.
+Execution smoke temporarily sets `/api/permissions/policy` to skip approvals and restores the
+original policy afterwards. Profiles:
+
+- `minimal`: one direct LLM reply.
+- `core`: minimal plus file, data preview, foreground/background bash, and task CRUD tool chains.
+- `full`: core plus one child-agent delegation smoke.
+
+Passing `--execution-task <text>` runs only that custom task.
 
 ## Migration Rule
 
