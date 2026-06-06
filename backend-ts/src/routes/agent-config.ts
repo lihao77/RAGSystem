@@ -168,7 +168,7 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
 
   app.get("/tools", async () => {
     const tools = options.container.agentConfig.listAvailableTools();
-    return ok(tools, `共有 ${tools.length} 个可用工具`);
+    return ok(tools, `共有 ${tools.length} 个工具条目`);
   });
 
   app.get("/memory-metadata", async () => ok(options.container.agentConfig.getMemoryConfigMetadata(), "Memory 配置元数据"));

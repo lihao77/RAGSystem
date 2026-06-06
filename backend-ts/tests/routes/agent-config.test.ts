@@ -165,6 +165,26 @@ describe("agent config compatibility routes", () => {
     });
     expect(tools.statusCode).toBe(200);
     expect(tools.json().data.map((tool: { name: string }) => tool.name)).toContain("read_file");
+    expect(tools.json().data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "read_file",
+          runtime_status: "implemented",
+          implemented: true,
+        }),
+        expect.objectContaining({
+          name: "write_file",
+          runtime_status: "implemented",
+          implemented: true,
+          risk_level: "high",
+        }),
+        expect.objectContaining({
+          name: "execute_bash",
+          runtime_status: "not_migrated",
+          implemented: false,
+        }),
+      ]),
+    );
 
     const exportedJson = await app.inject({
       method: "GET",

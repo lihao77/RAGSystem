@@ -282,13 +282,20 @@ export class AgentConfigService {
     return this.listTeams();
   }
 
-  listAvailableTools(): Array<{ name: string; description: string; category: string }> {
+  listAvailableTools(): Array<{
+    name: string;
+    description: string;
+    category: string;
+    runtime_status: "implemented" | "not_migrated";
+    implemented: boolean;
+    risk_level: "low" | "medium" | "high";
+  }> {
     return [
-      { name: "read_file", description: "Read a file from the managed workspace", category: "filesystem" },
-      { name: "write_file", description: "Write a file in the managed workspace", category: "filesystem" },
-      { name: "edit_file", description: "Edit an existing file in the managed workspace", category: "filesystem" },
-      { name: "preview_data_structure", description: "Preview structured data files", category: "data" },
-      { name: "execute_bash", description: "Execute a shell command with approval boundaries", category: "execution" },
+      implementedTool("read_file", "Read a file from the managed workspace", "filesystem", "low"),
+      implementedTool("write_file", "Write a file in the managed workspace", "filesystem", "high"),
+      implementedTool("edit_file", "Edit an existing file in the managed workspace", "filesystem", "high"),
+      notMigratedTool("preview_data_structure", "Preview structured data files", "data", "medium"),
+      notMigratedTool("execute_bash", "Execute a shell command with approval boundaries", "execution", "high"),
     ];
   }
 
@@ -704,6 +711,52 @@ function buildCustomAgentConfig(input: CreateAgentRequest): AgentConfig {
       },
     },
   });
+}
+
+function implementedTool(
+  name: string,
+  description: string,
+  category: string,
+  riskLevel: "low" | "medium" | "high",
+): {
+  name: string;
+  description: string;
+  category: string;
+  runtime_status: "implemented";
+  implemented: true;
+  risk_level: "low" | "medium" | "high";
+} {
+  return {
+    name,
+    description,
+    category,
+    runtime_status: "implemented",
+    implemented: true,
+    risk_level: riskLevel,
+  };
+}
+
+function notMigratedTool(
+  name: string,
+  description: string,
+  category: string,
+  riskLevel: "low" | "medium" | "high",
+): {
+  name: string;
+  description: string;
+  category: string;
+  runtime_status: "not_migrated";
+  implemented: false;
+  risk_level: "low" | "medium" | "high";
+} {
+  return {
+    name,
+    description,
+    category,
+    runtime_status: "not_migrated",
+    implemented: false,
+    risk_level: riskLevel,
+  };
 }
 
 function configToAgentInfo(config: AgentConfig): AgentInfo {
