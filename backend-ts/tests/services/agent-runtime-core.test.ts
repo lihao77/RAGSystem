@@ -706,6 +706,7 @@ describe("AgentRuntimeCore", () => {
           tool_name: "list_memory_index",
           success: true,
           summary: "已读取 session MEMORY 索引",
+          observation: expect.stringContaining("<tool_result"),
           metadata: {
             scope: "session",
           },

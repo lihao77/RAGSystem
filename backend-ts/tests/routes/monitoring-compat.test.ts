@@ -218,6 +218,133 @@ describe("monitoring compatibility routes", () => {
     ]);
   });
 
+  it("expands run steps into Python-compatible ReAct entries in context snapshot history", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+
+    harness.container.sessionApplication.createSession({ sessionId: "react-s1" });
+    const user = harness.container.sessionApplication.addMessage({
+      sessionId: "react-s1",
+      role: "user",
+      content: "测试工具是否能运行",
+      metadata: { run_id: "run-1" },
+    });
+    const assistant = harness.container.sessionApplication.addMessage({
+      sessionId: "react-s1",
+      role: "assistant",
+      content: "工具测试完成",
+      metadata: { run_id: "run-1" },
+    });
+    harness.container.conversationStore.addRunStep({
+      sessionId: "react-s1",
+      runId: "run-1",
+      messageId: assistant.id,
+      stepType: "execution.step",
+      payload: {
+        kind: "intent",
+        phase: "complete",
+        content: "我先执行一个只读命令。",
+        round: 0,
+      },
+    });
+    harness.container.conversationStore.addRunStep({
+      sessionId: "react-s1",
+      runId: "run-1",
+      messageId: assistant.id,
+      stepType: "execution.step",
+      payload: {
+        kind: "tool",
+        phase: "start",
+        call_id: "call-1",
+        tool_name: "execute_bash",
+        arguments: { command: "pwd" },
+        round: 0,
+      },
+    });
+    harness.container.conversationStore.addRunStep({
+      sessionId: "react-s1",
+      runId: "run-1",
+      messageId: assistant.id,
+      stepType: "execution.step",
+      payload: {
+        kind: "tool",
+        phase: "end",
+        call_id: "call-1",
+        tool_name: "execute_bash",
+        observation: "[execute_bash]\n命令执行完成，返回码 0",
+      },
+    });
+    harness.container.conversationStore.addRunStep({
+      sessionId: "react-s1",
+      runId: "run-1",
+      messageId: assistant.id,
+      stepType: "execution.step",
+      payload: {
+        kind: "tool",
+        phase: "start",
+        call_id: "call-2",
+        tool_name: "task_list",
+        arguments: {},
+        round: 0,
+      },
+    });
+    harness.container.conversationStore.addRunStep({
+      sessionId: "react-s1",
+      runId: "run-1",
+      messageId: assistant.id,
+      stepType: "execution.step",
+      payload: {
+        kind: "tool",
+        phase: "end",
+        call_id: "call-2",
+        tool_name: "task_list",
+        observation: "[task_list]\n共 0 个任务",
+      },
+    });
+
+    const snapshot = await app.inject({
+      method: "GET",
+      url: "/api/agent/context-snapshot?session_id=react-s1",
+    });
+
+    expect(snapshot.statusCode).toBe(200);
+    expect(snapshot.json().data.conversation_history).toEqual([
+      expect.objectContaining({
+        seq: user.seq,
+        role: "user",
+        content_preview: "测试工具是否能运行",
+        react_intermediate: false,
+        msg_type: null,
+      }),
+      expect.objectContaining({
+        seq: null,
+        role: "assistant",
+        content_preview:
+          "我先执行一个只读命令。\n\n<tools>\n<tool name=\"execute_bash\">\n<command>pwd</command>\n</tool>\n<tool name=\"task_list\">\n</tool>\n</tools>",
+        can_load_full_content: false,
+        react_intermediate: true,
+        msg_type: "intent",
+        round: 1,
+      }),
+      expect.objectContaining({
+        seq: null,
+        role: "user",
+        content_preview: "[execute_bash]\n命令执行完成，返回码 0\n\n[task_list]\n共 0 个任务",
+        can_load_full_content: false,
+        react_intermediate: true,
+        msg_type: "observation",
+        round: 1,
+      }),
+      expect.objectContaining({
+        seq: assistant.seq,
+        role: "assistant",
+        content_preview: "工具测试完成",
+        react_intermediate: false,
+        msg_type: null,
+      }),
+    ]);
+  });
+
   it("returns persisted tool call raw results by call id", async () => {
     const harness = await buildTestHarness();
     app = harness.app;

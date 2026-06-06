@@ -358,6 +358,47 @@ test('编排器自己的工具调用会沿用已记忆的 display name', () => {
   assert.equal(state.execution_steps[0].toolCalls[0].call_id, 'tool-root-1');
 });
 
+test('历史 TS root 工具调用缺 run call_id 时仍挂到执行树', () => {
+  const state = buildExecutionState([
+    createRunStart({
+      call_id: undefined,
+      step_id: undefined,
+      agent_name: 'orchestrator_agent',
+    }),
+    createOrchestratorToolStart({
+      call_id: 'xml_round_0_call_1',
+      tool_name: 'execute_bash',
+      parent_call_id: 'call_missing_on_run_start',
+      step_id: undefined,
+      parent_step_id: undefined,
+      round: 0,
+    }),
+    createToolEnd({
+      call_id: 'xml_round_0_call_1',
+      tool_name: 'execute_bash',
+      parent_call_id: 'call_missing_on_run_start',
+      step_id: undefined,
+      parent_step_id: undefined,
+      agent_name: 'orchestrator_agent',
+      round: 0,
+      result_preview: '命令执行完成，返回码 0',
+    }),
+  ]);
+  const tree = buildExecutionTree(state.execution_steps, state.subtasks);
+  const toolStep = state.execution_steps.find(step => (
+    Array.isArray(step.toolCalls)
+    && step.toolCalls.some(tool => tool?.call_id === 'xml_round_0_call_1')
+  ));
+
+  assert.ok(toolStep);
+  assert.equal(toolStep.toolCalls.length, 1);
+  assert.equal(toolStep.toolCalls[0].call_id, 'xml_round_0_call_1');
+  assert.equal(toolStep.toolCalls[0].status, 'success');
+  assert.equal(tree.length, 1);
+  assert.equal(tree[0].type, 'tool_call');
+  assert.equal(tree[0].call_id, 'xml_round_0_call_1');
+});
+
 test('根级 intent 未携带 display name 时仍保留 run step 的入口名称', () => {
   const state = createExecutionState();
 

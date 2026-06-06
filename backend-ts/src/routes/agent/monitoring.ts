@@ -4,7 +4,7 @@ import type { AgentConfig } from "../../contracts/agent-config.js";
 import { ok } from "../../contracts/common.js";
 import { resolveContextBudget, resolveRuntimeContextSettings } from "../../services/agent-context-compression-service.js";
 import { buildAgentPromptContext, buildFullSystemPrompt } from "../../services/agent-prompt-builder.js";
-import { resolveCompressionView } from "../../services/agent-runtime-context-builder.js";
+import { resolveRuntimeHistoryView } from "../../services/agent-runtime-context-builder.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 
@@ -59,7 +59,11 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const memorySnapshot = getMemorySnapshot(context?.metadata.sources ?? []);
     const threadKey = context?.metadata.thread_key ?? "root";
     const history = sessionId
-      ? resolveCompressionView(options.container.conversationStore.listMessages(sessionId, 500, 0, threadKey).items)
+      ? resolveRuntimeHistoryView(
+          options.container.conversationStore.listMessages(sessionId, 500, 0, threadKey).items,
+          options.container.conversationStore,
+          sessionId,
+        )
           .map(toContextHistoryItem)
       : [];
     const systemPromptTokens = estimateTokens(systemPrompt) + estimateTokens(asString(memorySnapshot?.rendered_block) ?? "");
@@ -176,12 +180,12 @@ function emptySystemMetrics(): {
 }
 
 function toContextHistoryItem(message: {
-  seq: number;
+  seq: number | null;
   role: string;
   content: string;
   metadata: Record<string, unknown>;
 }): {
-  seq: number;
+  seq: number | null;
   role: string;
   content_preview: string;
   content_length: number;
@@ -201,7 +205,7 @@ function toContextHistoryItem(message: {
     content_preview: truncated ? `${message.content.slice(0, 200)}...` : message.content,
     content_length: message.content.length,
     is_preview_truncated: truncated,
-    can_load_full_content: !isSystemMessage && message.seq != null,
+    can_load_full_content: !isSystemMessage && typeof message.seq === "number",
     tokens: estimateTokens(message.content),
     is_compression_summary: Boolean(message.metadata.compression),
     react_intermediate: Boolean(message.metadata.react_intermediate),

@@ -84,6 +84,7 @@ export type AgentRuntimeEvent =
         tool_name: string;
         success: boolean;
         summary: string;
+        observation: string;
         metadata: Record<string, unknown>;
       };
     }
@@ -303,6 +304,7 @@ export class AgentRuntimeCore {
               tool_name: toolName,
               success: toolResult.success,
               summary: toolResult.summary,
+              observation: renderToolResultContent({ callId, toolName, result: toolResult }),
               metadata: toolResult.metadata,
             },
           });
@@ -400,6 +402,7 @@ export class AgentRuntimeCore {
             tool_name: toolName,
             success: toolResult.success,
             summary: toolResult.summary,
+            observation: renderToolResultContent({ callId: toolCall.id, toolName, result: toolResult }),
             metadata: toolResult.metadata,
           },
         });

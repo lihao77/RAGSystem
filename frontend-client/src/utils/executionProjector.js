@@ -180,6 +180,28 @@ function attachToolCallToSubtask(state, subtask, step, toolCall) {
   addToolCallOnce(subtask.tool_calls, toolCall);
 }
 
+function attachToolCallToRootStep(state, step, toolCall) {
+  const existingRootStep = step.parent_step_id ? state.stepMap.get(step.parent_step_id) : null;
+  const rootStep = existingRootStep || ensureOrchestratorStep(
+    state,
+    step.round,
+    step.parent_step_id || step.step_id || null,
+    null,
+  );
+  addToolCallOnce(rootStep.toolCalls, toolCall);
+  if (step.agent_name) rootStep.agent_name = step.agent_name;
+  rootStep.agent_display_name = resolveAgentDisplayName(
+    state,
+    rootStep.agent_name,
+    step.agent_display_name || rootStep.agent_display_name,
+  );
+  rootStep.status = rootStep.toolCalls.some(item => item?.status === 'running')
+    ? 'running'
+    : (rootStep.run_status && rootStep.run_status !== 'running' ? rootStep.run_status : 'success');
+  if (rootStep.step_id) state.stepMap.set(rootStep.step_id, rootStep);
+  return rootStep;
+}
+
 function findSubtaskByToolStep(state, step) {
   const byParentCallId = state.subtaskMap.get(step.parent_call_id);
   if (byParentCallId) return byParentCallId;
@@ -269,18 +291,8 @@ function handleToolStart(state, step) {
     return state;
   }
 
-  const existingRootStep = step.parent_step_id ? state.stepMap.get(step.parent_step_id) : null;
-  if (existingRootStep || state.execution_steps.length > 0) {
-    const rootStep = existingRootStep || ensureOrchestratorStep(state, step.round, step.parent_step_id || step.step_id || null, null);
-    addToolCallOnce(rootStep.toolCalls, toolCall);
-    if (step.agent_name) rootStep.agent_name = step.agent_name;
-    rootStep.agent_display_name = resolveAgentDisplayName(
-      state,
-      rootStep.agent_name,
-      step.agent_display_name || rootStep.agent_display_name,
-    );
-    rootStep.status = 'running';
-    if (rootStep.step_id) state.stepMap.set(rootStep.step_id, rootStep);
+  if ((step.parent_step_id ? state.stepMap.get(step.parent_step_id) : null) || state.execution_steps.length > 0) {
+    attachToolCallToRootStep(state, step, toolCall);
     return state;
   }
 
@@ -478,10 +490,32 @@ export function applyStep(state, step) {
   return state;
 }
 
+function flushOrphanRootToolCalls(state) {
+  if (!state?.pendingToolCallsByParentCallId?.size || state.execution_steps.length === 0) return;
+  const rootAgentNames = new Set(
+    state.execution_steps
+      .map(step => step?.agent_name)
+      .filter(agentName => typeof agentName === 'string' && agentName.length > 0),
+  );
+  if (rootAgentNames.size === 0) return;
+
+  for (const [parentCallId, pending] of state.pendingToolCallsByParentCallId.entries()) {
+    if (!Array.isArray(pending) || pending.length === 0 || state.subtaskMap.has(parentCallId)) continue;
+    const isRootAgentTool = pending.some(({ step }) => step?.agent_name && rootAgentNames.has(step.agent_name));
+    if (!isRootAgentTool) continue;
+    state.rootCallIds.add(parentCallId);
+    pending.forEach(({ step, toolCall }) => {
+      attachToolCallToRootStep(state, step, toolCall);
+    });
+    state.pendingToolCallsByParentCallId.delete(parentCallId);
+  }
+}
+
 export function buildExecutionState(steps = []) {
   const state = createExecutionState();
   for (const step of steps) {
     applyStep(state, step);
   }
+  flushOrphanRootToolCalls(state);
   return state;
 }

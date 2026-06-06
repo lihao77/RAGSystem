@@ -212,7 +212,14 @@ export class AgentExecutionService {
     const startStepPayload = {
       kind: "run",
       phase: "start",
+      call_id: rootCallId,
+      parent_call_id: null,
+      step_id: `${rootCallId}:run`,
+      parent_step_id: null,
       agent_name: runtimeAgent.agent_name,
+      agent_display_name: runtimeAgent.display_name || runtimeAgent.agent_name,
+      description: task,
+      status: "running",
       task_id: taskId,
       run_id: runId,
       request_id: requestId,
@@ -462,7 +469,14 @@ export class AgentExecutionService {
     const startStepPayload = {
       kind: "run",
       phase: "start",
+      call_id: rootCallId,
+      parent_call_id: null,
+      step_id: `${rootCallId}:run`,
+      parent_step_id: null,
       agent_name: runtimeAgent.agent_name,
+      agent_display_name: runtimeAgent.display_name || runtimeAgent.agent_name,
+      description: task,
+      status: "running",
       task_id: taskId,
       run_id: runId,
       request_id: input.requestId,
@@ -1008,6 +1022,28 @@ export class AgentExecutionService {
       return;
     }
     if (event.type === "runtime.intent_complete") {
+      const payload = {
+        kind: "intent",
+        phase: "complete",
+        call_id: input.rootCallId,
+        parent_call_id: null,
+        step_id: `${input.rootCallId}:round:${event.data.round}`,
+        parent_step_id: `${input.rootCallId}:run`,
+        agent_name: event.data.agent_name,
+        content: event.data.content,
+        round: event.data.round,
+        status: "completed",
+        run_id: input.runId,
+        task_id: input.taskId,
+        request_id: input.requestId,
+      };
+      this.addExecutionStep(input.sessionId, input.runId, payload);
+      this.events.publish(input.sessionId, {
+        type: "execution.step",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        ...mirrorEventData(payload),
+      });
       this.events.publish(input.sessionId, {
         type: "agent.intent_complete",
         session_id: input.sessionId,
@@ -1063,7 +1099,8 @@ export class AgentExecutionService {
         status: event.data.success ? "success" : "error",
         success: event.data.success,
         summary: event.data.summary,
-        result_preview: event.data.summary,
+        observation: event.data.observation,
+        result_preview: event.data.observation || event.data.summary,
         ...(approvalMessage ? { approval_message: approvalMessage } : {}),
         ...(approvalMetadata ? { approval: approvalMetadata } : {}),
         run_id: input.runId,
