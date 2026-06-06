@@ -35,7 +35,22 @@ export interface RuntimeToolExecutionContext {
   signal?: AbortSignal | undefined;
 }
 
+export interface RuntimeToolWaitRequest {
+  backgroundTaskId: string;
+  timeoutMs?: number | null | undefined;
+}
+
+export interface RuntimeToolWaitResult {
+  success: boolean;
+  timeout: boolean;
+  payloads: Array<Record<string, unknown>>;
+}
+
 export interface RuntimeToolExecutor {
   listVisibleTools(agent: AgentConfig | null): RuntimeToolDefinition[];
   executeTool(call: RuntimeToolCall, context: RuntimeToolExecutionContext): ToolExecutionResult | Promise<ToolExecutionResult>;
+  waitForToolResult?(
+    request: RuntimeToolWaitRequest,
+    context: RuntimeToolExecutionContext,
+  ): RuntimeToolWaitResult | Promise<RuntimeToolWaitResult>;
 }

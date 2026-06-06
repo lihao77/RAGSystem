@@ -366,6 +366,53 @@ describe("AgentRuntimeContextBuilder", () => {
     ]);
   });
 
+  it("keeps background task notification observations unprefixed", () => {
+    const notification = [
+      "<task-notification>",
+      "<task-id>bg-1</task-id>",
+      "<status>completed</status>",
+      "<summary>后台任务 bg-1 已完成，输出已写入文件</summary>",
+      "</task-notification>",
+    ].join("\n");
+    const history = new InMemoryHistory(
+      [
+        message("user", "等待后台任务", { seq: 1, metadata: { run_id: "run-1" } }),
+        message("assistant", "任务完成", { seq: 2, metadata: { run_id: "run-1" } }),
+      ],
+      [
+        runStep("run-1", 1, {
+          kind: "tool",
+          phase: "start",
+          call_id: "call-1",
+          tool_name: "task_output",
+          arguments: { task_id: "bg-1", block: true },
+          round: 0,
+        }),
+        runStep("run-1", 2, {
+          kind: "tool",
+          phase: "end",
+          call_id: "call-1",
+          tool_name: "task_output",
+          observation: notification,
+          round: 0,
+        }),
+      ],
+    );
+    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
+
+    const context = builder.buildContext({ sessionId: "s1" });
+
+    expect(context.conversation).toEqual([
+      { role: "user", content: "等待后台任务" },
+      {
+        role: "assistant",
+        content: "<tools>\n<tool name=\"task_output\">\n<task_id>bg-1</task_id>\n<block>true</block>\n</tool>\n</tools>",
+      },
+      { role: "user", content: notification },
+      { role: "assistant", content: "任务完成" },
+    ]);
+  });
+
   it("supports explicit thread key and history limit", () => {
     const history = new InMemoryHistory([message("user", "child hello"), message("assistant", "child answer")]);
     const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);

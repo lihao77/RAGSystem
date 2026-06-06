@@ -4,7 +4,7 @@ import path from "node:path";
 
 import type { ToolExecutionResult } from "./memory-tool-service.js";
 import type { BackgroundTaskService } from "./background-task-service.js";
-import type { RuntimeToolExecutionContext } from "./runtime-tool-types.js";
+import type { RuntimeToolExecutionContext, RuntimeToolWaitResult } from "./runtime-tool-types.js";
 
 type TaskStatus = "pending" | "in_progress" | "completed" | "deleted" | string;
 
@@ -329,6 +329,43 @@ export class TaskToolService {
     }
   }
 
+  async waitForBackgroundTask(input: {
+    taskId: string;
+    timeoutMs?: number | null | undefined;
+    signal?: AbortSignal | undefined;
+  }): Promise<RuntimeToolWaitResult> {
+    const taskId = input.taskId.trim();
+    const timeoutMs = clampInteger(input.timeoutMs ?? 30000, 0, 600000);
+    const deadline = Date.now() + timeoutMs;
+    while (true) {
+      const snapshot = this.backgroundTasks.getTaskSnapshot(taskId);
+      if (!snapshot) {
+        return {
+          success: false,
+          timeout: false,
+          payloads: [buildBackgroundNotificationPayload({ task_id: taskId, status: "missing" }, true)],
+        };
+      }
+      const status = asString(snapshot.status) ?? "running";
+      if (isBackgroundTerminalStatus(status)) {
+        const payload = buildBackgroundNotificationPayload(snapshot, false);
+        return {
+          success: payload.success === true,
+          timeout: false,
+          payloads: [payload],
+        };
+      }
+      if (Date.now() >= deadline || timeoutMs === 0) {
+        return {
+          success: false,
+          timeout: true,
+          payloads: [buildBackgroundNotificationPayload(snapshot, true)],
+        };
+      }
+      await sleep(Math.min(100, Math.max(1, deadline - Date.now())), input.signal);
+    }
+  }
+
   private createTask(sessionId: string, task: Omit<StoredTask, "id">): StoredTask {
     const taskId = this.nextTaskId(sessionId);
     const stored: StoredTask = { id: taskId, ...task };
@@ -466,6 +503,61 @@ function buildBackgroundOutputContent(snapshot: Record<string, unknown>, rawOutp
     cancel_supported: snapshot.cancel_supported ?? false,
     output: parsedOutput,
   };
+}
+
+function buildBackgroundNotificationPayload(snapshot: Record<string, unknown>, timeout: boolean): Record<string, unknown> {
+  const taskId = asString(snapshot.background_task_id) ?? asString(snapshot.task_id) ?? "unknown";
+  const status = asString(snapshot.status) ?? (timeout ? "running" : "completed");
+  return {
+    task_id: taskId,
+    background_task_id: taskId,
+    status,
+    return_code: snapshot.return_code ?? null,
+    result_type: snapshot.result_type ?? null,
+    output_path: snapshot.output_path ?? snapshot.background_output_path ?? null,
+    completed_at: snapshot.completed_at ?? null,
+    success: !timeout && status === "completed",
+    summary: backgroundTaskSummary(taskId, status, timeout),
+  };
+}
+
+function backgroundTaskSummary(taskId: string, status: string, timeout: boolean): string {
+  if (status === "missing") {
+    return `后台任务 ${taskId} 不存在`;
+  }
+  if (timeout || status === "running") {
+    return `后台任务 ${taskId} 仍在运行`;
+  }
+  if (status === "failed") {
+    return `后台任务 ${taskId} 执行失败，输出已写入文件`;
+  }
+  if (status === "cancelled") {
+    return `后台任务 ${taskId} 已取消，输出已写入文件`;
+  }
+  return `后台任务 ${taskId} 已完成，输出已写入文件`;
+}
+
+function isBackgroundTerminalStatus(status: string): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(new Error("等待后台任务期间被取消"));
+  }
+  return new Promise((resolve, reject) => {
+    const cleanup = (): void => signal?.removeEventListener("abort", onAbort);
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      cleanup();
+      reject(new Error("等待后台任务期间被取消"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function resolveTaskSessionId(context: RuntimeToolExecutionContext): string {

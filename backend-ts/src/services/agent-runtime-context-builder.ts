@@ -585,6 +585,9 @@ function renderSingleSyntheticObservationContent(step: OrderedExecutionStep): st
   if (!rawResult.trim()) {
     return "";
   }
+  if (rawResult.trimStart().startsWith("<task-notification")) {
+    return rawResult;
+  }
   if (rawResult.trimStart().startsWith("<tool_result")) {
     return rawResult;
   }

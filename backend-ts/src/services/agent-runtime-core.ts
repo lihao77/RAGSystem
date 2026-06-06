@@ -13,6 +13,7 @@ import type {
   RuntimeToolDefinition,
   RuntimeToolExecutionContext,
   RuntimeToolExecutor,
+  RuntimeToolWaitResult,
 } from "./runtime-tool-types.js";
 import type { ToolExecutionResult } from "./memory-tool-service.js";
 import { buildFullSystemPrompt, type AgentPromptContext } from "./agent-prompt-builder.js";
@@ -625,23 +626,29 @@ export class AgentRuntimeCore {
           round: input.round,
           index: input.call.index,
         });
-    const elapsedTime = (Date.now() - startedAt) / 1000;
-    const observation = renderToolResultContent({
+    const observationResult = await resolveToolObservation({
+      toolExecutor: input.toolExecutor,
+      toolContext: buildToolCallExecutionContext(input.toolContext, {
+        callId: input.call.callId,
+        round: input.round,
+        index: input.call.index,
+      }),
       callId: input.call.callId,
       toolName: input.call.toolName,
       result: toolResult,
     });
+    const elapsedTime = (Date.now() - startedAt) / 1000;
     await input.input.onEvent?.({
       type: "runtime.tool_result",
       data: {
         agent_name: input.input.agent.agent_name,
         tool_call_id: input.call.callId,
         tool_name: input.call.toolName,
-        success: toolResult.success,
-        summary: toolResult.summary,
-        observation,
+        success: observationResult.success,
+        summary: observationResult.summary,
+        observation: observationResult.observation,
         metadata: toolResult.metadata,
-        raw_result: materializeToolResult(toolResult),
+        raw_result: observationResult.rawResult,
         raw_result_ref: buildRawResultRef(input.toolContext, input.call.callId, input.call.toolName),
         raw_result_available: true,
         elapsed_time: elapsedTime,
@@ -656,7 +663,7 @@ export class AgentRuntimeCore {
       toolName: input.call.toolName,
       arguments: toolArguments,
       result: toolResult,
-      observation,
+      observation: observationResult.observation,
     };
   }
 }
@@ -675,6 +682,13 @@ interface RuntimeToolRoundExecution {
   arguments: Record<string, unknown>;
   result: ToolExecutionResult;
   observation: string;
+}
+
+interface ToolObservationResult {
+  success: boolean;
+  summary: string;
+  observation: string;
+  rawResult: Record<string, unknown>;
 }
 
 function shouldRunToolLoop(input: AgentRuntimeRequest, request: ChatCompletionRequest): boolean {
@@ -817,6 +831,120 @@ async function executeToolSafely(input: {
   } catch (error) {
     return buildToolExecutionErrorResult(input.toolName, error);
   }
+}
+
+async function resolveToolObservation(input: {
+  toolExecutor: RuntimeToolExecutor;
+  toolContext: RuntimeToolExecutionContext;
+  callId: string;
+  toolName: string;
+  result: ToolExecutionResult;
+}): Promise<ToolObservationResult> {
+  const waitSignal = extractToolWaitSignal(input.result);
+  if (!waitSignal || !input.toolExecutor.waitForToolResult) {
+    return {
+      success: input.result.success,
+      summary: input.result.summary,
+      observation: renderToolResultContent({
+        callId: input.callId,
+        toolName: input.toolName,
+        result: input.result,
+      }),
+      rawResult: materializeToolResult(input.result),
+    };
+  }
+
+  const waitResult = await input.toolExecutor.waitForToolResult(
+    {
+      backgroundTaskId: waitSignal.backgroundTaskId,
+      timeoutMs: waitSignal.timeoutMs,
+    },
+    input.toolContext,
+  );
+  const observation = renderBackgroundWaitObservation(waitResult);
+  return {
+    success: waitResult.success,
+    summary: summarizeBackgroundWaitResult(waitResult),
+    observation,
+    rawResult: {
+      background_notifications: waitResult.payloads,
+    },
+  };
+}
+
+function extractToolWaitSignal(result: ToolExecutionResult): {
+  backgroundTaskId: string;
+  timeoutMs?: number | null | undefined;
+} | null {
+  for (const payload of [result.content, result.metadata]) {
+    if (!isRecord(payload) || payload.suggest_wait !== true) {
+      continue;
+    }
+    const backgroundTaskId = asNonEmptyString(payload.background_task_id);
+    if (!backgroundTaskId) {
+      continue;
+    }
+    return {
+      backgroundTaskId,
+      timeoutMs: typeof payload.wait_timeout_ms === "number" && Number.isFinite(payload.wait_timeout_ms)
+        ? payload.wait_timeout_ms
+        : null,
+    };
+  }
+  return null;
+}
+
+function renderBackgroundWaitObservation(waitResult: RuntimeToolWaitResult): string {
+  return waitResult.payloads
+    .map((payload) => renderBackgroundNotification(payload, waitResult.timeout))
+    .filter((content) => content.trim())
+    .join("\n\n");
+}
+
+function renderBackgroundNotification(payload: Record<string, unknown>, timeout: boolean): string {
+  const taskId = asNonEmptyString(payload.background_task_id) ?? asNonEmptyString(payload.task_id) ?? "unknown";
+  const status = asNonEmptyString(payload.status) ?? (timeout ? "running" : "completed");
+  const outputPath = asNonEmptyString(payload.output_path) ?? asNonEmptyString(payload.background_output_path);
+  const returnCode = payload.return_code;
+  const resultType = asNonEmptyString(payload.result_type);
+  const summary = asNonEmptyString(payload.summary) ?? asNonEmptyString(payload.description);
+  const parts = ["<task-notification>", `<task-id>${escapeXmlText(taskId)}</task-id>`];
+  if (outputPath) {
+    parts.push(`<output-file>${escapeXmlText(outputPath)}</output-file>`);
+  }
+  parts.push(`<status>${escapeXmlText(status)}</status>`);
+  if (returnCode !== null && returnCode !== undefined) {
+    parts.push(`<return-code>${escapeXmlText(String(returnCode))}</return-code>`);
+  }
+  if (resultType) {
+    parts.push(`<result-type>${escapeXmlText(resultType)}</result-type>`);
+  }
+  if (summary) {
+    parts.push(`<summary>${escapeXmlText(summary)}</summary>`);
+  }
+  parts.push("</task-notification>");
+  return parts.join("\n");
+}
+
+function summarizeBackgroundWaitResult(waitResult: RuntimeToolWaitResult): string {
+  const summaries = waitResult.payloads
+    .map((payload) => asNonEmptyString(payload.summary))
+    .filter((summary): summary is string => Boolean(summary));
+  if (summaries.length > 0) {
+    return summaries.join("\n\n");
+  }
+  return waitResult.timeout ? "后台任务仍在运行" : "后台任务已完成";
+}
+
+function asNonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function escapeXmlText(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function buildRawResultRef(

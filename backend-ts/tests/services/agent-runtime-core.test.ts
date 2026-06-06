@@ -10,6 +10,8 @@ import type {
   RuntimeToolDefinition,
   RuntimeToolExecutionContext,
   RuntimeToolExecutor,
+  RuntimeToolWaitRequest,
+  RuntimeToolWaitResult,
 } from "../../src/services/runtime-tool-types.js";
 
 class FakeChatClient implements LlmChatClient {
@@ -275,6 +277,71 @@ class FakeThrowingToolExecutor implements RuntimeToolExecutor {
   executeTool(call: RuntimeToolCall) {
     this.calls.push(call);
     throw new Error("tool exploded");
+  }
+}
+
+class FakeWaitingToolExecutor implements RuntimeToolExecutor {
+  readonly calls: Array<{ call: RuntimeToolCall; context: RuntimeToolExecutionContext }> = [];
+  readonly waits: Array<{ request: RuntimeToolWaitRequest; context: RuntimeToolExecutionContext }> = [];
+
+  listVisibleTools(): RuntimeToolDefinition[] {
+    return [
+      {
+        name: "task_output",
+        description: "Read background task output",
+        parameters: { type: "object", properties: {} },
+      },
+    ];
+  }
+
+  executeTool(call: RuntimeToolCall, context: RuntimeToolExecutionContext) {
+    this.calls.push({ call, context });
+    const taskId = String(call.arguments?.task_id ?? "bg-1");
+    return {
+      success: true,
+      tool_name: "task_output",
+      summary: `后台任务 ${taskId} 仍在运行，已进入等待`,
+      answer: null,
+      output_type: "json",
+      content: {
+        task_id: taskId,
+        status: "running",
+        completed: false,
+        background_task_id: taskId,
+        suggest_wait: true,
+        wait_timeout_ms: 3000,
+      },
+      metadata: {
+        background_task_id: taskId,
+        suggest_wait: true,
+        wait_timeout_ms: 3000,
+      },
+      artifacts: [],
+      llm_hint: null,
+    };
+  }
+
+  waitForToolResult(
+    request: RuntimeToolWaitRequest,
+    context: RuntimeToolExecutionContext,
+  ): RuntimeToolWaitResult {
+    this.waits.push({ request, context });
+    return {
+      success: true,
+      timeout: false,
+      payloads: [
+        {
+          task_id: request.backgroundTaskId,
+          background_task_id: request.backgroundTaskId,
+          status: "completed",
+          return_code: 0,
+          result_type: "bash_output",
+          output_path: "data/sessions/s1/transient/bg_123.log",
+          success: true,
+          summary: `后台任务 ${request.backgroundTaskId} 已完成，输出已写入文件`,
+        },
+      ],
+    };
   }
 }
 
@@ -811,6 +878,88 @@ describe("AgentRuntimeCore", () => {
         },
       ]),
     );
+  });
+
+  it("waits for suggested background tool results before feeding XML observations", async () => {
+    const client = new FakeXmlStreamingToolChatClient([
+      [
+        "<tool_calls>",
+        '<tool name="task_output"><task_id>bg-1</task_id><block>true</block></tool>',
+        "</tool_calls>",
+      ],
+      ["<final_answer>", "done", "</final_answer>"],
+    ]);
+    const tools = new FakeWaitingToolExecutor();
+    const core = new AgentRuntimeCore(client);
+    const agent = minimalAgent();
+    const events: AgentRuntimeEvent[] = [];
+
+    await core.runText({
+      agent,
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [{ role: "user", content: "wait for background" }],
+      toolExecutor: tools,
+      toolContext: {
+        agent,
+        sessionId: "s1",
+        runId: "run-1",
+        requestId: "req-1",
+        currentAgentName: "orchestrator_agent",
+        parentCallId: "call-root",
+      },
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(tools.waits).toMatchObject([
+      {
+        request: {
+          backgroundTaskId: "bg-1",
+          timeoutMs: 3000,
+        },
+        context: {
+          sessionId: "s1",
+          runId: "run-1",
+          requestId: "req-1",
+          toolCallId: "xml_round_0_call_1",
+        },
+      },
+    ]);
+    const userToolMessage = client.requests[1]?.messages.find((message) =>
+      message.role === "user" && message.content.includes("<task-notification>"),
+    );
+    expect(userToolMessage?.content).toBe(
+      [
+        "<task-notification>",
+        "<task-id>bg-1</task-id>",
+        "<output-file>data/sessions/s1/transient/bg_123.log</output-file>",
+        "<status>completed</status>",
+        "<return-code>0</return-code>",
+        "<result-type>bash_output</result-type>",
+        "<summary>后台任务 bg-1 已完成，输出已写入文件</summary>",
+        "</task-notification>",
+      ].join("\n"),
+    );
+    const toolResult = events.find((event) => event.type === "runtime.tool_result");
+    expect(toolResult).toMatchObject({
+      type: "runtime.tool_result",
+      data: {
+        tool_name: "task_output",
+        success: true,
+        summary: "后台任务 bg-1 已完成，输出已写入文件",
+        observation: expect.stringContaining("<task-notification>"),
+        raw_result: {
+          background_notifications: [
+            expect.objectContaining({
+              background_task_id: "bg-1",
+              status: "completed",
+            }),
+          ],
+        },
+      },
+    });
   });
 
   it("renders request_user_input tool results as compact semantic observations", () => {

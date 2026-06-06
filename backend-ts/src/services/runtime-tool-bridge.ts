@@ -16,6 +16,8 @@ import type {
   RuntimeToolDefinition,
   RuntimeToolExecutionContext,
   RuntimeToolExecutor,
+  RuntimeToolWaitRequest,
+  RuntimeToolWaitResult,
 } from "./runtime-tool-types.js";
 import type { PendingInteractionService } from "./pending-interaction-service.js";
 import type {
@@ -754,6 +756,32 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     }
 
     return this.executeAllowedTool(toolName, call, executionContext);
+  }
+
+  waitForToolResult(
+    request: RuntimeToolWaitRequest,
+    context: RuntimeToolExecutionContext,
+  ): RuntimeToolWaitResult | Promise<RuntimeToolWaitResult> {
+    if (!this.taskTools) {
+      return {
+        success: false,
+        timeout: false,
+        payloads: [
+          {
+            task_id: request.backgroundTaskId,
+            background_task_id: request.backgroundTaskId,
+            status: "missing",
+            success: false,
+            summary: `后台任务 ${request.backgroundTaskId} 不存在`,
+          },
+        ],
+      };
+    }
+    return this.taskTools.waitForBackgroundTask({
+      taskId: request.backgroundTaskId,
+      timeoutMs: request.timeoutMs,
+      signal: context.signal,
+    });
   }
 
   private getVisibleTool(toolName: string, agent: AgentConfig | null): RuntimeToolDefinition | null {
