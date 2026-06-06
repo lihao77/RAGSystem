@@ -7,6 +7,7 @@ import {
   RecentMessagesContextSource,
 } from "./agent-runtime-context-builder.js";
 import { AgentRuntimeCore } from "./agent-runtime-core.js";
+import { BackgroundTaskService } from "./background-task-service.js";
 import { AgentConfigService } from "./agent-config-service.js";
 import { AgentSessionApplication } from "./agent-session-application.js";
 import { ArtifactService } from "./artifact-service.js";
@@ -28,6 +29,7 @@ import { PermissionPolicyService } from "./permission-policy-service.js";
 import { RuntimeCoreService } from "./runtime-core-service.js";
 import { RuntimeToolBridge } from "./runtime-tool-bridge.js";
 import { SystemConfigService } from "./system-config-service.js";
+import { TaskToolService } from "./task-tool-service.js";
 import { VectorLibraryService } from "./vector-library-service.js";
 
 export interface RuntimeContainer {
@@ -50,6 +52,8 @@ export interface RuntimeContainer {
   readonly memoryTools: MemoryToolService;
   readonly documentTools: LocalDocumentToolService;
   readonly bashTools: LocalBashToolService;
+  readonly backgroundTasks: BackgroundTaskService;
+  readonly taskTools: TaskToolService;
   readonly pendingInteractions: PendingInteractionService;
   readonly runtimeToolBridge: RuntimeToolBridge;
   readonly runtimeCore: RuntimeCoreService;
@@ -89,15 +93,19 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
   const memoryTools = new MemoryToolService(memoryStore, conversationStore);
   const documentTools = new LocalDocumentToolService({ dataRoot: options.dataRoot });
+  const backgroundTasks = new BackgroundTaskService();
   const toolsConfig = asRecord(systemConfig.getConfig().tools);
   const bashTools = new LocalBashToolService({
     dataRoot: options.dataRoot,
     defaultTimeoutSeconds: asNumber(toolsConfig?.bash_default_timeout),
     maxTimeoutSeconds: asNumber(toolsConfig?.bash_max_timeout),
     maxOutputChars: asNumber(toolsConfig?.bash_max_output),
+    backgroundTasks,
+    eventBus: events,
   });
+  const taskTools = new TaskToolService(backgroundTasks, { dataRoot: options.dataRoot });
   const pendingInteractions = new PendingInteractionService(events);
-  const runtimeToolBridge = new RuntimeToolBridge(memoryTools, pendingInteractions, permissionPolicy, documentTools, bashTools);
+  const runtimeToolBridge = new RuntimeToolBridge(memoryTools, pendingInteractions, permissionPolicy, documentTools, bashTools, taskTools);
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
   const agentRuntimeCore = new AgentRuntimeCore(llmChatClient);
@@ -112,6 +120,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     agentRuntimeCore,
     agentRuntimeContextBuilder,
     events,
+    agentConfig,
   );
   agentDelegation.setRuntimeToolsProvider(() => runtimeToolBridge);
   runtimeToolBridge.setAgentDelegation(agentDelegation);
@@ -124,6 +133,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     agentRuntimeContextBuilder,
     runtimeToolBridge,
     contextCompression,
+    agentConfig,
   );
   return {
     conversationStore,
@@ -145,6 +155,8 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     memoryTools,
     documentTools,
     bashTools,
+    backgroundTasks,
+    taskTools,
     pendingInteractions,
     runtimeToolBridge,
     runtimeCore,

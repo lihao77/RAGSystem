@@ -5,6 +5,7 @@ import {
 } from "./memory-tool-service.js";
 import type { LocalDocumentToolService } from "./local-document-tool-service.js";
 import type { AgentDelegationService } from "./agent-delegation-service.js";
+import type { TaskToolService } from "./task-tool-service.js";
 import type {
   BashExecutionInput,
   BashExecutionPlan,
@@ -34,6 +35,12 @@ const EXECUTE_BASH_TOOL_NAME = "execute_bash";
 const CALL_AGENT_TOOL_NAME = "call_agent";
 const LIST_CHILD_AGENTS_TOOL_NAME = "list_child_agents";
 const SEND_MESSAGE_TOOL_NAME = "send_message";
+const TASK_CREATE_TOOL_NAME = "task_create";
+const TASK_GET_TOOL_NAME = "task_get";
+const TASK_UPDATE_TOOL_NAME = "task_update";
+const TASK_LIST_TOOL_NAME = "task_list";
+const TASK_OUTPUT_TOOL_NAME = "task_output";
+const TASK_STOP_TOOL_NAME = "task_stop";
 
 const REQUEST_USER_INPUT_TOOL: RuntimeToolDefinition = {
   name: REQUEST_USER_INPUT_TOOL_NAME,
@@ -260,7 +267,7 @@ const EXECUTE_BASH_TOOL: RuntimeToolDefinition = {
       },
       run_in_background: {
         type: "boolean",
-        description: "Background execution is not yet migrated in the TypeScript runtime.",
+        description: "Run the command in the background and immediately return a background_task_id.",
       },
       description: {
         type: "string",
@@ -355,6 +362,112 @@ const READ_ONLY_MEMORY_TOOLS: RuntimeToolDefinition[] = [
   },
 ];
 
+const TASK_WORKFLOW_TOOLS: RuntimeToolDefinition[] = [
+  {
+    name: TASK_CREATE_TOOL_NAME,
+    source: "runtime_builtin",
+    category: "task",
+    riskLevel: "low",
+    description: "Create a session-scoped task record for multi-step work tracking.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["subject", "description"],
+      properties: {
+        subject: { type: "string", description: "Short task title." },
+        description: { type: "string", description: "Detailed task description and acceptance criteria." },
+        active_form: { type: "string", description: "Display text while the task is in progress." },
+        metadata: { type: "object", description: "Optional metadata." },
+      },
+    },
+  },
+  {
+    name: TASK_GET_TOOL_NAME,
+    source: "runtime_builtin",
+    category: "task",
+    riskLevel: "low",
+    description: "Read a session-scoped task by id.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["task_id"],
+      properties: {
+        task_id: { type: "string", description: "Task id returned by task_create." },
+      },
+    },
+  },
+  {
+    name: TASK_UPDATE_TOOL_NAME,
+    source: "runtime_builtin",
+    category: "task",
+    riskLevel: "low",
+    description: "Update task fields, status, dependency links, or metadata.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["task_id"],
+      properties: {
+        task_id: { type: "string" },
+        subject: { type: "string" },
+        description: { type: "string" },
+        active_form: { type: "string" },
+        owner: { type: "string" },
+        status: { type: "string", enum: ["pending", "in_progress", "completed", "deleted"] },
+        add_blocks: { type: "array", items: { type: "string" } },
+        add_blocked_by: { type: "array", items: { type: "string" } },
+        metadata: { type: "object" },
+      },
+    },
+  },
+  {
+    name: TASK_LIST_TOOL_NAME,
+    source: "runtime_builtin",
+    category: "task",
+    riskLevel: "low",
+    description: "List session-scoped task summaries.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {},
+    },
+  },
+];
+
+const TASK_OUTPUT_TOOL: RuntimeToolDefinition = {
+  name: TASK_OUTPUT_TOOL_NAME,
+  source: "runtime_builtin",
+  category: "task",
+  riskLevel: "low",
+  description: "Read a background task status and output, optionally requesting an explicit wait.",
+  parameters: {
+    type: "object",
+    additionalProperties: false,
+    required: ["task_id"],
+    properties: {
+      task_id: { type: "string", description: "Background task id." },
+      block: { type: "boolean", description: "Whether to request waiting for completion." },
+      timeout: { type: "integer", minimum: 0, maximum: 600000, description: "Wait timeout in milliseconds." },
+      max_chars: { type: "integer", minimum: 200, description: "Maximum output characters to read." },
+    },
+  },
+};
+
+const TASK_STOP_TOOL: RuntimeToolDefinition = {
+  name: TASK_STOP_TOOL_NAME,
+  source: "runtime_builtin",
+  category: "task",
+  riskLevel: "medium",
+  description: "Stop a cancellable background task.",
+  parameters: {
+    type: "object",
+    additionalProperties: false,
+    required: ["task_id"],
+    properties: {
+      task_id: { type: "string", description: "Background task id." },
+    },
+  },
+};
+
 const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
   {
     name: CALL_AGENT_TOOL_NAME,
@@ -439,6 +552,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     private readonly permissionPolicy: PermissionPolicyService | null = null,
     private readonly documentTools: LocalDocumentToolService | null = null,
     private readonly bashTools: LocalBashToolService | null = null,
+    private readonly taskTools: TaskToolService | null = null,
   ) {}
 
   setAgentDelegation(agentDelegation: AgentDelegationService | null): void {
@@ -460,6 +574,17 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     }
     if (this.bashTools && enabledTools.has(EXECUTE_BASH_TOOL_NAME)) {
       tools.push({ ...EXECUTE_BASH_TOOL });
+    }
+    if (this.taskTools) {
+      if (agent?.tasks?.workflow) {
+        tools.push(...TASK_WORKFLOW_TOOLS.map((tool) => ({ ...tool })));
+      }
+      if (enabledTools.has(TASK_OUTPUT_TOOL_NAME)) {
+        tools.push({ ...TASK_OUTPUT_TOOL });
+      }
+      if (agent?.tasks?.background) {
+        tools.push({ ...TASK_STOP_TOOL });
+      }
     }
     const memoryConfig = agent?.memory;
     if (memoryConfig?.allowed_scopes?.length) {
@@ -528,6 +653,24 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     }
     if (toolName === PREVIEW_DATA_STRUCTURE_TOOL_NAME && this.documentTools) {
       return this.documentTools.previewDataStructure(previewDataStructureArguments(call.arguments), context);
+    }
+    if (toolName === TASK_CREATE_TOOL_NAME && this.taskTools) {
+      return this.taskTools.taskCreate(readTaskCreateArguments(call.arguments), context);
+    }
+    if (toolName === TASK_GET_TOOL_NAME && this.taskTools) {
+      return this.taskTools.taskGet(readTaskGetArguments(call.arguments), context);
+    }
+    if (toolName === TASK_UPDATE_TOOL_NAME && this.taskTools) {
+      return this.taskTools.taskUpdate(readTaskUpdateArguments(call.arguments), context);
+    }
+    if (toolName === TASK_LIST_TOOL_NAME && this.taskTools) {
+      return this.taskTools.taskList(context);
+    }
+    if (toolName === TASK_OUTPUT_TOOL_NAME && this.taskTools) {
+      return this.taskTools.taskOutput(readTaskOutputArguments(call.arguments));
+    }
+    if (toolName === TASK_STOP_TOOL_NAME && this.taskTools) {
+      return this.taskTools.taskStop(readTaskStopArguments(call.arguments));
     }
     if (toolName === "list_memory_index") {
       return this.memoryTools.listMemoryIndex(readListMemoryIndexArguments(call.arguments), context);
@@ -756,6 +899,70 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
   }
 }
 
+function readTaskCreateArguments(value: Record<string, unknown> | undefined): {
+  subject: string;
+  description: string;
+  activeForm?: string | null;
+  metadata?: Record<string, unknown> | null;
+} {
+  return {
+    subject: asString(value?.subject) ?? "",
+    description: asString(value?.description) ?? "",
+    activeForm: asString(value?.active_form) ?? asString(value?.activeForm),
+    metadata: asRecord(value?.metadata),
+  };
+}
+
+function readTaskGetArguments(value: Record<string, unknown> | undefined): { taskId: string } {
+  return {
+    taskId: asString(value?.task_id) ?? asString(value?.taskId) ?? "",
+  };
+}
+
+function readTaskUpdateArguments(value: Record<string, unknown> | undefined): {
+  taskId: string;
+  subject?: string | null;
+  description?: string | null;
+  activeForm?: string | null;
+  owner?: string | null;
+  status?: string | null;
+  addBlocks?: string[] | null;
+  addBlockedBy?: string[] | null;
+  metadata?: Record<string, unknown> | null;
+} {
+  return {
+    taskId: asString(value?.task_id) ?? asString(value?.taskId) ?? "",
+    subject: asString(value?.subject),
+    description: asString(value?.description),
+    activeForm: asString(value?.active_form) ?? asString(value?.activeForm),
+    owner: asString(value?.owner),
+    status: asString(value?.status),
+    addBlocks: asStringArray(value?.add_blocks) ?? asStringArray(value?.addBlocks),
+    addBlockedBy: asStringArray(value?.add_blocked_by) ?? asStringArray(value?.addBlockedBy),
+    metadata: asRecord(value?.metadata),
+  };
+}
+
+function readTaskOutputArguments(value: Record<string, unknown> | undefined): {
+  taskId: string;
+  block?: boolean | null;
+  timeout?: number | null;
+  maxChars?: number | null;
+} {
+  return {
+    taskId: asString(value?.task_id) ?? asString(value?.taskId) ?? "",
+    block: typeof value?.block === "boolean" ? value.block : null,
+    timeout: asInteger(value?.timeout),
+    maxChars: asInteger(value?.max_chars) ?? asInteger(value?.maxChars),
+  };
+}
+
+function readTaskStopArguments(value: Record<string, unknown> | undefined): { taskId: string } {
+  return {
+    taskId: asString(value?.task_id) ?? asString(value?.taskId) ?? "",
+  };
+}
+
 function readListMemoryIndexArguments(value: Record<string, unknown> | undefined): {
   scope: string;
   sessionId?: string | null;
@@ -960,6 +1167,17 @@ function asString(value: unknown): string | null {
 
 function asInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+function asStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  return value.map((item) => String(item)).filter((item) => item.trim().length > 0);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
 function readPrompt(value: Record<string, unknown> | undefined): string | null {

@@ -18,13 +18,23 @@ The runtime core is the minimum capability required for a real agent to run from
 - support stop/cancel semantics.
 
 `GET /api/agent/runtime-core/status` covers the configuration-readiness part. When it returns
-`can_execute=true`, `POST /api/agent/stream` can run a minimal single-agent text request.
+`can_execute=true`, `POST /api/agent/stream` can run a configured single-agent request with the
+currently migrated built-in tool loop.
 
 Current TS runtime-core scope:
 
 - single entry agent,
 - system prompt plus recent user/assistant root-thread messages,
 - OpenAI-compatible chat completion call,
+- XML streaming tool-call loop,
+- request_user_input interactions,
+- permission approval waits for migrated tools,
+- read-only memory tools,
+- managed file read/write/edit/structure-preview tools,
+- foreground execute_bash,
+- background execute_bash start, completion event, output file, and stop support,
+- task tracking tools (`task_create`, `task_get`, `task_update`, `task_list`, `task_output`, `task_stop`),
+- synchronous agent delegation tools,
 - persisted user and final assistant messages,
 - run status and compact execution steps,
 - basic run lifecycle events,
@@ -32,8 +42,6 @@ Current TS runtime-core scope:
 
 Still outside runtime-core scope:
 
-- tool execution and approvals,
-- multi-agent delegation,
 - MCP runtime,
 - vector retrieval,
 - token-by-token output streaming,

@@ -122,6 +122,15 @@ describe("monitoring compatibility routes", () => {
         ],
       },
     });
+    const systemPrompt = snapshot.json().data.system_prompt as string;
+    expect(systemPrompt).toContain("You are RAGSystem");
+    expect(systemPrompt).toContain("## 可直接调用的工具");
+    expect(systemPrompt).toContain("request_user_input");
+    expect(systemPrompt).toContain("## 子 Agent 委派");
+    expect(systemPrompt).toContain("call_agent");
+    expect(systemPrompt).toContain("## 输出格式");
+    expect(systemPrompt).toContain("## 执行规则");
+    expect(systemPrompt).toContain("### 数据文件传递规则");
 
     const content = await app.inject({
       method: "GET",

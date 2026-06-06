@@ -23,6 +23,11 @@ import type { CheckpointInfo } from "./checkpoint-manager.js";
 import type { ConversationStore } from "./conversation-store.js";
 import type { InMemoryEventBus } from "./event-bus.js";
 import type { AgentRuntimeCore, AgentRuntimeEvent } from "./agent-runtime-core.js";
+import {
+  buildAgentPromptContext,
+  buildFullSystemPrompt,
+  type AgentPromptConfigResolver,
+} from "./agent-prompt-builder.js";
 import type { ChatMessage } from "./llm-chat-client.js";
 import { renderSemanticBlock } from "./runtime-xml-protocol.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
@@ -49,6 +54,7 @@ export class AgentExecutionService {
     private readonly contextBuilder: AgentRuntimeContextBuilder,
     private readonly runtimeTools: RuntimeToolExecutor | null = null,
     private readonly contextCompression: AgentContextCompressionService | null = null,
+    private readonly promptConfigResolver: AgentPromptConfigResolver | null = null,
   ) {}
 
   async startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult> {
@@ -620,8 +626,16 @@ export class AgentExecutionService {
       const context = input.contextConversation
         ? { conversation: input.contextConversation }
         : this.contextBuilder.buildContext({ sessionId: input.sessionId, agent: input.agent });
+      const teamName = asString(sessionMetadata.team);
+      const promptContext = buildAgentPromptContext({
+        agent: input.agent,
+        toolExecutor: this.runtimeTools,
+        configResolver: this.promptConfigResolver,
+        teamName,
+      });
       const contextUsagePayload = buildContextUsagePayload({
         agent: input.agent,
+        promptContext,
         budgetTokens: this.resolveContextBudget(input.agent, input.provider),
         messages: context.conversation,
         round: 0,
@@ -645,6 +659,7 @@ export class AgentExecutionService {
         conversation: context.conversation,
         conversationUpdateProvider: input.conversationUpdateProvider,
         toolExecutor: this.runtimeTools ?? undefined,
+        promptContext,
         toolContext: this.runtimeTools
           ? buildRuntimeToolContext(input.agent, {
               sessionId: input.sessionId,
@@ -1110,6 +1125,7 @@ function buildRuntimeToolContext(
 
 function buildContextUsagePayload(input: {
   agent: AgentConfig;
+  promptContext: ReturnType<typeof buildAgentPromptContext>;
   budgetTokens: number;
   messages: ChatMessage[];
   round: number;
@@ -1123,7 +1139,7 @@ function buildContextUsagePayload(input: {
     replacesUpToSeq: number | null;
   } | null;
 }): Record<string, unknown> {
-  const rawSystemPromptTokens = estimateTokens(getSystemPrompt(input.agent));
+  const rawSystemPromptTokens = estimateTokens(buildFullSystemPrompt(input.agent, input.promptContext));
   const systemContextTokens = input.messages
     .filter((message) => message.role === "system")
     .reduce((total, message) => total + estimateTokens(message.content), 0);
@@ -1154,14 +1170,6 @@ function buildContextUsagePayload(input: {
         }
       : {}),
   };
-}
-
-function getSystemPrompt(agent: AgentConfig): string {
-  const behavior = agent.custom_params.behavior;
-  if (!isRecord(behavior)) {
-    return "";
-  }
-  return asString(behavior.system_prompt) ?? "";
 }
 
 function resolveLegacyContextBudget(agent: AgentConfig, provider: ModelProviderConfig): number {

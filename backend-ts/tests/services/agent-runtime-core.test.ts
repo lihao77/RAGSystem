@@ -150,7 +150,11 @@ describe("AgentRuntimeCore", () => {
         { role: "user", content: expect.stringContaining("<user_input") },
       ],
     });
+    expect(client.requests[0]?.messages[0]?.content).toContain("You are RAGSystem");
     expect(client.requests[0]?.messages[0]?.content).toContain("You are the core.");
+    expect(client.requests[0]?.messages[0]?.content).toContain("## 输出格式");
+    expect(client.requests[0]?.messages[0]?.content).toContain("## 执行规则");
+    expect(client.requests[0]?.messages[0]?.content).toContain("### 数据文件传递规则");
     expect(client.requests[0]?.messages[1]?.content).toContain("hello");
   });
 
@@ -278,6 +282,10 @@ describe("AgentRuntimeCore", () => {
     expect(client.requests[0]?.toolChoice).toBeUndefined();
     expect(client.requests[0]?.messages[0]?.content).toContain("<runtime_instruction");
     expect(client.requests[0]?.messages[0]?.content).toContain("<tool_manifest>");
+    expect(client.requests[0]?.messages[0]?.content).toContain("## 可直接调用的工具");
+    expect(client.requests[0]?.messages[0]?.content).toContain("### list_memory_index");
+    expect(client.requests[0]?.messages[0]?.content).toContain("## 输出格式");
+    expect(client.requests[0]?.messages[0]?.content).toContain("## 执行规则");
     expect(client.requests[1]?.messages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

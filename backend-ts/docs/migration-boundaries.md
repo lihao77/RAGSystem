@@ -79,6 +79,9 @@ In scope:
   - reports `ready` when the minimal single-agent text runtime can execute.
 - Minimal runtime-core execution:
   - `POST /api/agent/stream` starts configured single-agent text runs,
+  - supports the XML streaming tool-call loop,
+  - executes migrated built-in tools: `request_user_input`, read-only memory tools, managed file
+    tools, `execute_bash`, task tracking/background tools, and synchronous agent delegation,
   - persists user and final assistant messages,
   - records run status and compact execution steps,
   - publishes basic run lifecycle events for WebSocket clients,
@@ -142,20 +145,18 @@ In scope:
 
 Out of scope:
 
-- Tool-using agent execution and token-by-token streaming output generation.
+- Token-by-token streaming output generation.
 - Daemon runtime start/stop, social-platform adapters, outbound messages, webhook handling, and
   cron execution.
-- Tool registry execution.
 - MCP connection management.
 - MCP Registry network search and Registry install.
-- LLM provider calls.
 - Model provider availability checks and live provider tests.
 - Vector indexing/retrieval, vector data migration, vector document deletion, and collection deletion.
 - Artifact generation/revision from tool execution.
 - Embedding vector sync/recompute.
 - System config YAML persistence and runtime cache refresh.
 - Checkpoint recovery execution:
-  - `POST /api/agent/sessions/:sessionId/recover` parses the Python-compatible body but returns `501 not_migrated` until agent execution exists.
+  - `POST /api/agent/sessions/:sessionId/recover` parses the Python-compatible body but returns `501 not_migrated` until checkpoint recovery execution is ported.
 - File-history snapshot rewind during rollback.
 - Workspace/worktree cleanup during delete or rollback.
 - Python skill behavior parity.
@@ -175,15 +176,15 @@ These effects are intentional and covered by tests:
 - Checkpoint listing returns `{'checkpoints': [...]}` and supports `agent_name` and `limit` filters.
 - Stream stop does not report success without a tracked active execution.
 - Session export returns JSON attachment payloads with visible messages and compacted execution steps.
-- `POST /api/agent/stream` with a valid payload returns HTTP 501 until the TS agent runtime is ported.
+- `POST /api/agent/stream` with a valid payload starts the migrated TS runtime when agent and model
+  configuration are ready.
 - `POST /api/agent/stream` with an empty task and no attachments returns HTTP 400.
-- Synchronous execution and sequential collaboration route shapes return HTTP 501 until the TS agent runtime is ported.
-- Health endpoints clearly report that `backend-ts` is running while the agent runtime is not migrated.
+- Synchronous execution and sequential collaboration route shapes return HTTP 501 until those execution modes are ported.
+- Health endpoints clearly report that `backend-ts` is running and identify remaining unmigrated execution capabilities.
 - Idle execution status routes return Python-compatible empty state instead of 404.
 - Monitoring metrics return real empty TS runtime metrics while agent execution is unavailable.
-- Runtime-core readiness separates missing agent/LLM/provider configuration from tool runtime,
-  multi-agent delegation, MCP runtime, vector retrieval, and advanced streaming output that remain
-  unmigrated.
+- Runtime-core readiness separates missing agent/LLM/provider configuration from MCP runtime,
+  vector retrieval, and advanced streaming output that remain unmigrated.
 - Agent context snapshot still returns HTTP 501; message-content and raw-result sidecar reads are served from persisted data.
 - Permission policy changes are stored in the TS process memory until runtime configuration persistence is migrated.
 - Uploaded files and their index records are written to the TS data root and shared SQLite database.
@@ -214,7 +215,7 @@ These effects are intentional and covered by tests:
   deletion, vector search, and vector data migration return HTTP 501 until the TS vector runtime is
   migrated.
 - Artifact routes read and delete existing visualization files only. New visualization generation
-  and revision remain tied to the unmigrated TS tool/runtime execution path.
+  and revision remain tied to unmigrated artifact-generation tools.
 - Embedding model routes expose the management shape backed by current TS vectorizer config. Vector
   sync returns HTTP 501 until embedding runtime execution is migrated.
 

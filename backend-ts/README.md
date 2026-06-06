@@ -58,7 +58,10 @@ Node.js 24+ is required because the first persistence milestone uses the built-i
 - Embedding model management API compatible with the Python `/api/embedding-models/*` route shapes,
   derived from the current TS vectorizer config
 - Minimal runtime-core execution for configured single-agent text runs, with LLM calls through an
-  OpenAI-compatible chat client and persisted user/final messages
+  OpenAI-compatible chat client, migrated built-in tool loop, and persisted user/final messages
+- Built-in runtime tools for `request_user_input`, read-only memory, managed file
+  read/write/edit/preview, foreground/background `execute_bash`, task tracking/background control,
+  and synchronous agent delegation
 - Explicit `501` responses for agent runtime operations that have not been migrated yet
 
 ## Test-First Boundary

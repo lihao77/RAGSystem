@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { ok } from "../../contracts/common.js";
 import { resolveContextBudget, resolveRuntimeContextSettings } from "../../services/agent-context-compression-service.js";
+import { buildAgentPromptContext, buildFullSystemPrompt } from "../../services/agent-prompt-builder.js";
 import { resolveCompressionView } from "../../services/agent-runtime-context-builder.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
@@ -41,7 +42,13 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     }
 
     const agent = applySessionAgentOverrides(resolved.agent, sessionMetadata);
-    const systemPrompt = getSystemPrompt(agent);
+    const promptContext = buildAgentPromptContext({
+      agent,
+      toolExecutor: options.container.runtimeToolBridge,
+      configResolver: options.container.agentConfig,
+      teamName: normalizeString(sessionMetadata.team),
+    });
+    const systemPrompt = buildFullSystemPrompt(agent, promptContext);
     const context = sessionId
       ? options.container.agentRuntimeContextBuilder.buildContext({
           sessionId,
@@ -201,14 +208,6 @@ function toContextHistoryItem(message: {
     msg_type: normalizeString(message.metadata.msg_type),
     round: typeof message.metadata.round === "number" ? message.metadata.round : null,
   };
-}
-
-function getSystemPrompt(agent: AgentConfig): string {
-  const behavior = agent.custom_params.behavior;
-  if (!isRecord(behavior)) {
-    return "";
-  }
-  return normalizeString(behavior.system_prompt) ?? "";
 }
 
 function buildCompressionConfig(agent: AgentConfig, options: RouteOptions): Record<string, unknown> {

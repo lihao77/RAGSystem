@@ -14,6 +14,7 @@ import type {
   RuntimeToolExecutionContext,
   RuntimeToolExecutor,
 } from "./runtime-tool-types.js";
+import { buildFullSystemPrompt, type AgentPromptContext } from "./agent-prompt-builder.js";
 import {
   isSemanticTaggedContent,
   parseRuntimeToolCallsXml,
@@ -105,6 +106,7 @@ export interface AgentRuntimeRequest {
   onEvent?: AgentRuntimeEventHandler;
   toolExecutor?: RuntimeToolExecutor | undefined;
   toolContext?: RuntimeToolExecutionContext | undefined;
+  promptContext?: AgentPromptContext | undefined;
   maxToolRounds?: number | undefined;
 }
 
@@ -158,11 +160,11 @@ export class AgentRuntimeCore {
   buildMessages(
     agent: AgentConfig,
     conversation: ChatMessage[],
-    options: { xmlProtocolTools?: RuntimeToolDefinition[] } = {},
+    options: { xmlProtocolTools?: RuntimeToolDefinition[]; promptContext?: AgentPromptContext } = {},
   ): ChatMessage[] {
     const messages: ChatMessage[] = [];
     const systemParts: string[] = [];
-    const systemPrompt = getSystemPrompt(agent);
+    const systemPrompt = buildFullSystemPrompt(agent, options.promptContext);
     if (systemPrompt) {
       systemParts.push(renderSemanticBlock("system_instruction", systemPrompt, { source: "agent_config" }));
     }
@@ -187,9 +189,14 @@ export class AgentRuntimeCore {
   private buildChatRequest(input: AgentRuntimeRequest): ChatCompletionRequest {
     const visibleTools =
       input.toolExecutor && input.toolContext ? input.toolExecutor.listVisibleTools(input.agent) : [];
+    const promptContext = {
+      ...(input.promptContext ?? {}),
+      tools: input.promptContext?.tools ?? visibleTools,
+    };
     const request: ChatCompletionRequest = {
       messages: this.buildMessages(input.agent, input.conversation, {
         xmlProtocolTools: visibleTools,
+        promptContext,
       }),
       model: input.modelName,
       provider: input.provider,
@@ -671,16 +678,6 @@ function parseToolArguments(toolCall: ChatToolCall): Record<string, unknown> {
       _raw_arguments: raw,
     };
   }
-}
-
-function getSystemPrompt(agent: AgentConfig): string | null {
-  const behavior = agent.custom_params.behavior;
-  if (!isRecord(behavior)) {
-    return null;
-  }
-  return typeof behavior.system_prompt === "string" && behavior.system_prompt.trim()
-    ? behavior.system_prompt.trim()
-    : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -8,12 +8,14 @@ import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { AgentDelegationService } from "../../src/services/agent-delegation-service.js";
 import { MemoryStore } from "../../src/services/memory-store.js";
 import { MemoryToolService, type RuntimeMemorySessionPort } from "../../src/services/memory-tool-service.js";
+import { BackgroundTaskService } from "../../src/services/background-task-service.js";
 import { InMemoryEventBus } from "../../src/services/event-bus.js";
 import { LocalBashToolService } from "../../src/services/local-bash-tool-service.js";
 import { LocalDocumentToolService } from "../../src/services/local-document-tool-service.js";
 import { PendingInteractionService } from "../../src/services/pending-interaction-service.js";
 import { PermissionPolicyService } from "../../src/services/permission-policy-service.js";
 import { RuntimeToolBridge } from "../../src/services/runtime-tool-bridge.js";
+import { TaskToolService } from "../../src/services/task-tool-service.js";
 
 const tempRoots: string[] = [];
 
@@ -455,6 +457,385 @@ describe("RuntimeToolBridge", () => {
     });
   });
 
+  it("exposes task workflow and background tools from task capability config", () => {
+    const dataRoot = makeTempDataRoot();
+    const backgroundTasks = new BackgroundTaskService();
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      null,
+      null,
+      null,
+      null,
+      new TaskToolService(backgroundTasks, { dataRoot }),
+    );
+    const workflowAgent = minimalAgent([]);
+    workflowAgent.tasks = { workflow: true, background: false };
+    const backgroundAgent = minimalAgent([]);
+    backgroundAgent.tasks = { workflow: false, background: true };
+    const explicitOutputAgent = minimalAgent([], ["task_output"]);
+
+    expect(bridge.listVisibleToolNames(workflowAgent)).toEqual([
+      "task_create",
+      "task_get",
+      "task_update",
+      "task_list",
+    ]);
+    expect(bridge.listVisibleToolNames(backgroundAgent)).toEqual(["task_stop"]);
+    expect(bridge.listVisibleToolNames(explicitOutputAgent)).toEqual(["task_output"]);
+  });
+
+  it("creates, updates, lists, and links session tasks", async () => {
+    const dataRoot = makeTempDataRoot();
+    const backgroundTasks = new BackgroundTaskService();
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      null,
+      null,
+      null,
+      null,
+      new TaskToolService(backgroundTasks, { dataRoot }),
+    );
+    const agent = minimalAgent([]);
+    agent.tasks = { workflow: true, background: false };
+    const context = { agent, sessionId: "s1" };
+
+    const first = await Promise.resolve(
+      bridge.executeTool(
+        {
+          toolName: "task_create",
+          arguments: {
+            subject: "Build task graph",
+            description: "Track migration steps",
+            active_form: "Building task graph",
+            metadata: { priority: "high", temporary: "yes" },
+          },
+        },
+        context,
+      ),
+    );
+    expect(first).toMatchObject({
+      success: true,
+      content: {
+        task: {
+          id: "1",
+          subject: "Build task graph",
+          status: "pending",
+          metadata: { priority: "high", temporary: "yes" },
+        },
+      },
+      metadata: {
+        task_id: "1",
+        session_id: "s1",
+      },
+    });
+
+    const second = await Promise.resolve(
+      bridge.executeTool(
+        {
+          toolName: "task_create",
+          arguments: {
+            subject: "Run verification",
+            description: "Verify migrated task tooling",
+          },
+        },
+        context,
+      ),
+    );
+    expect(second).toMatchObject({
+      success: true,
+      content: {
+        task: {
+          id: "2",
+          blocked_by: [],
+        },
+      },
+    });
+
+    await expect(
+      Promise.resolve(
+        bridge.executeTool(
+          {
+            toolName: "task_update",
+            arguments: {
+              task_id: "1",
+              status: "in_progress",
+              owner: "orchestrator_agent",
+              add_blocks: ["2"],
+              metadata: { temporary: null },
+            },
+          },
+          context,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      success: true,
+      content: {
+        task_id: "1",
+        updated_fields: expect.arrayContaining(["status", "owner", "blocks", "metadata"]),
+        status_change: { from: "pending", to: "in_progress" },
+      },
+    });
+
+    await expect(
+      Promise.resolve(
+        bridge.executeTool(
+          {
+            toolName: "task_get",
+            arguments: { task_id: "2" },
+          },
+          context,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      success: true,
+      content: {
+        task: {
+          id: "2",
+          blocked_by: ["1"],
+        },
+      },
+    });
+
+    await expect(
+      Promise.resolve(
+        bridge.executeTool(
+          {
+            toolName: "task_update",
+            arguments: { task_id: "1", status: "completed" },
+          },
+          context,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      success: true,
+      content: {
+        status_change: { from: "in_progress", to: "completed" },
+      },
+    });
+
+    await expect(
+      Promise.resolve(bridge.executeTool({ toolName: "task_list", arguments: {} }, context)),
+    ).resolves.toMatchObject({
+      success: true,
+      content: {
+        tasks: [
+          {
+            id: "1",
+            subject: "Build task graph",
+            status: "completed",
+            owner: "orchestrator_agent",
+            blocked_by: [],
+          },
+          {
+            id: "2",
+            subject: "Run verification",
+            status: "pending",
+            owner: "",
+            blocked_by: [],
+          },
+        ],
+      },
+      metadata: {
+        count: 2,
+        session_id: "s1",
+      },
+    });
+
+    const stored = JSON.parse(fs.readFileSync(path.join(dataRoot, "tasks", "s1", "1.json"), "utf8")) as Record<string, unknown>;
+    expect(stored.metadata).toEqual({ priority: "high" });
+  });
+
+  it("starts background bash, exposes output through task_output, and emits completion events", async () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace-bash-background");
+    const events = new InMemoryEventBus();
+    const backgroundTasks = new BackgroundTaskService();
+    const taskTools = new TaskToolService(backgroundTasks, { dataRoot });
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      null,
+      null,
+      null,
+      new LocalBashToolService({ dataRoot, bashExecutable: null, backgroundTasks, eventBus: events }),
+      taskTools,
+    );
+    const agent = minimalAgent([], ["execute_bash", "task_output"]);
+    const context = {
+      agent,
+      sessionId: "s1",
+      runId: "run-bg-1",
+      taskId: "owner-task-1",
+      workspaceRoot,
+    };
+
+    const started = await Promise.resolve(
+      bridge.executeTool(
+        {
+          toolName: "execute_bash",
+          arguments: {
+            command: "echo background-output",
+            run_in_background: true,
+            timeout: 10,
+            description: "background echo",
+          },
+        },
+        context,
+      ),
+    );
+    expect(started).toMatchObject({
+      success: true,
+      tool_name: "execute_bash",
+      content: {
+        background_started: true,
+        background_task_id: expect.any(String),
+        return_code: null,
+      },
+      metadata: {
+        background_started: true,
+        background_task_id: expect.any(String),
+        background_output_path: expect.stringContaining("/sessions/s1/transient/bg_"),
+        run_id: "run-bg-1",
+        background_kind: "bash",
+        cancel_supported: true,
+      },
+    });
+
+    const backgroundTaskId = (started.content as { background_task_id: string }).background_task_id;
+    await waitFor(() => events.getHistory("s1").some((event) => event.type === "background.task.completed"));
+
+    expect(events.getHistory("s1")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "background.task.completed",
+          session_id: "s1",
+          run_id: "run-bg-1",
+          data: expect.objectContaining({
+            background_task_id: backgroundTaskId,
+            status: "completed",
+            return_code: 0,
+            success: true,
+            owner_task_id: "owner-task-1",
+            result_type: "bash_output",
+          }),
+        }),
+      ]),
+    );
+
+    await expect(
+      Promise.resolve(
+        bridge.executeTool(
+          {
+            toolName: "task_output",
+            arguments: { task_id: backgroundTaskId, max_chars: 8000 },
+          },
+          context,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      success: true,
+      tool_name: "task_output",
+      content: {
+        task_id: backgroundTaskId,
+        status: "completed",
+        completed: true,
+        return_code: 0,
+        result_type: "bash_output",
+        kind: "bash",
+        cancel_supported: true,
+        output: expect.stringContaining("background-output"),
+      },
+      metadata: {
+        task_id: backgroundTaskId,
+        status: "completed",
+        completed: true,
+      },
+    });
+  });
+
+  it("stops cancellable background bash tasks", async () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace-bash-stop");
+    const events = new InMemoryEventBus();
+    const backgroundTasks = new BackgroundTaskService();
+    const permissionPolicy = new PermissionPolicyService();
+    permissionPolicy.setMode("dangerously_skip_permissions");
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      null,
+      permissionPolicy,
+      null,
+      new LocalBashToolService({ dataRoot, bashExecutable: null, backgroundTasks, eventBus: events }),
+      new TaskToolService(backgroundTasks, { dataRoot }),
+    );
+    const agent = minimalAgent([], ["execute_bash"]);
+    agent.tasks = { workflow: false, background: true };
+    const context = {
+      agent,
+      sessionId: "s1",
+      runId: "run-bg-stop",
+      workspaceRoot,
+    };
+
+    const started = await Promise.resolve(
+      bridge.executeTool(
+        {
+          toolName: "execute_bash",
+          arguments: {
+            command: "node -e \"setTimeout(function(){}, 5000)\"",
+            run_in_background: true,
+            timeout: 10,
+            description: "long running node",
+          },
+        },
+        context,
+      ),
+    );
+    expect(started).toMatchObject({
+      success: true,
+      content: {
+        background_started: true,
+        background_task_id: expect.any(String),
+      },
+    });
+
+    const backgroundTaskId = (started.content as { background_task_id: string }).background_task_id;
+    await expect(
+      Promise.resolve(
+        bridge.executeTool(
+          {
+            toolName: "task_stop",
+            arguments: { task_id: backgroundTaskId },
+          },
+          context,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      success: true,
+      tool_name: "task_stop",
+      content: {
+        task_id: backgroundTaskId,
+        found: true,
+        stop_requested: true,
+        previous_status: "running",
+        current_status: "cancelled",
+        cancel_supported: true,
+      },
+      metadata: {
+        task_id: backgroundTaskId,
+        status: "cancelled",
+      },
+    });
+    await waitFor(
+      () =>
+        events.getHistory("s1").some(
+          (event) =>
+            event.type === "background.task.completed" &&
+            (event.data as { background_task_id?: string } | undefined)?.background_task_id === backgroundTaskId,
+        ),
+      5000,
+    );
+  });
+
   it("blocks unsafe execute_bash command syntax before approval", async () => {
     const dataRoot = makeTempDataRoot();
     const workspaceRoot = path.join(dataRoot, "workspace-bash-block");
@@ -862,6 +1243,17 @@ function writeFile(dataRoot: string, parts: string[], content: string): void {
 function writeAbsoluteFile(filePath: string, content: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content, "utf8");
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Timed out waiting for condition");
 }
 
 function delegationSuccess<T>(toolName: string, content: T) {

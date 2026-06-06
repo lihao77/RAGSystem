@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 
 import type { RiskLevel } from "../contracts/permissions.js";
+import type { BackgroundTaskService } from "./background-task-service.js";
+import type { InMemoryEventBus } from "./event-bus.js";
 import type { ToolExecutionResult } from "./memory-tool-service.js";
 import type { RuntimeToolExecutionContext } from "./runtime-tool-types.js";
 
@@ -40,6 +42,7 @@ export interface BashExecutionPlan {
   approvalDescription: string;
   approvalArguments: Record<string, unknown>;
   metadata: Record<string, unknown>;
+  runInBackground: boolean;
 }
 
 export type BashExecutionPlanResult =
@@ -100,6 +103,8 @@ export class LocalBashToolService {
   private readonly maxTimeoutSeconds: number;
   private readonly maxOutputChars: number;
   private readonly bashExecutable: string | null;
+  private readonly backgroundTasks: BackgroundTaskService | null;
+  private readonly eventBus: InMemoryEventBus | null;
 
   constructor(options: {
     dataRoot?: string | undefined;
@@ -107,12 +112,16 @@ export class LocalBashToolService {
     maxTimeoutSeconds?: number | undefined;
     maxOutputChars?: number | undefined;
     bashExecutable?: string | null | undefined;
+    backgroundTasks?: BackgroundTaskService | null | undefined;
+    eventBus?: InMemoryEventBus | null | undefined;
   } = {}) {
     this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
     this.defaultTimeoutSeconds = positiveInt(options.defaultTimeoutSeconds, DEFAULT_TIMEOUT_SECONDS);
     this.maxTimeoutSeconds = positiveInt(options.maxTimeoutSeconds, MAX_TIMEOUT_SECONDS);
     this.maxOutputChars = positiveInt(options.maxOutputChars, DEFAULT_MAX_OUTPUT_CHARS);
     this.bashExecutable = options.bashExecutable === undefined ? findBashExecutable() : options.bashExecutable;
+    this.backgroundTasks = options.backgroundTasks ?? null;
+    this.eventBus = options.eventBus ?? null;
   }
 
   prepareExecution(input: BashExecutionInput, context: RuntimeToolExecutionContext): BashExecutionPlanResult {
@@ -131,18 +140,6 @@ export class LocalBashToolService {
           command,
           working_dir: input.workingDir ?? ".",
           working_dir_space: input.workingDirSpace ?? "workspace",
-        }),
-      };
-    }
-
-    if (input.runInBackground) {
-      return {
-        ok: false,
-        result: errorResult("execute_bash 后台执行暂未迁移到 TypeScript runtime", {
-          command,
-          working_dir: cwd,
-          working_dir_space: input.workingDirSpace ?? "workspace",
-          background_started: false,
         }),
       };
     }
@@ -204,11 +201,15 @@ export class LocalBashToolService {
           timeout_seconds: timeoutSeconds,
           ...(validation.approvalCommands.length ? { approval_required_commands: validation.approvalCommands } : {}),
         },
+        runInBackground: Boolean(input.runInBackground),
       },
     };
   }
 
   async executePlan(plan: BashExecutionPlan, context: RuntimeToolExecutionContext): Promise<ToolExecutionResult> {
+    if (plan.runInBackground) {
+      return this.executeBackgroundPlan(plan, context);
+    }
     try {
       const result = await this.runForegroundCommand(plan, context.signal);
       let stdout = result.stdout;
@@ -250,6 +251,61 @@ export class LocalBashToolService {
         ...plan.metadata,
       });
     }
+  }
+
+  private executeBackgroundPlan(plan: BashExecutionPlan, context: RuntimeToolExecutionContext): ToolExecutionResult {
+    if (!this.backgroundTasks) {
+      return errorResult("execute_bash 后台执行暂不可用", {
+        ...plan.metadata,
+        background_started: false,
+      });
+    }
+    const sessionId = normalizeString(context.sessionId);
+    if (!sessionId) {
+      return errorResult("后台执行需要 session_id（无 session_id 时无法路由完成通知）", {
+        ...plan.metadata,
+        background_started: false,
+      });
+    }
+    const outputDir = path.join(this.dataRoot, "sessions", sessionId, "transient");
+    const task = this.backgroundTasks.spawnBash({
+      command: plan.command,
+      bashExecutable: this.bashExecutable,
+      cwd: plan.cwd,
+      outputDir,
+      description: plan.description || plan.command.slice(0, 80),
+      maxRuntimeSeconds: plan.timeoutSeconds,
+      eventBus: this.eventBus,
+      sessionId,
+      runId: normalizeString(context.runId),
+      ownerTaskId: normalizeString(context.taskId),
+    });
+    const displayPath = this.toDisplayPath(task.output_path);
+    return successResult(
+      {
+        stdout: "",
+        stderr: "",
+        return_code: null,
+        interrupted: false,
+        background_task_id: task.task_id,
+        background_started: true,
+        classification: plan.category,
+      },
+      {
+        summary: "后台任务已启动",
+        outputType: "json",
+        metadata: {
+          ...plan.metadata,
+          background_task_id: task.task_id,
+          background_started: true,
+          run_id: normalizeString(context.runId),
+          background_output_path: displayPath,
+          background_kind: task.kind,
+          cancel_supported: task.cancel_supported,
+          shell: this.bashExecutable ? "bash" : "system",
+        },
+      },
+    );
   }
 
   private runForegroundCommand(plan: BashExecutionPlan, signal: AbortSignal | undefined): Promise<ForegroundResult> {
@@ -413,6 +469,15 @@ export class LocalBashToolService {
       return null;
     }
     return path.join(this.dataRoot, filePath.slice(DISPLAY_PATH_PREFIX.length));
+  }
+
+  private toDisplayPath(filePath: string): string {
+    const resolved = path.resolve(filePath);
+    const root = path.resolve(this.dataRoot);
+    if (isPathUnder(resolved, root)) {
+      return `${DISPLAY_PATH_PREFIX}${path.relative(root, resolved).replaceAll(path.sep, "/")}`;
+    }
+    return resolved;
   }
 }
 

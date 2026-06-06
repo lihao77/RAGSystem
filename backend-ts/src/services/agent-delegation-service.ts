@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentConfig } from "../contracts/agent-config.js";
 import type { AgentRuntimeContextBuilder } from "./agent-runtime-context-builder.js";
 import type { AgentRuntimeCore, AgentRuntimeEvent, AgentRuntimeRequest } from "./agent-runtime-core.js";
+import { buildAgentPromptContext, type AgentPromptConfigResolver } from "./agent-prompt-builder.js";
 import type { ConversationStore, ChildAgentInfo } from "./conversation-store.js";
 import type { InMemoryEventBus } from "./event-bus.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
@@ -36,6 +37,7 @@ export class AgentDelegationService {
     private readonly agentRuntimeCore: AgentRuntimeCore,
     private readonly contextBuilder: AgentRuntimeContextBuilder,
     private readonly events: InMemoryEventBus | null = null,
+    private readonly promptConfigResolver: AgentPromptConfigResolver | null = null,
   ) {}
 
   setRuntimeToolsProvider(provider: () => RuntimeToolExecutor | null): void {
@@ -319,12 +321,20 @@ export class AgentDelegationService {
         threadKey: input.childAgent.thread_key,
         historyLimit: 50,
       });
+      const runtimeTools = this.runtimeToolsProvider?.() ?? undefined;
+      const promptContext = buildAgentPromptContext({
+        agent: targetAgent,
+        toolExecutor: runtimeTools,
+        configResolver: this.promptConfigResolver,
+        teamName: input.teamName,
+      });
       const runtimeRequest: AgentRuntimeRequest = {
         agent: targetAgent,
         provider: resolved.provider,
         modelName: resolved.modelName,
         conversation: context.conversation,
-        toolExecutor: this.runtimeToolsProvider?.() ?? undefined,
+        toolExecutor: runtimeTools,
+        promptContext,
         toolContext: buildRuntimeToolContext(targetAgent, {
           sessionId: input.sessionId,
           runId: childRunId,
