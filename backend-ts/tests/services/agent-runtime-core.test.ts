@@ -565,6 +565,45 @@ describe("AgentRuntimeCore", () => {
     ]);
   });
 
+  it("feeds same-round XML tool observations as one Python-style user message", async () => {
+    const client = new FakeXmlStreamingToolChatClient([
+      [
+        "<tool_calls>",
+        '<tool name="list_memory_index"><scope>session</scope></tool>',
+        '<tool name="list_memory_index"><scope>session</scope></tool>',
+        "</tool_calls>",
+      ],
+      ["<final_answer>", "done", "</final_answer>"],
+    ]);
+    const tools = new FakeRuntimeToolExecutor();
+    const core = new AgentRuntimeCore(client);
+    const agent = minimalAgent();
+
+    await core.runText({
+      agent,
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [{ role: "user", content: "check twice" }],
+      toolExecutor: tools,
+      toolContext: {
+        agent,
+        sessionId: "s1",
+        runId: "run-1",
+        requestId: "req-1",
+        currentAgentName: "orchestrator_agent",
+        parentCallId: "call-root",
+      },
+    });
+
+    const userToolMessages = client.requests[1]?.messages.filter((message) =>
+      message.role === "user" && message.content.includes("<tool_result"),
+    );
+    expect(userToolMessages).toHaveLength(1);
+    expect(userToolMessages?.[0]?.content).toContain('id="xml_round_0_call_1"');
+    expect(userToolMessages?.[0]?.content).toContain('id="xml_round_0_call_2"');
+    expect(userToolMessages?.[0]?.content).toContain("</tool_result>\n\n<tool_result");
+  });
+
   it("renders request_user_input tool results as compact semantic observations", () => {
     const content = renderToolResultContent({
       callId: "input_call_1",

@@ -23,7 +23,6 @@ import {
   renderRuntimeXmlProtocolInstruction,
   renderSemanticBlock,
   renderToolResultContent,
-  renderToolResultMessage,
   StreamingRuntimeXmlParser,
 } from "./runtime-xml-protocol.js";
 
@@ -270,6 +269,7 @@ export class AgentRuntimeCore {
 
         messages = [...messages, { role: "assistant", content: roundResult.rawContent }];
         const roundResults = new Map<number, ToolExecutionResult>();
+        const roundObservationMessages: string[] = [];
         for (const [index, call] of roundResult.toolCalls.entries()) {
           const toolName = call.toolName;
           const callId = call.callId ?? `xml_round_${round}_call_${index + 1}`;
@@ -308,7 +308,13 @@ export class AgentRuntimeCore {
               metadata: toolResult.metadata,
             },
           });
-          messages.push(renderToolResultMessage({ callId, toolName, result: toolResult }));
+          roundObservationMessages.push(renderToolResultContent({ callId, toolName, result: toolResult }));
+        }
+        if (roundObservationMessages.length > 0) {
+          messages.push({
+            role: "user",
+            content: roundObservationMessages.join("\n\n"),
+          });
         }
         round += 1;
         continue;
