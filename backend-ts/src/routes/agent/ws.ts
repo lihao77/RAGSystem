@@ -104,18 +104,22 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
         );
       }, 20_000);
 
-      send({
-        type: "reconnect_start",
-        session_id: sessionId,
-        replay_count: options.container.events.getHistory(sessionId).length,
-      });
-      for (const event of options.container.events.getHistory(sessionId)) {
-        send(event);
+      const activeReplay = buildActiveRunReplay(options.container, sessionId);
+      if (activeReplay) {
+        send({
+          type: "reconnect_start",
+          session_id: sessionId,
+          run_id: activeReplay.runId,
+          replay_count: activeReplay.events.length,
+        });
+        for (const event of activeReplay.events) {
+          send(event);
+        }
+        send({
+          type: "reconnect_end",
+          session_id: sessionId,
+        });
       }
-      send({
-        type: "reconnect_end",
-        session_id: sessionId,
-      });
 
       ws.on("message", (data) => {
         const raw = data.toString();
@@ -163,11 +167,6 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
                   message: message.message,
                 })
               ) {
-                sendInteractionAck(message.approval_id, "approval", {
-                  approval_id: message.approval_id,
-                  approved: message.approved,
-                  message: message.message,
-                });
                 sendApprovalResolved(message.approval_id, message.approved, message.message);
               } else {
                 send({
@@ -246,3 +245,129 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
     },
   );
 };
+
+function buildActiveRunReplay(
+  container: RouteOptions["container"],
+  sessionId: string,
+): { runId: string; events: ClientEvent[] } | null {
+  const status = container.agentExecution.getSessionTaskStatus(sessionId).task_info;
+  if (!status || status.status !== "running" || !status.run_id) {
+    return null;
+  }
+
+  const runId = status.run_id;
+  const startedAtMs = timestampToMilliseconds(status.started_at);
+  const events = container.events.getHistory(sessionId).filter((event) => {
+    if (extractRunId(event) !== runId) {
+      return false;
+    }
+    if (!isPendingInteractionReplayEvent(container, sessionId, event)) {
+      return false;
+    }
+    if (startedAtMs === null) {
+      return true;
+    }
+    const eventTimeMs = timestampToMilliseconds(event.timestamp);
+    return eventTimeMs === null || eventTimeMs >= startedAtMs;
+  });
+
+  return { runId, events };
+}
+
+function isPendingInteractionReplayEvent(
+  container: RouteOptions["container"],
+  sessionId: string,
+  event: ClientEvent,
+): boolean {
+  if (event.type === "user.approval_required") {
+    const approvalId = extractInteractionId(event, "approval");
+    return !approvalId || container.pendingInteractions.isApprovalPending(sessionId, approvalId);
+  }
+  if (event.type === "user.input_required") {
+    const inputId = extractInteractionId(event, "user_input");
+    return !inputId || container.pendingInteractions.isUserInputPending(sessionId, inputId);
+  }
+  if (event.type !== "interaction.required") {
+    return true;
+  }
+
+  const kind = extractInteractionKind(event);
+  if (kind === "approval") {
+    const approvalId = extractInteractionId(event, "approval");
+    return !approvalId || container.pendingInteractions.isApprovalPending(sessionId, approvalId);
+  }
+  if (kind === "user_input") {
+    const inputId = extractInteractionId(event, "user_input");
+    return !inputId || container.pendingInteractions.isUserInputPending(sessionId, inputId);
+  }
+  return true;
+}
+
+function extractInteractionKind(event: ClientEvent): "approval" | "user_input" | null {
+  const topLevelKind = event.kind;
+  if (topLevelKind === "approval" || topLevelKind === "user_input") {
+    return topLevelKind;
+  }
+  const dataKind = extractStringField(event.data, "kind");
+  if (dataKind === "approval" || dataKind === "user_input") {
+    return dataKind;
+  }
+  const contentKind = extractStringField(event.content, "kind");
+  return contentKind === "approval" || contentKind === "user_input" ? contentKind : null;
+}
+
+function extractInteractionId(event: ClientEvent, kind: "approval" | "user_input"): string | null {
+  const primary = kind === "approval" ? "approval_id" : "input_id";
+  const topLevelId = event[primary] ?? event.interaction_id;
+  if (typeof topLevelId === "string" && topLevelId.trim()) {
+    return topLevelId;
+  }
+  return (
+    extractStringField(event.data, primary) ??
+    extractStringField(event.data, "interaction_id") ??
+    extractStringField(event.content, primary) ??
+    extractStringField(event.content, "interaction_id")
+  );
+}
+
+function extractStringField(value: unknown, field: string): string | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const item = value[field];
+  return typeof item === "string" && item.trim() ? item : null;
+}
+
+function extractRunId(event: ClientEvent): string | null {
+  if (typeof event.run_id === "string" && event.run_id.trim()) {
+    return event.run_id;
+  }
+  const dataRunId = extractRunIdFromValue(event.data);
+  if (dataRunId) {
+    return dataRunId;
+  }
+  return extractRunIdFromValue(event.content);
+}
+
+function extractRunIdFromValue(value: unknown): string | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const runId = value.run_id ?? value.runId;
+  return typeof runId === "string" && runId.trim() ? runId : null;
+}
+
+function timestampToMilliseconds(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value < 10_000_000_000 ? value * 1000 : value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
