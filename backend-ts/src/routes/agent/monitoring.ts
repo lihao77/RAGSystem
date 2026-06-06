@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { ok } from "../../contracts/common.js";
 import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
+import { resolveCompressionView } from "../../services/agent-runtime-context-builder.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 
@@ -49,8 +50,10 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
         })
       : null;
     const memorySnapshot = getMemorySnapshot(context?.metadata.sources ?? []);
+    const threadKey = context?.metadata.thread_key ?? "root";
     const history = sessionId
-      ? options.container.conversationStore.listMessages(sessionId, 500, 0).items.map(toContextHistoryItem)
+      ? resolveCompressionView(options.container.conversationStore.listMessages(sessionId, 500, 0, threadKey).items)
+          .map(toContextHistoryItem)
       : [];
     const systemPromptTokens = estimateTokens(systemPrompt) + estimateTokens(asString(memorySnapshot?.rendered_block) ?? "");
     const historyTokens = history.reduce((total, item) => total + item.tokens, 0);

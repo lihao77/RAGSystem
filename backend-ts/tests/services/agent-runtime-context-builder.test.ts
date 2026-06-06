@@ -71,11 +71,57 @@ describe("AgentRuntimeContextBuilder", () => {
             message_count: 2,
             metadata: {
               source_message_count: 4,
+              resolved_message_count: 4,
+              compression_view: {
+                applied: false,
+                summary_seq: null,
+                replaces_up_to_seq: null,
+              },
             },
           },
         ],
       },
     });
+  });
+
+  it("resolves persisted compression summaries before building runtime conversation", () => {
+    const history = new InMemoryHistory([
+      message("user", "u1", { seq: 1 }),
+      message("assistant", "a1", { seq: 2 }),
+      message("user", "tail-before-summary", { seq: 3 }),
+      message("system", "[历史摘要]\nsummary", {
+        seq: 4,
+        metadata: {
+          compression: true,
+          replaces_up_to_seq: 2,
+        },
+      }),
+      message("assistant", "tail-after-summary", { seq: 5 }),
+    ]);
+    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
+
+    const context = builder.buildContext({ sessionId: "compression-session" });
+
+    expect(context.conversation).toEqual([
+      { role: "assistant", content: "[历史摘要]\nsummary" },
+      { role: "user", content: "tail-before-summary" },
+      { role: "assistant", content: "tail-after-summary" },
+    ]);
+    expect(context.metadata.sources).toEqual([
+      {
+        name: "recent_messages",
+        message_count: 3,
+        metadata: {
+          source_message_count: 5,
+          resolved_message_count: 3,
+          compression_view: {
+            applied: true,
+            summary_seq: 4,
+            replaces_up_to_seq: 2,
+          },
+        },
+      },
+    ]);
   });
 
   it("supports explicit thread key and history limit", () => {
@@ -243,15 +289,23 @@ describe("AgentRuntimeContextBuilder", () => {
   });
 });
 
-function message(role: MessageInfo["role"], content: string): MessageInfo {
+function message(
+  role: MessageInfo["role"],
+  content: string,
+  input: {
+    seq?: number;
+    metadata?: Record<string, unknown>;
+    threadKey?: string;
+  } = {},
+): MessageInfo {
   return {
-    seq: 1,
+    seq: input.seq ?? 1,
     id: `${role}-${content}`,
     session_id: "s1",
     role,
     content,
-    metadata: {},
-    thread_key: "root",
+    metadata: input.metadata ?? {},
+    thread_key: input.threadKey ?? "root",
     child_agent_id: null,
     created_at: "2026-01-01T00:00:00Z",
   };

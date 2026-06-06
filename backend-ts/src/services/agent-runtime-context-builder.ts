@@ -44,6 +44,13 @@ export interface AgentRuntimeContextSource {
   build(request: ResolvedAgentRuntimeContextRequest): AgentRuntimeContextContribution;
 }
 
+interface CompressionViewResolution {
+  messages: MessageInfo[];
+  applied: boolean;
+  summarySeq: number | null;
+  replacesUpToSeq: number | null;
+}
+
 interface ResolvedAgentRuntimeContextRequest {
   sessionId: string;
   threadKey: string;
@@ -92,10 +99,17 @@ export class RecentMessagesContextSource implements AgentRuntimeContextSource {
 
   build(request: ResolvedAgentRuntimeContextRequest): AgentRuntimeContextContribution {
     const messages = this.history.getRecentMessages(request.sessionId, request.historyLimit, request.threadKey);
+    const compressionView = resolveCompressionViewDetailed(messages);
     return {
-      conversation: messagesToConversation(messages),
+      conversation: messagesToConversation(compressionView.messages),
       metadata: {
         source_message_count: messages.length,
+        resolved_message_count: compressionView.messages.length,
+        compression_view: {
+          applied: compressionView.applied,
+          summary_seq: compressionView.summarySeq,
+          replaces_up_to_seq: compressionView.replacesUpToSeq,
+        },
       },
     };
   }
@@ -242,6 +256,70 @@ function resolveContextRequest(request: AgentRuntimeContextRequest): ResolvedAge
   };
 }
 
+export function resolveCompressionView(messages: MessageInfo[]): MessageInfo[] {
+  return resolveCompressionViewDetailed(messages).messages;
+}
+
+function resolveCompressionViewDetailed(messages: MessageInfo[]): CompressionViewResolution {
+  if (!messages.length) {
+    return {
+      messages: [],
+      applied: false,
+      summarySeq: null,
+      replacesUpToSeq: null,
+    };
+  }
+
+  let compressionMessage: MessageInfo | null = null;
+  let compressionIndex = -1;
+  for (const [index, message] of messages.entries()) {
+    if (!message.metadata.compression) {
+      continue;
+    }
+    if (!compressionMessage || message.seq > compressionMessage.seq) {
+      compressionMessage = message;
+      compressionIndex = index;
+    }
+  }
+
+  if (!compressionMessage) {
+    return {
+      messages: [...messages],
+      applied: false,
+      summarySeq: null,
+      replacesUpToSeq: null,
+    };
+  }
+
+  const replacesUpToSeq = numberOrNull(compressionMessage.metadata.replaces_up_to_seq);
+  const cutoff = replacesUpToSeq ?? compressionMessage.seq;
+  const output: MessageInfo[] = [
+    {
+      ...compressionMessage,
+      role: "assistant",
+      metadata: {
+        compression: true,
+      },
+    },
+  ];
+
+  for (const [index, message] of messages.entries()) {
+    if (index === compressionIndex || message.metadata.compression) {
+      continue;
+    }
+    if (message.seq > cutoff) {
+      output.push(message);
+    }
+  }
+
+  return {
+    messages: output,
+    applied: true,
+    summarySeq: compressionMessage.seq,
+    replacesUpToSeq,
+  };
+}
+
 function messagesToConversation(messages: MessageInfo[]): ChatMessage[] {
   const conversation: ChatMessage[] = [];
   for (const message of messages) {
@@ -368,6 +446,10 @@ function titleCase(value: string): string {
 
 function getString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

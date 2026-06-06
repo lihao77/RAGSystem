@@ -141,6 +141,74 @@ describe("monitoring compatibility routes", () => {
     });
   });
 
+  it("serves context snapshot history through the compression view for the root thread", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+
+    harness.container.sessionApplication.createSession({ sessionId: "compression-s1" });
+    harness.container.sessionApplication.addMessage({
+      sessionId: "compression-s1",
+      role: "user",
+      content: "old user",
+    });
+    harness.container.sessionApplication.addMessage({
+      sessionId: "compression-s1",
+      role: "assistant",
+      content: "old assistant",
+    });
+    const tailBeforeSummary = harness.container.sessionApplication.addMessage({
+      sessionId: "compression-s1",
+      role: "user",
+      content: "tail before summary",
+    });
+    const summary = harness.container.sessionApplication.addMessage({
+      sessionId: "compression-s1",
+      role: "system",
+      content: "[历史摘要]\nold user / old assistant",
+      metadata: {
+        compression: true,
+        replaces_up_to_seq: 2,
+      },
+    });
+    const tailAfterSummary = harness.container.sessionApplication.addMessage({
+      sessionId: "compression-s1",
+      role: "assistant",
+      content: "tail after summary",
+    });
+    harness.container.sessionApplication.addMessage({
+      sessionId: "compression-s1",
+      role: "user",
+      content: "child internal message",
+      threadKey: "child:worker",
+      childAgentId: "child-1",
+    });
+
+    const snapshot = await app.inject({
+      method: "GET",
+      url: "/api/agent/context-snapshot?session_id=compression-s1",
+    });
+
+    expect(snapshot.statusCode).toBe(200);
+    expect(snapshot.json().data.conversation_history).toEqual([
+      expect.objectContaining({
+        seq: summary.seq,
+        role: "assistant",
+        content_preview: "[历史摘要]\nold user / old assistant",
+        is_compression_summary: true,
+      }),
+      expect.objectContaining({
+        seq: tailBeforeSummary.seq,
+        role: "user",
+        content_preview: "tail before summary",
+      }),
+      expect.objectContaining({
+        seq: tailAfterSummary.seq,
+        role: "assistant",
+        content_preview: "tail after summary",
+      }),
+    ]);
+  });
+
   it("returns persisted tool call raw results by call id", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
