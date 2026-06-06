@@ -28,6 +28,7 @@ const REQUEST_USER_INPUT_TOOL_NAME = "request_user_input";
 const READ_FILE_TOOL_NAME = "read_file";
 const WRITE_FILE_TOOL_NAME = "write_file";
 const EDIT_FILE_TOOL_NAME = "edit_file";
+const PREVIEW_DATA_STRUCTURE_TOOL_NAME = "preview_data_structure";
 const EXECUTE_BASH_TOOL_NAME = "execute_bash";
 
 const REQUEST_USER_INPUT_TOOL: RuntimeToolDefinition = {
@@ -173,6 +174,49 @@ const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
         encoding: {
           type: "string",
           description: "Text encoding. Defaults to utf-8.",
+        },
+      },
+    },
+  },
+  {
+    name: PREVIEW_DATA_STRUCTURE_TOOL_NAME,
+    source: "document",
+    category: "data",
+    riskLevel: "low",
+    description:
+      "Preview the data structure of a managed JSON, YAML, CSV, TSV, or text file without returning the full file content.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["file_path"],
+      properties: {
+        file_path: {
+          type: "string",
+          description: "File path to preview. Relative paths resolve against managed workspace/session roots.",
+        },
+        file_path_space: {
+          type: "string",
+          enum: ["workspace", "transient", "exports"],
+          description: "Optional managed path space for relative file_path.",
+        },
+        encoding: {
+          type: "string",
+          description: "Text encoding. Defaults to utf-8.",
+        },
+        max_preview_rows: {
+          type: "integer",
+          minimum: 1,
+          description: "Maximum sampled table rows, text lines, or array items. Defaults to 5.",
+        },
+        max_depth: {
+          type: "integer",
+          minimum: 1,
+          description: "Maximum nested structure depth for JSON/YAML. Defaults to 3.",
+        },
+        max_fields: {
+          type: "integer",
+          minimum: 1,
+          description: "Maximum object fields or table columns to summarize. Defaults to 20.",
         },
       },
     },
@@ -393,6 +437,9 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     }
     if (toolName === EDIT_FILE_TOOL_NAME && this.documentTools) {
       return this.documentTools.editFile(editFileArguments(call.arguments), context);
+    }
+    if (toolName === PREVIEW_DATA_STRUCTURE_TOOL_NAME && this.documentTools) {
+      return this.documentTools.previewDataStructure(previewDataStructureArguments(call.arguments), context);
     }
     if (toolName === "list_memory_index") {
       return this.memoryTools.listMemoryIndex(readListMemoryIndexArguments(call.arguments), context);
@@ -694,6 +741,24 @@ function editFileArguments(value: Record<string, unknown> | undefined): {
     newString: typeof value?.new_string === "string" ? value.new_string : typeof value?.newString === "string" ? value.newString : "",
     encoding: asString(value?.encoding),
     replaceAll: typeof value?.replace_all === "boolean" ? value.replace_all : typeof value?.replaceAll === "boolean" ? value.replaceAll : null,
+    filePathSpace: asString(value?.file_path_space) ?? asString(value?.filePathSpace),
+  };
+}
+
+function previewDataStructureArguments(value: Record<string, unknown> | undefined): {
+  filePath: string;
+  encoding?: string | null;
+  maxPreviewRows?: number | null;
+  maxDepth?: number | null;
+  maxFields?: number | null;
+  filePathSpace?: string | null;
+} {
+  return {
+    filePath: asString(value?.file_path) ?? asString(value?.filePath) ?? "",
+    encoding: asString(value?.encoding),
+    maxPreviewRows: asInteger(value?.max_preview_rows) ?? asInteger(value?.maxPreviewRows),
+    maxDepth: asInteger(value?.max_depth) ?? asInteger(value?.maxDepth),
+    maxFields: asInteger(value?.max_fields) ?? asInteger(value?.maxFields),
     filePathSpace: asString(value?.file_path_space) ?? asString(value?.filePathSpace),
   };
 }

@@ -339,6 +339,7 @@ describe("minimal runtime core execution", () => {
       "read_file",
       "write_file",
       "edit_file",
+      "preview_data_structure",
       "execute_bash",
       "list_memory_index",
       "read_memory_entry",

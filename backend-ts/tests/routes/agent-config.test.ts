@@ -184,6 +184,12 @@ describe("agent config compatibility routes", () => {
           implemented: true,
           risk_level: "high",
         }),
+        expect.objectContaining({
+          name: "preview_data_structure",
+          runtime_status: "implemented",
+          implemented: true,
+          risk_level: "low",
+        }),
       ]),
     );
 

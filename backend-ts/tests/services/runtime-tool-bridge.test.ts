@@ -137,6 +137,162 @@ describe("RuntimeToolBridge", () => {
     });
   });
 
+  it("previews JSON, CSV, YAML, and text structures through managed paths", () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace-preview");
+    writeAbsoluteFile(
+      path.join(workspaceRoot, "data", "sample.json"),
+      '{"name":"dataset","items":[{"id":1,"tags":["a","b"],"meta":{"city":"Nanning"}}]}',
+    );
+    writeAbsoluteFile(path.join(workspaceRoot, "data", "sample.csv"), "name,age,active\nAlice,30,true\nBob,28,false\n");
+    writeAbsoluteFile(path.join(workspaceRoot, "data", "sample.yaml"), "service:\n  name: api\n  replicas: 3\nfeatures:\n  - search\n  - export\n");
+    writeAbsoluteFile(path.join(workspaceRoot, "data", "notes.txt"), "alpha\n\nbeta line\ncharlie\n");
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      null,
+      null,
+      new LocalDocumentToolService({ dataRoot }),
+    );
+    const agent = minimalAgent([], ["preview_data_structure"]);
+    const context = {
+      agent,
+      sessionId: "s1",
+      workspaceRoot,
+    };
+
+    expect(bridge.listVisibleToolNames(agent)).toEqual(["preview_data_structure"]);
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "preview_data_structure",
+          arguments: { file_path: "data/sample.json" },
+        },
+        context,
+      ),
+    ).toMatchObject({
+      success: true,
+      tool_name: "preview_data_structure",
+      output_type: "json",
+      content: {
+        file_type: "json",
+        structure: {
+          type: "object",
+          fields: {
+            name: { type: "string" },
+            items: {
+              type: "array",
+              item_structure: {
+                fields: {
+                  id: { types: ["integer"] },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "preview_data_structure",
+          arguments: { file_path: "data/sample.csv", max_preview_rows: 1 },
+        },
+        context,
+      ),
+    ).toMatchObject({
+      success: true,
+      content: {
+        file_type: "csv",
+        structure: {
+          root_type: "table",
+          columns: ["name", "age", "active"],
+          sample_row_count: 1,
+          column_types: {
+            age: { types: ["integer"] },
+            active: { types: ["boolean"] },
+          },
+          sample_rows: [
+            {
+              name: "Alice",
+            },
+          ],
+        },
+      },
+    });
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "preview_data_structure",
+          arguments: { file_path: "data/sample.yaml", max_depth: 2 },
+        },
+        context,
+      ),
+    ).toMatchObject({
+      success: true,
+      content: {
+        file_type: "yaml",
+        structure: {
+          type: "object",
+          fields: {
+            service: { type: "object" },
+            features: { type: "array" },
+          },
+        },
+      },
+    });
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "preview_data_structure",
+          arguments: { file_path: "data/notes.txt", max_preview_rows: 2 },
+        },
+        context,
+      ),
+    ).toMatchObject({
+      success: true,
+      content: {
+        file_type: "txt",
+        structure: {
+          root_type: "text",
+          total_lines: 4,
+          non_empty_lines: 3,
+          preview_lines: ["alpha", ""],
+        },
+      },
+    });
+  });
+
+  it("rejects invalid preview_data_structure limits", () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace-preview-invalid");
+    writeAbsoluteFile(path.join(workspaceRoot, "sample.json"), "{}");
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      null,
+      null,
+      new LocalDocumentToolService({ dataRoot }),
+    );
+    const agent = minimalAgent([], ["preview_data_structure"]);
+
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "preview_data_structure",
+          arguments: { file_path: "sample.json", max_depth: 0 },
+        },
+        {
+          agent,
+          sessionId: "s1",
+          workspaceRoot,
+        },
+      ),
+    ).toMatchObject({
+      success: false,
+      output_type: "error",
+      content: expect.stringContaining("max_depth"),
+    });
+  });
+
   it("executes write_file and edit_file through managed workspace paths", () => {
     const dataRoot = makeTempDataRoot();
     const workspaceRoot = path.join(dataRoot, "workspace-beta");
