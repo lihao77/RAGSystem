@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
@@ -112,6 +116,49 @@ class FakeRuntimeToolExecutor implements RuntimeToolExecutor {
       content: "# Session Memory\n- fact_alpha.md",
       metadata: {
         scope: "session",
+      },
+      artifacts: [],
+      llm_hint: null,
+    };
+  }
+}
+
+class FakeLargePayloadToolExecutor implements RuntimeToolExecutor {
+  readonly calls: Array<{ call: RuntimeToolCall; context: RuntimeToolExecutionContext }> = [];
+  readonly rows = Array.from({ length: 80 }, (_, index) => ({
+    id: index + 1,
+    name: `row_${index + 1}`,
+    payload: `${index === 79 ? "unique-tail-marker" : "payload"}_${"x".repeat(120)}`,
+  }));
+
+  listVisibleTools(): RuntimeToolDefinition[] {
+    return [
+      {
+        name: "query_large_data",
+        description: "Query large data",
+        parameters: { type: "object", properties: {} },
+      },
+    ];
+  }
+
+  executeTool(call: RuntimeToolCall, context: RuntimeToolExecutionContext) {
+    this.calls.push({ call, context });
+    return {
+      success: true,
+      tool_name: "query_large_data",
+      summary: "已查询大数据",
+      answer: null,
+      output_type: "json",
+      content: this.rows,
+      metadata: {
+        total_count: this.rows.length,
+        data_type: "Rows",
+        fields: [
+          { name: "id" },
+          { name: "name" },
+          { name: "payload" },
+        ],
+        sample: this.rows.slice(0, 1),
       },
       artifacts: [],
       llm_hint: null,
@@ -274,7 +321,7 @@ class FakeThrowingToolExecutor implements RuntimeToolExecutor {
     ];
   }
 
-  executeTool(call: RuntimeToolCall) {
+  executeTool(call: RuntimeToolCall): never {
     this.calls.push(call);
     throw new Error("tool exploded");
   }
@@ -1331,6 +1378,101 @@ describe("AgentRuntimeCore", () => {
     ]);
   });
 
+  it("materializes large tool observations as artifacts while preserving raw results", async () => {
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-agent-runtime-"));
+    try {
+      const client = new FakeToolCallingChatClient([
+        {
+          content: "",
+          finishReason: "tool_calls",
+          toolCalls: [
+            {
+              id: "call_large_1",
+              type: "function",
+              function: {
+                name: "query_large_data",
+                arguments: "{}",
+              },
+            },
+          ],
+        },
+        {
+          content: "large data handled",
+          finishReason: "stop",
+        },
+      ]);
+      const tools = new FakeLargePayloadToolExecutor();
+      const core = new AgentRuntimeCore(client, { dataRoot });
+      const agent = minimalAgent();
+      const events: AgentRuntimeEvent[] = [];
+
+      await core.runText({
+        agent,
+        provider: minimalProvider(),
+        modelName: "deepseek-chat",
+        conversation: [{ role: "user", content: "query large data" }],
+        toolExecutor: tools,
+        toolContext: {
+          agent,
+          sessionId: "large-session",
+          runId: "run-1",
+          requestId: "req-1",
+          currentAgentName: "orchestrator_agent",
+        },
+        onEvent: (event) => {
+          events.push(event);
+        },
+      });
+
+      const nativeToolResultMessage = client.requests[1]?.messages.find((message) => message.role === "tool");
+      expect(nativeToolResultMessage?.content).toContain("数据已存储:");
+      expect(nativeToolResultMessage?.content).toContain("后续工具可直接使用此文件路径作为 data 参数");
+      expect(nativeToolResultMessage?.content).not.toContain("unique-tail-marker");
+
+      const toolResultEvent = events.find(
+        (event): event is Extract<AgentRuntimeEvent, { type: "runtime.tool_result" }> =>
+          event.type === "runtime.tool_result",
+      );
+      expect(toolResultEvent).toBeDefined();
+      if (!toolResultEvent) {
+        throw new Error("missing tool result event");
+      }
+      expect(toolResultEvent.data.observation).toContain("数据已存储:");
+      expect(toolResultEvent.data.raw_result_available).toBe(true);
+      expect(toolResultEvent.data.raw_result.content).toEqual(tools.rows);
+
+      const artifacts = toolResultEvent.data.raw_result.artifacts;
+      expect(Array.isArray(artifacts)).toBe(true);
+      if (!Array.isArray(artifacts)) {
+        throw new Error("missing observation artifact");
+      }
+      const artifact = artifacts[0];
+      expect(artifact).toEqual(
+        expect.objectContaining({
+          artifact_type: "json",
+          mime_type: "application/json",
+          metadata: expect.objectContaining({
+            session_id: "large-session",
+            tool_name: "query_large_data",
+            reason: "large_payload",
+          }),
+        }),
+      );
+      if (!isRecord(artifact) || typeof artifact.path !== "string") {
+        throw new Error("artifact path missing");
+      }
+
+      expect(path.dirname(artifact.path)).toBe(path.join(dataRoot, "sessions", "large-session", "transient"));
+      expect(fs.existsSync(artifact.path)).toBe(true);
+      expect(JSON.parse(fs.readFileSync(artifact.path, "utf8"))).toEqual(tools.rows);
+      const indexPath = path.join(dataRoot, "sessions", "large-session", "transient", "artifact_index.jsonl");
+      const indexRecord = JSON.parse(fs.readFileSync(indexPath, "utf8").trim()) as Record<string, unknown>;
+      expect(indexRecord.path).toBe(artifact.path);
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
+
   it("resolves same-round native tool-call result placeholders before executing dependent tools", async () => {
     const client = new FakeToolCallingChatClient([
       {
@@ -1553,4 +1695,8 @@ function minimalProvider(): ModelProviderConfig {
       chat: "deepseek-chat",
     },
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

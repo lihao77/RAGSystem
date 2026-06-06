@@ -108,7 +108,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const runtimeToolBridge = new RuntimeToolBridge(memoryTools, pendingInteractions, permissionPolicy, documentTools, bashTools, taskTools);
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
-  const agentRuntimeCore = new AgentRuntimeCore(llmChatClient);
+  const agentRuntimeCore = new AgentRuntimeCore(llmChatClient, { dataRoot: options.dataRoot });
   const contextCompression = new AgentContextCompressionService(conversationStore, llmChatClient, systemConfig);
   const agentRuntimeContextBuilder = new AgentRuntimeContextBuilder([
     new MemoryIndexContextSource(conversationStore, { memoryStore }),
