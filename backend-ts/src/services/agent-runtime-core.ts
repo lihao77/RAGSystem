@@ -21,14 +21,11 @@ import type {
   RuntimeToolWaitResult,
 } from "./runtime-tool-types.js";
 import type { ToolExecutionResult } from "./memory-tool-service.js";
-import { buildFullSystemPrompt, type AgentPromptContext } from "./agent-prompt-builder.js";
-import { isRuntimeStableSystemContextContent } from "./agent-runtime-context-builder.js";
+import type { AgentPromptContext } from "./agent-prompt-builder.js";
+import { buildRuntimeMessages } from "./agent-runtime-core/message-builder.js";
 import {
-  isSemanticTaggedContent,
   parseRuntimeToolCallsXml,
   renderProtocolFeedbackMessage,
-  renderRuntimeXmlProtocolInstruction,
-  renderSemanticBlock,
   renderToolResultContent,
   StreamingRuntimeXmlParser,
 } from "./runtime-xml-protocol.js";
@@ -206,31 +203,7 @@ export class AgentRuntimeCore {
     conversation: ChatMessage[],
     options: { xmlProtocolTools?: RuntimeToolDefinition[]; promptContext?: AgentPromptContext } = {},
   ): ChatMessage[] {
-    const messages: ChatMessage[] = [];
-    const systemParts: string[] = [];
-    const systemPrompt = buildFullSystemPrompt(agent, options.promptContext);
-    if (systemPrompt) {
-      systemParts.push(renderSemanticBlock("system_instruction", systemPrompt, { source: "agent_config" }));
-    }
-    let conversationIndex = 0;
-    while (
-      conversation[conversationIndex]?.role === "system" &&
-      isRuntimeStableSystemContextContent(conversation[conversationIndex]?.content ?? "")
-    ) {
-      const content = conversation[conversationIndex]?.content.trim();
-      if (content) {
-        systemParts.push(renderSystemContextBlock(content));
-      }
-      conversationIndex += 1;
-    }
-    if (options.xmlProtocolTools?.length) {
-      systemParts.push(renderRuntimeXmlProtocolInstruction(options.xmlProtocolTools));
-    }
-    if (systemParts.length > 0) {
-      messages.push({ role: "system", content: systemParts.join("\n\n") });
-    }
-    messages.push(...conversation.slice(conversationIndex).map((message) => renderSemanticChatMessage(message)));
-    return messages;
+    return buildRuntimeMessages(agent, conversation, options);
   }
 
   private buildChatRequest(input: AgentRuntimeRequest): ChatCompletionRequest {
@@ -1632,45 +1605,6 @@ function buildRawResultRef(
     call_id: callId,
     tool_name: toolName,
   };
-}
-
-function renderSystemContextBlock(content: string): string {
-  if (isSemanticTaggedContent(content)) {
-    return content;
-  }
-  if (content.includes("[Memory Scope Capabilities]") || content.includes("Memory Index]")) {
-    return renderSemanticBlock("context", content, { source: "memory" });
-  }
-  return renderSemanticBlock("runtime_instruction", content, { source: "runtime_context" });
-}
-
-function renderSemanticChatMessage(message: ChatMessage): ChatMessage {
-  if (isSemanticTaggedContent(message.content)) {
-    return { ...message };
-  }
-  if (message.role === "user") {
-    return {
-      ...message,
-      content: renderSemanticBlock("user_input", message.content, { source: "conversation" }),
-    };
-  }
-  if (message.role === "assistant") {
-    return {
-      ...message,
-      content: renderSemanticBlock("assistant_final", message.content, { source: "conversation" }),
-    };
-  }
-  if (message.role === "tool") {
-    return {
-      ...message,
-      content: renderSemanticBlock("tool_result", message.content, {
-        source: "native_tool_message",
-        call_id: message.tool_call_id ?? "",
-        name: message.name ?? "",
-      }),
-    };
-  }
-  return { ...message, content: renderSystemContextBlock(message.content) };
 }
 
 function parseToolArguments(toolCall: ChatToolCall): Record<string, unknown> {
