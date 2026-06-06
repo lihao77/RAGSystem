@@ -743,6 +743,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       return this.executeBashTool(call, executionContext);
     }
 
+    const approvedExternalPaths = this.collectExternalPathApprovalCandidates(toolName, call.arguments, executionContext);
     const approvalDecision = this.permissionPolicy?.evaluateToolApproval({
       toolName,
       riskLevel: tool.riskLevel,
@@ -750,12 +751,20 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       arguments: call.arguments ?? {},
       sessionId: executionContext.sessionId,
       approvalExempt: tool.approvalExempt,
+      approvedExternalPaths,
     });
     if (approvalDecision?.action === "ask") {
       return this.executeToolAfterApproval(call, executionContext, approvalDecision);
     }
+    if (!approvalDecision && approvedExternalPaths.length) {
+      return approvalUnsupportedError(toolName, approvedExternalPaths);
+    }
 
-    return this.executeAllowedTool(toolName, call, executionContext);
+    return this.executeAllowedTool(
+      toolName,
+      call,
+      withApprovedExternalPaths(executionContext, approvalDecision?.approvedExternalPaths),
+    );
   }
 
   waitForToolResult(
@@ -850,6 +859,15 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     return errorResult(`工具未暴露或暂未迁移: ${toolName}`, toolName);
   }
 
+  private collectExternalPathApprovalCandidates(
+    toolName: string,
+    args: Record<string, unknown> | undefined,
+    context: RuntimeToolExecutionContext,
+  ): string[] {
+    const documentCandidates = this.documentTools?.getExternalPathApprovalCandidates(toolName, args, context) ?? [];
+    return dedupeStrings(documentCandidates);
+  }
+
   private async executeBashTool(
     call: RuntimeToolCall,
     context: RuntimeToolExecutionContext,
@@ -857,7 +875,13 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     if (!this.bashTools) {
       return errorResult(`工具未暴露或暂未迁移: ${EXECUTE_BASH_TOOL_NAME}`, EXECUTE_BASH_TOOL_NAME);
     }
-    const prepared = this.bashTools.prepareExecution(readBashArguments(call.arguments), context);
+    const bashInput = readBashArguments(call.arguments);
+    const approvedExternalPaths = this.bashTools.getExternalPathApprovalCandidates(bashInput, context);
+    if (!this.permissionPolicy && approvedExternalPaths.length) {
+      return approvalUnsupportedError(EXECUTE_BASH_TOOL_NAME, approvedExternalPaths);
+    }
+    const planningContext = withApprovedExternalPaths(context, approvedExternalPaths);
+    const prepared = this.bashTools.prepareExecution(bashInput, planningContext);
     if (!prepared.ok) {
       return prepared.result;
     }
@@ -870,6 +894,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       arguments: plan.approvalArguments,
       sessionId: context.sessionId,
       forceAsk: plan.approvalRequired,
+      approvedExternalPaths,
     });
 
     if (approvalDecision?.action === "ask") {
@@ -881,7 +906,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       });
     }
 
-    return this.bashTools.executePlan(plan, context);
+    return this.bashTools.executePlan(plan, withApprovedExternalPaths(context, approvalDecision?.approvedExternalPaths));
   }
 
   private async executeBashAfterApproval(
@@ -928,6 +953,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
         approvalReason: approvalDecision.reason,
         approvalReasonCodes: approvalDecision.reasonCodes,
         approvalSecondaryReasons: approvalDecision.secondaryReasons,
+        approvedExternalPaths: approvalDecision.approvedExternalPaths,
         signal: context.signal,
       });
     } catch (error) {
@@ -945,7 +971,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       });
     }
 
-    const result = await bashTools.executePlan(plan, context);
+    const result = await bashTools.executePlan(plan, withApprovedExternalPaths(context, approvalDecision.approvedExternalPaths));
     return withApprovalMetadata(result, approvalDecision, resolution.message);
   }
 
@@ -987,6 +1013,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
         approvalReason: approvalDecision.reason,
         approvalReasonCodes: approvalDecision.reasonCodes,
         approvalSecondaryReasons: approvalDecision.secondaryReasons,
+        approvedExternalPaths: approvalDecision.approvedExternalPaths,
         signal: context.signal,
       });
     } catch (error) {
@@ -1002,7 +1029,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       });
     }
 
-    const result = await this.executeAllowedTool(toolName, call, context);
+    const result = await this.executeAllowedTool(toolName, call, withApprovedExternalPaths(context, approvalDecision.approvedExternalPaths));
     return withApprovalMetadata(result, approvalDecision, resolution.message);
   }
 
@@ -1437,6 +1464,7 @@ function buildApprovalMetadata(
     note,
     ...(decision.reasonCodes.length ? { reason_codes: decision.reasonCodes } : {}),
     ...(decision.secondaryReasons.length ? { secondary_reasons: decision.secondaryReasons } : {}),
+    ...(decision.approvedExternalPaths.length ? { approved_external_paths: decision.approvedExternalPaths } : {}),
   };
 }
 
@@ -1457,4 +1485,37 @@ function withApprovalMetadata<T>(
 
 export function isReadOnlyMemoryToolName(toolName: string): toolName is ReadOnlyMemoryToolName {
   return READ_ONLY_MEMORY_TOOL_NAMES.includes(toolName as ReadOnlyMemoryToolName);
+}
+
+function withApprovedExternalPaths(
+  context: RuntimeToolExecutionContext,
+  approvedExternalPaths: string[] | undefined,
+): RuntimeToolExecutionContext {
+  const merged = dedupeStrings([...(context.approvedExternalPaths ?? []), ...(approvedExternalPaths ?? [])]);
+  return merged.length ? { ...context, approvedExternalPaths: merged } : context;
+}
+
+function approvalUnsupportedError(toolName: string, approvedExternalPaths: string[]): ToolExecutionResult<string> {
+  return errorResult(`工具 ${toolName} 需要用户授权，但当前上下文不支持审批`, toolName, {
+    approval: {
+      reason: "路径越界访问需要审批",
+      note: "",
+      reason_codes: ["ask-path"],
+      approved_external_paths: approvedExternalPaths,
+    },
+  });
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const value of values) {
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    output.push(normalized);
+  }
+  return output;
 }

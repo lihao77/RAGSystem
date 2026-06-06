@@ -32,6 +32,7 @@ export interface RuntimeToolExecutionContext {
   roundIndex?: number | null;
   teamName?: string | null;
   workspaceRoot?: string | null;
+  approvedExternalPaths?: string[] | undefined;
   signal?: AbortSignal | undefined;
 }
 

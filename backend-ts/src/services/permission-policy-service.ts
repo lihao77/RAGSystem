@@ -8,6 +8,7 @@ export interface RuntimeToolApprovalInput {
   sessionId?: string | null | undefined;
   approvalExempt?: boolean | undefined;
   forceAsk?: boolean | undefined;
+  approvedExternalPaths?: string[] | undefined;
 }
 
 export interface RuntimeToolApprovalDecision {
@@ -19,6 +20,7 @@ export interface RuntimeToolApprovalDecision {
   reason: string;
   reasonCodes: string[];
   secondaryReasons: string[];
+  approvedExternalPaths: string[];
 }
 
 export class PermissionPolicyService {
@@ -29,9 +31,16 @@ export class PermissionPolicyService {
     approval_timeout: 300,
     skip_all_approvals: false,
   };
+  private readonly sessionOverrides = new Map<string, PermissionPolicy>();
 
   getPolicy(): PermissionPolicy {
     return clonePolicy(this.policy);
+  }
+
+  getEffectivePolicy(sessionId?: string | null | undefined): PermissionPolicy {
+    const normalizedSessionId = normalizeSessionId(sessionId);
+    const override = normalizedSessionId ? this.sessionOverrides.get(normalizedSessionId) : undefined;
+    return clonePolicy(override ?? this.policy);
   }
 
   setPolicy(policy: PermissionPolicy): PermissionPolicy {
@@ -86,11 +95,28 @@ export class PermissionPolicyService {
     return this.getPolicy();
   }
 
+  setSessionPermissionOverride(sessionId: string, policy: PermissionPolicy): PermissionPolicy {
+    const normalizedSessionId = normalizeSessionId(sessionId);
+    if (!normalizedSessionId) {
+      throw new Error("session_id 不能为空");
+    }
+    this.sessionOverrides.set(normalizedSessionId, clonePolicy(policy));
+    return this.getEffectivePolicy(normalizedSessionId);
+  }
+
+  clearSessionPermissionOverride(sessionId: string): void {
+    const normalizedSessionId = normalizeSessionId(sessionId);
+    if (normalizedSessionId) {
+      this.sessionOverrides.delete(normalizedSessionId);
+    }
+  }
+
   evaluateToolApproval(input: RuntimeToolApprovalInput): RuntimeToolApprovalDecision {
-    const policy = this.getPolicy();
+    const policy = this.getEffectivePolicy(input.sessionId);
     const toolName = input.toolName.trim();
     const riskLevel = input.riskLevel ?? "low";
     const description = input.description?.trim() || `Tool ${toolName}`;
+    const approvedExternalPaths = dedupeStrings(input.approvedExternalPaths ?? []);
     const base = {
       toolName,
       riskLevel,
@@ -98,6 +124,7 @@ export class PermissionPolicyService {
       permissionMode: policy.mode,
       reasonCodes: [],
       secondaryReasons: [],
+      approvedExternalPaths,
     };
 
     if (input.approvalExempt) {
@@ -114,36 +141,53 @@ export class PermissionPolicyService {
         reason: "skip_all_approvals enabled, skipping approval",
       };
     }
-    if (policy.mode === "dangerously_skip_permissions") {
-      return {
-        ...base,
-        action: "allow",
-        reason: "dangerously_skip_permissions 模式，跳过审批",
-      };
-    }
 
     const autoAcceptReason = matchAutoAccept(toolName, riskLevel, input.arguments ?? {}, policy);
+
+    let allowReason = "";
+    let riskReason = "";
+    let riskRequiresApproval = false;
     if (autoAcceptReason) {
+      allowReason = autoAcceptReason;
+      riskReason = autoAcceptReason;
+    } else if (policy.mode === "dangerously_skip_permissions") {
+      allowReason = "dangerously_skip_permissions 模式，跳过审批";
+      riskReason = allowReason;
+    } else if (input.forceAsk) {
+      riskRequiresApproval = true;
+      riskReason = "当前策略要求人工审批";
+    } else {
+      riskReason = getModeApprovalReason(policy.mode, riskLevel);
+      riskRequiresApproval = Boolean(riskReason);
+    }
+
+    if (approvedExternalPaths.length) {
+      const reasonPayload = buildApprovalReasonPayload({
+        riskReason,
+        forceAsk: input.forceAsk === true,
+        hasExternalPaths: true,
+      });
       return {
         ...base,
-        action: "allow",
-        reason: autoAcceptReason,
+        action: "ask",
+        reason: reasonPayload.reason,
+        reasonCodes: reasonPayload.reasonCodes,
+        secondaryReasons: reasonPayload.secondaryReasons,
       };
     }
 
-    const askReason = input.forceAsk ? "当前策略要求人工审批" : getModeApprovalReason(policy.mode, riskLevel);
-    if (!askReason) {
+    if (!riskRequiresApproval) {
       return {
         ...base,
         action: "allow",
-        reason: "",
+        reason: allowReason,
       };
     }
 
     return {
       ...base,
       action: "ask",
-      reason: askReason,
+      reason: riskReason,
       reasonCodes: ["ask-risk"],
     };
   }
@@ -209,4 +253,52 @@ function matchGlob(value: string, pattern: string): boolean {
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeSessionId(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const value of values) {
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    output.push(normalized);
+  }
+  return output;
+}
+
+function buildApprovalReasonPayload(input: {
+  riskReason: string;
+  forceAsk: boolean;
+  hasExternalPaths: boolean;
+}): { reason: string; reasonCodes: string[]; secondaryReasons: string[] } {
+  const reasons: string[] = [];
+  const reasonCodes: string[] = [];
+  const normalizedRiskReason = input.riskReason.trim();
+  if (normalizedRiskReason || input.forceAsk) {
+    reasonCodes.push("ask-risk");
+    reasons.push(normalizedRiskReason || "当前策略要求人工审批");
+  }
+  if (input.hasExternalPaths) {
+    reasonCodes.push("ask-path");
+    reasons.push("路径越界访问需要审批");
+  }
+  if (!reasons.length) {
+    return {
+      reason: "",
+      reasonCodes: [],
+      secondaryReasons: [],
+    };
+  }
+  return {
+    reason: reasons[reasons.length - 1]!,
+    reasonCodes,
+    secondaryReasons: reasons.slice(0, -1),
+  };
 }

@@ -206,6 +206,27 @@ export class LocalBashToolService {
     };
   }
 
+  getExternalPathApprovalCandidates(input: BashExecutionInput, context: RuntimeToolExecutionContext): string[] {
+    const rawDir = normalizeString(input.workingDir);
+    if (!rawDir || rawDir.startsWith(DISPLAY_PATH_PREFIX) || !isAbsolutePathLike(rawDir)) {
+      return [];
+    }
+    const candidatePath = resolvePathLike(rawDir);
+    try {
+      this.assertAllowedPath(
+        candidatePath,
+        {
+          ...context,
+          approvedExternalPaths: [],
+        },
+        rawDir,
+      );
+      return [];
+    } catch {
+      return [candidatePath];
+    }
+  }
+
   async executePlan(plan: BashExecutionPlan, context: RuntimeToolExecutionContext): Promise<ToolExecutionResult> {
     if (plan.runInBackground) {
       return this.executeBackgroundPlan(plan, context);
@@ -395,8 +416,8 @@ export class LocalBashToolService {
     const displayMapped = this.fromDisplayPath(rawDir);
     const candidate = displayMapped
       ? displayMapped
-      : path.isAbsolute(rawDir)
-        ? rawDir
+      : isAbsolutePathLike(rawDir)
+        ? resolvePathLike(rawDir)
         : path.resolve(this.managedSpaceRoot(normalizeManagedSpace(workingDirSpace) ?? "workspace", context), rawDir);
     const resolved = this.assertAllowedPath(candidate, context, rawDir);
     if (!fs.existsSync(resolved)) {
@@ -451,6 +472,7 @@ export class LocalBashToolService {
       this.effectiveWorkspaceRoot(context),
       sessionId ? path.join(this.dataRoot, "sessions", sessionId, "transient") : null,
       sessionId && runId ? path.join(this.dataRoot, "sessions", sessionId, "exports", runId) : null,
+      ...(context.approvedExternalPaths ?? []),
     ]);
   }
 
@@ -879,6 +901,17 @@ function clampPositiveInt(value: unknown, fallback: number, min: number, max: nu
 
 function normalizeString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isAbsolutePathLike(value: string): boolean {
+  return path.isAbsolute(value) || /^[a-zA-Z]:[\\/]/.test(value);
+}
+
+function resolvePathLike(value: string): string {
+  if (process.platform !== "win32" && /^[a-zA-Z]:[\\/]/.test(value)) {
+    return value.replace(/\//g, "\\");
+  }
+  return path.resolve(value);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

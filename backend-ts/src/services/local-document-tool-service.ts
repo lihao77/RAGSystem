@@ -340,6 +340,40 @@ export class LocalDocumentToolService {
     }
   }
 
+  getExternalPathApprovalCandidates(
+    toolName: string,
+    args: Record<string, unknown> | undefined,
+    context: RuntimeToolExecutionContext,
+  ): string[] {
+    const operation = documentOperationForTool(toolName);
+    if (!operation) {
+      return [];
+    }
+    const rawPath = normalizeString(args?.file_path) ?? normalizeString(args?.filePath);
+    if (!rawPath || rawPath.startsWith(DISPLAY_PATH_PREFIX) || !isAbsolutePathLike(rawPath)) {
+      return [];
+    }
+
+    const sessionId = normalizeString(context.sessionId);
+    const runId = normalizeString(context.runId);
+    const workspaceRoot = normalizeString(context.workspaceRoot) ??
+      normalizeString(asRecord(context.agent?.custom_params)?.workspace_root);
+    const candidatePath = resolvePathLike(rawPath);
+    try {
+      this.assertAllowedPath(candidatePath, {
+        sessionId,
+        runId,
+        operation,
+        workspaceRoot,
+        originalPath: rawPath,
+        approvedExternalPaths: [],
+      });
+      return [];
+    } catch {
+      return [candidatePath];
+    }
+  }
+
   private resolveManagedPath(
     filePath: string | null,
     input: {
@@ -360,6 +394,7 @@ export class LocalDocumentToolService {
       normalizeString(asRecord(input.context.agent?.custom_params)?.workspace_root);
     const explicitSpace = normalizeManagedSpace(input.explicitSpace);
     const defaultOutputSpace = normalizeManagedSpace(asRecord(input.context.agent?.custom_params)?.default_output_space) ?? null;
+    const approvedExternalPaths = input.context.approvedExternalPaths ?? [];
 
     if (!rawPath) {
       const root = this.allocateOutputRoot({
@@ -381,16 +416,18 @@ export class LocalDocumentToolService {
         operation: input.operation,
         workspaceRoot,
         originalPath: rawPath,
+        approvedExternalPaths,
       });
     }
 
-    if (path.isAbsolute(rawPath)) {
-      return this.assertAllowedPath(rawPath, {
+    if (isAbsolutePathLike(rawPath)) {
+      return this.assertAllowedPath(resolvePathLike(rawPath), {
         sessionId,
         runId,
         operation: input.operation,
         workspaceRoot,
         originalPath: rawPath,
+        approvedExternalPaths,
       });
     }
 
@@ -402,6 +439,7 @@ export class LocalDocumentToolService {
         operation: input.operation,
         workspaceRoot,
         originalPath: rawPath,
+        approvedExternalPaths,
       });
     }
 
@@ -419,6 +457,7 @@ export class LocalDocumentToolService {
             operation: input.operation,
             workspaceRoot,
             originalPath: rawPath,
+            approvedExternalPaths,
           });
         }
       }
@@ -430,6 +469,7 @@ export class LocalDocumentToolService {
       operation: input.operation,
       workspaceRoot,
       originalPath: rawPath,
+      approvedExternalPaths,
     });
   }
 
@@ -441,6 +481,7 @@ export class LocalDocumentToolService {
       operation: ManagedOperation;
       workspaceRoot: string | null;
       originalPath: string;
+      approvedExternalPaths?: string[] | undefined;
     },
   ): string {
     const resolvedPath = path.resolve(candidatePath);
@@ -449,6 +490,7 @@ export class LocalDocumentToolService {
       runId: input.runId,
       operation: input.operation,
       workspaceRoot: input.workspaceRoot,
+      approvedExternalPaths: input.approvedExternalPaths,
     });
     if (allowedRoots.some((root) => isPathUnder(resolvedPath, root))) {
       return resolvedPath;
@@ -461,12 +503,14 @@ export class LocalDocumentToolService {
     runId: string | null;
     operation: ManagedOperation;
     workspaceRoot: string | null;
+    approvedExternalPaths?: string[] | undefined;
   }): string[] {
     if (input.operation === "read") {
       return dedupePaths([
         this.effectiveWorkspaceRoot(input.sessionId, input.workspaceRoot),
         ...this.sessionReadRoots(input.sessionId, input.runId, input.workspaceRoot),
         this.dataRoot,
+        ...(input.approvedExternalPaths ?? []),
       ]);
     }
     return dedupePaths([
@@ -477,6 +521,7 @@ export class LocalDocumentToolService {
         : input.sessionId
           ? path.join(this.dataRoot, "sessions", input.sessionId, "exports")
           : null,
+      ...(input.approvedExternalPaths ?? []),
     ]);
   }
 
@@ -485,12 +530,14 @@ export class LocalDocumentToolService {
     runId: string | null;
     operation: ManagedOperation;
     workspaceRoot: string | null;
+    approvedExternalPaths?: string[] | undefined;
   }): string[] {
     if (input.operation === "read") {
       return dedupePaths([
         this.effectiveWorkspaceRoot(input.sessionId, input.workspaceRoot),
         ...this.sessionReadRoots(input.sessionId, input.runId, input.workspaceRoot),
         this.dataRoot,
+        ...(input.approvedExternalPaths ?? []),
       ]);
     }
     return dedupePaths([
@@ -501,6 +548,7 @@ export class LocalDocumentToolService {
         : input.sessionId
           ? path.join(this.dataRoot, "sessions", input.sessionId, "exports")
           : null,
+      ...(input.approvedExternalPaths ?? []),
     ]);
   }
 
@@ -1330,6 +1378,30 @@ function normalizeManagedSpace(value: unknown): ManagedSpace | null {
 
 function normalizeString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function documentOperationForTool(toolName: string): ManagedOperation | null {
+  if (toolName === "read_file") {
+    return "read";
+  }
+  if (toolName === "write_file") {
+    return "write";
+  }
+  if (toolName === "edit_file") {
+    return "edit";
+  }
+  return null;
+}
+
+function isAbsolutePathLike(value: string): boolean {
+  return path.isAbsolute(value) || /^[a-zA-Z]:[\\/]/.test(value);
+}
+
+function resolvePathLike(value: string): string {
+  if (process.platform !== "win32" && /^[a-zA-Z]:[\\/]/.test(value)) {
+    return value.replace(/\//g, "\\");
+  }
+  return path.resolve(value);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

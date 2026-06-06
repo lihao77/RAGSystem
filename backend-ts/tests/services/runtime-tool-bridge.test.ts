@@ -601,6 +601,85 @@ describe("RuntimeToolBridge", () => {
     expect(fs.readFileSync(filePath, "utf8")).toBe("report");
   });
 
+  it("asks for approval before reading external absolute paths", async () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace-read-external");
+    const externalRoot = makeTempDataRoot();
+    const externalFile = path.join(externalRoot, "external.txt");
+    writeAbsoluteFile(externalFile, "external content");
+    const events = new InMemoryEventBus();
+    const pendingInteractions = new PendingInteractionService(events);
+    const permissionPolicy = new PermissionPolicyService();
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      pendingInteractions,
+      permissionPolicy,
+      new LocalDocumentToolService({ dataRoot }),
+    );
+    const agent = minimalAgent([], ["read_file"]);
+
+    const resultPromise = Promise.resolve(
+      bridge.executeTool(
+        {
+          toolName: "read_file",
+          callId: "read-external-call",
+          arguments: { file_path: externalFile },
+        },
+        {
+          agent,
+          sessionId: "s1",
+          runId: "run-read-external",
+          workspaceRoot,
+        },
+      ),
+    );
+
+    const approvalRequired = events.getHistory("s1").find((event) => event.type === "interaction.required");
+    expect(approvalRequired?.data).toMatchObject({
+      interaction_id: expect.any(String),
+      kind: "approval",
+      approval_id: expect.any(String),
+      approval_type: "tool_execution",
+      tool_call_id: "read-external-call",
+      tool_name: "read_file",
+      risk_level: "low",
+      permission_mode: "standard",
+      approval_reason: "路径越界访问需要审批",
+      approval_reason_codes: ["ask-path"],
+      approved_external_paths: [externalFile],
+      arguments: {
+        file_path: externalFile,
+      },
+    });
+
+    const approvalId = (approvalRequired?.data as { approval_id: string }).approval_id;
+    expect(
+      pendingInteractions.respondInteraction("s1", approvalId, {
+        kind: "approval",
+        approved: true,
+        message: "允许读取外部文件",
+      }),
+    ).toMatchObject({
+      resolved: true,
+      kind: "approval",
+    });
+
+    await expect(resultPromise).resolves.toMatchObject({
+      success: true,
+      tool_name: "read_file",
+      content: "external content",
+      metadata: {
+        approval_message: "允许读取外部文件",
+        approval: {
+          reason: "路径越界访问需要审批",
+          note: "允许读取外部文件",
+          reason_codes: ["ask-path"],
+          approved_external_paths: [externalFile],
+        },
+      },
+    });
+  });
+
   it("still requires run_id for explicit exports writes", () => {
     const dataRoot = makeTempDataRoot();
     const agent = minimalAgent([], ["write_file"]);
@@ -627,6 +706,87 @@ describe("RuntimeToolBridge", () => {
       success: false,
       output_type: "error",
       content: expect.stringContaining("exports 路径缺少 run_id"),
+    });
+  });
+
+  it("asks for approval before using external execute_bash working directories", async () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace-bash-external");
+    const externalRoot = makeTempDataRoot();
+    const events = new InMemoryEventBus();
+    const pendingInteractions = new PendingInteractionService(events);
+    const permissionPolicy = new PermissionPolicyService();
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      pendingInteractions,
+      permissionPolicy,
+      null,
+      new LocalBashToolService({ dataRoot, bashExecutable: null }),
+    );
+    const agent = minimalAgent([], ["execute_bash"]);
+
+    const resultPromise = Promise.resolve(
+      bridge.executeTool(
+        {
+          toolName: "execute_bash",
+          callId: "bash-external-call",
+          arguments: {
+            command: "echo external-ok",
+            working_dir: externalRoot,
+          },
+        },
+        {
+          agent,
+          sessionId: "s1",
+          runId: "run-bash-external",
+          workspaceRoot,
+        },
+      ),
+    );
+
+    const approvalRequired = events.getHistory("s1").find((event) => event.type === "interaction.required");
+    expect(approvalRequired?.data).toMatchObject({
+      interaction_id: expect.any(String),
+      kind: "approval",
+      approval_id: expect.any(String),
+      approval_type: "bash_command",
+      tool_call_id: "bash-external-call",
+      tool_name: "execute_bash",
+      risk_level: "low",
+      approval_reason: "路径越界访问需要审批",
+      approval_reason_codes: ["ask-path"],
+      approved_external_paths: [externalRoot],
+      arguments: expect.objectContaining({
+        command: "echo external-ok",
+        working_dir: externalRoot,
+        classification: "read_only",
+      }),
+    });
+
+    const approvalId = (approvalRequired?.data as { approval_id: string }).approval_id;
+    expect(
+      pendingInteractions.respondInteraction("s1", approvalId, {
+        kind: "approval",
+        approved: true,
+        message: "允许外部工作目录",
+      }),
+    ).toMatchObject({
+      resolved: true,
+      kind: "approval",
+    });
+
+    await expect(resultPromise).resolves.toMatchObject({
+      success: true,
+      tool_name: "execute_bash",
+      metadata: {
+        approval_message: "允许外部工作目录",
+        approval: {
+          reason: "路径越界访问需要审批",
+          note: "允许外部工作目录",
+          reason_codes: ["ask-path"],
+          approved_external_paths: [externalRoot],
+        },
+      },
     });
   });
 
