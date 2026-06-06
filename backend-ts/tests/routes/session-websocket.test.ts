@@ -125,6 +125,60 @@ describe("session websocket route", () => {
     }
   });
 
+  it("sends a Python-style run binding envelope when a connected session starts a run", async () => {
+    const chatClient = new HoldableChatClient();
+    heldClients.push(chatClient);
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+
+    await createDefaultChatProvider(app);
+    const client = await connectWs(app, "/api/agent/sessions/ws-live-bind-session/ws");
+    try {
+      const started = await app.inject({
+        method: "POST",
+        url: "/api/agent/stream",
+        payload: {
+          task: "hold live binding",
+          session_id: "ws-live-bind-session",
+        },
+      });
+      expect(started.statusCode).toBe(200);
+      const runId = started.json().data.run_id;
+      expect(runId).toEqual(expect.any(String));
+
+      const runStarted = await client.receiveJson();
+      const reconnectStart = await client.receiveJson();
+      const reconnectEnd = await client.receiveJson();
+
+      expect(runStarted).toMatchObject({
+        type: "session.run_started",
+        session_id: "ws-live-bind-session",
+        run_id: runId,
+        stream_seq: 1,
+      });
+      expect(reconnectStart).toMatchObject({
+        type: "reconnect_start",
+        session_id: "ws-live-bind-session",
+        run_id: runId,
+        replay_count: 0,
+        stream_seq: 2,
+      });
+      expect(reconnectEnd).toMatchObject({
+        type: "reconnect_end",
+        session_id: "ws-live-bind-session",
+        stream_seq: 3,
+      });
+
+      const next = await client.receiveJson();
+      expect(next?.stream_seq).toBe(4);
+      expect(next?.run_id ?? next?.data?.run_id).toBe(runId);
+    } finally {
+      client.ws.terminate();
+      await harness.container.agentExecution.stopSession("ws-live-bind-session");
+      chatClient.release();
+    }
+  });
+
   it("responds to legacy approval messages with the Python-compatible approval event first", async () => {
     const harness = await buildTestHarness();
     app = harness.app;

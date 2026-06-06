@@ -27,6 +27,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
       const ws = socket as WebSocketLike;
       const sessionId = request.params.sessionId;
       let streamSeq = 0;
+      let boundRunId: string | null = null;
 
       const send = (payload: ClientEvent, increment = true): void => {
         if (ws.readyState !== WS_OPEN) {
@@ -34,6 +35,18 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
         }
         const stamped = increment ? { ...payload, stream_seq: ++streamSeq } : payload;
         ws.send(JSON.stringify(stamped));
+      };
+      const sendRunBindingEnvelope = (runId: string, replayCount: number): void => {
+        send({
+          type: "reconnect_start",
+          session_id: sessionId,
+          run_id: runId,
+          replay_count: replayCount,
+        });
+        send({
+          type: "reconnect_end",
+          session_id: sessionId,
+        });
       };
       const sendInteractionAck = (
         interactionId: string,
@@ -92,7 +105,18 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
         });
       };
 
-      const unsubscribe = options.container.events.subscribe(sessionId, (event) => send(event));
+      const unsubscribe = options.container.events.subscribe(sessionId, (event) => {
+        send(event);
+        if (event.type !== "session.run_started") {
+          return;
+        }
+        const runId = extractRunId(event);
+        if (!runId || runId === boundRunId) {
+          return;
+        }
+        boundRunId = runId;
+        sendRunBindingEnvelope(runId, 0);
+      });
       const heartbeat = setInterval(() => {
         send(
           {
@@ -106,6 +130,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
 
       const activeReplay = buildActiveRunReplay(options.container, sessionId);
       if (activeReplay) {
+        boundRunId = activeReplay.runId;
         send({
           type: "reconnect_start",
           session_id: sessionId,

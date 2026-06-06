@@ -114,16 +114,6 @@ export class AgentExecutionService {
         ...(runningRunId ? { run_id: runningRunId } : {}),
         ...mirrorEventData(followupPayload),
       });
-      this.events.publish(sessionId, {
-        type: "session.updated",
-        session_id: sessionId,
-        ...(runningRunId ? { run_id: runningRunId } : {}),
-        ...mirrorEventData({
-          source: "running_session_followup",
-          status: "running",
-          run_id: runningRunId,
-        }),
-      });
       return {
         started: true,
         session_id: sessionId,
@@ -200,6 +190,18 @@ export class AgentExecutionService {
       task_id: taskId,
       request_id: requestId,
     };
+    const runStartPayload = {
+      task_id: taskId,
+      agent_name: runtimeAgent.agent_name,
+      run_id: runId,
+      request_id: requestId,
+    };
+    this.events.publish(sessionId, {
+      type: "session.run_started",
+      session_id: sessionId,
+      run_id: runId,
+      ...mirrorEventData(runStartPayload),
+    });
     this.events.publish(sessionId, {
       type: "output.message_saved",
       session_id: sessionId,
@@ -223,29 +225,11 @@ export class AgentExecutionService {
       ...mirrorEventData(startStepPayload),
     });
 
-    const runStartPayload = {
-      task_id: taskId,
-      agent_name: runtimeAgent.agent_name,
-      run_id: runId,
-      request_id: requestId,
-    };
-    this.events.publish(sessionId, {
-      type: "session.run_started",
-      session_id: sessionId,
-      run_id: runId,
-      ...mirrorEventData(runStartPayload),
-    });
     this.events.publish(sessionId, {
       type: "run.start",
       session_id: sessionId,
       run_id: runId,
       ...mirrorEventData(runStartPayload),
-    });
-    this.events.publish(sessionId, {
-      type: "session.updated",
-      session_id: sessionId,
-      run_id: runId,
-      ...mirrorEventData({ source: "agent_stream", status: "running", run_id: runId }),
     });
 
     const promise = this.runMinimalAgent({
@@ -487,14 +471,6 @@ export class AgentExecutionService {
       checkpoint_id: input.checkpoint.checkpoint_id,
       checkpoint_round: input.checkpoint.round,
     };
-    this.addExecutionStep(sessionId, runId, startStepPayload);
-    this.events.publish(sessionId, {
-      type: "execution.step",
-      session_id: sessionId,
-      run_id: runId,
-      ...mirrorEventData(startStepPayload),
-    });
-
     const runStartPayload = {
       task_id: taskId,
       agent_name: runtimeAgent.agent_name,
@@ -509,17 +485,18 @@ export class AgentExecutionService {
       run_id: runId,
       ...mirrorEventData(runStartPayload),
     });
+    this.addExecutionStep(sessionId, runId, startStepPayload);
+    this.events.publish(sessionId, {
+      type: "execution.step",
+      session_id: sessionId,
+      run_id: runId,
+      ...mirrorEventData(startStepPayload),
+    });
     this.events.publish(sessionId, {
       type: "run.start",
       session_id: sessionId,
       run_id: runId,
       ...mirrorEventData(runStartPayload),
-    });
-    this.events.publish(sessionId, {
-      type: "session.updated",
-      session_id: sessionId,
-      run_id: runId,
-      ...mirrorEventData({ source: executionKind, status: "running", run_id: runId }),
     });
 
     const promise = this.runMinimalAgent({
@@ -776,12 +753,6 @@ export class AgentExecutionService {
           metadata: finalMetadata,
         }),
       });
-      this.events.publish(input.sessionId, {
-        type: "session.updated",
-        session_id: input.sessionId,
-        run_id: input.runId,
-        ...mirrorEventData({ source: executionKind, status: "completed", run_id: input.runId }),
-      });
     } catch (error) {
       const interrupted = input.abortController.signal.aborted;
       const finalStatus = interrupted ? "interrupted" : "failed";
@@ -838,12 +809,6 @@ export class AgentExecutionService {
             ...(input.finalMetadataExtra ?? {}),
           },
         }),
-      });
-      this.events.publish(input.sessionId, {
-        type: "session.updated",
-        session_id: input.sessionId,
-        run_id: input.runId,
-        ...mirrorEventData({ source: executionKind, status: finalStatus, run_id: input.runId }),
       });
     } finally {
       this.taskBySession.delete(input.sessionId);

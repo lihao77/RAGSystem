@@ -215,7 +215,6 @@ describe("minimal runtime core execution", () => {
         "execution.step",
         "output.final_answer",
         "run.end",
-        "session.updated",
       ]),
     );
     const agentStart = history.find((event) => event.type === "agent.start");

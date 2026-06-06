@@ -1005,11 +1005,7 @@ function hasWebSocketEventGroup(
     if (event.type === "run.end" || event.type === "output.final_answer") {
       return true;
     }
-    if (event.type !== "session.updated") {
-      return false;
-    }
-    const status = getPath(event, ["data", "status"]) ?? getPath(event, ["content", "status"]);
-    return status === "completed" || status === "failed" || status === "interrupted";
+    return false;
   });
 }
 
