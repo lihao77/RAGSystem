@@ -313,6 +313,47 @@ describe("RuntimeToolBridge", () => {
     });
   });
 
+  it("rejects invalid read_file pagination like the Python backend", () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace-read-invalid");
+    writeAbsoluteFile(path.join(workspaceRoot, "sample.txt"), "line 1\n");
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      null,
+      null,
+      new LocalDocumentToolService({ dataRoot }),
+    );
+    const agent = minimalAgent([], ["read_file"]);
+    const context = { agent, sessionId: "s1", workspaceRoot };
+
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "read_file",
+          arguments: { file_path: "sample.txt", offset: 0 },
+        },
+        context,
+      ),
+    ).toMatchObject({
+      success: false,
+      output_type: "error",
+      content: "offset 必须 >= 1",
+    });
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "read_file",
+          arguments: { file_path: "sample.txt", limit: 0 },
+        },
+        context,
+      ),
+    ).toMatchObject({
+      success: false,
+      output_type: "error",
+      content: "limit 必须 >= 1",
+    });
+  });
+
   it("previews JSON, CSV, YAML, and text structures through managed paths", () => {
     const dataRoot = makeTempDataRoot();
     const workspaceRoot = path.join(dataRoot, "workspace-preview");
@@ -500,6 +541,7 @@ describe("RuntimeToolBridge", () => {
     ).toMatchObject({
       success: true,
       tool_name: "write_file",
+      output_type: "text",
       content: {
         display_path: expect.stringContaining("notes/todo.txt"),
       },
@@ -526,6 +568,66 @@ describe("RuntimeToolBridge", () => {
       },
     });
     expect(fs.readFileSync(path.join(workspaceRoot, "notes", "todo.txt"), "utf8")).toBe("after\n");
+  });
+
+  it("allows direct absolute writes under session exports when run_id is absent", () => {
+    const dataRoot = makeTempDataRoot();
+    const agent = minimalAgent([], ["write_file"]);
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
+      null,
+      null,
+      new LocalDocumentToolService({ dataRoot }),
+    );
+    const filePath = path.join(dataRoot, "sessions", "s1", "exports", "report.txt");
+
+    const result = bridge.executeTool(
+      {
+        toolName: "write_file",
+        arguments: {
+          file_path: filePath,
+          content: "report",
+        },
+      },
+      { agent, sessionId: "s1" },
+    );
+
+    expect(result).toMatchObject({
+      success: true,
+      content: {
+        file_path: filePath,
+      },
+    });
+    expect(fs.readFileSync(filePath, "utf8")).toBe("report");
+  });
+
+  it("still requires run_id for explicit exports writes", () => {
+    const dataRoot = makeTempDataRoot();
+    const agent = minimalAgent([], ["write_file"]);
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
+      null,
+      null,
+      new LocalDocumentToolService({ dataRoot }),
+    );
+
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "write_file",
+          arguments: {
+            file_path: "report.txt",
+            file_path_space: "exports",
+            content: "report",
+          },
+        },
+        { agent, sessionId: "s1" },
+      ),
+    ).toMatchObject({
+      success: false,
+      output_type: "error",
+      content: expect.stringContaining("exports 路径缺少 run_id"),
+    });
   });
 
   it("exposes and executes execute_bash when enabled by agent config", async () => {

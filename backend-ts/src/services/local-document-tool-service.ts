@@ -8,7 +8,6 @@ import type { ToolExecutionResult } from "./memory-tool-service.js";
 import type { RuntimeToolExecutionContext } from "./runtime-tool-types.js";
 
 const DEFAULT_READ_MAX_LINES = 2000;
-const MAX_READ_LINES = 10000;
 const DISPLAY_PATH_PREFIX = "./data/";
 const DEFAULT_STRUCTURE_PREVIEW_ROWS = 5;
 const DEFAULT_STRUCTURE_PREVIEW_DEPTH = 3;
@@ -62,8 +61,14 @@ export class LocalDocumentToolService {
         return errorResult(`路径不是文件: ${input.filePath}`, toolName);
       }
 
-      const offset = positiveInt(input.offset, 1);
-      const limit = clampPositiveInt(input.limit, DEFAULT_READ_MAX_LINES, 1, MAX_READ_LINES);
+      const offset = input.offset ?? 1;
+      const limit = input.limit ?? DEFAULT_READ_MAX_LINES;
+      if (!Number.isInteger(offset) || offset < 1) {
+        return errorResult("offset 必须 >= 1", toolName);
+      }
+      if (!Number.isInteger(limit) || limit < 1) {
+        return errorResult("limit 必须 >= 1", toolName);
+      }
       const encoding = normalizeEncoding(input.encoding);
       const rawContent = fs.readFileSync(resolvedPath).toString(encoding);
       const allLines = splitPreservingLineEndings(rawContent);
@@ -93,13 +98,12 @@ export class LocalDocumentToolService {
       const actualEndLine = startIndex + selectedLines.length;
       const hasMore = endIndex < totalLines;
       const nextOffset = hasMore ? actualEndLine + 1 : null;
-      const summary = [
-        `文件读取成功: ${this.toDisplayPath(resolvedPath)}`,
-        `行 ${offset}-${actualEndLine}`,
-        `共 ${totalLines} 行`,
-        `${stat.size} 字节`,
-        hasMore ? `还有后续内容，可继续调用 read_file(offset=${nextOffset})` : "已到文件末尾",
-      ].join("；");
+      let summary = `文件读取成功: ${input.filePath}（行 ${offset}-${actualEndLine}，共 ${totalLines} 行，${stat.size} 字节）`;
+      if (hasMore) {
+        summary += `；还有后续内容，可继续调用 read_file(offset=${nextOffset})`;
+      } else {
+        summary += "；已到文件末尾";
+      }
 
       return successResult(content, {
         summary,
@@ -113,6 +117,7 @@ export class LocalDocumentToolService {
           end_line: actualEndLine,
           has_more: hasMore,
           next_offset: nextOffset,
+          user_approved_full_read: false,
         },
         toolName,
       });
@@ -153,7 +158,7 @@ export class LocalDocumentToolService {
         },
         {
           summary: `文件已写入: ${displayPath}（${stat.size} 字节）`,
-          outputType: "json",
+          outputType: "text",
           metadata: {
             file_path: resolvedPath,
             display_path: displayPath,
@@ -351,7 +356,8 @@ export class LocalDocumentToolService {
 
     const sessionId = normalizeString(input.context.sessionId);
     const runId = normalizeString(input.context.runId);
-    const workspaceRoot = normalizeString(input.context.workspaceRoot);
+    const workspaceRoot = normalizeString(input.context.workspaceRoot) ??
+      normalizeString(asRecord(input.context.agent?.custom_params)?.workspace_root);
     const explicitSpace = normalizeManagedSpace(input.explicitSpace);
     const defaultOutputSpace = normalizeManagedSpace(asRecord(input.context.agent?.custom_params)?.default_output_space) ?? null;
 
@@ -466,7 +472,11 @@ export class LocalDocumentToolService {
     return dedupePaths([
       this.effectiveWorkspaceRoot(input.sessionId, input.workspaceRoot),
       input.sessionId ? path.join(this.dataRoot, "sessions", input.sessionId, "transient") : null,
-      input.sessionId && input.runId ? path.join(this.dataRoot, "sessions", input.sessionId, "exports", input.runId) : null,
+      input.sessionId && input.runId
+        ? path.join(this.dataRoot, "sessions", input.sessionId, "exports", input.runId)
+        : input.sessionId
+          ? path.join(this.dataRoot, "sessions", input.sessionId, "exports")
+          : null,
     ]);
   }
 
@@ -486,7 +496,11 @@ export class LocalDocumentToolService {
     return dedupePaths([
       this.effectiveWorkspaceRoot(input.sessionId, input.workspaceRoot),
       input.sessionId ? path.join(this.dataRoot, "sessions", input.sessionId, "transient") : null,
-      input.sessionId && input.runId ? path.join(this.dataRoot, "sessions", input.sessionId, "exports", input.runId) : null,
+      input.sessionId && input.runId
+        ? path.join(this.dataRoot, "sessions", input.sessionId, "exports", input.runId)
+        : input.sessionId
+          ? path.join(this.dataRoot, "sessions", input.sessionId, "exports")
+          : null,
     ]);
   }
 
@@ -1301,14 +1315,6 @@ function buildDiffPreview(before: string, after: string, fileName: string): stri
 
 function randomSuffix(): string {
   return Math.random().toString(16).slice(2, 14).padEnd(12, "0");
-}
-
-function positiveInt(value: number | null | undefined, fallback: number): number {
-  return Number.isInteger(value) && Number(value) >= 1 ? Number(value) : fallback;
-}
-
-function clampPositiveInt(value: number | null | undefined, fallback: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, positiveInt(value, fallback)));
 }
 
 function normalizeManagedSpace(value: unknown): ManagedSpace | null {

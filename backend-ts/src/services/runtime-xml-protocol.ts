@@ -307,34 +307,23 @@ function renderToolManifest(tools: RuntimeToolDefinition[]): string {
 
 function renderCompactToolObservation(result: ToolExecutionResult): string {
   if (!result.success) {
-    return JSON.stringify({
-      error: stringifyToolContent(result.content) || result.summary,
-      retryable: false,
-    });
+    return `[ERROR] ${stringifyToolContent(result.content) || "未知错误"}`;
   }
 
-  const preferredContent = result.llm_hint?.trim() || result.answer?.trim() || result.content;
-  const source = getObservationSource(result.metadata);
-  if (typeof preferredContent === "string") {
-    const prefixed = renderTextObservationWithMetadata(preferredContent, result);
-    if (prefixed !== null) {
-      return prefixed;
-    }
-    if (source && result.tool_name === "read_memory_entry") {
-      return JSON.stringify({
-        content: preferredContent,
-        source,
-      });
-    }
-    return preferredContent;
+  if (result.tool_name === "request_user_input" && typeof result.content === "string") {
+    return appendLlmHint(result.content, result);
   }
-  if (preferredContent !== null && preferredContent !== undefined) {
-    const payload = source && isRecord(preferredContent)
-      ? { ...preferredContent, source }
-      : preferredContent;
-    return JSON.stringify(payload);
+
+  const renderedContent = renderToolContentForObservation(result.content, result.output_type);
+  let observation = renderObservationPrefix(result);
+  if (renderedContent) {
+    if (observation && !(result.summary && renderedContent.trim() === result.summary.trim())) {
+      observation += `\n\n${renderedContent}`;
+    } else if (!observation) {
+      observation = renderedContent;
+    }
   }
-  return result.summary;
+  return appendLlmHint(observation || result.summary, result);
 }
 
 function inferToolResultSemantic(toolName: string, result: ToolExecutionResult): string | null {
@@ -345,39 +334,65 @@ function inferToolResultSemantic(toolName: string, result: ToolExecutionResult):
   return toolName === "request_user_input" ? "user_input_response" : null;
 }
 
-function renderTextObservationWithMetadata(content: string, result: ToolExecutionResult): string | null {
+function renderObservationPrefix(result: ToolExecutionResult): string {
+  let prefix = "";
+  const answer = typeof result.answer === "string" && result.answer.trim() ? result.answer.trim() : null;
+  if (answer) {
+    prefix += answer;
+  } else if (result.summary) {
+    prefix += result.summary;
+  }
+  const metadataPrefix = renderMetadataObservationPrefix(result);
+  if (metadataPrefix) {
+    prefix += prefix ? `\n\n${metadataPrefix}` : metadataPrefix;
+  }
+  return prefix;
+}
+
+function renderMetadataObservationPrefix(result: ToolExecutionResult): string {
   const childAgentId = typeof result.metadata.child_agent_id === "string" && result.metadata.child_agent_id.trim()
     ? result.metadata.child_agent_id.trim()
     : null;
   const approvalMessage = typeof result.metadata.approval_message === "string" && result.metadata.approval_message.trim()
     ? result.metadata.approval_message.trim()
     : null;
-  if (!childAgentId && !approvalMessage) {
-    return null;
-  }
-
-  let prefix = result.summary ? `${result.summary}\n\n` : "";
+  const parts: string[] = [];
   if (childAgentId) {
-    prefix += `child_agent_id: ${childAgentId}\n\n`;
+    parts.push(`child_agent_id: ${childAgentId}`);
   }
   if (approvalMessage) {
-    prefix += `用户批注: ${approvalMessage}\n\n`;
+    parts.push(`用户批注: ${approvalMessage}`);
   }
-  if (result.summary && content.trim() === result.summary.trim()) {
-    return prefix.trimEnd();
-  }
-  return `${prefix}${content}`;
+  return parts.join("\n\n");
 }
 
-function getObservationSource(metadata: Record<string, unknown>): string | null {
-  for (const key of ["file_path", "index_file_path", "source", "path"]) {
-    const value = metadata[key];
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
-    }
+function renderToolContentForObservation(content: unknown, outputType: string): string {
+  if (content === null || content === undefined) {
+    return "";
   }
-  const scope = metadata.scope;
-  return typeof scope === "string" && scope.trim() ? scope.trim() : null;
+  if (typeof content === "string") {
+    return content;
+  }
+  if (outputType === "json" || Array.isArray(content) || isRecord(content)) {
+    return `\`\`\`json\n${stringifyJsonForObservation(content)}\n\`\`\``;
+  }
+  return stringifyToolContent(content);
+}
+
+function appendLlmHint(observation: string, result: ToolExecutionResult): string {
+  const hint = typeof result.llm_hint === "string" && result.llm_hint.trim() ? result.llm_hint.trim() : null;
+  if (!hint) {
+    return observation;
+  }
+  return observation ? `${observation}\n${hint}` : hint;
+}
+
+function stringifyJsonForObservation(content: unknown): string {
+  try {
+    return JSON.stringify(content, null, 2);
+  } catch {
+    return stringifyToolContent(content);
+  }
 }
 
 function stringifyToolContent(content: unknown): string {

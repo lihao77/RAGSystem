@@ -984,6 +984,56 @@ describe("AgentRuntimeCore", () => {
     );
   });
 
+  it("renders text tool observations with Python-style summary and llm hint", () => {
+    const content = renderToolResultContent({
+      callId: "read_call_1",
+      toolName: "read_file",
+      result: {
+        success: true,
+        tool_name: "read_file",
+        summary: "读取成功",
+        answer: null,
+        output_type: "text",
+        content: "file content",
+        metadata: {},
+        artifacts: [],
+        llm_hint: "可用 preview_data_structure 查看结构",
+      },
+    });
+
+    expect(content).toBe(
+      '<tool_result id="read_call_1" name="read_file" ok="true"><![CDATA[读取成功\n\nfile content\n可用 preview_data_structure 查看结构]]></tool_result>',
+    );
+  });
+
+  it("renders structured tool observations with summary and json detail", () => {
+    const content = renderToolResultContent({
+      callId: "preview_call_1",
+      toolName: "preview_data_structure",
+      result: {
+        success: true,
+        tool_name: "preview_data_structure",
+        summary: "预览成功",
+        answer: null,
+        output_type: "json",
+        content: { file_type: "json", structure: { type: "object" } },
+        metadata: {},
+        artifacts: [],
+        llm_hint: null,
+      },
+    });
+
+    expect(content).toBe(
+      [
+        '<tool_result id="preview_call_1" name="preview_data_structure" ok="true"><![CDATA[预览成功',
+        "",
+        "```json",
+        JSON.stringify({ file_type: "json", structure: { type: "object" } }, null, 2),
+        "```]]></tool_result>",
+      ].join("\n"),
+    );
+  });
+
   it("runs a non-streaming tool-call loop through the runtime tool executor", async () => {
     const client = new FakeToolCallingChatClient([
       {
