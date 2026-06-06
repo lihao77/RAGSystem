@@ -1,5 +1,6 @@
 import { AgentExecutionService } from "./agent-execution-service.js";
 import { AgentContextCompressionService } from "./agent-context-compression-service.js";
+import { AgentDelegationService } from "./agent-delegation-service.js";
 import {
   AgentRuntimeContextBuilder,
   MemoryIndexContextSource,
@@ -55,6 +56,7 @@ export interface RuntimeContainer {
   readonly agentRuntimeCore: AgentRuntimeCore;
   readonly agentRuntimeContextBuilder: AgentRuntimeContextBuilder;
   readonly contextCompression: AgentContextCompressionService;
+  readonly agentDelegation: AgentDelegationService;
 }
 
 export interface RuntimeContainerOptions {
@@ -104,6 +106,14 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     new MemoryIndexContextSource(conversationStore, { memoryStore }),
     new RecentMessagesContextSource(conversationStore),
   ]);
+  const agentDelegation = new AgentDelegationService(
+    conversationStore,
+    runtimeCore,
+    agentRuntimeCore,
+    agentRuntimeContextBuilder,
+  );
+  agentDelegation.setRuntimeToolsProvider(() => runtimeToolBridge);
+  runtimeToolBridge.setAgentDelegation(agentDelegation);
   const agentExecution = new AgentExecutionService(
     sessionApplication,
     events,
@@ -140,6 +150,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     agentRuntimeCore,
     agentRuntimeContextBuilder,
     contextCompression,
+    agentDelegation,
   };
 }
 

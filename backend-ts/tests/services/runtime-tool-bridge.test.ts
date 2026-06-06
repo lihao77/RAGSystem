@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
+import type { AgentDelegationService } from "../../src/services/agent-delegation-service.js";
 import { MemoryStore } from "../../src/services/memory-store.js";
 import { MemoryToolService, type RuntimeMemorySessionPort } from "../../src/services/memory-tool-service.js";
 import { InMemoryEventBus } from "../../src/services/event-bus.js";
@@ -55,6 +56,64 @@ describe("RuntimeToolBridge", () => {
       }),
     ]);
     expect(bridge.listVisibleToolNames(minimalAgent([]))).toEqual([]);
+  });
+
+  it("exposes and dispatches agent delegation tools only when delegation is configured", async () => {
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})),
+    );
+    const agent = minimalAgent([], [], ["plan_agent"]);
+    const calls: Array<{ input: unknown; sessionId: string | null | undefined }> = [];
+    const fakeDelegation = {
+      async callAgent(input: unknown, context: { sessionId?: string | null }) {
+        calls.push({ input, sessionId: context.sessionId });
+        return delegationSuccess("call_agent", "delegated");
+      },
+      listChildAgents() {
+        return delegationSuccess("list_child_agents", { items: [], total: 0 });
+      },
+      sendMessage() {
+        return delegationSuccess("send_message", "resumed");
+      },
+    } as unknown as AgentDelegationService;
+
+    expect(bridge.listVisibleToolNames(agent)).toEqual([]);
+
+    bridge.setAgentDelegation(fakeDelegation);
+
+    expect(bridge.listVisibleToolNames(agent)).toEqual(["call_agent", "list_child_agents", "send_message"]);
+    await expect(
+      bridge.executeTool(
+        {
+          toolName: "call_agent",
+          callId: "delegate-1",
+          arguments: {
+            agent_name: "plan_agent",
+            task: "拆解迁移任务",
+            context_hint: "只输出步骤",
+          },
+        },
+        {
+          agent,
+          sessionId: "s1",
+        },
+      ),
+    ).resolves.toMatchObject({
+      success: true,
+      tool_name: "call_agent",
+      content: "delegated",
+    });
+    expect(calls).toEqual([
+      {
+        input: {
+          agentName: "plan_agent",
+          task: "拆解迁移任务",
+          contextHint: "只输出步骤",
+          callId: "delegate-1",
+        },
+        sessionId: "s1",
+      },
+    ]);
   });
 
   it("dispatches list_memory_index and read_memory_entry calls to memory tools", () => {
@@ -805,7 +864,21 @@ function writeAbsoluteFile(filePath: string, content: string): void {
   fs.writeFileSync(filePath, content, "utf8");
 }
 
-function minimalAgent(allowedScopes: string[], enabledTools: string[] = []): AgentConfig {
+function delegationSuccess<T>(toolName: string, content: T) {
+  return {
+    success: true,
+    tool_name: toolName,
+    summary: "ok",
+    answer: null,
+    output_type: typeof content === "string" ? "text" : "json",
+    content,
+    metadata: {},
+    artifacts: [],
+    llm_hint: null,
+  };
+}
+
+function minimalAgent(allowedScopes: string[], enabledTools: string[] = [], delegatedAgents: string[] = []): AgentConfig {
   return {
     agent_name: "orchestrator_agent",
     display_name: "Orchestrator Agent",
@@ -830,7 +903,7 @@ function minimalAgent(allowedScopes: string[], enabledTools: string[] = []): Age
       archive_scopes: [],
     },
     tasks: { workflow: false, background: false },
-    delegation: { enabled_agents: [] },
+    delegation: { enabled_agents: delegatedAgents },
     knowledge_base: {
       enabled: false,
       default_collection: "documents",

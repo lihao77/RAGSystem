@@ -296,6 +296,9 @@ export class AgentConfigService {
       implementedTool("edit_file", "Edit an existing file in the managed workspace", "filesystem", "high"),
       implementedTool("preview_data_structure", "Preview structured data files", "data", "low"),
       implementedTool("execute_bash", "Execute a foreground shell command with approval boundaries", "execution", "high"),
+      implementedTool("call_agent", "Delegate a subtask to an allowed child Agent", "agent_delegation", "low"),
+      implementedTool("list_child_agents", "List child Agent sessions for the current session", "agent_delegation", "low"),
+      implementedTool("send_message", "Continue an existing child Agent session", "agent_delegation", "low"),
     ];
   }
 

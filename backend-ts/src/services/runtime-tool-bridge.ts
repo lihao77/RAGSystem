@@ -4,6 +4,7 @@ import {
   type MemoryToolService,
 } from "./memory-tool-service.js";
 import type { LocalDocumentToolService } from "./local-document-tool-service.js";
+import type { AgentDelegationService } from "./agent-delegation-service.js";
 import type {
   BashExecutionInput,
   BashExecutionPlan,
@@ -30,6 +31,9 @@ const WRITE_FILE_TOOL_NAME = "write_file";
 const EDIT_FILE_TOOL_NAME = "edit_file";
 const PREVIEW_DATA_STRUCTURE_TOOL_NAME = "preview_data_structure";
 const EXECUTE_BASH_TOOL_NAME = "execute_bash";
+const CALL_AGENT_TOOL_NAME = "call_agent";
+const LIST_CHILD_AGENTS_TOOL_NAME = "list_child_agents";
+const SEND_MESSAGE_TOOL_NAME = "send_message";
 
 const REQUEST_USER_INPUT_TOOL: RuntimeToolDefinition = {
   name: REQUEST_USER_INPUT_TOOL_NAME,
@@ -351,7 +355,84 @@ const READ_ONLY_MEMORY_TOOLS: RuntimeToolDefinition[] = [
   },
 ];
 
+const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
+  {
+    name: CALL_AGENT_TOOL_NAME,
+    source: "agent_tool",
+    category: "agent_delegation",
+    riskLevel: "low",
+    description:
+      "Delegate a self-contained subtask to one allowed child Agent. agent_name must come from the current Agent delegation allowlist.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["agent_name", "task"],
+      properties: {
+        agent_name: {
+          type: "string",
+          description: "Target child Agent name from the current delegation allowlist.",
+        },
+        task: {
+          type: "string",
+          description: "Complete task description with all context the child Agent needs.",
+        },
+        context_hint: {
+          type: "string",
+          description: "Optional extra constraints, output format, or background.",
+        },
+      },
+    },
+  },
+  {
+    name: LIST_CHILD_AGENTS_TOOL_NAME,
+    source: "agent_tool",
+    category: "agent_delegation",
+    riskLevel: "low",
+    description: "List existing child Agent sessions in the current session so a prior child_agent_id can be reused.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        agent_name: {
+          type: "string",
+          description: "Optional Agent name filter.",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 100,
+          description: "Maximum number of child Agents to return. Defaults to 20.",
+        },
+      },
+    },
+  },
+  {
+    name: SEND_MESSAGE_TOOL_NAME,
+    source: "agent_tool",
+    category: "agent_delegation",
+    riskLevel: "low",
+    description: "Send a follow-up message to an existing child Agent session by child_agent_id.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["child_agent_id", "message"],
+      properties: {
+        child_agent_id: {
+          type: "string",
+          description: "Child Agent id returned by call_agent or list_child_agents.",
+        },
+        message: {
+          type: "string",
+          description: "Follow-up task or correction for the existing child Agent.",
+        },
+      },
+    },
+  },
+];
+
 export class RuntimeToolBridge implements RuntimeToolExecutor {
+  private agentDelegation: AgentDelegationService | null = null;
+
   constructor(
     private readonly memoryTools: MemoryToolService,
     private readonly pendingInteractions: PendingInteractionService | null = null,
@@ -359,6 +440,10 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     private readonly documentTools: LocalDocumentToolService | null = null,
     private readonly bashTools: LocalBashToolService | null = null,
   ) {}
+
+  setAgentDelegation(agentDelegation: AgentDelegationService | null): void {
+    this.agentDelegation = agentDelegation;
+  }
 
   listVisibleTools(agent: AgentConfig | null): RuntimeToolDefinition[] {
     const tools: RuntimeToolDefinition[] = [];
@@ -379,6 +464,9 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     const memoryConfig = agent?.memory;
     if (memoryConfig?.allowed_scopes?.length) {
       tools.push(...READ_ONLY_MEMORY_TOOLS.map((tool) => ({ ...tool })));
+    }
+    if (this.agentDelegation && agent?.delegation.enabled_agents?.length) {
+      tools.push(...AGENT_DELEGATION_TOOLS.map((tool) => ({ ...tool })));
     }
     return tools;
   }
@@ -446,6 +534,15 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     }
     if (toolName === "read_memory_entry") {
       return this.memoryTools.readMemoryEntry(readMemoryEntryArguments(call.arguments), context);
+    }
+    if (toolName === CALL_AGENT_TOOL_NAME && this.agentDelegation) {
+      return this.agentDelegation.callAgent(readCallAgentArguments(call.arguments, call.callId), context);
+    }
+    if (toolName === LIST_CHILD_AGENTS_TOOL_NAME && this.agentDelegation) {
+      return this.agentDelegation.listChildAgents(readListChildAgentsArguments(call.arguments), context);
+    }
+    if (toolName === SEND_MESSAGE_TOOL_NAME && this.agentDelegation) {
+      return this.agentDelegation.sendMessage(readSendMessageArguments(call.arguments, call.callId), context);
     }
     return errorResult(`工具未暴露或暂未迁移: ${toolName}`, toolName);
   }
@@ -775,6 +872,42 @@ function readBashArguments(value: Record<string, unknown> | undefined): BashExec
         ? value.runInBackground
         : null,
     description: asString(value?.description),
+  };
+}
+
+function readCallAgentArguments(value: Record<string, unknown> | undefined, callId: string | undefined): {
+  agentName: string;
+  task: string;
+  contextHint?: string | null;
+  callId?: string | null;
+} {
+  return {
+    agentName: asString(value?.agent_name) ?? asString(value?.agentName) ?? "",
+    task: asString(value?.task) ?? "",
+    contextHint: asString(value?.context_hint) ?? asString(value?.contextHint),
+    callId: callId ?? null,
+  };
+}
+
+function readListChildAgentsArguments(value: Record<string, unknown> | undefined): {
+  agentName?: string | null;
+  limit?: number | null;
+} {
+  return {
+    agentName: asString(value?.agent_name) ?? asString(value?.agentName),
+    limit: asInteger(value?.limit),
+  };
+}
+
+function readSendMessageArguments(value: Record<string, unknown> | undefined, callId: string | undefined): {
+  childAgentId: string;
+  message: string;
+  callId?: string | null;
+} {
+  return {
+    childAgentId: asString(value?.child_agent_id) ?? asString(value?.childAgentId) ?? "",
+    message: asString(value?.message) ?? "",
+    callId: callId ?? null,
   };
 }
 

@@ -585,6 +585,23 @@ export class ConversationStore {
     return row ? rowToChildAgent(row) : null;
   }
 
+  updateChildAgentLastRun(input: {
+    sessionId: string;
+    childAgentId: string;
+    lastRunId: string;
+  }): boolean {
+    const result = this.db
+      .prepare(
+        `
+          UPDATE child_agents
+          SET last_run_id=?, updated_at=CURRENT_TIMESTAMP
+          WHERE session_id=? AND child_agent_id=?
+        `,
+      )
+      .run(input.lastRunId, input.sessionId, input.childAgentId);
+    return Number(result.changes) > 0;
+  }
+
   getRecentMessagesByChildAgent(sessionId: string, childAgentId: string, limit = 20): MessageInfo[] {
     const child = this.getChildAgent(sessionId, childAgentId);
     if (!child) {

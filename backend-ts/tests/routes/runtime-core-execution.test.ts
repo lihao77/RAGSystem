@@ -472,6 +472,9 @@ describe("minimal runtime core execution", () => {
       "execute_bash",
       "list_memory_index",
       "read_memory_entry",
+      "call_agent",
+      "list_child_agents",
+      "send_message",
     ]);
     expect(chatClient.requests[1]?.messages).toEqual(
       expect.arrayContaining([
@@ -691,6 +694,136 @@ describe("minimal runtime core execution", () => {
     expect(messages.json().data.items.at(-1)).toMatchObject({
       role: "assistant",
       content: "The XML runtime read memory.",
+    });
+  });
+
+  it("runs synchronous child agent delegation through XML tool calls", async () => {
+    const chatClient = new FakeXmlStreamingToolChatClient([
+      [
+        "<intent>",
+        "我让 plan_agent 先拆解迁移任务。",
+        "</intent><tool_calls>",
+        '<tool name="call_agent" id="delegate-plan"><agent_name>plan_agent</agent_name><task>拆解 TS 后端迁移下一步</task><context_hint>保持简洁，只输出关键步骤</context_hint></tool>',
+        "</tool_calls>",
+      ],
+      ["<final_answer>", "child plan result", "</final_answer>"],
+      ["<final_answer>", "parent final with child plan result", "</final_answer>"],
+    ]);
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+
+    await createDefaultChatProvider(app);
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      headers: {
+        "x-request-id": "req-runtime-delegate",
+      },
+      payload: {
+        task: "需要规划迁移下一步",
+        session_id: "delegate-runtime-session",
+      },
+    });
+
+    expect(started.statusCode).toBe(200);
+    await waitFor(
+      () => harness.container.agentExecution.getSessionTaskStatus("delegate-runtime-session").task_info?.status === "completed",
+      2000,
+    );
+
+    expect(chatClient.requests).toHaveLength(3);
+    expect(chatClient.requests[0]?.agent?.agent_name).toBe("orchestrator_agent");
+    expect(chatClient.requests[0]?.tools).toBeUndefined();
+    expect(chatClient.requests[0]?.messages[0]?.content).toContain("call_agent");
+
+    const childRequest = chatClient.requests[1];
+    expect(childRequest?.agent?.agent_name).toBe("plan_agent");
+    expect(childRequest?.messages.some((message) => message.content.includes("拆解 TS 后端迁移下一步"))).toBe(true);
+    expect(childRequest?.messages.some((message) => message.content.includes("保持简洁，只输出关键步骤"))).toBe(true);
+
+    const children = harness.container.conversationStore.listChildAgents({
+      sessionId: "delegate-runtime-session",
+      agentName: "plan_agent",
+    });
+    expect(children.total).toBe(1);
+    const child = children.items[0]!;
+    expect(child).toMatchObject({
+      agent_name: "plan_agent",
+      status: "active",
+      thread_key: `child:${child.child_agent_id}`,
+      created_by_call_id: expect.stringMatching(/^call_/),
+      parent_call_id: "delegate-plan",
+      last_run_id: expect.any(String),
+      metadata: expect.objectContaining({
+        created_via: "call_agent",
+        thread_key: `child:${child.child_agent_id}`,
+        uses_worktree: false,
+      }),
+    });
+
+    const parentFinalRequest = chatClient.requests[2];
+    const toolResultMessage = parentFinalRequest?.messages.find((message) =>
+      message.role === "user" && message.content.includes("call_agent"),
+    );
+    expect(parentFinalRequest?.agent?.agent_name).toBe("orchestrator_agent");
+    expect(toolResultMessage?.content).toContain("<tool_result");
+    expect(toolResultMessage?.content).toContain(child.child_agent_id);
+    expect(toolResultMessage?.content).toContain("child plan result");
+
+    const childMessages = harness.container.conversationStore.listMessages(
+      "delegate-runtime-session",
+      20,
+      0,
+      child.thread_key,
+    ).items;
+    expect(childMessages).toMatchObject([
+      {
+        role: "user",
+        content: expect.stringContaining("拆解 TS 后端迁移下一步"),
+        child_agent_id: child.child_agent_id,
+      },
+      {
+        role: "assistant",
+        content: "child plan result",
+        child_agent_id: child.child_agent_id,
+      },
+    ]);
+
+    const history = harness.container.events.getHistory("delegate-runtime-session");
+    expect(history.filter((event) => event.type === "execution.step").map((event) => event.data)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "tool",
+          phase: "start",
+          tool_name: "call_agent",
+          call_id: "delegate-plan",
+          arguments: {
+            agent_name: "plan_agent",
+            task: "拆解 TS 后端迁移下一步",
+            context_hint: "保持简洁，只输出关键步骤",
+          },
+        }),
+        expect.objectContaining({
+          kind: "tool",
+          phase: "end",
+          tool_name: "call_agent",
+          success: true,
+          summary: "child plan result",
+        }),
+      ]),
+    );
+    expect(history.find((event) => event.type === "output.final_answer")?.data).toMatchObject({
+      content: "parent final with child plan result",
+    });
+
+    const messages = await app.inject({
+      method: "GET",
+      url: "/api/agent/sessions/delegate-runtime-session/messages?expand=1",
+    });
+    expect(messages.json().data.items.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "parent final with child plan result",
     });
   });
 
