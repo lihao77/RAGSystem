@@ -111,6 +111,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     runtimeCore,
     agentRuntimeCore,
     agentRuntimeContextBuilder,
+    events,
   );
   agentDelegation.setRuntimeToolsProvider(() => runtimeToolBridge);
   runtimeToolBridge.setAgentDelegation(agentDelegation);

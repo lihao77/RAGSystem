@@ -791,6 +791,35 @@ describe("minimal runtime core execution", () => {
     ]);
 
     const history = harness.container.events.getHistory("delegate-runtime-session");
+    expect(history.filter((event) => event.type === "call.agent.start" || event.type === "call.agent.end")).toEqual([
+      expect.objectContaining({
+        type: "call.agent.start",
+        agent_name: "orchestrator_agent",
+        call_id: child.created_by_call_id,
+        parent_call_id: "delegate-plan",
+        data: {
+          agent_name: "plan_agent",
+          description: "拆解 TS 后端迁移下一步",
+          agent_display_name: "plan_agent",
+          child_agent_id: child.child_agent_id,
+          mode: "create",
+        },
+      }),
+      expect.objectContaining({
+        type: "call.agent.end",
+        agent_name: "orchestrator_agent",
+        call_id: child.created_by_call_id,
+        parent_call_id: "delegate-plan",
+        data: {
+          agent_name: "plan_agent",
+          result: "child plan result",
+          success: true,
+          agent_display_name: "plan_agent",
+          child_agent_id: child.child_agent_id,
+          mode: "create",
+        },
+      }),
+    ]);
     expect(history.filter((event) => event.type === "execution.step").map((event) => event.data)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

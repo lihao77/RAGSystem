@@ -24,6 +24,8 @@ export const ClientEventTypeSchema = z.enum([
   "agent.error",
   "agent.intent_delta",
   "agent.intent_complete",
+  "call.agent.start",
+  "call.agent.end",
   "context.usage",
   "context.compression_start",
   "context.compression_summary",

@@ -4,6 +4,7 @@ import type { AgentConfig } from "../contracts/agent-config.js";
 import type { AgentRuntimeContextBuilder } from "./agent-runtime-context-builder.js";
 import type { AgentRuntimeCore, AgentRuntimeEvent, AgentRuntimeRequest } from "./agent-runtime-core.js";
 import type { ConversationStore, ChildAgentInfo } from "./conversation-store.js";
+import type { InMemoryEventBus } from "./event-bus.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { RuntimeToolExecutionContext, RuntimeToolExecutor } from "./runtime-tool-types.js";
 import type { ToolExecutionResult } from "./memory-tool-service.js";
@@ -34,6 +35,7 @@ export class AgentDelegationService {
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
     private readonly agentRuntimeCore: AgentRuntimeCore,
     private readonly contextBuilder: AgentRuntimeContextBuilder,
+    private readonly events: InMemoryEventBus | null = null,
   ) {}
 
   setRuntimeToolsProvider(provider: () => RuntimeToolExecutor | null): void {
@@ -88,6 +90,18 @@ export class AgentDelegationService {
       metadata: buildChildMetadata(context, threadKey, "call_agent"),
     });
 
+    this.publishAgentCallStart({
+      sessionId,
+      parentRunId: normalizeString(context.runId),
+      parentAgentName: parentAgent.agent_name,
+      parentCallId,
+      agentCallId,
+      agentName: targetAgentName,
+      description: task,
+      childAgentId,
+      mode: "create",
+    });
+
     const result = await this.executeChildRun({
       sessionId,
       agentName: targetAgentName,
@@ -101,6 +115,18 @@ export class AgentDelegationService {
       signal: context.signal,
       teamName: normalizeString(context.teamName),
       workspaceRoot: getChildWorkspaceRoot(child, context),
+    });
+    this.publishAgentCallEnd({
+      sessionId,
+      parentRunId: normalizeString(context.runId),
+      parentAgentName: parentAgent.agent_name,
+      parentCallId,
+      agentCallId,
+      agentName: targetAgentName,
+      result: result.content || result.summary,
+      success: result.success,
+      childAgentId,
+      mode: "create",
     });
     return this.toToolResult(toolName, result, {
       agent_name: targetAgentName,
@@ -135,6 +161,18 @@ export class AgentDelegationService {
       return errorResult(`子 Agent '${childAgentId}' 当前不可用`, toolName);
     }
 
+    this.publishAgentCallStart({
+      sessionId,
+      parentRunId: normalizeString(context.runId),
+      parentAgentName: context.agent?.agent_name ?? normalizeString(context.currentAgentName) ?? "send_message",
+      parentCallId,
+      agentCallId,
+      agentName: child.agent_name,
+      description: message,
+      childAgentId,
+      mode: "resume",
+    });
+
     const result = await this.executeChildRun({
       sessionId,
       agentName: child.agent_name,
@@ -148,6 +186,18 @@ export class AgentDelegationService {
       signal: context.signal,
       teamName: normalizeString(context.teamName),
       workspaceRoot: getChildWorkspaceRoot(child, context),
+    });
+    this.publishAgentCallEnd({
+      sessionId,
+      parentRunId: normalizeString(context.runId),
+      parentAgentName: context.agent?.agent_name ?? normalizeString(context.currentAgentName) ?? "send_message",
+      parentCallId,
+      agentCallId,
+      agentName: child.agent_name,
+      result: result.content || result.summary,
+      success: result.success,
+      childAgentId,
+      mode: "resume",
     });
     return this.toToolResult(toolName, result, {
       agent_name: child.agent_name,
@@ -371,8 +421,73 @@ export class AgentDelegationService {
         ...result.metadata,
         ...metadata,
       },
-      llmHint: buildDelegationLlmHint(toolName, result, metadata),
       toolName,
+    });
+  }
+
+  private publishAgentCallStart(input: {
+    sessionId: string;
+    parentRunId: string | null;
+    parentAgentName: string;
+    parentCallId: string | null;
+    agentCallId: string;
+    agentName: string;
+    description: string;
+    childAgentId: string;
+    mode: "create" | "resume";
+  }): void {
+    if (!this.events) {
+      return;
+    }
+    const payload = {
+      agent_name: input.agentName,
+      description: input.description,
+      agent_display_name: input.agentName,
+      child_agent_id: input.childAgentId,
+      mode: input.mode,
+    };
+    this.events.publish(input.sessionId, {
+      type: "call.agent.start",
+      session_id: input.sessionId,
+      ...(input.parentRunId ? { run_id: input.parentRunId } : {}),
+      agent_name: input.parentAgentName,
+      call_id: input.agentCallId,
+      ...(input.parentCallId ? { parent_call_id: input.parentCallId } : {}),
+      ...mirrorEventData(payload),
+    });
+  }
+
+  private publishAgentCallEnd(input: {
+    sessionId: string;
+    parentRunId: string | null;
+    parentAgentName: string;
+    parentCallId: string | null;
+    agentCallId: string;
+    agentName: string;
+    result: string;
+    success: boolean;
+    childAgentId: string;
+    mode: "create" | "resume";
+  }): void {
+    if (!this.events) {
+      return;
+    }
+    const payload = {
+      agent_name: input.agentName,
+      result: input.result.slice(0, 500),
+      success: input.success,
+      agent_display_name: input.agentName,
+      child_agent_id: input.childAgentId,
+      mode: input.mode,
+    };
+    this.events.publish(input.sessionId, {
+      type: "call.agent.end",
+      session_id: input.sessionId,
+      ...(input.parentRunId ? { run_id: input.parentRunId } : {}),
+      agent_name: input.parentAgentName,
+      call_id: input.agentCallId,
+      ...(input.parentCallId ? { parent_call_id: input.parentCallId } : {}),
+      ...mirrorEventData(payload),
     });
   }
 }
@@ -497,21 +612,9 @@ function normalizeString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function buildDelegationLlmHint(
-  toolName: string,
-  result: {
-    content: string;
-    metadata: Record<string, unknown>;
-  },
-  metadata: Record<string, unknown>,
-): string | null {
-  if (toolName !== "call_agent" && toolName !== "send_message") {
-    return null;
-  }
-  return JSON.stringify({
-    child_agent_id: normalizeString(metadata.child_agent_id) ?? normalizeString(result.metadata.child_agent_id),
-    agent_name: normalizeString(metadata.agent_name) ?? normalizeString(result.metadata.agent_name),
-    run_id: normalizeString(result.metadata.run_id),
-    content: result.content,
-  });
+function mirrorEventData<T extends Record<string, unknown>>(data: T): { data: T; content: T } {
+  return {
+    data,
+    content: data,
+  };
 }

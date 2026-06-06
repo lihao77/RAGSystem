@@ -9,11 +9,13 @@ import {
 import type { AgentRuntimeCore, AgentRuntimeRequest } from "../../src/services/agent-runtime-core.js";
 import { AgentDelegationService } from "../../src/services/agent-delegation-service.js";
 import { ConversationStore } from "../../src/services/conversation-store.js";
+import { InMemoryEventBus } from "../../src/services/event-bus.js";
 import type { RuntimeExecutionConfigResolver } from "../../src/services/runtime-core-service.js";
 
 describe("AgentDelegationService", () => {
   it("lists child agents and resumes an existing child thread with send_message", async () => {
     const store = new ConversationStore({ dbPath: ":memory:" });
+    const events = new InMemoryEventBus();
     const workerAgent = minimalAgent("worker_agent");
     const runtimeRequests: AgentRuntimeRequest[] = [];
     const service = new AgentDelegationService(
@@ -35,6 +37,7 @@ describe("AgentDelegationService", () => {
         },
       } as unknown as AgentRuntimeCore,
       new AgentRuntimeContextBuilder([new RecentMessagesContextSource(store)]),
+      events,
     );
 
     store.createSession("session-1", null, {
@@ -106,8 +109,7 @@ describe("AgentDelegationService", () => {
         mode: "resume",
       },
     });
-    expect(result.llm_hint).toContain("child-existing");
-    expect(result.llm_hint).toContain("resumed answer");
+    expect(result.llm_hint).toBeNull();
 
     expect(runtimeRequests).toHaveLength(1);
     expect(runtimeRequests[0]?.conversation.map((message) => message.content)).toEqual([
@@ -128,6 +130,38 @@ describe("AgentDelegationService", () => {
       ["assistant", "previous answer", "child-existing"],
       ["user", "继续分析", "child-existing"],
       ["assistant", "resumed answer", "child-existing"],
+    ]);
+    const callEvents = events
+      .getHistory("session-1")
+      .filter((event) => event.type === "call.agent.start" || event.type === "call.agent.end");
+    expect(callEvents).toEqual([
+      expect.objectContaining({
+        type: "call.agent.start",
+        agent_name: "orchestrator_agent",
+        parent_call_id: "resume-call",
+        call_id: result.metadata.agent_call_id,
+        data: {
+          agent_name: "worker_agent",
+          description: "继续分析",
+          agent_display_name: "worker_agent",
+          child_agent_id: "child-existing",
+          mode: "resume",
+        },
+      }),
+      expect.objectContaining({
+        type: "call.agent.end",
+        agent_name: "orchestrator_agent",
+        parent_call_id: "resume-call",
+        call_id: result.metadata.agent_call_id,
+        data: {
+          agent_name: "worker_agent",
+          result: "resumed answer",
+          success: true,
+          agent_display_name: "worker_agent",
+          child_agent_id: "child-existing",
+          mode: "resume",
+        },
+      }),
     ]);
     store.close();
   });

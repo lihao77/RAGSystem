@@ -316,6 +316,10 @@ function renderCompactToolObservation(result: ToolExecutionResult): string {
   const preferredContent = result.llm_hint?.trim() || result.answer?.trim() || result.content;
   const source = getObservationSource(result.metadata);
   if (typeof preferredContent === "string") {
+    const prefixed = renderTextObservationWithMetadata(preferredContent, result);
+    if (prefixed !== null) {
+      return prefixed;
+    }
     if (source && result.tool_name === "read_memory_entry") {
       return JSON.stringify({
         content: preferredContent,
@@ -339,6 +343,30 @@ function inferToolResultSemantic(toolName: string, result: ToolExecutionResult):
     return semantic.trim();
   }
   return toolName === "request_user_input" ? "user_input_response" : null;
+}
+
+function renderTextObservationWithMetadata(content: string, result: ToolExecutionResult): string | null {
+  const childAgentId = typeof result.metadata.child_agent_id === "string" && result.metadata.child_agent_id.trim()
+    ? result.metadata.child_agent_id.trim()
+    : null;
+  const approvalMessage = typeof result.metadata.approval_message === "string" && result.metadata.approval_message.trim()
+    ? result.metadata.approval_message.trim()
+    : null;
+  if (!childAgentId && !approvalMessage) {
+    return null;
+  }
+
+  let prefix = result.summary ? `${result.summary}\n\n` : "";
+  if (childAgentId) {
+    prefix += `child_agent_id: ${childAgentId}\n\n`;
+  }
+  if (approvalMessage) {
+    prefix += `用户批注: ${approvalMessage}\n\n`;
+  }
+  if (result.summary && content.trim() === result.summary.trim()) {
+    return prefix.trimEnd();
+  }
+  return `${prefix}${content}`;
 }
 
 function getObservationSource(metadata: Record<string, unknown>): string | null {
