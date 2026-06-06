@@ -271,7 +271,7 @@ export function renderToolResultContent(input: {
   result: ToolExecutionResult;
 }): string {
   const semantic = inferToolResultSemantic(input.toolName, input.result);
-  return renderSemanticBlock("tool_result", renderCompactToolObservation(input.result), {
+  return renderSemanticBlock("tool_result", renderCompactToolObservation(input.result, input.toolName), {
     id: input.callId,
     name: input.toolName,
     ok: input.result.success ? "true" : "false",
@@ -305,13 +305,17 @@ function renderToolManifest(tools: RuntimeToolDefinition[]): string {
   return `<tool_manifest>\n${renderedTools}\n</tool_manifest>`;
 }
 
-function renderCompactToolObservation(result: ToolExecutionResult): string {
+function renderCompactToolObservation(result: ToolExecutionResult, toolName: string): string {
   if (!result.success) {
     return `[ERROR] ${stringifyToolContent(result.content) || "未知错误"}`;
   }
 
   if (result.tool_name === "request_user_input" && typeof result.content === "string") {
     return appendLlmHint(result.content, result);
+  }
+
+  if ((result.tool_name || toolName) === "execute_bash") {
+    return appendLlmHint(renderBashToolObservation(result), result);
   }
 
   const renderedContent = renderToolContentForObservation(result.content, result.output_type);
@@ -364,6 +368,65 @@ function renderMetadataObservationPrefix(result: ToolExecutionResult): string {
     parts.push(`用户批注: ${approvalMessage}`);
   }
   return parts.join("\n\n");
+}
+
+function renderBashToolObservation(result: ToolExecutionResult): string {
+  const content = result.content;
+  const summary = result.summary || "";
+  if (!isRecord(content)) {
+    const rendered = stringifyToolContent(content);
+    return summary ? `${summary}\n${rendered}` : rendered;
+  }
+
+  const stdout = typeof content.stdout === "string" ? content.stdout : "";
+  const stderr = typeof content.stderr === "string" ? content.stderr : "";
+  const returnCode = typeof content.return_code === "number" ? content.return_code : null;
+  const interrupted = content.interrupted === true;
+  const backgroundTaskId = typeof content.background_task_id === "string" && content.background_task_id.trim()
+    ? content.background_task_id.trim()
+    : null;
+
+  if (backgroundTaskId) {
+    const parts = ["后台任务已启动", `task_id: ${backgroundTaskId}`];
+    if (summary) {
+      parts.unshift(summary);
+    }
+    return parts.join("\n");
+  }
+
+  const parts: string[] = [];
+  if (summary) {
+    parts.push(summary);
+  }
+
+  if (interrupted) {
+    if (stdout) {
+      parts.push(stdout);
+    }
+    if (stderr) {
+      parts.push(`[stderr]\n${stderr}`);
+    }
+    return parts.join("\n");
+  }
+
+  if (returnCode !== null && returnCode !== undefined && returnCode !== 0) {
+    if (stderr) {
+      parts.push(`[stderr]\n${stderr}`);
+    }
+    if (stdout) {
+      parts.push(`[stdout]\n${stdout}`);
+    }
+    return parts.join("\n");
+  }
+
+  if (stdout) {
+    parts.push(stdout);
+  }
+  if (stderr) {
+    parts.push(`[stderr]\n${stderr}`);
+  }
+
+  return parts.length ? parts.join("\n") : summary || "命令执行完成";
 }
 
 function renderToolContentForObservation(content: unknown, outputType: string): string {

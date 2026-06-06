@@ -221,7 +221,6 @@ export class LocalBashToolService {
       }
       if (stderr.length > MAX_STDERR_CHARS) {
         stderr = stderr.slice(0, MAX_STDERR_CHARS);
-        truncated = true;
       }
 
       const content = {
@@ -235,7 +234,7 @@ export class LocalBashToolService {
       };
       const summary = result.interrupted
         ? `命令执行超时（${plan.timeoutSeconds} 秒），进程已终止`
-        : `命令执行完成，返回码 ${result.returnCode}${truncated ? "（输出已截断）" : ""}`;
+        : `命令执行完成，返回码 ${result.returnCode}${truncated ? "（stdout 已截断）" : ""}`;
 
       return successResult(content, {
         summary,

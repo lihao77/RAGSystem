@@ -349,6 +349,7 @@ export class TaskToolService {
       const status = asString(snapshot.status) ?? "running";
       if (isBackgroundTerminalStatus(status)) {
         const payload = buildBackgroundNotificationPayload(snapshot, false);
+        this.backgroundTasks.clearPendingNotification(asString(snapshot.session_id), taskId);
         return {
           success: payload.success === true,
           timeout: false,

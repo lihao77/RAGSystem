@@ -134,6 +134,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     runtimeToolBridge,
     contextCompression,
     agentConfig,
+    backgroundTasks,
   );
   return {
     conversationStore,

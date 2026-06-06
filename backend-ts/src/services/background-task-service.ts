@@ -25,6 +25,8 @@ export interface BackgroundTask {
   cancel_supported: boolean;
 }
 
+export type BackgroundTaskNotificationPayload = Record<string, unknown>;
+
 export interface SpawnBashInput {
   command: string;
   bashExecutable: string | null;
@@ -42,6 +44,8 @@ export interface SpawnBashInput {
 export class BackgroundTaskService {
   private readonly tasks = new Map<string, BackgroundTask>();
   private readonly processes = new Map<string, ChildProcess>();
+  private readonly pendingNotificationsBySession = new Map<string, BackgroundTaskNotificationPayload[]>();
+  private readonly consumedNotificationTaskIdsBySession = new Map<string, Set<string>>();
   private readonly retentionSeconds: number;
 
   constructor(options: { retentionSeconds?: number | undefined } = {}) {
@@ -187,6 +191,53 @@ export class BackgroundTaskService {
     return output.slice(0, limit);
   }
 
+  drainPendingNotifications(sessionId: string, excludeBackgroundTaskIds: string[] = []): BackgroundTaskNotificationPayload[] {
+    const pending = this.pendingNotificationsBySession.get(sessionId);
+    if (!pending?.length) {
+      return [];
+    }
+    const excluded = new Set(excludeBackgroundTaskIds.map(String));
+    const drained: BackgroundTaskNotificationPayload[] = [];
+    const retained: BackgroundTaskNotificationPayload[] = [];
+    for (const payload of pending) {
+      const taskId = asString(payload.background_task_id) ?? asString(payload.task_id);
+      if (taskId && excluded.has(taskId)) {
+        retained.push(payload);
+      } else {
+        drained.push(payload);
+      }
+    }
+    if (retained.length) {
+      this.pendingNotificationsBySession.set(sessionId, retained);
+    } else {
+      this.pendingNotificationsBySession.delete(sessionId);
+    }
+    return drained;
+  }
+
+  clearPendingNotification(sessionId: string | null | undefined, taskId: string): void {
+    const normalizedSessionId = normalizeString(sessionId);
+    if (!normalizedSessionId) {
+      return;
+    }
+    const consumed = this.consumedNotificationTaskIdsBySession.get(normalizedSessionId) ?? new Set<string>();
+    consumed.add(taskId);
+    this.consumedNotificationTaskIdsBySession.set(normalizedSessionId, consumed);
+    const pending = this.pendingNotificationsBySession.get(normalizedSessionId);
+    if (!pending?.length) {
+      return;
+    }
+    const retained = pending.filter((payload) => {
+      const payloadTaskId = asString(payload.background_task_id) ?? asString(payload.task_id);
+      return payloadTaskId !== taskId;
+    });
+    if (retained.length) {
+      this.pendingNotificationsBySession.set(normalizedSessionId, retained);
+    } else {
+      this.pendingNotificationsBySession.delete(normalizedSessionId);
+    }
+  }
+
   cancel(taskId: string): boolean {
     const task = this.tasks.get(taskId);
     const proc = this.processes.get(taskId);
@@ -213,9 +264,6 @@ export class BackgroundTaskService {
   }
 
   private publishCompleted(task: BackgroundTask, eventBus: InMemoryEventBus | null): void {
-    if (!eventBus || !task.session_id) {
-      return;
-    }
     const payload = {
       task_id: task.task_id,
       background_task_id: task.task_id,
@@ -229,6 +277,22 @@ export class BackgroundTaskService {
       result_type: task.result_type,
       session_id: task.session_id,
     };
+    if (task.session_id) {
+      const consumed = this.consumedNotificationTaskIdsBySession.get(task.session_id);
+      if (consumed?.has(task.task_id)) {
+        consumed.delete(task.task_id);
+        if (consumed.size === 0) {
+          this.consumedNotificationTaskIdsBySession.delete(task.session_id);
+        }
+      } else {
+        const pending = this.pendingNotificationsBySession.get(task.session_id) ?? [];
+        pending.push(payload);
+        this.pendingNotificationsBySession.set(task.session_id, pending);
+      }
+    }
+    if (!eventBus || !task.session_id) {
+      return;
+    }
     eventBus.publish(task.session_id, {
       type: "background.task.completed",
       session_id: task.session_id,
@@ -256,6 +320,10 @@ function positiveIntOrNull(value: unknown): number | null {
 }
 
 function normalizeString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 

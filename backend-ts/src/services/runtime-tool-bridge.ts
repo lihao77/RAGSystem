@@ -1104,16 +1104,20 @@ function readTaskUpdateArguments(value: Record<string, unknown> | undefined): {
   addBlockedBy?: string[] | null;
   metadata?: Record<string, unknown> | null;
 } {
+  const subject = asProvidedString(value, "subject");
+  const description = asProvidedString(value, "description");
+  const activeForm = asProvidedString(value, "active_form", "activeForm");
+  const owner = asProvidedString(value, "owner");
   return {
     taskId: asString(value?.task_id) ?? asString(value?.taskId) ?? "",
-    subject: asString(value?.subject),
-    description: asString(value?.description),
-    activeForm: asString(value?.active_form) ?? asString(value?.activeForm),
-    owner: asString(value?.owner),
     status: asString(value?.status),
     addBlocks: asStringArray(value?.add_blocks) ?? asStringArray(value?.addBlocks),
     addBlockedBy: asStringArray(value?.add_blocked_by) ?? asStringArray(value?.addBlockedBy),
     metadata: asRecord(value?.metadata),
+    ...(subject !== undefined ? { subject } : {}),
+    ...(description !== undefined ? { description } : {}),
+    ...(activeForm !== undefined ? { activeForm } : {}),
+    ...(owner !== undefined ? { owner } : {}),
   };
 }
 
@@ -1380,6 +1384,18 @@ function successResult<T>(
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function asProvidedString(value: Record<string, unknown> | undefined, ...keys: string[]): string | null | undefined {
+  if (!value) {
+    return undefined;
+  }
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) {
+      return typeof value[key] === "string" ? value[key] : null;
+    }
+  }
+  return undefined;
 }
 
 function asInteger(value: unknown): number | null {

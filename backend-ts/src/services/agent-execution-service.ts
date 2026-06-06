@@ -23,6 +23,7 @@ import type { CheckpointInfo } from "./checkpoint-manager.js";
 import type { ConversationStore } from "./conversation-store.js";
 import type { InMemoryEventBus } from "./event-bus.js";
 import type { AgentRuntimeCore, AgentRuntimeEvent } from "./agent-runtime-core.js";
+import type { BackgroundTaskNotificationPayload, BackgroundTaskService } from "./background-task-service.js";
 import {
   buildAgentPromptContext,
   buildFullSystemPrompt,
@@ -55,6 +56,7 @@ export class AgentExecutionService {
     private readonly runtimeTools: RuntimeToolExecutor | null = null,
     private readonly contextCompression: AgentContextCompressionService | null = null,
     private readonly promptConfigResolver: AgentPromptConfigResolver | null = null,
+    private readonly backgroundTasks: BackgroundTaskService | null = null,
   ) {}
 
   async startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult> {
@@ -629,9 +631,13 @@ export class AgentExecutionService {
               signal: input.abortController.signal,
               onEvent: (event) => this.publishContextCompressionEvent(input, event),
             });
+      const pendingBackgroundNotifications = this.drainBackgroundTaskNotifications(input.sessionId);
       const context = input.contextConversation
-        ? { conversation: input.contextConversation }
+        ? { conversation: [...input.contextConversation, ...pendingBackgroundNotifications] }
         : this.contextBuilder.buildContext({ sessionId: input.sessionId, agent: input.agent });
+      if (input.contextConversation === undefined && pendingBackgroundNotifications.length) {
+        context.conversation.push(...pendingBackgroundNotifications);
+      }
       const teamName = asString(sessionMetadata.team);
       const promptContext = buildAgentPromptContext({
         agent: input.agent,
@@ -663,7 +669,7 @@ export class AgentExecutionService {
         modelName: input.modelName,
         signal: input.abortController.signal,
         conversation: context.conversation,
-        conversationUpdateProvider: input.conversationUpdateProvider,
+        conversationUpdateProvider: () => this.drainConversationUpdates(input.sessionId, input.conversationUpdateProvider),
         toolExecutor: this.runtimeTools ?? undefined,
         promptContext,
         toolContext: this.runtimeTools
@@ -1152,6 +1158,23 @@ export class AgentExecutionService {
     return followups.map((message) => ({ ...message }));
   }
 
+  private async drainConversationUpdates(
+    sessionId: string,
+    provider?: (() => Promise<ChatMessage[]> | ChatMessage[]) | undefined,
+  ): Promise<ChatMessage[]> {
+    const notifications = this.drainBackgroundTaskNotifications(sessionId);
+    const updates = provider ? await provider() : [];
+    return [...notifications, ...updates];
+  }
+
+  private drainBackgroundTaskNotifications(sessionId: string): ChatMessage[] {
+    const payloads = this.backgroundTasks?.drainPendingNotifications(sessionId) ?? [];
+    return payloads
+      .map((payload) => renderBackgroundNotification(payload))
+      .filter((content) => content.trim())
+      .map((content) => ({ role: "user", content }));
+  }
+
   private finishStatus(status: ExecutionTaskStatus, finalStatus: string, startedAt: Date): void {
     const finishedAt = new Date();
     status.status = finalStatus;
@@ -1214,6 +1237,44 @@ function checkpointMessagesToConversation(messages: Array<Record<string, unknown
     }
   }
   return conversation;
+}
+
+function renderBackgroundNotification(payload: BackgroundTaskNotificationPayload): string {
+  const taskId = asString(payload.background_task_id) ?? asString(payload.task_id) ?? "unknown";
+  const status = asString(payload.status) ?? "completed";
+  const outputPath = asString(payload.output_path) ?? asString(payload.background_output_path);
+  const returnCode = payload.return_code;
+  const resultType = asString(payload.result_type);
+  const summary = asString(payload.summary) ?? asString(payload.description) ?? backgroundTaskSummary(taskId, status);
+  const parts = ["<task-notification>", `<task-id>${escapeXmlText(taskId)}</task-id>`];
+  if (outputPath) {
+    parts.push(`<output-file>${escapeXmlText(outputPath)}</output-file>`);
+  }
+  parts.push(`<status>${escapeXmlText(status)}</status>`);
+  if (returnCode !== null && returnCode !== undefined) {
+    parts.push(`<return-code>${escapeXmlText(String(returnCode))}</return-code>`);
+  }
+  if (resultType) {
+    parts.push(`<result-type>${escapeXmlText(resultType)}</result-type>`);
+  }
+  if (summary) {
+    parts.push(`<summary>${escapeXmlText(summary)}</summary>`);
+  }
+  parts.push("</task-notification>");
+  return parts.join("\n");
+}
+
+function backgroundTaskSummary(taskId: string, status: string): string {
+  if (status === "running") {
+    return `后台任务 ${taskId} 仍在运行`;
+  }
+  if (status === "failed") {
+    return `后台任务 ${taskId} 执行失败，输出已写入文件`;
+  }
+  if (status === "cancelled") {
+    return `后台任务 ${taskId} 已取消，输出已写入文件`;
+  }
+  return `后台任务 ${taskId} 已完成，输出已写入文件`;
 }
 
 function normalizeSessionEntryAgent(value: unknown): string | null {
@@ -1341,6 +1402,13 @@ function positiveInt(value: unknown): number | null {
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function escapeXmlText(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

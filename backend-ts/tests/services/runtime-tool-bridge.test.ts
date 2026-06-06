@@ -862,6 +862,89 @@ describe("RuntimeToolBridge", () => {
     expect(stored.metadata).toEqual({ priority: "high" });
   });
 
+  it("preserves empty-string task updates like the Python task tool", async () => {
+    const dataRoot = makeTempDataRoot();
+    const backgroundTasks = new BackgroundTaskService();
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      null,
+      null,
+      null,
+      null,
+      new TaskToolService(backgroundTasks, { dataRoot }),
+    );
+    const agent = minimalAgent([]);
+    agent.tasks = { workflow: true, background: false };
+    const context = { agent, sessionId: "s1" };
+
+    await Promise.resolve(
+      bridge.executeTool(
+        {
+          toolName: "task_create",
+          arguments: {
+            subject: "Clear mutable fields",
+            description: "Verify empty-string updates",
+            active_form: "Clearing mutable fields",
+          },
+        },
+        context,
+      ),
+    );
+    await Promise.resolve(
+      bridge.executeTool(
+        {
+          toolName: "task_update",
+          arguments: {
+            task_id: "1",
+            owner: "agent-a",
+          },
+        },
+        context,
+      ),
+    );
+
+    await expect(
+      Promise.resolve(
+        bridge.executeTool(
+          {
+            toolName: "task_update",
+            arguments: {
+              task_id: "1",
+              owner: "",
+              active_form: "",
+            },
+          },
+          context,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      success: true,
+      content: {
+        updated_fields: expect.arrayContaining(["owner", "active_form"]),
+      },
+    });
+
+    await expect(
+      Promise.resolve(
+        bridge.executeTool(
+          {
+            toolName: "task_get",
+            arguments: { task_id: "1" },
+          },
+          context,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      success: true,
+      content: {
+        task: {
+          owner: "",
+          active_form: "",
+        },
+      },
+    });
+  });
+
   it("starts background bash, exposes output through task_output, and emits completion events", async () => {
     const dataRoot = makeTempDataRoot();
     const workspaceRoot = path.join(dataRoot, "workspace-bash-background");
@@ -1208,6 +1291,87 @@ describe("RuntimeToolBridge", () => {
         risk_level: "high",
       },
     });
+  });
+
+  it("marks execute_bash truncated only when stdout exceeds the output limit", async () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace-bash-stdout-truncate");
+    const permissionPolicy = new PermissionPolicyService();
+    permissionPolicy.setMode("dangerously_skip_permissions");
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      null,
+      permissionPolicy,
+      null,
+      new LocalBashToolService({ dataRoot, bashExecutable: null, maxOutputChars: 5 }),
+    );
+    const agent = minimalAgent([], ["execute_bash"]);
+
+    await expect(
+      bridge.executeTool(
+        {
+          toolName: "execute_bash",
+          arguments: {
+            command: "node -e \"process.stdout.write('abcdefghijkl')\"",
+          },
+        },
+        {
+          agent,
+          sessionId: "s1",
+          workspaceRoot,
+        },
+      ),
+    ).resolves.toMatchObject({
+      success: true,
+      tool_name: "execute_bash",
+      summary: "命令执行完成，返回码 0（stdout 已截断）",
+      content: {
+        stdout: "abcde",
+      },
+      metadata: {
+        truncated: true,
+      },
+    });
+  });
+
+  it("clips long execute_bash stderr without marking stdout truncation", async () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace-bash-stderr-truncate");
+    const permissionPolicy = new PermissionPolicyService();
+    permissionPolicy.setMode("dangerously_skip_permissions");
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      null,
+      permissionPolicy,
+      null,
+      new LocalBashToolService({ dataRoot, bashExecutable: null }),
+    );
+    const agent = minimalAgent([], ["execute_bash"]);
+    const result = await Promise.resolve(
+      bridge.executeTool(
+        {
+          toolName: "execute_bash",
+          arguments: {
+            command: "node -e \"process.stderr.write('e'.repeat(2105))\"",
+          },
+        },
+        {
+          agent,
+          sessionId: "s1",
+          workspaceRoot,
+        },
+      ),
+    );
+
+    expect(result).toMatchObject({
+      success: true,
+      tool_name: "execute_bash",
+      summary: "命令执行完成，返回码 0",
+      metadata: {
+        truncated: false,
+      },
+    });
+    expect((result.content as { stderr: string }).stderr).toHaveLength(2000);
   });
 
   it("rejects tools that are not visible for the current agent", () => {

@@ -1034,6 +1034,119 @@ describe("AgentRuntimeCore", () => {
     );
   });
 
+  it("renders execute_bash observations without internal noise fields", () => {
+    const content = renderToolResultContent({
+      callId: "bash_call_1",
+      toolName: "execute_bash",
+      result: {
+        success: true,
+        tool_name: "execute_bash",
+        summary: "命令执行完成，返回码 0",
+        answer: null,
+        output_type: "json",
+        content: {
+          stdout: "hello world",
+          stderr: "",
+          return_code: 0,
+          interrupted: false,
+          background_task_id: null,
+          classification: "read_only",
+        },
+        metadata: {},
+        artifacts: [],
+        llm_hint: null,
+      },
+    });
+
+    expect(content).toContain("命令执行完成，返回码 0\nhello world");
+    expect(content).not.toContain("classification");
+    expect(content).not.toContain("background_task_id");
+    expect(content).not.toContain("interrupted");
+    expect(content).not.toContain("false");
+    expect(content).not.toContain("null");
+  });
+
+  it("renders execute_bash stderr and nonzero return codes like Python", () => {
+    const content = renderToolResultContent({
+      callId: "bash_call_2",
+      toolName: "execute_bash",
+      result: {
+        success: true,
+        tool_name: "execute_bash",
+        summary: "命令执行完成，返回码 127",
+        answer: null,
+        output_type: "json",
+        content: {
+          stdout: "partial stdout",
+          stderr: "command not found",
+          return_code: 127,
+          interrupted: false,
+          background_task_id: null,
+          classification: "unknown",
+        },
+        metadata: {},
+        artifacts: [],
+        llm_hint: null,
+      },
+    });
+
+    expect(content).toContain("命令执行完成，返回码 127");
+    expect(content).toContain("[stderr]\ncommand not found");
+    expect(content).toContain("[stdout]\npartial stdout");
+  });
+
+  it("renders execute_bash background and interrupted observations compactly", () => {
+    const background = renderToolResultContent({
+      callId: "bash_call_3",
+      toolName: "execute_bash",
+      result: {
+        success: true,
+        tool_name: "execute_bash",
+        summary: "后台任务已启动",
+        answer: null,
+        output_type: "json",
+        content: {
+          stdout: "",
+          stderr: "",
+          return_code: null,
+          interrupted: false,
+          background_task_id: "bg-123",
+          classification: "read_only",
+        },
+        metadata: {},
+        artifacts: [],
+        llm_hint: null,
+      },
+    });
+    const interrupted = renderToolResultContent({
+      callId: "bash_call_4",
+      toolName: "execute_bash",
+      result: {
+        success: true,
+        tool_name: "execute_bash",
+        summary: "命令执行超时（60 秒），进程已终止",
+        answer: null,
+        output_type: "json",
+        content: {
+          stdout: "partial output",
+          stderr: "",
+          return_code: -1,
+          interrupted: true,
+          background_task_id: null,
+          classification: "read_only",
+        },
+        metadata: {},
+        artifacts: [],
+        llm_hint: null,
+      },
+    });
+
+    expect(background).toContain("task_id: bg-123");
+    expect(background).not.toContain("classification");
+    expect(interrupted).toContain("命令执行超时（60 秒），进程已终止\npartial output");
+    expect(interrupted).not.toContain("classification");
+  });
+
   it("runs a non-streaming tool-call loop through the runtime tool executor", async () => {
     const client = new FakeToolCallingChatClient([
       {

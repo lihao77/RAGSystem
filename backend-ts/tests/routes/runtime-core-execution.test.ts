@@ -744,6 +744,78 @@ describe("minimal runtime core execution", () => {
     });
   });
 
+  it("injects completed background task notifications into the next run context", async () => {
+    const chatClient = new FakeXmlStreamingToolChatClient([
+      [
+        "<tool_calls>",
+        '<tool name="execute_bash">',
+        '<command><![CDATA[node -e "setTimeout(function(){console.log(\'bg-notify\')}, 200)"]]></command>',
+        "<run_in_background>true</run_in_background>",
+        "<timeout>5</timeout>",
+        "</tool>",
+        "</tool_calls>",
+      ],
+      ["<final_answer>", "background started", "</final_answer>"],
+      ["<final_answer>", "notification consumed", "</final_answer>"],
+    ]);
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+
+    await createDefaultChatProvider(app);
+    harness.container.permissionPolicy.setMode("dangerously_skip_permissions");
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      headers: {
+        "x-request-id": "req-bg-notify-1",
+      },
+      payload: {
+        task: "start background task",
+        session_id: "bg-notify-session",
+      },
+    });
+    expect(first.statusCode).toBe(200);
+    await waitFor(
+      () => harness.container.agentExecution.getSessionTaskStatus("bg-notify-session").task_info?.status === "completed",
+      3000,
+    );
+    await waitFor(
+      () => harness.container.events.getHistory("bg-notify-session").some((event) => event.type === "background.task.completed"),
+      5000,
+    );
+    const completedEvent = harness.container.events
+      .getHistory("bg-notify-session")
+      .find((event) => event.type === "background.task.completed");
+    const backgroundTaskId = (completedEvent?.data as { background_task_id?: string } | undefined)?.background_task_id;
+    expect(backgroundTaskId).toEqual(expect.any(String));
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      headers: {
+        "x-request-id": "req-bg-notify-2",
+      },
+      payload: {
+        task: "continue after background task",
+        session_id: "bg-notify-session",
+      },
+    });
+    expect(second.statusCode).toBe(200);
+    await waitFor(
+      () => harness.container.agentExecution.getSessionTaskStatus("bg-notify-session").task_info?.status === "completed",
+      3000,
+    );
+
+    expect(chatClient.requests).toHaveLength(3);
+    const secondRunNotification = chatClient.requests[2]?.messages.find(
+      (message) => message.role === "user" && message.content.includes("<task-notification>"),
+    );
+    expect(secondRunNotification?.content).toContain(`<task-id>${backgroundTaskId}</task-id>`);
+    expect(secondRunNotification?.content).toContain("<status>completed</status>");
+    expect(secondRunNotification?.content).toContain("<result-type>bash_output</result-type>");
+  });
+
   it("runs synchronous child agent delegation through XML tool calls", async () => {
     const chatClient = new FakeXmlStreamingToolChatClient([
       [
