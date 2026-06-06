@@ -99,11 +99,13 @@ export class RecentMessagesContextSource implements AgentRuntimeContextSource {
 
   build(request: ResolvedAgentRuntimeContextRequest): AgentRuntimeContextContribution {
     const messages = this.history.getRecentMessages(request.sessionId, request.historyLimit, request.threadKey);
-    const compressionView = resolveCompressionViewDetailed(messages);
+    const filteredMessages = filterRuntimeHistoryMessages(messages);
+    const compressionView = resolveCompressionViewDetailed(filteredMessages);
     return {
       conversation: messagesToConversation(compressionView.messages),
       metadata: {
         source_message_count: messages.length,
+        filtered_message_count: filteredMessages.length,
         resolved_message_count: compressionView.messages.length,
         compression_view: {
           applied: compressionView.applied,
@@ -260,6 +262,29 @@ export function resolveCompressionView(messages: MessageInfo[]): MessageInfo[] {
   return resolveCompressionViewDetailed(messages).messages;
 }
 
+export function filterRuntimeHistoryMessages(messages: MessageInfo[]): MessageInfo[] {
+  return messages.filter((message) => {
+    if (message.role !== "user" && message.role !== "assistant" && message.role !== "system") {
+      return false;
+    }
+    const metadata = message.metadata ?? {};
+    const metadataType = metadata.type;
+    if (metadataType === "command" || metadataType === "command_result") {
+      return false;
+    }
+    if (metadata.display_only) {
+      return false;
+    }
+    if (metadata.hidden) {
+      return false;
+    }
+    if (message.role === "assistant" && metadata.interrupted) {
+      return false;
+    }
+    return true;
+  });
+}
+
 function resolveCompressionViewDetailed(messages: MessageInfo[]): CompressionViewResolution {
   if (!messages.length) {
     return {
@@ -323,7 +348,7 @@ function resolveCompressionViewDetailed(messages: MessageInfo[]): CompressionVie
 function messagesToConversation(messages: MessageInfo[]): ChatMessage[] {
   const conversation: ChatMessage[] = [];
   for (const message of messages) {
-    if (message.role === "user" || message.role === "assistant") {
+    if (message.role === "user" || message.role === "assistant" || message.role === "system") {
       conversation.push({ role: message.role, content: message.content });
     }
   }

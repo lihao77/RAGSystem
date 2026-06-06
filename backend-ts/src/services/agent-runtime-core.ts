@@ -292,7 +292,7 @@ export class AgentRuntimeCore {
                   arguments: toolArguments,
                   callId,
                 },
-                toolContext,
+                buildToolCallExecutionContext(toolContext, { callId, round, index }),
               );
           roundResults.set(index + 1, toolResult);
           await input.onEvent?.({
@@ -389,7 +389,7 @@ export class AgentRuntimeCore {
                 arguments: toolArguments,
                 callId: toolCall.id,
               },
-              toolContext,
+              buildToolCallExecutionContext(toolContext, { callId: toolCall.id, round, index }),
             );
         roundResults.set(index + 1, toolResult);
         await input.onEvent?.({
@@ -635,6 +635,24 @@ function buildAssistantToolCallMessage(result: ChatCompletionResult, toolCalls: 
 function withoutNativeTools(request: ChatCompletionRequest): ChatCompletionRequest {
   const { tools: _tools, toolChoice: _toolChoice, ...rest } = request;
   return rest;
+}
+
+function buildToolCallExecutionContext(
+  context: RuntimeToolExecutionContext,
+  input: {
+    callId: string;
+    round: number;
+    index: number;
+  },
+): RuntimeToolExecutionContext {
+  const order = input.index + 1;
+  return {
+    ...context,
+    toolCallId: input.callId,
+    round: input.round,
+    order,
+    roundIndex: order,
+  };
 }
 
 function renderSystemContextBlock(content: string): string {

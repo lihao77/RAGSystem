@@ -44,11 +44,11 @@ class InMemorySessions implements RuntimeSessionMetadataPort {
 }
 
 describe("AgentRuntimeContextBuilder", () => {
-  it("builds minimal runtime conversation from recent root user and assistant messages", () => {
+  it("builds minimal runtime conversation from recent root user, assistant, and system messages", () => {
     const history = new InMemoryHistory([
       message("user", "hello"),
       message("assistant", "hi"),
-      message("system", "internal"),
+      message("system", "runtime note"),
       message("tool", "tool result"),
     ]);
     const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
@@ -60,6 +60,7 @@ describe("AgentRuntimeContextBuilder", () => {
       conversation: [
         { role: "user", content: "hello" },
         { role: "assistant", content: "hi" },
+        { role: "system", content: "runtime note" },
       ],
       metadata: {
         session_id: "s1",
@@ -68,10 +69,11 @@ describe("AgentRuntimeContextBuilder", () => {
         sources: [
           {
             name: "recent_messages",
-            message_count: 2,
+            message_count: 3,
             metadata: {
               source_message_count: 4,
-              resolved_message_count: 4,
+              filtered_message_count: 3,
+              resolved_message_count: 3,
               compression_view: {
                 applied: false,
                 summary_seq: null,
@@ -113,11 +115,53 @@ describe("AgentRuntimeContextBuilder", () => {
         message_count: 3,
         metadata: {
           source_message_count: 5,
+          filtered_message_count: 5,
           resolved_message_count: 3,
           compression_view: {
             applied: true,
             summary_seq: 4,
             replaces_up_to_seq: 2,
+          },
+        },
+      },
+    ]);
+  });
+
+  it("filters persisted history with Python-compatible agent context visibility", () => {
+    const history = new InMemoryHistory([
+      message("user", "/review demo", { seq: 1, metadata: { type: "command" } }),
+      message("system", "command result", { seq: 2, metadata: { type: "command_result" } }),
+      message("user", "/review demo", { seq: 3, metadata: { display_only: true } }),
+      message("user", "expanded review prompt", { seq: 4 }),
+      message("assistant", "[interrupted]", { seq: 5, metadata: { interrupted: true } }),
+      message("system", "[Request interrupted by user]", { seq: 6, metadata: { hidden: true, interrupted: true } }),
+      message("assistant", "thought", { seq: 7, metadata: { react_intermediate: true } }),
+      message("system", "runtime instruction", { seq: 8 }),
+      message("tool", "native tool result", { seq: 9 }),
+      message("assistant", "final", { seq: 10 }),
+    ]);
+    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
+
+    const context = builder.buildContext({ sessionId: "visibility-session" });
+
+    expect(context.conversation).toEqual([
+      { role: "user", content: "expanded review prompt" },
+      { role: "assistant", content: "thought" },
+      { role: "system", content: "runtime instruction" },
+      { role: "assistant", content: "final" },
+    ]);
+    expect(context.metadata.sources).toEqual([
+      {
+        name: "recent_messages",
+        message_count: 4,
+        metadata: {
+          source_message_count: 10,
+          filtered_message_count: 4,
+          resolved_message_count: 4,
+          compression_view: {
+            applied: false,
+            summary_seq: null,
+            replaces_up_to_seq: null,
           },
         },
       },

@@ -124,6 +124,62 @@ describe("RuntimeToolBridge", () => {
     ]);
   });
 
+  it("normalizes call id into runtime tool execution context", async () => {
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})),
+    );
+    const agent = minimalAgent([], [], ["plan_agent"]);
+    const calls: Array<{ input: unknown; context: unknown }> = [];
+    const fakeDelegation = {
+      async callAgent(input: unknown, context: unknown) {
+        calls.push({ input, context });
+        return delegationSuccess("call_agent", "delegated");
+      },
+      listChildAgents() {
+        return delegationSuccess("list_child_agents", { items: [], total: 0 });
+      },
+      sendMessage() {
+        return delegationSuccess("send_message", "resumed");
+      },
+    } as unknown as AgentDelegationService;
+    bridge.setAgentDelegation(fakeDelegation);
+
+    await bridge.executeTool(
+      {
+        toolName: "call_agent",
+        callId: "delegate-ctx-1",
+        arguments: {
+          agent_name: "plan_agent",
+          task: "拆解迁移任务",
+        },
+      },
+      {
+        agent,
+        sessionId: "s1",
+        runId: "run-1",
+        requestId: "req-1",
+        parentCallId: "call-root",
+        currentAgentName: "orchestrator_agent",
+      },
+    );
+
+    expect(calls).toMatchObject([
+      {
+        input: {
+          callId: "delegate-ctx-1",
+        },
+        context: {
+          sessionId: "s1",
+          runId: "run-1",
+          requestId: "req-1",
+          parentCallId: "call-root",
+          currentAgentName: "orchestrator_agent",
+          toolCallId: "delegate-ctx-1",
+        },
+      },
+    ]);
+  });
+
   it("dispatches list_memory_index and read_memory_entry calls to memory tools", () => {
     const dataRoot = makeTempDataRoot();
     writeFile(dataRoot, ["memory", "sessions", "s1", "MEMORY.md"], "# Session Memory\n");

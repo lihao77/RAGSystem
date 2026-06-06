@@ -730,14 +730,15 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
   }
 
   executeTool(call: RuntimeToolCall, context: RuntimeToolExecutionContext): ToolExecutionResult | Promise<ToolExecutionResult> {
+    const executionContext = buildToolCallContext(call, context);
     const toolName = call.toolName.trim();
-    const tool = this.getVisibleTool(toolName, context.agent);
+    const tool = this.getVisibleTool(toolName, executionContext.agent);
     if (!tool) {
       return errorResult(`工具未暴露或暂未迁移: ${toolName}`, toolName || "unknown");
     }
 
     if (toolName === EXECUTE_BASH_TOOL_NAME && this.bashTools) {
-      return this.executeBashTool(call, context);
+      return this.executeBashTool(call, executionContext);
     }
 
     const approvalDecision = this.permissionPolicy?.evaluateToolApproval({
@@ -745,14 +746,14 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       riskLevel: tool.riskLevel,
       description: tool.description,
       arguments: call.arguments ?? {},
-      sessionId: context.sessionId,
+      sessionId: executionContext.sessionId,
       approvalExempt: tool.approvalExempt,
     });
     if (approvalDecision?.action === "ask") {
-      return this.executeToolAfterApproval(call, context, approvalDecision);
+      return this.executeToolAfterApproval(call, executionContext, approvalDecision);
     }
 
-    return this.executeAllowedTool(toolName, call, context);
+    return this.executeAllowedTool(toolName, call, executionContext);
   }
 
   private getVisibleTool(toolName: string, agent: AgentConfig | null): RuntimeToolDefinition | null {
@@ -810,13 +811,13 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       return this.memoryTools.archiveMemory(readArchiveMemoryArguments(call.arguments), context);
     }
     if (toolName === CALL_AGENT_TOOL_NAME && this.agentDelegation) {
-      return this.agentDelegation.callAgent(readCallAgentArguments(call.arguments, call.callId), context);
+      return this.agentDelegation.callAgent(readCallAgentArguments(call.arguments, context.toolCallId ?? call.callId), context);
     }
     if (toolName === LIST_CHILD_AGENTS_TOOL_NAME && this.agentDelegation) {
       return this.agentDelegation.listChildAgents(readListChildAgentsArguments(call.arguments), context);
     }
     if (toolName === SEND_MESSAGE_TOOL_NAME && this.agentDelegation) {
-      return this.agentDelegation.sendMessage(readSendMessageArguments(call.arguments, call.callId), context);
+      return this.agentDelegation.sendMessage(readSendMessageArguments(call.arguments, context.toolCallId ?? call.callId), context);
     }
     return errorResult(`工具未暴露或暂未迁移: ${toolName}`, toolName);
   }
@@ -888,7 +889,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
         runId: context.runId,
         taskId: context.taskId,
         requestId: context.requestId,
-        toolCallId: call.callId ?? null,
+        toolCallId: context.toolCallId ?? call.callId ?? null,
         agentName: context.currentAgentName ?? context.agent?.agent_name ?? null,
         approvalType: "bash_command",
         toolName: EXECUTE_BASH_TOOL_NAME,
@@ -947,7 +948,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
         runId: context.runId,
         taskId: context.taskId,
         requestId: context.requestId,
-        toolCallId: call.callId ?? null,
+        toolCallId: context.toolCallId ?? call.callId ?? null,
         agentName: context.currentAgentName ?? context.agent?.agent_name ?? null,
         approvalType: "tool_execution",
         toolName,
@@ -1007,7 +1008,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       runId: context.runId,
       taskId: context.taskId,
       requestId: context.requestId,
-      toolCallId: call.callId ?? null,
+      toolCallId: context.toolCallId ?? call.callId ?? null,
       agentName: context.currentAgentName ?? context.agent?.agent_name ?? null,
       prompt,
       inputType: readInputType(call.arguments),
@@ -1028,6 +1029,20 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       toolName: REQUEST_USER_INPUT_TOOL_NAME,
     });
   }
+}
+
+function buildToolCallContext(
+  call: RuntimeToolCall,
+  context: RuntimeToolExecutionContext,
+): RuntimeToolExecutionContext {
+  const callId = context.toolCallId ?? call.callId ?? null;
+  if (callId === context.toolCallId) {
+    return context;
+  }
+  return {
+    ...context,
+    toolCallId: callId,
+  };
 }
 
 function readTaskCreateArguments(value: Record<string, unknown> | undefined): {

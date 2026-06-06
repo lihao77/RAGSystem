@@ -343,6 +343,7 @@ export class AgentDelegationService {
           sessionMetadata: this.conversationStore.getSession(input.sessionId)?.metadata ?? {},
           childAgent: input.childAgent,
           workspaceRoot: input.workspaceRoot,
+          parentCallId: input.parentCallId,
           signal: input.signal,
         }),
         onEvent: (_event: AgentRuntimeEvent) => undefined,
@@ -540,6 +541,7 @@ function buildRuntimeToolContext(
     sessionMetadata: Record<string, unknown>;
     childAgent: ChildAgentInfo;
     workspaceRoot: string | null;
+    parentCallId?: string | null | undefined;
     signal?: AbortSignal | undefined;
   },
 ): RuntimeToolExecutionContext {
@@ -550,6 +552,7 @@ function buildRuntimeToolContext(
     taskId: input.taskId,
     requestId: input.requestId,
     currentAgentName: agent.agent_name,
+    parentCallId: input.parentCallId ?? null,
     teamName: normalizeString(input.sessionMetadata.team),
     workspaceRoot: input.workspaceRoot ?? normalizeString(input.sessionMetadata.workspace_root),
     signal: input.signal,

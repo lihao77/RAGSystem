@@ -25,6 +25,11 @@ export interface RuntimeToolExecutionContext {
   taskId?: string | null;
   requestId?: string | null;
   currentAgentName?: string | null;
+  parentCallId?: string | null;
+  toolCallId?: string | null;
+  round?: number | null;
+  order?: number | null;
+  roundIndex?: number | null;
   teamName?: string | null;
   workspaceRoot?: string | null;
   signal?: AbortSignal | undefined;

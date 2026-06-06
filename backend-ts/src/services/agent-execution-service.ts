@@ -659,6 +659,7 @@ export class AgentExecutionService {
               taskId: input.taskId,
               requestId: input.requestId,
               sessionMetadata,
+              parentCallId: input.rootCallId,
               signal: input.abortController.signal,
             })
           : undefined,
@@ -956,6 +957,7 @@ export class AgentExecutionService {
       runId: string;
       taskId: string;
       requestId: string;
+      rootCallId: string;
     },
     event: AgentRuntimeEvent,
   ): void {
@@ -1030,6 +1032,7 @@ export class AgentExecutionService {
         tool_name: event.data.tool_name,
         call_id: event.data.tool_call_id,
         tool_call_id: event.data.tool_call_id,
+        parent_call_id: input.rootCallId,
         arguments: event.data.arguments,
         round: event.data.round,
         run_id: input.runId,
@@ -1056,6 +1059,7 @@ export class AgentExecutionService {
         tool_name: event.data.tool_name,
         call_id: event.data.tool_call_id,
         tool_call_id: event.data.tool_call_id,
+        parent_call_id: input.rootCallId,
         status: event.data.success ? "success" : "error",
         success: event.data.success,
         summary: event.data.summary,
@@ -1204,6 +1208,7 @@ function buildRuntimeToolContext(
     taskId: string;
     requestId: string;
     sessionMetadata: Record<string, unknown>;
+    parentCallId?: string | null | undefined;
     signal: AbortSignal;
   },
 ): RuntimeToolExecutionContext {
@@ -1214,6 +1219,7 @@ function buildRuntimeToolContext(
     taskId: input.taskId,
     requestId: input.requestId,
     currentAgentName: agent.agent_name,
+    parentCallId: input.parentCallId ?? null,
     teamName: asString(input.sessionMetadata.team),
     workspaceRoot: asString(input.sessionMetadata.workspace_root) ?? asString(agent.custom_params.workspace_root),
     signal: input.signal,

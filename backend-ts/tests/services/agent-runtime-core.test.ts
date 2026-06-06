@@ -332,7 +332,10 @@ describe("AgentRuntimeCore", () => {
       toolContext: {
         agent,
         sessionId: "s1",
+        runId: "run-1",
+        requestId: "req-1",
         currentAgentName: "orchestrator_agent",
+        parentCallId: "call-root",
       },
       onEvent: (event) => {
         events.push(event);
@@ -377,6 +380,17 @@ describe("AgentRuntimeCore", () => {
           toolName: "list_memory_index",
           arguments: { scope: "session" },
           callId: "xml_round_0_call_1",
+        },
+        context: {
+          sessionId: "s1",
+          runId: "run-1",
+          requestId: "req-1",
+          currentAgentName: "orchestrator_agent",
+          parentCallId: "call-root",
+          toolCallId: "xml_round_0_call_1",
+          round: 0,
+          order: 1,
+          roundIndex: 1,
         },
       },
     ]);
@@ -439,7 +453,10 @@ describe("AgentRuntimeCore", () => {
       toolContext: {
         agent,
         sessionId: "s1",
+        runId: "run-1",
+        requestId: "req-1",
         currentAgentName: "orchestrator_agent",
+        parentCallId: "call-root",
       },
       onEvent: (event) => {
         events.push(event);
@@ -475,7 +492,10 @@ describe("AgentRuntimeCore", () => {
       toolContext: {
         agent,
         sessionId: "s1",
+        runId: "run-1",
+        requestId: "req-1",
         currentAgentName: "orchestrator_agent",
+        parentCallId: "call-root",
       },
     });
 
@@ -515,7 +535,10 @@ describe("AgentRuntimeCore", () => {
       toolContext: {
         agent,
         sessionId: "s1",
+        runId: "run-1",
+        requestId: "req-1",
         currentAgentName: "orchestrator_agent",
+        parentCallId: "call-root",
       },
     });
 
@@ -526,6 +549,20 @@ describe("AgentRuntimeCore", () => {
         file_path: "E:/tmp/generated.txt",
       },
     });
+    expect(tools.calls.map((item) => item.context)).toMatchObject([
+      {
+        toolCallId: "xml_round_0_call_1",
+        round: 0,
+        order: 1,
+        roundIndex: 1,
+      },
+      {
+        toolCallId: "xml_round_0_call_2",
+        round: 0,
+        order: 2,
+        roundIndex: 2,
+      },
+    ]);
   });
 
   it("renders request_user_input tool results as compact semantic observations", () => {
@@ -585,7 +622,10 @@ describe("AgentRuntimeCore", () => {
       toolContext: {
         agent,
         sessionId: "s1",
+        runId: "run-1",
+        requestId: "req-1",
         currentAgentName: "orchestrator_agent",
+        parentCallId: "call-root",
       },
       onEvent: (event) => {
         events.push(event);
@@ -612,7 +652,14 @@ describe("AgentRuntimeCore", () => {
         },
         context: {
           sessionId: "s1",
+          runId: "run-1",
+          requestId: "req-1",
           currentAgentName: "orchestrator_agent",
+          parentCallId: "call-root",
+          toolCallId: "call_memory_1",
+          round: 0,
+          order: 1,
+          roundIndex: 1,
         },
       },
     ]);
@@ -717,7 +764,10 @@ describe("AgentRuntimeCore", () => {
       toolContext: {
         agent,
         sessionId: "s1",
+        runId: "run-1",
+        requestId: "req-1",
         currentAgentName: "orchestrator_agent",
+        parentCallId: "call-root",
       },
     });
 
@@ -728,6 +778,26 @@ describe("AgentRuntimeCore", () => {
         file_path: "E:/tmp/generated.txt",
       },
     });
+    expect(tools.calls.map((item) => item.context)).toMatchObject([
+      {
+        runId: "run-1",
+        requestId: "req-1",
+        parentCallId: "call-root",
+        toolCallId: "call_write",
+        round: 0,
+        order: 1,
+        roundIndex: 1,
+      },
+      {
+        runId: "run-1",
+        requestId: "req-1",
+        parentCallId: "call-root",
+        toolCallId: "call_read",
+        round: 0,
+        order: 2,
+        roundIndex: 2,
+      },
+    ]);
   });
 
   it("injects queued followup messages before the next llm request", async () => {
