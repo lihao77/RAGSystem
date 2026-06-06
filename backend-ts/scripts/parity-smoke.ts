@@ -25,10 +25,14 @@ interface Options {
   sessionId: string | null;
   selectedLlm: string | null;
   includeExecution: boolean;
+  includeWs: boolean;
+  includeWsStop: boolean;
   executionTask: string;
   customExecutionTask: boolean;
   executionProfile: ExecutionProfile;
   executionTimeoutMs: number;
+  wsTask: string;
+  wsTimeoutMs: number;
   pollIntervalMs: number;
 }
 
@@ -56,6 +60,36 @@ interface ExecutionRunResult {
   runStepsStatus: number | null;
   runSteps: Record<string, unknown>[];
   toolNames: string[];
+}
+
+interface WebSocketLike {
+  readonly readyState: number;
+  send(data: string): void;
+  close(code?: number, reason?: string): void;
+  addEventListener(event: "open", listener: () => void, options?: { once?: boolean }): void;
+  addEventListener(event: "close", listener: () => void, options?: { once?: boolean }): void;
+  addEventListener(event: "error", listener: (event: unknown) => void, options?: { once?: boolean }): void;
+  addEventListener(event: "message", listener: (event: { data: unknown }) => void): void;
+}
+
+interface WebSocketConstructorLike {
+  new(url: string): WebSocketLike;
+}
+
+interface WsRunResult {
+  sessionId: string;
+  opened: boolean;
+  startStatus: number;
+  started: boolean;
+  runId: string | null;
+  completed: boolean;
+  completionDetail: string;
+  events: Record<string, unknown>[];
+  errors: string[];
+}
+
+interface WsStopRunResult extends WsRunResult {
+  stopAck: Record<string, unknown> | null;
 }
 
 const CORE_TOOL_NAMES = [
@@ -90,7 +124,9 @@ const PROMPT_NEEDLES = [
 ] as const;
 
 const DEFAULT_EXECUTION_TASK = "Reply exactly: parity-smoke-ok";
+const DEFAULT_WS_TASK = "Reply exactly: parity-ws-ok";
 const DEFAULT_EXECUTION_PROFILE: ExecutionProfile = "core";
+const REQUIRED_WS_EVENT_GROUPS = ["run-start", "content", "message-saved", "terminal"] as const;
 
 const MINIMAL_EXECUTION_SCENARIO: ExecutionScenario = {
   name: "minimal",
@@ -196,6 +232,9 @@ async function main(): Promise<void> {
   }
   if (options.includeExecution) {
     results.push(...await checkExecutionSmoke([python, ts], options));
+  }
+  if (options.includeWs) {
+    results.push(...await checkWebSocketSmoke([python, ts], options));
   }
 
   printReport(results, snapshotResults.summary);
@@ -470,6 +509,549 @@ function getExecutionScenarios(options: Options): ExecutionScenario[] {
   return CORE_EXECUTION_SCENARIOS;
 }
 
+async function checkWebSocketSmoke(backends: Backend[], options: Options): Promise<CheckResult[]> {
+  const results: CheckResult[] = [];
+  const wsConstructor = getWebSocketConstructor();
+  if (!wsConstructor) {
+    return [
+      {
+        name: "ws:runtime",
+        status: "fail",
+        detail: "global WebSocket is not available in this Node runtime",
+      },
+    ];
+  }
+
+  const stamp = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14);
+  const liveRuns: Array<{ backend: Backend; run: WsRunResult }> = [];
+  for (const backend of backends) {
+    const run = await runWebSocketScenario(backend, options, stamp, wsConstructor);
+    liveRuns.push({ backend, run });
+    results.push(...buildWebSocketRunResults(backend, "live", run));
+  }
+  results.push(...buildWebSocketParityResults("live", liveRuns));
+
+  if (options.includeWsStop) {
+    const stopRuns: Array<{ backend: Backend; run: WsStopRunResult }> = [];
+    for (const backend of backends) {
+      const run = await runWebSocketStopScenario(backend, options, stamp, wsConstructor);
+      stopRuns.push({ backend, run });
+      results.push(...buildWebSocketStopRunResults(backend, run));
+    }
+    results.push(...buildWebSocketParityResults("stop", stopRuns));
+  }
+
+  return results;
+}
+
+async function runWebSocketScenario(
+  backend: Backend,
+  options: Options,
+  stamp: string,
+  wsConstructor: WebSocketConstructorLike,
+): Promise<WsRunResult> {
+  const sessionId = `parity-ws-${backend.name}-${stamp}-live`;
+  const collector = createWebSocketCollector(backend, sessionId, wsConstructor);
+  let opened = false;
+  let startStatus = 0;
+  let started = false;
+  let runId: string | null = null;
+  let completed = false;
+  let completionDetail = "";
+  try {
+    opened = await collector.waitForOpen(Math.min(5_000, options.wsTimeoutMs));
+    const start = await startAgentStream(backend, sessionId, options.wsTask, options, `parity-ws-${backend.name}-${stamp}-live`);
+    startStatus = start.status;
+    const startData = getResponseData(start.json);
+    started = getPath(startData, ["started"]) === true;
+    const rawRunId = getPath(startData, ["run_id"]);
+    runId = typeof rawRunId === "string" ? rawRunId : null;
+    if (started) {
+      const finalStatus = await waitForExecution(backend, sessionId, {
+        ...options,
+        executionTimeoutMs: options.wsTimeoutMs,
+      });
+      completed = finalStatus.completed;
+      completionDetail = finalStatus.detail;
+      await sleep(750);
+    } else {
+      completionDetail = `start status=${start.status} started=${String(getPath(startData, ["started"]))}`;
+    }
+  } catch (error) {
+    collector.recordError(error instanceof Error ? error.message : String(error));
+    completionDetail = completionDetail || (error instanceof Error ? error.message : String(error));
+  } finally {
+    collector.close();
+  }
+  return {
+    sessionId,
+    opened,
+    startStatus,
+    started,
+    runId,
+    completed,
+    completionDetail,
+    events: collector.events,
+    errors: collector.errors,
+  };
+}
+
+async function runWebSocketStopScenario(
+  backend: Backend,
+  options: Options,
+  stamp: string,
+  wsConstructor: WebSocketConstructorLike,
+): Promise<WsStopRunResult> {
+  const sessionId = `parity-ws-${backend.name}-${stamp}-stop`;
+  const collector = createWebSocketCollector(backend, sessionId, wsConstructor);
+  let opened = false;
+  let startStatus = 0;
+  let started = false;
+  let runId: string | null = null;
+  let stopAck: Record<string, unknown> | null = null;
+  let completed = false;
+  let completionDetail = "";
+  try {
+    opened = await collector.waitForOpen(Math.min(5_000, options.wsTimeoutMs));
+    const task = "Live parity WebSocket stop smoke. Start normally; this run may be cancelled by the client.";
+    const start = await startAgentStream(backend, sessionId, task, options, `parity-ws-${backend.name}-${stamp}-stop`);
+    startStatus = start.status;
+    const startData = getResponseData(start.json);
+    started = getPath(startData, ["started"]) === true;
+    const rawRunId = getPath(startData, ["run_id"]);
+    runId = typeof rawRunId === "string" ? rawRunId : null;
+    if (started) {
+      await collector.waitForEvent((event) => event.type === "session.run_started" || event.type === "run.start", 2_000);
+      collector.send({ type: "stop" });
+      stopAck = await collector.waitForEvent((event) => event.type === "stop.ack", Math.min(10_000, options.wsTimeoutMs));
+      const settled = await waitForSessionSettled(backend, sessionId, options);
+      completed = settled.settled;
+      completionDetail = settled.detail;
+      await sleep(500);
+    } else {
+      completionDetail = `start status=${start.status} started=${String(getPath(startData, ["started"]))}`;
+    }
+  } catch (error) {
+    collector.recordError(error instanceof Error ? error.message : String(error));
+    completionDetail = completionDetail || (error instanceof Error ? error.message : String(error));
+  } finally {
+    collector.close();
+  }
+  return {
+    sessionId,
+    opened,
+    startStatus,
+    started,
+    runId,
+    completed,
+    completionDetail,
+    events: collector.events,
+    errors: collector.errors,
+    stopAck,
+  };
+}
+
+async function startAgentStream(
+  backend: Backend,
+  sessionId: string,
+  task: string,
+  options: Options,
+  requestId: string,
+): Promise<HttpResult> {
+  const body: Record<string, unknown> = {
+    task,
+    session_id: sessionId,
+    attachments: [],
+  };
+  if (options.selectedLlm) {
+    body.selected_llm = options.selectedLlm;
+  }
+  return request(backend, "/api/agent/stream", {
+    method: "POST",
+    body,
+    headers: { "x-request-id": requestId },
+  });
+}
+
+function buildWebSocketRunResults(backend: Backend, scenarioName: string, run: WsRunResult): CheckResult[] {
+  const prefix = `${backend.name}:ws:${scenarioName}`;
+  const missingGroups = REQUIRED_WS_EVENT_GROUPS.filter((group) => !hasWebSocketEventGroup(run.events, group));
+  const seqCheck = checkStreamSeq(run.events);
+  const eventTypes = summarizeEventTypes(run.events);
+  const results: CheckResult[] = [
+    {
+      name: `${prefix}:connection`,
+      status: run.opened ? "pass" : "fail",
+      detail: `session_id=${run.sessionId} opened=${String(run.opened)}`,
+    },
+    {
+      name: `${prefix}:start`,
+      status: run.startStatus === 200 && run.started ? "pass" : "fail",
+      detail: `status=${run.startStatus} started=${String(run.started)} run_id=${run.runId ?? ""}`,
+    },
+    {
+      name: `${prefix}:events`,
+      status: run.events.length > 0 && missingGroups.length === 0 ? "pass" : "fail",
+      detail: `count=${run.events.length} missing_groups=[${missingGroups.join(", ")}] types=[${eventTypes.join(", ")}]`,
+    },
+    {
+      name: `${prefix}:stream-seq`,
+      status: seqCheck.ok ? "pass" : "fail",
+      detail: seqCheck.detail,
+    },
+    {
+      name: `${prefix}:complete`,
+      status: run.completed ? "pass" : "fail",
+      detail: `${run.completionDetail} session_id=${run.sessionId}`,
+    },
+  ];
+  if (run.errors.length > 0) {
+    results.push({
+      name: `${prefix}:socket-errors`,
+      status: "warn",
+      detail: run.errors.slice(0, 3).join("; "),
+    });
+  }
+  return results;
+}
+
+function buildWebSocketStopRunResults(backend: Backend, run: WsStopRunResult): CheckResult[] {
+  const prefix = `${backend.name}:ws:stop`;
+  const seqCheck = checkStreamSeq(run.events);
+  const eventTypes = summarizeEventTypes(run.events);
+  const results: CheckResult[] = [
+    {
+      name: `${prefix}:connection`,
+      status: run.opened ? "pass" : "fail",
+      detail: `session_id=${run.sessionId} opened=${String(run.opened)}`,
+    },
+    {
+      name: `${prefix}:start`,
+      status: run.startStatus === 200 && run.started ? "pass" : "fail",
+      detail: `status=${run.startStatus} started=${String(run.started)} run_id=${run.runId ?? ""}`,
+    },
+    {
+      name: `${prefix}:ack`,
+      status: run.stopAck?.type === "stop.ack" ? "pass" : "fail",
+      detail: `stop_ack=${run.stopAck ? JSON.stringify(pickEventSummary(run.stopAck)) : "missing"} ${run.completionDetail}`,
+    },
+    {
+      name: `${prefix}:events`,
+      status: run.events.length > 0 ? "pass" : "fail",
+      detail: `count=${run.events.length} types=[${eventTypes.join(", ")}]`,
+    },
+    {
+      name: `${prefix}:stream-seq`,
+      status: seqCheck.ok ? "pass" : "fail",
+      detail: seqCheck.detail,
+    },
+  ];
+  if (run.errors.length > 0) {
+    results.push({
+      name: `${prefix}:socket-errors`,
+      status: "warn",
+      detail: run.errors.slice(0, 3).join("; "),
+    });
+  }
+  return results;
+}
+
+function buildWebSocketParityResults(
+  scenarioName: string,
+  runs: Array<{ backend: Backend; run: WsRunResult }>,
+): CheckResult[] {
+  const python = runs.find((item) => item.backend.name === "python")?.run ?? null;
+  const ts = runs.find((item) => item.backend.name === "ts")?.run ?? null;
+  if (!python || !ts) {
+    return [];
+  }
+  const pythonGroups = REQUIRED_WS_EVENT_GROUPS.filter((group) => hasWebSocketEventGroup(python.events, group));
+  const tsGroups = REQUIRED_WS_EVENT_GROUPS.filter((group) => hasWebSocketEventGroup(ts.events, group));
+  const pythonTypes = summarizeEventTypes(python.events);
+  const tsTypes = summarizeEventTypes(ts.events);
+  return [
+    checkSetParity({
+      name: `ws:${scenarioName}:event-groups`,
+      leftLabel: "python",
+      rightLabel: "ts",
+      left: pythonGroups,
+      right: tsGroups,
+      strict: true,
+    }),
+    checkSetParity({
+      name: `ws:${scenarioName}:event-type-delta`,
+      leftLabel: "python",
+      rightLabel: "ts",
+      left: pythonTypes,
+      right: tsTypes,
+      strict: false,
+    }),
+  ];
+}
+
+async function waitForSessionSettled(
+  backend: Backend,
+  sessionId: string,
+  options: Options,
+): Promise<{ settled: boolean; detail: string }> {
+  const startedAt = Date.now();
+  let lastDetail = "";
+  while (Date.now() - startedAt < options.wsTimeoutMs) {
+    const status = await request(backend, `/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`);
+    const data = getResponseData(status.json);
+    const running = getPath(data, ["has_running_task"]);
+    const taskStatus = getPath(data, ["task_info", "status"]);
+    lastDetail = `http=${status.status} running=${String(running)} task_status=${String(taskStatus)}`;
+    if (running === false || taskStatus === "completed" || taskStatus === "failed" || taskStatus === "interrupted") {
+      return { settled: true, detail: lastDetail };
+    }
+    await sleep(options.pollIntervalMs);
+  }
+  return { settled: false, detail: `timeout after ${options.wsTimeoutMs}ms; ${lastDetail}` };
+}
+
+function createWebSocketCollector(
+  backend: Backend,
+  sessionId: string,
+  wsConstructor: WebSocketConstructorLike,
+): {
+  events: Record<string, unknown>[];
+  errors: string[];
+  waitForOpen(timeoutMs: number): Promise<boolean>;
+  waitForEvent(predicate: (event: Record<string, unknown>) => boolean, timeoutMs: number): Promise<Record<string, unknown> | null>;
+  send(payload: Record<string, unknown>): void;
+  recordError(message: string): void;
+  close(): void;
+} {
+  const events: Record<string, unknown>[] = [];
+  const errors: string[] = [];
+  const eventWaiters: Array<{
+    predicate: (event: Record<string, unknown>) => boolean;
+    resolve: (event: Record<string, unknown> | null) => void;
+    timeout: ReturnType<typeof setTimeout>;
+  }> = [];
+  let opened = false;
+  let closed = false;
+  const openWaiters: Array<(value: boolean) => void> = [];
+  const ws = new wsConstructor(toWebSocketUrl(backend, `/api/agent/sessions/${encodeURIComponent(sessionId)}/ws`));
+
+  const settleOpen = (value: boolean): void => {
+    if (opened || closed) {
+      return;
+    }
+    opened = value;
+    while (openWaiters.length) {
+      openWaiters.shift()?.(value);
+    }
+  };
+
+  ws.addEventListener("open", () => settleOpen(true), { once: true });
+  ws.addEventListener("close", () => {
+    closed = true;
+    if (!opened) {
+      while (openWaiters.length) {
+        openWaiters.shift()?.(false);
+      }
+    }
+  }, { once: true });
+  ws.addEventListener("error", (event) => {
+    errors.push(`websocket error: ${stringifyReference(event)}`);
+  });
+  ws.addEventListener("message", (event) => {
+    void decodeWebSocketData(event.data)
+      .then((raw) => {
+        const parsed: unknown = JSON.parse(raw);
+        if (!isRecord(parsed)) {
+          errors.push(`non-object websocket payload: ${raw.slice(0, 120)}`);
+          return;
+        }
+        events.push(parsed);
+        notifyEventWaiters(eventWaiters, parsed);
+      })
+      .catch((error) => {
+        errors.push(error instanceof Error ? error.message : String(error));
+      });
+  });
+
+  return {
+    events,
+    errors,
+    waitForOpen: (timeoutMs: number) => {
+      if (opened) {
+        return Promise.resolve(true);
+      }
+      if (closed) {
+        return Promise.resolve(false);
+      }
+      return new Promise<boolean>((resolve) => {
+        let timeout: ReturnType<typeof setTimeout>;
+        const waiter = (value: boolean): void => {
+          clearTimeout(timeout);
+          resolve(value);
+        };
+        timeout = setTimeout(() => {
+          const index = openWaiters.indexOf(waiter);
+          if (index >= 0) {
+            openWaiters.splice(index, 1);
+          }
+          resolve(false);
+        }, timeoutMs);
+        openWaiters.push(waiter);
+      });
+    },
+    waitForEvent: (predicate: (event: Record<string, unknown>) => boolean, timeoutMs: number) => {
+      const existing = events.find(predicate);
+      if (existing) {
+        return Promise.resolve(existing);
+      }
+      return new Promise<Record<string, unknown> | null>((resolve) => {
+        const waiter = {
+          predicate,
+          resolve,
+          timeout: setTimeout(() => {
+            const index = eventWaiters.indexOf(waiter);
+            if (index >= 0) {
+              eventWaiters.splice(index, 1);
+            }
+            resolve(null);
+          }, timeoutMs),
+        };
+        eventWaiters.push(waiter);
+      });
+    },
+    send: (payload: Record<string, unknown>) => ws.send(JSON.stringify(payload)),
+    recordError: (message: string) => errors.push(message),
+    close: () => {
+      for (const waiter of eventWaiters.splice(0)) {
+        clearTimeout(waiter.timeout);
+        waiter.resolve(null);
+      }
+      try {
+        ws.close();
+      } catch {
+        // ignored: the smoke is already done with the socket.
+      }
+    },
+  };
+}
+
+function notifyEventWaiters(
+  waiters: Array<{
+    predicate: (event: Record<string, unknown>) => boolean;
+    resolve: (event: Record<string, unknown> | null) => void;
+    timeout: ReturnType<typeof setTimeout>;
+  }>,
+  event: Record<string, unknown>,
+): void {
+  for (let index = waiters.length - 1; index >= 0; index -= 1) {
+    const waiter = waiters[index];
+    if (!waiter?.predicate(event)) {
+      continue;
+    }
+    waiters.splice(index, 1);
+    clearTimeout(waiter.timeout);
+    waiter.resolve(event);
+  }
+}
+
+function getWebSocketConstructor(): WebSocketConstructorLike | null {
+  const ctor = (globalThis as unknown as { WebSocket?: WebSocketConstructorLike }).WebSocket;
+  return typeof ctor === "function" ? ctor : null;
+}
+
+function toWebSocketUrl(backend: Backend, path: string): string {
+  const url = new URL(`${backend.baseUrl}${path}`);
+  if (url.protocol === "https:") {
+    url.protocol = "wss:";
+  } else {
+    url.protocol = "ws:";
+  }
+  return url.toString();
+}
+
+async function decodeWebSocketData(data: unknown): Promise<string> {
+  if (typeof data === "string") {
+    return data;
+  }
+  if (data instanceof ArrayBuffer) {
+    return new TextDecoder().decode(data);
+  }
+  if (ArrayBuffer.isView(data)) {
+    const view = data as { buffer: ArrayBuffer; byteOffset: number; byteLength: number };
+    return new TextDecoder().decode(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
+  }
+  if (isRecord(data) && typeof data.text === "function") {
+    return String(await (data.text as () => Promise<string>)());
+  }
+  return String(data);
+}
+
+function hasWebSocketEventGroup(
+  events: Record<string, unknown>[],
+  group: typeof REQUIRED_WS_EVENT_GROUPS[number],
+): boolean {
+  if (group === "run-start") {
+    return events.some((event) => event.type === "session.run_started" || event.type === "run.start" || event.type === "reconnect_start");
+  }
+  if (group === "content") {
+    return events.some((event) => event.type === "llm.first_token" || event.type === "output.chunk" || event.type === "output.final_answer");
+  }
+  if (group === "message-saved") {
+    return events.some((event) => event.type === "output.message_saved");
+  }
+  return events.some((event) => {
+    if (event.type === "run.end" || event.type === "output.final_answer") {
+      return true;
+    }
+    if (event.type !== "session.updated") {
+      return false;
+    }
+    const status = getPath(event, ["data", "status"]) ?? getPath(event, ["content", "status"]);
+    return status === "completed" || status === "failed" || status === "interrupted";
+  });
+}
+
+function checkStreamSeq(events: Record<string, unknown>[]): { ok: boolean; detail: string } {
+  const seqs = events
+    .map((event) => event.stream_seq)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (seqs.length === 0) {
+    return { ok: false, detail: "no stream_seq values observed" };
+  }
+  for (let index = 1; index < seqs.length; index += 1) {
+    const previous = seqs[index - 1];
+    const current = seqs[index];
+    if (previous === undefined || current === undefined || current <= previous) {
+      return { ok: false, detail: `non-monotonic stream_seq=[${seqs.join(", ")}]` };
+    }
+  }
+  return { ok: true, detail: `count=${seqs.length} first=${seqs[0]} last=${seqs.at(-1)}` };
+}
+
+function summarizeEventTypes(events: Record<string, unknown>[]): string[] {
+  return Array.from(new Set(events.map((event) => String(event.type ?? "")).filter(Boolean))).sort((left, right) => left.localeCompare(right));
+}
+
+function pickEventSummary(event: Record<string, unknown>): Record<string, unknown> {
+  return {
+    type: event.type,
+    session_id: event.session_id,
+    run_id: event.run_id ?? getPath(event, ["data", "run_id"]),
+    stream_seq: event.stream_seq,
+  };
+}
+
+function stringifyReference(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 async function getPermissionPolicy(backend: Backend): Promise<PermissionPolicy | null> {
   const response = await request(backend, "/api/permissions/policy");
   if (response.status !== 200 || !isRecord(response.json)) {
@@ -663,10 +1245,14 @@ function parseArgs(args: string[]): Options {
     sessionId: process.env.PARITY_SESSION_ID ?? null,
     selectedLlm: process.env.PARITY_SELECTED_LLM ?? "rag|deepseek|deepseek-v4-pro",
     includeExecution: false,
+    includeWs: parseBooleanEnv(process.env.PARITY_INCLUDE_WS),
+    includeWsStop: parseBooleanEnv(process.env.PARITY_INCLUDE_WS_STOP),
     executionTask: process.env.PARITY_EXECUTION_TASK ?? DEFAULT_EXECUTION_TASK,
     customExecutionTask: process.env.PARITY_EXECUTION_TASK !== undefined,
     executionProfile: parseExecutionProfile(process.env.PARITY_EXECUTION_PROFILE ?? DEFAULT_EXECUTION_PROFILE),
     executionTimeoutMs: Number.parseInt(process.env.PARITY_EXECUTION_TIMEOUT_MS ?? "120000", 10),
+    wsTask: process.env.PARITY_WS_TASK ?? DEFAULT_WS_TASK,
+    wsTimeoutMs: Number.parseInt(process.env.PARITY_WS_TIMEOUT_MS ?? "120000", 10),
     pollIntervalMs: 1000,
   };
 
@@ -678,6 +1264,15 @@ function parseArgs(args: string[]): Options {
     }
     if (arg === "--include-execution") {
       options.includeExecution = true;
+      continue;
+    }
+    if (arg === "--include-ws") {
+      options.includeWs = true;
+      continue;
+    }
+    if (arg === "--include-ws-stop") {
+      options.includeWs = true;
+      options.includeWsStop = true;
       continue;
     }
     if (arg === "--no-selected-llm") {
@@ -721,6 +1316,16 @@ function parseArgs(args: string[]): Options {
       index += 1;
       continue;
     }
+    if (arg === "--ws-task") {
+      options.wsTask = requireValue(args, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--ws-timeout-ms") {
+      options.wsTimeoutMs = Number.parseInt(requireValue(args, index, arg), 10);
+      index += 1;
+      continue;
+    }
     throw new Error(`Unknown argument: ${arg}`);
   }
   return options;
@@ -736,9 +1341,13 @@ Options:
   --selected-llm <value>      selected_llm query/body value. Default: rag|deepseek|deepseek-v4-pro
   --no-selected-llm           Do not send selected_llm.
   --include-execution         Also run a real LLM-backed /api/agent/stream smoke.
+  --include-ws                Also connect session WebSocket and compare live event semantics.
+  --include-ws-stop           Also test WebSocket stop ack semantics. Implies --include-ws.
   --execution-task <text>     Custom single task for --include-execution.
   --execution-profile <name>  minimal, core, or full. Default: core
   --execution-timeout-ms <n>  Execution timeout. Default: 120000
+  --ws-task <text>            Custom direct task for --include-ws.
+  --ws-timeout-ms <n>         WebSocket smoke timeout. Default: 120000
 `);
 }
 
@@ -854,6 +1463,14 @@ function parseExecutionProfile(value: string): ExecutionProfile {
     return normalized;
   }
   throw new Error(`Unsupported execution profile: ${value}`);
+}
+
+function parseBooleanEnv(value: string | undefined): boolean {
+  if (value === undefined) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 }
 
 function sleep(ms: number): Promise<void> {

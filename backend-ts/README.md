@@ -95,12 +95,18 @@ Optional live parity smoke against Python `5001` and TypeScript `5002`:
 ```bash
 npm run smoke:parity -- --session-id <existing-session-id>
 npm run smoke:parity -- --session-id <existing-session-id> --include-execution --execution-profile core
+npm run smoke:parity -- --session-id <existing-session-id> --include-ws
+npm run smoke:parity -- --session-id <existing-session-id> --include-ws --include-ws-stop
 ```
 
 The default smoke is read-only. `--include-execution` starts real `/api/agent/stream`
 runs on both backends and uses `selected_llm=rag|deepseek|deepseek-v4-pro` unless overridden.
 Execution smoke temporarily sets `/api/permissions/policy` to skip approvals and restores the
-original policy afterwards. Profiles:
+original policy afterwards.
+
+`--include-ws` connects `/api/agent/sessions/{session_id}/ws` before starting a minimal live run
+and checks core realtime semantics: event groups, monotonic `stream_seq`, message persistence, and
+terminal delivery. `--include-ws-stop` adds a WebSocket `stop`/`stop.ack` smoke. Profiles:
 
 - `minimal`: one direct LLM reply.
 - `core`: minimal plus file, data preview, foreground/background bash, and task CRUD tool chains.
