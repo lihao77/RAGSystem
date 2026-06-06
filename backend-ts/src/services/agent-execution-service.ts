@@ -703,15 +703,6 @@ export class AgentExecutionService {
           ...(input.finalMetadataExtra ?? {}),
         },
       });
-      this.addExecutionStep(input.sessionId, input.runId, {
-        kind: "final",
-        phase: "complete",
-        agent_name: input.agent.agent_name,
-        task_id: input.taskId,
-        result_preview: response.content.slice(0, 500),
-      });
-      this.conversationStore.updateRunStepsMessageId(input.sessionId, input.runId, assistantMessage.id);
-      this.conversationStore.updateRunStatus(input.runId, input.sessionId, "completed", assistantMessage.id);
       this.finishStatus(input.status, "completed", input.startedAt);
       const finalMetadata = {
         agent: input.agent.agent_name,
@@ -724,11 +715,32 @@ export class AgentExecutionService {
       const finalStepPayload = {
         kind: "final",
         phase: "complete",
+        call_id: input.rootCallId,
+        parent_call_id: null,
+        step_id: `${input.rootCallId}:final`,
+        parent_step_id: `${input.rootCallId}:run`,
+        agent_name: input.agent.agent_name,
+        agent_display_name: input.agent.display_name || input.agent.agent_name,
         message_id: assistantMessage.id,
         run_id: input.runId,
         task_id: input.taskId,
         request_id: input.requestId,
+        status: "completed",
+        result_preview: response.content.slice(0, 500),
       };
+      const runEndStepPayload = buildRunEndStepPayload({
+        rootCallId: input.rootCallId,
+        runId: input.runId,
+        taskId: input.taskId,
+        requestId: input.requestId,
+        agent: input.agent,
+        status: "completed",
+        resultPreview: response.content.slice(0, 500),
+      });
+      this.addExecutionStep(input.sessionId, input.runId, finalStepPayload);
+      this.addExecutionStep(input.sessionId, input.runId, runEndStepPayload);
+      this.conversationStore.updateRunStepsMessageId(input.sessionId, input.runId, assistantMessage.id);
+      this.conversationStore.updateRunStatus(input.runId, input.sessionId, "completed", assistantMessage.id);
       this.events.publish(input.sessionId, {
         type: "execution.step",
         session_id: input.sessionId,
@@ -753,6 +765,12 @@ export class AgentExecutionService {
         agent: input.agent,
         result: response.content,
         success: true,
+      });
+      this.events.publish(input.sessionId, {
+        type: "execution.step",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        ...mirrorEventData(runEndStepPayload),
       });
       this.events.publish(input.sessionId, {
         type: "output.message_saved",
@@ -782,13 +800,6 @@ export class AgentExecutionService {
       const finalStatus = interrupted ? "interrupted" : "failed";
       const errorMessage = error instanceof Error ? error.message : String(error);
       const executionKind = input.executionKind ?? "agent_stream";
-      this.addExecutionStep(input.sessionId, input.runId, {
-        kind: "run",
-        phase: finalStatus,
-        agent_name: input.agent.agent_name,
-        task_id: input.taskId,
-        error: errorMessage,
-      });
       this.conversationStore.updateRunStatus(input.runId, input.sessionId, finalStatus);
       this.finishStatus(input.status, finalStatus, input.startedAt);
       this.publishRootAgentEnd({
@@ -800,6 +811,23 @@ export class AgentExecutionService {
         agent: input.agent,
         result: interrupted ? "[已停止生成]" : errorMessage,
         success: false,
+      });
+      const runEndStepPayload = buildRunEndStepPayload({
+        rootCallId: input.rootCallId,
+        runId: input.runId,
+        taskId: input.taskId,
+        requestId: input.requestId,
+        agent: input.agent,
+        status: interrupted ? "interrupted" : "error",
+        resultPreview: interrupted ? "[已停止生成]" : errorMessage,
+        error: errorMessage,
+      });
+      this.addExecutionStep(input.sessionId, input.runId, runEndStepPayload);
+      this.events.publish(input.sessionId, {
+        type: "execution.step",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        ...mirrorEventData(runEndStepPayload),
       });
       this.events.publish(input.sessionId, {
         type: "agent.error",
@@ -981,6 +1009,7 @@ export class AgentExecutionService {
       taskId: string;
       requestId: string;
       rootCallId: string;
+      agent: AgentConfig;
     },
     event: AgentRuntimeEvent,
   ): void {
@@ -1039,6 +1068,7 @@ export class AgentExecutionService {
         step_id: `${input.rootCallId}:round:${event.data.round}`,
         parent_step_id: `${input.rootCallId}:run`,
         agent_name: event.data.agent_name,
+        agent_display_name: input.agent.display_name || event.data.agent_name,
         content: event.data.content,
         round: event.data.round,
         status: "completed",
@@ -1073,13 +1103,17 @@ export class AgentExecutionService {
         kind: "tool",
         phase: "start",
         legacy_phase: "call",
+        step_id: `${event.data.tool_call_id}:tool`,
+        parent_step_id: `${input.rootCallId}:round:${event.data.round}`,
         agent_name: event.data.agent_name,
+        agent_display_name: input.agent.display_name || event.data.agent_name,
         tool_name: event.data.tool_name,
         call_id: event.data.tool_call_id,
         tool_call_id: event.data.tool_call_id,
         parent_call_id: input.rootCallId,
         arguments: event.data.arguments,
         round: event.data.round,
+        status: "running",
         order: event.data.order,
         round_index: event.data.round_index,
         run_id: input.runId,
@@ -1102,11 +1136,15 @@ export class AgentExecutionService {
         kind: "tool",
         phase: "end",
         legacy_phase: "result",
+        step_id: `${event.data.tool_call_id}:tool`,
+        parent_step_id: `${input.rootCallId}:round:${event.data.round}`,
         agent_name: event.data.agent_name,
+        agent_display_name: input.agent.display_name || event.data.agent_name,
         tool_name: event.data.tool_name,
         call_id: event.data.tool_call_id,
         tool_call_id: event.data.tool_call_id,
         parent_call_id: input.rootCallId,
+        round: event.data.round,
         status: event.data.success ? "success" : "error",
         success: event.data.success,
         summary: event.data.summary,
@@ -1333,6 +1371,39 @@ function buildRuntimeToolContext(
     workspaceRoot: asString(input.sessionMetadata.workspace_root) ?? asString(agent.custom_params.workspace_root),
     signal: input.signal,
   };
+}
+
+function buildRunEndStepPayload(input: {
+  rootCallId: string;
+  runId: string;
+  taskId: string;
+  requestId: string;
+  agent: AgentConfig;
+  status: string;
+  resultPreview?: string | undefined;
+  error?: string | undefined;
+}): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    kind: "run",
+    phase: "end",
+    call_id: input.rootCallId,
+    parent_call_id: null,
+    step_id: `${input.rootCallId}:run`,
+    parent_step_id: null,
+    agent_name: input.agent.agent_name,
+    agent_display_name: input.agent.display_name || input.agent.agent_name,
+    run_id: input.runId,
+    task_id: input.taskId,
+    request_id: input.requestId,
+    status: input.status,
+  };
+  if (input.resultPreview) {
+    payload.result_preview = input.resultPreview;
+  }
+  if (input.error) {
+    payload.error = input.error;
+  }
+  return payload;
 }
 
 function buildContextUsagePayload(input: {

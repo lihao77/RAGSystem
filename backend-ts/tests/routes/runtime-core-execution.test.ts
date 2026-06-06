@@ -171,20 +171,40 @@ describe("minimal runtime core execution", () => {
       url: "/api/agent/sessions/runtime-session/messages?expand=1",
     });
     expect(messages.statusCode).toBe(200);
-    expect(messages.json().data.items).toMatchObject([
-      {
+    expect(messages.json().data.items).toEqual([
+      expect.objectContaining({
         role: "user",
         content: "hello",
-      },
-      {
+      }),
+      expect.objectContaining({
         role: "assistant",
         content: "hello from ts core",
         has_execution: true,
-        execution_steps: [
-          expect.objectContaining({ kind: "run", phase: "start" }),
-          expect.objectContaining({ kind: "final", phase: "complete" }),
-        ],
-      },
+        execution_steps: expect.arrayContaining([
+          expect.objectContaining({
+            kind: "run",
+            phase: "start",
+            status: "running",
+            step_id: expect.stringMatching(/^call_.*:run$/),
+            parent_step_id: null,
+          }),
+          expect.objectContaining({
+            kind: "final",
+            phase: "complete",
+            status: "completed",
+            step_id: expect.stringMatching(/^call_.*:final$/),
+            parent_step_id: expect.stringMatching(/^call_.*:run$/),
+          }),
+          expect.objectContaining({
+            kind: "run",
+            phase: "end",
+            status: "completed",
+            step_id: expect.stringMatching(/^call_.*:run$/),
+            parent_step_id: null,
+            result_preview: "hello from ts core",
+          }),
+        ]),
+      }),
     ]);
 
     const status = await app.inject({
@@ -543,11 +563,20 @@ describe("minimal runtime core execution", () => {
           tool_name: "list_memory_index",
           call_id: "call_memory_1",
           tool_call_id: "call_memory_1",
+          step_id: "call_memory_1:tool",
+          parent_step_id: expect.stringMatching(/^call_.*:round:0$/),
+          status: "running",
+          round: 0,
           arguments: { scope: "session" },
         }),
         expect.objectContaining({
           kind: "tool",
           phase: "end",
+          tool_name: "list_memory_index",
+          call_id: "call_memory_1",
+          step_id: "call_memory_1:tool",
+          parent_step_id: expect.stringMatching(/^call_.*:round:0$/),
+          round: 0,
           success: true,
           summary: "已读取 session MEMORY 索引",
         }),
@@ -565,9 +594,24 @@ describe("minimal runtime core execution", () => {
       role: "assistant",
       content: "The session memory index is available.",
       execution_steps: expect.arrayContaining([
-        expect.objectContaining({ kind: "tool", phase: "start" }),
-        expect.objectContaining({ kind: "tool", phase: "end" }),
-        expect.objectContaining({ kind: "final", phase: "complete" }),
+        expect.objectContaining({
+          kind: "tool",
+          phase: "start",
+          tool_name: "list_memory_index",
+          step_id: "call_memory_1:tool",
+          parent_step_id: expect.stringMatching(/^call_.*:round:0$/),
+          status: "running",
+        }),
+        expect.objectContaining({
+          kind: "tool",
+          phase: "end",
+          tool_name: "list_memory_index",
+          step_id: "call_memory_1:tool",
+          parent_step_id: expect.stringMatching(/^call_.*:round:0$/),
+          status: "success",
+        }),
+        expect.objectContaining({ kind: "final", phase: "complete", status: "completed" }),
+        expect.objectContaining({ kind: "run", phase: "end", status: "completed" }),
       ]),
     });
   });

@@ -1315,6 +1315,7 @@ describe("AgentRuntimeCore", () => {
           },
           raw_result_available: true,
           elapsed_time: expect.any(Number),
+          round: 0,
           order: 1,
           round_index: 1,
         },

@@ -93,6 +93,7 @@ export type AgentRuntimeEvent =
         raw_result_ref: Record<string, unknown>;
         raw_result_available: boolean;
         elapsed_time: number;
+        round: number;
         order: number;
         round_index: number;
       };
@@ -656,6 +657,7 @@ export class AgentRuntimeCore {
         raw_result_ref: buildRawResultRef(input.toolContext, input.call.callId, input.call.toolName),
         raw_result_available: true,
         elapsed_time: elapsedTime,
+        round: input.round,
         order,
         round_index: order,
       },
