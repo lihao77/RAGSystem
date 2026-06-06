@@ -1,0 +1,61 @@
+type ToolRiskLevel = "low" | "medium" | "high";
+
+export interface AvailableToolInfo {
+  name: string;
+  description: string;
+  category: string;
+  runtime_status: "implemented" | "not_migrated";
+  implemented: boolean;
+  risk_level: ToolRiskLevel;
+}
+
+export function listAvailableTools(): AvailableToolInfo[] {
+  return [
+    implementedTool("read_file", "Read a file from the managed workspace", "filesystem", "low"),
+    implementedTool("write_file", "Write a file in the managed workspace", "filesystem", "high"),
+    implementedTool("edit_file", "Edit an existing file in the managed workspace", "filesystem", "high"),
+    implementedTool("preview_data_structure", "Preview structured data files", "data", "low"),
+    implementedTool("execute_bash", "Execute a foreground shell command with approval boundaries", "execution", "high"),
+    implementedTool("task_create", "Create a session-scoped task record", "task", "low"),
+    implementedTool("task_get", "Read a session-scoped task record", "task", "low"),
+    implementedTool("task_update", "Update a session-scoped task record", "task", "low"),
+    implementedTool("task_list", "List session-scoped task records", "task", "low"),
+    implementedTool("task_output", "Read a background task status and output", "task", "low"),
+    implementedTool("task_stop", "Stop a cancellable background task", "task", "medium"),
+    implementedTool("call_agent", "Delegate a subtask to an allowed child Agent", "agent_delegation", "low"),
+    implementedTool("list_child_agents", "List child Agent sessions for the current session", "agent_delegation", "low"),
+    implementedTool("send_message", "Continue an existing child Agent session", "agent_delegation", "low"),
+  ];
+}
+
+function implementedTool(
+  name: string,
+  description: string,
+  category: string,
+  riskLevel: ToolRiskLevel,
+): AvailableToolInfo {
+  return {
+    name,
+    description,
+    category,
+    runtime_status: "implemented",
+    implemented: true,
+    risk_level: riskLevel,
+  };
+}
+
+function notMigratedTool(
+  name: string,
+  description: string,
+  category: string,
+  riskLevel: ToolRiskLevel,
+): AvailableToolInfo {
+  return {
+    name,
+    description,
+    category,
+    runtime_status: "not_migrated",
+    implemented: false,
+    risk_level: riskLevel,
+  };
+}
