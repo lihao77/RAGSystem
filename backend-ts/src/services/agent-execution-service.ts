@@ -16,6 +16,7 @@ import type {
 } from "../contracts/execution.js";
 import { getSelectedLlm as resolveSelectedLlm } from "../contracts/execution.js";
 import type { ModelProviderConfig } from "../contracts/model-adapter.js";
+import type { AgentContextCompressionService, ContextCompressionEvent } from "./agent-context-compression-service.js";
 import type { AgentSessionApplication } from "./agent-session-application.js";
 import type { AgentRuntimeContextBuilder } from "./agent-runtime-context-builder.js";
 import type { CheckpointInfo } from "./checkpoint-manager.js";
@@ -47,6 +48,7 @@ export class AgentExecutionService {
     private readonly agentRuntimeCore: AgentRuntimeCore,
     private readonly contextBuilder: AgentRuntimeContextBuilder,
     private readonly runtimeTools: RuntimeToolExecutor | null = null,
+    private readonly contextCompression: AgentContextCompressionService | null = null,
   ) {}
 
   async startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult> {
@@ -598,19 +600,35 @@ export class AgentExecutionService {
     finalMetadataExtra?: Record<string, unknown> | undefined;
   }): Promise<void> {
     try {
+      const sessionMetadata = this.sessions.getSession(input.sessionId)?.metadata ?? {};
+      const executionKind = input.executionKind ?? "agent_stream";
+      const compressionResult =
+        input.contextConversation !== undefined || !this.contextCompression
+          ? null
+          : await this.contextCompression.compressIfNeeded({
+              sessionId: input.sessionId,
+              runId: input.runId,
+              taskId: input.taskId,
+              requestId: input.requestId,
+              agent: input.agent,
+              provider: input.provider,
+              modelName: input.modelName,
+              threadKey: "root",
+              signal: input.abortController.signal,
+              onEvent: (event) => this.publishContextCompressionEvent(input, event),
+            });
       const context = input.contextConversation
         ? { conversation: input.contextConversation }
         : this.contextBuilder.buildContext({ sessionId: input.sessionId, agent: input.agent });
-      const sessionMetadata = this.sessions.getSession(input.sessionId)?.metadata ?? {};
-      const executionKind = input.executionKind ?? "agent_stream";
       const contextUsagePayload = buildContextUsagePayload({
         agent: input.agent,
-        provider: input.provider,
+        budgetTokens: this.resolveContextBudget(input.agent, input.provider),
         messages: context.conversation,
         round: 0,
         runId: input.runId,
         taskId: input.taskId,
         requestId: input.requestId,
+        compressionResult,
       });
       this.events.publish(input.sessionId, {
         type: "context.usage",
@@ -781,6 +799,45 @@ export class AgentExecutionService {
     }
   }
 
+  private publishContextCompressionEvent(
+    input: {
+      sessionId: string;
+      runId: string;
+      taskId: string;
+      requestId: string;
+      agent: AgentConfig;
+    },
+    event: ContextCompressionEvent,
+  ): void {
+    const payload = {
+      ...event.data,
+      run_id: input.runId,
+      task_id: input.taskId,
+      request_id: input.requestId,
+      agent_name: input.agent.agent_name,
+    };
+    if (event.type === "context.compression_start") {
+      this.addExecutionStep(input.sessionId, input.runId, {
+        kind: "context",
+        phase: "compression_start",
+        ...payload,
+      });
+    } else if (event.type === "context.compression_summary") {
+      this.addExecutionStep(input.sessionId, input.runId, {
+        kind: "context",
+        phase: "compression_summary",
+        ...payload,
+      });
+    }
+    this.events.publish(input.sessionId, {
+      type: event.type,
+      session_id: input.sessionId,
+      run_id: input.runId,
+      agent_name: input.agent.agent_name,
+      ...mirrorEventData(payload),
+    });
+  }
+
   private publishRuntimeEvent(
     input: {
       sessionId: string;
@@ -941,6 +998,10 @@ export class AgentExecutionService {
     status.elapsed_seconds = (finishedAt.getTime() - startedAt.getTime()) / 1000;
     status.thread_alive = false;
   }
+
+  private resolveContextBudget(agent: AgentConfig, provider: ModelProviderConfig): number {
+    return this.contextCompression?.resolveContextBudget(agent, provider) ?? resolveLegacyContextBudget(agent, provider);
+  }
 }
 
 function buildObservability(status: ExecutionTaskStatus): ExecutionObservability {
@@ -1049,12 +1110,18 @@ function buildRuntimeToolContext(
 
 function buildContextUsagePayload(input: {
   agent: AgentConfig;
-  provider: ModelProviderConfig;
+  budgetTokens: number;
   messages: ChatMessage[];
   round: number;
   runId: string;
   taskId: string;
   requestId: string;
+  compressionResult?: {
+    status: string;
+    reason: string;
+    replacedMessageCount: number;
+    replacesUpToSeq: number | null;
+  } | null;
 }): Record<string, unknown> {
   const rawSystemPromptTokens = estimateTokens(getSystemPrompt(input.agent));
   const systemContextTokens = input.messages
@@ -1069,13 +1136,23 @@ function buildContextUsagePayload(input: {
     used_tokens: totalTokens,
     system_prompt_tokens: systemPromptTokens,
     total_tokens: totalTokens,
-    budget_tokens: resolveContextBudget(input.agent, input.provider),
+    budget_tokens: input.budgetTokens,
     round: input.round,
     compressing: false,
     agent_name: input.agent.agent_name,
     run_id: input.runId,
     task_id: input.taskId,
     request_id: input.requestId,
+    ...(input.compressionResult
+      ? {
+          compression: {
+            status: input.compressionResult.status,
+            reason: input.compressionResult.reason,
+            replaced_message_count: input.compressionResult.replacedMessageCount,
+            replaces_up_to_seq: input.compressionResult.replacesUpToSeq,
+          },
+        }
+      : {}),
   };
 }
 
@@ -1087,7 +1164,7 @@ function getSystemPrompt(agent: AgentConfig): string {
   return asString(behavior.system_prompt) ?? "";
 }
 
-function resolveContextBudget(agent: AgentConfig, provider: ModelProviderConfig): number {
+function resolveLegacyContextBudget(agent: AgentConfig, provider: ModelProviderConfig): number {
   return positiveInt(provider.max_context_tokens)
     ?? positiveInt(agent.llm_tiers?.default?.max_context_tokens)
     ?? 128000;

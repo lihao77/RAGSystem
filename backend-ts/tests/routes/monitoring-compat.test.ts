@@ -95,7 +95,7 @@ describe("monitoring compatibility routes", () => {
           system_prompt_tokens: expect.any(Number),
           history_tokens: expect.any(Number),
           total_tokens: expect.any(Number),
-          budget_tokens: 128000,
+          budget_tokens: 109104,
         },
         config: {
           agent_name: "orchestrator_agent",

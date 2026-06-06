@@ -81,7 +81,7 @@ export class RuntimeCoreService {
       provider,
       requirements,
       boundary:
-        "Single-agent text execution, XML streaming tool loops, request_user_input, read-only memory tools, managed read/write/edit/preview file tools, persisted compression views, context-snapshot inspection, and foreground execute_bash are available in TypeScript when configuration is ready. Bash background execution, multi-agent delegation, MCP runtime execution, vector retrieval, and automatic context compression generation are still being migrated.",
+        "Single-agent text execution, XML streaming tool loops, request_user_input, read-only memory tools, managed read/write/edit/preview file tools, persisted compression views, automatic context compression generation, context-snapshot inspection, and foreground execute_bash are available in TypeScript when configuration is ready. Bash background execution, multi-agent delegation, MCP runtime execution, and vector retrieval are still being migrated.",
     };
   }
 
@@ -183,7 +183,7 @@ export class RuntimeCoreService {
         "agent_runtime",
         "execution_runtime",
         true,
-        "单 Agent 文本执行、XML streaming tool loop、request_user_input、只读 memory 工具、managed 文件工具与前台 execute_bash 已迁移到 TypeScript",
+        "单 Agent 文本执行、XML streaming tool loop、request_user_input、只读 memory 工具、managed 文件工具、上下文压缩生成与前台 execute_bash 已迁移到 TypeScript",
         "not_migrated",
       ),
     ];

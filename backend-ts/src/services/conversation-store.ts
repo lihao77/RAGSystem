@@ -249,6 +249,41 @@ export class ConversationStore {
     };
   }
 
+  insertCompressionMessage(input: {
+    sessionId: string;
+    summaryContent: string;
+    replacesUpToSeq?: number | null;
+    threadKey?: string | undefined;
+    childAgentId?: string | null | undefined;
+    metadata?: Record<string, unknown> | undefined;
+  }): MessageInfo {
+    const metadata: Record<string, unknown> = {
+      ...(input.metadata ?? {}),
+      compression: true,
+    };
+    if (input.replacesUpToSeq !== undefined && input.replacesUpToSeq !== null) {
+      metadata.replaces_up_to_seq = input.replacesUpToSeq;
+    }
+    const messageInput: {
+      sessionId: string;
+      role: MessageInfo["role"];
+      content: string;
+      metadata: Record<string, unknown>;
+      threadKey?: string;
+      childAgentId?: string | null;
+    } = {
+      sessionId: input.sessionId,
+      role: "assistant",
+      content: input.summaryContent,
+      metadata,
+      childAgentId: input.childAgentId ?? null,
+    };
+    if (input.threadKey !== undefined) {
+      messageInput.threadKey = input.threadKey;
+    }
+    return this.addMessage(messageInput);
+  }
+
   listMessages(sessionId: string, limit = 20, offset = 0, threadKey?: string | null): PaginatedResult<MessageInfo> {
     const resolvedThreadKey = threadKey?.trim() || null;
     const totalRow = this.db

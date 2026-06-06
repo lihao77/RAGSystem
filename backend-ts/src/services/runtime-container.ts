@@ -1,4 +1,5 @@
 import { AgentExecutionService } from "./agent-execution-service.js";
+import { AgentContextCompressionService } from "./agent-context-compression-service.js";
 import {
   AgentRuntimeContextBuilder,
   MemoryIndexContextSource,
@@ -53,6 +54,7 @@ export interface RuntimeContainer {
   readonly runtimeCore: RuntimeCoreService;
   readonly agentRuntimeCore: AgentRuntimeCore;
   readonly agentRuntimeContextBuilder: AgentRuntimeContextBuilder;
+  readonly contextCompression: AgentContextCompressionService;
 }
 
 export interface RuntimeContainerOptions {
@@ -97,6 +99,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
   const agentRuntimeCore = new AgentRuntimeCore(llmChatClient);
+  const contextCompression = new AgentContextCompressionService(conversationStore, llmChatClient, systemConfig);
   const agentRuntimeContextBuilder = new AgentRuntimeContextBuilder([
     new MemoryIndexContextSource(conversationStore, { memoryStore }),
     new RecentMessagesContextSource(conversationStore),
@@ -109,6 +112,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     agentRuntimeCore,
     agentRuntimeContextBuilder,
     runtimeToolBridge,
+    contextCompression,
   );
   return {
     conversationStore,
@@ -135,6 +139,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     runtimeCore,
     agentRuntimeCore,
     agentRuntimeContextBuilder,
+    contextCompression,
   };
 }
 

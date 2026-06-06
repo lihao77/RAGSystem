@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { ok } from "../../contracts/common.js";
-import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
+import { resolveContextBudget, resolveRuntimeContextSettings } from "../../services/agent-context-compression-service.js";
 import { resolveCompressionView } from "../../services/agent-runtime-context-builder.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
@@ -57,7 +57,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       : [];
     const systemPromptTokens = estimateTokens(systemPrompt) + estimateTokens(asString(memorySnapshot?.rendered_block) ?? "");
     const historyTokens = history.reduce((total, item) => total + item.tokens, 0);
-    const budgetTokens = resolveContextBudget(agent, resolved.provider);
+    const budgetTokens = resolveContextBudget(agent, resolved.provider, options.container.systemConfig.getConfig());
 
     const data = {
       system_prompt: systemPrompt,
@@ -72,7 +72,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       config: {
         agent_name: agent.agent_name,
         display_name: agent.display_name ?? agent.agent_name,
-        compression: buildCompressionConfig(agent),
+        compression: buildCompressionConfig(agent, options),
         model: resolved.modelName ?? agent.llm_tiers?.default?.model_name ?? "",
         ...(query.selected_llm ? { llm_override: parseSelectedLlmForSnapshot(query.selected_llm) } : {}),
         runtime: {
@@ -211,13 +211,15 @@ function getSystemPrompt(agent: AgentConfig): string {
   return normalizeString(behavior.system_prompt) ?? "";
 }
 
-function buildCompressionConfig(agent: AgentConfig): Record<string, unknown> {
-  const behavior = isRecord(agent.custom_params.behavior) ? agent.custom_params.behavior : {};
+function buildCompressionConfig(agent: AgentConfig, options: RouteOptions): Record<string, unknown> {
+  const settings = resolveRuntimeContextSettings(agent, options.container.systemConfig.getConfig());
   return {
     strategy: "llm_summarize",
-    trigger_ratio: numberOrDefault(behavior.compression_trigger_ratio, 0.85),
-    preserve_recent_turns: numberOrDefault(behavior.preserve_recent_turns, 3),
-    summarize_max_tokens: numberOrDefault(behavior.summarize_max_tokens, 300),
+    trigger_ratio: settings.compressionTriggerRatio,
+    preserve_recent_turns: settings.preserveRecentTurns,
+    summarize_max_tokens: settings.summarizeMaxTokens,
+    system_prompt_reserve: settings.systemPromptReserve,
+    min_context_budget: settings.minContextBudget,
   };
 }
 
@@ -273,12 +275,6 @@ function getMemorySnapshot(sources: Array<{ name: string; metadata?: Record<stri
   return null;
 }
 
-function resolveContextBudget(agent: AgentConfig, provider: ModelProviderConfig | null): number {
-  return positiveInt(provider?.max_context_tokens)
-    ?? positiveInt(agent.llm_tiers?.default?.max_context_tokens)
-    ?? 128000;
-}
-
 function parseSelectedLlmForSnapshot(value: string): Record<string, string | null> {
   const parts = value.split("|").map((part) => part.trim());
   return {
@@ -324,14 +320,6 @@ function estimateTokens(content: string): number {
   const cjkChars = content.match(/[\u3400-\u9fff]/g)?.length ?? 0;
   const nonCjk = content.length - cjkChars;
   return Math.max(1, cjkChars + Math.ceil(nonCjk / 4));
-}
-
-function numberOrDefault(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-function positiveInt(value: unknown): number | null {
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 }
 
 function getRecord(value: unknown): Record<string, unknown> {

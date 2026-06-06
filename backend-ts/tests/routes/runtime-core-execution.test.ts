@@ -44,6 +44,21 @@ class FakeChatClient implements LlmChatClient {
   }
 }
 
+class FakeSequenceChatClient implements LlmChatClient {
+  readonly requests: ChatCompletionRequest[] = [];
+
+  constructor(private readonly responses: string[]) {}
+
+  async complete(request: ChatCompletionRequest) {
+    this.requests.push(request);
+    const content = this.responses.shift();
+    if (content === undefined) {
+      throw new Error("missing fake LLM response");
+    }
+    return { content };
+  }
+}
+
 class FakeStreamingChatClient implements LlmChatClient {
   readonly requests: ChatCompletionRequest[] = [];
 
@@ -216,7 +231,7 @@ describe("minimal runtime core execution", () => {
         used_tokens: expect.any(Number),
         system_prompt_tokens: expect.any(Number),
         total_tokens: expect.any(Number),
-        budget_tokens: 128000,
+        budget_tokens: 109104,
         round: 0,
         compressing: false,
         request_id: "req-runtime-1",
@@ -234,6 +249,120 @@ describe("minimal runtime core execution", () => {
     expect(history.find((event) => event.type === "run.end")?.data).toMatchObject({
       status: "completed",
       final_message_id: expect.any(String),
+    });
+  });
+
+  it("compresses long session history before the main agent request", async () => {
+    const chatClient = new FakeSequenceChatClient([
+      "<analysis>draft</analysis><summary>旧问题、已完成操作和当前约束</summary>",
+      "answer after compression",
+    ]);
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+
+    await createDefaultChatProvider(app);
+    harness.container.systemConfig.updateConfig({
+      context: {
+        compression_trigger_ratio: 0.5,
+        summarize_max_tokens: 64,
+        preserve_recent_turns: 1,
+        system_prompt_reserve: 0,
+        min_context_budget: 10,
+      },
+    });
+    const config = harness.container.agentConfig.getConfig("orchestrator_agent");
+    expect(config).not.toBeNull();
+    const behavior = config!.custom_params.behavior as Record<string, unknown> | undefined;
+    harness.container.agentConfig.replaceConfig("orchestrator_agent", {
+      ...config!,
+      custom_params: {
+        ...config!.custom_params,
+        behavior: {
+          ...behavior,
+          compression_trigger_ratio: 0.5,
+          summarize_max_tokens: 64,
+          preserve_recent_turns: 1,
+        },
+      },
+      llm_tiers: {
+        default: {
+          ...(config!.llm_tiers?.default ?? {}),
+          provider: "my",
+          provider_type: "deepseek",
+          model_name: "deepseek-chat",
+          max_context_tokens: 100,
+          max_completion_tokens: 1,
+          extra_params: config!.llm_tiers?.default?.extra_params ?? {},
+        },
+      },
+      memory: {
+        ...config!.memory,
+        allowed_scopes: [],
+        write_scopes: [],
+        archive_scopes: [],
+      },
+    });
+
+    harness.container.sessionApplication.createSession({ sessionId: "runtime-compress-session" });
+    for (const [role, content] of [
+      ["user", "old user one ".repeat(20)],
+      ["assistant", "old assistant one ".repeat(20)],
+      ["user", "old user two ".repeat(20)],
+      ["assistant", "tail assistant ".repeat(20)],
+      ["user", "tail user ".repeat(20)],
+    ] as const) {
+      harness.container.sessionApplication.addMessage({
+        sessionId: "runtime-compress-session",
+        role,
+        content,
+      });
+    }
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      headers: {
+        "x-request-id": "req-runtime-compress",
+      },
+      payload: {
+        task: "continue after compression",
+        session_id: "runtime-compress-session",
+      },
+    });
+
+    expect(started.statusCode).toBe(200);
+    await waitFor(() => harness.container.agentExecution.getSessionTaskStatus("runtime-compress-session").task_info?.status === "completed");
+
+    expect(chatClient.requests).toHaveLength(2);
+    expect(chatClient.requests[0]?.messages[0]?.content).toContain("对话摘要助手");
+    expect(chatClient.requests[0]?.maxCompletionTokens).toBe(64);
+    const mainMessages = chatClient.requests[1]?.messages ?? [];
+    expect(mainMessages.some((message) => message.content.includes("旧问题、已完成操作和当前约束"))).toBe(true);
+    expect(mainMessages.some((message) => message.content.includes("old user one"))).toBe(false);
+    expect(mainMessages.at(-1)?.content).toContain("continue after compression");
+
+    const persisted = harness.container.conversationStore.listMessages("runtime-compress-session", 20, 0, "root").items;
+    const summary = persisted.find((message) => message.metadata.compression);
+    expect(summary).toMatchObject({
+      role: "assistant",
+      metadata: expect.objectContaining({
+        compression: true,
+        replaces_up_to_seq: 4,
+        compression_strategy: "llm_summarize",
+      }),
+    });
+
+    const history = harness.container.events.getHistory("runtime-compress-session");
+    expect(history.map((event) => event.type)).toEqual(
+      expect.arrayContaining(["context.compression_start", "context.compression_summary", "context.usage"]),
+    );
+    expect(history.find((event) => event.type === "context.usage")?.data).toMatchObject({
+      budget_tokens: 89,
+      compression: {
+        status: "success",
+        replaced_message_count: 4,
+        replaces_up_to_seq: 4,
+      },
     });
   });
 
