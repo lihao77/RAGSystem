@@ -303,6 +303,75 @@ describe("AgentRuntimeContextBuilder", () => {
     ]);
   });
 
+  it("microcompacts old observation messages only when enabled for runtime context", () => {
+    const history = new InMemoryHistory([
+      message("user", "多轮工具结果", { seq: 1 }),
+      message("assistant", "intent-1", {
+        seq: 2,
+        metadata: { react_intermediate: true, msg_type: "intent", round: 1 },
+      }),
+      message("user", "obs-1-large", {
+        seq: 3,
+        metadata: { react_intermediate: true, msg_type: "observation", round: 1 },
+      }),
+      message("assistant", "intent-2", {
+        seq: 4,
+        metadata: { react_intermediate: true, msg_type: "intent", round: 2 },
+      }),
+      message("user", "obs-2-large", {
+        seq: 5,
+        metadata: { react_intermediate: true, msg_type: "observation", round: 2 },
+      }),
+      message("assistant", "intent-3", {
+        seq: 6,
+        metadata: { react_intermediate: true, msg_type: "intent", round: 3 },
+      }),
+      message("user", "obs-3-large", {
+        seq: 7,
+        metadata: { react_intermediate: true, msg_type: "observation", round: 3 },
+      }),
+      message("assistant", "final", { seq: 8 }),
+    ]);
+    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
+
+    const inspectContext = builder.buildContext({ sessionId: "s1" });
+    const runtimeContext = builder.buildContext({
+      sessionId: "s1",
+      microcompact: true,
+      microcompactKeepRecentTools: 2,
+    });
+
+    expect(inspectContext.conversation.map((item) => item.content)).toEqual([
+      "多轮工具结果",
+      "intent-1",
+      "obs-1-large",
+      "intent-2",
+      "obs-2-large",
+      "intent-3",
+      "obs-3-large",
+      "final",
+    ]);
+    expect(inspectContext.metadata.sources[0]?.metadata).not.toHaveProperty("microcompact");
+    expect(runtimeContext.conversation.map((item) => item.content)).toEqual([
+      "多轮工具结果",
+      "intent-1",
+      "[工具结果已清理，轮次 1]",
+      "intent-2",
+      "obs-2-large",
+      "intent-3",
+      "obs-3-large",
+      "final",
+    ]);
+    expect(runtimeContext.metadata.sources[0]?.metadata).toMatchObject({
+      microcompact: {
+        applied: true,
+        keep_recent_tools: 2,
+        observation_count: 3,
+        cleared_count: 1,
+      },
+    });
+  });
+
   it("orders synthetic tool history by action order when run steps are persisted out of order", () => {
     const history = new InMemoryHistory(
       [

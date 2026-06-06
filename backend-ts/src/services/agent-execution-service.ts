@@ -637,7 +637,11 @@ export class AgentExecutionService {
       const pendingBackgroundNotifications = this.drainBackgroundTaskNotifications(input.sessionId);
       const context = input.contextConversation
         ? { conversation: [...input.contextConversation, ...pendingBackgroundNotifications] }
-        : this.contextBuilder.buildContext({ sessionId: input.sessionId, agent: input.agent });
+        : this.contextBuilder.buildContext({
+            sessionId: input.sessionId,
+            agent: input.agent,
+            microcompact: true,
+          });
       if (input.contextConversation === undefined && pendingBackgroundNotifications.length) {
         context.conversation.push(...pendingBackgroundNotifications);
       }

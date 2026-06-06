@@ -25,6 +25,8 @@ export interface AgentRuntimeContextRequest {
   threadKey?: string | null;
   historyLimit?: number;
   agent?: AgentConfig | null;
+  microcompact?: boolean;
+  microcompactKeepRecentTools?: number;
 }
 
 export interface AgentRuntimeContext {
@@ -76,12 +78,16 @@ interface ResolvedAgentRuntimeContextRequest {
   threadKey: string;
   historyLimit: number;
   agent: AgentConfig | null;
+  microcompact: boolean;
+  microcompactKeepRecentTools: number;
 }
 
 const DEFAULT_HISTORY_LIMIT = 20;
 const DEFAULT_THREAD_KEY = "root";
 const DEFAULT_INDEX_MAX_LINES = 200;
 const DEFAULT_INDEX_MAX_CHARS = 25600;
+const DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOLS = 5;
+const MICROCOMPACT_CLEARED_LABEL = "[工具结果已清理]";
 
 export class AgentRuntimeContextBuilder {
   constructor(private readonly sources: AgentRuntimeContextSource[]) {}
@@ -126,18 +132,34 @@ export class RecentMessagesContextSource implements AgentRuntimeContextSource {
       this.history,
       request.sessionId,
     );
-    return {
-      conversation: messagesToConversation(historyMessages),
-      metadata: {
-        source_message_count: messages.length,
-        filtered_message_count: filteredMessages.length,
-        resolved_message_count: historyMessages.length,
-        compression_view: {
-          applied: compressionView.applied,
-          summary_seq: compressionView.summarySeq,
-          replaces_up_to_seq: compressionView.replacesUpToSeq,
-        },
+    const microcompact = request.microcompact
+      ? microcompactRuntimeHistoryMessages(historyMessages, request.microcompactKeepRecentTools)
+      : {
+          messages: historyMessages,
+          clearedCount: 0,
+          observationCount: countObservationMessages(historyMessages),
+        };
+    const metadata: Record<string, unknown> = {
+      source_message_count: messages.length,
+      filtered_message_count: filteredMessages.length,
+      resolved_message_count: microcompact.messages.length,
+      compression_view: {
+        applied: compressionView.applied,
+        summary_seq: compressionView.summarySeq,
+        replaces_up_to_seq: compressionView.replacesUpToSeq,
       },
+    };
+    if (request.microcompact) {
+      metadata.microcompact = {
+        applied: true,
+        keep_recent_tools: request.microcompactKeepRecentTools,
+        observation_count: microcompact.observationCount,
+        cleared_count: microcompact.clearedCount,
+      };
+    }
+    return {
+      conversation: messagesToConversation(microcompact.messages),
+      metadata,
     };
   }
 }
@@ -284,6 +306,11 @@ function resolveContextRequest(request: AgentRuntimeContextRequest): ResolvedAge
     threadKey: request.threadKey?.trim() || DEFAULT_THREAD_KEY,
     historyLimit: request.historyLimit ?? DEFAULT_HISTORY_LIMIT,
     agent: request.agent ?? null,
+    microcompact: request.microcompact === true,
+    microcompactKeepRecentTools: positiveIntegerOrDefault(
+      request.microcompactKeepRecentTools,
+      DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOLS,
+    ),
   };
 }
 
@@ -392,6 +419,62 @@ function messagesToConversation(messages: RuntimeHistoryMessageInfo[]): ChatMess
     }
   }
   return conversation;
+}
+
+function microcompactRuntimeHistoryMessages(
+  messages: RuntimeHistoryMessageInfo[],
+  keepRecentTools: number,
+): {
+  messages: RuntimeHistoryMessageInfo[];
+  observationCount: number;
+  clearedCount: number;
+} {
+  const observationIndices = messages
+    .map((message, index) => (message.metadata.msg_type === "observation" ? index : -1))
+    .filter((index) => index >= 0);
+  if (!observationIndices.length || observationIndices.length <= keepRecentTools) {
+    return {
+      messages,
+      observationCount: observationIndices.length,
+      clearedCount: 0,
+    };
+  }
+
+  const clearIndices = new Set(observationIndices.slice(0, observationIndices.length - keepRecentTools));
+  let clearedCount = 0;
+  const compacted = messages.map((message, index) => {
+    if (!clearIndices.has(index)) {
+      return message;
+    }
+    const nextContent = microcompactClearedContent(message);
+    if (message.content === nextContent) {
+      return message;
+    }
+    clearedCount += 1;
+    return {
+      ...message,
+      content: nextContent,
+    };
+  });
+  return {
+    messages: compacted,
+    observationCount: observationIndices.length,
+    clearedCount,
+  };
+}
+
+function countObservationMessages(messages: RuntimeHistoryMessageInfo[]): number {
+  return messages.filter((message) => message.metadata.msg_type === "observation").length;
+}
+
+function microcompactClearedContent(message: RuntimeHistoryMessageInfo): string {
+  if (message.content === MICROCOMPACT_CLEARED_LABEL || message.content.startsWith("[工具结果已清理")) {
+    return message.content;
+  }
+  const round = message.metadata.round;
+  return typeof round === "number" && Number.isFinite(round)
+    ? `[工具结果已清理，轮次 ${round}]`
+    : MICROCOMPACT_CLEARED_LABEL;
 }
 
 function expandMessagesWithRunStepIntermediates(
@@ -753,6 +836,10 @@ function getString(value: unknown): string | null {
 
 function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+function positiveIntegerOrDefault(value: unknown, defaultValue: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : defaultValue;
 }
 
 function escapeXmlText(value: string): string {

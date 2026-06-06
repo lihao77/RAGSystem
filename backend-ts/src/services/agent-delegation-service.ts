@@ -320,6 +320,7 @@ export class AgentDelegationService {
         agent: targetAgent,
         threadKey: input.childAgent.thread_key,
         historyLimit: 50,
+        microcompact: true,
       });
       const runtimeTools = this.runtimeToolsProvider?.() ?? undefined;
       const promptContext = buildAgentPromptContext({
