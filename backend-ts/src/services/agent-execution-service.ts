@@ -18,7 +18,10 @@ import { getSelectedLlm as resolveSelectedLlm } from "../contracts/execution.js"
 import type { ModelProviderConfig } from "../contracts/model-adapter.js";
 import type { AgentContextCompressionService, ContextCompressionEvent } from "./agent-context-compression-service.js";
 import type { AgentSessionApplication } from "./agent-session-application.js";
-import type { AgentRuntimeContextBuilder } from "./agent-runtime-context-builder.js";
+import {
+  isRuntimeStableSystemContextContent,
+  type AgentRuntimeContextBuilder,
+} from "./agent-runtime-context-builder.js";
 import type { CheckpointInfo } from "./checkpoint-manager.js";
 import type { ConversationStore } from "./conversation-store.js";
 import type { InMemoryEventBus } from "./event-bus.js";
@@ -1350,10 +1353,10 @@ function buildContextUsagePayload(input: {
 }): Record<string, unknown> {
   const rawSystemPromptTokens = estimateTokens(buildFullSystemPrompt(input.agent, input.promptContext));
   const systemContextTokens = input.messages
-    .filter((message) => message.role === "system")
+    .filter((message) => message.role === "system" && isRuntimeStableSystemContextContent(message.content))
     .reduce((total, message) => total + estimateTokens(message.content), 0);
   const historyTokens = input.messages
-    .filter((message) => message.role !== "system")
+    .filter((message) => message.role !== "system" || !isRuntimeStableSystemContextContent(message.content))
     .reduce((total, message) => total + estimateTokens(message.content), 0);
   const systemPromptTokens = rawSystemPromptTokens + systemContextTokens;
   const totalTokens = systemPromptTokens + historyTokens;

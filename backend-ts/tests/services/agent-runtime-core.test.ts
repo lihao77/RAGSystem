@@ -411,6 +411,37 @@ describe("AgentRuntimeCore", () => {
     expect(client.requests[0]?.messages[0]?.content).toContain("[Memory Scope Capabilities]");
   });
 
+  it("keeps ordinary persisted system history outside the stable system prefix", async () => {
+    const client = new FakeChatClient();
+    const core = new AgentRuntimeCore(client);
+
+    await core.runText({
+      agent: minimalAgent(),
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [
+        { role: "system", content: "[Memory Scope Capabilities]\n- 可读取 scope: session" },
+        { role: "system", content: "persisted runtime note" },
+        { role: "user", content: "hello" },
+      ],
+    });
+
+    expect(client.requests[0]?.messages).toEqual([
+      {
+        role: "system",
+        content: expect.stringContaining("<context source=\"memory\">"),
+      },
+      {
+        role: "system",
+        content: expect.stringContaining("<runtime_instruction"),
+      },
+      { role: "user", content: expect.stringContaining("<user_input") },
+    ]);
+    expect(client.requests[0]?.messages[0]?.content).toContain("[Memory Scope Capabilities]");
+    expect(client.requests[0]?.messages[0]?.content).not.toContain("persisted runtime note");
+    expect(client.requests[0]?.messages[1]?.content).toContain("persisted runtime note");
+  });
+
   it("emits provider-stream events without depending on backend session state", async () => {
     const client = new FakeStreamingChatClient();
     const core = new AgentRuntimeCore(client);

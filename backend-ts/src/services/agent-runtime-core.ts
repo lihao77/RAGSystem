@@ -17,6 +17,7 @@ import type {
 } from "./runtime-tool-types.js";
 import type { ToolExecutionResult } from "./memory-tool-service.js";
 import { buildFullSystemPrompt, type AgentPromptContext } from "./agent-prompt-builder.js";
+import { isRuntimeStableSystemContextContent } from "./agent-runtime-context-builder.js";
 import {
   isSemanticTaggedContent,
   parseRuntimeToolCallsXml,
@@ -179,7 +180,10 @@ export class AgentRuntimeCore {
       systemParts.push(renderSemanticBlock("system_instruction", systemPrompt, { source: "agent_config" }));
     }
     let conversationIndex = 0;
-    while (conversation[conversationIndex]?.role === "system") {
+    while (
+      conversation[conversationIndex]?.role === "system" &&
+      isRuntimeStableSystemContextContent(conversation[conversationIndex]?.content ?? "")
+    ) {
       const content = conversation[conversationIndex]?.content.trim();
       if (content) {
         systemParts.push(renderSystemContextBlock(content));

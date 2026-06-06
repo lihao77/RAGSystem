@@ -155,6 +155,10 @@ export class EmptyMemoryContextSource implements AgentRuntimeContextSource {
   }
 }
 
+export function isRuntimeStableSystemContextContent(content: string): boolean {
+  return content.includes("[Memory Scope Capabilities]") || content.includes("Memory Index]");
+}
+
 interface MemoryIndexContextSourceOptions {
   dataRoot?: string | undefined;
   memoryStore?: MemoryStore | undefined;
