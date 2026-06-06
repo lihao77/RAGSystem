@@ -1,10 +1,4 @@
-import fs from "node:fs";
-import path from "node:path";
-
-import YAML from "yaml";
-
 import type { AgentConfig, AgentInfo, CreateAgentRequest, TeamInfo, TeamSummary } from "../contracts/agent-config.js";
-import { AgentConfigSchema } from "../contracts/agent-config.js";
 import {
   agentConfigPresets,
   buildCustomAgentConfig,
@@ -15,28 +9,25 @@ import {
   configsToRecord,
   deepMerge,
   defaultLlmTier,
-  isRecord,
   normalizeAgentName,
   normalizeConfig,
   normalizeTeamName,
   type TeamConfigs,
 } from "./agent-config-service/configs.js";
+import { AgentConfigTeamStore, defaultTeamRelativePath } from "./agent-config-service/team-store.js";
 import { listAvailableTools as listAvailableRuntimeTools, type AvailableToolInfo } from "./agent-config-service/tools.js";
 import { toYaml } from "./agent-config-service/yaml.js";
 
 type ExportFormat = "json" | "yaml";
-const AGENT_CONFIG_RELATIVE_ROOT = path.join("config", "agents");
-const AGENT_CONFIG_SCHEMA_VERSION = "2.0";
-const TEAM_CONFIG_DIR_NAME = "teams";
 
 export class AgentConfigService {
   private activeTeam = "default";
   private readonly teams = new Map<string, TeamConfigs>();
-  private readonly configRoot: string | null;
+  private readonly teamStore: AgentConfigTeamStore;
   private readonly teamFileByName = new Map<string, string>();
 
   constructor(options: { dataRoot?: string | undefined; configRoot?: string | undefined } = {}) {
-    this.configRoot = resolveAgentConfigRoot(options);
+    this.teamStore = new AgentConfigTeamStore(options);
     this.teams.set("default", new Map(Object.entries(buildDefaultAgentConfigs())));
     this.teamFileByName.set("default", defaultTeamRelativePath("default"));
     this.loadTeamsFromDisk();
@@ -192,7 +183,7 @@ export class AgentConfigService {
     }
     const source = sourceTeam?.trim() ? this.getTeamConfigs(sourceTeam.trim()) : new Map<string, AgentConfig>();
     this.teams.set(normalized, cloneConfigMap(source));
-    this.teamFileByName.set(normalized, this.nextTeamRelativePath(normalized));
+    this.teamFileByName.set(normalized, this.teamStore.nextTeamRelativePath(normalized, this.teamFileByName));
     this.saveAll();
     return this.listTeams();
   }
@@ -213,16 +204,14 @@ export class AgentConfigService {
     if (this.teams.size <= 1) {
       throw new Error("至少需要保留一个 team");
     }
-    const teamFile = this.resolveTeamPath(normalized);
+    const teamFile = this.teamFileByName.get(normalized);
     this.teams.delete(normalized);
     if (this.activeTeam === normalized) {
       this.activeTeam = Array.from(this.teams.keys())[0] ?? "default";
     }
     this.teamFileByName.delete(normalized);
     this.saveAll();
-    if (teamFile && fs.existsSync(teamFile)) {
-      fs.rmSync(teamFile, { force: true });
-    }
+    this.teamStore.removeTeamFile(teamFile);
     return this.listTeams();
   }
 
@@ -236,20 +225,16 @@ export class AgentConfigService {
       throw new Error(`team '${next}' 已存在`);
     }
     const configs = this.getTeamConfigs(current);
-    const oldTeamPath = this.resolveTeamPath(current);
     const currentFile = this.teamFileByName.get(current) ?? defaultTeamRelativePath(current);
     this.teams.delete(current);
     this.teamFileByName.delete(current);
     this.teams.set(next, configs);
-    this.teamFileByName.set(next, current === next ? currentFile : this.nextTeamRelativePath(next));
+    const nextFile = current === next ? currentFile : this.teamStore.nextTeamRelativePath(next, this.teamFileByName);
+    this.teamFileByName.set(next, nextFile);
     if (this.activeTeam === current) {
       this.activeTeam = next;
     }
-    const newTeamPath = this.resolveTeamPath(next);
-    if (oldTeamPath && newTeamPath && oldTeamPath !== newTeamPath && fs.existsSync(oldTeamPath)) {
-      fs.mkdirSync(path.dirname(newTeamPath), { recursive: true });
-      fs.renameSync(oldTeamPath, newTeamPath);
-    }
+    this.teamStore.renameTeamFile(currentFile, nextFile);
     this.saveAll();
     return this.listTeams();
   }
@@ -376,173 +361,27 @@ export class AgentConfigService {
   }
 
   private loadTeamsFromDisk(): void {
-    if (!this.configRoot) {
-      return;
-    }
-    const teamIndexPath = path.join(this.configRoot, "team_index.yaml");
-    if (!fs.existsSync(teamIndexPath)) {
-      return;
-    }
-    const rawIndex = YAML.parse(fs.readFileSync(teamIndexPath, "utf8")) as unknown;
-    if (!isRecord(rawIndex) || !isRecord(rawIndex.teams)) {
-      return;
-    }
-
-    const loadedTeams = new Map<string, TeamConfigs>();
-    const loadedTeamFiles = new Map<string, string>();
-    for (const [teamName, teamPathValue] of Object.entries(rawIndex.teams)) {
-      const normalizedTeamName = normalizeTeamName(teamName);
-      const teamFile = typeof teamPathValue === "string" && teamPathValue.trim()
-        ? teamPathValue.trim()
-        : defaultTeamRelativePath(normalizedTeamName);
-      const teamPath = path.isAbsolute(teamFile) ? teamFile : path.join(this.configRoot, teamFile);
-      const configs = loadTeamConfigFile(teamPath);
-      if (!configs) {
-        continue;
-      }
-      loadedTeams.set(normalizedTeamName, configs);
-      loadedTeamFiles.set(normalizedTeamName, teamFile);
-    }
-    if (loadedTeams.size === 0) {
+    const loaded = this.teamStore.loadTeams();
+    if (!loaded) {
       return;
     }
 
     this.teams.clear();
     this.teamFileByName.clear();
-    for (const [teamName, configs] of loadedTeams) {
+    for (const [teamName, configs] of loaded.teams) {
       this.teams.set(teamName, configs);
     }
-    for (const [teamName, teamFile] of loadedTeamFiles) {
+    for (const [teamName, teamFile] of loaded.teamFileByName) {
       this.teamFileByName.set(teamName, teamFile);
     }
-    const activeTeam = typeof rawIndex.active_team === "string" ? rawIndex.active_team.trim() : "";
-    this.activeTeam = activeTeam && this.teams.has(activeTeam) ? activeTeam : (Array.from(this.teams.keys()).sort()[0] ?? "default");
+    this.activeTeam = loaded.activeTeam;
   }
 
   private saveAll(): void {
-    if (!this.configRoot) {
-      return;
-    }
-    this.saveTeamIndex();
-    for (const teamName of this.teams.keys()) {
-      this.saveTeam(teamName);
-    }
+    this.teamStore.saveAll(this.activeTeam, this.teams, this.teamFileByName);
   }
 
   private saveTeamIndex(): void {
-    if (!this.configRoot) {
-      return;
-    }
-    fs.mkdirSync(this.configRoot, { recursive: true });
-    const teams = Object.fromEntries(
-      Array.from(this.teams.keys()).map((teamName) => [
-        teamName,
-        this.teamFileByName.get(teamName) ?? defaultTeamRelativePath(teamName),
-      ]),
-    );
-    fs.writeFileSync(
-      path.join(this.configRoot, "team_index.yaml"),
-      YAML.stringify({
-        active_team: this.activeTeam,
-        teams,
-        metadata: {
-          updated_at: new Date().toISOString(),
-          version: AGENT_CONFIG_SCHEMA_VERSION,
-        },
-      }),
-      "utf8",
-    );
+    this.teamStore.saveTeamIndex(this.activeTeam, this.teams, this.teamFileByName);
   }
-
-  private saveTeam(teamName: string): void {
-    if (!this.configRoot) {
-      return;
-    }
-    const configs = this.getTeamConfigs(teamName);
-    const teamFile = this.teamFileByName.get(teamName) ?? defaultTeamRelativePath(teamName);
-    const teamPath = path.isAbsolute(teamFile) ? teamFile : path.join(this.configRoot, teamFile);
-    fs.mkdirSync(path.dirname(teamPath), { recursive: true });
-    fs.writeFileSync(
-      teamPath,
-      YAML.stringify({
-        agents: configsToRecord(configs),
-        metadata: {
-          updated_at: new Date().toISOString(),
-          version: AGENT_CONFIG_SCHEMA_VERSION,
-        },
-      }),
-      "utf8",
-    );
-  }
-
-  private nextTeamRelativePath(teamName: string): string {
-    const basePath = defaultTeamRelativePath(teamName);
-    if (!new Set(this.teamFileByName.values()).has(basePath)) {
-      return basePath;
-    }
-    const extension = path.extname(basePath);
-    const withoutExtension = basePath.slice(0, -extension.length);
-    return `${withoutExtension}-${compactTimestamp(new Date())}${extension}`;
-  }
-
-  private resolveTeamPath(teamName: string): string | null {
-    if (!this.configRoot) {
-      return null;
-    }
-    const teamFile = this.teamFileByName.get(teamName);
-    if (!teamFile) {
-      return null;
-    }
-    return path.isAbsolute(teamFile) ? teamFile : path.join(this.configRoot, teamFile);
-  }
-}
-
-function resolveAgentConfigRoot(options: { dataRoot?: string | undefined; configRoot?: string | undefined }): string | null {
-  if (options.configRoot !== undefined) {
-    const trimmed = options.configRoot.trim();
-    return trimmed ? path.resolve(trimmed) : null;
-  }
-  if (!options.dataRoot?.trim()) {
-    return null;
-  }
-  return path.join(path.resolve(options.dataRoot), AGENT_CONFIG_RELATIVE_ROOT);
-}
-
-function loadTeamConfigFile(teamPath: string): TeamConfigs | null {
-  if (!fs.existsSync(teamPath)) {
-    return null;
-  }
-  const rawTeam = YAML.parse(fs.readFileSync(teamPath, "utf8")) as unknown;
-  if (!isRecord(rawTeam) || !isRecord(rawTeam.agents)) {
-    return null;
-  }
-  const configs = new Map<string, AgentConfig>();
-  for (const [agentName, value] of Object.entries(rawTeam.agents)) {
-    if (!isRecord(value)) {
-      continue;
-    }
-    const parsed = AgentConfigSchema.safeParse({
-      ...value,
-      agent_name: typeof value.agent_name === "string" && value.agent_name.trim() ? value.agent_name : agentName,
-    });
-    if (parsed.success) {
-      const config = normalizeConfig(parsed.data);
-      configs.set(config.agent_name, config);
-    }
-  }
-  return configs.size > 0 ? configs : null;
-}
-
-function defaultTeamRelativePath(teamName: string): string {
-  return `${TEAM_CONFIG_DIR_NAME}/${slugifyTeamName(teamName)}.yaml`;
-}
-
-function slugifyTeamName(teamName: string): string {
-  const slug = teamName.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^[-._]+|[-._]+$/g, "");
-  return slug || "default";
-}
-
-function compactTimestamp(date: Date): string {
-  const pad = (value: number): string => String(value).padStart(2, "0");
-  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
 }
