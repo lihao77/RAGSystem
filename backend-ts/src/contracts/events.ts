@@ -21,6 +21,8 @@ export const ClientEventTypeSchema = z.enum([
   "session.updated",
   "command.result",
   "execution.step",
+  "agent.start",
+  "agent.end",
   "agent.error",
   "agent.intent_delta",
   "agent.intent_complete",
@@ -38,6 +40,7 @@ export const ClientEventTypeSchema = z.enum([
   "user.approval_granted",
   "user.approval_denied",
   "user.input_required",
+  "user.interrupt",
 ]);
 
 export type ClientEventType = z.infer<typeof ClientEventTypeSchema>;

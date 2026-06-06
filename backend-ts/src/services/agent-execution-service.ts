@@ -149,6 +149,7 @@ export class AgentExecutionService {
 
     const runId = randomUUID();
     const taskId = randomUUID();
+    const rootCallId = `call_${randomUUID()}`;
     const startedAt = new Date();
     const abortController = new AbortController();
     const status: ExecutionTaskStatus = {
@@ -251,6 +252,7 @@ export class AgentExecutionService {
       sessionId,
       runId,
       taskId,
+      rootCallId,
       requestId,
       task,
       startedAt,
@@ -285,6 +287,7 @@ export class AgentExecutionService {
     if (!handle || handle.status.status !== "running") {
       return false;
     }
+    this.publishUserInterrupt(handle.status, "user_stop");
     handle.abortController.abort();
     return true;
   }
@@ -434,6 +437,7 @@ export class AgentExecutionService {
     const runtimeAgent = applySessionAgentOverrides(resolved.agent, sessionMetadata);
     const runId = randomUUID();
     const taskId = randomUUID();
+    const rootCallId = `call_${randomUUID()}`;
     const startedAt = new Date();
     const abortController = new AbortController();
     const executionKind = "checkpoint_recovery";
@@ -522,6 +526,7 @@ export class AgentExecutionService {
       sessionId,
       runId,
       taskId,
+      rootCallId,
       requestId: input.requestId,
       task,
       startedAt,
@@ -591,6 +596,7 @@ export class AgentExecutionService {
     sessionId: string;
     runId: string;
     taskId: string;
+    rootCallId: string;
     requestId: string;
     task: string;
     startedAt: Date;
@@ -608,6 +614,15 @@ export class AgentExecutionService {
     try {
       const sessionMetadata = this.sessions.getSession(input.sessionId)?.metadata ?? {};
       const executionKind = input.executionKind ?? "agent_stream";
+      this.publishRootAgentStart({
+        sessionId: input.sessionId,
+        runId: input.runId,
+        taskId: input.taskId,
+        requestId: input.requestId,
+        rootCallId: input.rootCallId,
+        agent: input.agent,
+        task: input.task,
+      });
       const compressionResult =
         input.contextConversation !== undefined || !this.contextCompression
           ? null
@@ -728,6 +743,16 @@ export class AgentExecutionService {
           metadata: finalMetadata,
         }),
       });
+      this.publishRootAgentEnd({
+        sessionId: input.sessionId,
+        runId: input.runId,
+        taskId: input.taskId,
+        requestId: input.requestId,
+        rootCallId: input.rootCallId,
+        agent: input.agent,
+        result: response.content,
+        success: true,
+      });
       this.events.publish(input.sessionId, {
         type: "output.message_saved",
         session_id: input.sessionId,
@@ -771,20 +796,32 @@ export class AgentExecutionService {
       });
       this.conversationStore.updateRunStatus(input.runId, input.sessionId, finalStatus);
       this.finishStatus(input.status, finalStatus, input.startedAt);
-      if (!interrupted) {
-        this.events.publish(input.sessionId, {
-          type: "agent.error",
-          session_id: input.sessionId,
+      this.publishRootAgentEnd({
+        sessionId: input.sessionId,
+        runId: input.runId,
+        taskId: input.taskId,
+        requestId: input.requestId,
+        rootCallId: input.rootCallId,
+        agent: input.agent,
+        result: interrupted ? "[已停止生成]" : errorMessage,
+        success: false,
+      });
+      this.events.publish(input.sessionId, {
+        type: "agent.error",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        agent_name: input.agent.agent_name,
+        call_id: input.rootCallId,
+        ...mirrorEventData({
+          agent_name: input.agent.agent_name,
+          error: errorMessage,
+          error_type: interrupted ? "InterruptedError" : "ExecutionError",
+          content: errorMessage,
           run_id: input.runId,
-          ...mirrorEventData({
-            error: errorMessage,
-            content: errorMessage,
-            run_id: input.runId,
-            task_id: input.taskId,
-            request_id: input.requestId,
-          }),
-        });
-      }
+          task_id: input.taskId,
+          request_id: input.requestId,
+        }),
+      });
       this.events.publish(input.sessionId, {
         type: "run.end",
         session_id: input.sessionId,
@@ -812,6 +849,101 @@ export class AgentExecutionService {
       this.taskBySession.delete(input.sessionId);
       this.handlesByTask.delete(input.taskId);
     }
+  }
+
+  private publishRootAgentStart(input: {
+    sessionId: string;
+    runId: string;
+    taskId: string;
+    requestId: string;
+    rootCallId: string;
+    agent: AgentConfig;
+    task: string;
+  }): void {
+    const agentName = input.agent.agent_name;
+    const displayName = input.agent.display_name || agentName;
+    this.events.publish(input.sessionId, {
+      type: "agent.start",
+      session_id: input.sessionId,
+      run_id: input.runId,
+      agent_name: agentName,
+      call_id: input.rootCallId,
+      ...mirrorEventData({
+        agent_name: agentName,
+        task: input.task,
+        description: input.task,
+        metadata: {},
+        run_id: input.runId,
+        task_id: input.taskId,
+        request_id: input.requestId,
+      }),
+    });
+    this.events.publish(input.sessionId, {
+      type: "call.agent.start",
+      session_id: input.sessionId,
+      run_id: input.runId,
+      agent_name: agentName,
+      call_id: input.rootCallId,
+      ...mirrorEventData({
+        agent_name: agentName,
+        description: input.task,
+        agent_display_name: displayName,
+        run_id: input.runId,
+        task_id: input.taskId,
+        request_id: input.requestId,
+      }),
+    });
+  }
+
+  private publishRootAgentEnd(input: {
+    sessionId: string;
+    runId: string;
+    taskId: string;
+    requestId: string;
+    rootCallId: string;
+    agent: AgentConfig;
+    result: string;
+    success: boolean;
+  }): void {
+    const agentName = input.agent.agent_name;
+    const displayName = input.agent.display_name || agentName;
+    this.events.publish(input.sessionId, {
+      type: "call.agent.end",
+      session_id: input.sessionId,
+      run_id: input.runId,
+      agent_name: agentName,
+      call_id: input.rootCallId,
+      ...mirrorEventData({
+        agent_name: agentName,
+        result: input.result.slice(0, 500),
+        success: input.success,
+        agent_display_name: displayName,
+        run_id: input.runId,
+        task_id: input.taskId,
+        request_id: input.requestId,
+      }),
+    });
+  }
+
+  private publishUserInterrupt(status: ExecutionTaskStatus, reason: string): void {
+    const sessionId = status.session_id;
+    if (!sessionId) {
+      return;
+    }
+    const payload = {
+      reason,
+      task_id: status.task_id,
+      session_id: sessionId,
+      run_id: status.run_id,
+      execution_kind: status.execution_kind,
+      request_id: status.request_id,
+    };
+    this.events.publish(sessionId, {
+      type: "user.interrupt",
+      session_id: sessionId,
+      ...(status.run_id ? { run_id: status.run_id } : {}),
+      ...mirrorEventData(payload),
+    });
   }
 
   private publishContextCompressionEvent(

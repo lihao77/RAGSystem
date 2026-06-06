@@ -209,12 +209,53 @@ describe("minimal runtime core execution", () => {
         "output.message_saved",
         "session.run_started",
         "run.start",
+        "agent.start",
+        "call.agent.start",
+        "call.agent.end",
         "execution.step",
         "output.final_answer",
         "run.end",
         "session.updated",
       ]),
     );
+    const agentStart = history.find((event) => event.type === "agent.start");
+    expect(agentStart).toMatchObject({
+      agent_name: "orchestrator_agent",
+      call_id: expect.stringMatching(/^call_/),
+      data: {
+        agent_name: "orchestrator_agent",
+        task: "hello",
+        description: "hello",
+      },
+    });
+    const rootAgentCalls = history.filter(
+      (event) =>
+        (event.type === "call.agent.start" || event.type === "call.agent.end") &&
+        event.call_id === agentStart?.call_id,
+    );
+    expect(rootAgentCalls).toEqual([
+      expect.objectContaining({
+        type: "call.agent.start",
+        agent_name: "orchestrator_agent",
+        call_id: agentStart?.call_id,
+        data: expect.objectContaining({
+          agent_name: "orchestrator_agent",
+          description: "hello",
+          agent_display_name: "Orchestrator Agent",
+        }),
+      }),
+      expect.objectContaining({
+        type: "call.agent.end",
+        agent_name: "orchestrator_agent",
+        call_id: agentStart?.call_id,
+        data: expect.objectContaining({
+          agent_name: "orchestrator_agent",
+          result: "hello from ts core",
+          success: true,
+          agent_display_name: "Orchestrator Agent",
+        }),
+      }),
+    ]);
     expect(history.filter((event) => event.type === "output.message_saved").map((event) => event.data)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: expect.any(String), seq: expect.any(Number), role: "user" }),
@@ -796,7 +837,12 @@ describe("minimal runtime core execution", () => {
     ]);
 
     const history = harness.container.events.getHistory("delegate-runtime-session");
-    expect(history.filter((event) => event.type === "call.agent.start" || event.type === "call.agent.end")).toEqual([
+    const childAgentCalls = history.filter(
+      (event) =>
+        (event.type === "call.agent.start" || event.type === "call.agent.end") &&
+        event.call_id === child.created_by_call_id,
+    );
+    expect(childAgentCalls).toEqual([
       expect.objectContaining({
         type: "call.agent.start",
         agent_name: "orchestrator_agent",
@@ -1078,6 +1124,40 @@ describe("minimal runtime core execution", () => {
       task_info: {
         status: "interrupted",
       },
+    });
+
+    const history = harness.container.events.getHistory("interrupt-session");
+    const userInterrupt = history.find((event) => event.type === "user.interrupt");
+    expect(userInterrupt).toMatchObject({
+      session_id: "interrupt-session",
+      run_id: started.json().data.run_id,
+      data: expect.objectContaining({
+        reason: "user_stop",
+        task_id: started.json().data.task_id,
+        run_id: started.json().data.run_id,
+        execution_kind: "agent_stream",
+      }),
+    });
+    const rootCallStart = history.find((event) => event.type === "call.agent.start");
+    expect(rootCallStart).toMatchObject({
+      agent_name: "orchestrator_agent",
+      call_id: expect.stringMatching(/^call_/),
+    });
+    expect(history.find((event) => event.type === "call.agent.end")).toMatchObject({
+      agent_name: "orchestrator_agent",
+      call_id: rootCallStart?.call_id,
+      data: expect.objectContaining({
+        agent_name: "orchestrator_agent",
+        result: "[已停止生成]",
+        success: false,
+      }),
+    });
+    expect(history.find((event) => event.type === "agent.error")).toMatchObject({
+      agent_name: "orchestrator_agent",
+      call_id: rootCallStart?.call_id,
+      data: expect.objectContaining({
+        error_type: "InterruptedError",
+      }),
     });
   });
 });
