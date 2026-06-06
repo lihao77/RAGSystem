@@ -488,6 +488,172 @@ test('权限审批期间切换为等待权限审批并在确认后进入工具�
   assert.equal(calls.handleApprovalResolved.length, 1);
 });
 
+test('user.input_required 通过 WS 提交并等待 ack 后完成', async () => {
+  const sent = [];
+  let capturedSubmit = null;
+  const { deps } = createDeps({
+    showUserInput: (_data, submit) => {
+      capturedSubmit = submit;
+    },
+    getWS: () => ({
+      readyState: 1,
+      send: (payload) => {
+        sent.push(JSON.parse(payload));
+      },
+    }),
+  });
+  deps.messages.value = [createAssistantMessage()];
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+
+  const stream = useSessionRunStream(deps);
+  stream.handleWSMessage({
+    type: 'user.input_required',
+    data: { input_id: 'input-1', prompt: 'scope?' },
+  }, 'session-1');
+
+  const submitPromise = capturedSubmit('input-1', 'session');
+  assert.deepEqual(sent, [{ type: 'interaction.respond', interaction_id: 'input-1', kind: 'user_input', value: 'session' }]);
+
+  stream.handleWSMessage({
+    type: 'interaction.ack',
+    interaction_id: 'input-1',
+    kind: 'user_input',
+    data: { interaction_id: 'input-1', kind: 'user_input', resolved: true },
+  }, 'session-1');
+
+  await submitPromise;
+});
+
+test('interaction.required 用户输入事件会兼容旧 required 事件且不重复展示', () => {
+  const shown = [];
+  const { deps } = createDeps({
+    showUserInput: (data) => {
+      shown.push(data);
+    },
+  });
+  deps.messages.value = [createAssistantMessage()];
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+
+  const stream = useSessionRunStream(deps);
+  stream.handleWSMessage({
+    type: 'interaction.required',
+    data: { interaction_id: 'input-1', kind: 'user_input', prompt: 'scope?' },
+  }, 'session-1');
+  stream.handleWSMessage({
+    type: 'user.input_required',
+    data: { interaction_id: 'input-1', input_id: 'input-1', prompt: 'scope?' },
+  }, 'session-1');
+
+  assert.equal(shown.length, 1);
+  assert.equal(shown[0].input_id, 'input-1');
+  assert.equal(shown[0].kind, 'user_input');
+});
+
+test('interaction.required 审批事件会兼容旧 required 事件且不重复入队', () => {
+  const approvals = [];
+  const { deps } = createDeps({
+    enqueueApproval: (_event, data) => {
+      approvals.push(data);
+    },
+  });
+  deps.messages.value = [createAssistantMessage()];
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+  deps.activeRun.phase = 'llm_streaming';
+
+  const stream = useSessionRunStream(deps);
+  stream.handleWSMessage({
+    type: 'interaction.required',
+    data: { interaction_id: 'approval-1', kind: 'approval', tool_name: 'write_file' },
+  }, 'session-1');
+  stream.handleWSMessage({
+    type: 'user.approval_required',
+    data: { interaction_id: 'approval-1', approval_id: 'approval-1', tool_name: 'write_file' },
+  }, 'session-1');
+
+  assert.equal(deps.activeRun.phase, 'approval_waiting');
+  assert.equal(approvals.length, 1);
+  assert.equal(approvals[0].approval_id, 'approval-1');
+  assert.equal(approvals[0].kind, 'approval');
+});
+
+test('user.input_required 收到 WS error 时拒绝提交并提示', async () => {
+  let capturedSubmit = null;
+  const { deps, calls } = createDeps({
+    showUserInput: (_data, submit) => {
+      capturedSubmit = submit;
+    },
+    getWS: () => ({
+      readyState: 1,
+      send: () => {},
+    }),
+  });
+  deps.messages.value = [createAssistantMessage()];
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+
+  const stream = useSessionRunStream(deps);
+  stream.handleWSMessage({
+    type: 'user.input_required',
+    data: { input_id: 'input-1', prompt: 'scope?' },
+  }, 'session-1');
+
+  const submitPromise = capturedSubmit('input-1', 'session');
+  stream.handleWSMessage({
+    type: 'interaction.error',
+    interaction_id: 'input-1',
+    kind: 'user_input',
+    error: 'not found',
+  }, 'session-1');
+
+  await assert.rejects(submitPromise, /not found/);
+  assert.equal(calls.showToast.length, 1);
+  assert.equal(calls.showToast[0][0], 'not found');
+});
+
+test('user.input_required 在 WS 发送失败时降级 HTTP respond 路由', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchCalls = [];
+  let capturedSubmit = null;
+  const { deps } = createDeps({
+    showUserInput: (_data, submit) => {
+      capturedSubmit = submit;
+    },
+    getWS: () => ({
+      readyState: 1,
+      send: () => {
+        throw new Error('WS send failed');
+      },
+    }),
+  });
+  deps.messages.value = [createAssistantMessage()];
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+  globalThis.fetch = async (...args) => {
+    fetchCalls.push(args);
+    return { ok: true };
+  };
+
+  try {
+    const stream = useSessionRunStream(deps);
+    stream.handleWSMessage({
+      type: 'user.input_required',
+      data: { input_id: 'input-1', prompt: 'scope?' },
+    }, 'session-1');
+
+    assert.equal(typeof capturedSubmit, 'function');
+    await capturedSubmit('input-1', 'session');
+    assert.equal(fetchCalls.length, 1);
+    assert.equal(fetchCalls[0][0], '/api/agent/sessions/session-1/interactions/input-1/respond');
+    assert.equal(fetchCalls[0][1].method, 'POST');
+    assert.equal(fetchCalls[0][1].body, JSON.stringify({ kind: 'user_input', value: 'session' }));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('全局 seq 跳号不会再误判为 gap', () => {
   const { deps, calls } = createDeps();
   deps.messages.value = [createAssistantMessage({ content: 'partial answer' })];

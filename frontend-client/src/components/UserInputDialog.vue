@@ -75,13 +75,13 @@
                 </svg>
                 停止任务
               </button>
-              <button class="btn-send" :disabled="!canSubmit" @click="handleSubmit">
+              <button class="btn-send" :disabled="!canSubmit || submitting" @click="handleSubmit">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                   fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="22" y1="2" x2="11" y2="13"/>
                   <polygon points="22 2 15 22 11 13 2 9 22 2"/>
                 </svg>
-                发送
+                {{ submitting ? '发送中' : '发送' }}
               </button>
             </div>
 
@@ -136,6 +136,7 @@ const inputType  = ref('text');
 const options    = ref([]);
 const extra      = ref({});
 const inputValue = ref('');
+const submitting = ref(false);
 const textareaRef = ref(null);
 
 let _inputId  = '';
@@ -156,6 +157,7 @@ const show = (data, onSubmit, onCancel) => {
   _onSubmit = onSubmit || null;
   _onCancel = onCancel || null;
   collapsed.value = false;
+  submitting.value = false;
   visible.value = true;
 
   if (inputType.value === 'text') {
@@ -166,6 +168,7 @@ const show = (data, onSubmit, onCancel) => {
 const hide = () => {
   visible.value = false;
   collapsed.value = false;
+  submitting.value = false;
   inputValue.value = '';
 };
 
@@ -173,12 +176,17 @@ const toggleCollapsed = () => {
   collapsed.value = !collapsed.value;
 };
 
-const handleSubmit = () => {
-  if (!canSubmit.value) return;
+const handleSubmit = async () => {
+  if (!canSubmit.value || submitting.value) return;
   const val = String(inputValue.value).trim();
-  hide();
-  _onSubmit?.(_inputId, val);
-  emit('submit', { inputId: _inputId, value: val });
+  submitting.value = true;
+  try {
+    await _onSubmit?.(_inputId, val);
+    hide();
+    emit('submit', { inputId: _inputId, value: val });
+  } catch (_) {
+    submitting.value = false;
+  }
 };
 
 const handleCancel = () => {

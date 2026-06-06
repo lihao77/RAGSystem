@@ -7,7 +7,7 @@ function normalizeApprovalEventData(event, eventData) {
   const data = rawData ? { ...rawData } : {};
   return {
     ...data,
-    approval_id: data.approval_id || '',
+    approval_id: data.approval_id || data.interaction_id || event?.interaction_id || '',
     agent_name: event?.agent_name || data.agent_name || '智能体',
   };
 }
@@ -83,7 +83,7 @@ export function useApprovalQueue(deps) {
 
     const ws = deps.getWS?.();
     if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'approve', approval_id: approvalId, approved, message }));
+      ws.send(JSON.stringify({ type: 'interaction.respond', interaction_id: approvalId, kind: 'approval', approved, message }));
       const ackTimer = setTimeout(async () => {
         ackTimers.delete(approvalId);
         if (approvalSubmittingId.value !== approvalId) return;
@@ -118,11 +118,11 @@ export function useApprovalQueue(deps) {
 
   const sendApprovalHttp = async (approvalId, approved, message, sessionId) => {
     const resp = await fetch(
-      `/api/agent/sessions/${encodeURIComponent(sessionId)}/approvals/${encodeURIComponent(approvalId)}/respond`,
+      `/api/agent/sessions/${encodeURIComponent(sessionId)}/interactions/${encodeURIComponent(approvalId)}/respond`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approved, message }),
+        body: JSON.stringify({ kind: 'approval', approved, message }),
       }
     );
     if (!resp.ok) {
@@ -134,8 +134,16 @@ export function useApprovalQueue(deps) {
   const handleWorkPanelUserInputSubmit = async ({ inputId, value } = {}) => {
     const pending = pendingUserInput.value;
     if (!pending?.submit) return;
-    pendingUserInput.value = null;
-    await pending.submit(inputId, value);
+    try {
+      await pending.submit(inputId, value);
+      if (pendingUserInput.value === pending) {
+        pendingUserInput.value = null;
+      }
+    } catch (_) {
+      if (!pendingUserInput.value) {
+        pendingUserInput.value = pending;
+      }
+    }
   };
 
   const handleWorkPanelUserInputCancel = async () => {

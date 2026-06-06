@@ -63,8 +63,6 @@ function submit() {
   if (!props.inputData?.input_id) return
   const value = inputType.value === 'select' ? selectedValue.value : textValue.value
   emit('submit', { inputId: props.inputData.input_id, value })
-  textValue.value = ''
-  selectedValue.value = null
 }
 </script>
 

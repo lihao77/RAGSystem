@@ -53,6 +53,11 @@ export function useSessionRunStream(deps) {
   // 去重标记：避免 markRecentSessionUpdated 对同一内容重复调用 updateRecentSession
   // 用 WeakMap 避免污染消息对象（不会被 cacheMessages 序列化）
   const _recentSessionUpdatedFor = new WeakMap();
+  const USER_INPUT_ACK_TIMEOUT_MS = 8000;
+  const USER_INPUT_ACK_TIMEOUT_CODE = 'USER_INPUT_ACK_TIMEOUT';
+  const USER_INPUT_REJECTED_CODE = 'USER_INPUT_REJECTED';
+  const _pendingUserInputSubmissions = new Map();
+  const _handledRequiredInteractions = new Set();
 
   const mergeMessageMetadata = (msg, metadata) => {
     if (!msg || !metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return;
@@ -202,6 +207,165 @@ export function useSessionRunStream(deps) {
   const extractRunId = (source) => {
     if (!source || typeof source !== 'object') return null;
     return source.run_id || source.data?.run_id || source.metadata?.run_id || null;
+  };
+
+  const getEventInteractionId = (event) => {
+    if (!event || typeof event !== 'object') return '';
+    return event.interaction_id
+      || event.data?.interaction_id
+      || event.content?.interaction_id
+      || event.input_id
+      || event.data?.input_id
+      || event.content?.input_id
+      || event.approval_id
+      || event.data?.approval_id
+      || event.content?.approval_id
+      || '';
+  };
+
+  const getEventInteractionKind = (event, fallback = '') => {
+    if (!event || typeof event !== 'object') return fallback;
+    return event.kind || event.data?.kind || event.content?.kind || fallback;
+  };
+
+  const rememberRequiredInteraction = (kind, interactionId) => {
+    if (!interactionId) return true;
+    const key = `${kind || 'unknown'}:${interactionId}`;
+    if (_handledRequiredInteractions.has(key)) return false;
+    _handledRequiredInteractions.add(key);
+    return true;
+  };
+
+  const normalizeUserInputRequiredData = (event, eventData = {}) => {
+    const inputId = eventData.input_id || getEventInteractionId(event);
+    return {
+      ...eventData,
+      kind: 'user_input',
+      interaction_id: eventData.interaction_id || inputId,
+      input_id: inputId,
+    };
+  };
+
+  const normalizeApprovalRequiredData = (event, eventData = {}) => {
+    const approvalId = eventData.approval_id || getEventInteractionId(event);
+    return {
+      ...eventData,
+      kind: 'approval',
+      interaction_id: eventData.interaction_id || approvalId,
+      approval_id: approvalId,
+    };
+  };
+
+  const isOpenWebSocket = (ws) => {
+    if (!ws) return false;
+    const openState = typeof WebSocket !== 'undefined' ? WebSocket.OPEN : 1;
+    return ws.readyState === openState;
+  };
+
+  const clearPendingUserInputSubmission = (inputId) => {
+    const pending = _pendingUserInputSubmissions.get(inputId);
+    if (!pending) return null;
+    clearTimeout(pending.timer);
+    _pendingUserInputSubmissions.delete(inputId);
+    return pending;
+  };
+
+  const resolveUserInputSubmission = (event) => {
+    const inputId = getEventInteractionId(event);
+    const pending = clearPendingUserInputSubmission(inputId);
+    if (!pending) return false;
+    pending.resolve(event);
+    return true;
+  };
+
+  const rejectUserInputSubmission = (event) => {
+    const inputId = getEventInteractionId(event);
+    const pending = clearPendingUserInputSubmission(inputId);
+    if (!pending) return false;
+    const error = new Error(event?.error || '用户输入提交失败');
+    error.code = USER_INPUT_REJECTED_CODE;
+    pending.reject(error);
+    return true;
+  };
+
+  const submitUserInputHttp = async (sessionId, inputId, value) => {
+    const resp = await fetch(
+      `/api/agent/sessions/${encodeURIComponent(sessionId)}/interactions/${encodeURIComponent(inputId)}/respond`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'user_input', value }) }
+    );
+    if (!resp.ok) {
+      const result = await resp.json().catch(() => ({}));
+      throw new Error(result.message || `用户输入提交失败 (${resp.status})`);
+    }
+  };
+
+  const submitUserInputWs = (ws, inputId, value) => new Promise((resolve, reject) => {
+    if (!inputId) {
+      reject(new Error('用户输入请求缺少 input_id'));
+      return;
+    }
+    const existing = clearPendingUserInputSubmission(inputId);
+    if (existing) {
+      existing.reject(new Error('用户输入已重新提交'));
+    }
+    const timer = setTimeout(() => {
+      _pendingUserInputSubmissions.delete(inputId);
+      const error = new Error('用户输入提交确认超时');
+      error.code = USER_INPUT_ACK_TIMEOUT_CODE;
+      reject(error);
+    }, USER_INPUT_ACK_TIMEOUT_MS);
+    _pendingUserInputSubmissions.set(inputId, { resolve, reject, timer });
+    try {
+      ws.send(JSON.stringify({ type: 'interaction.respond', interaction_id: inputId, kind: 'user_input', value }));
+    } catch (error) {
+      clearPendingUserInputSubmission(inputId);
+      reject(error);
+    }
+  });
+
+  const submitUserInputForSession = async (sessionId, inputId, value) => {
+    const normalizedValue = String(value ?? '');
+    const ws = deps.getWS?.();
+    if (isOpenWebSocket(ws)) {
+      try {
+        await submitUserInputWs(ws, inputId, normalizedValue);
+        return;
+      } catch (error) {
+        if (error?.code === USER_INPUT_ACK_TIMEOUT_CODE || error?.code === USER_INPUT_REJECTED_CODE) {
+          throw error;
+        }
+        console.warn('用户输入 WS 提交失败，降级 HTTP:', error);
+      }
+    }
+    await submitUserInputHttp(sessionId, inputId, normalizedValue);
+  };
+
+  const handleApprovalRequired = (event, eventData, sessionId) => {
+    const approvalData = normalizeApprovalRequiredData(event, eventData);
+    if (!rememberRequiredInteraction('approval', approvalData.approval_id)) return;
+    deps.activeRun.phase = 'approval_waiting';
+    deps.enqueueApproval(event, approvalData, sessionId);
+  };
+
+  const handleUserInputRequired = (event, eventData, sessionId) => {
+    const inputData = normalizeUserInputRequiredData(event, eventData);
+    if (!rememberRequiredInteraction('user_input', inputData.input_id)) return;
+    const submitUserInput = async (inputId, value) => {
+      try {
+        await submitUserInputForSession(sessionId, inputId, value);
+      } catch (e) {
+        console.warn('用户输入提交失败:', e);
+        deps.showToast(e.message || '用户输入提交失败', 'warning');
+        throw e;
+      }
+    };
+    const cancelUserInput = async () => { await deps.handleStop(); };
+    // 优先使用 showUserInput 路由函数（支持内联工作栏），回退到对话框
+    if (deps.showUserInput) {
+      deps.showUserInput(inputData, submitUserInput, cancelUserInput);
+    } else {
+      deps.userInputDialogRef.value?.show(inputData, submitUserInput, cancelUserInput);
+    }
   };
 
   const findUserMessageSavedTarget = (eventData) => {
@@ -412,36 +576,17 @@ export function useSessionRunStream(deps) {
         deps.messages.value.splice(deps.activeRun.assistantMsgIndex, 0, compressionMsg);
         deps.activeRun.assistantMsgIndex++;
       }
-    } else if (eventType === 'user.approval_required') {
-      deps.activeRun.phase = 'approval_waiting';
-      deps.enqueueApproval(event, eventData, sessionId);
-    } else if (eventType === 'user.input_required') {
-      const submitUserInput = async (inputId, value) => {
-        if (deps.getWS()?.readyState === WebSocket.OPEN) {
-          deps.getWS().send(JSON.stringify({ type: 'user_input', input_id: inputId, value }));
-        } else {
-          try {
-            const resp = await fetch(
-              `/api/agent/sessions/${encodeURIComponent(sessionId)}/inputs/${encodeURIComponent(inputId)}/respond`,
-              { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) }
-            );
-            if (!resp.ok) {
-              const result = await resp.json().catch(() => ({}));
-              throw new Error(result.message || `用户输入提交失败 (${resp.status})`);
-            }
-          } catch (e) {
-            console.warn('用户输入提交失败:', e);
-            deps.showToast(e.message || '用户输入提交失败', 'warning');
-          }
-        }
-      };
-      const cancelUserInput = async () => { await deps.handleStop(); };
-      // 优先使用 showUserInput 路由函数（支持内联工作栏），回退到对话框
-      if (deps.showUserInput) {
-        deps.showUserInput(eventData, submitUserInput, cancelUserInput);
-      } else {
-        deps.userInputDialogRef.value?.show(eventData, submitUserInput, cancelUserInput);
+    } else if (eventType === 'interaction.required') {
+      const kind = getEventInteractionKind(event, eventData.input_id ? 'user_input' : '');
+      if (kind === 'approval') {
+        handleApprovalRequired(event, eventData, sessionId);
+      } else if (kind === 'user_input') {
+        handleUserInputRequired(event, eventData, sessionId);
       }
+    } else if (eventType === 'user.approval_required') {
+      handleApprovalRequired(event, eventData, sessionId);
+    } else if (eventType === 'user.input_required') {
+      handleUserInputRequired(event, eventData, sessionId);
     }
 
     deps.scrollToBottom();
@@ -536,6 +681,43 @@ export function useSessionRunStream(deps) {
       return;
     }
 
+    if (eventType === 'interaction.error') {
+      const kind = getEventInteractionKind(event);
+      const interactionId = getEventInteractionId(event);
+      if (kind === 'user_input') {
+        const handled = rejectUserInputSubmission(event);
+        if (!handled) deps.showToast(event.error || '用户输入提交失败', 'warning');
+        return;
+      }
+      if (kind === 'approval') {
+        deps.handleApprovalResolved(interactionId, sessionId);
+        deps.showToast(event.error || '审批提交失败', 'warning');
+        return;
+      }
+      if (!rejectUserInputSubmission(event)) {
+        deps.showToast(event.error || '交互提交失败', 'warning');
+      }
+      return;
+    }
+
+    if (eventType === 'interaction.ack') {
+      const kind = getEventInteractionKind(event);
+      const interactionId = getEventInteractionId(event);
+      if (kind === 'user_input') {
+        resolveUserInputSubmission(event);
+        return;
+      }
+      if (kind === 'approval') {
+        if (deps.activeRun.active && deps.activeRun.phase === 'approval_waiting') {
+          deps.activeRun.phase = event.data?.approved === false ? 'llm_waiting_first_token' : 'tool_running';
+        }
+        deps.handleApprovalResolved(interactionId, sessionId);
+        return;
+      }
+      resolveUserInputSubmission(event);
+      return;
+    }
+
     if (eventType === 'approve.error') {
       if (event.approval_id) {
         deps.handleApprovalResolved(event.approval_id, sessionId);
@@ -553,7 +735,12 @@ export function useSessionRunStream(deps) {
     }
 
     if (eventType === 'user_input.error') {
-      deps.showToast(event.error || '用户输入提交失败', 'warning');
+      const handled = rejectUserInputSubmission(event);
+      if (!handled) deps.showToast(event.error || '用户输入提交失败', 'warning');
+      return;
+    }
+    if (eventType === 'user_input.ack') {
+      resolveUserInputSubmission(event);
       return;
     }
     if (eventType === 'session.run_started') {
