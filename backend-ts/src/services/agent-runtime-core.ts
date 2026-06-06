@@ -14,28 +14,19 @@ import type {
   RuntimeToolDefinition,
   RuntimeToolExecutionContext,
   RuntimeToolExecutor,
-  RuntimeToolWaitResult,
 } from "./runtime-tool-types.js";
-import type { ToolExecutionResult } from "./memory-tool-service.js";
 import type { AgentPromptContext } from "./agent-prompt-builder.js";
 import { buildRuntimeMessages } from "./agent-runtime-core/message-builder.js";
-import { buildLlmFacingToolResult } from "./agent-runtime-core/observation.js";
+import { executeToolCallRound } from "./agent-runtime-core/tool-round-executor.js";
 import {
   buildAssistantToolCallMessage,
-  buildToolExecutionErrorResult,
-  buildToolReferenceErrorResult,
-  collectResultPlaceholders,
-  collectResultReferenceIndexes,
-  materializeToolResult,
   parseToolArguments,
   renderNativeAssistantIntermediateContent,
-  resolveToolArgumentReferences,
   toChatToolDefinition,
 } from "./agent-runtime-core/tool-call-utils.js";
 import {
   parseRuntimeToolCallsXml,
   renderProtocolFeedbackMessage,
-  renderToolResultContent,
   StreamingRuntimeXmlParser,
 } from "./runtime-xml-protocol.js";
 
@@ -305,10 +296,11 @@ export class AgentRuntimeCore {
           },
         });
         messages = [...messages, { role: "assistant", content: assistantContent }];
-        const roundExecutions = await this.executeToolCallRound({
+        const roundExecutions = await executeToolCallRound({
           input,
           toolExecutor,
           toolContext,
+          dataRoot: this.dataRoot,
           round,
           dependencyAware: true,
           parallelIndependent: true,
@@ -404,10 +396,11 @@ export class AgentRuntimeCore {
         },
       });
       messages = [...messages, assistantMessage];
-      const roundExecutions = await this.executeToolCallRound({
+      const roundExecutions = await executeToolCallRound({
         input,
         toolExecutor,
         toolContext,
+        dataRoot: this.dataRoot,
         round,
         dependencyAware: false,
         parallelIndependent: false,
@@ -614,145 +607,6 @@ export class AgentRuntimeCore {
     return [...messages, ...updates];
   }
 
-  private async executeToolCallRound(input: {
-    input: AgentRuntimeRequest;
-    toolExecutor: RuntimeToolExecutor;
-    toolContext: RuntimeToolExecutionContext;
-    round: number;
-    dependencyAware: boolean;
-    parallelIndependent: boolean;
-    calls: PreparedRoundToolCall[];
-  }): Promise<RuntimeToolRoundExecution[]> {
-    const roundResults = new Map<number, ToolExecutionResult>();
-    const executions = new Map<number, RuntimeToolRoundExecution>();
-    const batches = input.dependencyAware
-      ? buildExecutionBatches(input.calls)
-      : input.calls.map((call) => [call]);
-    for (const batch of batches) {
-      const runCall = (call: PreparedRoundToolCall) =>
-        this.executeSingleToolCall({
-          input: input.input,
-          toolExecutor: input.toolExecutor,
-          toolContext: input.toolContext,
-          round: input.round,
-          call,
-          previousResults: roundResults,
-        });
-      const batchExecutions =
-        input.parallelIndependent && batch.length > 1
-          ? await Promise.all(batch.map((call) => runCall(call)))
-          : await runSequentially(batch, runCall);
-      for (const execution of batchExecutions) {
-        roundResults.set(execution.index + 1, execution.result);
-        executions.set(execution.index, execution);
-      }
-    }
-    return [...executions.values()].sort((left, right) => left.index - right.index);
-  }
-
-  private async executeSingleToolCall(input: {
-    input: AgentRuntimeRequest;
-    toolExecutor: RuntimeToolExecutor;
-    toolContext: RuntimeToolExecutionContext;
-    round: number;
-    call: PreparedRoundToolCall;
-    previousResults: Map<number, ToolExecutionResult>;
-  }): Promise<RuntimeToolRoundExecution> {
-    const order = input.call.index + 1;
-    const toolArguments = resolveToolArgumentReferences(input.call.arguments, input.previousResults);
-    await input.input.onEvent?.({
-      type: "runtime.tool_call",
-      data: {
-        agent_name: input.input.agent.agent_name,
-        tool_call_id: input.call.callId,
-        tool_name: input.call.toolName,
-        arguments: toolArguments,
-        round: input.round,
-        order,
-        round_index: order,
-      },
-    });
-
-    const startedAt = Date.now();
-    const unresolvedPlaceholders = collectResultPlaceholders(toolArguments);
-    const toolResult = unresolvedPlaceholders.length
-      ? buildToolReferenceErrorResult(input.call.toolName, unresolvedPlaceholders)
-      : await executeToolSafely({
-          toolExecutor: input.toolExecutor,
-          toolContext: input.toolContext,
-          callId: input.call.callId,
-          toolName: input.call.toolName,
-          toolArguments,
-          round: input.round,
-          index: input.call.index,
-        });
-    const observationResult = await resolveToolObservation({
-      toolExecutor: input.toolExecutor,
-      toolContext: buildToolCallExecutionContext(input.toolContext, {
-        callId: input.call.callId,
-        round: input.round,
-        index: input.call.index,
-      }),
-      callId: input.call.callId,
-      toolName: input.call.toolName,
-      result: toolResult,
-      agent: input.input.agent,
-      provider: input.input.provider,
-      dataRoot: this.dataRoot,
-    });
-    const elapsedTime = (Date.now() - startedAt) / 1000;
-    await input.input.onEvent?.({
-      type: "runtime.tool_result",
-      data: {
-        agent_name: input.input.agent.agent_name,
-        tool_call_id: input.call.callId,
-        tool_name: input.call.toolName,
-        success: observationResult.success,
-        summary: observationResult.summary,
-        observation: observationResult.observation,
-        metadata: toolResult.metadata,
-        raw_result: observationResult.rawResult,
-        raw_result_ref: buildRawResultRef(input.toolContext, input.call.callId, input.call.toolName),
-        raw_result_available: true,
-        elapsed_time: elapsedTime,
-        round: input.round,
-        order,
-        round_index: order,
-      },
-    });
-
-    return {
-      index: input.call.index,
-      callId: input.call.callId,
-      toolName: input.call.toolName,
-      arguments: toolArguments,
-      result: toolResult,
-      observation: observationResult.observation,
-    };
-  }
-}
-
-interface PreparedRoundToolCall {
-  index: number;
-  callId: string;
-  toolName: string;
-  arguments: Record<string, unknown>;
-}
-
-interface RuntimeToolRoundExecution {
-  index: number;
-  callId: string;
-  toolName: string;
-  arguments: Record<string, unknown>;
-  result: ToolExecutionResult;
-  observation: string;
-}
-
-interface ToolObservationResult {
-  success: boolean;
-  summary: string;
-  observation: string;
-  rawResult: Record<string, unknown>;
 }
 
 function shouldRunToolLoop(input: AgentRuntimeRequest, request: ChatCompletionRequest): boolean {
@@ -787,227 +641,4 @@ function toRuntimeResult(input: AgentRuntimeRequest, result: ChatCompletionResul
 function withoutNativeTools(request: ChatCompletionRequest): ChatCompletionRequest {
   const { tools: _tools, toolChoice: _toolChoice, ...rest } = request;
   return rest;
-}
-
-function buildToolCallExecutionContext(
-  context: RuntimeToolExecutionContext,
-  input: {
-    callId: string;
-    round: number;
-    index: number;
-  },
-): RuntimeToolExecutionContext {
-  const order = input.index + 1;
-  return {
-    ...context,
-    toolCallId: input.callId,
-    round: input.round,
-    order,
-    roundIndex: order,
-  };
-}
-
-function buildExecutionBatches(calls: PreparedRoundToolCall[]): PreparedRoundToolCall[][] {
-  const batches: PreparedRoundToolCall[][] = [];
-  const completed = new Set<number>();
-  let remaining = [...calls];
-  while (remaining.length > 0) {
-    const batch: PreparedRoundToolCall[] = [];
-    const nextRemaining: PreparedRoundToolCall[] = [];
-    for (const call of remaining) {
-      if (toolCallHasUnmetDependencies(call, completed)) {
-        nextRemaining.push(call);
-      } else {
-        batch.push(call);
-      }
-    }
-    if (batch.length === 0) {
-      const [first, ...rest] = remaining;
-      if (first) {
-        batch.push(first);
-      }
-      remaining = rest;
-    } else {
-      remaining = nextRemaining;
-    }
-    for (const call of batch) {
-      completed.add(call.index + 1);
-    }
-    batches.push(batch);
-  }
-  return batches;
-}
-
-function toolCallHasUnmetDependencies(call: PreparedRoundToolCall, completed: Set<number>): boolean {
-  const dependencies = collectResultReferenceIndexes(call.arguments);
-  return dependencies.some((index) => !completed.has(index));
-}
-
-async function runSequentially<T, R>(items: T[], run: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = [];
-  for (const item of items) {
-    results.push(await run(item));
-  }
-  return results;
-}
-
-async function executeToolSafely(input: {
-  toolExecutor: RuntimeToolExecutor;
-  toolContext: RuntimeToolExecutionContext;
-  callId: string;
-  toolName: string;
-  toolArguments: Record<string, unknown>;
-  round: number;
-  index: number;
-}): Promise<ToolExecutionResult> {
-  try {
-    return await input.toolExecutor.executeTool(
-      {
-        toolName: input.toolName,
-        arguments: input.toolArguments,
-        callId: input.callId,
-      },
-      buildToolCallExecutionContext(input.toolContext, {
-        callId: input.callId,
-        round: input.round,
-        index: input.index,
-      }),
-    );
-  } catch (error) {
-    return buildToolExecutionErrorResult(input.toolName, error);
-  }
-}
-
-async function resolveToolObservation(input: {
-  toolExecutor: RuntimeToolExecutor;
-  toolContext: RuntimeToolExecutionContext;
-  callId: string;
-  toolName: string;
-  result: ToolExecutionResult;
-  agent: AgentConfig;
-  provider: ModelProviderConfig;
-  dataRoot: string;
-}): Promise<ToolObservationResult> {
-  const waitSignal = extractToolWaitSignal(input.result);
-  if (!waitSignal || !input.toolExecutor.waitForToolResult) {
-    const llmFacingResult = await buildLlmFacingToolResult(input);
-    return {
-      success: input.result.success,
-      summary: input.result.summary,
-      observation: renderToolResultContent({
-        callId: input.callId,
-        toolName: input.toolName,
-        result: llmFacingResult,
-      }),
-      rawResult: materializeToolResult(input.result),
-    };
-  }
-
-  const waitResult = await input.toolExecutor.waitForToolResult(
-    {
-      backgroundTaskId: waitSignal.backgroundTaskId,
-      timeoutMs: waitSignal.timeoutMs,
-    },
-    input.toolContext,
-  );
-  const observation = renderBackgroundWaitObservation(waitResult);
-  return {
-    success: waitResult.success,
-    summary: summarizeBackgroundWaitResult(waitResult),
-    observation,
-    rawResult: {
-      background_notifications: waitResult.payloads,
-    },
-  };
-}
-
-function extractToolWaitSignal(result: ToolExecutionResult): {
-  backgroundTaskId: string;
-  timeoutMs?: number | null | undefined;
-} | null {
-  for (const payload of [result.content, result.metadata]) {
-    if (!isRecord(payload) || payload.suggest_wait !== true) {
-      continue;
-    }
-    const backgroundTaskId = asNonEmptyString(payload.background_task_id);
-    if (!backgroundTaskId) {
-      continue;
-    }
-    return {
-      backgroundTaskId,
-      timeoutMs: typeof payload.wait_timeout_ms === "number" && Number.isFinite(payload.wait_timeout_ms)
-        ? payload.wait_timeout_ms
-        : null,
-    };
-  }
-  return null;
-}
-
-function renderBackgroundWaitObservation(waitResult: RuntimeToolWaitResult): string {
-  return waitResult.payloads
-    .map((payload) => renderBackgroundNotification(payload, waitResult.timeout))
-    .filter((content) => content.trim())
-    .join("\n\n");
-}
-
-function renderBackgroundNotification(payload: Record<string, unknown>, timeout: boolean): string {
-  const taskId = asNonEmptyString(payload.background_task_id) ?? asNonEmptyString(payload.task_id) ?? "unknown";
-  const status = asNonEmptyString(payload.status) ?? (timeout ? "running" : "completed");
-  const outputPath = asNonEmptyString(payload.output_path) ?? asNonEmptyString(payload.background_output_path);
-  const returnCode = payload.return_code;
-  const resultType = asNonEmptyString(payload.result_type);
-  const summary = asNonEmptyString(payload.summary) ?? asNonEmptyString(payload.description);
-  const parts = ["<task-notification>", `<task-id>${escapeXmlText(taskId)}</task-id>`];
-  if (outputPath) {
-    parts.push(`<output-file>${escapeXmlText(outputPath)}</output-file>`);
-  }
-  parts.push(`<status>${escapeXmlText(status)}</status>`);
-  if (returnCode !== null && returnCode !== undefined) {
-    parts.push(`<return-code>${escapeXmlText(String(returnCode))}</return-code>`);
-  }
-  if (resultType) {
-    parts.push(`<result-type>${escapeXmlText(resultType)}</result-type>`);
-  }
-  if (summary) {
-    parts.push(`<summary>${escapeXmlText(summary)}</summary>`);
-  }
-  parts.push("</task-notification>");
-  return parts.join("\n");
-}
-
-function summarizeBackgroundWaitResult(waitResult: RuntimeToolWaitResult): string {
-  const summaries = waitResult.payloads
-    .map((payload) => asNonEmptyString(payload.summary))
-    .filter((summary): summary is string => Boolean(summary));
-  if (summaries.length > 0) {
-    return summaries.join("\n\n");
-  }
-  return waitResult.timeout ? "后台任务仍在运行" : "后台任务已完成";
-}
-
-function asNonEmptyString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function escapeXmlText(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function buildRawResultRef(
-  context: RuntimeToolExecutionContext,
-  callId: string,
-  toolName: string,
-): Record<string, unknown> {
-  return {
-    session_id: context.sessionId ?? null,
-    call_id: callId,
-    tool_name: toolName,
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
