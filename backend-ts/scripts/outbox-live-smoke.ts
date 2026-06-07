@@ -7,12 +7,13 @@ interface Options {
   task: string;
   interruptTask: string;
   backgroundTask: string;
+  approvalTask: string;
   selectedLlm: string | null;
   timeoutMs: number;
   replayTimeoutMs: number;
 }
 
-type SmokeScenario = "basic" | "interrupt" | "background";
+type SmokeScenario = "basic" | "interrupt" | "background" | "approval";
 
 interface PermissionPolicy {
   mode?: string;
@@ -56,6 +57,12 @@ const DEFAULT_BACKGROUND_TASK = [
   "Set run_in_background to true, timeout to 30, and description to 'outbox background smoke'.",
   "After the tool starts, reply with a concise final answer.",
 ].join(" ");
+const DEFAULT_APPROVAL_TASK = [
+  "You must call execute_bash exactly once.",
+  "Use command 'touch outbox-approval-smoke.txt'.",
+  "Set run_in_background to false, timeout to 30, and description to 'outbox approval smoke'.",
+  "After the tool completes, reply with a concise final answer.",
+].join(" ");
 const DEFAULT_SCENARIOS: SmokeScenario[] = ["basic", "interrupt"];
 
 async function main(): Promise<void> {
@@ -83,6 +90,10 @@ async function main(): Promise<void> {
       results.push(await runBackgroundScenario(options, wsConstructor));
       continue;
     }
+    if (scenario === "approval") {
+      results.push(await runApprovalScenario(options, wsConstructor));
+      continue;
+    }
   }
 
   console.log("Outbox live smoke passed");
@@ -90,6 +101,62 @@ async function main(): Promise<void> {
     console.log(
       `  ${result.scenario}: session_id=${result.sessionId} run_id=${result.runId} max_event_seq=${result.maxEventSeq}`,
     );
+  }
+}
+
+async function runApprovalScenario(
+  options: Options,
+  wsConstructor: WebSocketConstructorLike,
+): Promise<{ scenario: "approval"; sessionId: string; runId: string; maxEventSeq: number }> {
+  const sessionId = `${options.sessionId}-approval`;
+  const originalPolicy = await getPermissionPolicy(options);
+  const live = createCollector(options, wsConstructor, null, sessionId);
+  try {
+    await setPermissionPolicy(options, {
+      ...(originalPolicy ?? {}),
+      mode: "standard",
+      auto_accept_patterns: [],
+      skip_all_approvals: false,
+    });
+    await assertOpen(live, 5000, "approval live WebSocket");
+    const runId = await startAgentStream(options, sessionId, options.approvalTask);
+    const approvalEvent = await live.waitForEvent(
+      (event) => isApprovalRequiredEvent(event) && extractRunId(event) === runId,
+      options.timeoutMs,
+    );
+    if (!approvalEvent) {
+      throw new Error(
+        `timed out waiting for approval event; observed types=[${summarizeEventTypes(live.events).join(", ")}]`,
+      );
+    }
+    const approvalId = extractApprovalId(approvalEvent);
+    if (!approvalId) {
+      throw new Error(`approval event is missing approval_id: ${JSON.stringify(approvalEvent)}`);
+    }
+    await requestJson(
+      options,
+      `/api/agent/sessions/${encodeURIComponent(sessionId)}/interactions/${encodeURIComponent(approvalId)}/respond`,
+      {
+        method: "POST",
+        body: { kind: "approval", approved: true, message: "approved by outbox live smoke" },
+      },
+    );
+    const terminal = await live.waitForEvent(
+      (event) => isRunTerminalEvent(event, runId),
+      options.timeoutMs,
+    );
+    if (!terminal) {
+      throw new Error(
+        `timed out waiting for approval run terminal event; observed types=[${summarizeEventTypes(live.events).join(", ")}]`,
+      );
+    }
+    const maxEventSeq = await verifyLiveAndReplay(options, wsConstructor, sessionId, live.events);
+    return { scenario: "approval", sessionId, runId, maxEventSeq };
+  } finally {
+    live.close();
+    if (originalPolicy) {
+      await setPermissionPolicy(options, originalPolicy);
+    }
   }
 }
 
@@ -525,6 +592,28 @@ function getRunEndStatus(event: Record<string, unknown>): string | null {
   return asString(getPath(event, ["data", "status"])) ?? asString(event.status);
 }
 
+function isApprovalRequiredEvent(event: Record<string, unknown>): boolean {
+  if (event.type === "user.approval_required") {
+    return true;
+  }
+  if (event.type !== "interaction.required") {
+    return false;
+  }
+  const kind = asString(getPath(event, ["data", "kind"])) ?? asString(event.kind);
+  return kind === "approval";
+}
+
+function extractApprovalId(event: Record<string, unknown>): string | null {
+  return (
+    asString(event.approval_id) ??
+    asString(event.interaction_id) ??
+    asString(getPath(event, ["data", "approval_id"])) ??
+    asString(getPath(event, ["data", "interaction_id"])) ??
+    asString(getPath(event, ["content", "approval_id"])) ??
+    asString(getPath(event, ["content", "interaction_id"]))
+  );
+}
+
 function getEventSeq(event: Record<string, unknown>): number | null {
   return asNumber(event.event_seq);
 }
@@ -572,6 +661,7 @@ function parseArgs(args: string[]): Options {
     task: process.env.OUTBOX_SMOKE_TASK ?? DEFAULT_TASK,
     interruptTask: process.env.OUTBOX_SMOKE_INTERRUPT_TASK ?? DEFAULT_INTERRUPT_TASK,
     backgroundTask: process.env.OUTBOX_SMOKE_BACKGROUND_TASK ?? DEFAULT_BACKGROUND_TASK,
+    approvalTask: process.env.OUTBOX_SMOKE_APPROVAL_TASK ?? DEFAULT_APPROVAL_TASK,
     selectedLlm: normalizeString(process.env.OUTBOX_SMOKE_SELECTED_LLM),
     timeoutMs: Number.parseInt(process.env.OUTBOX_SMOKE_TIMEOUT_MS ?? "120000", 10),
     replayTimeoutMs: Number.parseInt(process.env.OUTBOX_SMOKE_REPLAY_TIMEOUT_MS ?? "5000", 10),
@@ -601,6 +691,10 @@ function parseArgs(args: string[]): Options {
     }
     if (arg === "--background-task") {
       options.backgroundTask = requireValue(args, ++index, arg);
+      continue;
+    }
+    if (arg === "--approval-task") {
+      options.approvalTask = requireValue(args, ++index, arg);
       continue;
     }
     if (arg === "--scenarios") {
@@ -642,10 +736,11 @@ Verifies TS backend outbox_live WebSocket delivery and durable replay cursor beh
 Options:
   --base-url <url>            TS backend URL. Default: OUTBOX_SMOKE_URL or http://127.0.0.1:5002
   --session-id <id>           Session id. Default: OUTBOX_SMOKE_SESSION_ID or generated id
-  --scenarios <list>          Comma-separated scenarios: basic,interrupt,background. Default: basic,interrupt
+  --scenarios <list>          Comma-separated scenarios: basic,interrupt,background,approval. Default: basic,interrupt
   --task <text>               Agent task. Default: OUTBOX_SMOKE_TASK or "${DEFAULT_TASK}"
   --interrupt-task <text>     Long-running task used for interrupt scenario.
   --background-task <text>    Tool-use task used for background scenario.
+  --approval-task <text>      Tool-use task used for approval scenario.
   --selected-llm <value>      Optional frontend selected_llm override.
   --timeout-ms <n>            Run completion timeout. Default: 120000
   --replay-timeout-ms <n>     Durable replay wait timeout. Default: 5000`);
@@ -661,7 +756,7 @@ function parseScenarios(raw: string | undefined): SmokeScenario[] {
     if (!scenario) {
       continue;
     }
-    if (scenario !== "basic" && scenario !== "interrupt" && scenario !== "background") {
+    if (scenario !== "basic" && scenario !== "interrupt" && scenario !== "background" && scenario !== "approval") {
       throw new Error(`Unknown smoke scenario: ${scenario}`);
     }
     if (!scenarios.includes(scenario)) {
