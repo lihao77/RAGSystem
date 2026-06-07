@@ -52,6 +52,63 @@ describe("monitoring compatibility routes", () => {
     });
   });
 
+  it("exposes event outbox diagnostics in system metrics", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+
+    harness.container.conversationStore.createSession("metrics-outbox");
+    harness.container.conversationStore.appendOutbox({
+      sessionId: "metrics-outbox",
+      runId: "run-pending",
+      eventId: "event-pending",
+      eventType: "run.completed",
+      aggregateType: "run",
+      aggregateId: "run-pending",
+      payload: {
+        final_message_id: "msg-pending",
+        metadata: { run_id: "run-pending" },
+      },
+    });
+    const failed = harness.container.conversationStore.appendOutbox({
+      sessionId: "metrics-outbox",
+      runId: "run-failed",
+      eventId: "event-failed",
+      eventType: "run.failed",
+      aggregateType: "run",
+      aggregateId: "run-failed",
+      payload: {
+        status: "failed",
+        error: "projection failed",
+        metadata: { run_id: "run-failed" },
+      },
+    });
+    harness.container.conversationStore.markOutboxFailed(failed.id, "projection failed");
+
+    const metrics = await app.inject({
+      method: "GET",
+      url: "/api/agent/metrics",
+    });
+
+    expect(metrics.statusCode).toBe(200);
+    expect(metrics.json().data.event_outbox).toMatchObject({
+      delivery_mode: "outbox_live",
+      dispatcher: {
+        projected: 0,
+        delivered: 0,
+        failed: 0,
+        lastError: null,
+      },
+      store: {
+        total: 2,
+        pending: 1,
+        delivered: 0,
+        failed: 1,
+        oldest_pending_created_at: expect.any(String),
+        oldest_pending_age_seconds: expect.any(Number),
+      },
+    });
+  });
+
   it("serves a Python-compatible context snapshot and persisted message content", async () => {
     const harness = await buildTestHarness();
     app = harness.app;

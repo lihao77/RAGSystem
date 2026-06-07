@@ -19,7 +19,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     if (query.agent_name?.trim()) {
       throw new HttpError(404, "not_found", `未找到智能体 ${query.agent_name.trim()} 的指标`);
     }
-    return ok(emptySystemMetrics(), "获取系统指标成功");
+    return ok(buildSystemMetrics(options), "获取系统指标成功");
   });
 
   app.post("/metrics/reset", async (request) => {
@@ -149,7 +149,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
   });
 };
 
-function emptySystemMetrics(): {
+function buildSystemMetrics(options: RouteOptions): {
   total_agents: number;
   total_calls: number;
   avg_duration_ms: number;
@@ -161,6 +161,11 @@ function emptySystemMetrics(): {
     total_keepalive_rounds: number;
   };
   agents: Record<string, never>;
+  event_outbox: {
+    delivery_mode: string;
+    dispatcher: ReturnType<RouteOptions["container"]["outboxDispatcher"]["getMetrics"]>;
+    store: ReturnType<RouteOptions["container"]["conversationStore"]["getOutboxStats"]>;
+  };
 } {
   return {
     total_agents: 0,
@@ -174,6 +179,11 @@ function emptySystemMetrics(): {
       total_keepalive_rounds: 0,
     },
     agents: {},
+    event_outbox: {
+      delivery_mode: options.container.terminalEventDelivery,
+      dispatcher: options.container.outboxDispatcher.getMetrics(),
+      store: options.container.conversationStore.getOutboxStats(),
+    },
   };
 }
 

@@ -493,6 +493,7 @@ class OutboxDispatcher {
 - 已实现 `BACKEND_TS_TERMINAL_EVENT_DELIVERY=outbox_live|sync`。
 - 默认 `outbox_live`：completed/failed/interrupted terminal events 由 outbox projection 派发，旧同步 publish 不再双发。
 - `sync` 回退：terminal events 仍走旧同步 publish，同时保留 outbox 记录用于诊断/后续 replay。
+- `/api/agent/metrics` 已暴露 `event_outbox` delivery mode、dispatcher metrics 和 pending/delivered/failed 统计。
 
 ## 测试计划
 

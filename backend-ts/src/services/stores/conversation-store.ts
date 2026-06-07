@@ -91,6 +91,15 @@ export interface ConversationStoreTransaction {
   appendOutbox(input: AppendOutboxInput): OutboxRow;
 }
 
+export interface EventOutboxStats {
+  total: number;
+  pending: number;
+  delivered: number;
+  failed: number;
+  oldest_pending_created_at: string | null;
+  oldest_pending_age_seconds: number | null;
+}
+
 export class ConversationStore {
   private readonly db: import("node:sqlite").DatabaseSync;
   private readonly dataRoot: string;
@@ -683,6 +692,34 @@ export class ConversationStore {
     return Number(result.changes) > 0;
   }
 
+  getOutboxStats(): EventOutboxStats {
+    const row = this.db
+      .prepare(`
+        SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
+          SUM(CASE WHEN status='delivered' THEN 1 ELSE 0 END) AS delivered,
+          SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed,
+          MIN(CASE WHEN status='pending' THEN created_at ELSE NULL END) AS oldest_pending_created_at
+        FROM event_outbox
+      `)
+      .get() as {
+        total: number | null;
+        pending: number | null;
+        delivered: number | null;
+        failed: number | null;
+        oldest_pending_created_at: string | null;
+      };
+    return {
+      total: numericCount(row.total),
+      pending: numericCount(row.pending),
+      delivered: numericCount(row.delivered),
+      failed: numericCount(row.failed),
+      oldest_pending_created_at: row.oldest_pending_created_at,
+      oldest_pending_age_seconds: ageSeconds(row.oldest_pending_created_at),
+    };
+  }
+
   listRuns(sessionId: string, limit = 50): { items: RunInfo[]; total: number } {
     const rows = this.db
       .prepare(
@@ -977,6 +1014,21 @@ export class ConversationStore {
     }
   }
 
+}
+
+function numericCount(value: number | null | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function ageSeconds(timestamp: string | null): number | null {
+  if (!timestamp) {
+    return null;
+  }
+  const parsed = Date.parse(timestamp.includes("T") ? timestamp : `${timestamp}Z`);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return Math.max(0, Math.floor((Date.now() - parsed) / 1000));
 }
 
 const require = createRequire(import.meta.url);
