@@ -229,6 +229,33 @@ export function buildRunStartStepPayload(input: {
   };
 }
 
+export function buildFinalStepPayload(input: {
+  rootCallId: string;
+  runId: string;
+  taskId: string;
+  requestId: string;
+  agent: AgentConfig;
+  messageId: string;
+  resultPreview: string;
+}): Record<string, unknown> {
+  return {
+    kind: "final",
+    phase: "complete",
+    call_id: input.rootCallId,
+    parent_call_id: null,
+    step_id: `${input.rootCallId}:final`,
+    parent_step_id: `${input.rootCallId}:run`,
+    agent_name: input.agent.agent_name,
+    agent_display_name: input.agent.display_name || input.agent.agent_name,
+    message_id: input.messageId,
+    run_id: input.runId,
+    task_id: input.taskId,
+    request_id: input.requestId,
+    status: "completed",
+    result_preview: input.resultPreview,
+  };
+}
+
 export function buildRunEndStepPayload(input: {
   rootCallId: string;
   runId: string;
