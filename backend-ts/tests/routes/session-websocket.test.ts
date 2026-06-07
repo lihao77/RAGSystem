@@ -228,6 +228,60 @@ describe("session websocket route", () => {
       client.ws.terminate();
     }
   });
+
+  it("replays durable outbox events with event_seq while preserving transport stream_seq", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+    harness.container.conversationStore.createSession("ws-durable-session");
+    harness.container.conversationStore.appendOutbox({
+      sessionId: "ws-durable-session",
+      runId: "run-durable",
+      eventId: "event-durable-1",
+      eventType: "run.completed",
+      aggregateType: "run",
+      aggregateId: "run-durable",
+      payload: {
+        final_message_id: "msg-durable",
+        metadata: { run_id: "run-durable" },
+      },
+    });
+
+    const client = await connectWs(app, "/api/agent/sessions/ws-durable-session/ws?after_event_seq=0");
+    try {
+      const reconnectStart = await client.receiveJson();
+      const replayed = await client.receiveJson();
+      const reconnectEnd = await client.receiveJson();
+
+      expect(reconnectStart).toMatchObject({
+        type: "reconnect_start",
+        session_id: "ws-durable-session",
+        run_id: "run-durable",
+        replay_count: 1,
+        replay_source: "durable_outbox",
+        stream_seq: 1,
+      });
+      expect(replayed).toMatchObject({
+        type: "run.end",
+        session_id: "ws-durable-session",
+        run_id: "run-durable",
+        event_id: "event-durable-1",
+        event_seq: 1,
+        stream_seq: 2,
+        data: {
+          status: "completed",
+          final_message_id: "msg-durable",
+        },
+      });
+      expect(reconnectEnd).toMatchObject({
+        type: "reconnect_end",
+        session_id: "ws-durable-session",
+        replay_source: "durable_outbox",
+        stream_seq: 3,
+      });
+    } finally {
+      client.ws.terminate();
+    }
+  });
 });
 
 async function createDefaultChatProvider(app: FastifyInstance): Promise<void> {

@@ -3,10 +3,15 @@ import { randomUUID } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 
 import { ClientToServerMessageSchema, type ClientEvent } from "../../contracts/events.js";
+import { ClientEventProjector } from "../../services/runtime/event-outbox/projector.js";
 import type { RouteOptions } from "../route-options.js";
 
 interface SessionWsParams {
   sessionId: string;
+}
+
+interface SessionWsQuery {
+  after_event_seq?: string;
 }
 
 type WebSocketLike = {
@@ -20,18 +25,23 @@ type WebSocketLike = {
 const WS_OPEN = 1;
 
 export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  app.get<{ Params: SessionWsParams }>(
+  app.get<{ Params: SessionWsParams; Querystring: SessionWsQuery }>(
     "/sessions/:sessionId/ws",
     { websocket: true },
     (socket: unknown, request) => {
       const ws = socket as WebSocketLike;
       const sessionId = request.params.sessionId;
+      const afterEventSeq = parseEventSeqCursor(request.query.after_event_seq);
       let streamSeq = 0;
+      let lastEventSeq = 0;
       let boundRunId: string | null = null;
 
       const send = (payload: ClientEvent, increment = true): void => {
         if (ws.readyState !== WS_OPEN) {
           return;
+        }
+        if (typeof payload.event_seq === "number" && payload.event_seq > lastEventSeq) {
+          lastEventSeq = payload.event_seq;
         }
         const stamped = increment ? { ...payload, stream_seq: ++streamSeq } : payload;
         ws.send(JSON.stringify(stamped));
@@ -123,10 +133,31 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
             type: "heartbeat",
             timestamp: Date.now(),
             last_stream_seq: streamSeq,
+            last_event_seq: lastEventSeq,
           },
           false,
         );
       }, 20_000);
+
+      const durableReplay = buildDurableOutboxReplay(options.container, sessionId, afterEventSeq);
+      if (durableReplay) {
+        boundRunId = durableReplay.runId;
+        send({
+          type: "reconnect_start",
+          session_id: sessionId,
+          ...(durableReplay.runId ? { run_id: durableReplay.runId } : {}),
+          replay_count: durableReplay.events.length,
+          replay_source: "durable_outbox",
+        });
+        for (const event of durableReplay.events) {
+          send(event);
+        }
+        send({
+          type: "reconnect_end",
+          session_id: sessionId,
+          replay_source: "durable_outbox",
+        });
+      }
 
       const activeReplay = buildActiveRunReplay(options.container, sessionId);
       if (activeReplay) {
@@ -271,6 +302,29 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
   );
 };
 
+function buildDurableOutboxReplay(
+  container: RouteOptions["container"],
+  sessionId: string,
+  afterEventSeq: number | null,
+): { runId: string | null; events: ClientEvent[] } | null {
+  if (afterEventSeq === null) {
+    return null;
+  }
+  const rows = container.conversationStore.listOutboxForReplay({
+    sessionId,
+    afterSeq: afterEventSeq,
+    limit: 500,
+  });
+  if (rows.length === 0) {
+    return null;
+  }
+  const projector = new ClientEventProjector();
+  return {
+    runId: rows.find((row) => row.run_id)?.run_id ?? null,
+    events: rows.map((row) => projector.toClientEvent(row)),
+  };
+}
+
 function buildActiveRunReplay(
   container: RouteOptions["container"],
   sessionId: string,
@@ -297,6 +351,14 @@ function buildActiveRunReplay(
   });
 
   return { runId, events };
+}
+
+function parseEventSeqCursor(value: string | undefined): number | null {
+  if (value === undefined) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function isPendingInteractionReplayEvent(

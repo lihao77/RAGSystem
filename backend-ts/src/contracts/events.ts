@@ -50,6 +50,8 @@ export interface ClientEvent {
   session_id?: string;
   run_id?: string;
   stream_seq?: number;
+  event_id?: string;
+  event_seq?: number;
   timestamp?: number | string;
   data?: unknown;
   content?: unknown;
