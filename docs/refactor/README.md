@@ -22,6 +22,10 @@
   - 运行时缺陷分析与实施路线（2026-04-14，2026-04-16 已校正状态）
   - D1 工具并行、D2 后台任务自动注入、D3 文件变更回退（git worktree 隔离）、D4 日志治理均已完成；当前主线剩余子 Agent 并行（D5）与超时熔断（D6）
 
+- `TS_EVENT_ARCHITECTURE_PLAN.md`
+  - TS 后端事件架构落地方案（2026-06-07）
+  - 当前事件关系、目标架构、Recorder + Outbox + Dispatcher + Projection 分层、分阶段迁移和验收标准
+
 ## 历史归档入口
 
 - `../archive/refactor/AGENT_FIRST_REFACTOR_PLAN.md`
