@@ -1,37 +1,28 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
 import { buildTestApp } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
+const tempRoots: string[] = [];
 
 afterEach(async () => {
   if (app) {
     await app.close();
     app = null;
   }
+  for (const root of tempRoots.splice(0)) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 describe("mcp compatibility routes", () => {
-  it("serves empty registry and installed-server state by default", async () => {
+  it("serves installed-server state by default", async () => {
     app = await buildTestApp();
-
-    const registry = await app.inject({
-      method: "GET",
-      url: "/api/mcp/registry/servers?search=filesystem&limit=6&latest_only=true",
-    });
-    expect(registry.statusCode).toBe(200);
-    expect(registry.json()).toMatchObject({
-      success: true,
-      message: "Found 0 MCP Registry servers",
-      data: {
-        items: [],
-        count: 0,
-        next_cursor: null,
-        search: "filesystem",
-        latest_only: true,
-      },
-    });
 
     const servers = await app.inject({
       method: "GET",
@@ -168,31 +159,92 @@ describe("mcp compatibility routes", () => {
     });
   });
 
-  it("keeps connection and registry install boundaries explicit", async () => {
+  it("connects to a stdio MCP server, lists tools, tests, and disconnects", async () => {
     app = await buildTestApp();
+    const serverScript = writeMockMcpServer();
 
-    await app.inject({
+    const created = await app.inject({
       method: "POST",
       url: "/api/mcp/servers",
       payload: {
-        name: "remote",
-        transport: "sse",
-        url: "https://example.test/sse",
+        name: "mock",
+        display_name: "Mock MCP",
+        transport: "stdio",
+        command: process.execPath,
+        args: [serverScript],
+        timeout: 5,
       },
     });
+    expect(created.statusCode).toBe(200);
 
-    for (const suffix of ["connect", "disconnect", "test"]) {
-      const response = await app.inject({
-        method: "POST",
-        url: `/api/mcp/servers/remote/${suffix}`,
-        payload: {},
-      });
-      expect(response.statusCode).toBe(501);
-      expect(response.json()).toMatchObject({
-        success: false,
-        code: "not_migrated",
-      });
-    }
+    const connected = await app.inject({
+      method: "POST",
+      url: "/api/mcp/servers/mock/connect",
+      payload: {},
+    });
+    expect(connected.statusCode).toBe(200);
+    expect(connected.json().data).toMatchObject({
+      status: "connected",
+      tool_count: 1,
+      tools: [
+        {
+          name: "mcp__mock__echo",
+          server_name: "mock",
+          original_tool_name: "echo",
+        },
+      ],
+    });
+
+    const tools = await app.inject({
+      method: "GET",
+      url: "/api/mcp/servers/mock/tools",
+    });
+    expect(tools.statusCode).toBe(200);
+    expect(tools.json().data).toMatchObject({
+      server_name: "mock",
+      tool_count: 1,
+      tools: [
+        {
+          name: "mcp__mock__echo",
+          source: "mcp",
+          parameters: {
+            type: "object",
+          },
+        },
+      ],
+    });
+
+    const tested = await app.inject({
+      method: "POST",
+      url: "/api/mcp/servers/mock/test",
+      payload: {},
+    });
+    expect(tested.statusCode).toBe(200);
+    expect(tested.json().data).toMatchObject({
+      success: true,
+      tool_count: 1,
+    });
+
+    const disconnected = await app.inject({
+      method: "POST",
+      url: "/api/mcp/servers/mock/disconnect",
+      payload: {},
+    });
+    expect(disconnected.statusCode).toBe(200);
+    expect(disconnected.json()).toEqual({
+      success: true,
+      message: "已断开连接",
+    });
+
+    const afterDisconnect = await app.inject({
+      method: "GET",
+      url: "/api/mcp/servers/mock/tools",
+    });
+    expect(afterDisconnect.json().data.tool_count).toBe(0);
+  });
+
+  it("installs supported registry package options as server configs", async () => {
+    app = await buildTestApp();
 
     const registryMissingPayload = await app.inject({
       method: "POST",
@@ -206,13 +258,32 @@ describe("mcp compatibility routes", () => {
       method: "POST",
       url: "/api/mcp/registry/install",
       payload: {
-        install_option: { id: "pkg-0", supported: true },
+        install_option: {
+          id: "pkg-0",
+          kind: "package",
+          supported: true,
+          default_server_name: "Mock Package",
+          default_display_name: "Mock Package",
+          recipe: {
+            registryType: "npm",
+            identifier: "@example/mcp-server",
+            version: "1.2.3",
+            transport: { type: "stdio" },
+          },
+        },
+        auto_connect: false,
       },
     });
-    expect(registryInstall.statusCode).toBe(501);
+    expect(registryInstall.statusCode).toBe(200);
     expect(registryInstall.json()).toMatchObject({
-      success: false,
-      code: "not_migrated",
+      success: true,
+      message: "MCP Server installed from Registry",
+      data: {
+        name: "mock_package",
+        command: "npx",
+        args: ["-y", "@example/mcp-server@1.2.3"],
+        status: "disconnected",
+      },
     });
   });
 
@@ -238,3 +309,33 @@ describe("mcp compatibility routes", () => {
     expect(missingTools.json().message).toBe("MCP Server not found: missing");
   });
 });
+
+function writeMockMcpServer(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-mcp-"));
+  tempRoots.push(root);
+  const script = path.join(root, "mock-mcp-server.cjs");
+  fs.writeFileSync(script, `
+const readline = require("node:readline");
+const rl = readline.createInterface({ input: process.stdin });
+function send(message) {
+  process.stdout.write(JSON.stringify(message) + "\\n");
+}
+rl.on("line", (line) => {
+  if (!line.trim()) return;
+  const message = JSON.parse(line);
+  if (message.method === "initialize") {
+    send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "mock", version: "1.0.0" } } });
+    return;
+  }
+  if (message.method === "tools/list") {
+    send({ jsonrpc: "2.0", id: message.id, result: { tools: [{ name: "echo", description: "Echo text", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } }] } });
+    return;
+  }
+  if (message.method === "tools/call") {
+    const text = message.params && message.params.arguments ? message.params.arguments.text : "";
+    send({ jsonrpc: "2.0", id: message.id, result: { content: [{ type: "text", text: "echo:" + text }], isError: false } });
+  }
+});
+`, "utf8");
+  return script;
+}

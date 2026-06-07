@@ -65,7 +65,7 @@ Known gaps to close:
 - [x] Attachments and slash commands.
 - [x] Hook runtime.
 - [x] Vector/RAG runtime.
-- [ ] MCP runtime.
+- [x] MCP runtime.
 - [ ] Daemon runtime.
 - [ ] File history rollback/retry.
 - [ ] Provider parity.

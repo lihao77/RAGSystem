@@ -4,6 +4,7 @@ import type { LocalSearchToolService } from "../../tools/local-search-tool-servi
 import type { ToolExecutionResult, MemoryToolService } from "../../tools/memory-tool-service.js";
 import type { TaskToolService } from "../../tools/task-tool-service.js";
 import type { VectorLibraryService, VectorSearchResult } from "../../knowledge/vector-library-service.js";
+import type { McpService } from "../../integrations/mcp-service.js";
 import type { RuntimeToolCall, RuntimeToolExecutionContext } from "../runtime-tool-types.js";
 import {
   editFileArguments,
@@ -65,6 +66,7 @@ export interface RuntimeToolHandlerDependencies {
   searchTools: LocalSearchToolService | null;
   taskTools: TaskToolService | null;
   vectorLibrary: VectorLibraryService | null;
+  mcp: McpService | null;
   getAgentDelegation: () => AgentDelegationService | null;
   requestUserInput: RuntimeToolHandler;
   unavailableTool: (toolName: string) => ToolExecutionResult<string>;

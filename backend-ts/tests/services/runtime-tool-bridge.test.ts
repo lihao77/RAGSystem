@@ -25,6 +25,7 @@ import { TaskToolService } from "../../src/services/tools/task-tool-service.js";
 import { ModelAdapterService } from "../../src/services/integrations/model-adapter-service.js";
 import { FileIndexService } from "../../src/services/stores/file-index-service.js";
 import { VectorLibraryService } from "../../src/services/knowledge/vector-library-service.js";
+import type { McpService } from "../../src/services/integrations/mcp-service.js";
 
 const tempRoots: string[] = [];
 
@@ -323,6 +324,67 @@ describe("RuntimeToolBridge", () => {
 
     vectorLibrary.close();
     fileIndex.close();
+  });
+
+  it("exposes and executes connected MCP tools for enabled servers", async () => {
+    const mcpCalls: Array<{ toolName: string; args: Record<string, unknown> | undefined }> = [];
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})),
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      {
+        listRuntimeTools(enabledServers: string[]) {
+          return enabledServers.includes("mock")
+            ? [{
+                name: "mcp__mock__echo",
+                description: "[MCP:mock] Echo text",
+                parameters: { type: "object", properties: { text: { type: "string" } } },
+                source: "mcp",
+                category: "mcp",
+                riskLevel: "low",
+                server_name: "mock",
+                original_tool_name: "echo",
+              }]
+            : [];
+        },
+        async callRuntimeTool(toolName: string, args: Record<string, unknown> | undefined) {
+          mcpCalls.push({ toolName, args });
+          return delegationSuccess(toolName, `echo:${String(args?.text ?? "")}`);
+        },
+      } as unknown as McpService,
+    );
+    const agent = {
+      ...minimalAgent([]),
+      mcp: { enabled_servers: ["mock"] },
+    } satisfies AgentConfig;
+
+    expect(bridge.listVisibleToolNames(minimalAgent([]))).toEqual([]);
+    expect(bridge.listVisibleToolNames(agent)).toEqual(["mcp__mock__echo"]);
+
+    const result = await Promise.resolve(bridge.executeTool(
+      {
+        toolName: "mcp__mock__echo",
+        arguments: { text: "hello" },
+      },
+      { agent },
+    ));
+    expect(result).toMatchObject({
+      success: true,
+      tool_name: "mcp__mock__echo",
+      content: "echo:hello",
+    });
+    expect(mcpCalls).toEqual([
+      {
+        toolName: "mcp__mock__echo",
+        args: { text: "hello" },
+      },
+    ]);
   });
 
   it("dispatches write_memory and archive_memory calls to memory tools", () => {

@@ -8,6 +8,7 @@ import type { AgentDelegationService } from "../agent/agent-delegation-service.j
 import type { TaskToolService } from "../tools/task-tool-service.js";
 import type { LocalSearchToolService } from "../tools/local-search-tool-service.js";
 import type { VectorLibraryService } from "../knowledge/vector-library-service.js";
+import type { McpService } from "../integrations/mcp-service.js";
 import type {
   BashExecutionPlan,
   LocalBashToolService,
@@ -74,6 +75,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     private readonly searchTools: LocalSearchToolService | null = null,
     private readonly hooks: HookRuntimeService | null = null,
     private readonly vectorLibrary: VectorLibraryService | null = null,
+    private readonly mcp: McpService | null = null,
   ) {
     this.toolHandlers = createRuntimeToolHandlers({
       memoryTools,
@@ -81,6 +83,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       searchTools,
       taskTools,
       vectorLibrary,
+      mcp,
       getAgentDelegation: () => this.agentDelegation,
       requestUserInput: (call, context) => this.requestUserInput(call, context),
       unavailableTool: (toolName) => this.unavailableTool(toolName),
@@ -140,6 +143,9 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     }
     if (this.agentDelegation && agent?.delegation.enabled_agents?.length) {
       tools.push(...AGENT_DELEGATION_TOOLS.map((tool) => ({ ...tool })));
+    }
+    if (this.mcp && agent?.mcp.enabled_servers.length) {
+      tools.push(...this.mcp.listRuntimeTools(agent.mcp.enabled_servers));
     }
     return tools;
   }
@@ -290,7 +296,13 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     context: RuntimeToolExecutionContext,
   ): ToolExecutionResult | Promise<ToolExecutionResult> {
     const handler = this.toolHandlers.get(toolName);
-    return handler ? handler(call, context) : this.unavailableTool(toolName);
+    if (handler) {
+      return handler(call, context);
+    }
+    if (this.mcp && toolName.startsWith("mcp__")) {
+      return this.mcp.callRuntimeTool(toolName, call.arguments);
+    }
+    return this.unavailableTool(toolName);
   }
 
   private async executeAllowedToolWithHooks(

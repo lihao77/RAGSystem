@@ -78,6 +78,7 @@ export interface RuntimeContainerOptions {
   dataRoot?: string | undefined;
   llmChatClient?: LlmChatClient | undefined;
   modelAdapterProvidersConfigPath?: string | undefined;
+  mcpConfigPath?: string | undefined;
   agentConfigRoot?: string | undefined;
   startOutboxDispatcher?: boolean | undefined;
   outboxDispatcherIntervalMs?: number | undefined;
@@ -100,7 +101,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     providersConfigPath: options.modelAdapterProvidersConfigPath,
   });
   const systemConfig = new SystemConfigService();
-  const mcp = new McpService();
+  const mcp = new McpService({ dataRoot: options.dataRoot, configPath: options.mcpConfigPath });
   const daemon = new DaemonService();
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
   const vectorLibrary = new VectorLibraryService(fileIndex, modelAdapter, {
@@ -140,6 +141,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     searchTools,
     hooks,
     vectorLibrary,
+    mcp,
   );
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
@@ -182,6 +184,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     }
     closed = true;
     outboxDispatcher.stop();
+    mcp.close();
     vectorLibrary.close();
     fileIndex.close();
   };

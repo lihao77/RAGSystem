@@ -7,7 +7,7 @@ import {
 } from "../contracts/mcp.js";
 import { ok } from "../contracts/common.js";
 import { McpServiceError } from "../services/integrations/mcp-service.js";
-import { HttpError, NotMigratedError } from "../utils/errors.js";
+import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 
 interface ServerParams {
@@ -25,7 +25,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
   app.get<{ Querystring: RegistryQuery }>("/registry/servers", async (request) => {
     const limit = Number(request.query.limit ?? 8);
     const latestOnly = !["0", "false", "no", "off"].includes(String(request.query.latest_only ?? "true").toLowerCase());
-    const result = options.container.mcp.searchRegistry({
+    const result = await options.container.mcp.searchRegistry({
       search: request.query.search,
       cursor: request.query.cursor,
       limit: Number.isFinite(limit) ? limit : 8,
@@ -37,11 +37,13 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
   app.post("/registry/install", async (request) => {
     const payload = McpRegistryInstallSchema.parse(request.body);
     try {
-      options.container.mcp.validateRegistryInstall(payload);
+      return ok(
+        options.container.mcp.installServerFromRegistry(payload),
+        "MCP Server installed from Registry",
+      );
     } catch (error) {
       throw toHttpError(error);
     }
-    throw new NotMigratedError("MCP Registry install");
   });
 
   app.get("/servers", async () => ok(options.container.mcp.listServers()));
@@ -76,29 +78,28 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.post<{ Params: ServerParams }>("/servers/:serverName/connect", async (request) => {
     try {
-      options.container.mcp.ensureServer(request.params.serverName);
+      return ok(await options.container.mcp.connectServer(request.params.serverName), "连接成功");
     } catch (error) {
       throw toHttpError(error);
     }
-    throw new NotMigratedError("MCP server connection");
   });
 
   app.post<{ Params: ServerParams }>("/servers/:serverName/disconnect", async (request) => {
     try {
-      options.container.mcp.ensureServer(request.params.serverName);
+      options.container.mcp.disconnectServer(request.params.serverName);
+      return ok(undefined, "已断开连接");
     } catch (error) {
       throw toHttpError(error);
     }
-    throw new NotMigratedError("MCP server disconnection");
   });
 
   app.post<{ Params: ServerParams }>("/servers/:serverName/test", async (request) => {
     try {
-      options.container.mcp.ensureServer(request.params.serverName);
+      const result = await options.container.mcp.testServer(request.params.serverName);
+      return ok(result, result.message);
     } catch (error) {
       throw toHttpError(error);
     }
-    throw new NotMigratedError("MCP server test");
   });
 
   app.get<{ Params: ServerParams }>("/servers/:serverName/tools", async (request) => {
