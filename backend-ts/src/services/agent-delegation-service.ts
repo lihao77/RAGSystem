@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 
-import type { AgentConfig } from "../contracts/agent-config.js";
 import type { AgentRuntimeContextBuilder } from "./agent-runtime-context-builder.js";
 import type { AgentRuntimeCore, AgentRuntimeEvent, AgentRuntimeRequest } from "./agent-runtime-core.js";
 import { buildAgentPromptContext, type AgentPromptConfigResolver } from "./agent-prompt-builder.js";
@@ -10,6 +9,22 @@ import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { RuntimeToolExecutionContext, RuntimeToolExecutor } from "./runtime-tool-types.js";
 import type { ToolExecutionResult } from "./memory-tool-service.js";
 import { publishAgentCallEnd, publishAgentCallStart } from "./agent-delegation-service/events.js";
+import {
+  applyWorkspaceOverride,
+  buildChildMetadata,
+  buildDelegatedTask,
+  buildRuntimeToolContext,
+  clampInteger,
+  getChildWorkspaceRoot,
+  normalizeString,
+} from "./agent-delegation-service/helpers.js";
+import {
+  errorResult,
+  successResult,
+  summarizeReadinessFailure,
+  toToolResult,
+  type DelegationRunResult,
+} from "./agent-delegation-service/results.js";
 
 export interface AgentDelegationInput {
   agentName: string;
@@ -131,7 +146,7 @@ export class AgentDelegationService {
       childAgentId,
       mode: "create",
     });
-    return this.toToolResult(toolName, result, {
+    return toToolResult(toolName, result, {
       agent_name: targetAgentName,
       agent_call_id: agentCallId,
       parent_call_id: parentCallId,
@@ -202,7 +217,7 @@ export class AgentDelegationService {
       childAgentId,
       mode: "resume",
     });
-    return this.toToolResult(toolName, result, {
+    return toToolResult(toolName, result, {
       agent_name: child.agent_name,
       agent_call_id: agentCallId,
       parent_call_id: parentCallId,
@@ -261,13 +276,7 @@ export class AgentDelegationService {
     signal?: AbortSignal | undefined;
     teamName: string | null;
     workspaceRoot: string | null;
-  }): Promise<{
-    success: boolean;
-    content: string;
-    summary: string;
-    outputType: string;
-    metadata: Record<string, unknown>;
-  }> {
+  }): Promise<DelegationRunResult> {
     const resolved = this.runtimeCore.resolveExecutionConfig({
       agentName: input.agentName,
       teamName: input.teamName,
@@ -406,158 +415,4 @@ export class AgentDelegationService {
     }
   }
 
-  private toToolResult(
-    toolName: string,
-    result: {
-      success: boolean;
-      content: string;
-      summary: string;
-      outputType: string;
-      metadata: Record<string, unknown>;
-    },
-    metadata: Record<string, unknown>,
-  ): ToolExecutionResult {
-    if (!result.success) {
-      return {
-        ...errorResult(result.content || result.summary, toolName),
-        metadata: {
-          ...result.metadata,
-          ...metadata,
-          source_shape: "error",
-        },
-      };
-    }
-    return successResult(result.content, {
-      summary: result.summary,
-      outputType: result.outputType,
-      metadata: {
-        ...result.metadata,
-        ...metadata,
-      },
-      toolName,
-    });
-  }
-
-}
-
-function buildDelegatedTask(task: string, contextHint: string | null | undefined): string {
-  const hint = normalizeString(contextHint);
-  if (!hint) {
-    return task;
-  }
-  return `${task}\n\n[Context Hint]\n${hint}`;
-}
-
-function buildChildMetadata(
-  context: RuntimeToolExecutionContext,
-  threadKey: string,
-  createdVia: "call_agent",
-): Record<string, unknown> {
-  const workspaceRoot = normalizeString(context.workspaceRoot);
-  return {
-    created_via: createdVia,
-    thread_key: threadKey,
-    workspace_root: workspaceRoot,
-    original_workspace_root: workspaceRoot,
-    uses_worktree: false,
-    worktree_disabled_reason: "worktree isolation is not migrated in the TypeScript runtime",
-  };
-}
-
-function getChildWorkspaceRoot(child: ChildAgentInfo, context: RuntimeToolExecutionContext): string | null {
-  return normalizeString(child.metadata.workspace_root) ?? normalizeString(context.workspaceRoot);
-}
-
-function buildRuntimeToolContext(
-  agent: AgentConfig,
-  input: {
-    sessionId: string;
-    runId: string;
-    taskId: string | null;
-    requestId: string | null;
-    sessionMetadata: Record<string, unknown>;
-    childAgent: ChildAgentInfo;
-    workspaceRoot: string | null;
-    parentCallId?: string | null | undefined;
-    signal?: AbortSignal | undefined;
-  },
-): RuntimeToolExecutionContext {
-  return {
-    agent,
-    sessionId: input.sessionId,
-    runId: input.runId,
-    taskId: input.taskId,
-    requestId: input.requestId,
-    currentAgentName: agent.agent_name,
-    parentCallId: input.parentCallId ?? null,
-    teamName: normalizeString(input.sessionMetadata.team),
-    workspaceRoot: input.workspaceRoot ?? normalizeString(input.sessionMetadata.workspace_root),
-    signal: input.signal,
-  };
-}
-
-function applyWorkspaceOverride(agent: AgentConfig, workspaceRoot: string | null): AgentConfig {
-  if (!workspaceRoot) {
-    return agent;
-  }
-  return {
-    ...agent,
-    custom_params: {
-      ...agent.custom_params,
-      workspace_root: workspaceRoot,
-    },
-  };
-}
-
-function summarizeReadinessFailure(requirements: Array<{ category: string; satisfied: boolean; message: string }>): string {
-  const failures = requirements.filter((item) => item.category !== "execution_runtime" && !item.satisfied);
-  return failures.length ? failures.map((item) => item.message).join("; ") : "Runtime core configuration is not ready";
-}
-
-function successResult<T>(
-  content: T,
-  input: {
-    summary: string;
-    outputType: string;
-    metadata: Record<string, unknown>;
-    toolName: string;
-    llmHint?: string | null;
-  },
-): ToolExecutionResult<T> {
-  return {
-    success: true,
-    tool_name: input.toolName,
-    summary: input.summary,
-    answer: null,
-    output_type: input.outputType,
-    content,
-    metadata: input.metadata,
-    artifacts: [],
-    llm_hint: input.llmHint ?? null,
-  };
-}
-
-function errorResult(message: string, toolName: string): ToolExecutionResult<string> {
-  return {
-    success: false,
-    tool_name: toolName,
-    summary: message,
-    answer: null,
-    output_type: "error",
-    content: message,
-    metadata: {
-      source_shape: "error",
-    },
-    artifacts: [],
-    llm_hint: null,
-  };
-}
-
-function clampInteger(value: number | null, min: number, max: number): number {
-  const integer = typeof value === "number" && Number.isInteger(value) ? value : min;
-  return Math.min(max, Math.max(min, integer));
-}
-
-function normalizeString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
