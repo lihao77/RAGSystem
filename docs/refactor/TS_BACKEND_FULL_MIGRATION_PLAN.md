@@ -20,7 +20,7 @@ Migrated in TS:
 Open items after this migration pass:
 
 - No known Python-backend parity blocker remains in `backend-ts` based on the tracked migration plan and full local test suite.
-- Remaining `not_migrated` text in runtime tool errors is a defensive message for hidden/unavailable tools, not an active route placeholder.
+- Remaining `not_migrated` text is a compatibility type value for hidden/future unavailable tools, not an active route placeholder.
 - Older Claude Code alignment docs under `docs/refactor/` still describe optional future enhancements such as richer tool display names, MCP per-tool overrides, and caching; those are not blockers for Python backend parity.
 
 ## Execution Order
