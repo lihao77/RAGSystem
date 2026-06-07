@@ -241,6 +241,60 @@ export function previewDataStructureArguments(value: Record<string, unknown> | u
   };
 }
 
+export function readGlobArguments(value: Record<string, unknown> | undefined): {
+  pattern: string;
+  path?: string | null;
+  recursive?: boolean | null;
+  maxResults?: number | null;
+} {
+  return {
+    pattern: asString(value?.pattern) ?? "",
+    path: asString(value?.path),
+    recursive: typeof value?.recursive === "boolean" ? value.recursive : null,
+    maxResults: asInteger(value?.max_results) ?? asInteger(value?.maxResults),
+  };
+}
+
+export function readGrepArguments(value: Record<string, unknown> | undefined): {
+  pattern: string;
+  path?: string | null;
+  glob?: string | null;
+  caseSensitive?: boolean | null;
+  maxResults?: number | null;
+  contextLines?: number | null;
+} {
+  return {
+    pattern: asString(value?.pattern) ?? "",
+    path: asString(value?.path),
+    glob: asString(value?.glob),
+    caseSensitive: typeof value?.case_sensitive === "boolean"
+      ? value.case_sensitive
+      : typeof value?.caseSensitive === "boolean"
+        ? value.caseSensitive
+        : null,
+    maxResults: asInteger(value?.max_results) ?? asInteger(value?.maxResults),
+    contextLines: asInteger(value?.context_lines) ?? asInteger(value?.contextLines),
+  };
+}
+
+export function readWebFetchArguments(value: Record<string, unknown> | undefined): {
+  url: string;
+  timeoutMs?: number | null;
+  maxChars?: number | null;
+} {
+  return {
+    url: asString(value?.url) ?? "",
+    timeoutMs: asInteger(value?.timeout_ms) ?? asInteger(value?.timeoutMs),
+    maxChars: asInteger(value?.max_chars) ?? asInteger(value?.maxChars),
+  };
+}
+
+export function readTodoWriteArguments(value: Record<string, unknown> | undefined): { todos: unknown } {
+  return {
+    todos: value?.todos ?? [],
+  };
+}
+
 export function readBashArguments(value: Record<string, unknown> | undefined): BashExecutionInput {
   return {
     command: asString(value?.command) ?? "",

@@ -9,6 +9,10 @@ export const WRITE_FILE_TOOL_NAME = "write_file";
 export const EDIT_FILE_TOOL_NAME = "edit_file";
 export const PREVIEW_DATA_STRUCTURE_TOOL_NAME = "preview_data_structure";
 export const EXECUTE_BASH_TOOL_NAME = "execute_bash";
+export const GLOB_TOOL_NAME = "glob";
+export const GREP_TOOL_NAME = "grep";
+export const WEB_FETCH_TOOL_NAME = "web_fetch";
+export const TODO_WRITE_TOOL_NAME = "todo_write";
 export const CALL_AGENT_TOOL_NAME = "call_agent";
 export const LIST_CHILD_AGENTS_TOOL_NAME = "list_child_agents";
 export const SEND_MESSAGE_TOOL_NAME = "send_message";
@@ -255,6 +259,140 @@ export const EXECUTE_BASH_TOOL: RuntimeToolDefinition = {
     },
   },
 };
+
+export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
+  {
+    name: GLOB_TOOL_NAME,
+    source: "document",
+    category: "filesystem",
+    riskLevel: "low",
+    description: "Find files in the managed workspace using glob patterns such as **/*.ts.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["pattern"],
+      properties: {
+        pattern: {
+          type: "string",
+          description: "Glob pattern relative to the search root.",
+        },
+        path: {
+          type: "string",
+          description: "Optional directory relative to the managed workspace.",
+        },
+        recursive: {
+          type: "boolean",
+          description: "Whether to recurse into subdirectories. Defaults to true when pattern contains **.",
+        },
+        max_results: {
+          type: "integer",
+          minimum: 1,
+          maximum: 5000,
+          description: "Maximum number of paths to return. Defaults to 200.",
+        },
+      },
+    },
+  },
+  {
+    name: GREP_TOOL_NAME,
+    source: "document",
+    category: "filesystem",
+    riskLevel: "low",
+    description: "Search text in managed workspace files and return matching lines.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["pattern"],
+      properties: {
+        pattern: {
+          type: "string",
+          description: "Literal text pattern to search for.",
+        },
+        path: {
+          type: "string",
+          description: "Optional directory relative to the managed workspace.",
+        },
+        glob: {
+          type: "string",
+          description: "Optional glob filter, for example **/*.ts.",
+        },
+        case_sensitive: {
+          type: "boolean",
+          description: "Whether matching is case-sensitive. Defaults to false.",
+        },
+        max_results: {
+          type: "integer",
+          minimum: 1,
+          maximum: 5000,
+          description: "Maximum matches to return. Defaults to 200.",
+        },
+        context_lines: {
+          type: "integer",
+          minimum: 0,
+          maximum: 20,
+          description: "Number of surrounding lines to include. Defaults to 0.",
+        },
+      },
+    },
+  },
+  {
+    name: WEB_FETCH_TOOL_NAME,
+    source: "runtime_builtin",
+    category: "network",
+    riskLevel: "medium",
+    description: "Fetch an HTTP or HTTPS URL and return readable text content.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["url"],
+      properties: {
+        url: {
+          type: "string",
+          description: "HTTP or HTTPS URL to fetch.",
+        },
+        timeout_ms: {
+          type: "integer",
+          minimum: 1000,
+          maximum: 60000,
+          description: "Request timeout in milliseconds. Defaults to 15000.",
+        },
+        max_chars: {
+          type: "integer",
+          minimum: 1000,
+          maximum: 200000,
+          description: "Maximum returned characters. Defaults to 20000.",
+        },
+      },
+    },
+  },
+  {
+    name: TODO_WRITE_TOOL_NAME,
+    source: "runtime_builtin",
+    category: "task",
+    riskLevel: "low",
+    description: "Replace the current session todo list with pending, in_progress, or completed items.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["todos"],
+      properties: {
+        todos: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["content", "status"],
+            properties: {
+              content: { type: "string" },
+              status: { type: "string", enum: ["pending", "in_progress", "completed"] },
+              active_form: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+  },
+];
 
 export const READ_ONLY_MEMORY_TOOLS: RuntimeToolDefinition[] = [
   {

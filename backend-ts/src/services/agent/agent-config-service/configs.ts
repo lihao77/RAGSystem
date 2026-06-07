@@ -29,7 +29,7 @@ export function buildDefaultAgentConfigs(): Record<string, AgentConfig> {
       description: "系统默认主编排器，负责理解用户需求、路由任务并整合最终答案。",
       system_prompt: "你是系统默认主编排器，负责优先直接解决问题；必要时再委派给 team 内其他系统 Agent。",
       default_entry: true,
-      tools: ["read_file", "write_file", "edit_file", "preview_data_structure", "execute_bash"],
+      tools: ["read_file", "write_file", "edit_file", "preview_data_structure", "execute_bash", "glob", "grep", "web_fetch", "todo_write"],
       delegation: specialistAgents,
       tasks: { workflow: true, background: true },
     }),
@@ -53,13 +53,14 @@ export function buildDefaultAgentConfigs(): Record<string, AgentConfig> {
       display_name: "Explore Agent",
       description: "系统默认探索 Agent，负责搜索代码库、定位实现与归纳上下文。",
       system_prompt: "你负责快速探索仓库，定位相关文件、现有实现和可复用模式。",
+      tools: ["read_file", "preview_data_structure", "glob", "grep"],
     }),
     general_agent: buildSystemAgentConfig({
       agent_name: "general_agent",
       display_name: "General Agent",
       description: "系统默认通用执行 Agent，负责处理中等复杂度的综合实现与代码修改。",
       system_prompt: "你负责承接通用实现任务，优先复用现有代码模式，直接产出完成所需的最少改动。",
-      tools: ["read_file", "write_file", "edit_file", "preview_data_structure", "execute_bash"],
+      tools: ["read_file", "write_file", "edit_file", "preview_data_structure", "execute_bash", "glob", "grep", "web_fetch", "todo_write"],
       delegation: ["explor_agent"],
     }),
     review_agent: buildSystemAgentConfig({
@@ -67,14 +68,14 @@ export function buildDefaultAgentConfigs(): Record<string, AgentConfig> {
       display_name: "Review Agent",
       description: "系统默认评审 Agent，负责检查改动质量、复用性和潜在问题。",
       system_prompt: "你负责审查当前改动，聚焦正确性、复用性、一致性和不必要复杂度。",
-      tools: ["read_file", "preview_data_structure", "execute_bash"],
+      tools: ["read_file", "preview_data_structure", "execute_bash", "glob", "grep"],
     }),
     test_agent: buildSystemAgentConfig({
       agent_name: "test_agent",
       display_name: "Test Agent",
       description: "系统默认测试 Agent，负责运行验证命令并定位失败原因。",
       system_prompt: "你负责运行测试、构建和验证命令，准确报告失败点并归纳最直接的修复线索。",
-      tools: ["read_file", "preview_data_structure", "execute_bash"],
+      tools: ["read_file", "preview_data_structure", "execute_bash", "glob", "grep"],
     }),
   };
 }

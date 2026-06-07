@@ -6,6 +6,7 @@ import {
 import type { LocalDocumentToolService } from "../tools/local-document-tool-service.js";
 import type { AgentDelegationService } from "../agent/agent-delegation-service.js";
 import type { TaskToolService } from "../tools/task-tool-service.js";
+import type { LocalSearchToolService } from "../tools/local-search-tool-service.js";
 import type {
   BashExecutionPlan,
   LocalBashToolService,
@@ -45,6 +46,7 @@ import {
   DOCUMENT_TOOLS,
   EXECUTE_BASH_TOOL,
   EXECUTE_BASH_TOOL_NAME,
+  LOCAL_SEARCH_TOOLS,
   READ_ONLY_MEMORY_TOOLS,
   REQUEST_USER_INPUT_TOOL,
   REQUEST_USER_INPUT_TOOL_NAME,
@@ -66,10 +68,12 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     private readonly documentTools: LocalDocumentToolService | null = null,
     private readonly bashTools: LocalBashToolService | null = null,
     private readonly taskTools: TaskToolService | null = null,
+    private readonly searchTools: LocalSearchToolService | null = null,
   ) {
     this.toolHandlers = createRuntimeToolHandlers({
       memoryTools,
       documentTools,
+      searchTools,
       taskTools,
       getAgentDelegation: () => this.agentDelegation,
       requestUserInput: (call, context) => this.requestUserInput(call, context),
@@ -96,6 +100,13 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     }
     if (this.bashTools && enabledTools.has(EXECUTE_BASH_TOOL_NAME)) {
       tools.push({ ...EXECUTE_BASH_TOOL });
+    }
+    if (this.searchTools) {
+      for (const tool of LOCAL_SEARCH_TOOLS) {
+        if (enabledTools.has(tool.name)) {
+          tools.push({ ...tool });
+        }
+      }
     }
     if (this.taskTools) {
       if (agent?.tasks?.workflow) {

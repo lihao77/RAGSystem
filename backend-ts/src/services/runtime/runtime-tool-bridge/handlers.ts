@@ -1,5 +1,6 @@
 import type { AgentDelegationService } from "../../agent/agent-delegation-service.js";
 import type { LocalDocumentToolService } from "../../tools/local-document-tool-service.js";
+import type { LocalSearchToolService } from "../../tools/local-search-tool-service.js";
 import type { ToolExecutionResult, MemoryToolService } from "../../tools/memory-tool-service.js";
 import type { TaskToolService } from "../../tools/task-tool-service.js";
 import type { RuntimeToolCall, RuntimeToolExecutionContext } from "../runtime-tool-types.js";
@@ -9,6 +10,8 @@ import {
   readArchiveMemoryArguments,
   readCallAgentArguments,
   readFileArguments,
+  readGlobArguments,
+  readGrepArguments,
   readListChildAgentsArguments,
   readListMemoryIndexArguments,
   readMemoryEntryArguments,
@@ -18,6 +21,8 @@ import {
   readTaskOutputArguments,
   readTaskStopArguments,
   readTaskUpdateArguments,
+  readTodoWriteArguments,
+  readWebFetchArguments,
   readWriteMemoryArguments,
   writeFileArguments,
 } from "./arguments.js";
@@ -25,6 +30,8 @@ import {
   ARCHIVE_MEMORY_TOOL_NAME,
   CALL_AGENT_TOOL_NAME,
   EDIT_FILE_TOOL_NAME,
+  GLOB_TOOL_NAME,
+  GREP_TOOL_NAME,
   LIST_CHILD_AGENTS_TOOL_NAME,
   PREVIEW_DATA_STRUCTURE_TOOL_NAME,
   READ_FILE_TOOL_NAME,
@@ -36,6 +43,8 @@ import {
   TASK_OUTPUT_TOOL_NAME,
   TASK_STOP_TOOL_NAME,
   TASK_UPDATE_TOOL_NAME,
+  TODO_WRITE_TOOL_NAME,
+  WEB_FETCH_TOOL_NAME,
   WRITE_FILE_TOOL_NAME,
   WRITE_MEMORY_TOOL_NAME,
 } from "./registry.js";
@@ -48,6 +57,7 @@ export type RuntimeToolHandler = (
 export interface RuntimeToolHandlerDependencies {
   memoryTools: MemoryToolService;
   documentTools: LocalDocumentToolService | null;
+  searchTools: LocalSearchToolService | null;
   taskTools: TaskToolService | null;
   getAgentDelegation: () => AgentDelegationService | null;
   requestUserInput: RuntimeToolHandler;
@@ -80,6 +90,30 @@ export function createRuntimeToolHandlers(deps: RuntimeToolHandlerDependencies):
       return documentTools
         ? documentTools.previewDataStructure(previewDataStructureArguments(call.arguments), context)
         : deps.unavailableTool(PREVIEW_DATA_STRUCTURE_TOOL_NAME);
+    }],
+    [GLOB_TOOL_NAME, (call, context) => {
+      const searchTools = deps.searchTools;
+      return searchTools
+        ? searchTools.glob(readGlobArguments(call.arguments), context)
+        : deps.unavailableTool(GLOB_TOOL_NAME);
+    }],
+    [GREP_TOOL_NAME, (call, context) => {
+      const searchTools = deps.searchTools;
+      return searchTools
+        ? searchTools.grep(readGrepArguments(call.arguments), context)
+        : deps.unavailableTool(GREP_TOOL_NAME);
+    }],
+    [WEB_FETCH_TOOL_NAME, (call) => {
+      const searchTools = deps.searchTools;
+      return searchTools
+        ? searchTools.webFetch(readWebFetchArguments(call.arguments))
+        : deps.unavailableTool(WEB_FETCH_TOOL_NAME);
+    }],
+    [TODO_WRITE_TOOL_NAME, (call, context) => {
+      const searchTools = deps.searchTools;
+      return searchTools
+        ? searchTools.todoWrite(readTodoWriteArguments(call.arguments), context)
+        : deps.unavailableTool(TODO_WRITE_TOOL_NAME);
     }],
     [TASK_CREATE_TOOL_NAME, (call, context) => {
       const taskTools = deps.taskTools;

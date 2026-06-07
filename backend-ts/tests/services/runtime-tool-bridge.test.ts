@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
@@ -15,6 +16,7 @@ import { DurableClientEventPublisher } from "../../src/services/runtime/event-ou
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { LocalBashToolService } from "../../src/services/tools/local-bash-tool-service.js";
 import { LocalDocumentToolService } from "../../src/services/tools/local-document-tool-service.js";
+import { LocalSearchToolService } from "../../src/services/tools/local-search-tool-service.js";
 import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
 import { PermissionPolicyService } from "../../src/services/runtime/permission-policy-service.js";
 import { RuntimeToolBridge } from "../../src/services/runtime/runtime-tool-bridge.js";
@@ -586,6 +588,154 @@ describe("RuntimeToolBridge", () => {
       },
     });
     expect(fs.readFileSync(path.join(workspaceRoot, "notes", "todo.txt"), "utf8")).toBe("after\n");
+  });
+
+  it("executes glob and grep through managed workspace paths", () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace-search");
+    writeAbsoluteFile(path.join(workspaceRoot, "src", "alpha.ts"), "export const alpha = 1;\n");
+    writeAbsoluteFile(path.join(workspaceRoot, "src", "beta.ts"), "export const beta = alpha + 1;\n");
+    writeAbsoluteFile(path.join(workspaceRoot, "notes.txt"), "Alpha note\n");
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      null,
+      null,
+      null,
+      null,
+      null,
+      new LocalSearchToolService({ dataRoot }),
+    );
+    const agent = minimalAgent([], ["glob", "grep"]);
+    const context = {
+      agent,
+      sessionId: "s1",
+      workspaceRoot,
+    };
+
+    expect(bridge.listVisibleToolNames(agent)).toEqual(["glob", "grep"]);
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "glob",
+          arguments: { pattern: "**/*.ts" },
+        },
+        context,
+      ),
+    ).toMatchObject({
+      success: true,
+      tool_name: "glob",
+      content: {
+        files: ["src/alpha.ts", "src/beta.ts"],
+        count: 2,
+      },
+    });
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "grep",
+          arguments: { pattern: "alpha", glob: "**/*.ts", case_sensitive: true },
+        },
+        context,
+      ),
+    ).toMatchObject({
+      success: true,
+      tool_name: "grep",
+      content: {
+        count: 2,
+        matches: [
+          { file: "src/alpha.ts", line_number: 1 },
+          { file: "src/beta.ts", line_number: 1 },
+        ],
+      },
+    });
+  });
+
+  it("executes todo_write as a session-scoped runtime tool", () => {
+    const dataRoot = makeTempDataRoot();
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
+      null,
+      null,
+      null,
+      null,
+      null,
+      new LocalSearchToolService({ dataRoot }),
+    );
+    const agent = minimalAgent([], ["todo_write"]);
+
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "todo_write",
+          arguments: {
+            todos: [
+              { content: "迁移 glob", status: "completed" },
+              { content: "迁移 RAG", status: "pending", active_form: "正在迁移 RAG" },
+            ],
+          },
+        },
+        { agent, sessionId: "s1" },
+      ),
+    ).toMatchObject({
+      success: true,
+      tool_name: "todo_write",
+      content: {
+        count: 2,
+        pending_count: 1,
+        completed_count: 1,
+      },
+    });
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "todo_write",
+          arguments: { todos: [{ content: "bad", status: "blocked" }] },
+        },
+        { agent, sessionId: "s1" },
+      ),
+    ).toMatchObject({
+      success: false,
+      output_type: "error",
+      content: expect.stringContaining("status 非法值"),
+    });
+  });
+
+  it("executes web_fetch against an HTTP endpoint", async () => {
+    const dataRoot = makeTempDataRoot();
+    const server = await startHttpServer("<html><body><h1>Alpha</h1><p>Beta content</p></body></html>");
+    try {
+      const bridge = new RuntimeToolBridge(
+        new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
+        null,
+        null,
+        null,
+        null,
+        null,
+        new LocalSearchToolService({ dataRoot }),
+      );
+      const agent = minimalAgent([], ["web_fetch"]);
+
+      await expect(
+        Promise.resolve(
+          bridge.executeTool(
+            {
+              toolName: "web_fetch",
+              arguments: { url: server.url },
+            },
+            { agent, sessionId: "s1" },
+          ),
+        ),
+      ).resolves.toMatchObject({
+        success: true,
+        tool_name: "web_fetch",
+        content: expect.stringContaining("Beta content"),
+        metadata: {
+          status_code: 200,
+        },
+      });
+    } finally {
+      await server.close();
+    }
   });
 
   it("allows direct absolute writes under session exports when run_id is absent", () => {
@@ -1836,6 +1986,33 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error("Timed out waiting for condition");
+}
+
+async function startHttpServer(body: string): Promise<{ url: string; close(): Promise<void> }> {
+  const server = http.createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end(body);
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("HTTP server did not bind to a TCP port");
+  }
+  return {
+    url: `http://127.0.0.1:${address.port}/`,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      }),
+  };
 }
 
 function delegationSuccess<T>(toolName: string, content: T) {

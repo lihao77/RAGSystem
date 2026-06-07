@@ -19,6 +19,7 @@ import { FileIndexService } from "../stores/file-index-service.js";
 import { RealtimeEventHub } from "./realtime-event-hub.js";
 import { LocalBashToolService } from "../tools/local-bash-tool-service.js";
 import { LocalDocumentToolService } from "../tools/local-document-tool-service.js";
+import { LocalSearchToolService } from "../tools/local-search-tool-service.js";
 import { OpenAiCompatibleChatClient, type LlmChatClient } from "../integrations/llm-chat-client.js";
 import { MemoryStore } from "../stores/memory-store.js";
 import { MemoryToolService } from "../tools/memory-tool-service.js";
@@ -53,6 +54,7 @@ export interface RuntimeContainer {
   readonly memoryStore: MemoryStore;
   readonly memoryTools: MemoryToolService;
   readonly documentTools: LocalDocumentToolService;
+  readonly searchTools: LocalSearchToolService;
   readonly bashTools: LocalBashToolService;
   readonly backgroundTasks: BackgroundTaskService;
   readonly taskTools: TaskToolService;
@@ -105,6 +107,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
   const memoryTools = new MemoryToolService(memoryStore, conversationStore);
   const documentTools = new LocalDocumentToolService({ dataRoot: options.dataRoot });
+  const searchTools = new LocalSearchToolService({ dataRoot: options.dataRoot });
   const backgroundTasks = new BackgroundTaskService();
   const toolsConfig = asRecord(systemConfig.getConfig().tools);
   const bashTools = new LocalBashToolService({
@@ -117,7 +120,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   });
   const taskTools = new TaskToolService(backgroundTasks, { dataRoot: options.dataRoot });
   const pendingInteractions = new PendingInteractionService(clientEvents);
-  const runtimeToolBridge = new RuntimeToolBridge(memoryTools, pendingInteractions, permissionPolicy, documentTools, bashTools, taskTools);
+  const runtimeToolBridge = new RuntimeToolBridge(memoryTools, pendingInteractions, permissionPolicy, documentTools, bashTools, taskTools, searchTools);
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
   const agentRuntimeCore = new AgentRuntimeCore(llmChatClient, { dataRoot: options.dataRoot });
@@ -178,6 +181,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     memoryStore,
     memoryTools,
     documentTools,
+    searchTools,
     bashTools,
     backgroundTasks,
     taskTools,
