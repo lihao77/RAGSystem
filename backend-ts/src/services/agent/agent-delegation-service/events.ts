@@ -1,4 +1,4 @@
-import type { InMemoryEventBus } from "../../runtime/event-bus.js";
+import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 
 export interface AgentCallStartEventInput {
   sessionId: string;
@@ -25,7 +25,7 @@ export interface AgentCallEndEventInput {
   mode: "create" | "resume";
 }
 
-export function publishAgentCallStart(events: InMemoryEventBus | null, input: AgentCallStartEventInput): void {
+export function publishAgentCallStart(events: ClientEventPublisher | null, input: AgentCallStartEventInput): void {
   if (!events) {
     return;
   }
@@ -36,18 +36,26 @@ export function publishAgentCallStart(events: InMemoryEventBus | null, input: Ag
     child_agent_id: input.childAgentId,
     mode: input.mode,
   };
-  events.publish(input.sessionId, {
-    type: "call.agent.start",
-    session_id: input.sessionId,
-    ...(input.parentRunId ? { run_id: input.parentRunId } : {}),
-    agent_name: input.parentAgentName,
-    call_id: input.agentCallId,
-    ...(input.parentCallId ? { parent_call_id: input.parentCallId } : {}),
-    ...mirrorEventData(payload),
-  });
+  events.publish(
+    input.sessionId,
+    {
+      type: "call.agent.start",
+      session_id: input.sessionId,
+      ...(input.parentRunId ? { run_id: input.parentRunId } : {}),
+      agent_name: input.parentAgentName,
+      call_id: input.agentCallId,
+      ...(input.parentCallId ? { parent_call_id: input.parentCallId } : {}),
+      ...mirrorEventData(payload),
+    },
+    {
+      runId: input.parentRunId,
+      aggregateType: input.parentRunId ? "run" : "session",
+      aggregateId: input.parentRunId ?? input.sessionId,
+    },
+  );
 }
 
-export function publishAgentCallEnd(events: InMemoryEventBus | null, input: AgentCallEndEventInput): void {
+export function publishAgentCallEnd(events: ClientEventPublisher | null, input: AgentCallEndEventInput): void {
   if (!events) {
     return;
   }
@@ -59,15 +67,23 @@ export function publishAgentCallEnd(events: InMemoryEventBus | null, input: Agen
     child_agent_id: input.childAgentId,
     mode: input.mode,
   };
-  events.publish(input.sessionId, {
-    type: "call.agent.end",
-    session_id: input.sessionId,
-    ...(input.parentRunId ? { run_id: input.parentRunId } : {}),
-    agent_name: input.parentAgentName,
-    call_id: input.agentCallId,
-    ...(input.parentCallId ? { parent_call_id: input.parentCallId } : {}),
-    ...mirrorEventData(payload),
-  });
+  events.publish(
+    input.sessionId,
+    {
+      type: "call.agent.end",
+      session_id: input.sessionId,
+      ...(input.parentRunId ? { run_id: input.parentRunId } : {}),
+      agent_name: input.parentAgentName,
+      call_id: input.agentCallId,
+      ...(input.parentCallId ? { parent_call_id: input.parentCallId } : {}),
+      ...mirrorEventData(payload),
+    },
+    {
+      runId: input.parentRunId,
+      aggregateType: input.parentRunId ? "run" : "session",
+      aggregateId: input.parentRunId ?? input.sessionId,
+    },
+  );
 }
 
 function mirrorEventData<T extends Record<string, unknown>>(data: T): { data: T; content: T } {

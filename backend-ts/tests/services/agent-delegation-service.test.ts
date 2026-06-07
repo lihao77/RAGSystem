@@ -10,12 +10,16 @@ import type { AgentRuntimeCore, AgentRuntimeRequest } from "../../src/services/a
 import { AgentDelegationService } from "../../src/services/agent/agent-delegation-service.js";
 import { ConversationStore } from "../../src/services/stores/conversation-store.js";
 import { InMemoryEventBus } from "../../src/services/runtime/event-bus.js";
+import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
+import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import type { RuntimeExecutionConfigResolver } from "../../src/services/runtime/runtime-core-service.js";
 
 describe("AgentDelegationService", () => {
   it("lists child agents and resumes an existing child thread with send_message", async () => {
     const store = new ConversationStore({ dbPath: ":memory:" });
     const events = new InMemoryEventBus();
+    const dispatcher = new OutboxDispatcher(store, events, undefined, "live");
+    const clientEvents = new DurableClientEventPublisher(store, events, dispatcher, "outbox_live");
     const workerAgent = minimalAgent("worker_agent");
     const runtimeRequests: AgentRuntimeRequest[] = [];
     const service = new AgentDelegationService(
@@ -37,7 +41,7 @@ describe("AgentDelegationService", () => {
         },
       } as unknown as AgentRuntimeCore,
       new AgentRuntimeContextBuilder([new RecentMessagesContextSource(store)]),
-      events,
+      clientEvents,
     );
 
     store.createSession("session-1", null, {
@@ -134,6 +138,7 @@ describe("AgentDelegationService", () => {
     const callEvents = events
       .getHistory("session-1")
       .filter((event) => event.type === "call.agent.start" || event.type === "call.agent.end");
+    expect(callEvents.map((event) => event.event_seq)).toEqual([1, 2]);
     expect(callEvents).toEqual([
       expect.objectContaining({
         type: "call.agent.start",
@@ -163,6 +168,17 @@ describe("AgentDelegationService", () => {
         },
       }),
     ]);
+    expect(
+      store.listOutboxForReplay({ sessionId: "session-1" }).map((row) => ({
+        eventType: row.event_type,
+        status: row.status,
+        sessionSeq: row.session_seq,
+      })),
+    ).toEqual([
+      { eventType: "client.call.agent.start", status: "delivered", sessionSeq: 1 },
+      { eventType: "client.call.agent.end", status: "delivered", sessionSeq: 2 },
+    ]);
+    expect(store.fetchPendingOutbox(10)).toEqual([]);
     store.close();
   });
 });

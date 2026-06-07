@@ -4,7 +4,7 @@ import type { AgentRuntimeContextBuilder } from "./agent-runtime-context-builder
 import type { AgentRuntimeCore, AgentRuntimeEvent, AgentRuntimeRequest } from "./agent-runtime-core.js";
 import { buildAgentPromptContext, type AgentPromptConfigResolver } from "./agent-prompt-builder.js";
 import type { ConversationStore, ChildAgentInfo } from "../stores/conversation-store.js";
-import type { InMemoryEventBus } from "../runtime/event-bus.js";
+import type { ClientEventPublisher } from "../runtime/event-outbox/client-event-publisher.js";
 import type { RuntimeExecutionConfigResolver } from "../runtime/runtime-core-service.js";
 import type { RuntimeToolExecutionContext, RuntimeToolExecutor } from "../runtime/runtime-tool-types.js";
 import type { ToolExecutionResult } from "../tools/memory-tool-service.js";
@@ -52,7 +52,7 @@ export class AgentDelegationService {
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
     private readonly agentRuntimeCore: AgentRuntimeCore,
     private readonly contextBuilder: AgentRuntimeContextBuilder,
-    private readonly events: InMemoryEventBus | null = null,
+    private readonly events: ClientEventPublisher | null = null,
     private readonly promptConfigResolver: AgentPromptConfigResolver | null = null,
   ) {}
 
