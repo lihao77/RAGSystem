@@ -11,6 +11,13 @@ export class ClientEventProjector {
       event_seq: row.session_seq,
     };
 
+    if (row.event_type.startsWith("client.")) {
+      return {
+        ...asClientEvent(payload.client_event),
+        ...base,
+      };
+    }
+
     switch (row.event_type) {
       case "execution.step_recorded": {
         const step = asRecord(payload.step);
@@ -112,6 +119,24 @@ export class ClientEventProjector {
         throw new Error(`Unsupported outbox event type: ${row.event_type}`);
     }
   }
+}
+
+function asClientEvent(value: unknown): ClientEvent {
+  const event = asRecord(value);
+  const type = asString(event.type);
+  if (!type) {
+    throw new Error("client event payload is missing type");
+  }
+  const {
+    stream_seq: _streamSeq,
+    event_id: _eventId,
+    event_seq: _eventSeq,
+    ...rest
+  } = event;
+  return {
+    ...rest,
+    type,
+  };
 }
 
 function parsePayload(row: OutboxRow): Record<string, unknown> {

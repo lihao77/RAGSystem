@@ -135,6 +135,45 @@ describe("event outbox projection and dispatch", () => {
     ]);
     store.close();
   });
+
+  it("projects generic client event outbox rows with durable event metadata", () => {
+    const store = new ConversationStore({ dbPath: ":memory:" });
+    const projector = new ClientEventProjector();
+    store.createSession("s1");
+    const row = store.appendOutbox({
+      sessionId: "s1",
+      runId: "run-1",
+      eventId: "event-client-1",
+      eventType: "client.context.usage",
+      aggregateType: "run",
+      aggregateId: "run-1",
+      payload: {
+        client_event: {
+          type: "context.usage",
+          session_id: "wrong-session",
+          run_id: "wrong-run",
+          event_id: "stale-event",
+          event_seq: 99,
+          stream_seq: 42,
+          agent_name: "orchestrator_agent",
+          data: { used_tokens: 10 },
+          content: { used_tokens: 10 },
+        },
+      },
+    });
+
+    expect(projector.toClientEvent(row)).toMatchObject({
+      type: "context.usage",
+      session_id: "s1",
+      run_id: "run-1",
+      event_id: "event-client-1",
+      event_seq: 1,
+      agent_name: "orchestrator_agent",
+      data: { used_tokens: 10 },
+    });
+    expect(projector.toClientEvent(row).stream_seq).toBeUndefined();
+    store.close();
+  });
 });
 
 function completedRows(): OutboxRow[] {
