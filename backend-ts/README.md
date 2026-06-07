@@ -2,9 +2,9 @@
 
 TypeScript backend migration workspace.
 
-This folder is intentionally separate from `backend-fastapi` while the backend is being ported.
-The first milestone keeps the public HTTP and WebSocket paths visible, but core agent execution
-returns `501 Not Migrated` until the runtime has been implemented in TypeScript.
+This folder is intentionally separate from `backend-fastapi` as the TypeScript backend migration
+target. The tracked Python-backend parity slices now run in TypeScript. Unsupported future modes
+should fail explicitly instead of silently pretending to be available.
 
 ## Scripts
 
@@ -25,7 +25,7 @@ Node.js 24+ is required because the first persistence milestone uses the built-i
 
 - Fastify application entrypoint
 - Strict TypeScript configuration
-- Runtime container skeleton
+- Runtime container and service composition
 - Shared contract models for common responses, sessions, execution requests, and client events
 - SQLite-backed conversation store compatible with the first slice of the Python
   `ConversationStore`
@@ -58,22 +58,25 @@ Node.js 24+ is required because the first persistence milestone uses the built-i
   shapes for existing session visualization files
 - Embedding model management API compatible with the Python `/api/embedding-models/*` route shapes,
   derived from the current TS vectorizer config
-- Minimal runtime-core execution for configured single-agent text runs, with LLM calls through an
-  OpenAI-compatible chat client, migrated built-in tool loop, and persisted user/final messages
+- Runtime-core execution for configured single-agent text runs, with OpenAI-compatible,
+  Anthropic, and OpenAI Responses provider clients, migrated built-in tool loop, and persisted
+  user/final messages
 - Built-in runtime tools for `request_user_input`, memory read/write/archive, managed file
   read/write/edit/preview, foreground/background `execute_bash`, task tracking/background control,
-  and synchronous agent delegation
-- Explicit `501` responses for agent runtime operations that have not been migrated yet
+  `glob`, `grep`, `web_fetch`, `todo_write`, restricted `execute_code`, Skill tools, MCP tools,
+  vector/RAG tools, hooks, and synchronous agent delegation
+- Attachments, system slash commands including `/compact`, checkpoint recovery, file-history
+  rollback/retry, sequential collaboration, daemon runtime operations, and provider test routes
 
 ## Test-First Boundary
 
 Migration boundaries are defined in [docs/migration-boundaries.md](docs/migration-boundaries.md).
 
-Before porting a Python capability, add or update tests that describe:
+Before adding a future parity slice, add or update tests that describe:
 
 - the existing public route or event shape,
 - the expected TypeScript behavior,
-- the current `501 not_migrated` boundary if the implementation is still pending.
+- the explicit unsupported-mode response when TypeScript should match an unsupported Python mode.
 
 Current test layers:
 
@@ -125,5 +128,6 @@ metrics, and pending/delivered/failed outbox counts.
 
 ## Migration Rule
 
-Do not silently fake migrated behavior. If a Python capability is not yet ported, keep the route
-shape compatible and return `501` with code `not_migrated`.
+Do not silently fake migrated behavior. If a future Python capability is not available in
+TypeScript, keep the public shape compatible and return an explicit, tested error until the
+behavior is ported.

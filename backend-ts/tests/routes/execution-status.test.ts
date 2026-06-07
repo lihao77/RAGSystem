@@ -14,7 +14,7 @@ afterEach(async () => {
 });
 
 describe("execution compatibility routes", () => {
-  it("reports Python-compatible idle task status for sessions while runtime is not migrated", async () => {
+  it("reports Python-compatible idle task status for sessions without active runs", async () => {
     app = await buildTestApp();
 
     const response = await app.inject({

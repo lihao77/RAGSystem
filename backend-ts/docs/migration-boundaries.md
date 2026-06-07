@@ -1,225 +1,79 @@
 # Backend TS Migration Boundaries
 
-This document defines what the first TypeScript backend milestone is allowed to do.
-Tests must enforce these boundaries before deeper migration starts.
+This document records the current TypeScript backend migration boundary after the Python-backend
+parity pass. The tracked parity slices now run in `backend-ts`; this document should prevent future
+work from reintroducing placeholder behavior or stale `501 not_migrated` assumptions.
 
-## Milestone 0: Foundation Boundary
+## Current Status
 
-In scope:
+- `backend-ts` owns the migrated runtime and compatibility routes described in the full migration
+  plan.
+- There are no active route-level `501 not_migrated` placeholders in `backend-ts/src`.
+- Health/status endpoints report the TS runtime as migrated.
+- The remaining `not_migrated` type value in tool metadata is a compatibility value for hidden or
+  future unavailable tools; current visible runtime tools report `implemented`.
 
-- Start a Fastify server from `src/main.ts`.
-- Expose health routes at `/api/health` and `/api/agent/health`.
-- Keep the public session route shapes used by the Python backend:
-  - `POST /api/agent/sessions`
-  - `GET /api/agent/sessions`
-  - `GET /api/agent/sessions/:sessionId`
-  - `DELETE /api/agent/sessions/:sessionId`
-  - `GET /api/agent/sessions/:sessionId/messages`
-- Provide a session WebSocket shell at `/api/agent/sessions/:sessionId/ws`.
-- Return explicit `501 not_migrated` for Python capabilities that are not yet ported.
-- Validate request bodies with shared TypeScript schemas.
+## Migrated Scope
 
-Out of scope:
+Foundation and persistence:
 
-- Real agent execution.
-- Tool registry execution.
-- MCP connection management.
-- LLM provider calls.
-- Vector indexing/retrieval.
-- Persistent SQLite stores.
-- Python skill behavior parity.
+- Fastify application entrypoint and health routes.
+- SQLite-backed sessions, messages, runs, run steps, checkpoints, resources, uploaded files, file
+  history, and durable event outbox.
+- Python-compatible session create/list/get/delete, message listing, message edit, rollback,
+  retry, checkpoint listing/recovery, run-step sidecar reads, and session export.
+- WebSocket replay, monotonic stream sequence handling, approval responses, stop acknowledgements,
+  and durable terminal event replay.
 
-## Milestone 1: Session Persistence Boundary
+Execution runtime:
 
-In scope:
+- `/api/agent/stream` for configured single-agent execution.
+- `/api/agent/execute` and `/api/agent/execute/:agentName` synchronous execution.
+- `/api/agent/collaborate` sequential collaboration.
+- XML streaming tool-call loop, native tool-call fallback, approvals, user-input interactions,
+  stop/cancel, run status, context compression, and `/compact`.
+- Attachments and uploaded/session files in runtime context.
 
-- SQLite-backed session and message persistence through `node:sqlite`.
-- Python-compatible `ConversationStore` slice for:
-  - session create/get/list/delete,
-  - message add/list/update,
-  - run step add/list/message binding,
-  - run create/status/list persistence,
-  - resource register/list and step-resource linking,
-  - child agent records needed for rollback cleanup,
-  - child-scoped recent message reads,
-  - resource scope inference for managed session/workspace paths,
-  - rollback deletion after `after_seq` or `after_message_id`.
-- Application-level message filtering parity:
-  - hidden `visible_to_user=false` messages are excluded,
-  - `react_intermediate` messages are excluded,
-  - child-scope and non-root-thread messages are excluded,
-  - assistant messages expose `has_execution` when metadata contains `run_id`.
-- Execution step sidecar reads:
-  - `GET /api/agent/sessions/:sessionId/messages?expand=1|true|steps|yes`,
-  - `GET /api/agent/sessions/:sessionId/messages/:messageId/run-steps`.
-- User message editing:
-  - `PATCH /api/agent/sessions/:sessionId/messages/:messageId`,
-  - only `role='user'` messages in the target session are editable.
-- Conversation rollback:
-  - `POST /api/agent/sessions/:sessionId/rollback`,
-  - keeps the anchor message and deletes later messages, associated run steps, and child agents created after the anchor.
-- Session export:
-  - `GET /api/agent/sessions/:sessionId/export`,
-  - returns versioned JSON with visible messages and expanded execution steps.
-- Checkpoint persistence and listing:
-  - checkpoint save/load/latest/list/delete primitives,
-  - `GET /api/agent/sessions/:sessionId/checkpoints`.
-- Stream stop semantics:
-  - `POST /api/agent/stream/stop` returns 404 when no active execution exists.
-- Execution status compatibility:
-  - `GET /api/agent/sessions/:sessionId/task-status`,
-  - `GET /api/agent/sessions/:sessionId/execution-diagnostics`,
-  - `GET /api/agent/tasks/:taskId/status`,
-  - `GET /api/agent/tasks/:taskId/execution-diagnostics`,
-  - `GET /api/agent/tasks/running`,
-  - `GET /api/agent/execution/overview`.
-- Runtime-core readiness classification:
-  - `GET /api/agent/runtime-core/status`,
-  - resolves entry agent, default/selected LLM, and matching model provider configuration,
-  - reports `ready` when the minimal single-agent text runtime can execute.
-- Minimal runtime-core execution:
-  - `POST /api/agent/stream` starts configured single-agent text runs,
-  - supports the XML streaming tool-call loop,
-  - executes migrated built-in tools: `request_user_input`, memory read/write/archive tools, managed file
-    tools, `execute_bash`, task tracking/background tools, and synchronous agent delegation,
-  - persists user and final assistant messages,
-  - records run status and compact execution steps,
-  - publishes basic run lifecycle events for WebSocket clients,
-  - supports best-effort stop through AbortController.
-- Monitoring compatibility:
-  - empty system metrics and metrics reset routes,
-  - persisted context message-content reads,
-  - persisted tool-call raw-result reads.
-- Permission policy route compatibility:
-  - get/replace policy,
-  - update mode,
-  - add/remove/clear auto-accept patterns.
-- File management compatibility:
-  - SQLite-backed `uploaded_files` index with Python-compatible fields,
-  - global file list/upload/get/delete/download/validate routes,
-  - session-scoped file list/upload/get/delete/download/validate routes,
-  - uploaded bytes are stored below TS `dataRoot` in global and session upload directories.
-- Agent config/team compatibility:
-  - default system team and default agent config reads,
-  - in-memory config replace/patch/delete,
-  - config export as JSON/YAML attachment text,
-  - built-in preset application in memory,
-  - in-memory team create/activate/delete/rename/copy/reset,
-  - static tools, memory metadata, MCP server, skill, and preset listing.
-- Agent management compatibility:
-  - list current active-team agents in the Python registry response shape,
-  - create and delete agent configs in memory,
-  - protect the default/core entry agent from deletion,
-  - keep reload as a compatibility no-op until the TS runtime reload exists.
-- Model adapter config compatibility:
-  - provider type metadata,
-  - in-memory provider create/update/delete/list,
-  - in-memory provider ordering.
-- System config compatibility:
-  - schema-form metadata for the editable AppConfig simple fields,
-  - in-memory config reads and deep-merge updates,
-  - reload resets the TS process copy to defaults until config-file loading is migrated.
-- MCP management compatibility:
-  - empty Registry search result,
-  - in-memory server add/update/delete/list,
-  - empty server/global tool listing.
-- Daemon management compatibility:
-  - idle status and default config reads,
-  - in-memory daemon config updates,
-  - disconnected agent/platform status and empty heartbeat history,
-  - in-memory cron task create/update/delete/list/history.
-- Vector library management compatibility:
-  - uploaded-file based `/api/vector-library/file-status` reads,
-  - in-memory vectorizer config create/list/activate/delete/docs reads,
-  - in-memory reranker config create/list/get/activate/delete,
-  - empty vector collection/document management reads and vector health status.
-- Artifact management compatibility:
-  - read Python-compatible visualization configs from session `viz_index.jsonl` records,
-  - list visualization summaries by session,
-  - delete one visualization or all visualizations for a session.
-- Embedding model management compatibility:
-  - model list and stats derived from in-memory vectorizer config,
-  - model activation mapped to vectorizer activation,
-  - forced model deletion mapped to vectorizer deletion,
-  - empty sync-status reads.
+Runtime tools and integrations:
 
-Out of scope:
+- `request_user_input`.
+- Memory read/write/archive tools.
+- Managed file read/write/edit/preview tools.
+- Local search tools: `glob`, `grep`, `web_fetch`, `todo_write`.
+- Foreground/background `execute_bash`, background task status/output/stop, and task workflow
+  tools.
+- Restricted `execute_code`.
+- Agent delegation tools.
+- Skill discovery, visibility, resource loading, script execution, artifact protocol, team
+  protocol, and background execution.
+- Hook runtime.
+- MCP server config, stdio/http connection lifecycle, tool discovery, runtime bridge exposure,
+  execution, and permissions.
+- Vector/RAG indexing, search, rerank, delete, migration, sync, and knowledge-base runtime tools.
 
-- Token-by-token streaming output generation.
-- Daemon runtime start/stop, social-platform adapters, outbound messages, webhook handling, and
-  cron execution.
-- MCP connection management.
-- MCP Registry network search and Registry install.
-- Model provider availability checks and live provider tests.
-- Vector indexing/retrieval, vector data migration, vector document deletion, and collection deletion.
-- Artifact generation/revision from tool execution.
-- Embedding vector sync/recompute.
-- System config YAML persistence and runtime cache refresh.
-- Checkpoint recovery execution:
-  - `POST /api/agent/sessions/:sessionId/recover` parses the Python-compatible body but returns `501 not_migrated` until checkpoint recovery execution is ported.
-- File-history snapshot rewind during rollback.
-- Workspace/worktree cleanup during delete or rollback.
-- Python skill behavior parity.
+Management and provider compatibility:
 
-## Predefined Effects
+- Agent/team config import/export, preset application, team management, agent management, and
+  runtime reload response.
+- Model provider YAML-backed management, provider availability/test routes, Anthropic chat,
+  OpenAI-compatible chat, OpenAI Responses chat, embeddings, and rerank support.
+- System config reads/updates/reload.
+- Daemon status/config, start/stop, outbound send, test message dispatch, cron task management, and
+  cron trigger.
+- File management, artifact management, embedding model management, vector library management,
+  permission policy routes, monitoring routes, context snapshot, message-content reads, raw tool
+  result reads, and outbox operations.
 
-These effects are intentional and covered by tests:
+## Intentional Unsupported Modes
 
-- A created session is returned by list/get endpoints.
-- Empty user IDs are treated as absent for list filtering.
-- Session lists derive `title`, `first_message`, `last_message`, `last_message_at`, and `unread_count` like Python.
-- Message lists return the latest window in ascending sequence order, after applying Python's visible root-message filtering.
-- User message edits reject non-user messages with a 404-compatible not-found response.
-- Rollback requires `after_seq` or `after_message_id`, keeps the anchor, and removes later message/run-step/child-agent state.
-- Runs, resources, and step-resource links persist with the same field names consumed by the Python execution persistence layer.
-- Resource scope inference matches Python's managed directory buckets for `workspace`, `upload`, `export`, `transient`, and `session`.
-- Checkpoint listing returns `{'checkpoints': [...]}` and supports `agent_name` and `limit` filters.
-- Stream stop does not report success without a tracked active execution.
-- Session export returns JSON attachment payloads with visible messages and compacted execution steps.
-- `POST /api/agent/stream` with a valid payload starts the migrated TS runtime when agent and model
-  configuration are ready.
-- `POST /api/agent/stream` with an empty task and no attachments returns HTTP 400.
-- Synchronous execution and sequential collaboration route shapes return HTTP 501 until those execution modes are ported.
-- Health endpoints clearly report that `backend-ts` is running and identify remaining unmigrated execution capabilities.
-- Idle execution status routes return Python-compatible empty state instead of 404.
-- Monitoring metrics return real empty TS runtime metrics while agent execution is unavailable.
-- Runtime-core readiness separates missing agent/LLM/provider configuration from MCP runtime,
-  vector retrieval, and advanced streaming output that remain unmigrated.
-- Agent context snapshot still returns HTTP 501; message-content and raw-result sidecar reads are served from persisted data.
-- Permission policy changes are stored in the TS process memory until runtime configuration persistence is migrated.
-- Uploaded files and their index records are written to the TS data root and shared SQLite database.
-- Session-scoped files are isolated by `scope_type='session'` and `scope_id=session_id`.
-- Agent config and team changes are stored in TS process memory until runtime config-file persistence is migrated.
-- Agent config export returns JSON/YAML attachment text and preset application updates the in-memory
-  config; config import returns HTTP 501 until YAML/JSON config persistence is migrated.
-- Agent management create/delete changes are stored in TS process memory until runtime config-file
-  persistence is migrated.
-- `POST /api/agent/agents/reload` returns success with `reloaded=false` while TS runtime reload
-  remains unavailable.
-- Model provider config changes are stored in TS process memory until model adapter config-file
-  persistence is migrated.
-- Model provider availability checks and `POST /api/model-adapter/test` return HTTP 501 until
-  provider runtime calls are migrated.
-- System config changes are stored in TS process memory until YAML persistence and runtime refresh
-  are migrated.
-- MCP server config changes are stored in TS process memory until MCP YAML persistence is migrated.
-- MCP connect/disconnect/test and Registry install return HTTP 501 until MCP runtime management is
-  migrated.
-- Daemon config and cron task changes are stored in TS process memory until daemon YAML persistence
-  is migrated.
-- Daemon start/stop, outbound send, test message dispatch, and cron trigger return HTTP 501 until
-  the daemon runtime and social-platform adapters are migrated.
-- Vectorizer and reranker config changes are stored in TS process memory until vector-store YAML
-  persistence and runtime reload are migrated.
-- Vector file indexing, indexed-file deletion, vector document indexing/deletion, collection
-  deletion, vector search, and vector data migration return HTTP 501 until the TS vector runtime is
-  migrated.
-- Artifact routes read and delete existing visualization files only. New visualization generation
-  and revision remain tied to unmigrated artifact-generation tools.
-- Embedding model routes expose the management shape backed by current TS vectorizer config. Vector
-  sync returns HTTP 501 until embedding runtime execution is migrated.
+- Parallel collaboration still returns HTTP 400 with `并行模式尚未实现`. This matches the current
+  Python backend behavior and is not a TypeScript migration gap.
+- Live external behavior still depends on local provider keys, MCP servers, daemon platform
+  gateways, and vector provider configuration. Tests cover local/fake execution paths; optional
+  smoke tests can validate a live environment.
 
 ## Rule
 
-Do not fake a migrated capability. A route may exist before its implementation, but it must return
-`501 not_migrated` until the behavior is ported and covered by tests.
+Do not silently fake migrated behavior. If a future Python capability is added before its
+TypeScript implementation, keep the public route shape compatible and return an explicit, tested
+error until the behavior is ported.
