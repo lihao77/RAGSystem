@@ -20,6 +20,7 @@ export function listAvailableTools(): AvailableToolInfo[] {
     implementedTool("web_fetch", "Fetch HTTP/HTTPS content as readable text", "network", "medium"),
     implementedTool("todo_write", "Replace the current session todo list", "task", "low"),
     implementedTool("execute_bash", "Execute a foreground shell command with approval boundaries", "execution", "high"),
+    implementedTool("execute_code", "Execute Python code in a restricted sandbox", "execution", "high"),
     implementedTool("task_create", "Create a session-scoped task record", "task", "low"),
     implementedTool("task_get", "Read a session-scoped task record", "task", "low"),
     implementedTool("task_update", "Update a session-scoped task record", "task", "low"),

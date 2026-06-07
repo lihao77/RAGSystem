@@ -1,4 +1,5 @@
 import type { AgentDelegationService } from "../../agent/agent-delegation-service.js";
+import type { CodeExecutionToolService } from "../../tools/code-execution-tool-service.js";
 import type { LocalDocumentToolService } from "../../tools/local-document-tool-service.js";
 import type { LocalSearchToolService } from "../../tools/local-search-tool-service.js";
 import type { ToolExecutionResult, MemoryToolService } from "../../tools/memory-tool-service.js";
@@ -12,6 +13,7 @@ import {
   previewDataStructureArguments,
   readArchiveMemoryArguments,
   readCallAgentArguments,
+  readCodeExecutionArguments,
   readFileArguments,
   readGlobArguments,
   readGrepArguments,
@@ -34,6 +36,7 @@ import {
   ARCHIVE_MEMORY_TOOL_NAME,
   CALL_AGENT_TOOL_NAME,
   EDIT_FILE_TOOL_NAME,
+  EXECUTE_CODE_TOOL_NAME,
   GLOB_TOOL_NAME,
   GREP_TOOL_NAME,
   LIST_KNOWLEDGE_COLLECTIONS_TOOL_NAME,
@@ -63,6 +66,7 @@ export type RuntimeToolHandler = (
 export interface RuntimeToolHandlerDependencies {
   memoryTools: MemoryToolService;
   documentTools: LocalDocumentToolService | null;
+  codeExecutionTools: CodeExecutionToolService | null;
   searchTools: LocalSearchToolService | null;
   taskTools: TaskToolService | null;
   vectorLibrary: VectorLibraryService | null;
@@ -122,6 +126,12 @@ export function createRuntimeToolHandlers(deps: RuntimeToolHandlerDependencies):
       return searchTools
         ? searchTools.todoWrite(readTodoWriteArguments(call.arguments), context)
         : deps.unavailableTool(TODO_WRITE_TOOL_NAME);
+    }],
+    [EXECUTE_CODE_TOOL_NAME, (call, context) => {
+      const codeExecutionTools = deps.codeExecutionTools;
+      return codeExecutionTools
+        ? codeExecutionTools.executeCode(readCodeExecutionArguments(call.arguments), context)
+        : deps.unavailableTool(EXECUTE_CODE_TOOL_NAME);
     }],
     [SEARCH_KNOWLEDGE_BASE_TOOL_NAME, (call, context) => {
       const vectorLibrary = deps.vectorLibrary;

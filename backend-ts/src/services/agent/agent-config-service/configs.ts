@@ -29,7 +29,7 @@ export function buildDefaultAgentConfigs(): Record<string, AgentConfig> {
       description: "系统默认主编排器，负责理解用户需求、路由任务并整合最终答案。",
       system_prompt: "你是系统默认主编排器，负责优先直接解决问题；必要时再委派给 team 内其他系统 Agent。",
       default_entry: true,
-      tools: ["read_file", "write_file", "edit_file", "preview_data_structure", "execute_bash", "glob", "grep", "web_fetch", "todo_write"],
+      tools: ["read_file", "write_file", "edit_file", "preview_data_structure", "execute_bash", "execute_code", "glob", "grep", "web_fetch", "todo_write"],
       delegation: specialistAgents,
       tasks: { workflow: true, background: true },
     }),
@@ -60,7 +60,7 @@ export function buildDefaultAgentConfigs(): Record<string, AgentConfig> {
       display_name: "General Agent",
       description: "系统默认通用执行 Agent，负责处理中等复杂度的综合实现与代码修改。",
       system_prompt: "你负责承接通用实现任务，优先复用现有代码模式，直接产出完成所需的最少改动。",
-      tools: ["read_file", "write_file", "edit_file", "preview_data_structure", "execute_bash", "glob", "grep", "web_fetch", "todo_write"],
+      tools: ["read_file", "write_file", "edit_file", "preview_data_structure", "execute_bash", "execute_code", "glob", "grep", "web_fetch", "todo_write"],
       delegation: ["explor_agent"],
     }),
     review_agent: buildSystemAgentConfig({

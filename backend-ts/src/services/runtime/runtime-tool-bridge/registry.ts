@@ -9,6 +9,7 @@ export const WRITE_FILE_TOOL_NAME = "write_file";
 export const EDIT_FILE_TOOL_NAME = "edit_file";
 export const PREVIEW_DATA_STRUCTURE_TOOL_NAME = "preview_data_structure";
 export const EXECUTE_BASH_TOOL_NAME = "execute_bash";
+export const EXECUTE_CODE_TOOL_NAME = "execute_code";
 export const GLOB_TOOL_NAME = "glob";
 export const GREP_TOOL_NAME = "grep";
 export const WEB_FETCH_TOOL_NAME = "web_fetch";
@@ -257,6 +258,36 @@ export const EXECUTE_BASH_TOOL: RuntimeToolDefinition = {
       description: {
         type: "string",
         description: "Short purpose shown in approval prompts and execution logs.",
+      },
+    },
+  },
+};
+
+export const EXECUTE_CODE_TOOL: RuntimeToolDefinition = {
+  name: EXECUTE_CODE_TOOL_NAME,
+  source: "execution",
+  category: "execution",
+  riskLevel: "high",
+  description:
+    "Execute Python code in a restricted sandbox for data processing and limited tool orchestration. Set result as the final output.",
+  parameters: {
+    type: "object",
+    additionalProperties: false,
+    required: ["code"],
+    properties: {
+      code: {
+        type: "string",
+        description: "Python code. Must assign the final output to the result variable.",
+      },
+      description: {
+        type: "string",
+        description: "Short purpose of the code execution.",
+      },
+      timeout: {
+        type: "integer",
+        minimum: 1,
+        maximum: 300,
+        description: "Timeout in seconds. Defaults to 60 and is capped at 300.",
       },
     },
   },

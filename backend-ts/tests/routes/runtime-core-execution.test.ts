@@ -746,6 +746,7 @@ describe("minimal runtime core execution", () => {
       "edit_file",
       "preview_data_structure",
       "execute_bash",
+      "execute_code",
       "glob",
       "grep",
       "web_fetch",

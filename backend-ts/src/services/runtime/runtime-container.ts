@@ -19,6 +19,7 @@ import { FileHistoryService } from "../stores/file-history-service.js";
 import { FileIndexService } from "../stores/file-index-service.js";
 import { RealtimeEventHub } from "./realtime-event-hub.js";
 import { LocalBashToolService } from "../tools/local-bash-tool-service.js";
+import { CodeExecutionToolService } from "../tools/code-execution-tool-service.js";
 import { LocalDocumentToolService } from "../tools/local-document-tool-service.js";
 import { LocalSearchToolService } from "../tools/local-search-tool-service.js";
 import { OpenAiCompatibleChatClient, type LlmChatClient } from "../integrations/llm-chat-client.js";
@@ -57,6 +58,7 @@ export interface RuntimeContainer {
   readonly memoryStore: MemoryStore;
   readonly memoryTools: MemoryToolService;
   readonly documentTools: LocalDocumentToolService;
+  readonly codeExecutionTools: CodeExecutionToolService;
   readonly searchTools: LocalSearchToolService;
   readonly bashTools: LocalBashToolService;
   readonly backgroundTasks: BackgroundTaskService;
@@ -119,6 +121,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
   const memoryTools = new MemoryToolService(memoryStore, conversationStore);
   const documentTools = new LocalDocumentToolService({ dataRoot: options.dataRoot, fileHistory });
+  const codeExecutionTools = new CodeExecutionToolService({ dataRoot: options.dataRoot });
   const searchTools = new LocalSearchToolService({ dataRoot: options.dataRoot });
   const backgroundTasks = new BackgroundTaskService();
   const toolsConfig = asRecord(systemConfig.getConfig().tools);
@@ -148,7 +151,9 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     hooks,
     vectorLibrary,
     mcp,
+    codeExecutionTools,
   );
+  codeExecutionTools.setRuntimeTools(runtimeToolBridge);
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const agentRuntimeCore = new AgentRuntimeCore(llmChatClient, { dataRoot: options.dataRoot });
   const contextCompression = new AgentContextCompressionService(conversationStore, llmChatClient, systemConfig);
@@ -214,6 +219,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     memoryStore,
     memoryTools,
     documentTools,
+    codeExecutionTools,
     searchTools,
     bashTools,
     backgroundTasks,

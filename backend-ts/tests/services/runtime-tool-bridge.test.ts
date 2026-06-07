@@ -11,6 +11,7 @@ import { ConversationStore } from "../../src/services/stores/conversation-store.
 import { MemoryStore } from "../../src/services/stores/memory-store.js";
 import { MemoryToolService, type RuntimeMemorySessionPort } from "../../src/services/tools/memory-tool-service.js";
 import { BackgroundTaskService } from "../../src/services/runtime/background-task-service.js";
+import { CodeExecutionToolService } from "../../src/services/tools/code-execution-tool-service.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
@@ -843,6 +844,143 @@ describe("RuntimeToolBridge", () => {
       success: false,
       output_type: "error",
       content: expect.stringContaining("status 非法值"),
+    });
+  });
+
+  it("executes Python code in a restricted sandbox with managed workspace files", async () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace");
+    writeAbsoluteFile(path.join(workspaceRoot, "sample.json"), "{\"name\":\"workspace\"}");
+    const codeExecution = new CodeExecutionToolService({ dataRoot });
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      codeExecution,
+    );
+    codeExecution.setRuntimeTools(bridge);
+    const agent = {
+      ...minimalAgent([], ["execute_code"]),
+      custom_params: {
+        workspace_root: workspaceRoot,
+      },
+    };
+
+    const result = await bridge.executeTool(
+      {
+        toolName: "execute_code",
+        arguments: {
+          code: [
+            "print('hello sandbox')",
+            "content = open('sample.json', 'r').read()",
+            "with open('result.txt', 'w') as f:",
+            "    f.write('generated')",
+            "result = {'content': content, 'sandbox_dir': SANDBOX_DIR}",
+          ].join("\n"),
+        },
+      },
+      {
+        agent,
+        sessionId: "code-session",
+        runId: "run-1",
+      },
+    );
+
+    expect(result).toMatchObject({
+      success: true,
+      tool_name: "execute_code",
+      content: {
+        content: "{\"name\":\"workspace\"}",
+      },
+      metadata: {
+        stdout: expect.stringContaining("hello sandbox"),
+        tool_calls_count: 0,
+      },
+    });
+    expect(fs.readFileSync(path.join(dataRoot, "sessions", "code-session", "sandbox", "result.txt"), "utf8")).toBe("generated");
+
+    const forbiddenImport = await bridge.executeTool(
+      {
+        toolName: "execute_code",
+        arguments: {
+          code: "import os\nresult = os.getcwd()",
+        },
+      },
+      { agent, sessionId: "code-session" },
+    );
+    expect(forbiddenImport).toMatchObject({
+      success: false,
+      content: expect.stringContaining("禁止导入模块: os"),
+    });
+  });
+
+  it("allows execute_code to call code-callable tools and rejects direct-only file tools", async () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace");
+    writeAbsoluteFile(path.join(workspaceRoot, "sample.json"), "{\"items\":[1,2]}");
+    const documentTools = new LocalDocumentToolService({ dataRoot });
+    const codeExecution = new CodeExecutionToolService({ dataRoot });
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      null,
+      null,
+      documentTools,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      codeExecution,
+    );
+    codeExecution.setRuntimeTools(bridge);
+    const agent = {
+      ...minimalAgent([], ["execute_code", "preview_data_structure", "read_file"]),
+      custom_params: {
+        workspace_root: workspaceRoot,
+      },
+    };
+
+    await expect(
+      bridge.executeTool(
+        {
+          toolName: "execute_code",
+          arguments: {
+            code: "result = call_tool('preview_data_structure', {'file_path': 'sample.json'})",
+          },
+        },
+        { agent, sessionId: "code-session", runId: "run-1" },
+      ),
+    ).resolves.toMatchObject({
+      success: true,
+      content: expect.objectContaining({
+        file_type: "json",
+      }),
+      metadata: {
+        tool_calls_count: 1,
+      },
+    });
+
+    await expect(
+      bridge.executeTool(
+        {
+          toolName: "execute_code",
+          arguments: {
+            code: "result = call_tool('read_file', {'file_path': 'sample.json'})",
+          },
+        },
+        { agent, sessionId: "code-session", runId: "run-1" },
+      ),
+    ).resolves.toMatchObject({
+      success: false,
+      content: expect.stringContaining("不允许从代码调用"),
     });
   });
 

@@ -62,6 +62,7 @@ Known gaps to close:
 ## Progress
 
 - [x] Local runtime tools parity (`glob`, `grep`, `web_fetch`, `todo_write`).
+- [x] Restricted `execute_code` runtime.
 - [x] Attachments and slash commands.
 - [x] Hook runtime.
 - [x] Vector/RAG runtime.
@@ -100,3 +101,6 @@ Known gaps to close:
 - 2026-06-08 Agent config import:
   - `npm run typecheck`
   - `npx vitest run tests/routes/agent-config.test.ts tests/services/agent-config-service.test.ts`
+- 2026-06-08 restricted `execute_code` runtime:
+  - `npm run typecheck`
+  - `npx vitest run tests/services/runtime-tool-bridge.test.ts tests/services/agent-runtime-core.test.ts tests/routes/runtime-core-execution.test.ts tests/routes/runtime-core.test.ts tests/routes/agent-config.test.ts tests/services/agent-config-service.test.ts`

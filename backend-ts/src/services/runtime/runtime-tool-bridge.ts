@@ -4,6 +4,7 @@ import {
   type MemoryToolService,
 } from "../tools/memory-tool-service.js";
 import type { LocalDocumentToolService } from "../tools/local-document-tool-service.js";
+import type { CodeExecutionToolService } from "../tools/code-execution-tool-service.js";
 import type { AgentDelegationService } from "../agent/agent-delegation-service.js";
 import type { TaskToolService } from "../tools/task-tool-service.js";
 import type { LocalSearchToolService } from "../tools/local-search-tool-service.js";
@@ -49,6 +50,8 @@ import {
   DOCUMENT_TOOLS,
   EXECUTE_BASH_TOOL,
   EXECUTE_BASH_TOOL_NAME,
+  EXECUTE_CODE_TOOL,
+  EXECUTE_CODE_TOOL_NAME,
   KNOWLEDGE_TOOLS,
   LOCAL_SEARCH_TOOLS,
   READ_ONLY_MEMORY_TOOLS,
@@ -76,10 +79,12 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     private readonly hooks: HookRuntimeService | null = null,
     private readonly vectorLibrary: VectorLibraryService | null = null,
     private readonly mcp: McpService | null = null,
+    private readonly codeExecutionTools: CodeExecutionToolService | null = null,
   ) {
     this.toolHandlers = createRuntimeToolHandlers({
       memoryTools,
       documentTools,
+      codeExecutionTools,
       searchTools,
       taskTools,
       vectorLibrary,
@@ -109,6 +114,9 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     }
     if (this.bashTools && enabledTools.has(EXECUTE_BASH_TOOL_NAME)) {
       tools.push({ ...EXECUTE_BASH_TOOL });
+    }
+    if (this.codeExecutionTools && enabledTools.has(EXECUTE_CODE_TOOL_NAME)) {
+      tools.push({ ...EXECUTE_CODE_TOOL });
     }
     if (this.searchTools) {
       for (const tool of LOCAL_SEARCH_TOOLS) {
