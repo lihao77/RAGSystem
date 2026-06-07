@@ -192,6 +192,7 @@ export class ExecutionRecorder {
           aggregateId: input.runId,
           payload: {
             ...common,
+            call_id: input.rootCallId,
             error: input.errorMessage,
             error_type: input.errorType,
           },

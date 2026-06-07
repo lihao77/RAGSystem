@@ -7,6 +7,7 @@ import type { FastifyInstance } from "fastify";
 import type { ClientEvent } from "../../src/contracts/events.js";
 import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
 import { ClientEventProjector } from "../../src/services/runtime/event-outbox/projector.js";
+import type { OutboxRow } from "../../src/services/stores/conversation-store/types.js";
 import { buildTestHarness } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
@@ -331,6 +332,70 @@ describe("minimal runtime core execution", () => {
       "output.message_saved",
       "run.end",
     ]);
+    const outboxRows = listRunOutbox(harness, "runtime-session", started.json().data.run_id);
+    expect(outboxRows.map((row) => row.event_type)).toEqual([
+      "execution.step_recorded",
+      "run.final_answer_recorded",
+      "agent.call_finished",
+      "execution.step_recorded",
+      "message.saved",
+      "run.completed",
+    ]);
+    expect(outboxRows.map((row) => row.status)).toEqual(Array.from({ length: 6 }, () => "delivered"));
+    expect(harness.container.conversationStore.fetchPendingOutbox(10)).toEqual([]);
+    expect(extractTerminalEvents(history, started.json().data.run_id).map((event) => event.event_seq)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(projectOutboxEventTypes(outboxRows)).toEqual([
+      "execution.step",
+      "output.final_answer",
+      "call.agent.end",
+      "execution.step",
+      "output.message_saved",
+      "run.end",
+    ]);
+  });
+
+  it("keeps sync terminal delivery available as a rollback mode", async () => {
+    const chatClient = new FakeChatClient("sync rollback answer");
+    const harness = await buildTestHarness({
+      llmChatClient: chatClient,
+      terminalEventDelivery: "sync",
+    });
+    app = harness.app;
+
+    await createDefaultChatProvider(app);
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      headers: {
+        "x-request-id": "req-runtime-sync",
+      },
+      payload: {
+        task: "hello sync",
+        session_id: "runtime-sync-session",
+      },
+    });
+    expect(started.statusCode).toBe(200);
+
+    await waitFor(() => harness.container.agentExecution.getSessionTaskStatus("runtime-sync-session").task_info?.status === "completed");
+
+    const history = harness.container.events.getHistory("runtime-sync-session");
+    expectTerminalEventTypes(history, started.json().data.run_id).toEqual([
+      "execution.step",
+      "output.final_answer",
+      "call.agent.end",
+      "execution.step",
+      "output.message_saved",
+      "run.end",
+    ]);
+    expect(extractTerminalEvents(history, started.json().data.run_id).map((event) => event.event_seq)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
     expect(harness.container.conversationStore.fetchPendingOutbox(10).map((row) => row.event_type)).toEqual([
       "execution.step_recorded",
       "run.final_answer_recorded",
@@ -339,14 +404,11 @@ describe("minimal runtime core execution", () => {
       "message.saved",
       "run.completed",
     ]);
-    expect(projectOutboxEventTypes(harness.container.conversationStore.fetchPendingOutbox(10))).toEqual([
-      "execution.step",
-      "output.final_answer",
-      "call.agent.end",
-      "execution.step",
-      "output.message_saved",
-      "run.end",
-    ]);
+    expect(harness.container.outboxDispatcher.getMetrics()).toMatchObject({
+      projected: 0,
+      delivered: 0,
+      failed: 0,
+    });
   });
 
   it("compresses long session history before the main agent request", async () => {
@@ -1394,13 +1456,16 @@ describe("minimal runtime core execution", () => {
       "agent.error",
       "run.end",
     ]);
-    expect(harness.container.conversationStore.fetchPendingOutbox(10).map((row) => row.event_type)).toEqual([
+    const outboxRows = listRunOutbox(harness, "interrupt-session", started.json().data.run_id);
+    expect(outboxRows.map((row) => row.event_type)).toEqual([
       "agent.call_finished",
       "execution.step_recorded",
       "run.error_reported",
       "run.interrupted",
     ]);
-    expect(projectOutboxEventTypes(harness.container.conversationStore.fetchPendingOutbox(10))).toEqual([
+    expect(outboxRows.map((row) => row.status)).toEqual(Array.from({ length: 4 }, () => "delivered"));
+    expect(harness.container.conversationStore.fetchPendingOutbox(10)).toEqual([]);
+    expect(projectOutboxEventTypes(outboxRows)).toEqual([
       "call.agent.end",
       "execution.step",
       "agent.error",
@@ -1466,13 +1531,16 @@ describe("minimal runtime core execution", () => {
       "agent.error",
       "run.end",
     ]);
-    expect(harness.container.conversationStore.fetchPendingOutbox(10).map((row) => row.event_type)).toEqual([
+    const outboxRows = listRunOutbox(harness, "failed-runtime-session", started.json().data.run_id);
+    expect(outboxRows.map((row) => row.event_type)).toEqual([
       "agent.call_finished",
       "execution.step_recorded",
       "run.error_reported",
       "run.failed",
     ]);
-    expect(projectOutboxEventTypes(harness.container.conversationStore.fetchPendingOutbox(10))).toEqual([
+    expect(outboxRows.map((row) => row.status)).toEqual(Array.from({ length: 4 }, () => "delivered"));
+    expect(harness.container.conversationStore.fetchPendingOutbox(10)).toEqual([]);
+    expect(projectOutboxEventTypes(outboxRows)).toEqual([
       "call.agent.end",
       "execution.step",
       "agent.error",
@@ -1532,7 +1600,20 @@ function expectTerminalEventTypes(history: ClientEvent[], runId: string) {
   return expect(extractTerminalEvents(history, runId).map((event) => event.type));
 }
 
-function projectOutboxEventTypes(rows: Parameters<ClientEventProjector["toClientEvent"]>[0][]) {
+function listRunOutbox(
+  harness: Awaited<ReturnType<typeof buildTestHarness>>,
+  sessionId: string,
+  runId: string,
+): OutboxRow[] {
+  return harness.container.conversationStore.listOutboxForReplay({
+    sessionId,
+    runId,
+    afterSeq: 0,
+    limit: 10,
+  });
+}
+
+function projectOutboxEventTypes(rows: OutboxRow[]) {
   const projector = new ClientEventProjector();
   return rows.map((row) => projector.toClientEvent(row).type);
 }

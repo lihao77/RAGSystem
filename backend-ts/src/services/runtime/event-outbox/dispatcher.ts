@@ -1,5 +1,6 @@
 import type { ClientEvent } from "../../../contracts/events.js";
 import type { ConversationStore } from "../../stores/conversation-store.js";
+import type { OutboxRow } from "../../stores/conversation-store/types.js";
 import type { InMemoryEventBus } from "../event-bus.js";
 import { ClientEventProjector } from "./projector.js";
 
@@ -35,6 +36,7 @@ export class OutboxDispatcher {
     this.timer = setInterval(() => {
       this.pollOnce();
     }, intervalMs);
+    this.timer.unref?.();
   }
 
   stop(): void {
@@ -47,9 +49,13 @@ export class OutboxDispatcher {
 
   pollOnce(limit = 100): ClientEvent[] {
     const rows = this.conversationStore.fetchPendingOutbox(limit);
+    return this.dispatchRows(rows);
+  }
+
+  dispatchRows(rows: OutboxRow[]): ClientEvent[] {
     const projected: ClientEvent[] = [];
 
-    for (const row of rows) {
+    for (const row of [...rows].sort((left, right) => left.id - right.id)) {
       try {
         const event = this.projector.toClientEvent(row);
         projected.push(event);

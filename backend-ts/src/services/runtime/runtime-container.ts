@@ -31,6 +31,11 @@ import { RuntimeToolBridge } from "./runtime-tool-bridge.js";
 import { SystemConfigService } from "../config/system-config-service.js";
 import { TaskToolService } from "../tools/task-tool-service.js";
 import { VectorLibraryService } from "../knowledge/vector-library-service.js";
+import { OutboxDispatcher } from "./event-outbox/dispatcher.js";
+import {
+  DEFAULT_TERMINAL_EVENT_DELIVERY_MODE,
+  type TerminalEventDeliveryMode,
+} from "./event-delivery-mode.js";
 
 export interface RuntimeContainer {
   readonly conversationStore: ConversationStore;
@@ -61,6 +66,9 @@ export interface RuntimeContainer {
   readonly agentRuntimeContextBuilder: AgentRuntimeContextBuilder;
   readonly contextCompression: AgentContextCompressionService;
   readonly agentDelegation: AgentDelegationService;
+  readonly outboxDispatcher: OutboxDispatcher;
+  readonly terminalEventDelivery: TerminalEventDeliveryMode;
+  close(): void;
 }
 
 export interface RuntimeContainerOptions {
@@ -70,6 +78,9 @@ export interface RuntimeContainerOptions {
   llmChatClient?: LlmChatClient | undefined;
   modelAdapterProvidersConfigPath?: string | undefined;
   agentConfigRoot?: string | undefined;
+  terminalEventDelivery?: TerminalEventDeliveryMode | undefined;
+  startOutboxDispatcher?: boolean | undefined;
+  outboxDispatcherIntervalMs?: number | undefined;
 }
 
 export function createRuntimeContainer(options: RuntimeContainerOptions): RuntimeContainer {
@@ -77,6 +88,16 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const sessionApplication = new AgentSessionApplication(conversationStore);
   const checkpointManager = new CheckpointManager({ dbPath: options.checkpointDbPath ?? options.dbPath });
   const events = new InMemoryEventBus();
+  const terminalEventDelivery = options.terminalEventDelivery ?? DEFAULT_TERMINAL_EVENT_DELIVERY_MODE;
+  const outboxDispatcher = new OutboxDispatcher(
+    conversationStore,
+    events,
+    undefined,
+    terminalEventDelivery === "outbox_live" ? "live" : "shadow",
+  );
+  if (options.startOutboxDispatcher ?? terminalEventDelivery === "outbox_live") {
+    outboxDispatcher.start(options.outboxDispatcherIntervalMs);
+  }
   const permissionPolicy = new PermissionPolicyService();
   const agentConfig = new AgentConfigService({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot });
   const modelAdapter = new ModelAdapterService({
@@ -135,7 +156,19 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     contextCompression,
     agentConfig,
     backgroundTasks,
+    {
+      terminalEventDelivery,
+      outboxDispatcher,
+    },
   );
+  let closed = false;
+  const close = (): void => {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    outboxDispatcher.stop();
+  };
   return {
     conversationStore,
     sessionApplication,
@@ -165,6 +198,9 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     agentRuntimeContextBuilder,
     contextCompression,
     agentDelegation,
+    outboxDispatcher,
+    terminalEventDelivery,
+    close,
   };
 }
 
