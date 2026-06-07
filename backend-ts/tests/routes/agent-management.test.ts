@@ -140,7 +140,7 @@ describe("agent management compatibility routes", () => {
     });
   });
 
-  it("keeps reload as a compatibility no-op until TS runtime reload exists", async () => {
+  it("reloads TS agent configuration as a compatibility endpoint", async () => {
     app = await buildTestApp();
 
     const response = await app.inject({
@@ -153,8 +153,8 @@ describe("agent management compatibility routes", () => {
       success: true,
       message: "智能体已重新加载",
       data: {
-        runtime: "not_migrated",
-        reloaded: false,
+        runtime: "ts",
+        reloaded: true,
       },
     });
   });

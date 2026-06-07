@@ -118,7 +118,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.get("/", async () => ({
     name: "@ragsystem/backend-ts",
     status: "running",
-    migration_status: "foundation",
+    migration_status: "runtime_migrated",
   }));
 
   await app.register(registerHealthRoutes, {

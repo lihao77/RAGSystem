@@ -27,7 +27,7 @@ describe("foundation routes", () => {
       data: {
         status: "healthy",
         backend: "backend-ts",
-        migration_status: "foundation",
+        migration_status: "runtime_migrated",
       },
     });
   });
@@ -93,7 +93,7 @@ describe("foundation routes", () => {
     });
   });
 
-  it("rejects empty stream requests before the not-migrated boundary", async () => {
+  it("rejects empty stream requests before starting runtime execution", async () => {
     app = await buildTestApp();
 
     const response = await app.inject({

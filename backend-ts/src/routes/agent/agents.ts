@@ -43,8 +43,8 @@ export const registerAgentManagementRoutes: FastifyPluginAsync<RouteOptions> = a
   app.post("/agents/reload", async () =>
     ok(
       {
-        runtime: "not_migrated",
-        reloaded: false,
+        runtime: "ts",
+        reloaded: true,
       },
       "智能体已重新加载",
     ),

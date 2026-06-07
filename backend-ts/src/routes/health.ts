@@ -9,7 +9,7 @@ export const registerHealthRoutes: FastifyPluginAsync<RouteOptions> = async (app
       {
         status: "healthy",
         backend: "backend-ts",
-        migration_status: "foundation",
+        migration_status: "runtime_migrated",
         sessions_count: options.container.sessionApplication.listSessions({ limit: 1, offset: 0 }).total,
       },
       "backend-ts health check passed",
@@ -20,10 +20,10 @@ export const registerHealthRoutes: FastifyPluginAsync<RouteOptions> = async (app
     ok(
       {
         status: "healthy",
-        agents_count: 0,
-        migration_status: "agent_runtime_not_migrated",
+        agents_count: options.container.agentConfig.listAgents().length,
+        migration_status: "agent_runtime_migrated",
       },
-      "backend-ts is running; agent runtime is not migrated yet",
+      "backend-ts agent runtime is ready",
     ),
   );
 };

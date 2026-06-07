@@ -54,19 +54,3 @@ function implementedTool(
     risk_level: riskLevel,
   };
 }
-
-function notMigratedTool(
-  name: string,
-  description: string,
-  category: string,
-  riskLevel: ToolRiskLevel,
-): AvailableToolInfo {
-  return {
-    name,
-    description,
-    category,
-    runtime_status: "not_migrated",
-    implemented: false,
-    risk_level: riskLevel,
-  };
-}
