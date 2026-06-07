@@ -26,6 +26,12 @@ import type {
 
 export type { ChildAgentInfo, ResourceInfo, RunInfo } from "./conversation-store/types.js";
 
+const CHILD_AGENT_SELECT_COLUMNS = `
+  child_agent_id, session_id, agent_name, thread_key, status,
+  created_seq, created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
+  last_run_id, metadata, created_at, updated_at
+`;
+
 export interface ConversationStoreOptions {
   dbPath: string;
   dataRoot?: string | undefined;
@@ -420,9 +426,7 @@ export class ConversationStore {
     const row = this.db
       .prepare(
         `
-          SELECT child_agent_id, session_id, agent_name, thread_key, status,
-                 created_seq, created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
-                 last_run_id, metadata, created_at, updated_at
+          SELECT ${CHILD_AGENT_SELECT_COLUMNS}
           FROM child_agents
           WHERE session_id=? AND child_agent_id=?
         `,
@@ -444,9 +448,7 @@ export class ConversationStore {
     const rows = this.db
       .prepare(
         `
-          SELECT child_agent_id, session_id, agent_name, thread_key, status,
-                 created_seq, created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
-                 last_run_id, metadata, created_at, updated_at
+          SELECT ${CHILD_AGENT_SELECT_COLUMNS}
           FROM child_agents
           WHERE session_id=? AND (? IS NULL OR agent_name=?)
           ORDER BY created_at DESC
@@ -462,9 +464,7 @@ export class ConversationStore {
     const row = this.db
       .prepare(
         `
-          SELECT child_agent_id, session_id, agent_name, thread_key, status,
-                 created_seq, created_by_run_id, created_by_call_id, parent_run_id, parent_call_id,
-                 last_run_id, metadata, created_at, updated_at
+          SELECT ${CHILD_AGENT_SELECT_COLUMNS}
           FROM child_agents
           WHERE session_id=? AND child_agent_id=?
         `,
