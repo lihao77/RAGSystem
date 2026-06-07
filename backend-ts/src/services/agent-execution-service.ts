@@ -4,7 +4,6 @@ import type { AgentConfig } from "../contracts/agent-config.js";
 import type {
   AgentRunStartResult,
   CheckpointRecoveryStartResult,
-  ExecutionDiagnostics,
   ExecutionOverview,
   ExecutionTaskStatus,
   RunningTasksResult,
@@ -29,15 +28,14 @@ import { renderSemanticBlock } from "./runtime-xml-protocol.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { RuntimeToolExecutor } from "./runtime-tool-types.js";
 import { AgentExecutionEventPublisher } from "./agent-execution-service/event-publisher.js";
+import { AgentExecutionStatusTracker } from "./agent-execution-service/status-tracker.js";
 import {
   applySessionAgentOverrides,
   asString,
   buildContextUsagePayload,
-  buildObservability,
   buildRunEndStepPayload,
   buildRuntimeToolContext,
   checkpointMessagesToConversation,
-  cloneStatus,
   findLatestCheckpointUserTask,
   mirrorEventData,
   normalizeSessionEntryAgent,
@@ -46,16 +44,8 @@ import {
   summarizeReadinessFailure,
 } from "./agent-execution-service/helpers.js";
 
-interface ExecutionHandle {
-  abortController: AbortController;
-  status: ExecutionTaskStatus;
-  promise: Promise<void>;
-}
-
 export class AgentExecutionService {
-  private readonly handlesByTask = new Map<string, ExecutionHandle>();
-  private readonly taskBySession = new Map<string, string>();
-  private readonly statusHistory = new Map<string, ExecutionTaskStatus>();
+  private readonly statusTracker = new AgentExecutionStatusTracker();
   private readonly pendingFollowupsBySession = new Map<string, ChatMessage[]>();
   private readonly eventPublisher: AgentExecutionEventPublisher;
 
@@ -99,7 +89,7 @@ export class AgentExecutionService {
       };
     }
     const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
-    const runningStatus = this.getStatusBySession(sessionId);
+    const runningStatus = this.statusTracker.getStatusBySession(sessionId);
     if (runningStatus?.status === "running") {
       const runningRunId = runningStatus.run_id ?? null;
       const runningTaskId = runningStatus.task_id ?? null;
@@ -272,9 +262,7 @@ export class AgentExecutionService {
         userMessageId: userMessage.id,
         conversationUpdateProvider: () => this.drainFollowups(sessionId),
       });
-    this.handlesByTask.set(taskId, { abortController, status, promise });
-    this.taskBySession.set(sessionId, taskId);
-    this.statusHistory.set(taskId, status);
+    this.statusTracker.register(taskId, sessionId, { abortController, status, promise });
 
     return {
       started: true,
@@ -287,12 +275,8 @@ export class AgentExecutionService {
   }
 
   async stopSession(sessionId: string): Promise<boolean> {
-    const taskId = this.taskBySession.get(sessionId);
-    if (!taskId) {
-      return false;
-    }
-    const handle = this.handlesByTask.get(taskId);
-    if (!handle || handle.status.status !== "running") {
+    const handle = this.statusTracker.getRunningHandleBySession(sessionId);
+    if (!handle) {
       return false;
     }
     this.eventPublisher.publishUserInterrupt(handle.status, "user_stop");
@@ -301,86 +285,27 @@ export class AgentExecutionService {
   }
 
   getSessionTaskStatus(sessionId: string): SessionTaskStatus {
-    const status = this.getStatusBySession(sessionId);
-    const diagnostics = status ? this.buildDiagnostics(status) : null;
-    return {
-      session_id: sessionId,
-      has_running_task: status?.status === "running",
-      has_active_system_command: false,
-      task_info: status,
-      observability: status ? buildObservability(status) : null,
-      diagnostics,
-    };
+    return this.statusTracker.getSessionTaskStatus(sessionId);
   }
 
   getSessionExecutionDiagnostics(sessionId: string): ScopedExecutionDiagnostics {
-    const status = this.getStatusBySession(sessionId);
-    return {
-      session_id: sessionId,
-      scope: "session_id",
-      scope_id: sessionId,
-      found: status !== null,
-      diagnostics: status ? this.buildDiagnostics(status) : null,
-    };
+    return this.statusTracker.getSessionExecutionDiagnostics(sessionId);
   }
 
   getTaskStatus(taskId: string): ScopedTaskStatus {
-    const status = this.getStatus(taskId);
-    return {
-      task_id: taskId,
-      scope: "task_id",
-      scope_id: taskId,
-      found: status !== null,
-      has_running_task: status?.status === "running",
-      task_info: status,
-      observability: status ? buildObservability(status) : null,
-    };
+    return this.statusTracker.getTaskStatus(taskId);
   }
 
   getTaskExecutionDiagnostics(taskId: string): ScopedExecutionDiagnostics {
-    const status = this.getStatus(taskId);
-    return {
-      task_id: taskId,
-      scope: "task_id",
-      scope_id: taskId,
-      found: status !== null,
-      diagnostics: status ? this.buildDiagnostics(status) : null,
-    };
+    return this.statusTracker.getTaskExecutionDiagnostics(taskId);
   }
 
   listRunningTasks(): RunningTasksResult {
-    const items = this.listStatuses(true);
-    return {
-      active_only: true,
-      count: items.length,
-      items,
-    };
+    return this.statusTracker.listRunningTasks();
   }
 
   getOverview(activeOnly: boolean): ExecutionOverview {
-    const items = this.listStatuses(activeOnly);
-    const byExecutionKind: Record<string, number> = {};
-    const byStatus: Record<string, number> = {};
-    const sessions: string[] = [];
-    const seenSessions = new Set<string>();
-
-    for (const item of items) {
-      byExecutionKind[item.execution_kind] = (byExecutionKind[item.execution_kind] ?? 0) + 1;
-      byStatus[item.status] = (byStatus[item.status] ?? 0) + 1;
-      if (item.session_id && !seenSessions.has(item.session_id)) {
-        seenSessions.add(item.session_id);
-        sessions.push(item.session_id);
-      }
-    }
-
-    return {
-      active_only: activeOnly,
-      count: items.length,
-      by_execution_kind: byExecutionKind,
-      by_status: byStatus,
-      sessions,
-      items,
-    };
+    return this.statusTracker.getOverview(activeOnly);
   }
 
   async startCheckpointRecovery(input: {
@@ -415,7 +340,7 @@ export class AgentExecutionService {
     }
 
     const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
-    const runningStatus = this.getStatusBySession(sessionId);
+    const runningStatus = this.statusTracker.getStatusBySession(sessionId);
     if (runningStatus?.status === "running") {
       return {
         started: false,
@@ -551,9 +476,7 @@ export class AgentExecutionService {
         checkpoint_round: input.checkpoint.round,
       },
     });
-    this.handlesByTask.set(taskId, { abortController, status, promise });
-    this.taskBySession.set(sessionId, taskId);
-    this.statusHistory.set(taskId, status);
+    this.statusTracker.register(taskId, sessionId, { abortController, status, promise });
 
     return {
       started: true,
@@ -565,38 +488,6 @@ export class AgentExecutionService {
       checkpoint_id: input.checkpoint.checkpoint_id,
       round: input.checkpoint.round,
       agent_name: runtimeAgent.agent_name,
-    };
-  }
-
-  private getStatus(taskId: string): ExecutionTaskStatus | null {
-    return cloneStatus(this.statusHistory.get(taskId) ?? null);
-  }
-
-  private getStatusBySession(sessionId: string): ExecutionTaskStatus | null {
-    const runningTaskId = this.taskBySession.get(sessionId);
-    if (runningTaskId) {
-      return this.getStatus(runningTaskId);
-    }
-    const latest = Array.from(this.statusHistory.values())
-      .filter((status) => status.session_id === sessionId)
-      .sort((left, right) => String(right.started_at ?? "").localeCompare(String(left.started_at ?? "")))[0];
-    return cloneStatus(latest ?? null);
-  }
-
-  private listStatuses(activeOnly: boolean): ExecutionTaskStatus[] {
-    return Array.from(this.statusHistory.values())
-      .filter((status) => !activeOnly || status.status === "running")
-      .map((status) => ({ ...status }))
-      .sort((left, right) => String(right.started_at ?? "").localeCompare(String(left.started_at ?? "")));
-  }
-
-  private buildDiagnostics(status: ExecutionTaskStatus): ExecutionDiagnostics {
-    return {
-      task: status,
-      runner: null,
-      observability: buildObservability(status),
-      handle_registered: false,
-      is_running: status.status === "running",
     };
   }
 
@@ -719,7 +610,7 @@ export class AgentExecutionService {
           ...(input.finalMetadataExtra ?? {}),
         },
       });
-      this.finishStatus(input.status, "completed", input.startedAt);
+      this.statusTracker.finishStatus(input.status, "completed", input.startedAt);
       const finalMetadata = {
         agent: input.agent.agent_name,
         run_id: input.runId,
@@ -817,7 +708,7 @@ export class AgentExecutionService {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const executionKind = input.executionKind ?? "agent_stream";
       this.conversationStore.updateRunStatus(input.runId, input.sessionId, finalStatus);
-      this.finishStatus(input.status, finalStatus, input.startedAt);
+      this.statusTracker.finishStatus(input.status, finalStatus, input.startedAt);
       this.eventPublisher.publishRootAgentEnd({
         sessionId: input.sessionId,
         runId: input.runId,
@@ -879,8 +770,7 @@ export class AgentExecutionService {
         }),
       });
     } finally {
-      this.taskBySession.delete(input.sessionId);
-      this.handlesByTask.delete(input.taskId);
+      this.statusTracker.unregister(input.taskId, input.sessionId);
     }
   }
 
@@ -917,14 +807,6 @@ export class AgentExecutionService {
       .map((payload) => renderBackgroundNotification(payload))
       .filter((content) => content.trim())
       .map((content) => ({ role: "user", content }));
-  }
-
-  private finishStatus(status: ExecutionTaskStatus, finalStatus: string, startedAt: Date): void {
-    const finishedAt = new Date();
-    status.status = finalStatus;
-    status.finished_at = finishedAt.toISOString();
-    status.elapsed_seconds = (finishedAt.getTime() - startedAt.getTime()) / 1000;
-    status.thread_alive = false;
   }
 
   private resolveContextBudget(agent: AgentConfig, provider: ModelProviderConfig): number {
