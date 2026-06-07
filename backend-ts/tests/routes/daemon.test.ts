@@ -24,7 +24,7 @@ describe("daemon compatibility routes", () => {
     expect(status.json()).toMatchObject({
       enabled: false,
       running: false,
-      runtime: "not_migrated",
+      runtime: "local",
       adapter_count: 0,
       daemon_sessions: 0,
       agents_count: 0,
@@ -106,7 +106,7 @@ describe("daemon compatibility routes", () => {
       expect.objectContaining({
         team_name: "default",
         running: false,
-        runtime: "not_migrated",
+        runtime: "local",
         platforms: {
           feishu: expect.objectContaining({
             enabled: true,
@@ -209,18 +209,80 @@ describe("daemon compatibility routes", () => {
     expect(deleted.json()).toEqual({ status: "ok" });
   });
 
-  it("keeps real daemon runtime effects as explicit not-migrated boundaries", async () => {
+  it("starts, sends, dispatches test messages, and manually triggers cron tasks", async () => {
     app = await buildTestApp();
+    await app.inject({
+      method: "PUT",
+      url: "/api/daemon/config",
+      payload: {
+        enabled: true,
+        default_session_ttl: 3600,
+        agents: [
+          {
+            team_name: "default",
+            entry_agent: "orchestrator_agent",
+            session_id: "daemon-default",
+            permissions: {},
+            heartbeat_interval: 30,
+            enabled: true,
+            platforms: {
+              feishu: {
+                enabled: true,
+              },
+            },
+            cron_tasks: [],
+          },
+        ],
+      },
+    });
 
     const start = await app.inject({
       method: "POST",
       url: "/api/daemon/start",
       payload: {},
     });
-    expect(start.statusCode).toBe(501);
-    expect(start.json()).toMatchObject({
-      success: false,
-      code: "not_migrated",
+    expect(start.statusCode).toBe(200);
+    expect(start.json()).toEqual({
+      status: "ok",
+      message: "守护系统已启动",
+    });
+
+    const status = await app.inject({
+      method: "GET",
+      url: "/api/daemon/status",
+    });
+    expect(status.json()).toMatchObject({
+      enabled: true,
+      running: true,
+      runtime: "local",
+      adapter_count: 1,
+    });
+
+    const heartbeat = await app.inject({
+      method: "GET",
+      url: "/api/daemon/agents/default/heartbeat?limit=5",
+    });
+    expect(heartbeat.json().heartbeats.feishu).toEqual([
+      expect.objectContaining({
+        status: "connected",
+      }),
+    ]);
+
+    const test = await app.inject({
+      method: "POST",
+      url: "/api/daemon/agents/default/test",
+      payload: {
+        platform: "feishu",
+        chat_id: "chat-1",
+        content: "hello daemon",
+      },
+    });
+    expect(test.statusCode).toBe(200);
+    expect(test.json()).toMatchObject({
+      status: "ok",
+      message: "测试消息已发送",
+      session_id: "daemon-default",
+      result: expect.stringContaining("hello daemon"),
     });
 
     const send = await app.inject({
@@ -232,7 +294,11 @@ describe("daemon compatibility routes", () => {
         content: "hello",
       },
     });
-    expect(send.statusCode).toBe(501);
+    expect(send.statusCode).toBe(200);
+    expect(send.json()).toMatchObject({
+      status: "ok",
+      message_id: expect.any(String),
+    });
 
     await app.inject({
       method: "POST",
@@ -249,9 +315,32 @@ describe("daemon compatibility routes", () => {
       url: "/api/daemon/cron/tasks/cron_demo/trigger",
       payload: {},
     });
-    expect(trigger.statusCode).toBe(501);
+    expect(trigger.statusCode).toBe(200);
     expect(trigger.json()).toMatchObject({
-      code: "not_migrated",
+      status: "ok",
+      result: expect.stringContaining("生成日报"),
+    });
+
+    const history = await app.inject({
+      method: "GET",
+      url: "/api/daemon/cron/tasks/cron_demo/history?limit=10",
+    });
+    expect(history.json().history).toEqual([
+      expect.objectContaining({
+        success: true,
+        result: expect.stringContaining("生成日报"),
+      }),
+    ]);
+
+    const stop = await app.inject({
+      method: "POST",
+      url: "/api/daemon/stop",
+      payload: {},
+    });
+    expect(stop.statusCode).toBe(200);
+    expect(stop.json()).toEqual({
+      status: "ok",
+      message: "守护系统已停止",
     });
   });
 

@@ -32,6 +32,7 @@ export async function buildTestHarness(
     llmChatClient: options.llmChatClient,
     modelAdapterProvidersConfigPath: "",
     mcpConfigPath: "",
+    daemonConfigPath: "",
     agentConfigRoot: "",
     startOutboxDispatcher: options.startOutboxDispatcher ?? false,
   });

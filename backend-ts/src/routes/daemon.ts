@@ -8,7 +8,7 @@ import {
   DaemonTestMessageSchema,
 } from "../contracts/daemon.js";
 import { DaemonServiceError } from "../services/daemon/daemon-service.js";
-import { HttpError, NotMigratedError } from "../utils/errors.js";
+import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 
 interface AgentParams {
@@ -33,13 +33,9 @@ export const registerDaemonRoutes: FastifyPluginAsync<RouteOptions> = async (app
     return options.container.daemon.updateConfig(payload);
   });
 
-  app.post("/start", async () => {
-    throw new NotMigratedError("Daemon runtime start");
-  });
+  app.post("/start", async () => options.container.daemon.start());
 
-  app.post("/stop", async () => {
-    throw new NotMigratedError("Daemon runtime stop");
-  });
+  app.post("/stop", async () => options.container.daemon.stop());
 
   app.get("/agents", async () => options.container.daemon.listAgents());
 
@@ -64,16 +60,17 @@ export const registerDaemonRoutes: FastifyPluginAsync<RouteOptions> = async (app
   });
 
   app.post<{ Params: AgentParams }>("/agents/:teamName/test", async (request) => {
-    DaemonTestMessageSchema.parse(request.body);
-    if (!options.container.daemon.getAgentStatus(request.params.teamName)) {
-      throw new HttpError(404, "not_found", `守护机器人不存在: ${request.params.teamName}`);
+    const payload = DaemonTestMessageSchema.parse(request.body);
+    try {
+      return await options.container.daemon.testMessage(request.params.teamName, payload);
+    } catch (error) {
+      throw toHttpError(error);
     }
-    throw new NotMigratedError("Daemon test message dispatch");
   });
 
   app.post("/send", async (request) => {
-    DaemonOutgoingMessageSchema.parse(request.body);
-    throw new NotMigratedError("Daemon outbound message dispatch");
+    const payload = DaemonOutgoingMessageSchema.parse(request.body);
+    return options.container.daemon.sendMessage(payload);
   });
 
   app.get("/cron/tasks", async () => options.container.daemon.listCronTasks());
@@ -111,11 +108,11 @@ export const registerDaemonRoutes: FastifyPluginAsync<RouteOptions> = async (app
   });
 
   app.post<{ Params: CronTaskParams }>("/cron/tasks/:taskId/trigger", async (request) => {
-    const exists = options.container.daemon.listCronTasks().some((task) => task.task_id === request.params.taskId);
-    if (!exists) {
-      throw new HttpError(404, "not_found", `任务不存在或执行失败: ${request.params.taskId}`);
+    try {
+      return await options.container.daemon.triggerCronTask(request.params.taskId);
+    } catch (error) {
+      throw toHttpError(error);
     }
-    throw new NotMigratedError("Daemon cron task execution");
   });
 
   app.get<{ Params: CronTaskParams; Querystring: HeartbeatQuery }>("/cron/tasks/:taskId/history", async (request) => {

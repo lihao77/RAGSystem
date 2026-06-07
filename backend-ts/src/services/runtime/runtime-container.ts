@@ -79,6 +79,7 @@ export interface RuntimeContainerOptions {
   llmChatClient?: LlmChatClient | undefined;
   modelAdapterProvidersConfigPath?: string | undefined;
   mcpConfigPath?: string | undefined;
+  daemonConfigPath?: string | undefined;
   agentConfigRoot?: string | undefined;
   startOutboxDispatcher?: boolean | undefined;
   outboxDispatcherIntervalMs?: number | undefined;
@@ -102,7 +103,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   });
   const systemConfig = new SystemConfigService();
   const mcp = new McpService({ dataRoot: options.dataRoot, configPath: options.mcpConfigPath });
-  const daemon = new DaemonService();
+  const daemon = new DaemonService({ dataRoot: options.dataRoot, configPath: options.daemonConfigPath });
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
   const vectorLibrary = new VectorLibraryService(fileIndex, modelAdapter, {
     dbPath: options.dbPath,
@@ -185,6 +186,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     closed = true;
     outboxDispatcher.stop();
     mcp.close();
+    daemon.close();
     vectorLibrary.close();
     fileIndex.close();
   };

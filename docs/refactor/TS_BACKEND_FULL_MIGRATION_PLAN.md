@@ -66,7 +66,7 @@ Known gaps to close:
 - [x] Hook runtime.
 - [x] Vector/RAG runtime.
 - [x] MCP runtime.
-- [ ] Daemon runtime.
+- [x] Daemon runtime.
 - [ ] File history rollback/retry.
 - [ ] Provider parity.
 - [ ] Final parity pass.
