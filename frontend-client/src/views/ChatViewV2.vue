@@ -520,6 +520,7 @@ const {
 const {
   handleWSMessage,
   finalizeActiveRun: _finalizeActiveRun,
+  resetStreamSessionState,
 } = useSessionRunStream({
   state: {
     currentSessionId,
@@ -585,6 +586,7 @@ const {
 // clearExecutionState 需要额外清理 view 级状态
 const clearExecutionState = () => {
   _clearExecutionStateBase();
+  resetStreamSessionState();
   resetActiveRun();
   isCompressing.value = false;
 };

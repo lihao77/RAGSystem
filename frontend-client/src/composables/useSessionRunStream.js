@@ -303,6 +303,18 @@ export function useSessionRunStream(deps) {
     return pending;
   };
 
+  const resetStreamSessionState = () => {
+    _pendingReconciliation = false;
+    _lastFinalizedRun = { sessionId: null, runId: null, at: 0 };
+    _handledRequiredInteractions.clear();
+    _durableReplay = { active: false, runId: null };
+    for (const pending of _pendingUserInputSubmissions.values()) {
+      clearTimeout(pending.timer);
+      pending.reject?.(new Error('会话已切换，用户输入提交已取消'));
+    }
+    _pendingUserInputSubmissions.clear();
+  };
+
   const resolveUserInputSubmission = (event) => {
     const inputId = getEventInteractionId(event);
     const pending = clearPendingUserInputSubmission(inputId);
@@ -1006,5 +1018,6 @@ export function useSessionRunStream(deps) {
     handleRunEvent,
     handleWSMessage,
     finalizeActiveRun,
+    resetStreamSessionState,
   };
 }

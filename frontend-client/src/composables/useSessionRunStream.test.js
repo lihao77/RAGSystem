@@ -682,6 +682,34 @@ test('interaction.required 审批事件会兼容旧 required 事件且不重复�
   assert.equal(approvals[0].kind, 'approval');
 });
 
+test('resetStreamSessionState 会清理交互去重，侧边栏切回时 pending approval 可重新展示', () => {
+  const approvals = [];
+  const { deps } = createDeps({
+    enqueueApproval: (_event, data) => {
+      approvals.push(data);
+    },
+  });
+  deps.messages.value = [createAssistantMessage()];
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+  deps.activeRun.phase = 'llm_streaming';
+
+  const stream = useSessionRunStream(deps);
+  const event = {
+    type: 'interaction.required',
+    data: { interaction_id: 'approval-1', kind: 'approval', tool_name: 'write_file' },
+  };
+  stream.handleWSMessage(event, 'session-1');
+  stream.handleWSMessage(event, 'session-1');
+  assert.equal(approvals.length, 1);
+
+  stream.resetStreamSessionState();
+  stream.handleWSMessage(event, 'session-1');
+
+  assert.equal(approvals.length, 2);
+  assert.equal(approvals[1].approval_id, 'approval-1');
+});
+
 test('user.input_required 收到 WS error 时拒绝提交并提示', async () => {
   let capturedSubmit = null;
   const { deps, calls } = createDeps({
