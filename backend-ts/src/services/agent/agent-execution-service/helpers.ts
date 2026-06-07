@@ -36,6 +36,30 @@ export function cloneStatus(status: ExecutionTaskStatus | null): ExecutionTaskSt
   return status ? { ...status } : null;
 }
 
+export function buildRunningExecutionStatus(input: {
+  taskId: string;
+  sessionId: string;
+  runId: string;
+  requestId: string;
+  executionKind: string;
+  task: string;
+  startedAt: Date;
+}): ExecutionTaskStatus {
+  return {
+    task_id: input.taskId,
+    session_id: input.sessionId,
+    run_id: input.runId,
+    request_id: input.requestId,
+    execution_kind: input.executionKind,
+    task: input.task,
+    status: "running",
+    elapsed_seconds: null,
+    started_at: input.startedAt.toISOString(),
+    finished_at: null,
+    thread_alive: true,
+  };
+}
+
 export function findLatestCheckpointUserTask(checkpoint: CheckpointInfo): string | null {
   for (let index = checkpoint.messages.length - 1; index >= 0; index -= 1) {
     const message = checkpoint.messages[index];

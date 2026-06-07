@@ -33,6 +33,7 @@ import {
   applySessionAgentOverrides,
   asString,
   buildContextUsagePayload,
+  buildRunningExecutionStatus,
   buildRunEndStepPayload,
   buildRunStartPayload,
   buildRunStartStepPayload,
@@ -151,19 +152,15 @@ export class AgentExecutionService {
     const rootCallId = `call_${randomUUID()}`;
     const startedAt = new Date();
     const abortController = new AbortController();
-    const status: ExecutionTaskStatus = {
-      task_id: taskId,
-      session_id: sessionId,
-      run_id: runId,
-      request_id: requestId,
-      execution_kind: "agent_stream",
+    const status = buildRunningExecutionStatus({
+      taskId,
+      sessionId,
+      runId,
+      requestId,
+      executionKind: "agent_stream",
       task,
-      status: "running",
-      elapsed_seconds: null,
-      started_at: startedAt.toISOString(),
-      finished_at: null,
-      thread_alive: true,
-    };
+      startedAt,
+    });
 
     if (!this.sessions.getSession(sessionId)) {
       this.sessions.createSession({ sessionId, userId: request.user_id ?? null });
@@ -369,19 +366,15 @@ export class AgentExecutionService {
     const startedAt = new Date();
     const abortController = new AbortController();
     const executionKind = "checkpoint_recovery";
-    const status: ExecutionTaskStatus = {
-      task_id: taskId,
-      session_id: sessionId,
-      run_id: runId,
-      request_id: input.requestId,
-      execution_kind: executionKind,
+    const status = buildRunningExecutionStatus({
+      taskId,
+      sessionId,
+      runId,
+      requestId: input.requestId,
+      executionKind,
       task,
-      status: "running",
-      elapsed_seconds: null,
-      started_at: startedAt.toISOString(),
-      finished_at: null,
-      thread_alive: true,
-    };
+      startedAt,
+    });
     const baseContext = this.contextBuilder.buildContext({
       sessionId,
       agent: runtimeAgent,
