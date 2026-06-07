@@ -6,12 +6,21 @@ interface Options {
   scenarios: SmokeScenario[];
   task: string;
   interruptTask: string;
+  backgroundTask: string;
   selectedLlm: string | null;
   timeoutMs: number;
   replayTimeoutMs: number;
 }
 
-type SmokeScenario = "basic" | "interrupt";
+type SmokeScenario = "basic" | "interrupt" | "background";
+
+interface PermissionPolicy {
+  mode?: string;
+  auto_accept_patterns?: unknown[];
+  audit_all_checks?: boolean;
+  approval_timeout?: number;
+  skip_all_approvals?: boolean;
+}
 
 interface WebSocketLike {
   readonly readyState: number;
@@ -41,6 +50,12 @@ interface Collector {
 const DEFAULT_TASK = "Reply exactly: outbox-live-smoke-ok";
 const DEFAULT_INTERRUPT_TASK =
   "Write a long, detailed migration analysis of at least 2000 words. Continue until stopped.";
+const DEFAULT_BACKGROUND_TASK = [
+  "You must call execute_bash exactly once.",
+  "Use command 'echo outbox-bg-ok'.",
+  "Set run_in_background to true, timeout to 30, and description to 'outbox background smoke'.",
+  "After the tool starts, reply with a concise final answer.",
+].join(" ");
 const DEFAULT_SCENARIOS: SmokeScenario[] = ["basic", "interrupt"];
 
 async function main(): Promise<void> {
@@ -64,6 +79,10 @@ async function main(): Promise<void> {
       results.push(await runInterruptScenario(options, wsConstructor));
       continue;
     }
+    if (scenario === "background") {
+      results.push(await runBackgroundScenario(options, wsConstructor));
+      continue;
+    }
   }
 
   console.log("Outbox live smoke passed");
@@ -71,6 +90,49 @@ async function main(): Promise<void> {
     console.log(
       `  ${result.scenario}: session_id=${result.sessionId} run_id=${result.runId} max_event_seq=${result.maxEventSeq}`,
     );
+  }
+}
+
+async function runBackgroundScenario(
+  options: Options,
+  wsConstructor: WebSocketConstructorLike,
+): Promise<{ scenario: "background"; sessionId: string; runId: string; maxEventSeq: number }> {
+  const sessionId = `${options.sessionId}-background`;
+  const originalPolicy = await getPermissionPolicy(options);
+  const live = createCollector(options, wsConstructor, null, sessionId);
+  try {
+    await setPermissionPolicy(options, {
+      ...(originalPolicy ?? {}),
+      mode: "dangerously_skip_permissions",
+      skip_all_approvals: true,
+    });
+    await assertOpen(live, 5000, "background live WebSocket");
+    const runId = await startAgentStream(options, sessionId, options.backgroundTask);
+    const completed = await live.waitForEvent(
+      (event) => event.type === "background.task.completed" && extractRunId(event) === runId,
+      options.timeoutMs,
+    );
+    if (!completed) {
+      throw new Error(
+        `timed out waiting for background.task.completed; observed types=[${summarizeEventTypes(live.events).join(", ")}]`,
+      );
+    }
+    const terminal = await live.waitForEvent(
+      (event) => isRunTerminalEvent(event, runId),
+      options.timeoutMs,
+    );
+    if (!terminal) {
+      throw new Error(
+        `timed out waiting for background run terminal event; observed types=[${summarizeEventTypes(live.events).join(", ")}]`,
+      );
+    }
+    const maxEventSeq = await verifyLiveAndReplay(options, wsConstructor, sessionId, live.events);
+    return { scenario: "background", sessionId, runId, maxEventSeq };
+  } finally {
+    live.close();
+    if (originalPolicy) {
+      await setPermissionPolicy(options, originalPolicy);
+    }
   }
 }
 
@@ -229,6 +291,18 @@ async function assertRuntimeReady(options: Options): Promise<void> {
   if (data.can_execute !== true) {
     throw new Error(`runtime-core is not executable: ${JSON.stringify(data.requirements ?? data)}`);
   }
+}
+
+async function getPermissionPolicy(options: Options): Promise<PermissionPolicy | null> {
+  const response = await requestJson(options, "/api/permissions/policy");
+  return isRecord(response) ? response as PermissionPolicy : null;
+}
+
+async function setPermissionPolicy(options: Options, policy: PermissionPolicy): Promise<void> {
+  await requestJson(options, "/api/permissions/policy", {
+    method: "PUT",
+    body: policy as Record<string, unknown>,
+  });
 }
 
 async function requestJson(
@@ -497,6 +571,7 @@ function parseArgs(args: string[]): Options {
     scenarios: parseScenarios(process.env.OUTBOX_SMOKE_SCENARIOS),
     task: process.env.OUTBOX_SMOKE_TASK ?? DEFAULT_TASK,
     interruptTask: process.env.OUTBOX_SMOKE_INTERRUPT_TASK ?? DEFAULT_INTERRUPT_TASK,
+    backgroundTask: process.env.OUTBOX_SMOKE_BACKGROUND_TASK ?? DEFAULT_BACKGROUND_TASK,
     selectedLlm: normalizeString(process.env.OUTBOX_SMOKE_SELECTED_LLM),
     timeoutMs: Number.parseInt(process.env.OUTBOX_SMOKE_TIMEOUT_MS ?? "120000", 10),
     replayTimeoutMs: Number.parseInt(process.env.OUTBOX_SMOKE_REPLAY_TIMEOUT_MS ?? "5000", 10),
@@ -522,6 +597,10 @@ function parseArgs(args: string[]): Options {
     }
     if (arg === "--interrupt-task") {
       options.interruptTask = requireValue(args, ++index, arg);
+      continue;
+    }
+    if (arg === "--background-task") {
+      options.backgroundTask = requireValue(args, ++index, arg);
       continue;
     }
     if (arg === "--scenarios") {
@@ -563,9 +642,10 @@ Verifies TS backend outbox_live WebSocket delivery and durable replay cursor beh
 Options:
   --base-url <url>            TS backend URL. Default: OUTBOX_SMOKE_URL or http://127.0.0.1:5002
   --session-id <id>           Session id. Default: OUTBOX_SMOKE_SESSION_ID or generated id
-  --scenarios <list>          Comma-separated scenarios: basic,interrupt. Default: basic,interrupt
+  --scenarios <list>          Comma-separated scenarios: basic,interrupt,background. Default: basic,interrupt
   --task <text>               Agent task. Default: OUTBOX_SMOKE_TASK or "${DEFAULT_TASK}"
   --interrupt-task <text>     Long-running task used for interrupt scenario.
+  --background-task <text>    Tool-use task used for background scenario.
   --selected-llm <value>      Optional frontend selected_llm override.
   --timeout-ms <n>            Run completion timeout. Default: 120000
   --replay-timeout-ms <n>     Durable replay wait timeout. Default: 5000`);
@@ -581,7 +661,7 @@ function parseScenarios(raw: string | undefined): SmokeScenario[] {
     if (!scenario) {
       continue;
     }
-    if (scenario !== "basic" && scenario !== "interrupt") {
+    if (scenario !== "basic" && scenario !== "interrupt" && scenario !== "background") {
       throw new Error(`Unknown smoke scenario: ${scenario}`);
     }
     if (!scenarios.includes(scenario)) {
