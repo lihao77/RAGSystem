@@ -23,6 +23,34 @@ export class AgentExecutionEventPublisher {
     private readonly conversationStore: ConversationStore,
   ) {}
 
+  publishSessionRunStarted(sessionId: string, runId: string, payload: Record<string, unknown>): void {
+    this.events.publish(sessionId, {
+      type: "session.run_started",
+      session_id: sessionId,
+      run_id: runId,
+      ...mirrorEventData(payload),
+    });
+  }
+
+  publishRunStartStep(sessionId: string, runId: string, payload: Record<string, unknown>): void {
+    this.addExecutionStep(sessionId, runId, payload);
+    this.events.publish(sessionId, {
+      type: "execution.step",
+      session_id: sessionId,
+      run_id: runId,
+      ...mirrorEventData(payload),
+    });
+  }
+
+  publishRunStart(sessionId: string, runId: string, payload: Record<string, unknown>): void {
+    this.events.publish(sessionId, {
+      type: "run.start",
+      session_id: sessionId,
+      run_id: runId,
+      ...mirrorEventData(payload),
+    });
+  }
+
   publishRootAgentStart(input: ExecutionEventContext & { task: string }): void {
     const agentName = input.agent.agent_name;
     const displayName = input.agent.display_name || agentName;

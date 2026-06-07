@@ -202,12 +202,7 @@ export class AgentExecutionService {
       requestId,
       agent: runtimeAgent,
     });
-    this.events.publish(sessionId, {
-      type: "session.run_started",
-      session_id: sessionId,
-      run_id: runId,
-      ...mirrorEventData(runStartPayload),
-    });
+    this.eventPublisher.publishSessionRunStarted(sessionId, runId, runStartPayload);
     this.events.publish(sessionId, {
       type: "output.message_saved",
       session_id: sessionId,
@@ -223,20 +218,9 @@ export class AgentExecutionService {
       agent: runtimeAgent,
       description: task,
     });
-    this.eventPublisher.addExecutionStep(sessionId, runId, startStepPayload);
-    this.events.publish(sessionId, {
-      type: "execution.step",
-      session_id: sessionId,
-      run_id: runId,
-      ...mirrorEventData(startStepPayload),
-    });
+    this.eventPublisher.publishRunStartStep(sessionId, runId, startStepPayload);
 
-    this.events.publish(sessionId, {
-      type: "run.start",
-      session_id: sessionId,
-      run_id: runId,
-      ...mirrorEventData(runStartPayload),
-    });
+    this.eventPublisher.publishRunStart(sessionId, runId, runStartPayload);
 
     const promise = this.runMinimalAgent({
       sessionId,
@@ -416,25 +400,9 @@ export class AgentExecutionService {
       executionKind,
       recoveredFrom: input.checkpoint.checkpoint_id,
     });
-    this.events.publish(sessionId, {
-      type: "session.run_started",
-      session_id: sessionId,
-      run_id: runId,
-      ...mirrorEventData(runStartPayload),
-    });
-    this.eventPublisher.addExecutionStep(sessionId, runId, startStepPayload);
-    this.events.publish(sessionId, {
-      type: "execution.step",
-      session_id: sessionId,
-      run_id: runId,
-      ...mirrorEventData(startStepPayload),
-    });
-    this.events.publish(sessionId, {
-      type: "run.start",
-      session_id: sessionId,
-      run_id: runId,
-      ...mirrorEventData(runStartPayload),
-    });
+    this.eventPublisher.publishSessionRunStarted(sessionId, runId, runStartPayload);
+    this.eventPublisher.publishRunStartStep(sessionId, runId, startStepPayload);
+    this.eventPublisher.publishRunStart(sessionId, runId, runStartPayload);
 
     const promise = this.runMinimalAgent({
       sessionId,
