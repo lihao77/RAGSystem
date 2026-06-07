@@ -1,10 +1,14 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
+import type { ClientEvent } from "../../../contracts/events.js";
 import type { ExecutionTaskStatus } from "../../../contracts/execution.js";
 import type { ContextCompressionEvent } from "../agent-context-compression-service.js";
 import type { AgentSessionApplication } from "../agent-session-application.js";
 import type { AgentRuntimeEvent } from "../agent-runtime-core.js";
 import type { ConversationStore } from "../../stores/conversation-store.js";
-import type { InMemoryEventBus } from "../../runtime/event-bus.js";
+import type {
+  DurableClientEventPublisher,
+  RecordedClientEvent,
+} from "../../runtime/event-outbox/client-event-publisher.js";
 import { asString, isRecord, mirrorEventData } from "./helpers.js";
 
 interface ExecutionEventContext {
@@ -19,12 +23,12 @@ interface ExecutionEventContext {
 export class AgentExecutionEventPublisher {
   constructor(
     private readonly sessions: AgentSessionApplication,
-    private readonly events: InMemoryEventBus,
+    private readonly clientEvents: DurableClientEventPublisher,
     private readonly conversationStore: ConversationStore,
   ) {}
 
   publishSessionRunStarted(sessionId: string, runId: string, payload: Record<string, unknown>): void {
-    this.events.publish(sessionId, {
+    this.publish(sessionId, {
       type: "session.run_started",
       session_id: sessionId,
       run_id: runId,
@@ -33,8 +37,7 @@ export class AgentExecutionEventPublisher {
   }
 
   publishRunStartStep(sessionId: string, runId: string, payload: Record<string, unknown>): void {
-    this.addExecutionStep(sessionId, runId, payload);
-    this.events.publish(sessionId, {
+    this.addExecutionStepAndPublish(sessionId, runId, payload, {
       type: "execution.step",
       session_id: sessionId,
       run_id: runId,
@@ -43,7 +46,7 @@ export class AgentExecutionEventPublisher {
   }
 
   publishRunStart(sessionId: string, runId: string, payload: Record<string, unknown>): void {
-    this.events.publish(sessionId, {
+    this.publish(sessionId, {
       type: "run.start",
       session_id: sessionId,
       run_id: runId,
@@ -56,7 +59,7 @@ export class AgentExecutionEventPublisher {
     runId: string | null | undefined,
     payload: Record<string, unknown>,
   ): void {
-    this.events.publish(sessionId, {
+    this.publish(sessionId, {
       type: "output.message_saved",
       session_id: sessionId,
       ...(runId ? { run_id: runId } : {}),
@@ -67,7 +70,7 @@ export class AgentExecutionEventPublisher {
   publishRootAgentStart(input: ExecutionEventContext & { task: string }): void {
     const agentName = input.agent.agent_name;
     const displayName = input.agent.display_name || agentName;
-    this.events.publish(input.sessionId, {
+    this.publish(input.sessionId, {
       type: "agent.start",
       session_id: input.sessionId,
       run_id: input.runId,
@@ -83,7 +86,7 @@ export class AgentExecutionEventPublisher {
         request_id: input.requestId,
       }),
     });
-    this.events.publish(input.sessionId, {
+    this.publish(input.sessionId, {
       type: "call.agent.start",
       session_id: input.sessionId,
       run_id: input.runId,
@@ -103,7 +106,7 @@ export class AgentExecutionEventPublisher {
   publishRootAgentEnd(input: ExecutionEventContext & { result: string; success: boolean }): void {
     const agentName = input.agent.agent_name;
     const displayName = input.agent.display_name || agentName;
-    this.events.publish(input.sessionId, {
+    this.publish(input.sessionId, {
       type: "call.agent.end",
       session_id: input.sessionId,
       run_id: input.runId,
@@ -134,7 +137,7 @@ export class AgentExecutionEventPublisher {
       execution_kind: status.execution_kind,
       request_id: status.request_id,
     };
-    this.events.publish(sessionId, {
+    this.publish(sessionId, {
       type: "user.interrupt",
       session_id: sessionId,
       ...(status.run_id ? { run_id: status.run_id } : {}),
@@ -153,31 +156,35 @@ export class AgentExecutionEventPublisher {
       request_id: input.requestId,
       agent_name: input.agent.agent_name,
     };
-    if (event.type === "context.compression_start") {
-      this.addExecutionStep(input.sessionId, input.runId, {
-        kind: "context",
-        phase: "compression_start",
-        ...payload,
-      });
-    } else if (event.type === "context.compression_summary") {
-      this.addExecutionStep(input.sessionId, input.runId, {
-        kind: "context",
-        phase: "compression_summary",
-        ...payload,
-      });
-    }
-    this.events.publish(input.sessionId, {
+    const clientEvent: ClientEvent = {
       type: event.type,
       session_id: input.sessionId,
       run_id: input.runId,
       agent_name: input.agent.agent_name,
       ...mirrorEventData(payload),
-    });
+    };
+    if (event.type === "context.compression_start") {
+      this.addExecutionStepAndPublish(input.sessionId, input.runId, {
+        kind: "context",
+        phase: "compression_start",
+        ...payload,
+      }, clientEvent);
+      return;
+    }
+    if (event.type === "context.compression_summary") {
+      this.addExecutionStepAndPublish(input.sessionId, input.runId, {
+        kind: "context",
+        phase: "compression_summary",
+        ...payload,
+      }, clientEvent);
+      return;
+    }
+    this.publish(input.sessionId, clientEvent);
   }
 
   publishRuntimeEvent(input: ExecutionEventContext, event: AgentRuntimeEvent): void {
     if (event.type === "runtime.first_token") {
-      this.events.publish(input.sessionId, {
+      this.publish(input.sessionId, {
         type: "llm.first_token",
         session_id: input.sessionId,
         run_id: input.runId,
@@ -192,7 +199,7 @@ export class AgentExecutionEventPublisher {
       return;
     }
     if (event.type === "runtime.output_delta") {
-      this.events.publish(input.sessionId, {
+      this.publish(input.sessionId, {
         type: "output.chunk",
         session_id: input.sessionId,
         run_id: input.runId,
@@ -207,7 +214,7 @@ export class AgentExecutionEventPublisher {
       return;
     }
     if (event.type === "runtime.intent_delta") {
-      this.events.publish(input.sessionId, {
+      this.publish(input.sessionId, {
         type: "agent.intent_delta",
         session_id: input.sessionId,
         run_id: input.runId,
@@ -243,42 +250,7 @@ export class AgentExecutionEventPublisher {
       return;
     }
     if (event.type === "runtime.intent_complete") {
-      const payload = {
-        kind: "intent",
-        phase: "complete",
-        call_id: input.rootCallId,
-        parent_call_id: null,
-        step_id: `${input.rootCallId}:round:${event.data.round}`,
-        parent_step_id: `${input.rootCallId}:run`,
-        agent_name: event.data.agent_name,
-        agent_display_name: input.agent.display_name || event.data.agent_name,
-        content: event.data.content,
-        round: event.data.round,
-        status: "completed",
-        run_id: input.runId,
-        task_id: input.taskId,
-        request_id: input.requestId,
-      };
-      this.addExecutionStep(input.sessionId, input.runId, payload);
-      this.events.publish(input.sessionId, {
-        type: "execution.step",
-        session_id: input.sessionId,
-        run_id: input.runId,
-        ...mirrorEventData(payload),
-      });
-      this.events.publish(input.sessionId, {
-        type: "agent.intent_complete",
-        session_id: input.sessionId,
-        run_id: input.runId,
-        ...mirrorEventData({
-          content: event.data.content,
-          agent_name: event.data.agent_name,
-          round: event.data.round,
-          run_id: input.runId,
-          task_id: input.taskId,
-          request_id: input.requestId,
-        }),
-      });
+      this.publishIntentComplete(input, event);
       return;
     }
     if (event.type === "runtime.tool_call") {
@@ -303,8 +275,7 @@ export class AgentExecutionEventPublisher {
         task_id: input.taskId,
         request_id: input.requestId,
       };
-      this.addExecutionStep(input.sessionId, input.runId, payload);
-      this.events.publish(input.sessionId, {
+      this.addExecutionStepAndPublish(input.sessionId, input.runId, payload, {
         type: "execution.step",
         session_id: input.sessionId,
         run_id: input.runId,
@@ -345,24 +316,95 @@ export class AgentExecutionEventPublisher {
         task_id: input.taskId,
         request_id: input.requestId,
       };
-      this.addExecutionStep(input.sessionId, input.runId, payload);
-      this.events.publish(input.sessionId, {
+      this.addExecutionStepAndPublish(input.sessionId, input.runId, payload, {
         type: "execution.step",
         session_id: input.sessionId,
         run_id: input.runId,
         ...mirrorEventData(payload),
       });
-      return;
     }
   }
 
-  addExecutionStep(sessionId: string, runId: string, payload: Record<string, unknown>): void {
-    this.conversationStore.addRunStep({
-      sessionId,
-      runId,
-      stepType: "execution.step",
-      payload,
+  private publishIntentComplete(
+    input: ExecutionEventContext,
+    event: Extract<AgentRuntimeEvent, { type: "runtime.intent_complete" }>,
+  ): void {
+    const payload = {
+      kind: "intent",
+      phase: "complete",
+      call_id: input.rootCallId,
+      parent_call_id: null,
+      step_id: `${input.rootCallId}:round:${event.data.round}`,
+      parent_step_id: `${input.rootCallId}:run`,
+      agent_name: event.data.agent_name,
+      agent_display_name: input.agent.display_name || event.data.agent_name,
+      content: event.data.content,
+      round: event.data.round,
+      status: "completed",
+      run_id: input.runId,
+      task_id: input.taskId,
+      request_id: input.requestId,
+    };
+    const records: RecordedClientEvent[] = this.conversationStore.runInTransaction((tx) => {
+      tx.addRunStep({
+        sessionId: input.sessionId,
+        runId: input.runId,
+        stepType: "execution.step",
+        payload,
+      });
+      return [
+        this.clientEvents.recordInTransaction(tx, input.sessionId, {
+          type: "execution.step",
+          session_id: input.sessionId,
+          run_id: input.runId,
+          ...mirrorEventData(payload),
+        }, { runId: input.runId, aggregateType: "run", aggregateId: input.runId }),
+        this.clientEvents.recordInTransaction(tx, input.sessionId, {
+          type: "agent.intent_complete",
+          session_id: input.sessionId,
+          run_id: input.runId,
+          ...mirrorEventData({
+            content: event.data.content,
+            agent_name: event.data.agent_name,
+            round: event.data.round,
+            run_id: input.runId,
+            task_id: input.taskId,
+            request_id: input.requestId,
+          }),
+        }, { runId: input.runId, aggregateType: "run", aggregateId: input.runId }),
+      ];
     });
+    this.clientEvents.deliver(records);
+  }
+
+  private publish(sessionId: string, event: ClientEvent): void {
+    this.clientEvents.publish(sessionId, event, {
+      runId: typeof event.run_id === "string" ? event.run_id : null,
+      aggregateType: typeof event.run_id === "string" ? "run" : "session",
+      aggregateId: typeof event.run_id === "string" ? event.run_id : sessionId,
+    });
+  }
+
+  private addExecutionStepAndPublish(
+    sessionId: string,
+    runId: string,
+    payload: Record<string, unknown>,
+    event: ClientEvent,
+  ): void {
+    const record = this.conversationStore.runInTransaction((tx) => {
+      tx.addRunStep({
+        sessionId,
+        runId,
+        stepType: "execution.step",
+        payload,
+      });
+      return this.clientEvents.recordInTransaction(tx, sessionId, event, {
+        runId,
+        aggregateType: "run",
+        aggregateId: runId,
+      });
+    });
+    this.clientEvents.deliver([record]);
   }
 
   private persistReactIntermediate(

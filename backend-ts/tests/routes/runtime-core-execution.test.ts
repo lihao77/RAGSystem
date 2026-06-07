@@ -334,6 +334,13 @@ describe("minimal runtime core execution", () => {
     ]);
     const outboxRows = listRunOutbox(harness, "runtime-session", started.json().data.run_id);
     expect(outboxRows.map((row) => row.event_type)).toEqual([
+      "client.session.run_started",
+      "client.output.message_saved",
+      "client.execution.step",
+      "client.run.start",
+      "client.agent.start",
+      "client.call.agent.start",
+      "client.context.usage",
       "execution.step_recorded",
       "run.final_answer_recorded",
       "agent.call_finished",
@@ -341,10 +348,23 @@ describe("minimal runtime core execution", () => {
       "message.saved",
       "run.completed",
     ]);
-    expect(outboxRows.map((row) => row.status)).toEqual(Array.from({ length: 6 }, () => "delivered"));
+    expect(outboxRows.map((row) => row.status)).toEqual(Array.from({ length: outboxRows.length }, () => "delivered"));
     expect(harness.container.conversationStore.fetchPendingOutbox(10)).toEqual([]);
-    expect(extractTerminalEvents(history, started.json().data.run_id).map((event) => event.event_seq)).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(projectOutboxEventTypes(outboxRows)).toEqual([
+    expect(history.filter((event) => event.run_id === started.json().data.run_id).every((event) => event.event_seq !== undefined)).toBe(true);
+    const terminalOutboxRows = filterTerminalOutboxRows(outboxRows);
+    expect(terminalOutboxRows.map((row) => row.event_type)).toEqual([
+      "execution.step_recorded",
+      "run.final_answer_recorded",
+      "agent.call_finished",
+      "execution.step_recorded",
+      "message.saved",
+      "run.completed",
+    ]);
+    const terminalSeq = extractTerminalEvents(history, started.json().data.run_id).map((event) => event.event_seq);
+    expect(terminalSeq).toHaveLength(6);
+    expect(terminalSeq.every((seq) => typeof seq === "number" && seq > 1)).toBe(true);
+    expect([...terminalSeq].sort((left, right) => Number(left) - Number(right))).toEqual(terminalSeq);
+    expect(projectOutboxEventTypes(terminalOutboxRows)).toEqual([
       "execution.step",
       "output.final_answer",
       "call.agent.end",
@@ -396,7 +416,23 @@ describe("minimal runtime core execution", () => {
       undefined,
       undefined,
     ]);
-    expect(harness.container.conversationStore.fetchPendingOutbox(10).map((row) => row.event_type)).toEqual([
+    const pendingRows = harness.container.conversationStore.fetchPendingOutbox(100);
+    expect(pendingRows.map((row) => row.event_type)).toEqual([
+      "client.session.run_started",
+      "client.output.message_saved",
+      "client.execution.step",
+      "client.run.start",
+      "client.agent.start",
+      "client.call.agent.start",
+      "client.context.usage",
+      "execution.step_recorded",
+      "run.final_answer_recorded",
+      "agent.call_finished",
+      "execution.step_recorded",
+      "message.saved",
+      "run.completed",
+    ]);
+    expect(filterTerminalOutboxRows(pendingRows).map((row) => row.event_type)).toEqual([
       "execution.step_recorded",
       "run.final_answer_recorded",
       "agent.call_finished",
@@ -1458,14 +1494,29 @@ describe("minimal runtime core execution", () => {
     ]);
     const outboxRows = listRunOutbox(harness, "interrupt-session", started.json().data.run_id);
     expect(outboxRows.map((row) => row.event_type)).toEqual([
+      "client.session.run_started",
+      "client.output.message_saved",
+      "client.execution.step",
+      "client.run.start",
+      "client.agent.start",
+      "client.call.agent.start",
+      "client.context.usage",
+      "client.user.interrupt",
       "agent.call_finished",
       "execution.step_recorded",
       "run.error_reported",
       "run.interrupted",
     ]);
-    expect(outboxRows.map((row) => row.status)).toEqual(Array.from({ length: 4 }, () => "delivered"));
+    const terminalOutboxRows = filterTerminalOutboxRows(outboxRows);
+    expect(terminalOutboxRows.map((row) => row.event_type)).toEqual([
+      "agent.call_finished",
+      "execution.step_recorded",
+      "run.error_reported",
+      "run.interrupted",
+    ]);
+    expect(outboxRows.map((row) => row.status)).toEqual(Array.from({ length: outboxRows.length }, () => "delivered"));
     expect(harness.container.conversationStore.fetchPendingOutbox(10)).toEqual([]);
-    expect(projectOutboxEventTypes(outboxRows)).toEqual([
+    expect(projectOutboxEventTypes(terminalOutboxRows)).toEqual([
       "call.agent.end",
       "execution.step",
       "agent.error",
@@ -1533,14 +1584,28 @@ describe("minimal runtime core execution", () => {
     ]);
     const outboxRows = listRunOutbox(harness, "failed-runtime-session", started.json().data.run_id);
     expect(outboxRows.map((row) => row.event_type)).toEqual([
+      "client.session.run_started",
+      "client.output.message_saved",
+      "client.execution.step",
+      "client.run.start",
+      "client.agent.start",
+      "client.call.agent.start",
+      "client.context.usage",
       "agent.call_finished",
       "execution.step_recorded",
       "run.error_reported",
       "run.failed",
     ]);
-    expect(outboxRows.map((row) => row.status)).toEqual(Array.from({ length: 4 }, () => "delivered"));
+    const terminalOutboxRows = filterTerminalOutboxRows(outboxRows);
+    expect(terminalOutboxRows.map((row) => row.event_type)).toEqual([
+      "agent.call_finished",
+      "execution.step_recorded",
+      "run.error_reported",
+      "run.failed",
+    ]);
+    expect(outboxRows.map((row) => row.status)).toEqual(Array.from({ length: outboxRows.length }, () => "delivered"));
     expect(harness.container.conversationStore.fetchPendingOutbox(10)).toEqual([]);
-    expect(projectOutboxEventTypes(outboxRows)).toEqual([
+    expect(projectOutboxEventTypes(terminalOutboxRows)).toEqual([
       "call.agent.end",
       "execution.step",
       "agent.error",
@@ -1609,14 +1674,29 @@ function listRunOutbox(
     sessionId,
     runId,
     afterSeq: 0,
-    limit: 10,
+    limit: 100,
   });
+}
+
+function filterTerminalOutboxRows(rows: OutboxRow[]): OutboxRow[] {
+  return rows.filter((row) => TERMINAL_OUTBOX_EVENT_TYPES.has(row.event_type));
 }
 
 function projectOutboxEventTypes(rows: OutboxRow[]) {
   const projector = new ClientEventProjector();
   return rows.map((row) => projector.toClientEvent(row).type);
 }
+
+const TERMINAL_OUTBOX_EVENT_TYPES = new Set([
+  "execution.step_recorded",
+  "run.final_answer_recorded",
+  "agent.call_finished",
+  "message.saved",
+  "run.completed",
+  "run.error_reported",
+  "run.failed",
+  "run.interrupted",
+]);
 
 function extractTerminalEvents(history: ClientEvent[], runId: string): ClientEvent[] {
   return history.filter((event) => {

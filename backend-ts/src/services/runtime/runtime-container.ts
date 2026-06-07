@@ -32,6 +32,7 @@ import { SystemConfigService } from "../config/system-config-service.js";
 import { TaskToolService } from "../tools/task-tool-service.js";
 import { VectorLibraryService } from "../knowledge/vector-library-service.js";
 import { OutboxDispatcher } from "./event-outbox/dispatcher.js";
+import { DurableClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 import {
   DEFAULT_TERMINAL_EVENT_DELIVERY_MODE,
   type TerminalEventDeliveryMode,
@@ -67,6 +68,7 @@ export interface RuntimeContainer {
   readonly contextCompression: AgentContextCompressionService;
   readonly agentDelegation: AgentDelegationService;
   readonly outboxDispatcher: OutboxDispatcher;
+  readonly clientEvents: DurableClientEventPublisher;
   readonly terminalEventDelivery: TerminalEventDeliveryMode;
   close(): void;
 }
@@ -98,6 +100,12 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   if (options.startOutboxDispatcher ?? terminalEventDelivery === "outbox_live") {
     outboxDispatcher.start(options.outboxDispatcherIntervalMs);
   }
+  const clientEvents = new DurableClientEventPublisher(
+    conversationStore,
+    events,
+    outboxDispatcher,
+    terminalEventDelivery,
+  );
   const permissionPolicy = new PermissionPolicyService();
   const agentConfig = new AgentConfigService({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot });
   const modelAdapter = new ModelAdapterService({
@@ -159,6 +167,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     {
       terminalEventDelivery,
       outboxDispatcher,
+      clientEvents,
     },
   );
   let closed = false;
@@ -199,6 +208,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     contextCompression,
     agentDelegation,
     outboxDispatcher,
+    clientEvents,
     terminalEventDelivery,
     close,
   };

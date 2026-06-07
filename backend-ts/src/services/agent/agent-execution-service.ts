@@ -29,6 +29,7 @@ import type { RuntimeExecutionConfigResolver } from "../runtime/runtime-core-ser
 import type { RuntimeToolExecutor } from "../runtime/runtime-tool-types.js";
 import type { TerminalEventDeliveryMode } from "../runtime/event-delivery-mode.js";
 import type { OutboxDispatcher } from "../runtime/event-outbox/dispatcher.js";
+import type { DurableClientEventPublisher } from "../runtime/event-outbox/client-event-publisher.js";
 import { AgentExecutionEventPublisher } from "./agent-execution-service/event-publisher.js";
 import { ExecutionRecorder, type RunTerminalRecord } from "./agent-execution-service/recorder.js";
 import { AgentExecutionStatusTracker } from "./agent-execution-service/status-tracker.js";
@@ -54,6 +55,7 @@ import {
 export interface AgentExecutionServiceOptions {
   terminalEventDelivery?: TerminalEventDeliveryMode | undefined;
   outboxDispatcher?: Pick<OutboxDispatcher, "dispatchRows"> | null | undefined;
+  clientEvents?: DurableClientEventPublisher | undefined;
 }
 
 export class AgentExecutionService {
@@ -63,6 +65,7 @@ export class AgentExecutionService {
   private readonly executionRecorder: ExecutionRecorder;
   private readonly terminalEventDelivery: TerminalEventDeliveryMode;
   private readonly outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows"> | null;
+  private readonly clientEvents: DurableClientEventPublisher;
 
   constructor(
     private readonly sessions: AgentSessionApplication,
@@ -77,7 +80,11 @@ export class AgentExecutionService {
     private readonly backgroundTasks: BackgroundTaskService | null = null,
     options: AgentExecutionServiceOptions = {},
   ) {
-    this.eventPublisher = new AgentExecutionEventPublisher(sessions, events, conversationStore);
+    if (!options.clientEvents) {
+      throw new Error("AgentExecutionService requires a durable client event publisher");
+    }
+    this.clientEvents = options.clientEvents;
+    this.eventPublisher = new AgentExecutionEventPublisher(sessions, this.clientEvents, conversationStore);
     this.executionRecorder = new ExecutionRecorder(conversationStore);
     this.terminalEventDelivery = options.terminalEventDelivery ?? "sync";
     this.outboxDispatcher = options.outboxDispatcher ?? null;
@@ -524,7 +531,7 @@ export class AgentExecutionService {
         requestId: input.requestId,
         compressionResult,
       });
-      this.events.publish(input.sessionId, {
+      this.clientEvents.publish(input.sessionId, {
         type: "context.usage",
         session_id: input.sessionId,
         run_id: input.runId,
@@ -629,15 +636,21 @@ export class AgentExecutionService {
             metadata: finalMetadata,
           }),
         });
-        this.eventPublisher.publishRootAgentEnd({
-          sessionId: input.sessionId,
-          runId: input.runId,
-          taskId: input.taskId,
-          requestId: input.requestId,
-          rootCallId: input.rootCallId,
-          agent: input.agent,
-          result: response.content,
-          success: true,
+        this.events.publish(input.sessionId, {
+          type: "call.agent.end",
+          session_id: input.sessionId,
+          run_id: input.runId,
+          agent_name: input.agent.agent_name,
+          call_id: input.rootCallId,
+          ...mirrorEventData({
+            agent_name: input.agent.agent_name,
+            result: response.content.slice(0, 500),
+            success: true,
+            agent_display_name: input.agent.display_name || input.agent.agent_name,
+            run_id: input.runId,
+            task_id: input.taskId,
+            request_id: input.requestId,
+          }),
         });
         this.events.publish(input.sessionId, {
           type: "execution.step",
@@ -645,13 +658,18 @@ export class AgentExecutionService {
           run_id: input.runId,
           ...mirrorEventData(runEndStepPayload),
         });
-        this.eventPublisher.publishOutputMessageSaved(input.sessionId, input.runId, {
-          id: assistantMessage.id,
-          seq: assistantMessage.seq,
-          role: assistantMessage.role,
+        this.events.publish(input.sessionId, {
+          type: "output.message_saved",
+          session_id: input.sessionId,
           run_id: input.runId,
-          task_id: input.taskId,
-          request_id: input.requestId,
+          ...mirrorEventData({
+            id: assistantMessage.id,
+            seq: assistantMessage.seq,
+            role: assistantMessage.role,
+            run_id: input.runId,
+            task_id: input.taskId,
+            request_id: input.requestId,
+          }),
         });
         this.events.publish(input.sessionId, {
           type: "run.end",
@@ -704,15 +722,21 @@ export class AgentExecutionService {
         finalMetadata,
       });
       this.deliverTerminalRecord(terminalRecord, () => {
-        this.eventPublisher.publishRootAgentEnd({
-          sessionId: input.sessionId,
-          runId: input.runId,
-          taskId: input.taskId,
-          requestId: input.requestId,
-          rootCallId: input.rootCallId,
-          agent: input.agent,
-          result: interrupted ? "[已停止生成]" : errorMessage,
-          success: false,
+        this.events.publish(input.sessionId, {
+          type: "call.agent.end",
+          session_id: input.sessionId,
+          run_id: input.runId,
+          agent_name: input.agent.agent_name,
+          call_id: input.rootCallId,
+          ...mirrorEventData({
+            agent_name: input.agent.agent_name,
+            result: (interrupted ? "[已停止生成]" : errorMessage).slice(0, 500),
+            success: false,
+            agent_display_name: input.agent.display_name || input.agent.agent_name,
+            run_id: input.runId,
+            task_id: input.taskId,
+            request_id: input.requestId,
+          }),
         });
         this.events.publish(input.sessionId, {
           type: "execution.step",
