@@ -584,6 +584,7 @@ export class AgentExecutionService {
         requestId: input.requestId,
         rootCallId: input.rootCallId,
         agentName: input.agent.agent_name,
+        agentDisplayName: input.agent.display_name || input.agent.agent_name,
         finalMessage: {
           id: assistantMessageId,
           content: response.content,
@@ -678,6 +679,7 @@ export class AgentExecutionService {
         requestId: input.requestId,
         rootCallId: input.rootCallId,
         agentName: input.agent.agent_name,
+        agentDisplayName: input.agent.display_name || input.agent.agent_name,
         errorMessage,
         errorType: interrupted ? "InterruptedError" : "ExecutionError",
         agentResult: interrupted ? "[已停止生成]" : errorMessage,

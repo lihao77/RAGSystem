@@ -6,6 +6,7 @@ import type { FastifyInstance } from "fastify";
 
 import type { ClientEvent } from "../../src/contracts/events.js";
 import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
+import { ClientEventProjector } from "../../src/services/runtime/event-outbox/projector.js";
 import { buildTestHarness } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
@@ -337,6 +338,14 @@ describe("minimal runtime core execution", () => {
       "execution.step_recorded",
       "message.saved",
       "run.completed",
+    ]);
+    expect(projectOutboxEventTypes(harness.container.conversationStore.fetchPendingOutbox(10))).toEqual([
+      "execution.step",
+      "output.final_answer",
+      "call.agent.end",
+      "execution.step",
+      "output.message_saved",
+      "run.end",
     ]);
   });
 
@@ -1391,6 +1400,12 @@ describe("minimal runtime core execution", () => {
       "run.error_reported",
       "run.interrupted",
     ]);
+    expect(projectOutboxEventTypes(harness.container.conversationStore.fetchPendingOutbox(10))).toEqual([
+      "call.agent.end",
+      "execution.step",
+      "agent.error",
+      "run.end",
+    ]);
   });
 
   it("publishes the failed terminal event sequence when the provider fails", async () => {
@@ -1457,6 +1472,12 @@ describe("minimal runtime core execution", () => {
       "run.error_reported",
       "run.failed",
     ]);
+    expect(projectOutboxEventTypes(harness.container.conversationStore.fetchPendingOutbox(10))).toEqual([
+      "call.agent.end",
+      "execution.step",
+      "agent.error",
+      "run.end",
+    ]);
   });
 });
 
@@ -1509,6 +1530,11 @@ async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void
 
 function expectTerminalEventTypes(history: ClientEvent[], runId: string) {
   return expect(extractTerminalEvents(history, runId).map((event) => event.type));
+}
+
+function projectOutboxEventTypes(rows: Parameters<ClientEventProjector["toClientEvent"]>[0][]) {
+  const projector = new ClientEventProjector();
+  return rows.map((row) => projector.toClientEvent(row).type);
 }
 
 function extractTerminalEvents(history: ClientEvent[], runId: string): ClientEvent[] {

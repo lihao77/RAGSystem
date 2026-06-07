@@ -12,6 +12,7 @@ export interface RunCompletedRecordInput {
   requestId: string;
   rootCallId: string;
   agentName: string;
+  agentDisplayName: string;
   finalMessage: {
     id: string;
     content: string;
@@ -30,6 +31,7 @@ export interface RunFailedRecordInput {
   requestId: string;
   rootCallId: string;
   agentName: string;
+  agentDisplayName: string;
   errorMessage: string;
   errorType: "ExecutionError" | "InterruptedError";
   agentResult: string;
@@ -220,6 +222,7 @@ function commonEventData(input: {
   taskId: string;
   requestId: string;
   agentName: string;
+  agentDisplayName: string;
 }): Record<string, unknown> {
   return {
     session_id: input.sessionId,
@@ -227,5 +230,6 @@ function commonEventData(input: {
     task_id: input.taskId,
     request_id: input.requestId,
     agent_name: input.agentName,
+    agent_display_name: input.agentDisplayName,
   };
 }
