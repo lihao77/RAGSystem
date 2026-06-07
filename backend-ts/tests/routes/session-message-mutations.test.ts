@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
+import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
 import { buildTestHarness } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
@@ -124,6 +125,84 @@ describe("session message mutation routes", () => {
     expect(messages.json().data.items.map((item: { content: string }) => item.content)).toEqual(["keep"]);
   });
 
+  it("rolls back to a user message, optionally edits it, and starts retry execution", async () => {
+    const chatClient = new FakeChatClient("retried answer");
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+    await createDefaultChatProvider(app);
+
+    harness.container.sessionApplication.createSession({ sessionId: "retry-session" });
+    const anchor = harness.container.sessionApplication.addMessage({
+      sessionId: "retry-session",
+      role: "user",
+      content: "old task",
+    });
+    harness.container.sessionApplication.addMessage({
+      sessionId: "retry-session",
+      role: "assistant",
+      content: "old answer",
+      metadata: { run_id: "old-run" },
+    });
+    harness.container.sessionApplication.addMessage({
+      sessionId: "retry-session",
+      role: "user",
+      content: "follow-up to delete",
+    });
+
+    const retry = await app.inject({
+      method: "POST",
+      url: "/api/agent/sessions/retry-session/rollback-and-retry",
+      headers: { "x-request-id": "req-retry-1" },
+      payload: {
+        after_seq: anchor.seq,
+        modify_user_message: "new task",
+      },
+    });
+
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json()).toMatchObject({
+      success: true,
+      message: "重试已启动",
+      data: {
+        started: true,
+        deleted: 2,
+        request_id: "req-retry-1",
+        kind: "agent_run",
+        status: "started",
+        success: true,
+      },
+    });
+
+    await waitFor(() => harness.container.agentExecution.getSessionTaskStatus("retry-session").task_info?.status === "completed");
+
+    expect(chatClient.requests).toHaveLength(1);
+    expect(chatClient.requests[0]?.messages.at(-1)?.content).toContain("new task");
+    const messages = await app.inject({
+      method: "GET",
+      url: "/api/agent/sessions/retry-session/messages?expand=1",
+    });
+    expect(messages.json().data.items).toEqual([
+      expect.objectContaining({
+        id: anchor.id,
+        role: "user",
+        content: "new task",
+        metadata: expect.objectContaining({
+          retry_modified_at: expect.any(String),
+        }),
+      }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "retried answer",
+        has_execution: true,
+        metadata: expect.objectContaining({
+          execution_kind: "rollback_and_retry",
+          retry_of_seq: anchor.seq,
+          retry_of_message_id: anchor.id,
+        }),
+      }),
+    ]);
+  });
+
   it("exports session JSON with visible messages and expanded steps", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
@@ -179,3 +258,41 @@ describe("session message mutation routes", () => {
     });
   });
 });
+
+class FakeChatClient implements LlmChatClient {
+  readonly requests: ChatCompletionRequest[] = [];
+
+  constructor(private readonly content: string) {}
+
+  async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
+    this.requests.push(request);
+    return { content: this.content };
+  }
+}
+
+async function createDefaultChatProvider(app: FastifyInstance): Promise<void> {
+  const provider = await app.inject({
+    method: "POST",
+    url: "/api/model-adapter/providers",
+    payload: {
+      name: "my",
+      provider_type: "deepseek",
+      api_key: "sk-test",
+      model_map: {
+        chat: "deepseek-chat",
+      },
+    },
+  });
+  expect(provider.statusCode).toBe(200);
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("Timed out waiting for condition");
+}

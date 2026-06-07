@@ -6,6 +6,7 @@ import type {
   CheckpointRecoveryStartResult,
   ExecutionOverview,
   ExecutionTaskStatus,
+  RollbackRetryStartResult,
   RunningTasksResult,
   ScopedExecutionDiagnostics,
   ScopedTaskStatus,
@@ -283,6 +284,123 @@ export class AgentExecutionService {
     return true;
   }
 
+  async startRollbackRetry(input: {
+    sessionId: string;
+    userId?: string | null;
+    requestId: string;
+    afterSeq?: number | null;
+    afterMessageId?: string | null;
+    modifyUserMessage?: string | null;
+    selectedLlm?: string | null;
+  }): Promise<RollbackRetryStartResult> {
+    const sessionId = input.sessionId.trim();
+    if (!sessionId) {
+      return {
+        started: false,
+        session_id: input.sessionId,
+        deleted: 0,
+        error: "session_id is required",
+      };
+    }
+    if (input.afterSeq == null && !input.afterMessageId?.trim()) {
+      return {
+        started: false,
+        session_id: sessionId,
+        deleted: 0,
+        error: "请提供 after_seq 或 after_message_id",
+      };
+    }
+    const runningStatus = this.statusTracker.getStatusBySession(sessionId);
+    if (runningStatus?.status === "running") {
+      return {
+        started: false,
+        session_id: sessionId,
+        deleted: 0,
+        error: "该会话正在执行任务，请等待完成或停止当前任务",
+      };
+    }
+
+    const prepareInput: {
+      sessionId: string;
+      afterSeq?: number | null;
+      afterMessageId?: string | null;
+      modifyUserMessage?: string | null;
+    } = { sessionId };
+    if (input.afterSeq !== undefined) {
+      prepareInput.afterSeq = input.afterSeq;
+    }
+    if (input.afterMessageId !== undefined) {
+      prepareInput.afterMessageId = input.afterMessageId;
+    }
+    if (input.modifyUserMessage !== undefined) {
+      prepareInput.modifyUserMessage = input.modifyUserMessage;
+    }
+    const prepared = this.sessions.prepareRetry(prepareInput);
+    const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
+    const resolveInput: {
+      agentName?: string | null;
+      teamName?: string | null;
+      selectedLlm?: string | null;
+    } = {
+      agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
+      teamName: asString(sessionMetadata.team),
+    };
+    if (input.selectedLlm !== undefined) {
+      resolveInput.selectedLlm = input.selectedLlm;
+    }
+    const resolved = this.runtimeCore.resolveExecutionConfig(resolveInput);
+    if (!resolved.readiness.configuration_ready || !resolved.agent || !resolved.provider || !resolved.modelName) {
+      return {
+        started: false,
+        session_id: sessionId,
+        deleted: prepared.deleted,
+        error: summarizeReadinessFailure(resolved.readiness.requirements),
+      };
+    }
+    if (!this.sessions.getSession(sessionId)) {
+      this.sessions.createSession({ sessionId, userId: input.userId ?? null });
+    }
+
+    const runtimeAgent = applySessionAgentOverrides(resolved.agent, sessionMetadata);
+    const started = this.startAgentRun({
+      sessionId,
+      userId: input.userId ?? null,
+      requestId: input.requestId,
+      task: prepared.task,
+      executionKind: "rollback_and_retry",
+      entrypoint: "rollback_and_retry",
+      agent: runtimeAgent,
+      provider: resolved.provider,
+      modelName: resolved.modelName,
+      existingUserMessageId: prepared.message.id,
+      userMessageSavedPayload: {
+        id: prepared.message.id,
+        seq: prepared.message.seq,
+        role: prepared.message.role,
+        retry_of_seq: prepared.message.seq,
+        retry_of_message_id: prepared.message.id,
+      },
+      startStepExtra: {
+        retry_of_seq: prepared.message.seq,
+        retry_of_message_id: prepared.message.id,
+      },
+      runStartExtra: {
+        retry_of_seq: prepared.message.seq,
+        retry_of_message_id: prepared.message.id,
+      },
+      finalMetadataExtra: {
+        retry_of_seq: prepared.message.seq,
+        retry_of_message_id: prepared.message.id,
+      },
+    });
+
+    return {
+      ...started,
+      deleted: prepared.deleted,
+      agent_name: runtimeAgent.agent_name,
+    };
+  }
+
   getSessionTaskStatus(sessionId: string): SessionTaskStatus {
     return this.statusTracker.getSessionTaskStatus(sessionId);
   }
@@ -460,6 +578,117 @@ export class AgentExecutionService {
       checkpoint_id: input.checkpoint.checkpoint_id,
       round: input.checkpoint.round,
       agent_name: runtimeAgent.agent_name,
+    };
+  }
+
+  private startAgentRun(input: {
+    sessionId: string;
+    userId?: string | null;
+    requestId: string;
+    task: string;
+    executionKind: string;
+    entrypoint?: string | undefined;
+    agent: AgentConfig;
+    provider: ModelProviderConfig;
+    modelName: string;
+    existingUserMessageId?: string | undefined;
+    userMessageSavedPayload?: Record<string, unknown> | undefined;
+    runStartExtra?: Record<string, unknown> | undefined;
+    startStepExtra?: Record<string, unknown> | undefined;
+    contextConversation?: ChatMessage[] | undefined;
+    conversationUpdateProvider?: (() => Promise<ChatMessage[]> | ChatMessage[]) | undefined;
+    finalMetadataExtra?: Record<string, unknown> | undefined;
+  }): AgentRunStartResult {
+    const runId = randomUUID();
+    const taskId = randomUUID();
+    const rootCallId = `call_${randomUUID()}`;
+    const startedAt = new Date();
+    const abortController = new AbortController();
+    const status = buildRunningExecutionStatus({
+      taskId,
+      sessionId: input.sessionId,
+      runId,
+      requestId: input.requestId,
+      executionKind: input.executionKind,
+      task: input.task,
+      startedAt,
+    });
+
+    this.conversationStore.createRun({
+      runId,
+      sessionId: input.sessionId,
+      entrypoint: input.entrypoint ?? input.executionKind,
+      status: "running",
+      taskSummary: input.task.slice(0, 200),
+      userId: input.userId ?? null,
+      agentName: input.agent.agent_name,
+      threadKey: "root",
+    });
+
+    const runStartPayload = {
+      ...buildRunStartPayload({
+        runId,
+        taskId,
+        requestId: input.requestId,
+        agent: input.agent,
+        executionKind: input.executionKind,
+      }),
+      ...(input.runStartExtra ?? {}),
+    };
+    const startStepPayload = {
+      ...buildRunStartStepPayload({
+        rootCallId,
+        runId,
+        taskId,
+        requestId: input.requestId,
+        agent: input.agent,
+        description: input.task,
+        executionKind: input.executionKind,
+      }),
+      ...(input.startStepExtra ?? {}),
+    };
+
+    this.eventPublisher.publishSessionRunStarted(input.sessionId, runId, runStartPayload);
+    if (input.userMessageSavedPayload) {
+      this.eventPublisher.publishOutputMessageSaved(input.sessionId, runId, {
+        ...input.userMessageSavedPayload,
+        run_id: runId,
+        task_id: taskId,
+        request_id: input.requestId,
+        execution_kind: input.executionKind,
+      });
+    }
+    this.eventPublisher.publishRunStartStep(input.sessionId, runId, startStepPayload);
+    this.eventPublisher.publishRunStart(input.sessionId, runId, runStartPayload);
+
+    const promise = this.runMinimalAgent({
+      sessionId: input.sessionId,
+      runId,
+      taskId,
+      rootCallId,
+      requestId: input.requestId,
+      task: input.task,
+      startedAt,
+      abortController,
+      status,
+      agent: input.agent,
+      provider: input.provider,
+      modelName: input.modelName,
+      userMessageId: input.existingUserMessageId,
+      conversationUpdateProvider: input.conversationUpdateProvider,
+      executionKind: input.executionKind,
+      contextConversation: input.contextConversation,
+      finalMetadataExtra: input.finalMetadataExtra,
+    });
+    this.statusTracker.register(taskId, input.sessionId, { abortController, status, promise });
+
+    return {
+      started: true,
+      session_id: input.sessionId,
+      run_id: runId,
+      task_id: taskId,
+      request_id: input.requestId,
+      kind: "agent_run",
     };
   }
 

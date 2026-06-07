@@ -326,6 +326,17 @@ export class ConversationStore {
     return row ? rowToMessage(row) : null;
   }
 
+  getMessageById(sessionId: string, messageId: string): MessageInfo | null {
+    const row = this.db
+      .prepare(`
+        SELECT seq, id, session_id, role, content, metadata, thread_key, child_agent_id, created_at
+        FROM messages
+        WHERE session_id=? AND id=?
+      `)
+      .get(sessionId, messageId) as MessageRow | undefined;
+    return row ? rowToMessage(row) : null;
+  }
+
   getRecentMessages(sessionId: string, limit = 20, threadKey?: string | null): MessageInfo[] {
     return this.listMessages(sessionId, limit, 0, threadKey).items;
   }

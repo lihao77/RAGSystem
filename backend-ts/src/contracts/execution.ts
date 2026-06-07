@@ -77,6 +77,11 @@ export interface CheckpointRecoveryStartResult extends AgentRunStartResult {
   agent_name: string;
 }
 
+export interface RollbackRetryStartResult extends AgentRunStartResult {
+  deleted: number;
+  agent_name?: string | undefined;
+}
+
 export interface ExecutionObservability {
   task_id: string | null;
   session_id: string | null;

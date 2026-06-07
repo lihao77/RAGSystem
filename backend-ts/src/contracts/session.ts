@@ -29,6 +29,13 @@ export const RollbackRequestSchema = z.object({
   after_message_id: z.string().nullable().optional(),
 });
 
+export const RollbackAndRetryRequestSchema = RollbackRequestSchema.extend({
+  modify_user_message: z.string().nullable().optional(),
+  user_id: z.string().nullable().optional(),
+  selected_llm: z.string().nullable().optional(),
+  selectedLLM: z.string().nullable().optional(),
+});
+
 export const RecoverSessionRequestSchema = z.object({
   checkpoint_id: z.string().nullable().optional(),
   agent_name: z.string().nullable().optional(),
@@ -38,6 +45,7 @@ export const RecoverSessionRequestSchema = z.object({
 export type CreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>;
 export type UpdateMessageRequest = z.infer<typeof UpdateMessageRequestSchema>;
 export type RollbackRequest = z.infer<typeof RollbackRequestSchema>;
+export type RollbackAndRetryRequest = z.infer<typeof RollbackAndRetryRequestSchema>;
 export type RecoverSessionRequest = z.infer<typeof RecoverSessionRequestSchema>;
 
 export interface SessionInfo {

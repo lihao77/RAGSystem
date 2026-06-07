@@ -68,5 +68,14 @@ Known gaps to close:
 - [x] MCP runtime.
 - [x] Daemon runtime.
 - [ ] File history rollback/retry.
+  - [x] Session rollback-and-retry execution flow.
+  - [ ] File-history snapshot creation and workspace restore.
 - [ ] Provider parity.
 - [ ] Final parity pass.
+
+## Validation Log
+
+- 2026-06-08 session rollback-and-retry:
+  - `npm run typecheck`
+  - `npx vitest run tests/routes/session-message-mutations.test.ts tests/services/agent-session-application.test.ts`
+  - `npx vitest run tests/routes/runtime-core-execution.test.ts tests/routes/session-checkpoints.test.ts tests/services/agent-runtime-core.test.ts`

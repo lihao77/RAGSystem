@@ -6,10 +6,11 @@ import { ok } from "../../contracts/common.js";
 import {
   CreateSessionRequestSchema,
   RecoverSessionRequestSchema,
+  RollbackAndRetryRequestSchema,
   RollbackRequestSchema,
   UpdateMessageRequestSchema,
 } from "../../contracts/session.js";
-import { HttpError, NotMigratedError } from "../../utils/errors.js";
+import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 
 interface SessionParams {
@@ -138,8 +139,59 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
     return ok({ deleted }, "回退成功");
   });
 
-  app.post<{ Params: SessionParams }>("/sessions/:sessionId/rollback-and-retry", async () => {
-    throw new NotMigratedError("Session rollback and retry");
+  app.post<{ Params: SessionParams }>("/sessions/:sessionId/rollback-and-retry", async (request) => {
+    const payload = RollbackAndRetryRequestSchema.parse(request.body);
+    if (payload.after_seq == null && !payload.after_message_id) {
+      throw new HttpError(400, "invalid_request", "请提供 after_seq 或 after_message_id");
+    }
+    try {
+      const retryInput: {
+        sessionId: string;
+        userId?: string | null;
+        requestId: string;
+        afterSeq?: number | null;
+        afterMessageId?: string | null;
+        modifyUserMessage?: string | null;
+        selectedLlm?: string | null;
+      } = {
+        sessionId: request.params.sessionId,
+        userId: payload.user_id ?? null,
+        requestId: request.headers["x-request-id"]?.toString() ?? randomUUID(),
+        selectedLlm: payload.selected_llm ?? payload.selectedLLM ?? null,
+      };
+      if (payload.after_seq !== undefined) {
+        retryInput.afterSeq = payload.after_seq;
+      }
+      if (payload.after_message_id !== undefined) {
+        retryInput.afterMessageId = payload.after_message_id;
+      }
+      if (payload.modify_user_message !== undefined) {
+        retryInput.modifyUserMessage = payload.modify_user_message;
+      }
+      const result = await options.container.agentExecution.startRollbackRetry(retryInput);
+      if (!result.started) {
+        throw new HttpError(400, "invalid_request", result.error ?? "重试启动失败");
+      }
+      return ok(
+        {
+          ...result,
+          answer: null,
+          success: true,
+          error: null,
+          status: "started",
+        },
+        "重试已启动",
+      );
+    } catch (error) {
+      if (error instanceof HttpError) {
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("未找到会话")) {
+        throw new HttpError(404, "not_found", message);
+      }
+      throw new HttpError(400, "invalid_request", message);
+    }
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/recover", async (request) => {

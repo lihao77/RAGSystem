@@ -119,6 +119,60 @@ export class AgentSessionApplication {
     });
   }
 
+  prepareRetry(input: {
+    sessionId: string;
+    afterSeq?: number | null;
+    afterMessageId?: string | null;
+    modifyUserMessage?: string | null;
+  }): { deleted: number; task: string; message: MessageInfo } {
+    const originalMessage = this.resolveRetryAnchor(input.sessionId, input.afterSeq, input.afterMessageId);
+    if (!originalMessage) {
+      const description =
+        input.afterSeq !== undefined && input.afterSeq !== null
+          ? `序号为 ${input.afterSeq}`
+          : `ID 为 ${input.afterMessageId ?? ""}`;
+      throw new Error(`未找到会话 ${input.sessionId} 中${description}的消息`);
+    }
+    if (originalMessage.role !== "user") {
+      throw new Error("指定位置必须是用户消息（user），才能从此处重试");
+    }
+
+    const modifiedTask = input.modifyUserMessage?.trim();
+    const task = modifiedTask || originalMessage.content.trim();
+    if (!task) {
+      throw new Error("无法获取要重试的任务内容");
+    }
+
+    const message = modifiedTask
+      ? {
+          ...originalMessage,
+          content: task,
+          metadata: {
+            ...originalMessage.metadata,
+            retry_modified_at: new Date().toISOString(),
+          },
+        }
+      : originalMessage;
+    if (modifiedTask) {
+      const updated = this.conversationStore.updateMessage({
+        messageId: originalMessage.id,
+        content: task,
+        metadata: message.metadata,
+        sessionId: input.sessionId,
+        roleFilter: "user",
+      });
+      if (!updated) {
+        throw new Error("消息不存在或不可编辑");
+      }
+    }
+
+    const deleted = this.rollbackMessages({
+      sessionId: input.sessionId,
+      afterSeq: message.seq,
+    });
+    return { deleted, task, message };
+  }
+
   rollbackMessages(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): number {
     const payload: { afterSeq?: number | null; afterMessageId?: string | null } = {};
     if (input.afterSeq !== undefined) {
@@ -162,6 +216,17 @@ export class AgentSessionApplication {
       messages: messages.items,
       message_count: messages.items.length,
     };
+  }
+
+  private resolveRetryAnchor(sessionId: string, afterSeq?: number | null, afterMessageId?: string | null): MessageInfo | null {
+    if (afterSeq !== undefined && afterSeq !== null) {
+      return this.conversationStore.getMessageBySeq(sessionId, afterSeq);
+    }
+    const messageId = afterMessageId?.trim();
+    if (!messageId) {
+      return null;
+    }
+    return this.conversationStore.getMessageById(sessionId, messageId);
   }
 }
 
