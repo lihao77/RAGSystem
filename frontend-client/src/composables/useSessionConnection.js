@@ -1,5 +1,10 @@
 import { ref } from 'vue';
-import { canReuseSessionSocket, shouldRefreshSessionMessagesAfterResume } from '../utils/sessionSocket';
+import {
+  buildSessionSocketUrl,
+  canReuseSessionSocket,
+  getDurableEventSeq,
+  shouldRefreshSessionMessagesAfterResume,
+} from '../utils/sessionSocket.js';
 import { resetActiveRunState } from './useActiveRunState.js';
 
 /**
@@ -30,6 +35,7 @@ export function useSessionConnection(deps) {
   let _commandFallbackTimer = null;
   let _sessionResumeRecoveryTimer = null;
   let _sessionResumeRecoveryAbort = null;
+  const _lastEventSeqBySession = new Map();
 
   const invalidateActiveStream = () => {
     resetActiveRunState(deps.activeRun);
@@ -109,13 +115,29 @@ export function useSessionConnection(deps) {
     deps.onRunFinalized(sessionId);
   };
 
+  const getLastEventSeq = (sessionId) => _lastEventSeqBySession.get(sessionId) || 0;
+
+  const shouldDeliverEvent = (event, sessionId) => {
+    const eventSeq = getDurableEventSeq(event);
+    if (eventSeq === null) return true;
+    const lastEventSeq = getLastEventSeq(sessionId);
+    if (eventSeq <= lastEventSeq) return false;
+    _lastEventSeqBySession.set(sessionId, eventSeq);
+    return true;
+  };
+
   const connectSessionWS = (sessionId) => {
     if (!sessionId) return;
     if (canReuseSessionSocket(sessionId, _wsSessionId, _ws)) return;
     disconnectSessionWS();
     deps.resetApprovalState();
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${protocol}//${location.host}/api/agent/sessions/${encodeURIComponent(sessionId)}/ws`;
+    const currentLocation = globalThis.location || { protocol: 'http:', host: '' };
+    const lastEventSeq = getLastEventSeq(sessionId);
+    const url = buildSessionSocketUrl(sessionId, {
+      protocol: currentLocation.protocol,
+      host: currentLocation.host,
+      afterEventSeq: lastEventSeq > 0 ? lastEventSeq : null,
+    });
     const ws = new WebSocket(url);
     _wsSessionId = sessionId;
     ws.onopen = () => {
@@ -129,6 +151,7 @@ export function useSessionConnection(deps) {
     ws.onmessage = (e) => {
       try {
         const event = JSON.parse(e.data);
+        if (!shouldDeliverEvent(event, sessionId)) return;
         deps.onMessage(event, sessionId);
       } catch (err) {
         console.debug('[WS] parse error:', err);
@@ -188,5 +211,6 @@ export function useSessionConnection(deps) {
     connectSessionWS,
     disconnectSessionWS,
     getWS,
+    getLastEventSeq,
   };
 }

@@ -1,11 +1,43 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { canReuseSessionSocket, shouldRefreshSessionMessagesAfterResume, shouldRunResumeRecoveryWatchdog } from './sessionSocket.js';
+import {
+  buildSessionSocketUrl,
+  canReuseSessionSocket,
+  getDurableEventSeq,
+  normalizeEventSeq,
+  shouldRefreshSessionMessagesAfterResume,
+  shouldRunResumeRecoveryWatchdog,
+} from './sessionSocket.js';
 
 const OPEN = 1;
 const CONNECTING = 0;
 const CLOSED = 3;
+
+test('会构造不带 durable cursor 的 session WebSocket URL', () => {
+  assert.equal(
+    buildSessionSocketUrl('session 1', { protocol: 'http:', host: 'localhost:5174' }),
+    'ws://localhost:5174/api/agent/sessions/session%201/ws',
+  );
+});
+
+test('已知 event_seq 时会构造 after_event_seq 重连 URL', () => {
+  assert.equal(
+    buildSessionSocketUrl('session-1', { protocol: 'https:', host: 'example.test', afterEventSeq: 12 }),
+    'wss://example.test/api/agent/sessions/session-1/ws?after_event_seq=12',
+  );
+});
+
+test('仅接受正整数 event_seq 作为 durable cursor', () => {
+  assert.equal(normalizeEventSeq(1), 1);
+  assert.equal(normalizeEventSeq('2'), 2);
+  assert.equal(normalizeEventSeq(0), null);
+  assert.equal(normalizeEventSeq(-1), null);
+  assert.equal(normalizeEventSeq(1.5), null);
+  assert.equal(normalizeEventSeq('x'), null);
+  assert.equal(getDurableEventSeq({ event_seq: 7 }), 7);
+  assert.equal(getDurableEventSeq({ stream_seq: 7 }), null);
+});
 
 test('会复用同一 session 的已连接 socket', () => {
   assert.equal(canReuseSessionSocket('session-1', 'session-1', { readyState: OPEN }), true);

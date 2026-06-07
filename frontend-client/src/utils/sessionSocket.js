@@ -1,6 +1,25 @@
 const WS_OPEN = 1;
 const WS_CONNECTING = 0;
 
+export function normalizeEventSeq(value) {
+  const seq = Number(value);
+  return Number.isSafeInteger(seq) && seq > 0 ? seq : null;
+}
+
+export function getDurableEventSeq(event) {
+  if (!event || typeof event !== 'object') return null;
+  return normalizeEventSeq(event.event_seq);
+}
+
+export function buildSessionSocketUrl(sessionId, options = {}) {
+  const protocol = options.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = options.host || '';
+  const encodedSessionId = encodeURIComponent(sessionId);
+  const afterEventSeq = normalizeEventSeq(options.afterEventSeq);
+  const query = afterEventSeq === null ? '' : `?after_event_seq=${afterEventSeq}`;
+  return `${protocol}//${host}/api/agent/sessions/${encodedSessionId}/ws${query}`;
+}
+
 export function canReuseSessionSocket(targetSessionId, currentSessionId, ws) {
   if (!targetSessionId || !currentSessionId || targetSessionId !== currentSessionId || !ws) {
     return false;
