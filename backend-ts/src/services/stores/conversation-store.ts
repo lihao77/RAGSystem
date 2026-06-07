@@ -82,6 +82,12 @@ export interface AppendOutboxInput {
   availableAt?: string | null;
 }
 
+export interface ClaimOutboxInput {
+  limit?: number;
+  lockTimeoutMs?: number;
+  now?: Date;
+}
+
 export interface ConversationStoreTransaction {
   addMessage(input: AddMessageInput): MessageInfo;
   addRunStep(input: AddRunStepInput): RunStepRecord;
@@ -94,8 +100,11 @@ export interface ConversationStoreTransaction {
 export interface EventOutboxStats {
   total: number;
   pending: number;
+  retrying: number;
   delivered: number;
   failed: number;
+  locked: number;
+  ready: number;
   oldest_pending_created_at: string | null;
   oldest_pending_age_seconds: number | null;
 }
@@ -638,11 +647,55 @@ export class ConversationStore {
       .prepare(`
         SELECT ${OUTBOX_SELECT_COLUMNS}
         FROM event_outbox
-        WHERE status='pending' AND available_at <= CURRENT_TIMESTAMP
+        WHERE status IN ('pending', 'retrying') AND available_at <= ?
         ORDER BY id ASC
         LIMIT ?
       `)
-      .all(limit) as unknown as OutboxRow[];
+      .all(nowIso(), limit) as unknown as OutboxRow[];
+  }
+
+  claimPendingOutbox(input: ClaimOutboxInput = {}): OutboxRow[] {
+    const limit = Math.max(1, Math.floor(input.limit ?? 100));
+    const now = input.now ?? new Date();
+    const lockedAt = now.toISOString();
+    const staleBefore = new Date(now.getTime() - Math.max(0, input.lockTimeoutMs ?? 60_000)).toISOString();
+    return this.withTransaction(() => {
+      const ids = this.db
+        .prepare(`
+          SELECT id
+          FROM event_outbox
+          WHERE status IN ('pending', 'retrying')
+            AND available_at <= ?
+            AND (locked_at IS NULL OR locked_at <= ?)
+          ORDER BY id ASC
+          LIMIT ?
+        `)
+        .all(lockedAt, staleBefore, limit) as Array<{ id: number }>;
+      if (ids.length === 0) {
+        return [];
+      }
+      const placeholders = ids.map(() => "?").join(", ");
+      const idValues = ids.map((row) => row.id);
+      this.db
+        .prepare(`
+          UPDATE event_outbox
+          SET locked_at=?
+          WHERE id IN (${placeholders})
+            AND status IN ('pending', 'retrying')
+            AND available_at <= ?
+            AND (locked_at IS NULL OR locked_at <= ?)
+        `)
+        .run(lockedAt, ...idValues, lockedAt, staleBefore);
+      return this.db
+        .prepare(`
+          SELECT ${OUTBOX_SELECT_COLUMNS}
+          FROM event_outbox
+          WHERE id IN (${placeholders})
+            AND locked_at=?
+          ORDER BY id ASC
+        `)
+        .all(...idValues, lockedAt) as unknown as OutboxRow[];
+    });
   }
 
   listOutboxForReplay(input: { sessionId: string; runId?: string | null; afterSeq?: number; limit?: number }): OutboxRow[] {
@@ -674,10 +727,21 @@ export class ConversationStore {
     const result = this.db
       .prepare(`
         UPDATE event_outbox
-        SET status='delivered', delivered_at=CURRENT_TIMESTAMP, locked_at=NULL, last_error=NULL
+        SET status='delivered', delivered_at=?, locked_at=NULL, last_error=NULL
         WHERE id=?
       `)
-      .run(id);
+      .run(nowIso(), id);
+    return Number(result.changes) > 0;
+  }
+
+  markOutboxRetrying(id: number, error: string, availableAt: string): boolean {
+    const result = this.db
+      .prepare(`
+        UPDATE event_outbox
+        SET status='retrying', attempts=attempts + 1, available_at=?, locked_at=NULL, last_error=?
+        WHERE id=?
+      `)
+      .run(availableAt, error, id);
     return Number(result.changes) > 0;
   }
 
@@ -698,23 +762,32 @@ export class ConversationStore {
         SELECT
           COUNT(*) AS total,
           SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
+          SUM(CASE WHEN status='retrying' THEN 1 ELSE 0 END) AS retrying,
           SUM(CASE WHEN status='delivered' THEN 1 ELSE 0 END) AS delivered,
           SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed,
+          SUM(CASE WHEN status IN ('pending', 'retrying') AND locked_at IS NOT NULL THEN 1 ELSE 0 END) AS locked,
+          SUM(CASE WHEN status IN ('pending', 'retrying') AND locked_at IS NULL AND available_at <= ? THEN 1 ELSE 0 END) AS ready,
           MIN(CASE WHEN status='pending' THEN created_at ELSE NULL END) AS oldest_pending_created_at
         FROM event_outbox
       `)
-      .get() as {
+      .get(nowIso()) as {
         total: number | null;
         pending: number | null;
+        retrying: number | null;
         delivered: number | null;
         failed: number | null;
+        locked: number | null;
+        ready: number | null;
         oldest_pending_created_at: string | null;
       };
     return {
       total: numericCount(row.total),
       pending: numericCount(row.pending),
+      retrying: numericCount(row.retrying),
       delivered: numericCount(row.delivered),
       failed: numericCount(row.failed),
+      locked: numericCount(row.locked),
+      ready: numericCount(row.ready),
       oldest_pending_created_at: row.oldest_pending_created_at,
       oldest_pending_age_seconds: ageSeconds(row.oldest_pending_created_at),
     };
@@ -976,7 +1049,7 @@ export class ConversationStore {
           event_id, session_id, run_id, session_seq, event_type, aggregate_type,
           aggregate_id, payload, available_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         eventId,
@@ -987,7 +1060,7 @@ export class ConversationStore {
         input.aggregateType,
         input.aggregateId,
         stringifyJson(input.payload),
-        input.availableAt ?? null,
+        input.availableAt ?? nowIso(),
       );
     const row = this.loadOutboxRow(Number(result.lastInsertRowid));
     if (!row) {
@@ -1019,6 +1092,10 @@ export class ConversationStore {
 
 function numericCount(value: number | null | undefined): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
 }
 
 function ageSeconds(timestamp: string | null): number | null {

@@ -136,6 +136,208 @@ describe("event outbox projection and dispatch", () => {
     store.close();
   });
 
+  it("retries projection failures with backoff before delivering", () => {
+    let nowMs = Date.parse("2026-06-07T00:00:00.000Z");
+    const now = () => new Date(nowMs);
+    const store = new ConversationStore({ dbPath: ":memory:" });
+    const events = new InMemoryEventBus();
+    store.createSession("s1");
+    store.appendOutbox({
+      sessionId: "s1",
+      runId: "run-1",
+      eventId: "event-1",
+      eventType: "run.completed",
+      aggregateType: "run",
+      aggregateId: "run-1",
+      availableAt: now().toISOString(),
+      payload: {
+        final_message_id: "msg-1",
+        metadata: { run_id: "run-1" },
+      },
+    });
+
+    let failProjection = true;
+    const projector = new ClientEventProjector();
+    const dispatcher = new OutboxDispatcher(
+      store,
+      events,
+      {
+        toClientEvent(row: OutboxRow) {
+          if (failProjection) {
+            throw new Error("projection unavailable");
+          }
+          return projector.toClientEvent(row);
+        },
+      } as ClientEventProjector,
+      "live",
+      {
+        maxAttempts: 3,
+        retryBaseDelayMs: 1_000,
+        retryMaxDelayMs: 1_000,
+        now,
+      },
+    );
+
+    expect(dispatcher.pollOnce()).toEqual([]);
+    expect(store.listOutboxForReplay({ sessionId: "s1" })).toEqual([
+      expect.objectContaining({
+        status: "retrying",
+        attempts: 1,
+        available_at: "2026-06-07T00:00:01.000Z",
+        locked_at: null,
+        last_error: "projection unavailable",
+      }),
+    ]);
+    expect(dispatcher.getMetrics()).toMatchObject({
+      delivered: 0,
+      retried: 1,
+      failed: 0,
+      lastError: "projection unavailable",
+    });
+
+    failProjection = false;
+    expect(dispatcher.pollOnce()).toEqual([]);
+    nowMs += 1_000;
+
+    const projected = dispatcher.pollOnce();
+    expect(projected).toHaveLength(1);
+    expect(events.getHistory("s1")).toEqual([
+      expect.objectContaining({
+        type: "run.end",
+        event_id: "event-1",
+      }),
+    ]);
+    expect(store.listOutboxForReplay({ sessionId: "s1" })).toEqual([
+      expect.objectContaining({
+        status: "delivered",
+        attempts: 1,
+        locked_at: null,
+        last_error: null,
+      }),
+    ]);
+    expect(dispatcher.getMetrics()).toMatchObject({
+      delivered: 1,
+      retried: 1,
+      failed: 0,
+    });
+    store.close();
+  });
+
+  it("marks outbox rows failed after retry attempts are exhausted", () => {
+    let nowMs = Date.parse("2026-06-07T00:00:00.000Z");
+    const now = () => new Date(nowMs);
+    const store = new ConversationStore({ dbPath: ":memory:" });
+    const events = new InMemoryEventBus();
+    store.createSession("s1");
+    store.appendOutbox({
+      sessionId: "s1",
+      runId: "run-1",
+      eventId: "event-1",
+      eventType: "run.completed",
+      aggregateType: "run",
+      aggregateId: "run-1",
+      availableAt: now().toISOString(),
+      payload: {
+        final_message_id: "msg-1",
+        metadata: { run_id: "run-1" },
+      },
+    });
+    const dispatcher = new OutboxDispatcher(
+      store,
+      events,
+      {
+        toClientEvent() {
+          throw new Error("projection still unavailable");
+        },
+      } as ClientEventProjector,
+      "live",
+      {
+        maxAttempts: 2,
+        retryBaseDelayMs: 1_000,
+        retryMaxDelayMs: 1_000,
+        now,
+      },
+    );
+
+    dispatcher.pollOnce();
+    nowMs += 1_000;
+    dispatcher.pollOnce();
+
+    expect(store.listOutboxForReplay({ sessionId: "s1" })).toEqual([
+      expect.objectContaining({
+        status: "failed",
+        attempts: 2,
+        locked_at: null,
+        last_error: "projection still unavailable",
+      }),
+    ]);
+    expect(store.fetchPendingOutbox(10)).toEqual([]);
+    expect(dispatcher.getMetrics()).toMatchObject({
+      delivered: 0,
+      retried: 1,
+      failed: 1,
+      lastError: "projection still unavailable",
+    });
+    store.close();
+  });
+
+  it("reclaims stale locked outbox rows", () => {
+    let nowMs = Date.parse("2026-06-07T00:00:00.000Z");
+    const now = () => new Date(nowMs);
+    const store = new ConversationStore({ dbPath: ":memory:" });
+    const events = new InMemoryEventBus();
+    store.createSession("s1");
+    store.appendOutbox({
+      sessionId: "s1",
+      runId: "run-1",
+      eventId: "event-1",
+      eventType: "run.completed",
+      aggregateType: "run",
+      aggregateId: "run-1",
+      availableAt: now().toISOString(),
+      payload: {
+        final_message_id: "msg-1",
+        metadata: { run_id: "run-1" },
+      },
+    });
+    expect(store.claimPendingOutbox({ limit: 1, lockTimeoutMs: 1_000, now: now() })).toEqual([
+      expect.objectContaining({
+        status: "pending",
+        locked_at: "2026-06-07T00:00:00.000Z",
+      }),
+    ]);
+
+    const dispatcher = new OutboxDispatcher(
+      store,
+      events,
+      new ClientEventProjector(),
+      "live",
+      {
+        lockTimeoutMs: 1_000,
+        now,
+      },
+    );
+
+    nowMs += 999;
+    expect(dispatcher.pollOnce()).toEqual([]);
+    nowMs += 2;
+
+    expect(dispatcher.pollOnce()).toHaveLength(1);
+    expect(store.listOutboxForReplay({ sessionId: "s1" })).toEqual([
+      expect.objectContaining({
+        status: "delivered",
+        locked_at: null,
+      }),
+    ]);
+    expect(events.getHistory("s1")).toEqual([
+      expect.objectContaining({
+        type: "run.end",
+        event_id: "event-1",
+      }),
+    ]);
+    store.close();
+  });
+
   it("projects generic client event outbox rows with durable event metadata", () => {
     const store = new ConversationStore({ dbPath: ":memory:" });
     const projector = new ClientEventProjector();

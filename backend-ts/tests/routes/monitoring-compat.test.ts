@@ -69,6 +69,19 @@ describe("monitoring compatibility routes", () => {
         metadata: { run_id: "run-pending" },
       },
     });
+    const retrying = harness.container.conversationStore.appendOutbox({
+      sessionId: "metrics-outbox",
+      runId: "run-retrying",
+      eventId: "event-retrying",
+      eventType: "run.failed",
+      aggregateType: "run",
+      aggregateId: "run-retrying",
+      payload: {
+        status: "failed",
+        error: "transient projection failure",
+        metadata: { run_id: "run-retrying" },
+      },
+    });
     const failed = harness.container.conversationStore.appendOutbox({
       sessionId: "metrics-outbox",
       runId: "run-failed",
@@ -82,6 +95,11 @@ describe("monitoring compatibility routes", () => {
         metadata: { run_id: "run-failed" },
       },
     });
+    harness.container.conversationStore.markOutboxRetrying(
+      retrying.id,
+      "transient projection failure",
+      "2999-01-01T00:00:00.000Z",
+    );
     harness.container.conversationStore.markOutboxFailed(failed.id, "projection failed");
 
     const metrics = await app.inject({
@@ -99,10 +117,13 @@ describe("monitoring compatibility routes", () => {
         lastError: null,
       },
       store: {
-        total: 2,
+        total: 3,
         pending: 1,
+        retrying: 1,
         delivered: 0,
         failed: 1,
+        locked: 0,
+        ready: 1,
         oldest_pending_created_at: expect.any(String),
         oldest_pending_age_seconds: expect.any(Number),
       },
