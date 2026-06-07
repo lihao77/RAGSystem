@@ -2,6 +2,7 @@ import type { AgentDelegationService } from "../../agent/agent-delegation-servic
 import type { CodeExecutionToolService } from "../../tools/code-execution-tool-service.js";
 import type { LocalDocumentToolService } from "../../tools/local-document-tool-service.js";
 import type { LocalSearchToolService } from "../../tools/local-search-tool-service.js";
+import type { SkillToolService } from "../../tools/skill-tool-service.js";
 import type { ToolExecutionResult, MemoryToolService } from "../../tools/memory-tool-service.js";
 import type { TaskToolService } from "../../tools/task-tool-service.js";
 import type { VectorLibraryService, VectorSearchResult } from "../../knowledge/vector-library-service.js";
@@ -22,6 +23,7 @@ import {
   readMemoryEntryArguments,
   readSearchKnowledgeBaseArguments,
   readSendMessageArguments,
+  readSkillToolArguments,
   readTaskCreateArguments,
   readTaskGetArguments,
   readTaskOutputArguments,
@@ -47,6 +49,10 @@ import {
   SEND_MESSAGE_TOOL_NAME,
   SEARCH_KNOWLEDGE_BASE_TOOL_NAME,
   TASK_CREATE_TOOL_NAME,
+  ACTIVATE_SKILL_TOOL_NAME,
+  EXECUTE_SKILL_SCRIPT_TOOL_NAME,
+  GET_SKILL_INFO_TOOL_NAME,
+  LOAD_SKILL_RESOURCE_TOOL_NAME,
   TASK_GET_TOOL_NAME,
   TASK_LIST_TOOL_NAME,
   TASK_OUTPUT_TOOL_NAME,
@@ -67,6 +73,7 @@ export interface RuntimeToolHandlerDependencies {
   memoryTools: MemoryToolService;
   documentTools: LocalDocumentToolService | null;
   codeExecutionTools: CodeExecutionToolService | null;
+  skillTools: SkillToolService | null;
   searchTools: LocalSearchToolService | null;
   taskTools: TaskToolService | null;
   vectorLibrary: VectorLibraryService | null;
@@ -132,6 +139,30 @@ export function createRuntimeToolHandlers(deps: RuntimeToolHandlerDependencies):
       return codeExecutionTools
         ? codeExecutionTools.executeCode(readCodeExecutionArguments(call.arguments), context)
         : deps.unavailableTool(EXECUTE_CODE_TOOL_NAME);
+    }],
+    [ACTIVATE_SKILL_TOOL_NAME, (call, context) => {
+      const skillTools = deps.skillTools;
+      return skillTools
+        ? skillTools.activateSkill(readSkillToolArguments(call.arguments), context)
+        : deps.unavailableTool(ACTIVATE_SKILL_TOOL_NAME);
+    }],
+    [LOAD_SKILL_RESOURCE_TOOL_NAME, (call, context) => {
+      const skillTools = deps.skillTools;
+      return skillTools
+        ? skillTools.loadSkillResource(readSkillToolArguments(call.arguments), context)
+        : deps.unavailableTool(LOAD_SKILL_RESOURCE_TOOL_NAME);
+    }],
+    [GET_SKILL_INFO_TOOL_NAME, (call, context) => {
+      const skillTools = deps.skillTools;
+      return skillTools
+        ? skillTools.getSkillInfo(readSkillToolArguments(call.arguments), context)
+        : deps.unavailableTool(GET_SKILL_INFO_TOOL_NAME);
+    }],
+    [EXECUTE_SKILL_SCRIPT_TOOL_NAME, (call, context) => {
+      const skillTools = deps.skillTools;
+      return skillTools
+        ? skillTools.executeSkillScript(readSkillToolArguments(call.arguments), context)
+        : deps.unavailableTool(EXECUTE_SKILL_SCRIPT_TOOL_NAME);
     }],
     [SEARCH_KNOWLEDGE_BASE_TOOL_NAME, (call, context) => {
       const vectorLibrary = deps.vectorLibrary;

@@ -27,15 +27,24 @@ import {
 import { AgentConfigTeamStore, defaultTeamRelativePath } from "./agent-config-service/team-store.js";
 import { listAvailableTools as listAvailableRuntimeTools, type AvailableToolInfo } from "./agent-config-service/tools.js";
 import { toYaml } from "./agent-config-service/yaml.js";
+import type { SkillToolService } from "../tools/skill-tool-service.js";
 
 type ExportFormat = "json" | "yaml";
 type ImportFormat = "json" | "yaml";
+
+export interface ApplyTeamPayloadResult {
+  team_name: string;
+  agent_count: number;
+  agents: string[];
+  source_team: string | null;
+}
 
 export class AgentConfigService {
   private activeTeam = "default";
   private readonly teams = new Map<string, TeamConfigs>();
   private readonly teamStore: AgentConfigTeamStore;
   private readonly teamFileByName = new Map<string, string>();
+  private skillToolService: SkillToolService | null = null;
 
   constructor(options: { dataRoot?: string | undefined; configRoot?: string | undefined } = {}) {
     this.teamStore = new AgentConfigTeamStore(options);
@@ -277,6 +286,56 @@ export class AgentConfigService {
     return this.listTeams();
   }
 
+  applyTeamPayload(
+    teamName: string,
+    agentsPayload: Record<string, unknown>,
+    sourceTeam?: string | null,
+  ): ApplyTeamPayloadResult {
+    const normalizedTeamName = normalizeTeamName(teamName);
+    if (Object.keys(agentsPayload).length === 0) {
+      throw new Error("agents_payload 必须是非空对象");
+    }
+    const normalizedSourceTeam = sourceTeam?.trim() || null;
+    if (normalizedSourceTeam && !this.teams.has(normalizedSourceTeam)) {
+      throw new Error(`source team '${normalizedSourceTeam}' 不存在`);
+    }
+    if (!this.teams.has(normalizedTeamName)) {
+      this.createTeam(normalizedTeamName, normalizedSourceTeam);
+    }
+
+    const nextConfigs = new Map<string, AgentConfig>();
+    const defaultEntries: string[] = [];
+    for (const [agentName, payload] of Object.entries(agentsPayload)) {
+      if (!isRecord(payload)) {
+        throw new Error(`智能体 '${agentName}' 的配置必须是对象`);
+      }
+      const parsed = AgentConfigSchema.parse({
+        ...payload,
+        agent_name: payload.agent_name ?? agentName,
+      });
+      if (parsed.agent_name !== agentName) {
+        throw new Error(`智能体键名 '${agentName}' 与配置中的 agent_name '${parsed.agent_name}' 不一致`);
+      }
+      const config = normalizeConfig(parsed);
+      if (config.default_entry) {
+        defaultEntries.push(agentName);
+      }
+      nextConfigs.set(agentName, config);
+    }
+    if (defaultEntries.length > 1) {
+      throw new Error(`default_entry=true 只能有一个，当前: ${defaultEntries.join(", ")}`);
+    }
+
+    this.teams.set(normalizedTeamName, nextConfigs);
+    this.saveAll();
+    return {
+      team_name: normalizedTeamName,
+      agent_count: nextConfigs.size,
+      agents: Array.from(nextConfigs.keys()).sort(),
+      source_team: normalizedSourceTeam,
+    };
+  }
+
   resetDefaultTeam(): TeamSummary {
     this.teams.set("default", new Map(Object.entries(buildDefaultAgentConfigs())));
     this.teamFileByName.set("default", defaultTeamRelativePath("default"));
@@ -331,7 +390,11 @@ export class AgentConfigService {
   }
 
   listAvailableSkills(): unknown[] {
-    return [];
+    return this.skillToolService?.listAvailableSkills() ?? [];
+  }
+
+  setSkillToolService(skillToolService: SkillToolService | null): void {
+    this.skillToolService = skillToolService;
   }
 
   private getActiveConfigs(): TeamConfigs {

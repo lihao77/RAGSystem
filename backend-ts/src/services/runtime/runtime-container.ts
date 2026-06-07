@@ -22,6 +22,7 @@ import { LocalBashToolService } from "../tools/local-bash-tool-service.js";
 import { CodeExecutionToolService } from "../tools/code-execution-tool-service.js";
 import { LocalDocumentToolService } from "../tools/local-document-tool-service.js";
 import { LocalSearchToolService } from "../tools/local-search-tool-service.js";
+import { SkillToolService } from "../tools/skill-tool-service.js";
 import { OpenAiCompatibleChatClient, type LlmChatClient } from "../integrations/llm-chat-client.js";
 import { MemoryStore } from "../stores/memory-store.js";
 import { MemoryToolService } from "../tools/memory-tool-service.js";
@@ -59,6 +60,7 @@ export interface RuntimeContainer {
   readonly memoryTools: MemoryToolService;
   readonly documentTools: LocalDocumentToolService;
   readonly codeExecutionTools: CodeExecutionToolService;
+  readonly skillTools: SkillToolService;
   readonly searchTools: LocalSearchToolService;
   readonly bashTools: LocalBashToolService;
   readonly backgroundTasks: BackgroundTaskService;
@@ -121,9 +123,17 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
   const memoryTools = new MemoryToolService(memoryStore, conversationStore);
   const documentTools = new LocalDocumentToolService({ dataRoot: options.dataRoot, fileHistory });
-  const codeExecutionTools = new CodeExecutionToolService({ dataRoot: options.dataRoot });
-  const searchTools = new LocalSearchToolService({ dataRoot: options.dataRoot });
   const backgroundTasks = new BackgroundTaskService();
+  const codeExecutionTools = new CodeExecutionToolService({ dataRoot: options.dataRoot });
+  const skillTools = new SkillToolService({
+    dataRoot: options.dataRoot,
+    agentConfig,
+    artifacts,
+    backgroundTasks,
+    clientEvents,
+  });
+  agentConfig.setSkillToolService(skillTools);
+  const searchTools = new LocalSearchToolService({ dataRoot: options.dataRoot });
   const toolsConfig = asRecord(systemConfig.getConfig().tools);
   const bashTools = new LocalBashToolService({
     dataRoot: options.dataRoot,
@@ -152,6 +162,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     vectorLibrary,
     mcp,
     codeExecutionTools,
+    skillTools,
   );
   codeExecutionTools.setRuntimeTools(runtimeToolBridge);
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
@@ -220,6 +231,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     memoryTools,
     documentTools,
     codeExecutionTools,
+    skillTools,
     searchTools,
     bashTools,
     backgroundTasks,

@@ -32,6 +32,10 @@ export function listAvailableTools(): AvailableToolInfo[] {
     implementedTool("send_message", "Continue an existing child Agent session", "agent_delegation", "low"),
     implementedTool("search_knowledge_base", "Search enabled Agent knowledge base collections", "knowledge", "low"),
     implementedTool("list_knowledge_collections", "List available knowledge base collections", "knowledge", "low"),
+    implementedTool("activate_skill", "Activate a Skill and load its main instructions", "skill", "low"),
+    implementedTool("load_skill_resource", "Load a Skill additional resource file", "skill", "low"),
+    implementedTool("get_skill_info", "Read lightweight Skill metadata", "skill", "low"),
+    implementedTool("execute_skill_script", "Execute a Skill utility script", "skill", "medium"),
   ];
 }
 

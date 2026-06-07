@@ -27,6 +27,10 @@ export const WRITE_MEMORY_TOOL_NAME = "write_memory";
 export const ARCHIVE_MEMORY_TOOL_NAME = "archive_memory";
 export const SEARCH_KNOWLEDGE_BASE_TOOL_NAME = "search_knowledge_base";
 export const LIST_KNOWLEDGE_COLLECTIONS_TOOL_NAME = "list_knowledge_collections";
+export const ACTIVATE_SKILL_TOOL_NAME = "activate_skill";
+export const LOAD_SKILL_RESOURCE_TOOL_NAME = "load_skill_resource";
+export const EXECUTE_SKILL_SCRIPT_TOOL_NAME = "execute_skill_script";
+export const GET_SKILL_INFO_TOOL_NAME = "get_skill_info";
 
 export const REQUEST_USER_INPUT_TOOL: RuntimeToolDefinition = {
   name: REQUEST_USER_INPUT_TOOL_NAME,
@@ -479,6 +483,77 @@ export const KNOWLEDGE_TOOLS: RuntimeToolDefinition[] = [
       type: "object",
       additionalProperties: false,
       properties: {},
+    },
+  },
+];
+
+export const SKILL_TOOLS: RuntimeToolDefinition[] = [
+  {
+    name: ACTIVATE_SKILL_TOOL_NAME,
+    source: "runtime_builtin",
+    category: "skill",
+    riskLevel: "low",
+    description: "Activate a Skill and return its SKILL.md main instructions.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["skill_name"],
+      properties: {
+        skill_name: { type: "string", description: "Skill name." },
+        workspace_root: { type: "string", description: "Optional workspace root for workspace Skills." },
+      },
+    },
+  },
+  {
+    name: LOAD_SKILL_RESOURCE_TOOL_NAME,
+    source: "runtime_builtin",
+    category: "skill",
+    riskLevel: "low",
+    description: "Load an additional resource file from an activated Skill.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["skill_name", "resource_file"],
+      properties: {
+        skill_name: { type: "string", description: "Skill name." },
+        resource_file: { type: "string", description: "Relative resource file name." },
+        workspace_root: { type: "string", description: "Optional workspace root for workspace Skills." },
+      },
+    },
+  },
+  {
+    name: EXECUTE_SKILL_SCRIPT_TOOL_NAME,
+    source: "runtime_builtin",
+    category: "skill",
+    riskLevel: "medium",
+    description: "Execute a Skill utility script with string arguments.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["skill_name", "script_name"],
+      properties: {
+        skill_name: { type: "string", description: "Skill name." },
+        script_name: { type: "string", description: "Script file name under the Skill scripts directory." },
+        arguments: { type: "array", items: { type: "string" }, description: "Command line arguments." },
+        run_in_background: { type: "boolean", description: "Reserved for background execution." },
+        workspace_root: { type: "string", description: "Optional workspace root for workspace Skills." },
+      },
+    },
+  },
+  {
+    name: GET_SKILL_INFO_TOOL_NAME,
+    source: "runtime_builtin",
+    category: "skill",
+    riskLevel: "low",
+    description: "Get lightweight Skill metadata without loading full instructions.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["skill_name"],
+      properties: {
+        skill_name: { type: "string", description: "Skill name." },
+        workspace_root: { type: "string", description: "Optional workspace root for workspace Skills." },
+      },
     },
   },
 ];

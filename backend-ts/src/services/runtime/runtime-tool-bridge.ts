@@ -8,6 +8,7 @@ import type { CodeExecutionToolService } from "../tools/code-execution-tool-serv
 import type { AgentDelegationService } from "../agent/agent-delegation-service.js";
 import type { TaskToolService } from "../tools/task-tool-service.js";
 import type { LocalSearchToolService } from "../tools/local-search-tool-service.js";
+import type { SkillToolService } from "../tools/skill-tool-service.js";
 import type { VectorLibraryService } from "../knowledge/vector-library-service.js";
 import type { McpService } from "../integrations/mcp-service.js";
 import type {
@@ -57,6 +58,7 @@ import {
   READ_ONLY_MEMORY_TOOLS,
   REQUEST_USER_INPUT_TOOL,
   REQUEST_USER_INPUT_TOOL_NAME,
+  SKILL_TOOLS,
   TASK_OUTPUT_TOOL,
   TASK_OUTPUT_TOOL_NAME,
   TASK_STOP_TOOL,
@@ -80,11 +82,13 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     private readonly vectorLibrary: VectorLibraryService | null = null,
     private readonly mcp: McpService | null = null,
     private readonly codeExecutionTools: CodeExecutionToolService | null = null,
+    private readonly skillTools: SkillToolService | null = null,
   ) {
     this.toolHandlers = createRuntimeToolHandlers({
       memoryTools,
       documentTools,
       codeExecutionTools,
+      skillTools,
       searchTools,
       taskTools,
       vectorLibrary,
@@ -117,6 +121,9 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     }
     if (this.codeExecutionTools && enabledTools.has(EXECUTE_CODE_TOOL_NAME)) {
       tools.push({ ...EXECUTE_CODE_TOOL });
+    }
+    if (this.skillTools && agent?.skills.auto_inject && this.skillTools.hasVisibleSkills(agent)) {
+      tools.push(...SKILL_TOOLS.map((tool) => ({ ...tool })));
     }
     if (this.searchTools) {
       for (const tool of LOCAL_SEARCH_TOOLS) {

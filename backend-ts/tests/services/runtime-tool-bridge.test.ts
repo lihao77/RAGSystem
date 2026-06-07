@@ -18,6 +18,7 @@ import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispat
 import { LocalBashToolService } from "../../src/services/tools/local-bash-tool-service.js";
 import { LocalDocumentToolService } from "../../src/services/tools/local-document-tool-service.js";
 import { LocalSearchToolService } from "../../src/services/tools/local-search-tool-service.js";
+import { SkillToolService } from "../../src/services/tools/skill-tool-service.js";
 import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
 import { PermissionPolicyService } from "../../src/services/runtime/permission-policy-service.js";
 import { RuntimeToolBridge } from "../../src/services/runtime/runtime-tool-bridge.js";
@@ -981,6 +982,118 @@ describe("RuntimeToolBridge", () => {
     ).resolves.toMatchObject({
       success: false,
       content: expect.stringContaining("不允许从代码调用"),
+    });
+  });
+
+  it("exposes and executes Skill tools when skills auto injection is enabled", async () => {
+    const dataRoot = makeTempDataRoot();
+    const skillsRoot = path.join(dataRoot, "skills-root");
+    writeSkillFixture(path.join(skillsRoot, "demo-skill"), {
+      name: "demo-skill",
+      description: "demo skill",
+      body: "# Demo Skill\n",
+    });
+    const skillTools = new SkillToolService({
+      dataRoot,
+      builtinSkillsRoot: skillsRoot,
+      userGlobalSkillsRoot: path.join(dataRoot, "global-skills"),
+    });
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      skillTools,
+    );
+    const agent = {
+      ...minimalAgent([], []),
+      skills: { enabled_skills: ["demo-skill"], auto_inject: true },
+    };
+    const noSkillAgent = {
+      ...minimalAgent([], []),
+      skills: { enabled_skills: [], auto_inject: true },
+    };
+
+    expect(bridge.listVisibleToolNames(noSkillAgent)).toEqual([]);
+    expect(bridge.listVisibleToolNames(agent)).toEqual([
+      "activate_skill",
+      "load_skill_resource",
+      "execute_skill_script",
+      "get_skill_info",
+    ]);
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "get_skill_info",
+          arguments: { skill_name: "demo-skill" },
+        },
+        { agent, sessionId: "skill-session" },
+      ),
+    ).toMatchObject({
+      success: true,
+      content: {
+        name: "demo-skill",
+        description: "demo skill",
+      },
+    });
+  });
+
+  it("auto exposes workspace Skill tools for default entry agents", () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace");
+    writeSkillFixture(path.join(workspaceRoot, ".ragsystem", "skills", "workspace-skill"), {
+      name: "workspace-skill",
+      description: "workspace skill",
+      body: "# Workspace Skill\n",
+    });
+    const skillTools = new SkillToolService({
+      dataRoot,
+      builtinSkillsRoot: path.join(dataRoot, "builtin-empty"),
+      userGlobalSkillsRoot: path.join(dataRoot, "global-skills"),
+    });
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      skillTools,
+    );
+    const agent = {
+      ...minimalAgent([], []),
+      custom_params: { workspace_root: workspaceRoot },
+      skills: { enabled_skills: [], auto_inject: true },
+    };
+
+    expect(bridge.listVisibleToolNames(agent)).toEqual([
+      "activate_skill",
+      "load_skill_resource",
+      "execute_skill_script",
+      "get_skill_info",
+    ]);
+    expect(
+      bridge.executeTool(
+        { toolName: "get_skill_info", arguments: { skill_name: "workspace-skill" } },
+        { agent, sessionId: "skill-session", workspaceRoot },
+      ),
+    ).toMatchObject({
+      success: true,
+      content: {
+        name: "workspace-skill",
+      },
     });
   });
 
@@ -2381,6 +2494,18 @@ function writeFile(dataRoot: string, parts: string[], content: string): void {
 function writeAbsoluteFile(filePath: string, content: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content, "utf8");
+}
+
+function writeSkillFixture(
+  skillDir: string,
+  input: { name: string; description: string; body: string },
+): void {
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(skillDir, "SKILL.md"),
+    `---\nname: ${input.name}\ndescription: ${input.description}\n---\n\n${input.body}`,
+    "utf8",
+  );
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void> {

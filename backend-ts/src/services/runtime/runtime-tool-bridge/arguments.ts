@@ -1,5 +1,6 @@
 import type { BashExecutionInput } from "../../tools/local-bash-tool-service.js";
 import { readCodeExecutionArguments } from "../../tools/code-execution-tool-service.js";
+import { readSkillToolArguments } from "../../tools/skill-tool-service.js";
 import type { ToolExecutionResult } from "../../tools/memory-tool-service.js";
 import type { RuntimeToolCall, RuntimeToolExecutionContext } from "../runtime-tool-types.js";
 import type { RuntimeToolApprovalDecision } from "../permission-policy-service.js";
@@ -312,6 +313,8 @@ export function readBashArguments(value: Record<string, unknown> | undefined): B
 }
 
 export { readCodeExecutionArguments };
+
+export { readSkillToolArguments };
 
 export function readCallAgentArguments(value: Record<string, unknown> | undefined, callId: string | undefined): {
   agentName: string;

@@ -215,6 +215,20 @@ describe("agent config compatibility routes", () => {
     expect(exportedYaml.statusCode).toBe(200);
     expect(exportedYaml.headers["content-type"]).toContain("application/x-yaml");
     expect(exportedYaml.body).toContain('agent_name: "general_agent"');
+
+    const skills = await app.inject({
+      method: "GET",
+      url: "/api/agent-config/skills",
+    });
+    expect(skills.statusCode).toBe(200);
+    expect(skills.json().data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "team-generation",
+          source_type: "builtin",
+        }),
+      ]),
+    );
   });
 
   it("applies built-in presets and imports JSON/YAML configs into the active team", async () => {

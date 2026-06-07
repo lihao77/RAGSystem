@@ -41,6 +41,18 @@ export interface SpawnBashInput {
   ownerTaskId?: string | null | undefined;
 }
 
+export interface RunCallableInput {
+  outputDir: string;
+  description?: string | null | undefined;
+  run: () => unknown | Promise<unknown>;
+  clientEvents?: ClientEventPublisher | null | undefined;
+  sessionId?: string | null | undefined;
+  runId?: string | null | undefined;
+  ownerTaskId?: string | null | undefined;
+  kind?: string | null | undefined;
+  resultType?: string | null | undefined;
+}
+
 export class BackgroundTaskService {
   private readonly tasks = new Map<string, BackgroundTask>();
   private readonly processes = new Map<string, ChildProcess>();
@@ -146,6 +158,33 @@ export class BackgroundTaskService {
       task.completed_at = nowSeconds();
     }
 
+    return { ...task };
+  }
+
+  runCallable(input: RunCallableInput): BackgroundTask {
+    const taskId = randomUUID();
+    fs.mkdirSync(input.outputDir, { recursive: true });
+    const outputPath = path.join(input.outputDir, `bg_${taskId.slice(0, 8)}.json`);
+    const task: BackgroundTask = {
+      task_id: taskId,
+      description: normalizeString(input.description) ?? "background callable",
+      output_path: outputPath,
+      started_at: nowSeconds(),
+      status: "running",
+      return_code: null,
+      error: null,
+      expires_at: nowSeconds() + this.retentionSeconds,
+      run_id: normalizeString(input.runId),
+      owner_task_id: normalizeString(input.ownerTaskId),
+      session_id: normalizeString(input.sessionId),
+      completed_at: null,
+      result_type: normalizeString(input.resultType) ?? "tool_execution_result",
+      kind: normalizeString(input.kind) ?? "callable",
+      cancel_supported: false,
+    };
+    this.tasks.set(taskId, task);
+
+    void this.executeCallableTask(taskId, outputPath, input.run, input.clientEvents ?? null);
     return { ...task };
   }
 
@@ -263,6 +302,53 @@ export class BackgroundTaskService {
     }
   }
 
+  private async executeCallableTask(
+    taskId: string,
+    outputPath: string,
+    run: () => unknown | Promise<unknown>,
+    clientEvents: ClientEventPublisher | null,
+  ): Promise<void> {
+    const task = this.tasks.get(taskId);
+    if (!task || isDone(task.status)) {
+      return;
+    }
+    try {
+      const result = await run();
+      const success = !isRecord(result) || result.success !== false;
+      fs.writeFileSync(
+        outputPath,
+        `${JSON.stringify({
+          success,
+          result_type: task.result_type,
+          result,
+        }, null, 2)}\n`,
+        "utf8",
+      );
+      task.return_code = success ? 0 : 1;
+      task.status = success ? "completed" : "failed";
+      task.completed_at = nowSeconds();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      fs.writeFileSync(
+        outputPath,
+        `${JSON.stringify({
+          success: false,
+          result_type: task.result_type,
+          error: message,
+        }, null, 2)}\n`,
+        "utf8",
+      );
+      task.return_code = 1;
+      task.status = "failed";
+      task.error = message;
+      task.completed_at = nowSeconds();
+    }
+    const snapshot = this.getTask(taskId);
+    if (snapshot) {
+      this.publishCompleted(snapshot, clientEvents);
+    }
+  }
+
   private publishCompleted(task: BackgroundTask, clientEvents: ClientEventPublisher | null): void {
     const payload = {
       task_id: task.task_id,
@@ -333,6 +419,10 @@ function normalizeString(value: unknown): string | null {
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function terminateProcessTree(pid: number | undefined, force: boolean): void {
