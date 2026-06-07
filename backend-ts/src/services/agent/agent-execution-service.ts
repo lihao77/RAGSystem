@@ -34,6 +34,8 @@ import {
   asString,
   buildContextUsagePayload,
   buildRunEndStepPayload,
+  buildRunStartPayload,
+  buildRunStartStepPayload,
   buildRuntimeToolContext,
   checkpointMessagesToConversation,
   findLatestCheckpointUserTask,
@@ -197,12 +199,12 @@ export class AgentExecutionService {
       task_id: taskId,
       request_id: requestId,
     };
-    const runStartPayload = {
-      task_id: taskId,
-      agent_name: runtimeAgent.agent_name,
-      run_id: runId,
-      request_id: requestId,
-    };
+    const runStartPayload = buildRunStartPayload({
+      runId,
+      taskId,
+      requestId,
+      agent: runtimeAgent,
+    });
     this.events.publish(sessionId, {
       type: "session.run_started",
       session_id: sessionId,
@@ -216,21 +218,14 @@ export class AgentExecutionService {
       ...mirrorEventData(userMessageSavedPayload),
     });
 
-    const startStepPayload = {
-      kind: "run",
-      phase: "start",
-      call_id: rootCallId,
-      parent_call_id: null,
-      step_id: `${rootCallId}:run`,
-      parent_step_id: null,
-      agent_name: runtimeAgent.agent_name,
-      agent_display_name: runtimeAgent.display_name || runtimeAgent.agent_name,
+    const startStepPayload = buildRunStartStepPayload({
+      rootCallId,
+      runId,
+      taskId,
+      requestId,
+      agent: runtimeAgent,
       description: task,
-      status: "running",
-      task_id: taskId,
-      run_id: runId,
-      request_id: requestId,
-    };
+    });
     this.eventPublisher.addExecutionStep(sessionId, runId, startStepPayload);
     this.events.publish(sessionId, {
       type: "execution.step",
@@ -408,33 +403,26 @@ export class AgentExecutionService {
       threadKey: "root",
     });
 
-    const startStepPayload = {
-      kind: "run",
-      phase: "start",
-      call_id: rootCallId,
-      parent_call_id: null,
-      step_id: `${rootCallId}:run`,
-      parent_step_id: null,
-      agent_name: runtimeAgent.agent_name,
-      agent_display_name: runtimeAgent.display_name || runtimeAgent.agent_name,
+    const startStepPayload = buildRunStartStepPayload({
+      rootCallId,
+      runId,
+      taskId,
+      requestId: input.requestId,
+      agent: runtimeAgent,
       description: task,
-      status: "running",
-      task_id: taskId,
-      run_id: runId,
-      request_id: input.requestId,
-      execution_kind: executionKind,
-      recovered_from: input.checkpoint.checkpoint_id,
-      checkpoint_id: input.checkpoint.checkpoint_id,
-      checkpoint_round: input.checkpoint.round,
-    };
-    const runStartPayload = {
-      task_id: taskId,
-      agent_name: runtimeAgent.agent_name,
-      run_id: runId,
-      request_id: input.requestId,
-      execution_kind: executionKind,
-      recovered_from: input.checkpoint.checkpoint_id,
-    };
+      executionKind,
+      recoveredFrom: input.checkpoint.checkpoint_id,
+      checkpointId: input.checkpoint.checkpoint_id,
+      checkpointRound: input.checkpoint.round,
+    });
+    const runStartPayload = buildRunStartPayload({
+      runId,
+      taskId,
+      requestId: input.requestId,
+      agent: runtimeAgent,
+      executionKind,
+      recoveredFrom: input.checkpoint.checkpoint_id,
+    });
     this.events.publish(sessionId, {
       type: "session.run_started",
       session_id: sessionId,

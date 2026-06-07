@@ -154,6 +154,57 @@ export function buildRuntimeToolContext(
   };
 }
 
+export function buildRunStartPayload(input: {
+  runId: string;
+  taskId: string;
+  requestId: string;
+  agent: AgentConfig;
+  executionKind?: string | undefined;
+  recoveredFrom?: string | undefined;
+}): Record<string, unknown> {
+  return {
+    task_id: input.taskId,
+    agent_name: input.agent.agent_name,
+    run_id: input.runId,
+    request_id: input.requestId,
+    ...(input.executionKind !== undefined ? { execution_kind: input.executionKind } : {}),
+    ...(input.recoveredFrom !== undefined ? { recovered_from: input.recoveredFrom } : {}),
+  };
+}
+
+export function buildRunStartStepPayload(input: {
+  rootCallId: string;
+  runId: string;
+  taskId: string;
+  requestId: string;
+  agent: AgentConfig;
+  description: string;
+  executionKind?: string | undefined;
+  recoveredFrom?: string | undefined;
+  checkpointId?: string | undefined;
+  checkpointRound?: number | undefined;
+}): Record<string, unknown> {
+  return {
+    kind: "run",
+    phase: "start",
+    call_id: input.rootCallId,
+    parent_call_id: null,
+    step_id: `${input.rootCallId}:run`,
+    parent_step_id: null,
+    agent_name: input.agent.agent_name,
+    agent_display_name: input.agent.display_name || input.agent.agent_name,
+    description: input.description,
+    status: "running",
+    task_id: input.taskId,
+    run_id: input.runId,
+    request_id: input.requestId,
+    ...(input.executionKind !== undefined ? { execution_kind: input.executionKind } : {}),
+    ...(input.recoveredFrom !== undefined ? { recovered_from: input.recoveredFrom } : {}),
+    ...(input.checkpointId !== undefined ? { checkpoint_id: input.checkpointId } : {}),
+    ...(input.checkpointRound !== undefined ? { checkpoint_round: input.checkpointRound } : {}),
+  };
+}
+
 export function buildRunEndStepPayload(input: {
   rootCallId: string;
   runId: string;
