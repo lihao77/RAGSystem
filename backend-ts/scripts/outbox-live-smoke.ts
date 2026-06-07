@@ -9,12 +9,13 @@ interface Options {
   backgroundTask: string;
   approvalTask: string;
   userInputTask: string;
+  delegationTask: string;
   selectedLlm: string | null;
   timeoutMs: number;
   replayTimeoutMs: number;
 }
 
-type SmokeScenario = "basic" | "interrupt" | "background" | "approval" | "user_input";
+type SmokeScenario = "basic" | "interrupt" | "background" | "approval" | "user_input" | "delegation";
 
 interface PermissionPolicy {
   mode?: string;
@@ -70,6 +71,13 @@ const DEFAULT_USER_INPUT_TASK = [
   "Use text input.",
   "After the user responds, include the provided value in a concise final answer.",
 ].join(" ");
+const DEFAULT_DELEGATION_TASK = [
+  "You must call call_agent exactly once.",
+  "Use agent_name 'general_agent'.",
+  "Use task 'Reply exactly: outbox-child-ok'.",
+  "Use context_hint 'No tools are needed; answer directly.'.",
+  "After the child agent returns, reply with a concise final answer.",
+].join(" ");
 const DEFAULT_SCENARIOS: SmokeScenario[] = ["basic", "interrupt"];
 
 async function main(): Promise<void> {
@@ -105,6 +113,10 @@ async function main(): Promise<void> {
       results.push(await runUserInputScenario(options, wsConstructor));
       continue;
     }
+    if (scenario === "delegation") {
+      results.push(await runDelegationScenario(options, wsConstructor));
+      continue;
+    }
   }
 
   console.log("Outbox live smoke passed");
@@ -112,6 +124,49 @@ async function main(): Promise<void> {
     console.log(
       `  ${result.scenario}: session_id=${result.sessionId} run_id=${result.runId} max_event_seq=${result.maxEventSeq}`,
     );
+  }
+}
+
+async function runDelegationScenario(
+  options: Options,
+  wsConstructor: WebSocketConstructorLike,
+): Promise<{ scenario: "delegation"; sessionId: string; runId: string; maxEventSeq: number }> {
+  const sessionId = `${options.sessionId}-delegation`;
+  const live = createCollector(options, wsConstructor, null, sessionId);
+  try {
+    await assertOpen(live, 5000, "delegation live WebSocket");
+    const runId = await startAgentStream(options, sessionId, options.delegationTask);
+    const start = await live.waitForEvent(
+      (event) => event.type === "call.agent.start" && extractRunId(event) === runId,
+      options.timeoutMs,
+    );
+    if (!start) {
+      throw new Error(
+        `timed out waiting for call.agent.start; observed types=[${summarizeEventTypes(live.events).join(", ")}]`,
+      );
+    }
+    const end = await live.waitForEvent(
+      (event) => event.type === "call.agent.end" && extractRunId(event) === runId,
+      options.timeoutMs,
+    );
+    if (!end) {
+      throw new Error(
+        `timed out waiting for call.agent.end; observed types=[${summarizeEventTypes(live.events).join(", ")}]`,
+      );
+    }
+    const terminal = await live.waitForEvent(
+      (event) => isRunTerminalEvent(event, runId),
+      options.timeoutMs,
+    );
+    if (!terminal) {
+      throw new Error(
+        `timed out waiting for delegation run terminal event; observed types=[${summarizeEventTypes(live.events).join(", ")}]`,
+      );
+    }
+    const maxEventSeq = await verifyLiveAndReplay(options, wsConstructor, sessionId, live.events);
+    return { scenario: "delegation", sessionId, runId, maxEventSeq };
+  } finally {
+    live.close();
   }
 }
 
@@ -742,6 +797,7 @@ function parseArgs(args: string[]): Options {
     backgroundTask: process.env.OUTBOX_SMOKE_BACKGROUND_TASK ?? DEFAULT_BACKGROUND_TASK,
     approvalTask: process.env.OUTBOX_SMOKE_APPROVAL_TASK ?? DEFAULT_APPROVAL_TASK,
     userInputTask: process.env.OUTBOX_SMOKE_USER_INPUT_TASK ?? DEFAULT_USER_INPUT_TASK,
+    delegationTask: process.env.OUTBOX_SMOKE_DELEGATION_TASK ?? DEFAULT_DELEGATION_TASK,
     selectedLlm: normalizeString(process.env.OUTBOX_SMOKE_SELECTED_LLM),
     timeoutMs: Number.parseInt(process.env.OUTBOX_SMOKE_TIMEOUT_MS ?? "120000", 10),
     replayTimeoutMs: Number.parseInt(process.env.OUTBOX_SMOKE_REPLAY_TIMEOUT_MS ?? "5000", 10),
@@ -779,6 +835,10 @@ function parseArgs(args: string[]): Options {
     }
     if (arg === "--user-input-task") {
       options.userInputTask = requireValue(args, ++index, arg);
+      continue;
+    }
+    if (arg === "--delegation-task") {
+      options.delegationTask = requireValue(args, ++index, arg);
       continue;
     }
     if (arg === "--scenarios") {
@@ -820,12 +880,13 @@ Verifies TS backend outbox_live WebSocket delivery and durable replay cursor beh
 Options:
   --base-url <url>            TS backend URL. Default: OUTBOX_SMOKE_URL or http://127.0.0.1:5002
   --session-id <id>           Session id. Default: OUTBOX_SMOKE_SESSION_ID or generated id
-  --scenarios <list>          Comma-separated scenarios: basic,interrupt,background,approval,user_input. Default: basic,interrupt
+  --scenarios <list>          Comma-separated scenarios: basic,interrupt,background,approval,user_input,delegation. Default: basic,interrupt
   --task <text>               Agent task. Default: OUTBOX_SMOKE_TASK or "${DEFAULT_TASK}"
   --interrupt-task <text>     Long-running task used for interrupt scenario.
   --background-task <text>    Tool-use task used for background scenario.
   --approval-task <text>      Tool-use task used for approval scenario.
   --user-input-task <text>    Tool-use task used for user_input scenario.
+  --delegation-task <text>    Tool-use task used for delegation scenario.
   --selected-llm <value>      Optional frontend selected_llm override.
   --timeout-ms <n>            Run completion timeout. Default: 120000
   --replay-timeout-ms <n>     Durable replay wait timeout. Default: 5000`);
@@ -846,7 +907,8 @@ function parseScenarios(raw: string | undefined): SmokeScenario[] {
       scenario !== "interrupt" &&
       scenario !== "background" &&
       scenario !== "approval" &&
-      scenario !== "user_input"
+      scenario !== "user_input" &&
+      scenario !== "delegation"
     ) {
       throw new Error(`Unknown smoke scenario: ${scenario}`);
     }
