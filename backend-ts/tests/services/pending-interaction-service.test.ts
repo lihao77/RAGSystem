@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import { InMemoryEventBus } from "../../src/services/runtime/event-bus.js";
+import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
+import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
+import { ConversationStore } from "../../src/services/stores/conversation-store.js";
 
 describe("PendingInteractionService", () => {
   it("resolves approval interactions through the generic interaction response path", async () => {
+    const store = new ConversationStore({ dbPath: ":memory:" });
     const events = new InMemoryEventBus();
-    const service = new PendingInteractionService(events);
+    const dispatcher = new OutboxDispatcher(store, events, undefined, "live");
+    const clientEvents = new DurableClientEventPublisher(store, events, dispatcher, "outbox_live");
+    const service = new PendingInteractionService(clientEvents);
 
     const approvalPromise = service.waitForApproval({
       sessionId: "s1",
@@ -26,6 +32,17 @@ describe("PendingInteractionService", () => {
     const history = events.getHistory("s1");
     const interactionRequired = history.find((event) => event.type === "interaction.required");
     const approvalRequired = history.find((event) => event.type === "user.approval_required");
+    expect(history.map((event) => event.event_seq)).toEqual([1, 2]);
+    expect(
+      store.listOutboxForReplay({ sessionId: "s1" }).map((row) => ({
+        eventType: row.event_type,
+        status: row.status,
+        sessionSeq: row.session_seq,
+      })),
+    ).toEqual([
+      { eventType: "client.interaction.required", status: "delivered", sessionSeq: 1 },
+      { eventType: "client.user.approval_required", status: "delivered", sessionSeq: 2 },
+    ]);
     expect(interactionRequired?.data).toMatchObject({
       interaction_id: expect.any(String),
       kind: "approval",
@@ -70,5 +87,6 @@ describe("PendingInteractionService", () => {
       message: "允许执行",
     });
     expect(service.isApprovalPending("s1", approvalId)).toBe(false);
+    store.close();
   });
 });

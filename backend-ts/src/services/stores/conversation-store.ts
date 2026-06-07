@@ -968,6 +968,7 @@ export class ConversationStore {
 
   private appendOutboxInTransaction(input: AppendOutboxInput): OutboxRow {
     const eventId = input.eventId ?? randomUUID();
+    this.db.prepare("INSERT OR IGNORE INTO sessions (session_id, metadata) VALUES (?, ?)").run(input.sessionId, "{}");
     const sessionSeq = input.sessionSeq ?? this.nextSessionSeqInTransaction(input.sessionId);
     const result = this.db
       .prepare(`

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { ClientEvent } from "../../contracts/events.js";
 import type { ApprovalRequest, UserInputRequest } from "../../contracts/execution.js";
 import type { InteractionKind, InteractionResponsePayload } from "../../contracts/interactions.js";
-import type { InMemoryEventBus } from "./event-bus.js";
+import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 
 export interface PendingUserInputRequest {
   sessionId: string;
@@ -82,7 +82,7 @@ export class PendingInteractionService {
   private readonly pendingInputs = new Map<string, PendingInputEntry>();
   private readonly pendingApprovals = new Map<string, PendingApprovalEntry>();
 
-  constructor(private readonly events: InMemoryEventBus) {}
+  constructor(private readonly clientEvents: ClientEventPublisher) {}
 
   waitForUserInput(input: PendingUserInputRequest): Promise<PendingUserInputResolution> {
     const sessionId = input.sessionId.trim();
@@ -141,7 +141,7 @@ export class PendingInteractionService {
     if (input.runId) {
       interactionEvent.run_id = input.runId;
     }
-    this.events.publish(sessionId, interactionEvent);
+    this.publish(sessionId, interactionEvent);
 
     const legacyEvent: ClientEvent = {
       type: "user.input_required",
@@ -152,7 +152,7 @@ export class PendingInteractionService {
     if (input.runId) {
       legacyEvent.run_id = input.runId;
     }
-    this.events.publish(sessionId, legacyEvent);
+    this.publish(sessionId, legacyEvent);
 
     return promise;
   }
@@ -230,7 +230,7 @@ export class PendingInteractionService {
     if (input.runId) {
       interactionEvent.run_id = input.runId;
     }
-    this.events.publish(sessionId, interactionEvent);
+    this.publish(sessionId, interactionEvent);
 
     const legacyEvent: ClientEvent = {
       type: "user.approval_required",
@@ -241,7 +241,7 @@ export class PendingInteractionService {
     if (input.runId) {
       legacyEvent.run_id = input.runId;
     }
-    this.events.publish(sessionId, legacyEvent);
+    this.publish(sessionId, legacyEvent);
 
     return promise;
   }
@@ -318,6 +318,15 @@ export class PendingInteractionService {
   isApprovalPending(sessionId: string, approvalId: string): boolean {
     const entry = this.pendingApprovals.get(approvalId);
     return Boolean(entry && entry.sessionId === sessionId);
+  }
+
+  private publish(sessionId: string, event: ClientEvent): void {
+    const runId = typeof event.run_id === "string" && event.run_id ? event.run_id : null;
+    this.clientEvents.publish(sessionId, event, {
+      runId,
+      aggregateType: runId ? "run" : "session",
+      aggregateId: runId ?? sessionId,
+    });
   }
 }
 

@@ -16,6 +16,10 @@ export interface ClientEventPublishOptions {
   eventType?: string | undefined;
 }
 
+export interface ClientEventPublisher {
+  publish(sessionId: string, event: ClientEvent, options?: ClientEventPublishOptions): void;
+}
+
 export interface RecordedClientEvent {
   sessionId: string;
   event: ClientEvent;

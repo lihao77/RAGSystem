@@ -133,7 +133,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     eventBus: events,
   });
   const taskTools = new TaskToolService(backgroundTasks, { dataRoot: options.dataRoot });
-  const pendingInteractions = new PendingInteractionService(events);
+  const pendingInteractions = new PendingInteractionService(clientEvents);
   const runtimeToolBridge = new RuntimeToolBridge(memoryTools, pendingInteractions, permissionPolicy, documentTools, bashTools, taskTools);
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
