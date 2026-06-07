@@ -71,9 +71,9 @@ Known gaps to close:
   - [x] Session rollback-and-retry execution flow.
   - [x] File-history snapshot creation and workspace restore.
 - [x] Synchronous execution and sequential collaboration routes.
-- [ ] Provider parity.
+- [x] Provider parity.
   - [x] Provider availability/test endpoints.
-  - [ ] Anthropic and OpenAI Responses chat clients.
+  - [x] Anthropic and OpenAI Responses chat clients.
 - [ ] Final parity pass.
 
 ## Validation Log
@@ -93,3 +93,6 @@ Known gaps to close:
 - 2026-06-08 provider availability/test endpoints:
   - `npm run typecheck`
   - `npx vitest run tests/routes/model-adapter.test.ts tests/services/model-adapter-service.test.ts tests/routes/runtime-core.test.ts tests/routes/runtime-core-execution.test.ts tests/routes/execution-status.test.ts`
+- 2026-06-08 Anthropic and OpenAI Responses chat clients:
+  - `npm run typecheck`
+  - `npx vitest run tests/services/llm-chat-client.test.ts tests/routes/model-adapter.test.ts tests/routes/runtime-core-execution.test.ts tests/services/agent-runtime-core.test.ts tests/routes/execution-status.test.ts`

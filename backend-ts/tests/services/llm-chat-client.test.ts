@@ -137,20 +137,111 @@ describe("OpenAI-compatible chat client", () => {
     const client = new OpenAiCompatibleChatClient();
     await expect(client.stream(buildRequest(), () => undefined)).rejects.toThrow("bad api key");
   });
+
+  it("calls OpenAI Responses for openai_resp providers", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        model: "gpt-4.1",
+        instructions: expect.stringContaining("system"),
+        input: [{ role: "user", content: "hello" }],
+        max_output_tokens: 500,
+      });
+      return new Response(
+        JSON.stringify({
+          status: "completed",
+          output_text: "response answer",
+        }),
+        { status: 200 },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const client = new OpenAiCompatibleChatClient();
+    const result = await client.complete({
+      ...buildRequest({
+        provider_type: "openai_resp",
+        model: "gpt-4.1",
+      }),
+      messages: [
+        { role: "system", content: "system" },
+        { role: "user", content: "hello" },
+      ],
+      maxCompletionTokens: 500,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.openai.com/v1/responses",
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "Bearer sk-test" }),
+      }),
+    );
+    expect(result).toMatchObject({
+      content: "response answer",
+      finishReason: "completed",
+    });
+  });
+
+  it("calls Anthropic messages for anthropic providers", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        model: "claude-sonnet-4-5",
+        system: [{ type: "text", text: "system" }],
+        messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+        max_tokens: 500,
+      });
+      return new Response(
+        JSON.stringify({
+          stop_reason: "end_turn",
+          content: [{ type: "text", text: "claude answer" }],
+        }),
+        { status: 200 },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const client = new OpenAiCompatibleChatClient();
+    const result = await client.complete({
+      ...buildRequest({
+        provider_type: "anthropic",
+        model: "claude-sonnet-4-5",
+      }),
+      messages: [
+        { role: "system", content: "system" },
+        { role: "user", content: "hello" },
+      ],
+      maxCompletionTokens: 500,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.anthropic.com/v1/messages",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "x-api-key": "sk-test",
+          "anthropic-version": "2023-06-01",
+        }),
+      }),
+    );
+    expect(result).toMatchObject({
+      content: "claude answer",
+      finishReason: "end_turn",
+    });
+  });
 });
 
-function buildRequest(): ChatCompletionRequest {
+function buildRequest(input: { provider_type?: string; model?: string } = {}): ChatCompletionRequest {
+  const providerType = input.provider_type ?? "deepseek";
+  const model = input.model ?? "deepseek-chat";
   return {
     messages: [{ role: "user", content: "hello" }],
-    model: "deepseek-chat",
+    model,
     provider: {
-      key: "my_deepseek",
+      key: `my_${providerType}`,
       name: "my",
-      provider_type: "deepseek",
+      provider_type: providerType,
       api_key: "sk-test",
-      models: ["deepseek-chat"],
+      models: [model],
       model_map: {
-        chat: "deepseek-chat",
+        chat: model,
       },
     },
     agent: AgentConfigSchema.parse({

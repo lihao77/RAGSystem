@@ -62,6 +62,7 @@ const DEFAULT_ENDPOINTS: Record<string, string> = {
   openai_resp: "https://api.openai.com/v1",
   openai_chat: "https://api.openai.com/v1",
   openai_proxy: "https://api.openai.com/v1",
+  anthropic: "https://api.anthropic.com",
   deepseek: "https://api.deepseek.com/v1",
   openrouter: "https://openrouter.ai/api/v1",
   modelscope: "https://api-inference.modelscope.cn/v1",
@@ -71,6 +72,12 @@ const OPENAI_COMPATIBLE_TYPES = new Set(["openai_chat", "openai_proxy", "deepsee
 
 export class OpenAiCompatibleChatClient implements LlmChatClient {
   async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
+    if (request.provider.provider_type === "openai_resp") {
+      return completeOpenAiResponses(request);
+    }
+    if (request.provider.provider_type === "anthropic") {
+      return completeAnthropicMessages(request);
+    }
     const { endpoint, apiKey } = resolveOpenAiCompatibleRequest(request);
     const response = await fetch(endpoint, buildFetchOptions(request, apiKey, false));
     const body = await readJsonResponseBody(response);
@@ -94,6 +101,13 @@ export class OpenAiCompatibleChatClient implements LlmChatClient {
   }
 
   async stream(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler): Promise<ChatCompletionResult> {
+    if (request.provider.provider_type === "openai_resp" || request.provider.provider_type === "anthropic") {
+      const result = await this.complete(request);
+      if (result.content) {
+        await onChunk({ content: result.content, raw: result.raw });
+      }
+      return result;
+    }
     const { endpoint, apiKey } = resolveOpenAiCompatibleRequest(request);
     const response = await fetch(endpoint, buildFetchOptions(request, apiKey, true));
     if (!response.ok) {
@@ -102,6 +116,64 @@ export class OpenAiCompatibleChatClient implements LlmChatClient {
     }
     return readOpenAiCompatibleStream(response, onChunk);
   }
+}
+
+async function completeOpenAiResponses(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
+  const apiKey = requireApiKey(request.provider);
+  const endpoint = resolveResponsesEndpoint(request.provider);
+  const fetchOptions: RequestInit = {
+    method: "POST",
+    headers: buildHeaders(apiKey),
+    body: JSON.stringify(buildResponsesBody(request)),
+  };
+  if (request.signal) {
+    fetchOptions.signal = request.signal;
+  }
+  const response = await fetch(endpoint, fetchOptions);
+  const body = await readJsonResponseBody(response);
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
+  }
+  const content = extractResponsesContent(body);
+  if (!content) {
+    throw new Error("OpenAI Responses output did not include assistant content");
+  }
+  return {
+    content,
+    raw: body,
+    finishReason: extractResponsesFinishReason(body),
+  };
+}
+
+async function completeAnthropicMessages(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
+  const apiKey = requireApiKey(request.provider);
+  const endpoint = resolveAnthropicEndpoint(request.provider);
+  const fetchOptions: RequestInit = {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify(buildAnthropicBody(request)),
+  };
+  if (request.signal) {
+    fetchOptions.signal = request.signal;
+  }
+  const response = await fetch(endpoint, fetchOptions);
+  const body = await readJsonResponseBody(response);
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
+  }
+  const content = extractAnthropicContent(body);
+  if (!content) {
+    throw new Error("Anthropic response did not include assistant content");
+  }
+  return {
+    content,
+    raw: body,
+    finishReason: isRecord(body) && typeof body.stop_reason === "string" ? body.stop_reason : null,
+  };
 }
 
 function buildFetchOptions(request: ChatCompletionRequest, apiKey: string, stream: boolean): RequestInit {
@@ -120,14 +192,19 @@ function resolveOpenAiCompatibleRequest(request: ChatCompletionRequest): { endpo
   if (!OPENAI_COMPATIBLE_TYPES.has(request.provider.provider_type)) {
     throw new Error(`Provider type '${request.provider.provider_type}' is not supported by the minimal TS runtime core`);
   }
-  const apiKey = String(request.provider.api_key ?? "").trim();
-  if (!apiKey) {
-    throw new Error("Provider API key is required");
-  }
+  const apiKey = requireApiKey(request.provider);
   return {
     endpoint: resolveChatEndpoint(request.provider),
     apiKey,
   };
+}
+
+function requireApiKey(provider: ModelProviderConfig): string {
+  const apiKey = String(provider.api_key ?? "").trim();
+  if (!apiKey) {
+    throw new Error("Provider API key is required");
+  }
+  return apiKey;
 }
 
 function buildHeaders(apiKey: string): Record<string, string> {
@@ -159,6 +236,75 @@ function resolveChatEndpoint(provider: ModelProviderConfig): string {
     return normalized;
   }
   return `${normalized}/chat/completions`;
+}
+
+function resolveResponsesEndpoint(provider: ModelProviderConfig): string {
+  const baseUrl = String(provider.api_endpoint ?? DEFAULT_ENDPOINTS[provider.provider_type] ?? "").trim();
+  if (!baseUrl) {
+    throw new Error(`Provider '${provider.name}' is missing api_endpoint`);
+  }
+  const normalized = baseUrl.replace(/\/+$/, "");
+  if (normalized.endsWith("/responses")) {
+    return normalized;
+  }
+  return `${normalized}/responses`;
+}
+
+function resolveAnthropicEndpoint(provider: ModelProviderConfig): string {
+  const baseUrl = String(provider.api_endpoint ?? DEFAULT_ENDPOINTS[provider.provider_type] ?? "").trim();
+  if (!baseUrl) {
+    throw new Error(`Provider '${provider.name}' is missing api_endpoint`);
+  }
+  const normalized = baseUrl.replace(/\/+$/, "");
+  if (normalized.endsWith("/messages")) {
+    return normalized;
+  }
+  return `${normalized}/v1/messages`;
+}
+
+function buildResponsesBody(request: ChatCompletionRequest): Record<string, unknown> {
+  const instructions = request.messages
+    .filter((message) => message.role === "system")
+    .map((message) => message.content)
+    .join("\n\n") || undefined;
+  const input = request.messages
+    .filter((message) => message.role !== "system")
+    .map((message) => ({
+      role: message.role === "assistant" ? "assistant" : "user",
+      content: message.content,
+    }));
+  return {
+    model: request.model,
+    input,
+    instructions,
+    temperature: request.temperature ?? undefined,
+    max_output_tokens: request.maxCompletionTokens ?? undefined,
+    tools: request.tools?.length ? request.tools.map((tool) => ({
+      type: "function",
+      name: tool.function.name,
+      description: tool.function.description,
+      parameters: tool.function.parameters,
+    })) : undefined,
+  };
+}
+
+function buildAnthropicBody(request: ChatCompletionRequest): Record<string, unknown> {
+  const system = request.messages
+    .filter((message) => message.role === "system")
+    .map((message) => ({ type: "text", text: message.content }));
+  const messages = request.messages
+    .filter((message) => message.role !== "system" && message.role !== "tool")
+    .map((message) => ({
+      role: message.role === "assistant" ? "assistant" : "user",
+      content: [{ type: "text", text: message.content }],
+    }));
+  return {
+    model: request.model,
+    messages,
+    system: system.length ? system : undefined,
+    temperature: request.temperature ?? undefined,
+    max_tokens: request.maxCompletionTokens ?? request.provider.max_completion_tokens ?? request.provider.max_tokens ?? 4096,
+  };
 }
 
 async function readOpenAiCompatibleStream(
@@ -255,6 +401,58 @@ function extractAssistantContent(body: unknown): string | null {
     return first.text;
   }
   return null;
+}
+
+function extractResponsesContent(body: unknown): string | null {
+  if (!isRecord(body)) {
+    return null;
+  }
+  if (typeof body.output_text === "string" && body.output_text) {
+    return body.output_text;
+  }
+  const output = body.output;
+  if (!Array.isArray(output)) {
+    return null;
+  }
+  const parts: string[] = [];
+  for (const item of output) {
+    if (!isRecord(item)) {
+      continue;
+    }
+    const content = item.content;
+    if (!Array.isArray(content)) {
+      continue;
+    }
+    for (const block of content) {
+      if (isRecord(block) && typeof block.text === "string") {
+        parts.push(block.text);
+      }
+    }
+  }
+  return parts.join("");
+}
+
+function extractResponsesFinishReason(body: unknown): string | null {
+  if (!isRecord(body)) {
+    return null;
+  }
+  if (typeof body.status === "string") {
+    return body.status;
+  }
+  return null;
+}
+
+function extractAnthropicContent(body: unknown): string | null {
+  if (!isRecord(body) || !Array.isArray(body.content)) {
+    return null;
+  }
+  const parts: string[] = [];
+  for (const block of body.content) {
+    if (isRecord(block) && typeof block.text === "string") {
+      parts.push(block.text);
+    }
+  }
+  return parts.join("");
 }
 
 function extractAssistantToolCalls(body: unknown): ChatToolCall[] {
