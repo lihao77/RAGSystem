@@ -76,7 +76,7 @@ describe("vector library compatibility routes", () => {
       success: true,
       data: {
         vectorizer_key: "embedding_openai_proxy_text-embedding-3-small",
-        vector_dimension: null,
+        vector_dimension: 64,
         model_id: 1,
       },
     });
@@ -94,7 +94,7 @@ describe("vector library compatibility routes", () => {
         distance_metric: "cosine",
         is_active: true,
         provider_available: true,
-        vector_dimension: null,
+        vector_dimension: 64,
         vector_count: 0,
         model_id: 1,
       },
@@ -199,22 +199,88 @@ describe("vector library compatibility routes", () => {
     expect(deleted.json().data.deleted_reranker_key).toBe("bm25_local");
   });
 
-  it("keeps real vector runtime effects as explicit not-migrated boundaries", async () => {
+  it("indexes uploaded files, migrates vectors, and deletes indexed file chunks", async () => {
     app = await buildTestApp();
+
+    await createEmbeddingProvider();
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/vector-library/vectorizers",
+      payload: {
+        provider_key: "embedding_openai_proxy",
+        model_name: "text-embedding-3-small",
+      },
+    });
+    expect(created.statusCode).toBe(200);
+    const vectorizerKey = created.json().data.vectorizer_key;
+
+    const uploaded = await app.inject({
+      method: "POST",
+      url: "/api/files/upload",
+      headers: multipartHeaders("boundary-vector-index"),
+      payload: multipartBody(
+        "boundary-vector-index",
+        "files",
+        "rag-notes.txt",
+        "text/plain",
+        "TypeScript vector migration indexes uploaded knowledge files for RAG search.",
+      ),
+    });
+    expect(uploaded.statusCode).toBe(200);
+    const file = uploaded.json().files[0];
 
     const indexFile = await app.inject({
       method: "POST",
       url: "/api/vector-library/index-file",
       payload: {
         collection: "documents",
-        file_id: "file-1",
-        vectorizer_key: "vectorizer-1",
+        file_id: file.id,
+        vectorizer_key: vectorizerKey,
       },
     });
-    expect(indexFile.statusCode).toBe(501);
-    expect(indexFile.json()).toMatchObject({
-      success: false,
-      code: "not_migrated",
+    expect(indexFile.statusCode).toBe(200);
+    expect(indexFile.json().data).toMatchObject({
+      collection: "documents",
+      file_id: file.id,
+      vectorizer_key: vectorizerKey,
+      indexed_chunks: 1,
+    });
+
+    const status = await app.inject({
+      method: "GET",
+      url: "/api/vector-library/file-status",
+    });
+    expect(status.statusCode).toBe(200);
+    expect(status.json().data.files[0]).toMatchObject({
+      file_id: file.id,
+      chunk_count: 1,
+      vectorizer_status: {
+        [vectorizerKey]: "已索引",
+      },
+    });
+
+    const target = await app.inject({
+      method: "POST",
+      url: "/api/vector-library/vectorizers",
+      payload: {
+        provider_key: "embedding_openai_proxy",
+        model_name: "text-embedding-3-large",
+      },
+    });
+    expect(target.statusCode).toBe(200);
+
+    const migrate = await app.inject({
+      method: "POST",
+      url: "/api/vector-library/migrate",
+      payload: {
+        from_key: vectorizerKey,
+        to_key: target.json().data.vectorizer_key,
+      },
+    });
+    expect(migrate.statusCode).toBe(200);
+    expect(migrate.json().data).toMatchObject({
+      from_key: vectorizerKey,
+      migrated_chunks: 1,
     });
 
     const deleteFile = await app.inject({
@@ -222,20 +288,15 @@ describe("vector library compatibility routes", () => {
       url: "/api/vector-library/delete-file",
       payload: {
         collection: "documents",
-        file_id: "file-1",
+        file_id: file.id,
       },
     });
-    expect(deleteFile.statusCode).toBe(501);
-
-    const migrate = await app.inject({
-      method: "POST",
-      url: "/api/vector-library/migrate",
-      payload: {
-        from_key: "old",
-        to_key: "new",
-      },
+    expect(deleteFile.statusCode).toBe(200);
+    expect(deleteFile.json().data).toMatchObject({
+      collection: "documents",
+      document_id: file.id,
+      deleted_chunks: 1,
     });
-    expect(migrate.statusCode).toBe(501);
   });
 });
 
@@ -276,48 +337,121 @@ describe("vector management compatibility routes", () => {
     expect(health.json()).toMatchObject({
       success: true,
       data: {
-        status: "unavailable",
-        runtime: "not_migrated",
+        status: "healthy",
+        runtime: "local",
         collections_count: 0,
       },
     });
   });
 
-  it("keeps vector search and document indexing as explicit not-migrated boundaries", async () => {
+  it("indexes, searches, and deletes vector documents and collections", async () => {
     app = await buildTestApp();
-
-    const search = await app.inject({
-      method: "POST",
-      url: "/api/vector/search",
-      payload: {
-        query: "hello",
-        top_k: 5,
-        search_mode: "hybrid",
-      },
-    });
-    expect(search.statusCode).toBe(501);
-    expect(search.json()).toMatchObject({
-      success: false,
-      code: "not_migrated",
-    });
 
     const index = await app.inject({
       method: "POST",
       url: "/api/vector/index",
       payload: {
         document_id: "doc-1",
-        text: "hello",
+        collection_name: "kb",
+        text: "TypeScript backend migration includes vector search and RAG retrieval.",
+        metadata: {
+          source: "doc-1.md",
+        },
       },
     });
-    expect(index.statusCode).toBe(501);
+    expect(index.statusCode).toBe(200);
+    expect(index.json().data).toMatchObject({
+      document_id: "doc-1",
+      chunk_count: 1,
+      collection_name: "kb",
+    });
+
+    const collections = await app.inject({
+      method: "GET",
+      url: "/api/vector/collections",
+    });
+    expect(collections.statusCode).toBe(200);
+    expect(collections.json()).toMatchObject({
+      success: true,
+      count: 1,
+      data: [
+        {
+          name: "kb",
+          document_count: 1,
+          chunk_count: 1,
+        },
+      ],
+    });
+
+    const search = await app.inject({
+      method: "POST",
+      url: "/api/vector/search",
+      payload: {
+        query: "RAG retrieval",
+        collection_name: "kb",
+        top_k: 5,
+        search_mode: "hybrid",
+      },
+    });
+    expect(search.statusCode).toBe(200);
+    expect(search.json().data).toMatchObject({
+      count: 1,
+      collection_name: "kb",
+      search_mode: "hybrid",
+      results: [
+        {
+          document_id: "doc-1",
+          collection: "kb",
+        },
+      ],
+    });
 
     const deleteDocument = await app.inject({
       method: "DELETE",
-      url: "/api/vector/documents/documents/doc-1",
+      url: "/api/vector/documents/kb/doc-1",
     });
-    expect(deleteDocument.statusCode).toBe(501);
+    expect(deleteDocument.statusCode).toBe(200);
+    expect(deleteDocument.json().data.deleted_chunks).toBe(1);
+
+    await app.inject({
+      method: "POST",
+      url: "/api/vector/index",
+      payload: {
+        document_id: "doc-2",
+        collection_name: "kb",
+        text: "Collection deletion removes all chunks.",
+      },
+    });
+    const deleteCollection = await app.inject({
+      method: "DELETE",
+      url: "/api/vector/collections/kb",
+    });
+    expect(deleteCollection.statusCode).toBe(200);
+    expect(deleteCollection.json().data).toMatchObject({
+      collection: "kb",
+      deleted_chunks: 1,
+    });
   });
 });
+
+async function createEmbeddingProvider(): Promise<void> {
+  if (!app) {
+    throw new Error("test app not initialized");
+  }
+  const provider = await app.inject({
+    method: "POST",
+    url: "/api/model-adapter/providers",
+    payload: {
+      name: "Embedding",
+      provider_type: "openai_proxy",
+      api_key: "sk-test",
+      model_map: {
+        embedding: "text-embedding-3-small",
+      },
+    },
+  });
+  expect(provider.statusCode).toBe(200);
+}
 
 function multipartHeaders(boundary: string): Record<string, string> {
   return {

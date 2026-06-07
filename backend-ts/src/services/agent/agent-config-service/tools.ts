@@ -29,6 +29,8 @@ export function listAvailableTools(): AvailableToolInfo[] {
     implementedTool("call_agent", "Delegate a subtask to an allowed child Agent", "agent_delegation", "low"),
     implementedTool("list_child_agents", "List child Agent sessions for the current session", "agent_delegation", "low"),
     implementedTool("send_message", "Continue an existing child Agent session", "agent_delegation", "low"),
+    implementedTool("search_knowledge_base", "Search enabled Agent knowledge base collections", "knowledge", "low"),
+    implementedTool("list_knowledge_collections", "List available knowledge base collections", "knowledge", "low"),
   ];
 }
 

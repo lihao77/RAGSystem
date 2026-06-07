@@ -103,7 +103,10 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const mcp = new McpService();
   const daemon = new DaemonService();
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
-  const vectorLibrary = new VectorLibraryService(fileIndex, modelAdapter);
+  const vectorLibrary = new VectorLibraryService(fileIndex, modelAdapter, {
+    dbPath: options.dbPath,
+    dataRoot: options.dataRoot,
+  });
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   const embeddingModels = new EmbeddingModelService(vectorLibrary);
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
@@ -136,6 +139,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     taskTools,
     searchTools,
     hooks,
+    vectorLibrary,
   );
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
@@ -178,6 +182,8 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     }
     closed = true;
     outboxDispatcher.stop();
+    vectorLibrary.close();
+    fileIndex.close();
   };
   return {
     conversationStore,

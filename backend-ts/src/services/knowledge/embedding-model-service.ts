@@ -2,6 +2,7 @@ import type {
   EmbeddingModelInfo,
   EmbeddingModelStats,
   EmbeddingSyncStatus,
+  SyncEmbeddingModelRequest,
 } from "../../contracts/embedding-models.js";
 import type { VectorLibraryService } from "./vector-library-service.js";
 
@@ -87,29 +88,39 @@ export class EmbeddingModelService {
     if (!model) {
       return {};
     }
-    return (
-      model.stats ??
-      this.buildStats({
-        id: model.id,
-        provider: model.provider,
-        modelName: model.model_name,
-        dimension: model.vector_dimension,
-        isActive: model.is_active,
-      })
-    );
+    return this.buildStats({
+      id: model.id,
+      provider: model.provider,
+      modelName: model.model_name,
+      dimension: model.vector_dimension,
+      isActive: model.is_active,
+    });
   }
 
   getSyncStatus(collection: string): EmbeddingSyncStatus[] {
-    void collection;
-    return this.listModels().map((model) => ({
-      model_id: model.id,
-      model_key: model.model_key,
-      is_active: model.is_active,
-      total_documents: 0,
-      synced_documents: 0,
-      pending_documents: 0,
-      sync_percentage: 0,
-    }));
+    const models = new Map(this.listModels().map((model) => [model.id, model]));
+    return this.vectorLibrary.getSyncStatus(collection).flatMap((status) => {
+      const model = models.get(status.model_id);
+      if (!model) {
+        return [];
+      }
+      return [{
+        model_id: status.model_id,
+        model_key: model.model_key,
+        is_active: model.is_active,
+        total_documents: status.total_documents,
+        synced_documents: status.synced_documents,
+        pending_documents: status.pending_documents,
+        sync_percentage: status.sync_percentage,
+      }];
+    });
+  }
+
+  syncModel(modelId: number, input: SyncEmbeddingModelRequest): Record<string, unknown> {
+    return this.vectorLibrary.syncModel(modelId, {
+      collection: input.collection,
+      limit: input.limit ?? input.batch_size,
+    });
   }
 
   private getModel(modelId: number): EmbeddingModelInfo | null {
@@ -123,6 +134,7 @@ export class EmbeddingModelService {
     dimension: number;
     isActive: boolean;
   }): EmbeddingModelStats {
+    const stats = this.vectorLibrary.getModelStats(input.id);
     return {
       model_id: input.id,
       model_key: this.modelKey(input.provider, input.modelName, input.dimension),
@@ -130,9 +142,9 @@ export class EmbeddingModelService {
       model_name: input.modelName,
       vector_dimension: input.dimension,
       is_active: input.isActive,
-      vector_count: 0,
-      storage_size_mb: 0,
-      collections: {},
+      vector_count: stats.vector_count,
+      storage_size_mb: stats.storage_size_mb,
+      collections: stats.collections,
     };
   }
 

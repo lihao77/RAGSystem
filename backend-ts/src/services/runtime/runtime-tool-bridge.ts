@@ -7,6 +7,7 @@ import type { LocalDocumentToolService } from "../tools/local-document-tool-serv
 import type { AgentDelegationService } from "../agent/agent-delegation-service.js";
 import type { TaskToolService } from "../tools/task-tool-service.js";
 import type { LocalSearchToolService } from "../tools/local-search-tool-service.js";
+import type { VectorLibraryService } from "../knowledge/vector-library-service.js";
 import type {
   BashExecutionPlan,
   LocalBashToolService,
@@ -47,6 +48,7 @@ import {
   DOCUMENT_TOOLS,
   EXECUTE_BASH_TOOL,
   EXECUTE_BASH_TOOL_NAME,
+  KNOWLEDGE_TOOLS,
   LOCAL_SEARCH_TOOLS,
   READ_ONLY_MEMORY_TOOLS,
   REQUEST_USER_INPUT_TOOL,
@@ -71,12 +73,14 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     private readonly taskTools: TaskToolService | null = null,
     private readonly searchTools: LocalSearchToolService | null = null,
     private readonly hooks: HookRuntimeService | null = null,
+    private readonly vectorLibrary: VectorLibraryService | null = null,
   ) {
     this.toolHandlers = createRuntimeToolHandlers({
       memoryTools,
       documentTools,
       searchTools,
       taskTools,
+      vectorLibrary,
       getAgentDelegation: () => this.agentDelegation,
       requestUserInput: (call, context) => this.requestUserInput(call, context),
       unavailableTool: (toolName) => this.unavailableTool(toolName),
@@ -109,6 +113,9 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
           tools.push({ ...tool });
         }
       }
+    }
+    if (this.vectorLibrary && agent?.knowledge_base.enabled) {
+      tools.push(...KNOWLEDGE_TOOLS.map((tool) => ({ ...tool })));
     }
     if (this.taskTools) {
       if (agent?.tasks?.workflow) {

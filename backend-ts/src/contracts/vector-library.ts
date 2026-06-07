@@ -61,6 +61,7 @@ export type IndexFileRequest = z.infer<typeof IndexFileRequestSchema>;
 export type DeleteIndexedFileRequest = z.infer<typeof DeleteIndexedFileRequestSchema>;
 export type RerankerCreate = z.infer<typeof RerankerCreateSchema>;
 export type SearchVectorsRequest = z.infer<typeof SearchVectorsRequestSchema>;
+export type GenericVectorRequest = z.infer<typeof GenericVectorRequestSchema>;
 
 export interface VectorizerConfig {
   vectorizer_key: string;

@@ -346,6 +346,24 @@ export function readSendMessageArguments(value: Record<string, unknown> | undefi
   };
 }
 
+export function readSearchKnowledgeBaseArguments(value: Record<string, unknown> | undefined): {
+  query: string;
+  collection?: string | null;
+  topK?: number | null;
+  searchMode?: string | null;
+  rerank?: boolean | null;
+  filters?: Record<string, unknown> | null;
+} {
+  return {
+    query: asString(value?.query) ?? "",
+    collection: asString(value?.collection) ?? asString(value?.collection_name),
+    topK: asInteger(value?.top_k) ?? asInteger(value?.topK),
+    searchMode: asString(value?.search_mode) ?? asString(value?.searchMode),
+    rerank: typeof value?.rerank === "boolean" ? value.rerank : null,
+    filters: asRecord(value?.filters),
+  };
+}
+
 export function errorResult(
   message: string,
   toolName: string,

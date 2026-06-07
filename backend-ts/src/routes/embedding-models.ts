@@ -2,7 +2,8 @@ import type { FastifyPluginAsync } from "fastify";
 
 import { SyncEmbeddingModelRequestSchema } from "../contracts/embedding-models.js";
 import { EmbeddingModelServiceError } from "../services/knowledge/embedding-model-service.js";
-import { HttpError, NotMigratedError } from "../utils/errors.js";
+import { VectorLibraryServiceError } from "../services/knowledge/vector-library-service.js";
+import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 
 interface ModelParams {
@@ -53,9 +54,16 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
   });
 
   app.post<{ Params: ModelParams }>("/models/:modelId/sync", async (request) => {
-    parseModelId(request.params.modelId);
-    SyncEmbeddingModelRequestSchema.parse(request.body ?? {});
-    throw new NotMigratedError("Embedding model vector sync");
+    const modelId = parseModelId(request.params.modelId);
+    const payload = SyncEmbeddingModelRequestSchema.parse(request.body ?? {});
+    try {
+      return {
+        success: true,
+        ...options.container.embeddingModels.syncModel(modelId, payload),
+      };
+    } catch (error) {
+      throw toHttpError(error);
+    }
   });
 
   app.get<{ Params: ModelParams; Querystring: StatsQuery }>("/models/:modelId/stats", async (request) => {
@@ -96,6 +104,9 @@ function toHttpError(error: unknown): HttpError {
     return error;
   }
   if (error instanceof EmbeddingModelServiceError) {
+    return new HttpError(error.statusCode, error.statusCode === 404 ? "not_found" : "invalid_request", error.message);
+  }
+  if (error instanceof VectorLibraryServiceError) {
     return new HttpError(error.statusCode, error.statusCode === 404 ? "not_found" : "invalid_request", error.message);
   }
   return new HttpError(500, "internal_error", error instanceof Error ? error.message : String(error));

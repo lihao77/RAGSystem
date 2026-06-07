@@ -9,7 +9,7 @@ import {
 } from "../contracts/vector-library.js";
 import { ok } from "../contracts/common.js";
 import { VectorLibraryServiceError } from "../services/knowledge/vector-library-service.js";
-import { HttpError, NotMigratedError } from "../utils/errors.js";
+import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 
 interface KeyParams {
@@ -24,13 +24,21 @@ export const registerVectorLibraryRoutes: FastifyPluginAsync<RouteOptions> = asy
   app.get("/file-status", async () => ok(options.container.vectorLibrary.fileStatus()));
 
   app.post("/index-file", async (request) => {
-    IndexFileRequestSchema.parse(request.body);
-    throw new NotMigratedError("Vector file indexing");
+    const payload = IndexFileRequestSchema.parse(request.body);
+    try {
+      return ok(options.container.vectorLibrary.indexFile(payload));
+    } catch (error) {
+      throw toHttpError(error);
+    }
   });
 
   app.post("/delete-file", async (request) => {
-    DeleteIndexedFileRequestSchema.parse(request.body);
-    throw new NotMigratedError("Vector indexed file deletion");
+    const payload = DeleteIndexedFileRequestSchema.parse(request.body);
+    try {
+      return ok(options.container.vectorLibrary.deleteIndexedFile(payload));
+    } catch (error) {
+      throw toHttpError(error);
+    }
   });
 
   app.get("/vectorizers", async () => ok(options.container.vectorLibrary.listVectorizers()));
@@ -70,8 +78,12 @@ export const registerVectorLibraryRoutes: FastifyPluginAsync<RouteOptions> = asy
   });
 
   app.post("/migrate", async (request) => {
-    GenericVectorRequestSchema.parse(request.body ?? {});
-    throw new NotMigratedError("Vector data migration");
+    const payload = GenericVectorRequestSchema.parse(request.body ?? {});
+    try {
+      return ok(options.container.vectorLibrary.migrate(payload));
+    } catch (error) {
+      throw toHttpError(error);
+    }
   });
 
   app.get("/rerankers", async () => ok(options.container.vectorLibrary.listRerankers()));

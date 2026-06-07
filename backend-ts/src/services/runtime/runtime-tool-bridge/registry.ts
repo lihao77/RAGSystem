@@ -24,6 +24,8 @@ export const TASK_OUTPUT_TOOL_NAME = "task_output";
 export const TASK_STOP_TOOL_NAME = "task_stop";
 export const WRITE_MEMORY_TOOL_NAME = "write_memory";
 export const ARCHIVE_MEMORY_TOOL_NAME = "archive_memory";
+export const SEARCH_KNOWLEDGE_BASE_TOOL_NAME = "search_knowledge_base";
+export const LIST_KNOWLEDGE_COLLECTIONS_TOOL_NAME = "list_knowledge_collections";
 
 export const REQUEST_USER_INPUT_TOOL: RuntimeToolDefinition = {
   name: REQUEST_USER_INPUT_TOOL_NAME,
@@ -390,6 +392,62 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
           },
         },
       },
+    },
+  },
+];
+
+export const KNOWLEDGE_TOOLS: RuntimeToolDefinition[] = [
+  {
+    name: SEARCH_KNOWLEDGE_BASE_TOOL_NAME,
+    source: "knowledge",
+    category: "knowledge",
+    riskLevel: "low",
+    description:
+      "Search the enabled Agent knowledge base for document chunks relevant to a query. Uses Agent knowledge_base defaults when optional fields are omitted.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["query"],
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query text.",
+        },
+        collection: {
+          type: "string",
+          description: "Knowledge collection name. Defaults to the Agent knowledge_base default_collection.",
+        },
+        top_k: {
+          type: "integer",
+          minimum: 1,
+          description: "Maximum result count. Defaults to the Agent knowledge_base default_top_k.",
+        },
+        search_mode: {
+          type: "string",
+          enum: ["vector", "hybrid"],
+          description: "Search mode. Defaults to the Agent knowledge_base default_search_mode.",
+        },
+        rerank: {
+          type: "boolean",
+          description: "Whether to rerank hybrid results. Defaults to the Agent knowledge_base default_rerank.",
+        },
+        filters: {
+          type: "object",
+          description: "Optional metadata filters reserved for vector-store compatible callers.",
+        },
+      },
+    },
+  },
+  {
+    name: LIST_KNOWLEDGE_COLLECTIONS_TOOL_NAME,
+    source: "knowledge",
+    category: "knowledge",
+    riskLevel: "low",
+    description: "List available knowledge base collections and their document/chunk counts.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {},
     },
   },
 ];

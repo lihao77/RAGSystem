@@ -64,7 +64,7 @@ Known gaps to close:
 - [x] Local runtime tools parity (`glob`, `grep`, `web_fetch`, `todo_write`).
 - [x] Attachments and slash commands.
 - [x] Hook runtime.
-- [ ] Vector/RAG runtime.
+- [x] Vector/RAG runtime.
 - [ ] MCP runtime.
 - [ ] Daemon runtime.
 - [ ] File history rollback/retry.

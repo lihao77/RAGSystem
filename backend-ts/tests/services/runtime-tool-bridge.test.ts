@@ -22,6 +22,9 @@ import { PermissionPolicyService } from "../../src/services/runtime/permission-p
 import { RuntimeToolBridge } from "../../src/services/runtime/runtime-tool-bridge.js";
 import { HookRuntimeService } from "../../src/services/runtime/hooks/index.js";
 import { TaskToolService } from "../../src/services/tools/task-tool-service.js";
+import { ModelAdapterService } from "../../src/services/integrations/model-adapter-service.js";
+import { FileIndexService } from "../../src/services/stores/file-index-service.js";
+import { VectorLibraryService } from "../../src/services/knowledge/vector-library-service.js";
 
 const tempRoots: string[] = [];
 
@@ -240,6 +243,86 @@ describe("RuntimeToolBridge", () => {
         scope: "session",
       },
     });
+  });
+
+  it("exposes and executes knowledge tools when knowledge base is enabled", async () => {
+    const dataRoot = makeTempDataRoot();
+    const fileIndex = new FileIndexService({ dbPath: ":memory:", dataRoot });
+    const vectorLibrary = new VectorLibraryService(
+      fileIndex,
+      new ModelAdapterService({ providersConfigPath: "" }),
+      { dbPath: ":memory:", dataRoot },
+    );
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      vectorLibrary,
+    );
+    const agent = {
+      ...minimalAgent([]),
+      knowledge_base: {
+        enabled: true,
+        default_collection: "kb",
+        default_search_mode: "hybrid",
+        default_top_k: 2,
+        default_rerank: false,
+        default_reranker_key: null,
+      },
+    } satisfies AgentConfig;
+
+    vectorLibrary.indexDocument({
+      collection_name: "kb",
+      document_id: "rag-doc",
+      text: "TypeScript backend now supports RAG knowledge base retrieval.",
+      metadata: { source_file: "migration.md" },
+    });
+
+    expect(bridge.listVisibleToolNames(minimalAgent([]))).toEqual([]);
+    expect(bridge.listVisibleToolNames(agent)).toEqual([
+      "search_knowledge_base",
+      "list_knowledge_collections",
+    ]);
+
+    const searchResult = await Promise.resolve(bridge.executeTool(
+      {
+        toolName: "search_knowledge_base",
+        arguments: { query: "RAG retrieval" },
+      },
+      { agent },
+    ));
+    expect(searchResult).toMatchObject({
+      success: true,
+      tool_name: "search_knowledge_base",
+      content: expect.stringContaining("migration.md"),
+      metadata: {
+        count: 1,
+        collection: "kb",
+        search_mode: "hybrid",
+      },
+    });
+
+    const collectionsResult = await Promise.resolve(bridge.executeTool(
+      {
+        toolName: "list_knowledge_collections",
+        arguments: {},
+      },
+      { agent },
+    ));
+    expect(collectionsResult).toMatchObject({
+      success: true,
+      tool_name: "list_knowledge_collections",
+      content: "- kb: 1 文档, 1 分块",
+      metadata: { count: 1 },
+    });
+
+    vectorLibrary.close();
+    fileIndex.close();
   });
 
   it("dispatches write_memory and archive_memory calls to memory tools", () => {
