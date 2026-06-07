@@ -84,12 +84,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const sessionApplication = new AgentSessionApplication(conversationStore);
   const checkpointManager = new CheckpointManager({ dbPath: options.checkpointDbPath ?? options.dbPath });
   const events = new InMemoryEventBus();
-  const outboxDispatcher = new OutboxDispatcher(
-    conversationStore,
-    events,
-    undefined,
-    "live",
-  );
+  const outboxDispatcher = new OutboxDispatcher(conversationStore, events);
   if (options.startOutboxDispatcher ?? true) {
     outboxDispatcher.start(options.outboxDispatcherIntervalMs);
   }
@@ -143,7 +138,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   runtimeToolBridge.setAgentDelegation(agentDelegation);
   const agentExecution = new AgentExecutionService(
     sessionApplication,
-    events,
     conversationStore,
     runtimeCore,
     agentRuntimeCore,

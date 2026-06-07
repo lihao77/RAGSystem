@@ -98,23 +98,6 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
           content: payload,
         });
       };
-      const sendApprovalResolved = (approvalId: string, approved: boolean, message: string): void => {
-        const payload = {
-          interaction_id: approvalId,
-          kind: "approval",
-          approval_id: approvalId,
-          approved,
-          message,
-        };
-        send({
-          type: approved ? "user.approval_granted" : "user.approval_denied",
-          session_id: sessionId,
-          approval_id: approvalId,
-          data: payload,
-          content: payload,
-        });
-      };
-
       const unsubscribe = options.container.events.subscribe(sessionId, (event) => {
         send(event);
         if (event.type !== "session.run_started") {
@@ -217,14 +200,10 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
               });
               break;
             case "approve":
-              if (
-                options.container.pendingInteractions.respondApproval(sessionId, message.approval_id, {
-                  approved: message.approved,
-                  message: message.message,
-                })
-              ) {
-                sendApprovalResolved(message.approval_id, message.approved, message.message);
-              } else {
+              if (!options.container.pendingInteractions.respondApproval(sessionId, message.approval_id, {
+                approved: message.approved,
+                message: message.message,
+              })) {
                 send({
                   type: "approve.error",
                   session_id: sessionId,
@@ -246,9 +225,6 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
                   message: result.message ?? message.message ?? "",
                   ...(result.kind === "approval" ? { approval_id: message.interaction_id } : {}),
                 });
-                if (result.kind === "approval") {
-                  sendApprovalResolved(message.interaction_id, result.approved ?? false, result.message ?? "");
-                }
               } else {
                 sendInteractionError(
                   message.interaction_id,
@@ -336,10 +312,12 @@ function buildActiveRunReplay(
 
   const runId = status.run_id;
   const startedAtMs = timestampToMilliseconds(status.started_at);
-  const events = container.events.getHistory(sessionId).filter((event) => {
-    if (extractRunId(event) !== runId) {
-      return false;
-    }
+  const projector = new ClientEventProjector();
+  const events = container.conversationStore.listOutboxForReplay({
+    sessionId,
+    runId,
+    limit: 500,
+  }).map((row) => projector.toClientEvent(row)).filter((event) => {
     if (!isPendingInteractionReplayEvent(container, sessionId, event)) {
       return false;
     }

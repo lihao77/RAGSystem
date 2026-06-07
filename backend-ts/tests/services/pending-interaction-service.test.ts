@@ -10,7 +10,7 @@ describe("PendingInteractionService", () => {
   it("resolves approval interactions through the generic interaction response path", async () => {
     const store = new ConversationStore({ dbPath: ":memory:" });
     const events = new InMemoryEventBus();
-    const dispatcher = new OutboxDispatcher(store, events, undefined, "live");
+    const dispatcher = new OutboxDispatcher(store, events);
     const clientEvents = new DurableClientEventPublisher(store, dispatcher);
     const service = new PendingInteractionService(clientEvents);
 
@@ -87,6 +87,35 @@ describe("PendingInteractionService", () => {
       message: "允许执行",
     });
     expect(service.isApprovalPending("s1", approvalId)).toBe(false);
+    const resolvedHistory = events.getHistory("s1");
+    const approvalResolved = resolvedHistory.find((event) => event.type === "user.approval_granted");
+    expect(resolvedHistory.map((event) => event.event_seq)).toEqual([1, 2, 3]);
+    expect(approvalResolved).toMatchObject({
+      event_seq: 3,
+      run_id: "run-1",
+      approval_id: approvalId,
+      data: {
+        interaction_id: approvalId,
+        kind: "approval",
+        approval_id: approvalId,
+        approved: true,
+        message: "允许执行",
+        run_id: "run-1",
+        task_id: "task-1",
+        request_id: "req-1",
+      },
+    });
+    expect(
+      store.listOutboxForReplay({ sessionId: "s1" }).map((row) => ({
+        eventType: row.event_type,
+        status: row.status,
+        sessionSeq: row.session_seq,
+      })),
+    ).toEqual([
+      { eventType: "client.interaction.required", status: "delivered", sessionSeq: 1 },
+      { eventType: "client.user.approval_required", status: "delivered", sessionSeq: 2 },
+      { eventType: "client.user.approval_granted", status: "delivered", sessionSeq: 3 },
+    ]);
     store.close();
   });
 });

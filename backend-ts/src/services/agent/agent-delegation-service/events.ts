@@ -25,8 +25,8 @@ export interface AgentCallEndEventInput {
   mode: "create" | "resume";
 }
 
-export function publishAgentCallStart(events: ClientEventPublisher | null, input: AgentCallStartEventInput): void {
-  if (!events) {
+export function publishAgentCallStart(clientEvents: ClientEventPublisher | null, input: AgentCallStartEventInput): void {
+  if (!clientEvents) {
     return;
   }
   const payload = {
@@ -36,7 +36,7 @@ export function publishAgentCallStart(events: ClientEventPublisher | null, input
     child_agent_id: input.childAgentId,
     mode: input.mode,
   };
-  events.publish(
+  clientEvents.publish(
     input.sessionId,
     {
       type: "call.agent.start",
@@ -55,8 +55,8 @@ export function publishAgentCallStart(events: ClientEventPublisher | null, input
   );
 }
 
-export function publishAgentCallEnd(events: ClientEventPublisher | null, input: AgentCallEndEventInput): void {
-  if (!events) {
+export function publishAgentCallEnd(clientEvents: ClientEventPublisher | null, input: AgentCallEndEventInput): void {
+  if (!clientEvents) {
     return;
   }
   const payload = {
@@ -67,7 +67,7 @@ export function publishAgentCallEnd(events: ClientEventPublisher | null, input: 
     child_agent_id: input.childAgentId,
     mode: input.mode,
   };
-  events.publish(
+  clientEvents.publish(
     input.sessionId,
     {
       type: "call.agent.end",

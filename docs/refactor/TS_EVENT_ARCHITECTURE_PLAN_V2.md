@@ -6,14 +6,14 @@
 
 ## 结论
 
-V2 采用 V1 的 Recorder + Outbox + Dispatcher + Projection 方向，但把首期目标收敛到 agent execution 的关键生命周期事件。首个落地切片围绕 `agent-execution-service.ts` L580-L699 的 completed/failed/interrupted 终止路径，不承诺“只改 52 行即可完成”，因为需要配套补齐事务 API、outbox schema、projection、WebSocket replay cursor 和测试护栏。
+V2 采用 V1 的 Recorder + Outbox + Dispatcher + Projection 方向。当前实现已从 agent execution 关键生命周期事件扩展到 streaming、interaction、background、delegation 等非 transport-local client events；这些事件统一写入 durable outbox，再由 dispatcher 投影并实时 fanout。
 
 核心调整：
 
 1. **事务边界先改造**：当前 `ConversationStore.withTransaction` 是 private，不能让 Recorder 直接调用现有 public 写方法形成嵌套事务；先新增受控事务门面。
 2. **序列语义分离**：`session_seq/event_seq` 是 durable replay cursor，现有 `stream_seq` 保持 WebSocket transport 序号，不再混用。
 3. **事件矩阵补全**：completed 路径必须覆盖 `execution.step`、`output.final_answer`、`call.agent.end`、`output.message_saved`、`run.end`；failed/interrupted 路径必须覆盖 `call.agent.end`、`execution.step`、`agent.error`、`run.end`。
-4. **首期 shadow-first**：dispatcher 先做投影比对和可观测，不直接替换 live publish，避免双发或顺序回归。
+4. **outbox live only**：开发阶段不保留 shadow/sync 回退，dispatcher 处理 outbox row 时固定投递到 realtime fanout。
 
 ## 当前代码事实
 
@@ -61,26 +61,23 @@ V2 的 Recorder 输入必须能表达没有 final message 的 terminal state。
 
 1. 核心状态写入与 outbox 记录在同一 SQLite 事务内完成。
 2. 前端 `ClientEvent` 协议保持兼容。
-3. 高频流式事件仍 live-only：`output.chunk`、`agent.intent_delta`、`llm.first_token` 首期不进 durable outbox。
-4. 重连回放从内存 history 逐步迁移到 durable outbox projection。
-5. 每个阶段有明确验收和回退策略。
+3. 除 transport-local event 外，前端 client event 统一写入 durable outbox 并由 dispatcher 投影。
+4. 重连回放使用 durable outbox projection，不依赖进程内 history。
+5. 每个阶段有明确验收；开发阶段不保留 sync/旧同步 publish 回退路径。
 
 ## 非目标
 
 - 不引入 Kafka、Redis Stream、RabbitMQ 等外部 broker。
 - 不做完整 event sourcing。
 - 不把所有业务流程改为事件订阅驱动。
-- 不在首期持久化 token delta 级别事件。
-- 不一次性迁移所有 event publisher 调用点。
+- 不持久化 heartbeat、reconnect envelope、WebSocket command ack/error 这类 transport-local event。
+- 不保留旧同步 publish 作为运行时路径。
 
 ## 目标架构
 
 ```text
 AgentExecutionService
-  ├─ 高频流式事件 -> InMemoryEventBus / RealtimeEventHub live-only
-  │   └─ output.chunk, agent.intent_delta, llm.first_token
-  │
-  └─ 关键生命周期事件 -> ExecutionRecorder
+  └─ client/domain event -> DurableClientEventPublisher / ExecutionRecorder
       └─ ConversationStore.runInTransaction(tx => {
             写 messages / runs / run_steps
             生成 session_seq
@@ -90,7 +87,7 @@ AgentExecutionService
 OutboxDispatcher
   └─ fetch pending outbox rows
       -> ClientEventProjector
-      -> shadow compare 或 RealtimeEventHub publish
+      -> RealtimeEventHub publish
       -> mark delivered / retry / failed
 
 WebSocket
@@ -298,11 +295,11 @@ interface RunInterruptedInput extends Omit<RunFailedInput, "status"> {
 - failed/interrupted：写 run end step、run status、outbox rows。
 - 返回投影所需的 committed result，例如 message id、step ids、event ids。
 
-迁移期职责：
+实现职责：
 
-- Phase 2-4 保留旧同步 publish。
-- outbox dispatcher 默认 shadow，不向真实 WS 双发。
-- Phase 5 再移除关键事件旧同步 publish。
+- 旧同步 publish 不作为运行时路径保留。
+- outbox dispatcher 固定 live 投递，不保留 shadow 模式。
+- 非 transport-local client events 只走 durable outbox。
 
 ## ClientEvent 投影矩阵
 
@@ -347,13 +344,11 @@ class OutboxDispatcher {
 - 投递失败时 `attempts += 1`，按 backoff 更新 `available_at`。
 - 超过最大重试次数后标记 `failed` 并写 `last_error`。
 
-首期运行模式：
+运行语义：
 
-- `disabled`：不启动。
-- `shadow`：读取 outbox 并投影，与现有 live publish 记录做测试/日志比对，不推送真实客户端。
-- `live`：投递到 RealtimeEventHub。
-
-默认必须是 `shadow`，直到 Phase 4 验收通过。
+- dispatcher 读取 outbox、投影为 `ClientEvent`、投递到 RealtimeEventHub。
+- 投影或投递失败进入 retry/failed 状态，不切回旧同步 publish。
+- 测试可关闭后台 polling，但 publisher 写入 outbox 后仍通过 dispatcher 边界投递。
 
 ## 实施路线
 
@@ -375,9 +370,9 @@ class OutboxDispatcher {
 - failed/interrupted 事件顺序为 `call.agent.end -> execution.step -> agent.error -> run.end`。
 - 所有现有 TS 测试通过。
 
-回退：
+实施约束：
 
-- 无 runtime 改动，无需回退。
+- 无 runtime 改动。
 
 ### Phase 1：schema 与事务基础设施
 
@@ -397,13 +392,13 @@ class OutboxDispatcher {
 - `session_seq` 在同一 session 内单调递增。
 - public store API 行为不变。
 
-回退：
+实施约束：
 
-- 删除新增表和未接入 runtime 的代码即可。
+- schema 变更随 outbox 架构保留。
 
-### Phase 2：ExecutionRecorder 首个切片双写
+### Phase 2：ExecutionRecorder 首个切片写入 outbox
 
-目标：收敛 L580-L699 terminal path 的核心状态写入，同时写 outbox，但 live 事件仍走旧路径。
+目标：收敛 L580-L699 terminal path 的核心状态写入，并写 outbox。
 
 工作：
 
@@ -411,39 +406,39 @@ class OutboxDispatcher {
 - 新增 `ExecutionRecorder`。
 - completed 路径改为通过 recorder 事务写 assistant message、steps、run status、outbox。
 - failed/interrupted 路径改为通过 recorder 事务写 run end step、run status、outbox。
-- 旧 `events.publish` 保留，保证前端不变。
+- 旧 `events.publish` 不作为业务事件交付路径保留。
 - 新增 recorder 单元测试和 agent execution 集成测试。
 
 验收：
 
 - completed/failed/interrupted 三条路径 DB 状态与改造前一致。
 - outbox rows 顺序与事件矩阵一致。
-- live WebSocket 事件顺序与 Phase 0 基线一致。
+- live WebSocket 事件顺序与 Phase 0 基线一致，来源为 outbox dispatcher。
 
-回退：
+实施约束：
 
-- 切回旧 terminal path；outbox 表可保留但不消费。
+- 不保留 sync 回退；开发阶段以 outbox live 作为唯一事件交付路径。
 
-### Phase 3：Projection 与 dispatcher shadow
+### Phase 3：Projection 与 dispatcher live
 
-目标：验证 outbox 能稳定投影成当前 ClientEvent，但不向真实客户端双发。
+目标：验证 outbox 能稳定投影成当前 ClientEvent，并向真实客户端实时 fanout。
 
 工作：
 
 - 新增 `ClientEventProjector`。
-- 新增 `OutboxDispatcher`，默认 shadow。
-- shadow 模式记录 projected client event 与 live event 的类型、关键字段、顺序差异。
-- 加入 outbox metrics：pending count、oldest pending age、delivered/failed count、projection mismatch count。
+- 新增 `OutboxDispatcher`，固定 live。
+- dispatcher 只允许作为 in-memory bus 的业务事件发布入口。
+- 加入 outbox metrics：pending/retrying/delivered/failed count、dispatcher projected/delivered/retried/failed。
 
 验收：
 
 - completed/failed/interrupted 的 projection 与 Phase 0 基线一致。
 - dispatcher 重启后能继续处理 pending rows。
-- shadow mismatch 为 0 或仅存在已登记的无害字段差异。
+- in-memory bus 的业务事件只来自 outbox dispatcher。
 
-回退：
+实施约束：
 
-- 关闭 dispatcher；recorder 双写 outbox 仍可保留。
+- 不保留 sync 回退；开发阶段以 outbox live 作为唯一事件交付路径。
 
 ### Phase 4：WebSocket durable replay 与 live 切换
 
@@ -453,9 +448,9 @@ class OutboxDispatcher {
 
 - `ws.ts` 增加 `last_event_seq` 支持。
 - heartbeat 增加 `last_event_seq`，保留 `last_stream_seq`。
-- replay 优先读取 outbox projection；内存 history 只做 live buffer。
-- 通过配置将 completed/failed/interrupted 关键事件从 shadow 切到 live dispatcher。
-- 避免旧 publish 与 dispatcher 双发：同一事件类型按 feature flag 二选一。
+- replay 读取 outbox projection；内存 event bus 只做实时 fanout。
+- completed/failed/interrupted 关键事件由 live dispatcher 派发。
+- 避免 dispatcher 双发：同一事件类型只走 outbox。
 
 验收：
 
@@ -463,20 +458,20 @@ class OutboxDispatcher {
 - 进程重启后可按 `event_seq` 回放 terminal lifecycle 事件。
 - 前端未升级时仍能依赖 `stream_seq` 接收 live event。
 
-回退：
+实施约束：
 
-- 关闭 durable replay 和 dispatcher live flag，回到内存 history + 旧 publish。
+- 不保留 sync 回退；开发阶段以 outbox live 作为唯一事件交付路径。
 
-### Phase 5：移除首个切片旧同步 publish
+### Phase 5：确认首个切片仅走 outbox
 
 目标：terminal lifecycle 关键事件由 outbox dispatcher 主导。
 
 工作：
 
-- 移除 completed/failed/interrupted 终止路径的旧同步关键事件 publish。
-- 保留 transport-local event：heartbeat、ack、send.error、stop.ack。
-- 保留高频 live-only event：`output.chunk`、`agent.intent_delta`、`llm.first_token`。
-- 更新文档和测试，标明 terminal events 的事实来源是 outbox。
+- 确认 completed/failed/interrupted 终止路径没有旧同步关键事件 publish。
+- 保留 transport-local event：heartbeat、reconnect envelope、send/stop/interaction/user_input ack/error。
+- 高频流式 event：`output.chunk`、`agent.intent_delta`、`llm.first_token` 也经 durable outbox 派发。
+- 更新文档和测试，标明 client event 的事实来源是 outbox。
 
 验收：
 
@@ -484,15 +479,16 @@ class OutboxDispatcher {
 - outbox pending/failed 可观测。
 - 模拟 dispatcher 暂停后，恢复时能补发关键事件。
 
-回退：
+实施约束：
 
 - 不保留 sync 回退；开发阶段以 outbox live 作为唯一事件交付路径。
 
 实现状态：
 
 - 已移除 `BACKEND_TS_TERMINAL_EVENT_DELIVERY` 运行时开关。
-- completed/failed/interrupted terminal events 由 outbox projection 派发，旧同步 publish 不再可用。
-- `/api/agent/metrics` 已暴露 `event_outbox` delivery mode、dispatcher metrics 和 pending/delivered/failed 统计。
+- completed/failed/interrupted terminal events、streaming events、interaction/background/delegation events 均由 outbox projection 派发，旧同步 publish 不再可用。
+- `/api/agent/metrics` 已暴露 `event_outbox` delivery mode、dispatcher metrics 和 pending/retrying/delivered/failed 统计。
+- WebSocket active replay 和 durable cursor replay 均读取 outbox projection；内存 event bus 仅作为 dispatcher 到 WebSocket 的实时 fanout。
 
 ## 测试计划
 
@@ -517,24 +513,24 @@ class OutboxDispatcher {
 - `output.message_saved` 不丢失。
 - `stream_seq` 仍由 WS transport 生成。
 - `event_seq` 不被 WS send 覆盖。
-- 高频 events 不进入 outbox。
+- 非 transport-local client events 进入 outbox。
 
 ## 风险和处理
 
 | 风险 | 处理 |
 | --- | --- |
 | 嵌套事务 | 先做 transaction facade，Recorder 禁止调用会自开事务的 public 写方法 |
-| 双发事件 | dispatcher 先 shadow；live 切换时按 feature flag 二选一 |
+| 双发事件 | 架构测试禁止业务代码直接 publish 到 in-memory bus，同一事件只走 outbox |
 | 顺序回归 | 首期一条 outbox row 对一条 client event，按 `session_seq` 排序 |
 | 重连 cursor 混乱 | `stream_seq` 和 `event_seq` 分离，Phase 4 引入 `last_event_seq` |
-| 高频事件压垮 DB | `output.chunk`、`agent.intent_delta`、`llm.first_token` live-only |
+| 高频事件压垮 DB | 先接受 durable outbox 作为唯一事件路径，后续通过 batching/retention/compaction 优化 |
 | 失败事件漏投影 | failed/interrupted 单独事件矩阵和测试 |
 
 ## 成功标准
 
-- completed/failed/interrupted 关键事件具备 durable outbox。
+- 非 transport-local client events 具备 durable outbox。
 - 核心状态写入和 outbox 写入具备同事务保证。
 - WebSocket live 协议兼容现状。
 - durable replay 不依赖进程内 history。
-- 事件调用点在 terminal path 明显收敛。
+- 事件调用点收敛到 durable client event publisher / execution recorder。
 - dispatcher 状态可观测、可暂停、可恢复。

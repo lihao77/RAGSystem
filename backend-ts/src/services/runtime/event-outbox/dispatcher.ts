@@ -4,8 +4,6 @@ import type { OutboxRow } from "../../stores/conversation-store/types.js";
 import type { InMemoryEventBus } from "../event-bus.js";
 import { ClientEventProjector } from "./projector.js";
 
-export type OutboxDispatcherMode = "shadow" | "live";
-
 export interface OutboxDispatcherMetrics {
   projected: number;
   delivered: number;
@@ -41,7 +39,6 @@ export class OutboxDispatcher {
     private readonly conversationStore: ConversationStore,
     private readonly events: InMemoryEventBus,
     private readonly projector = new ClientEventProjector(),
-    private readonly mode: OutboxDispatcherMode = "shadow",
     options: OutboxDispatcherOptions = {},
   ) {
     this.maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 5));
@@ -86,9 +83,7 @@ export class OutboxDispatcher {
         const event = this.projector.toClientEvent(row);
         projected.push(event);
         this.metrics.projected += 1;
-        if (this.mode === "live") {
-          this.events.publish(row.session_id, event);
-        }
+        this.events.publish(row.session_id, event);
         this.conversationStore.markOutboxDelivered(row.id);
         this.metrics.delivered += 1;
       } catch (error) {

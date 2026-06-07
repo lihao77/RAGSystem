@@ -19,7 +19,6 @@ import type { AgentSessionApplication } from "./agent-session-application.js";
 import type { AgentRuntimeContextBuilder } from "./agent-runtime-context-builder.js";
 import type { CheckpointInfo } from "../stores/checkpoint-manager.js";
 import type { ConversationStore } from "../stores/conversation-store.js";
-import type { InMemoryEventBus } from "../runtime/event-bus.js";
 import type { AgentRuntimeCore } from "./agent-runtime-core.js";
 import type { BackgroundTaskService } from "../runtime/background-task-service.js";
 import { buildAgentPromptContext, type AgentPromptConfigResolver } from "./agent-prompt-builder.js";
@@ -66,7 +65,6 @@ export class AgentExecutionService {
 
   constructor(
     private readonly sessions: AgentSessionApplication,
-    private readonly events: InMemoryEventBus,
     private readonly conversationStore: ConversationStore,
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
     private readonly agentRuntimeCore: AgentRuntimeCore,

@@ -26,7 +26,11 @@ export class InMemoryEventBus {
     this.history.set(sessionId, events);
 
     for (const handler of this.subscribers.get(sessionId) ?? []) {
-      handler(normalized);
+      try {
+        handler(normalized);
+      } catch {
+        // Realtime fanout is best-effort; durable replay remains the recovery path.
+      }
     }
   }
 

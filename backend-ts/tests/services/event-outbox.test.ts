@@ -70,7 +70,7 @@ describe("event outbox projection and dispatch", () => {
     });
   });
 
-  it("runs dispatcher in shadow mode without publishing to the event bus", () => {
+  it("publishes projected events to realtime fanout by default", () => {
     const store = new ConversationStore({ dbPath: ":memory:" });
     const events = new InMemoryEventBus();
     store.createSession("s1");
@@ -97,7 +97,13 @@ describe("event outbox projection and dispatch", () => {
       event_seq: 1,
     });
     expect(store.fetchPendingOutbox(10)).toEqual([]);
-    expect(events.getHistory("s1")).toEqual([]);
+    expect(events.getHistory("s1")).toEqual([
+      expect.objectContaining({
+        type: "run.end",
+        event_id: "event-1",
+        event_seq: 1,
+      }),
+    ]);
     expect(dispatcher.getMetrics()).toMatchObject({
       projected: 1,
       delivered: 1,
@@ -106,7 +112,7 @@ describe("event outbox projection and dispatch", () => {
     store.close();
   });
 
-  it("publishes projected events in live mode", () => {
+  it("marks projected events delivered after realtime fanout", () => {
     const store = new ConversationStore({ dbPath: ":memory:" });
     const events = new InMemoryEventBus();
     store.createSession("s1");
@@ -123,7 +129,7 @@ describe("event outbox projection and dispatch", () => {
       },
     });
 
-    const dispatcher = new OutboxDispatcher(store, events, undefined, "live");
+    const dispatcher = new OutboxDispatcher(store, events);
     dispatcher.pollOnce();
 
     expect(events.getHistory("s1")).toEqual([
@@ -131,6 +137,51 @@ describe("event outbox projection and dispatch", () => {
         type: "run.end",
         event_id: "event-1",
         event_seq: 1,
+      }),
+    ]);
+    store.close();
+  });
+
+  it("does not retry delivered rows when a realtime subscriber fails", () => {
+    const store = new ConversationStore({ dbPath: ":memory:" });
+    const events = new InMemoryEventBus();
+    store.createSession("s1");
+    events.subscribe("s1", () => {
+      throw new Error("websocket send failed");
+    });
+    store.appendOutbox({
+      sessionId: "s1",
+      runId: "run-1",
+      eventId: "event-1",
+      eventType: "run.completed",
+      aggregateType: "run",
+      aggregateId: "run-1",
+      payload: {
+        final_message_id: "msg-1",
+        metadata: { run_id: "run-1" },
+      },
+    });
+
+    const dispatcher = new OutboxDispatcher(store, events);
+    expect(dispatcher.pollOnce()).toHaveLength(1);
+
+    expect(store.listOutboxForReplay({ sessionId: "s1" })).toEqual([
+      expect.objectContaining({
+        status: "delivered",
+        attempts: 0,
+        last_error: null,
+      }),
+    ]);
+    expect(dispatcher.getMetrics()).toMatchObject({
+      delivered: 1,
+      retried: 0,
+      failed: 0,
+      lastError: null,
+    });
+    expect(events.getHistory("s1")).toEqual([
+      expect.objectContaining({
+        type: "run.end",
+        event_id: "event-1",
       }),
     ]);
     store.close();
@@ -169,7 +220,6 @@ describe("event outbox projection and dispatch", () => {
           return projector.toClientEvent(row);
         },
       } as ClientEventProjector,
-      "live",
       {
         maxAttempts: 3,
         retryBaseDelayMs: 1_000,
@@ -250,7 +300,6 @@ describe("event outbox projection and dispatch", () => {
           throw new Error("projection still unavailable");
         },
       } as ClientEventProjector,
-      "live",
       {
         maxAttempts: 2,
         retryBaseDelayMs: 1_000,
@@ -311,7 +360,6 @@ describe("event outbox projection and dispatch", () => {
       store,
       events,
       new ClientEventProjector(),
-      "live",
       {
         lockTimeoutMs: 1_000,
         now,

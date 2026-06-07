@@ -60,7 +60,7 @@ describe("session websocket route", () => {
     app = harness.app;
 
     await createDefaultChatProvider(app);
-    harness.container.events.publish("ws-active-session", {
+    harness.container.clientEvents.publish("ws-active-session", {
       type: "output.chunk",
       session_id: "ws-active-session",
       run_id: "old-run",
@@ -81,7 +81,7 @@ describe("session websocket route", () => {
     expect(runId).toEqual(expect.any(String));
 
     await waitFor(() => chatClient.requests.length === 1);
-    harness.container.events.publish("ws-active-session", {
+    harness.container.clientEvents.publish("ws-active-session", {
       type: "user.approval_required",
       session_id: "ws-active-session",
       run_id: runId,
@@ -213,6 +213,8 @@ describe("session websocket route", () => {
         session_id: "ws-approval-session",
         approval_id: approvalId,
         stream_seq: 1,
+        event_seq: 3,
+        event_id: expect.any(String),
         data: {
           approval_id: approvalId,
           approved: true,
@@ -224,6 +226,15 @@ describe("session websocket route", () => {
         approved: true,
         message: "ok",
       });
+      expect(
+        harness.container.conversationStore
+          .listOutboxForReplay({ sessionId: "ws-approval-session" })
+          .map((row) => row.event_type),
+      ).toEqual([
+        "client.interaction.required",
+        "client.user.approval_required",
+        "client.user.approval_granted",
+      ]);
     } finally {
       client.ws.terminate();
     }

@@ -43,7 +43,7 @@ function createDurableClientEvents(): {
 } {
   const store = new ConversationStore({ dbPath: ":memory:" });
   const events = new InMemoryEventBus();
-  const dispatcher = new OutboxDispatcher(store, events, undefined, "live");
+  const dispatcher = new OutboxDispatcher(store, events);
   return {
     store,
     events,

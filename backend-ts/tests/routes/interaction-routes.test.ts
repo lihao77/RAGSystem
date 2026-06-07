@@ -56,5 +56,14 @@ describe("interaction response routes", () => {
       approved: true,
       message: "允许执行",
     });
+    expect(
+      harness.container.conversationStore
+        .listOutboxForReplay({ sessionId: "approval-route-session" })
+        .map((row) => row.event_type),
+    ).toEqual([
+      "client.interaction.required",
+      "client.user.approval_required",
+      "client.user.approval_granted",
+    ]);
   });
 });

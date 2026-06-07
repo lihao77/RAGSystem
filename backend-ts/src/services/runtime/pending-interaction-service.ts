@@ -73,6 +73,9 @@ interface PendingInputEntry {
 interface PendingApprovalEntry {
   sessionId: string;
   approvalId: string;
+  runId: string | null;
+  taskId: string | null;
+  requestId: string | null;
   abortListener?: (() => void) | undefined;
   resolve(value: PendingApprovalResolution): void;
   reject(error: Error): void;
@@ -186,6 +189,9 @@ export class PendingInteractionService {
       const entry: PendingApprovalEntry = {
         sessionId,
         approvalId,
+        runId: input.runId ?? null,
+        taskId: input.taskId ?? null,
+        requestId: input.requestId ?? null,
         resolve,
         reject,
       };
@@ -253,10 +259,13 @@ export class PendingInteractionService {
     }
     this.pendingApprovals.delete(approvalId);
     entry.abortListener?.();
+    const approved = Boolean(payload.approved);
+    const message = payload.message ?? "";
+    this.publishApprovalResolution(entry, { approved, message });
     entry.resolve({
       approvalId,
-      approved: Boolean(payload.approved),
-      message: payload.message ?? "",
+      approved,
+      message,
       respondedAt: new Date().toISOString(),
     });
     return true;
@@ -327,6 +336,30 @@ export class PendingInteractionService {
       aggregateType: runId ? "run" : "session",
       aggregateId: runId ?? sessionId,
     });
+  }
+
+  private publishApprovalResolution(entry: PendingApprovalEntry, payload: { approved: boolean; message: string }): void {
+    const eventPayload = {
+      interaction_id: entry.approvalId,
+      kind: "approval",
+      approval_id: entry.approvalId,
+      approved: payload.approved,
+      message: payload.message,
+      ...(entry.runId ? { run_id: entry.runId } : {}),
+      ...(entry.taskId ? { task_id: entry.taskId } : {}),
+      ...(entry.requestId ? { request_id: entry.requestId } : {}),
+    };
+    const event: ClientEvent = {
+      type: payload.approved ? "user.approval_granted" : "user.approval_denied",
+      session_id: entry.sessionId,
+      approval_id: entry.approvalId,
+      data: eventPayload,
+      content: eventPayload,
+    };
+    if (entry.runId) {
+      event.run_id = entry.runId;
+    }
+    this.publish(entry.sessionId, event);
   }
 }
 

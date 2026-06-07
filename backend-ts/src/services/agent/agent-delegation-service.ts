@@ -52,7 +52,7 @@ export class AgentDelegationService {
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
     private readonly agentRuntimeCore: AgentRuntimeCore,
     private readonly contextBuilder: AgentRuntimeContextBuilder,
-    private readonly events: ClientEventPublisher | null = null,
+    private readonly clientEvents: ClientEventPublisher | null = null,
     private readonly promptConfigResolver: AgentPromptConfigResolver | null = null,
   ) {}
 
@@ -108,7 +108,7 @@ export class AgentDelegationService {
       metadata: buildChildMetadata(context, threadKey, "call_agent"),
     });
 
-    publishAgentCallStart(this.events, {
+    publishAgentCallStart(this.clientEvents, {
       sessionId,
       parentRunId: normalizeString(context.runId),
       parentAgentName: parentAgent.agent_name,
@@ -134,7 +134,7 @@ export class AgentDelegationService {
       teamName: normalizeString(context.teamName),
       workspaceRoot: getChildWorkspaceRoot(child, context),
     });
-    publishAgentCallEnd(this.events, {
+    publishAgentCallEnd(this.clientEvents, {
       sessionId,
       parentRunId: normalizeString(context.runId),
       parentAgentName: parentAgent.agent_name,
@@ -179,7 +179,7 @@ export class AgentDelegationService {
       return errorResult(`子 Agent '${childAgentId}' 当前不可用`, toolName);
     }
 
-    publishAgentCallStart(this.events, {
+    publishAgentCallStart(this.clientEvents, {
       sessionId,
       parentRunId: normalizeString(context.runId),
       parentAgentName: context.agent?.agent_name ?? normalizeString(context.currentAgentName) ?? "send_message",
@@ -205,7 +205,7 @@ export class AgentDelegationService {
       teamName: normalizeString(context.teamName),
       workspaceRoot: getChildWorkspaceRoot(child, context),
     });
-    publishAgentCallEnd(this.events, {
+    publishAgentCallEnd(this.clientEvents, {
       sessionId,
       parentRunId: normalizeString(context.runId),
       parentAgentName: context.agent?.agent_name ?? normalizeString(context.currentAgentName) ?? "send_message",
