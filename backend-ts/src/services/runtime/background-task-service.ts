@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
-import type { InMemoryEventBus } from "./event-bus.js";
+import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 
 type BackgroundTaskStatus = "running" | "completed" | "failed" | "cancelled";
 
@@ -35,7 +35,7 @@ export interface SpawnBashInput {
   description?: string | null;
   env?: Record<string, string | undefined> | undefined;
   maxRuntimeSeconds?: number | null | undefined;
-  eventBus?: InMemoryEventBus | null | undefined;
+  clientEvents?: ClientEventPublisher | null | undefined;
   sessionId?: string | null | undefined;
   runId?: string | null | undefined;
   ownerTaskId?: string | null | undefined;
@@ -134,7 +134,7 @@ export class BackgroundTaskService {
         output.end(() => {
           const snapshot = this.getTask(taskId);
           if (snapshot) {
-            this.publishCompleted(snapshot, input.eventBus ?? null);
+            this.publishCompleted(snapshot, input.clientEvents ?? null);
           }
         });
       });
@@ -263,7 +263,7 @@ export class BackgroundTaskService {
     }
   }
 
-  private publishCompleted(task: BackgroundTask, eventBus: InMemoryEventBus | null): void {
+  private publishCompleted(task: BackgroundTask, clientEvents: ClientEventPublisher | null): void {
     const payload = {
       task_id: task.task_id,
       background_task_id: task.task_id,
@@ -290,16 +290,24 @@ export class BackgroundTaskService {
         this.pendingNotificationsBySession.set(task.session_id, pending);
       }
     }
-    if (!eventBus || !task.session_id) {
+    if (!clientEvents || !task.session_id) {
       return;
     }
-    eventBus.publish(task.session_id, {
-      type: "background.task.completed",
-      session_id: task.session_id,
-      ...(task.run_id ? { run_id: task.run_id } : {}),
-      data: payload,
-      content: payload,
-    });
+    clientEvents.publish(
+      task.session_id,
+      {
+        type: "background.task.completed",
+        session_id: task.session_id,
+        ...(task.run_id ? { run_id: task.run_id } : {}),
+        data: payload,
+        content: payload,
+      },
+      {
+        runId: task.run_id,
+        aggregateType: task.run_id ? "run" : "session",
+        aggregateId: task.run_id ?? task.session_id,
+      },
+    );
   }
 }
 

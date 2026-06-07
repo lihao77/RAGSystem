@@ -1024,6 +1024,7 @@ describe("minimal runtime core execution", () => {
       },
     });
     expect(first.statusCode).toBe(200);
+    const firstRunId = first.json().data.run_id;
     await waitFor(
       () => harness.container.agentExecution.getSessionTaskStatus("bg-notify-session").task_info?.status === "completed",
       3000,
@@ -1037,6 +1038,22 @@ describe("minimal runtime core execution", () => {
       .find((event) => event.type === "background.task.completed");
     const backgroundTaskId = (completedEvent?.data as { background_task_id?: string } | undefined)?.background_task_id;
     expect(backgroundTaskId).toEqual(expect.any(String));
+    expect(completedEvent).toMatchObject({
+      event_seq: expect.any(Number),
+    });
+    expect(
+      listRunOutbox(harness, "bg-notify-session", firstRunId)
+        .filter((row) => row.event_type === "client.background.task.completed")
+        .map((row) => ({
+          status: row.status,
+          sessionSeq: row.session_seq,
+        })),
+    ).toEqual([
+      {
+        status: "delivered",
+        sessionSeq: completedEvent?.event_seq,
+      },
+    ]);
 
     const second = await app.inject({
       method: "POST",

@@ -6,10 +6,13 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { AgentDelegationService } from "../../src/services/agent/agent-delegation-service.js";
+import { ConversationStore } from "../../src/services/stores/conversation-store.js";
 import { MemoryStore } from "../../src/services/stores/memory-store.js";
 import { MemoryToolService, type RuntimeMemorySessionPort } from "../../src/services/tools/memory-tool-service.js";
 import { BackgroundTaskService } from "../../src/services/runtime/background-task-service.js";
 import { InMemoryEventBus } from "../../src/services/runtime/event-bus.js";
+import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
+import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { LocalBashToolService } from "../../src/services/tools/local-bash-tool-service.js";
 import { LocalDocumentToolService } from "../../src/services/tools/local-document-tool-service.js";
 import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
@@ -31,6 +34,21 @@ class InMemorySessions implements RuntimeMemorySessionPort {
   getSession(sessionId: string) {
     return { metadata: this.metadataBySession[sessionId] ?? {} };
   }
+}
+
+function createDurableClientEvents(): {
+  store: ConversationStore;
+  events: InMemoryEventBus;
+  clientEvents: DurableClientEventPublisher;
+} {
+  const store = new ConversationStore({ dbPath: ":memory:" });
+  const events = new InMemoryEventBus();
+  const dispatcher = new OutboxDispatcher(store, events, undefined, "live");
+  return {
+    store,
+    events,
+    clientEvents: new DurableClientEventPublisher(store, events, dispatcher, "outbox_live"),
+  };
 }
 
 describe("RuntimeToolBridge", () => {
@@ -1108,7 +1126,7 @@ describe("RuntimeToolBridge", () => {
   it("starts background bash, exposes output through task_output, and emits completion events", async () => {
     const dataRoot = makeTempDataRoot();
     const workspaceRoot = path.join(dataRoot, "workspace-bash-background");
-    const events = new InMemoryEventBus();
+    const { store, events, clientEvents } = createDurableClientEvents();
     const backgroundTasks = new BackgroundTaskService();
     const taskTools = new TaskToolService(backgroundTasks, { dataRoot });
     const bridge = new RuntimeToolBridge(
@@ -1116,7 +1134,7 @@ describe("RuntimeToolBridge", () => {
       null,
       null,
       null,
-      new LocalBashToolService({ dataRoot, bashExecutable: null, backgroundTasks, eventBus: events }),
+      new LocalBashToolService({ dataRoot, bashExecutable: null, backgroundTasks, clientEvents }),
       taskTools,
     );
     const agent = minimalAgent([], ["execute_bash", "task_output"]);
@@ -1180,6 +1198,15 @@ describe("RuntimeToolBridge", () => {
         }),
       ]),
     );
+    expect(
+      store.listOutboxForReplay({ sessionId: "s1" }).map((row) => ({
+        eventType: row.event_type,
+        status: row.status,
+        sessionSeq: row.session_seq,
+      })),
+    ).toEqual([
+      { eventType: "client.background.task.completed", status: "delivered", sessionSeq: 1 },
+    ]);
 
     await expect(
       Promise.resolve(
@@ -1210,12 +1237,13 @@ describe("RuntimeToolBridge", () => {
         completed: true,
       },
     });
+    store.close();
   });
 
   it("stops cancellable background bash tasks", async () => {
     const dataRoot = makeTempDataRoot();
     const workspaceRoot = path.join(dataRoot, "workspace-bash-stop");
-    const events = new InMemoryEventBus();
+    const { store, events, clientEvents } = createDurableClientEvents();
     const backgroundTasks = new BackgroundTaskService();
     const permissionPolicy = new PermissionPolicyService();
     permissionPolicy.setMode("dangerously_skip_permissions");
@@ -1224,7 +1252,7 @@ describe("RuntimeToolBridge", () => {
       null,
       permissionPolicy,
       null,
-      new LocalBashToolService({ dataRoot, bashExecutable: null, backgroundTasks, eventBus: events }),
+      new LocalBashToolService({ dataRoot, bashExecutable: null, backgroundTasks, clientEvents }),
       new TaskToolService(backgroundTasks, { dataRoot }),
     );
     const agent = minimalAgent([], ["execute_bash"]);
@@ -1294,6 +1322,13 @@ describe("RuntimeToolBridge", () => {
         ),
       5000,
     );
+    expect(store.listOutboxForReplay({ sessionId: "s1" })).toEqual([
+      expect.objectContaining({
+        event_type: "client.background.task.completed",
+        status: "delivered",
+      }),
+    ]);
+    store.close();
   });
 
   it("blocks unsafe execute_bash command syntax before approval", async () => {

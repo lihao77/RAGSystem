@@ -5,7 +5,7 @@ import path from "node:path";
 
 import type { RiskLevel } from "../../contracts/permissions.js";
 import type { BackgroundTaskService } from "../runtime/background-task-service.js";
-import type { InMemoryEventBus } from "../runtime/event-bus.js";
+import type { ClientEventPublisher } from "../runtime/event-outbox/client-event-publisher.js";
 import {
   buildApprovalDescription,
   categoryRisk,
@@ -66,7 +66,7 @@ export class LocalBashToolService {
   private readonly maxOutputChars: number;
   private readonly bashExecutable: string | null;
   private readonly backgroundTasks: BackgroundTaskService | null;
-  private readonly eventBus: InMemoryEventBus | null;
+  private readonly clientEvents: ClientEventPublisher | null;
   private readonly paths: BashPathResolver;
 
   constructor(options: {
@@ -76,7 +76,7 @@ export class LocalBashToolService {
     maxOutputChars?: number | undefined;
     bashExecutable?: string | null | undefined;
     backgroundTasks?: BackgroundTaskService | null | undefined;
-    eventBus?: InMemoryEventBus | null | undefined;
+    clientEvents?: ClientEventPublisher | null | undefined;
   } = {}) {
     this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
     this.defaultTimeoutSeconds = positiveInt(options.defaultTimeoutSeconds, DEFAULT_TIMEOUT_SECONDS);
@@ -84,7 +84,7 @@ export class LocalBashToolService {
     this.maxOutputChars = positiveInt(options.maxOutputChars, DEFAULT_MAX_OUTPUT_CHARS);
     this.bashExecutable = options.bashExecutable === undefined ? findBashExecutable() : options.bashExecutable;
     this.backgroundTasks = options.backgroundTasks ?? null;
-    this.eventBus = options.eventBus ?? null;
+    this.clientEvents = options.clientEvents ?? null;
     this.paths = new BashPathResolver(this.dataRoot);
   }
 
@@ -242,7 +242,7 @@ export class LocalBashToolService {
       outputDir,
       description: plan.description || plan.command.slice(0, 80),
       maxRuntimeSeconds: plan.timeoutSeconds,
-      eventBus: this.eventBus,
+      clientEvents: this.clientEvents,
       sessionId,
       runId: normalizeString(context.runId),
       ownerTaskId: normalizeString(context.taskId),

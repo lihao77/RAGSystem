@@ -130,7 +130,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     maxTimeoutSeconds: asNumber(toolsConfig?.bash_max_timeout),
     maxOutputChars: asNumber(toolsConfig?.bash_max_output),
     backgroundTasks,
-    eventBus: events,
+    clientEvents,
   });
   const taskTools = new TaskToolService(backgroundTasks, { dataRoot: options.dataRoot });
   const pendingInteractions = new PendingInteractionService(clientEvents);
