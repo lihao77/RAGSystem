@@ -23,8 +23,21 @@
   - D1 工具并行、D2 后台任务自动注入、D3 文件变更回退（git worktree 隔离）、D4 日志治理均已完成；当前主线剩余子 Agent 并行（D5）与超时熔断（D6）
 
 - `TS_EVENT_ARCHITECTURE_PLAN.md`
-  - TS 后端事件架构落地方案（2026-06-07）
+  - TS 后端事件架构落地方案 V1（2026-06-07）
   - 当前事件关系、目标架构、Recorder + Outbox + Dispatcher + Projection 分层、分阶段迁移和验收标准
+  
+- `TS_EVENT_ARCHITECTURE_PLAN_V2.md` ⭐ **推荐**
+  - TS 后端事件架构落地方案 V2（2026-06-07，基于实际代码约束修订）
+  - 关键优化：补齐事务 facade、`event_seq`/`stream_seq` 分离、terminal path 事件矩阵、dispatcher shadow 模式、5 个渐进式 Phase
+  - 相比 V1：首期范围更聚焦，实施前置风险更清晰，回滚和验收标准更具体
+  
+- `TS_EVENT_ARCHITECTURE_OPTIMIZATION_SUMMARY.md`
+  - V1→V2 方案优化总结
+  - 代码诊断过程、关键技术决策、V2 修订点、实施建议
+
+- `TS_EVENT_ARCHITECTURE_EVALUATION.md`
+  - V1 与修订后 V2 的评估结论
+  - 说明初版 V2 的阻塞点，以及修订后为何可作为实施基线
 
 ## 历史归档入口
 
