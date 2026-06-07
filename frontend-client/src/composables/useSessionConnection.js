@@ -117,6 +117,10 @@ export function useSessionConnection(deps) {
   };
 
   const getLastEventSeq = (sessionId) => _lastEventSeqBySession.get(sessionId) || 0;
+  const resetSessionEventCursor = (sessionId) => {
+    if (!sessionId) return;
+    _lastEventSeqBySession.delete(sessionId);
+  };
 
   const observeDurableCursor = (event, sessionId) => {
     const cursorSeq = getDurableCursorSeq(event);
@@ -227,5 +231,6 @@ export function useSessionConnection(deps) {
     disconnectSessionWS,
     getWS,
     getLastEventSeq,
+    resetSessionEventCursor,
   };
 }

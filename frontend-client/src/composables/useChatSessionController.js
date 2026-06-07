@@ -248,6 +248,7 @@ export function useChatSessionController(deps) {
       deps.clearComposerAttachments();
       await deps.loadSessionMessages(sessionId);
       await deps.loadSessionFiles(sessionId);
+      deps.resetSessionEventCursor?.(sessionId);
       deps.connectSessionWS(sessionId);
       // 消息加载完成后独立检查任务状态（不在 loadSessionMessages 内部调用）
       await deps.checkSessionTaskStatus(sessionId);

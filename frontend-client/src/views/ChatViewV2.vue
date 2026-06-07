@@ -430,7 +430,7 @@ const visibleWorkPanel = computed(() => showWorkPanel.value);
 const {
   invalidateActiveStream, scheduleCommandFallback, clearCommandFallback,
   clearSessionResumeRecovery, scheduleSessionResumeRecovery,
-  connectSessionWS, disconnectSessionWS, getWS,
+  connectSessionWS, disconnectSessionWS, getWS, resetSessionEventCursor,
 } = useSessionConnection({
   currentSessionId, messages, isLoading, isCompressing,
   activeRun: _activeRun,
@@ -625,6 +625,7 @@ const {
     connectSessionWS,
     disconnectSessionWS,
     invalidateActiveStream,
+    resetSessionEventCursor,
   },
   runtime: {
     clearExecutionState: () => clearExecutionState(),

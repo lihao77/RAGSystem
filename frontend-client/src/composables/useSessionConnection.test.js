@@ -146,3 +146,24 @@ test('session connection 使用 heartbeat.last_event_seq 推进重连 cursor', (
     restore();
   }
 });
+
+test('session connection 可重置 session durable cursor 以支持快照加载后的完整 active replay', () => {
+  const restore = installFakeSessionSocketEnv();
+
+  try {
+    const connection = useSessionConnection(createConnectionDeps(() => {}));
+
+    connection.connectSessionWS('session-1');
+    FakeWebSocket.instances[0].emit({ type: 'output.chunk', event_seq: 9, data: { content: 'x' } });
+    assert.equal(connection.getLastEventSeq('session-1'), 9);
+
+    connection.disconnectSessionWS();
+    connection.resetSessionEventCursor('session-1');
+    assert.equal(connection.getLastEventSeq('session-1'), 0);
+
+    connection.connectSessionWS('session-1');
+    assert.equal(FakeWebSocket.instances[1].url, 'ws://localhost:5174/api/agent/sessions/session-1/ws');
+  } finally {
+    restore();
+  }
+});
