@@ -726,6 +726,21 @@ export class ConversationStore {
     return Number(result.changes) > 0;
   }
 
+  getRun(sessionId: string, runId: string): RunInfo | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT run_id, session_id, entrypoint, status, task_summary,
+                 user_id, agent_name, thread_key, parent_run_id, parent_call_id,
+                 child_agent_id, final_message_id, created_at, updated_at
+          FROM runs
+          WHERE session_id=? AND run_id=?
+        `,
+      )
+      .get(sessionId, runId) as RunRow | undefined;
+    return row ? rowToRun(row) : null;
+  }
+
   runInTransaction<T>(operation: (tx: ConversationStoreTransaction) => T): T {
     return this.withTransaction(() => operation(this.createTransactionFacade()));
   }

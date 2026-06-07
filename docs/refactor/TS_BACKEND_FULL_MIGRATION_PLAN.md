@@ -70,6 +70,7 @@ Known gaps to close:
 - [x] File history rollback/retry.
   - [x] Session rollback-and-retry execution flow.
   - [x] File-history snapshot creation and workspace restore.
+- [x] Synchronous execution and sequential collaboration routes.
 - [ ] Provider parity.
 - [ ] Final parity pass.
 
@@ -83,3 +84,7 @@ Known gaps to close:
   - `npm run typecheck`
   - `npx vitest run tests/services/file-history-service.test.ts tests/routes/session-message-mutations.test.ts tests/services/runtime-tool-bridge.test.ts`
   - `npx vitest run tests/routes/runtime-core-execution.test.ts tests/routes/session-checkpoints.test.ts tests/services/agent-runtime-core.test.ts tests/services/agent-session-application.test.ts`
+- 2026-06-08 synchronous execution and collaboration:
+  - `npm run typecheck`
+  - `npx vitest run tests/routes/execution-status.test.ts tests/routes/runtime-core-execution.test.ts tests/services/agent-runtime-core.test.ts`
+  - `npx vitest run tests/routes/session-message-mutations.test.ts tests/routes/session-checkpoints.test.ts tests/services/runtime-tool-bridge.test.ts tests/services/file-history-service.test.ts`

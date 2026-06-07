@@ -71,6 +71,19 @@ export interface AgentRunStartResult {
   error?: string;
 }
 
+export interface AgentExecuteResult {
+  success: boolean;
+  answer: string | null;
+  agent_name: string | null;
+  execution_time: number | null;
+  tool_calls: unknown[];
+  metadata: Record<string, unknown>;
+  session_id: string;
+  run_id: string | null;
+  task_id: string | null;
+  error: string | null;
+}
+
 export interface CheckpointRecoveryStartResult extends AgentRunStartResult {
   checkpoint_id: string;
   round: number;

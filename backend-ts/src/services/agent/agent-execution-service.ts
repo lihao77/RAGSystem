@@ -2,8 +2,11 @@ import { randomUUID } from "node:crypto";
 
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import type {
+  AgentExecuteResult,
   AgentRunStartResult,
+  CollaborateRequest,
   CheckpointRecoveryStartResult,
+  ExecuteRequest,
   ExecutionOverview,
   ExecutionTaskStatus,
   RollbackRetryStartResult,
@@ -284,6 +287,124 @@ export class AgentExecutionService {
     return true;
   }
 
+  async executeSynchronously(request: ExecuteRequest, requestId: string): Promise<AgentExecuteResult> {
+    const sessionId = request.session_id?.trim() || randomUUID();
+    const task = request.task.trim();
+    if (!task) {
+      return {
+        success: false,
+        answer: null,
+        agent_name: null,
+        execution_time: null,
+        tool_calls: [],
+        metadata: {},
+        session_id: sessionId,
+        run_id: null,
+        task_id: null,
+        error: "Task cannot be empty",
+      };
+    }
+    const runningStatus = this.statusTracker.getStatusBySession(sessionId);
+    if (runningStatus?.status === "running") {
+      return {
+        success: false,
+        answer: null,
+        agent_name: null,
+        execution_time: null,
+        tool_calls: [],
+        metadata: {},
+        session_id: sessionId,
+        run_id: runningStatus.run_id,
+        task_id: runningStatus.task_id,
+        error: "该会话正在执行任务，请等待完成或停止当前任务",
+      };
+    }
+    if (!this.sessions.getSession(sessionId)) {
+      this.sessions.createSession({ sessionId, userId: request.user_id ?? null });
+    }
+
+    const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
+    const resolved = this.runtimeCore.resolveExecutionConfig({
+      agentName: request.agent?.trim() || normalizeSessionEntryAgent(sessionMetadata.entry_agent),
+      teamName: asString(sessionMetadata.team),
+      selectedLlm: resolveSelectedLlm(request),
+    });
+    if (!resolved.readiness.configuration_ready || !resolved.agent || !resolved.provider || !resolved.modelName) {
+      return {
+        success: false,
+        answer: null,
+        agent_name: null,
+        execution_time: null,
+        tool_calls: [],
+        metadata: {},
+        session_id: sessionId,
+        run_id: null,
+        task_id: null,
+        error: summarizeReadinessFailure(resolved.readiness.requirements),
+      };
+    }
+
+    const runtimeAgent = applySessionAgentOverrides(resolved.agent, sessionMetadata);
+    const started = this.startAgentRun({
+      sessionId,
+      userId: request.user_id ?? null,
+      requestId,
+      task,
+      executionKind: "execute",
+      entrypoint: "execute",
+      agent: runtimeAgent,
+      provider: resolved.provider,
+      modelName: resolved.modelName,
+      persistUserMessage: {
+        metadata: {
+          agent: runtimeAgent.agent_name,
+          request_id: requestId,
+          execution_kind: "execute",
+        },
+      },
+    });
+    await started.promise;
+    return this.buildSynchronousResult({
+      sessionId,
+      runId: started.run_id ?? null,
+      taskId: started.task_id ?? null,
+      agentName: runtimeAgent.agent_name,
+    });
+  }
+
+  async collaborateSequentially(request: CollaborateRequest, requestId: string): Promise<{
+    results: AgentExecuteResult[];
+    session_id: string;
+    total_tasks: number;
+  }> {
+    const sessionId = request.session_id?.trim() || randomUUID();
+    const results: AgentExecuteResult[] = [];
+    for (const [index, taskItem] of request.tasks.entries()) {
+      const executeRequest: ExecuteRequest = {
+        task: taskItem.task,
+        session_id: sessionId,
+        user_id: request.user_id ?? null,
+        attachments: [],
+      };
+      if (taskItem.agent !== undefined) {
+        executeRequest.agent = taskItem.agent;
+      }
+      const result = await this.executeSynchronously(
+        executeRequest,
+        `${requestId}:${index + 1}`,
+      );
+      results.push(result);
+      if (!result.success) {
+        break;
+      }
+    }
+    return {
+      results,
+      session_id: sessionId,
+      total_tasks: request.tasks.length,
+    };
+  }
+
   async startRollbackRetry(input: {
     sessionId: string;
     userId?: string | null;
@@ -393,9 +514,10 @@ export class AgentExecutionService {
         retry_of_message_id: prepared.message.id,
       },
     });
+    const { promise: _promise, ...publicStarted } = started;
 
     return {
-      ...started,
+      ...publicStarted,
       deleted: prepared.deleted,
       agent_name: runtimeAgent.agent_name,
     };
@@ -593,12 +715,15 @@ export class AgentExecutionService {
     modelName: string;
     existingUserMessageId?: string | undefined;
     userMessageSavedPayload?: Record<string, unknown> | undefined;
+    persistUserMessage?: {
+      metadata?: Record<string, unknown> | undefined;
+    } | undefined;
     runStartExtra?: Record<string, unknown> | undefined;
     startStepExtra?: Record<string, unknown> | undefined;
     contextConversation?: ChatMessage[] | undefined;
     conversationUpdateProvider?: (() => Promise<ChatMessage[]> | ChatMessage[]) | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
-  }): AgentRunStartResult {
+  }): AgentRunStartResult & { promise: Promise<void> } {
     const runId = randomUUID();
     const taskId = randomUUID();
     const rootCallId = `call_${randomUUID()}`;
@@ -624,6 +749,29 @@ export class AgentExecutionService {
       agentName: input.agent.agent_name,
       threadKey: "root",
     });
+    let userMessageSavedPayload = input.userMessageSavedPayload;
+    let existingUserMessageId = input.existingUserMessageId;
+    if (input.persistUserMessage) {
+      const userMessage = this.sessions.addMessage({
+        sessionId: input.sessionId,
+        role: "user",
+        content: input.task,
+        metadata: {
+          ...(input.persistUserMessage.metadata ?? {}),
+          agent: input.agent.agent_name,
+          run_id: runId,
+          task_id: taskId,
+          request_id: input.requestId,
+          execution_kind: input.executionKind,
+        },
+      });
+      existingUserMessageId = userMessage.id;
+      userMessageSavedPayload = {
+        id: userMessage.id,
+        seq: userMessage.seq,
+        role: userMessage.role,
+      };
+    }
 
     const runStartPayload = {
       ...buildRunStartPayload({
@@ -649,9 +797,9 @@ export class AgentExecutionService {
     };
 
     this.eventPublisher.publishSessionRunStarted(input.sessionId, runId, runStartPayload);
-    if (input.userMessageSavedPayload) {
+    if (userMessageSavedPayload) {
       this.eventPublisher.publishOutputMessageSaved(input.sessionId, runId, {
-        ...input.userMessageSavedPayload,
+        ...userMessageSavedPayload,
         run_id: runId,
         task_id: taskId,
         request_id: input.requestId,
@@ -674,7 +822,7 @@ export class AgentExecutionService {
       agent: input.agent,
       provider: input.provider,
       modelName: input.modelName,
-      userMessageId: input.existingUserMessageId,
+      userMessageId: existingUserMessageId,
       conversationUpdateProvider: input.conversationUpdateProvider,
       executionKind: input.executionKind,
       contextConversation: input.contextConversation,
@@ -689,6 +837,66 @@ export class AgentExecutionService {
       task_id: taskId,
       request_id: input.requestId,
       kind: "agent_run",
+      promise,
+    };
+  }
+
+  private buildSynchronousResult(input: {
+    sessionId: string;
+    runId: string | null;
+    taskId: string | null;
+    agentName: string;
+  }): AgentExecuteResult {
+    if (!input.runId) {
+      return {
+        success: false,
+        answer: null,
+        agent_name: input.agentName,
+        execution_time: null,
+        tool_calls: [],
+        metadata: {},
+        session_id: input.sessionId,
+        run_id: null,
+        task_id: input.taskId,
+        error: "运行未启动",
+      };
+    }
+    const run = this.conversationStore.getRun(input.sessionId, input.runId);
+    const finalMessage = run?.final_message_id
+      ? this.conversationStore.getMessageById(input.sessionId, run.final_message_id)
+      : null;
+    const steps = this.conversationStore.listRunSteps({
+      sessionId: input.sessionId,
+      runId: input.runId,
+      limit: 1000,
+    });
+    const toolCalls = steps
+      .map((step) => step.payload)
+      .filter((payload) => payload.kind === "tool" && payload.phase === "end");
+    const lastRunEnd = [...steps]
+      .reverse()
+      .map((step) => step.payload)
+      .find((payload) => payload.kind === "run" && payload.phase === "end");
+    const executionTime = numberOrNull(finalMessage?.metadata.execution_time);
+    const error = asString(lastRunEnd?.error) ?? (run?.status && run.status !== "completed" ? asString(lastRunEnd?.result_preview) : null);
+    const metadata = {
+      ...(finalMessage?.metadata ?? {}),
+      run_id: input.runId,
+      thread_key: run?.thread_key ?? "root",
+      child_agent_id: run?.child_agent_id ?? null,
+    };
+
+    return {
+      success: run?.status === "completed" && Boolean(finalMessage),
+      answer: finalMessage?.content ?? null,
+      agent_name: run?.agent_name ?? input.agentName,
+      execution_time: executionTime,
+      tool_calls: toolCalls,
+      metadata,
+      session_id: input.sessionId,
+      run_id: input.runId,
+      task_id: input.taskId,
+      error: run?.status === "completed" ? null : error ?? "任务执行失败",
     };
   }
 
@@ -1164,4 +1372,8 @@ function appendAttachmentContext(task: string, attachments: ResolvedAttachment[]
   }
   const suffix = lines.join("\n");
   return task ? `${task}\n\n${suffix}` : suffix;
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }

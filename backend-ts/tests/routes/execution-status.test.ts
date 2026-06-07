@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
-import { buildTestApp } from "../helpers/app.js";
+import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
+import { buildTestApp, buildTestHarness } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
 
@@ -108,38 +109,66 @@ describe("execution compatibility routes", () => {
     });
   });
 
-  it("keeps synchronous execution routes visible but explicitly not migrated", async () => {
-    app = await buildTestApp();
+  it("executes synchronous default and specific-agent requests", async () => {
+    const chatClient = new FakeSequenceChatClient(["sync answer", "specific answer"]);
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+    await createDefaultChatProvider(app);
 
     const execute = await app.inject({
       method: "POST",
       url: "/api/agent/execute",
+      headers: { "x-request-id": "req-sync-1" },
       payload: {
         task: "hello",
+        session_id: "sync-session",
       },
     });
-    expect(execute.statusCode).toBe(501);
+    expect(execute.statusCode).toBe(200);
     expect(execute.json()).toMatchObject({
-      success: false,
-      code: "not_migrated",
+      success: true,
+      message: "任务执行成功",
+      data: {
+        answer: "sync answer",
+        agent_name: "orchestrator_agent",
+        session_id: "sync-session",
+        metadata: {
+          run_id: expect.any(String),
+          thread_key: "root",
+          child_agent_id: null,
+        },
+      },
     });
 
     const executeAgent = await app.inject({
       method: "POST",
       url: "/api/agent/execute/general_agent",
+      headers: { "x-request-id": "req-sync-2" },
       payload: {
-        task: "hello",
+        task: "hello specific",
+        session_id: "sync-session",
       },
     });
-    expect(executeAgent.statusCode).toBe(501);
+    expect(executeAgent.statusCode).toBe(200);
     expect(executeAgent.json()).toMatchObject({
-      success: false,
-      code: "not_migrated",
+      success: true,
+      data: {
+        answer: "specific answer",
+        agent_name: "general_agent",
+        session_id: "sync-session",
+      },
     });
+
+    expect(chatClient.requests).toHaveLength(2);
+    expect(chatClient.requests[0]?.messages.at(-1)?.content).toContain("hello");
+    expect(chatClient.requests[1]?.messages.at(-1)?.content).toContain("hello specific");
   });
 
-  it("validates collaboration mode before the not-migrated boundary like Python", async () => {
-    app = await buildTestApp();
+  it("executes sequential collaboration and still rejects parallel mode", async () => {
+    const chatClient = new FakeSequenceChatClient(["first", "second"]);
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+    await createDefaultChatProvider(app);
 
     const parallel = await app.inject({
       method: "POST",
@@ -159,15 +188,56 @@ describe("execution compatibility routes", () => {
     const sequential = await app.inject({
       method: "POST",
       url: "/api/agent/collaborate",
+      headers: { "x-request-id": "req-collab-1" },
       payload: {
         mode: "sequential",
-        tasks: [{ task: "hello" }],
+        session_id: "collab-session",
+        tasks: [{ task: "first task" }, { task: "second task", agent: "general_agent" }],
       },
     });
-    expect(sequential.statusCode).toBe(501);
+    expect(sequential.statusCode).toBe(200);
     expect(sequential.json()).toMatchObject({
-      success: false,
-      code: "not_migrated",
+      success: true,
+      message: "协作任务执行完成",
+      data: {
+        session_id: "collab-session",
+        total_tasks: 2,
+        results: [
+          { success: true, content: "first", agent_name: "orchestrator_agent" },
+          { success: true, content: "second", agent_name: "general_agent" },
+        ],
+      },
     });
   });
 });
+
+class FakeSequenceChatClient implements LlmChatClient {
+  readonly requests: ChatCompletionRequest[] = [];
+
+  constructor(private readonly responses: string[]) {}
+
+  async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
+    this.requests.push(request);
+    const content = this.responses.shift();
+    if (content === undefined) {
+      throw new Error("missing fake LLM response");
+    }
+    return { content };
+  }
+}
+
+async function createDefaultChatProvider(app: FastifyInstance): Promise<void> {
+  const provider = await app.inject({
+    method: "POST",
+    url: "/api/model-adapter/providers",
+    payload: {
+      name: "my",
+      provider_type: "deepseek",
+      api_key: "sk-test",
+      model_map: {
+        chat: "deepseek-chat",
+      },
+    },
+  });
+  expect(provider.statusCode).toBe(200);
+}
