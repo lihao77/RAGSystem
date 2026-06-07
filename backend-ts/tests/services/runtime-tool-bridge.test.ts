@@ -10,7 +10,7 @@ import { ConversationStore } from "../../src/services/stores/conversation-store.
 import { MemoryStore } from "../../src/services/stores/memory-store.js";
 import { MemoryToolService, type RuntimeMemorySessionPort } from "../../src/services/tools/memory-tool-service.js";
 import { BackgroundTaskService } from "../../src/services/runtime/background-task-service.js";
-import { InMemoryEventBus } from "../../src/services/runtime/event-bus.js";
+import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { LocalBashToolService } from "../../src/services/tools/local-bash-tool-service.js";
@@ -38,15 +38,15 @@ class InMemorySessions implements RuntimeMemorySessionPort {
 
 function createDurableClientEvents(): {
   store: ConversationStore;
-  events: InMemoryEventBus;
+  realtimeEvents: RealtimeEventHub;
   clientEvents: DurableClientEventPublisher;
 } {
   const store = new ConversationStore({ dbPath: ":memory:" });
-  const events = new InMemoryEventBus();
-  const dispatcher = new OutboxDispatcher(store, events);
+  const realtimeEvents = new RealtimeEventHub();
+  const dispatcher = new OutboxDispatcher(store, realtimeEvents);
   return {
     store,
-    events,
+    realtimeEvents,
     clientEvents: new DurableClientEventPublisher(store, dispatcher),
   };
 }
@@ -625,8 +625,8 @@ describe("RuntimeToolBridge", () => {
     const externalRoot = makeTempDataRoot();
     const externalFile = path.join(externalRoot, "external.txt");
     writeAbsoluteFile(externalFile, "external content");
-    const events = new InMemoryEventBus();
-    const pendingInteractions = new PendingInteractionService(events);
+    const { store, realtimeEvents, clientEvents } = createDurableClientEvents();
+    const pendingInteractions = new PendingInteractionService(clientEvents);
     const permissionPolicy = new PermissionPolicyService();
     const bridge = new RuntimeToolBridge(
       new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
@@ -652,7 +652,7 @@ describe("RuntimeToolBridge", () => {
       ),
     );
 
-    const approvalRequired = events.getHistory("s1").find((event) => event.type === "interaction.required");
+    const approvalRequired = realtimeEvents.getHistory("s1").find((event) => event.type === "interaction.required");
     expect(approvalRequired?.data).toMatchObject({
       interaction_id: expect.any(String),
       kind: "approval",
@@ -696,6 +696,7 @@ describe("RuntimeToolBridge", () => {
         },
       },
     });
+    store.close();
   });
 
   it("still requires run_id for explicit exports writes", () => {
@@ -731,8 +732,8 @@ describe("RuntimeToolBridge", () => {
     const dataRoot = makeTempDataRoot();
     const workspaceRoot = path.join(dataRoot, "workspace-bash-external");
     const externalRoot = makeTempDataRoot();
-    const events = new InMemoryEventBus();
-    const pendingInteractions = new PendingInteractionService(events);
+    const { store, realtimeEvents, clientEvents } = createDurableClientEvents();
+    const pendingInteractions = new PendingInteractionService(clientEvents);
     const permissionPolicy = new PermissionPolicyService();
     const bridge = new RuntimeToolBridge(
       new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
@@ -762,7 +763,7 @@ describe("RuntimeToolBridge", () => {
       ),
     );
 
-    const approvalRequired = events.getHistory("s1").find((event) => event.type === "interaction.required");
+    const approvalRequired = realtimeEvents.getHistory("s1").find((event) => event.type === "interaction.required");
     expect(approvalRequired?.data).toMatchObject({
       interaction_id: expect.any(String),
       kind: "approval",
@@ -806,6 +807,7 @@ describe("RuntimeToolBridge", () => {
         },
       },
     });
+    store.close();
   });
 
   it("exposes and executes execute_bash when enabled by agent config", async () => {
@@ -1126,7 +1128,7 @@ describe("RuntimeToolBridge", () => {
   it("starts background bash, exposes output through task_output, and emits completion events", async () => {
     const dataRoot = makeTempDataRoot();
     const workspaceRoot = path.join(dataRoot, "workspace-bash-background");
-    const { store, events, clientEvents } = createDurableClientEvents();
+    const { store, realtimeEvents, clientEvents } = createDurableClientEvents();
     const backgroundTasks = new BackgroundTaskService();
     const taskTools = new TaskToolService(backgroundTasks, { dataRoot });
     const bridge = new RuntimeToolBridge(
@@ -1179,9 +1181,9 @@ describe("RuntimeToolBridge", () => {
     });
 
     const backgroundTaskId = (started.content as { background_task_id: string }).background_task_id;
-    await waitFor(() => events.getHistory("s1").some((event) => event.type === "background.task.completed"));
+    await waitFor(() => realtimeEvents.getHistory("s1").some((event) => event.type === "background.task.completed"));
 
-    expect(events.getHistory("s1")).toEqual(
+    expect(realtimeEvents.getHistory("s1")).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           type: "background.task.completed",
@@ -1243,7 +1245,7 @@ describe("RuntimeToolBridge", () => {
   it("stops cancellable background bash tasks", async () => {
     const dataRoot = makeTempDataRoot();
     const workspaceRoot = path.join(dataRoot, "workspace-bash-stop");
-    const { store, events, clientEvents } = createDurableClientEvents();
+    const { store, realtimeEvents, clientEvents } = createDurableClientEvents();
     const backgroundTasks = new BackgroundTaskService();
     const permissionPolicy = new PermissionPolicyService();
     permissionPolicy.setMode("dangerously_skip_permissions");
@@ -1315,7 +1317,7 @@ describe("RuntimeToolBridge", () => {
     });
     await waitFor(
       () =>
-        events.getHistory("s1").some(
+        realtimeEvents.getHistory("s1").some(
           (event) =>
             event.type === "background.task.completed" &&
             (event.data as { background_task_id?: string } | undefined)?.background_task_id === backgroundTaskId,
@@ -1368,8 +1370,8 @@ describe("RuntimeToolBridge", () => {
     const dataRoot = makeTempDataRoot();
     const workspaceRoot = path.join(dataRoot, "workspace-bash-approval");
     fs.mkdirSync(workspaceRoot, { recursive: true });
-    const events = new InMemoryEventBus();
-    const pendingInteractions = new PendingInteractionService(events);
+    const { store, realtimeEvents, clientEvents } = createDurableClientEvents();
+    const pendingInteractions = new PendingInteractionService(clientEvents);
     const permissionPolicy = new PermissionPolicyService();
     const bridge = new RuntimeToolBridge(
       new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
@@ -1401,7 +1403,7 @@ describe("RuntimeToolBridge", () => {
       ),
     );
 
-    const approvalRequired = events.getHistory("s1").find((event) => event.type === "interaction.required");
+    const approvalRequired = realtimeEvents.getHistory("s1").find((event) => event.type === "interaction.required");
     expect(approvalRequired?.data).toMatchObject({
       interaction_id: expect.any(String),
       kind: "approval",
@@ -1443,6 +1445,7 @@ describe("RuntimeToolBridge", () => {
       },
     });
     expect(fs.existsSync(path.join(workspaceRoot, "created_dir"))).toBe(true);
+    store.close();
   });
 
   it("terminates execute_bash when timeout is reached", async () => {
@@ -1593,8 +1596,8 @@ describe("RuntimeToolBridge", () => {
   });
 
   it("runs request_user_input through pending user input interactions", async () => {
-    const events = new InMemoryEventBus();
-    const pendingInteractions = new PendingInteractionService(events);
+    const { store, realtimeEvents, clientEvents } = createDurableClientEvents();
+    const pendingInteractions = new PendingInteractionService(clientEvents);
     const bridge = new RuntimeToolBridge(
       new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})),
       pendingInteractions,
@@ -1624,7 +1627,7 @@ describe("RuntimeToolBridge", () => {
       ),
     );
 
-    const interactionRequired = events.getHistory("s1").find((event) => event.type === "interaction.required");
+    const interactionRequired = realtimeEvents.getHistory("s1").find((event) => event.type === "interaction.required");
     expect(interactionRequired?.data).toMatchObject({
       interaction_id: expect.any(String),
       kind: "user_input",
@@ -1639,7 +1642,7 @@ describe("RuntimeToolBridge", () => {
       request_id: "req-1",
     });
 
-    const inputRequired = events.getHistory("s1").find((event) => event.type === "user.input_required");
+    const inputRequired = realtimeEvents.getHistory("s1").find((event) => event.type === "user.input_required");
     expect(inputRequired?.data).toMatchObject({
       interaction_id: expect.any(String),
       kind: "user_input",
@@ -1677,13 +1680,14 @@ describe("RuntimeToolBridge", () => {
         degraded: false,
       },
     });
+    store.close();
   });
 
   it("waits for approval before executing tools when policy asks", async () => {
     const dataRoot = makeTempDataRoot();
     writeFile(dataRoot, ["memory", "sessions", "s1", "MEMORY.md"], "# Approved Memory\n");
-    const events = new InMemoryEventBus();
-    const pendingInteractions = new PendingInteractionService(events);
+    const { store, realtimeEvents, clientEvents } = createDurableClientEvents();
+    const pendingInteractions = new PendingInteractionService(clientEvents);
     const permissionPolicy = new PermissionPolicyService();
     permissionPolicy.setMode("strict");
     const bridge = new RuntimeToolBridge(
@@ -1710,7 +1714,7 @@ describe("RuntimeToolBridge", () => {
       ),
     );
 
-    const approvalRequired = events.getHistory("s1").find((event) => event.type === "interaction.required");
+    const approvalRequired = realtimeEvents.getHistory("s1").find((event) => event.type === "interaction.required");
     expect(approvalRequired?.data).toMatchObject({
       interaction_id: expect.any(String),
       kind: "approval",
@@ -1750,11 +1754,12 @@ describe("RuntimeToolBridge", () => {
         },
       },
     });
+    store.close();
   });
 
   it("returns a tool error when approval is denied", async () => {
-    const events = new InMemoryEventBus();
-    const pendingInteractions = new PendingInteractionService(events);
+    const { store, realtimeEvents, clientEvents } = createDurableClientEvents();
+    const pendingInteractions = new PendingInteractionService(clientEvents);
     const permissionPolicy = new PermissionPolicyService();
     permissionPolicy.setMode("strict");
     const bridge = new RuntimeToolBridge(
@@ -1776,7 +1781,7 @@ describe("RuntimeToolBridge", () => {
         },
       ),
     );
-    const approvalRequired = events.getHistory("s1").find((event) => event.type === "interaction.required");
+    const approvalRequired = realtimeEvents.getHistory("s1").find((event) => event.type === "interaction.required");
     const approvalId = (approvalRequired?.data as { approval_id: string }).approval_id;
 
     expect(
@@ -1802,6 +1807,7 @@ describe("RuntimeToolBridge", () => {
         },
       },
     });
+    store.close();
   });
 });
 

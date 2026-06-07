@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { OutboxRow } from "../../src/services/stores/conversation-store/types.js";
 import { ConversationStore } from "../../src/services/stores/conversation-store.js";
-import { InMemoryEventBus } from "../../src/services/runtime/event-bus.js";
+import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { ClientEventProjector } from "../../src/services/runtime/event-outbox/projector.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 
@@ -72,7 +72,7 @@ describe("event outbox projection and dispatch", () => {
 
   it("publishes projected events to realtime fanout by default", () => {
     const store = new ConversationStore({ dbPath: ":memory:" });
-    const events = new InMemoryEventBus();
+    const realtimeEvents = new RealtimeEventHub();
     store.createSession("s1");
     store.appendOutbox({
       sessionId: "s1",
@@ -87,7 +87,7 @@ describe("event outbox projection and dispatch", () => {
       },
     });
 
-    const dispatcher = new OutboxDispatcher(store, events);
+    const dispatcher = new OutboxDispatcher(store, realtimeEvents);
     const projected = dispatcher.pollOnce();
 
     expect(projected).toHaveLength(1);
@@ -97,7 +97,7 @@ describe("event outbox projection and dispatch", () => {
       event_seq: 1,
     });
     expect(store.fetchPendingOutbox(10)).toEqual([]);
-    expect(events.getHistory("s1")).toEqual([
+    expect(realtimeEvents.getHistory("s1")).toEqual([
       expect.objectContaining({
         type: "run.end",
         event_id: "event-1",
@@ -114,7 +114,7 @@ describe("event outbox projection and dispatch", () => {
 
   it("marks projected events delivered after realtime fanout", () => {
     const store = new ConversationStore({ dbPath: ":memory:" });
-    const events = new InMemoryEventBus();
+    const realtimeEvents = new RealtimeEventHub();
     store.createSession("s1");
     store.appendOutbox({
       sessionId: "s1",
@@ -129,10 +129,10 @@ describe("event outbox projection and dispatch", () => {
       },
     });
 
-    const dispatcher = new OutboxDispatcher(store, events);
+    const dispatcher = new OutboxDispatcher(store, realtimeEvents);
     dispatcher.pollOnce();
 
-    expect(events.getHistory("s1")).toEqual([
+    expect(realtimeEvents.getHistory("s1")).toEqual([
       expect.objectContaining({
         type: "run.end",
         event_id: "event-1",
@@ -144,9 +144,9 @@ describe("event outbox projection and dispatch", () => {
 
   it("does not retry delivered rows when a realtime subscriber fails", () => {
     const store = new ConversationStore({ dbPath: ":memory:" });
-    const events = new InMemoryEventBus();
+    const realtimeEvents = new RealtimeEventHub();
     store.createSession("s1");
-    events.subscribe("s1", () => {
+    realtimeEvents.subscribe("s1", () => {
       throw new Error("websocket send failed");
     });
     store.appendOutbox({
@@ -162,7 +162,7 @@ describe("event outbox projection and dispatch", () => {
       },
     });
 
-    const dispatcher = new OutboxDispatcher(store, events);
+    const dispatcher = new OutboxDispatcher(store, realtimeEvents);
     expect(dispatcher.pollOnce()).toHaveLength(1);
 
     expect(store.listOutboxForReplay({ sessionId: "s1" })).toEqual([
@@ -178,7 +178,7 @@ describe("event outbox projection and dispatch", () => {
       failed: 0,
       lastError: null,
     });
-    expect(events.getHistory("s1")).toEqual([
+    expect(realtimeEvents.getHistory("s1")).toEqual([
       expect.objectContaining({
         type: "run.end",
         event_id: "event-1",
@@ -191,7 +191,7 @@ describe("event outbox projection and dispatch", () => {
     let nowMs = Date.parse("2026-06-07T00:00:00.000Z");
     const now = () => new Date(nowMs);
     const store = new ConversationStore({ dbPath: ":memory:" });
-    const events = new InMemoryEventBus();
+    const realtimeEvents = new RealtimeEventHub();
     store.createSession("s1");
     store.appendOutbox({
       sessionId: "s1",
@@ -211,7 +211,7 @@ describe("event outbox projection and dispatch", () => {
     const projector = new ClientEventProjector();
     const dispatcher = new OutboxDispatcher(
       store,
-      events,
+      realtimeEvents,
       {
         toClientEvent(row: OutboxRow) {
           if (failProjection) {
@@ -251,7 +251,7 @@ describe("event outbox projection and dispatch", () => {
 
     const projected = dispatcher.pollOnce();
     expect(projected).toHaveLength(1);
-    expect(events.getHistory("s1")).toEqual([
+    expect(realtimeEvents.getHistory("s1")).toEqual([
       expect.objectContaining({
         type: "run.end",
         event_id: "event-1",
@@ -277,7 +277,7 @@ describe("event outbox projection and dispatch", () => {
     let nowMs = Date.parse("2026-06-07T00:00:00.000Z");
     const now = () => new Date(nowMs);
     const store = new ConversationStore({ dbPath: ":memory:" });
-    const events = new InMemoryEventBus();
+    const realtimeEvents = new RealtimeEventHub();
     store.createSession("s1");
     store.appendOutbox({
       sessionId: "s1",
@@ -294,7 +294,7 @@ describe("event outbox projection and dispatch", () => {
     });
     const dispatcher = new OutboxDispatcher(
       store,
-      events,
+      realtimeEvents,
       {
         toClientEvent() {
           throw new Error("projection still unavailable");
@@ -334,7 +334,7 @@ describe("event outbox projection and dispatch", () => {
     let nowMs = Date.parse("2026-06-07T00:00:00.000Z");
     const now = () => new Date(nowMs);
     const store = new ConversationStore({ dbPath: ":memory:" });
-    const events = new InMemoryEventBus();
+    const realtimeEvents = new RealtimeEventHub();
     store.createSession("s1");
     store.appendOutbox({
       sessionId: "s1",
@@ -358,7 +358,7 @@ describe("event outbox projection and dispatch", () => {
 
     const dispatcher = new OutboxDispatcher(
       store,
-      events,
+      realtimeEvents,
       new ClientEventProjector(),
       {
         lockTimeoutMs: 1_000,
@@ -377,7 +377,7 @@ describe("event outbox projection and dispatch", () => {
         locked_at: null,
       }),
     ]);
-    expect(events.getHistory("s1")).toEqual([
+    expect(realtimeEvents.getHistory("s1")).toEqual([
       expect.objectContaining({
         type: "run.end",
         event_id: "event-1",

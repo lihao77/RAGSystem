@@ -98,7 +98,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
           content: payload,
         });
       };
-      const unsubscribe = options.container.events.subscribe(sessionId, (event) => {
+      const unsubscribe = options.container.realtimeEvents.subscribe(sessionId, (event) => {
         send(event);
         if (event.type !== "session.run_started") {
           return;

@@ -189,7 +189,7 @@ describe("session websocket route", () => {
       toolName: "execute_bash",
       description: "Run command",
     });
-    const required = harness.container.events
+    const required = harness.container.realtimeEvents
       .getHistory("ws-approval-session")
       .find((event) => event.type === "user.approval_required");
     const requiredData = required?.data && typeof required.data === "object"

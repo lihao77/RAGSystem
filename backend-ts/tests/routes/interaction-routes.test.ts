@@ -24,7 +24,7 @@ describe("interaction response routes", () => {
       riskLevel: "high",
       description: "Execute bash command",
     });
-    const approvalRequired = harness.container.events
+    const approvalRequired = harness.container.realtimeEvents
       .getHistory("approval-route-session")
       .find((event) => event.type === "user.approval_required");
     const approvalId = (approvalRequired?.data as { approval_id: string }).approval_id;

@@ -9,7 +9,7 @@ import {
 import type { AgentRuntimeCore, AgentRuntimeRequest } from "../../src/services/agent/agent-runtime-core.js";
 import { AgentDelegationService } from "../../src/services/agent/agent-delegation-service.js";
 import { ConversationStore } from "../../src/services/stores/conversation-store.js";
-import { InMemoryEventBus } from "../../src/services/runtime/event-bus.js";
+import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import type { RuntimeExecutionConfigResolver } from "../../src/services/runtime/runtime-core-service.js";
@@ -17,8 +17,8 @@ import type { RuntimeExecutionConfigResolver } from "../../src/services/runtime/
 describe("AgentDelegationService", () => {
   it("lists child agents and resumes an existing child thread with send_message", async () => {
     const store = new ConversationStore({ dbPath: ":memory:" });
-    const events = new InMemoryEventBus();
-    const dispatcher = new OutboxDispatcher(store, events);
+    const realtimeEvents = new RealtimeEventHub();
+    const dispatcher = new OutboxDispatcher(store, realtimeEvents);
     const clientEvents = new DurableClientEventPublisher(store, dispatcher);
     const workerAgent = minimalAgent("worker_agent");
     const runtimeRequests: AgentRuntimeRequest[] = [];
@@ -135,7 +135,7 @@ describe("AgentDelegationService", () => {
       ["user", "继续分析", "child-existing"],
       ["assistant", "resumed answer", "child-existing"],
     ]);
-    const callEvents = events
+    const callEvents = realtimeEvents
       .getHistory("session-1")
       .filter((event) => event.type === "call.agent.start" || event.type === "call.agent.end");
     expect(callEvents.map((event) => event.event_seq)).toEqual([1, 2]);

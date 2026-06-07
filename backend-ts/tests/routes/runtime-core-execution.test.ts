@@ -236,7 +236,7 @@ describe("minimal runtime core execution", () => {
       },
     });
 
-    const history = harness.container.events.getHistory("runtime-session");
+    const history = harness.container.realtimeEvents.getHistory("runtime-session");
     const eventTypes = history.map((event) => event.type);
     expect(eventTypes).toEqual(
       expect.arrayContaining([
@@ -474,7 +474,7 @@ describe("minimal runtime core execution", () => {
       }),
     });
 
-    const history = harness.container.events.getHistory("runtime-compress-session");
+    const history = harness.container.realtimeEvents.getHistory("runtime-compress-session");
     expect(history.map((event) => event.type)).toEqual(
       expect.arrayContaining(["context.compression_start", "context.compression_summary", "context.usage"]),
     );
@@ -514,7 +514,7 @@ describe("minimal runtime core execution", () => {
     );
 
     expect(chatClient.requests).toHaveLength(1);
-    const history = harness.container.events.getHistory("runtime-stream-session");
+    const history = harness.container.realtimeEvents.getHistory("runtime-stream-session");
     const firstToken = history.find((event) => event.type === "llm.first_token");
     expect(firstToken?.data).toMatchObject({
       elapsed_ms: expect.any(Number),
@@ -616,7 +616,7 @@ describe("minimal runtime core execution", () => {
       ]),
     );
 
-    const history = harness.container.events.getHistory("tool-runtime-session");
+    const history = harness.container.realtimeEvents.getHistory("tool-runtime-session");
     expect(history.filter((event) => event.type === "execution.step").map((event) => event.data)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -720,13 +720,13 @@ describe("minimal runtime core execution", () => {
 
     expect(started.statusCode).toBe(200);
     await waitFor(() =>
-      harness.container.events.getHistory("approval-runtime-session").some((event) => {
+      harness.container.realtimeEvents.getHistory("approval-runtime-session").some((event) => {
         const data = event.data as { kind?: string } | undefined;
         return event.type === "interaction.required" && data?.kind === "approval";
       }),
     );
 
-    const approvalRequired = harness.container.events
+    const approvalRequired = harness.container.realtimeEvents
       .getHistory("approval-runtime-session")
       .find((event) => {
         const data = event.data as { kind?: string } | undefined;
@@ -758,7 +758,7 @@ describe("minimal runtime core execution", () => {
     );
 
     expect(chatClient.requests).toHaveLength(2);
-    const history = harness.container.events.getHistory("approval-runtime-session");
+    const history = harness.container.realtimeEvents.getHistory("approval-runtime-session");
     expect(history.filter((event) => event.type === "execution.step").map((event) => event.data)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -826,7 +826,7 @@ describe("minimal runtime core execution", () => {
       ]),
     );
 
-    const history = harness.container.events.getHistory("xml-tool-runtime-session");
+    const history = harness.container.realtimeEvents.getHistory("xml-tool-runtime-session");
     expect(history.find((event) => event.type === "agent.intent_delta")?.data).toMatchObject({
       content: "我先读取 session 记忆。",
       round: 0,
@@ -957,10 +957,10 @@ describe("minimal runtime core execution", () => {
       3000,
     );
     await waitFor(
-      () => harness.container.events.getHistory("bg-notify-session").some((event) => event.type === "background.task.completed"),
+      () => harness.container.realtimeEvents.getHistory("bg-notify-session").some((event) => event.type === "background.task.completed"),
       5000,
     );
-    const completedEvent = harness.container.events
+    const completedEvent = harness.container.realtimeEvents
       .getHistory("bg-notify-session")
       .find((event) => event.type === "background.task.completed");
     const backgroundTaskId = (completedEvent?.data as { background_task_id?: string } | undefined)?.background_task_id;
@@ -1101,7 +1101,7 @@ describe("minimal runtime core execution", () => {
       },
     ]);
 
-    const history = harness.container.events.getHistory("delegate-runtime-session");
+    const history = harness.container.realtimeEvents.getHistory("delegate-runtime-session");
     const childAgentCalls = history.filter(
       (event) =>
         (event.type === "call.agent.start" || event.type === "call.agent.end") &&
@@ -1202,10 +1202,10 @@ describe("minimal runtime core execution", () => {
 
     expect(started.statusCode).toBe(200);
     await waitFor(() =>
-      harness.container.events.getHistory("input-runtime-session").some((event) => event.type === "user.input_required"),
+      harness.container.realtimeEvents.getHistory("input-runtime-session").some((event) => event.type === "user.input_required"),
     );
 
-    const inputRequired = harness.container.events
+    const inputRequired = harness.container.realtimeEvents
       .getHistory("input-runtime-session")
       .find((event) => event.type === "user.input_required");
     expect(inputRequired?.data).toMatchObject({
@@ -1250,7 +1250,7 @@ describe("minimal runtime core execution", () => {
     expect(toolResultMessage?.content).toContain('semantic="user_input_response"');
     expect(toolResultMessage?.content).toContain("session");
 
-    const history = harness.container.events.getHistory("input-runtime-session");
+    const history = harness.container.realtimeEvents.getHistory("input-runtime-session");
     expect(history.filter((event) => event.type === "execution.step").map((event) => event.data)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1391,7 +1391,7 @@ describe("minimal runtime core execution", () => {
       },
     });
 
-    const history = harness.container.events.getHistory("interrupt-session");
+    const history = harness.container.realtimeEvents.getHistory("interrupt-session");
     const userInterrupt = history.find((event) => event.type === "user.interrupt");
     expect(userInterrupt).toMatchObject({
       session_id: "interrupt-session",
@@ -1491,7 +1491,7 @@ describe("minimal runtime core execution", () => {
     await waitFor(() => harness.container.agentExecution.getSessionTaskStatus("failed-runtime-session").task_info?.status === "failed");
 
     expect(chatClient.requests).toHaveLength(1);
-    const history = harness.container.events.getHistory("failed-runtime-session");
+    const history = harness.container.realtimeEvents.getHistory("failed-runtime-session");
     const rootCallStart = history.find((event) => event.type === "call.agent.start");
     expect(rootCallStart).toMatchObject({
       agent_name: "orchestrator_agent",

@@ -16,7 +16,7 @@ import { ConversationStore } from "../stores/conversation-store.js";
 import { DaemonService } from "../daemon/daemon-service.js";
 import { EmbeddingModelService } from "../knowledge/embedding-model-service.js";
 import { FileIndexService } from "../stores/file-index-service.js";
-import { InMemoryEventBus } from "./event-bus.js";
+import { RealtimeEventHub } from "./realtime-event-hub.js";
 import { LocalBashToolService } from "../tools/local-bash-tool-service.js";
 import { LocalDocumentToolService } from "../tools/local-document-tool-service.js";
 import { OpenAiCompatibleChatClient, type LlmChatClient } from "../integrations/llm-chat-client.js";
@@ -38,7 +38,7 @@ export interface RuntimeContainer {
   readonly conversationStore: ConversationStore;
   readonly sessionApplication: AgentSessionApplication;
   readonly checkpointManager: CheckpointManager;
-  readonly events: InMemoryEventBus;
+  readonly realtimeEvents: RealtimeEventHub;
   readonly agentExecution: AgentExecutionService;
   readonly permissionPolicy: PermissionPolicyService;
   readonly agentConfig: AgentConfigService;
@@ -83,8 +83,8 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const conversationStore = new ConversationStore({ dbPath: options.dbPath, dataRoot: options.dataRoot });
   const sessionApplication = new AgentSessionApplication(conversationStore);
   const checkpointManager = new CheckpointManager({ dbPath: options.checkpointDbPath ?? options.dbPath });
-  const events = new InMemoryEventBus();
-  const outboxDispatcher = new OutboxDispatcher(conversationStore, events);
+  const realtimeEvents = new RealtimeEventHub();
+  const outboxDispatcher = new OutboxDispatcher(conversationStore, realtimeEvents);
   if (options.startOutboxDispatcher ?? true) {
     outboxDispatcher.start(options.outboxDispatcherIntervalMs);
   }
@@ -163,7 +163,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     conversationStore,
     sessionApplication,
     checkpointManager,
-    events,
+    realtimeEvents,
     agentExecution,
     permissionPolicy,
     agentConfig,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { InMemoryEventBus } from "../../src/services/runtime/event-bus.js";
+import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
@@ -9,8 +9,8 @@ import { ConversationStore } from "../../src/services/stores/conversation-store.
 describe("PendingInteractionService", () => {
   it("resolves approval interactions through the generic interaction response path", async () => {
     const store = new ConversationStore({ dbPath: ":memory:" });
-    const events = new InMemoryEventBus();
-    const dispatcher = new OutboxDispatcher(store, events);
+    const realtimeEvents = new RealtimeEventHub();
+    const dispatcher = new OutboxDispatcher(store, realtimeEvents);
     const clientEvents = new DurableClientEventPublisher(store, dispatcher);
     const service = new PendingInteractionService(clientEvents);
 
@@ -29,7 +29,7 @@ describe("PendingInteractionService", () => {
       approvalReasonCodes: ["ask-risk"],
     });
 
-    const history = events.getHistory("s1");
+    const history = realtimeEvents.getHistory("s1");
     const interactionRequired = history.find((event) => event.type === "interaction.required");
     const approvalRequired = history.find((event) => event.type === "user.approval_required");
     expect(history.map((event) => event.event_seq)).toEqual([1, 2]);
@@ -87,7 +87,7 @@ describe("PendingInteractionService", () => {
       message: "允许执行",
     });
     expect(service.isApprovalPending("s1", approvalId)).toBe(false);
-    const resolvedHistory = events.getHistory("s1");
+    const resolvedHistory = realtimeEvents.getHistory("s1");
     const approvalResolved = resolvedHistory.find((event) => event.type === "user.approval_granted");
     expect(resolvedHistory.map((event) => event.event_seq)).toEqual([1, 2, 3]);
     expect(approvalResolved).toMatchObject({

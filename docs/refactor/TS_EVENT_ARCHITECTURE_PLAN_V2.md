@@ -19,9 +19,9 @@ V2 采用 V1 的 Recorder + Outbox + Dispatcher + Projection 方向。当前实�
 
 ### 事件发布现状
 
-- `AgentExecutionService` 中存在多处 `eventPublisher.*` 和 `this.events.publish(...)` 调用。
-- `AgentExecutionEventPublisher` 同时负责构造 client payload、写 `run_steps`、推送 `InMemoryEventBus`。
-- `InMemoryEventBus` 只保留进程内 history，进程重启后无法恢复关键事件。
+- `AgentExecutionService` 的业务/client event 已收敛到 `DurableClientEventPublisher` / `ExecutionRecorder`。
+- `RealtimeEventHub` 只作为 outbox dispatcher 到 WebSocket 的进程内实时 fanout，不作为业务事实来源。
+- active run replay 和 durable cursor replay 都读取 `event_outbox` projection，不依赖进程内 history。
 
 ### completed 路径当前事件顺序
 
@@ -361,7 +361,7 @@ class OutboxDispatcher {
 - 为 completed 路径建立事件顺序测试。
 - 为 failed 路径建立事件顺序测试。
 - 为 interrupted 路径建立事件顺序测试。
-- 覆盖 active run replay 当前依赖 `InMemoryEventBus.getHistory()` 的行为。
+- 覆盖 active run replay 从 durable outbox projection 读取的行为。
 - 覆盖 `output.message_saved` 不丢失。
 
 验收：
@@ -427,14 +427,14 @@ class OutboxDispatcher {
 
 - 新增 `ClientEventProjector`。
 - 新增 `OutboxDispatcher`，固定 live。
-- dispatcher 只允许作为 in-memory bus 的业务事件发布入口。
+- dispatcher 只允许作为 RealtimeEventHub 的业务事件发布入口。
 - 加入 outbox metrics：pending/retrying/delivered/failed count、dispatcher projected/delivered/retried/failed。
 
 验收：
 
 - completed/failed/interrupted 的 projection 与 Phase 0 基线一致。
 - dispatcher 重启后能继续处理 pending rows。
-- in-memory bus 的业务事件只来自 outbox dispatcher。
+- RealtimeEventHub 的业务事件只来自 outbox dispatcher。
 
 实施约束：
 
@@ -448,7 +448,7 @@ class OutboxDispatcher {
 
 - `ws.ts` 增加 `last_event_seq` 支持。
 - heartbeat 增加 `last_event_seq`，保留 `last_stream_seq`。
-- replay 读取 outbox projection；内存 event bus 只做实时 fanout。
+- replay 读取 outbox projection；RealtimeEventHub 只做实时 fanout。
 - completed/failed/interrupted 关键事件由 live dispatcher 派发。
 - 避免 dispatcher 双发：同一事件类型只走 outbox。
 
@@ -488,7 +488,7 @@ class OutboxDispatcher {
 - 已移除 `BACKEND_TS_TERMINAL_EVENT_DELIVERY` 运行时开关。
 - completed/failed/interrupted terminal events、streaming events、interaction/background/delegation events 均由 outbox projection 派发，旧同步 publish 不再可用。
 - `/api/agent/metrics` 已暴露 `event_outbox` delivery mode、dispatcher metrics 和 pending/retrying/delivered/failed 统计。
-- WebSocket active replay 和 durable cursor replay 均读取 outbox projection；内存 event bus 仅作为 dispatcher 到 WebSocket 的实时 fanout。
+- WebSocket active replay 和 durable cursor replay 均读取 outbox projection；RealtimeEventHub 仅作为 dispatcher 到 WebSocket 的实时 fanout。
 
 ## 测试计划
 
@@ -520,7 +520,7 @@ class OutboxDispatcher {
 | 风险 | 处理 |
 | --- | --- |
 | 嵌套事务 | 先做 transaction facade，Recorder 禁止调用会自开事务的 public 写方法 |
-| 双发事件 | 架构测试禁止业务代码直接 publish 到 in-memory bus，同一事件只走 outbox |
+| 双发事件 | 架构测试禁止业务代码直接 publish 到 RealtimeEventHub，同一事件只走 outbox |
 | 顺序回归 | 首期一条 outbox row 对一条 client event，按 `session_seq` 排序 |
 | 重连 cursor 混乱 | `stream_seq` 和 `event_seq` 分离，Phase 4 引入 `last_event_seq` |
 | 高频事件压垮 DB | 先接受 durable outbox 作为唯一事件路径，后续通过 batching/retention/compaction 优化 |

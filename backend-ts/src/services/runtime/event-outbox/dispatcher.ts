@@ -1,7 +1,7 @@
 import type { ClientEvent } from "../../../contracts/events.js";
 import type { ConversationStore } from "../../stores/conversation-store.js";
 import type { OutboxRow } from "../../stores/conversation-store/types.js";
-import type { InMemoryEventBus } from "../event-bus.js";
+import type { RealtimeEventHub } from "../realtime-event-hub.js";
 import { ClientEventProjector } from "./projector.js";
 
 export interface OutboxDispatcherMetrics {
@@ -37,7 +37,7 @@ export class OutboxDispatcher {
 
   constructor(
     private readonly conversationStore: ConversationStore,
-    private readonly events: InMemoryEventBus,
+    private readonly realtimeEvents: RealtimeEventHub,
     private readonly projector = new ClientEventProjector(),
     options: OutboxDispatcherOptions = {},
   ) {
@@ -83,7 +83,7 @@ export class OutboxDispatcher {
         const event = this.projector.toClientEvent(row);
         projected.push(event);
         this.metrics.projected += 1;
-        this.events.publish(row.session_id, event);
+        this.realtimeEvents.publish(row.session_id, event);
         this.conversationStore.markOutboxDelivered(row.id);
         this.metrics.delivered += 1;
       } catch (error) {

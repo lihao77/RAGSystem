@@ -8,8 +8,8 @@ const srcRoot = path.resolve("src");
 describe("outbox event architecture", () => {
   it("keeps business event delivery behind the durable outbox boundary", () => {
     const files = listTypeScriptFiles(srcRoot);
-    const eventBusImportAllowed = new Set([
-      normalize("src/services/runtime/event-bus.ts"),
+    const realtimeHubImportAllowed = new Set([
+      normalize("src/services/runtime/realtime-event-hub.ts"),
       normalize("src/services/runtime/event-outbox/dispatcher.ts"),
       normalize("src/services/runtime/runtime-container.ts"),
     ]);
@@ -17,10 +17,10 @@ describe("outbox event architecture", () => {
       normalize("src/services/runtime/event-outbox/dispatcher.ts"),
     ]);
     const historyReadAllowed = new Set([
-      normalize("src/services/runtime/event-bus.ts"),
+      normalize("src/services/runtime/realtime-event-hub.ts"),
     ]);
     const subscribeAllowed = new Set([
-      normalize("src/services/runtime/event-bus.ts"),
+      normalize("src/services/runtime/realtime-event-hub.ts"),
       normalize("src/routes/agent/ws.ts"),
     ]);
 
@@ -30,17 +30,17 @@ describe("outbox event architecture", () => {
       const relativePath = normalize(path.relative(process.cwd(), file));
       const content = fs.readFileSync(file, "utf8");
 
-      if (/\bInMemoryEventBus\b|event-bus\.js/.test(content) && !eventBusImportAllowed.has(relativePath)) {
-        violations.push(`${relativePath}: imports or references InMemoryEventBus`);
+      if (/\bRealtimeEventHub\b|realtime-event-hub\.js/.test(content) && !realtimeHubImportAllowed.has(relativePath)) {
+        violations.push(`${relativePath}: imports or references RealtimeEventHub`);
       }
-      if (/(?:this|container|options\.container)\.events\.publish\(/.test(content) && !directPublishAllowed.has(relativePath)) {
-        violations.push(`${relativePath}: publishes directly to the in-memory event bus`);
+      if (/(?:this|container|options\.container)\.realtimeEvents\.publish\(/.test(content) && !directPublishAllowed.has(relativePath)) {
+        violations.push(`${relativePath}: publishes directly to the realtime event hub`);
       }
-      if (/\.events\.getHistory\(|\bgetHistory\(/.test(content) && !historyReadAllowed.has(relativePath)) {
-        violations.push(`${relativePath}: reads in-memory event history instead of durable outbox`);
+      if (/\.realtimeEvents\.getHistory\(|\bgetHistory\(/.test(content) && !historyReadAllowed.has(relativePath)) {
+        violations.push(`${relativePath}: reads realtime event history instead of durable outbox`);
       }
-      if (/\.events\.subscribe\(|\bsubscribe\(/.test(content) && !subscribeAllowed.has(relativePath)) {
-        violations.push(`${relativePath}: subscribes to the in-memory bus outside the WebSocket transport boundary`);
+      if (/\.realtimeEvents\.subscribe\(|\bsubscribe\(/.test(content) && !subscribeAllowed.has(relativePath)) {
+        violations.push(`${relativePath}: subscribes to the realtime hub outside the WebSocket transport boundary`);
       }
     }
 

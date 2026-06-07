@@ -1,9 +1,9 @@
 import type { ClientEvent } from "../../contracts/events.js";
 
-export type EventHandler = (event: ClientEvent) => void;
+export type RealtimeEventHandler = (event: ClientEvent) => void;
 
-export class InMemoryEventBus {
-  private readonly subscribers = new Map<string, Set<EventHandler>>();
+export class RealtimeEventHub {
+  private readonly subscribers = new Map<string, Set<RealtimeEventHandler>>();
   private readonly history = new Map<string, ClientEvent[]>();
   private readonly maxHistory: number;
 
@@ -38,8 +38,8 @@ export class InMemoryEventBus {
     return [...(this.history.get(sessionId) ?? [])];
   }
 
-  subscribe(sessionId: string, handler: EventHandler): () => void {
-    const handlers = this.subscribers.get(sessionId) ?? new Set<EventHandler>();
+  subscribe(sessionId: string, handler: RealtimeEventHandler): () => void {
+    const handlers = this.subscribers.get(sessionId) ?? new Set<RealtimeEventHandler>();
     handlers.add(handler);
     this.subscribers.set(sessionId, handlers);
 
