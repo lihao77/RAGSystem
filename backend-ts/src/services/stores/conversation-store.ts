@@ -14,6 +14,7 @@ import type {
   ChildAgentInfo,
   ChildAgentRow,
   MessageRow,
+  OutboxRow,
   ResourceInfo,
   ResourceRow,
   RunInfo,
@@ -33,10 +34,61 @@ const CHILD_AGENT_SELECT_COLUMNS = `
 `;
 
 const RUN_STEP_SELECT_COLUMNS = "id, run_id, session_id, message_id, step_order, step_type, payload, created_at";
+const OUTBOX_SELECT_COLUMNS = `
+  id, event_id, session_id, run_id, session_seq, event_type, aggregate_type,
+  aggregate_id, payload, status, attempts, available_at, locked_at, delivered_at,
+  last_error, created_at
+`;
 
 export interface ConversationStoreOptions {
   dbPath: string;
   dataRoot?: string | undefined;
+}
+
+export interface AddMessageInput {
+  sessionId: string;
+  role: MessageInfo["role"];
+  content: string;
+  metadata?: Record<string, unknown>;
+  messageId?: string;
+  threadKey?: string;
+  childAgentId?: string | null;
+}
+
+export interface AddRunStepInput {
+  sessionId: string;
+  runId: string;
+  stepType: string;
+  payload: Record<string, unknown>;
+  messageId?: string | null;
+}
+
+export interface RunStepRecord {
+  id: number;
+  run_id: string;
+  step_order: number;
+  step_type: string;
+}
+
+export interface AppendOutboxInput {
+  sessionId: string;
+  runId?: string | null;
+  eventId?: string;
+  sessionSeq?: number;
+  eventType: string;
+  aggregateType: string;
+  aggregateId: string;
+  payload: Record<string, unknown>;
+  availableAt?: string | null;
+}
+
+export interface ConversationStoreTransaction {
+  addMessage(input: AddMessageInput): MessageInfo;
+  addRunStep(input: AddRunStepInput): RunStepRecord;
+  updateRunStepsMessageId(sessionId: string, runId: string, messageId: string): number;
+  updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null): boolean;
+  nextSessionSeq(sessionId: string): number;
+  appendOutbox(input: AppendOutboxInput): OutboxRow;
 }
 
 export class ConversationStore {
@@ -91,15 +143,11 @@ export class ConversationStore {
     return Number(result.changes) > 0;
   }
 
-  addMessage(input: {
-    sessionId: string;
-    role: MessageInfo["role"];
-    content: string;
-    metadata?: Record<string, unknown>;
-    messageId?: string;
-    threadKey?: string;
-    childAgentId?: string | null;
-  }): MessageInfo {
+  addMessage(input: AddMessageInput): MessageInfo {
+    return this.withTransaction(() => this.addMessageInTransaction(input));
+  }
+
+  private addMessageInTransaction(input: AddMessageInput): MessageInfo {
     const messageId = input.messageId ?? randomUUID();
     const metadata = { ...(input.metadata ?? {}) };
     const rawThreadKey = input.threadKey ?? asString(metadata.thread_key) ?? "root";
@@ -110,16 +158,14 @@ export class ConversationStore {
       metadata.child_agent_id = childAgentId;
     }
 
-    this.withTransaction(() => {
-      this.db.prepare("INSERT OR IGNORE INTO sessions (session_id, metadata) VALUES (?, ?)").run(input.sessionId, "{}");
-      this.db
-        .prepare(`
-          INSERT INTO messages (id, session_id, role, content, metadata, thread_key, child_agent_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `)
-        .run(messageId, input.sessionId, input.role, input.content, stringifyJson(metadata), threadKey, childAgentId);
-      this.db.prepare("UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=?").run(input.sessionId);
-    });
+    this.db.prepare("INSERT OR IGNORE INTO sessions (session_id, metadata) VALUES (?, ?)").run(input.sessionId, "{}");
+    this.db
+      .prepare(`
+        INSERT INTO messages (id, session_id, role, content, metadata, thread_key, child_agent_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(messageId, input.sessionId, input.role, input.content, stringifyJson(metadata), threadKey, childAgentId);
+    this.db.prepare("UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=?").run(input.sessionId);
 
     const row = this.db
       .prepare(`
@@ -349,31 +395,27 @@ export class ConversationStore {
     return Number(result.changes) > 0;
   }
 
-  addRunStep(input: {
-    sessionId: string;
-    runId: string;
-    stepType: string;
-    payload: Record<string, unknown>;
-    messageId?: string | null;
-  }): { id: number; run_id: string; step_order: number; step_type: string } {
-    return this.withTransaction(() => {
-      const row = this.db
-        .prepare("SELECT COALESCE(MAX(step_order), 0) + 1 AS next_order FROM run_steps WHERE session_id=? AND run_id=?")
-        .get(input.sessionId, input.runId) as { next_order: number };
-      const stepOrder = Number(row.next_order) || 1;
-      const result = this.db
-        .prepare(`
-          INSERT INTO run_steps (run_id, session_id, message_id, step_order, step_type, payload)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `)
-        .run(input.runId, input.sessionId, input.messageId ?? null, stepOrder, input.stepType, stringifyJson(input.payload));
-      return {
-        id: Number(result.lastInsertRowid),
-        run_id: input.runId,
-        step_order: stepOrder,
-        step_type: input.stepType,
-      };
-    });
+  addRunStep(input: AddRunStepInput): RunStepRecord {
+    return this.withTransaction(() => this.addRunStepInTransaction(input));
+  }
+
+  private addRunStepInTransaction(input: AddRunStepInput): RunStepRecord {
+    const row = this.db
+      .prepare("SELECT COALESCE(MAX(step_order), 0) + 1 AS next_order FROM run_steps WHERE session_id=? AND run_id=?")
+      .get(input.sessionId, input.runId) as { next_order: number };
+    const stepOrder = Number(row.next_order) || 1;
+    const result = this.db
+      .prepare(`
+        INSERT INTO run_steps (run_id, session_id, message_id, step_order, step_type, payload)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `)
+      .run(input.runId, input.sessionId, input.messageId ?? null, stepOrder, input.stepType, stringifyJson(input.payload));
+    return {
+      id: Number(result.lastInsertRowid),
+      run_id: input.runId,
+      step_order: stepOrder,
+      step_type: input.stepType,
+    };
   }
 
   updateRunStepsMessageId(sessionId: string, runId: string, messageId: string): number {
@@ -567,6 +609,52 @@ export class ConversationStore {
         `,
       )
       .run(status, finalMessageId, runId, sessionId);
+    return Number(result.changes) > 0;
+  }
+
+  runInTransaction<T>(operation: (tx: ConversationStoreTransaction) => T): T {
+    return this.withTransaction(() => operation(this.createTransactionFacade()));
+  }
+
+  getNextSessionSeq(sessionId: string): number {
+    return this.withTransaction(() => this.nextSessionSeqInTransaction(sessionId));
+  }
+
+  appendOutbox(input: AppendOutboxInput): OutboxRow {
+    return this.withTransaction(() => this.appendOutboxInTransaction(input));
+  }
+
+  fetchPendingOutbox(limit = 100): OutboxRow[] {
+    return this.db
+      .prepare(`
+        SELECT ${OUTBOX_SELECT_COLUMNS}
+        FROM event_outbox
+        WHERE status='pending' AND available_at <= CURRENT_TIMESTAMP
+        ORDER BY id ASC
+        LIMIT ?
+      `)
+      .all(limit) as unknown as OutboxRow[];
+  }
+
+  markOutboxDelivered(id: number): boolean {
+    const result = this.db
+      .prepare(`
+        UPDATE event_outbox
+        SET status='delivered', delivered_at=CURRENT_TIMESTAMP, locked_at=NULL, last_error=NULL
+        WHERE id=?
+      `)
+      .run(id);
+    return Number(result.changes) > 0;
+  }
+
+  markOutboxFailed(id: number, error: string): boolean {
+    const result = this.db
+      .prepare(`
+        UPDATE event_outbox
+        SET status='failed', attempts=attempts + 1, locked_at=NULL, last_error=?
+        WHERE id=?
+      `)
+      .run(error, id);
     return Number(result.changes) > 0;
   }
 
@@ -784,6 +872,72 @@ export class ConversationStore {
       refs.set(row.step_id, current);
     }
     return refs;
+  }
+
+  private createTransactionFacade(): ConversationStoreTransaction {
+    return {
+      addMessage: (input) => this.addMessageInTransaction(input),
+      addRunStep: (input) => this.addRunStepInTransaction(input),
+      updateRunStepsMessageId: (sessionId, runId, messageId) => this.updateRunStepsMessageId(sessionId, runId, messageId),
+      updateRunStatus: (runId, sessionId, status, finalMessageId = null) =>
+        this.updateRunStatus(runId, sessionId, status, finalMessageId),
+      nextSessionSeq: (sessionId) => this.nextSessionSeqInTransaction(sessionId),
+      appendOutbox: (input) => this.appendOutboxInTransaction(input),
+    };
+  }
+
+  private nextSessionSeqInTransaction(sessionId: string): number {
+    this.db
+      .prepare(`
+        INSERT INTO session_event_seq (session_id, last_seq)
+        VALUES (?, 0)
+        ON CONFLICT(session_id) DO NOTHING
+      `)
+      .run(sessionId);
+    this.db.prepare("UPDATE session_event_seq SET last_seq=last_seq + 1 WHERE session_id=?").run(sessionId);
+    const row = this.db
+      .prepare("SELECT last_seq FROM session_event_seq WHERE session_id=?")
+      .get(sessionId) as { last_seq: number } | undefined;
+    if (!row) {
+      throw new Error(`Session event sequence update failed: ${sessionId}`);
+    }
+    return Number(row.last_seq);
+  }
+
+  private appendOutboxInTransaction(input: AppendOutboxInput): OutboxRow {
+    const eventId = input.eventId ?? randomUUID();
+    const sessionSeq = input.sessionSeq ?? this.nextSessionSeqInTransaction(input.sessionId);
+    const result = this.db
+      .prepare(`
+        INSERT INTO event_outbox (
+          event_id, session_id, run_id, session_seq, event_type, aggregate_type,
+          aggregate_id, payload, available_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      `)
+      .run(
+        eventId,
+        input.sessionId,
+        input.runId ?? null,
+        sessionSeq,
+        input.eventType,
+        input.aggregateType,
+        input.aggregateId,
+        stringifyJson(input.payload),
+        input.availableAt ?? null,
+      );
+    const row = this.loadOutboxRow(Number(result.lastInsertRowid));
+    if (!row) {
+      throw new Error(`Outbox insert failed: ${eventId}`);
+    }
+    return row;
+  }
+
+  private loadOutboxRow(id: number): OutboxRow | null {
+    const row = this.db
+      .prepare(`SELECT ${OUTBOX_SELECT_COLUMNS} FROM event_outbox WHERE id=?`)
+      .get(id) as OutboxRow | undefined;
+    return row ?? null;
   }
 
   private withTransaction<T>(operation: () => T): T {

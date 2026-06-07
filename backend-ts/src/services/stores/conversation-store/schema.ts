@@ -99,6 +99,32 @@ export function initializeConversationSchema(db: { exec(sql: string): unknown })
       FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS session_event_seq (
+      session_id TEXT PRIMARY KEY,
+      last_seq INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS event_outbox (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id TEXT UNIQUE NOT NULL,
+      session_id TEXT NOT NULL,
+      run_id TEXT,
+      session_seq INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      aggregate_type TEXT NOT NULL,
+      aggregate_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      available_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      locked_at TIMESTAMP,
+      delivered_at TIMESTAMP,
+      last_error TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_run_steps_session_run ON run_steps(session_id, run_id);
     CREATE INDEX IF NOT EXISTS idx_run_steps_message_id ON run_steps(message_id);
     CREATE INDEX IF NOT EXISTS idx_run_steps_session_type_id ON run_steps(session_id, step_type, id DESC);
@@ -108,5 +134,8 @@ export function initializeConversationSchema(db: { exec(sql: string): unknown })
     CREATE INDEX IF NOT EXISTS idx_child_agents_session_created ON child_agents(session_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_child_agents_session_agent ON child_agents(session_id, agent_name, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_child_agents_session_thread ON child_agents(session_id, thread_key);
+    CREATE INDEX IF NOT EXISTS idx_event_outbox_pending ON event_outbox(status, available_at, id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_event_outbox_session_seq ON event_outbox(session_id, session_seq);
+    CREATE INDEX IF NOT EXISTS idx_event_outbox_run_seq ON event_outbox(run_id, session_seq);
   `);
 }

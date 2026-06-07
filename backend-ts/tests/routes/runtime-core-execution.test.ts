@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
+import type { ClientEvent } from "../../src/contracts/events.js";
 import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
 import { buildTestHarness } from "../helpers/app.js";
 
@@ -22,7 +23,7 @@ class FakeChatClient implements LlmChatClient {
 
   constructor(private readonly content = "TS runtime answer") {}
 
-  async complete(request: ChatCompletionRequest) {
+  async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
     this.requests.push(request);
     if (this.resolver) {
       await new Promise<void>((resolve) => {
@@ -41,6 +42,17 @@ class FakeChatClient implements LlmChatClient {
 
   release(): void {
     this.resolver?.();
+  }
+}
+
+class FailingChatClient implements LlmChatClient {
+  readonly requests: ChatCompletionRequest[] = [];
+
+  constructor(private readonly error = new Error("provider failed")) {}
+
+  async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
+    this.requests.push(request);
+    throw this.error;
   }
 }
 
@@ -310,6 +322,14 @@ describe("minimal runtime core execution", () => {
       status: "completed",
       final_message_id: expect.any(String),
     });
+    expectTerminalEventTypes(history, started.json().data.run_id).toEqual([
+      "execution.step",
+      "output.final_answer",
+      "call.agent.end",
+      "execution.step",
+      "output.message_saved",
+      "run.end",
+    ]);
   });
 
   it("compresses long session history before the main agent request", async () => {
@@ -1345,6 +1365,78 @@ describe("minimal runtime core execution", () => {
         error_type: "InterruptedError",
       }),
     });
+    expect(history.find((event) => event.type === "run.end")).toMatchObject({
+      run_id: started.json().data.run_id,
+      data: expect.objectContaining({
+        status: "interrupted",
+      }),
+    });
+    expectTerminalEventTypes(history, started.json().data.run_id).toEqual([
+      "call.agent.end",
+      "execution.step",
+      "agent.error",
+      "run.end",
+    ]);
+  });
+
+  it("publishes the failed terminal event sequence when the provider fails", async () => {
+    const chatClient = new FailingChatClient(new Error("provider failed"));
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+
+    await createDefaultChatProvider(app);
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      headers: {
+        "x-request-id": "req-runtime-failed",
+      },
+      payload: {
+        task: "fail task",
+        session_id: "failed-runtime-session",
+      },
+    });
+    expect(started.statusCode).toBe(200);
+
+    await waitFor(() => harness.container.agentExecution.getSessionTaskStatus("failed-runtime-session").task_info?.status === "failed");
+
+    expect(chatClient.requests).toHaveLength(1);
+    const history = harness.container.events.getHistory("failed-runtime-session");
+    const rootCallStart = history.find((event) => event.type === "call.agent.start");
+    expect(rootCallStart).toMatchObject({
+      agent_name: "orchestrator_agent",
+      call_id: expect.stringMatching(/^call_/),
+    });
+    expect(history.find((event) => event.type === "call.agent.end")).toMatchObject({
+      agent_name: "orchestrator_agent",
+      call_id: rootCallStart?.call_id,
+      data: expect.objectContaining({
+        result: "provider failed",
+        success: false,
+      }),
+    });
+    expect(history.find((event) => event.type === "agent.error")).toMatchObject({
+      agent_name: "orchestrator_agent",
+      call_id: rootCallStart?.call_id,
+      data: expect.objectContaining({
+        error: "provider failed",
+        error_type: "ExecutionError",
+      }),
+    });
+    expect(history.find((event) => event.type === "run.end")).toMatchObject({
+      run_id: started.json().data.run_id,
+      data: expect.objectContaining({
+        status: "failed",
+        error: "provider failed",
+      }),
+    });
+    expectTerminalEventTypes(history, started.json().data.run_id).toEqual([
+      "call.agent.end",
+      "execution.step",
+      "agent.error",
+      "run.end",
+    ]);
   });
 });
 
@@ -1393,4 +1485,34 @@ async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error("Timed out waiting for condition");
+}
+
+function expectTerminalEventTypes(history: ClientEvent[], runId: string) {
+  return expect(extractTerminalEvents(history, runId).map((event) => event.type));
+}
+
+function extractTerminalEvents(history: ClientEvent[], runId: string): ClientEvent[] {
+  return history.filter((event) => {
+    if (event.run_id !== runId) {
+      return false;
+    }
+    const data = asRecord(event.data);
+    if (event.type === "execution.step") {
+      return (
+        (data.kind === "final" && data.phase === "complete") ||
+        (data.kind === "run" && data.phase === "end")
+      );
+    }
+    if (event.type === "output.message_saved") {
+      return data.role === "assistant";
+    }
+    return event.type === "output.final_answer" ||
+      event.type === "call.agent.end" ||
+      event.type === "agent.error" ||
+      event.type === "run.end";
+  });
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }

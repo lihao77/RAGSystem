@@ -130,6 +130,86 @@ describe("ConversationStore", () => {
     store.close();
   });
 
+  it("records durable outbox rows with per-session sequence and delivery status", () => {
+    const store = new ConversationStore({ dbPath: ":memory:" });
+    store.createSession("s1");
+    store.createSession("s2");
+
+    const first = store.appendOutbox({
+      sessionId: "s1",
+      runId: "run-1",
+      eventType: "run.completed",
+      aggregateType: "run",
+      aggregateId: "run-1",
+      payload: { status: "completed" },
+    });
+    const second = store.appendOutbox({
+      sessionId: "s1",
+      runId: "run-1",
+      eventType: "message.saved",
+      aggregateType: "message",
+      aggregateId: "msg-1",
+      payload: { id: "msg-1" },
+    });
+    const otherSession = store.appendOutbox({
+      sessionId: "s2",
+      runId: "run-2",
+      eventType: "run.completed",
+      aggregateType: "run",
+      aggregateId: "run-2",
+      payload: { status: "completed" },
+    });
+
+    expect([first.session_seq, second.session_seq, otherSession.session_seq]).toEqual([1, 2, 1]);
+    expect(JSON.parse(first.payload)).toEqual({ status: "completed" });
+    expect(store.fetchPendingOutbox(10).map((row) => row.event_id)).toEqual([
+      first.event_id,
+      second.event_id,
+      otherSession.event_id,
+    ]);
+    expect(store.markOutboxDelivered(first.id)).toBe(true);
+    expect(store.markOutboxFailed(second.id, "projection failed")).toBe(true);
+
+    const pending = store.fetchPendingOutbox(10);
+    expect(pending.map((row) => row.event_id)).toEqual([otherSession.event_id]);
+    store.close();
+  });
+
+  it("rolls back core state and outbox writes from the transaction facade", () => {
+    const store = new ConversationStore({ dbPath: ":memory:" });
+
+    expect(() =>
+      store.runInTransaction((tx) => {
+        const message = tx.addMessage({
+          sessionId: "s-rollback",
+          role: "assistant",
+          content: "uncommitted",
+        });
+        tx.addRunStep({
+          sessionId: "s-rollback",
+          runId: "run-rollback",
+          stepType: "execution.step",
+          payload: { kind: "final" },
+          messageId: message.id,
+        });
+        tx.appendOutbox({
+          sessionId: "s-rollback",
+          runId: "run-rollback",
+          eventType: "run.completed",
+          aggregateType: "run",
+          aggregateId: "run-rollback",
+          payload: { final_message_id: message.id },
+        });
+        throw new Error("rollback sentinel");
+      }),
+    ).toThrow("rollback sentinel");
+
+    expect(store.listMessages("s-rollback", 20, 0).items).toEqual([]);
+    expect(store.listRunSteps({ sessionId: "s-rollback", runId: "run-rollback" })).toEqual([]);
+    expect(store.fetchPendingOutbox(10)).toEqual([]);
+    store.close();
+  });
+
   it("persists runs, resources, and step resource links like Python", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "backend-ts-store-"));
     const store = new ConversationStore({

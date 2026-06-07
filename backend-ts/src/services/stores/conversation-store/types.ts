@@ -129,4 +129,23 @@ export interface ResourceInfo {
   source_tool: string | null;
 }
 
+export interface OutboxRow {
+  id: number;
+  event_id: string;
+  session_id: string;
+  run_id: string | null;
+  session_seq: number;
+  event_type: string;
+  aggregate_type: string;
+  aggregate_id: string;
+  payload: string;
+  status: string;
+  attempts: number;
+  available_at: string | null;
+  locked_at: string | null;
+  delivered_at: string | null;
+  last_error: string | null;
+  created_at: string;
+}
+
 export type SqlInputValue = string | number | bigint | Uint8Array | null;
