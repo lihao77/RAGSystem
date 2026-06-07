@@ -99,10 +99,12 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   }
   const clientEvents = new DurableClientEventPublisher(conversationStore, outboxDispatcher);
   const permissionPolicy = new PermissionPolicyService();
+  const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
   const agentConfig = new AgentConfigService({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot });
   const modelAdapter = new ModelAdapterService({
     dataRoot: options.dataRoot,
     providersConfigPath: options.modelAdapterProvidersConfigPath,
+    chatClient: llmChatClient,
   });
   const systemConfig = new SystemConfigService();
   const mcp = new McpService({ dataRoot: options.dataRoot, configPath: options.mcpConfigPath });
@@ -148,7 +150,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     mcp,
   );
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
-  const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
   const agentRuntimeCore = new AgentRuntimeCore(llmChatClient, { dataRoot: options.dataRoot });
   const contextCompression = new AgentContextCompressionService(conversationStore, llmChatClient, systemConfig);
   const agentRuntimeContextBuilder = new AgentRuntimeContextBuilder([

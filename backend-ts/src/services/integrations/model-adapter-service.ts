@@ -11,6 +11,8 @@ import type {
   ProviderTypeInfo,
   TestProviderRequest,
 } from "../../contracts/model-adapter.js";
+import type { AgentConfig } from "../../contracts/agent-config.js";
+import type { LlmChatClient } from "./llm-chat-client.js";
 
 const DEFAULT_ENDPOINTS: Record<string, string> = {
   openai_resp: "https://api.openai.com/v1",
@@ -66,9 +68,15 @@ export class ModelAdapterServiceError extends Error {
 export class ModelAdapterService {
   private readonly providers = new Map<string, ModelProviderConfig>();
   private readonly providersConfigPath: string | null;
+  private readonly chatClient: LlmChatClient | null;
 
-  constructor(options: { dataRoot?: string | undefined; providersConfigPath?: string | undefined } = {}) {
+  constructor(options: {
+    dataRoot?: string | undefined;
+    providersConfigPath?: string | undefined;
+    chatClient?: LlmChatClient | null | undefined;
+  } = {}) {
     this.providersConfigPath = resolveProvidersConfigPath(options);
+    this.chatClient = options.chatClient ?? null;
     this.loadProvidersFromDisk();
   }
 
@@ -193,6 +201,134 @@ export class ModelAdapterService {
     if (!["chat", "embedding", "rerank"].includes(task)) {
       throw new ModelAdapterServiceError(`不支持的任务类型: ${task}`, 400);
     }
+  }
+
+  checkProviderAvailability(providerKey: string): {
+    provider_key: string;
+    is_available: boolean;
+    checks: Record<string, boolean>;
+    error: string | null;
+  } {
+    const provider = this.providers.get(providerKey);
+    if (!provider) {
+      throw new ModelAdapterServiceError(`Provider 不存在: ${providerKey}`, 404);
+    }
+    const checks = {
+      provider_exists: true,
+      provider_type_supported: PROVIDER_TYPE_SET.has(provider.provider_type),
+      api_key_configured: Boolean(String(provider.api_key ?? "").trim()),
+      endpoint_configured: provider.provider_type !== "rerank_api" || Boolean(String(provider.api_endpoint ?? "").trim()),
+      chat_model_configured: Boolean(firstModelForTask(provider, "chat")),
+      embedding_model_configured: Boolean(firstModelForTask(provider, "embedding")),
+      rerank_model_configured: Boolean(firstModelForTask(provider, "rerank")),
+    };
+    const taskReady =
+      provider.provider_type === "rerank_api"
+        ? checks.rerank_model_configured
+        : checks.chat_model_configured || checks.embedding_model_configured || checks.rerank_model_configured;
+    const isAvailable =
+      checks.provider_type_supported &&
+      checks.api_key_configured &&
+      checks.endpoint_configured &&
+      taskReady;
+    return {
+      provider_key: providerKey,
+      is_available: isAvailable,
+      checks,
+      error: isAvailable ? null : summarizeAvailabilityFailure(provider, checks, taskReady),
+    };
+  }
+
+  async testProvider(data: TestProviderRequest): Promise<Record<string, unknown>> {
+    this.validateTestProviderRequest(data);
+    const provider = this.resolveProviderForTest(data);
+    const task = data.task ?? "chat";
+    const model = firstModelFromValue(data.model) ?? firstModelForTask(provider, task);
+    if (!model) {
+      throw new ModelAdapterServiceError(`Provider 未配置 ${task} 模型`, 400);
+    }
+
+    if (task === "chat") {
+      if (!this.chatClient) {
+        throw new ModelAdapterServiceError("当前运行时未配置 chat client", 500);
+      }
+      const startedAt = Date.now();
+      try {
+        const response = await this.chatClient.complete({
+          messages: [{ role: "user", content: data.prompt ?? "" }],
+          model,
+          provider,
+          agent: testAgentConfig(provider, model),
+          temperature: 0.7,
+          maxCompletionTokens: 500,
+        });
+        return {
+          content: response.content,
+          error: null,
+          model,
+          provider: provider.name,
+          cost: null,
+          latency: (Date.now() - startedAt) / 1000,
+          usage: null,
+          finish_reason: response.finishReason ?? null,
+        };
+      } catch (error) {
+        return {
+          content: null,
+          error: error instanceof Error ? error.message : String(error),
+          model,
+          provider: provider.name,
+          cost: null,
+          latency: (Date.now() - startedAt) / 1000,
+          usage: null,
+          finish_reason: null,
+        };
+      }
+    }
+
+    if (task === "embedding") {
+      return {
+        embeddings: deterministicEmbedding(data.prompt ?? ""),
+        error: null,
+        model,
+        provider: provider.name,
+        latency: 0,
+        usage: null,
+      };
+    }
+
+    if (task === "rerank") {
+      const documents = normalizeRerankDocuments(data.documents, data.prompt ?? "");
+      return {
+        results: documents.map((document, index) => ({
+          ...document,
+          score: index === 0 ? 1 : 0,
+        })),
+        error: null,
+        model,
+        provider: provider.name,
+        latency: 0,
+      };
+    }
+
+    throw new ModelAdapterServiceError(`不支持的任务类型: ${task}`, 400);
+  }
+
+  private resolveProviderForTest(data: TestProviderRequest): ModelProviderConfig {
+    const providerRef = String(data.provider ?? "").trim();
+    const providerType = String(data.provider_type ?? "").trim().toLowerCase();
+    const provider =
+      this.providers.get(providerRef) ??
+      Array.from(this.providers.values()).find((item) => {
+        if (providerType && item.provider_type !== providerType) {
+          return false;
+        }
+        return item.name === providerRef || normalizeProviderRef(item.name) === normalizeProviderRef(providerRef);
+      });
+    if (!provider) {
+      throw new ModelAdapterServiceError(`Provider 不存在: ${providerRef}`, 404);
+    }
+    return cloneProviderConfig(provider);
   }
 
   private buildCreateConfig(data: ProviderPayload): ModelProviderConfig {
@@ -521,6 +657,117 @@ function asOptionalNumber(value: unknown): number | undefined {
 
 function cloneProviderConfig(config: ModelProviderConfig): ModelProviderConfig {
   return structuredClone(config) as ModelProviderConfig;
+}
+
+function firstModelForTask(provider: ModelProviderConfig, task: string): string | null {
+  return firstModelFromValue(provider.model_map[task]) ?? (task === "chat" ? firstModelFromValue(provider.models) : null);
+}
+
+function firstModelFromValue(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const normalized = String(item ?? "").trim();
+      if (normalized) {
+        return normalized;
+      }
+    }
+    return null;
+  }
+  const normalized = String(value ?? "").trim();
+  return normalized || null;
+}
+
+function summarizeAvailabilityFailure(
+  provider: ModelProviderConfig,
+  checks: Record<string, boolean>,
+  taskReady: boolean,
+): string {
+  if (!checks.provider_type_supported) {
+    return `不支持的 Provider 类型: ${provider.provider_type}`;
+  }
+  if (!checks.api_key_configured) {
+    return "缺少 Provider API key";
+  }
+  if (!checks.endpoint_configured) {
+    return "缺少 Provider API endpoint";
+  }
+  if (!taskReady) {
+    return "Provider 未配置可用模型";
+  }
+  return "Provider 不可用";
+}
+
+function testAgentConfig(provider: ModelProviderConfig, model: string): AgentConfig {
+  return {
+    agent_name: "provider_test",
+    display_name: "Provider Test",
+    description: "Temporary provider test agent",
+    enabled: true,
+    default_entry: false,
+    llm_tiers: {
+      default: {
+        provider: provider.name,
+        provider_type: provider.provider_type,
+        model_name: model,
+        extra_params: {},
+      },
+    },
+    tools: { enabled_tools: [] },
+    skills: { enabled_skills: [], auto_inject: false },
+    mcp: { enabled_servers: [] },
+    memory: { auto_inject: false, allowed_scopes: [], write_scopes: [], archive_scopes: [] },
+    tasks: { workflow: false, background: false },
+    delegation: { enabled_agents: [] },
+    knowledge_base: {
+      enabled: false,
+      default_collection: "documents",
+      default_search_mode: "hybrid",
+      default_top_k: 5,
+      default_rerank: false,
+      default_reranker_key: null,
+    },
+    custom_params: {
+      behavior: {
+        system_prompt: "You are testing a provider configuration.",
+      },
+    },
+  };
+}
+
+function deterministicEmbedding(text: string): number[][] {
+  const digest = Buffer.from(text || "test", "utf8");
+  const vector = Array.from({ length: 16 }, (_, index) => {
+    const byte = digest[index % Math.max(1, digest.length)] ?? index;
+    return Number(((byte % 64) / 63).toFixed(6));
+  });
+  return [vector];
+}
+
+function normalizeRerankDocuments(documents: unknown, prompt: string): Array<{ id: string; text: string; metadata: Record<string, unknown> }> {
+  if (!Array.isArray(documents) || documents.length === 0) {
+    return [
+      { id: "rerank-test-1", text: prompt, metadata: {} },
+      { id: "rerank-test-2", text: "unrelated test document", metadata: {} },
+    ];
+  }
+  return documents.map((item, index) => {
+    if (isRecord(item)) {
+      return {
+        id: String(item.id ?? `doc-${index + 1}`),
+        text: String(item.text ?? item.content ?? ""),
+        metadata: isRecord(item.metadata) ? item.metadata : {},
+      };
+    }
+    return {
+      id: `doc-${index + 1}`,
+      text: String(item ?? ""),
+      metadata: {},
+    };
+  });
+}
+
+function normalizeProviderRef(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, "_");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

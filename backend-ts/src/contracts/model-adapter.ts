@@ -16,6 +16,7 @@ export const TestProviderRequestSchema = z
     model: z.union([z.string(), z.array(z.string())]).optional(),
     prompt: z.string().optional(),
     task: z.string().optional().default("chat"),
+    documents: z.array(z.unknown()).optional(),
   })
   .catchall(z.unknown());
 

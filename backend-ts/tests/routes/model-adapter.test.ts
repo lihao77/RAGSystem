@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
-import { buildTestApp } from "../helpers/app.js";
+import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
+import { buildTestApp, buildTestHarness } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
 
@@ -251,8 +252,10 @@ describe("model adapter compatibility routes", () => {
     expect(badOrder.json().message).toContain("未知 Provider: missing_deepseek");
   });
 
-  it("keeps provider availability and live test boundaries explicit", async () => {
-    app = await buildTestApp();
+  it("checks provider availability and runs provider tests", async () => {
+    const chatClient = new FakeChatClient("pong");
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
 
     await app.inject({
       method: "POST",
@@ -261,7 +264,11 @@ describe("model adapter compatibility routes", () => {
         name: "Test",
         provider_type: "deepseek",
         api_key: "sk-test",
-        model: "deepseek-chat",
+        model_map: {
+          chat: "deepseek-chat",
+          embedding: "embed-model",
+          rerank: "rerank-model",
+        },
       },
     });
 
@@ -269,10 +276,23 @@ describe("model adapter compatibility routes", () => {
       method: "GET",
       url: "/api/model-adapter/providers/test_deepseek/check",
     });
-    expect(check.statusCode).toBe(501);
+    expect(check.statusCode).toBe(200);
     expect(check.json()).toMatchObject({
-      success: false,
-      code: "not_migrated",
+      success: true,
+      message: "检查成功",
+      provider_key: "test_deepseek",
+      is_available: true,
+      data: {
+        provider_key: "test_deepseek",
+        is_available: true,
+        checks: {
+          api_key_configured: true,
+          chat_model_configured: true,
+          embedding_model_configured: true,
+          rerank_model_configured: true,
+        },
+        error: null,
+      },
     });
 
     const invalidTest = await app.inject({
@@ -297,10 +317,70 @@ describe("model adapter compatibility routes", () => {
         task: "chat",
       },
     });
-    expect(liveTest.statusCode).toBe(501);
+    expect(liveTest.statusCode).toBe(200);
     expect(liveTest.json()).toMatchObject({
-      success: false,
-      code: "not_migrated",
+      success: true,
+      message: "测试成功",
+      response: {
+        content: "pong",
+        error: null,
+        model: "deepseek-chat",
+        provider: "Test",
+      },
+    });
+    expect(chatClient.requests).toHaveLength(1);
+
+    const embedding = await app.inject({
+      method: "POST",
+      url: "/api/model-adapter/test",
+      payload: {
+        provider: "Test",
+        provider_type: "deepseek",
+        model: "embed-model",
+        prompt: "Hi",
+        task: "embedding",
+      },
+    });
+    expect(embedding.statusCode).toBe(200);
+    expect(embedding.json().response).toMatchObject({
+      error: null,
+      model: "embed-model",
+      provider: "Test",
+      embeddings: [expect.any(Array)],
+    });
+
+    const rerank = await app.inject({
+      method: "POST",
+      url: "/api/model-adapter/test",
+      payload: {
+        provider: "Test",
+        provider_type: "deepseek",
+        model: "rerank-model",
+        prompt: "Hi",
+        task: "rerank",
+        documents: [{ id: "d1", text: "Hi" }, { id: "d2", text: "Other" }],
+      },
+    });
+    expect(rerank.statusCode).toBe(200);
+    expect(rerank.json().response).toMatchObject({
+      error: null,
+      model: "rerank-model",
+      provider: "Test",
+      results: [
+        { id: "d1", score: 1 },
+        { id: "d2", score: 0 },
+      ],
     });
   });
 });
+
+class FakeChatClient implements LlmChatClient {
+  readonly requests: ChatCompletionRequest[] = [];
+
+  constructor(private readonly content: string) {}
+
+  async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
+    this.requests.push(request);
+    return { content: this.content, finishReason: "stop" };
+  }
+}

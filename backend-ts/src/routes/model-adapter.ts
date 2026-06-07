@@ -7,7 +7,7 @@ import {
 } from "../contracts/model-adapter.js";
 import { ok } from "../contracts/common.js";
 import { ModelAdapterServiceError } from "../services/integrations/model-adapter-service.js";
-import { HttpError, NotMigratedError } from "../utils/errors.js";
+import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 
 interface ProviderParams {
@@ -74,20 +74,28 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
   });
 
   app.get<{ Params: ProviderParams }>("/providers/:providerKey/check", async (request) => {
-    if (!options.container.modelAdapter.hasProvider(request.params.providerKey)) {
-      throw new HttpError(404, "not_found", `Provider 不存在: ${request.params.providerKey}`);
+    try {
+      const result = options.container.modelAdapter.checkProviderAvailability(request.params.providerKey);
+      return {
+        ...ok(result, "检查成功"),
+        ...result,
+      };
+    } catch (error) {
+      throw toHttpError(error);
     }
-    throw new NotMigratedError("Model provider availability check");
   });
 
   app.post("/test", async (request) => {
     const payload = TestProviderRequestSchema.parse(request.body);
     try {
-      options.container.modelAdapter.validateTestProviderRequest(payload);
+      const result = await options.container.modelAdapter.testProvider(payload);
+      return {
+        ...ok(result, "测试成功"),
+        response: result,
+      };
     } catch (error) {
       throw toHttpError(error);
     }
-    throw new NotMigratedError("Model provider test");
   });
 };
 
