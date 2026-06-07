@@ -51,6 +51,19 @@ export class AgentExecutionEventPublisher {
     });
   }
 
+  publishOutputMessageSaved(
+    sessionId: string,
+    runId: string | null | undefined,
+    payload: Record<string, unknown>,
+  ): void {
+    this.events.publish(sessionId, {
+      type: "output.message_saved",
+      session_id: sessionId,
+      ...(runId ? { run_id: runId } : {}),
+      ...mirrorEventData(payload),
+    });
+  }
+
   publishRootAgentStart(input: ExecutionEventContext & { task: string }): void {
     const agentName = input.agent.agent_name;
     const displayName = input.agent.display_name || agentName;

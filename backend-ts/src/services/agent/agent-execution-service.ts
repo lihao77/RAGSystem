@@ -118,12 +118,7 @@ export class AgentExecutionService {
         task_id: runningStatus.task_id,
         request_id: requestId,
       };
-      this.events.publish(sessionId, {
-        type: "output.message_saved",
-        session_id: sessionId,
-        ...(runningRunId ? { run_id: runningRunId } : {}),
-        ...mirrorEventData(followupPayload),
-      });
+      this.eventPublisher.publishOutputMessageSaved(sessionId, runningRunId, followupPayload);
       return {
         started: true,
         session_id: sessionId,
@@ -203,12 +198,7 @@ export class AgentExecutionService {
       agent: runtimeAgent,
     });
     this.eventPublisher.publishSessionRunStarted(sessionId, runId, runStartPayload);
-    this.events.publish(sessionId, {
-      type: "output.message_saved",
-      session_id: sessionId,
-      run_id: runId,
-      ...mirrorEventData(userMessageSavedPayload),
-    });
+    this.eventPublisher.publishOutputMessageSaved(sessionId, runId, userMessageSavedPayload);
 
     const startStepPayload = buildRunStartStepPayload({
       rootCallId,
@@ -628,18 +618,13 @@ export class AgentExecutionService {
         run_id: input.runId,
         ...mirrorEventData(runEndStepPayload),
       });
-      this.events.publish(input.sessionId, {
-        type: "output.message_saved",
-        session_id: input.sessionId,
+      this.eventPublisher.publishOutputMessageSaved(input.sessionId, input.runId, {
+        id: assistantMessage.id,
+        seq: assistantMessage.seq,
+        role: assistantMessage.role,
         run_id: input.runId,
-        ...mirrorEventData({
-          id: assistantMessage.id,
-          seq: assistantMessage.seq,
-          role: assistantMessage.role,
-          run_id: input.runId,
-          task_id: input.taskId,
-          request_id: input.requestId,
-        }),
+        task_id: input.taskId,
+        request_id: input.requestId,
       });
       this.events.publish(input.sessionId, {
         type: "run.end",
