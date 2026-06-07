@@ -61,8 +61,8 @@ Known gaps to close:
 
 ## Progress
 
-- [ ] Local runtime tools parity.
-- [ ] Attachments and slash commands.
+- [x] Local runtime tools parity (`glob`, `grep`, `web_fetch`, `todo_write`).
+- [x] Attachments and slash commands.
 - [ ] Hook runtime.
 - [ ] Vector/RAG runtime.
 - [ ] MCP runtime.

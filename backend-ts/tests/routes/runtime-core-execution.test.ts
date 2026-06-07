@@ -540,6 +540,160 @@ describe("minimal runtime core execution", () => {
     ]);
   });
 
+  it("injects validated session attachments into the runtime user message", async () => {
+    const chatClient = new FakeChatClient("attachment answer");
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+
+    await createDefaultChatProvider(app);
+    const upload = await app.inject({
+      method: "POST",
+      url: "/api/agent/sessions/attachment-runtime-session/files/upload",
+      headers: multipartHeaders("boundary-attachment-runtime"),
+      payload: multipartBody("boundary-attachment-runtime", "files", "alpha.txt", "text/plain", "alpha attachment"),
+    });
+    expect(upload.statusCode).toBe(200);
+    const fileId = upload.json().files[0].id;
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      headers: {
+        "x-request-id": "req-attachment-runtime",
+      },
+      payload: {
+        task: "summarize attachment",
+        session_id: "attachment-runtime-session",
+        attachments: [{ file_id: fileId }],
+      },
+    });
+
+    expect(started.statusCode).toBe(200);
+    await waitFor(() =>
+      harness.container.agentExecution.getSessionTaskStatus("attachment-runtime-session").task_info?.status === "completed",
+    );
+
+    const userContents = chatClient.requests[0]?.messages
+      .filter((message) => message.role === "user")
+      .map((message) => message.content) ?? [];
+    expect(userContents).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("[普通文件附件引用]"),
+        expect.stringContaining(`file_id=${fileId}`),
+        expect.stringContaining("alpha.txt"),
+      ]),
+    );
+    const messages = await app.inject({
+      method: "GET",
+      url: "/api/agent/sessions/attachment-runtime-session/messages",
+    });
+    expect(messages.json().data.items[0]).toMatchObject({
+      role: "user",
+      metadata: {
+        file_references: [
+          expect.objectContaining({
+            file_id: fileId,
+            original_name: "alpha.txt",
+          }),
+        ],
+      },
+    });
+  });
+
+  it("expands prompt slash commands before starting the runtime", async () => {
+    const chatClient = new FakeChatClient("review answer");
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+
+    await createDefaultChatProvider(app);
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      payload: {
+        task: "/review src/services",
+        session_id: "slash-review-session",
+      },
+    });
+
+    expect(started.statusCode).toBe(200);
+    await waitFor(() => harness.container.agentExecution.getSessionTaskStatus("slash-review-session").task_info?.status === "completed");
+
+    const promptContents = chatClient.requests[0]?.messages.map((message) => message.content) ?? [];
+    expect(promptContents).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("请对以下内容进行全面的代码审查"),
+        expect.stringContaining("src/services"),
+      ]),
+    );
+    const messages = await app.inject({
+      method: "GET",
+      url: "/api/agent/sessions/slash-review-session/messages",
+    });
+    expect(messages.json().data.items[0]).toMatchObject({
+      role: "user",
+      content: expect.stringContaining("请对以下内容进行全面的代码审查"),
+      metadata: {
+        type: "command",
+        command: "review",
+      },
+    });
+  });
+
+  it("handles system slash help without starting an agent run", async () => {
+    const chatClient = new FakeChatClient("should not run");
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+
+    await createDefaultChatProvider(app);
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      payload: {
+        task: "/help",
+        session_id: "slash-help-session",
+      },
+    });
+
+    expect(started.statusCode).toBe(200);
+    expect(started.json()).toMatchObject({
+      success: true,
+      data: {
+        started: true,
+        session_id: "slash-help-session",
+        kind: "command",
+      },
+    });
+    expect(chatClient.requests).toHaveLength(0);
+    expect(harness.container.realtimeEvents.getHistory("slash-help-session")).toEqual([
+      expect.objectContaining({
+        type: "command.result",
+        data: expect.objectContaining({
+          command: "help",
+          success: true,
+          content: expect.stringContaining("/review"),
+        }),
+      }),
+    ]);
+    const messages = await app.inject({
+      method: "GET",
+      url: "/api/agent/sessions/slash-help-session/messages",
+    });
+    expect(messages.json().data.items).toMatchObject([
+      expect.objectContaining({
+        role: "user",
+        content: "/help",
+        metadata: expect.objectContaining({ type: "command", command: "help" }),
+      }),
+      expect.objectContaining({
+        role: "system",
+        content: expect.stringContaining("可用命令"),
+        metadata: expect.objectContaining({ type: "command_result", command: "help", success: true }),
+      }),
+    ]);
+  });
+
   it("executes memory tool calls during a minimal runtime-core run", async () => {
     const chatClient = new FakeToolCallingChatClient([
       {
@@ -592,6 +746,10 @@ describe("minimal runtime core execution", () => {
       "edit_file",
       "preview_data_structure",
       "execute_bash",
+      "glob",
+      "grep",
+      "web_fetch",
+      "todo_write",
       "task_create",
       "task_get",
       "task_update",
@@ -1592,6 +1750,30 @@ function writeTestMemoryFile(parts: string[], content: string): void {
   const filePath = path.join(".test-data", ...parts);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content, "utf8");
+}
+
+function multipartHeaders(boundary: string): Record<string, string> {
+  return {
+    "content-type": `multipart/form-data; boundary=${boundary}`,
+  };
+}
+
+function multipartBody(
+  boundary: string,
+  fieldName: string,
+  filename: string,
+  contentType: string,
+  content: string,
+): string {
+  return [
+    `--${boundary}`,
+    `Content-Disposition: form-data; name="${fieldName}"; filename="${filename}"`,
+    `Content-Type: ${contentType}`,
+    "",
+    content,
+    `--${boundary}--`,
+    "",
+  ].join("\r\n");
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void> {

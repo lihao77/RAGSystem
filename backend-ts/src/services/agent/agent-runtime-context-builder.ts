@@ -311,7 +311,10 @@ export function filterRuntimeHistoryMessages(messages: MessageInfo[]): MessageIn
     }
     const metadata = message.metadata ?? {};
     const metadataType = metadata.type;
-    if (metadataType === "command" || metadataType === "command_result") {
+    if (metadataType === "command_result") {
+      return false;
+    }
+    if (metadataType === "command" && metadata.command_mode !== "prompt") {
       return false;
     }
     if (metadata.display_only) {

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { FastifyPluginAsync } from "fastify";
 
+import type { AttachmentRef } from "../../contracts/execution.js";
 import { ClientToServerMessageSchema, type ClientEvent } from "../../contracts/events.js";
 import { ClientEventProjector } from "../../services/runtime/event-outbox/projector.js";
 import type { RouteOptions } from "../route-options.js";
@@ -173,7 +174,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
                     session_id: sessionId,
                     user_id: message.user_id,
                     selected_llm: message.selected_llm,
-                    attachments: [],
+                    attachments: normalizeAttachmentRefs(message.attachments),
                   },
                   message.request_id ?? randomUUID(),
                 )
@@ -277,6 +278,21 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
     },
   );
 };
+
+function normalizeAttachmentRefs(value: unknown[]): AttachmentRef[] {
+  return value
+    .filter((item): item is Record<string, unknown> => item !== null && typeof item === "object" && !Array.isArray(item))
+    .map((item) => ({
+      file_id: typeof item.file_id === "string" ? item.file_id : "",
+      original_name: typeof item.original_name === "string" ? item.original_name : null,
+      stored_name: typeof item.stored_name === "string" ? item.stored_name : null,
+      stored_path: typeof item.stored_path === "string" ? item.stored_path : null,
+      mime: typeof item.mime === "string" ? item.mime : null,
+      size: typeof item.size === "number" && Number.isInteger(item.size) ? item.size : null,
+      kind: typeof item.kind === "string" ? item.kind : null,
+    }))
+    .filter((item) => item.file_id.trim());
+}
 
 function buildDurableOutboxReplay(
   container: RouteOptions["container"],

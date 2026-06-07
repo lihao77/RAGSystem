@@ -149,6 +149,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     contextCompression,
     agentConfig,
     backgroundTasks,
+    fileIndex,
     {
       outboxDispatcher,
       clientEvents,
