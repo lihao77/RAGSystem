@@ -28,64 +28,36 @@ import {
   buildApprovalMetadata,
   buildToolCallContext,
   dedupeStrings,
-  editFileArguments,
   errorResult,
-  previewDataStructureArguments,
-  readArchiveMemoryArguments,
   readBashArguments,
-  readCallAgentArguments,
-  readFileArguments,
   readInputType,
-  readListChildAgentsArguments,
-  readListMemoryIndexArguments,
-  readMemoryEntryArguments,
   readOptions,
   readPrompt,
-  readSendMessageArguments,
-  readTaskCreateArguments,
-  readTaskGetArguments,
-  readTaskOutputArguments,
-  readTaskStopArguments,
-  readTaskUpdateArguments,
-  readWriteMemoryArguments,
   successResult,
   withApprovalMetadata,
   withApprovedExternalPaths,
-  writeFileArguments,
 } from "./runtime-tool-bridge/arguments.js";
 export { isReadOnlyMemoryToolName } from "./runtime-tool-bridge/arguments.js";
+import { createRuntimeToolHandlers, type RuntimeToolHandler } from "./runtime-tool-bridge/handlers.js";
 import {
   AGENT_DELEGATION_TOOLS,
   ARCHIVE_MEMORY_TOOL,
-  ARCHIVE_MEMORY_TOOL_NAME,
-  CALL_AGENT_TOOL_NAME,
   DOCUMENT_TOOLS,
-  EDIT_FILE_TOOL_NAME,
   EXECUTE_BASH_TOOL,
   EXECUTE_BASH_TOOL_NAME,
-  LIST_CHILD_AGENTS_TOOL_NAME,
-  PREVIEW_DATA_STRUCTURE_TOOL_NAME,
-  READ_FILE_TOOL_NAME,
   READ_ONLY_MEMORY_TOOLS,
   REQUEST_USER_INPUT_TOOL,
   REQUEST_USER_INPUT_TOOL_NAME,
-  SEND_MESSAGE_TOOL_NAME,
-  TASK_CREATE_TOOL_NAME,
-  TASK_GET_TOOL_NAME,
-  TASK_LIST_TOOL_NAME,
   TASK_OUTPUT_TOOL,
   TASK_OUTPUT_TOOL_NAME,
   TASK_STOP_TOOL,
-  TASK_STOP_TOOL_NAME,
-  TASK_UPDATE_TOOL_NAME,
   TASK_WORKFLOW_TOOLS,
-  WRITE_FILE_TOOL_NAME,
   WRITE_MEMORY_TOOL,
-  WRITE_MEMORY_TOOL_NAME,
 } from "./runtime-tool-bridge/registry.js";
 
 export class RuntimeToolBridge implements RuntimeToolExecutor {
   private agentDelegation: AgentDelegationService | null = null;
+  private readonly toolHandlers: Map<string, RuntimeToolHandler>;
 
   constructor(
     private readonly memoryTools: MemoryToolService,
@@ -94,7 +66,16 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     private readonly documentTools: LocalDocumentToolService | null = null,
     private readonly bashTools: LocalBashToolService | null = null,
     private readonly taskTools: TaskToolService | null = null,
-  ) {}
+  ) {
+    this.toolHandlers = createRuntimeToolHandlers({
+      memoryTools,
+      documentTools,
+      taskTools,
+      getAgentDelegation: () => this.agentDelegation,
+      requestUserInput: (call, context) => this.requestUserInput(call, context),
+      unavailableTool: (toolName) => this.unavailableTool(toolName),
+    });
+  }
 
   setAgentDelegation(agentDelegation: AgentDelegationService | null): void {
     this.agentDelegation = agentDelegation;
@@ -222,60 +203,11 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     call: RuntimeToolCall,
     context: RuntimeToolExecutionContext,
   ): ToolExecutionResult | Promise<ToolExecutionResult> {
-    if (toolName === REQUEST_USER_INPUT_TOOL_NAME) {
-      return this.requestUserInput(call, context);
-    }
-    if (toolName === READ_FILE_TOOL_NAME && this.documentTools) {
-      return this.documentTools.readFile(readFileArguments(call.arguments), context);
-    }
-    if (toolName === WRITE_FILE_TOOL_NAME && this.documentTools) {
-      return this.documentTools.writeFile(writeFileArguments(call.arguments), context);
-    }
-    if (toolName === EDIT_FILE_TOOL_NAME && this.documentTools) {
-      return this.documentTools.editFile(editFileArguments(call.arguments), context);
-    }
-    if (toolName === PREVIEW_DATA_STRUCTURE_TOOL_NAME && this.documentTools) {
-      return this.documentTools.previewDataStructure(previewDataStructureArguments(call.arguments), context);
-    }
-    if (toolName === TASK_CREATE_TOOL_NAME && this.taskTools) {
-      return this.taskTools.taskCreate(readTaskCreateArguments(call.arguments), context);
-    }
-    if (toolName === TASK_GET_TOOL_NAME && this.taskTools) {
-      return this.taskTools.taskGet(readTaskGetArguments(call.arguments), context);
-    }
-    if (toolName === TASK_UPDATE_TOOL_NAME && this.taskTools) {
-      return this.taskTools.taskUpdate(readTaskUpdateArguments(call.arguments), context);
-    }
-    if (toolName === TASK_LIST_TOOL_NAME && this.taskTools) {
-      return this.taskTools.taskList(context);
-    }
-    if (toolName === TASK_OUTPUT_TOOL_NAME && this.taskTools) {
-      return this.taskTools.taskOutput(readTaskOutputArguments(call.arguments));
-    }
-    if (toolName === TASK_STOP_TOOL_NAME && this.taskTools) {
-      return this.taskTools.taskStop(readTaskStopArguments(call.arguments));
-    }
-    if (toolName === "list_memory_index") {
-      return this.memoryTools.listMemoryIndex(readListMemoryIndexArguments(call.arguments), context);
-    }
-    if (toolName === "read_memory_entry") {
-      return this.memoryTools.readMemoryEntry(readMemoryEntryArguments(call.arguments), context);
-    }
-    if (toolName === WRITE_MEMORY_TOOL_NAME) {
-      return this.memoryTools.writeMemory(readWriteMemoryArguments(call.arguments), context);
-    }
-    if (toolName === ARCHIVE_MEMORY_TOOL_NAME) {
-      return this.memoryTools.archiveMemory(readArchiveMemoryArguments(call.arguments), context);
-    }
-    if (toolName === CALL_AGENT_TOOL_NAME && this.agentDelegation) {
-      return this.agentDelegation.callAgent(readCallAgentArguments(call.arguments, context.toolCallId ?? call.callId), context);
-    }
-    if (toolName === LIST_CHILD_AGENTS_TOOL_NAME && this.agentDelegation) {
-      return this.agentDelegation.listChildAgents(readListChildAgentsArguments(call.arguments), context);
-    }
-    if (toolName === SEND_MESSAGE_TOOL_NAME && this.agentDelegation) {
-      return this.agentDelegation.sendMessage(readSendMessageArguments(call.arguments, context.toolCallId ?? call.callId), context);
-    }
+    const handler = this.toolHandlers.get(toolName);
+    return handler ? handler(call, context) : this.unavailableTool(toolName);
+  }
+
+  private unavailableTool(toolName: string): ToolExecutionResult<string> {
     return errorResult(`工具未暴露或暂未迁移: ${toolName}`, toolName);
   }
 
