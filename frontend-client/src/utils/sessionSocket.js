@@ -11,6 +11,14 @@ export function getDurableEventSeq(event) {
   return normalizeEventSeq(event.event_seq);
 }
 
+export function getDurableCursorSeq(event) {
+  const eventSeq = getDurableEventSeq(event);
+  if (eventSeq !== null) return eventSeq;
+  if (!event || typeof event !== 'object') return null;
+  if (event.type !== 'heartbeat') return null;
+  return normalizeEventSeq(event.last_event_seq);
+}
+
 export function buildSessionSocketUrl(sessionId, options = {}) {
   const protocol = options.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = options.host || '';

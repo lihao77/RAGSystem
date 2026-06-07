@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   buildSessionSocketUrl,
   canReuseSessionSocket,
+  getDurableCursorSeq,
   getDurableEventSeq,
   normalizeEventSeq,
   shouldRefreshSessionMessagesAfterResume,
@@ -37,6 +38,15 @@ test('仅接受正整数 event_seq 作为 durable cursor', () => {
   assert.equal(normalizeEventSeq('x'), null);
   assert.equal(getDurableEventSeq({ event_seq: 7 }), 7);
   assert.equal(getDurableEventSeq({ stream_seq: 7 }), null);
+});
+
+test('durable reconnect cursor 仅从 event_seq 或 heartbeat.last_event_seq 推进', () => {
+  assert.equal(getDurableCursorSeq({ event_seq: 7 }), 7);
+  assert.equal(getDurableCursorSeq({ type: 'heartbeat', last_event_seq: 8 }), 8);
+  assert.equal(getDurableCursorSeq({ type: 'heartbeat', last_event_seq: '9' }), 9);
+  assert.equal(getDurableCursorSeq({ type: 'heartbeat', last_event_seq: 0 }), null);
+  assert.equal(getDurableCursorSeq({ type: 'output.chunk', last_event_seq: 10 }), null);
+  assert.equal(getDurableCursorSeq({ stream_seq: 11 }), null);
 });
 
 test('会复用同一 session 的已连接 socket', () => {

@@ -56,8 +56,41 @@ export function useSessionRunStream(deps) {
   const USER_INPUT_ACK_TIMEOUT_MS = 8000;
   const USER_INPUT_ACK_TIMEOUT_CODE = 'USER_INPUT_ACK_TIMEOUT';
   const USER_INPUT_REJECTED_CODE = 'USER_INPUT_REJECTED';
+  const DURABLE_REPLAY_RUN_EVENT_TYPES = new Set([
+    'agent.error',
+    'agent.end',
+    'agent.intent_complete',
+    'agent.intent_delta',
+    'agent.reflection',
+    'agent.retry_scheduled',
+    'agent.start',
+    'background.task.completed',
+    'call.agent.end',
+    'call.agent.start',
+    'call.tool.end',
+    'call.tool.start',
+    'context.compression_start',
+    'context.compression_summary',
+    'context.usage',
+    'execution.step',
+    'execution.waiting_end',
+    'execution.waiting_start',
+    'execution.waiting_timeout',
+    'interaction.required',
+    'llm.first_token',
+    'output.chunk',
+    'output.final_answer',
+    'run.start',
+    'user.interrupt',
+    'user.approval_required',
+    'user.input_required',
+  ]);
   const _pendingUserInputSubmissions = new Map();
   const _handledRequiredInteractions = new Set();
+  let _durableReplay = {
+    active: false,
+    runId: null,
+  };
 
   const mergeMessageMetadata = (msg, metadata) => {
     if (!msg || !metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return;
@@ -286,6 +319,113 @@ export function useSessionRunStream(deps) {
     error.code = USER_INPUT_REJECTED_CODE;
     pending.reject(error);
     return true;
+  };
+
+  const isDurableOutboxReplayEnvelope = (event) => event?.replay_source === 'durable_outbox';
+
+  const messageRunId = (msg) => msg?.run_id || msg?.metadata?.run_id || null;
+
+  const findAssistantMessageIndexByRunId = (runId, predicate = () => true) => {
+    if (!runId) return -1;
+    for (let index = deps.messages.value.length - 1; index >= 0; index -= 1) {
+      const msg = deps.messages.value[index];
+      if (msg?.role === 'assistant' && messageRunId(msg) === runId && predicate(msg)) {
+        return index;
+      }
+    }
+    return -1;
+  };
+
+  const hasFinishedAssistantForRun = (runId) => (
+    findAssistantMessageIndexByRunId(runId, msg => msg.finished === true) >= 0
+  );
+
+  const getDurableReplayRunId = (event) => extractRunId(event) || _durableReplay.runId || null;
+
+  const ensureDurableReplayActiveRun = (event, sessionId) => {
+    const runId = getDurableReplayRunId(event);
+    if (hasFinishedAssistantForRun(runId)) return false;
+
+    let assistantMsgIndex = findAssistantMessageIndexByRunId(runId, msg => msg.finished !== true);
+    if (assistantMsgIndex < 0) {
+      const lastMsg = deps.messages.value[deps.messages.value.length - 1];
+      if (lastMsg?.role === 'assistant' && !lastMsg.finished && (!runId || !messageRunId(lastMsg))) {
+        assistantMsgIndex = deps.messages.value.length - 1;
+        if (runId) {
+          lastMsg.run_id = runId;
+          lastMsg.metadata = { ...(lastMsg.metadata || {}), run_id: runId };
+        }
+      }
+    }
+    if (assistantMsgIndex < 0) {
+      deps.messages.value.push(deps.createAssistantMessage(runId ? { run_id: runId, metadata: { run_id: runId } } : undefined));
+      assistantMsgIndex = deps.messages.value.length - 1;
+    }
+
+    deps.activeRun.active = true;
+    deps.activeRun.assistantMsgIndex = assistantMsgIndex;
+    deps.activeRun.runId = runId;
+    deps.activeRun.lastSeenSeq = 0;
+    if (!deps.activeRun.phase || deps.activeRun.phase === 'idle') {
+      deps.activeRun.phase = 'llm_waiting_first_token';
+      deps.activeRun.runStartedAt = eventTimestampSeconds(event);
+    }
+    deps.isLoading.value = true;
+    if (runId) {
+      deps.sessionTaskInfo.value = {
+        ...(deps.sessionTaskInfo.value || {}),
+        run_id: runId,
+        session_id: sessionId,
+        status: 'running',
+      };
+    }
+    return true;
+  };
+
+  const terminalStatusFromEvent = (event) => {
+    const status = event?.data?.status || event?.content?.status;
+    return ['completed', 'failed', 'interrupted'].includes(status) ? status : 'completed';
+  };
+
+  const refreshMessagesAfterInactiveDurableTerminal = (sessionId) => {
+    deps.deleteMessageCache(sessionId);
+    deps.loadSessionMessages(sessionId, { silent: true });
+  };
+
+  const handleInactiveDurableReplayEvent = (event, sessionId) => {
+    if (!_durableReplay.active || deps.activeRun.active) return false;
+
+    const eventType = event.type;
+    const runId = getDurableReplayRunId(event);
+    if (runId && hasFinishedAssistantForRun(runId)) {
+      if (eventType === 'run.end' || eventType === 'done') {
+        deps.sessionTaskInfo.value = {
+          ...(deps.sessionTaskInfo.value || {}),
+          run_id: runId,
+          session_id: sessionId,
+          thread_alive: false,
+          status: terminalStatusFromEvent(event),
+        };
+        deps.refreshSessionExecutionState(sessionId, { silent: true });
+      }
+      return true;
+    }
+
+    if (eventType === 'run.end' || eventType === 'done') {
+      deps.sessionTaskInfo.value = {
+        ...(deps.sessionTaskInfo.value || {}),
+        ...(runId ? { run_id: runId } : {}),
+        session_id: sessionId,
+        thread_alive: false,
+        status: terminalStatusFromEvent(event),
+      };
+      refreshMessagesAfterInactiveDurableTerminal(sessionId);
+      deps.refreshSessionExecutionState(sessionId, { silent: true });
+      return true;
+    }
+
+    if (!DURABLE_REPLAY_RUN_EVENT_TYPES.has(eventType)) return false;
+    return !ensureDurableReplayActiveRun(event, sessionId);
   };
 
   const submitUserInputHttp = async (sessionId, inputId, value) => {
@@ -608,6 +748,14 @@ export function useSessionRunStream(deps) {
     if (eventType === 'reconnect_start') {
       deps.clearSessionResumeRecovery();
       deps.activeRun.isReplaying = true;
+      if (isDurableOutboxReplayEnvelope(event)) {
+        _durableReplay = {
+          active: true,
+          runId: event.run_id || null,
+        };
+        return;
+      }
+      _durableReplay = { active: false, runId: null };
       if (!deps.isLoading.value) {
         deps.isLoading.value = true;
         const lastMsg = deps.messages.value[deps.messages.value.length - 1];
@@ -634,9 +782,14 @@ export function useSessionRunStream(deps) {
       return;
     }
     if (eventType === 'reconnect_end') {
+      if (isDurableOutboxReplayEnvelope(event)) {
+        _durableReplay = { active: false, runId: null };
+      }
       deps.activeRun.isReplaying = false;
       return;
     }
+
+    if (handleInactiveDurableReplayEvent(event, sessionId)) return;
 
     if (eventType === 'send.ack') {
       deps.clearCommandFallback();
@@ -764,7 +917,7 @@ export function useSessionRunStream(deps) {
         deps.activeRun.active = true;
         deps.activeRun.assistantMsgIndex = deps.messages.value.length - 1;
         deps.activeRun.lastSeenSeq = 0;
-        deps.activeRun.isReplaying = false;
+        deps.activeRun.isReplaying = _durableReplay.active;
         startActiveRunRuntime(event);
       }
       deps.activeRun.runId = nextRunId;

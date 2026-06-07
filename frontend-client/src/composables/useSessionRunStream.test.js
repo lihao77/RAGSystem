@@ -278,6 +278,109 @@ test('run.end 会把执行时间写入当前 assistant metadata 并收尾', () =
   assert.equal(deps.sessionTaskInfo.value.status, 'completed');
 });
 
+test('durable outbox 纯终态 replay 不创建空 assistant 占位', () => {
+  const { deps, calls } = createDeps();
+  deps.messages.value = [
+    createAssistantMessage({
+      content: '已加载的回答',
+      finished: true,
+      run_id: 'run-1',
+      metadata: { run_id: 'run-1' },
+    }),
+  ];
+
+  const stream = useSessionRunStream(deps);
+  stream.handleWSMessage({
+    type: 'reconnect_start',
+    run_id: 'run-1',
+    replay_source: 'durable_outbox',
+    replay_count: 1,
+  }, 'session-1');
+  stream.handleWSMessage({
+    type: 'run.end',
+    run_id: 'run-1',
+    replay_source: 'durable_outbox',
+    data: { status: 'completed', metadata: { execution_time: 1.2 } },
+  }, 'session-1');
+  stream.handleWSMessage({
+    type: 'reconnect_end',
+    replay_source: 'durable_outbox',
+  }, 'session-1');
+
+  assert.equal(deps.messages.value.length, 1);
+  assert.equal(deps.messages.value[0].content, '已加载的回答');
+  assert.equal(deps.activeRun.active, false);
+  assert.equal(deps.activeRun.isReplaying, false);
+  assert.equal(deps.isLoading.value, false);
+  assert.equal(deps.sessionTaskInfo.value.status, 'completed');
+  assert.deepEqual(calls.deleteMessageCache, []);
+  assert.deepEqual(calls.loadSessionMessages, []);
+  assert.deepEqual(calls.refreshSessionExecutionState, [['session-1', { silent: true }]]);
+});
+
+test('durable outbox replay 只有真实 run 事件才懒恢复 activeRun 并收尾', () => {
+  const { deps, calls } = createDeps();
+  deps.messages.value = [{ role: 'user', content: 'hello', metadata: { request_id: 'req-1' } }];
+
+  const stream = useSessionRunStream(deps);
+  stream.handleWSMessage({
+    type: 'reconnect_start',
+    run_id: 'run-1',
+    replay_source: 'durable_outbox',
+    replay_count: 5,
+  }, 'session-1');
+
+  assert.equal(deps.messages.value.length, 1);
+  assert.equal(deps.activeRun.active, false);
+
+  stream.handleWSMessage({
+    type: 'session.run_started',
+    run_id: 'run-1',
+    data: { run_id: 'run-1' },
+    replay_source: 'durable_outbox',
+  }, 'session-1');
+  stream.handleWSMessage({
+    type: 'output.chunk',
+    run_id: 'run-1',
+    data: { content: 'hello ' },
+    replay_source: 'durable_outbox',
+  }, 'session-1');
+  stream.handleWSMessage({
+    type: 'output.final_answer',
+    run_id: 'run-1',
+    data: { content: 'hello world', metadata: { execution_time: 2.5 } },
+    replay_source: 'durable_outbox',
+  }, 'session-1');
+  stream.handleWSMessage({
+    type: 'output.message_saved',
+    run_id: 'run-1',
+    data: { id: 'msg-1', seq: 2, role: 'assistant', run_id: 'run-1' },
+    replay_source: 'durable_outbox',
+  }, 'session-1');
+  stream.handleWSMessage({
+    type: 'run.end',
+    run_id: 'run-1',
+    data: { status: 'completed', metadata: { execution_time: 2.5 } },
+    replay_source: 'durable_outbox',
+  }, 'session-1');
+  stream.handleWSMessage({
+    type: 'reconnect_end',
+    replay_source: 'durable_outbox',
+  }, 'session-1');
+
+  const assistant = deps.messages.value.find(msg => msg.role === 'assistant');
+  assert.equal(assistant.content, 'hello world');
+  assert.equal(assistant.finished, true);
+  assert.equal(assistant.id, 'msg-1');
+  assert.equal(assistant.seq, 2);
+  assert.equal(assistant.metadata.run_id, 'run-1');
+  assert.equal(assistant.metadata.execution_time, 2.5);
+  assert.equal(deps.activeRun.active, false);
+  assert.equal(deps.activeRun.isReplaying, false);
+  assert.equal(deps.isLoading.value, false);
+  assert.deepEqual(calls.loadSessionMessages, []);
+});
+
 
 test('session.run_started 初始化运行态为等待模型首 token', () => {
   const { deps } = createDeps();

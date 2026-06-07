@@ -49,16 +49,32 @@ function createConnectionDeps(onMessage) {
   };
 }
 
-test('session connection 重连时使用已观察到的 event_seq durable cursor', () => {
+function installFakeSessionSocketEnv() {
   const originalWebSocket = globalThis.WebSocket;
   const originalLocation = globalThis.location;
-  const received = [];
   FakeWebSocket.instances = [];
   globalThis.WebSocket = FakeWebSocket;
   Object.defineProperty(globalThis, 'location', {
     configurable: true,
     value: { protocol: 'http:', host: 'localhost:5174' },
   });
+
+  return () => {
+    globalThis.WebSocket = originalWebSocket;
+    if (originalLocation === undefined) {
+      delete globalThis.location;
+    } else {
+      Object.defineProperty(globalThis, 'location', {
+        configurable: true,
+        value: originalLocation,
+      });
+    }
+  };
+}
+
+test('session connection 重连时使用已观察到的 event_seq durable cursor', () => {
+  const restore = installFakeSessionSocketEnv();
+  const received = [];
 
   try {
     const connection = useSessionConnection(createConnectionDeps((event, sessionId) => {
@@ -88,14 +104,45 @@ test('session connection 重连时使用已观察到的 event_seq durable cursor
       ['output.chunk', 'session-1', 4],
     ]);
   } finally {
-    globalThis.WebSocket = originalWebSocket;
-    if (originalLocation === undefined) {
-      delete globalThis.location;
-    } else {
-      Object.defineProperty(globalThis, 'location', {
-        configurable: true,
-        value: originalLocation,
-      });
-    }
+    restore();
+  }
+});
+
+test('session connection 使用 heartbeat.last_event_seq 推进重连 cursor', () => {
+  const restore = installFakeSessionSocketEnv();
+  const received = [];
+
+  try {
+    const connection = useSessionConnection(createConnectionDeps((event, sessionId) => {
+      received.push([event.type, sessionId, event.event_seq || null, event.stream_seq || null]);
+    }));
+
+    connection.connectSessionWS('session-1');
+    FakeWebSocket.instances[0].emit({ type: 'heartbeat', last_event_seq: 5, last_stream_seq: 42 });
+    assert.equal(connection.getLastEventSeq('session-1'), 5);
+
+    FakeWebSocket.instances[0].emit({ type: 'heartbeat', last_event_seq: 3 });
+    assert.equal(connection.getLastEventSeq('session-1'), 5);
+
+    connection.disconnectSessionWS();
+    connection.connectSessionWS('session-1');
+    assert.equal(
+      FakeWebSocket.instances[1].url,
+      'ws://localhost:5174/api/agent/sessions/session-1/ws?after_event_seq=5',
+    );
+
+    FakeWebSocket.instances[1].emit({ type: 'output.chunk', event_seq: 5, data: { content: 'duplicate' } });
+    FakeWebSocket.instances[1].emit({ type: 'output.chunk', stream_seq: 99, data: { content: 'transport only' } });
+    FakeWebSocket.instances[1].emit({ type: 'output.chunk', event_seq: 6, data: { content: 'next' } });
+
+    assert.equal(connection.getLastEventSeq('session-1'), 6);
+    assert.deepEqual(received, [
+      ['heartbeat', 'session-1', null, null],
+      ['heartbeat', 'session-1', null, null],
+      ['output.chunk', 'session-1', null, 99],
+      ['output.chunk', 'session-1', 6, null],
+    ]);
+  } finally {
+    restore();
   }
 });

@@ -2,6 +2,7 @@ import { ref } from 'vue';
 import {
   buildSessionSocketUrl,
   canReuseSessionSocket,
+  getDurableCursorSeq,
   getDurableEventSeq,
   shouldRefreshSessionMessagesAfterResume,
 } from '../utils/sessionSocket.js';
@@ -117,12 +118,26 @@ export function useSessionConnection(deps) {
 
   const getLastEventSeq = (sessionId) => _lastEventSeqBySession.get(sessionId) || 0;
 
+  const observeDurableCursor = (event, sessionId) => {
+    const cursorSeq = getDurableCursorSeq(event);
+    if (cursorSeq === null) return getLastEventSeq(sessionId);
+    const lastEventSeq = getLastEventSeq(sessionId);
+    if (cursorSeq > lastEventSeq) {
+      _lastEventSeqBySession.set(sessionId, cursorSeq);
+      return cursorSeq;
+    }
+    return lastEventSeq;
+  };
+
   const shouldDeliverEvent = (event, sessionId) => {
     const eventSeq = getDurableEventSeq(event);
-    if (eventSeq === null) return true;
-    const lastEventSeq = getLastEventSeq(sessionId);
-    if (eventSeq <= lastEventSeq) return false;
-    _lastEventSeqBySession.set(sessionId, eventSeq);
+    if (eventSeq !== null) {
+      const lastEventSeq = getLastEventSeq(sessionId);
+      if (eventSeq <= lastEventSeq) return false;
+      _lastEventSeqBySession.set(sessionId, eventSeq);
+      return true;
+    }
+    observeDurableCursor(event, sessionId);
     return true;
   };
 
