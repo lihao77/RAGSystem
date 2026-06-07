@@ -1,3 +1,4 @@
+import type { RunStepInfo } from "../../../contracts/common.js";
 import type { MessageInfo, SessionInfo, SessionListItem } from "../../../contracts/session.js";
 import { asString, parseJsonObject } from "./helpers.js";
 import type {
@@ -8,6 +9,7 @@ import type {
   ResourceRow,
   RunInfo,
   RunRow,
+  RunStepRow,
   SessionListRow,
   SessionRow,
 } from "./types.js";
@@ -103,5 +105,20 @@ export function rowToResource(row: ResourceRow): ResourceInfo {
     title: row.title,
     scope: row.scope,
     source_tool: row.source_tool,
+  };
+}
+
+export function rowToRunStep(row: RunStepRow, resourceRefs: Array<{ resource_id: string }> = []): RunStepInfo {
+  const payload = parseJsonObject(row.payload);
+  payload.resource_refs = resourceRefs;
+  return {
+    id: row.id,
+    run_id: row.run_id,
+    session_id: row.session_id,
+    message_id: row.message_id,
+    step_order: row.step_order,
+    step_type: row.step_type,
+    payload,
+    created_at: row.created_at,
   };
 }

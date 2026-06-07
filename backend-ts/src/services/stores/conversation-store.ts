@@ -7,7 +7,7 @@ import { createRequire } from "node:module";
 import type { PaginatedResult, RunStepInfo } from "../../contracts/common.js";
 import type { MessageInfo, SessionInfo, SessionListItem } from "../../contracts/session.js";
 import { asNullableString, asString, parseJsonObject, stringifyJson } from "./conversation-store/helpers.js";
-import { rowToChildAgent, rowToMessage, rowToResource, rowToRun, rowToSession, rowToSessionListItem } from "./conversation-store/mappers.js";
+import { rowToChildAgent, rowToMessage, rowToResource, rowToRun, rowToRunStep, rowToSession, rowToSessionListItem } from "./conversation-store/mappers.js";
 import { inferResourceScope } from "./conversation-store/resource-scope.js";
 import { initializeConversationSchema } from "./conversation-store/schema.js";
 import type {
@@ -674,20 +674,7 @@ export class ConversationStore {
   }): RunStepInfo[] {
     const rows = this.loadRunStepRows(input);
     const resourceRefsByStep = this.loadResourceRefs(rows.map((row) => row.id));
-    return rows.map((row) => {
-      const payload = parseJsonObject(row.payload);
-      payload.resource_refs = resourceRefsByStep.get(row.id) ?? [];
-      return {
-        id: row.id,
-        run_id: row.run_id,
-        session_id: row.session_id,
-        message_id: row.message_id,
-        step_order: row.step_order,
-        step_type: row.step_type,
-        payload,
-        created_at: row.created_at,
-      };
-    });
+    return rows.map((row) => rowToRunStep(row, resourceRefsByStep.get(row.id) ?? []));
   }
 
   getToolCallRawResult(sessionId: string, callId: string): Record<string, unknown> | null {
