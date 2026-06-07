@@ -9,6 +9,7 @@ import type { InMemoryEventBus } from "./event-bus.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { RuntimeToolExecutionContext, RuntimeToolExecutor } from "./runtime-tool-types.js";
 import type { ToolExecutionResult } from "./memory-tool-service.js";
+import { publishAgentCallEnd, publishAgentCallStart } from "./agent-delegation-service/events.js";
 
 export interface AgentDelegationInput {
   agentName: string;
@@ -92,7 +93,7 @@ export class AgentDelegationService {
       metadata: buildChildMetadata(context, threadKey, "call_agent"),
     });
 
-    this.publishAgentCallStart({
+    publishAgentCallStart(this.events, {
       sessionId,
       parentRunId: normalizeString(context.runId),
       parentAgentName: parentAgent.agent_name,
@@ -118,7 +119,7 @@ export class AgentDelegationService {
       teamName: normalizeString(context.teamName),
       workspaceRoot: getChildWorkspaceRoot(child, context),
     });
-    this.publishAgentCallEnd({
+    publishAgentCallEnd(this.events, {
       sessionId,
       parentRunId: normalizeString(context.runId),
       parentAgentName: parentAgent.agent_name,
@@ -163,7 +164,7 @@ export class AgentDelegationService {
       return errorResult(`子 Agent '${childAgentId}' 当前不可用`, toolName);
     }
 
-    this.publishAgentCallStart({
+    publishAgentCallStart(this.events, {
       sessionId,
       parentRunId: normalizeString(context.runId),
       parentAgentName: context.agent?.agent_name ?? normalizeString(context.currentAgentName) ?? "send_message",
@@ -189,7 +190,7 @@ export class AgentDelegationService {
       teamName: normalizeString(context.teamName),
       workspaceRoot: getChildWorkspaceRoot(child, context),
     });
-    this.publishAgentCallEnd({
+    publishAgentCallEnd(this.events, {
       sessionId,
       parentRunId: normalizeString(context.runId),
       parentAgentName: context.agent?.agent_name ?? normalizeString(context.currentAgentName) ?? "send_message",
@@ -437,71 +438,6 @@ export class AgentDelegationService {
     });
   }
 
-  private publishAgentCallStart(input: {
-    sessionId: string;
-    parentRunId: string | null;
-    parentAgentName: string;
-    parentCallId: string | null;
-    agentCallId: string;
-    agentName: string;
-    description: string;
-    childAgentId: string;
-    mode: "create" | "resume";
-  }): void {
-    if (!this.events) {
-      return;
-    }
-    const payload = {
-      agent_name: input.agentName,
-      description: input.description,
-      agent_display_name: input.agentName,
-      child_agent_id: input.childAgentId,
-      mode: input.mode,
-    };
-    this.events.publish(input.sessionId, {
-      type: "call.agent.start",
-      session_id: input.sessionId,
-      ...(input.parentRunId ? { run_id: input.parentRunId } : {}),
-      agent_name: input.parentAgentName,
-      call_id: input.agentCallId,
-      ...(input.parentCallId ? { parent_call_id: input.parentCallId } : {}),
-      ...mirrorEventData(payload),
-    });
-  }
-
-  private publishAgentCallEnd(input: {
-    sessionId: string;
-    parentRunId: string | null;
-    parentAgentName: string;
-    parentCallId: string | null;
-    agentCallId: string;
-    agentName: string;
-    result: string;
-    success: boolean;
-    childAgentId: string;
-    mode: "create" | "resume";
-  }): void {
-    if (!this.events) {
-      return;
-    }
-    const payload = {
-      agent_name: input.agentName,
-      result: input.result.slice(0, 500),
-      success: input.success,
-      agent_display_name: input.agentName,
-      child_agent_id: input.childAgentId,
-      mode: input.mode,
-    };
-    this.events.publish(input.sessionId, {
-      type: "call.agent.end",
-      session_id: input.sessionId,
-      ...(input.parentRunId ? { run_id: input.parentRunId } : {}),
-      agent_name: input.parentAgentName,
-      call_id: input.agentCallId,
-      ...(input.parentCallId ? { parent_call_id: input.parentCallId } : {}),
-      ...mirrorEventData(payload),
-    });
-  }
 }
 
 function buildDelegatedTask(task: string, contextHint: string | null | undefined): string {
@@ -624,11 +560,4 @@ function clampInteger(value: number | null, min: number, max: number): number {
 
 function normalizeString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function mirrorEventData<T extends Record<string, unknown>>(data: T): { data: T; content: T } {
-  return {
-    data,
-    content: data,
-  };
 }
