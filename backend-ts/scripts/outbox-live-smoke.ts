@@ -3,11 +3,15 @@ import { randomUUID } from "node:crypto";
 interface Options {
   baseUrl: string;
   sessionId: string;
+  scenarios: SmokeScenario[];
   task: string;
+  interruptTask: string;
   selectedLlm: string | null;
   timeoutMs: number;
   replayTimeoutMs: number;
 }
+
+type SmokeScenario = "basic" | "interrupt";
 
 interface WebSocketLike {
   readonly readyState: number;
@@ -35,6 +39,9 @@ interface Collector {
 }
 
 const DEFAULT_TASK = "Reply exactly: outbox-live-smoke-ok";
+const DEFAULT_INTERRUPT_TASK =
+  "Write a long, detailed migration analysis of at least 2000 words. Continue until stopped.";
+const DEFAULT_SCENARIOS: SmokeScenario[] = ["basic", "interrupt"];
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
@@ -47,28 +54,35 @@ async function main(): Promise<void> {
   await assertOutboxLive(options);
   await assertRuntimeReady(options);
 
-  const live = createCollector(options, wsConstructor, null);
+  const results: Array<{ scenario: SmokeScenario; sessionId: string; runId: string; maxEventSeq: number }> = [];
+  for (const scenario of options.scenarios) {
+    if (scenario === "basic") {
+      results.push(await runBasicScenario(options, wsConstructor));
+      continue;
+    }
+    if (scenario === "interrupt") {
+      results.push(await runInterruptScenario(options, wsConstructor));
+      continue;
+    }
+  }
+
+  console.log("Outbox live smoke passed");
+  for (const result of results) {
+    console.log(
+      `  ${result.scenario}: session_id=${result.sessionId} run_id=${result.runId} max_event_seq=${result.maxEventSeq}`,
+    );
+  }
+}
+
+async function runBasicScenario(
+  options: Options,
+  wsConstructor: WebSocketConstructorLike,
+): Promise<{ scenario: "basic"; sessionId: string; runId: string; maxEventSeq: number }> {
+  const sessionId = `${options.sessionId}-basic`;
+  const live = createCollector(options, wsConstructor, null, sessionId);
   try {
     await assertOpen(live, 5000, "live WebSocket");
-    const start = await requestJson(options, "/api/agent/stream", {
-      method: "POST",
-      headers: { "x-request-id": `outbox-live-smoke-${randomUUID()}` },
-      body: {
-        task: options.task,
-        session_id: options.sessionId,
-        attachments: [],
-        ...(options.selectedLlm ? { selected_llm: options.selectedLlm } : {}),
-      },
-    });
-    const startData = asRecord(asRecord(start).data);
-    if (startData.started !== true) {
-      throw new Error(`stream did not start: ${JSON.stringify(startData)}`);
-    }
-    const runId = asString(startData.run_id);
-    if (!runId) {
-      throw new Error(`stream start response is missing run_id: ${JSON.stringify(startData)}`);
-    }
-
+    const runId = await startAgentStream(options, sessionId, options.task);
     const terminal = await live.waitForEvent(
       (event) => isRunTerminalEvent(event, runId),
       options.timeoutMs,
@@ -78,58 +92,117 @@ async function main(): Promise<void> {
         `timed out waiting for run terminal event; observed types=[${summarizeEventTypes(live.events).join(", ")}]`,
       );
     }
-
-    const durableEvents = live.events.filter((event) => getEventSeq(event) !== null);
-    assertStrictlyIncreasingEventSeq(durableEvents);
-    assertStreamSeqStartsAtOne(live.events);
-    const maxEventSeq = Math.max(...durableEvents.map((event) => getEventSeq(event) ?? 0));
-    if (!Number.isSafeInteger(maxEventSeq) || maxEventSeq <= 0) {
-      throw new Error("live WebSocket did not receive durable event_seq values");
-    }
-
-    const replayAfterSeq = Math.max(0, maxEventSeq - 1);
-    const replay = createCollector(options, wsConstructor, replayAfterSeq);
-    try {
-      await assertOpen(replay, 5000, "replay WebSocket");
-      const replayStart = await replay.waitForEvent(
-        (event) => event.type === "reconnect_start" && event.replay_source === "durable_outbox",
-        options.replayTimeoutMs,
-      );
-      if (!replayStart) {
-        throw new Error(`durable replay did not start from after_event_seq=${replayAfterSeq}`);
-      }
-      const replayed = await replay.waitForEvent(
-        (event) => {
-          const eventSeq = getEventSeq(event);
-          return eventSeq !== null && eventSeq > replayAfterSeq;
-        },
-        options.replayTimeoutMs,
-      );
-      if (!replayed) {
-        throw new Error(`durable replay did not emit an event after event_seq=${replayAfterSeq}`);
-      }
-      const replayEnd = await replay.waitForEvent(
-        (event) => event.type === "reconnect_end" && event.replay_source === "durable_outbox",
-        options.replayTimeoutMs,
-      );
-      if (!replayEnd) {
-        throw new Error("durable replay did not emit reconnect_end");
-      }
-      assertStreamSeqStartsAtOne(replay.events);
-
-      console.log("Outbox live smoke passed");
-      console.log(`  base_url=${options.baseUrl}`);
-      console.log(`  session_id=${options.sessionId}`);
-      console.log(`  run_id=${runId}`);
-      console.log(`  live_events=${live.events.length}`);
-      console.log(`  max_event_seq=${maxEventSeq}`);
-      console.log(`  replay_url=${replay.url}`);
-      console.log(`  replayed_event_seq=${getEventSeq(replayed)}`);
-    } finally {
-      replay.close();
-    }
+    const maxEventSeq = await verifyLiveAndReplay(options, wsConstructor, sessionId, live.events);
+    return { scenario: "basic", sessionId, runId, maxEventSeq };
   } finally {
     live.close();
+  }
+}
+
+async function runInterruptScenario(
+  options: Options,
+  wsConstructor: WebSocketConstructorLike,
+): Promise<{ scenario: "interrupt"; sessionId: string; runId: string; maxEventSeq: number }> {
+  const sessionId = `${options.sessionId}-interrupt`;
+  const live = createCollector(options, wsConstructor, null, sessionId);
+  try {
+    await assertOpen(live, 5000, "interrupt live WebSocket");
+    const runId = await startAgentStream(options, sessionId, options.interruptTask);
+    const started = await live.waitForEvent(
+      (event) => extractRunId(event) === runId && event.type === "session.run_started",
+      Math.min(options.timeoutMs, 10000),
+    );
+    if (!started) {
+      throw new Error(`timed out waiting for interrupt run start; run_id=${runId}`);
+    }
+    await requestJson(options, "/api/agent/stream/stop", {
+      method: "POST",
+      body: { session_id: sessionId },
+    });
+    const terminal = await live.waitForEvent(
+      (event) => isRunTerminalEvent(event, runId) && getRunEndStatus(event) === "interrupted",
+      options.timeoutMs,
+    );
+    if (!terminal) {
+      throw new Error(
+        `timed out waiting for interrupted run.end; observed types=[${summarizeEventTypes(live.events).join(", ")}]`,
+      );
+    }
+    const maxEventSeq = await verifyLiveAndReplay(options, wsConstructor, sessionId, live.events);
+    return { scenario: "interrupt", sessionId, runId, maxEventSeq };
+  } finally {
+    live.close();
+  }
+}
+
+async function startAgentStream(options: Options, sessionId: string, task: string): Promise<string> {
+  const start = await requestJson(options, "/api/agent/stream", {
+    method: "POST",
+    headers: { "x-request-id": `outbox-live-smoke-${randomUUID()}` },
+    body: {
+      task,
+      session_id: sessionId,
+      attachments: [],
+      ...(options.selectedLlm ? { selected_llm: options.selectedLlm } : {}),
+    },
+  });
+  const startData = asRecord(asRecord(start).data);
+  if (startData.started !== true) {
+    throw new Error(`stream did not start: ${JSON.stringify(startData)}`);
+  }
+  const runId = asString(startData.run_id);
+  if (!runId) {
+    throw new Error(`stream start response is missing run_id: ${JSON.stringify(startData)}`);
+  }
+  return runId;
+}
+
+async function verifyLiveAndReplay(
+  options: Options,
+  wsConstructor: WebSocketConstructorLike,
+  sessionId: string,
+  liveEvents: Record<string, unknown>[],
+): Promise<number> {
+  const durableEvents = liveEvents.filter((event) => getEventSeq(event) !== null);
+  assertStrictlyIncreasingEventSeq(durableEvents);
+  assertStreamSeqStartsAtOne(liveEvents);
+  const maxEventSeq = Math.max(...durableEvents.map((event) => getEventSeq(event) ?? 0));
+  if (!Number.isSafeInteger(maxEventSeq) || maxEventSeq <= 0) {
+    throw new Error("live WebSocket did not receive durable event_seq values");
+  }
+
+  const replayAfterSeq = Math.max(0, maxEventSeq - 1);
+  const replay = createCollector(options, wsConstructor, replayAfterSeq, sessionId);
+  try {
+    await assertOpen(replay, 5000, "replay WebSocket");
+    const replayStart = await replay.waitForEvent(
+      (event) => event.type === "reconnect_start" && event.replay_source === "durable_outbox",
+      options.replayTimeoutMs,
+    );
+    if (!replayStart) {
+      throw new Error(`durable replay did not start from after_event_seq=${replayAfterSeq}`);
+    }
+    const replayed = await replay.waitForEvent(
+      (event) => {
+        const eventSeq = getEventSeq(event);
+        return eventSeq !== null && eventSeq > replayAfterSeq;
+      },
+      options.replayTimeoutMs,
+    );
+    if (!replayed) {
+      throw new Error(`durable replay did not emit an event after event_seq=${replayAfterSeq}`);
+    }
+    const replayEnd = await replay.waitForEvent(
+      (event) => event.type === "reconnect_end" && event.replay_source === "durable_outbox",
+      options.replayTimeoutMs,
+    );
+    if (!replayEnd) {
+      throw new Error("durable replay did not emit reconnect_end");
+    }
+    assertStreamSeqStartsAtOne(replay.events);
+    return maxEventSeq;
+  } finally {
+    replay.close();
   }
 }
 
@@ -188,6 +261,7 @@ function createCollector(
   options: Options,
   wsConstructor: WebSocketConstructorLike,
   afterEventSeq: number | null,
+  sessionId: string,
 ): Collector {
   const events: Record<string, unknown>[] = [];
   const errors: string[] = [];
@@ -199,7 +273,7 @@ function createCollector(
   const openWaiters: Array<(value: boolean) => void> = [];
   let opened = false;
   let closed = false;
-  const url = toWebSocketUrl(options, afterEventSeq);
+  const url = toWebSocketUrl(options, sessionId, afterEventSeq);
   const ws = new wsConstructor(url);
 
   const settleOpen = (value: boolean): void => {
@@ -365,8 +439,16 @@ function isRunTerminalEvent(event: Record<string, unknown>, runId: string): bool
   if (event.type !== "run.end" && event.type !== "done") {
     return false;
   }
-  const eventRunId = asString(event.run_id) ?? asString(getPath(event, ["data", "run_id"]));
+  const eventRunId = extractRunId(event);
   return !eventRunId || eventRunId === runId;
+}
+
+function extractRunId(event: Record<string, unknown>): string | null {
+  return asString(event.run_id) ?? asString(getPath(event, ["data", "run_id"]));
+}
+
+function getRunEndStatus(event: Record<string, unknown>): string | null {
+  return asString(getPath(event, ["data", "status"])) ?? asString(event.status);
 }
 
 function getEventSeq(event: Record<string, unknown>): number | null {
@@ -377,8 +459,8 @@ function summarizeEventTypes(events: Record<string, unknown>[]): string[] {
   return Array.from(new Set(events.map((event) => asString(event.type) ?? "unknown")));
 }
 
-function toWebSocketUrl(options: Options, afterEventSeq: number | null): string {
-  const url = new URL(`/api/agent/sessions/${encodeURIComponent(options.sessionId)}/ws`, options.baseUrl);
+function toWebSocketUrl(options: Options, sessionId: string, afterEventSeq: number | null): string {
+  const url = new URL(`/api/agent/sessions/${encodeURIComponent(sessionId)}/ws`, options.baseUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   if (afterEventSeq !== null) {
     url.searchParams.set("after_event_seq", String(afterEventSeq));
@@ -412,7 +494,9 @@ function parseArgs(args: string[]): Options {
   const options: Options = {
     baseUrl: process.env.OUTBOX_SMOKE_URL ?? "http://127.0.0.1:5002",
     sessionId: process.env.OUTBOX_SMOKE_SESSION_ID ?? `outbox-live-smoke-${Date.now()}`,
+    scenarios: parseScenarios(process.env.OUTBOX_SMOKE_SCENARIOS),
     task: process.env.OUTBOX_SMOKE_TASK ?? DEFAULT_TASK,
+    interruptTask: process.env.OUTBOX_SMOKE_INTERRUPT_TASK ?? DEFAULT_INTERRUPT_TASK,
     selectedLlm: normalizeString(process.env.OUTBOX_SMOKE_SELECTED_LLM),
     timeoutMs: Number.parseInt(process.env.OUTBOX_SMOKE_TIMEOUT_MS ?? "120000", 10),
     replayTimeoutMs: Number.parseInt(process.env.OUTBOX_SMOKE_REPLAY_TIMEOUT_MS ?? "5000", 10),
@@ -436,6 +520,14 @@ function parseArgs(args: string[]): Options {
       options.task = requireValue(args, ++index, arg);
       continue;
     }
+    if (arg === "--interrupt-task") {
+      options.interruptTask = requireValue(args, ++index, arg);
+      continue;
+    }
+    if (arg === "--scenarios") {
+      options.scenarios = parseScenarios(requireValue(args, ++index, arg));
+      continue;
+    }
     if (arg === "--selected-llm") {
       options.selectedLlm = requireValue(args, ++index, arg);
       continue;
@@ -457,6 +549,9 @@ function parseArgs(args: string[]): Options {
   if (!options.sessionId.trim()) {
     throw new Error("--session-id must not be empty");
   }
+  if (options.scenarios.length === 0) {
+    throw new Error("--scenarios must include at least one scenario");
+  }
   return options;
 }
 
@@ -468,10 +563,32 @@ Verifies TS backend outbox_live WebSocket delivery and durable replay cursor beh
 Options:
   --base-url <url>            TS backend URL. Default: OUTBOX_SMOKE_URL or http://127.0.0.1:5002
   --session-id <id>           Session id. Default: OUTBOX_SMOKE_SESSION_ID or generated id
+  --scenarios <list>          Comma-separated scenarios: basic,interrupt. Default: basic,interrupt
   --task <text>               Agent task. Default: OUTBOX_SMOKE_TASK or "${DEFAULT_TASK}"
+  --interrupt-task <text>     Long-running task used for interrupt scenario.
   --selected-llm <value>      Optional frontend selected_llm override.
   --timeout-ms <n>            Run completion timeout. Default: 120000
   --replay-timeout-ms <n>     Durable replay wait timeout. Default: 5000`);
+}
+
+function parseScenarios(raw: string | undefined): SmokeScenario[] {
+  if (!raw?.trim()) {
+    return [...DEFAULT_SCENARIOS];
+  }
+  const scenarios: SmokeScenario[] = [];
+  for (const item of raw.split(",")) {
+    const scenario = item.trim();
+    if (!scenario) {
+      continue;
+    }
+    if (scenario !== "basic" && scenario !== "interrupt") {
+      throw new Error(`Unknown smoke scenario: ${scenario}`);
+    }
+    if (!scenarios.includes(scenario)) {
+      scenarios.push(scenario);
+    }
+  }
+  return scenarios;
 }
 
 function requireValue(args: string[], index: number, flag: string): string {
