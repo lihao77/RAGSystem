@@ -79,6 +79,7 @@ Known gaps to close:
 - [x] Skills runtime tools.
   - [x] Skill discovery with workspace/global/builtin source priority.
   - [x] Skill visibility rules, resource loading, script execution, artifact protocol, team protocol, and background execution.
+- [x] `/compact` system slash command.
 - [ ] Final parity pass.
 
 ## Validation Log
@@ -111,3 +112,6 @@ Known gaps to close:
   - `npm run typecheck`
   - `npx vitest run tests/services/skill-tool-service.test.ts tests/services/runtime-tool-bridge.test.ts tests/routes/runtime-core-execution.test.ts tests/routes/agent-config.test.ts tests/routes/artifacts.test.ts`
   - `npx vitest run tests/services/agent-runtime-core.test.ts tests/routes/runtime-core-execution.test.ts tests/routes/runtime-core.test.ts tests/services/agent-config-service.test.ts`
+- 2026-06-08 `/compact` system slash command:
+  - `npm run typecheck`
+  - `npx vitest run tests/services/agent-context-compression-service.test.ts tests/routes/runtime-core-execution.test.ts tests/services/agent-runtime-core.test.ts tests/routes/runtime-core.test.ts`

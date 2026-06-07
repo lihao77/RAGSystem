@@ -694,6 +694,144 @@ describe("minimal runtime core execution", () => {
     ]);
   });
 
+  it("handles system slash compact by forcing context compression without starting an agent run", async () => {
+    const chatClient = new FakeChatClient("<analysis>draft</analysis><summary>旧问题、已完成操作和当前约束</summary>");
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+
+    await createDefaultChatProvider(app);
+    const config = harness.container.agentConfig.getConfig("orchestrator_agent");
+    expect(config).not.toBeNull();
+    harness.container.agentConfig.replaceConfig("orchestrator_agent", {
+      ...config!,
+      custom_params: {
+        ...config!.custom_params,
+        behavior: {
+          ...config!.custom_params.behavior,
+          preserve_recent_turns: 1,
+          summarize_max_tokens: 64,
+        },
+      },
+      memory: {
+        ...config!.memory,
+        allowed_scopes: [],
+        write_scopes: [],
+        archive_scopes: [],
+      },
+    });
+    harness.container.sessionApplication.createSession({ sessionId: "slash-compact-session" });
+    for (const [role, content] of [
+      ["user", "old user one"],
+      ["assistant", "old assistant one"],
+      ["user", "tail user"],
+      ["assistant", "tail assistant"],
+    ] as const) {
+      harness.container.sessionApplication.addMessage({
+        sessionId: "slash-compact-session",
+        role,
+        content,
+      });
+    }
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      headers: { "x-request-id": "req-slash-compact" },
+      payload: {
+        task: "/compact",
+        session_id: "slash-compact-session",
+      },
+    });
+
+    expect(started.statusCode).toBe(200);
+    expect(started.json()).toMatchObject({
+      success: true,
+      data: {
+        started: true,
+        session_id: "slash-compact-session",
+        kind: "command",
+      },
+    });
+    expect(harness.container.agentExecution.getSessionTaskStatus("slash-compact-session").has_running_task).toBe(false);
+    expect(chatClient.requests).toHaveLength(1);
+    expect(chatClient.requests[0]?.messages[0]?.content).toContain("对话摘要助手");
+
+    const history = harness.container.realtimeEvents.getHistory("slash-compact-session");
+    expect(history.map((event) => event.type)).toEqual(
+      expect.arrayContaining(["context.compression_start", "context.compression_summary", "command.result"]),
+    );
+    expect(history.find((event) => event.type === "command.result")).toMatchObject({
+      data: expect.objectContaining({
+          command: "compact",
+          success: true,
+          content: expect.stringContaining("压缩完成"),
+          data: expect.objectContaining({
+            status: "success",
+            before: 5,
+            after: 3,
+            replaced_message_count: 3,
+            replaces_up_to_seq: 3,
+          }),
+      }),
+    });
+
+    const messages = await app.inject({
+      method: "GET",
+      url: "/api/agent/sessions/slash-compact-session/messages",
+    });
+    expect(messages.json().data.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "assistant",
+          content: expect.stringContaining("旧问题、已完成操作和当前约束"),
+          metadata: expect.objectContaining({
+            compression: true,
+            forced: true,
+          }),
+        }),
+        expect.objectContaining({
+          role: "system",
+          content: expect.stringContaining("压缩完成"),
+          metadata: expect.objectContaining({ type: "command_result", command: "compact", success: true }),
+        }),
+      ]),
+    );
+  });
+
+  it("skips system slash compact when history has nothing to compress", async () => {
+    const chatClient = new FakeChatClient("should not run");
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+
+    await createDefaultChatProvider(app);
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      payload: {
+        task: "/compact",
+        session_id: "slash-compact-skip-session",
+      },
+    });
+
+    expect(started.statusCode).toBe(200);
+    expect(chatClient.requests).toHaveLength(0);
+    expect(harness.container.realtimeEvents.getHistory("slash-compact-skip-session")).toEqual([
+      expect.objectContaining({
+        type: "command.result",
+        data: expect.objectContaining({
+          command: "compact",
+          success: true,
+          content: "无需压缩（历史为空或消息不足）",
+          data: expect.objectContaining({
+            status: "skipped",
+            reason: "insufficient_candidates",
+          }),
+        }),
+      }),
+    ]);
+  });
+
   it("executes memory tool calls during a minimal runtime-core run", async () => {
     const chatClient = new FakeToolCallingChatClient([
       {

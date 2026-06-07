@@ -99,9 +99,11 @@ export class AgentExecutionService {
     let task = request.task.trim();
     const slashCommand = parseSlashCommand(task);
     if (slashCommand) {
-      const commandResult = this.handleSlashCommand({
+      const commandResult = await this.handleSlashCommand({
         sessionId,
         userId: request.user_id ?? null,
+        requestId,
+        selectedLlm: resolveSelectedLlm(request),
         command: slashCommand,
         originalTask: task,
       });
@@ -1156,12 +1158,25 @@ export class AgentExecutionService {
   private handleSlashCommand(input: {
     sessionId: string;
     userId: string | null;
+    requestId: string;
+    selectedLlm: string;
     command: ParsedSlashCommand;
     originalTask: string;
-  }): AgentRunStartResult | null {
+  }): Promise<AgentRunStartResult | null> {
     if (input.command.mode === "prompt") {
-      return null;
+      return Promise.resolve(null);
     }
+    return this.executeSystemSlashCommand(input);
+  }
+
+  private async executeSystemSlashCommand(input: {
+    sessionId: string;
+    userId: string | null;
+    requestId: string;
+    selectedLlm: string;
+    command: ParsedSlashCommand;
+    originalTask: string;
+  }): Promise<AgentRunStartResult> {
     if (!this.sessions.getSession(input.sessionId)) {
       this.sessions.createSession({ sessionId: input.sessionId, userId: input.userId });
     }
@@ -1175,7 +1190,7 @@ export class AgentExecutionService {
         command_mode: input.command.mode,
       },
     });
-    const result = executeSystemSlashCommand(input.command);
+    const result = await this.resolveSystemSlashCommandResult(input);
     const message = this.sessions.addMessage({
       sessionId: input.sessionId,
       role: "system",
@@ -1195,6 +1210,7 @@ export class AgentExecutionService {
         success: result.success,
         content: result.content,
         ...(result.error ? { error: result.error } : {}),
+        ...(result.data !== undefined ? { data: result.data } : {}),
         message_id: message.id,
       },
     }, {
@@ -1202,10 +1218,91 @@ export class AgentExecutionService {
       aggregateId: input.sessionId,
     });
     return {
-      started: input.command.name === "help" && result.success,
+      started: result.success,
       session_id: input.sessionId,
       kind: "command",
     };
+  }
+
+  private async resolveSystemSlashCommandResult(input: {
+    sessionId: string;
+    requestId: string;
+    selectedLlm: string;
+    command: ParsedSlashCommand;
+  }): Promise<SystemSlashCommandResult> {
+    if (input.command.name !== "compact") {
+      return executeStaticSystemSlashCommand(input.command);
+    }
+    const runningStatus = this.statusTracker.getStatusBySession(input.sessionId);
+    if (runningStatus?.status === "running" || runningStatus?.status === "pending") {
+      return {
+        command: "compact",
+        success: false,
+        content: "该会话正在执行任务，请等待完成后再压缩",
+      };
+    }
+    if (!this.contextCompression) {
+      return {
+        command: "compact",
+        success: false,
+        content: "当前 TypeScript runtime 未启用上下文压缩服务",
+        error: "compression_unavailable",
+      };
+    }
+    const sessionMetadata = this.sessions.getSession(input.sessionId)?.metadata ?? {};
+    const resolved = this.runtimeCore.resolveExecutionConfig({
+      agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
+      teamName: asString(sessionMetadata.team),
+      selectedLlm: input.selectedLlm,
+    });
+    if (!resolved.readiness.configuration_ready || !resolved.agent || !resolved.provider || !resolved.modelName) {
+      return {
+        command: "compact",
+        success: false,
+        content: summarizeReadinessFailure(resolved.readiness.requirements),
+        error: "runtime_not_ready",
+      };
+    }
+    try {
+      const result = await this.contextCompression.forceCompactSession({
+        sessionId: input.sessionId,
+        agent: applySessionAgentOverrides(resolved.agent, sessionMetadata),
+        provider: resolved.provider,
+        modelName: resolved.modelName,
+        requestId: input.requestId,
+        onEvent: (event) => {
+          this.clientEvents.publish(input.sessionId, {
+            type: event.type,
+            session_id: input.sessionId,
+            agent_name: resolved.agent?.agent_name,
+            ...mirrorEventData(event.data),
+          }, {
+            aggregateType: "session",
+            aggregateId: input.sessionId,
+          });
+        },
+      });
+      if (result.status === "skipped") {
+        return {
+          command: "compact",
+          success: true,
+          content: "无需压缩（历史为空或消息不足）",
+          data: result,
+        };
+      }
+      return {
+        command: "compact",
+        success: true,
+        content: `压缩完成：${result.before} → ${result.after} 条消息，节省 ${result.tokens_saved} tokens`,
+        data: result,
+      };
+    } catch (error) {
+      return {
+        command: "compact",
+        success: false,
+        content: `压缩失败: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
   }
 
   private resolveAttachments(
@@ -1274,6 +1371,14 @@ const PROMPT_SLASH_COMMANDS: Record<string, { description: string; template: str
   },
 };
 
+interface SystemSlashCommandResult {
+  command: string;
+  success: boolean;
+  content: string;
+  error?: string;
+  data?: unknown;
+}
+
 function parseSlashCommand(task: string): ParsedSlashCommand | null {
   const trimmed = task.trim();
   if (!trimmed.startsWith("/")) {
@@ -1315,12 +1420,7 @@ function parseSlashCommand(task: string): ParsedSlashCommand | null {
   };
 }
 
-function executeSystemSlashCommand(command: ParsedSlashCommand): {
-  command: string;
-  success: boolean;
-  content: string;
-  error?: string;
-} {
+function executeStaticSystemSlashCommand(command: ParsedSlashCommand): SystemSlashCommandResult {
   if (command.name === "help") {
     const lines = [
       "可用命令：",
@@ -1334,14 +1434,6 @@ function executeSystemSlashCommand(command: ParsedSlashCommand): {
       "提示词命令后跟内容，如: /review 当前仓库代码",
     ];
     return { command: "help", success: true, content: lines.join("\n") };
-  }
-  if (command.name === "compact") {
-    return {
-      command: "compact",
-      success: false,
-      content: "/compact 系统命令尚未迁移到 TypeScript runtime",
-      error: "not_migrated",
-    };
   }
   const promptCommand = PROMPT_SLASH_COMMANDS[command.name];
   if (promptCommand && !command.args.trim()) {

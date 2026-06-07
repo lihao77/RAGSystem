@@ -111,6 +111,82 @@ describe("AgentContextCompressionService", () => {
       "需要保留的用户消息".repeat(12),
     ]);
   });
+
+  it("force compacts a session regardless of token threshold", async () => {
+    store = new ConversationStore({ dbPath: ":memory:" });
+    const systemConfig = new SystemConfigService();
+    systemConfig.updateConfig({
+      context: {
+        compression_trigger_ratio: 0.99,
+        summarize_max_tokens: 32,
+        preserve_recent_turns: 1,
+        system_prompt_reserve: 0,
+        min_context_budget: 10,
+      },
+    });
+    const chatClient = new FakeSummaryClient();
+    const service = new AgentContextCompressionService(store, chatClient, systemConfig);
+
+    store.createSession("force-s1");
+    for (const [role, content] of [
+      ["user", "old user"],
+      ["assistant", "old assistant"],
+      ["user", "tail user"],
+      ["assistant", "tail assistant"],
+    ] as const) {
+      store.addMessage({ sessionId: "force-s1", role, content });
+    }
+
+    const result = await service.forceCompactSession({
+      sessionId: "force-s1",
+      agent: minimalAgent({ maxContextTokens: 100000, maxCompletionTokens: 1 }),
+      provider: provider(),
+      modelName: "deepseek-chat",
+      requestId: "req-force",
+    });
+
+    expect(result).toMatchObject({
+      status: "success",
+      reason: "success",
+      before: 4,
+      replaced_message_count: 2,
+      replaces_up_to_seq: 2,
+      summary_content: expect.stringContaining("压缩后的关键上下文"),
+      summary_message_id: expect.any(String),
+    });
+    expect(chatClient.requests).toHaveLength(1);
+    const messages = store.listMessages("force-s1", 20, 0, "root").items;
+    expect(messages.find((message) => message.metadata.compression)).toMatchObject({
+      metadata: expect.objectContaining({
+        forced: true,
+        compression_strategy: "llm_summarize",
+      }),
+    });
+  });
+
+  it("skips force compact when there are not enough messages to replace", async () => {
+    store = new ConversationStore({ dbPath: ":memory:" });
+    const chatClient = new FakeSummaryClient();
+    const service = new AgentContextCompressionService(store, chatClient, new SystemConfigService());
+    store.createSession("force-skip");
+    store.addMessage({ sessionId: "force-skip", role: "user", content: "only tail" });
+
+    await expect(
+      service.forceCompactSession({
+        sessionId: "force-skip",
+        agent: minimalAgent(),
+        provider: provider(),
+        modelName: "deepseek-chat",
+      }),
+    ).resolves.toMatchObject({
+      status: "skipped",
+      reason: "insufficient_candidates",
+      before: 1,
+      after: 1,
+      tokens_saved: 0,
+    });
+    expect(chatClient.requests).toHaveLength(0);
+  });
 });
 
 function minimalAgent(input: { maxContextTokens?: number; maxCompletionTokens?: number } = {}): AgentConfig {

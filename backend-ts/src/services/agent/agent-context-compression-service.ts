@@ -31,6 +31,18 @@ export interface ContextCompressionResult {
   replacesUpToSeq: number | null;
 }
 
+export interface ForceContextCompressionResult {
+  status: "skipped" | "success" | "fallback";
+  reason: string;
+  before: number;
+  after: number;
+  tokens_saved: number;
+  summary_content: string | null;
+  replaces_up_to_seq: number | null;
+  replaced_message_count: number;
+  summary_message_id: string | null;
+}
+
 interface CompressIfNeededInput {
   sessionId: string;
   runId: string;
@@ -210,6 +222,145 @@ export class AgentContextCompressionService {
     };
   }
 
+  async forceCompactSession(input: {
+    sessionId: string;
+    agent: AgentConfig;
+    provider: ModelProviderConfig;
+    modelName: string;
+    runId?: string | null | undefined;
+    taskId?: string | null | undefined;
+    requestId?: string | null | undefined;
+    threadKey?: string | null | undefined;
+    signal?: AbortSignal | undefined;
+    onEvent?: ((event: ContextCompressionEvent) => void | Promise<void>) | undefined;
+  }): Promise<ForceContextCompressionResult> {
+    const threadKey = input.threadKey?.trim() || "root";
+    const settings = this.resolveContextSettings(input.agent);
+    const budgetTokens = this.resolveContextBudget(input.agent, input.provider);
+    const rawMessages = this.conversationStore
+      .listMessages(input.sessionId, DEFAULT_HISTORY_SCAN_LIMIT, 0, threadKey)
+      .items.filter(isCompressibleHistoryMessage);
+    const historyResolved = resolveCompressionView(rawMessages);
+    if (!historyResolved.length) {
+      return forceSkipped("no_history", rawMessages.length);
+    }
+
+    const beforeTokens = countMessagesTokens(historyResolved);
+    const startIndex = historyResolved[0]?.metadata.compression ? 1 : 0;
+    const candidates = historyResolved.slice(startIndex);
+    const preserveCount = settings.preserveRecentTurns * 2;
+    if (candidates.length <= preserveCount) {
+      return forceSkipped("insufficient_candidates", rawMessages.length);
+    }
+    const segment = preserveCount > 0 ? candidates.slice(0, candidates.length - preserveCount) : [...candidates];
+    const replacesUpToSeq = lastPositiveSeq(segment);
+    if (!segment.length || replacesUpToSeq === null) {
+      return forceSkipped("missing_segment_seq", rawMessages.length);
+    }
+
+    const runId = input.runId ?? null;
+    const taskId = input.taskId ?? null;
+    const requestId = input.requestId ?? null;
+    const existingSummary = startIndex === 1 ? historyResolved[0]?.content ?? "" : "";
+    await input.onEvent?.({
+      type: "context.compression_start",
+      data: {
+        message_count: segment.length,
+        has_existing_summary: Boolean(existingSummary),
+        history_tokens: beforeTokens,
+        threshold_tokens: 0,
+        budget_tokens: budgetTokens,
+        trigger_ratio: 0,
+        thread_key: threadKey,
+        conversation_scope: threadKey === "root" ? "root" : "child",
+        visible_to_user: threadKey === "root",
+        run_id: runId,
+        task_id: taskId,
+        request_id: requestId,
+        agent_name: input.agent.agent_name,
+        forced: true,
+      },
+    });
+
+    let summaryContent: string;
+    let status: ForceContextCompressionResult["status"] = "success";
+    let reason = "success";
+    try {
+      summaryContent = await this.generateSummary({
+        agent: input.agent,
+        provider: input.provider,
+        modelName: input.modelName,
+        segment,
+        existingSummary,
+        maxTokens: settings.summarizeMaxTokens,
+        signal: input.signal,
+      });
+    } catch (error) {
+      if (input.signal?.aborted) {
+        throw error;
+      }
+      status = "fallback";
+      reason = "summary_failed";
+      summaryContent = formatFallbackSummary(segment.length, error);
+    }
+
+    const summaryMessage = this.conversationStore.insertCompressionMessage({
+      sessionId: input.sessionId,
+      summaryContent,
+      replacesUpToSeq,
+      threadKey,
+      metadata: {
+        agent: input.agent.agent_name,
+        run_id: runId,
+        request_id: requestId,
+        task_id: taskId,
+        msg_type: "context_compression_summary",
+        compression_strategy: status === "success" ? "llm_summarize" : "fallback_truncate",
+        replaced_message_count: segment.length,
+        history_tokens_before: beforeTokens,
+        threshold_tokens: 0,
+        budget_tokens: budgetTokens,
+        forced: true,
+      },
+    });
+
+    const messagesAfter = resolveCompressionView(this.conversationStore.listMessages(input.sessionId, DEFAULT_HISTORY_SCAN_LIMIT, 0, threadKey).items);
+    const afterTokens = countMessagesTokens(messagesAfter);
+    await input.onEvent?.({
+      type: "context.compression_summary",
+      data: {
+        id: summaryMessage.id,
+        seq: summaryMessage.seq,
+        content: summaryContent,
+        replaces_up_to_seq: replacesUpToSeq,
+        replaced_message_count: segment.length,
+        thread_key: threadKey,
+        child_agent_id: null,
+        conversation_scope: threadKey === "root" ? "root" : "child",
+        visible_to_user: threadKey === "root",
+        run_id: runId,
+        task_id: taskId,
+        request_id: requestId,
+        agent_name: input.agent.agent_name,
+        status,
+        reason,
+        forced: true,
+      },
+    });
+
+    return {
+      status,
+      reason,
+      before: rawMessages.length,
+      after: messagesAfter.length,
+      tokens_saved: Math.max(0, beforeTokens - afterTokens),
+      summary_content: summaryContent,
+      replaces_up_to_seq: replacesUpToSeq,
+      replaced_message_count: segment.length,
+      summary_message_id: summaryMessage.id,
+    };
+  }
+
   private async generateSummary(input: {
     agent: AgentConfig;
     provider: ModelProviderConfig;
@@ -363,6 +514,20 @@ function skipped(
     thresholdTokens,
     replacedMessageCount: 0,
     replacesUpToSeq: null,
+  };
+}
+
+function forceSkipped(reason: string, before: number): ForceContextCompressionResult {
+  return {
+    status: "skipped",
+    reason,
+    before,
+    after: before,
+    tokens_saved: 0,
+    summary_content: null,
+    replaces_up_to_seq: null,
+    replaced_message_count: 0,
+    summary_message_id: null,
   };
 }
 
