@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { CheckpointManager } from "../../src/services/checkpoint-manager.js";
+import { CheckpointManager } from "../../src/services/stores/checkpoint-manager.js";
 
 describe("CheckpointManager", () => {
   it("saves, loads, filters, and deletes checkpoints like Python", () => {

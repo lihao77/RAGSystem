@@ -2,8 +2,8 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { AgentSessionApplication } from "../../src/services/agent-session-application.js";
-import { ConversationStore } from "../../src/services/conversation-store.js";
+import { AgentSessionApplication } from "../../src/services/agent/agent-session-application.js";
+import { ConversationStore } from "../../src/services/stores/conversation-store.js";
 
 describe("AgentSessionApplication", () => {
   it("returns the same compact create_session payload as Python", () => {

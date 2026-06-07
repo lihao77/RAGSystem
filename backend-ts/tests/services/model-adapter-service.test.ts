@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import YAML from "yaml";
 
-import { ModelAdapterService } from "../../src/services/model-adapter-service.js";
+import { ModelAdapterService } from "../../src/services/integrations/model-adapter-service.js";
 
 const tempRoots: string[] = [];
 

@@ -6,9 +6,9 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
-import { AgentRuntimeCore, type AgentRuntimeEvent } from "../../src/services/agent-runtime-core.js";
-import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/llm-chat-client.js";
-import { renderSemanticBlock, renderToolResultContent } from "../../src/services/runtime-xml-protocol.js";
+import { AgentRuntimeCore, type AgentRuntimeEvent } from "../../src/services/agent/agent-runtime-core.js";
+import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
+import { renderSemanticBlock, renderToolResultContent } from "../../src/services/runtime/runtime-xml-protocol.js";
 import type {
   RuntimeToolCall,
   RuntimeToolDefinition,
@@ -16,7 +16,7 @@ import type {
   RuntimeToolExecutor,
   RuntimeToolWaitRequest,
   RuntimeToolWaitResult,
-} from "../../src/services/runtime-tool-types.js";
+} from "../../src/services/runtime/runtime-tool-types.js";
 
 class FakeChatClient implements LlmChatClient {
   readonly requests: ChatCompletionRequest[] = [];

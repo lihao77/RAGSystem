@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { InMemoryEventBus } from "../../src/services/event-bus.js";
-import { PendingInteractionService } from "../../src/services/pending-interaction-service.js";
+import { InMemoryEventBus } from "../../src/services/runtime/event-bus.js";
+import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
 
 describe("PendingInteractionService", () => {
   it("resolves approval interactions through the generic interaction response path", async () => {

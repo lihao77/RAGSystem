@@ -19,7 +19,7 @@ import { registerVectorLibraryRoutes } from "./routes/vector-library.js";
 import { registerAgentRoutes } from "./routes/agent/index.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { HttpError, formatError } from "./utils/errors.js";
-import { createRuntimeContainer, type RuntimeContainer } from "./services/runtime-container.js";
+import { createRuntimeContainer, type RuntimeContainer } from "./services/runtime/runtime-container.js";
 
 export interface BuildAppOptions {
   env: AppEnv;

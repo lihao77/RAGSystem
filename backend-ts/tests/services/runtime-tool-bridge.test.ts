@@ -5,17 +5,17 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
-import type { AgentDelegationService } from "../../src/services/agent-delegation-service.js";
-import { MemoryStore } from "../../src/services/memory-store.js";
-import { MemoryToolService, type RuntimeMemorySessionPort } from "../../src/services/memory-tool-service.js";
-import { BackgroundTaskService } from "../../src/services/background-task-service.js";
-import { InMemoryEventBus } from "../../src/services/event-bus.js";
-import { LocalBashToolService } from "../../src/services/local-bash-tool-service.js";
-import { LocalDocumentToolService } from "../../src/services/local-document-tool-service.js";
-import { PendingInteractionService } from "../../src/services/pending-interaction-service.js";
-import { PermissionPolicyService } from "../../src/services/permission-policy-service.js";
-import { RuntimeToolBridge } from "../../src/services/runtime-tool-bridge.js";
-import { TaskToolService } from "../../src/services/task-tool-service.js";
+import type { AgentDelegationService } from "../../src/services/agent/agent-delegation-service.js";
+import { MemoryStore } from "../../src/services/stores/memory-store.js";
+import { MemoryToolService, type RuntimeMemorySessionPort } from "../../src/services/tools/memory-tool-service.js";
+import { BackgroundTaskService } from "../../src/services/runtime/background-task-service.js";
+import { InMemoryEventBus } from "../../src/services/runtime/event-bus.js";
+import { LocalBashToolService } from "../../src/services/tools/local-bash-tool-service.js";
+import { LocalDocumentToolService } from "../../src/services/tools/local-document-tool-service.js";
+import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
+import { PermissionPolicyService } from "../../src/services/runtime/permission-policy-service.js";
+import { RuntimeToolBridge } from "../../src/services/runtime/runtime-tool-bridge.js";
+import { TaskToolService } from "../../src/services/tools/task-tool-service.js";
 
 const tempRoots: string[] = [];
 

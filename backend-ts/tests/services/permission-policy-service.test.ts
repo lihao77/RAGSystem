@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { PermissionPolicyService } from "../../src/services/permission-policy-service.js";
+import { PermissionPolicyService } from "../../src/services/runtime/permission-policy-service.js";
 import type { PermissionMode, PermissionPolicy, RiskLevel } from "../../src/contracts/permissions.js";
 
 describe("PermissionPolicyService", () => {

@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { ConversationStore } from "../../src/services/conversation-store.js";
+import { ConversationStore } from "../../src/services/stores/conversation-store.js";
 
 describe("ConversationStore", () => {
   it("upserts sessions and returns Python-compatible session list metadata", () => {

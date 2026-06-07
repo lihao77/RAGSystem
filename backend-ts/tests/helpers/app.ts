@@ -1,7 +1,7 @@
 import { buildApp } from "../../src/app.js";
 import type { AppEnv } from "../../src/config/env.js";
-import { createRuntimeContainer } from "../../src/services/runtime-container.js";
-import type { LlmChatClient } from "../../src/services/llm-chat-client.js";
+import { createRuntimeContainer } from "../../src/services/runtime/runtime-container.js";
+import type { LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
 
 export const testEnv: AppEnv = {
   host: "127.0.0.1",

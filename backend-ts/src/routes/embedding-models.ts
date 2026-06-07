@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 
 import { SyncEmbeddingModelRequestSchema } from "../contracts/embedding-models.js";
-import { EmbeddingModelServiceError } from "../services/embedding-model-service.js";
+import { EmbeddingModelServiceError } from "../services/knowledge/embedding-model-service.js";
 import { HttpError, NotMigratedError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 

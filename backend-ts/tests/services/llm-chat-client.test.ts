@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AgentConfigSchema } from "../../src/contracts/agent-config.js";
-import { OpenAiCompatibleChatClient } from "../../src/services/llm-chat-client.js";
-import type { ChatCompletionRequest } from "../../src/services/llm-chat-client.js";
+import { OpenAiCompatibleChatClient } from "../../src/services/integrations/llm-chat-client.js";
+import type { ChatCompletionRequest } from "../../src/services/integrations/llm-chat-client.js";
 
 const originalFetch = globalThis.fetch;
 

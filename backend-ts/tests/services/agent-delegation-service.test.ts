@@ -5,12 +5,12 @@ import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
 import {
   AgentRuntimeContextBuilder,
   RecentMessagesContextSource,
-} from "../../src/services/agent-runtime-context-builder.js";
-import type { AgentRuntimeCore, AgentRuntimeRequest } from "../../src/services/agent-runtime-core.js";
-import { AgentDelegationService } from "../../src/services/agent-delegation-service.js";
-import { ConversationStore } from "../../src/services/conversation-store.js";
-import { InMemoryEventBus } from "../../src/services/event-bus.js";
-import type { RuntimeExecutionConfigResolver } from "../../src/services/runtime-core-service.js";
+} from "../../src/services/agent/agent-runtime-context-builder.js";
+import type { AgentRuntimeCore, AgentRuntimeRequest } from "../../src/services/agent/agent-runtime-core.js";
+import { AgentDelegationService } from "../../src/services/agent/agent-delegation-service.js";
+import { ConversationStore } from "../../src/services/stores/conversation-store.js";
+import { InMemoryEventBus } from "../../src/services/runtime/event-bus.js";
+import type { RuntimeExecutionConfigResolver } from "../../src/services/runtime/runtime-core-service.js";
 
 describe("AgentDelegationService", () => {
   it("lists child agents and resumes an existing child thread with send_message", async () => {

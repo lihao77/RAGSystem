@@ -1,4 +1,4 @@
-import type { RuntimeContainer } from "../services/runtime-container.js";
+import type { RuntimeContainer } from "../services/runtime/runtime-container.js";
 
 export interface RouteOptions {
   container: RuntimeContainer;

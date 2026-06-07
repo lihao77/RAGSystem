@@ -6,7 +6,7 @@ import {
   McpServerPayloadSchema,
 } from "../contracts/mcp.js";
 import { ok } from "../contracts/common.js";
-import { McpServiceError } from "../services/mcp-service.js";
+import { McpServiceError } from "../services/integrations/mcp-service.js";
 import { HttpError, NotMigratedError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 

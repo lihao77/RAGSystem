@@ -1,0 +1,247 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import type {
+  VisualizationConfig,
+  VisualizationIndexEntry,
+  VisualizationSummary,
+} from "../../contracts/artifacts.js";
+
+export class ArtifactServiceError extends Error {
+  readonly statusCode: number;
+
+  constructor(message: string, statusCode = 400) {
+    super(message);
+    this.name = "ArtifactServiceError";
+    this.statusCode = statusCode;
+  }
+}
+
+export class ArtifactService {
+  private readonly dataRoot: string;
+  private readonly sessionsRoot: string;
+
+  constructor(options: { dataRoot?: string | undefined }) {
+    this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
+    this.sessionsRoot = path.join(this.dataRoot, "sessions");
+  }
+
+  getVisualization(artifactId: string): VisualizationConfig {
+    const record = this.findVisualization(artifactId);
+    if (!record) {
+      throw new ArtifactServiceError(`未找到可视化 artifact: ${artifactId}`, 404);
+    }
+
+    if (record.viz_type === "image") {
+      return {
+        artifact_id: record.artifact_id,
+        viz_type: "image",
+        sub_type: record.sub_type || "png",
+        title: record.title,
+        version: record.version,
+        image_url: record.file_path,
+      };
+    }
+
+    const filePath = this.resolveManagedFile(record.file_path);
+    const raw = fs.readFileSync(filePath, "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed)) {
+      throw new ArtifactServiceError(`可视化 artifact 配置无效: ${artifactId}`, 500);
+    }
+    return parsed as VisualizationConfig;
+  }
+
+  listVisualizations(sessionId: string): VisualizationSummary[] {
+    return this.readSessionEntries(sessionId).map((record) => ({
+      artifact_id: record.artifact_id,
+      viz_type: record.viz_type,
+      sub_type: record.sub_type,
+      title: record.title,
+      version: record.version,
+      created_at: record.created_at,
+      updated_at: record.updated_at,
+    }));
+  }
+
+  deleteVisualization(artifactId: string): boolean {
+    const located = this.findVisualizationWithSession(artifactId);
+    if (!located) {
+      return false;
+    }
+
+    this.deleteManagedFileIfPresent(located.entry.file_path);
+    const remaining = this.readSessionEntries(located.sessionId).filter(
+      (entry) => entry.artifact_id !== artifactId,
+    );
+    this.writeSessionEntries(located.sessionId, remaining);
+    return true;
+  }
+
+  deleteSessionVisualizations(sessionId: string): number {
+    const entries = this.readSessionEntries(sessionId);
+    for (const entry of entries) {
+      this.deleteManagedFileIfPresent(entry.file_path);
+    }
+    this.writeSessionEntries(sessionId, []);
+    return entries.length;
+  }
+
+  private findVisualization(artifactId: string): VisualizationIndexEntry | null {
+    return this.findVisualizationWithSession(artifactId)?.entry ?? null;
+  }
+
+  private findVisualizationWithSession(
+    artifactId: string,
+  ): { sessionId: string; entry: VisualizationIndexEntry } | null {
+    for (const sessionId of this.listSessionIds()) {
+      const entry = this.readSessionEntries(sessionId).find((item) => item.artifact_id === artifactId);
+      if (entry) {
+        return { sessionId, entry };
+      }
+    }
+    return null;
+  }
+
+  private listSessionIds(): string[] {
+    try {
+      return fs
+        .readdirSync(this.sessionsRoot, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private readSessionEntries(sessionId: string): VisualizationIndexEntry[] {
+    const indexPath = this.indexPath(sessionId);
+    try {
+      const lines = fs.readFileSync(indexPath, "utf8").split(/\r?\n/);
+      const entries = lines
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => safeParseJson(line))
+        .filter((value): value is Record<string, unknown> => isRecord(value))
+        .map((value) => normalizeIndexEntry(value))
+        .filter((value): value is VisualizationIndexEntry => value !== null)
+        .filter((entry) => this.managedFileExists(entry.file_path));
+      return dedupeByArtifactId(entries);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private writeSessionEntries(sessionId: string, entries: VisualizationIndexEntry[]): void {
+    const indexPath = this.indexPath(sessionId);
+    if (entries.length === 0) {
+      try {
+        fs.unlinkSync(indexPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw error;
+        }
+      }
+      return;
+    }
+
+    fs.mkdirSync(path.dirname(indexPath), { recursive: true });
+    fs.writeFileSync(indexPath, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n", "utf8");
+  }
+
+  private indexPath(sessionId: string): string {
+    return path.join(this.sessionsRoot, sessionId, "visualizations", "viz_index.jsonl");
+  }
+
+  private resolveManagedFile(filePath: string): string {
+    const resolved = path.resolve(filePath);
+    if (!isPathUnder(resolved, this.dataRoot)) {
+      throw new ArtifactServiceError("artifact 路径不在托管数据目录内", 404);
+    }
+    return resolved;
+  }
+
+  private managedFileExists(filePath: string): boolean {
+    try {
+      return fs.statSync(this.resolveManagedFile(filePath)).isFile();
+    } catch {
+      return false;
+    }
+  }
+
+  private deleteManagedFileIfPresent(filePath: string): void {
+    try {
+      const resolved = this.resolveManagedFile(filePath);
+      if (fs.existsSync(resolved)) {
+        fs.unlinkSync(resolved);
+      }
+    } catch (error) {
+      if (error instanceof ArtifactServiceError) {
+        return;
+      }
+      throw error;
+    }
+  }
+}
+
+function dedupeByArtifactId(entries: VisualizationIndexEntry[]): VisualizationIndexEntry[] {
+  const byId = new Map<string, VisualizationIndexEntry>();
+  for (const entry of entries) {
+    byId.set(entry.artifact_id, entry);
+  }
+  return Array.from(byId.values());
+}
+
+function normalizeIndexEntry(value: Record<string, unknown>): VisualizationIndexEntry | null {
+  const artifactId = asString(value.artifact_id);
+  const filePath = asString(value.file_path);
+  if (!artifactId || !filePath) {
+    return null;
+  }
+  return {
+    artifact_id: artifactId,
+    viz_type: asString(value.viz_type) || "chart",
+    sub_type: asString(value.sub_type),
+    title: asString(value.title),
+    version: asNumber(value.version) ?? 1,
+    file_path: filePath,
+    artifact_type: asString(value.artifact_type) || "json",
+    mime_type: value.mime_type === null ? null : asString(value.mime_type) || null,
+    session_id: value.session_id === null ? null : asString(value.session_id) || null,
+    created_at: asNumber(value.created_at) ?? 0,
+    updated_at: asNumber(value.updated_at) ?? 0,
+  };
+}
+
+function safeParseJson(line: string): unknown {
+  try {
+    return JSON.parse(line) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function asNumber(value: unknown): number | null {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isPathUnder(candidate: string, root: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}

@@ -14,7 +14,7 @@ import {
   type AgentRuntimeContextSource,
   type RuntimeConversationHistoryPort,
   type RuntimeSessionMetadataPort,
-} from "../../src/services/agent-runtime-context-builder.js";
+} from "../../src/services/agent/agent-runtime-context-builder.js";
 
 const tempRoots: string[] = [];
 

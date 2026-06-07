@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 
-import { ArtifactServiceError } from "../services/artifact-service.js";
+import { ArtifactServiceError } from "../services/artifacts/artifact-service.js";
 import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 

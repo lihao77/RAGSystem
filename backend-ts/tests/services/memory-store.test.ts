@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { getWorkspaceMemoryKey, MemoryStore } from "../../src/services/memory-store.js";
+import { getWorkspaceMemoryKey, MemoryStore } from "../../src/services/stores/memory-store.js";
 
 const tempRoots: string[] = [];
 

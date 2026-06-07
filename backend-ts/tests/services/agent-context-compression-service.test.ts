@@ -2,11 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
-import { AgentContextCompressionService } from "../../src/services/agent-context-compression-service.js";
-import { resolveCompressionView } from "../../src/services/agent-runtime-context-builder.js";
-import { ConversationStore } from "../../src/services/conversation-store.js";
-import type { ChatCompletionRequest, LlmChatClient } from "../../src/services/llm-chat-client.js";
-import { SystemConfigService } from "../../src/services/system-config-service.js";
+import { AgentContextCompressionService } from "../../src/services/agent/agent-context-compression-service.js";
+import { resolveCompressionView } from "../../src/services/agent/agent-runtime-context-builder.js";
+import { ConversationStore } from "../../src/services/stores/conversation-store.js";
+import type { ChatCompletionRequest, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
+import { SystemConfigService } from "../../src/services/config/system-config-service.js";
 
 let store: ConversationStore | null = null;
 

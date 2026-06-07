@@ -7,7 +7,7 @@ import {
   DaemonOutgoingMessageSchema,
   DaemonTestMessageSchema,
 } from "../contracts/daemon.js";
-import { DaemonServiceError } from "../services/daemon-service.js";
+import { DaemonServiceError } from "../services/daemon/daemon-service.js";
 import { HttpError, NotMigratedError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 

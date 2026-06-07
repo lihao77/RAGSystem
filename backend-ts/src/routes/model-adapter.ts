@@ -6,7 +6,7 @@ import {
   TestProviderRequestSchema,
 } from "../contracts/model-adapter.js";
 import { ok } from "../contracts/common.js";
-import { ModelAdapterServiceError } from "../services/model-adapter-service.js";
+import { ModelAdapterServiceError } from "../services/integrations/model-adapter-service.js";
 import { HttpError, NotMigratedError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 

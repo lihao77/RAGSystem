@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 import type { UploadedFileRecord } from "../contracts/files.js";
-import type { FileIndexService } from "../services/file-index-service.js";
+import type { FileIndexService } from "../services/stores/file-index-service.js";
 import { HttpError } from "../utils/errors.js";
 
 export interface FileScope {
