@@ -45,13 +45,13 @@ Open items after this migration pass:
 8. Provider parity.
    - Anthropic, OpenAI Responses, provider test/availability, embeddings, rerank.
 9. Final parity pass.
-   - Remove obsolete `not_migrated` paths, update health/status, run full tests and smoke parity.
+   - Remove obsolete active `not_migrated` paths, update health/status, run full tests and smoke parity.
 
 ## Commit Policy
 
 - One commit per functional slice.
 - Each commit must include tests or an explicit documented reason when a live external integration cannot be tested locally.
-- `not_migrated` routes remain until their behavior is actually implemented.
+- Future unavailable capabilities must keep an explicit, tested error boundary until their behavior is implemented.
 
 ## Progress
 
