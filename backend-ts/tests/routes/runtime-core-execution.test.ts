@@ -701,19 +701,22 @@ describe("minimal runtime core execution", () => {
 
     await createDefaultChatProvider(app);
     const config = harness.container.agentConfig.getConfig("orchestrator_agent");
-    expect(config).not.toBeNull();
+    if (!config) {
+      throw new Error("orchestrator_agent config missing");
+    }
+    const behavior = asRecord(config.custom_params.behavior);
     harness.container.agentConfig.replaceConfig("orchestrator_agent", {
-      ...config!,
+      ...config,
       custom_params: {
-        ...config!.custom_params,
+        ...config.custom_params,
         behavior: {
-          ...config!.custom_params.behavior,
+          ...behavior,
           preserve_recent_turns: 1,
           summarize_max_tokens: 64,
         },
       },
       memory: {
-        ...config!.memory,
+        ...config.memory,
         allowed_scopes: [],
         write_scopes: [],
         archive_scopes: [],

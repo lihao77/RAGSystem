@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import YAML from "yaml";
 
+import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import { AgentConfigService } from "../../src/services/agent/agent-config-service.js";
 import { ArtifactService } from "../../src/services/artifacts/artifact-service.js";
 import { BackgroundTaskService } from "../../src/services/runtime/background-task-service.js";
@@ -397,11 +398,30 @@ function readYaml(filePath: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-function skillAgent(enabledSkills: string[], defaultEntry = false, workspaceRoot?: string): Record<string, unknown> {
+function skillAgent(enabledSkills: string[], defaultEntry = false, workspaceRoot?: string): AgentConfig {
   return {
     agent_name: "skill_agent",
+    enabled: true,
     default_entry: defaultEntry,
+    tools: { enabled_tools: [] },
     skills: { enabled_skills: enabledSkills, auto_inject: true },
+    mcp: { enabled_servers: [] },
+    memory: {
+      auto_inject: true,
+      allowed_scopes: ["team", "session"],
+      write_scopes: ["session"],
+      archive_scopes: ["session"],
+    },
+    tasks: { workflow: false, background: false },
+    delegation: { enabled_agents: [] },
+    knowledge_base: {
+      enabled: false,
+      default_collection: "documents",
+      default_search_mode: "hybrid",
+      default_top_k: 5,
+      default_rerank: false,
+      default_reranker_key: null,
+    },
     custom_params: workspaceRoot ? { workspace_root: workspaceRoot } : {},
   };
 }
