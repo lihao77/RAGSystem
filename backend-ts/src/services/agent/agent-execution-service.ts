@@ -28,6 +28,7 @@ import { renderSemanticBlock } from "../runtime/runtime-xml-protocol.js";
 import type { RuntimeExecutionConfigResolver } from "../runtime/runtime-core-service.js";
 import type { RuntimeToolExecutor } from "../runtime/runtime-tool-types.js";
 import { AgentExecutionEventPublisher } from "./agent-execution-service/event-publisher.js";
+import { ExecutionRecorder } from "./agent-execution-service/recorder.js";
 import { AgentExecutionStatusTracker } from "./agent-execution-service/status-tracker.js";
 import {
   applySessionAgentOverrides,
@@ -52,6 +53,7 @@ export class AgentExecutionService {
   private readonly statusTracker = new AgentExecutionStatusTracker();
   private readonly pendingFollowupsBySession = new Map<string, ChatMessage[]>();
   private readonly eventPublisher: AgentExecutionEventPublisher;
+  private readonly executionRecorder: ExecutionRecorder;
 
   constructor(
     private readonly sessions: AgentSessionApplication,
@@ -66,6 +68,7 @@ export class AgentExecutionService {
     private readonly backgroundTasks: BackgroundTaskService | null = null,
   ) {
     this.eventPublisher = new AgentExecutionEventPublisher(sessions, events, conversationStore);
+    this.executionRecorder = new ExecutionRecorder(conversationStore);
   }
 
   async startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult> {
@@ -537,19 +540,15 @@ export class AgentExecutionService {
           this.eventPublisher.publishRuntimeEvent(input, event);
         },
       });
-      const assistantMessage = this.sessions.addMessage({
-        sessionId: input.sessionId,
-        role: "assistant",
-        content: response.content,
-        metadata: {
-          agent: input.agent.agent_name,
-          run_id: input.runId,
-          request_id: input.requestId,
-          msg_type: "assistant_final",
-          execution_kind: executionKind,
-          ...(input.finalMetadataExtra ?? {}),
-        },
-      });
+      const assistantMessageId = randomUUID();
+      const assistantMessageMetadata = {
+        agent: input.agent.agent_name,
+        run_id: input.runId,
+        request_id: input.requestId,
+        msg_type: "assistant_final",
+        execution_kind: executionKind,
+        ...(input.finalMetadataExtra ?? {}),
+      };
       this.statusTracker.finishStatus(input.status, "completed", input.startedAt);
       const finalMetadata = {
         agent: input.agent.agent_name,
@@ -565,7 +564,7 @@ export class AgentExecutionService {
         taskId: input.taskId,
         requestId: input.requestId,
         agent: input.agent,
-        messageId: assistantMessage.id,
+        messageId: assistantMessageId,
         resultPreview: response.content.slice(0, 500),
       });
       const runEndStepPayload = buildRunEndStepPayload({
@@ -577,10 +576,27 @@ export class AgentExecutionService {
         status: "completed",
         resultPreview: response.content.slice(0, 500),
       });
-      this.eventPublisher.addExecutionStep(input.sessionId, input.runId, finalStepPayload);
-      this.eventPublisher.addExecutionStep(input.sessionId, input.runId, runEndStepPayload);
-      this.conversationStore.updateRunStepsMessageId(input.sessionId, input.runId, assistantMessage.id);
-      this.conversationStore.updateRunStatus(input.runId, input.sessionId, "completed", assistantMessage.id);
+      const terminalRecord = this.executionRecorder.recordRunTerminal({
+        status: "completed",
+        sessionId: input.sessionId,
+        runId: input.runId,
+        taskId: input.taskId,
+        requestId: input.requestId,
+        rootCallId: input.rootCallId,
+        agentName: input.agent.agent_name,
+        finalMessage: {
+          id: assistantMessageId,
+          content: response.content,
+          metadata: assistantMessageMetadata,
+        },
+        finalStepPayload,
+        runEndStepPayload,
+        finalMetadata,
+      });
+      const assistantMessage = terminalRecord.message;
+      if (!assistantMessage) {
+        throw new Error(`Completed run did not record assistant message: ${input.runId}`);
+      }
       this.events.publish(input.sessionId, {
         type: "execution.step",
         session_id: input.sessionId,
@@ -635,18 +651,15 @@ export class AgentExecutionService {
       const finalStatus = interrupted ? "interrupted" : "failed";
       const errorMessage = error instanceof Error ? error.message : String(error);
       const executionKind = input.executionKind ?? "agent_stream";
-      this.conversationStore.updateRunStatus(input.runId, input.sessionId, finalStatus);
       this.statusTracker.finishStatus(input.status, finalStatus, input.startedAt);
-      this.eventPublisher.publishRootAgentEnd({
-        sessionId: input.sessionId,
-        runId: input.runId,
-        taskId: input.taskId,
-        requestId: input.requestId,
-        rootCallId: input.rootCallId,
-        agent: input.agent,
-        result: interrupted ? "[已停止生成]" : errorMessage,
-        success: false,
-      });
+      const finalMetadata = {
+        agent: input.agent.agent_name,
+        run_id: input.runId,
+        request_id: input.requestId,
+        execution_kind: executionKind,
+        execution_time: input.status.elapsed_seconds,
+        ...(input.finalMetadataExtra ?? {}),
+      };
       const runEndStepPayload = buildRunEndStepPayload({
         rootCallId: input.rootCallId,
         runId: input.runId,
@@ -657,7 +670,30 @@ export class AgentExecutionService {
         resultPreview: interrupted ? "[已停止生成]" : errorMessage,
         error: errorMessage,
       });
-      this.eventPublisher.addExecutionStep(input.sessionId, input.runId, runEndStepPayload);
+      this.executionRecorder.recordRunTerminal({
+        status: finalStatus,
+        sessionId: input.sessionId,
+        runId: input.runId,
+        taskId: input.taskId,
+        requestId: input.requestId,
+        rootCallId: input.rootCallId,
+        agentName: input.agent.agent_name,
+        errorMessage,
+        errorType: interrupted ? "InterruptedError" : "ExecutionError",
+        agentResult: interrupted ? "[已停止生成]" : errorMessage,
+        runEndStepPayload,
+        finalMetadata,
+      });
+      this.eventPublisher.publishRootAgentEnd({
+        sessionId: input.sessionId,
+        runId: input.runId,
+        taskId: input.taskId,
+        requestId: input.requestId,
+        rootCallId: input.rootCallId,
+        agent: input.agent,
+        result: interrupted ? "[已停止生成]" : errorMessage,
+        success: false,
+      });
       this.events.publish(input.sessionId, {
         type: "execution.step",
         session_id: input.sessionId,
@@ -687,14 +723,7 @@ export class AgentExecutionService {
         ...mirrorEventData({
           status: finalStatus,
           error: errorMessage,
-          metadata: {
-            agent: input.agent.agent_name,
-            run_id: input.runId,
-            request_id: input.requestId,
-            execution_kind: executionKind,
-            execution_time: input.status.elapsed_seconds,
-            ...(input.finalMetadataExtra ?? {}),
-          },
+          metadata: finalMetadata,
         }),
       });
     } finally {

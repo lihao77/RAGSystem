@@ -330,6 +330,14 @@ describe("minimal runtime core execution", () => {
       "output.message_saved",
       "run.end",
     ]);
+    expect(harness.container.conversationStore.fetchPendingOutbox(10).map((row) => row.event_type)).toEqual([
+      "execution.step_recorded",
+      "run.final_answer_recorded",
+      "agent.call_finished",
+      "execution.step_recorded",
+      "message.saved",
+      "run.completed",
+    ]);
   });
 
   it("compresses long session history before the main agent request", async () => {
@@ -1377,6 +1385,12 @@ describe("minimal runtime core execution", () => {
       "agent.error",
       "run.end",
     ]);
+    expect(harness.container.conversationStore.fetchPendingOutbox(10).map((row) => row.event_type)).toEqual([
+      "agent.call_finished",
+      "execution.step_recorded",
+      "run.error_reported",
+      "run.interrupted",
+    ]);
   });
 
   it("publishes the failed terminal event sequence when the provider fails", async () => {
@@ -1436,6 +1450,12 @@ describe("minimal runtime core execution", () => {
       "execution.step",
       "agent.error",
       "run.end",
+    ]);
+    expect(harness.container.conversationStore.fetchPendingOutbox(10).map((row) => row.event_type)).toEqual([
+      "agent.call_finished",
+      "execution.step_recorded",
+      "run.error_reported",
+      "run.failed",
     ]);
   });
 });
