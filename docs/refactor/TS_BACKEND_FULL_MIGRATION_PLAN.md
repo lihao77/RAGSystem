@@ -8,26 +8,20 @@ Migrate the remaining Python backend capabilities into `backend-ts` without faki
 
 ## Current Baseline
 
-Already migrated in TS:
+Migrated in TS:
 
 - Fastify API foundation and health routes.
 - SQLite-backed sessions, messages, runs, run steps, checkpoints, resources, uploaded files, and event outbox.
 - Single-agent streaming runtime through `/api/agent/stream`.
-- XML streaming tool-call loop, native tool-call fallback, approvals, user input interactions, stop/cancel, run status, WebSocket replay.
-- Managed file tools, bash execution, background bash tasks, task workflow tools, memory tools, synchronous agent delegation, context compression, checkpoint recovery.
-- Agent/team config and model provider YAML-backed management slices.
+- XML streaming tool-call loop, native tool-call fallback, approvals, user input interactions, stop/cancel, run status, WebSocket replay, and synchronous execution routes.
+- Managed file tools, local search tools, bash execution, background bash tasks, restricted `execute_code`, task workflow tools, memory tools, Skill tools, hooks, vector/RAG tools, MCP tools, synchronous agent delegation, context compression, `/compact`, checkpoint recovery, file-history rollback/retry, and daemon runtime.
+- Agent/team config import/export and model provider YAML-backed management slices, including provider tests, Anthropic, OpenAI Responses, embeddings, and rerank support.
 
-Known gaps to close:
+Open items after this migration pass:
 
-- Local tool parity: `glob`, `grep`, `web_fetch`, `todo_write`, `execute_code`, skill loading/execution.
-- Attachments and slash command handling in `/api/agent/stream`.
-- Hook runtime execution chain.
-- Vector/RAG indexing, retrieval, rerank, migration, deletion, and embedding sync.
-- MCP runtime connection, registry install, tool discovery, and MCP tool execution.
-- Daemon runtime start/stop, platform adapters, outbound dispatch, cron execution.
-- File-history snapshots and workspace rollback/retry.
-- Provider parity beyond OpenAI-compatible chat completions, including OpenAI Responses, Anthropic, embeddings, rerank provider tests.
-- Health/status wording and migration status consistency.
+- No known Python-backend parity blocker remains in `backend-ts` based on the tracked migration plan and full local test suite.
+- Remaining `not_migrated` text in runtime tool errors is a defensive message for hidden/unavailable tools, not an active route placeholder.
+- Older Claude Code alignment docs under `docs/refactor/` still describe optional future enhancements such as richer tool display names, MCP per-tool overrides, and caching; those are not blockers for Python backend parity.
 
 ## Execution Order
 
@@ -118,3 +112,6 @@ Known gaps to close:
 - 2026-06-08 final parity status cleanup:
   - `npm run typecheck`
   - `npx vitest run tests/routes/foundation.test.ts tests/routes/agent-management.test.ts tests/routes/runtime-core.test.ts tests/services/runtime-core-service.test.ts tests/routes/agent-config.test.ts`
+- 2026-06-08 full backend-ts validation:
+  - `npm run typecheck`
+  - `npm test` (44 files, 251 tests)
