@@ -672,55 +672,7 @@ export class ConversationStore {
     sessionId?: string | null;
     limit?: number;
   }): RunStepInfo[] {
-    const limit = input.limit ?? 500;
-    let rows: RunStepRow[] = [];
-
-    if (input.messageId) {
-      if (input.sessionId) {
-        rows = this.db
-          .prepare(`
-            SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
-            FROM run_steps
-            WHERE message_id=? AND session_id=?
-            ORDER BY step_order ASC
-            LIMIT ?
-          `)
-          .all(input.messageId, input.sessionId, limit) as unknown as RunStepRow[];
-      } else {
-        rows = this.db
-          .prepare(`
-            SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
-            FROM run_steps
-            WHERE message_id=?
-            ORDER BY step_order ASC
-            LIMIT ?
-          `)
-          .all(input.messageId, limit) as unknown as RunStepRow[];
-      }
-    } else if (input.runId) {
-      if (input.sessionId) {
-        rows = this.db
-          .prepare(`
-            SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
-            FROM run_steps
-            WHERE run_id=? AND session_id=?
-            ORDER BY step_order ASC
-            LIMIT ?
-          `)
-          .all(input.runId, input.sessionId, limit) as unknown as RunStepRow[];
-      } else {
-        rows = this.db
-          .prepare(`
-            SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
-            FROM run_steps
-            WHERE run_id=?
-            ORDER BY step_order ASC
-            LIMIT ?
-          `)
-          .all(input.runId, limit) as unknown as RunStepRow[];
-      }
-    }
-
+    const rows = this.loadRunStepRows(input);
     const resourceRefsByStep = this.loadResourceRefs(rows.map((row) => row.id));
     return rows.map((row) => {
       const payload = parseJsonObject(row.payload);
@@ -770,6 +722,62 @@ export class ConversationStore {
       raw_result_ref: payload.raw_result_ref ?? {},
       raw_result_available: Boolean(payload.raw_result_available ?? payload.raw_result !== undefined),
     };
+  }
+
+  private loadRunStepRows(input: {
+    runId?: string | null;
+    messageId?: string | null;
+    sessionId?: string | null;
+    limit?: number;
+  }): RunStepRow[] {
+    const limit = input.limit ?? 500;
+    if (input.messageId) {
+      if (input.sessionId) {
+        return this.db
+          .prepare(`
+            SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
+            FROM run_steps
+            WHERE message_id=? AND session_id=?
+            ORDER BY step_order ASC
+            LIMIT ?
+          `)
+          .all(input.messageId, input.sessionId, limit) as unknown as RunStepRow[];
+      }
+      return this.db
+        .prepare(`
+          SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
+          FROM run_steps
+          WHERE message_id=?
+          ORDER BY step_order ASC
+          LIMIT ?
+        `)
+        .all(input.messageId, limit) as unknown as RunStepRow[];
+    }
+
+    if (input.runId) {
+      if (input.sessionId) {
+        return this.db
+          .prepare(`
+            SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
+            FROM run_steps
+            WHERE run_id=? AND session_id=?
+            ORDER BY step_order ASC
+            LIMIT ?
+          `)
+          .all(input.runId, input.sessionId, limit) as unknown as RunStepRow[];
+      }
+      return this.db
+        .prepare(`
+          SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
+          FROM run_steps
+          WHERE run_id=?
+          ORDER BY step_order ASC
+          LIMIT ?
+        `)
+        .all(input.runId, limit) as unknown as RunStepRow[];
+    }
+
+    return [];
   }
 
   private loadResourceRefs(stepIds: number[]): Map<number, Array<{ resource_id: string }>> {
