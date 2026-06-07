@@ -1,24 +1,10 @@
-import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 import type { ToolExecutionResult } from "./memory-tool-service.js";
 import type { BackgroundTaskService } from "./background-task-service.js";
 import type { RuntimeToolExecutionContext, RuntimeToolWaitResult } from "./runtime-tool-types.js";
-
-type TaskStatus = "pending" | "in_progress" | "completed" | "deleted" | string;
-
-interface StoredTask {
-  id: string;
-  subject: string;
-  description: string;
-  active_form: string;
-  owner: string;
-  status: TaskStatus;
-  blocks: string[];
-  blocked_by: string[];
-  metadata: Record<string, unknown>;
-}
+import { TaskStore, type StoredTask } from "./task-tool-service/task-store.js";
 
 export interface TaskCreateInput {
   subject: string;
@@ -56,12 +42,14 @@ export interface TaskStopInput {
 
 export class TaskToolService {
   private readonly dataRoot: string;
+  private readonly taskStore: TaskStore;
 
   constructor(
     private readonly backgroundTasks: BackgroundTaskService,
     options: { dataRoot?: string | undefined } = {},
   ) {
     this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
+    this.taskStore = new TaskStore(this.dataRoot);
   }
 
   taskCreate(input: TaskCreateInput, context: RuntimeToolExecutionContext): ToolExecutionResult {
@@ -73,7 +61,7 @@ export class TaskToolService {
       if (!subject || !description) {
         return errorResult("task_create 缺少 subject 或 description", toolName);
       }
-      const task = this.createTask(sessionId, {
+      const task = this.taskStore.createTask(sessionId, {
         subject,
         description,
         active_form: input.activeForm?.trim() ?? "",
@@ -101,7 +89,7 @@ export class TaskToolService {
     const toolName = "task_get";
     try {
       const taskId = input.taskId.trim();
-      const task = this.getTask(resolveTaskSessionId(context), taskId);
+      const task = this.taskStore.getTask(resolveTaskSessionId(context), taskId);
       if (!task) {
         return successResult(
           { task: null },
@@ -132,7 +120,7 @@ export class TaskToolService {
     try {
       const sessionId = resolveTaskSessionId(context);
       const taskId = input.taskId.trim();
-      const oldTask = this.getTask(sessionId, taskId);
+      const oldTask = this.taskStore.getTask(sessionId, taskId);
       const oldStatus = oldTask?.status ?? null;
       const updates: Partial<StoredTask> = {};
       const updatedFields: string[] = [];
@@ -158,7 +146,7 @@ export class TaskToolService {
         updatedFields.push("metadata");
       }
 
-      const result = this.updateTask(sessionId, taskId, updates, updateOptions);
+      const result = this.taskStore.updateTask(sessionId, taskId, updates, updateOptions);
       if (input.status === "deleted") {
         return successResult(
           {
@@ -203,7 +191,7 @@ export class TaskToolService {
     const toolName = "task_list";
     try {
       const sessionId = resolveTaskSessionId(context);
-      const tasks = this.listTasks(sessionId);
+      const tasks = this.taskStore.listTasks(sessionId);
       const statusById = new Map(tasks.map((task) => [task.id, task.status]));
       const summaries = tasks
         .filter((task) => !task.metadata._internal)
@@ -367,111 +355,6 @@ export class TaskToolService {
     }
   }
 
-  private createTask(sessionId: string, task: Omit<StoredTask, "id">): StoredTask {
-    const taskId = this.nextTaskId(sessionId);
-    const stored: StoredTask = { id: taskId, ...task };
-    this.writeTask(sessionId, stored);
-    return stored;
-  }
-
-  private getTask(sessionId: string, taskId: string): StoredTask | null {
-    const filePath = this.taskPath(sessionId, taskId);
-    if (!fs.existsSync(filePath)) {
-      return null;
-    }
-    return normalizeTask(JSON.parse(fs.readFileSync(filePath, "utf8")) as unknown);
-  }
-
-  private listTasks(sessionId: string): StoredTask[] {
-    const dir = this.taskDir(sessionId);
-    const tasks: StoredTask[] = [];
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (!entry.isFile() || !entry.name.endsWith(".json") || entry.name === "counter.json") {
-        continue;
-      }
-      try {
-        const task = normalizeTask(JSON.parse(fs.readFileSync(path.join(dir, entry.name), "utf8")) as unknown);
-        tasks.push(task);
-      } catch {
-        // Match Python's tolerant list_tasks behavior.
-      }
-    }
-    return tasks.sort((left, right) => numericTaskId(left.id) - numericTaskId(right.id));
-  }
-
-  private updateTask(
-    sessionId: string,
-    taskId: string,
-    updates: Partial<StoredTask>,
-    options: {
-      addBlocks: string[];
-      addBlockedBy: string[];
-      metadata?: Record<string, unknown> | null | undefined;
-    },
-  ): StoredTask | null {
-    const task = this.getTask(sessionId, taskId);
-    if (!task) {
-      return null;
-    }
-    if (updates.status === "deleted") {
-      fs.rmSync(this.taskPath(sessionId, taskId), { force: true });
-      return null;
-    }
-    Object.assign(task, updates);
-
-    for (const blockedId of options.addBlocks.map(String)) {
-      pushUnique(task.blocks, blockedId);
-      const other = this.getTask(sessionId, blockedId);
-      if (other) {
-        pushUnique(other.blocked_by, taskId);
-        this.writeTask(sessionId, other);
-      }
-    }
-    for (const blockerId of options.addBlockedBy.map(String)) {
-      pushUnique(task.blocked_by, blockerId);
-      const other = this.getTask(sessionId, blockerId);
-      if (other) {
-        pushUnique(other.blocks, taskId);
-        this.writeTask(sessionId, other);
-      }
-    }
-    if (options.metadata) {
-      for (const [key, value] of Object.entries(options.metadata)) {
-        if (value === null) {
-          delete task.metadata[key];
-        } else {
-          task.metadata[key] = value;
-        }
-      }
-    }
-
-    this.writeTask(sessionId, task);
-    return task;
-  }
-
-  private nextTaskId(sessionId: string): string {
-    const counterPath = path.join(this.taskDir(sessionId), "counter.json");
-    const current = fs.existsSync(counterPath)
-      ? Number((JSON.parse(fs.readFileSync(counterPath, "utf8")) as { counter?: unknown }).counter ?? 0)
-      : 0;
-    const next = Number.isFinite(current) ? Math.trunc(current) + 1 : 1;
-    fs.writeFileSync(counterPath, JSON.stringify({ counter: next }), "utf8");
-    return String(next);
-  }
-
-  private writeTask(sessionId: string, task: StoredTask): void {
-    fs.writeFileSync(this.taskPath(sessionId, task.id), `${JSON.stringify(task, null, 2)}\n`, "utf8");
-  }
-
-  private taskDir(sessionId: string): string {
-    const dir = path.join(this.dataRoot, "tasks", sessionId);
-    fs.mkdirSync(dir, { recursive: true });
-    return dir;
-  }
-
-  private taskPath(sessionId: string, taskId: string): string {
-    return path.join(this.taskDir(sessionId), `${taskId}.json`);
-  }
 }
 
 function buildBackgroundOutputContent(snapshot: Record<string, unknown>, rawOutput: string | null): Record<string, unknown> {
@@ -565,21 +448,6 @@ function resolveTaskSessionId(context: RuntimeToolExecutionContext): string {
   return context.sessionId?.trim() || "default";
 }
 
-function normalizeTask(value: unknown): StoredTask {
-  const record = isRecord(value) ? value : {};
-  return {
-    id: String(record.id ?? ""),
-    subject: String(record.subject ?? ""),
-    description: String(record.description ?? ""),
-    active_form: String(record.active_form ?? ""),
-    owner: String(record.owner ?? ""),
-    status: String(record.status ?? "pending"),
-    blocks: Array.isArray(record.blocks) ? record.blocks.map(String) : [],
-    blocked_by: Array.isArray(record.blocked_by) ? record.blocked_by.map(String) : [],
-    metadata: isRecord(record.metadata) ? { ...record.metadata } : {},
-  };
-}
-
 function addOptionalStringUpdate(
   updates: Partial<StoredTask>,
   updatedFields: string[],
@@ -632,17 +500,6 @@ function errorResult(message: string, toolName: string, metadata: Record<string,
   };
 }
 
-function numericTaskId(value: string): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function pushUnique(items: string[], value: string): void {
-  if (!items.includes(value)) {
-    items.push(value);
-  }
-}
-
 function clampInteger(value: unknown, min: number, max: number): number {
   const parsed = typeof value === "number" && Number.isInteger(value) ? value : min;
   return Math.max(min, Math.min(max, parsed));
@@ -650,8 +507,4 @@ function clampInteger(value: unknown, min: number, max: number): number {
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
