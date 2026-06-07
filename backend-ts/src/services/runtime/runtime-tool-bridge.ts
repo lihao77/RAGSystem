@@ -24,6 +24,7 @@ import type {
   PermissionPolicyService,
   RuntimeToolApprovalDecision,
 } from "./permission-policy-service.js";
+import type { HookRuntimeService, HookResult } from "./hooks/index.js";
 import {
   approvalUnsupportedError,
   buildApprovalMetadata,
@@ -69,6 +70,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     private readonly bashTools: LocalBashToolService | null = null,
     private readonly taskTools: TaskToolService | null = null,
     private readonly searchTools: LocalSearchToolService | null = null,
+    private readonly hooks: HookRuntimeService | null = null,
   ) {
     this.toolHandlers = createRuntimeToolHandlers({
       memoryTools,
@@ -144,6 +146,9 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
   }
 
   executeTool(call: RuntimeToolCall, context: RuntimeToolExecutionContext): ToolExecutionResult | Promise<ToolExecutionResult> {
+    if (this.hooks) {
+      return this.executeToolWithHooks(call, context);
+    }
     const executionContext = buildToolCallContext(call, context);
     const toolName = call.toolName.trim();
     const tool = this.getVisibleTool(toolName, executionContext.agent);
@@ -176,6 +181,69 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       toolName,
       call,
       withApprovedExternalPaths(executionContext, approvalDecision?.approvedExternalPaths),
+    );
+  }
+
+  private async executeToolWithHooks(call: RuntimeToolCall, context: RuntimeToolExecutionContext): Promise<ToolExecutionResult> {
+    const executionContext = buildToolCallContext(call, context);
+    const toolName = call.toolName.trim();
+    const tool = this.getVisibleTool(toolName, executionContext.agent);
+    if (!tool) {
+      return errorResult(`工具未暴露或暂未迁移: ${toolName}`, toolName || "unknown");
+    }
+
+    const beforePermissionHook = await this.runToolHook("tool.before_permission", {
+      toolName,
+      tool,
+      call,
+      context: executionContext,
+    });
+    if (beforePermissionHook.blockExecution || beforePermissionHook.permissionDecision === "deny") {
+      return this.hookBlockedResult(toolName, beforePermissionHook, "before_permission");
+    }
+
+    if (toolName === EXECUTE_BASH_TOOL_NAME && this.bashTools) {
+      return this.executeBashToolWithHooks(call, executionContext, beforePermissionHook);
+    }
+
+    const approvedExternalPaths = this.collectExternalPathApprovalCandidates(toolName, call.arguments, executionContext);
+    const approvalDecision = this.applyHookPermissionDecision(this.permissionPolicy?.evaluateToolApproval({
+      toolName,
+      riskLevel: tool.riskLevel,
+      description: tool.description,
+      arguments: call.arguments ?? {},
+      sessionId: executionContext.sessionId,
+      approvalExempt: tool.approvalExempt,
+      approvedExternalPaths,
+    }), beforePermissionHook, toolName, tool.riskLevel);
+    const afterPermissionHook = await this.runToolHook("tool.after_permission", {
+      toolName,
+      tool,
+      call,
+      context: executionContext,
+      permissionDecision: approvalDecision ?? null,
+    });
+    if (afterPermissionHook.blockExecution || afterPermissionHook.permissionDecision === "deny") {
+      return this.hookBlockedResult(toolName, afterPermissionHook, "after_permission");
+    }
+    const finalApprovalDecision = this.applyHookPermissionDecision(
+      approvalDecision,
+      afterPermissionHook,
+      toolName,
+      tool.riskLevel,
+    );
+    if (finalApprovalDecision?.action === "ask") {
+      return this.executeToolAfterApproval(call, executionContext, finalApprovalDecision);
+    }
+    if (!approvalDecision && approvedExternalPaths.length) {
+      return approvalUnsupportedError(toolName, approvedExternalPaths);
+    }
+
+    return this.executeAllowedToolWithHooks(
+      toolName,
+      call,
+      withApprovedExternalPaths(executionContext, finalApprovalDecision?.approvedExternalPaths),
+      { beforePermissionHook, afterPermissionHook },
     );
   }
 
@@ -216,6 +284,52 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
   ): ToolExecutionResult | Promise<ToolExecutionResult> {
     const handler = this.toolHandlers.get(toolName);
     return handler ? handler(call, context) : this.unavailableTool(toolName);
+  }
+
+  private async executeAllowedToolWithHooks(
+    toolName: string,
+    call: RuntimeToolCall,
+    context: RuntimeToolExecutionContext,
+    hooks: { beforePermissionHook?: HookResult | undefined; afterPermissionHook?: HookResult | undefined } = {},
+  ): Promise<ToolExecutionResult> {
+    const tool = this.getVisibleTool(toolName, context.agent);
+    const beforeExecuteHook = await this.runToolHook("tool.before_execute", {
+      toolName,
+      tool,
+      call,
+      context,
+    });
+    if (beforeExecuteHook.blockExecution || beforeExecuteHook.permissionDecision === "deny") {
+      return this.hookBlockedResult(toolName, beforeExecuteHook, "before_execute");
+    }
+    try {
+      let result = await this.executeAllowedTool(toolName, call, context);
+      result = this.mergeHookData(result, hooks.beforePermissionHook, "before_permission");
+      result = this.mergeHookData(result, hooks.afterPermissionHook, "after_permission");
+      result = this.mergeHookData(result, beforeExecuteHook, "before_execute");
+      const afterExecuteHook = await this.runToolHook("tool.after_execute", {
+        toolName,
+        tool,
+        call,
+        context,
+        result,
+      });
+      result = this.mergeHookData(result, afterExecuteHook, "after_execute");
+      return result;
+    } catch (error) {
+      const onErrorHook = await this.runToolHook("tool.on_error", {
+        toolName,
+        tool,
+        call,
+        context,
+        error,
+      });
+      if (onErrorHook.blockExecution) {
+        return this.hookBlockedResult(toolName, onErrorHook, "on_error");
+      }
+      const result = errorResult(`工具执行异常: ${error instanceof Error ? error.message : String(error)}`, toolName);
+      return this.mergeHookData(result, onErrorHook, "on_error");
+    }
   }
 
   private unavailableTool(toolName: string): ToolExecutionResult<string> {
@@ -270,6 +384,109 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     }
 
     return this.bashTools.executePlan(plan, withApprovedExternalPaths(context, approvalDecision?.approvedExternalPaths));
+  }
+
+  private async executeBashToolWithHooks(
+    call: RuntimeToolCall,
+    context: RuntimeToolExecutionContext,
+    beforePermissionHook: HookResult,
+  ): Promise<ToolExecutionResult> {
+    if (!this.bashTools) {
+      return errorResult(`工具未暴露或暂未迁移: ${EXECUTE_BASH_TOOL_NAME}`, EXECUTE_BASH_TOOL_NAME);
+    }
+    const bashInput = readBashArguments(call.arguments);
+    const approvedExternalPaths = this.bashTools.getExternalPathApprovalCandidates(bashInput, context);
+    if (!this.permissionPolicy && approvedExternalPaths.length) {
+      return approvalUnsupportedError(EXECUTE_BASH_TOOL_NAME, approvedExternalPaths);
+    }
+    const planningContext = withApprovedExternalPaths(context, approvedExternalPaths);
+    const prepared = this.bashTools.prepareExecution(bashInput, planningContext);
+    if (!prepared.ok) {
+      return prepared.result;
+    }
+
+    const plan = prepared.plan;
+    const approvalDecision = this.applyHookPermissionDecision(this.permissionPolicy?.evaluateToolApproval({
+      toolName: EXECUTE_BASH_TOOL_NAME,
+      riskLevel: plan.riskLevel,
+      description: plan.approvalDescription,
+      arguments: plan.approvalArguments,
+      sessionId: context.sessionId,
+      forceAsk: plan.approvalRequired,
+      approvedExternalPaths,
+    }), beforePermissionHook, EXECUTE_BASH_TOOL_NAME, plan.riskLevel);
+    const afterPermissionHook = await this.runToolHook("tool.after_permission", {
+      toolName: EXECUTE_BASH_TOOL_NAME,
+      tool: {
+        riskLevel: plan.riskLevel,
+        source: "execution",
+      },
+      call,
+      context,
+      permissionDecision: approvalDecision ?? null,
+    });
+    if (afterPermissionHook.blockExecution || afterPermissionHook.permissionDecision === "deny") {
+      return this.hookBlockedResult(EXECUTE_BASH_TOOL_NAME, afterPermissionHook, "after_permission");
+    }
+    const finalApprovalDecision = this.applyHookPermissionDecision(
+      approvalDecision,
+      afterPermissionHook,
+      EXECUTE_BASH_TOOL_NAME,
+      plan.riskLevel,
+    );
+
+    if (finalApprovalDecision?.action === "ask") {
+      return this.executeBashAfterApproval(plan, call, context, finalApprovalDecision);
+    }
+    if (!finalApprovalDecision && plan.approvalRequired) {
+      return errorResult(`工具 ${EXECUTE_BASH_TOOL_NAME} 需要用户授权，但当前上下文不支持审批`, EXECUTE_BASH_TOOL_NAME, {
+        ...plan.metadata,
+      });
+    }
+
+    return this.executeBashPlanWithHooks(
+      plan,
+      call,
+      withApprovedExternalPaths(context, finalApprovalDecision?.approvedExternalPaths),
+      { beforePermissionHook, afterPermissionHook },
+    );
+  }
+
+  private async executeBashPlanWithHooks(
+    plan: BashExecutionPlan,
+    call: RuntimeToolCall,
+    context: RuntimeToolExecutionContext,
+    hooks: { beforePermissionHook?: HookResult | undefined; afterPermissionHook?: HookResult | undefined } = {},
+  ): Promise<ToolExecutionResult> {
+    const bashTools = this.bashTools;
+    if (!bashTools) {
+      return errorResult(`工具未暴露或暂未迁移: ${EXECUTE_BASH_TOOL_NAME}`, EXECUTE_BASH_TOOL_NAME);
+    }
+    const tool = {
+      riskLevel: plan.riskLevel,
+      source: "execution" as const,
+    };
+    const beforeExecuteHook = await this.runToolHook("tool.before_execute", {
+      toolName: EXECUTE_BASH_TOOL_NAME,
+      tool,
+      call,
+      context,
+    });
+    if (beforeExecuteHook.blockExecution || beforeExecuteHook.permissionDecision === "deny") {
+      return this.hookBlockedResult(EXECUTE_BASH_TOOL_NAME, beforeExecuteHook, "before_execute");
+    }
+    let result = await bashTools.executePlan(plan, context);
+    result = this.mergeHookData(result, hooks.beforePermissionHook, "before_permission");
+    result = this.mergeHookData(result, hooks.afterPermissionHook, "after_permission");
+    result = this.mergeHookData(result, beforeExecuteHook, "before_execute");
+    const afterExecuteHook = await this.runToolHook("tool.after_execute", {
+      toolName: EXECUTE_BASH_TOOL_NAME,
+      tool,
+      call,
+      context,
+      result,
+    });
+    return this.mergeHookData(result, afterExecuteHook, "after_execute");
   }
 
   private async executeBashAfterApproval(
@@ -334,7 +551,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       });
     }
 
-    const result = await bashTools.executePlan(plan, withApprovedExternalPaths(context, approvalDecision.approvedExternalPaths));
+    const result = await this.executeBashPlanWithHooks(plan, call, withApprovedExternalPaths(context, approvalDecision.approvedExternalPaths));
     return withApprovalMetadata(result, approvalDecision, resolution.message);
   }
 
@@ -392,7 +609,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       });
     }
 
-    const result = await this.executeAllowedTool(toolName, call, withApprovedExternalPaths(context, approvalDecision.approvedExternalPaths));
+    const result = await this.executeAllowedToolWithHooks(toolName, call, withApprovedExternalPaths(context, approvalDecision.approvedExternalPaths));
     return withApprovalMetadata(result, approvalDecision, resolution.message);
   }
 
@@ -447,4 +664,80 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       toolName: REQUEST_USER_INPUT_TOOL_NAME,
     });
   }
+
+  private async runToolHook(
+    eventName: "tool.before_permission" | "tool.after_permission" | "tool.before_execute" | "tool.after_execute" | "tool.on_error",
+    input: Parameters<HookRuntimeService["runToolHook"]>[1],
+  ): Promise<HookResult> {
+    return this.hooks ? this.hooks.runToolHook(eventName, input) : {
+      continueExecution: true,
+      blockExecution: false,
+      blockReason: "",
+    };
+  }
+
+  private mergeHookData<T>(
+    result: ToolExecutionResult<T>,
+    hookResult: HookResult | undefined,
+    phase: "before_permission" | "after_permission" | "before_execute" | "after_execute" | "on_error",
+  ): ToolExecutionResult<T> {
+    return hookResult && this.hooks ? this.hooks.mergeHookData(result, hookResult, phase) : result;
+  }
+
+  private hookBlockedResult(
+    toolName: string,
+    hookResult: HookResult,
+    phase: "before_permission" | "after_permission" | "before_execute" | "after_execute" | "on_error",
+  ): ToolExecutionResult<string> {
+    const result = errorResult(hookResult.blockReason || "Hook blocked tool execution", toolName, {
+      hook_blocked: true,
+      hook_phase: phase,
+      ...(hookResult.permissionDecision ? { hook_permission_decision: hookResult.permissionDecision } : {}),
+    });
+    return this.mergeHookData(result, hookResult, phase);
+  }
+
+  private applyHookPermissionDecision(
+    decision: RuntimeToolApprovalDecision | undefined,
+    hookResult: HookResult,
+    toolName: string,
+    riskLevel: RuntimeToolApprovalDecision["riskLevel"] | undefined,
+  ): RuntimeToolApprovalDecision | undefined {
+    if (!hookResult.permissionDecision) {
+      return decision;
+    }
+    if (hookResult.permissionDecision === "allow") {
+      return {
+        ...(decision ?? buildHookApprovalDecision(toolName, riskLevel)),
+        action: "allow",
+        reason: "hook permission decision: allow",
+      };
+    }
+    if (hookResult.permissionDecision === "ask") {
+      return {
+        ...(decision ?? buildHookApprovalDecision(toolName, riskLevel)),
+        action: "ask",
+        reason: hookResult.uiMessage ?? "hook permission decision: ask",
+        reasonCodes: [...(decision?.reasonCodes ?? []), "ask-hook"],
+      };
+    }
+    return decision;
+  }
+}
+
+function buildHookApprovalDecision(
+  toolName: string,
+  riskLevel: RuntimeToolApprovalDecision["riskLevel"] | undefined,
+): RuntimeToolApprovalDecision {
+  return {
+    action: "allow",
+    toolName,
+    riskLevel: riskLevel ?? "low",
+    description: `Tool ${toolName}`,
+    permissionMode: "standard",
+    reason: "hook permission decision",
+    reasonCodes: [],
+    secondaryReasons: [],
+    approvedExternalPaths: [],
+  };
 }

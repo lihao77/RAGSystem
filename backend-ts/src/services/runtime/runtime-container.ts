@@ -29,6 +29,7 @@ import { PendingInteractionService } from "./pending-interaction-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
 import { RuntimeCoreService } from "./runtime-core-service.js";
 import { RuntimeToolBridge } from "./runtime-tool-bridge.js";
+import { HookRuntimeService, type WorkspaceTrustConfig } from "./hooks/index.js";
 import { SystemConfigService } from "../config/system-config-service.js";
 import { TaskToolService } from "../tools/task-tool-service.js";
 import { VectorLibraryService } from "../knowledge/vector-library-service.js";
@@ -59,6 +60,7 @@ export interface RuntimeContainer {
   readonly backgroundTasks: BackgroundTaskService;
   readonly taskTools: TaskToolService;
   readonly pendingInteractions: PendingInteractionService;
+  readonly hooks: HookRuntimeService;
   readonly runtimeToolBridge: RuntimeToolBridge;
   readonly runtimeCore: RuntimeCoreService;
   readonly agentRuntimeCore: AgentRuntimeCore;
@@ -120,7 +122,21 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   });
   const taskTools = new TaskToolService(backgroundTasks, { dataRoot: options.dataRoot });
   const pendingInteractions = new PendingInteractionService(clientEvents);
-  const runtimeToolBridge = new RuntimeToolBridge(memoryTools, pendingInteractions, permissionPolicy, documentTools, bashTools, taskTools, searchTools);
+  const hooksConfig = asRecord(systemConfig.getConfig().hooks);
+  const hooks = new HookRuntimeService({
+    enabled: hooksConfig?.enabled !== false,
+    workspaceTrust: parseWorkspaceTrustConfig(asRecord(hooksConfig?.workspace_trust)),
+  });
+  const runtimeToolBridge = new RuntimeToolBridge(
+    memoryTools,
+    pendingInteractions,
+    permissionPolicy,
+    documentTools,
+    bashTools,
+    taskTools,
+    searchTools,
+    hooks,
+  );
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
   const agentRuntimeCore = new AgentRuntimeCore(llmChatClient, { dataRoot: options.dataRoot });
@@ -187,6 +203,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     backgroundTasks,
     taskTools,
     pendingInteractions,
+    hooks,
     runtimeToolBridge,
     runtimeCore,
     agentRuntimeCore,
@@ -205,4 +222,29 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function parseWorkspaceTrustConfig(value: Record<string, unknown> | null): WorkspaceTrustConfig | null {
+  if (!value) {
+    return null;
+  }
+  const rules = Array.isArray(value.rules)
+    ? value.rules
+        .filter((item): item is Record<string, unknown> => item !== null && typeof item === "object" && !Array.isArray(item))
+        .map((item) => {
+          const matcher = asRecord(item.matcher);
+          return {
+            workspaceRootPrefix: asString(item.workspace_root_prefix) ?? asString(matcher?.workspace_root_prefix) ?? "",
+            trust: asString(item.trust) === "untrusted" ? "untrusted" as const : "trusted" as const,
+          };
+        })
+    : [];
+  return {
+    default: asString(value.default) === "untrusted" ? "untrusted" : "trusted",
+    rules,
+  };
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
