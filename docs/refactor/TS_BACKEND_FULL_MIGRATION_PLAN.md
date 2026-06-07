@@ -74,6 +74,7 @@ Known gaps to close:
 - [x] Provider parity.
   - [x] Provider availability/test endpoints.
   - [x] Anthropic and OpenAI Responses chat clients.
+- [x] Agent config import.
 - [ ] Final parity pass.
 
 ## Validation Log
@@ -96,3 +97,6 @@ Known gaps to close:
 - 2026-06-08 Anthropic and OpenAI Responses chat clients:
   - `npm run typecheck`
   - `npx vitest run tests/services/llm-chat-client.test.ts tests/routes/model-adapter.test.ts tests/routes/runtime-core-execution.test.ts tests/services/agent-runtime-core.test.ts tests/routes/execution-status.test.ts`
+- 2026-06-08 Agent config import:
+  - `npm run typecheck`
+  - `npx vitest run tests/routes/agent-config.test.ts tests/services/agent-config-service.test.ts`

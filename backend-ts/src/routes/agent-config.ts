@@ -8,7 +8,7 @@ import {
   CreateTeamRequestSchema,
   RenameTeamRequestSchema,
 } from "../contracts/agent-config.js";
-import { HttpError, NotMigratedError } from "../utils/errors.js";
+import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 
 interface AgentParams {
@@ -20,6 +20,10 @@ interface TeamParams {
 }
 
 interface ExportQuery {
+  format?: string;
+}
+
+interface ImportQuery {
   format?: string;
 }
 
@@ -93,8 +97,22 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
     }
   });
 
-  app.post<{ Params: AgentParams }>("/configs/:agentName/import", async () => {
-    throw new NotMigratedError("Agent config import");
+  app.post<{ Params: AgentParams; Querystring: ImportQuery }>("/configs/:agentName/import", async (request) => {
+    try {
+      const importOptions: { formatName?: string | null; contentType?: string } = {};
+      if (request.query.format !== undefined) {
+        importOptions.formatName = request.query.format;
+      }
+      if (request.headers["content-type"] !== undefined) {
+        importOptions.contentType = request.headers["content-type"];
+      }
+      const config = options.container.agentConfig.importConfig(request.body, {
+        ...importOptions,
+      });
+      return ok(config, `智能体 "${config.agent_name}" 配置已导入`);
+    } catch (error) {
+      throw new HttpError(400, "invalid_request", errorMessage(error));
+    }
   });
 
   app.get<{ Params: AgentParams }>("/configs/:agentName/validate", async (request) =>

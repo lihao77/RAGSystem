@@ -1,4 +1,13 @@
-import type { AgentConfig, AgentInfo, CreateAgentRequest, TeamInfo, TeamSummary } from "../../contracts/agent-config.js";
+import YAML from "yaml";
+
+import {
+  AgentConfigSchema,
+  type AgentConfig,
+  type AgentInfo,
+  type CreateAgentRequest,
+  type TeamInfo,
+  type TeamSummary,
+} from "../../contracts/agent-config.js";
 import {
   agentConfigPresets,
   buildCustomAgentConfig,
@@ -9,6 +18,7 @@ import {
   configsToRecord,
   deepMerge,
   defaultLlmTier,
+  isRecord,
   normalizeAgentName,
   normalizeConfig,
   normalizeTeamName,
@@ -19,6 +29,7 @@ import { listAvailableTools as listAvailableRuntimeTools, type AvailableToolInfo
 import { toYaml } from "./agent-config-service/yaml.js";
 
 type ExportFormat = "json" | "yaml";
+type ImportFormat = "json" | "yaml";
 
 export class AgentConfigService {
   private activeTeam = "default";
@@ -148,6 +159,16 @@ export class AgentConfigService {
       contentType: "application/x-yaml; charset=utf-8",
       fileExtension: "yaml",
     };
+  }
+
+  importConfig(body: unknown, options: { formatName?: string | null; contentType?: string | undefined } = {}): AgentConfig {
+    const format = resolveImportFormat(options.formatName, options.contentType);
+    const parsed = parseImportBody(body, format);
+    const config = normalizeConfig(AgentConfigSchema.parse(parsed));
+    this.enforceSingleDefaultEntry(config.agent_name, config.default_entry);
+    this.getActiveConfigs().set(config.agent_name, config);
+    this.saveAll();
+    return cloneConfig(config);
   }
 
   deleteAgent(agentName: string): boolean {
@@ -384,4 +405,46 @@ export class AgentConfigService {
   private saveTeamIndex(): void {
     this.teamStore.saveTeamIndex(this.activeTeam, this.teams, this.teamFileByName);
   }
+}
+
+function resolveImportFormat(formatName: string | null | undefined, contentType: string | undefined): ImportFormat {
+  const requested = formatName?.trim().toLowerCase();
+  if (requested) {
+    if (requested === "yaml" || requested === "yml") {
+      return "yaml";
+    }
+    if (requested === "json") {
+      return "json";
+    }
+    throw new Error("format 只支持 json 或 yaml");
+  }
+
+  const normalizedContentType = (contentType ?? "").toLowerCase();
+  if (normalizedContentType.includes("json")) {
+    return "json";
+  }
+  return "yaml";
+}
+
+function parseImportBody(body: unknown, format: ImportFormat): unknown {
+  if (isRecord(body)) {
+    return body;
+  }
+  if (Buffer.isBuffer(body)) {
+    return parseImportText(body.toString("utf8"), format);
+  }
+  if (typeof body === "string") {
+    return parseImportText(body, format);
+  }
+  if (body === null || body === undefined) {
+    return {};
+  }
+  return body;
+}
+
+function parseImportText(text: string, format: ImportFormat): unknown {
+  if (format === "json") {
+    return JSON.parse(text);
+  }
+  return YAML.parse(text) ?? {};
 }

@@ -217,7 +217,7 @@ describe("agent config compatibility routes", () => {
     expect(exportedYaml.body).toContain('agent_name: "general_agent"');
   });
 
-  it("applies built-in presets in memory and keeps import as an explicit boundary", async () => {
+  it("applies built-in presets and imports JSON/YAML configs into the active team", async () => {
     app = await buildTestApp();
 
     const preset = await app.inject({
@@ -254,15 +254,88 @@ describe("agent config compatibility routes", () => {
       code: "invalid_request",
     });
 
-    const imported = await app.inject({
+    const importedJson = await app.inject({
       method: "POST",
       url: "/api/agent-config/configs/general_agent/import",
-      payload: {},
+      payload: {
+        agent_name: "imported_json_agent",
+        display_name: "Imported JSON Agent",
+        enabled: true,
+        default_entry: false,
+        llm_tiers: {
+          default: {
+            provider: "local",
+            provider_type: "openai",
+            model_name: "json-model",
+          },
+        },
+      },
     });
-    expect(imported.statusCode).toBe(501);
-    expect(imported.json()).toMatchObject({
+    expect(importedJson.statusCode).toBe(200);
+    expect(importedJson.json()).toMatchObject({
+      success: true,
+      data: {
+        agent_name: "imported_json_agent",
+        display_name: "Imported JSON Agent",
+        llm_tiers: {
+          default: {
+            model_name: "json-model",
+          },
+        },
+      },
+    });
+
+    const importedYaml = await app.inject({
+      method: "POST",
+      url: "/api/agent-config/configs/general_agent/import?format=yaml",
+      headers: {
+        "content-type": "application/x-yaml",
+      },
+      payload: [
+        "agent_name: imported_yaml_agent",
+        "display_name: Imported YAML Agent",
+        "enabled: true",
+        "default_entry: true",
+        "llm_tiers:",
+        "  default:",
+        "    provider: local",
+        "    provider_type: openai",
+        "    model_name: yaml-model",
+      ].join("\n"),
+    });
+    expect(importedYaml.statusCode).toBe(200);
+    expect(importedYaml.json()).toMatchObject({
+      success: true,
+      data: {
+        agent_name: "imported_yaml_agent",
+        default_entry: true,
+        llm_tiers: {
+          default: {
+            model_name: "yaml-model",
+          },
+        },
+      },
+    });
+
+    const configs = await app.inject({
+      method: "GET",
+      url: "/api/agent-config/configs",
+    });
+    expect(configs.json().data.imported_json_agent.display_name).toBe("Imported JSON Agent");
+    expect(configs.json().data.imported_yaml_agent.default_entry).toBe(true);
+    expect(configs.json().data.general_agent.default_entry).toBe(false);
+
+    const invalidFormat = await app.inject({
+      method: "POST",
+      url: "/api/agent-config/configs/general_agent/import?format=toml",
+      payload: {
+        agent_name: "bad_agent",
+      },
+    });
+    expect(invalidFormat.statusCode).toBe(400);
+    expect(invalidFormat.json()).toMatchObject({
       success: false,
-      code: "not_migrated",
+      code: "invalid_request",
     });
   });
 });

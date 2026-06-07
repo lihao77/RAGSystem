@@ -89,6 +89,20 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     });
   });
 
+  app.addContentTypeParser(
+    [
+      "application/x-yaml",
+      "application/yaml",
+      "application/vnd.yaml",
+      "text/yaml",
+      "text/x-yaml",
+    ],
+    { parseAs: "string" },
+    (_request, body, done) => {
+      done(null, body);
+    },
+  );
+
   await app.register(cors, {
     origin: options.env.corsOrigins,
     credentials: true,
