@@ -4,6 +4,7 @@ import path from "node:path";
 
 import type { ToolExecutionResult } from "./memory-tool-service.js";
 import type { RuntimeToolExecutionContext } from "../runtime/runtime-tool-types.js";
+import type { FileHistoryService } from "../stores/file-history-service.js";
 import {
   buildDataStructurePreview,
   DEFAULT_STRUCTURE_PREVIEW_DEPTH,
@@ -17,10 +18,12 @@ const DEFAULT_READ_MAX_LINES = 2000;
 
 export class LocalDocumentToolService {
   private readonly pathManager: LocalDocumentPathManager;
+  private readonly fileHistory: FileHistoryService | null;
 
-  constructor(options: { dataRoot?: string | undefined } = {}) {
+  constructor(options: { dataRoot?: string | undefined; fileHistory?: FileHistoryService | null | undefined } = {}) {
     const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
     this.pathManager = new LocalDocumentPathManager(dataRoot);
+    this.fileHistory = options.fileHistory ?? null;
   }
 
   readFile(
@@ -134,6 +137,7 @@ export class LocalDocumentToolService {
       });
       fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
       const encoding = normalizeEncoding(input.encoding);
+      this.fileHistory?.trackEdit(context.sessionId, resolvedPath);
       fs.writeFileSync(resolvedPath, renderWritableContent(input.content, mode), { encoding });
       const stat = fs.statSync(resolvedPath);
       const displayPath = this.pathManager.toDisplayPath(resolvedPath);
@@ -204,6 +208,7 @@ export class LocalDocumentToolService {
       const updatedContent = input.replaceAll
         ? originalContent.split(input.oldString).join(input.newString)
         : originalContent.replace(input.oldString, input.newString);
+      this.fileHistory?.trackEdit(context.sessionId, resolvedPath);
       fs.writeFileSync(resolvedPath, updatedContent, { encoding });
       const updatedStat = fs.statSync(resolvedPath);
       const diffPreview = buildDiffPreview(originalContent, updatedContent, path.basename(resolvedPath));

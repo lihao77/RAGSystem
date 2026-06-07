@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
 import { buildTestHarness } from "../helpers/app.js";
@@ -201,6 +204,81 @@ describe("session message mutation routes", () => {
         }),
       }),
     ]);
+  });
+
+  it("restores file history snapshots when rolling back a session", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-rollback-workspace-"));
+    const filePath = path.join(workspaceRoot, "notes.txt");
+
+    harness.container.sessionApplication.createSession({
+      sessionId: "file-rollback-session",
+      metadata: { workspace_root: workspaceRoot },
+    });
+    const firstUser = harness.container.sessionApplication.addMessage({
+      sessionId: "file-rollback-session",
+      role: "user",
+      content: "create file",
+    });
+    const firstWrite = harness.container.documentTools.writeFile(
+      {
+        filePath: "notes.txt",
+        content: "v1",
+      },
+      {
+        agent: null,
+        sessionId: "file-rollback-session",
+        workspaceRoot,
+      },
+    );
+    expect(firstWrite).toMatchObject({ success: true });
+    const secondUser = harness.container.sessionApplication.addMessage({
+      sessionId: "file-rollback-session",
+      role: "user",
+      content: "snapshot v1",
+    });
+    expect(secondUser.metadata.snapshot_id).toEqual(expect.any(String));
+
+    const secondWrite = harness.container.documentTools.writeFile(
+      {
+        filePath: "notes.txt",
+        content: "v2",
+      },
+      {
+        agent: null,
+        sessionId: "file-rollback-session",
+        workspaceRoot,
+      },
+    );
+    expect(secondWrite).toMatchObject({ success: true });
+    harness.container.sessionApplication.addMessage({
+      sessionId: "file-rollback-session",
+      role: "user",
+      content: "snapshot v2",
+    });
+    expect(fs.readFileSync(filePath, "utf8")).toBe("v2");
+
+    const rollback = await app.inject({
+      method: "POST",
+      url: "/api/agent/sessions/file-rollback-session/rollback",
+      payload: { after_seq: secondUser.seq },
+    });
+
+    expect(rollback.statusCode).toBe(200);
+    expect(rollback.json()).toMatchObject({
+      success: true,
+      data: { deleted: 1 },
+    });
+    expect(fs.readFileSync(filePath, "utf8")).toBe("v1");
+
+    const rollbackToStart = await app.inject({
+      method: "POST",
+      url: "/api/agent/sessions/file-rollback-session/rollback",
+      payload: { after_seq: firstUser.seq },
+    });
+    expect(rollbackToStart.statusCode).toBe(200);
+    expect(fs.existsSync(filePath)).toBe(false);
   });
 
   it("exports session JSON with visible messages and expanded steps", async () => {

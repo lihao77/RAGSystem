@@ -337,6 +337,45 @@ export class ConversationStore {
     return row ? rowToMessage(row) : null;
   }
 
+  getFirstMessageAfterSeq(sessionId: string, seq: number): MessageInfo | null {
+    const row = this.db
+      .prepare(`
+        SELECT seq, id, session_id, role, content, metadata, thread_key, child_agent_id, created_at
+        FROM messages
+        WHERE session_id=? AND seq>?
+        ORDER BY seq ASC
+        LIMIT 1
+      `)
+      .get(sessionId, seq) as MessageRow | undefined;
+    return row ? rowToMessage(row) : null;
+  }
+
+  listMessagesAfterSeq(sessionId: string, seq: number, limit = 20): MessageInfo[] {
+    const rows = this.db
+      .prepare(`
+        SELECT seq, id, session_id, role, content, metadata, thread_key, child_agent_id, created_at
+        FROM messages
+        WHERE session_id=? AND seq>?
+        ORDER BY seq ASC
+        LIMIT ?
+      `)
+      .all(sessionId, seq, limit) as unknown as MessageRow[];
+    return rows.map(rowToMessage);
+  }
+
+  listMessagesBeforeOrAtSeq(sessionId: string, seq: number, limit = 20): MessageInfo[] {
+    const rows = this.db
+      .prepare(`
+        SELECT seq, id, session_id, role, content, metadata, thread_key, child_agent_id, created_at
+        FROM messages
+        WHERE session_id=? AND seq<=?
+        ORDER BY seq DESC
+        LIMIT ?
+      `)
+      .all(sessionId, seq, limit) as unknown as MessageRow[];
+    return rows.map(rowToMessage);
+  }
+
   getRecentMessages(sessionId: string, limit = 20, threadKey?: string | null): MessageInfo[] {
     return this.listMessages(sessionId, limit, 0, threadKey).items;
   }

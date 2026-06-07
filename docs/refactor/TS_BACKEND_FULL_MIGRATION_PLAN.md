@@ -47,7 +47,7 @@ Known gaps to close:
 6. Daemon runtime.
    - Scheduler, start/stop, cron trigger, platform gateway contracts, outbound dispatch.
 7. File history and rollback.
-   - Git snapshot creation on user messages, rollback file restore, retry flow, cleanup.
+   - File-history backups on tool edits, snapshot binding on user messages, rollback file restore, retry flow, cleanup.
 8. Provider parity.
    - Anthropic, OpenAI Responses, provider test/availability, embeddings, rerank.
 9. Final parity pass.
@@ -67,9 +67,9 @@ Known gaps to close:
 - [x] Vector/RAG runtime.
 - [x] MCP runtime.
 - [x] Daemon runtime.
-- [ ] File history rollback/retry.
+- [x] File history rollback/retry.
   - [x] Session rollback-and-retry execution flow.
-  - [ ] File-history snapshot creation and workspace restore.
+  - [x] File-history snapshot creation and workspace restore.
 - [ ] Provider parity.
 - [ ] Final parity pass.
 
@@ -79,3 +79,7 @@ Known gaps to close:
   - `npm run typecheck`
   - `npx vitest run tests/routes/session-message-mutations.test.ts tests/services/agent-session-application.test.ts`
   - `npx vitest run tests/routes/runtime-core-execution.test.ts tests/routes/session-checkpoints.test.ts tests/services/agent-runtime-core.test.ts`
+- 2026-06-08 file-history snapshots and workspace restore:
+  - `npm run typecheck`
+  - `npx vitest run tests/services/file-history-service.test.ts tests/routes/session-message-mutations.test.ts tests/services/runtime-tool-bridge.test.ts`
+  - `npx vitest run tests/routes/runtime-core-execution.test.ts tests/routes/session-checkpoints.test.ts tests/services/agent-runtime-core.test.ts tests/services/agent-session-application.test.ts`

@@ -1,9 +1,13 @@
 import type { PaginatedResult } from "../../contracts/common.js";
 import { normalizeSessionMetadata, type MessageInfo, type SessionInfo, type SessionListItem } from "../../contracts/session.js";
 import type { ConversationStore } from "../stores/conversation-store.js";
+import type { FileHistoryService } from "../stores/file-history-service.js";
 
 export class AgentSessionApplication {
-  constructor(private readonly conversationStore: ConversationStore) {}
+  constructor(
+    private readonly conversationStore: ConversationStore,
+    private readonly fileHistory: FileHistoryService | null = null,
+  ) {}
 
   createSession(input: {
     sessionId: string;
@@ -28,6 +32,7 @@ export class AgentSessionApplication {
   }
 
   deleteSession(sessionId: string): boolean {
+    this.fileHistory?.cleanup(sessionId);
     return this.conversationStore.deleteSession(sessionId);
   }
 
@@ -107,7 +112,27 @@ export class AgentSessionApplication {
     threadKey?: string;
     childAgentId?: string | null;
   }): MessageInfo {
-    return this.conversationStore.addMessage(input);
+    const message = this.conversationStore.addMessage(input);
+    if (message.role === "user" && isVisibleRootMessage(message)) {
+      const snapshotId = this.fileHistory?.makeSnapshot(input.sessionId, message.seq);
+      if (snapshotId) {
+        const metadata = {
+          ...message.metadata,
+          snapshot_id: snapshotId,
+        };
+        this.conversationStore.updateMessage({
+          messageId: message.id,
+          metadata,
+          sessionId: input.sessionId,
+          roleFilter: "user",
+        });
+        return {
+          ...message,
+          metadata,
+        };
+      }
+    }
+    return message;
   }
 
   updateUserMessage(input: { sessionId: string; messageId: string; content: string }): boolean {
@@ -154,6 +179,10 @@ export class AgentSessionApplication {
         }
       : originalMessage;
     if (modifiedTask) {
+      const snapshotId = this.fileHistory?.makeSnapshot(input.sessionId, originalMessage.seq);
+      if (snapshotId) {
+        message.metadata.snapshot_id = snapshotId;
+      }
       const updated = this.conversationStore.updateMessage({
         messageId: originalMessage.id,
         content: task,
@@ -181,6 +210,7 @@ export class AgentSessionApplication {
     if (input.afterMessageId !== undefined) {
       payload.afterMessageId = input.afterMessageId;
     }
+    this.rollbackFileSnapshot(input.sessionId, input.afterSeq, input.afterMessageId);
     return this.conversationStore.deleteMessagesAfter(input.sessionId, payload);
   }
 
@@ -227,6 +257,53 @@ export class AgentSessionApplication {
       return null;
     }
     return this.conversationStore.getMessageById(sessionId, messageId);
+  }
+
+  private rollbackFileSnapshot(sessionId: string, afterSeq?: number | null, afterMessageId?: string | null): void {
+    if (!this.fileHistory?.hasSnapshots(sessionId)) {
+      return;
+    }
+    const anchor = this.resolveSnapshotAnchorUserMessage(sessionId, afterSeq, afterMessageId);
+    if (!anchor) {
+      return;
+    }
+    this.fileHistory.rewind(sessionId, anchor.seq);
+  }
+
+  private resolveSnapshotAnchorUserMessage(
+    sessionId: string,
+    afterSeq?: number | null,
+    afterMessageId?: string | null,
+  ): MessageInfo | null {
+    let targetMessage: MessageInfo | null = null;
+    if (afterSeq !== undefined && afterSeq !== null) {
+      targetMessage = this.conversationStore.getMessageBySeq(sessionId, afterSeq);
+    } else {
+      const messageId = afterMessageId?.trim();
+      if (messageId) {
+        targetMessage = this.conversationStore.getMessageById(sessionId, messageId);
+      }
+    }
+
+    if (!targetMessage && afterSeq !== undefined && afterSeq !== null) {
+      targetMessage = this.conversationStore.getFirstMessageAfterSeq(sessionId, afterSeq);
+    }
+    if (!targetMessage) {
+      return null;
+    }
+    if (targetMessage.role === "user" && isVisibleRootMessage(targetMessage)) {
+      return targetMessage;
+    }
+
+    const nextUser = this.conversationStore
+      .listMessagesAfterSeq(sessionId, targetMessage.seq, 20)
+      .find((message) => message.role === "user" && isVisibleRootMessage(message));
+    if (nextUser) {
+      return nextUser;
+    }
+    return this.conversationStore
+      .listMessagesBeforeOrAtSeq(sessionId, targetMessage.seq, 20)
+      .find((message) => message.role === "user" && isVisibleRootMessage(message)) ?? null;
   }
 }
 

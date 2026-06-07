@@ -15,6 +15,7 @@ import { CheckpointManager } from "../stores/checkpoint-manager.js";
 import { ConversationStore } from "../stores/conversation-store.js";
 import { DaemonService } from "../daemon/daemon-service.js";
 import { EmbeddingModelService } from "../knowledge/embedding-model-service.js";
+import { FileHistoryService } from "../stores/file-history-service.js";
 import { FileIndexService } from "../stores/file-index-service.js";
 import { RealtimeEventHub } from "./realtime-event-hub.js";
 import { LocalBashToolService } from "../tools/local-bash-tool-service.js";
@@ -48,6 +49,7 @@ export interface RuntimeContainer {
   readonly systemConfig: SystemConfigService;
   readonly mcp: McpService;
   readonly daemon: DaemonService;
+  readonly fileHistory: FileHistoryService;
   readonly fileIndex: FileIndexService;
   readonly vectorLibrary: VectorLibraryService;
   readonly artifacts: ArtifactService;
@@ -87,7 +89,8 @@ export interface RuntimeContainerOptions {
 
 export function createRuntimeContainer(options: RuntimeContainerOptions): RuntimeContainer {
   const conversationStore = new ConversationStore({ dbPath: options.dbPath, dataRoot: options.dataRoot });
-  const sessionApplication = new AgentSessionApplication(conversationStore);
+  const fileHistory = new FileHistoryService({ dataRoot: options.dataRoot });
+  const sessionApplication = new AgentSessionApplication(conversationStore, fileHistory);
   const checkpointManager = new CheckpointManager({ dbPath: options.checkpointDbPath ?? options.dbPath });
   const realtimeEvents = new RealtimeEventHub();
   const outboxDispatcher = new OutboxDispatcher(conversationStore, realtimeEvents);
@@ -113,7 +116,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const embeddingModels = new EmbeddingModelService(vectorLibrary);
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
   const memoryTools = new MemoryToolService(memoryStore, conversationStore);
-  const documentTools = new LocalDocumentToolService({ dataRoot: options.dataRoot });
+  const documentTools = new LocalDocumentToolService({ dataRoot: options.dataRoot, fileHistory });
   const searchTools = new LocalSearchToolService({ dataRoot: options.dataRoot });
   const backgroundTasks = new BackgroundTaskService();
   const toolsConfig = asRecord(systemConfig.getConfig().tools);
@@ -202,6 +205,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     systemConfig,
     mcp,
     daemon,
+    fileHistory,
     fileIndex,
     vectorLibrary,
     artifacts,
