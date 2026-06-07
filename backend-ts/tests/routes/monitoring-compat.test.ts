@@ -126,8 +126,138 @@ describe("monitoring compatibility routes", () => {
         ready: 1,
         oldest_pending_created_at: expect.any(String),
         oldest_pending_age_seconds: expect.any(Number),
+        oldest_retrying_created_at: expect.any(String),
+        oldest_retrying_age_seconds: expect.any(Number),
+        oldest_pending_or_retrying_created_at: expect.any(String),
+        oldest_pending_or_retrying_age_seconds: expect.any(Number),
+        oldest_failed_created_at: expect.any(String),
+        oldest_failed_age_seconds: expect.any(Number),
+        recent_failed_errors: [
+          expect.objectContaining({
+            id: failed.id,
+            event_id: "event-failed",
+            last_error: "projection failed",
+          }),
+        ],
       },
     });
+  });
+
+  it("manages event outbox rows through operations routes", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+    const store = harness.container.conversationStore;
+    store.createSession("ops-outbox");
+    const failed = store.appendOutbox({
+      sessionId: "ops-outbox",
+      runId: "run-failed",
+      eventId: "event-failed",
+      eventType: "run.failed",
+      aggregateType: "run",
+      aggregateId: "run-failed",
+      payload: {
+        status: "failed",
+        error: "projection failed",
+        metadata: { run_id: "run-failed" },
+      },
+    });
+    const retrying = store.appendOutbox({
+      sessionId: "ops-outbox",
+      runId: "run-retrying",
+      eventId: "event-retrying",
+      eventType: "run.failed",
+      aggregateType: "run",
+      aggregateId: "run-retrying",
+      payload: {
+        status: "failed",
+        error: "transient",
+        metadata: { run_id: "run-retrying" },
+      },
+    });
+    const delivered = store.appendOutbox({
+      sessionId: "ops-outbox",
+      runId: "run-delivered",
+      eventId: "event-delivered",
+      eventType: "run.completed",
+      aggregateType: "run",
+      aggregateId: "run-delivered",
+      payload: {
+        status: "completed",
+        metadata: { run_id: "run-delivered" },
+      },
+    });
+    store.markOutboxFailed(failed.id, "projection failed");
+    store.markOutboxRetrying(retrying.id, "transient", "2999-01-01T00:00:00.000Z");
+    store.markOutboxDelivered(delivered.id);
+
+    const list = await app.inject({
+      method: "GET",
+      url: "/api/agent/event-outbox?status=failed,retrying&session_id=ops-outbox",
+    });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().data).toMatchObject({
+      total: 2,
+      limit: 100,
+      offset: 0,
+      has_more: false,
+      items: [
+        expect.objectContaining({ id: failed.id, event_id: "event-failed", status: "failed" }),
+        expect.objectContaining({ id: retrying.id, event_id: "event-retrying", status: "retrying" }),
+      ],
+    });
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/api/agent/event-outbox/${failed.id}`,
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().data).toMatchObject({
+      id: failed.id,
+      event_id: "event-failed",
+      last_error: "projection failed",
+    });
+
+    const retryOne = await app.inject({
+      method: "POST",
+      url: `/api/agent/event-outbox/${failed.id}/retry`,
+    });
+    expect(retryOne.statusCode).toBe(200);
+    expect(retryOne.json().data).toEqual({ id: failed.id, retried: true });
+    expect(store.getOutboxRow(failed.id)).toMatchObject({ status: "pending", last_error: null });
+
+    const retryBatch = await app.inject({
+      method: "POST",
+      url: "/api/agent/event-outbox/retry",
+      payload: { status: "retrying", limit: 10 },
+    });
+    expect(retryBatch.statusCode).toBe(200);
+    expect(retryBatch.json().data).toEqual({
+      matched: 1,
+      retried: 1,
+      ids: [retrying.id],
+    });
+    expect(store.getOutboxRow(retrying.id)).toMatchObject({ status: "pending", last_error: null });
+
+    const retryDelivered = await app.inject({
+      method: "POST",
+      url: `/api/agent/event-outbox/${delivered.id}/retry`,
+    });
+    expect(retryDelivered.statusCode).toBe(409);
+    expect(retryDelivered.json()).toMatchObject({
+      success: false,
+      code: "outbox_not_retryable",
+    });
+
+    const cleanup = await app.inject({
+      method: "DELETE",
+      url: "/api/agent/event-outbox/delivered?before=2999-01-01T00%3A00%3A00.000Z&limit=10",
+    });
+    expect(cleanup.statusCode).toBe(200);
+    expect(cleanup.json().data).toEqual({
+      deleted: 1,
+      before: "2999-01-01T00:00:00.000Z",
+    });
+    expect(store.getOutboxRow(delivered.id)).toBeNull();
   });
 
   it("serves a Python-compatible context snapshot and persisted message content", async () => {

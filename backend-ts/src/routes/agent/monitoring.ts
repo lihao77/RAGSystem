@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { ok } from "../../contracts/common.js";
+import type { OutboxStatus } from "../../services/stores/conversation-store.js";
 import { resolveContextBudget, resolveRuntimeContextSettings } from "../../services/agent/agent-context-compression-service.js";
 import { buildAgentPromptContext, buildFullSystemPrompt } from "../../services/agent/agent-prompt-builder.js";
 import { resolveRuntimeHistoryView } from "../../services/agent/agent-runtime-context-builder.js";
@@ -11,6 +12,20 @@ import type { RouteOptions } from "../route-options.js";
 interface ContextSnapshotQuery {
   session_id?: string;
   selected_llm?: string;
+}
+
+interface OutboxListQuery {
+  status?: string;
+  session_id?: string;
+  run_id?: string;
+  limit?: string;
+  offset?: string;
+}
+
+interface OutboxCleanupQuery {
+  before?: string;
+  older_than_hours?: string;
+  limit?: string;
 }
 
 export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
@@ -26,6 +41,60 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const body = isRecord(request.body) ? request.body : {};
     const agentName = typeof body.agent_name === "string" && body.agent_name.trim() ? body.agent_name.trim() : "";
     return ok(undefined, `已重置${agentName ? `智能体 ${agentName}` : "所有"}指标`);
+  });
+
+  app.get("/event-outbox", async (request) => {
+    const query = request.query as OutboxListQuery;
+    return ok(
+      options.container.conversationStore.listOutbox({
+        statuses: parseOutboxStatuses(query.status),
+        sessionId: normalizeString(query.session_id),
+        runId: normalizeString(query.run_id),
+        limit: parseIntegerQuery(query.limit, "limit", { defaultValue: 100, min: 1, max: 500 }),
+        offset: parseIntegerQuery(query.offset, "offset", { defaultValue: 0, min: 0, max: 100_000 }),
+      }),
+      "获取 outbox 事件成功",
+    );
+  });
+
+  app.get<{ Params: { id: string } }>("/event-outbox/:id", async (request) => {
+    const id = parsePositiveInteger(request.params.id, "id");
+    const row = options.container.conversationStore.getOutboxRow(id);
+    if (!row) {
+      throw new HttpError(404, "not_found", "outbox 事件不存在");
+    }
+    return ok(row, "获取 outbox 事件成功");
+  });
+
+  app.post<{ Params: { id: string } }>("/event-outbox/:id/retry", async (request) => {
+    const id = parsePositiveInteger(request.params.id, "id");
+    const retried = options.container.conversationStore.retryOutbox(id);
+    if (!retried) {
+      throw new HttpError(409, "outbox_not_retryable", "outbox 事件不存在或当前状态不可重试");
+    }
+    return ok({ id, retried: true }, "outbox 事件已重新入队");
+  });
+
+  app.post("/event-outbox/retry", async (request) => {
+    const body = isRecord(request.body) ? request.body : {};
+    const ids = parseIdArray(body.ids);
+    const statuses = parseOutboxStatuses(typeof body.status === "string" ? body.status : undefined);
+    const result = options.container.conversationStore.retryOutboxBatch({
+      ids,
+      statuses: statuses.length > 0 ? statuses : undefined,
+      limit: parseIntegerValue(body.limit, "limit", { defaultValue: 100, min: 1, max: 500 }),
+    });
+    return ok(result, "outbox 事件已批量重新入队");
+  });
+
+  app.delete("/event-outbox/delivered", async (request) => {
+    const query = request.query as OutboxCleanupQuery;
+    const before = parseCleanupBefore(query);
+    const deleted = options.container.conversationStore.deleteDeliveredOutbox({
+      before,
+      limit: parseIntegerQuery(query.limit, "limit", { defaultValue: 1000, min: 1, max: 10_000 }),
+    });
+    return ok({ deleted, before }, "已清理 delivered outbox 事件");
   });
 
   app.get("/context-snapshot", async (request) => {
@@ -343,6 +412,107 @@ function asString(value: unknown): string | null {
 
 function normalizeString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function parseOutboxStatuses(value: string | undefined): OutboxStatus[] {
+  if (!value?.trim()) {
+    return [];
+  }
+  const statuses: OutboxStatus[] = [];
+  for (const item of value.split(",")) {
+    const status = item.trim();
+    if (!status) {
+      continue;
+    }
+    if (!isOutboxStatus(status)) {
+      throw new HttpError(400, "invalid_request", `无效 outbox status: ${status}`);
+    }
+    if (!statuses.includes(status)) {
+      statuses.push(status);
+    }
+  }
+  return statuses;
+}
+
+function isOutboxStatus(value: string): value is OutboxStatus {
+  return value === "pending" || value === "retrying" || value === "delivered" || value === "failed";
+}
+
+function parseIdArray(value: unknown): number[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new HttpError(400, "invalid_request", "ids 必须是数字数组");
+  }
+  const ids = value.map((item) => {
+    if (typeof item !== "number" || !Number.isSafeInteger(item) || item <= 0) {
+      throw new HttpError(400, "invalid_request", "ids 必须是正整数数组");
+    }
+    return item;
+  });
+  return [...new Set(ids)];
+}
+
+function parseIntegerQuery(
+  value: string | undefined,
+  field: string,
+  bounds: { defaultValue: number; min: number; max: number },
+): number {
+  if (value === undefined || value === "") {
+    return bounds.defaultValue;
+  }
+  return parseBoundedInteger(Number(value), field, bounds);
+}
+
+function parseIntegerValue(
+  value: unknown,
+  field: string,
+  bounds: { defaultValue: number; min: number; max: number },
+): number {
+  if (value === undefined || value === null) {
+    return bounds.defaultValue;
+  }
+  return parseBoundedInteger(value, field, bounds);
+}
+
+function parseBoundedInteger(
+  value: unknown,
+  field: string,
+  bounds: { defaultValue: number; min: number; max: number },
+): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value)) {
+    throw new HttpError(400, "invalid_request", `${field} 必须是整数`);
+  }
+  if (value < bounds.min || value > bounds.max) {
+    throw new HttpError(400, "invalid_request", `${field} 必须在 ${bounds.min} 到 ${bounds.max} 之间`);
+  }
+  return value;
+}
+
+function parsePositiveInteger(value: string, field: string): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new HttpError(400, "invalid_request", `${field} 必须是正整数`);
+  }
+  return parsed;
+}
+
+function parseCleanupBefore(query: OutboxCleanupQuery): string {
+  const explicitBefore = normalizeString(query.before);
+  if (explicitBefore) {
+    const timestamp = Date.parse(explicitBefore);
+    if (!Number.isFinite(timestamp)) {
+      throw new HttpError(400, "invalid_request", "before 必须是有效时间");
+    }
+    return new Date(timestamp).toISOString();
+  }
+  const olderThanHours = parseIntegerQuery(query.older_than_hours, "older_than_hours", {
+    defaultValue: 24,
+    min: 1,
+    max: 24 * 365,
+  });
+  return new Date(Date.now() - olderThanHours * 60 * 60 * 1000).toISOString();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

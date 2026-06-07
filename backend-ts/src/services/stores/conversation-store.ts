@@ -88,6 +88,34 @@ export interface ClaimOutboxInput {
   now?: Date;
 }
 
+export type OutboxStatus = "pending" | "retrying" | "delivered" | "failed";
+
+export interface ListOutboxInput {
+  statuses?: OutboxStatus[] | undefined;
+  sessionId?: string | null | undefined;
+  runId?: string | null | undefined;
+  limit?: number | undefined;
+  offset?: number | undefined;
+}
+
+export interface RetryOutboxBatchInput {
+  ids?: number[] | undefined;
+  statuses?: OutboxStatus[] | undefined;
+  limit?: number | undefined;
+  availableAt?: string | undefined;
+}
+
+export interface RetryOutboxResult {
+  matched: number;
+  retried: number;
+  ids: number[];
+}
+
+export interface DeleteDeliveredOutboxInput {
+  before: string;
+  limit?: number | undefined;
+}
+
 export interface ConversationStoreTransaction {
   addMessage(input: AddMessageInput): MessageInfo;
   addRunStep(input: AddRunStepInput): RunStepRecord;
@@ -107,6 +135,24 @@ export interface EventOutboxStats {
   ready: number;
   oldest_pending_created_at: string | null;
   oldest_pending_age_seconds: number | null;
+  oldest_retrying_created_at: string | null;
+  oldest_retrying_age_seconds: number | null;
+  oldest_pending_or_retrying_created_at: string | null;
+  oldest_pending_or_retrying_age_seconds: number | null;
+  oldest_failed_created_at: string | null;
+  oldest_failed_age_seconds: number | null;
+  recent_failed_errors: EventOutboxErrorSummary[];
+}
+
+export interface EventOutboxErrorSummary {
+  id: number;
+  event_id: string;
+  session_id: string;
+  run_id: string | null;
+  event_type: string;
+  attempts: number;
+  last_error: string | null;
+  created_at: string;
 }
 
 export class ConversationStore {
@@ -723,6 +769,37 @@ export class ConversationStore {
       .all(input.sessionId, afterSeq, limit) as unknown as OutboxRow[];
   }
 
+  getOutboxRow(id: number): OutboxRow | null {
+    return this.loadOutboxRow(id);
+  }
+
+  listOutbox(input: ListOutboxInput = {}): PaginatedResult<OutboxRow> {
+    const limit = normalizeLimit(input.limit, 100, 500);
+    const offset = normalizeOffset(input.offset);
+    const filters = buildOutboxFilters(input);
+    const where = filters.clauses.length > 0 ? `WHERE ${filters.clauses.join(" AND ")}` : "";
+    const total = this.db
+      .prepare(`SELECT COUNT(*) AS total FROM event_outbox ${where}`)
+      .get(...filters.values) as { total: number } | undefined;
+    const items = this.db
+      .prepare(`
+        SELECT ${OUTBOX_SELECT_COLUMNS}
+        FROM event_outbox
+        ${where}
+        ORDER BY id ASC
+        LIMIT ? OFFSET ?
+      `)
+      .all(...filters.values, limit, offset) as unknown as OutboxRow[];
+    const totalCount = numericCount(total?.total);
+    return {
+      items,
+      total: totalCount,
+      limit,
+      offset,
+      has_more: offset + items.length < totalCount,
+    };
+  }
+
   markOutboxDelivered(id: number): boolean {
     const result = this.db
       .prepare(`
@@ -756,6 +833,89 @@ export class ConversationStore {
     return Number(result.changes) > 0;
   }
 
+  retryOutbox(id: number, availableAt = nowIso()): boolean {
+    const result = this.db
+      .prepare(`
+        UPDATE event_outbox
+        SET status='pending', available_at=?, locked_at=NULL, delivered_at=NULL, last_error=NULL
+        WHERE id=? AND status IN ('failed', 'retrying')
+      `)
+      .run(availableAt, id);
+    return Number(result.changes) > 0;
+  }
+
+  retryOutboxBatch(input: RetryOutboxBatchInput = {}): RetryOutboxResult {
+    const statuses = normalizeOutboxStatuses(input.statuses, ["failed", "retrying"]);
+    const availableAt = input.availableAt ?? nowIso();
+    const ids = input.ids?.length
+      ? uniquePositiveIntegers(input.ids)
+      : this.selectOutboxIdsByStatus(statuses, normalizeLimit(input.limit, 100, 500));
+    if (ids.length === 0) {
+      return { matched: 0, retried: 0, ids: [] };
+    }
+    const placeholders = ids.map(() => "?").join(", ");
+    const statusPlaceholders = statuses.map(() => "?").join(", ");
+    const result = this.db
+      .prepare(`
+        UPDATE event_outbox
+        SET status='pending', available_at=?, locked_at=NULL, delivered_at=NULL, last_error=NULL
+        WHERE id IN (${placeholders}) AND status IN (${statusPlaceholders})
+      `)
+      .run(availableAt, ...ids, ...statuses);
+    const retriedIds = this.db
+      .prepare(`
+        SELECT id
+        FROM event_outbox
+        WHERE id IN (${placeholders}) AND status='pending' AND available_at=?
+        ORDER BY id ASC
+      `)
+      .all(...ids, availableAt) as Array<{ id: number }>;
+    return {
+      matched: ids.length,
+      retried: Number(result.changes),
+      ids: retriedIds.map((row) => Number(row.id)),
+    };
+  }
+
+  private selectOutboxIdsByStatus(statuses: OutboxStatus[], limit: number): number[] {
+    if (statuses.length === 0) {
+      return [];
+    }
+    const placeholders = statuses.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare(`
+        SELECT id
+        FROM event_outbox
+        WHERE status IN (${placeholders})
+        ORDER BY id ASC
+        LIMIT ?
+      `)
+      .all(...statuses, limit) as Array<{ id: number }>;
+    return rows.map((row) => Number(row.id));
+  }
+
+  deleteDeliveredOutbox(input: DeleteDeliveredOutboxInput): number {
+    const limit = normalizeLimit(input.limit, 100, 10_000);
+    const ids = this.db
+      .prepare(`
+        SELECT id
+        FROM event_outbox
+        WHERE status='delivered'
+          AND COALESCE(delivered_at, created_at) < ?
+        ORDER BY id ASC
+        LIMIT ?
+      `)
+      .all(input.before, limit) as Array<{ id: number }>;
+    if (ids.length === 0) {
+      return 0;
+    }
+    const placeholders = ids.map(() => "?").join(", ");
+    const result = this.db
+      .prepare(`DELETE FROM event_outbox WHERE id IN (${placeholders})`)
+      .run(...ids.map((row) => row.id));
+    return Number(result.changes);
+  }
+
   getOutboxStats(): EventOutboxStats {
     const row = this.db
       .prepare(`
@@ -767,7 +927,10 @@ export class ConversationStore {
           SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed,
           SUM(CASE WHEN status IN ('pending', 'retrying') AND locked_at IS NOT NULL THEN 1 ELSE 0 END) AS locked,
           SUM(CASE WHEN status IN ('pending', 'retrying') AND locked_at IS NULL AND available_at <= ? THEN 1 ELSE 0 END) AS ready,
-          MIN(CASE WHEN status='pending' THEN created_at ELSE NULL END) AS oldest_pending_created_at
+          MIN(CASE WHEN status='pending' THEN created_at ELSE NULL END) AS oldest_pending_created_at,
+          MIN(CASE WHEN status='retrying' THEN created_at ELSE NULL END) AS oldest_retrying_created_at,
+          MIN(CASE WHEN status IN ('pending', 'retrying') THEN created_at ELSE NULL END) AS oldest_pending_or_retrying_created_at,
+          MIN(CASE WHEN status='failed' THEN created_at ELSE NULL END) AS oldest_failed_created_at
         FROM event_outbox
       `)
       .get(nowIso()) as {
@@ -779,7 +942,19 @@ export class ConversationStore {
         locked: number | null;
         ready: number | null;
         oldest_pending_created_at: string | null;
+        oldest_retrying_created_at: string | null;
+        oldest_pending_or_retrying_created_at: string | null;
+        oldest_failed_created_at: string | null;
       };
+    const recentFailedErrors = this.db
+      .prepare(`
+        SELECT id, event_id, session_id, run_id, event_type, attempts, last_error, created_at
+        FROM event_outbox
+        WHERE status='failed'
+        ORDER BY id DESC
+        LIMIT 5
+      `)
+      .all() as unknown as EventOutboxErrorSummary[];
     return {
       total: numericCount(row.total),
       pending: numericCount(row.pending),
@@ -790,6 +965,13 @@ export class ConversationStore {
       ready: numericCount(row.ready),
       oldest_pending_created_at: row.oldest_pending_created_at,
       oldest_pending_age_seconds: ageSeconds(row.oldest_pending_created_at),
+      oldest_retrying_created_at: row.oldest_retrying_created_at,
+      oldest_retrying_age_seconds: ageSeconds(row.oldest_retrying_created_at),
+      oldest_pending_or_retrying_created_at: row.oldest_pending_or_retrying_created_at,
+      oldest_pending_or_retrying_age_seconds: ageSeconds(row.oldest_pending_or_retrying_created_at),
+      oldest_failed_created_at: row.oldest_failed_created_at,
+      oldest_failed_age_seconds: ageSeconds(row.oldest_failed_created_at),
+      recent_failed_errors: recentFailedErrors,
     };
   }
 
@@ -1092,6 +1274,69 @@ export class ConversationStore {
 
 function numericCount(value: number | null | undefined): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function normalizeLimit(value: number | null | undefined, defaultValue: number, maxValue: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return defaultValue;
+  }
+  return Math.min(maxValue, Math.max(1, Math.floor(value)));
+}
+
+function normalizeOffset(value: number | null | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(value));
+}
+
+function buildOutboxFilters(input: ListOutboxInput): { clauses: string[]; values: Array<string | number> } {
+  const clauses: string[] = [];
+  const values: Array<string | number> = [];
+  const statuses = normalizeOutboxStatuses(input.statuses, []);
+  if (statuses.length > 0) {
+    clauses.push(`status IN (${statuses.map(() => "?").join(", ")})`);
+    values.push(...statuses);
+  }
+  const sessionId = normalizeNonEmptyString(input.sessionId);
+  if (sessionId) {
+    clauses.push("session_id=?");
+    values.push(sessionId);
+  }
+  const runId = normalizeNonEmptyString(input.runId);
+  if (runId) {
+    clauses.push("run_id=?");
+    values.push(runId);
+  }
+  return { clauses, values };
+}
+
+function normalizeOutboxStatuses(values: OutboxStatus[] | undefined, defaultStatuses: OutboxStatus[]): OutboxStatus[] {
+  if (!values || values.length === 0) {
+    return [...defaultStatuses];
+  }
+  const statuses: OutboxStatus[] = [];
+  for (const value of values) {
+    if (!isOutboxStatus(value)) {
+      continue;
+    }
+    if (!statuses.includes(value)) {
+      statuses.push(value);
+    }
+  }
+  return statuses;
+}
+
+function isOutboxStatus(value: string): value is OutboxStatus {
+  return value === "pending" || value === "retrying" || value === "delivered" || value === "failed";
+}
+
+function uniquePositiveIntegers(values: number[]): number[] {
+  return [...new Set(values.map((value) => Math.floor(value)).filter((value) => Number.isSafeInteger(value) && value > 0))];
+}
+
+function normalizeNonEmptyString(value: string | null | undefined): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function nowIso(): string {

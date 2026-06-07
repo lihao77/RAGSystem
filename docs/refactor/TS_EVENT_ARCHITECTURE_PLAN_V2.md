@@ -487,8 +487,29 @@ class OutboxDispatcher {
 
 - 已移除 `BACKEND_TS_TERMINAL_EVENT_DELIVERY` 运行时开关。
 - completed/failed/interrupted terminal events、streaming events、interaction/background/delegation events 均由 outbox projection 派发，旧同步 publish 不再可用。
-- `/api/agent/metrics` 已暴露 `event_outbox` delivery mode、dispatcher metrics 和 pending/retrying/delivered/failed 统计。
+- `/api/agent/metrics` 已暴露 `event_outbox` delivery mode、dispatcher metrics、pending/retrying/delivered/failed 统计、oldest age 和 recent failed error 摘要。
 - WebSocket active replay 和 durable cursor replay 均读取 outbox projection；RealtimeEventHub 仅作为 dispatcher 到 WebSocket 的实时 fanout。
+- `/api/agent/event-outbox` 已提供运维入口：查询 pending/retrying/failed/delivered、按 id 或批量 retry、按时间清理 delivered rows。
+
+### Phase 6：Outbox 运维与 retention
+
+目标：真实运行时能排查、恢复和清理 outbox，不需要直接操作 SQLite。
+
+工作：
+
+- 查询接口：`GET /api/agent/event-outbox?status=failed,retrying&session_id=...&run_id=...&limit=...&offset=...`。
+- 详情接口：`GET /api/agent/event-outbox/:id`。
+- 重试接口：`POST /api/agent/event-outbox/:id/retry`，仅允许 `failed/retrying` 重新入队为 `pending`。
+- 批量重试：`POST /api/agent/event-outbox/retry`，支持 `ids` 或 `status + limit`。
+- 清理接口：`DELETE /api/agent/event-outbox/delivered?before=...&limit=...`，只删除 delivered rows。
+- Metrics 增强：oldest pending/retrying/failed age、ready/locked、recent failed errors。
+
+验收：
+
+- failed/retrying rows 可通过 API 查询并重新入队。
+- delivered rows 可按 cutoff 安全清理，不影响 pending/retrying/failed。
+- `/api/agent/metrics` 能直接暴露积压年龄和最近 failed 错误。
+- store 单元测试与 HTTP route 测试覆盖查询、retry、batch retry、cleanup、metrics。
 
 ## 测试计划
 
@@ -497,6 +518,7 @@ class OutboxDispatcher {
 - `ConversationStore.runInTransaction` rollback。
 - `session_event_seq` 单调递增。
 - `appendOutbox/fetchPending/markDelivered/markFailed`。
+- `listOutbox/getOutboxRow/retryOutbox/retryOutboxBatch/deleteDeliveredOutbox/getOutboxStats`。
 - `ExecutionRecorder.recordRunTerminal` completed/failed/interrupted。
 - `ClientEventProjector` 覆盖全部首期 DomainEvent。
 
@@ -507,6 +529,7 @@ class OutboxDispatcher {
 - agent stream interrupted：status interrupted、agent.error error_type、run.end。
 - dispatcher restart：pending rows 能继续处理。
 - WS reconnect：`last_event_seq` 回放 terminal events。
+- outbox operations：failed/retrying 查询、单条/批量 retry、delivered cleanup。
 
 ### Regression
 
@@ -525,6 +548,7 @@ class OutboxDispatcher {
 | 重连 cursor 混乱 | `stream_seq` 和 `event_seq` 分离，Phase 4 引入 `last_event_seq` |
 | 高频事件压垮 DB | 先接受 durable outbox 作为唯一事件路径，后续通过 batching/retention/compaction 优化 |
 | 失败事件漏投影 | failed/interrupted 单独事件矩阵和测试 |
+| 误删待投递事件 | cleanup 接口只删除 `delivered` 且早于 cutoff 的 rows |
 
 ## 成功标准
 
@@ -534,3 +558,4 @@ class OutboxDispatcher {
 - durable replay 不依赖进程内 history。
 - 事件调用点收敛到 durable client event publisher / execution recorder。
 - dispatcher 状态可观测、可暂停、可恢复。
+- failed/retrying outbox 可通过 API 重试，delivered outbox 可通过 API retention 清理。

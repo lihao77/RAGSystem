@@ -175,6 +175,90 @@ describe("ConversationStore", () => {
     store.close();
   });
 
+  it("manages failed and delivered outbox rows for operations", () => {
+    const store = new ConversationStore({ dbPath: ":memory:" });
+    store.createSession("ops-outbox");
+    const pending = store.appendOutbox({
+      sessionId: "ops-outbox",
+      runId: "run-pending",
+      eventId: "event-pending",
+      eventType: "run.completed",
+      aggregateType: "run",
+      aggregateId: "run-pending",
+      payload: { status: "completed" },
+    });
+    const retrying = store.appendOutbox({
+      sessionId: "ops-outbox",
+      runId: "run-retrying",
+      eventId: "event-retrying",
+      eventType: "run.failed",
+      aggregateType: "run",
+      aggregateId: "run-retrying",
+      payload: { status: "failed" },
+    });
+    const failed = store.appendOutbox({
+      sessionId: "ops-outbox",
+      runId: "run-failed",
+      eventId: "event-failed",
+      eventType: "run.failed",
+      aggregateType: "run",
+      aggregateId: "run-failed",
+      payload: { status: "failed" },
+    });
+    const delivered = store.appendOutbox({
+      sessionId: "ops-outbox",
+      runId: "run-delivered",
+      eventId: "event-delivered",
+      eventType: "run.completed",
+      aggregateType: "run",
+      aggregateId: "run-delivered",
+      payload: { status: "completed" },
+    });
+
+    expect(store.markOutboxRetrying(retrying.id, "retry later", "2999-01-01T00:00:00.000Z")).toBe(true);
+    expect(store.markOutboxFailed(failed.id, "projection failed")).toBe(true);
+    expect(store.markOutboxDelivered(delivered.id)).toBe(true);
+
+    expect(store.listOutbox({ statuses: ["failed", "retrying"], limit: 10 }).items.map((row) => row.event_id)).toEqual([
+      "event-retrying",
+      "event-failed",
+    ]);
+    expect(store.listOutbox({ runId: "run-failed" }).items.map((row) => row.id)).toEqual([failed.id]);
+    expect(store.getOutboxRow(failed.id)).toMatchObject({
+      event_id: "event-failed",
+      status: "failed",
+      last_error: "projection failed",
+    });
+
+    expect(store.retryOutbox(pending.id)).toBe(false);
+    expect(store.retryOutbox(failed.id)).toBe(true);
+    expect(store.getOutboxRow(failed.id)).toMatchObject({
+      status: "pending",
+      last_error: null,
+      locked_at: null,
+    });
+
+    expect(store.retryOutboxBatch({ statuses: ["retrying"], limit: 10 })).toEqual({
+      matched: 1,
+      retried: 1,
+      ids: [retrying.id],
+    });
+    expect(store.getOutboxStats()).toMatchObject({
+      total: 4,
+      pending: 3,
+      retrying: 0,
+      delivered: 1,
+      failed: 0,
+      recent_failed_errors: [],
+      oldest_pending_created_at: expect.any(String),
+      oldest_pending_or_retrying_created_at: expect.any(String),
+    });
+
+    expect(store.deleteDeliveredOutbox({ before: "2999-01-01T00:00:00.000Z", limit: 10 })).toBe(1);
+    expect(store.listOutbox({ statuses: ["delivered"] }).items).toEqual([]);
+    store.close();
+  });
+
   it("rolls back core state and outbox writes from the transaction facade", () => {
     const store = new ConversationStore({ dbPath: ":memory:" });
 
