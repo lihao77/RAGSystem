@@ -32,6 +32,8 @@ const CHILD_AGENT_SELECT_COLUMNS = `
   last_run_id, metadata, created_at, updated_at
 `;
 
+const RUN_STEP_SELECT_COLUMNS = "id, run_id, session_id, message_id, step_order, step_type, payload, created_at";
+
 export interface ConversationStoreOptions {
   dbPath: string;
   dataRoot?: string | undefined;
@@ -680,7 +682,7 @@ export class ConversationStore {
   getToolCallRawResult(sessionId: string, callId: string): Record<string, unknown> | null {
     const row = this.db
       .prepare(`
-        SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
+        SELECT ${RUN_STEP_SELECT_COLUMNS}
         FROM run_steps
         WHERE session_id=?
           AND step_type=?
@@ -722,7 +724,7 @@ export class ConversationStore {
       if (input.sessionId) {
         return this.db
           .prepare(`
-            SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
+            SELECT ${RUN_STEP_SELECT_COLUMNS}
             FROM run_steps
             WHERE message_id=? AND session_id=?
             ORDER BY step_order ASC
@@ -732,7 +734,7 @@ export class ConversationStore {
       }
       return this.db
         .prepare(`
-          SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
+          SELECT ${RUN_STEP_SELECT_COLUMNS}
           FROM run_steps
           WHERE message_id=?
           ORDER BY step_order ASC
@@ -745,7 +747,7 @@ export class ConversationStore {
       if (input.sessionId) {
         return this.db
           .prepare(`
-            SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
+            SELECT ${RUN_STEP_SELECT_COLUMNS}
             FROM run_steps
             WHERE run_id=? AND session_id=?
             ORDER BY step_order ASC
@@ -755,7 +757,7 @@ export class ConversationStore {
       }
       return this.db
         .prepare(`
-          SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at
+          SELECT ${RUN_STEP_SELECT_COLUMNS}
           FROM run_steps
           WHERE run_id=?
           ORDER BY step_order ASC
