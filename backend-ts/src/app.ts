@@ -33,7 +33,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       dbPath: options.env.dbPath,
       checkpointDbPath: options.env.checkpointDbPath,
       dataRoot: options.env.dataRoot,
-      terminalEventDelivery: options.env.terminalEventDelivery,
     });
   const app = Fastify({
     logger: {

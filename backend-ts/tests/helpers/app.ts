@@ -2,7 +2,6 @@ import { buildApp } from "../../src/app.js";
 import type { AppEnv } from "../../src/config/env.js";
 import { createRuntimeContainer } from "../../src/services/runtime/runtime-container.js";
 import type { LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
-import type { TerminalEventDeliveryMode } from "../../src/services/runtime/event-delivery-mode.js";
 
 export const testEnv: AppEnv = {
   host: "127.0.0.1",
@@ -13,7 +12,6 @@ export const testEnv: AppEnv = {
   dataRoot: ".test-data",
   dbPath: ":memory:",
   checkpointDbPath: ":memory:",
-  terminalEventDelivery: "outbox_live",
 };
 
 export async function buildTestApp() {
@@ -24,7 +22,6 @@ export async function buildTestApp() {
 export async function buildTestHarness(
   options: {
     llmChatClient?: LlmChatClient;
-    terminalEventDelivery?: TerminalEventDeliveryMode;
     startOutboxDispatcher?: boolean;
   } = {},
 ) {
@@ -35,7 +32,6 @@ export async function buildTestHarness(
     llmChatClient: options.llmChatClient,
     modelAdapterProvidersConfigPath: "",
     agentConfigRoot: "",
-    terminalEventDelivery: options.terminalEventDelivery,
     startOutboxDispatcher: options.startOutboxDispatcher ?? false,
   });
   const app = await buildApp({ env: testEnv, container });

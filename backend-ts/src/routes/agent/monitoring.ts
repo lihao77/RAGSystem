@@ -180,7 +180,7 @@ function buildSystemMetrics(options: RouteOptions): {
     },
     agents: {},
     event_outbox: {
-      delivery_mode: options.container.terminalEventDelivery,
+      delivery_mode: "outbox_live",
       dispatcher: options.container.outboxDispatcher.getMetrics(),
       store: options.container.conversationStore.getOutboxStats(),
     },

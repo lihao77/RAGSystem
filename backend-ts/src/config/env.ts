@@ -2,15 +2,12 @@ import { z } from "zod";
 import os from "node:os";
 import path from "node:path";
 
-import { parseTerminalEventDeliveryMode, type TerminalEventDeliveryMode } from "../services/runtime/event-delivery-mode.js";
-
 const EnvSchema = z.object({
   BACKEND_TS_HOST: z.string().optional(),
   BACKEND_TS_PORT: z.string().optional(),
   BACKEND_TS_LOG_LEVEL: z.string().optional(),
   BACKEND_TS_DB_PATH: z.string().optional(),
   BACKEND_TS_CHECKPOINT_DB_PATH: z.string().optional(),
-  BACKEND_TS_TERMINAL_EVENT_DELIVERY: z.string().optional(),
   CORS_ORIGINS: z.string().optional(),
   NODE_ENV: z.string().optional(),
   PORT: z.string().optional(),
@@ -26,7 +23,6 @@ export interface AppEnv {
   dataRoot: string;
   dbPath: string;
   checkpointDbPath: string;
-  terminalEventDelivery: TerminalEventDeliveryMode;
 }
 
 export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
@@ -51,7 +47,6 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     dataRoot,
     dbPath,
     checkpointDbPath,
-    terminalEventDelivery: parseTerminalEventDeliveryMode(env.BACKEND_TS_TERMINAL_EVENT_DELIVERY),
   };
 }
 

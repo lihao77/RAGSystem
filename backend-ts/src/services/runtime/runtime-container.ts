@@ -33,10 +33,6 @@ import { TaskToolService } from "../tools/task-tool-service.js";
 import { VectorLibraryService } from "../knowledge/vector-library-service.js";
 import { OutboxDispatcher } from "./event-outbox/dispatcher.js";
 import { DurableClientEventPublisher } from "./event-outbox/client-event-publisher.js";
-import {
-  DEFAULT_TERMINAL_EVENT_DELIVERY_MODE,
-  type TerminalEventDeliveryMode,
-} from "./event-delivery-mode.js";
 
 export interface RuntimeContainer {
   readonly conversationStore: ConversationStore;
@@ -69,7 +65,6 @@ export interface RuntimeContainer {
   readonly agentDelegation: AgentDelegationService;
   readonly outboxDispatcher: OutboxDispatcher;
   readonly clientEvents: DurableClientEventPublisher;
-  readonly terminalEventDelivery: TerminalEventDeliveryMode;
   close(): void;
 }
 
@@ -80,7 +75,6 @@ export interface RuntimeContainerOptions {
   llmChatClient?: LlmChatClient | undefined;
   modelAdapterProvidersConfigPath?: string | undefined;
   agentConfigRoot?: string | undefined;
-  terminalEventDelivery?: TerminalEventDeliveryMode | undefined;
   startOutboxDispatcher?: boolean | undefined;
   outboxDispatcherIntervalMs?: number | undefined;
 }
@@ -90,22 +84,16 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const sessionApplication = new AgentSessionApplication(conversationStore);
   const checkpointManager = new CheckpointManager({ dbPath: options.checkpointDbPath ?? options.dbPath });
   const events = new InMemoryEventBus();
-  const terminalEventDelivery = options.terminalEventDelivery ?? DEFAULT_TERMINAL_EVENT_DELIVERY_MODE;
   const outboxDispatcher = new OutboxDispatcher(
     conversationStore,
     events,
     undefined,
-    terminalEventDelivery === "outbox_live" ? "live" : "shadow",
+    "live",
   );
-  if (options.startOutboxDispatcher ?? terminalEventDelivery === "outbox_live") {
+  if (options.startOutboxDispatcher ?? true) {
     outboxDispatcher.start(options.outboxDispatcherIntervalMs);
   }
-  const clientEvents = new DurableClientEventPublisher(
-    conversationStore,
-    events,
-    outboxDispatcher,
-    terminalEventDelivery,
-  );
+  const clientEvents = new DurableClientEventPublisher(conversationStore, outboxDispatcher);
   const permissionPolicy = new PermissionPolicyService();
   const agentConfig = new AgentConfigService({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot });
   const modelAdapter = new ModelAdapterService({
@@ -165,7 +153,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     agentConfig,
     backgroundTasks,
     {
-      terminalEventDelivery,
       outboxDispatcher,
       clientEvents,
     },
@@ -209,7 +196,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     agentDelegation,
     outboxDispatcher,
     clientEvents,
-    terminalEventDelivery,
     close,
   };
 }

@@ -116,11 +116,11 @@ Passing `--execution-task <text>` runs only that custom task.
 
 ## Runtime Event Delivery
 
-Terminal agent events default to durable outbox live delivery. Set
-`BACKEND_TS_TERMINAL_EVENT_DELIVERY=sync` to roll back completed/failed/interrupted terminal
-events to the legacy synchronous publisher while keeping outbox recording enabled.
+Terminal agent events use durable outbox live delivery. Completed/failed/interrupted terminal
+events are recorded to the outbox and projected by the outbox dispatcher; the legacy synchronous
+terminal publisher is no longer available.
 
-`GET /api/agent/metrics` includes `data.event_outbox` with the active delivery mode, dispatcher
+`GET /api/agent/metrics` includes `data.event_outbox` with the delivery mode, dispatcher
 metrics, and pending/delivered/failed outbox counts.
 
 ## Migration Rule

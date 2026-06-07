@@ -47,7 +47,7 @@ function createDurableClientEvents(): {
   return {
     store,
     events,
-    clientEvents: new DurableClientEventPublisher(store, events, dispatcher, "outbox_live"),
+    clientEvents: new DurableClientEventPublisher(store, dispatcher),
   };
 }
 

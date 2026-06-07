@@ -27,7 +27,6 @@ import type { ChatMessage } from "../integrations/llm-chat-client.js";
 import { renderSemanticBlock } from "../runtime/runtime-xml-protocol.js";
 import type { RuntimeExecutionConfigResolver } from "../runtime/runtime-core-service.js";
 import type { RuntimeToolExecutor } from "../runtime/runtime-tool-types.js";
-import type { TerminalEventDeliveryMode } from "../runtime/event-delivery-mode.js";
 import type { OutboxDispatcher } from "../runtime/event-outbox/dispatcher.js";
 import type { DurableClientEventPublisher } from "../runtime/event-outbox/client-event-publisher.js";
 import { AgentExecutionEventPublisher } from "./agent-execution-service/event-publisher.js";
@@ -53,8 +52,7 @@ import {
 } from "./agent-execution-service/helpers.js";
 
 export interface AgentExecutionServiceOptions {
-  terminalEventDelivery?: TerminalEventDeliveryMode | undefined;
-  outboxDispatcher?: Pick<OutboxDispatcher, "dispatchRows"> | null | undefined;
+  outboxDispatcher?: Pick<OutboxDispatcher, "dispatchRows"> | undefined;
   clientEvents?: DurableClientEventPublisher | undefined;
 }
 
@@ -63,8 +61,7 @@ export class AgentExecutionService {
   private readonly pendingFollowupsBySession = new Map<string, ChatMessage[]>();
   private readonly eventPublisher: AgentExecutionEventPublisher;
   private readonly executionRecorder: ExecutionRecorder;
-  private readonly terminalEventDelivery: TerminalEventDeliveryMode;
-  private readonly outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows"> | null;
+  private readonly outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">;
   private readonly clientEvents: DurableClientEventPublisher;
 
   constructor(
@@ -83,14 +80,13 @@ export class AgentExecutionService {
     if (!options.clientEvents) {
       throw new Error("AgentExecutionService requires a durable client event publisher");
     }
+    if (!options.outboxDispatcher) {
+      throw new Error("AgentExecutionService requires an outbox dispatcher");
+    }
     this.clientEvents = options.clientEvents;
     this.eventPublisher = new AgentExecutionEventPublisher(sessions, this.clientEvents, conversationStore);
     this.executionRecorder = new ExecutionRecorder(conversationStore);
-    this.terminalEventDelivery = options.terminalEventDelivery ?? "sync";
-    this.outboxDispatcher = options.outboxDispatcher ?? null;
-    if (this.terminalEventDelivery === "outbox_live" && !this.outboxDispatcher) {
-      throw new Error("outbox_live terminal delivery requires an outbox dispatcher");
-    }
+    this.outboxDispatcher = options.outboxDispatcher;
   }
 
   async startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult> {
@@ -620,68 +616,7 @@ export class AgentExecutionService {
       if (!assistantMessage) {
         throw new Error(`Completed run did not record assistant message: ${input.runId}`);
       }
-      this.deliverTerminalRecord(terminalRecord, () => {
-        this.events.publish(input.sessionId, {
-          type: "execution.step",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          ...mirrorEventData(finalStepPayload),
-        });
-        this.events.publish(input.sessionId, {
-          type: "output.final_answer",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          ...mirrorEventData({
-            content: response.content,
-            metadata: finalMetadata,
-          }),
-        });
-        this.events.publish(input.sessionId, {
-          type: "call.agent.end",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          agent_name: input.agent.agent_name,
-          call_id: input.rootCallId,
-          ...mirrorEventData({
-            agent_name: input.agent.agent_name,
-            result: response.content.slice(0, 500),
-            success: true,
-            agent_display_name: input.agent.display_name || input.agent.agent_name,
-            run_id: input.runId,
-            task_id: input.taskId,
-            request_id: input.requestId,
-          }),
-        });
-        this.events.publish(input.sessionId, {
-          type: "execution.step",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          ...mirrorEventData(runEndStepPayload),
-        });
-        this.events.publish(input.sessionId, {
-          type: "output.message_saved",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          ...mirrorEventData({
-            id: assistantMessage.id,
-            seq: assistantMessage.seq,
-            role: assistantMessage.role,
-            run_id: input.runId,
-            task_id: input.taskId,
-            request_id: input.requestId,
-          }),
-        });
-        this.events.publish(input.sessionId, {
-          type: "run.end",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          ...mirrorEventData({
-            status: "completed",
-            final_message_id: assistantMessage.id,
-            metadata: finalMetadata,
-          }),
-        });
-      });
+      this.deliverTerminalRecord(terminalRecord);
     } catch (error) {
       const interrupted = input.abortController.signal.aborted;
       const finalStatus = interrupted ? "interrupted" : "failed";
@@ -721,67 +656,14 @@ export class AgentExecutionService {
         runEndStepPayload,
         finalMetadata,
       });
-      this.deliverTerminalRecord(terminalRecord, () => {
-        this.events.publish(input.sessionId, {
-          type: "call.agent.end",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          agent_name: input.agent.agent_name,
-          call_id: input.rootCallId,
-          ...mirrorEventData({
-            agent_name: input.agent.agent_name,
-            result: (interrupted ? "[已停止生成]" : errorMessage).slice(0, 500),
-            success: false,
-            agent_display_name: input.agent.display_name || input.agent.agent_name,
-            run_id: input.runId,
-            task_id: input.taskId,
-            request_id: input.requestId,
-          }),
-        });
-        this.events.publish(input.sessionId, {
-          type: "execution.step",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          ...mirrorEventData(runEndStepPayload),
-        });
-        this.events.publish(input.sessionId, {
-          type: "agent.error",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          agent_name: input.agent.agent_name,
-          call_id: input.rootCallId,
-          ...mirrorEventData({
-            agent_name: input.agent.agent_name,
-            error: errorMessage,
-            error_type: interrupted ? "InterruptedError" : "ExecutionError",
-            content: errorMessage,
-            run_id: input.runId,
-            task_id: input.taskId,
-            request_id: input.requestId,
-          }),
-        });
-        this.events.publish(input.sessionId, {
-          type: "run.end",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          ...mirrorEventData({
-            status: finalStatus,
-            error: errorMessage,
-            metadata: finalMetadata,
-          }),
-        });
-      });
+      this.deliverTerminalRecord(terminalRecord);
     } finally {
       this.statusTracker.unregister(input.taskId, input.sessionId);
     }
   }
 
-  private deliverTerminalRecord(record: RunTerminalRecord, publishLegacyEvents: () => void): void {
-    if (this.terminalEventDelivery === "outbox_live") {
-      this.outboxDispatcher?.dispatchRows(record.outboxRows);
-      return;
-    }
-    publishLegacyEvents();
+  private deliverTerminalRecord(record: RunTerminalRecord): void {
+    this.outboxDispatcher.dispatchRows(record.outboxRows);
   }
 
   private queueFollowup(sessionId: string, content: string): void {

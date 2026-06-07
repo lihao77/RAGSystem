@@ -5,8 +5,6 @@ import type {
   ConversationStoreTransaction,
 } from "../../stores/conversation-store.js";
 import type { OutboxRow } from "../../stores/conversation-store/types.js";
-import type { TerminalEventDeliveryMode } from "../event-delivery-mode.js";
-import type { InMemoryEventBus } from "../event-bus.js";
 import type { OutboxDispatcher } from "./dispatcher.js";
 
 export interface ClientEventPublishOptions {
@@ -29,9 +27,7 @@ export interface RecordedClientEvent {
 export class DurableClientEventPublisher {
   constructor(
     private readonly conversationStore: ConversationStore,
-    private readonly rawEvents: InMemoryEventBus,
     private readonly outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">,
-    private readonly deliveryMode: TerminalEventDeliveryMode,
   ) {}
 
   publish(sessionId: string, event: ClientEvent, options: ClientEventPublishOptions = {}): OutboxRow {
@@ -54,13 +50,7 @@ export class DurableClientEventPublisher {
     if (records.length === 0) {
       return;
     }
-    if (this.deliveryMode === "outbox_live") {
-      this.outboxDispatcher.dispatchRows(records.map((record) => record.row));
-      return;
-    }
-    for (const record of records) {
-      this.rawEvents.publish(record.sessionId, record.event);
-    }
+    this.outboxDispatcher.dispatchRows(records.map((record) => record.row));
   }
 
   private toOutboxInput(sessionId: string, event: ClientEvent, options: ClientEventPublishOptions): AppendOutboxInput {

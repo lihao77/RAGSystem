@@ -11,7 +11,7 @@ describe("PendingInteractionService", () => {
     const store = new ConversationStore({ dbPath: ":memory:" });
     const events = new InMemoryEventBus();
     const dispatcher = new OutboxDispatcher(store, events, undefined, "live");
-    const clientEvents = new DurableClientEventPublisher(store, events, dispatcher, "outbox_live");
+    const clientEvents = new DurableClientEventPublisher(store, dispatcher);
     const service = new PendingInteractionService(clientEvents);
 
     const approvalPromise = service.waitForApproval({
