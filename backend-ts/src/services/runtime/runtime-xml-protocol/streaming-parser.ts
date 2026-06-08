@@ -6,6 +6,10 @@ export interface RuntimeXmlParseEvent {
   content: string;
 }
 
+export interface RuntimeXmlFeedOptions {
+  stopAfterClosingTag?: RuntimeXmlTag | undefined;
+}
+
 const TAG_ALIASES: Record<string, RuntimeXmlTag> = {
   intent: "intent",
   tool_calls: "tool_calls",
@@ -24,7 +28,7 @@ export class StreamingRuntimeXmlParser {
     final_answer: "",
   };
 
-  feed(chunk: string): RuntimeXmlParseEvent[] {
+  feed(chunk: string, options: RuntimeXmlFeedOptions = {}): RuntimeXmlParseEvent[] {
     if (!chunk) {
       return [];
     }
@@ -33,8 +37,16 @@ export class StreamingRuntimeXmlParser {
     const events: RuntimeXmlParseEvent[] = [];
 
     while (this.buffer) {
+      const eventCountBeforeScan = events.length;
       const consumed = this.state === null ? this.scanForOpenTag(events) : this.scanForCloseTag(events);
       if (!consumed) {
+        break;
+      }
+      if (options.stopAfterClosingTag && hasClosingEvent(events, eventCountBeforeScan, options.stopAfterClosingTag)) {
+        if (this.buffer) {
+          this.fullResponse = this.fullResponse.slice(0, Math.max(0, this.fullResponse.length - this.buffer.length));
+          this.buffer = "";
+        }
         break;
       }
     }
@@ -162,4 +174,8 @@ function closeTagsForTag(tag: RuntimeXmlTag): string[] {
 
 function allCloseTags(): string[] {
   return ["</intent>", "</tool_calls>", "</tools>", "</final_answer>", "</answer>"];
+}
+
+function hasClosingEvent(events: RuntimeXmlParseEvent[], startIndex: number, tag: RuntimeXmlTag): boolean {
+  return events.slice(startIndex).some((event) => event.type === "tag_close" && event.tag === tag);
 }

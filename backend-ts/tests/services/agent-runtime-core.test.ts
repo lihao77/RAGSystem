@@ -7,7 +7,12 @@ import { describe, expect, it } from "vitest";
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
 import { AgentRuntimeCore, type AgentRuntimeEvent } from "../../src/services/agent/agent-runtime-core.js";
-import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
+import type {
+  ChatCompletionRequest,
+  ChatCompletionResult,
+  ChatStreamChunkHandler,
+  LlmChatClient,
+} from "../../src/services/integrations/llm-chat-client.js";
 import { renderSemanticBlock, renderToolResultContent } from "../../src/services/runtime/runtime-xml-protocol.js";
 import type {
   RuntimeToolCall,
@@ -39,10 +44,14 @@ class FakeStreamingChatClient implements LlmChatClient {
     throw new Error("complete should not be called");
   }
 
-  async stream(request: ChatCompletionRequest, onChunk: (chunk: { content: string }) => void | Promise<void>) {
+  async stream(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler) {
     this.requests.push(request);
-    await onChunk({ content: "hello " });
-    await onChunk({ content: "core" });
+    if ((await onChunk({ content: "hello " }))?.stop) {
+      return { content: "hello " };
+    }
+    if ((await onChunk({ content: "core" }))?.stop) {
+      return { content: "hello core" };
+    }
     return { content: "hello core" };
   }
 }
@@ -56,7 +65,7 @@ class FakeXmlStreamingToolChatClient implements LlmChatClient {
     throw new Error("complete should not be called for XML streaming tool loops");
   }
 
-  async stream(request: ChatCompletionRequest, onChunk: (chunk: { content: string }) => void | Promise<void>) {
+  async stream(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler) {
     this.requests.push(request);
     const response = this.responses.shift();
     if (!response) {
@@ -65,7 +74,9 @@ class FakeXmlStreamingToolChatClient implements LlmChatClient {
     let content = "";
     for (const chunk of response) {
       content += chunk;
-      await onChunk({ content: chunk });
+      if ((await onChunk({ content: chunk }))?.stop) {
+        break;
+      }
     }
     return { content, finishReason: "stop" };
   }
@@ -324,6 +335,59 @@ class FakeThrowingToolExecutor implements RuntimeToolExecutor {
   executeTool(call: RuntimeToolCall): never {
     this.calls.push(call);
     throw new Error("tool exploded");
+  }
+}
+
+class FakeAbortingToolExecutor implements RuntimeToolExecutor {
+  readonly calls: RuntimeToolCall[] = [];
+
+  constructor(private readonly controller: AbortController) {}
+
+  listVisibleTools(): RuntimeToolDefinition[] {
+    return [
+      {
+        name: "list_memory_index",
+        description: "List memory index",
+        parameters: { type: "object", properties: {} },
+      },
+    ];
+  }
+
+  executeTool(call: RuntimeToolCall): never {
+    this.calls.push(call);
+    this.controller.abort();
+    throw new DOMException("The operation was aborted", "AbortError");
+  }
+}
+
+class FakeCircularResultToolExecutor implements RuntimeToolExecutor {
+  readonly calls: RuntimeToolCall[] = [];
+
+  listVisibleTools(): RuntimeToolDefinition[] {
+    return [
+      {
+        name: "preview_data_structure",
+        description: "Preview data",
+        parameters: { type: "object", properties: {} },
+      },
+    ];
+  }
+
+  executeTool(call: RuntimeToolCall) {
+    this.calls.push(call);
+    const content: Record<string, unknown> = { label: "circular" };
+    content.self = content;
+    return {
+      success: true,
+      tool_name: call.toolName,
+      summary: "circular result",
+      answer: null,
+      output_type: "json",
+      content,
+      metadata: {},
+      artifacts: [],
+      llm_hint: null,
+    };
   }
 }
 
@@ -859,6 +923,54 @@ describe("AgentRuntimeCore", () => {
     expect(userToolMessages?.[0]?.content).toContain("</tool_result>\n\n<tool_result");
   });
 
+  it("stops the XML round after tool calls and ignores same-round final answers", async () => {
+    const client = new FakeXmlStreamingToolChatClient([
+      [
+        "<tool_calls>",
+        '<tool name="list_memory_index"><scope>session</scope></tool>',
+        "</tool_calls><final_answer>should not be streamed or persisted</final_answer>",
+      ],
+      ["<final_answer>", "answer after observation", "</final_answer>"],
+    ]);
+    const tools = new FakeRuntimeToolExecutor();
+    const core = new AgentRuntimeCore(client);
+    const agent = minimalAgent();
+    const events: AgentRuntimeEvent[] = [];
+
+    const result = await core.runText({
+      agent,
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [{ role: "user", content: "check memory before answering" }],
+      toolExecutor: tools,
+      toolContext: {
+        agent,
+        sessionId: "s1",
+        runId: "run-1",
+        requestId: "req-1",
+        currentAgentName: "orchestrator_agent",
+      },
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(result.content).toBe("answer after observation");
+    expect(tools.calls).toHaveLength(1);
+    expect(client.requests).toHaveLength(2);
+    const firstAssistantMessage = client.requests[1]?.messages.find((message) => message.role === "assistant");
+    expect(firstAssistantMessage?.content).toBe(
+      '<tool_calls><tool name="list_memory_index"><scope>session</scope></tool></tool_calls>',
+    );
+    expect(firstAssistantMessage?.content).not.toContain("should not be streamed");
+    const streamedContent = events
+      .filter((event) => event.type === "runtime.output_delta")
+      .map((event) => event.data.content)
+      .join("");
+    expect(streamedContent).toBe("answer after observation");
+    expect(streamedContent).not.toContain("should not be streamed");
+  });
+
   it("executes XML tool calls in Python-style dependency batches", async () => {
     const client = new FakeXmlStreamingToolChatClient([
       [
@@ -968,6 +1080,100 @@ describe("AgentRuntimeCore", () => {
         {
           type: "runtime.done",
           data: expect.objectContaining({ content: "recovered" }),
+        },
+      ]),
+    );
+  });
+
+  it("propagates tool aborts as run interruption without failed observations", async () => {
+    const controller = new AbortController();
+    const client = new FakeXmlStreamingToolChatClient([
+      ["<tool_calls>", '<tool name="list_memory_index"></tool>', "</tool_calls>"],
+      ["<final_answer>", "should not be requested", "</final_answer>"],
+    ]);
+    const tools = new FakeAbortingToolExecutor(controller);
+    const core = new AgentRuntimeCore(client);
+    const events: AgentRuntimeEvent[] = [];
+    const agent = minimalAgent();
+
+    await expect(
+      core.runText({
+        agent,
+        provider: minimalProvider(),
+        modelName: "deepseek-chat",
+        signal: controller.signal,
+        conversation: [{ role: "user", content: "abort during tool" }],
+        toolExecutor: tools,
+        toolContext: {
+          agent,
+          sessionId: "s1",
+          runId: "run-1",
+          requestId: "req-1",
+          currentAgentName: "orchestrator_agent",
+          signal: controller.signal,
+        },
+        onEvent: (event) => {
+          events.push(event);
+        },
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(controller.signal.aborted).toBe(true);
+    expect(client.requests).toHaveLength(1);
+    expect(tools.calls).toHaveLength(1);
+    expect(events.some((event) => event.type === "runtime.tool_result")).toBe(false);
+    expect(events.some((event) => event.type === "runtime.error")).toBe(false);
+    expect(events.some((event) => event.type === "runtime.done")).toBe(false);
+  });
+
+  it("turns tool observation rendering failures into failed observations", async () => {
+    const client = new FakeXmlStreamingToolChatClient([
+      ["<tool_calls>", '<tool name="preview_data_structure"></tool>', "</tool_calls>"],
+      ["<final_answer>", "recovered after observation error", "</final_answer>"],
+    ]);
+    const tools = new FakeCircularResultToolExecutor();
+    const core = new AgentRuntimeCore(client);
+    const agent = minimalAgent();
+    const events: AgentRuntimeEvent[] = [];
+
+    const result = await core.runText({
+      agent,
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [{ role: "user", content: "tool observation failure" }],
+      toolExecutor: tools,
+      toolContext: {
+        agent,
+        sessionId: "s1",
+        runId: "run-1",
+        requestId: "req-1",
+        currentAgentName: "orchestrator_agent",
+        parentCallId: "call-root",
+      },
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(result.content).toBe("recovered after observation error");
+    const userToolMessage = client.requests[1]?.messages.find((message) =>
+      message.role === "user" && message.content.includes("<tool_result"),
+    );
+    expect(userToolMessage?.content).toContain('ok="false"');
+    expect(userToolMessage?.content).toContain("Tool result observation failed");
+    expect(events).toEqual(
+      expect.arrayContaining([
+        {
+          type: "runtime.tool_result",
+          data: expect.objectContaining({
+            tool_name: "preview_data_structure",
+            success: false,
+            summary: expect.stringContaining("Tool result observation failed"),
+          }),
+        },
+        {
+          type: "runtime.done",
+          data: expect.objectContaining({ content: "recovered after observation error" }),
         },
       ]),
     );

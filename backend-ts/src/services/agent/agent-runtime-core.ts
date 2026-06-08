@@ -29,6 +29,7 @@ import {
   renderProtocolFeedbackMessage,
   StreamingRuntimeXmlParser,
 } from "../runtime/runtime-xml-protocol.js";
+import { isAbortError, RuntimeAbortError, throwIfAborted } from "../runtime/abort.js";
 
 export type AgentRuntimeEvent =
   | {
@@ -137,7 +138,6 @@ export interface AgentRuntimeRequest {
   toolExecutor?: RuntimeToolExecutor | undefined;
   toolContext?: RuntimeToolExecutionContext | undefined;
   promptContext?: AgentPromptContext | undefined;
-  maxToolRounds?: number | undefined;
 }
 
 export interface AgentRuntimeResult {
@@ -167,6 +167,7 @@ export class AgentRuntimeCore {
   }
 
   async runText(input: AgentRuntimeRequest): Promise<AgentRuntimeResult> {
+    throwIfAborted(input.signal, "Agent run aborted");
     const request = this.buildChatRequest(input);
     try {
       const result = shouldRunXmlToolLoop(input, request, this.llmChatClient)
@@ -176,6 +177,7 @@ export class AgentRuntimeCore {
         : this.llmChatClient.stream
           ? await this.runStreamingText(input, request)
           : await this.llmChatClient.complete(await this.refreshChatRequest(input, request));
+      throwIfAborted(input.signal, "Agent run aborted");
       const runtimeResult = toRuntimeResult(input, result);
       await input.onEvent?.({
         type: "runtime.done",
@@ -187,13 +189,15 @@ export class AgentRuntimeCore {
       });
       return runtimeResult;
     } catch (error) {
-      await input.onEvent?.({
-        type: "runtime.error",
-        data: {
-          message: error instanceof Error ? error.message : String(error),
-          agent_name: input.agent.agent_name,
-        },
-      });
+      if (!input.signal?.aborted && !isAbortError(error)) {
+        await input.onEvent?.({
+          type: "runtime.error",
+          data: {
+            message: error instanceof Error ? error.message : String(error),
+            agent_name: input.agent.agent_name,
+          },
+        });
+      }
       throw error;
     }
   }
@@ -258,15 +262,20 @@ export class AgentRuntimeCore {
       return this.runToolCallingText(input, request);
     }
 
-    const maxToolRounds = input.maxToolRounds ?? 4;
     const maxProtocolRepairAttempts = 2;
     let protocolRepairAttempts = 0;
     let messages = [...request.messages];
     const xmlRequest = withoutNativeTools(request);
 
-    for (let round = 0; round <= maxToolRounds; ) {
+    for (let round = 0; ; ) {
+      throwIfAborted(input.signal, "Agent run aborted");
       messages = await this.refreshChatMessages(input, messages);
+      throwIfAborted(input.signal, "Agent run aborted");
       const roundResult = await this.runXmlStreamRound(input, { ...xmlRequest, messages }, round);
+      throwIfAborted(input.signal, "Agent run aborted");
+      if (roundResult.finishReason === "interrupted") {
+        throw new RuntimeAbortError("LLM stream interrupted");
+      }
       if (roundResult.error) {
         if (protocolRepairAttempts >= maxProtocolRepairAttempts) {
           throw new Error(`XML protocol repair exceeded max attempts: ${roundResult.error}`);
@@ -282,10 +291,6 @@ export class AgentRuntimeCore {
 
       protocolRepairAttempts = 0;
       if (roundResult.toolCalls.length > 0) {
-        if (round === maxToolRounds) {
-          throw new Error(`Tool calling exceeded max rounds (${maxToolRounds})`);
-        }
-
         const assistantContent = roundResult.rawContent;
         await input.onEvent?.({
           type: "runtime.assistant_intermediate",
@@ -311,6 +316,7 @@ export class AgentRuntimeCore {
             arguments: call.arguments ?? {},
           })),
         });
+        throwIfAborted(input.signal, "Agent run aborted");
         const roundObservationMessages = roundExecutions
           .sort((left, right) => left.index - right.index)
           .map((execution) => execution.observation);
@@ -359,8 +365,6 @@ export class AgentRuntimeCore {
         ),
       ];
     }
-
-    throw new Error(`Tool calling exceeded max rounds (${maxToolRounds})`);
   }
 
   private async runToolCallingText(
@@ -373,17 +377,16 @@ export class AgentRuntimeCore {
       return this.llmChatClient.complete(request);
     }
 
-    const maxToolRounds = input.maxToolRounds ?? 4;
     let messages = [...request.messages];
-    for (let round = 0; round <= maxToolRounds; round += 1) {
+    for (let round = 0; ; round += 1) {
+      throwIfAborted(input.signal, "Agent run aborted");
       messages = await this.refreshChatMessages(input, messages);
+      throwIfAborted(input.signal, "Agent run aborted");
       const result = await this.llmChatClient.complete({ ...request, messages });
+      throwIfAborted(input.signal, "Agent run aborted");
       const toolCalls = result.toolCalls ?? [];
       if (toolCalls.length === 0) {
         return result;
-      }
-      if (round === maxToolRounds) {
-        throw new Error(`Tool calling exceeded max rounds (${maxToolRounds})`);
       }
 
       const assistantMessage = buildAssistantToolCallMessage(result, toolCalls);
@@ -411,6 +414,7 @@ export class AgentRuntimeCore {
           arguments: parseToolArguments(toolCall),
         })),
       });
+      throwIfAborted(input.signal, "Agent run aborted");
       const roundExecutionByIndex = new Map(roundExecutions.map((execution) => [execution.index, execution]));
       for (const [index, toolCall] of toolCalls.entries()) {
         const execution = roundExecutionByIndex.get(index);
@@ -439,7 +443,6 @@ export class AgentRuntimeCore {
         });
       }
     }
-    throw new Error(`Tool calling exceeded max rounds (${maxToolRounds})`);
   }
 
   private async runXmlStreamRound(
@@ -468,8 +471,9 @@ export class AgentRuntimeCore {
     const toolCalls: RuntimeToolCall[] = [];
 
     const result = await this.llmChatClient.stream!(request, async (chunk) => {
-      if (!chunk.content) {
-        return;
+      throwIfAborted(input.signal, "Agent run aborted");
+      if (!chunk.content || toolCallsClosed) {
+        return toolCallsClosed ? { stop: true } : undefined;
       }
       if (!firstChunkSeen) {
         firstChunkSeen = true;
@@ -481,7 +485,7 @@ export class AgentRuntimeCore {
           },
         });
       }
-      const events = parser.feed(chunk.content);
+      const events = parser.feed(chunk.content, { stopAfterClosingTag: "tool_calls" });
       for (const event of events) {
         if (event.type === "tag_open") {
           protocolTagSeen = true;
@@ -532,10 +536,14 @@ export class AgentRuntimeCore {
           toolCalls.push(...parsed.calls);
         }
       }
+      if (toolCallsClosed) {
+        return { stop: true };
+      }
       if (!protocolTagSeen && parser.currentState === null && events.length === 0 && !chunk.content.trimStart().startsWith("<")) {
         pendingFallbackDeltas.push(chunk.content);
       }
     });
+    throwIfAborted(input.signal, "Agent run aborted");
 
     const rawContent = parser.getFullResponse() || result.content;
     if (parser.currentState !== null && !error) {
@@ -573,9 +581,14 @@ export class AgentRuntimeCore {
     request: ChatCompletionRequest,
   ): Promise<{ content: string; raw?: unknown }> {
     const refreshedRequest = await this.refreshChatRequest(input, request);
+    throwIfAborted(input.signal, "Agent run aborted");
     let firstChunkSeen = false;
     const providerStartedAt = Date.now();
-    return this.llmChatClient.stream!(refreshedRequest, async (chunk) => {
+    const result = await this.llmChatClient.stream!(refreshedRequest, async (chunk) => {
+      throwIfAborted(input.signal, "Agent run aborted");
+      if (chunk.finishReason === "interrupted") {
+        throw new RuntimeAbortError("LLM stream interrupted");
+      }
       if (!chunk.content) {
         return;
       }
@@ -597,10 +610,16 @@ export class AgentRuntimeCore {
         },
       });
     });
+    if (result.finishReason === "interrupted") {
+      throw new RuntimeAbortError("LLM stream interrupted");
+    }
+    return result;
   }
 
   private async refreshChatMessages(input: AgentRuntimeRequest, messages: ChatMessage[]): Promise<ChatMessage[]> {
+    throwIfAborted(input.signal, "Agent run aborted");
     const updates = input.conversationUpdateProvider ? await input.conversationUpdateProvider() : [];
+    throwIfAborted(input.signal, "Agent run aborted");
     if (!updates.length) {
       return messages;
     }

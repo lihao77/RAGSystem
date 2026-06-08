@@ -48,10 +48,17 @@ export interface ChatCompletionResult {
 
 export interface ChatStreamChunk {
   content: string;
+  finishReason?: string | null | undefined;
   raw?: unknown;
 }
 
-export type ChatStreamChunkHandler = (chunk: ChatStreamChunk) => void | Promise<void>;
+export interface ChatStreamControl {
+  stop?: boolean | undefined;
+}
+
+export type ChatStreamChunkHandler = (
+  chunk: ChatStreamChunk,
+) => void | ChatStreamControl | Promise<void | ChatStreamControl>;
 
 export interface LlmChatClient {
   complete(request: ChatCompletionRequest): Promise<ChatCompletionResult>;
@@ -320,6 +327,8 @@ async function readOpenAiCompatibleStream(
   let buffer = "";
   let content = "";
   let done = false;
+  let stopRequested = false;
+  let finishReason: string | null = null;
 
   const processLine = async (line: string): Promise<void> => {
     const trimmed = line.trim();
@@ -335,12 +344,23 @@ async function readOpenAiCompatibleStream(
       return;
     }
     const parsed = JSON.parse(data) as unknown;
+    const chunkFinishReason = extractStreamFinishReason(parsed);
+    if (chunkFinishReason) {
+      finishReason = chunkFinishReason;
+      if (chunkFinishReason === "interrupted") {
+        done = true;
+      }
+    }
     const delta = extractAssistantDeltaContent(parsed);
     if (!delta) {
       return;
     }
     content += delta;
-    await onChunk({ content: delta, raw: parsed });
+    const control = await onChunk({ content: delta, finishReason: chunkFinishReason, raw: parsed });
+    if (control?.stop) {
+      stopRequested = true;
+      done = true;
+    }
   };
 
   const processBuffer = async (flush: boolean): Promise<void> => {
@@ -369,11 +389,11 @@ async function readOpenAiCompatibleStream(
   if (done) {
     await reader.cancel().catch(() => undefined);
   }
-  if (!content) {
+  if (!content && finishReason !== "interrupted" && !stopRequested) {
     throw new Error("LLM streaming response did not include assistant content");
   }
 
-  return { content };
+  return { content, finishReason };
 }
 
 async function readJsonResponseBody(response: Response): Promise<unknown> {
@@ -525,6 +545,21 @@ function extractAssistantDeltaContent(body: unknown): string | null {
     return first.text;
   }
   return null;
+}
+
+function extractStreamFinishReason(body: unknown): string | null {
+  if (!isRecord(body)) {
+    return null;
+  }
+  const choices = body.choices;
+  if (!Array.isArray(choices) || choices.length === 0) {
+    return null;
+  }
+  const first = choices[0];
+  if (!isRecord(first)) {
+    return null;
+  }
+  return typeof first.finish_reason === "string" ? first.finish_reason : null;
 }
 
 function extractErrorMessage(body: unknown): string | null {

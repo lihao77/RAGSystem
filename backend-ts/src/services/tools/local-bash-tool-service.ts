@@ -16,6 +16,7 @@ import {
 import { BashPathResolver } from "./local-bash-tool-service/paths.js";
 import type { ToolExecutionResult } from "./memory-tool-service.js";
 import type { RuntimeToolExecutionContext } from "../runtime/runtime-tool-types.js";
+import { throwIfAborted } from "../runtime/abort.js";
 
 const TOOL_NAME = "execute_bash";
 const DEFAULT_TIMEOUT_SECONDS = 120;
@@ -175,11 +176,13 @@ export class LocalBashToolService {
   }
 
   async executePlan(plan: BashExecutionPlan, context: RuntimeToolExecutionContext): Promise<ToolExecutionResult> {
+    throwIfAborted(context.signal, "Bash execution aborted");
     if (plan.runInBackground) {
       return this.executeBackgroundPlan(plan, context);
     }
     try {
       const result = await this.runForegroundCommand(plan, context.signal);
+      throwIfAborted(context.signal, "Bash execution aborted");
       let stdout = result.stdout;
       let stderr = result.stderr;
       let truncated = false;
@@ -214,6 +217,7 @@ export class LocalBashToolService {
         },
       });
     } catch (error) {
+      throwIfAborted(context.signal, "Bash execution aborted");
       return errorResult(`命令执行失败: ${error instanceof Error ? error.message : String(error)}`, {
         ...plan.metadata,
       });
@@ -221,6 +225,7 @@ export class LocalBashToolService {
   }
 
   private executeBackgroundPlan(plan: BashExecutionPlan, context: RuntimeToolExecutionContext): ToolExecutionResult {
+    throwIfAborted(context.signal, "Bash execution aborted");
     if (!this.backgroundTasks) {
       return errorResult("execute_bash 后台执行暂不可用", {
         ...plan.metadata,
@@ -277,6 +282,10 @@ export class LocalBashToolService {
 
   private runForegroundCommand(plan: BashExecutionPlan, signal: AbortSignal | undefined): Promise<ForegroundResult> {
     return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new Error("Bash execution aborted"));
+        return;
+      }
       const env = {
         ...process.env,
         LC_ALL: process.platform === "win32" ? process.env.LC_ALL : "C.UTF-8",

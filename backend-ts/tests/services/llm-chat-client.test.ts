@@ -129,6 +129,56 @@ describe("OpenAI-compatible chat client", () => {
     expect(result.content).toBe("hello world");
   });
 
+  it("lets stream handlers stop OpenAI-compatible SSE consumption early", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(
+        [
+          'data: {"choices":[{"delta":{"content":"<tool_calls></tool_calls>"}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":"<final_answer>ignored</final_answer>"}}]}\n\n',
+          "data: [DONE]\n\n",
+        ].join(""),
+        {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+          },
+        },
+      ),
+    ) as typeof fetch;
+
+    const client = new OpenAiCompatibleChatClient();
+    const chunks: string[] = [];
+    const result = await client.stream(buildRequest(), (chunk) => {
+      chunks.push(chunk.content);
+      return { stop: true };
+    });
+
+    expect(chunks).toEqual(["<tool_calls></tool_calls>"]);
+    expect(result.content).toBe("<tool_calls></tool_calls>");
+  });
+
+  it("returns interrupted finish reasons from OpenAI-compatible SSE streams", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(
+        'data: {"choices":[{"delta":{},"finish_reason":"interrupted"}]}\n\n',
+        {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+          },
+        },
+      ),
+    ) as typeof fetch;
+
+    const client = new OpenAiCompatibleChatClient();
+    const result = await client.stream(buildRequest(), () => undefined);
+
+    expect(result).toMatchObject({
+      content: "",
+      finishReason: "interrupted",
+    });
+  });
+
   it("surfaces JSON error messages for failed streaming requests", async () => {
     globalThis.fetch = vi.fn(async () =>
       new Response(JSON.stringify({ error: { message: "bad api key" } }), { status: 401 }),

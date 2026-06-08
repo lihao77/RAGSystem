@@ -28,6 +28,7 @@ import type {
   PermissionPolicyService,
   RuntimeToolApprovalDecision,
 } from "./permission-policy-service.js";
+import { isAbortError, throwIfAborted } from "./abort.js";
 import type { HookRuntimeService, HookResult } from "./hooks/index.js";
 import {
   approvalUnsupportedError,
@@ -174,6 +175,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
   }
 
   executeTool(call: RuntimeToolCall, context: RuntimeToolExecutionContext): ToolExecutionResult | Promise<ToolExecutionResult> {
+    throwIfAborted(context.signal, "Tool execution aborted");
     if (this.hooks) {
       return this.executeToolWithHooks(call, context);
     }
@@ -213,6 +215,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
   }
 
   private async executeToolWithHooks(call: RuntimeToolCall, context: RuntimeToolExecutionContext): Promise<ToolExecutionResult> {
+    throwIfAborted(context.signal, "Tool execution aborted");
     const executionContext = buildToolCallContext(call, context);
     const toolName = call.toolName.trim();
     const tool = this.getVisibleTool(toolName, executionContext.agent);
@@ -310,6 +313,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     call: RuntimeToolCall,
     context: RuntimeToolExecutionContext,
   ): ToolExecutionResult | Promise<ToolExecutionResult> {
+    throwIfAborted(context.signal, "Tool execution aborted");
     const handler = this.toolHandlers.get(toolName);
     if (handler) {
       return handler(call, context);
@@ -338,6 +342,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     }
     try {
       let result = await this.executeAllowedTool(toolName, call, context);
+      throwIfAborted(context.signal, "Tool execution aborted");
       result = this.mergeHookData(result, hooks.beforePermissionHook, "before_permission");
       result = this.mergeHookData(result, hooks.afterPermissionHook, "after_permission");
       result = this.mergeHookData(result, beforeExecuteHook, "before_execute");
@@ -351,6 +356,9 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       result = this.mergeHookData(result, afterExecuteHook, "after_execute");
       return result;
     } catch (error) {
+      if (isAbortError(error) || context.signal?.aborted) {
+        throw error;
+      }
       const onErrorHook = await this.runToolHook("tool.on_error", {
         toolName,
         tool,

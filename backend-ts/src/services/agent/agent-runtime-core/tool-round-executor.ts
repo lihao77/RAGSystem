@@ -6,6 +6,7 @@ import type {
   RuntimeToolExecutor,
   RuntimeToolWaitResult,
 } from "../../runtime/runtime-tool-types.js";
+import { isAbortError, throwIfAborted } from "../../runtime/abort.js";
 import { renderToolResultContent } from "../../runtime/runtime-xml-protocol.js";
 import { buildLlmFacingToolResult } from "./observation.js";
 import {
@@ -95,6 +96,7 @@ export async function executeToolCallRound(input: {
     ? buildExecutionBatches(input.calls)
     : input.calls.map((call) => [call]);
   for (const batch of batches) {
+    throwIfAborted(input.toolContext.signal, "Agent run aborted");
     const runCall = (call: PreparedRoundToolCall) =>
       executeSingleToolCall({
         input: input.input,
@@ -109,6 +111,7 @@ export async function executeToolCallRound(input: {
       input.parallelIndependent && batch.length > 1
         ? await Promise.all(batch.map((call) => runCall(call)))
         : await runSequentially(batch, runCall);
+    throwIfAborted(input.toolContext.signal, "Agent run aborted");
     for (const execution of batchExecutions) {
       roundResults.set(execution.index + 1, execution.result);
       executions.set(execution.index, execution);
@@ -126,6 +129,7 @@ async function executeSingleToolCall(input: {
   call: PreparedRoundToolCall;
   previousResults: Map<number, ToolExecutionResult>;
 }): Promise<RuntimeToolRoundExecution> {
+  throwIfAborted(input.toolContext.signal, "Agent run aborted");
   const order = input.call.index + 1;
   const toolArguments = resolveToolArgumentReferences(input.call.arguments, input.previousResults);
   await input.input.onEvent?.({
@@ -154,6 +158,7 @@ async function executeSingleToolCall(input: {
         round: input.round,
         index: input.call.index,
       });
+  throwIfAborted(input.toolContext.signal, "Agent run aborted");
   const observationResult = await resolveToolObservation({
     toolExecutor: input.toolExecutor,
     toolContext: buildToolCallExecutionContext(input.toolContext, {
@@ -168,6 +173,7 @@ async function executeSingleToolCall(input: {
     provider: input.input.provider,
     dataRoot: input.dataRoot,
   });
+  throwIfAborted(input.toolContext.signal, "Agent run aborted");
   const elapsedTime = (Date.now() - startedAt) / 1000;
   await input.input.onEvent?.({
     type: "runtime.tool_result",
@@ -266,6 +272,9 @@ async function executeToolSafely(input: {
       }),
     );
   } catch (error) {
+    if (isAbortError(error) || input.toolContext.signal?.aborted) {
+      throw error;
+    }
     return buildToolExecutionErrorResult(input.toolName, error);
   }
 }
@@ -280,19 +289,40 @@ async function resolveToolObservation(input: {
   provider: ModelProviderConfig;
   dataRoot: string;
 }): Promise<ToolObservationResult> {
+  throwIfAborted(input.toolContext.signal, "Agent run aborted");
   const waitSignal = extractToolWaitSignal(input.result);
   if (!waitSignal || !input.toolExecutor.waitForToolResult) {
-    const llmFacingResult = await buildLlmFacingToolResult(input);
-    return {
-      success: input.result.success,
-      summary: input.result.summary,
-      observation: renderToolResultContent({
-        callId: input.callId,
-        toolName: input.toolName,
-        result: llmFacingResult,
-      }),
-      rawResult: materializeToolResult(input.result),
-    };
+    try {
+      const llmFacingResult = await buildLlmFacingToolResult(input);
+      return {
+        success: input.result.success,
+        summary: input.result.summary,
+        observation: renderToolResultContent({
+          callId: input.callId,
+          toolName: input.toolName,
+          result: llmFacingResult,
+        }),
+        rawResult: materializeToolResult(input.result),
+      };
+    } catch (error) {
+      if (isAbortError(error) || input.toolContext.signal?.aborted) {
+        throw error;
+      }
+      const errorResult = buildToolExecutionErrorResult(
+        input.toolName,
+        new Error(`Tool result observation failed: ${error instanceof Error ? error.message : String(error)}`),
+      );
+      return {
+        success: false,
+        summary: errorResult.summary,
+        observation: renderToolResultContent({
+          callId: input.callId,
+          toolName: input.toolName,
+          result: errorResult,
+        }),
+        rawResult: materializeToolResult(errorResult),
+      };
+    }
   }
 
   const waitResult = await input.toolExecutor.waitForToolResult(
@@ -302,6 +332,7 @@ async function resolveToolObservation(input: {
     },
     input.toolContext,
   );
+  throwIfAborted(input.toolContext.signal, "Agent run aborted");
   const observation = renderBackgroundWaitObservation(waitResult);
   return {
     success: waitResult.success,
