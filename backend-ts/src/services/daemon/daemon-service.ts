@@ -207,7 +207,10 @@ export class DaemonService {
     if (this.findCronTask(task.task_id)) {
       throw new DaemonServiceError(400, `任务已存在: ${task.task_id}`);
     }
-    const agent = this.ensureAgent(task.team_name);
+    const agent = this.findAgent(task.team_name);
+    if (!agent) {
+      throw new DaemonServiceError(400, `守护机器人不存在: ${task.team_name}`);
+    }
     const taskCopy = cloneTask(task);
     taskCopy.next_run = computeNextRun(taskCopy.cron);
     agent.cron_tasks.push(taskCopy);
@@ -228,7 +231,10 @@ export class DaemonService {
     });
     updated.next_run = updated.enabled ? computeNextRun(updated.cron) : null;
     if (updated.team_name !== found.agent.team_name) {
-      const targetAgent = this.ensureAgent(updated.team_name);
+      const targetAgent = this.findAgent(updated.team_name);
+      if (!targetAgent) {
+        return false;
+      }
       found.agent.cron_tasks.splice(found.index, 1);
       targetAgent.cron_tasks.push(updated);
       this.saveConfigToDisk();
@@ -340,29 +346,8 @@ export class DaemonService {
     };
   }
 
-  private ensureAgent(teamName: string): DaemonAgentConfig {
-    const existing = this.config.agents.find((agent) => agent.team_name === teamName);
-    if (existing) {
-      return existing;
-    }
-    const agent: DaemonAgentConfig = {
-      team_name: teamName,
-      entry_agent: null,
-      session_id: null,
-      permissions: {
-        mode: "standard",
-        auto_accept_patterns: [],
-        audit_all_checks: false,
-        approval_timeout: 300,
-        skip_all_approvals: false,
-      },
-      platforms: {},
-      cron_tasks: [],
-      heartbeat_interval: 30,
-      enabled: true,
-    };
-    this.config.agents.push(agent);
-    return agent;
+  private findAgent(teamName: string): DaemonAgentConfig | null {
+    return this.config.agents.find((agent) => agent.team_name === teamName) ?? null;
   }
 
   private findCronTask(taskId: string): { agent: DaemonAgentConfig; task: CronTask; index: number } | null {
