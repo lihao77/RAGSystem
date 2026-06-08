@@ -1106,6 +1106,39 @@ const knowledgeSearchModes = [
   { value: 'vector', label: '向量搜索', description: '语义相似度召回' }
 ];
 
+const configManagedToolNames = new Set([
+  'list_memory_index',
+  'read_memory_entry',
+  'write_memory',
+  'archive_memory',
+  'request_user_input',
+  'task_create',
+  'task_get',
+  'task_update',
+  'task_list',
+  'task_output',
+  'task_stop',
+  'call_agent',
+  'list_child_agents',
+  'send_message',
+  'search_knowledge_base',
+  'list_knowledge_collections',
+  'activate_skill',
+  'load_skill_resource',
+  'get_skill_info',
+  'execute_skill_script'
+]);
+
+function sanitizeEnabledTools(enabledTools) {
+  return (Array.isArray(enabledTools) ? enabledTools : [])
+    .filter(name => !configManagedToolNames.has(name));
+}
+
+function sanitizeAvailableTools(availableTools) {
+  return (Array.isArray(availableTools) ? availableTools : [])
+    .filter(tool => tool?.name && !configManagedToolNames.has(tool.name));
+}
+
 function createEmptyLLM() {
   return {
     provider: '',
@@ -1203,7 +1236,7 @@ function applyConfigToForm(config) {
       powerful: parseTierLLM(safeConfig.llm_tiers?.powerful)
     },
     tools: {
-      enabled_tools: Array.isArray(safeConfig.tools?.enabled_tools) ? [...safeConfig.tools.enabled_tools] : []
+      enabled_tools: sanitizeEnabledTools(safeConfig.tools?.enabled_tools)
     },
     tasks: {
       workflow: !!safeConfig.tasks?.workflow,
@@ -1336,7 +1369,7 @@ function buildPayload() {
 
   merged.tools = {
     ...(merged.tools || {}),
-    enabled_tools: configForm.value.tools.enabled_tools
+    enabled_tools: sanitizeEnabledTools(configForm.value.tools.enabled_tools)
   };
 
   merged.tasks = {
@@ -1393,7 +1426,7 @@ async function loadSupplementaryData(workspaceRoot = '') {
     getMemoryConfigMetadata()
   ]);
 
-  tools.value = toolResult.status === 'fulfilled' && Array.isArray(toolResult.value) ? toolResult.value : [];
+  tools.value = toolResult.status === 'fulfilled' ? sanitizeAvailableTools(toolResult.value) : [];
   skills.value = skillResult.status === 'fulfilled' && Array.isArray(skillResult.value) ? skillResult.value : [];
   mcpServers.value = mcpServerResult.status === 'fulfilled' && Array.isArray(mcpServerResult.value) ? mcpServerResult.value : [];
   providers.value = providerResult.status === 'fulfilled' && Array.isArray(providerResult.value) ? providerResult.value : [];

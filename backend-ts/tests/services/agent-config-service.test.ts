@@ -99,6 +99,46 @@ describe("AgentConfigService team file compatibility", () => {
     });
   });
 
+  it("strips config-managed tools from loaded and patched enabled_tools", () => {
+    const dataRoot = makeTempDataRoot();
+    writeTeamIndex(dataRoot, {
+      active_team: "default",
+      teams: {
+        default: "teams/default.yaml",
+      },
+    });
+    writeTeam(dataRoot, "default", {
+      general_agent: {
+        ...minimalAgent("general_agent", true),
+        tools: {
+          enabled_tools: [
+            "read_file",
+            "todo_write",
+            "task_create",
+            "task_stop",
+            "activate_skill",
+            "search_knowledge_base",
+            "call_agent",
+          ],
+        },
+      },
+    });
+
+    const service = new AgentConfigService({ dataRoot });
+
+    expect(service.getConfig("general_agent")?.tools.enabled_tools).toEqual(["read_file", "todo_write"]);
+    const patched = service.patchConfig("general_agent", {
+      tools: {
+        enabled_tools: ["write_file", "task_update", "execute_skill_script", "list_child_agents"],
+      },
+    });
+    expect(patched?.tools.enabled_tools).toEqual(["write_file"]);
+
+    const team = readYaml(path.join(dataRoot, "config", "agents", "teams", "default.yaml"));
+    const agent = getRecord(getRecord(team, "agents"), "general_agent");
+    expect(agent.tools).toEqual({ enabled_tools: ["write_file"] });
+  });
+
   it("persists active team and config updates to the shared YAML files", () => {
     const dataRoot = makeTempDataRoot();
     writeTeamIndex(dataRoot, {

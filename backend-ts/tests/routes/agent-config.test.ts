@@ -164,7 +164,26 @@ describe("agent config compatibility routes", () => {
       url: "/api/agent-config/tools",
     });
     expect(tools.statusCode).toBe(200);
-    expect(tools.json().data.map((tool: { name: string }) => tool.name)).toContain("read_file");
+    const toolNames = tools.json().data.map((tool: { name: string }) => tool.name);
+    expect(toolNames).toContain("read_file");
+    expect(toolNames).toContain("todo_write");
+    expect(toolNames).not.toEqual(expect.arrayContaining([
+      "task_create",
+      "task_get",
+      "task_update",
+      "task_list",
+      "task_output",
+      "task_stop",
+      "activate_skill",
+      "load_skill_resource",
+      "get_skill_info",
+      "execute_skill_script",
+      "call_agent",
+      "list_child_agents",
+      "send_message",
+      "search_knowledge_base",
+      "list_knowledge_collections",
+    ]));
     expect(tools.json().data).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

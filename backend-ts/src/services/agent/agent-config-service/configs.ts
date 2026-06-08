@@ -1,4 +1,5 @@
 import type { AgentConfig, AgentInfo, CreateAgentRequest } from "../../../contracts/agent-config.js";
+import { stripConfigManagedToolNames } from "./tools.js";
 
 export type TeamConfigs = Map<string, AgentConfig>;
 
@@ -155,6 +156,7 @@ export function cloneConfig(config: AgentConfig): AgentConfig {
 }
 
 export function normalizeConfig(config: AgentConfig): AgentConfig {
+  const tools = config.tools ?? { enabled_tools: [] };
   return {
     ...config,
     display_name: config.display_name ?? null,
@@ -162,7 +164,10 @@ export function normalizeConfig(config: AgentConfig): AgentConfig {
     enabled: config.enabled ?? true,
     default_entry: config.default_entry ?? false,
     llm_tiers: config.llm_tiers ?? { default: { ...defaultLlmTier } },
-    tools: config.tools ?? { enabled_tools: [] },
+    tools: {
+      ...tools,
+      enabled_tools: stripConfigManagedToolNames(tools.enabled_tools),
+    },
     skills: config.skills ?? { enabled_skills: [], auto_inject: true },
     mcp: config.mcp ?? { enabled_servers: [] },
     memory: config.memory ?? {
