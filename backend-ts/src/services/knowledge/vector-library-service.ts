@@ -856,7 +856,11 @@ export class VectorLibraryService {
         api_key TEXT,
         created_at TEXT NOT NULL
       );
+    `);
 
+    this.ensureDocumentTables();
+
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS documents (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         collection TEXT NOT NULL,
@@ -884,6 +888,156 @@ export class VectorLibraryService {
       CREATE INDEX IF NOT EXISTS idx_document_vectors_model_collection
         ON document_vectors(model_id, collection);
     `);
+  }
+
+  private ensureDocumentTables(): void {
+    if (!this.tableExists("documents")) {
+      return;
+    }
+    const columns = this.tableColumns("documents");
+    const idColumn = columns.find((column) => column.name === "id");
+    const hasCurrentShape =
+      Boolean(idColumn?.type.toUpperCase().includes("INTEGER")) &&
+      columns.some((column) => column.name === "document_id") &&
+      columns.some((column) => column.name === "chunk_index");
+    if (!hasCurrentShape) {
+      this.migrateLegacyDocumentTables();
+    }
+  }
+
+  private migrateLegacyDocumentTables(): void {
+    const suffix = Date.now().toString(36);
+    const legacyDocuments = `documents_legacy_${suffix}`;
+    const legacyVectors = `document_vectors_legacy_${suffix}`;
+    const hadVectors = this.tableExists("document_vectors");
+    this.db.exec("BEGIN");
+    try {
+      this.db.exec(`ALTER TABLE documents RENAME TO ${quoteIdentifier(legacyDocuments)}`);
+      if (hadVectors) {
+        this.db.exec(`ALTER TABLE document_vectors RENAME TO ${quoteIdentifier(legacyVectors)}`);
+      }
+      this.createCurrentDocumentTables();
+      const mapping = this.copyLegacyDocuments(legacyDocuments);
+      if (hadVectors) {
+        this.copyLegacyVectors(legacyVectors, mapping);
+      }
+      this.db.exec(`DROP TABLE ${quoteIdentifier(legacyDocuments)}`);
+      if (hadVectors) {
+        this.db.exec(`DROP TABLE ${quoteIdentifier(legacyVectors)}`);
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  private createCurrentDocumentTables(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        collection TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        content TEXT NOT NULL,
+        metadata TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS document_vectors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        doc_id INTEGER NOT NULL,
+        collection TEXT NOT NULL,
+        model_id INTEGER NOT NULL,
+        embedding TEXT NOT NULL,
+        UNIQUE(doc_id, collection, model_id)
+      );
+    `);
+  }
+
+  private copyLegacyDocuments(legacyTable: string): Map<string, { id: number; content: string }> {
+    const mapping = new Map<string, { id: number; content: string }>();
+    const rows = this.db
+      .prepare(
+        `
+          SELECT id, collection, content, metadata, created_at
+          FROM ${quoteIdentifier(legacyTable)}
+          ORDER BY collection, id
+        `,
+      )
+      .all() as Array<{
+        id: unknown;
+        collection: unknown;
+        content: unknown;
+        metadata: unknown;
+        created_at: unknown;
+      }>;
+    const insert = this.db.prepare(
+      `
+        INSERT INTO documents
+        (collection, document_id, chunk_index, content, metadata, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `,
+    );
+    for (const row of rows) {
+      const collection = String(row.collection ?? "documents");
+      const documentId = String(row.id ?? "");
+      if (!documentId) {
+        continue;
+      }
+      const content = String(row.content ?? "");
+      const metadata = normalizeLegacyMetadata(row.metadata, documentId);
+      const createdAt = typeof row.created_at === "string" && row.created_at.trim()
+        ? row.created_at
+        : new Date().toISOString();
+      const result = insert.run(collection, documentId, 0, content, metadata, createdAt);
+      mapping.set(legacyDocumentKey(collection, documentId), {
+        id: Number(result.lastInsertRowid),
+        content,
+      });
+    }
+    return mapping;
+  }
+
+  private copyLegacyVectors(legacyTable: string, mapping: Map<string, { id: number; content: string }>): void {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT doc_id, collection, model_id, embedding
+          FROM ${quoteIdentifier(legacyTable)}
+          ORDER BY id
+        `,
+      )
+      .all() as Array<{
+        doc_id: unknown;
+        collection: unknown;
+        model_id: unknown;
+        embedding: unknown;
+      }>;
+    const insert = this.db.prepare(
+      "INSERT OR REPLACE INTO document_vectors (doc_id, collection, model_id, embedding) VALUES (?, ?, ?, ?)",
+    );
+    for (const row of rows) {
+      const collection = String(row.collection ?? "documents");
+      const legacyDocId = String(row.doc_id ?? "");
+      const modelId = Number(row.model_id);
+      const mapped = mapping.get(legacyDocumentKey(collection, legacyDocId));
+      if (!mapped || !Number.isInteger(modelId)) {
+        continue;
+      }
+      insert.run(mapped.id, collection, modelId, normalizeLegacyEmbedding(row.embedding, mapped.content));
+    }
+  }
+
+  private tableExists(tableName: string): boolean {
+    const row = this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(tableName) as { name: string } | undefined;
+    return Boolean(row);
+  }
+
+  private tableColumns(tableName: string): Array<{ name: string; type: string }> {
+    return this.db.prepare(`PRAGMA table_info(${quoteIdentifier(tableName)})`).all() as Array<{ name: string; type: string }>;
   }
 }
 
@@ -1150,6 +1304,40 @@ function asString(value: unknown): string | null {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function quoteIdentifier(value: string): string {
+  return `"${value.replaceAll("\"", "\"\"")}"`;
+}
+
+function legacyDocumentKey(collection: string, documentId: string): string {
+  return `${collection}\u0000${documentId}`;
+}
+
+function normalizeLegacyMetadata(value: unknown, documentId: string): string {
+  const parsed = parseMetadata(value);
+  return JSON.stringify({
+    ...parsed,
+    document_id: typeof parsed.document_id === "string" ? parsed.document_id : documentId,
+    chunk_index: typeof parsed.chunk_index === "number" ? parsed.chunk_index : 0,
+  });
+}
+
+function normalizeLegacyEmbedding(value: unknown, fallbackText: string): string {
+  if (typeof value === "string") {
+    const parsed = parseEmbedding(value);
+    if (parsed) {
+      return JSON.stringify(parsed);
+    }
+  }
+  if (value instanceof Uint8Array) {
+    const text = Buffer.from(value).toString("utf8");
+    const parsed = parseEmbedding(text);
+    if (parsed) {
+      return JSON.stringify(parsed);
+    }
+  }
+  return JSON.stringify(embedText(fallbackText));
 }
 
 function readPositiveInteger(value: unknown, fallback: number): number {
