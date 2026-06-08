@@ -1,6 +1,7 @@
 import { buildApp } from "../../src/app.js";
 import type { AppEnv } from "../../src/config/env.js";
 import { createRuntimeContainer } from "../../src/services/runtime/runtime-container.js";
+import type { AgentExecutionLogger } from "../../src/services/agent/agent-execution-service.js";
 import type { LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
 
 export const testEnv: AppEnv = {
@@ -23,6 +24,7 @@ export async function buildTestHarness(
   options: {
     llmChatClient?: LlmChatClient;
     startOutboxDispatcher?: boolean;
+    logger?: AgentExecutionLogger;
   } = {},
 ) {
   const container = createRuntimeContainer({
@@ -35,6 +37,7 @@ export async function buildTestHarness(
     daemonConfigPath: "",
     agentConfigRoot: "",
     startOutboxDispatcher: options.startOutboxDispatcher ?? false,
+    logger: options.logger,
   });
   const app = await buildApp({ env: testEnv, container });
   await app.ready();

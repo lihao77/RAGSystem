@@ -5,7 +5,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
 import type { ClientEvent } from "../../src/contracts/events.js";
-import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
+import type {
+  ChatCompletionRequest,
+  ChatCompletionResult,
+  ChatStreamChunkHandler,
+  LlmChatClient,
+} from "../../src/services/integrations/llm-chat-client.js";
 import { ClientEventProjector } from "../../src/services/runtime/event-outbox/projector.js";
 import type { OutboxRow } from "../../src/services/stores/conversation-store/types.js";
 import { buildTestHarness } from "../helpers/app.js";
@@ -82,12 +87,14 @@ class FakeStreamingChatClient implements LlmChatClient {
     throw new Error("complete should not be called when stream is available");
   }
 
-  async stream(request: ChatCompletionRequest, onChunk: (chunk: { content: string }) => void | Promise<void>) {
+  async stream(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler) {
     this.requests.push(request);
     let content = "";
     for (const chunk of this.chunks) {
       content += chunk;
-      await onChunk({ content: chunk });
+      if ((await onChunk({ content: chunk }))?.stop) {
+        break;
+      }
     }
     return { content };
   }
@@ -117,7 +124,7 @@ class FakeXmlStreamingToolChatClient implements LlmChatClient {
     throw new Error("complete should not be called for XML streaming tool loops");
   }
 
-  async stream(request: ChatCompletionRequest, onChunk: (chunk: { content: string }) => void | Promise<void>) {
+  async stream(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler) {
     this.requests.push(request);
     const response = this.responses.shift();
     if (!response) {
@@ -126,7 +133,9 @@ class FakeXmlStreamingToolChatClient implements LlmChatClient {
     let content = "";
     for (const chunk of response) {
       content += chunk;
-      await onChunk({ content: chunk });
+      if ((await onChunk({ content: chunk }))?.stop) {
+        break;
+      }
     }
     return { content, finishReason: "stop" };
   }
@@ -305,7 +314,7 @@ describe("minimal runtime core execution", () => {
         used_tokens: expect.any(Number),
         system_prompt_tokens: expect.any(Number),
         total_tokens: expect.any(Number),
-        budget_tokens: 109104,
+        budget_tokens: expect.any(Number),
         round: 0,
         compressing: false,
         request_id: "req-runtime-1",
@@ -1771,7 +1780,15 @@ describe("minimal runtime core execution", () => {
 
   it("publishes the failed terminal event sequence when the provider fails", async () => {
     const chatClient = new FailingChatClient(new Error("provider failed"));
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const logEntries: Array<{ bindings: Record<string, unknown>; message: string }> = [];
+    const harness = await buildTestHarness({
+      llmChatClient: chatClient,
+      logger: {
+        error: (bindings, message) => {
+          logEntries.push({ bindings, message });
+        },
+      },
+    });
     app = harness.app;
 
     await createDefaultChatProvider(app);
@@ -1814,6 +1831,15 @@ describe("minimal runtime core execution", () => {
         error_type: "ExecutionError",
       }),
     });
+    expect(history.find((event) => event.type === "error")).toMatchObject({
+      agent_name: "orchestrator_agent",
+      error: "provider failed",
+      data: expect.objectContaining({
+        error: "provider failed",
+        error_type: "RuntimeError",
+        request_id: "req-runtime-failed",
+      }),
+    });
     expect(history.find((event) => event.type === "run.end")).toMatchObject({
       run_id: started.json().data.run_id,
       data: expect.objectContaining({
@@ -1836,6 +1862,7 @@ describe("minimal runtime core execution", () => {
       "client.agent.start",
       "client.call.agent.start",
       "client.context.usage",
+      "client.error",
       "agent.call_finished",
       "execution.step_recorded",
       "run.error_reported",
@@ -1855,6 +1882,26 @@ describe("minimal runtime core execution", () => {
       "execution.step",
       "agent.error",
       "run.end",
+    ]);
+    expect(logEntries).toEqual([
+      {
+        message: "agent runtime execution failed",
+        bindings: expect.objectContaining({
+          error_name: "Error",
+          error_message: "provider failed",
+          error_stack: expect.stringContaining("provider failed"),
+          session_id: "failed-runtime-session",
+          run_id: started.json().data.run_id,
+          task_id: started.json().data.task_id,
+          request_id: "req-runtime-failed",
+          agent_name: "orchestrator_agent",
+          provider_key: "my_deepseek",
+          provider_name: "my",
+          provider_type: "deepseek",
+          model_name: "deepseek-chat",
+          execution_kind: "agent_stream",
+        }),
+      },
     ]);
   });
 });

@@ -213,6 +213,26 @@ export class AgentExecutionEventPublisher {
       });
       return;
     }
+    if (event.type === "runtime.error") {
+      const payload = {
+        error: event.data.message,
+        message: event.data.message,
+        agent_name: event.data.agent_name,
+        error_type: "RuntimeError",
+        run_id: input.runId,
+        task_id: input.taskId,
+        request_id: input.requestId,
+      };
+      this.publish(input.sessionId, {
+        type: "error",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        agent_name: event.data.agent_name,
+        error: event.data.message,
+        ...mirrorEventData(payload),
+      });
+      return;
+    }
     if (event.type === "runtime.intent_delta") {
       this.publish(input.sessionId, {
         type: "agent.intent_delta",

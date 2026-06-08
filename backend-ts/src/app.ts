@@ -29,18 +29,19 @@ export interface BuildAppOptions {
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
+  const app = Fastify({
+    logger: {
+      level: options.env.logLevel,
+    },
+  });
   const container =
     options.container ??
     createRuntimeContainer({
       dbPath: options.env.dbPath,
       checkpointDbPath: options.env.checkpointDbPath,
       dataRoot: options.env.dataRoot,
+      logger: app.log,
     });
-  const app = Fastify({
-    logger: {
-      level: options.env.logLevel,
-    },
-  });
   app.addHook("onClose", async () => {
     container.close();
   });

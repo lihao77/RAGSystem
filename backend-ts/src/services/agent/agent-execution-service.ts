@@ -59,6 +59,11 @@ import {
 export interface AgentExecutionServiceOptions {
   outboxDispatcher?: Pick<OutboxDispatcher, "dispatchRows"> | undefined;
   clientEvents?: DurableClientEventPublisher | undefined;
+  logger?: AgentExecutionLogger | undefined;
+}
+
+export interface AgentExecutionLogger {
+  error(bindings: Record<string, unknown>, message: string): void;
 }
 
 export class AgentExecutionService {
@@ -68,6 +73,7 @@ export class AgentExecutionService {
   private readonly executionRecorder: ExecutionRecorder;
   private readonly outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">;
   private readonly clientEvents: DurableClientEventPublisher;
+  private readonly logger: AgentExecutionLogger | null;
 
   constructor(
     private readonly sessions: AgentSessionApplication,
@@ -92,6 +98,7 @@ export class AgentExecutionService {
     this.eventPublisher = new AgentExecutionEventPublisher(sessions, this.clientEvents, conversationStore);
     this.executionRecorder = new ExecutionRecorder(conversationStore);
     this.outboxDispatcher = options.outboxDispatcher;
+    this.logger = options.logger ?? null;
   }
 
   async startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult> {
@@ -1072,6 +1079,21 @@ export class AgentExecutionService {
       const finalStatus = interrupted ? "interrupted" : "failed";
       const errorMessage = error instanceof Error ? error.message : String(error);
       const executionKind = input.executionKind ?? "agent_stream";
+      if (!interrupted) {
+        this.logger?.error({
+          ...serializeErrorForLog(error),
+          session_id: input.sessionId,
+          run_id: input.runId,
+          task_id: input.taskId,
+          request_id: input.requestId,
+          agent_name: input.agent.agent_name,
+          provider_key: input.provider.key ?? null,
+          provider_name: input.provider.name,
+          provider_type: input.provider.provider_type,
+          model_name: input.modelName,
+          execution_kind: executionKind,
+        }, "agent runtime execution failed");
+      }
       this.statusTracker.finishStatus(input.status, finalStatus, input.startedAt);
       const finalMetadata = {
         agent: input.agent.agent_name,
@@ -1468,4 +1490,43 @@ function appendAttachmentContext(task: string, attachments: ResolvedAttachment[]
 
 function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function serializeErrorForLog(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    return {
+      error_name: error.name,
+      error_message: error.message,
+      error_stack: error.stack ?? null,
+      ...(hasCause(error) ? { error_cause: serializeErrorCause(error.cause) } : {}),
+    };
+  }
+  return {
+    error_name: typeof error,
+    error_message: String(error),
+    error_stack: null,
+  };
+}
+
+function serializeErrorCause(cause: unknown): unknown {
+  if (cause instanceof Error) {
+    return {
+      error_name: cause.name,
+      error_message: cause.message,
+      error_stack: cause.stack ?? null,
+      ...(hasCause(cause) ? { error_cause: serializeErrorCause(cause.cause) } : {}),
+    };
+  }
+  if (cause === null || cause === undefined || ["string", "number", "boolean"].includes(typeof cause)) {
+    return cause;
+  }
+  try {
+    return JSON.stringify(cause);
+  } catch {
+    return String(cause);
+  }
+}
+
+function hasCause(error: Error): error is Error & { cause: unknown } {
+  return "cause" in error;
 }

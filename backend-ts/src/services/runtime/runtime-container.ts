@@ -1,4 +1,5 @@
 import { AgentExecutionService } from "../agent/agent-execution-service.js";
+import type { AgentExecutionLogger } from "../agent/agent-execution-service.js";
 import { AgentContextCompressionService } from "../agent/agent-context-compression-service.js";
 import { AgentDelegationService } from "../agent/agent-delegation-service.js";
 import {
@@ -82,6 +83,7 @@ export interface RuntimeContainerOptions {
   dbPath: string;
   checkpointDbPath?: string | undefined;
   dataRoot?: string | undefined;
+  logger?: AgentExecutionLogger | undefined;
   llmChatClient?: LlmChatClient | undefined;
   modelAdapterProvidersConfigPath?: string | undefined;
   mcpConfigPath?: string | undefined;
@@ -198,6 +200,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     {
       outboxDispatcher,
       clientEvents,
+      logger: options.logger,
     },
   );
   let closed = false;
