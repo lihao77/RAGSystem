@@ -45,6 +45,38 @@ describe("ConversationStore", () => {
     store.close();
   });
 
+  it("merges session metadata patches without replacing sibling keys", () => {
+    const store = new ConversationStore({ dbPath: ":memory:" });
+    store.createSession("s1", null, {
+      title: "Pinned",
+      memory_prefix_states: {
+        "root::agent": { rendered_block: "old" },
+      },
+    });
+
+    const updated = store.updateSessionMetadata("s1", {
+      memory_prefix_states: {
+        "child::agent": { rendered_block: "child" },
+      },
+      _pipeline_caches: {
+        root: { fp: "abc", t: 1 },
+      },
+    });
+
+    expect(updated).toMatchObject({
+      title: "Pinned",
+      memory_prefix_states: {
+        "root::agent": { rendered_block: "old" },
+        "child::agent": { rendered_block: "child" },
+      },
+      _pipeline_caches: {
+        root: { fp: "abc", t: 1 },
+      },
+    });
+    expect(store.getSession("s1")?.metadata).toEqual(updated);
+    store.close();
+  });
+
   it("returns the latest window in ascending sequence order", () => {
     const store = new ConversationStore({ dbPath: ":memory:" });
     store.addMessage({ sessionId: "s1", role: "user", content: "m1" });

@@ -175,7 +175,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const agentRuntimeContextBuilder = new AgentRuntimeContextBuilder([
     new MemoryIndexContextSource(conversationStore, { memoryStore }),
     new RecentMessagesContextSource(conversationStore),
-  ]);
+  ], { systemConfig });
   const agentDelegation = new AgentDelegationService(
     conversationStore,
     runtimeCore,

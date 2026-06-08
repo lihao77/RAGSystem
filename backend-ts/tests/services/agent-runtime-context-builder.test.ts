@@ -41,6 +41,29 @@ class InMemorySessions implements RuntimeSessionMetadataPort {
   getSession() {
     return { metadata: this.metadata };
   }
+
+  updateSessionMetadata(_sessionId: string, patch: Record<string, unknown>) {
+    deepMerge(this.metadata, patch);
+    return this.metadata;
+  }
+}
+
+class InMemorySessionHistory extends InMemoryHistory implements RuntimeSessionMetadataPort {
+  constructor(
+    messages: MessageInfo[],
+    private readonly metadata: Record<string, unknown> = {},
+  ) {
+    super(messages);
+  }
+
+  getSession() {
+    return { metadata: this.metadata };
+  }
+
+  updateSessionMetadata(_sessionId: string, patch: Record<string, unknown>) {
+    deepMerge(this.metadata, patch);
+    return this.metadata;
+  }
 }
 
 describe("AgentRuntimeContextBuilder", () => {
@@ -66,6 +89,7 @@ describe("AgentRuntimeContextBuilder", () => {
         session_id: "s1",
         thread_key: "root",
         history_limit: 20,
+        stable_prefix_fingerprint: "no_stable_prefix",
         sources: [
           {
             name: "recent_messages",
@@ -248,7 +272,7 @@ describe("AgentRuntimeContextBuilder", () => {
   });
 
   it("microcompacts old observation messages only when enabled for runtime context", () => {
-    const history = new InMemoryHistory([
+    const history = new InMemorySessionHistory([
       message("user", "多轮工具结果", { seq: 1 }),
       message("assistant", "intent-1", {
         seq: 2,
@@ -276,7 +300,11 @@ describe("AgentRuntimeContextBuilder", () => {
       }),
       message("assistant", "final", { seq: 8 }),
     ]);
-    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
+    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)], {
+      systemConfig: {
+        getConfig: () => ({ waiting: { local_cache_ttl_seconds: 600 } }),
+      },
+    });
 
     const inspectContext = builder.buildContext({ sessionId: "s1" });
     const runtimeContext = builder.buildContext({
@@ -309,9 +337,124 @@ describe("AgentRuntimeContextBuilder", () => {
     expect(runtimeContext.metadata.sources[0]?.metadata).toMatchObject({
       microcompact: {
         applied: true,
+        reason: "fingerprint_changed",
         keep_recent_tools: 2,
         observation_count: 3,
         cleared_count: 1,
+        ttl_seconds: 600,
+      },
+    });
+    expect(history.getSession().metadata).not.toHaveProperty("_pipeline_caches");
+  });
+
+  it("skips repeated microcompact after a model request refreshes the stable prefix cache", () => {
+    const history = new InMemorySessionHistory([
+      message("user", "多轮工具结果", { seq: 1 }),
+      message("user", "obs-1-large", {
+        seq: 2,
+        metadata: { react_intermediate: true, msg_type: "observation", round: 1 },
+      }),
+      message("user", "obs-2-large", {
+        seq: 3,
+        metadata: { react_intermediate: true, msg_type: "observation", round: 2 },
+      }),
+      message("user", "obs-3-large", {
+        seq: 4,
+        metadata: { react_intermediate: true, msg_type: "observation", round: 3 },
+      }),
+    ]);
+    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)], {
+      systemConfig: {
+        getConfig: () => ({ waiting: { local_cache_ttl_seconds: 600 } }),
+      },
+    });
+
+    const first = builder.buildContext({
+      sessionId: "s1",
+      microcompact: true,
+      microcompactKeepRecentTools: 1,
+    });
+    history.updateSessionMetadata("s1", {
+      _pipeline_caches: {
+        root: {
+          fp: first.metadata.stable_prefix_fingerprint,
+          t: Date.now() / 1000,
+        },
+      },
+    });
+    const second = builder.buildContext({
+      sessionId: "s1",
+      microcompact: true,
+      microcompactKeepRecentTools: 1,
+    });
+
+    expect(first.conversation.map((item) => item.content)).toEqual([
+      "多轮工具结果",
+      "[工具结果已清理，轮次 1]",
+      "[工具结果已清理，轮次 2]",
+      "obs-3-large",
+    ]);
+    expect(second.conversation.map((item) => item.content)).toEqual([
+      "多轮工具结果",
+      "obs-1-large",
+      "obs-2-large",
+      "obs-3-large",
+    ]);
+    expect(second.metadata.sources[0]?.metadata).toMatchObject({
+      microcompact: {
+        applied: false,
+        reason: "cache_fresh",
+        cleared_count: 0,
+      },
+    });
+  });
+
+  it("does not refresh the microcompact TTL from context builds alone", () => {
+    const history = new InMemorySessionHistory(
+      [
+        message("user", "多轮工具结果", { seq: 1 }),
+        message("user", "obs-1-large", {
+          seq: 2,
+          metadata: { react_intermediate: true, msg_type: "observation", round: 1 },
+        }),
+        message("user", "obs-2-large", {
+          seq: 3,
+          metadata: { react_intermediate: true, msg_type: "observation", round: 2 },
+        }),
+      ],
+      {
+        _pipeline_caches: {
+          root: {
+            fp: "no_stable_prefix",
+            t: 1,
+          },
+        },
+      },
+    );
+    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)], {
+      systemConfig: {
+        getConfig: () => ({ waiting: { local_cache_ttl_seconds: 60 } }),
+      },
+    });
+
+    const context = builder.buildContext({
+      sessionId: "s1",
+      microcompact: true,
+      microcompactKeepRecentTools: 1,
+    });
+
+    expect(context.metadata.sources[0]?.metadata).toMatchObject({
+      microcompact: {
+        applied: true,
+        reason: "ttl_expired",
+      },
+    });
+    expect(history.getSession().metadata).toMatchObject({
+      _pipeline_caches: {
+        root: {
+          fp: "no_stable_prefix",
+          t: 1,
+        },
       },
     });
   });
@@ -482,6 +625,41 @@ describe("AgentRuntimeContextBuilder", () => {
     ]);
   });
 
+  it("reuses persisted memory prefix snapshots until explicitly refreshed", () => {
+    const dataRoot = makeTempDataRoot();
+    writeMemoryIndex(dataRoot, ["sessions", "s4"], "# Session Memory v1\n");
+    const sessions = new InMemorySessions({});
+    const source = new MemoryIndexContextSource(sessions, {
+      dataRoot,
+    });
+    const builder = new AgentRuntimeContextBuilder([source]);
+    const agent = minimalAgent({
+      agentName: "chart_agent",
+      allowedScopes: ["session"],
+    });
+
+    const first = builder.buildContext({
+      sessionId: "s4",
+      agent,
+    });
+    writeMemoryIndex(dataRoot, ["sessions", "s4"], "# Session Memory v2\n");
+    const second = builder.buildContext({
+      sessionId: "s4",
+      agent,
+    });
+    const refreshed = builder.buildContext({
+      sessionId: "s4",
+      agent,
+      forceMemoryPrefixRefresh: true,
+    });
+
+    expect(first.conversation[0]?.content).toContain("# Session Memory v1");
+    expect(second.conversation[0]?.content).toContain("# Session Memory v1");
+    expect(second.conversation[0]?.content).not.toContain("# Session Memory v2");
+    expect(refreshed.conversation[0]?.content).toContain("# Session Memory v2");
+    expect(sessions.getSession().metadata.memory_prefix_states).toBeDefined();
+  });
+
   it("can expose memory capabilities without auto-injecting memory indices", () => {
     const dataRoot = makeTempDataRoot();
     writeMemoryIndex(dataRoot, ["sessions", "s5"], "# Session Memory\n");
@@ -590,4 +768,18 @@ function minimalAgent(input: {
     },
     custom_params: {},
   };
+}
+
+function deepMerge(target: Record<string, unknown>, patch: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(patch)) {
+    if (isRecord(target[key]) && isRecord(value)) {
+      deepMerge(target[key], value);
+    } else {
+      target[key] = value;
+    }
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

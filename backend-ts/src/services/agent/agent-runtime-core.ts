@@ -7,6 +7,7 @@ import type {
   ChatCompletionRequest,
   ChatCompletionResult,
   ChatMessage,
+  ChatStreamChunkHandler,
   LlmChatClient,
 } from "../integrations/llm-chat-client.js";
 import type {
@@ -135,6 +136,7 @@ export interface AgentRuntimeRequest {
   conversationUpdateProvider?: (() => Promise<ChatMessage[]> | ChatMessage[]) | undefined;
   signal?: AbortSignal;
   onEvent?: AgentRuntimeEventHandler;
+  onModelRequestSuccess?: (() => void | Promise<void>) | undefined;
   toolExecutor?: RuntimeToolExecutor | undefined;
   toolContext?: RuntimeToolExecutionContext | undefined;
   promptContext?: AgentPromptContext | undefined;
@@ -176,7 +178,7 @@ export class AgentRuntimeCore {
         ? await this.runToolCallingText(input, request)
         : this.llmChatClient.stream
           ? await this.runStreamingText(input, request)
-          : await this.llmChatClient.complete(await this.refreshChatRequest(input, request));
+          : await this.completeRequest(input, await this.refreshChatRequest(input, request));
       throwIfAborted(input.signal, "Agent run aborted");
       const runtimeResult = toRuntimeResult(input, result);
       await input.onEvent?.({
@@ -374,7 +376,7 @@ export class AgentRuntimeCore {
     const toolExecutor = input.toolExecutor;
     const toolContext = input.toolContext;
     if (!toolExecutor || !toolContext) {
-      return this.llmChatClient.complete(request);
+      return this.completeRequest(input, request);
     }
 
     let messages = [...request.messages];
@@ -382,7 +384,7 @@ export class AgentRuntimeCore {
       throwIfAborted(input.signal, "Agent run aborted");
       messages = await this.refreshChatMessages(input, messages);
       throwIfAborted(input.signal, "Agent run aborted");
-      const result = await this.llmChatClient.complete({ ...request, messages });
+      const result = await this.completeRequest(input, { ...request, messages });
       throwIfAborted(input.signal, "Agent run aborted");
       const toolCalls = result.toolCalls ?? [];
       if (toolCalls.length === 0) {
@@ -470,7 +472,7 @@ export class AgentRuntimeCore {
     const pendingFallbackDeltas: string[] = [];
     const toolCalls: RuntimeToolCall[] = [];
 
-    const result = await this.llmChatClient.stream!(request, async (chunk) => {
+    const result = await this.streamRequest(input, request, async (chunk) => {
       throwIfAborted(input.signal, "Agent run aborted");
       if (!chunk.content || toolCallsClosed) {
         return toolCallsClosed ? { stop: true } : undefined;
@@ -584,7 +586,7 @@ export class AgentRuntimeCore {
     throwIfAborted(input.signal, "Agent run aborted");
     let firstChunkSeen = false;
     const providerStartedAt = Date.now();
-    const result = await this.llmChatClient.stream!(refreshedRequest, async (chunk) => {
+    const result = await this.streamRequest(input, refreshedRequest, async (chunk) => {
       throwIfAborted(input.signal, "Agent run aborted");
       if (chunk.finishReason === "interrupted") {
         throw new RuntimeAbortError("LLM stream interrupted");
@@ -624,6 +626,25 @@ export class AgentRuntimeCore {
       return messages;
     }
     return [...messages, ...updates];
+  }
+
+  private async completeRequest(
+    input: AgentRuntimeRequest,
+    request: ChatCompletionRequest,
+  ): Promise<ChatCompletionResult> {
+    const result = await this.llmChatClient.complete(request);
+    await input.onModelRequestSuccess?.();
+    return result;
+  }
+
+  private async streamRequest(
+    input: AgentRuntimeRequest,
+    request: ChatCompletionRequest,
+    onChunk: ChatStreamChunkHandler,
+  ): Promise<ChatCompletionResult> {
+    const result = await this.llmChatClient.stream!(request, onChunk);
+    await input.onModelRequestSuccess?.();
+    return result;
   }
 
 }

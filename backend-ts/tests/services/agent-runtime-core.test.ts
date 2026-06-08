@@ -611,6 +611,55 @@ describe("AgentRuntimeCore", () => {
     ]);
   });
 
+  it("notifies after each successful model request", async () => {
+    const client = new FakeToolCallingChatClient([
+      {
+        content: "",
+        finishReason: "tool_calls",
+        toolCalls: [
+          {
+            id: "call_memory_1",
+            type: "function",
+            function: {
+              name: "list_memory_index",
+              arguments: JSON.stringify({ scope: "session" }),
+            },
+          },
+        ],
+      },
+      {
+        content: "I used the session memory index.",
+        finishReason: "stop",
+      },
+    ]);
+    const tools = new FakeRuntimeToolExecutor();
+    const core = new AgentRuntimeCore(client);
+    const agent = minimalAgent();
+    let successCount = 0;
+
+    await core.runText({
+      agent,
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [{ role: "user", content: "check memory" }],
+      toolExecutor: tools,
+      toolContext: {
+        agent,
+        sessionId: "s1",
+        runId: "run-1",
+        requestId: "req-1",
+        currentAgentName: "orchestrator_agent",
+        parentCallId: "call-root",
+      },
+      onModelRequestSuccess: () => {
+        successCount += 1;
+      },
+    });
+
+    expect(client.requests).toHaveLength(2);
+    expect(successCount).toBe(2);
+  });
+
   it("streams XML intent, executes XML tool calls, and returns final_answer", async () => {
     const client = new FakeXmlStreamingToolChatClient([
       [

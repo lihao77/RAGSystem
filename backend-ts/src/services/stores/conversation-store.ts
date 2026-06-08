@@ -196,6 +196,18 @@ export class ConversationStore {
     return row ? rowToSession(row) : null;
   }
 
+  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Record<string, unknown> | null {
+    const session = this.getSession(sessionId);
+    if (!session) {
+      return null;
+    }
+    const metadata = deepMergeRecords(session.metadata, patch);
+    this.db
+      .prepare("UPDATE sessions SET metadata=?, updated_at=CURRENT_TIMESTAMP WHERE session_id=?")
+      .run(stringifyJson(metadata), sessionId);
+    return metadata;
+  }
+
   deleteSession(sessionId: string): boolean {
     const result = this.withTransaction(() => {
       this.db.prepare("DELETE FROM step_resources WHERE session_id=?").run(sessionId);
@@ -1477,6 +1489,22 @@ function normalizeNonEmptyString(value: string | null | undefined): string | nul
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function deepMergeRecords(base: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
+  const output: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) {
+      continue;
+    }
+    const current = output[key];
+    if (isRecord(current) && isRecord(value)) {
+      output[key] = deepMergeRecords(current, value);
+    } else {
+      output[key] = value;
+    }
+  }
+  return output;
 }
 
 function nowIso(): string {

@@ -11,6 +11,11 @@ export interface RuntimeConversationHistoryPort {
 
 export interface RuntimeSessionMetadataPort {
   getSession(sessionId: string): Pick<SessionInfo, "metadata"> | null;
+  updateSessionMetadata?(sessionId: string, patch: Record<string, unknown>): Record<string, unknown> | null;
+}
+
+export interface RuntimeSystemConfigPort {
+  getConfig(): Record<string, unknown>;
 }
 
 export interface AgentRuntimeContextRequest {
@@ -20,6 +25,7 @@ export interface AgentRuntimeContextRequest {
   agent?: AgentConfig | null;
   microcompact?: boolean;
   microcompactKeepRecentTools?: number;
+  forceMemoryPrefixRefresh?: boolean;
 }
 
 export interface AgentRuntimeContext {
@@ -28,6 +34,7 @@ export interface AgentRuntimeContext {
     session_id: string;
     thread_key: string;
     history_limit: number;
+    stable_prefix_fingerprint: string | null;
     sources: Array<{
       name: string;
       message_count: number;
@@ -62,6 +69,9 @@ interface ResolvedAgentRuntimeContextRequest {
   agent: AgentConfig | null;
   microcompact: boolean;
   microcompactKeepRecentTools: number;
+  forceMemoryPrefixRefresh: boolean;
+  stablePrefixFingerprint: string | null;
+  microcompactTtlSeconds: number;
 }
 
 const DEFAULT_HISTORY_LIMIT = 20;
@@ -69,13 +79,22 @@ const DEFAULT_THREAD_KEY = "root";
 const DEFAULT_INDEX_MAX_LINES = 200;
 const DEFAULT_INDEX_MAX_CHARS = 25600;
 const DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOLS = 5;
+const DEFAULT_MICROCOMPACT_TTL_SECONDS = 600;
 const MICROCOMPACT_CLEARED_LABEL = "[工具结果已清理]";
 
+export interface AgentRuntimeContextBuilderOptions {
+  systemConfig?: RuntimeSystemConfigPort | undefined;
+}
+
 export class AgentRuntimeContextBuilder {
-  constructor(private readonly sources: AgentRuntimeContextSource[]) {}
+  constructor(
+    private readonly sources: AgentRuntimeContextSource[],
+    private readonly options: AgentRuntimeContextBuilderOptions = {},
+  ) {}
 
   buildContext(request: AgentRuntimeContextRequest): AgentRuntimeContext {
     const resolved = resolveContextRequest(request);
+    resolved.microcompactTtlSeconds = resolveMicrocompactTtlSeconds(this.options.systemConfig?.getConfig());
     const conversation: ChatMessage[] = [];
     const sourceMetadata: AgentRuntimeContext["metadata"]["sources"] = [];
     for (const source of this.sources) {
@@ -94,6 +113,7 @@ export class AgentRuntimeContextBuilder {
         session_id: resolved.sessionId,
         thread_key: resolved.threadKey,
         history_limit: resolved.historyLimit,
+        stable_prefix_fingerprint: resolved.stablePrefixFingerprint ?? "no_stable_prefix",
         sources: sourceMetadata,
       },
     };
@@ -102,15 +122,21 @@ export class AgentRuntimeContextBuilder {
 
 export class RecentMessagesContextSource implements AgentRuntimeContextSource {
   readonly name = "recent_messages";
+  private readonly sessions: RuntimeSessionMetadataPort | null;
 
-  constructor(private readonly history: RuntimeConversationHistoryPort) {}
+  constructor(private readonly history: RuntimeConversationHistoryPort) {
+    this.sessions = isRuntimeSessionMetadataPort(history) ? history : null;
+  }
 
   build(request: ResolvedAgentRuntimeContextRequest): AgentRuntimeContextContribution {
     const messages = this.history.getRecentMessages(request.sessionId, request.historyLimit, request.threadKey);
     const filteredMessages = filterRuntimeHistoryMessages(messages);
     const compressionView = resolveCompressionViewDetailed(filteredMessages);
     const historyMessages = compressionView.messages;
-    const microcompact = request.microcompact
+    const microcompactDecision = request.microcompact
+      ? this.resolveMicrocompactDecision(request)
+      : { requested: false, applied: false, reason: "disabled" };
+    const microcompact = microcompactDecision.applied
       ? microcompactRuntimeHistoryMessages(historyMessages, request.microcompactKeepRecentTools)
       : {
           messages: historyMessages,
@@ -129,16 +155,45 @@ export class RecentMessagesContextSource implements AgentRuntimeContextSource {
     };
     if (request.microcompact) {
       metadata.microcompact = {
-        applied: true,
+        applied: microcompactDecision.applied,
+        reason: microcompactDecision.reason,
         keep_recent_tools: request.microcompactKeepRecentTools,
         observation_count: microcompact.observationCount,
         cleared_count: microcompact.clearedCount,
+        ttl_seconds: request.microcompactTtlSeconds,
       };
     }
     return {
       conversation: messagesToConversation(microcompact.messages),
       metadata,
     };
+  }
+
+  private resolveMicrocompactDecision(request: ResolvedAgentRuntimeContextRequest): {
+    requested: boolean;
+    applied: boolean;
+    reason: string;
+  } {
+    const metadata = this.sessions?.getSession(request.sessionId)?.metadata ?? {};
+    const cache = readPipelineCache(metadata, request.threadKey);
+    const currentFingerprint = request.stablePrefixFingerprint ?? "no_stable_prefix";
+    const previousFingerprint = getString(cache.fp);
+    const lastPreparedAt = typeof cache.t === "number" && Number.isFinite(cache.t) ? cache.t : null;
+    const nowSeconds = Date.now() / 1000;
+    let applied = false;
+    let reason = "cache_fresh";
+    if (previousFingerprint !== currentFingerprint) {
+      applied = true;
+      reason = "fingerprint_changed";
+    } else if (lastPreparedAt === null) {
+      applied = true;
+      reason = "missing_cache_time";
+    } else if (nowSeconds - lastPreparedAt >= request.microcompactTtlSeconds) {
+      applied = true;
+      reason = "ttl_expired";
+    }
+
+    return { requested: true, applied, reason };
   }
 }
 
@@ -183,6 +238,18 @@ interface MemoryPrefixFingerprint {
     scope_spec: MemoryScopeSpec;
   }>;
   fingerprint: string;
+}
+
+interface MemoryPrefixSnapshot {
+  baseline_key: string;
+  session_id: string;
+  thread_key: string;
+  agent_name: string;
+  fingerprint: MemoryPrefixFingerprint;
+  scope_capabilities: MemoryScopeCapabilities;
+  indices: Record<string, string>;
+  rendered_block: string;
+  rebased_reason: string;
 }
 
 export class MemoryIndexContextSource implements AgentRuntimeContextSource {
@@ -240,9 +307,40 @@ export class MemoryIndexContextSource implements AgentRuntimeContextSource {
       scopeSpecs,
       agentName: request.agent.agent_name,
     });
+    const baselineKey = memoryBaselineKey(request.threadKey, request.agent.agent_name);
+    const existingSnapshot = readMemoryPrefixSnapshot(sessionMetadata, baselineKey);
+    const snapshot =
+      !request.forceMemoryPrefixRefresh && existingSnapshot?.fingerprint.fingerprint === fingerprint.fingerprint
+        ? existingSnapshot
+        : this.buildAndPersistSnapshot({
+            request,
+            baselineKey,
+            fingerprint,
+            scopeCapabilities,
+            scopeSpecs,
+          });
+    const renderedBlock = snapshot.rendered_block;
+    request.stablePrefixFingerprint = snapshot.fingerprint.fingerprint;
+
+    return {
+      conversation: renderedBlock ? [{ role: "system", content: renderedBlock }] : [],
+      metadata: {
+        status: "loaded",
+        snapshot,
+      },
+    };
+  }
+
+  private buildAndPersistSnapshot(input: {
+    request: ResolvedAgentRuntimeContextRequest;
+    baselineKey: string;
+    fingerprint: MemoryPrefixFingerprint;
+    scopeCapabilities: MemoryScopeCapabilities;
+    scopeSpecs: MemoryScopeSpec[];
+  }): MemoryPrefixSnapshot {
     const indices: Record<string, string> = {};
-    if (memoryConfig.auto_inject !== false) {
-      for (const scopeSpec of scopeSpecs) {
+    if (input.request.agent?.memory.auto_inject !== false) {
+      for (const scopeSpec of input.scopeSpecs) {
         const content = this.memoryStore.loadIndexHead(scopeSpec, {
           maxLines: this.indexMaxLines,
           maxChars: this.indexMaxChars,
@@ -253,28 +351,26 @@ export class MemoryIndexContextSource implements AgentRuntimeContextSource {
       }
     }
     const renderedBlock = renderMemoryPrefixBlock({
-      scopeCapabilities,
+      scopeCapabilities: input.scopeCapabilities,
       indices,
     });
-    const snapshot = {
-      baseline_key: memoryBaselineKey(request.threadKey, request.agent.agent_name),
-      session_id: request.sessionId,
-      thread_key: request.threadKey,
-      agent_name: request.agent.agent_name,
-      fingerprint,
-      scope_capabilities: scopeCapabilities,
+    const snapshot: MemoryPrefixSnapshot = {
+      baseline_key: input.baselineKey,
+      session_id: input.request.sessionId,
+      thread_key: input.request.threadKey,
+      agent_name: input.request.agent?.agent_name ?? "",
+      fingerprint: input.fingerprint,
+      scope_capabilities: input.scopeCapabilities,
       indices,
       rendered_block: renderedBlock,
-      rebased_reason: "build_context",
+      rebased_reason: input.request.forceMemoryPrefixRefresh ? "forced_refresh" : "build_context",
     };
-
-    return {
-      conversation: renderedBlock ? [{ role: "system", content: renderedBlock }] : [],
-      metadata: {
-        status: "loaded",
-        snapshot,
+    this.sessions.updateSessionMetadata?.(input.request.sessionId, {
+      memory_prefix_states: {
+        [input.baselineKey]: snapshot,
       },
-    };
+    });
+    return snapshot;
   }
 }
 
@@ -289,6 +385,9 @@ function resolveContextRequest(request: AgentRuntimeContextRequest): ResolvedAge
       request.microcompactKeepRecentTools,
       DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOLS,
     ),
+    forceMemoryPrefixRefresh: request.forceMemoryPrefixRefresh === true,
+    stablePrefixFingerprint: null,
+    microcompactTtlSeconds: DEFAULT_MICROCOMPACT_TTL_SECONDS,
   };
 }
 
@@ -551,6 +650,114 @@ function memoryBaselineKey(threadKey: string, agentName: string | null): string 
   return `${threadKey.trim() || DEFAULT_THREAD_KEY}::${agentName?.trim() || "_anonymous_"}`;
 }
 
+function readMemoryPrefixSnapshot(
+  sessionMetadata: Record<string, unknown>,
+  baselineKey: string,
+): MemoryPrefixSnapshot | null {
+  const states = asRecord(sessionMetadata.memory_prefix_states);
+  const snapshot = asRecord(states?.[baselineKey]);
+  if (!snapshot) {
+    return null;
+  }
+  const fingerprint = asRecord(snapshot.fingerprint);
+  const fingerprintValue = getString(fingerprint?.fingerprint);
+  const renderedBlock = typeof snapshot.rendered_block === "string" ? snapshot.rendered_block : null;
+  if (!fingerprintValue || renderedBlock === null) {
+    return null;
+  }
+  return {
+    baseline_key: getString(snapshot.baseline_key) ?? baselineKey,
+    session_id: getString(snapshot.session_id) ?? "",
+    thread_key: getString(snapshot.thread_key) ?? DEFAULT_THREAD_KEY,
+    agent_name: getString(snapshot.agent_name) ?? "",
+    fingerprint: {
+      agent_name: getString(fingerprint?.agent_name),
+      auto_inject: fingerprint?.auto_inject !== false,
+      allowed_scopes: stringArray(fingerprint?.allowed_scopes),
+      write_scopes: stringArray(fingerprint?.write_scopes),
+      archive_scopes: stringArray(fingerprint?.archive_scopes),
+      scope_specs: readFingerprintScopeSpecs(fingerprint?.scope_specs),
+      fingerprint: fingerprintValue,
+    },
+    scope_capabilities: readScopeCapabilities(snapshot.scope_capabilities),
+    indices: stringRecord(snapshot.indices),
+    rendered_block: renderedBlock,
+    rebased_reason: getString(snapshot.rebased_reason) ?? "loaded",
+  };
+}
+
+function readFingerprintScopeSpecs(value: unknown): MemoryPrefixFingerprint["scope_specs"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => {
+      const record = asRecord(item);
+      const scopeName = getString(record?.scope_name);
+      const scopeSpec = asRecord(record?.scope_spec);
+      if (!scopeName || !scopeSpec || !isMemoryScopeName(scopeSpec.scope)) {
+        return null;
+      }
+      const output: MemoryPrefixFingerprint["scope_specs"][number] = {
+        scope_name: scopeName,
+        scope_spec: { scope: scopeSpec.scope },
+      };
+      for (const key of ["team_name", "session_id", "agent_name", "workspace_key"] as const) {
+        const stringValue = getString(scopeSpec[key]);
+        if (stringValue) {
+          output.scope_spec[key] = stringValue;
+        }
+      }
+      return output;
+    })
+    .filter((item): item is MemoryPrefixFingerprint["scope_specs"][number] => Boolean(item));
+}
+
+function readScopeCapabilities(value: unknown): MemoryScopeCapabilities {
+  const record = asRecord(value);
+  return {
+    allowed_scopes: stringArray(record?.allowed_scopes),
+    write_scopes: stringArray(record?.write_scopes),
+    archive_scopes: stringArray(record?.archive_scopes),
+  };
+}
+
+function readPipelineCache(sessionMetadata: Record<string, unknown>, threadKey: string): Record<string, unknown> {
+  const caches = asRecord(sessionMetadata._pipeline_caches);
+  return asRecord(caches?.[threadKey]) ?? {};
+}
+
+function resolveMicrocompactTtlSeconds(config: Record<string, unknown> | undefined): number {
+  const waiting = asRecord(config?.waiting);
+  return positiveNumberOrDefault(waiting?.local_cache_ttl_seconds, DEFAULT_MICROCOMPACT_TTL_SECONDS);
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function stringRecord(value: unknown): Record<string, string> {
+  const record = asRecord(value);
+  if (!record) {
+    return {};
+  }
+  const output: Record<string, string> = {};
+  for (const [key, item] of Object.entries(record)) {
+    if (typeof item === "string") {
+      output[key] = item;
+    }
+  }
+  return output;
+}
+
+function isMemoryScopeName(value: unknown): value is MemoryScopeSpec["scope"] {
+  return value === "team" || value === "session" || value === "agent" || value === "workspace";
+}
+
+function isRuntimeSessionMetadataPort(value: unknown): value is RuntimeSessionMetadataPort {
+  return Boolean(value && typeof value === "object" && "getSession" in value && typeof value.getSession === "function");
+}
+
 function pythonStableJsonStringify(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((item) => pythonStableJsonStringify(item)).join(", ")}]`;
@@ -580,6 +787,14 @@ function numberOrNull(value: unknown): number | null {
 
 function positiveIntegerOrDefault(value: unknown, defaultValue: number): number {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : defaultValue;
+}
+
+function positiveNumberOrDefault(value: unknown, defaultValue: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : defaultValue;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

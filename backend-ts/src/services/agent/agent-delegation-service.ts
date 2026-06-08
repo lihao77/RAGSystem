@@ -346,6 +346,12 @@ export class AgentDelegationService {
         conversation: context.conversation,
         toolExecutor: runtimeTools,
         promptContext,
+        onModelRequestSuccess: () =>
+          this.refreshStablePrefixCache(
+            input.sessionId,
+            input.childAgent.thread_key,
+            context.metadata.stable_prefix_fingerprint,
+          ),
         toolContext: buildRuntimeToolContext(targetAgent, {
           sessionId: input.sessionId,
           runId: childRunId,
@@ -412,6 +418,25 @@ export class AgentDelegationService {
           thread_key: input.childAgent.thread_key,
         },
       };
+    }
+  }
+
+  private refreshStablePrefixCache(
+    sessionId: string,
+    threadKey: string,
+    stablePrefixFingerprint: string | null | undefined,
+  ): void {
+    try {
+      this.conversationStore.updateSessionMetadata(sessionId, {
+        _pipeline_caches: {
+          [threadKey]: {
+            fp: stablePrefixFingerprint?.trim() || "no_stable_prefix",
+            t: Date.now() / 1000,
+          },
+        },
+      });
+    } catch {
+      // Cache refresh is opportunistic; the model response should still complete.
     }
   }
 

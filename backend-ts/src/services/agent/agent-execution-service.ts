@@ -691,6 +691,7 @@ export class AgentExecutionService {
       modelName: resolved.modelName,
       executionKind,
       contextConversation: recoveryConversation,
+      stablePrefixFingerprint: baseContext.metadata.stable_prefix_fingerprint,
       finalMetadataExtra: {
         recovered_from: input.checkpoint.checkpoint_id,
         checkpoint_id: input.checkpoint.checkpoint_id,
@@ -730,6 +731,7 @@ export class AgentExecutionService {
     runStartExtra?: Record<string, unknown> | undefined;
     startStepExtra?: Record<string, unknown> | undefined;
     contextConversation?: ChatMessage[] | undefined;
+    stablePrefixFingerprint?: string | null | undefined;
     conversationUpdateProvider?: (() => Promise<ChatMessage[]> | ChatMessage[]) | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
   }): AgentRunStartResult & { promise: Promise<void> } {
@@ -835,6 +837,7 @@ export class AgentExecutionService {
       conversationUpdateProvider: input.conversationUpdateProvider,
       executionKind: input.executionKind,
       contextConversation: input.contextConversation,
+      stablePrefixFingerprint: input.stablePrefixFingerprint,
       finalMetadataExtra: input.finalMetadataExtra,
     });
     this.statusTracker.register(taskId, input.sessionId, { abortController, status, promise });
@@ -926,6 +929,7 @@ export class AgentExecutionService {
     conversationUpdateProvider?: (() => Promise<ChatMessage[]> | ChatMessage[]) | undefined;
     executionKind?: string | undefined;
     contextConversation?: ChatMessage[] | undefined;
+    stablePrefixFingerprint?: string | null | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
   }): Promise<void> {
     try {
@@ -956,13 +960,19 @@ export class AgentExecutionService {
               onEvent: (event) => this.eventPublisher.publishContextCompressionEvent(input, event),
             });
       const pendingBackgroundNotifications = this.drainBackgroundTaskNotifications(input.sessionId);
-      const context = input.contextConversation
-        ? { conversation: [...input.contextConversation, ...pendingBackgroundNotifications] }
+      let stablePrefixFingerprint = input.stablePrefixFingerprint ?? null;
+      const builtContext = input.contextConversation
+        ? null
         : this.contextBuilder.buildContext({
             sessionId: input.sessionId,
             agent: input.agent,
             microcompact: true,
+            forceMemoryPrefixRefresh: compressionResult?.status === "success" || compressionResult?.status === "fallback",
           });
+      const context = builtContext ?? { conversation: [...input.contextConversation!, ...pendingBackgroundNotifications] };
+      if (builtContext) {
+        stablePrefixFingerprint = builtContext.metadata.stable_prefix_fingerprint;
+      }
       if (input.contextConversation === undefined && pendingBackgroundNotifications.length) {
         context.conversation.push(...pendingBackgroundNotifications);
       }
@@ -998,6 +1008,7 @@ export class AgentExecutionService {
         signal: input.abortController.signal,
         conversation: context.conversation,
         conversationUpdateProvider: () => this.drainConversationUpdates(input.sessionId, input.conversationUpdateProvider),
+        onModelRequestSuccess: () => this.refreshStablePrefixCache(input.sessionId, "root", stablePrefixFingerprint),
         toolExecutor: this.runtimeTools ?? undefined,
         promptContext,
         toolContext: this.runtimeTools
@@ -1136,6 +1147,30 @@ export class AgentExecutionService {
 
   private deliverTerminalRecord(record: RunTerminalRecord): void {
     this.outboxDispatcher.dispatchRows(record.outboxRows);
+  }
+
+  private refreshStablePrefixCache(
+    sessionId: string,
+    threadKey: string,
+    stablePrefixFingerprint: string | null | undefined,
+  ): void {
+    const fp = stablePrefixFingerprint?.trim() || "no_stable_prefix";
+    try {
+      this.conversationStore.updateSessionMetadata(sessionId, {
+        _pipeline_caches: {
+          [threadKey]: {
+            fp,
+            t: Date.now() / 1000,
+          },
+        },
+      });
+    } catch (error) {
+      this.logger?.error({
+        session_id: sessionId,
+        thread_key: threadKey,
+        error: error instanceof Error ? error.message : String(error),
+      }, "failed to refresh stable prefix cache");
+    }
   }
 
   private queueFollowup(sessionId: string, content: string): void {
@@ -1304,6 +1339,14 @@ export class AgentExecutionService {
           });
         },
       });
+      if (result.status === "success" || result.status === "fallback") {
+        this.contextBuilder.buildContext({
+          sessionId: input.sessionId,
+          agent: applySessionAgentOverrides(resolved.agent, sessionMetadata),
+          historyLimit: 0,
+          forceMemoryPrefixRefresh: true,
+        });
+      }
       if (result.status === "skipped") {
         return {
           command: "compact",
