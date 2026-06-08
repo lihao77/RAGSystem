@@ -120,7 +120,7 @@ export async function sendFileDownload(input: {
   }
 
   const filename = sanitizeHeaderFilename(input.record.original_name || path.basename(storedPath));
-  input.reply.header("content-type", input.record.mime || "application/octet-stream");
+  input.reply.header("content-type", "application/octet-stream");
   input.reply.header("content-disposition", `attachment; filename="${filename}"`);
   return input.reply.send(fs.createReadStream(storedPath));
 }

@@ -32,7 +32,10 @@ export const registerFileRoutes: FastifyPluginAsync<RouteOptions> = async (app, 
   }));
 
   app.get("/validate", async (request) => {
-    const payload = ValidateFilesRequestSchema.parse(request.body ?? {});
+    if (request.body === undefined || request.body === null) {
+      throw new HttpError(400, "invalid_request", "missing body");
+    }
+    const payload = ValidateFilesRequestSchema.parse(request.body);
     return validateFileIds({
       fileIndex: options.container.fileIndex,
       fileIds: payload.file_ids,

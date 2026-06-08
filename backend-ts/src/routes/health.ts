@@ -21,9 +21,8 @@ export const registerHealthRoutes: FastifyPluginAsync<RouteOptions> = async (app
       {
         status: "healthy",
         agents_count: options.container.agentConfig.listAgents().length,
-        migration_status: "agent_runtime_migrated",
       },
-      "backend-ts agent runtime is ready",
+      "智能体系统运行正常",
     ),
   );
 };

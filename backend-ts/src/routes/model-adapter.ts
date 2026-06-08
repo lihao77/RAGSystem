@@ -69,6 +69,9 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
       options.container.modelAdapter.deleteProvider(request.params.providerKey);
       return ok(undefined, "Provider 删除成功");
     } catch (error) {
+      if (error instanceof ModelAdapterServiceError && error.statusCode === 404 && error.message.startsWith("Provider 不存在:")) {
+        throw new HttpError(500, "internal_error", `删除 Provider 失败: ${error.message}`);
+      }
       throw toHttpError(error);
     }
   });
@@ -94,6 +97,22 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
         response: result,
       };
     } catch (error) {
+      if (error instanceof ModelAdapterServiceError && error.statusCode === 404) {
+        const result = {
+          content: null,
+          error: error.message,
+          model: null,
+          provider: String(payload.provider ?? ""),
+          cost: null,
+          latency: null,
+          usage: null,
+          finish_reason: null,
+        };
+        return {
+          ...ok(result, "测试成功"),
+          response: result,
+        };
+      }
       throw toHttpError(error);
     }
   });
