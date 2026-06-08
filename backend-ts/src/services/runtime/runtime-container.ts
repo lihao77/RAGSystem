@@ -110,8 +110,10 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     providersConfigPath: options.modelAdapterProvidersConfigPath,
     chatClient: llmChatClient,
   });
-  const systemConfig = new SystemConfigService();
+  const systemConfig = new SystemConfigService({ dataRoot: options.dataRoot });
   const mcp = new McpService({ dataRoot: options.dataRoot, configPath: options.mcpConfigPath });
+  void mcp.autoConnectEnabledServers();
+  agentConfig.setMcpService(mcp);
   const daemon = new DaemonService({ dataRoot: options.dataRoot, configPath: options.daemonConfigPath });
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
   const vectorLibrary = new VectorLibraryService(fileIndex, modelAdapter, {

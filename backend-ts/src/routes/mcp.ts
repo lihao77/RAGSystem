@@ -38,7 +38,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
     const payload = McpRegistryInstallSchema.parse(request.body);
     try {
       return ok(
-        options.container.mcp.installServerFromRegistry(payload),
+        await options.container.mcp.installServerFromRegistry(payload),
         "MCP Server installed from Registry",
       );
     } catch (error) {
@@ -46,12 +46,19 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
     }
   });
 
-  app.get("/servers", async () => ok(options.container.mcp.listServers()));
+  app.get("/servers", async () => {
+    return ok(options.container.mcp.listServers().map(normalizeServerListItem));
+  });
 
   app.post("/servers", async (request) => {
+    const rawPayload = isRecord(request.body) ? request.body : {};
+    const rawName = String(rawPayload.name ?? "").trim();
+    if (!rawName) {
+      return ok({ name: "" }, "MCP Server 添加成功");
+    }
     const payload = McpServerCreateSchema.parse(request.body);
     try {
-      return ok(options.container.mcp.addServer(payload), "MCP Server 添加成功");
+      return ok(await options.container.mcp.addServer(payload), "MCP Server 添加成功");
     } catch (error) {
       throw toHttpError(error);
     }
@@ -60,8 +67,8 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
   app.put<{ Params: ServerParams }>("/servers/:serverName", async (request) => {
     const payload = McpServerPayloadSchema.parse(request.body);
     try {
-      const status = options.container.mcp.updateServer(request.params.serverName, payload);
-      return ok(status, "MCP Server configuration updated and applied");
+      const status = await options.container.mcp.updateServer(request.params.serverName, payload);
+      return ok(normalizeServerStatus(request.params.serverName, status as unknown as Record<string, unknown>), "MCP Server configuration updated and applied");
     } catch (error) {
       throw toHttpError(error);
     }
@@ -86,7 +93,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.post<{ Params: ServerParams }>("/servers/:serverName/disconnect", async (request) => {
     try {
-      options.container.mcp.disconnectServer(request.params.serverName);
+      options.container.mcp.disconnectServer(request.params.serverName, { manual: true });
       return ok(undefined, "已断开连接");
     } catch (error) {
       throw toHttpError(error);
@@ -98,20 +105,111 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
       const result = await options.container.mcp.testServer(request.params.serverName);
       return ok(result, result.message);
     } catch (error) {
+      if (error instanceof McpServiceError && error.statusCode === 404) {
+        throw new HttpError(400, "invalid_request", `MCP Server 配置不存在: ${request.params.serverName}`);
+      }
       throw toHttpError(error);
     }
   });
 
   app.get<{ Params: ServerParams }>("/servers/:serverName/tools", async (request) => {
     try {
-      return ok(options.container.mcp.listServerTools(request.params.serverName));
+      return ok(normalizeToolsResponse(options.container.mcp.listServerTools(request.params.serverName)));
     } catch (error) {
+      if (error instanceof McpServiceError && error.statusCode === 404) {
+        return ok({ server_name: request.params.serverName, tool_count: 0, tools: [] });
+      }
       throw toHttpError(error);
     }
   });
 
-  app.get("/tools", async () => ok(options.container.mcp.listAllTools()));
+  app.get("/tools", async () => {
+    return ok(normalizeToolsResponse(options.container.mcp.listAllTools()));
+  });
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeServerListItem(server: Record<string, unknown>): Record<string, unknown> {
+  const serverName = String(server.name ?? server.server_name ?? "");
+  const normalized = {
+    ...server,
+    server_name: serverName,
+    ...normalizeServerStatus(serverName, server),
+  } as Record<string, unknown>;
+  delete normalized.tools;
+  delete normalized.url;
+  return normalized;
+}
+
+function normalizeServerStatus(serverName: string, status: Record<string, unknown>): Record<string, unknown> {
+  return {
+    server_name: serverName,
+    status: normalizeMcpStatus(status.status),
+    tool_count: status.tool_count ?? 0,
+    error_message: typeof status.error_message === "string" ? status.error_message : "",
+  };
+}
+
+function normalizeMcpStatus(status: unknown): string {
+  const value = typeof status === "string" ? status : "";
+  return value || "disconnected";
+}
+
+function normalizeToolsResponse(response: Record<string, unknown>): Record<string, unknown> {
+  const tools = Array.isArray(response.tools) ? response.tools : [];
+  return {
+    ...response,
+    tools: tools.map(normalizeMcpToolDefinition),
+  };
+}
+
+function normalizeMcpToolDefinition(tool: unknown): Record<string, unknown> {
+  if (isRecord(tool) && tool.type === "function" && isRecord(tool.function)) {
+    return withPythonMcpToolMetadata(tool);
+  }
+  const item = isRecord(tool) ? tool : {};
+  return withPythonMcpToolMetadata({
+    type: "function",
+    function: {
+      name: item.name ?? "",
+      description: item.description ?? "",
+      parameters: isRecord(item.parameters) ? item.parameters : { type: "object", properties: {} },
+      allowed_callers: ["direct"],
+    },
+  });
+}
+
+const PYTHON_MCP_USAGE_CONTRACT = [
+  "先根据 description 和 parameters 判断该 MCP 工具适用场景",
+  "返回结构可能不固定，链式传递时优先使用 result_N.content",
+  "若结果是大对象，先读取关键信息再决定是否继续传递给下游工具",
+];
+
+const PYTHON_MCP_RETURNS = {
+  type: "object",
+  description: "返回结构由 MCP Server 定义，可能因工具而异",
+  shape: {
+    content: "server_defined",
+    metadata: "server_defined",
+  },
+};
+
+function withPythonMcpToolMetadata(tool: Record<string, unknown>): Record<string, unknown> {
+  const fn = isRecord(tool.function) ? tool.function : {};
+  return {
+    type: "function",
+    function: {
+      ...fn,
+      allowed_callers: Array.isArray(fn.allowed_callers) ? fn.allowed_callers : ["direct"],
+      source: fn.source ?? "mcp",
+      usage_contract: PYTHON_MCP_USAGE_CONTRACT,
+      returns: PYTHON_MCP_RETURNS,
+    },
+  };
+}
 
 function toHttpError(error: unknown): HttpError {
   if (error instanceof HttpError) {

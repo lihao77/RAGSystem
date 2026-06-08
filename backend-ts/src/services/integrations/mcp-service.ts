@@ -21,6 +21,7 @@ const MCP_PROTOCOL_VERSION = "2024-11-05";
 const MCP_SERVERS_RELATIVE_PATH = path.join("config", "mcp", "mcp_servers.yaml");
 const REGISTRY_BASE_URL = process.env.MCP_REGISTRY_BASE_URL || "https://registry.modelcontextprotocol.io";
 const REGISTRY_TIMEOUT_MS = Math.max(1000, Number(process.env.MCP_REGISTRY_TIMEOUT ?? 15) * 1000);
+const MAX_REGISTRY_SEARCH_PAGES = 5;
 
 export class McpServiceError extends Error {
   readonly statusCode: number;
@@ -35,6 +36,7 @@ export class McpServiceError extends Error {
 export class McpService {
   private readonly servers = new Map<string, McpServerConfig>();
   private readonly connections = new Map<string, McpConnectionState>();
+  private readonly manuallyDisconnectedServers = new Set<string>();
   private readonly configPath: string | null;
 
   constructor(options: { dataRoot?: string | undefined; configPath?: string | undefined } = {}) {
@@ -51,28 +53,43 @@ export class McpService {
     const search = input.search?.trim() ?? "";
     const latestOnly = input.latestOnly ?? true;
     const limit = Math.max(1, Math.min(input.limit ?? 8, 20));
-    const url = new URL("/v0/servers", REGISTRY_BASE_URL);
-    url.searchParams.set("limit", String(limit));
-    if (search) {
-      url.searchParams.set("search", search);
-    }
-    if (input.cursor?.trim()) {
-      url.searchParams.set("cursor", input.cursor.trim());
-    }
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REGISTRY_TIMEOUT_MS);
+    let nextCursor = input.cursor?.trim() || null;
+    const seen = new Set<string>();
+    const items: unknown[] = [];
+    let pages = 0;
     try {
-      const response = await fetch(url, { signal: controller.signal });
-      if (!response.ok) {
-        throw new McpServiceError(`Failed to query MCP Registry: HTTP ${response.status}`, 502);
+      while (items.length < limit && pages < MAX_REGISTRY_SEARCH_PAGES) {
+        const body = await fetchRegistryPage(search, limit, nextCursor);
+        nextCursor = readNestedString(body, ["metadata", "nextCursor"]);
+        pages += 1;
+
+        for (const entry of readRegistryEntries(body)) {
+          if (!isRecord(entry)) {
+            continue;
+          }
+          const normalized = normalizeRegistryEntry(entry);
+          const key = `${String(normalized.name ?? "")}\u0000${String(normalized.version ?? "")}`;
+          if (seen.has(key)) {
+            continue;
+          }
+          seen.add(key);
+          if (latestOnly && normalized.latest !== true) {
+            continue;
+          }
+          items.push(normalized);
+          if (items.length >= limit) {
+            break;
+          }
+        }
+
+        if (!nextCursor || !latestOnly) {
+          break;
+        }
       }
-      const body = await response.json() as unknown;
-      const items = normalizeRegistryItems(body, latestOnly, limit);
       return {
         items,
         count: items.length,
-        next_cursor: readNestedString(body, ["metadata", "nextCursor"]),
+        next_cursor: nextCursor,
         search,
         latest_only: latestOnly,
       };
@@ -81,12 +98,10 @@ export class McpService {
         throw error;
       }
       throw new McpServiceError(`Failed to query MCP Registry: ${formatError(error)}`, 502);
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
-  installServerFromRegistry(payload: McpRegistryInstall): { name: string; status: McpServerStatus["status"] } & McpServerConfig {
+  async installServerFromRegistry(payload: McpRegistryInstall): Promise<{ name: string; status: McpServerStatus["status"] } & McpServerConfig> {
     const config = buildServerConfigFromRegistryInstall(payload);
     if (this.servers.has(config.name)) {
       throw new McpServiceError(`MCP Server 已存在: ${config.name}`, 400);
@@ -94,6 +109,7 @@ export class McpService {
     config.created_at = new Date().toISOString();
     this.servers.set(config.name, config);
     this.saveServersToDisk();
+    await this.connectIfAutoEnabled(config.name);
     return {
       ...cloneServer(config),
       status: this.getServerStatus(config.name).status,
@@ -107,7 +123,27 @@ export class McpService {
     }));
   }
 
-  addServer(payload: McpServerCreate): { name: string } {
+  async autoConnectEnabledServers(): Promise<void> {
+    for (const server of this.servers.values()) {
+      if (!server.enabled || !server.auto_connect) {
+        continue;
+      }
+      const status = this.getServerStatus(server.name).status;
+      if (status === "connected" || status === "connecting") {
+        continue;
+      }
+      if (this.manuallyDisconnectedServers.has(server.name)) {
+        continue;
+      }
+      try {
+        await this.connectServer(server.name, { automatic: true });
+      } catch {
+        // Startup should keep running even when an optional MCP server is unavailable.
+      }
+    }
+  }
+
+  async addServer(payload: McpServerCreate): Promise<{ name: string }> {
     const config = normalizeServerConfig(payload);
     if (this.servers.has(config.name)) {
       throw new McpServiceError(`MCP Server 已存在: ${config.name}`, 400);
@@ -115,10 +151,11 @@ export class McpService {
     config.created_at = new Date().toISOString();
     this.servers.set(config.name, config);
     this.saveServersToDisk();
+    await this.connectIfAutoEnabled(config.name);
     return { name: config.name };
   }
 
-  updateServer(serverName: string, payload: McpServerPayload): McpServerStatus {
+  async updateServer(serverName: string, payload: McpServerPayload): Promise<McpServerStatus> {
     const existing = this.servers.get(serverName);
     if (!existing) {
       throw new McpServiceError(`MCP Server not found: ${serverName}`, 404);
@@ -135,6 +172,7 @@ export class McpService {
     merged.updated_at = new Date().toISOString();
     this.servers.set(serverName, merged);
     this.saveServersToDisk();
+    await this.connectIfAutoEnabled(serverName);
     return this.getServerStatus(serverName);
   }
 
@@ -154,10 +192,15 @@ export class McpService {
     return server;
   }
 
-  async connectServer(serverName: string): Promise<McpServerStatus> {
+  async connectServer(serverName: string, options: { automatic?: boolean } = {}): Promise<McpServerStatus> {
     const server = this.ensureServer(serverName);
     if (!server.enabled) {
       throw new McpServiceError(`MCP Server 已禁用: ${serverName}`, 400);
+    }
+    if (!options.automatic) {
+      this.manuallyDisconnectedServers.delete(serverName);
+    } else if (this.manuallyDisconnectedServers.has(serverName)) {
+      return this.getServerStatus(serverName);
     }
     const existing = this.connections.get(serverName);
     if (existing?.status === "connected") {
@@ -180,6 +223,14 @@ export class McpService {
       }
       const client = new StdioMcpClient(server);
       await client.connect();
+      if (options.automatic && this.manuallyDisconnectedServers.has(serverName)) {
+        client.close();
+        state.status = "disconnected";
+        state.errorMessage = null;
+        state.tools = [];
+        state.client = null;
+        return this.getServerStatus(serverName);
+      }
       state.client = client;
       state.tools = client.tools;
       state.status = "connected";
@@ -198,7 +249,10 @@ export class McpService {
     }
   }
 
-  disconnectServer(serverName: string): void {
+  disconnectServer(serverName: string, options: { manual?: boolean } = {}): void {
+    if (options.manual) {
+      this.manuallyDisconnectedServers.add(serverName);
+    }
     const state = this.connections.get(serverName);
     if (state?.client) {
       state.client.close();
@@ -294,6 +348,21 @@ export class McpService {
     this.connections.clear();
   }
 
+  private async connectIfAutoEnabled(serverName: string): Promise<void> {
+    const server = this.servers.get(serverName);
+    if (!server?.enabled || !server.auto_connect) {
+      return;
+    }
+    if (this.manuallyDisconnectedServers.has(serverName)) {
+      return;
+    }
+    try {
+      await this.connectServer(serverName, { automatic: true });
+    } catch {
+      // Saving the config should succeed; callers can read the error status.
+    }
+  }
+
   private getRuntimeToolsForServer(serverName: string): RuntimeMcpToolDefinition[] {
     const state = this.connections.get(serverName);
     if (!state || state.status !== "connected") {
@@ -364,7 +433,9 @@ class StdioMcpClient {
     if (!command) {
       throw new Error("stdio 模式需要 command 配置");
     }
-    this.process = spawn(command, this.config.args, {
+    const resolvedCommand = resolveSpawnCommand(command, this.config.args);
+    this.process = spawn(resolvedCommand.command, resolvedCommand.args, {
+      ...resolvedCommand.options,
       env: { ...process.env, ...this.config.env },
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
@@ -556,10 +627,10 @@ function normalizeServerConfig(payload: Record<string, unknown>): McpServerConfi
 
 function defaultStatus(): McpServerStatus {
   return {
-    status: "disconnected",
+    status: "not_loaded",
     tool_count: 0,
     tools: [],
-    error_message: null,
+    error_message: "",
   };
 }
 
@@ -609,6 +680,75 @@ function resolveConfigPath(options: { dataRoot?: string | undefined; configPath?
     return trimmed ? path.resolve(trimmed) : null;
   }
   return path.join(path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem")), MCP_SERVERS_RELATIVE_PATH);
+}
+
+function resolveSpawnCommand(command: string, args: string[]): { command: string; args: string[]; options: { shell?: boolean } } {
+  if (process.platform !== "win32" || path.isAbsolute(command)) {
+    return { command, args, options: {} };
+  }
+  const found = findWindowsCommand(command);
+  if (found) {
+    const npmShim = resolveNpmCmdShim(found);
+    if (npmShim) {
+      return { command: npmShim.command, args: [...npmShim.args, ...args], options: {} };
+    }
+    const extension = path.extname(found).toLowerCase();
+    if (extension === ".cmd" || extension === ".bat") {
+      return { command: process.env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", `"${found}" ${args.map(quoteCmdArg).join(" ")}`], options: {} };
+    }
+    return { command: found, args, options: {} };
+  }
+  return { command, args, options: { shell: true } };
+}
+
+function findWindowsCommand(command: string): string | null {
+  const pathEntries = String(process.env.PATH ?? "")
+    .split(path.delimiter)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const extensions = String(process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD")
+    .split(";")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const preferredExtensions = [".CMD", ".EXE", ".BAT", ".COM"];
+  const candidates = path.extname(command)
+    ? [command]
+    : [
+        ...preferredExtensions.map((extension) => `${command}${extension.toLowerCase()}`),
+        ...preferredExtensions.map((extension) => `${command}${extension.toUpperCase()}`),
+        ...extensions.map((extension) => `${command}${extension.toLowerCase()}`),
+        ...extensions.map((extension) => `${command}${extension.toUpperCase()}`),
+        command,
+      ];
+  for (const entry of pathEntries) {
+    for (const candidate of candidates) {
+      const fullPath = path.join(entry, candidate);
+      if (fs.existsSync(fullPath)) {
+        return fullPath;
+      }
+    }
+  }
+  return null;
+}
+
+function resolveNpmCmdShim(commandPath: string): { command: string; args: string[] } | null {
+  if (path.extname(commandPath).toLowerCase() !== ".cmd") {
+    return null;
+  }
+  const baseDir = path.dirname(commandPath);
+  const packageMatch = fs.readFileSync(commandPath, "utf8").match(/node_modules\\([^"\r\n]+?\\bin\\[^"\r\n]+?\.js)/i);
+  if (!packageMatch?.[1]) {
+    return null;
+  }
+  const nodePath = path.join(baseDir, "node.exe");
+  return {
+    command: fs.existsSync(nodePath) ? nodePath : "node",
+    args: [path.join(baseDir, "node_modules", packageMatch[1])],
+  };
+}
+
+function quoteCmdArg(value: string): string {
+  return `"${value.replace(/"/g, '\\"')}"`;
 }
 
 function normalizeMcpTools(value: unknown): McpTool[] {
@@ -890,47 +1030,246 @@ function resolveTemplateString(template: string, inputValues: Record<string, unk
   return resolved;
 }
 
-function normalizeRegistryItems(value: unknown, latestOnly: boolean, limit: number): unknown[] {
-  const entries = isRecord(value) && Array.isArray(value.servers) ? value.servers : [];
-  const items: unknown[] = [];
-  for (const entry of entries) {
-    if (!isRecord(entry)) {
-      continue;
-    }
-    const normalized = normalizeRegistryEntry(entry);
-    if (latestOnly && normalized.latest === false) {
-      continue;
-    }
-    items.push(normalized);
-    if (items.length >= limit) {
-      break;
-    }
-  }
-  return items;
-}
-
 function normalizeRegistryEntry(entry: Record<string, unknown>): Record<string, unknown> {
   const server = isRecord(entry.server) ? entry.server : entry;
   const meta = isRecord(entry._meta) && isRecord(entry._meta["io.modelcontextprotocol.registry/official"])
     ? entry._meta["io.modelcontextprotocol.registry/official"] as Record<string, unknown>
     : {};
   const displayName = readString(server.title) ?? readString(server.name) ?? "";
+  const installOptions = [
+    ...readRecordArray(server.packages).map((item, index) => normalizePackageOption(server, item, index)),
+    ...readRecordArray(server.remotes).map((item, index) => normalizeRemoteOption(server, item, index)),
+  ];
+  const preferred = installOptions.find((option) => option.supported === true)?.id ?? null;
   return {
     name: readString(server.name) ?? "",
     display_name: displayName,
     description: readString(server.description) ?? "",
     version: readString(server.version) ?? "",
-    latest: Boolean(meta.isLatest ?? true),
+    latest: Boolean(meta.isLatest ?? false),
     published_at: readString(meta.publishedAt),
     updated_at: readString(meta.updatedAt),
     website_url: readString(server.websiteUrl),
     repository_url: readNestedString(server, ["repository", "url"]),
-    installable: Array.isArray(server.packages) || Array.isArray(server.remotes),
-    install_options: [],
-    preferred_option_id: null,
+    installable: installOptions.some((option) => option.supported === true),
+    install_options: installOptions,
+    preferred_option_id: preferred,
     default_server_name: cleanServerName(readString(server.name) ?? displayName),
     default_display_name: displayName,
   };
+}
+
+async function fetchRegistryPage(search: string, limit: number, cursor: string | null): Promise<unknown> {
+  const url = new URL("/v0/servers", REGISTRY_BASE_URL);
+  url.searchParams.set("limit", String(limit));
+  if (search) {
+    url.searchParams.set("search", search);
+  }
+  if (cursor) {
+    url.searchParams.set("cursor", cursor);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REGISTRY_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new McpServiceError(`Failed to query MCP Registry: HTTP ${response.status}`, 502);
+    }
+    return await response.json() as unknown;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function readRegistryEntries(value: unknown): unknown[] {
+  return isRecord(value) && Array.isArray(value.servers) ? value.servers : [];
+}
+
+function normalizePackageOption(server: Record<string, unknown>, source: Record<string, unknown>, index: number): Record<string, unknown> {
+  const recipe = annotateRegistryRecipe(structuredClone(source) as Record<string, unknown>, `package.${index}`);
+  const transportType = readNestedString(recipe, ["transport", "type"]) ?? "stdio";
+  const transport = normalizeTransport(transportType);
+  const registryType = readString(recipe.registryType) ?? "custom";
+  const runtimeHint = readString(recipe.runtimeHint) ?? runtimeForRegistry(registryType);
+  const supported = transport === "stdio" && Boolean(runtimeHint);
+  const unsupportedReason = transport !== "stdio"
+    ? `当前系统仅支持从 Registry 一键安装 stdio 本地包，暂不支持 ${transportType} 包`
+    : runtimeHint
+      ? null
+      : `当前系统暂不支持 registryType=${registryType} 的自动启动命令`;
+  const defaultRiskLevel = runtimeHint === "docker" ? "high" : "medium";
+  return {
+    id: `pkg-${index}`,
+    kind: "package",
+    label: `${registryType} · ${transport}`,
+    transport,
+    runtime_hint: runtimeHint,
+    supported,
+    unsupported_reason: unsupportedReason,
+    command_preview: supported ? buildPackagePreview(recipe) : null,
+    url_preview: null,
+    form_fields: buildRegistryFormFields(recipe),
+    recipe,
+    default_server_name: cleanServerName(readString(server.name) ?? ""),
+    default_display_name: readString(server.title) ?? readString(server.name) ?? "",
+    default_timeout: runtimeHint === "docker" ? 60 : 30,
+    default_risk_level: defaultRiskLevel,
+  };
+}
+
+function normalizeRemoteOption(server: Record<string, unknown>, source: Record<string, unknown>, index: number): Record<string, unknown> {
+  const recipe = annotateRegistryRecipe(structuredClone(source) as Record<string, unknown>, `remote.${index}`);
+  const transport = normalizeTransport(readString(recipe.type) ?? "streamable-http");
+  const supported = transport === "sse" || transport === "streamable_http";
+  return {
+    id: `remote-${index}`,
+    kind: "remote",
+    label: `remote · ${transport}`,
+    transport,
+    runtime_hint: null,
+    supported,
+    unsupported_reason: supported ? null : `当前系统暂不支持 transport=${transport} 的远程服务`,
+    command_preview: null,
+    url_preview: buildRemotePreview(recipe),
+    form_fields: buildRegistryFormFields(recipe),
+    recipe,
+    default_server_name: cleanServerName(readString(server.name) ?? ""),
+    default_display_name: readString(server.title) ?? readString(server.name) ?? "",
+    default_timeout: 60,
+    default_risk_level: "medium",
+  };
+}
+
+function annotateRegistryRecipe(recipe: Record<string, unknown>, prefix: string): Record<string, unknown> {
+  for (const [key, source] of [
+    ["environmentVariables", "env"],
+    ["runtimeArguments", "runtime"],
+    ["packageArguments", "package"],
+    ["headers", "header"],
+  ] as const) {
+    readRecordArray(recipe[key]).forEach((item, index) => annotateRegistryInput(item, `${prefix}.${source}.${index}`));
+  }
+  const variables = isRecord(recipe.variables) ? recipe.variables : {};
+  for (const [name, value] of Object.entries(variables)) {
+    if (isRecord(value)) {
+      annotateRegistryInput(value, `${prefix}.var.${name}`);
+    }
+  }
+  const transport = isRecord(recipe.transport) ? recipe.transport : null;
+  if (transport) {
+    readRecordArray(transport.headers).forEach((item, index) => annotateRegistryInput(item, `${prefix}.transport_header.${index}`));
+    const transportVariables = isRecord(transport.variables) ? transport.variables : {};
+    for (const [name, value] of Object.entries(transportVariables)) {
+      if (isRecord(value)) {
+        annotateRegistryInput(value, `${prefix}.transport_var.${name}`);
+      }
+    }
+  }
+  return recipe;
+}
+
+function annotateRegistryInput(item: Record<string, unknown>, fieldKey: string): void {
+  item.client_field_key = fieldKey;
+  const variables = isRecord(item.variables) ? item.variables : {};
+  for (const [name, value] of Object.entries(variables)) {
+    if (isRecord(value)) {
+      annotateRegistryInput(value, `${fieldKey}.var.${name}`);
+    }
+  }
+}
+
+function buildRegistryFormFields(recipe: Record<string, unknown>): Array<Record<string, unknown>> {
+  const fields: Array<Record<string, unknown>> = [];
+  fields.push(...collectRegistryFields(readRecordArray(recipe.environmentVariables), "env"));
+  fields.push(...collectRegistryFields(readRecordArray(recipe.runtimeArguments), "runtime_argument"));
+  fields.push(...collectRegistryFields(readRecordArray(recipe.packageArguments), "package_argument"));
+  fields.push(...collectRegistryFields(readRecordArray(recipe.headers), "header"));
+  const variables = isRecord(recipe.variables) ? recipe.variables : {};
+  for (const [name, value] of Object.entries(variables)) {
+    if (isRecord(value)) {
+      fields.push(...collectSingleRegistryField(value, "variable", name));
+    }
+  }
+  const transport = isRecord(recipe.transport) ? recipe.transport : null;
+  if (transport) {
+    fields.push(...collectRegistryFields(readRecordArray(transport.headers), "header"));
+    const transportVariables = isRecord(transport.variables) ? transport.variables : {};
+    for (const [name, value] of Object.entries(transportVariables)) {
+      if (isRecord(value)) {
+        fields.push(...collectSingleRegistryField(value, "variable", name));
+      }
+    }
+  }
+  return fields;
+}
+
+function collectRegistryFields(items: Record<string, unknown>[], source: string): Array<Record<string, unknown>> {
+  return items.flatMap((item) => collectSingleRegistryField(item, source));
+}
+
+function collectSingleRegistryField(item: Record<string, unknown>, source: string, fallbackLabel = "配置项"): Array<Record<string, unknown>> {
+  const fields: Array<Record<string, unknown>> = [];
+  if (item.value === undefined || item.value === null || item.value === "") {
+    const fieldKey = readString(item.client_field_key);
+    if (fieldKey) {
+      const format = readString(item.format) ?? "string";
+      fields.push({
+        key: fieldKey,
+        label: readString(item.label) ?? readString(item.name) ?? readString(item.valueHint) ?? fallbackLabel,
+        description: readString(item.description) ?? "",
+        source,
+        format,
+        required: Boolean(item.isRequired ?? false),
+        secret: Boolean(item.isSecret ?? false),
+        repeated: Boolean(item.isRepeated ?? false),
+        default_value: coerceRegistryDefaultValue(item.default, format),
+        placeholder: readString(item.placeholder) ?? "",
+      });
+    }
+  }
+  const variables = isRecord(item.variables) ? item.variables : {};
+  for (const [name, value] of Object.entries(variables)) {
+    if (isRecord(value)) {
+      fields.push(...collectSingleRegistryField(value, source, name));
+    }
+  }
+  return fields;
+}
+
+function coerceRegistryDefaultValue(value: unknown, format: string): unknown {
+  if (value === undefined || value === null || value === "") {
+    return format === "boolean" ? false : null;
+  }
+  if (format === "boolean") {
+    return parseBoolean(value);
+  }
+  if (format === "number") {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : value;
+  }
+  return value;
+}
+
+function buildPackagePreview(recipe: Record<string, unknown>): string | null {
+  try {
+    const { command, args } = resolvePackageRuntime(recipe, {});
+    return [command, ...args].join(" ").trim();
+  } catch {
+    return null;
+  }
+}
+
+function buildRemotePreview(recipe: Record<string, unknown>): string | null {
+  try {
+    return resolveTemplateString(readString(recipe.url) ?? "", {}, isRecord(recipe.variables) ? recipe.variables : {});
+  } catch {
+    return readString(recipe.url);
+  }
+}
+
+function readRecordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
 }
 
 function runtimeForRegistry(value: string | null): string | null {

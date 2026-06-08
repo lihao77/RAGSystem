@@ -61,7 +61,7 @@ describe("mcp compatibility routes", () => {
         args: ["-y", "@modelcontextprotocol/server-filesystem"],
         env: { ROOT: "E:/Python/RAGSystem" },
         enabled: true,
-        auto_connect: true,
+        auto_connect: false,
         timeout: 30,
         risk_level: "medium",
       },
@@ -88,11 +88,10 @@ describe("mcp compatibility routes", () => {
         command: "npx",
         args: ["-y", "@modelcontextprotocol/server-filesystem"],
         enabled: true,
-        auto_connect: true,
-        status: "disconnected",
+        auto_connect: false,
+        status: "not_loaded",
         tool_count: 0,
-        tools: [],
-        error_message: null,
+        error_message: "",
       },
     ]);
 
@@ -114,7 +113,7 @@ describe("mcp compatibility routes", () => {
     expect(updated.json()).toMatchObject({
       success: true,
       data: {
-        status: "disconnected",
+        status: "not_loaded",
         tool_count: 0,
       },
     });
@@ -140,7 +139,6 @@ describe("mcp compatibility routes", () => {
       name: "filesystem",
       display_name: "Filesystem Local",
       transport: "streamable_http",
-      url: "https://example.test/mcp",
       headers: { Authorization: "Bearer token" },
       enabled: false,
       auto_connect: false,
@@ -205,10 +203,13 @@ describe("mcp compatibility routes", () => {
       tool_count: 1,
       tools: [
         {
-          name: "mcp__mock__echo",
-          source: "mcp",
-          parameters: {
-            type: "object",
+          type: "function",
+          function: {
+            name: "mcp__mock__echo",
+            source: "mcp",
+            parameters: {
+              type: "object",
+            },
           },
         },
       ],
@@ -241,6 +242,72 @@ describe("mcp compatibility routes", () => {
       url: "/api/mcp/servers/mock/tools",
     });
     expect(afterDisconnect.json().data.tool_count).toBe(0);
+
+    const serversAfterDisconnect = await app.inject({
+      method: "GET",
+      url: "/api/mcp/servers",
+    });
+    expect(serversAfterDisconnect.json().data[0]).toMatchObject({
+      name: "mock",
+      status: "disconnected",
+      tool_count: 0,
+    });
+
+    const allToolsAfterDisconnect = await app.inject({
+      method: "GET",
+      url: "/api/mcp/tools",
+    });
+    expect(allToolsAfterDisconnect.json().data).toMatchObject({
+      tool_count: 0,
+      tools: [],
+    });
+  });
+
+  it("keeps manual disconnect when an automatic connect finishes later", async () => {
+    app = await buildTestApp();
+    const serverScript = writeMockMcpServer({ initializeDelayMs: 120 });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/mcp/servers",
+      payload: {
+        name: "slow",
+        display_name: "Slow MCP",
+        transport: "stdio",
+        command: process.execPath,
+        args: [serverScript],
+        timeout: 5,
+      },
+    });
+    expect(created.statusCode).toBe(200);
+
+    const disconnected = await app.inject({
+      method: "POST",
+      url: "/api/mcp/servers/slow/disconnect",
+      payload: {},
+    });
+    expect(disconnected.statusCode).toBe(200);
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    const servers = await app.inject({
+      method: "GET",
+      url: "/api/mcp/servers",
+    });
+    expect(servers.json().data[0]).toMatchObject({
+      name: "slow",
+      status: "disconnected",
+      tool_count: 0,
+    });
+
+    const tools = await app.inject({
+      method: "GET",
+      url: "/api/mcp/tools",
+    });
+    expect(tools.json().data).toMatchObject({
+      tool_count: 0,
+      tools: [],
+    });
   });
 
   it("installs supported registry package options as server configs", async () => {
@@ -282,7 +349,7 @@ describe("mcp compatibility routes", () => {
         name: "mock_package",
         command: "npx",
         args: ["-y", "@example/mcp-server@1.2.3"],
-        status: "disconnected",
+        status: "not_loaded",
       },
     });
   });
@@ -305,18 +372,26 @@ describe("mcp compatibility routes", () => {
       method: "GET",
       url: "/api/mcp/servers/missing/tools",
     });
-    expect(missingTools.statusCode).toBe(404);
-    expect(missingTools.json().message).toBe("MCP Server not found: missing");
+    expect(missingTools.statusCode).toBe(200);
+    expect(missingTools.json()).toMatchObject({
+      success: true,
+      data: {
+        server_name: "missing",
+        tool_count: 0,
+        tools: [],
+      },
+    });
   });
 });
 
-function writeMockMcpServer(): string {
+function writeMockMcpServer(options: { initializeDelayMs?: number } = {}): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-mcp-"));
   tempRoots.push(root);
   const script = path.join(root, "mock-mcp-server.cjs");
   fs.writeFileSync(script, `
 const readline = require("node:readline");
 const rl = readline.createInterface({ input: process.stdin });
+const initializeDelayMs = ${JSON.stringify(options.initializeDelayMs ?? 0)};
 function send(message) {
   process.stdout.write(JSON.stringify(message) + "\\n");
 }
@@ -324,7 +399,7 @@ rl.on("line", (line) => {
   if (!line.trim()) return;
   const message = JSON.parse(line);
   if (message.method === "initialize") {
-    send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "mock", version: "1.0.0" } } });
+    setTimeout(() => send({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "mock", version: "1.0.0" } } }), initializeDelayMs);
     return;
   }
   if (message.method === "tools/list") {

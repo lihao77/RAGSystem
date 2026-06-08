@@ -60,7 +60,7 @@ export interface McpServerConfig {
 }
 
 export interface McpServerStatus {
-  status: "connected" | "connecting" | "disconnected" | "error" | "unknown";
+  status: "connected" | "connecting" | "disconnected" | "error" | "unknown" | "not_loaded";
   tool_count: number;
   tools: unknown[];
   error_message: string | null;
