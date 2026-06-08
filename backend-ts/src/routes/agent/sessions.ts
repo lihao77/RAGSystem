@@ -12,6 +12,7 @@ import {
 } from "../../contracts/session.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
+import { ZodError } from "zod";
 
 interface SessionParams {
   sessionId: string;
@@ -140,7 +141,7 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/rollback-and-retry", async (request) => {
-    const payload = RollbackAndRetryRequestSchema.parse(request.body);
+    const payload = parseRollbackAndRetryRequest(request.body);
     if (payload.after_seq == null && !payload.after_message_id) {
       throw new HttpError(400, "invalid_request", "请提供 after_seq 或 after_message_id");
     }
@@ -258,4 +259,27 @@ function parseExpandSteps(value: string | undefined): boolean {
 
 function sanitizeExportSessionId(sessionId: string): string {
   return sessionId.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^[._]+|[._]+$/g, "") || "session";
+}
+
+function parseRollbackAndRetryRequest(body: unknown) {
+  try {
+    const parsed = RollbackAndRetryRequestSchema.parse(body);
+    if (parsed.after_seq == null && !parsed.after_message_id) {
+      throw new HttpError(422, "validation_error", "请求参数验证失败", ["body -> after_seq: Field required"]);
+    }
+    return parsed;
+  } catch (error) {
+    if (error instanceof HttpError) {
+      throw error;
+    }
+    if (error instanceof ZodError) {
+      throw new HttpError(
+        422,
+        "validation_error",
+        "请求参数验证失败",
+        error.issues.map((issue) => `body -> ${issue.path.join(" -> ") || "body"}: ${issue.message}`),
+      );
+    }
+    throw error;
+  }
 }

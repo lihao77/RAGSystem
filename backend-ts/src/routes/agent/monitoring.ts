@@ -153,11 +153,6 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
         compression: buildCompressionConfig(agent, options),
         model: resolved.modelName ?? agent.llm_tiers?.default?.model_name ?? "",
         ...(query.selected_llm ? { llm_override: parseSelectedLlmForSnapshot(query.selected_llm) } : {}),
-        runtime: {
-          provider_ready: resolved.readiness.configuration_ready,
-          execution_runtime: "ts",
-          context_snapshot: "ts_compat",
-        },
       },
       available_tools: options.container.runtimeToolBridge
         .listVisibleTools(agent)
@@ -179,6 +174,9 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
   app.get("/context-snapshot/message-content", async (request) => {
     const query = request.query as { session_id?: string; seq?: string };
     const sessionId = query.session_id?.trim();
+    if (query.seq === undefined) {
+      throw new HttpError(422, "validation_error", "请求参数验证失败", ["query -> seq: Field required"]);
+    }
     const seq = Number.parseInt(query.seq ?? "", 10);
     if (!sessionId || !Number.isInteger(seq) || seq < 1) {
       throw new HttpError(400, "invalid_request", "请提供有效的 session_id 和 seq");
@@ -204,6 +202,9 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
   app.get("/tool-call/raw-result", async (request) => {
     const query = request.query as { session_id?: string; call_id?: string };
     const sessionId = query.session_id?.trim();
+    if (query.call_id === undefined) {
+      throw new HttpError(422, "validation_error", "请求参数验证失败", ["query -> call_id: Field required"]);
+    }
     const callId = query.call_id?.trim();
     if (!sessionId || !callId) {
       throw new HttpError(400, "invalid_request", "请提供 session_id 和 call_id");
@@ -229,15 +230,14 @@ function buildSystemMetrics(options: RouteOptions): {
     total_timeouts: number;
     total_keepalive_rounds: number;
   };
-  agents: Record<string, never>;
-  event_outbox: {
-    delivery_mode: string;
-    dispatcher: ReturnType<RouteOptions["container"]["outboxDispatcher"]["getMetrics"]>;
-    store: ReturnType<RouteOptions["container"]["conversationStore"]["getOutboxStats"]>;
-  };
+  agents: Record<string, Record<string, unknown>>;
 } {
+  void options;
+  const agents = Object.fromEntries(
+    PYTHON_METRICS_AGENT_ORDER.map((agentName) => [agentName, buildEmptyAgentMetrics(agentName)]),
+  );
   return {
-    total_agents: 0,
+    total_agents: Object.keys(agents).length,
     total_calls: 0,
     avg_duration_ms: 0,
     overall_success_rate: 0,
@@ -247,13 +247,51 @@ function buildSystemMetrics(options: RouteOptions): {
       total_timeouts: 0,
       total_keepalive_rounds: 0,
     },
-    agents: {},
-    event_outbox: {
-      delivery_mode: "outbox_live",
-      dispatcher: options.container.outboxDispatcher.getMetrics(),
-      store: options.container.conversationStore.getOutboxStats(),
-    },
+    agents,
   };
+}
+
+function buildEmptyAgentMetrics(agentName: string): Record<string, unknown> {
+  return {
+    agent_name: agentName,
+    total_calls: 0,
+    success_count: 0,
+    failure_count: 0,
+    success_rate: 0,
+    avg_duration_ms: 0,
+    avg_tokens: 0,
+    tool_usage: {},
+    error_distribution: pythonMetricsErrorDistributionShape(agentName),
+    waiting: {
+      total_waits: 0,
+      total_completed: 0,
+      total_timeouts: 0,
+      total_cancelled: 0,
+      total_elapsed_ms: 0,
+      total_keepalive_rounds: 0,
+      wake_reason_distribution: {},
+    },
+    first_call: "",
+    last_call: "",
+  };
+}
+
+const PYTHON_METRICS_AGENT_ORDER = [
+  "orchestrator_agent",
+  "general_agent",
+  "plan_agent",
+  "explor_agent",
+  "review_agent",
+];
+
+function pythonMetricsErrorDistributionShape(agentName: string): Record<string, number> {
+  if (agentName === "orchestrator_agent") {
+    return { LLMError: 0, InterruptedError: 0, tool_error: 0 };
+  }
+  if (agentName === "general_agent" || agentName === "plan_agent") {
+    return { InterruptedError: 0 };
+  }
+  return {};
 }
 
 function toContextHistoryItem(message: {
@@ -298,8 +336,6 @@ function buildCompressionConfig(agent: AgentConfig, options: RouteOptions): Reco
     trigger_ratio: settings.compressionTriggerRatio,
     preserve_recent_turns: settings.preserveRecentTurns,
     summarize_max_tokens: settings.summarizeMaxTokens,
-    system_prompt_reserve: settings.systemPromptReserve,
-    min_context_budget: settings.minContextBudget,
   };
 }
 
@@ -313,14 +349,15 @@ function buildAvailableAgentTools(
     if (!config) {
       return {
         name: agentName,
-        agent_name: agentName,
+        display_name: agentName,
+        use_cases: null,
         description: null,
       };
     }
     return {
       name: config.agent_name,
-      agent_name: config.agent_name,
       display_name: config.display_name ?? config.agent_name,
+      use_cases: null,
       description: config.description ?? null,
     };
   });
@@ -337,11 +374,18 @@ function buildAvailableSkills(agent: AgentConfig, options: RouteOptions): Array<
       }
     }
   }
-  return (agent.skills.enabled_skills ?? []).map((name) => ({
-    name,
-    description: normalizeString(byName.get(name)?.description) ?? "",
-    ...(byName.get(name) ?? {}),
-  }));
+  return (agent.skills.enabled_skills ?? []).map((name) => {
+    const source = byName.get(name) ?? {};
+    return {
+      name,
+      source_type: normalizeString(source.source_type) ?? "user_global",
+      source_label: normalizeString(source.source_label) ?? "全局",
+      is_auto_inject_candidate: Boolean(source.is_auto_inject_candidate ?? false),
+      content_length: typeof source.content_length === "number" ? source.content_length : 0,
+      metadata: { name },
+      description: normalizeString(source.description) ?? "",
+    };
+  });
 }
 
 function getMemorySnapshot(sources: Array<{ name: string; metadata?: Record<string, unknown> }>): Record<string, unknown> | null {

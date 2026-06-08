@@ -84,6 +84,9 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
   app.post<{ Params: AgentParams }>("/configs/:agentName/preset", async (request) => {
     const payload = ApplyPresetRequestSchema.parse(request.body);
     try {
+      if (!Object.prototype.hasOwnProperty.call(options.container.agentConfig.listPresets(), payload.preset)) {
+        throw new HttpError(400, "invalid_request", `无效的预设名称: ${payload.preset}`);
+      }
       const config = options.container.agentConfig.applyPreset(request.params.agentName, payload.preset);
       if (!config) {
         throw new HttpError(404, "not_found", `智能体 "${request.params.agentName}" 不存在`);
@@ -185,14 +188,14 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
   );
 
   app.get("/tools", async () => {
-    const tools = options.container.agentConfig.listAvailableTools();
-    return ok(tools, `共有 ${tools.length} 个工具条目`);
+    const tools = options.container.agentConfig.listAvailableTools().map(normalizeAvailableTool);
+    return ok(tools, `共有 ${tools.length} 个可用工具`);
   });
 
   app.get("/memory-metadata", async () => ok(options.container.agentConfig.getMemoryConfigMetadata(), "Memory 配置元数据"));
 
   app.get("/mcp-servers", async () => {
-    const servers = options.container.agentConfig.listAvailableMcpServers();
+    const servers = options.container.agentConfig.listAvailableMcpServers().map(normalizeMcpServerForConfig);
     return ok(servers, `Found ${servers.length} MCP servers`);
   });
 
@@ -218,4 +221,34 @@ function normalizeExportFormat(format: string | undefined): "json" | "yaml" {
     return "json";
   }
   throw new HttpError(400, "invalid_request", "format 只支持 json 或 yaml");
+}
+
+function normalizeMcpServerForConfig(server: unknown): Record<string, unknown> {
+  const item = isRecord(server) ? { ...server } : {};
+  item.server_name = item.server_name ?? item.name ?? "";
+  item.status = typeof item.status === "string" && item.status ? item.status : "not_loaded";
+  item.error_message = typeof item.error_message === "string" ? item.error_message : "";
+  delete item.tools;
+  delete item.url;
+  return item;
+}
+
+function normalizeAvailableTool(tool: unknown): Record<string, unknown> {
+  const item = isRecord(tool) ? tool : {};
+  const name = String(item.name ?? "");
+  return {
+    name,
+    display_name: displayNameFromToolName(name),
+    description: typeof item.description === "string" ? item.description : "",
+    category: typeof item.category === "string" ? item.category : "",
+    source: "decorator",
+  };
+}
+
+function displayNameFromToolName(name: string): string {
+  return name
+    .split("_")
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
 }

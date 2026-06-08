@@ -5,6 +5,7 @@ import { ok } from "../../contracts/common.js";
 import { CollaborateRequestSchema, ExecuteRequestSchema } from "../../contracts/execution.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
+import { ZodError } from "zod";
 
 interface ExecuteAgentParams {
   agentName: string;
@@ -67,7 +68,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
   });
 
   app.post("/collaborate", async (request) => {
-    const payload = CollaborateRequestSchema.parse(request.body);
+    const payload = parseCollaborateRequest(request.body);
     if (payload.mode !== "sequential") {
       throw new HttpError(400, "invalid_request", "并行模式尚未实现");
     }
@@ -111,9 +112,30 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
 
   app.get("/execution/overview", async (request) => {
     const query = request.query as { active_only?: string };
-    return ok(options.container.agentExecution.getOverview(parseActiveOnly(query.active_only)));
+    const activeOnly = parseActiveOnly(query.active_only);
+    const overview = options.container.agentExecution.getOverview(activeOnly);
+    const data = overview.count > 0 ? overview : options.container.conversationStore.getPersistedExecutionOverview(activeOnly);
+    return ok(normalizeExecutionOverview(data));
   });
 };
+
+function normalizeExecutionOverview<T extends { by_execution_kind: Record<string, number>; by_status: Record<string, number> }>(overview: T): T {
+  return {
+    ...overview,
+    by_execution_kind: {
+      agent_stream: overview.by_execution_kind.agent_stream ?? 0,
+      mcp_connect: overview.by_execution_kind.mcp_connect ?? 0,
+      mcp_disconnect: overview.by_execution_kind.mcp_disconnect ?? 0,
+      mcp_refresh: overview.by_execution_kind.mcp_refresh ?? 0,
+      mcp_test: overview.by_execution_kind.mcp_test ?? 0,
+    },
+    by_status: {
+      completed: overview.by_status.completed ?? 0,
+      failed: overview.by_status.failed ?? 0,
+      interrupted: overview.by_status.interrupted ?? 0,
+    },
+  };
+}
 
 function parseActiveOnly(rawValue: string | undefined): boolean {
   return !new Set(["0", "false", "no", "off"]).has(String(rawValue ?? "true").trim().toLowerCase());
@@ -121,4 +143,20 @@ function parseActiveOnly(rawValue: string | undefined): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseCollaborateRequest(body: unknown) {
+  try {
+    return CollaborateRequestSchema.parse(body);
+  } catch (error) {
+    if (error instanceof ZodError) {
+      throw new HttpError(
+        422,
+        "validation_error",
+        "请求参数验证失败",
+        error.issues.map((issue) => `body -> ${issue.path.join(" -> ") || "body"}: ${issue.message}`),
+      );
+    }
+    throw error;
+  }
 }

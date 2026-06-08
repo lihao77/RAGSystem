@@ -82,17 +82,14 @@ export function buildDefaultAgentConfigs(): Record<string, AgentConfig> {
 }
 
 export function buildCustomAgentConfig(input: CreateAgentRequest): AgentConfig {
-  const systemPrompt =
-    getNestedString(input.custom_params, ["behavior", "system_prompt"]) ??
-    `${input.display_name ?? input.agent_name} 是当前 team 中的自定义智能体。`;
   return normalizeConfig({
     agent_name: input.agent_name,
     display_name: input.display_name ?? input.agent_name,
     description: input.description ?? "",
     enabled: true,
     default_entry: input.default_entry ?? false,
-    llm_tiers: { default: input.llm ? { ...input.llm } : { ...defaultLlmTier } },
-    tools: { enabled_tools: ["read_file", "preview_data_structure"] },
+    llm_tiers: input.llm ? { default: { ...input.llm } } : null,
+    tools: { enabled_tools: [] },
     skills: { enabled_skills: [], auto_inject: true },
     mcp: { enabled_servers: [] },
     memory: {
@@ -111,17 +108,7 @@ export function buildCustomAgentConfig(input: CreateAgentRequest): AgentConfig {
       default_rerank: false,
       default_reranker_key: null,
     },
-    custom_params: {
-      type: "orchestrator",
-      ...(input.custom_params ?? {}),
-      behavior: {
-        system_prompt: systemPrompt,
-        compression_trigger_ratio: 0.85,
-        summarize_max_tokens: 300,
-        preserve_recent_turns: 3,
-        ...(isRecord(input.custom_params?.behavior) ? input.custom_params.behavior : {}),
-      },
-    },
+    custom_params: input.custom_params ?? {},
   });
 }
 
@@ -163,7 +150,7 @@ export function normalizeConfig(config: AgentConfig): AgentConfig {
     description: config.description ?? null,
     enabled: config.enabled ?? true,
     default_entry: config.default_entry ?? false,
-    llm_tiers: config.llm_tiers ?? { default: { ...defaultLlmTier } },
+    llm_tiers: config.llm_tiers ?? null,
     tools: {
       ...tools,
       enabled_tools: stripConfigManagedToolNames(tools.enabled_tools),
@@ -268,15 +255,4 @@ function buildSystemAgentConfig(input: {
       },
     },
   });
-}
-
-function getNestedString(value: unknown, path: string[]): string | undefined {
-  let current = value;
-  for (const key of path) {
-    if (!isRecord(current)) {
-      return undefined;
-    }
-    current = current[key];
-  }
-  return typeof current === "string" && current.trim() ? current : undefined;
 }

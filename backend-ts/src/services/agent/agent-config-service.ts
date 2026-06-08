@@ -28,6 +28,7 @@ import { AgentConfigTeamStore, defaultTeamRelativePath } from "./agent-config-se
 import { listAvailableTools as listAvailableRuntimeTools, type AvailableToolInfo } from "./agent-config-service/tools.js";
 import { toYaml } from "./agent-config-service/yaml.js";
 import type { SkillToolService } from "../tools/skill-tool-service.js";
+import type { McpService } from "../integrations/mcp-service.js";
 
 type ExportFormat = "json" | "yaml";
 type ImportFormat = "json" | "yaml";
@@ -45,6 +46,7 @@ export class AgentConfigService {
   private readonly teamStore: AgentConfigTeamStore;
   private readonly teamFileByName = new Map<string, string>();
   private skillToolService: SkillToolService | null = null;
+  private mcpService: McpService | null = null;
 
   constructor(options: { dataRoot?: string | undefined; configRoot?: string | undefined } = {}) {
     this.teamStore = new AgentConfigTeamStore(options);
@@ -386,7 +388,7 @@ export class AgentConfigService {
   }
 
   listAvailableMcpServers(): unknown[] {
-    return [];
+    return this.mcpService?.listServers() ?? [];
   }
 
   listAvailableSkills(): unknown[] {
@@ -395,6 +397,10 @@ export class AgentConfigService {
 
   setSkillToolService(skillToolService: SkillToolService | null): void {
     this.skillToolService = skillToolService;
+  }
+
+  setMcpService(mcpService: McpService | null): void {
+    this.mcpService = mcpService;
   }
 
   private getActiveConfigs(): TeamConfigs {
