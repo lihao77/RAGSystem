@@ -14,6 +14,7 @@ import type {
   DaemonTestMessage,
   PlatformType,
 } from "../../contracts/daemon.js";
+import { DaemonSystemConfigSchema } from "../../contracts/daemon.js";
 
 const DAEMON_CONFIG_RELATIVE_PATH = path.join("config", "daemon", "daemon.yaml");
 
@@ -82,7 +83,7 @@ export class DaemonService {
     if (wasRunning) {
       this.stop();
     }
-    this.config = cloneConfig(config);
+    this.config = parseConfig(config);
     this.syncCronHistoryKeys();
     this.saveConfigToDisk();
     if (wasRunning && this.config.enabled) {
@@ -440,7 +441,7 @@ export class DaemonService {
       const raw = fs.readFileSync(this.configPath, "utf8");
       const parsed = YAML.parse(raw) as unknown;
       if (isRecord(parsed)) {
-        this.config = cloneConfig(parsed as DaemonSystemConfig);
+        this.config = parseConfig(parsed);
       }
     } catch {
       this.config = { enabled: false, agents: [], default_session_ttl: 86400 };
@@ -478,6 +479,10 @@ function buildConnectedStatus(platform: PlatformType, nowMs: number): PlatformRu
 
 function cloneConfig(config: DaemonSystemConfig): DaemonSystemConfig {
   return structuredClone(config) as DaemonSystemConfig;
+}
+
+function parseConfig(config: unknown): DaemonSystemConfig {
+  return DaemonSystemConfigSchema.parse(config);
 }
 
 function cloneTask(task: CronTask): CronTask {

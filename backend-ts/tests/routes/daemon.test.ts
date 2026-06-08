@@ -1,14 +1,22 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import { buildTestApp } from "../helpers/app.js";
+import { createRuntimeContainer } from "../../src/services/runtime/runtime-container.js";
 
 let app: FastifyInstance | null = null;
+const tempRoots: string[] = [];
 
 afterEach(async () => {
   if (app) {
     await app.close();
     app = null;
+  }
+  for (const root of tempRoots.splice(0)) {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -41,6 +49,63 @@ describe("daemon compatibility routes", () => {
       agents: [],
       default_session_ttl: 86400,
     });
+  });
+
+  it("normalizes Python-style empty YAML cron_tasks while loading daemon config", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-daemon-"));
+    tempRoots.push(root);
+    const configPath = path.join(root, "daemon.yaml");
+    fs.writeFileSync(
+      configPath,
+      [
+        "enabled: false",
+        "default_session_ttl: 86400",
+        "agents:",
+        "  - team_name: default",
+        "    entry_agent:",
+        "    enabled: true",
+        "    permissions:",
+        "      mode: standard",
+        "    platforms:",
+        "      feishu:",
+        "        enabled: false",
+        "        extra:",
+        "    cron_tasks:",
+        "      # empty list in commented Python example parses as null",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const container = createRuntimeContainer({
+      dbPath: ":memory:",
+      checkpointDbPath: ":memory:",
+      dataRoot: root,
+      modelAdapterProvidersConfigPath: "",
+      mcpConfigPath: "",
+      daemonConfigPath: configPath,
+      agentConfigRoot: "",
+      startOutboxDispatcher: false,
+    });
+    try {
+      expect(container.daemon.listCronTasks()).toEqual([]);
+      expect(container.daemon.getConfig()).toMatchObject({
+        agents: [
+          {
+            team_name: "default",
+            platforms: {
+              feishu: {
+                enabled: false,
+                extra: {},
+              },
+            },
+            cron_tasks: [],
+          },
+        ],
+      });
+    } finally {
+      container.close();
+    }
   });
 
   it("stores daemon config in memory and exposes disconnected agent state", async () => {

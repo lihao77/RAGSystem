@@ -2,6 +2,8 @@ import { z } from "zod";
 
 import { PermissionPolicySchema } from "./permissions.js";
 
+const nullToUndefined = (value: unknown): unknown => (value === null ? undefined : value);
+
 export const PlatformTypeSchema = z.enum(["feishu", "wechat", "dingtalk"]);
 
 export const PlatformConnectionSchema = z.object({
@@ -12,7 +14,7 @@ export const PlatformConnectionSchema = z.object({
   encoding_aes_key: z.string().nullable().optional().default(null),
   webhook_url: z.string().nullable().optional().default(null),
   session_id: z.string().nullable().optional().default(null),
-  extra: z.record(z.unknown()).optional().default({}),
+  extra: z.preprocess(nullToUndefined, z.record(z.unknown()).optional().default({})),
 });
 
 export const CronTaskSchema = z.object({
@@ -34,9 +36,9 @@ export const DaemonAgentConfigSchema = z.object({
   team_name: z.string().min(1),
   entry_agent: z.string().nullable().optional().default(null),
   session_id: z.string().nullable().optional().default(null),
-  permissions: PermissionPolicySchema.optional().default({}),
-  platforms: z.record(PlatformTypeSchema, PlatformConnectionSchema).optional().default({}),
-  cron_tasks: z.array(CronTaskSchema).optional().default([]),
+  permissions: z.preprocess(nullToUndefined, PermissionPolicySchema.optional().default({})),
+  platforms: z.preprocess(nullToUndefined, z.record(PlatformTypeSchema, PlatformConnectionSchema).optional().default({})),
+  cron_tasks: z.preprocess(nullToUndefined, z.array(CronTaskSchema).optional().default([])),
   heartbeat_interval: z.number().int().min(5).optional().default(30),
   enabled: z.boolean().optional().default(true),
 });
@@ -44,7 +46,7 @@ export const DaemonAgentConfigSchema = z.object({
 export const DaemonSystemConfigSchema = z
   .object({
     enabled: z.boolean().optional().default(false),
-    agents: z.array(DaemonAgentConfigSchema).optional().default([]),
+    agents: z.preprocess(nullToUndefined, z.array(DaemonAgentConfigSchema).optional().default([])),
     default_session_ttl: z.number().int().positive().optional().default(86400),
   })
   .superRefine((config, ctx) => {
