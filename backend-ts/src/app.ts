@@ -2,6 +2,8 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
+import fs from "node:fs";
+import path from "node:path";
 import { ZodError } from "zod";
 
 import type { AppEnv } from "./config/env.js";
@@ -115,12 +117,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
   await app.register(websocket);
 
-  app.get("/", async () => ({
-    name: "@ragsystem/backend-ts",
-    status: "running",
-    migration_status: "runtime_migrated",
-  }));
-
   await app.register(registerHealthRoutes, {
     prefix: "/api",
     container,
@@ -174,7 +170,40 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     container,
   });
 
+  registerFrontendFallback(app);
+
   return app;
+}
+
+function registerFrontendFallback(app: FastifyInstance): void {
+  const frontendDist = process.env.FRONTEND_DIST?.trim() || path.resolve(process.cwd(), "..", "frontend-client", "dist");
+  const indexPath = path.join(frontendDist, "index.html");
+  if (!fs.existsSync(indexPath)) {
+    app.get("/", async () => ({
+      name: "@ragsystem/backend-ts",
+      status: "running",
+      migration_status: "runtime_migrated",
+    }));
+    return;
+  }
+
+  app.get("/", async (_request, reply) => reply.type("text/html; charset=utf-8").send(fs.createReadStream(indexPath)));
+  app.get("/*", async (request, reply) => {
+    const rawPath = request.url.split("?", 1)[0] ?? "/";
+    if (rawPath.startsWith("/api/")) {
+      return reply.code(404).send({
+        message: `Route GET:${rawPath} not found`,
+        error: "Not Found",
+        statusCode: 404,
+      });
+    }
+    const relativePath = rawPath.replace(/^\/+/, "");
+    const candidate = path.resolve(frontendDist, relativePath);
+    if (candidate.startsWith(path.resolve(frontendDist)) && fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      return reply.send(fs.createReadStream(candidate));
+    }
+    return reply.type("text/html; charset=utf-8").send(fs.createReadStream(indexPath));
+  });
 }
 
 function fastifyClientErrorStatusCode(error: unknown): number | null {
