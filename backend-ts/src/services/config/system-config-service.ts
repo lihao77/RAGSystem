@@ -1,3 +1,9 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import YAML from "yaml";
+
 import type {
   SystemConfigData,
   SystemConfigSchema,
@@ -20,9 +26,11 @@ const SENSITIVE_FIELD_SUFFIXES = ["_api_key", "_password", "_secret", "_secret_k
 
 export class SystemConfigService {
   private config: SystemConfigData;
+  private readonly configPath: string | null;
 
-  constructor() {
-    this.config = buildDefaultConfig();
+  constructor(options: { dataRoot?: string | undefined; configPath?: string | undefined } = {}) {
+    this.configPath = resolveConfigPath(options);
+    this.config = this.loadConfig();
   }
 
   getSchema(): SystemConfigSchema {
@@ -36,11 +44,33 @@ export class SystemConfigService {
   updateConfig(update: SystemConfigUpdate): SystemConfigData {
     const sanitized = dropRedactedValues(update) as SystemConfigData;
     this.config = deepMerge(cloneConfig(this.config), sanitized);
+    this.saveConfig();
     return this.getConfig();
   }
 
   reload(): void {
-    this.config = buildDefaultConfig();
+    this.config = this.loadConfig();
+  }
+
+  private loadConfig(): SystemConfigData {
+    const defaults = buildDefaultConfig();
+    if (!this.configPath || !fs.existsSync(this.configPath)) {
+      return defaults;
+    }
+    try {
+      const parsed = YAML.parse(fs.readFileSync(this.configPath, "utf8")) as unknown;
+      return isRecord(parsed) ? deepMerge(defaults, parsed as SystemConfigData) : defaults;
+    } catch {
+      return defaults;
+    }
+  }
+
+  private saveConfig(): void {
+    if (!this.configPath) {
+      return;
+    }
+    fs.mkdirSync(path.dirname(this.configPath), { recursive: true });
+    fs.writeFileSync(this.configPath, YAML.stringify(this.config), "utf8");
   }
 }
 
@@ -130,9 +160,19 @@ function buildSystemConfigSchema(): SystemConfigSchema {
   return {
     groups: [
       {
+        key: "vector_store.sqlite_vec",
+        label: "SQLite 向量存储",
+        description: "SQLite 向量存储配置",
+        fields: [
+          textField("database_path", "Database Path", "数据库路径（留空使用默认，相对路径解析到 DB_ROOT）", ""),
+          numberField("vector_dimension", "Vector Dimension", "向量维度（0=自动匹配 Embedding 模型）", 0, { min: 0, step: 1 }),
+          selectField("distance_metric", "Distance Metric", "距离度量", "cosine", ["cosine", "l2", "ip"], false),
+        ],
+      },
+      {
         key: "llm",
         label: "LLM 配置",
-        description: "",
+        description: "LLM 配置 - 支持 ModelAdapter",
         fields: [
           textField("provider", "Provider", "AI 提供商名称（openai/deepseek/openrouter）", ""),
           textField("provider_type", "Provider Type", "Provider 类型（用于精确查找，避免同名冲突）", ""),
@@ -150,7 +190,7 @@ function buildSystemConfigSchema(): SystemConfigSchema {
       {
         key: "system",
         label: "系统配置",
-        description: "",
+        description: "系统配置",
         fields: [
           numberField("max_content_length", "Max Content Length", "最大内容长度（字节），默认 100MB", 104857600, { min: 1, step: 1 }),
         ],
@@ -158,7 +198,7 @@ function buildSystemConfigSchema(): SystemConfigSchema {
       {
         key: "embedding",
         label: "Embedding 配置",
-        description: "",
+        description: "Embedding 配置 - 仅支持 ModelAdapter",
         fields: [
           textField("provider", "Provider", "Embedding 提供商名称（留空表示未配置）", ""),
           textField("provider_type", "Provider Type", "Provider 类型（用于精确查找，避免同名冲突）", ""),
@@ -167,31 +207,21 @@ function buildSystemConfigSchema(): SystemConfigSchema {
         ],
       },
       {
-        key: "vector_store.sqlite_vec",
-        label: "SQLite 向量存储",
-        description: "",
-        fields: [
-          textField("database_path", "Database Path", "数据库路径（留空使用默认，相对路径解析到 DB_ROOT）", ""),
-          numberField("vector_dimension", "Vector Dimension", "向量维度（0=自动匹配 Embedding 模型）", 0, { min: 0, step: 1 }),
-          selectField("distance_metric", "Distance Metric", "距离度量", "cosine", ["cosine", "l2", "ip"], false),
-        ],
-      },
-      {
         key: "hooks",
         label: "Hook 系统",
-        description: "",
+        description: "Hook 系统配置",
         fields: [booleanField("enabled", "Enabled", "是否启用 Hook 系统", true)],
       },
       {
         key: "hooks.workspace_trust",
         label: "工作区信任",
-        description: "",
+        description: "工作区信任配置",
         fields: [selectField("default", "Default", "", "trusted", ["trusted", "untrusted"], false)],
       },
       {
         key: "waiting",
         label: "后台等待与保活",
-        description: "",
+        description: "后台任务等待与 KV cache 保活配置",
         fields: [
           booleanField("enabled", "Enabled", "是否启用后台等待机制", true),
           numberField("default_poll_interval_seconds", "Default Poll Interval Seconds", "默认轮询间隔（秒）", 3, { min: 0.5, step: 0.1 }),
@@ -208,7 +238,7 @@ function buildSystemConfigSchema(): SystemConfigSchema {
       {
         key: "reflection",
         label: "反思机制",
-        description: "",
+        description: "反思机制配置（系统级默认，agent 级可覆盖）",
         fields: [
           booleanField("enabled", "Enabled", "是否启用反思机制", true),
           numberField("consecutive_tool_failures", "Consecutive Tool Failures", "连续工具失败 N 次触发反思", 2, { min: 1, step: 1 }),
@@ -221,7 +251,7 @@ function buildSystemConfigSchema(): SystemConfigSchema {
       {
         key: "memory",
         label: "记忆系统",
-        description: "",
+        description: "记忆系统配置",
         fields: [
           numberField("index_max_lines", "Index Max Lines", "记忆索引注入最大行数", 200, { min: 10, step: 1 }),
           numberField("index_max_chars", "Index Max Chars", "记忆索引注入最大字符数", 25600, { min: 1024, step: 1 }),
@@ -231,7 +261,7 @@ function buildSystemConfigSchema(): SystemConfigSchema {
       {
         key: "tools",
         label: "工具限制",
-        description: "",
+        description: "工具执行配置",
         fields: [
           numberField("bash_default_timeout", "Bash Default Timeout", "Bash 工具默认超时（秒）", 120, { min: 10, step: 1 }),
           numberField("bash_max_timeout", "Bash Max Timeout", "Bash 工具最大超时（秒）", 600, { min: 60, step: 1 }),
@@ -243,7 +273,7 @@ function buildSystemConfigSchema(): SystemConfigSchema {
       {
         key: "context",
         label: "上下文预算",
-        description: "",
+        description: "上下文预算配置",
         fields: [
           numberField("compression_trigger_ratio", "Compression Trigger Ratio", "触发上下文压缩的 token 使用比例", 0.85, { min: 0.5, max: 0.99, step: 0.1 }),
           numberField("summarize_max_tokens", "Summarize Max Tokens", "LLM 摘要的最大 token 数", 300, { min: 50, step: 1 }),
@@ -293,15 +323,29 @@ function selectField(
   if (nullable) {
     options.unshift({ value: "", label: "未设置" });
   }
-  return {
+  const field: SystemConfigSchema["groups"][number]["fields"][number] = {
     key,
     label,
     type: "select" as const,
     default: defaultValue,
     help,
-    nullable,
     options,
   };
+  if (nullable) {
+    field.nullable = true;
+  }
+  return field;
+}
+
+function resolveConfigPath(options: { dataRoot?: string | undefined; configPath?: string | undefined }): string | null {
+  if (options.configPath !== undefined) {
+    const trimmed = options.configPath.trim();
+    return trimmed ? path.resolve(trimmed) : null;
+  }
+  if (!options.dataRoot?.trim()) {
+    return null;
+  }
+  return path.join(path.resolve(options.dataRoot || path.join(os.homedir(), ".ragsystem")), "config", "app", "config.yaml");
 }
 
 function cloneConfig(config: SystemConfigData): SystemConfigData {
