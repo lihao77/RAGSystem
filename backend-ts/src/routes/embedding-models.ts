@@ -32,7 +32,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
     try {
       return {
         success: true,
-        ...options.container.embeddingModels.activateModel(parseModelId(request.params.modelId)),
+        ...options.container.embeddingModels.activateModel(parseModelId(request.params.modelId), { missingOk: true }),
       };
     } catch (error) {
       throw toHttpError(error);
@@ -62,6 +62,9 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
         ...options.container.embeddingModels.syncModel(modelId, payload),
       };
     } catch (error) {
+      if (error instanceof VectorLibraryServiceError && error.statusCode === 404 && error.message.startsWith("模型不存在:")) {
+        throw new HttpError(500, "internal_error", error.message.replace("模型不存在: ", "模型不存在: ID="));
+      }
       throw toHttpError(error);
     }
   });
@@ -104,6 +107,9 @@ function toHttpError(error: unknown): HttpError {
     return error;
   }
   if (error instanceof EmbeddingModelServiceError) {
+    if (error.statusCode === 404 && error.message.startsWith("模型不存在:")) {
+      return new HttpError(500, "internal_error", error.message.replace("模型不存在: ", "模型不存在: ID="));
+    }
     return new HttpError(error.statusCode, error.statusCode === 404 ? "not_found" : "invalid_request", error.message);
   }
   if (error instanceof VectorLibraryServiceError) {

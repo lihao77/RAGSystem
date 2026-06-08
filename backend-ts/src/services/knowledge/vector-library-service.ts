@@ -1,6 +1,9 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
+
+import YAML from "yaml";
 
 import type {
   DeleteIndexedFileRequest,
@@ -46,6 +49,9 @@ export interface VectorSearchResult {
 
 export class VectorLibraryService {
   private readonly db: import("node:sqlite").DatabaseSync;
+  private readonly dataRoot: string;
+  private readonly vectorizersConfigPath: string;
+  private readonly rerankersConfigPath: string;
   private activeVectorizerKey: string | null = null;
   private activeRerankerKey: string | null = null;
 
@@ -54,6 +60,9 @@ export class VectorLibraryService {
     private readonly modelAdapter: ModelAdapterService,
     options: { dbPath?: string | undefined; dataRoot?: string | undefined } = {},
   ) {
+    this.dataRoot = path.resolve(options.dataRoot?.trim() || path.join(os.homedir(), ".ragsystem"));
+    this.vectorizersConfigPath = path.join(this.dataRoot, "config", "vector_store", "vectorizers.yaml");
+    this.rerankersConfigPath = path.join(this.dataRoot, "config", "vector_store", "rerankers.yaml");
     const dbPath = options.dbPath ?? ":memory:";
     if (dbPath !== ":memory:") {
       fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -72,6 +81,10 @@ export class VectorLibraryService {
 
   fileStatus(): VectorFileStatusResponse {
     const vectorizers = this.listFileStatusVectorizers();
+    const files = this.listSharedDocumentFileStatuses(vectorizers);
+    if (files !== null) {
+      return { files, vectorizers };
+    }
     return {
       files: this.fileIndex
         .list({ scopeType: "global", scopeId: null })
@@ -102,6 +115,10 @@ export class VectorLibraryService {
   }
 
   listVectorizers(): VectorizerConfig[] {
+    const shared = this.listSharedVectorizers();
+    if (shared !== null) {
+      return shared;
+    }
     const rows = this.db
       .prepare("SELECT * FROM vectorizers ORDER BY model_id ASC")
       .all() as unknown as StoredVectorizer[];
@@ -355,6 +372,10 @@ export class VectorLibraryService {
   }
 
   listRerankers(): RerankerConfig[] {
+    const shared = this.listSharedRerankers();
+    if (shared !== null) {
+      return shared;
+    }
     const rows = this.db
       .prepare("SELECT * FROM rerankers ORDER BY created_at ASC, reranker_key ASC")
       .all() as unknown as StoredReranker[];
@@ -445,6 +466,26 @@ export class VectorLibraryService {
   }
 
   listCollections(): Array<Record<string, unknown>> {
+    if (this.tableExists("collections")) {
+      const rows = this.db
+        .prepare(
+          `
+            SELECT c.name, c.vector_dimension, c.metadata, COUNT(d.id) AS total_chunks
+            FROM collections c
+            LEFT JOIN documents d ON d.collection = c.name
+            GROUP BY c.name, c.vector_dimension, c.metadata
+            ORDER BY c.name
+          `,
+        )
+        .all() as Array<{ name: string; vector_dimension: number; metadata: string | null; total_chunks: number }>;
+      return rows.map((row) => ({
+        name: row.name,
+        total_chunks: row.total_chunks,
+        embedding_dimension: row.vector_dimension,
+        model_name: "",
+        metadata: parseMetadata(row.metadata),
+      }));
+    }
     const rows = this.db
       .prepare(
         `
@@ -531,9 +572,10 @@ export class VectorLibraryService {
       .all(modelId) as Array<{ collection: string; count: number }>;
     const collections = Object.fromEntries(rows.map((row) => [row.collection, row.count]));
     const vectorCount = rows.reduce((sum, row) => sum + row.count, 0);
+    const dimension = this.getEmbeddingModelById(modelId)?.vector_dimension ?? LOCAL_EMBEDDING_DIMENSION;
     return {
       vector_count: vectorCount,
-      storage_size_mb: Math.round((vectorCount * LOCAL_EMBEDDING_DIMENSION * 4 / 1024 / 1024) * 1000) / 1000,
+      storage_size_mb: Math.round((vectorCount * dimension * 4 / 1024 / 1024) * 100) / 100,
       collections,
     };
   }
@@ -705,6 +747,160 @@ export class VectorLibraryService {
     }));
   }
 
+  private listSharedVectorizers(): VectorizerConfig[] | null {
+    const config = this.readVectorizerConfig();
+    if (!config) {
+      return null;
+    }
+    return config.vectorizers.map((vectorizer) => {
+      const model = this.getEmbeddingModelByVectorizerKey(vectorizer.vectorizer_key);
+      const stats = model ? this.getModelStats(model.id) : { vector_count: 0 };
+      return {
+        vectorizer_key: vectorizer.vectorizer_key,
+        provider_key: vectorizer.provider_key,
+        provider_type: vectorizer.provider_type,
+        model_name: vectorizer.model_name,
+        distance_metric: vectorizer.distance_metric,
+        created_at: vectorizer.created_at,
+        is_active: vectorizer.vectorizer_key === config.active_vectorizer_key,
+        provider_available: vectorizer.provider_key ? this.modelAdapter.hasProvider(vectorizer.provider_key) : false,
+        vector_dimension: model?.vector_dimension ?? null,
+        vector_count: stats.vector_count,
+        model_id: model?.id ?? null,
+      };
+    });
+  }
+
+  private listSharedRerankers(): RerankerConfig[] | null {
+    const config = this.readRerankerConfig();
+    if (!config) {
+      return null;
+    }
+    return config.rerankers.map((reranker) => ({
+      reranker_key: reranker.reranker_key,
+      mode: reranker.mode,
+      provider_key: reranker.provider_key,
+      provider_type: reranker.provider_type,
+      model_name: reranker.model_name,
+      api_endpoint: reranker.api_endpoint,
+      created_at: reranker.created_at,
+      is_active: reranker.reranker_key === config.active_reranker_key,
+    }));
+  }
+
+  private readVectorizerConfig(): SharedVectorizerYaml | null {
+    const raw = this.readYamlRecord(this.vectorizersConfigPath);
+    if (!raw || !isRecord(raw.vectorizers)) {
+      return null;
+    }
+    const active = typeof raw.active_vectorizer_key === "string" && raw.active_vectorizer_key.trim()
+      ? raw.active_vectorizer_key
+      : null;
+    const vectorizers = Object.entries(raw.vectorizers).flatMap(([key, value]) => {
+      if (!isRecord(value)) {
+        return [];
+      }
+      return [{
+        vectorizer_key: key,
+        provider_key: asPlainString(value.provider_key),
+        provider_type: asNullablePlainString(value.provider_type),
+        model_name: asPlainString(value.model_name),
+        distance_metric: asPlainString(value.distance_metric) || "cosine",
+        created_at: asPlainString(value.created_at),
+      }];
+    });
+    return { active_vectorizer_key: active, vectorizers };
+  }
+
+  private readRerankerConfig(): SharedRerankerYaml | null {
+    const raw = this.readYamlRecord(this.rerankersConfigPath);
+    if (!raw || !isRecord(raw.rerankers)) {
+      return null;
+    }
+    const active = typeof raw.active_reranker_key === "string" && raw.active_reranker_key.trim()
+      ? raw.active_reranker_key
+      : null;
+    const rerankers = Object.entries(raw.rerankers).flatMap(([key, value]) => {
+      if (!isRecord(value)) {
+        return [];
+      }
+      return [{
+        reranker_key: key,
+        mode: normalizeRerankerModeValue(value.mode),
+        provider_key: asPlainString(value.provider_key),
+        provider_type: asNullablePlainString(value.provider_type),
+        model_name: asPlainString(value.model_name),
+        api_endpoint: asPlainString(value.api_endpoint),
+        created_at: asPlainString(value.created_at),
+      }];
+    });
+    return { active_reranker_key: active, rerankers };
+  }
+
+  private readYamlRecord(filePath: string): Record<string, unknown> | null {
+    if (!fs.existsSync(filePath)) {
+      return null;
+    }
+    try {
+      const parsed = YAML.parse(fs.readFileSync(filePath, "utf8")) as unknown;
+      return isRecord(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private listSharedDocumentFileStatuses(vectorizers: FileStatusVectorizer[]): VectorFileStatus[] | null {
+    if (!this.tableExists("documents") || !this.tableExists("document_vectors")) {
+      return null;
+    }
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            collection,
+            json_extract(metadata, '$.document_id') AS file_id,
+            MAX(COALESCE(
+              NULLIF(TRIM(REPLACE(json_extract(metadata, '$.original_filename'), '"', '')), ''),
+              NULLIF(TRIM(REPLACE(json_extract(metadata, '$.source'), '"', '')), ''),
+              json_extract(metadata, '$.document_id')
+            )) AS file_name,
+            COUNT(*) AS chunk_count
+          FROM documents
+          WHERE json_extract(metadata, '$.document_id') IS NOT NULL
+            AND json_extract(metadata, '$.document_id') != ''
+          GROUP BY collection, file_id
+          ORDER BY collection, file_name
+        `,
+      )
+      .all() as Array<{
+        collection: string;
+        file_id: string | null;
+        file_name: string | null;
+        chunk_count: number;
+      }>;
+
+    return rows.map((row) => {
+      const collection = String(row.collection ?? "");
+      const fileId = cleanJsonExtractedString(row.file_id);
+      const chunkCount = Number(row.chunk_count ?? 0);
+      const status = Object.fromEntries(
+        vectorizers.map((vectorizer) => [
+          vectorizer.vectorizer_key,
+          this.countVectorsForMetadataDocument(collection, fileId, vectorizer.model_id) === chunkCount && chunkCount > 0
+            ? "已索引"
+            : "未索引",
+        ]),
+      ) as Record<string, "已索引" | "未索引">;
+      return {
+        file_name: cleanJsonExtractedString(row.file_name) || fileId,
+        file_id: fileId,
+        collection,
+        chunk_count: chunkCount,
+        vectorizer_status: status,
+      };
+    });
+  }
+
   private toVectorizerConfig(vectorizer: StoredVectorizer): VectorizerConfig {
     const stats = this.getModelStats(vectorizer.model_id);
     return {
@@ -754,6 +950,24 @@ export class VectorLibraryService {
     return row ?? null;
   }
 
+  private getEmbeddingModelByVectorizerKey(vectorizerKey: string): StoredEmbeddingModel | null {
+    if (!this.tableExists("embedding_models")) {
+      return null;
+    }
+    const row = this.db
+      .prepare("SELECT * FROM embedding_models WHERE vectorizer_key = ? LIMIT 1")
+      .get(vectorizerKey) as StoredEmbeddingModel | undefined;
+    return row ?? null;
+  }
+
+  private getEmbeddingModelById(modelId: number): StoredEmbeddingModel | null {
+    if (!this.tableExists("embedding_models")) {
+      return null;
+    }
+    const row = this.db.prepare("SELECT * FROM embedding_models WHERE id = ?").get(modelId) as StoredEmbeddingModel | undefined;
+    return row ?? null;
+  }
+
   private countChunks(collectionName: string): number {
     const row = this.db.prepare("SELECT COUNT(*) AS count FROM documents WHERE collection = ?").get(collectionName) as
       | { count: number }
@@ -796,6 +1010,29 @@ export class VectorLibraryService {
         `,
       )
       .get(collection, documentId, modelId) as { count: number } | undefined;
+    return row?.count ?? 0;
+  }
+
+  private countVectorsForMetadataDocument(collection: string, fileId: string, modelId: number | null): number {
+    if (modelId === null || !fileId) {
+      return 0;
+    }
+    const row = this.db
+      .prepare(
+        `
+          SELECT COUNT(*) AS count
+          FROM document_vectors
+          WHERE model_id = ?
+            AND collection = ?
+            AND doc_id IN (
+              SELECT id
+              FROM documents
+              WHERE collection = ?
+                AND json_extract(metadata, '$.document_id') = ?
+            )
+        `,
+      )
+      .get(modelId, collection, collection, fileId) as { count: number } | undefined;
     return row?.count ?? 0;
   }
 
@@ -1064,6 +1301,45 @@ interface StoredReranker {
   api_key: string | null;
 }
 
+interface StoredEmbeddingModel {
+  id: number;
+  model_key: string;
+  provider: string;
+  model_name: string;
+  vector_dimension: number;
+  distance_metric: string;
+  is_active: number | boolean;
+  api_endpoint: string | null;
+  created_at: string;
+  last_used_at: string;
+  vectorizer_key: string | null;
+}
+
+interface SharedVectorizerYaml {
+  active_vectorizer_key: string | null;
+  vectorizers: Array<{
+    vectorizer_key: string;
+    provider_key: string;
+    provider_type: string | null;
+    model_name: string;
+    distance_metric: string;
+    created_at: string;
+  }>;
+}
+
+interface SharedRerankerYaml {
+  active_reranker_key: string | null;
+  rerankers: Array<{
+    reranker_key: string;
+    mode: "model" | "lexical" | "none";
+    provider_key: string;
+    provider_type: string | null;
+    model_name: string;
+    api_endpoint: string;
+    created_at: string;
+  }>;
+}
+
 interface StoredDocument {
   id: number;
   collection: string;
@@ -1125,6 +1401,14 @@ function normalizeRerankerMode(value: string | undefined): "model" | "lexical" |
     return "none";
   }
   return "model";
+}
+
+function normalizeRerankerModeValue(value: unknown): "model" | "lexical" | "none" {
+  return normalizeRerankerMode(typeof value === "string" ? value : undefined);
+}
+
+function cleanJsonExtractedString(value: unknown): string {
+  return String(value ?? "").trim().replace(/^"+|"+$/g, "");
 }
 
 function readUtf8File(filePath: string): string {
@@ -1304,6 +1588,18 @@ function asString(value: unknown): string | null {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function asPlainString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function asNullablePlainString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
 }
 
 function quoteIdentifier(value: string): string {

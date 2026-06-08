@@ -91,9 +91,9 @@ export interface VectorFileStatus {
   collection: string;
   chunk_count: number;
   vectorizer_status: Record<string, "已索引" | "未索引">;
-  uploaded_at: string;
-  size: number;
-  mime: string;
+  uploaded_at?: string;
+  size?: number;
+  mime?: string;
 }
 
 export interface VectorFileStatusResponse {

@@ -27,7 +27,7 @@ export class EmbeddingModelService {
         return [];
       }
       const modelId = vectorizer.model_id;
-      const isActive = this.activeModelId === null ? Boolean(vectorizer.is_active) : this.activeModelId === modelId;
+      const isActive = this.activeModelId !== null ? this.activeModelId === modelId : false;
       return [
         {
           id: modelId,
@@ -58,9 +58,13 @@ export class EmbeddingModelService {
     return models;
   }
 
-  activateModel(modelId: number): { message: string } {
+  activateModel(modelId: number, options: { missingOk?: boolean } = {}): { message: string } {
     const model = this.getModel(modelId);
     if (!model) {
+      if (options.missingOk) {
+        this.activeModelId = modelId;
+        return { message: `模型 ${modelId} 已激活` };
+      }
       throw new EmbeddingModelServiceError(`模型不存在: ${modelId}`, 404);
     }
     this.activeModelId = modelId;

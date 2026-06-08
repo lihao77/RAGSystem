@@ -35,7 +35,11 @@ export const registerVectorLibraryRoutes: FastifyPluginAsync<RouteOptions> = asy
   app.post("/delete-file", async (request) => {
     const payload = DeleteIndexedFileRequestSchema.parse(request.body);
     try {
-      return ok(options.container.vectorLibrary.deleteIndexedFile(payload));
+      const result = options.container.vectorLibrary.deleteIndexedFile(payload);
+      if (Number(result.deleted_chunks ?? 0) <= 0) {
+        throw new HttpError(404, "not_found", "未找到该文件对应的分块");
+      }
+      return ok(result);
     } catch (error) {
       throw toHttpError(error);
     }
@@ -127,6 +131,12 @@ function toHttpError(error: unknown): HttpError {
     return error;
   }
   if (error instanceof VectorLibraryServiceError) {
+    if (
+      error.message.startsWith("重排序器不存在:") ||
+      error.message === "model 模式的重排序器必须提供 provider_key 和 model_name"
+    ) {
+      return new HttpError(500, "internal_error", error.message);
+    }
     return new HttpError(error.statusCode, "invalid_request", error.message);
   }
   return new HttpError(500, "internal_error", error instanceof Error ? error.message : String(error));
