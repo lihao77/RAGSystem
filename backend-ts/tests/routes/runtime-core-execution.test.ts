@@ -905,6 +905,7 @@ describe("minimal runtime core execution", () => {
       "task_get",
       "task_update",
       "task_list",
+      "task_output",
       "task_stop",
       "list_memory_index",
       "read_memory_entry",

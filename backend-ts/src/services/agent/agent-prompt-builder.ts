@@ -194,9 +194,14 @@ function buildDirectToolsSection(tools: RuntimeToolDefinition[]): string {
 
 function buildToolCallingGlobalRules(tools: RuntimeToolDefinition[]): string {
   const hasTaskStop = tools.some((tool) => tool.name === "task_stop");
-  const backgroundTaskHint = hasTaskStop
-    ? "- `run_in_background` 只负责后台启动，不会自动等待；后台任务完成后系统会注入完成通知，并在通知中提供 `output_path`；如需结果内容请调用 `read_file(file_path=output_path)`；如需停止请调用 `task_stop`"
-    : "- `run_in_background` 只负责后台启动，不会自动等待；后台任务完成后系统会注入完成通知并提供 `output_path`，如需结果内容请调用 `read_file(file_path=output_path)`；当前 agent 未暴露后台停止能力时，不要假设可以停止后台任务";
+  const hasTaskOutput = tools.some((tool) => tool.name === "task_output");
+  const outputHint = hasTaskOutput
+    ? "后台任务完成后系统会注入完成通知，并在通知中提供 `output_path`；默认用 `read_file(file_path=output_path)` 读取结果内容，需要主动查询状态或显式等待时再调用 `task_output`"
+    : "后台任务完成后系统会注入完成通知并提供 `output_path`，如需结果内容请调用 `read_file(file_path=output_path)`";
+  const stopHint = hasTaskStop
+    ? "如需停止请调用 `task_stop`"
+    : "当前 agent 未暴露后台停止能力时，不要假设可以停止后台任务";
+  const backgroundTaskHint = `- \`run_in_background\` 只负责后台启动，不会自动等待；${outputHint}；${stopHint}`;
   return `## 工具调用总规则
 
 - 每个工具条目中的 \`调用能力\` 字段是唯一准则：\`direct\` 表示可直接输出为 XML 工具调用；\`code_execution\` 表示仅可在 \`execute_code\` 中通过 \`call_tool(tool_name, arguments)\` 调用

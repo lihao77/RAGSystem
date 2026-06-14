@@ -140,7 +140,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       if (agent?.tasks?.workflow) {
         tools.push(...TASK_WORKFLOW_TOOLS.map((tool) => ({ ...tool })));
       }
-      if (enabledTools.has(TASK_OUTPUT_TOOL_NAME)) {
+      if (agent?.tasks?.background || enabledTools.has(TASK_OUTPUT_TOOL_NAME)) {
         tools.push({ ...TASK_OUTPUT_TOOL });
       }
       if (agent?.tasks?.background) {
