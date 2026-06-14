@@ -83,7 +83,19 @@ describe("agent prompt builder", () => {
   });
 
   it("prefers tool_calls in output format while documenting legacy tools alias", () => {
-    const prompt = buildFullSystemPrompt(minimalAgent(), { tools: [] });
+    const prompt = buildFullSystemPrompt(minimalAgent(), {
+      tools: [
+        {
+          name: "read_file",
+          description: "Read file.",
+          parameters: {
+            type: "object",
+            required: ["file_path"],
+            properties: { file_path: { type: "string" } },
+          },
+        },
+      ],
+    });
 
     expect(prompt).toContain("## 工作目标");
     expect(prompt).toContain("## 执行原则");
@@ -93,6 +105,21 @@ describe("agent prompt builder", () => {
     expect(prompt).not.toContain("调用工具：\n<tools>");
     expect(prompt).not.toContain("## Doing tasks");
     expect(prompt).not.toContain("## Executing actions with care");
+  });
+
+  it("omits unavailable module guidance from minimal prompts", () => {
+    const prompt = buildFullSystemPrompt(minimalAgent(), { tools: [] });
+
+    expect(prompt).not.toContain("request_user_input");
+    expect(prompt).not.toContain("execute_code");
+    expect(prompt).not.toContain("execute_bash");
+    expect(prompt).not.toContain("read_file");
+    expect(prompt).not.toContain("preview_data_structure");
+    expect(prompt).not.toContain("子 Agent");
+    expect(prompt).not.toContain("委派");
+    expect(prompt).not.toContain("## Skills");
+    expect(prompt).not.toContain('<tool name="tool_name">');
+    expect(prompt).not.toContain("数据文件传递规则");
   });
 
   it("omits background execution guidance unless tasks.background is enabled", () => {
@@ -147,6 +174,7 @@ describe("agent prompt builder", () => {
     expect(disabledPrompt).not.toContain("后台能力");
     expect(disabledPrompt).not.toContain("tasks.background");
     expect(disabledPrompt).not.toContain("run_in_background");
+    expect(disabledPrompt).not.toContain("background_task_id");
     expect(disabledPrompt).not.toContain("需要主动查询状态或显式等待时再调用 `task_output`");
     expect(enabledPrompt).toContain("`execute_bash` 支持 `run_in_background=true` 后台执行");
     expect(enabledPrompt).toContain("需要主动查询状态或显式等待时再调用 `task_output`");
