@@ -1546,7 +1546,7 @@ describe("RuntimeToolBridge", () => {
       "task_update",
       "task_list",
     ]);
-    expect(bridge.listVisibleToolNames(backgroundAgent)).toEqual(["task_output", "task_stop"]);
+    expect(bridge.listVisibleToolNames(backgroundAgent)).toEqual(["task_stop"]);
     expect(bridge.listVisibleToolNames(explicitOutputAgent)).toEqual(["task_output"]);
   });
 
