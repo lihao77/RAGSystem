@@ -31,6 +31,14 @@ const PROMPT_EXAMPLE_TOOL_WHITELIST = new Set([
   "write_file",
   "execute_bash",
   "execute_code",
+  "execute_skill_script",
+]);
+
+const SPECIAL_SECTION_TOOL_NAMES = new Set([
+  "request_user_input",
+  "call_agent",
+  "list_child_agents",
+  "send_message",
 ]);
 
 export function buildAgentPromptContext(input: {
@@ -135,7 +143,7 @@ function buildPromptActionsSection(): string {
 
 - 直接给答案或直接调用工具，不写冗长过程汇报
 - 最终答案先给结论，再给必要细节；不要复述用户问题
-- 能由一个工具完成时，不要拆成多轮工具链；多个相互独立的任务才放在同一 \`<tools>\` 中并行
+- 能由一个工具完成时，不要拆成多轮工具链；多个相互独立的任务才放在同一 \`<tool_calls>\` 中并行
 - direct 工具优先于子 Agent；单个子 Agent 优先于多 Agent 编排`;
 }
 
@@ -144,7 +152,7 @@ function buildPromptUsingToolsSection(): string {
 
 - 专用工具优先于通用路径：读取已有文件优先 \`read_file\`，修改已有文件优先 \`edit_file\`，写新文件优先 \`write_file\`，搜索优先 \`glob\` / \`grep\`
 - 只有程序化处理、批量转换或需要运行代码时才使用 \`execute_code\`；只有确实需要 shell/系统命令时才使用 \`execute_bash\`
-- 能由一个工具完成时，不要拆成多轮工具链；多个相互独立的任务才放在同一 \`<tools>\` 中并行
+- 能由一个工具完成时，不要拆成多轮工具链；多个相互独立的任务才放在同一 \`<tool_calls>\` 中并行
 - direct 工具优先于子 Agent；单个子 Agent 优先于多 Agent 编排
 - 如果某项工作已经交给子 Agent，不要在主上下文重复做同样的搜索或阅读，除非是为了核验关键结论`;
 }
@@ -158,7 +166,8 @@ function buildPromptToolsSection(tools: RuntimeToolDefinition[]): string {
 }
 
 function buildDirectToolsSection(tools: RuntimeToolDefinition[]): string {
-  if (!tools.length) {
+  const directPromptTools = tools.filter((tool) => !SPECIAL_SECTION_TOOL_NAMES.has(tool.name));
+  if (!directPromptTools.length) {
     return "";
   }
   const lines = [
@@ -166,16 +175,13 @@ function buildDirectToolsSection(tools: RuntimeToolDefinition[]): string {
     "",
     "以下工具可直接作为 XML action 调用：",
   ];
-  for (const tool of tools) {
+  for (const tool of directPromptTools) {
     lines.push("");
     lines.push(`### ${tool.name}`);
     lines.push(`**描述**: ${tool.description}`);
-    lines.push("**调用能力**: direct（可直接调用）");
+    lines.push(`**调用能力**: ${formatAllowedCallers(tool)}`);
     lines.push(...formatToolParameters(tool.parameters));
-    if (PROMPT_EXAMPLE_TOOL_WHITELIST.has(tool.name)) {
-      lines.push("**示例**:");
-      lines.push(renderToolExample(tool));
-    }
+    lines.push(...formatToolContract(tool, PROMPT_EXAMPLE_TOOL_WHITELIST.has(tool.name)));
   }
   lines.push("");
   lines.push(buildManagedSpaceRules());
@@ -246,6 +252,18 @@ function buildCodeExecutionPromptSection(tools: RuntimeToolDefinition[]): string
   if (!tools.some((tool) => tool.name === "execute_code")) {
     return "";
   }
+  const codeCallableTools = tools
+    .filter((tool) => tool.name !== "execute_code" && getAllowedCallers(tool).includes("code_execution"))
+    .map((tool) => tool.name);
+  if (codeCallableTools.length) {
+    const toolsList = codeCallableTools.map((toolName) => `\`${toolName}\``).join("、");
+    return `## execute_code 中可调用的工具
+
+在 \`execute_code\` 的代码中使用 \`call_tool(tool_name, arguments)\` 时，只能调用以下工具：
+${toolsList}
+
+详细使用说明（模块、全局变量、文件操作规则）见 execute_code 工具的扩展说明。`;
+  }
   return `## execute_code 中可调用的工具
 
 当前没有额外工具可从代码中调用，请直接在 \`execute_code\` 的沙箱内处理数据或读取文件。
@@ -285,24 +303,24 @@ function buildAgentSpecificPromptSections(delegatedAgents: AgentPromptDelegatedA
     }
   }
   const exampleAgent = delegatedAgents[0]?.agent_name ?? "qa_agent";
-  const exampleSection = `### 示例
+const exampleSection = `### 示例
 
 创建子 Agent：
-<tools>
+<tool_calls>
 <tool name="call_agent">
   <agent_name>${exampleAgent}</agent_name>
   <task>查询2023年广西洪涝灾害受灾人口，需要分市统计</task>
   <context_hint>返回 Markdown 表格，并保留统计口径说明</context_hint>
 </tool>
-</tools>
+</tool_calls>
 
 续接已有子 Agent：
-<tools>
+<tool_calls>
 <tool name="send_message">
   <child_agent_id>{result_1.content.items.0.child_agent_id}</child_agent_id>
   <message>继续基于上一轮结果补充结论，并输出最终摘要</message>
 </tool>
-</tools>`;
+</tool_calls>`;
   return [lines.join("\n"), exampleSection];
 }
 
@@ -312,18 +330,18 @@ function buildPromptOutputFormatSection(): string {
 **直接输出工具调用或答案。不要写冗长推理、分析过程或额外过程汇报。**
 
 调用工具：
-<tools>
+<tool_calls>
 <tool name="tool_name">
   <param_name>value</param_name>
 </tool>
-</tools>
+</tool_calls>
 
 向用户追问缺失信息：
-<tools>
+<tool_calls>
 <tool name="request_user_input">
   <prompt>请提供需要的关键信息</prompt>
 </tool>
-</tools>
+</tool_calls>
 
 给出最终答案：
 <final_answer>
@@ -332,19 +350,20 @@ function buildPromptOutputFormatSection(): string {
 
 如需补充一段极短的当前意图（可选，仅 1-2 句）：
 <intent>我先确认现有信息是否足够，再决定是直接回答还是调用工具。</intent>
-<tools>...</tools>
+<tool_calls>...</tool_calls>
 
 **参数格式说明**：
 - 每个参数用 XML 子标签传递：\`<参数名>值</参数名>\`
 - 多行文本或含 \`<\` \`>\` \`&\` 的参数值用 CDATA 包裹：\`<code><![CDATA[内容]]></code>\`
-- JSON 格式参数也兼容，但推荐使用 XML 子标签`;
+- JSON 格式参数也兼容，但推荐使用 XML 子标签
+- \`<tools>\` 是兼容旧别名；新输出优先使用 \`<tool_calls>\``;
 }
 
 function buildPromptRulesSection(): string {
   return `## 执行规则
 
 1. 只能使用上面列出的工具
-2. 互相独立的工具调用放同一 \`<tools>\` 中并行
+2. 互相独立的工具调用放同一 \`<tool_calls>\` 中并行
 3. 链式调用用 {result_N} 引用同轮第 N 个工具结果
 4. 结果足够支持答案时，必须停止继续调用并输出 \`<final_answer>\`
 5. 报错后下一轮应调整参数、换工具、缩小任务或改为追问用户；不要无变化重复同一失败调用
@@ -442,7 +461,93 @@ function formatToolParameters(parameters: Record<string, unknown>): string[] {
   return lines;
 }
 
+function formatAllowedCallers(tool: RuntimeToolDefinition): string {
+  const labels: string[] = [];
+  const allowedCallers = getAllowedCallers(tool);
+  if (allowedCallers.includes("direct")) {
+    labels.push("direct（可直接调用）");
+  }
+  if (allowedCallers.includes("code_execution")) {
+    labels.push("code_execution（可在 execute_code 中通过 call_tool 调用）");
+  }
+  for (const caller of allowedCallers) {
+    if (caller !== "direct" && caller !== "code_execution") {
+      labels.push(`${caller}（自定义调用来源）`);
+    }
+  }
+  return labels.length ? labels.join("、") : "direct（可直接调用）";
+}
+
+function getAllowedCallers(tool: RuntimeToolDefinition): string[] {
+  const callers = Array.isArray(tool.allowed_callers) ? tool.allowed_callers.map(String).filter(Boolean) : [];
+  return callers.length ? callers : ["direct"];
+}
+
+function formatToolContract(tool: RuntimeToolDefinition, includeExamples: boolean): string[] {
+  const lines: string[] = [];
+  const extendedUsage = normalizeString(tool.extended_usage);
+  if (extendedUsage) {
+    lines.push(extendedUsage);
+    lines.push("");
+  }
+
+  if (tool.returns) {
+    lines.push("**成功返回**:");
+    const returnDescription = normalizeString(tool.returns.description);
+    if (returnDescription) {
+      lines.push(`  - ${returnDescription}`);
+    }
+    if (Object.prototype.hasOwnProperty.call(tool.returns, "shape")) {
+      lines.push(`  \`\`\`json\n  ${stringifyJsonForPrompt(tool.returns.shape, 2)}\n  \`\`\``);
+    }
+  }
+
+  const usageContract = Array.isArray(tool.usage_contract) ? tool.usage_contract.filter((item) => item.trim()) : [];
+  if (usageContract.length) {
+    lines.push("**使用约束**:");
+    for (const item of usageContract) {
+      lines.push(`  - ${item}`);
+    }
+  }
+
+  if (includeExamples) {
+    const examples = Array.isArray(tool.examples) ? tool.examples.filter(isRecord) : [];
+    if (examples.length) {
+      lines.push("**示例**:");
+      for (const example of examples) {
+        lines.push(renderToolExampleFromContract(example, tool.name));
+      }
+    } else {
+      lines.push("**示例**:");
+      lines.push(renderToolExample(tool));
+    }
+  }
+
+  return lines;
+}
+
 function renderToolExample(tool: RuntimeToolDefinition): string {
+  if (tool.name === "execute_skill_script") {
+    return `  \`\`\`xml
+  <tool name="execute_skill_script">
+    <skill_name>visualization</skill_name>
+    <script_name>create_chart.py</script_name>
+    <arguments>
+      <item>--data</item>
+      <item>data/chart_data.json</item>
+      <item>--chart-type</item>
+      <item>line</item>
+      <item>--x-field</item>
+      <item>年份</item>
+      <item>--y-field</item>
+      <item>人口</item>
+      <item>--title</item>
+      <item>人口趋势</item>
+    </arguments>
+  </tool>
+  \`\`\`
+  注意：\`arguments\` 是命令行 argv 数组；XML 中只能用 \`<item>\` 表示数组项，不要用 \`<arg>\`，不要把多个参数合并成一个字符串或 JSON 对象。`;
+  }
   const properties = isRecord(tool.parameters.properties) ? tool.parameters.properties : {};
   const required = Array.isArray(tool.parameters.required) ? tool.parameters.required.map(String) : [];
   const paramNames = required.length ? required : Object.keys(properties).slice(0, 2);
@@ -454,6 +559,51 @@ function renderToolExample(tool: RuntimeToolDefinition): string {
 ${renderedParams}
   </tool>
   \`\`\``;
+}
+
+function renderToolExampleFromContract(example: Record<string, unknown>, toolName: string): string {
+  const rawParams = isRecord(example.input) ? example.input : example;
+  const extraEntries = Object.entries(example).filter(([key]) => key !== "input" && key !== "xml_attrs");
+  const xmlAttrs = isRecord(example.xml_attrs) ? example.xml_attrs : {};
+  const renderedParams = Object.entries(rawParams)
+    .map(([key, value]) => renderToolExampleParam(key, value, isRecord(xmlAttrs[key]) ? xmlAttrs[key] : {}))
+    .join("\n");
+  let block = `  \`\`\`xml\n  <tool name="${toolName}">\n${renderedParams}\n  </tool>\n  \`\`\``;
+  if (extraEntries.length) {
+    block += `\n${extraEntries.map(([key, value]) => `  <!-- ${key}: ${stringifyJsonForPrompt(value)} -->`).join("\n")}`;
+  }
+  return block;
+}
+
+function renderToolExampleParam(key: string, value: unknown, attrs: Record<string, unknown>): string {
+  const attrText = Object.entries(attrs)
+    .map(([attr, attrValue]) => `${attr}="${String(attrValue)}"`)
+    .join(" ");
+  const opening = attrText ? `<${key} ${attrText}>` : `<${key}>`;
+  if (Array.isArray(value)) {
+    const items = value.map((item) => `    <item>${renderExampleScalar(item)}</item>`).join("\n");
+    return `  ${opening}\n${items}\n  </${key}>`;
+  }
+  return `  ${opening}${renderExampleScalar(value)}</${key}>`;
+}
+
+function renderExampleScalar(value: unknown): string {
+  if (typeof value === "string") {
+    return needsCdata(value) ? `<![CDATA[${value}]]>` : value;
+  }
+  return stringifyJsonForPrompt(value);
+}
+
+function needsCdata(value: string): boolean {
+  return value.includes("\n") || value.includes("<") || value.includes(">") || value.includes("&");
+}
+
+function stringifyJsonForPrompt(value: unknown, indent = 0): string {
+  try {
+    return JSON.stringify(value, null, indent);
+  } catch {
+    return String(value);
+  }
 }
 
 function exampleValueForParam(paramName: string, rawInfo: unknown): string {

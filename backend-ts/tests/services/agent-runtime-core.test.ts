@@ -100,8 +100,10 @@ class FakeToolCallingChatClient implements LlmChatClient {
 class FakeRuntimeToolExecutor implements RuntimeToolExecutor {
   readonly calls: Array<{ call: RuntimeToolCall; context: RuntimeToolExecutionContext }> = [];
 
+  constructor(private readonly includeSkillTools = false) {}
+
   listVisibleTools(): RuntimeToolDefinition[] {
-    return [
+    const tools: RuntimeToolDefinition[] = [
       {
         name: "list_memory_index",
         description: "List memory index",
@@ -114,6 +116,26 @@ class FakeRuntimeToolExecutor implements RuntimeToolExecutor {
         },
       },
     ];
+    if (this.includeSkillTools) {
+      tools.push({
+        name: "execute_skill_script",
+        description: "Execute a Skill utility script. The arguments field is argv-style: each command-line token must be one array item.",
+        parameters: {
+          type: "object",
+          required: ["skill_name", "script_name"],
+          properties: {
+            skill_name: { type: "string", description: "Skill name." },
+            script_name: { type: "string", description: "Script file name under the Skill scripts directory." },
+            arguments: {
+              type: "array",
+              items: { type: "string" },
+              description: "Command line argv tokens. XML calls must use <item> children, one token per item.",
+            },
+          },
+        },
+      });
+    }
+    return tools;
   }
 
   executeTool(call: RuntimeToolCall, context: RuntimeToolExecutionContext) {
@@ -790,6 +812,39 @@ describe("AgentRuntimeCore", () => {
         }),
       ]),
     );
+  });
+
+  it("renders execute_skill_script XML arguments as itemized argv tokens in the prompt", async () => {
+    const client = new FakeXmlStreamingToolChatClient([
+      ["<final_answer>", "done", "</final_answer>"],
+    ]);
+    const tools = new FakeRuntimeToolExecutor(true);
+    const core = new AgentRuntimeCore(client);
+    const agent = minimalAgent();
+
+    await core.runText({
+      agent,
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [{ role: "user", content: "show prompt" }],
+      toolExecutor: tools,
+      toolContext: {
+        agent,
+        sessionId: "s1",
+        runId: "run-1",
+        requestId: "req-1",
+        currentAgentName: "orchestrator_agent",
+        parentCallId: "call-root",
+      },
+    });
+
+    const prompt = client.requests[0]?.messages[0]?.content ?? "";
+    expect(prompt).toContain("### execute_skill_script");
+    expect(prompt).toContain("<arguments>");
+    expect(prompt).toContain("<item>--data</item>");
+    expect(prompt).toContain("<item>--x-field</item>");
+    expect(prompt).toContain("不要用 `<arg>`");
+    expect(prompt).toContain("不要把多个参数合并成一个字符串或 JSON 对象");
   });
 
   it("does not stream untagged XML prelude as final answer content", async () => {

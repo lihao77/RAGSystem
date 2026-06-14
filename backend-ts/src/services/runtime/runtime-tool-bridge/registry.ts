@@ -69,8 +69,45 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
     source: "document",
     category: "filesystem",
     riskLevel: "low",
+    allowed_callers: ["direct"],
     description:
       "Read a managed workspace/session file by line range. Defaults to line 1 and at most 2000 lines. Use offset/limit for large files.",
+    returns: {
+      description: "成功时返回文件内容和分页元数据。",
+      shape: {
+        content: "string",
+        metadata: {
+          file_path: "string",
+          file_size: "number",
+          total_lines: "number",
+          start_line: "number",
+          end_line: "number",
+          has_more: "boolean",
+          next_offset: "number|null",
+        },
+      },
+    },
+    usage_contract: [
+      "read_file 默认只返回前 2000 行；大文件请用 metadata.next_offset 继续分页。",
+      "可用 offset/limit 指定行号区间。",
+      "返回内容为文件原始文本内容，不附带行号。",
+      "file_path 必须是真实路径字符串，不是变量名文本。",
+      "数据文件已有路径时，优先用 preview_data_structure 确认结构。",
+    ],
+    examples: [
+      {
+        input: { file_path: "tmp.txt" },
+        xml_attrs: { file_path: { space: "transient" } },
+        result_hint: { content: "temporary text" },
+      },
+      {
+        input: { file_path: "./data/large.txt", offset: 100, limit: 50 },
+        result_hint: {
+          content: "line 100 ...",
+          metadata: { start_line: 100, end_line: 149, has_more: true, next_offset: 150 },
+        },
+      },
+    ],
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -108,8 +145,30 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
     source: "document",
     category: "filesystem",
     riskLevel: "high",
+    allowed_callers: ["direct"],
     description:
       "Write text or JSON content to a managed workspace/session file. If file_path is omitted, the runtime allocates a managed output path.",
+    returns: {
+      description: "成功时返回保存后的文件信息。",
+      shape: {
+        file_path: "string",
+        file_size: "number",
+        display_path: "string",
+      },
+    },
+    usage_contract: [
+      "content 是最终要写入的文本；JSON 请先序列化成字符串。",
+      "后续工具需要路径时，优先复用返回的 file_path。",
+      "若在同一轮链式调用，可引用 {result_N.content.file_path}。",
+      "修改已有文件的部分内容时，请优先使用 edit_file。",
+    ],
+    examples: [
+      {
+        input: { content: "temporary text", file_path: "tmp.txt" },
+        xml_attrs: { file_path: { space: "transient" } },
+        result_hint: { display_path: "./data/sessions/<session_id>/transient/tmp.txt" },
+      },
+    ],
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -144,8 +203,22 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
     source: "document",
     category: "filesystem",
     riskLevel: "high",
+    allowed_callers: ["direct"],
     description:
       "Edit a managed file by exact string replacement. old_string must match uniquely unless replace_all=true.",
+    returns: {
+      description: "成功时返回编辑后的文件信息。",
+      shape: {
+        file_path: "string",
+        replacements: "number",
+        display_path: "string",
+      },
+    },
+    usage_contract: [
+      "old_string 必须与文件内容精确匹配，包含空白和换行。",
+      "默认要求唯一匹配；需要批量替换时显式传 replace_all=true。",
+      "编辑已有文件优先使用 edit_file，不要用 write_file 重写整文件。",
+    ],
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -184,8 +257,39 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
     source: "document",
     category: "data",
     riskLevel: "low",
+    allowed_callers: ["direct", "code_execution"],
     description:
       "Preview the data structure of a managed JSON, YAML, CSV, TSV, or text file without returning the full file content.",
+    returns: {
+      description: "成功时返回文件类型、基础元信息和结构预览结果。",
+      shape: {
+        content: {
+          file_path: "string",
+          file_name: "string",
+          file_type: "string",
+          file_size: "number",
+          structure: "object",
+        },
+        metadata: {
+          file_type: "string",
+          file_size: "number",
+          max_preview_rows: "number",
+          max_depth: "number",
+          max_fields: "number",
+        },
+      },
+    },
+    usage_contract: [
+      "适合先探索数据结构，再决定是否调用 read_file 或直接进入后续处理步骤。",
+      "JSON/YAML 返回层级结构预览；CSV/TSV 返回列与样例行；文本返回行统计与预览。",
+      "想看更深层结构时可提高 max_depth；想看更多列或样例可提高 max_fields/max_preview_rows。",
+    ],
+    examples: [
+      {
+        input: { file_path: "./data/sample.json", max_depth: 2 },
+        result_hint: { file_type: "json", structure: { type: "object" } },
+      },
+    ],
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -229,8 +333,16 @@ export const EXECUTE_BASH_TOOL: RuntimeToolDefinition = {
   source: "execution",
   category: "execution",
   riskLevel: "high",
+  allowed_callers: ["direct"],
   description:
     "Execute a shell command in a managed workspace directory. Read-only commands run directly; write, unknown, network, destructive, and interpreter commands may require approval.",
+  extended_usage: `### 工作目录说明
+
+三个受管目录空间：\`workspace\`（默认）、\`transient\`（临时）、\`exports\`（导出）。
+
+- 相对路径：默认按 \`workspace\` 解析
+- 绝对路径：必须在受管目录内
+- 指定空间：使用 \`working_dir_space\` 参数`,
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -272,8 +384,15 @@ export const EXECUTE_CODE_TOOL: RuntimeToolDefinition = {
   source: "execution",
   category: "execution",
   riskLevel: "high",
+  allowed_callers: ["direct"],
   description:
     "Execute Python code in a restricted sandbox for data processing and limited tool orchestration. Set result as the final output.",
+  extended_usage: `### 模块与全局变量
+
+- \`result\` — 必须赋值为最终输出
+- \`call_tool(tool_name, arguments)\` — 调用其他工具（仅限 \`allowed_callers\` 包含 \`code_execution\` 的工具）
+
+只在需要程序化处理、批量转换或有限工具编排时使用 execute_code。`,
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -303,7 +422,13 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
     source: "document",
     category: "filesystem",
     riskLevel: "low",
+    allowed_callers: ["direct", "code_execution"],
     description: "Find files in the managed workspace using glob patterns such as **/*.ts.",
+    usage_contract: [
+      "Read-only operation.",
+      "Limited to 250 results by default to prevent token overflow.",
+      "Requires glob pattern relative to the search root.",
+    ],
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -335,7 +460,13 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
     source: "document",
     category: "filesystem",
     riskLevel: "low",
+    allowed_callers: ["direct"],
     description: "Search text in managed workspace files and return matching lines.",
+    usage_contract: [
+      "Read-only operation.",
+      "Automatically excludes .git, .svn, .hg, node_modules, __pycache__.",
+      "Limited to 250 results by default to prevent token overflow.",
+    ],
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -377,6 +508,7 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
     source: "runtime_builtin",
     category: "network",
     riskLevel: "medium",
+    allowed_callers: ["direct"],
     description: "Fetch an HTTP or HTTPS URL and return readable text content.",
     parameters: {
       type: "object",
@@ -407,6 +539,7 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
     source: "runtime_builtin",
     category: "task",
     riskLevel: "low",
+    allowed_callers: ["direct"],
     description: "Replace the current session todo list with pending, in_progress, or completed items.",
     parameters: {
       type: "object",
@@ -437,6 +570,7 @@ export const KNOWLEDGE_TOOLS: RuntimeToolDefinition[] = [
     source: "knowledge",
     category: "knowledge",
     riskLevel: "low",
+    allowed_callers: ["direct"],
     description:
       "Search the enabled Agent knowledge base for document chunks relevant to a query. Uses Agent knowledge_base defaults when optional fields are omitted.",
     parameters: {
@@ -478,6 +612,7 @@ export const KNOWLEDGE_TOOLS: RuntimeToolDefinition[] = [
     source: "knowledge",
     category: "knowledge",
     riskLevel: "low",
+    allowed_callers: ["direct"],
     description: "List available knowledge base collections and their document/chunk counts.",
     parameters: {
       type: "object",
@@ -493,7 +628,22 @@ export const SKILL_TOOLS: RuntimeToolDefinition[] = [
     source: "runtime_builtin",
     category: "skill",
     riskLevel: "low",
+    allowed_callers: ["direct"],
     description: "Activate a Skill and return its SKILL.md main instructions.",
+    returns: {
+      description: "成功时返回 Skill 主文件内容和基础信息。",
+      shape: {
+        skill_name: "string",
+        description: "string",
+        main_content: "string",
+      },
+    },
+    usage_contract: [
+      "activate_skill 通常是使用 Skill 的第一步。",
+      "返回的 main_content 就是 SKILL.md 正文，可直接按其中流程继续执行。",
+      "若主文件提到额外资源，再调用 load_skill_resource。",
+      "若主文件要求执行脚本，再调用 execute_skill_script。",
+    ],
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -509,7 +659,21 @@ export const SKILL_TOOLS: RuntimeToolDefinition[] = [
     source: "runtime_builtin",
     category: "skill",
     riskLevel: "low",
+    allowed_callers: ["direct"],
     description: "Load an additional resource file from an activated Skill.",
+    returns: {
+      description: "成功时返回指定资源文件的内容。",
+      shape: {
+        file_name: "string",
+        content: "string",
+        skill: "string",
+      },
+    },
+    usage_contract: [
+      "load_skill_resource 用于加载 activate_skill 主文件里提到的补充文档。",
+      "resource_file 应使用主文件中出现的相对文件名。",
+      "加载后的 content 可直接作为后续执行依据。",
+    ],
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -526,7 +690,14 @@ export const SKILL_TOOLS: RuntimeToolDefinition[] = [
     source: "runtime_builtin",
     category: "skill",
     riskLevel: "medium",
-    description: "Execute a Skill utility script with string arguments.",
+    allowed_callers: ["direct"],
+    description:
+      "Execute a Skill utility script. The arguments field is argv-style: each command-line token must be one array item.",
+    usage_contract: [
+      "arguments 是 argv token 数组，不要合并成单个字符串。",
+      "XML 调用时 arguments 必须用 <item> 表示每个 token。",
+      "不要使用 <arg>，不要把多个参数合并成一个字符串或 JSON 对象。",
+    ],
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -534,7 +705,12 @@ export const SKILL_TOOLS: RuntimeToolDefinition[] = [
       properties: {
         skill_name: { type: "string", description: "Skill name." },
         script_name: { type: "string", description: "Script file name under the Skill scripts directory." },
-        arguments: { type: "array", items: { type: "string" }, description: "Command line arguments." },
+        arguments: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Command line argv tokens. XML calls must use <item> children, one token per item, such as <item>--data</item><item>data.json</item>. Do not use <arg>, do not join tokens with spaces/semicolons, and do not pass an object like {\"--data\":\"...\"}.",
+        },
         run_in_background: { type: "boolean", description: "Reserved for background execution." },
         workspace_root: { type: "string", description: "Optional workspace root for workspace Skills." },
       },
@@ -545,6 +721,7 @@ export const SKILL_TOOLS: RuntimeToolDefinition[] = [
     source: "runtime_builtin",
     category: "skill",
     riskLevel: "low",
+    allowed_callers: ["direct"],
     description: "Get lightweight Skill metadata without loading full instructions.",
     parameters: {
       type: "object",
@@ -564,7 +741,23 @@ export const READ_ONLY_MEMORY_TOOLS: RuntimeToolDefinition[] = [
     source: "memory",
     category: "memory",
     riskLevel: "low",
+    allowed_callers: ["direct"],
     description: "List the MEMORY.md index for an allowed memory scope before selecting an entry file to read.",
+    returns: {
+      description: "返回 MEMORY.md 索引头部和索引文件路径。",
+      shape: {
+        content: "string",
+        metadata: {
+          scope: "string",
+          index_file_path: "string",
+        },
+      },
+    },
+    usage_contract: [
+      "先调用 list_memory_index 再决定是否读取具体记忆文件。",
+      "team、session、agent、workspace 等定位信息由运行时上下文自动注入，Agent 不应手工构造。",
+      "该工具只返回 MEMORY.md 头部，不返回所有记忆正文。",
+    ],
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -603,7 +796,23 @@ export const READ_ONLY_MEMORY_TOOLS: RuntimeToolDefinition[] = [
     source: "memory",
     category: "memory",
     riskLevel: "low",
+    allowed_callers: ["direct"],
     description: "Read one memory entry file from an allowed memory scope after checking the index.",
+    returns: {
+      description: "返回单条记忆正文和文件路径。",
+      shape: {
+        content: "string",
+        metadata: {
+          file_path: "string",
+          scope: "string",
+        },
+      },
+    },
+    usage_contract: [
+      "通常先通过 list_memory_index 或 prompt 中给出的 memory 文件路径定位 file_name，再调用本工具。",
+      "team、session、agent、workspace 等定位信息由运行时上下文自动注入，Agent 不应手工构造。",
+      "该工具只读取一条具体记忆，不做全文检索。",
+    ],
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -648,7 +857,23 @@ export const WRITE_MEMORY_TOOL: RuntimeToolDefinition = {
   source: "memory",
   category: "memory",
   riskLevel: "low",
+  allowed_callers: ["direct"],
   description: "Create or update one memory entry in an allowed writable scope and rebuild that scope's MEMORY.md index.",
+  returns: {
+    description: "返回写入后的记忆文件路径和摘要。",
+    shape: {
+      content: "string",
+      metadata: {
+        file_path: "string",
+        scope: "string",
+      },
+    },
+  },
+  usage_contract: [
+    "写入记忆前应确保 scope 允许写入。",
+    "team、session、agent、workspace 等定位信息由运行时上下文自动注入，Agent 不应手工构造。",
+    "后续如需查看结果，优先复用返回的 file_path。",
+  ],
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -721,7 +946,23 @@ export const ARCHIVE_MEMORY_TOOL: RuntimeToolDefinition = {
   source: "memory",
   category: "memory",
   riskLevel: "low",
+  allowed_callers: ["direct"],
   description: "Archive one memory entry in an allowed archive scope and rebuild that scope's MEMORY.md index.",
+  returns: {
+    description: "返回归档后的记忆文件路径和状态。",
+    shape: {
+      content: "string",
+      metadata: {
+        file_path: "string",
+        scope: "string",
+      },
+    },
+  },
+  usage_contract: [
+    "归档前应确保 scope 允许归档。",
+    "team、session、agent、workspace 等定位信息由运行时上下文自动注入，Agent 不应手工构造。",
+    "该工具只处理单条记忆，不做批量操作。",
+  ],
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -766,6 +1007,7 @@ export const TASK_WORKFLOW_TOOLS: RuntimeToolDefinition[] = [
     source: "runtime_builtin",
     category: "task",
     riskLevel: "low",
+    allowed_callers: ["direct"],
     description: "Create a session-scoped task record for multi-step work tracking.",
     parameters: {
       type: "object",
@@ -784,6 +1026,7 @@ export const TASK_WORKFLOW_TOOLS: RuntimeToolDefinition[] = [
     source: "runtime_builtin",
     category: "task",
     riskLevel: "low",
+    allowed_callers: ["direct"],
     description: "Read a session-scoped task by id.",
     parameters: {
       type: "object",
@@ -799,6 +1042,7 @@ export const TASK_WORKFLOW_TOOLS: RuntimeToolDefinition[] = [
     source: "runtime_builtin",
     category: "task",
     riskLevel: "low",
+    allowed_callers: ["direct"],
     description: "Update task fields, status, dependency links, or metadata.",
     parameters: {
       type: "object",
@@ -822,6 +1066,7 @@ export const TASK_WORKFLOW_TOOLS: RuntimeToolDefinition[] = [
     source: "runtime_builtin",
     category: "task",
     riskLevel: "low",
+    allowed_callers: ["direct"],
     description: "List session-scoped task summaries.",
     parameters: {
       type: "object",
@@ -836,6 +1081,7 @@ export const TASK_OUTPUT_TOOL: RuntimeToolDefinition = {
   source: "runtime_builtin",
   category: "task",
   riskLevel: "low",
+  allowed_callers: ["direct"],
   description: "Read a background task status and output, optionally requesting an explicit wait.",
   parameters: {
     type: "object",
@@ -855,6 +1101,7 @@ export const TASK_STOP_TOOL: RuntimeToolDefinition = {
   source: "runtime_builtin",
   category: "task",
   riskLevel: "medium",
+  allowed_callers: ["direct"],
   description: "Stop a cancellable background task.",
   parameters: {
     type: "object",
@@ -872,6 +1119,7 @@ export const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
     source: "agent_tool",
     category: "agent_delegation",
     riskLevel: "low",
+    allowed_callers: ["direct"],
     description:
       "Delegate a self-contained subtask to one allowed child Agent. agent_name must come from the current Agent delegation allowlist.",
     parameters: {
@@ -899,6 +1147,7 @@ export const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
     source: "agent_tool",
     category: "agent_delegation",
     riskLevel: "low",
+    allowed_callers: ["direct"],
     description: "List existing child Agent sessions in the current session so a prior child_agent_id can be reused.",
     parameters: {
       type: "object",
@@ -922,6 +1171,7 @@ export const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
     source: "agent_tool",
     category: "agent_delegation",
     riskLevel: "low",
+    allowed_callers: ["direct"],
     description: "Send a follow-up message to an existing child Agent session by child_agent_id.",
     parameters: {
       type: "object",

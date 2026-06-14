@@ -12,11 +12,23 @@ export interface RuntimeToolDefinition {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
+  allowed_callers?: Array<"direct" | "code_execution" | string> | undefined;
+  returns?: RuntimeToolReturns | undefined;
+  usage_contract?: string[] | undefined;
+  examples?: RuntimeToolExample[] | undefined;
+  extended_usage?: string | undefined;
   source?: "runtime_builtin" | "memory" | "document" | "execution" | "agent_tool" | "knowledge" | "mcp" | undefined;
   category?: string | undefined;
   riskLevel?: RiskLevel | undefined;
   approvalExempt?: boolean | undefined;
 }
+
+export interface RuntimeToolReturns {
+  description?: string | undefined;
+  shape?: unknown;
+}
+
+export type RuntimeToolExample = Record<string, unknown>;
 
 export interface RuntimeToolExecutionContext {
   agent: AgentConfig | null;
