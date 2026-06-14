@@ -85,10 +85,14 @@ describe("agent prompt builder", () => {
   it("prefers tool_calls in output format while documenting legacy tools alias", () => {
     const prompt = buildFullSystemPrompt(minimalAgent(), { tools: [] });
 
+    expect(prompt).toContain("## 工作目标");
+    expect(prompt).toContain("## 执行原则");
     expect(prompt).toContain("<tool_calls>");
     expect(prompt).toContain("</tool_calls>");
     expect(prompt).toContain("`<tools>` 是兼容旧别名；新输出优先使用 `<tool_calls>`");
     expect(prompt).not.toContain("调用工具：\n<tools>");
+    expect(prompt).not.toContain("## Doing tasks");
+    expect(prompt).not.toContain("## Executing actions with care");
   });
 
   it("keeps special-section tools out of the generic direct tool list", () => {
@@ -145,6 +149,37 @@ describe("agent prompt builder", () => {
     expect(codeCallableSection).not.toContain("`read_file`");
     expect(codeCallableSection).not.toContain("`write_file`");
     expect(codeCallableSection).not.toContain("`edit_file`");
+  });
+
+  it("renders delegation guidance when delegated agents are present", () => {
+    const prompt = buildFullSystemPrompt(minimalAgent(), {
+      tools: [
+        {
+          name: "call_agent",
+          description: "Delegate.",
+          parameters: {
+            type: "object",
+            required: ["agent_name", "task"],
+            properties: { agent_name: { type: "string" }, task: { type: "string" } },
+          },
+        },
+      ],
+      delegatedAgents: [
+        {
+          agent_name: "plan_agent",
+          display_name: "Plan Agent",
+          description: "Plan work.",
+          use_cases: ["plan"],
+          tool_count: 3,
+        },
+      ],
+    });
+
+    expect(prompt).toContain("## 子 Agent 委派");
+    expect(prompt).toContain("`plan_agent` (Plan Agent): Plan work.");
+    expect(prompt).toContain("use_cases: plan");
+    expect(prompt).toContain("<tool name=\"call_agent\">");
+    expect(prompt).toContain("<tool name=\"send_message\">");
   });
 });
 
