@@ -84,7 +84,7 @@ function buildStaticSystemPrompt(): string {
 function buildDynamicSystemPrompt(agent: AgentConfig, context: AgentPromptContext): string {
   return collectSections([
     getAgentBaseSystemPrompt(agent),
-    buildPromptToolsSection(context.tools ?? []),
+    buildPromptToolsSection(agent, context.tools ?? []),
     buildPromptSkillsSection(context.skills ?? []),
     buildCodeExecutionPromptSection(context.tools ?? []),
     ...buildAgentSpecificPromptSections(context.delegatedAgents ?? []),
@@ -161,11 +161,11 @@ function buildPromptUsingToolsSection(): string {
 - 如果某项工作已经交给子 Agent，不要在主上下文重复做同样的搜索或阅读，除非是为了核验关键结论`;
 }
 
-function buildPromptToolsSection(tools: RuntimeToolDefinition[]): string {
+function buildPromptToolsSection(agent: AgentConfig, tools: RuntimeToolDefinition[]): string {
   return collectSections([
     buildPromptUsingToolsSection(),
     buildDirectToolsSection(tools),
-    buildToolCallingGlobalRules(tools),
+    buildToolCallingGlobalRules(agent, tools),
   ]).join("\n\n");
 }
 
@@ -192,9 +192,25 @@ function buildDirectToolsSection(tools: RuntimeToolDefinition[]): string {
   return lines.join("\n");
 }
 
-function buildToolCallingGlobalRules(tools: RuntimeToolDefinition[]): string {
+function buildToolCallingGlobalRules(agent: AgentConfig, tools: RuntimeToolDefinition[]): string {
+  const backgroundEnabled = agent.tasks.background === true;
   const hasTaskStop = tools.some((tool) => tool.name === "task_stop");
   const hasTaskOutput = tools.some((tool) => tool.name === "task_output");
+  const backgroundExecutionSection = backgroundEnabled
+    ? buildBackgroundExecutionSection(hasTaskOutput, hasTaskStop)
+    : `### 后台执行（execute_bash）
+
+当前 Agent 未启用 \`tasks.background\`，不要传 \`run_in_background=true\`。需要运行命令时保持前台执行；如用户明确要求后台执行，应说明当前 Agent 未启用后台能力。`;
+  return `## 工具调用总规则
+
+- 每个工具条目中的 \`调用能力\` 字段是唯一准则：\`direct\` 表示可直接输出为 XML 工具调用；\`code_execution\` 表示仅可在 \`execute_code\` 中通过 \`call_tool(tool_name, arguments)\` 调用
+- 如果某个工具没有标注 \`code_execution\`，就不要假设它能在 \`execute_code\` 中调用
+- 路径类工具统一使用 \`workspace / transient / exports\` 三个受管目录空间；\`space\` 只影响相对 \`file_path\` / \`working_dir\` 的解析根
+
+${backgroundExecutionSection}`;
+}
+
+function buildBackgroundExecutionSection(hasTaskOutput: boolean, hasTaskStop: boolean): string {
   const outputHint = hasTaskOutput
     ? "后台任务完成后系统会注入完成通知，并在通知中提供 `output_path`；默认用 `read_file(file_path=output_path)` 读取结果内容，需要主动查询状态或显式等待时再调用 `task_output`"
     : "后台任务完成后系统会注入完成通知并提供 `output_path`，如需结果内容请调用 `read_file(file_path=output_path)`";
@@ -202,13 +218,7 @@ function buildToolCallingGlobalRules(tools: RuntimeToolDefinition[]): string {
     ? "如需停止请调用 `task_stop`"
     : "当前 agent 未暴露后台停止能力时，不要假设可以停止后台任务";
   const backgroundTaskHint = `- \`run_in_background\` 只负责后台启动，不会自动等待；${outputHint}；${stopHint}`;
-  return `## 工具调用总规则
-
-- 每个工具条目中的 \`调用能力\` 字段是唯一准则：\`direct\` 表示可直接输出为 XML 工具调用；\`code_execution\` 表示仅可在 \`execute_code\` 中通过 \`call_tool(tool_name, arguments)\` 调用
-- 如果某个工具没有标注 \`code_execution\`，就不要假设它能在 \`execute_code\` 中调用
-- 路径类工具统一使用 \`workspace / transient / exports\` 三个受管目录空间；\`space\` 只影响相对 \`file_path\` / \`working_dir\` 的解析根
-
-### 后台执行（execute_bash）
+  return `### 后台执行（execute_bash）
 
 \`execute_bash\` 支持 \`run_in_background=true\` 后台执行，适合耗时较长、不需要立即获取输出的命令（如数据处理脚本、批量转换、长时间构建等）。
 

@@ -1809,6 +1809,7 @@ describe("RuntimeToolBridge", () => {
       taskTools,
     );
     const agent = minimalAgent([], ["execute_bash", "task_output"]);
+    agent.tasks = { workflow: false, background: true };
     const context = {
       agent,
       sessionId: "s1",
@@ -1909,6 +1910,45 @@ describe("RuntimeToolBridge", () => {
       },
     });
     store.close();
+  });
+
+  it("rejects background bash when tasks.background is disabled", async () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace-bash-background-disabled");
+    const backgroundTasks = new BackgroundTaskService();
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      null,
+      null,
+      null,
+      new LocalBashToolService({ dataRoot, bashExecutable: null, backgroundTasks }),
+      new TaskToolService(backgroundTasks, { dataRoot }),
+    );
+    const agent = minimalAgent([], ["execute_bash"]);
+    agent.tasks = { workflow: false, background: false };
+
+    await expect(
+      Promise.resolve(
+        bridge.executeTool(
+          {
+            toolName: "execute_bash",
+            arguments: {
+              command: "echo should-not-background",
+              run_in_background: true,
+            },
+          },
+          { agent, sessionId: "s1", workspaceRoot },
+        ),
+      ),
+    ).resolves.toMatchObject({
+      success: false,
+      tool_name: "execute_bash",
+      content: expect.stringContaining("未启用 tasks.background"),
+      metadata: {
+        background_started: false,
+      },
+    });
+    expect(backgroundTasks.drainPendingNotifications("s1")).toEqual([]);
   });
 
   it("stops cancellable background bash tasks", async () => {

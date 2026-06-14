@@ -333,9 +333,11 @@ describe("SkillToolService", () => {
       backgroundTasks,
     });
 
+    const agent = skillAgent(["demo-skill"]);
+    agent.tasks = { workflow: false, background: true };
     const started = await service.executeSkillScript(
       { skillName: "demo-skill", scriptName: "report.py", arguments: [], runInBackground: true },
-      { agent: skillAgent(["demo-skill"]), sessionId: "bg-session", runId: "run-1", taskId: "task-1" },
+      { agent, sessionId: "bg-session", runId: "run-1", taskId: "task-1" },
     );
 
     expect(started).toMatchObject({
@@ -372,6 +374,37 @@ describe("SkillToolService", () => {
         },
       },
     });
+  });
+
+  it("rejects background skill scripts when tasks.background is disabled", async () => {
+    const root = makeTempRoot();
+    const builtinRoot = path.join(root, "builtin");
+    const skillDir = path.join(builtinRoot, "demo-skill");
+    writeSkill(skillDir, "demo-skill", "demo description", "# Demo\n");
+    fs.mkdirSync(path.join(skillDir, "scripts"), { recursive: true });
+    fs.writeFileSync(path.join(skillDir, "scripts", "report.py"), "print('ok')\n", "utf8");
+    const backgroundTasks = new BackgroundTaskService();
+    const service = new SkillToolService({
+      dataRoot: root,
+      builtinSkillsRoot: builtinRoot,
+      userGlobalSkillsRoot: path.join(root, "global"),
+      backgroundTasks,
+    });
+
+    const result = await service.executeSkillScript(
+      { skillName: "demo-skill", scriptName: "report.py", arguments: [], runInBackground: true },
+      { agent: skillAgent(["demo-skill"]), sessionId: "bg-session" },
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      tool_name: "execute_skill_script",
+      content: expect.stringContaining("未启用 tasks.background"),
+      metadata: {
+        background_started: false,
+      },
+    });
+    expect(backgroundTasks.drainPendingNotifications("bg-session")).toEqual([]);
   });
 });
 

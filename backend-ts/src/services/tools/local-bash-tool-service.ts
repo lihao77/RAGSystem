@@ -94,6 +94,15 @@ export class LocalBashToolService {
     if (!command) {
       return { ok: false, result: errorResult("execute_bash 缺少 command", { command: "" }) };
     }
+    if (input.runInBackground && !context.agent?.tasks?.background) {
+      return {
+        ok: false,
+        result: errorResult("当前 Agent 未启用 tasks.background，不能使用 run_in_background 后台执行", {
+          command,
+          background_started: false,
+        }),
+      };
+    }
 
     let cwd: string;
     try {

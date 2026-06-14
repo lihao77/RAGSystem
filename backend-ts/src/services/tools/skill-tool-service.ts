@@ -226,6 +226,13 @@ export class SkillToolService {
     if (!isPathUnder(scriptPath, scriptsDir) || !fs.existsSync(scriptPath) || !fs.statSync(scriptPath).isFile()) {
       return errorResult(`脚本不存在: ${scriptName}`, toolName);
     }
+    if (input.runInBackground && !context.agent?.tasks?.background) {
+      return errorResult("当前 Agent 未启用 tasks.background，不能使用 run_in_background 后台执行", toolName, {
+        skill: skill.name,
+        script_name: scriptName,
+        background_started: false,
+      });
+    }
     if (input.runInBackground) {
       return this.executeSkillScriptInBackground(skill, scriptPath, scriptName, input.arguments ?? [], context);
     }

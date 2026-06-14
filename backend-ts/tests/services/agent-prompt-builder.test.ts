@@ -95,6 +95,61 @@ describe("agent prompt builder", () => {
     expect(prompt).not.toContain("## Executing actions with care");
   });
 
+  it("gates background execution guidance on tasks.background", () => {
+    const disabledPrompt = buildFullSystemPrompt(minimalAgent(), {
+      tools: [
+        {
+          name: "execute_bash",
+          description: "Execute shell.",
+          parameters: {
+            type: "object",
+            required: ["command"],
+            properties: { command: { type: "string" } },
+          },
+        },
+      ],
+    });
+    const backgroundAgent = minimalAgent();
+    backgroundAgent.tasks = { workflow: false, background: true };
+    const enabledPrompt = buildFullSystemPrompt(backgroundAgent, {
+      tools: [
+        {
+          name: "execute_bash",
+          description: "Execute shell.",
+          parameters: {
+            type: "object",
+            required: ["command"],
+            properties: { command: { type: "string" } },
+          },
+        },
+        {
+          name: "task_output",
+          description: "Read background output.",
+          parameters: {
+            type: "object",
+            required: ["task_id"],
+            properties: { task_id: { type: "string" } },
+          },
+        },
+        {
+          name: "task_stop",
+          description: "Stop background task.",
+          parameters: {
+            type: "object",
+            required: ["task_id"],
+            properties: { task_id: { type: "string" } },
+          },
+        },
+      ],
+    });
+
+    expect(disabledPrompt).toContain("当前 Agent 未启用 `tasks.background`");
+    expect(disabledPrompt).toContain("不要传 `run_in_background=true`");
+    expect(disabledPrompt).not.toContain("需要主动查询状态或显式等待时再调用 `task_output`");
+    expect(enabledPrompt).toContain("`execute_bash` 支持 `run_in_background=true` 后台执行");
+    expect(enabledPrompt).toContain("需要主动查询状态或显式等待时再调用 `task_output`");
+  });
+
   it("keeps special-section tools out of the generic direct tool list", () => {
     const prompt = buildFullSystemPrompt(minimalAgent(), {
       tools: [
