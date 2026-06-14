@@ -198,9 +198,7 @@ function buildToolCallingGlobalRules(agent: AgentConfig, tools: RuntimeToolDefin
   const hasTaskOutput = tools.some((tool) => tool.name === "task_output");
   const backgroundExecutionSection = backgroundEnabled
     ? buildBackgroundExecutionSection(hasTaskOutput, hasTaskStop)
-    : `### 后台执行（execute_bash）
-
-当前 Agent 未启用 \`tasks.background\`，不要传 \`run_in_background=true\`。需要运行命令时保持前台执行；如用户明确要求后台执行，应说明当前 Agent 未启用后台能力。`;
+    : "";
   return `## 工具调用总规则
 
 - 每个工具条目中的 \`调用能力\` 字段是唯一准则：\`direct\` 表示可直接输出为 XML 工具调用；\`code_execution\` 表示仅可在 \`execute_code\` 中通过 \`call_tool(tool_name, arguments)\` 调用
