@@ -6,8 +6,7 @@ import { buildAgentPromptContext, type AgentPromptConfigResolver } from "./agent
 import type { ConversationStore, ChildAgentInfo } from "../stores/conversation-store.js";
 import type { ClientEventPublisher } from "../runtime/event-outbox/client-event-publisher.js";
 import type { RuntimeExecutionConfigResolver } from "../runtime/runtime-core-service.js";
-import type { RuntimeToolExecutionContext, RuntimeToolExecutor } from "../runtime/runtime-tool-types.js";
-import type { ToolExecutionResult } from "../tools/memory-tool-service.js";
+import type { RuntimeToolExecutionContext, RuntimeToolExecutor, ToolExecutionResult } from "../runtime/runtime-tool-types.js";
 import { publishAgentCallEnd, publishAgentCallStart } from "./agent-delegation-service/events.js";
 import {
   applyWorkspaceOverride,

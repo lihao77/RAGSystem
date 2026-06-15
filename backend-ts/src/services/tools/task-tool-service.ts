@@ -1,9 +1,8 @@
 import os from "node:os";
 import path from "node:path";
 
-import type { ToolExecutionResult } from "./memory-tool-service.js";
 import type { BackgroundTaskService } from "../runtime/background-task-service.js";
-import type { RuntimeToolExecutionContext, RuntimeToolWaitResult } from "../runtime/runtime-tool-types.js";
+import type { RuntimeToolExecutionContext, RuntimeToolWaitResult, ToolExecutionResult } from "../runtime/runtime-tool-types.js";
 import {
   asString,
   buildBackgroundNotificationPayload,

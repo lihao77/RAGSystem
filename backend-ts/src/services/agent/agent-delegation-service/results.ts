@@ -1,4 +1,4 @@
-import type { ToolExecutionResult } from "../../tools/memory-tool-service.js";
+import type { ToolExecutionResult } from "../../runtime/runtime-tool-types.js";
 
 export interface DelegationRunResult {
   success: boolean;

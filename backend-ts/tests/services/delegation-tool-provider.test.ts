@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { AgentDelegationService } from "../../src/services/agent/agent-delegation-service.js";
-import type { ToolExecutionResult } from "../../src/services/tools/memory-tool-service.js";
+import type { ToolExecutionResult } from "../../src/services/runtime/runtime-tool-types.js";
 import { DelegationToolProvider } from "../../src/services/runtime/runtime-tool-providers/delegation-tool-provider.js";
 
 describe("DelegationToolProvider", () => {

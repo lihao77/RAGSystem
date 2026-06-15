@@ -1,8 +1,7 @@
 import type { BashExecutionInput } from "../../tools/local-bash-tool-service.js";
 import { readCodeExecutionArguments } from "../../tools/code-execution-tool-service.js";
 import { readSkillToolArguments } from "../../tools/skill-tool-service.js";
-import type { ToolExecutionResult } from "../../tools/memory-tool-service.js";
-import type { RuntimeToolCall, RuntimeToolExecutionContext } from "../runtime-tool-types.js";
+import type { RuntimeToolCall, RuntimeToolExecutionContext, ToolExecutionResult } from "../runtime-tool-types.js";
 import type { RuntimeToolApprovalDecision } from "../permission-policy-service.js";
 import { READ_ONLY_MEMORY_TOOL_NAMES, type ReadOnlyMemoryToolName } from "./registry.js";
 

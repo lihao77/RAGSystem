@@ -14,8 +14,7 @@ import {
   type CommandCategory,
 } from "./local-bash-tool-service/command-policy.js";
 import { BashPathResolver } from "./local-bash-tool-service/paths.js";
-import type { ToolExecutionResult } from "./memory-tool-service.js";
-import type { RuntimeToolExecutionContext } from "../runtime/runtime-tool-types.js";
+import type { RuntimeToolExecutionContext, ToolExecutionResult } from "../runtime/runtime-tool-types.js";
 import { throwIfAborted } from "../runtime/abort.js";
 
 const TOOL_NAME = "execute_bash";

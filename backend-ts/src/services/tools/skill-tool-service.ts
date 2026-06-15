@@ -10,8 +10,7 @@ import type { AgentConfigService } from "../agent/agent-config-service.js";
 import type { ArtifactService } from "../artifacts/artifact-service.js";
 import type { BackgroundTaskService } from "../runtime/background-task-service.js";
 import type { ClientEventPublisher } from "../runtime/event-outbox/client-event-publisher.js";
-import type { RuntimeToolExecutionContext } from "../runtime/runtime-tool-types.js";
-import type { ToolExecutionResult } from "./memory-tool-service.js";
+import type { RuntimeToolExecutionContext, ToolExecutionResult } from "../runtime/runtime-tool-types.js";
 
 type SkillSourceType = "workspace" | "user_global" | "builtin";
 

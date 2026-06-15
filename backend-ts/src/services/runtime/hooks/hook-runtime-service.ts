@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import type { RiskLevel } from "../../../contracts/permissions.js";
-import type { ToolExecutionResult } from "../../tools/memory-tool-service.js";
+import type { ToolExecutionResult } from "../runtime-tool-types.js";
 import { BUILTIN_HOOK_HANDLERS, emptyHookResult } from "./builtin-handlers.js";
 import { getMatchingHooks } from "./matcher.js";
 import { HookRegistry } from "./registry.js";

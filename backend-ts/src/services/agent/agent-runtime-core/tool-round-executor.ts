@@ -1,9 +1,9 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
-import type { ToolExecutionResult } from "../../tools/memory-tool-service.js";
 import type {
   RuntimeToolExecutionContext,
   RuntimeToolExecutor,
+  ToolExecutionResult,
   RuntimeToolWaitResult,
 } from "../../runtime/runtime-tool-types.js";
 import { isAbortError, throwIfAborted } from "../../runtime/abort.js";

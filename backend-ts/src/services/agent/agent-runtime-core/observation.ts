@@ -4,8 +4,7 @@ import path from "node:path";
 
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
-import type { ToolExecutionResult } from "../../tools/memory-tool-service.js";
-import type { RuntimeToolExecutionContext } from "../../runtime/runtime-tool-types.js";
+import type { RuntimeToolExecutionContext, ToolExecutionResult } from "../../runtime/runtime-tool-types.js";
 
 const GEOJSON_TYPES = new Set([
   "FeatureCollection",

@@ -1,5 +1,6 @@
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { SessionInfo } from "../../contracts/session.js";
+import type { ToolExecutionResult } from "../runtime/runtime-tool-types.js";
 import { getWorkspaceMemoryKey, type MemoryScopeName, type MemoryScopeSpec, type MemoryStore } from "../stores/memory-store.js";
 
 export interface RuntimeMemorySessionPort {
@@ -41,18 +42,6 @@ export interface WriteMemoryInput extends ListMemoryIndexInput {
 
 export interface ArchiveMemoryInput extends ListMemoryIndexInput {
   fileName: string;
-}
-
-export interface ToolExecutionResult<T = unknown> {
-  success: boolean;
-  tool_name: string;
-  summary: string;
-  answer: string | null;
-  output_type: string;
-  content: T;
-  metadata: Record<string, unknown>;
-  artifacts: unknown[];
-  llm_hint: string | null;
 }
 
 interface ResolvedMemoryScopeInputs {

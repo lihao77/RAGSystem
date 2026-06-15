@@ -1,10 +1,11 @@
-import type { MemoryToolService, ToolExecutionResult } from "../../tools/memory-tool-service.js";
+import type { MemoryToolService } from "../../tools/memory-tool-service.js";
 import type {
   RuntimeToolCall,
   RuntimeToolDefinition,
   RuntimeToolExecutionContext,
   RuntimeToolProvider,
   RuntimeToolProviderVisibilityInput,
+  ToolExecutionResult,
 } from "../runtime-tool-types.js";
 import {
   readArchiveMemoryArguments,

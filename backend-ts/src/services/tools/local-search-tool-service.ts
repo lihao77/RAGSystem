@@ -5,8 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { URL } from "node:url";
 
-import type { ToolExecutionResult } from "./memory-tool-service.js";
-import type { RuntimeToolExecutionContext } from "../runtime/runtime-tool-types.js";
+import type { RuntimeToolExecutionContext, ToolExecutionResult } from "../runtime/runtime-tool-types.js";
 
 const DEFAULT_MAX_RESULTS = 200;
 const DEFAULT_MAX_CHARS = 20_000;

@@ -4,8 +4,7 @@ import type {
   ChatToolCall,
   ChatToolDefinition,
 } from "../../integrations/llm-chat-client.js";
-import type { ToolExecutionResult } from "../../tools/memory-tool-service.js";
-import type { RuntimeToolDefinition } from "../../runtime/runtime-tool-types.js";
+import type { RuntimeToolDefinition, ToolExecutionResult } from "../../runtime/runtime-tool-types.js";
 
 export function toChatToolDefinition(tool: RuntimeToolDefinition): ChatToolDefinition {
   return {

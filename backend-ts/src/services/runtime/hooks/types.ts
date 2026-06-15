@@ -1,7 +1,6 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { RiskLevel } from "../../../contracts/permissions.js";
-import type { ToolExecutionResult } from "../../tools/memory-tool-service.js";
-import type { RuntimeToolCall, RuntimeToolExecutionContext } from "../runtime-tool-types.js";
+import type { RuntimeToolCall, RuntimeToolExecutionContext, ToolExecutionResult } from "../runtime-tool-types.js";
 
 export type HookEventName =
   | "tool.before_permission"

@@ -2,8 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { ToolExecutionResult } from "./memory-tool-service.js";
-import type { RuntimeToolExecutionContext } from "../runtime/runtime-tool-types.js";
+import type { RuntimeToolExecutionContext, ToolExecutionResult } from "../runtime/runtime-tool-types.js";
 import type { FileHistoryService } from "../stores/file-history-service.js";
 import {
   buildDataStructurePreview,

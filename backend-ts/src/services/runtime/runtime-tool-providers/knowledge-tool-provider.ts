@@ -1,11 +1,11 @@
 import type { VectorLibraryService, VectorSearchResult } from "../../knowledge/vector-library-service.js";
-import type { ToolExecutionResult } from "../../tools/memory-tool-service.js";
 import type {
   RuntimeToolCall,
   RuntimeToolDefinition,
   RuntimeToolExecutionContext,
   RuntimeToolProvider,
   RuntimeToolProviderVisibilityInput,
+  ToolExecutionResult,
 } from "../runtime-tool-types.js";
 import { errorResult, readSearchKnowledgeBaseArguments } from "../runtime-tool-bridge/arguments.js";
 import {

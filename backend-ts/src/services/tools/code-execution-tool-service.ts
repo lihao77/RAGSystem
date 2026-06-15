@@ -3,8 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { ToolExecutionResult } from "./memory-tool-service.js";
-import type { RuntimeToolCall, RuntimeToolExecutionContext, RuntimeToolExecutor } from "../runtime/runtime-tool-types.js";
+import type {
+  RuntimeToolCall,
+  RuntimeToolExecutionContext,
+  RuntimeToolExecutor,
+  ToolExecutionResult,
+} from "../runtime/runtime-tool-types.js";
 
 const DEFAULT_TIMEOUT_SECONDS = 60;
 const MAX_TIMEOUT_SECONDS = 300;

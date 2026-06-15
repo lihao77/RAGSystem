@@ -1,5 +1,4 @@
 import type { BashExecutionPlan, LocalBashToolService } from "../../tools/local-bash-tool-service.js";
-import type { ToolExecutionResult } from "../../tools/memory-tool-service.js";
 import type { HookResult, RuntimeHookToolInput } from "../hooks/index.js";
 import type { PendingInteractionService } from "../pending-interaction-service.js";
 import type { RuntimeToolApprovalDecision, PermissionPolicyService } from "../permission-policy-service.js";
@@ -9,6 +8,7 @@ import type {
   RuntimeToolExecutionContext,
   RuntimeToolProvider,
   RuntimeToolProviderVisibilityInput,
+  ToolExecutionResult,
 } from "../runtime-tool-types.js";
 import {
   approvalUnsupportedError,

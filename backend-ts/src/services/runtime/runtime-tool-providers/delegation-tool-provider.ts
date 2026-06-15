@@ -1,11 +1,11 @@
 import type { AgentDelegationService } from "../../agent/agent-delegation-service.js";
-import type { ToolExecutionResult } from "../../tools/memory-tool-service.js";
 import type {
   RuntimeToolCall,
   RuntimeToolDefinition,
   RuntimeToolExecutionContext,
   RuntimeToolProvider,
   RuntimeToolProviderVisibilityInput,
+  ToolExecutionResult,
 } from "../runtime-tool-types.js";
 import {
   errorResult,

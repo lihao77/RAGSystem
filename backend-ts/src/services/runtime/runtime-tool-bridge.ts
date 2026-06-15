@@ -1,8 +1,5 @@
 import type { AgentConfig } from "../../contracts/agent-config.js";
-import {
-  type ToolExecutionResult,
-  type MemoryToolService,
-} from "../tools/memory-tool-service.js";
+import type { MemoryToolService } from "../tools/memory-tool-service.js";
 import type { LocalDocumentToolService } from "../tools/local-document-tool-service.js";
 import type { CodeExecutionToolService } from "../tools/code-execution-tool-service.js";
 import type { AgentDelegationService } from "../agent/agent-delegation-service.js";
@@ -18,6 +15,7 @@ import type {
   RuntimeToolExecutionContext,
   RuntimeToolExecutor,
   RuntimeToolProvider,
+  ToolExecutionResult,
   RuntimeToolWaitRequest,
   RuntimeToolWaitResult,
 } from "./runtime-tool-types.js";

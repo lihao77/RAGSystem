@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
-import type { MemoryToolService, ToolExecutionResult } from "../../src/services/tools/memory-tool-service.js";
+import type { ToolExecutionResult } from "../../src/services/runtime/runtime-tool-types.js";
+import type { MemoryToolService } from "../../src/services/tools/memory-tool-service.js";
 import { MemoryToolProvider } from "../../src/services/runtime/runtime-tool-providers/memory-tool-provider.js";
 
 describe("MemoryToolProvider", () => {

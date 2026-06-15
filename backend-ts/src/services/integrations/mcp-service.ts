@@ -14,7 +14,7 @@ import type {
   McpServerStatus,
 } from "../../contracts/mcp.js";
 import type { RiskLevel } from "../../contracts/permissions.js";
-import type { ToolExecutionResult } from "../tools/memory-tool-service.js";
+import type { ToolExecutionResult } from "../runtime/runtime-tool-types.js";
 
 const MCP_TOOL_PREFIX = "mcp__";
 const MCP_PROTOCOL_VERSION = "2024-11-05";

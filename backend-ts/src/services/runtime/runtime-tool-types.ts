@@ -1,6 +1,17 @@
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { RiskLevel } from "../../contracts/permissions.js";
-import type { ToolExecutionResult } from "../tools/memory-tool-service.js";
+
+export interface ToolExecutionResult<T = unknown> {
+  success: boolean;
+  tool_name: string;
+  summary: string;
+  answer: string | null;
+  output_type: string;
+  content: T;
+  metadata: Record<string, unknown>;
+  artifacts: unknown[];
+  llm_hint: string | null;
+}
 
 export interface RuntimeToolCall {
   toolName: string;
