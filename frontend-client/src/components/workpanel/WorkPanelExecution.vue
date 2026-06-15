@@ -27,18 +27,6 @@
         <span>{{ executionView.emptyText }}</span>
       </div>
       <div v-else class="wpe-list">
-        <button
-          v-if="visibleFocusNode"
-          type="button"
-          class="wpe-focus-strip"
-          :class="`status-${normalizeStatus(visibleFocusNode.status)}`"
-          title="定位当前关注步骤"
-          @click="focusNodeInList(visibleFocusNode)"
-        >
-          <span class="wpe-focus-dot" aria-hidden="true"></span>
-          <span class="wpe-focus-label">{{ focusStripLabel }}</span>
-          <span class="wpe-focus-title">{{ focusStripTitle }}</span>
-        </button>
         <div class="wpe-scroll" ref="listRef">
           <TransitionGroup name="wpe-node" tag="div" class="wpe-node-stack">
             <ExecutionTimelineNode
@@ -218,7 +206,6 @@ let copiedResetTimer = null
 const nodes = computed(() => buildExecutionTree(props.executionSteps, props.subtasks))
 const flatNodes = computed(() => flattenNodes(nodes.value))
 const focusNode = computed(() => findFocusNode(flatNodes.value))
-const visibleFocusNode = computed(() => shouldShowFocusStrip(focusNode.value) ? focusNode.value : null)
 const focusKey = computed(() => focusNode.value ? getNodeKey(focusNode.value) : '')
 const selectedKey = computed(() => selectedNode.value ? getNodeKey(selectedNode.value) : '')
 const viewScopeKey = computed(() => props.messageKey || props.sessionId || 'work-panel')
@@ -311,15 +298,6 @@ const inspectorTitle = computed(() => {
   if (node.type === 'tool_call') return resolveToolDisplayName(node)
   return node.intent || node.thought || node.thinking || node.description || '执行步骤'
 })
-const focusStripLabel = computed(() => {
-  if (!visibleFocusNode.value) return ''
-  const status = normalizeStatus(visibleFocusNode.value.status)
-  if (visibleFocusNode.value.tool_name === 'request_user_input') return '待输入'
-  if (status === 'error') return '失败'
-  if (status === 'running') return '当前'
-  return '最新'
-})
-const focusStripTitle = computed(() => getNodeTitle(visibleFocusNode.value))
 
 const stats = computed(() => {
   const values = { total: 0, agent: 0, tool: 0, running: 0, success: 0, error: 0 }
@@ -398,12 +376,6 @@ watch(scrollSignature, async () => {
   await nextTick()
   const el = listRef.value
   if (el && shouldFollow) el.scrollTop = el.scrollHeight
-})
-
-watch(focusNode, (node) => {
-  if (!selectedNode.value && node) {
-    selectedNode.value = node
-  }
 })
 
 watch(viewScopeKey, async () => {
@@ -552,12 +524,6 @@ function findLastByStatus(status) {
     if (normalizeStatus(flatNodes.value[i]?.status) === status) return flatNodes.value[i]
   }
   return null
-}
-
-function shouldShowFocusStrip(node) {
-  if (!node) return false
-  const status = normalizeStatus(node.status)
-  return status === 'running' || status === 'error' || isWaitingUserInputNode(node)
 }
 
 function scrollNodeIntoView(key) {
@@ -773,125 +739,6 @@ button.wpe-chip:hover {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.wpe-focus-strip {
-  flex-shrink: 0;
-  /* width: 100%; */
-  margin: 0 10px;
-  min-height: 34px;
-  padding: 7px 9px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.3);
-  color: var(--color-text-secondary);
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
-  align-items: center;
-  gap: 7px;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    border-color var(--transition-fast),
-    background var(--transition-fast),
-    box-shadow var(--transition-fast);
-}
-
-.wpe-focus-strip:hover {
-  border-color: var(--color-border-hover);
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.44);
-}
-
-.wpe-focus-strip.status-running {
-  border-color: rgba(var(--color-brand-accent-rgb), 0.28);
-  background: rgba(var(--color-brand-accent-rgb), 0.08);
-  box-shadow:
-    0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.06),
-    0 0 12px rgba(var(--color-brand-accent-rgb), 0.08);
-}
-
-.wpe-focus-strip.status-running:hover {
-  border-color: rgba(var(--color-brand-accent-rgb), 0.38);
-  background: rgba(var(--color-brand-accent-rgb), 0.12);
-  box-shadow:
-    0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.08),
-    0 0 16px rgba(var(--color-brand-accent-rgb), 0.12);
-}
-
-.wpe-focus-strip.status-success {
-  border-color: rgba(var(--color-success-rgb), 0.24);
-  background: rgba(var(--color-success-rgb), 0.08);
-  box-shadow: 0 0 0 3px rgba(var(--color-success-rgb), 0.035);
-}
-
-.wpe-focus-strip.status-success:hover {
-  border-color: rgba(var(--color-success-rgb), 0.32);
-  background: rgba(var(--color-success-rgb), 0.12);
-}
-
-.wpe-focus-strip.status-error {
-  border-color: rgba(var(--color-error-rgb), 0.28);
-  background: rgba(var(--color-error-rgb), 0.08);
-  box-shadow: 0 0 0 3px rgba(var(--color-error-rgb), 0.04);
-}
-
-.wpe-focus-strip.status-error:hover {
-  border-color: rgba(var(--color-error-rgb), 0.38);
-  background: rgba(var(--color-error-rgb), 0.12);
-}
-
-.wpe-focus-strip.status-stopped {
-  border-color: rgba(var(--color-warning-rgb), 0.26);
-  background: rgba(var(--color-warning-rgb), 0.08);
-  box-shadow: 0 0 0 3px rgba(var(--color-warning-rgb), 0.035);
-}
-
-.wpe-focus-strip.status-stopped:hover {
-  border-color: rgba(var(--color-warning-rgb), 0.36);
-  background: rgba(var(--color-warning-rgb), 0.12);
-}
-
-.wpe-focus-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--color-text-muted);
-}
-
-.wpe-focus-strip.status-running .wpe-focus-dot {
-  background: var(--color-brand-accent);
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-.wpe-focus-strip.status-error .wpe-focus-dot {
-  background: var(--color-error);
-}
-
-.wpe-focus-strip.status-success .wpe-focus-dot {
-  background: var(--color-success);
-}
-
-.wpe-focus-strip.status-stopped .wpe-focus-dot {
-  background: var(--color-warning);
-}
-
-.wpe-focus-label {
-  font-size: 11px;
-  line-height: 1;
-  font-weight: 700;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-
-.wpe-focus-title {
-  min-width: 0;
-  font-size: 12px;
-  line-height: 1.35;
-  color: var(--color-text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .wpe-empty-mark {
@@ -1416,14 +1263,12 @@ button.wpe-chip:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .wpe-running-dot,
-  .wpe-focus-strip.status-running .wpe-focus-dot {
+  .wpe-running-dot {
     animation: none;
   }
 
   .wpe-summary,
   .wpe-chip,
-  .wpe-focus-strip,
   .wpe-inspector-close,
   .wpe-context-fill,
   .wpe-list-state-enter-active,

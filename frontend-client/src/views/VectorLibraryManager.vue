@@ -2102,9 +2102,9 @@ onMounted(() => {
 }
 
 .cell-filename {
-    display: flex;
+    /* display: flex; */
     align-items: center;
-    gap: var(--spacing-sm);
+    /* gap: var(--spacing-sm); */
     color: var(--color-text-primary);
 }
 
