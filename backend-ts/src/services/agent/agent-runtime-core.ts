@@ -273,7 +273,7 @@ export class AgentRuntimeCore {
       throwIfAborted(input.signal, "Agent run aborted");
       messages = await this.refreshChatMessages(input, messages);
       throwIfAborted(input.signal, "Agent run aborted");
-      const roundResult = await this.runXmlStreamRound(input, { ...xmlRequest, messages }, round);
+      const roundResult = await this.runXmlStreamRound(input, { ...xmlRequest, messages, allowEmptyStream: true }, round);
       throwIfAborted(input.signal, "Agent run aborted");
       if (roundResult.finishReason === "interrupted") {
         throw new RuntimeAbortError("LLM stream interrupted");

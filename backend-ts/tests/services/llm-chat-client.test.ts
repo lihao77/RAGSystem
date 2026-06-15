@@ -179,6 +179,60 @@ describe("OpenAI-compatible chat client", () => {
     });
   });
 
+  it("rejects empty non-interrupted OpenAI-compatible SSE streams by default", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(
+        [
+          'data: {"choices":[{"delta":{"role":"assistant"}}]}\n\n',
+          'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+          "data: [DONE]\n\n",
+        ].join(""),
+        {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+          },
+        },
+      ),
+    ) as typeof fetch;
+
+    const client = new OpenAiCompatibleChatClient();
+
+    await expect(client.stream(buildRequest(), () => undefined)).rejects.toThrow(
+      "LLM streaming response did not include assistant content",
+    );
+  });
+
+  it("allows empty OpenAI-compatible SSE streams when requested by the runtime", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(
+        [
+          'data: {"choices":[{"delta":{"role":"assistant"}}]}\n\n',
+          'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+          "data: [DONE]\n\n",
+        ].join(""),
+        {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+          },
+        },
+      ),
+    ) as typeof fetch;
+
+    const client = new OpenAiCompatibleChatClient();
+    const chunks: string[] = [];
+    const result = await client.stream({ ...buildRequest(), allowEmptyStream: true }, (chunk) => {
+      chunks.push(chunk.content);
+    });
+
+    expect(chunks).toEqual([]);
+    expect(result).toMatchObject({
+      content: "",
+      finishReason: "stop",
+    });
+  });
+
   it("surfaces JSON error messages for failed streaming requests", async () => {
     globalThis.fetch = vi.fn(async () =>
       new Response(JSON.stringify({ error: { message: "bad api key" } }), { status: 401 }),

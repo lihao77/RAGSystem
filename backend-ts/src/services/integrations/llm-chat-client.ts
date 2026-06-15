@@ -37,6 +37,7 @@ export interface ChatCompletionRequest {
   maxCompletionTokens?: number | null;
   tools?: ChatToolDefinition[] | undefined;
   toolChoice?: "auto" | "none" | undefined;
+  allowEmptyStream?: boolean | undefined;
 }
 
 export interface ChatCompletionResult {
@@ -121,7 +122,9 @@ export class OpenAiCompatibleChatClient implements LlmChatClient {
       const body = await readJsonResponseBody(response);
       throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
     }
-    return readOpenAiCompatibleStream(response, onChunk);
+    return readOpenAiCompatibleStream(response, onChunk, {
+      allowEmptyContent: request.allowEmptyStream === true,
+    });
   }
 }
 
@@ -317,6 +320,7 @@ function buildAnthropicBody(request: ChatCompletionRequest): Record<string, unkn
 async function readOpenAiCompatibleStream(
   response: Response,
   onChunk: ChatStreamChunkHandler,
+  options: { allowEmptyContent?: boolean | undefined } = {},
 ): Promise<ChatCompletionResult> {
   if (!response.body) {
     throw new Error("LLM streaming response did not include a readable body");
@@ -389,7 +393,7 @@ async function readOpenAiCompatibleStream(
   if (done) {
     await reader.cancel().catch(() => undefined);
   }
-  if (!content && finishReason !== "interrupted" && !stopRequested) {
+  if (!content && finishReason !== "interrupted" && !stopRequested && !options.allowEmptyContent) {
     throw new Error("LLM streaming response did not include assistant content");
   }
 

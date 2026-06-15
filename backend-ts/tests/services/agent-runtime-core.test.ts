@@ -1230,6 +1230,55 @@ describe("AgentRuntimeCore", () => {
     expect(events.some((event) => event.type === "runtime.done")).toBe(false);
   });
 
+  it("repairs an empty XML streaming round instead of failing before protocol feedback", async () => {
+    const client = new FakeXmlStreamingToolChatClient([
+      [],
+      ["<final_answer>", "recovered after empty stream", "</final_answer>"],
+    ]);
+    const core = new AgentRuntimeCore(client);
+    const agent = minimalAgent();
+    const events: AgentRuntimeEvent[] = [];
+
+    const result = await core.runText({
+      agent,
+      provider: minimalProvider(),
+      modelName: "deepseek-chat",
+      conversation: [{ role: "user", content: "empty stream repair" }],
+      toolExecutor: new FakeRuntimeToolExecutor(),
+      toolContext: {
+        agent,
+        sessionId: "s1",
+        runId: "run-1",
+        requestId: "req-1",
+        currentAgentName: "orchestrator_agent",
+      },
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(result.content).toBe("recovered after empty stream");
+    expect(client.requests).toHaveLength(2);
+    expect(client.requests[0]?.allowEmptyStream).toBe(true);
+    expect(client.requests[1]?.messages).toEqual(
+      expect.arrayContaining([
+        { role: "assistant", content: "" },
+        expect.objectContaining({
+          role: "user",
+          content: expect.stringContaining("no final_answer or tool_calls found"),
+        }),
+      ]),
+    );
+    expect(events).toEqual(
+      expect.arrayContaining([
+        {
+          type: "runtime.done",
+          data: expect.objectContaining({ content: "recovered after empty stream" }),
+        },
+      ]),
+    );
+  });
+
   it("turns tool observation rendering failures into failed observations", async () => {
     const client = new FakeXmlStreamingToolChatClient([
       ["<tool_calls>", '<tool name="preview_data_structure"></tool>', "</tool_calls>"],
