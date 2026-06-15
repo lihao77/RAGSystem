@@ -55,11 +55,11 @@
           </div>
 
           <div class="etn-side" :class="sideClasses">
-            <span v-if="elapsedText" class="etn-time">{{ elapsedText }}</span>
+            <span class="etn-time" :class="{ 'is-empty': !elapsedText }">{{ elapsedText || '0ms' }}</span>
             <Transition name="etn-status" mode="out-in">
-              <span v-if="statusText" :key="statusText" class="etn-status-pill">{{ statusText }}</span>
+              <span :key="statusText || 'empty'" class="etn-status-pill" :class="{ 'is-empty': !statusText }">{{ statusText || '等待' }}</span>
             </Transition>
-            <span v-if="hasChildren" class="etn-chevron" :class="{ expanded }" aria-hidden="true">
+            <span class="etn-chevron" :class="{ expanded, 'is-empty': !hasChildren }" aria-hidden="true">
               <svg viewBox="0 0 20 20" width="14" height="14">
                 <path d="M7 5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
@@ -193,8 +193,6 @@ const statusText = computed(() => {
 const hasChildren = computed(() => Array.isArray(props.node.children) && props.node.children.length > 0)
 const sideClasses = computed(() => ({
   'etn-side--compact': !hasChildren.value,
-  'etn-side--has-time': Boolean(elapsedText.value),
-  'etn-side--has-status': Boolean(statusText.value),
   'etn-side--has-chevron': hasChildren.value,
 }))
 watch(
@@ -401,6 +399,7 @@ function formatElapsed(value) {
   --rail-width: 22px;
   --child-rail-width: 16px;
   --child-indent: 20px;
+  --etn-side-width: 110px;
   --rail-dot-top: 17px;
   --rail-dot-size: 9px;
   --rail-dot-center: calc(var(--rail-dot-top) + (var(--rail-dot-size) / 2));
@@ -424,6 +423,7 @@ function formatElapsed(value) {
   --rail-width: 16px;
   --child-rail-width: 14px;
   --child-indent: 18px;
+  --etn-side-width: 96px;
   --rail-dot-top: 16px;
   --rail-dot-size: 7px;
   --branch-opacity: 0.4;
@@ -451,6 +451,10 @@ function formatElapsed(value) {
   --status-color: var(--color-warning);
   --status-border: rgba(var(--color-warning-rgb), 0.26);
   --status-bg: rgba(var(--color-warning-rgb), 0.1);
+}
+
+.etn--agent_call {
+  --etn-side-width: 94px;
 }
 
 .etn-rail {
@@ -557,7 +561,7 @@ function formatElapsed(value) {
   width: 100%;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
+  grid-template-columns: minmax(0, 1fr) var(--etn-side-width, 110px);
   align-items: start;
   gap: 10px;
   padding: 8px 10px;
@@ -570,7 +574,7 @@ function formatElapsed(value) {
 }
 
 .etn-summary--compact {
-  grid-template-columns: minmax(0, 1fr) max-content;
+  grid-template-columns: minmax(0, 1fr) var(--etn-side-width, 110px);
 }
 
 .etn-summary:disabled {
@@ -759,42 +763,14 @@ function formatElapsed(value) {
   --etn-side-status-width: 46px;
   --etn-side-chevron-width: 16px;
   --etn-side-gap: 5px;
-  width: 0;
-  min-width: 0;
+  width: var(--etn-side-width, 110px);
+  min-width: var(--etn-side-width, 110px);
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: var(--etn-side-gap);
   padding-top: 1px;
   flex-shrink: 0;
-}
-
-.etn-side--has-time {
-  width: var(--etn-side-time-width);
-}
-
-.etn-side--has-status {
-  width: var(--etn-side-status-width);
-}
-
-.etn-side--has-chevron {
-  width: var(--etn-side-chevron-width);
-}
-
-.etn-side--has-time.etn-side--has-status {
-  width: calc(var(--etn-side-time-width) + var(--etn-side-gap) + var(--etn-side-status-width));
-}
-
-.etn-side--has-time.etn-side--has-chevron {
-  width: calc(var(--etn-side-time-width) + var(--etn-side-gap) + var(--etn-side-chevron-width));
-}
-
-.etn-side--has-status.etn-side--has-chevron {
-  width: calc(var(--etn-side-status-width) + var(--etn-side-gap) + var(--etn-side-chevron-width));
-}
-
-.etn-side--has-time.etn-side--has-status.etn-side--has-chevron {
-  width: calc(var(--etn-side-time-width) + var(--etn-side-gap) + var(--etn-side-status-width) + var(--etn-side-gap) + var(--etn-side-chevron-width));
 }
 
 .etn--agent_call .etn-side {
@@ -812,6 +788,10 @@ function formatElapsed(value) {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   text-align: right;
+}
+
+.etn-time.is-empty {
+  visibility: hidden;
 }
 
 .etn-status-pill {
@@ -837,6 +817,10 @@ function formatElapsed(value) {
     background var(--transition-fast);
 }
 
+.etn-status-pill.is-empty {
+  visibility: hidden;
+}
+
 .etn-chevron {
   flex: 0 0 auto;
   display: inline-flex;
@@ -844,6 +828,10 @@ function formatElapsed(value) {
   justify-content: center;
   color: var(--color-text-muted);
   transition: transform var(--transition-fast), color var(--transition-fast);
+}
+
+.etn-chevron.is-empty {
+  visibility: hidden;
 }
 
 .etn--agent_call .etn-time {
@@ -953,17 +941,15 @@ function formatElapsed(value) {
 
 .etn-status-enter-active,
 .etn-status-leave-active {
-  transition: opacity 140ms ease, transform 140ms ease;
+  transition: opacity 140ms ease;
 }
 
 .etn-status-enter-from {
   opacity: 0;
-  transform: translateY(4px);
 }
 
 .etn-status-leave-to {
   opacity: 0;
-  transform: translateY(-4px);
 }
 
 .etn-expand-enter-active,

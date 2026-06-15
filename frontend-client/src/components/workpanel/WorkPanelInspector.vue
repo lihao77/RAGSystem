@@ -343,18 +343,20 @@ function dedupeMeta(items) {
 
 <style scoped>
 .wpe-inspector {
-  flex-shrink: 0;
-  max-height: min(52%, 520px);
-  min-height: 180px;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
   border-top: 1px solid var(--color-border);
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.36);
-  backdrop-filter: blur(12px) saturate(130%);
-  -webkit-backdrop-filter: blur(12px) saturate(130%);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.9);
+  backdrop-filter: blur(14px) saturate(130%);
+  -webkit-backdrop-filter: blur(14px) saturate(130%);
   display: flex;
   flex-direction: column;
   transform-origin: bottom;
   will-change: transform, opacity;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  box-shadow:
+    0 -14px 28px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .wpe-inspector-header {

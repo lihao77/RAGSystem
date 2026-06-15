@@ -44,14 +44,16 @@
       </div>
     </div>
 
-    <Transition name="wpe-inspector">
-      <WorkPanelInspector v-if="selectedNode" :node="selectedNode" @close="selectedNodeKey = ''" />
-    </Transition>
+    <div class="wpe-inspector-slot" :class="{ 'is-open': selectedNode }">
+      <Transition name="wpe-inspector">
+        <WorkPanelInspector v-if="selectedNode" :node="selectedNode" @close="clearSelectedNode" />
+      </Transition>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick, onUnmounted } from 'vue'
 import { buildExecutionTree } from '../../utils/executionTreeBuilder'
 import ExecutionTimelineNode from './ExecutionTimelineNode.vue'
 import WorkPanelInspector from './WorkPanelInspector.vue'
@@ -66,6 +68,7 @@ const props = defineProps({
 
 const listRef = ref(null)
 const selectedNodeKey = ref('')
+let selectionScrollTimer = null
 const nodes = computed(() => buildExecutionTree(props.executionSteps, props.subtasks))
 const flatNodes = computed(() => flattenNodes(nodes.value))
 const focusNode = computed(() => findFocusNode(flatNodes.value))
@@ -155,12 +158,12 @@ watch(scrollSignature, async () => {
 
 watch(selectedNode, (node) => {
   if (selectedNodeKey.value && !node) {
-    selectedNodeKey.value = ''
+    clearSelectedNode()
   }
 })
 
 watch(viewScopeKey, async () => {
-  selectedNodeKey.value = ''
+  clearSelectedNode()
   await nextTick()
   if (listRef.value) listRef.value.scrollTop = 0
 })
@@ -208,8 +211,20 @@ function getNodeKey(node) {
   return `${node.type || 'node'}:${node.round || ''}:${String(identity).slice(0, 80)}`
 }
 
-function selectNode(node) {
-  selectedNodeKey.value = getNodeKey(node)
+async function selectNode(node) {
+  const key = getNodeKey(node)
+  selectedNodeKey.value = key
+  await nextTick()
+  scrollNodeIntoView(key)
+  scheduleSelectionScrollCorrection(key)
+}
+
+function clearSelectedNode() {
+  selectedNodeKey.value = ''
+  if (selectionScrollTimer) {
+    clearTimeout(selectionScrollTimer)
+    selectionScrollTimer = null
+  }
 }
 
 async function focusNodeInList(node) {
@@ -249,8 +264,24 @@ function scrollNodeIntoView(key) {
   const target = listRef.value.querySelector(`[data-node-key="${selectorKey}"]`)
   if (!target) return
   const reduceMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  target.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' })
+  const viewportHeight = listRef.value.clientHeight
+  const targetTop = target.offsetTop
+  const targetHeight = target.offsetHeight
+  const nextTop = Math.max(0, targetTop - Math.max(0, (viewportHeight - targetHeight) / 2))
+  listRef.value.scrollTo({ top: nextTop, behavior: reduceMotion ? 'auto' : 'smooth' })
 }
+
+function scheduleSelectionScrollCorrection(key) {
+  if (selectionScrollTimer) clearTimeout(selectionScrollTimer)
+  selectionScrollTimer = setTimeout(() => {
+    if (selectedNodeKey.value === key) scrollNodeIntoView(key)
+    selectionScrollTimer = null
+  }, 220)
+}
+
+onUnmounted(() => {
+  if (selectionScrollTimer) clearTimeout(selectionScrollTimer)
+})
 
 function isListNearBottom(el) {
   if (!el) return true
@@ -280,6 +311,7 @@ function isWaitingUserInputNode(node) {
 
 <style scoped>
 .wpe-root {
+  --wpe-inspector-height: clamp(220px, 38%, 420px);
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -287,6 +319,7 @@ function isWaitingUserInputNode(node) {
   overflow: hidden;
   border-top: none;
   letter-spacing: 0;
+  position: relative;
 }
 
 .wpe-root::before {
@@ -302,7 +335,8 @@ function isWaitingUserInputNode(node) {
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  padding: 12px 14px 10px;
+  min-height: 54px;
+  padding: 10px 14px;
   flex-shrink: 0;
 }
 
@@ -311,6 +345,7 @@ function isWaitingUserInputNode(node) {
   flex-direction: column;
   min-width: 0;
   gap: 2px;
+  flex: 1 1 auto;
 }
 
 .wpe-title {
@@ -334,14 +369,21 @@ function isWaitingUserInputNode(node) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  max-width: 42%;
+  min-width: 72px;
+  justify-content: flex-end;
+  overflow: hidden;
 }
 
 .wpe-chip {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   height: 24px;
+  min-width: 28px;
+  max-width: 96px;
   padding: 0 8px;
   border-radius: var(--radius-full);
   border: 1px solid var(--color-border);
@@ -349,6 +391,8 @@ function isWaitingUserInputNode(node) {
   font-weight: 650;
   line-height: 1;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: inherit;
   cursor: default;
   transition:
@@ -412,6 +456,7 @@ button.wpe-chip:hover {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .wpe-empty {
@@ -450,7 +495,7 @@ button.wpe-chip:hover {
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
-    padding: 0 12px 12px 10px;
+  padding: 0 12px 12px 10px;
 }
 
 .wpe-node-stack {
@@ -475,10 +520,6 @@ button.wpe-chip:hover {
   pointer-events: none;
   mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
   -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
-}
-
-.wpe-node-stack:not(:has(> .etn + .etn)):not(:has(> .etn--has-children))::before {
-  display: none;
 }
 
 .wpe-scroll::-webkit-scrollbar { width: 3px; }
@@ -521,25 +562,32 @@ button.wpe-chip:hover {
 }
 
 .wpe-node-move {
-  transition: opacity 180ms ease;
+  transition: none;
+}
+
+.wpe-inspector-slot {
+  flex: 0 0 0;
+  min-height: 0;
+  overflow: hidden;
+  transition: flex-basis 190ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.wpe-inspector-slot.is-open {
+  flex-basis: var(--wpe-inspector-height);
 }
 
 .wpe-inspector-enter-active,
 .wpe-inspector-leave-active {
   transition:
     opacity 190ms ease,
-    transform 190ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    max-height 190ms ease,
-    min-height 190ms ease;
-  overflow: hidden;
+    transform 190ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  pointer-events: none;
 }
 
 .wpe-inspector-enter-from,
 .wpe-inspector-leave-to {
   opacity: 0;
   transform: translateY(12px);
-  max-height: 0;
-  min-height: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -549,6 +597,7 @@ button.wpe-chip:hover {
 
   .wpe-summary,
   .wpe-chip,
+  .wpe-inspector-slot,
   .wpe-list-state-enter-active,
   .wpe-list-state-leave-active,
   .wpe-node-enter-active,
