@@ -67,3 +67,20 @@ export interface RuntimeToolExecutor {
     context: RuntimeToolExecutionContext,
   ): RuntimeToolWaitResult | Promise<RuntimeToolWaitResult>;
 }
+
+export interface RuntimeToolProviderVisibilityInput {
+  agent: AgentConfig | null;
+}
+
+export interface RuntimeToolProvider {
+  readonly id: string;
+  readonly handlesOwnExecution?: boolean;
+  listTools(input: RuntimeToolProviderVisibilityInput): RuntimeToolDefinition[];
+  canHandle(toolName: string): boolean;
+  executeTool(call: RuntimeToolCall, context: RuntimeToolExecutionContext): ToolExecutionResult | Promise<ToolExecutionResult>;
+  getExternalPathApprovalCandidates?(
+    toolName: string,
+    args: Record<string, unknown> | undefined,
+    context: RuntimeToolExecutionContext,
+  ): string[];
+}

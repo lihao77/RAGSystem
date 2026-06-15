@@ -11,15 +11,13 @@ import type { LocalSearchToolService } from "../tools/local-search-tool-service.
 import type { SkillToolService } from "../tools/skill-tool-service.js";
 import type { VectorLibraryService } from "../knowledge/vector-library-service.js";
 import type { McpService } from "../integrations/mcp-service.js";
-import type {
-  BashExecutionPlan,
-  LocalBashToolService,
-} from "../tools/local-bash-tool-service.js";
+import type { LocalBashToolService } from "../tools/local-bash-tool-service.js";
 import type {
   RuntimeToolCall,
   RuntimeToolDefinition,
   RuntimeToolExecutionContext,
   RuntimeToolExecutor,
+  RuntimeToolProvider,
   RuntimeToolWaitRequest,
   RuntimeToolWaitResult,
 } from "./runtime-tool-types.js";
@@ -30,74 +28,65 @@ import type {
 } from "./permission-policy-service.js";
 import { isAbortError, throwIfAborted } from "./abort.js";
 import type { HookRuntimeService, HookResult } from "./hooks/index.js";
+import { BashToolProvider } from "./runtime-tool-providers/bash-tool-provider.js";
+import { CodeExecutionToolProvider } from "./runtime-tool-providers/code-execution-tool-provider.js";
+import { DelegationToolProvider } from "./runtime-tool-providers/delegation-tool-provider.js";
+import { DocumentToolProvider } from "./runtime-tool-providers/document-tool-provider.js";
+import { KnowledgeToolProvider } from "./runtime-tool-providers/knowledge-tool-provider.js";
+import { LocalSearchToolProvider } from "./runtime-tool-providers/local-search-tool-provider.js";
+import { McpToolProvider } from "./runtime-tool-providers/mcp-tool-provider.js";
+import { MemoryToolProvider } from "./runtime-tool-providers/memory-tool-provider.js";
+import { RequestUserInputToolProvider } from "./runtime-tool-providers/request-user-input-tool-provider.js";
+import { SkillToolProvider } from "./runtime-tool-providers/skill-tool-provider.js";
+import { TaskToolProvider } from "./runtime-tool-providers/task-tool-provider.js";
 import {
   approvalUnsupportedError,
   buildApprovalMetadata,
   buildToolCallContext,
   dedupeStrings,
   errorResult,
-  readBashArguments,
-  readInputType,
-  readOptions,
-  readPrompt,
-  successResult,
   withApprovalMetadata,
   withApprovedExternalPaths,
 } from "./runtime-tool-bridge/arguments.js";
 export { isReadOnlyMemoryToolName } from "./runtime-tool-bridge/arguments.js";
-import { createRuntimeToolHandlers, type RuntimeToolHandler } from "./runtime-tool-bridge/handlers.js";
-import {
-  AGENT_DELEGATION_TOOLS,
-  ARCHIVE_MEMORY_TOOL,
-  DOCUMENT_TOOLS,
-  EXECUTE_BASH_TOOL,
-  EXECUTE_BASH_TOOL_NAME,
-  EXECUTE_CODE_TOOL,
-  EXECUTE_CODE_TOOL_NAME,
-  KNOWLEDGE_TOOLS,
-  LOCAL_SEARCH_TOOLS,
-  READ_ONLY_MEMORY_TOOLS,
-  REQUEST_USER_INPUT_TOOL,
-  REQUEST_USER_INPUT_TOOL_NAME,
-  SKILL_TOOLS,
-  TASK_OUTPUT_TOOL,
-  TASK_OUTPUT_TOOL_NAME,
-  TASK_STOP_TOOL,
-  TASK_WORKFLOW_TOOLS,
-  WRITE_MEMORY_TOOL,
-} from "./runtime-tool-bridge/registry.js";
 
 export class RuntimeToolBridge implements RuntimeToolExecutor {
   private agentDelegation: AgentDelegationService | null = null;
-  private readonly toolHandlers: Map<string, RuntimeToolHandler>;
+  private readonly toolProviders: RuntimeToolProvider[];
 
   constructor(
-    private readonly memoryTools: MemoryToolService,
+    memoryTools: MemoryToolService,
     private readonly pendingInteractions: PendingInteractionService | null = null,
     private readonly permissionPolicy: PermissionPolicyService | null = null,
-    private readonly documentTools: LocalDocumentToolService | null = null,
-    private readonly bashTools: LocalBashToolService | null = null,
+    documentTools: LocalDocumentToolService | null = null,
+    bashTools: LocalBashToolService | null = null,
     private readonly taskTools: TaskToolService | null = null,
-    private readonly searchTools: LocalSearchToolService | null = null,
+    searchTools: LocalSearchToolService | null = null,
     private readonly hooks: HookRuntimeService | null = null,
-    private readonly vectorLibrary: VectorLibraryService | null = null,
-    private readonly mcp: McpService | null = null,
-    private readonly codeExecutionTools: CodeExecutionToolService | null = null,
-    private readonly skillTools: SkillToolService | null = null,
+    vectorLibrary: VectorLibraryService | null = null,
+    mcp: McpService | null = null,
+    codeExecutionTools: CodeExecutionToolService | null = null,
+    skillTools: SkillToolService | null = null,
   ) {
-    this.toolHandlers = createRuntimeToolHandlers({
-      memoryTools,
-      documentTools,
-      codeExecutionTools,
-      skillTools,
-      searchTools,
-      taskTools,
-      vectorLibrary,
-      mcp,
-      getAgentDelegation: () => this.agentDelegation,
-      requestUserInput: (call, context) => this.requestUserInput(call, context),
-      unavailableTool: (toolName) => this.unavailableTool(toolName),
-    });
+    this.toolProviders = [
+      new RequestUserInputToolProvider(pendingInteractions),
+      new DocumentToolProvider(documentTools),
+      new BashToolProvider(bashTools, pendingInteractions, permissionPolicy, {
+        runToolHook: (eventName, hookInput) => this.runToolHook(eventName, hookInput),
+        mergeHookData: (result, hookResult, phase) => this.mergeHookData(result, hookResult, phase),
+        hookBlockedResult: (toolName, hookResult, phase) => this.hookBlockedResult(toolName, hookResult, phase),
+        applyHookPermissionDecision: (decision, hookResult, toolName, riskLevel) =>
+          this.applyHookPermissionDecision(decision, hookResult, toolName, riskLevel),
+      }),
+      new MemoryToolProvider(memoryTools),
+      new LocalSearchToolProvider(searchTools),
+      new CodeExecutionToolProvider(codeExecutionTools),
+      new SkillToolProvider(skillTools),
+      new KnowledgeToolProvider(vectorLibrary),
+      new TaskToolProvider(taskTools),
+      new DelegationToolProvider(() => this.agentDelegation),
+      new McpToolProvider(mcp),
+    ];
   }
 
   setAgentDelegation(agentDelegation: AgentDelegationService | null): void {
@@ -105,65 +94,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
   }
 
   listVisibleTools(agent: AgentConfig | null): RuntimeToolDefinition[] {
-    const tools: RuntimeToolDefinition[] = [];
-    const enabledTools = new Set(agent?.tools.enabled_tools ?? []);
-    if (this.pendingInteractions) {
-      tools.push({ ...REQUEST_USER_INPUT_TOOL });
-    }
-    if (this.documentTools) {
-      for (const tool of DOCUMENT_TOOLS) {
-        if (enabledTools.has(tool.name)) {
-          tools.push({ ...tool });
-        }
-      }
-    }
-    if (this.bashTools && enabledTools.has(EXECUTE_BASH_TOOL_NAME)) {
-      tools.push({ ...EXECUTE_BASH_TOOL });
-    }
-    if (this.codeExecutionTools && enabledTools.has(EXECUTE_CODE_TOOL_NAME)) {
-      tools.push({ ...EXECUTE_CODE_TOOL });
-    }
-    if (this.skillTools && agent?.skills.auto_inject && this.skillTools.hasVisibleSkills(agent)) {
-      tools.push(...SKILL_TOOLS.map((tool) => ({ ...tool })));
-    }
-    if (this.searchTools) {
-      for (const tool of LOCAL_SEARCH_TOOLS) {
-        if (enabledTools.has(tool.name)) {
-          tools.push({ ...tool });
-        }
-      }
-    }
-    if (this.vectorLibrary && agent?.knowledge_base.enabled) {
-      tools.push(...KNOWLEDGE_TOOLS.map((tool) => ({ ...tool })));
-    }
-    if (this.taskTools) {
-      if (agent?.tasks?.workflow) {
-        tools.push(...TASK_WORKFLOW_TOOLS.map((tool) => ({ ...tool })));
-      }
-      if (agent?.tasks?.background || enabledTools.has(TASK_OUTPUT_TOOL_NAME)) {
-        tools.push({ ...TASK_OUTPUT_TOOL });
-      }
-      if (agent?.tasks?.background) {
-        tools.push({ ...TASK_STOP_TOOL });
-      }
-    }
-    const memoryConfig = agent?.memory;
-    if (memoryConfig?.allowed_scopes?.length) {
-      tools.push(...READ_ONLY_MEMORY_TOOLS.map((tool) => ({ ...tool })));
-    }
-    if (memoryConfig?.write_scopes?.length) {
-      tools.push({ ...WRITE_MEMORY_TOOL });
-    }
-    if (memoryConfig?.archive_scopes?.length) {
-      tools.push({ ...ARCHIVE_MEMORY_TOOL });
-    }
-    if (this.agentDelegation && agent?.delegation.enabled_agents?.length) {
-      tools.push(...AGENT_DELEGATION_TOOLS.map((tool) => ({ ...tool })));
-    }
-    if (this.mcp && agent?.mcp.enabled_servers.length) {
-      tools.push(...this.mcp.listRuntimeTools(agent.mcp.enabled_servers));
-    }
-    return tools;
+    return this.toolProviders.flatMap((provider) => provider.listTools({ agent }));
   }
 
   listVisibleToolNames(agent: AgentConfig | null): string[] {
@@ -186,8 +117,9 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       return errorResult(`工具未暴露或暂未迁移: ${toolName}`, toolName || "unknown");
     }
 
-    if (toolName === EXECUTE_BASH_TOOL_NAME && this.bashTools) {
-      return this.executeBashTool(call, executionContext);
+    const provider = this.toolProviders.find((item) => item.canHandle(toolName));
+    if (provider?.handlesOwnExecution) {
+      return provider.executeTool(call, executionContext);
     }
 
     const approvedExternalPaths = this.collectExternalPathApprovalCandidates(toolName, call.arguments, executionContext);
@@ -233,8 +165,18 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       return this.hookBlockedResult(toolName, beforePermissionHook, "before_permission");
     }
 
-    if (toolName === EXECUTE_BASH_TOOL_NAME && this.bashTools) {
-      return this.executeBashToolWithHooks(call, executionContext, beforePermissionHook);
+    const provider = this.toolProviders.find((item) => item.canHandle(toolName));
+    if (provider?.handlesOwnExecution) {
+      const maybeBashProvider = provider as RuntimeToolProvider & {
+        executeToolWithHooks?: (
+          call: RuntimeToolCall,
+          context: RuntimeToolExecutionContext,
+          beforePermissionHook: HookResult,
+        ) => Promise<ToolExecutionResult> | ToolExecutionResult;
+      };
+      return maybeBashProvider.executeToolWithHooks
+        ? maybeBashProvider.executeToolWithHooks(call, executionContext, beforePermissionHook)
+        : provider.executeTool(call, executionContext);
     }
 
     const approvedExternalPaths = this.collectExternalPathApprovalCandidates(toolName, call.arguments, executionContext);
@@ -314,12 +256,9 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     context: RuntimeToolExecutionContext,
   ): ToolExecutionResult | Promise<ToolExecutionResult> {
     throwIfAborted(context.signal, "Tool execution aborted");
-    const handler = this.toolHandlers.get(toolName);
-    if (handler) {
-      return handler(call, context);
-    }
-    if (this.mcp && toolName.startsWith("mcp__")) {
-      return this.mcp.callRuntimeTool(toolName, call.arguments);
+    const provider = this.toolProviders.find((item) => item.canHandle(toolName));
+    if (provider) {
+      return provider.executeTool(call, context);
     }
     return this.unavailableTool(toolName);
   }
@@ -383,218 +322,9 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     args: Record<string, unknown> | undefined,
     context: RuntimeToolExecutionContext,
   ): string[] {
-    const documentCandidates = this.documentTools?.getExternalPathApprovalCandidates(toolName, args, context) ?? [];
-    return dedupeStrings(documentCandidates);
-  }
-
-  private async executeBashTool(
-    call: RuntimeToolCall,
-    context: RuntimeToolExecutionContext,
-  ): Promise<ToolExecutionResult> {
-    if (!this.bashTools) {
-      return errorResult(`工具未暴露或暂未迁移: ${EXECUTE_BASH_TOOL_NAME}`, EXECUTE_BASH_TOOL_NAME);
-    }
-    const bashInput = readBashArguments(call.arguments);
-    const approvedExternalPaths = this.bashTools.getExternalPathApprovalCandidates(bashInput, context);
-    if (!this.permissionPolicy && approvedExternalPaths.length) {
-      return approvalUnsupportedError(EXECUTE_BASH_TOOL_NAME, approvedExternalPaths);
-    }
-    const planningContext = withApprovedExternalPaths(context, approvedExternalPaths);
-    const prepared = this.bashTools.prepareExecution(bashInput, planningContext);
-    if (!prepared.ok) {
-      return prepared.result;
-    }
-
-    const plan = prepared.plan;
-    const approvalDecision = this.permissionPolicy?.evaluateToolApproval({
-      toolName: EXECUTE_BASH_TOOL_NAME,
-      riskLevel: plan.riskLevel,
-      description: plan.approvalDescription,
-      arguments: plan.approvalArguments,
-      sessionId: context.sessionId,
-      forceAsk: plan.approvalRequired,
-      approvedExternalPaths,
-    });
-
-    if (approvalDecision?.action === "ask") {
-      return this.executeBashAfterApproval(plan, call, context, approvalDecision);
-    }
-    if (!approvalDecision && plan.approvalRequired) {
-      return errorResult(`工具 ${EXECUTE_BASH_TOOL_NAME} 需要用户授权，但当前上下文不支持审批`, EXECUTE_BASH_TOOL_NAME, {
-        ...plan.metadata,
-      });
-    }
-
-    return this.bashTools.executePlan(plan, withApprovedExternalPaths(context, approvalDecision?.approvedExternalPaths));
-  }
-
-  private async executeBashToolWithHooks(
-    call: RuntimeToolCall,
-    context: RuntimeToolExecutionContext,
-    beforePermissionHook: HookResult,
-  ): Promise<ToolExecutionResult> {
-    if (!this.bashTools) {
-      return errorResult(`工具未暴露或暂未迁移: ${EXECUTE_BASH_TOOL_NAME}`, EXECUTE_BASH_TOOL_NAME);
-    }
-    const bashInput = readBashArguments(call.arguments);
-    const approvedExternalPaths = this.bashTools.getExternalPathApprovalCandidates(bashInput, context);
-    if (!this.permissionPolicy && approvedExternalPaths.length) {
-      return approvalUnsupportedError(EXECUTE_BASH_TOOL_NAME, approvedExternalPaths);
-    }
-    const planningContext = withApprovedExternalPaths(context, approvedExternalPaths);
-    const prepared = this.bashTools.prepareExecution(bashInput, planningContext);
-    if (!prepared.ok) {
-      return prepared.result;
-    }
-
-    const plan = prepared.plan;
-    const approvalDecision = this.applyHookPermissionDecision(this.permissionPolicy?.evaluateToolApproval({
-      toolName: EXECUTE_BASH_TOOL_NAME,
-      riskLevel: plan.riskLevel,
-      description: plan.approvalDescription,
-      arguments: plan.approvalArguments,
-      sessionId: context.sessionId,
-      forceAsk: plan.approvalRequired,
-      approvedExternalPaths,
-    }), beforePermissionHook, EXECUTE_BASH_TOOL_NAME, plan.riskLevel);
-    const afterPermissionHook = await this.runToolHook("tool.after_permission", {
-      toolName: EXECUTE_BASH_TOOL_NAME,
-      tool: {
-        riskLevel: plan.riskLevel,
-        source: "execution",
-      },
-      call,
-      context,
-      permissionDecision: approvalDecision ?? null,
-    });
-    if (afterPermissionHook.blockExecution || afterPermissionHook.permissionDecision === "deny") {
-      return this.hookBlockedResult(EXECUTE_BASH_TOOL_NAME, afterPermissionHook, "after_permission");
-    }
-    const finalApprovalDecision = this.applyHookPermissionDecision(
-      approvalDecision,
-      afterPermissionHook,
-      EXECUTE_BASH_TOOL_NAME,
-      plan.riskLevel,
-    );
-
-    if (finalApprovalDecision?.action === "ask") {
-      return this.executeBashAfterApproval(plan, call, context, finalApprovalDecision);
-    }
-    if (!finalApprovalDecision && plan.approvalRequired) {
-      return errorResult(`工具 ${EXECUTE_BASH_TOOL_NAME} 需要用户授权，但当前上下文不支持审批`, EXECUTE_BASH_TOOL_NAME, {
-        ...plan.metadata,
-      });
-    }
-
-    return this.executeBashPlanWithHooks(
-      plan,
-      call,
-      withApprovedExternalPaths(context, finalApprovalDecision?.approvedExternalPaths),
-      { beforePermissionHook, afterPermissionHook },
-    );
-  }
-
-  private async executeBashPlanWithHooks(
-    plan: BashExecutionPlan,
-    call: RuntimeToolCall,
-    context: RuntimeToolExecutionContext,
-    hooks: { beforePermissionHook?: HookResult | undefined; afterPermissionHook?: HookResult | undefined } = {},
-  ): Promise<ToolExecutionResult> {
-    const bashTools = this.bashTools;
-    if (!bashTools) {
-      return errorResult(`工具未暴露或暂未迁移: ${EXECUTE_BASH_TOOL_NAME}`, EXECUTE_BASH_TOOL_NAME);
-    }
-    const tool = {
-      riskLevel: plan.riskLevel,
-      source: "execution" as const,
-    };
-    const beforeExecuteHook = await this.runToolHook("tool.before_execute", {
-      toolName: EXECUTE_BASH_TOOL_NAME,
-      tool,
-      call,
-      context,
-    });
-    if (beforeExecuteHook.blockExecution || beforeExecuteHook.permissionDecision === "deny") {
-      return this.hookBlockedResult(EXECUTE_BASH_TOOL_NAME, beforeExecuteHook, "before_execute");
-    }
-    let result = await bashTools.executePlan(plan, context);
-    result = this.mergeHookData(result, hooks.beforePermissionHook, "before_permission");
-    result = this.mergeHookData(result, hooks.afterPermissionHook, "after_permission");
-    result = this.mergeHookData(result, beforeExecuteHook, "before_execute");
-    const afterExecuteHook = await this.runToolHook("tool.after_execute", {
-      toolName: EXECUTE_BASH_TOOL_NAME,
-      tool,
-      call,
-      context,
-      result,
-    });
-    return this.mergeHookData(result, afterExecuteHook, "after_execute");
-  }
-
-  private async executeBashAfterApproval(
-    plan: BashExecutionPlan,
-    call: RuntimeToolCall,
-    context: RuntimeToolExecutionContext,
-    approvalDecision: RuntimeToolApprovalDecision,
-  ): Promise<ToolExecutionResult> {
-    const bashTools = this.bashTools;
-    if (!bashTools) {
-      return errorResult(`工具未暴露或暂未迁移: ${EXECUTE_BASH_TOOL_NAME}`, EXECUTE_BASH_TOOL_NAME);
-    }
-    const approvalMetadata = buildApprovalMetadata(approvalDecision);
-    if (!this.pendingInteractions) {
-      return errorResult(`工具 ${EXECUTE_BASH_TOOL_NAME} 需要用户授权，但当前上下文不支持审批`, EXECUTE_BASH_TOOL_NAME, {
-        ...plan.metadata,
-        approval: approvalMetadata,
-      });
-    }
-
-    const sessionId = context.sessionId?.trim();
-    if (!sessionId) {
-      return errorResult(`工具 ${EXECUTE_BASH_TOOL_NAME} 需要用户授权，但当前上下文无法等待审批`, EXECUTE_BASH_TOOL_NAME, {
-        ...plan.metadata,
-        approval: approvalMetadata,
-      });
-    }
-
-    let resolution;
-    try {
-      resolution = await this.pendingInteractions.waitForApproval({
-        sessionId,
-        runId: context.runId,
-        taskId: context.taskId,
-        requestId: context.requestId,
-        toolCallId: context.toolCallId ?? call.callId ?? null,
-        agentName: context.currentAgentName ?? context.agent?.agent_name ?? null,
-        approvalType: "bash_command",
-        toolName: EXECUTE_BASH_TOOL_NAME,
-        arguments: plan.approvalArguments,
-        riskLevel: approvalDecision.riskLevel,
-        description: approvalDecision.description,
-        permissionMode: approvalDecision.permissionMode,
-        approvalReason: approvalDecision.reason,
-        approvalReasonCodes: approvalDecision.reasonCodes,
-        approvalSecondaryReasons: approvalDecision.secondaryReasons,
-        approvedExternalPaths: approvalDecision.approvedExternalPaths,
-        signal: context.signal,
-      });
-    } catch (error) {
-      return errorResult(`审批流程异常: ${error instanceof Error ? error.message : String(error)}`, EXECUTE_BASH_TOOL_NAME, {
-        ...plan.metadata,
-        approval: approvalMetadata,
-      });
-    }
-
-    if (!resolution.approved) {
-      const denyReason = resolution.message || "用户拒绝执行此操作";
-      return errorResult(`execute_bash 执行已被拒绝：${denyReason}`, EXECUTE_BASH_TOOL_NAME, {
-        ...plan.metadata,
-        approval: buildApprovalMetadata(approvalDecision, resolution.message),
-      });
-    }
-
-    const result = await this.executeBashPlanWithHooks(plan, call, withApprovedExternalPaths(context, approvalDecision.approvedExternalPaths));
-    return withApprovalMetadata(result, approvalDecision, resolution.message);
+    return dedupeStrings(this.toolProviders.flatMap((provider) =>
+      provider.getExternalPathApprovalCandidates?.(toolName, args, context) ?? [],
+    ));
   }
 
   private async executeToolAfterApproval(
@@ -653,58 +383,6 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
 
     const result = await this.executeAllowedToolWithHooks(toolName, call, withApprovedExternalPaths(context, approvalDecision.approvedExternalPaths));
     return withApprovalMetadata(result, approvalDecision, resolution.message);
-  }
-
-  private async requestUserInput(
-    call: RuntimeToolCall,
-    context: RuntimeToolExecutionContext,
-  ): Promise<ToolExecutionResult<string>> {
-    if (!this.pendingInteractions) {
-      return errorResult("request_user_input 暂不可用", REQUEST_USER_INPUT_TOOL_NAME);
-    }
-    const prompt = readPrompt(call.arguments);
-    if (!prompt) {
-      return errorResult("request_user_input 缺少 prompt", REQUEST_USER_INPUT_TOOL_NAME);
-    }
-    if (!context.sessionId) {
-      return successResult("", {
-        summary: "当前上下文缺少 session_id，未等待用户输入",
-        outputType: "text",
-        metadata: {
-          input_type: readInputType(call.arguments),
-          options: readOptions(call.arguments),
-          degraded: true,
-        },
-        toolName: REQUEST_USER_INPUT_TOOL_NAME,
-      });
-    }
-
-    const startedAt = Date.now();
-    const resolution = await this.pendingInteractions.waitForUserInput({
-      sessionId: context.sessionId,
-      runId: context.runId,
-      taskId: context.taskId,
-      requestId: context.requestId,
-      toolCallId: context.toolCallId ?? call.callId ?? null,
-      agentName: context.currentAgentName ?? context.agent?.agent_name ?? null,
-      prompt,
-      inputType: readInputType(call.arguments),
-      options: readOptions(call.arguments),
-      signal: context.signal,
-    });
-
-    return successResult(resolution.value, {
-      summary: "用户输入已接收",
-      outputType: "text",
-      metadata: {
-        input_id: resolution.inputId,
-        input_type: readInputType(call.arguments),
-        options: readOptions(call.arguments),
-        degraded: false,
-        waited_seconds: (Date.now() - startedAt) / 1000,
-      },
-      toolName: REQUEST_USER_INPUT_TOOL_NAME,
-    });
   }
 
   private async runToolHook(
