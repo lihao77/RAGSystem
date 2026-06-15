@@ -44,7 +44,8 @@ Runtime tools and integrations:
   tools.
 - Restricted `execute_code`.
 - Agent delegation tools.
-- Skill discovery, visibility, resource loading, script execution, artifact protocol, team
+- Skill discovery, visibility, resource loading, script execution (with per-skill `.venv`
+  isolation and `requirements.txt` provisioning), artifact protocol, team
   protocol, and background execution.
 - Hook runtime.
 - MCP server config, stdio/http connection lifecycle, tool discovery, runtime bridge exposure,

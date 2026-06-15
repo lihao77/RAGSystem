@@ -406,6 +406,65 @@ describe("SkillToolService", () => {
     });
     expect(backgroundTasks.drainPendingNotifications("bg-session")).toEqual([]);
   });
+
+  it("does not create a venv in shared isolation mode even with requirements.txt", async () => {
+    const root = makeTempRoot();
+    const builtinRoot = path.join(root, "builtin");
+    const skillDir = path.join(builtinRoot, "shared-skill");
+    writeSkill(skillDir, "shared-skill", "shared mode", "# Shared\n");
+    fs.writeFileSync(path.join(skillDir, "requirements.txt"), "", "utf8");
+    fs.mkdirSync(path.join(skillDir, "scripts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "scripts", "where.py"),
+      "import json, sys\nprint(json.dumps({'success': True, 'data': {'executable': sys.executable}}))\n",
+      "utf8",
+    );
+    const service = new SkillToolService({
+      dataRoot: root,
+      builtinSkillsRoot: builtinRoot,
+      userGlobalSkillsRoot: path.join(root, "global"),
+      skillIsolationMode: "shared",
+    });
+
+    const result = await service.executeSkillScript(
+      { skillName: "shared-skill", scriptName: "where.py", arguments: [] },
+      { agent: skillAgent(["shared-skill"]) },
+    );
+
+    expect(result).toMatchObject({ success: true });
+    expect(fs.existsSync(path.join(skillDir, ".venv"))).toBe(false);
+  });
+
+  it("provisions a per-skill venv and runs scripts with its interpreter", async () => {
+    const root = makeTempRoot();
+    const builtinRoot = path.join(root, "builtin");
+    const skillDir = path.join(builtinRoot, "venv-skill");
+    writeSkill(skillDir, "venv-skill", "venv mode", "# Venv\n");
+    fs.writeFileSync(path.join(skillDir, "requirements.txt"), "# no external deps\n", "utf8");
+    fs.mkdirSync(path.join(skillDir, "scripts"), { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "scripts", "where.py"),
+      "import json, sys\nprint(json.dumps({'success': True, 'data': {'executable': sys.executable}}))\n",
+      "utf8",
+    );
+    const service = new SkillToolService({
+      dataRoot: root,
+      builtinSkillsRoot: builtinRoot,
+      userGlobalSkillsRoot: path.join(root, "global"),
+      skillIsolationMode: "venv",
+    });
+
+    const result = await service.executeSkillScript(
+      { skillName: "venv-skill", scriptName: "where.py", arguments: [] },
+      { agent: skillAgent(["venv-skill"]) },
+    );
+
+    expect(result).toMatchObject({ success: true });
+    const executable = String((result.content as Record<string, unknown>).executable ?? "");
+    expect(executable).toContain(".venv");
+    expect(fs.existsSync(path.join(skillDir, ".venv"))).toBe(true);
+    expect(fs.existsSync(path.join(skillDir, ".venv", ".installed"))).toBe(true);
+  }, 120_000);
 });
 
 function makeTempRoot(): string {

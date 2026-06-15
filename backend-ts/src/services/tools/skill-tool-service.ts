@@ -15,6 +15,8 @@ import type { ToolExecutionResult } from "./memory-tool-service.js";
 
 type SkillSourceType = "workspace" | "user_global" | "builtin";
 
+type SkillIsolationMode = "venv" | "shared";
+
 interface SkillSourceSpec {
   root: string;
   sourceType: SkillSourceType;
@@ -78,6 +80,7 @@ export class SkillToolService {
       artifacts?: ArtifactService | null | undefined;
       backgroundTasks?: BackgroundTaskService | null | undefined;
       clientEvents?: ClientEventPublisher | null | undefined;
+      skillIsolationMode?: SkillIsolationMode | undefined;
     } = {},
   ) {
     this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
@@ -87,12 +90,15 @@ export class SkillToolService {
     this.artifacts = options.artifacts ?? null;
     this.backgroundTasks = options.backgroundTasks ?? null;
     this.clientEvents = options.clientEvents ?? null;
+    this.skillIsolationMode = options.skillIsolationMode ?? resolveDefaultIsolationMode();
   }
 
   private readonly agentConfig: AgentConfigService | null;
   private readonly artifacts: ArtifactService | null;
   private readonly backgroundTasks: BackgroundTaskService | null;
   private readonly clientEvents: ClientEventPublisher | null;
+  private readonly skillIsolationMode: SkillIsolationMode;
+  private readonly envLocks = new Map<string, Promise<unknown>>();
 
   listAvailableSkills(workspaceRoot?: string | null): SkillListItem[] {
     return this.loadAllSkills(workspaceRoot).map((skill) => ({
@@ -336,37 +342,45 @@ export class SkillToolService {
     args: string[],
     context: RuntimeToolExecutionContext,
   ): Promise<{ stdout: string; stderr: string; returnCode: number }> {
-    const executable = resolvePythonExecutable();
-    return new Promise((resolve) => {
-      const chunks: Buffer[] = [];
-      const errorChunks: Buffer[] = [];
-      const child = spawn(executable, [scriptPath, ...args.map(String)], {
-        cwd: skill.skillDir,
-        windowsHide: true,
-        env: {
-          ...process.env,
-          PYTHONIOENCODING: "utf-8",
-          PYTHONUTF8: "1",
-          RAG_DATA_ROOT: this.dataRoot,
-          ...(context.sessionId ? { RAG_SESSION_ID: context.sessionId } : {}),
-        },
-      });
-      const timer = setTimeout(() => child.kill("SIGKILL"), 30_000);
-      child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
-      child.stderr.on("data", (chunk: Buffer) => errorChunks.push(chunk));
-      child.on("error", (error) => {
-        clearTimeout(timer);
-        resolve({ stdout: "", stderr: error.message, returnCode: 1 });
-      });
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        resolve({
-          stdout: Buffer.concat(chunks).toString("utf8"),
-          stderr: Buffer.concat(errorChunks).toString("utf8"),
-          returnCode: code ?? 0,
-        });
-      });
+    const environment = await this.ensureSkillEnvironment(skill);
+    if ("error" in environment) {
+      return { stdout: "", stderr: `环境准备失败: ${environment.error}`, returnCode: 1 };
+    }
+    return spawnProcess(environment.python, [scriptPath, ...args.map(String)], {
+      cwd: skill.skillDir,
+      timeoutMs: 30_000,
+      timeoutMessage: "脚本执行超时（>30秒）",
+      env: {
+        ...process.env,
+        PYTHONIOENCODING: "utf-8",
+        PYTHONUTF8: "1",
+        RAG_DATA_ROOT: this.dataRoot,
+        ...(context.sessionId ? { RAG_SESSION_ID: context.sessionId } : {}),
+      },
     });
+  }
+
+  /**
+   * 准备 Skill 运行所需的 Python 环境，返回应使用的解释器路径。
+   *
+   * - shared 模式或无 requirements.txt：直接使用系统/共享解释器。
+   * - venv 模式且存在 requirements.txt：在 skill 目录下维护 .venv，并按
+   *   .installed marker 与 requirements.txt 的 mtime 决定是否重装依赖。
+   *
+   * 同一 skill 目录的环境准备通过 envLocks 串行化，避免并发创建 venv 竞态。
+   */
+  private async ensureSkillEnvironment(skill: SkillInfo): Promise<{ python: string } | { error: string }> {
+    if (this.skillIsolationMode === "shared") {
+      return { python: resolvePythonExecutable() };
+    }
+    const requirementsFile = path.join(skill.skillDir, "requirements.txt");
+    if (!fs.existsSync(requirementsFile)) {
+      return { python: resolvePythonExecutable() };
+    }
+    const previous = this.envLocks.get(skill.skillDir) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(() => prepareVenv(skill.skillDir, requirementsFile));
+    this.envLocks.set(skill.skillDir, current.catch(() => undefined));
+    return current;
   }
 
   private executeSkillScriptInBackground(
@@ -825,6 +839,100 @@ function errorResult(
 
 function resolvePythonExecutable(): string {
   return process.env.RAGSYSTEM_PYTHON ?? process.env.PYTHON ?? "python";
+}
+
+function resolveDefaultIsolationMode(): SkillIsolationMode {
+  return process.env.RAGSYSTEM_SKILL_ISOLATION === "shared" ? "shared" : "venv";
+}
+
+function venvPythonExecutable(venvDir: string): string {
+  return process.platform === "win32"
+    ? path.join(venvDir, "Scripts", "python.exe")
+    : path.join(venvDir, "bin", "python");
+}
+
+function venvPipExecutable(venvDir: string): string {
+  return process.platform === "win32"
+    ? path.join(venvDir, "Scripts", "pip.exe")
+    : path.join(venvDir, "bin", "pip");
+}
+
+/**
+ * 在 skill 目录下维护 .venv，并确保 requirements.txt 中的依赖已安装。
+ * 返回 venv 内的 Python 解释器路径，失败时返回 error。
+ */
+async function prepareVenv(
+  skillDir: string,
+  requirementsFile: string,
+): Promise<{ python: string } | { error: string }> {
+  const venvDir = path.join(skillDir, ".venv");
+  if (!fs.existsSync(venvDir)) {
+    const create = await spawnProcess(resolvePythonExecutable(), ["-m", "venv", venvDir], { timeoutMs: 60_000 });
+    if (create.returnCode !== 0) {
+      return { error: `创建虚拟环境失败: ${create.stderr.trim() || create.stdout.trim()}` };
+    }
+  }
+
+  const installedMarker = path.join(venvDir, ".installed");
+  const requirementsMtime = fs.statSync(requirementsFile).mtimeMs;
+  if (fs.existsSync(installedMarker) && fs.statSync(installedMarker).mtimeMs >= requirementsMtime) {
+    return { python: venvPythonExecutable(venvDir) };
+  }
+
+  const install = await spawnProcess(venvPipExecutable(venvDir), ["install", "-r", requirementsFile], {
+    timeoutMs: 300_000,
+  });
+  if (install.returnCode !== 0) {
+    return { error: `安装依赖失败: ${install.stderr.trim() || install.stdout.trim()}` };
+  }
+  fs.writeFileSync(installedMarker, "");
+  return { python: venvPythonExecutable(venvDir) };
+}
+
+/**
+ * 启动子进程并收集 stdout/stderr，超时后 SIGKILL 并返回 124。
+ */
+function spawnProcess(
+  executable: string,
+  args: string[],
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs: number; timeoutMessage?: string },
+): Promise<{ stdout: string; stderr: string; returnCode: number }> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    const errorChunks: Buffer[] = [];
+    let timedOut = false;
+    const child = spawn(executable, args, {
+      cwd: options.cwd,
+      windowsHide: true,
+      env: options.env ?? process.env,
+    });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, options.timeoutMs);
+    child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.stderr?.on("data", (chunk: Buffer) => errorChunks.push(chunk));
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      resolve({ stdout: "", stderr: error.message, returnCode: 1 });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        resolve({
+          stdout: Buffer.concat(chunks).toString("utf8"),
+          stderr: options.timeoutMessage ?? "执行超时",
+          returnCode: 124,
+        });
+        return;
+      }
+      resolve({
+        stdout: Buffer.concat(chunks).toString("utf8"),
+        stderr: Buffer.concat(errorChunks).toString("utf8"),
+        returnCode: code ?? 0,
+      });
+    });
+  });
 }
 
 function resolveWorkspaceRoot(context: RuntimeToolExecutionContext): string | null {
