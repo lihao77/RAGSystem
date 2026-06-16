@@ -3,15 +3,15 @@ import { z } from "zod";
 
 import type { RuntimeToolApprovalDecision } from "../../src/services/runtime/permission-policy-service.js";
 import type { RuntimeToolExecutionContext } from "../../src/services/runtime/runtime-tool-types.js";
-import { buildTool } from "../../src/services/runtime/tools/tool.js";
-import { partitionToolCalls } from "../../src/services/runtime/tools/tool-scheduler.js";
+import { buildTool } from "../../src/tools/Tool.js";
+import { partitionToolCalls } from "../../src/tools/scheduler.js";
 import {
   applyHookPermissionDecision,
   denyPermissionResult,
   isToolPermissionForceAsk,
   mergeToolPermissionMetadata,
-} from "../../src/services/runtime/tools/tool-permissions.js";
-import { validateToolInput } from "../../src/services/runtime/tools/validation.js";
+} from "../../src/tools/permissions.js";
+import { validateToolInput } from "../../src/tools/validation.js";
 
 describe("runtime tools", () => {
   it("partitions consecutive concurrency-safe calls and breaks on unsafe calls", () => {

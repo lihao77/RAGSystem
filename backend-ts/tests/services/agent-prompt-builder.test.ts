@@ -6,8 +6,8 @@ import {
   GLOB_TOOL_NAME,
   PREVIEW_DATA_STRUCTURE_TOOL_NAME,
 } from "../../src/services/runtime/runtime-tool-bridge/registry.js";
-import { DOCUMENT_TOOLS } from "../../src/services/runtime/tools/defs/document.tool.js";
-import { LOCAL_SEARCH_TOOLS } from "../../src/services/runtime/tools/defs/local-search.tool.js";
+import { DOCUMENT_TOOLS } from "../../src/tools/DocumentTools/DocumentTools.js";
+import { LOCAL_SEARCH_TOOLS } from "../../src/tools/LocalSearchTools/LocalSearchTools.js";
 import type { RuntimeToolDefinition } from "../../src/services/runtime/runtime-tool-types.js";
 
 const EXECUTE_CODE_TOOL: RuntimeToolDefinition = {

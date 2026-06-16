@@ -9,7 +9,7 @@ import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import { AgentConfigService } from "../../src/services/agent/agent-config-service.js";
 import { ArtifactService } from "../../src/services/artifacts/artifact-service.js";
 import { BackgroundTaskService } from "../../src/services/runtime/background-task-service.js";
-import { SkillToolService } from "../../src/services/tools/skill-tool-service.js";
+import { SkillToolService } from "../../src/tools/SkillTools/SkillExecution.js";
 
 const tempRoots: string[] = [];
 

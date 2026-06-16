@@ -1,14 +1,14 @@
 import type { AgentConfig } from "../../contracts/agent-config.js";
-import type { MemoryToolService } from "../tools/memory-tool-service.js";
-import type { LocalDocumentToolService } from "../tools/local-document-tool-service.js";
-import type { CodeExecutionToolService } from "../tools/code-execution-tool-service.js";
+import type { MemoryToolService } from "../../tools/MemoryTools/MemoryExecution.js";
+import type { LocalDocumentToolService } from "../../tools/DocumentTools/DocumentExecution.js";
+import type { CodeExecutionToolService } from "../../tools/CodeExecutionTool/CodeExecution.js";
 import type { AgentDelegationService } from "../agent/agent-delegation-service.js";
-import type { TaskToolService } from "../tools/task-tool-service.js";
-import type { LocalSearchToolService } from "../tools/local-search-tool-service.js";
-import type { SkillToolService } from "../tools/skill-tool-service.js";
+import type { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
+import type { LocalSearchToolService } from "../../tools/LocalSearchTools/SearchExecution.js";
+import type { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
 import type { VectorLibraryService } from "../knowledge/vector-library-service.js";
 import type { McpService } from "../integrations/mcp-service.js";
-import type { LocalBashToolService } from "../tools/local-bash-tool-service.js";
+import type { LocalBashToolService } from "../../tools/BashTool/BashExecution.js";
 import type {
   RuntimeToolCall,
   RuntimeToolDefinition,
@@ -34,15 +34,15 @@ import {
   withApprovalMetadata,
   withApprovedExternalPaths,
 } from "./runtime-tool-bridge/arguments.js";
-import { createToolRegistry, type RuntimeToolRegistry } from "./tools/tool-registry.js";
-import { toolToDefinition, type RuntimeTool, type RuntimeToolPermissionResult } from "./tools/tool.js";
-import { validateToolInput } from "./tools/validation.js";
+import { createToolRegistry, type RuntimeToolRegistry } from "../../tools/registry.js";
+import { toolToDefinition, type RuntimeTool, type RuntimeToolPermissionResult } from "../../tools/Tool.js";
+import { validateToolInput } from "../../tools/validation.js";
 import {
   applyHookPermissionDecision,
   denyPermissionResult,
   isToolPermissionForceAsk,
   mergeToolPermissionMetadata,
-} from "./tools/tool-permissions.js";
+} from "../../tools/permissions.js";
 
 export { isReadOnlyMemoryToolName } from "./runtime-tool-bridge/arguments.js";
 

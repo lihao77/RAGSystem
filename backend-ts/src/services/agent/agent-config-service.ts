@@ -27,7 +27,7 @@ import {
 import { AgentConfigTeamStore, defaultTeamRelativePath } from "./agent-config-service/team-store.js";
 import { listAvailableTools as listAvailableRuntimeTools, type AvailableToolInfo } from "./agent-config-service/tools.js";
 import { toYaml } from "./agent-config-service/yaml.js";
-import type { SkillToolService } from "../tools/skill-tool-service.js";
+import type { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
 import type { McpService } from "../integrations/mcp-service.js";
 
 type ExportFormat = "json" | "yaml";

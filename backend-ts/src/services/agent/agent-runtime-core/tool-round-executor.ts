@@ -8,7 +8,7 @@ import type {
 } from "../../runtime/runtime-tool-types.js";
 import { isAbortError, throwIfAborted } from "../../runtime/abort.js";
 import { renderToolResultContent } from "../../runtime/runtime-xml-protocol.js";
-import { runToolBatchWithScheduler } from "../../runtime/tools/tool-scheduler.js";
+import { runToolBatchWithScheduler } from "../../../tools/scheduler.js";
 import { buildLlmFacingToolResult } from "./observation.js";
 import {
   buildToolExecutionErrorResult,
