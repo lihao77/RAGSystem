@@ -515,7 +515,7 @@ describe("AgentRuntimeCore", () => {
     expect(client.requests[0]?.messages[0]?.content).toContain("You are the core.");
     expect(client.requests[0]?.messages[0]?.content).toContain("## 输出格式");
     expect(client.requests[0]?.messages[0]?.content).toContain("## 执行规则");
-    expect(client.requests[0]?.messages[0]?.content).toContain("### 数据文件传递规则");
+    expect(client.requests[0]?.messages[0]?.content).not.toContain("### 数据文件传递规则");
     expect(client.requests[0]?.messages[1]?.content).toContain("hello");
   });
 
@@ -1112,8 +1112,7 @@ describe("AgentRuntimeCore", () => {
 
     expect(tools.calls.map((item) => item.call.toolName)).toEqual(["seed_file", "list_memory_index", "read_file"]);
     expect(tools.calls[2]?.call.arguments).toEqual({ file_path: "E:/tmp/seed.txt" });
-    expect(tools.calls[0]?.startedAt).toBeLessThanOrEqual(tools.calls[1]?.finishedAt ?? 0);
-    expect(tools.calls[1]?.startedAt).toBeLessThanOrEqual(tools.calls[0]?.finishedAt ?? 0);
+    expect(tools.calls[1]?.startedAt).toBeGreaterThanOrEqual(tools.calls[0]?.finishedAt ?? 0);
     expect(tools.calls.map((item) => item.context.roundIndex)).toEqual([2, 3, 1]);
 
     const userToolMessages = client.requests[1]?.messages.filter((message) =>
@@ -1127,8 +1126,8 @@ describe("AgentRuntimeCore", () => {
     const toolEvents = events.filter((event) => event.type === "runtime.tool_call" || event.type === "runtime.tool_result");
     expect(toolEvents.map((event) => event.data.tool_name)).toEqual([
       "seed_file",
-      "list_memory_index",
       "seed_file",
+      "list_memory_index",
       "list_memory_index",
       "read_file",
       "read_file",

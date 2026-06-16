@@ -13,7 +13,6 @@ import type {
 const DEFAULT_TIMEOUT_SECONDS = 60;
 const MAX_TIMEOUT_SECONDS = 300;
 const DISPLAY_PATH_PREFIX = "./data/";
-const CODE_CALLABLE_TOOLS = new Set(["preview_data_structure", "glob"]);
 
 export interface CodeExecutionInput {
   code: string;
@@ -151,9 +150,6 @@ export class CodeExecutionToolService {
     args: Record<string, unknown>,
     context: RuntimeToolExecutionContext,
   ): Promise<unknown> {
-    if (!CODE_CALLABLE_TOOLS.has(toolName)) {
-      throw new Error(`工具 '${toolName}' 不允许从代码调用: Tool ${toolName} is not allowed from caller code_execution`);
-    }
     if (!this.runtimeTools) {
       throw new Error("execute_code 当前缺少工具调用桥");
     }
@@ -162,7 +158,10 @@ export class CodeExecutionToolService {
         toolName,
         arguments: args,
       },
-      context,
+      {
+        ...context,
+        caller: "code_execution",
+      },
     );
     if (!result.success) {
       throw new Error(result.summary || String(result.content ?? "tool failed"));

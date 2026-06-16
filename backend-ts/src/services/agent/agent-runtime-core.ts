@@ -309,8 +309,6 @@ export class AgentRuntimeCore {
           toolContext,
           dataRoot: this.dataRoot,
           round,
-          dependencyAware: true,
-          parallelIndependent: true,
           calls: roundResult.toolCalls.map((call, index) => ({
             index,
             callId: call.callId ?? `xml_round_${round}_call_${index + 1}`,
@@ -407,8 +405,6 @@ export class AgentRuntimeCore {
         toolContext,
         dataRoot: this.dataRoot,
         round,
-        dependencyAware: false,
-        parallelIndependent: false,
         calls: toolCalls.map((toolCall, index) => ({
           index,
           callId: toolCall.id,

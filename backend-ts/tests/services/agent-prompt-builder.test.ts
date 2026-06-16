@@ -3,13 +3,23 @@ import { describe, expect, it } from "vitest";
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import { buildFullSystemPrompt } from "../../src/services/agent/agent-prompt-builder.js";
 import {
-  DOCUMENT_TOOLS,
-  EXECUTE_CODE_TOOL,
-  PREVIEW_DATA_STRUCTURE_TOOL_NAME,
   GLOB_TOOL_NAME,
-  LOCAL_SEARCH_TOOLS,
+  PREVIEW_DATA_STRUCTURE_TOOL_NAME,
 } from "../../src/services/runtime/runtime-tool-bridge/registry.js";
+import { DOCUMENT_TOOLS } from "../../src/services/runtime/tools/defs/document.tool.js";
+import { LOCAL_SEARCH_TOOLS } from "../../src/services/runtime/tools/defs/local-search.tool.js";
 import type { RuntimeToolDefinition } from "../../src/services/runtime/runtime-tool-types.js";
+
+const EXECUTE_CODE_TOOL: RuntimeToolDefinition = {
+  name: "execute_code",
+  description: "Execute Python code in a restricted sandbox.",
+  allowed_callers: ["direct"],
+  parameters: {
+    type: "object",
+    required: ["code"],
+    properties: { code: { type: "string", description: "Python code." } },
+  },
+};
 
 describe("agent prompt builder", () => {
   it("renders tool contracts and code-execution callable tools", () => {

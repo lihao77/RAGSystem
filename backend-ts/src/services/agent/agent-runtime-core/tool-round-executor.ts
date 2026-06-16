@@ -8,6 +8,7 @@ import type {
 } from "../../runtime/runtime-tool-types.js";
 import { isAbortError, throwIfAborted } from "../../runtime/abort.js";
 import { renderToolResultContent } from "../../runtime/runtime-xml-protocol.js";
+import { runToolBatchWithScheduler } from "../../runtime/tools/tool-scheduler.js";
 import { buildLlmFacingToolResult } from "./observation.js";
 import {
   buildToolExecutionErrorResult,
@@ -86,15 +87,11 @@ export async function executeToolCallRound(input: {
   toolContext: RuntimeToolExecutionContext;
   dataRoot: string;
   round: number;
-  dependencyAware: boolean;
-  parallelIndependent: boolean;
   calls: PreparedRoundToolCall[];
 }): Promise<RuntimeToolRoundExecution[]> {
   const roundResults = new Map<number, ToolExecutionResult>();
   const executions = new Map<number, RuntimeToolRoundExecution>();
-  const batches = input.dependencyAware
-    ? buildExecutionBatches(input.calls)
-    : input.calls.map((call) => [call]);
+  const batches = buildExecutionBatches(input.calls);
   for (const batch of batches) {
     throwIfAborted(input.toolContext.signal, "Agent run aborted");
     const runCall = (call: PreparedRoundToolCall) =>
@@ -107,10 +104,22 @@ export async function executeToolCallRound(input: {
         call,
         previousResults: roundResults,
       });
-    const batchExecutions =
-      input.parallelIndependent && batch.length > 1
-        ? await Promise.all(batch.map((call) => runCall(call)))
-        : await runSequentially(batch, runCall);
+    const batchExecutions = await runToolBatchWithScheduler(batch, {
+      signal: input.toolContext.signal,
+      classify: (call) => input.toolExecutor.classifyConcurrency?.(
+        {
+          toolName: call.toolName,
+          arguments: resolveToolArgumentReferences(call.arguments, roundResults),
+          callId: call.callId,
+        },
+        buildToolCallExecutionContext(input.toolContext, {
+          callId: call.callId,
+          round: input.round,
+          index: call.index,
+        }),
+      ) ?? false,
+      run: runCall,
+    });
     throwIfAborted(input.toolContext.signal, "Agent run aborted");
     for (const execution of batchExecutions) {
       roundResults.set(execution.index + 1, execution.result);
@@ -239,14 +248,6 @@ function buildExecutionBatches(calls: PreparedRoundToolCall[]): PreparedRoundToo
 function toolCallHasUnmetDependencies(call: PreparedRoundToolCall, completed: Set<number>): boolean {
   const dependencies = collectResultReferenceIndexes(call.arguments);
   return dependencies.some((index) => !completed.has(index));
-}
-
-async function runSequentially<T, R>(items: T[], run: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = [];
-  for (const item of items) {
-    results.push(await run(item));
-  }
-  return results;
 }
 
 async function executeToolSafely(input: {

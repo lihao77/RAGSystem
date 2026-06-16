@@ -43,6 +43,7 @@ export type RuntimeToolExample = Record<string, unknown>;
 
 export interface RuntimeToolExecutionContext {
   agent: AgentConfig | null;
+  caller?: "direct" | "code_execution" | string | undefined;
   sessionId?: string | null;
   runId?: string | null;
   taskId?: string | null;
@@ -73,25 +74,9 @@ export interface RuntimeToolWaitResult {
 export interface RuntimeToolExecutor {
   listVisibleTools(agent: AgentConfig | null): RuntimeToolDefinition[];
   executeTool(call: RuntimeToolCall, context: RuntimeToolExecutionContext): ToolExecutionResult | Promise<ToolExecutionResult>;
+  classifyConcurrency?(call: RuntimeToolCall, context: RuntimeToolExecutionContext): boolean;
   waitForToolResult?(
     request: RuntimeToolWaitRequest,
     context: RuntimeToolExecutionContext,
   ): RuntimeToolWaitResult | Promise<RuntimeToolWaitResult>;
-}
-
-export interface RuntimeToolProviderVisibilityInput {
-  agent: AgentConfig | null;
-}
-
-export interface RuntimeToolProvider {
-  readonly id: string;
-  readonly handlesOwnExecution?: boolean;
-  listTools(input: RuntimeToolProviderVisibilityInput): RuntimeToolDefinition[];
-  canHandle(toolName: string): boolean;
-  executeTool(call: RuntimeToolCall, context: RuntimeToolExecutionContext): ToolExecutionResult | Promise<ToolExecutionResult>;
-  getExternalPathApprovalCandidates?(
-    toolName: string,
-    args: Record<string, unknown> | undefined,
-    context: RuntimeToolExecutionContext,
-  ): string[];
 }

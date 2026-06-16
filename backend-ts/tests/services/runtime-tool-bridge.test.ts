@@ -985,6 +985,54 @@ describe("RuntimeToolBridge", () => {
     });
   });
 
+  it("enforces allowed_callers without relying on the execute_code sandbox", () => {
+    const dataRoot = makeTempDataRoot();
+    const workspaceRoot = path.join(dataRoot, "workspace");
+    writeAbsoluteFile(path.join(workspaceRoot, "sample.json"), "{\"items\":[1,2]}");
+    const documentTools = new LocalDocumentToolService({ dataRoot });
+    const bridge = new RuntimeToolBridge(
+      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      null,
+      null,
+      documentTools,
+    );
+    const agent = {
+      ...minimalAgent([], ["preview_data_structure", "read_file"]),
+      custom_params: {
+        workspace_root: workspaceRoot,
+      },
+    };
+    const context = { agent, sessionId: "code-session", runId: "run-1" };
+
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "preview_data_structure",
+          arguments: { file_path: "sample.json" },
+        },
+        { ...context, caller: "code_execution" },
+      ),
+    ).toMatchObject({
+      success: true,
+      content: {
+        file_type: "json",
+      },
+    });
+
+    expect(
+      bridge.executeTool(
+        {
+          toolName: "read_file",
+          arguments: { file_path: "sample.json" },
+        },
+        { ...context, caller: "code_execution" },
+      ),
+    ).toMatchObject({
+      success: false,
+      content: expect.stringContaining("不允许从代码调用"),
+    });
+  });
+
   it("exposes and executes Skill tools when skills auto injection is enabled", async () => {
     const dataRoot = makeTempDataRoot();
     const skillsRoot = path.join(dataRoot, "skills-root");
@@ -2068,7 +2116,7 @@ describe("RuntimeToolBridge", () => {
           workspaceRoot,
         },
       ),
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       success: false,
       tool_name: "execute_bash",
       content: expect.stringContaining("命令安全检查失败"),
