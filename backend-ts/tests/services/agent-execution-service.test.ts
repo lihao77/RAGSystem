@@ -3,9 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
 import {
-  AgentExecutionService,
+  createAgentExecutionService,
   type AgentExecutionLogger,
-} from "../../src/services/agent/agent-execution-service.js";
+} from "../../src/services/agent/agent-execution-service/index.js";
 import { AgentSessionApplication } from "../../src/services/agent/agent-session-application.js";
 import {
   AgentRuntimeContextBuilder,
@@ -168,19 +168,16 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
     : null;
   const mock = createMockRuntimeCore(mode, "the answer");
   const contextBuilder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(store)]);
-  const service = new AgentExecutionService(
+  const service = createAgentExecutionService({
     sessions,
-    store,
-    runtimeCoreStub(agent, ready),
-    mock.core,
+    conversationStore: store,
+    runtimeCore: runtimeCoreStub(agent, ready),
+    agentRuntimeCore: mock.core,
     contextBuilder,
-    null,
-    null,
-    null,
-    null,
-    null,
-    { outboxDispatcher: dispatcher, clientEvents, logger: logger ?? undefined },
-  );
+    outboxDispatcher: dispatcher,
+    clientEvents,
+    logger: logger ?? null,
+  });
   return { service, store, requests: mock.requests, errors };
 }
 

@@ -1,43 +1,19 @@
 import { randomUUID } from "node:crypto";
 
-import type { AgentConfig } from "../../contracts/agent-config.js";
 import type {
   AgentExecuteResult,
   AgentRunStartResult,
-  CollaborateRequest,
   CheckpointRecoveryStartResult,
   ExecuteRequest,
-  ExecutionOverview,
   RollbackRetryStartResult,
-  RunningTasksResult,
-  ScopedExecutionDiagnostics,
-  ScopedTaskStatus,
-  SessionTaskStatus,
   StreamExecuteRequest,
-} from "../../contracts/execution.js";
-import { getSelectedLlm as resolveSelectedLlm } from "../../contracts/execution.js";
-import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
-import type { AgentContextCompressionService } from "./agent-context-compression-service.js";
-import type { AgentSessionApplication } from "./agent-session-application.js";
-import type { AgentRuntimeContextBuilder } from "./agent-runtime-context-builder.js";
-import type { CheckpointInfo } from "../stores/checkpoint-manager.js";
-import type { ConversationStore } from "../stores/conversation-store.js";
-import type { FileIndexService } from "../stores/file-index-service.js";
-import type { AgentRuntimeCore } from "./agent-runtime-core.js";
-import type { BackgroundTaskService } from "../runtime/background-task-service.js";
-import type { AgentPromptConfigResolver } from "./agent-prompt-builder.js";
-import type { RuntimeExecutionConfigResolver } from "../runtime/runtime-core-service.js";
-import type { RuntimeToolExecutor } from "../runtime/runtime-tool-types.js";
-import type { OutboxDispatcher } from "../runtime/event-outbox/dispatcher.js";
-import type { DurableClientEventPublisher } from "../runtime/event-outbox/client-event-publisher.js";
-import { AgentExecutionEventPublisher } from "./agent-execution-service/event-publisher.js";
-import { ExecutionRecorder } from "./agent-execution-service/recorder.js";
-import { AgentExecutionStatusTracker } from "./agent-execution-service/status-tracker.js";
-import { resolveReadyAgent } from "./agent-execution-service/readiness.js";
-import { AttachmentResolver, appendAttachmentContext } from "./agent-execution-service/attachment-resolver.js";
-import { SlashCommandHandler, parseSlashCommand } from "./agent-execution-service/slash-command-handler.js";
-import { FollowupQueue } from "./agent-execution-service/followup-queue.js";
-import { AgentRunEngine, type AgentExecutionLogger } from "./agent-execution-service/run-engine.js";
+} from "../../../contracts/execution.js";
+import { getSelectedLlm as resolveSelectedLlm } from "../../../contracts/execution.js";
+import type { AgentRuntimeContextBuilder } from "../agent-runtime-context-builder.js";
+import type { AgentSessionApplication } from "../agent-session-application.js";
+import type { CheckpointInfo } from "../../stores/checkpoint-manager.js";
+import type { ConversationStore } from "../../stores/conversation-store.js";
+import type { RuntimeExecutionConfigResolver } from "../../runtime/runtime-core-service.js";
 import {
   asString,
   buildRunningExecutionStatus,
@@ -46,78 +22,69 @@ import {
   checkpointMessagesToConversation,
   findLatestCheckpointUserTask,
   normalizeSessionEntryAgent,
-} from "./agent-execution-service/helpers.js";
+} from "./helpers.js";
+import { resolveReadyAgent } from "./readiness.js";
+import { appendAttachmentContext, type AttachmentResolver } from "./attachment-resolver.js";
+import { parseSlashCommand, type SlashCommandHandler } from "./slash-command-handler.js";
+import type { FollowupQueue } from "./followup-queue.js";
+import type { AgentRunEngine } from "./run-engine.js";
+import type { AgentExecutionStatusTracker } from "./status-tracker.js";
+import type { AgentExecutionEventPublisher } from "./event-publisher.js";
 
-export interface AgentExecutionServiceOptions {
-  outboxDispatcher?: Pick<OutboxDispatcher, "dispatchRows"> | undefined;
-  clientEvents?: DurableClientEventPublisher | undefined;
-  logger?: AgentExecutionLogger | undefined;
+export interface RollbackRetryInput {
+  sessionId: string;
+  userId?: string | null;
+  requestId: string;
+  afterSeq?: number | null;
+  afterMessageId?: string | null;
+  modifyUserMessage?: string | null;
+  selectedLlm?: string | null;
 }
 
-export type { AgentExecutionLogger } from "./agent-execution-service/run-engine.js";
+export interface CheckpointRecoveryInput {
+  sessionId: string;
+  userId?: string | null;
+  checkpoint: CheckpointInfo;
+  requestId: string;
+}
 
-export class AgentExecutionService {
-  private readonly statusTracker = new AgentExecutionStatusTracker();
-  private readonly followupQueue = new FollowupQueue();
-  private readonly eventPublisher: AgentExecutionEventPublisher;
-  private readonly executionRecorder: ExecutionRecorder;
-  private readonly outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">;
-  private readonly clientEvents: DurableClientEventPublisher;
-  private readonly logger: AgentExecutionLogger | null;
-  private readonly attachmentResolver: AttachmentResolver;
-  private readonly slashCommandHandler: SlashCommandHandler;
-  private readonly runEngine: AgentRunEngine;
+export interface LauncherApi {
+  startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult>;
+  executeSynchronously(request: ExecuteRequest, requestId: string): Promise<AgentExecuteResult>;
+  startRollbackRetry(input: RollbackRetryInput): Promise<RollbackRetryStartResult>;
+  startCheckpointRecovery(input: CheckpointRecoveryInput): Promise<CheckpointRecoveryStartResult>;
+}
 
+export interface LauncherDeps {
+  sessions: AgentSessionApplication;
+  conversationStore: ConversationStore;
+  runtimeCore: RuntimeExecutionConfigResolver;
+  contextBuilder: AgentRuntimeContextBuilder;
+  slashCommandHandler: SlashCommandHandler;
+  attachmentResolver: AttachmentResolver;
+  followupQueue: FollowupQueue;
+  statusTracker: AgentExecutionStatusTracker;
+  eventPublisher: AgentExecutionEventPublisher;
+  runEngine: AgentRunEngine;
+}
+
+/**
+ * 4 个启动入口（startStream/executeSynchronously/startRollbackRetry/startCheckpointRecovery）。
+ * 方法体原样来自原 AgentExecutionService（this.xxx 字段访问保持不变）。
+ */
+class AgentLaunchers {
   constructor(
     private readonly sessions: AgentSessionApplication,
     private readonly conversationStore: ConversationStore,
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
-    private readonly agentRuntimeCore: AgentRuntimeCore,
     private readonly contextBuilder: AgentRuntimeContextBuilder,
-    private readonly runtimeTools: RuntimeToolExecutor | null = null,
-    private readonly contextCompression: AgentContextCompressionService | null = null,
-    private readonly promptConfigResolver: AgentPromptConfigResolver | null = null,
-    private readonly backgroundTasks: BackgroundTaskService | null = null,
-    private readonly fileIndex: FileIndexService | null = null,
-    options: AgentExecutionServiceOptions = {},
-  ) {
-    if (!options.clientEvents) {
-      throw new Error("AgentExecutionService requires a durable client event publisher");
-    }
-    if (!options.outboxDispatcher) {
-      throw new Error("AgentExecutionService requires an outbox dispatcher");
-    }
-    this.clientEvents = options.clientEvents;
-    this.eventPublisher = new AgentExecutionEventPublisher(sessions, this.clientEvents, conversationStore);
-    this.executionRecorder = new ExecutionRecorder(conversationStore);
-    this.outboxDispatcher = options.outboxDispatcher;
-    this.logger = options.logger ?? null;
-    this.attachmentResolver = new AttachmentResolver(this.fileIndex);
-    this.slashCommandHandler = new SlashCommandHandler(
-      this.sessions,
-      this.statusTracker,
-      this.runtimeCore,
-      this.contextCompression,
-      this.contextBuilder,
-      this.clientEvents,
-    );
-    this.runEngine = new AgentRunEngine(
-      this.sessions,
-      this.conversationStore,
-      this.agentRuntimeCore,
-      this.contextBuilder,
-      this.runtimeTools,
-      this.contextCompression,
-      this.promptConfigResolver,
-      this.backgroundTasks,
-      this.statusTracker,
-      this.eventPublisher,
-      this.executionRecorder,
-      this.outboxDispatcher,
-      this.clientEvents,
-      this.logger,
-    );
-  }
+    private readonly slashCommandHandler: SlashCommandHandler,
+    private readonly attachmentResolver: AttachmentResolver,
+    private readonly followupQueue: FollowupQueue,
+    private readonly statusTracker: AgentExecutionStatusTracker,
+    private readonly eventPublisher: AgentExecutionEventPublisher,
+    private readonly runEngine: AgentRunEngine,
+  ) {}
 
   async startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult> {
     const sessionId = request.session_id?.trim() || randomUUID();
@@ -291,11 +258,11 @@ export class AgentExecutionService {
       abortController,
       status,
       agent: runtimeAgent,
-        provider: ready.provider,
-        modelName: ready.modelName,
-        userMessageId: userMessage.id,
-        conversationUpdateProvider: () => this.followupQueue.drain(sessionId),
-      });
+      provider: ready.provider,
+      modelName: ready.modelName,
+      userMessageId: userMessage.id,
+      conversationUpdateProvider: () => this.followupQueue.drain(sessionId),
+    });
     this.statusTracker.register(taskId, sessionId, { abortController, status, promise });
 
     return {
@@ -306,16 +273,6 @@ export class AgentExecutionService {
       request_id: requestId,
       kind: "agent_run",
     };
-  }
-
-  async stopSession(sessionId: string): Promise<boolean> {
-    const handle = this.statusTracker.getRunningHandleBySession(sessionId);
-    if (!handle) {
-      return false;
-    }
-    this.eventPublisher.publishUserInterrupt(handle.status, "user_stop");
-    handle.abortController.abort();
-    return true;
   }
 
   async executeSynchronously(request: ExecuteRequest, requestId: string): Promise<AgentExecuteResult> {
@@ -407,48 +364,7 @@ export class AgentExecutionService {
     });
   }
 
-  async collaborateSequentially(request: CollaborateRequest, requestId: string): Promise<{
-    results: AgentExecuteResult[];
-    session_id: string;
-    total_tasks: number;
-  }> {
-    const sessionId = request.session_id?.trim() || randomUUID();
-    const results: AgentExecuteResult[] = [];
-    for (const [index, taskItem] of request.tasks.entries()) {
-      const executeRequest: ExecuteRequest = {
-        task: taskItem.task,
-        session_id: sessionId,
-        user_id: request.user_id ?? null,
-        attachments: [],
-      };
-      if (taskItem.agent !== undefined) {
-        executeRequest.agent = taskItem.agent;
-      }
-      const result = await this.executeSynchronously(
-        executeRequest,
-        `${requestId}:${index + 1}`,
-      );
-      results.push(result);
-      if (!result.success) {
-        break;
-      }
-    }
-    return {
-      results,
-      session_id: sessionId,
-      total_tasks: request.tasks.length,
-    };
-  }
-
-  async startRollbackRetry(input: {
-    sessionId: string;
-    userId?: string | null;
-    requestId: string;
-    afterSeq?: number | null;
-    afterMessageId?: string | null;
-    modifyUserMessage?: string | null;
-    selectedLlm?: string | null;
-  }): Promise<RollbackRetryStartResult> {
+  async startRollbackRetry(input: RollbackRetryInput): Promise<RollbackRetryStartResult> {
     const sessionId = input.sessionId.trim();
     if (!sessionId) {
       return {
@@ -558,36 +474,7 @@ export class AgentExecutionService {
     };
   }
 
-  getSessionTaskStatus(sessionId: string): SessionTaskStatus {
-    return this.statusTracker.getSessionTaskStatus(sessionId);
-  }
-
-  getSessionExecutionDiagnostics(sessionId: string): ScopedExecutionDiagnostics {
-    return this.statusTracker.getSessionExecutionDiagnostics(sessionId);
-  }
-
-  getTaskStatus(taskId: string): ScopedTaskStatus {
-    return this.statusTracker.getTaskStatus(taskId);
-  }
-
-  getTaskExecutionDiagnostics(taskId: string): ScopedExecutionDiagnostics {
-    return this.statusTracker.getTaskExecutionDiagnostics(taskId);
-  }
-
-  listRunningTasks(): RunningTasksResult {
-    return this.statusTracker.listRunningTasks();
-  }
-
-  getOverview(activeOnly: boolean): ExecutionOverview {
-    return this.statusTracker.getOverview(activeOnly);
-  }
-
-  async startCheckpointRecovery(input: {
-    sessionId: string;
-    userId?: string | null;
-    checkpoint: CheckpointInfo;
-    requestId: string;
-  }): Promise<CheckpointRecoveryStartResult> {
+  async startCheckpointRecovery(input: CheckpointRecoveryInput): Promise<CheckpointRecoveryStartResult> {
     const sessionId = input.sessionId.trim();
     const baseResult = {
       session_id: sessionId || input.sessionId,
@@ -742,6 +629,25 @@ export class AgentExecutionService {
       agent_name: runtimeAgent.agent_name,
     };
   }
-
 }
 
+export function createLaunchers(deps: LauncherDeps): LauncherApi {
+  const impl = new AgentLaunchers(
+    deps.sessions,
+    deps.conversationStore,
+    deps.runtimeCore,
+    deps.contextBuilder,
+    deps.slashCommandHandler,
+    deps.attachmentResolver,
+    deps.followupQueue,
+    deps.statusTracker,
+    deps.eventPublisher,
+    deps.runEngine,
+  );
+  return {
+    startStream: impl.startStream.bind(impl),
+    executeSynchronously: impl.executeSynchronously.bind(impl),
+    startRollbackRetry: impl.startRollbackRetry.bind(impl),
+    startCheckpointRecovery: impl.startCheckpointRecovery.bind(impl),
+  };
+}

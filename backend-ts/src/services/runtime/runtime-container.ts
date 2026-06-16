@@ -1,5 +1,5 @@
-import { AgentExecutionService } from "../agent/agent-execution-service.js";
-import type { AgentExecutionLogger } from "../agent/agent-execution-service.js";
+import { createAgentExecutionService, type AgentExecutionService } from "../agent/agent-execution-service/index.js";
+import type { AgentExecutionLogger } from "../agent/agent-execution-service/index.js";
 import { AgentContextCompressionService } from "../agent/agent-context-compression-service.js";
 import { AgentDelegationService } from "../agent/agent-delegation-service.js";
 import {
@@ -186,23 +186,21 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   );
   agentDelegation.setRuntimeToolsProvider(() => runtimeToolBridge);
   runtimeToolBridge.setAgentDelegation(agentDelegation);
-  const agentExecution = new AgentExecutionService(
-    sessionApplication,
+  const agentExecution = createAgentExecutionService({
+    sessions: sessionApplication,
     conversationStore,
     runtimeCore,
     agentRuntimeCore,
-    agentRuntimeContextBuilder,
-    runtimeToolBridge,
+    contextBuilder: agentRuntimeContextBuilder,
+    runtimeTools: runtimeToolBridge,
     contextCompression,
-    agentConfig,
+    promptConfigResolver: agentConfig,
     backgroundTasks,
     fileIndex,
-    {
-      outboxDispatcher,
-      clientEvents,
-      logger: options.logger,
-    },
-  );
+    outboxDispatcher,
+    clientEvents,
+    logger: options.logger,
+  });
   let closed = false;
   const close = (): void => {
     if (closed) {
