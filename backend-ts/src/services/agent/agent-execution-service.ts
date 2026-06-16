@@ -21,7 +21,6 @@ import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
 import type { AgentContextCompressionService } from "./agent-context-compression-service.js";
 import type { AgentSessionApplication } from "./agent-session-application.js";
 import type { AgentRuntimeContextBuilder } from "./agent-runtime-context-builder.js";
-import type { AttachmentRef } from "../../contracts/execution.js";
 import type { CheckpointInfo } from "../stores/checkpoint-manager.js";
 import type { ConversationStore } from "../stores/conversation-store.js";
 import type { FileIndexService } from "../stores/file-index-service.js";
@@ -29,7 +28,6 @@ import type { AgentRuntimeCore } from "./agent-runtime-core.js";
 import type { BackgroundTaskService } from "../runtime/background-task-service.js";
 import { buildAgentPromptContext, type AgentPromptConfigResolver } from "./agent-prompt-builder.js";
 import type { ChatMessage } from "../integrations/llm-chat-client.js";
-import { renderSemanticBlock } from "../runtime/runtime-xml-protocol.js";
 import type { RuntimeExecutionConfigResolver } from "../runtime/runtime-core-service.js";
 import type { RuntimeToolExecutor } from "../runtime/runtime-tool-types.js";
 import type { OutboxDispatcher } from "../runtime/event-outbox/dispatcher.js";
@@ -37,8 +35,11 @@ import type { DurableClientEventPublisher } from "../runtime/event-outbox/client
 import { AgentExecutionEventPublisher } from "./agent-execution-service/event-publisher.js";
 import { ExecutionRecorder, type RunTerminalRecord } from "./agent-execution-service/recorder.js";
 import { AgentExecutionStatusTracker } from "./agent-execution-service/status-tracker.js";
+import { resolveReadyAgent } from "./agent-execution-service/readiness.js";
+import { AttachmentResolver, appendAttachmentContext } from "./agent-execution-service/attachment-resolver.js";
+import { SlashCommandHandler, parseSlashCommand } from "./agent-execution-service/slash-command-handler.js";
+import { FollowupQueue } from "./agent-execution-service/followup-queue.js";
 import {
-  applySessionAgentOverrides,
   asString,
   buildContextUsagePayload,
   buildFinalStepPayload,
@@ -53,7 +54,6 @@ import {
   normalizeSessionEntryAgent,
   renderBackgroundNotification,
   resolveLegacyContextBudget,
-  summarizeReadinessFailure,
 } from "./agent-execution-service/helpers.js";
 
 export interface AgentExecutionServiceOptions {
@@ -68,12 +68,14 @@ export interface AgentExecutionLogger {
 
 export class AgentExecutionService {
   private readonly statusTracker = new AgentExecutionStatusTracker();
-  private readonly pendingFollowupsBySession = new Map<string, ChatMessage[]>();
+  private readonly followupQueue = new FollowupQueue();
   private readonly eventPublisher: AgentExecutionEventPublisher;
   private readonly executionRecorder: ExecutionRecorder;
   private readonly outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">;
   private readonly clientEvents: DurableClientEventPublisher;
   private readonly logger: AgentExecutionLogger | null;
+  private readonly attachmentResolver: AttachmentResolver;
+  private readonly slashCommandHandler: SlashCommandHandler;
 
   constructor(
     private readonly sessions: AgentSessionApplication,
@@ -99,6 +101,15 @@ export class AgentExecutionService {
     this.executionRecorder = new ExecutionRecorder(conversationStore);
     this.outboxDispatcher = options.outboxDispatcher;
     this.logger = options.logger ?? null;
+    this.attachmentResolver = new AttachmentResolver(this.fileIndex);
+    this.slashCommandHandler = new SlashCommandHandler(
+      this.sessions,
+      this.statusTracker,
+      this.runtimeCore,
+      this.contextCompression,
+      this.contextBuilder,
+      this.clientEvents,
+    );
   }
 
   async startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult> {
@@ -106,7 +117,7 @@ export class AgentExecutionService {
     let task = request.task.trim();
     const slashCommand = parseSlashCommand(task);
     if (slashCommand) {
-      const commandResult = await this.handleSlashCommand({
+      const commandResult = await this.slashCommandHandler.handle({
         sessionId,
         userId: request.user_id ?? null,
         requestId,
@@ -126,7 +137,7 @@ export class AgentExecutionService {
         error: "Task and attachments cannot both be empty",
       };
     }
-    const attachmentResolution = this.resolveAttachments(sessionId, request.attachments);
+    const attachmentResolution = this.attachmentResolver.resolve(sessionId, request.attachments);
     if (attachmentResolution.error) {
       return {
         started: false,
@@ -153,7 +164,7 @@ export class AgentExecutionService {
           source: "running_session",
         },
       });
-      this.queueFollowup(sessionId, followupMessage.content);
+      this.followupQueue.queue(sessionId, followupMessage.content);
       const followupPayload = {
         id: followupMessage.id,
         seq: followupMessage.seq,
@@ -173,16 +184,20 @@ export class AgentExecutionService {
       };
     }
 
-    const resolved = this.runtimeCore.resolveExecutionConfig({
-      agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
-      teamName: asString(sessionMetadata.team),
-      selectedLlm: resolveSelectedLlm(request),
-    });
-    if (!resolved.readiness.configuration_ready || !resolved.agent || !resolved.provider || !resolved.modelName) {
+    const ready = resolveReadyAgent(
+      this.runtimeCore,
+      {
+        agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
+        teamName: asString(sessionMetadata.team),
+        selectedLlm: resolveSelectedLlm(request),
+      },
+      sessionMetadata,
+    );
+    if (!ready.ok) {
       return {
         started: false,
         session_id: sessionId,
-        error: summarizeReadinessFailure(resolved.readiness.requirements),
+        error: ready.reason,
       };
     }
 
@@ -204,7 +219,7 @@ export class AgentExecutionService {
     if (!this.sessions.getSession(sessionId)) {
       this.sessions.createSession({ sessionId, userId: request.user_id ?? null });
     }
-    const runtimeAgent = applySessionAgentOverrides(resolved.agent, sessionMetadata);
+    const runtimeAgent = ready.agent;
 
     this.conversationStore.createRun({
       runId,
@@ -269,10 +284,10 @@ export class AgentExecutionService {
       abortController,
       status,
       agent: runtimeAgent,
-        provider: resolved.provider,
-        modelName: resolved.modelName,
+        provider: ready.provider,
+        modelName: ready.modelName,
         userMessageId: userMessage.id,
-        conversationUpdateProvider: () => this.drainFollowups(sessionId),
+        conversationUpdateProvider: () => this.followupQueue.drain(sessionId),
       });
     this.statusTracker.register(taskId, sessionId, { abortController, status, promise });
 
@@ -333,12 +348,16 @@ export class AgentExecutionService {
     }
 
     const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
-    const resolved = this.runtimeCore.resolveExecutionConfig({
-      agentName: request.agent?.trim() || normalizeSessionEntryAgent(sessionMetadata.entry_agent),
-      teamName: asString(sessionMetadata.team),
-      selectedLlm: resolveSelectedLlm(request),
-    });
-    if (!resolved.readiness.configuration_ready || !resolved.agent || !resolved.provider || !resolved.modelName) {
+    const ready = resolveReadyAgent(
+      this.runtimeCore,
+      {
+        agentName: request.agent?.trim() || normalizeSessionEntryAgent(sessionMetadata.entry_agent),
+        teamName: asString(sessionMetadata.team),
+        selectedLlm: resolveSelectedLlm(request),
+      },
+      sessionMetadata,
+    );
+    if (!ready.ok) {
       return {
         success: false,
         answer: null,
@@ -349,11 +368,11 @@ export class AgentExecutionService {
         session_id: sessionId,
         run_id: null,
         task_id: null,
-        error: summarizeReadinessFailure(resolved.readiness.requirements),
+        error: ready.reason,
       };
     }
 
-    const runtimeAgent = applySessionAgentOverrides(resolved.agent, sessionMetadata);
+    const runtimeAgent = ready.agent;
     const started = this.startAgentRun({
       sessionId,
       userId: request.user_id ?? null,
@@ -362,8 +381,8 @@ export class AgentExecutionService {
       executionKind: "execute",
       entrypoint: "execute",
       agent: runtimeAgent,
-      provider: resolved.provider,
-      modelName: resolved.modelName,
+      provider: ready.provider,
+      modelName: ready.modelName,
       persistUserMessage: {
         metadata: {
           agent: runtimeAgent.agent_name,
@@ -478,20 +497,20 @@ export class AgentExecutionService {
     if (input.selectedLlm !== undefined) {
       resolveInput.selectedLlm = input.selectedLlm;
     }
-    const resolved = this.runtimeCore.resolveExecutionConfig(resolveInput);
-    if (!resolved.readiness.configuration_ready || !resolved.agent || !resolved.provider || !resolved.modelName) {
+    const ready = resolveReadyAgent(this.runtimeCore, resolveInput, sessionMetadata);
+    if (!ready.ok) {
       return {
         started: false,
         session_id: sessionId,
         deleted: prepared.deleted,
-        error: summarizeReadinessFailure(resolved.readiness.requirements),
+        error: ready.reason,
       };
     }
     if (!this.sessions.getSession(sessionId)) {
       this.sessions.createSession({ sessionId, userId: input.userId ?? null });
     }
 
-    const runtimeAgent = applySessionAgentOverrides(resolved.agent, sessionMetadata);
+    const runtimeAgent = ready.agent;
     const started = this.startAgentRun({
       sessionId,
       userId: input.userId ?? null,
@@ -500,8 +519,8 @@ export class AgentExecutionService {
       executionKind: "rollback_and_retry",
       entrypoint: "rollback_and_retry",
       agent: runtimeAgent,
-      provider: resolved.provider,
-      modelName: resolved.modelName,
+      provider: ready.provider,
+      modelName: ready.modelName,
       existingUserMessageId: prepared.message.id,
       userMessageSavedPayload: {
         id: prepared.message.id,
@@ -598,16 +617,20 @@ export class AgentExecutionService {
       };
     }
 
-    const resolved = this.runtimeCore.resolveExecutionConfig({
-      agentName: normalizeSessionEntryAgent(input.checkpoint.agent_name),
-      teamName: asString(sessionMetadata.team),
-    });
-    if (!resolved.readiness.configuration_ready || !resolved.agent || !resolved.provider || !resolved.modelName) {
+    const ready = resolveReadyAgent(
+      this.runtimeCore,
+      {
+        agentName: normalizeSessionEntryAgent(input.checkpoint.agent_name),
+        teamName: asString(sessionMetadata.team),
+      },
+      sessionMetadata,
+    );
+    if (!ready.ok) {
       return {
         started: false,
         ...baseResult,
         session_id: sessionId,
-        error: summarizeReadinessFailure(resolved.readiness.requirements),
+        error: ready.reason,
       };
     }
 
@@ -615,7 +638,7 @@ export class AgentExecutionService {
       this.sessions.createSession({ sessionId, userId: input.userId ?? null });
     }
 
-    const runtimeAgent = applySessionAgentOverrides(resolved.agent, sessionMetadata);
+    const runtimeAgent = ready.agent;
     const runId = randomUUID();
     const taskId = randomUUID();
     const rootCallId = `call_${randomUUID()}`;
@@ -687,8 +710,8 @@ export class AgentExecutionService {
       abortController,
       status,
       agent: runtimeAgent,
-      provider: resolved.provider,
-      modelName: resolved.modelName,
+      provider: ready.provider,
+      modelName: ready.modelName,
       executionKind,
       contextConversation: recoveryConversation,
       stablePrefixFingerprint: baseContext.metadata.stable_prefix_fingerprint,
@@ -1173,24 +1196,6 @@ export class AgentExecutionService {
     }
   }
 
-  private queueFollowup(sessionId: string, content: string): void {
-    const followups = this.pendingFollowupsBySession.get(sessionId) ?? [];
-    followups.push({
-      role: "user",
-      content: renderSemanticBlock("user_followup", content, { source: "running_session" }),
-    });
-    this.pendingFollowupsBySession.set(sessionId, followups);
-  }
-
-  private drainFollowups(sessionId: string): ChatMessage[] {
-    const followups = this.pendingFollowupsBySession.get(sessionId);
-    if (!followups?.length) {
-      return [];
-    }
-    this.pendingFollowupsBySession.delete(sessionId);
-    return followups.map((message) => ({ ...message }));
-  }
-
   private async drainConversationUpdates(
     sessionId: string,
     provider?: (() => Promise<ChatMessage[]> | ChatMessage[]) | undefined,
@@ -1211,324 +1216,6 @@ export class AgentExecutionService {
   private resolveContextBudget(agent: AgentConfig, provider: ModelProviderConfig): number {
     return this.contextCompression?.resolveContextBudget(agent, provider) ?? resolveLegacyContextBudget(agent, provider);
   }
-
-  private handleSlashCommand(input: {
-    sessionId: string;
-    userId: string | null;
-    requestId: string;
-    selectedLlm: string;
-    command: ParsedSlashCommand;
-    originalTask: string;
-  }): Promise<AgentRunStartResult | null> {
-    if (input.command.mode === "prompt") {
-      return Promise.resolve(null);
-    }
-    return this.executeSystemSlashCommand(input);
-  }
-
-  private async executeSystemSlashCommand(input: {
-    sessionId: string;
-    userId: string | null;
-    requestId: string;
-    selectedLlm: string;
-    command: ParsedSlashCommand;
-    originalTask: string;
-  }): Promise<AgentRunStartResult> {
-    if (!this.sessions.getSession(input.sessionId)) {
-      this.sessions.createSession({ sessionId: input.sessionId, userId: input.userId });
-    }
-    this.sessions.addMessage({
-      sessionId: input.sessionId,
-      role: "user",
-      content: input.originalTask,
-      metadata: {
-        type: "command",
-        command: input.command.name,
-        command_mode: input.command.mode,
-      },
-    });
-    const result = await this.resolveSystemSlashCommandResult(input);
-    const message = this.sessions.addMessage({
-      sessionId: input.sessionId,
-      role: "system",
-      content: result.content,
-      metadata: {
-        type: "command_result",
-        command: result.command,
-        success: result.success,
-        ...(result.error ? { error: result.error } : {}),
-      },
-    });
-    this.clientEvents.publish(input.sessionId, {
-      type: "command.result",
-      session_id: input.sessionId,
-      data: {
-        command: result.command,
-        success: result.success,
-        content: result.content,
-        ...(result.error ? { error: result.error } : {}),
-        ...(result.data !== undefined ? { data: result.data } : {}),
-        message_id: message.id,
-      },
-    }, {
-      aggregateType: "session",
-      aggregateId: input.sessionId,
-    });
-    return {
-      started: result.success,
-      session_id: input.sessionId,
-      kind: "command",
-    };
-  }
-
-  private async resolveSystemSlashCommandResult(input: {
-    sessionId: string;
-    requestId: string;
-    selectedLlm: string;
-    command: ParsedSlashCommand;
-  }): Promise<SystemSlashCommandResult> {
-    if (input.command.name !== "compact") {
-      return executeStaticSystemSlashCommand(input.command);
-    }
-    const runningStatus = this.statusTracker.getStatusBySession(input.sessionId);
-    if (runningStatus?.status === "running" || runningStatus?.status === "pending") {
-      return {
-        command: "compact",
-        success: false,
-        content: "该会话正在执行任务，请等待完成后再压缩",
-      };
-    }
-    if (!this.contextCompression) {
-      return {
-        command: "compact",
-        success: false,
-        content: "当前 TypeScript runtime 未启用上下文压缩服务",
-        error: "compression_unavailable",
-      };
-    }
-    const sessionMetadata = this.sessions.getSession(input.sessionId)?.metadata ?? {};
-    const resolved = this.runtimeCore.resolveExecutionConfig({
-      agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
-      teamName: asString(sessionMetadata.team),
-      selectedLlm: input.selectedLlm,
-    });
-    if (!resolved.readiness.configuration_ready || !resolved.agent || !resolved.provider || !resolved.modelName) {
-      return {
-        command: "compact",
-        success: false,
-        content: summarizeReadinessFailure(resolved.readiness.requirements),
-        error: "runtime_not_ready",
-      };
-    }
-    try {
-      const result = await this.contextCompression.forceCompactSession({
-        sessionId: input.sessionId,
-        agent: applySessionAgentOverrides(resolved.agent, sessionMetadata),
-        provider: resolved.provider,
-        modelName: resolved.modelName,
-        requestId: input.requestId,
-        onEvent: (event) => {
-          this.clientEvents.publish(input.sessionId, {
-            type: event.type,
-            session_id: input.sessionId,
-            agent_name: resolved.agent?.agent_name,
-            ...mirrorEventData(event.data),
-          }, {
-            aggregateType: "session",
-            aggregateId: input.sessionId,
-          });
-        },
-      });
-      if (result.status === "success" || result.status === "fallback") {
-        this.contextBuilder.buildContext({
-          sessionId: input.sessionId,
-          agent: applySessionAgentOverrides(resolved.agent, sessionMetadata),
-          historyLimit: 0,
-          forceMemoryPrefixRefresh: true,
-        });
-      }
-      if (result.status === "skipped") {
-        return {
-          command: "compact",
-          success: true,
-          content: "无需压缩（历史为空或消息不足）",
-          data: result,
-        };
-      }
-      return {
-        command: "compact",
-        success: true,
-        content: `压缩完成：${result.before} → ${result.after} 条消息，节省 ${result.tokens_saved} tokens`,
-        data: result,
-      };
-    } catch (error) {
-      return {
-        command: "compact",
-        success: false,
-        content: `压缩失败: ${error instanceof Error ? error.message : String(error)}`,
-      };
-    }
-  }
-
-  private resolveAttachments(
-    sessionId: string,
-    attachments: AttachmentRef[],
-  ): { attachments: ResolvedAttachment[]; error?: string } {
-    if (!attachments.length) {
-      return { attachments: [] };
-    }
-    if (!this.fileIndex) {
-      return { attachments: [], error: "Attachments are not supported by this TypeScript runtime instance" };
-    }
-    const resolved: ResolvedAttachment[] = [];
-    for (const attachment of attachments) {
-      const fileId = attachment.file_id.trim();
-      if (!fileId) {
-        return { attachments: [], error: "附件 file_id 不能为空" };
-      }
-      const record = this.fileIndex.get(fileId, "session", sessionId);
-      if (!record) {
-        return { attachments: [], error: `附件不存在或不属于当前会话: ${fileId}` };
-      }
-      resolved.push({
-        file_id: record.id,
-        original_name: record.original_name,
-        stored_name: record.stored_name,
-        stored_path: record.stored_path,
-        mime: record.mime || attachment.mime || "",
-        size: record.size,
-        kind: attachment.kind ?? (record.mime.startsWith("image/") ? "image" : "file"),
-      });
-    }
-    return { attachments: resolved };
-  }
-}
-
-interface ResolvedAttachment {
-  file_id: string;
-  original_name: string;
-  stored_name: string;
-  stored_path: string;
-  mime: string;
-  size: number;
-  kind: string;
-}
-
-interface ParsedSlashCommand {
-  name: string;
-  args: string;
-  mode: "system" | "prompt";
-  expandedTask: string;
-}
-
-const PROMPT_SLASH_COMMANDS: Record<string, { description: string; template: string }> = {
-  review: {
-    description: "代码审查",
-    template: "请对以下内容进行全面的代码审查，包括代码质量、安全性和性能优化建议：{args}",
-  },
-  analyze: {
-    description: "深度分析",
-    template: "请深入分析以下问题，给出详细的技术分析和建议：{args}",
-  },
-  explain: {
-    description: "详细解释",
-    template: "请详细解释以下概念或代码，用通俗易懂的方式：{args}",
-  },
-};
-
-interface SystemSlashCommandResult {
-  command: string;
-  success: boolean;
-  content: string;
-  error?: string;
-  data?: unknown;
-}
-
-function parseSlashCommand(task: string): ParsedSlashCommand | null {
-  const trimmed = task.trim();
-  if (!trimmed.startsWith("/")) {
-    return null;
-  }
-  const [rawCommand = "", ...rest] = trimmed.split(/\s+/);
-  const name = rawCommand.slice(1).toLowerCase();
-  const args = rest.join(" ").trim();
-  if (name === "help" || name === "compact") {
-    return {
-      name,
-      args,
-      mode: "system",
-      expandedTask: "",
-    };
-  }
-  const promptCommand = PROMPT_SLASH_COMMANDS[name];
-  if (!promptCommand) {
-    return {
-      name,
-      args,
-      mode: "system",
-      expandedTask: "",
-    };
-  }
-  if (!args) {
-    return {
-      name,
-      args,
-      mode: "system",
-      expandedTask: "",
-    };
-  }
-  return {
-    name,
-    args,
-    mode: "prompt",
-    expandedTask: promptCommand.template.replace("{args}", args),
-  };
-}
-
-function executeStaticSystemSlashCommand(command: ParsedSlashCommand): SystemSlashCommandResult {
-  if (command.name === "help") {
-    const lines = [
-      "可用命令：",
-      "",
-      "  /help          [系统] 显示可用命令列表",
-      "  /compact       [系统] 强制压缩上下文",
-      "  /review        [提示词] 代码审查",
-      "  /analyze       [提示词] 深度分析",
-      "  /explain       [提示词] 详细解释",
-      "",
-      "提示词命令后跟内容，如: /review 当前仓库代码",
-    ];
-    return { command: "help", success: true, content: lines.join("\n") };
-  }
-  const promptCommand = PROMPT_SLASH_COMMANDS[command.name];
-  if (promptCommand && !command.args.trim()) {
-    return {
-      command: command.name,
-      success: false,
-      content: `用法: /${command.name} <内容>\n${promptCommand.description}`,
-      error: "missing_args",
-    };
-  }
-  return {
-    command: command.name || "unknown",
-    success: false,
-    content: `未知命令: /${command.name}\n输入 /help 查看可用命令`,
-    error: "unknown_command",
-  };
-}
-
-function appendAttachmentContext(task: string, attachments: ResolvedAttachment[]): string {
-  if (!attachments.length) {
-    return task;
-  }
-  const lines = ["[普通文件附件引用]"];
-  for (const attachment of attachments) {
-    lines.push(
-      `- file_id=${attachment.file_id} | name=${attachment.original_name || attachment.stored_name || "attachment"} | mime=${attachment.mime || "unknown"} | size=${attachment.size} | file_path=${attachment.stored_path}`,
-    );
-  }
-  const suffix = lines.join("\n");
-  return task ? `${task}\n\n${suffix}` : suffix;
 }
 
 function numberOrNull(value: unknown): number | null {
