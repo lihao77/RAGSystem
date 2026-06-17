@@ -1,5 +1,5 @@
 import type { MessageInfo } from "../../../contracts/session.js";
-import type { ConversationStore, RunStepRecord } from "../../stores/conversation-store/index.js";
+import type { IConversationTransactionRunner, RunStepRecord } from "../../stores/conversation-store/index.js";
 import type { OutboxRow } from "../../stores/conversation-store/types.js";
 
 export type RunTerminalStatus = "completed" | "failed" | "interrupted";
@@ -46,7 +46,7 @@ export interface RunTerminalRecord {
 }
 
 export class ExecutionRecorder {
-  constructor(private readonly conversationStore: ConversationStore) {}
+  constructor(private readonly conversationStore: IConversationTransactionRunner) {}
 
   recordRunTerminal(input: RunCompletedRecordInput | RunFailedRecordInput): RunTerminalRecord {
     return input.status === "completed" ? this.recordCompleted(input) : this.recordFailed(input);

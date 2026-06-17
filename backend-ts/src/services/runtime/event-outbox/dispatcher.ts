@@ -1,5 +1,5 @@
 import type { ClientEvent } from "../../../contracts/events.js";
-import type { ConversationStore } from "../../stores/conversation-store/index.js";
+import type { IOutboxStore } from "../../stores/conversation-store/index.js";
 import type { OutboxRow } from "../../stores/conversation-store/types.js";
 import type { RealtimeEventHub } from "../realtime-event-hub.js";
 import { ClientEventProjector } from "./projector.js";
@@ -36,7 +36,7 @@ export class OutboxDispatcher {
   };
 
   constructor(
-    private readonly conversationStore: ConversationStore,
+    private readonly conversationStore: IOutboxStore,
     private readonly realtimeEvents: RealtimeEventHub,
     private readonly projector = new ClientEventProjector(),
     options: OutboxDispatcherOptions = {},

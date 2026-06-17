@@ -2,7 +2,7 @@ import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { MessageInfo } from "../../contracts/session.js";
 import type { SystemConfigData } from "../../contracts/system-config.js";
 import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
-import type { ConversationStore } from "../stores/conversation-store/index.js";
+import type { IMessageStore } from "../stores/conversation-store/index.js";
 import type { ChatMessage, LlmChatClient } from "../integrations/llm-chat-client.js";
 import type { SystemConfigService } from "../config/system-config-service.js";
 import { resolveCompressionView } from "./agent-runtime-context-builder.js";
@@ -86,7 +86,7 @@ const COMPACT_PROMPT_BODY = `<summary>
 
 export class AgentContextCompressionService {
   constructor(
-    private readonly conversationStore: ConversationStore,
+    private readonly conversationStore: IMessageStore,
     private readonly llmChatClient: LlmChatClient,
     private readonly systemConfig: SystemConfigService,
   ) {}

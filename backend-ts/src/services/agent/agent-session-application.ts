@@ -1,11 +1,11 @@
 import type { PaginatedResult } from "../../contracts/common.js";
 import { normalizeSessionMetadata, type MessageInfo, type SessionInfo, type SessionListItem } from "../../contracts/session.js";
-import type { ConversationStore } from "../stores/conversation-store/index.js";
+import type { ISessionStore, IMessageStore, IRunStore } from "../stores/conversation-store/index.js";
 import type { FileHistoryService } from "../stores/file-history-service.js";
 
 export class AgentSessionApplication {
   constructor(
-    private readonly conversationStore: ConversationStore,
+    private readonly conversationStore: ISessionStore & IMessageStore & IRunStore,
     private readonly fileHistory: FileHistoryService | null = null,
   ) {}
 

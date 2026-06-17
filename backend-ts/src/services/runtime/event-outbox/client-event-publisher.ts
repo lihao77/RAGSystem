@@ -1,7 +1,7 @@
 import type { ClientEvent } from "../../../contracts/events.js";
 import type {
   AppendOutboxInput,
-  ConversationStore,
+  IOutboxStore,
   ConversationStoreTransaction,
 } from "../../stores/conversation-store/index.js";
 import type { OutboxRow } from "../../stores/conversation-store/types.js";
@@ -26,7 +26,7 @@ export interface RecordedClientEvent {
 
 export class DurableClientEventPublisher {
   constructor(
-    private readonly conversationStore: ConversationStore,
+    private readonly conversationStore: IOutboxStore,
     private readonly outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">,
   ) {}
 

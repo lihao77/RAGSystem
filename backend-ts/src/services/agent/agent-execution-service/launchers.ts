@@ -12,7 +12,7 @@ import { getSelectedLlm as resolveSelectedLlm } from "../../../contracts/executi
 import type { AgentRuntimeContextBuilder } from "../agent-runtime-context-builder.js";
 import type { AgentSessionApplication } from "../agent-session-application.js";
 import type { CheckpointInfo } from "../../stores/checkpoint-manager.js";
-import type { ConversationStore } from "../../stores/conversation-store/index.js";
+import type { IRunStore } from "../../stores/conversation-store/index.js";
 import type { RuntimeExecutionConfigResolver } from "../../runtime/runtime-core-service.js";
 import {
   asString,
@@ -57,7 +57,7 @@ export interface LauncherApi {
 
 export interface LauncherDeps {
   sessions: AgentSessionApplication;
-  conversationStore: ConversationStore;
+  conversationStore: IRunStore;
   runtimeCore: RuntimeExecutionConfigResolver;
   contextBuilder: AgentRuntimeContextBuilder;
   slashCommandHandler: SlashCommandHandler;
@@ -75,7 +75,7 @@ export interface LauncherDeps {
 class AgentLaunchers {
   constructor(
     private readonly sessions: AgentSessionApplication,
-    private readonly conversationStore: ConversationStore,
+    private readonly conversationStore: IRunStore,
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
     private readonly contextBuilder: AgentRuntimeContextBuilder,
     private readonly slashCommandHandler: SlashCommandHandler,

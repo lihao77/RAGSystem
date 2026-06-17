@@ -4,7 +4,7 @@ import type { ExecutionTaskStatus } from "../../../contracts/execution.js";
 import type { ContextCompressionEvent } from "../agent-context-compression-service.js";
 import type { AgentSessionApplication } from "../agent-session-application.js";
 import type { AgentRuntimeEvent } from "../agent-runtime-core.js";
-import type { ConversationStore } from "../../stores/conversation-store/index.js";
+import type { IConversationTransactionRunner } from "../../stores/conversation-store/index.js";
 import type {
   DurableClientEventPublisher,
   RecordedClientEvent,
@@ -24,7 +24,7 @@ export class AgentExecutionEventPublisher {
   constructor(
     private readonly sessions: AgentSessionApplication,
     private readonly clientEvents: DurableClientEventPublisher,
-    private readonly conversationStore: ConversationStore,
+    private readonly conversationStore: IConversationTransactionRunner,
   ) {}
 
   publishSessionRunStarted(sessionId: string, runId: string, payload: Record<string, unknown>): void {
