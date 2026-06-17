@@ -20,6 +20,7 @@ import type {
   VectorSearchResult,
 } from "../../contracts/vector-library.js";
 import type { IFileIndexStore } from "../../contracts/file-index-store/index.js";
+import type { IVectorStore } from "../../contracts/vector-store/index.js";
 import type { ModelAdapterService } from "../integrations/model-adapter-service.js";
 import { VectorLibraryServiceError } from "../../contracts/vector-library.js";
 
@@ -35,11 +36,16 @@ export class VectorLibraryService {
   private readonly rerankersConfigPath: string;
   private activeVectorizerKey: string | null = null;
   private activeRerankerKey: string | null = null;
+  private readonly vectorStore: IVectorStore | undefined;
 
   constructor(
     private readonly fileIndex: IFileIndexStore,
     private readonly modelAdapter: ModelAdapterService,
-    options: { dbPath?: string | undefined; dataRoot?: string | undefined } = {},
+    options: {
+      dbPath?: string | undefined;
+      dataRoot?: string | undefined;
+      vectorStore?: IVectorStore | undefined;
+    } = {},
   ) {
     this.dataRoot = path.resolve(options.dataRoot?.trim() || path.join(os.homedir(), ".ragsystem"));
     this.vectorizersConfigPath = path.join(this.dataRoot, "config", "vector_store", "vectorizers.yaml");
@@ -51,6 +57,7 @@ export class VectorLibraryService {
     this.db = new DatabaseSync(dbPath);
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA synchronous = NORMAL");
+    this.vectorStore = options.vectorStore;
     this.initDatabase();
     this.activeVectorizerKey = this.readSetting("active_vectorizer_key");
     this.activeRerankerKey = this.readSetting("active_reranker_key");
@@ -58,6 +65,7 @@ export class VectorLibraryService {
 
   close(): void {
     this.db.close();
+    this.vectorStore?.close();
   }
 
   fileStatus(): VectorFileStatusResponse {
