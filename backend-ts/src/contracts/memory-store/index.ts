@@ -27,6 +27,8 @@ export * from "./types.js";
  */
 export interface IMemoryStore {
   loadIndexHead(scopeSpec: MemoryScopeSpec, options?: MemoryIndexReadOptions): string;
+  // TODO 文件系统后端耦合：返回 MEMORY.md 物理路径，换 KV/DB 后端时无意义。届时应连同
+  //   MemoryExecution 的 index_file_path 工具输出一起重新设计（或抽象为通用位置标识）。
   getIndexPath(scopeSpec: MemoryScopeSpec): string;
   readEntryFile(scopeSpec: MemoryScopeSpec, fileName: string): MemoryEntryFile | null;
   saveMemory(input: SaveMemoryInput): SavedMemoryFile;

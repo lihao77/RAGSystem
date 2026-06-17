@@ -58,7 +58,7 @@ export interface MemoryEntryFile {
 export interface MemoryEntry {
   name: string;
   description: string;
-  scope: string;
+  scope: MemoryScopeName;
   memory_type: string;
   status: string;
   file_name: string;

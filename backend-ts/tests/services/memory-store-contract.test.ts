@@ -96,6 +96,11 @@ describe("IMemoryStore 契约", () => {
     expect(store.listEntries(sessionScope("s1"))).toHaveLength(0);
     expect(store.listEntries(sessionScope("s1"), { includeArchived: true })).toHaveLength(1);
   });
+
+  it("saveMemory 非白名单 memory_type 抛错（深合约前置条件）", () => {
+    const store = build();
+    expect(() => store.saveMemory({ ...baseSave("s1", "m1"), memory_type: "invalid" })).toThrow();
+  });
 });
 
 describe("输入边界 zod 契约", () => {

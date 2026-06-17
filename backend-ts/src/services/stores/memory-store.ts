@@ -246,7 +246,7 @@ function readEntry(filePath: string): MemoryEntry | null {
   return {
     name: metadata.name ?? path.basename(filePath, path.extname(filePath)),
     description: metadata.description ?? "",
-    scope: metadata.type ?? "session",
+    scope: asMemoryScopeName(metadata.type),
     memory_type: metadata.memory_type ?? "fact",
     status: metadata.status ?? "active",
     file_name: path.basename(filePath),
@@ -284,4 +284,8 @@ function titleCase(value: string): string {
 
 function normalizeString(value: string | null | undefined): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function asMemoryScopeName(value: string | undefined): MemoryScopeName {
+  return value === "team" || value === "agent" || value === "workspace" ? value : "session";
 }
