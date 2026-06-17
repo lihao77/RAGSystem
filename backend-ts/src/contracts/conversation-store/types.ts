@@ -20,6 +20,8 @@ export const OutboxStatusSchema = z.enum(["pending", "retrying", "delivered", "f
 export type OutboxStatus = z.infer<typeof OutboxStatusSchema>;
 
 // ────────────────────────────── 输入边界（zod schema + z.infer） ──────────────────────────────
+// TODO 校验覆盖一致性：当前仅 addMessage/appendOutbox 入口 parse，其余 *Input 仅定义形状；
+// 运行时校验待统一接入（事务 facade 与 ops 间内部调用信任输入）。契约 v2（位置参数→input）一并处理。
 
 export const AddMessageInputSchema = z.object({
   sessionId: z.string(),
@@ -100,7 +102,7 @@ export interface OutboxRow {
   aggregate_type: string;
   aggregate_id: string;
   payload: string;
-  status: string;
+  status: OutboxStatus;
   attempts: number;
   available_at: string | null;
   locked_at: string | null;
