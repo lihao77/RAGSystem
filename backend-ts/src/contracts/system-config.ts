@@ -42,3 +42,26 @@ export type SystemConfigValue =
   | { [key: string]: SystemConfigValue };
 
 export type SystemConfigData = Record<string, SystemConfigValue>;
+
+/**
+ * 类型化配置组(渐进式实质契约):对应组经 SystemConfigService.getXxxConfig() 暴露类型化访问。
+ * SystemConfigData 保持宽泛 Record 以兼容 deepMerge/cloneConfig 与 Python 共享文件;
+ * 这些结构化类型仅约束 TS 端读取,不改变磁盘 yaml 结构。
+ */
+export interface ToolsConfig {
+  bash_default_timeout: number;
+  bash_max_timeout: number;
+  bash_max_output: number;
+  code_default_timeout: number;
+  code_max_timeout: number;
+}
+
+export interface MemoryConfig {
+  index_max_lines: number;
+  index_max_chars: number;
+  search_limit: number;
+}
+
+export interface SystemGroupConfig {
+  max_content_length: number;
+}

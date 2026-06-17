@@ -110,9 +110,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     origin: options.env.corsOrigins,
     credentials: true,
   });
+  const maxContentLength = container.systemConfig.getSystemGroupConfig().max_content_length;
   await app.register(multipart, {
     limits: {
-      fileSize: 100 * 1024 * 1024,
+      fileSize: maxContentLength,
       files: 20,
     },
   });

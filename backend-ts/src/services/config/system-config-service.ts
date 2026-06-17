@@ -5,10 +5,13 @@ import path from "node:path";
 import YAML from "yaml";
 
 import type {
+  MemoryConfig,
   SystemConfigData,
   SystemConfigSchema,
   SystemConfigUpdate,
   SystemConfigValue,
+  SystemGroupConfig,
+  ToolsConfig,
 } from "../../contracts/system-config.js";
 
 const REDACTED_VALUE = "********";
@@ -39,6 +42,21 @@ export class SystemConfigService {
 
   getConfig(): SystemConfigData {
     return redactSensitiveConfig(cloneConfig(this.config));
+  }
+
+  /** 类型化读取 tools 组(防御:缺失/非法字段回退默认值,兼容 Python 写回的不完整 yaml)。 */
+  getToolsConfig(): ToolsConfig {
+    return normalizeToolsConfig(this.config.tools);
+  }
+
+  /** 类型化读取 memory 组。 */
+  getMemoryConfig(): MemoryConfig {
+    return normalizeMemoryConfig(this.config.memory);
+  }
+
+  /** 类型化读取 system 组。 */
+  getSystemGroupConfig(): SystemGroupConfig {
+    return normalizeSystemGroupConfig(this.config.system);
   }
 
   updateConfig(update: SystemConfigUpdate): SystemConfigData {
@@ -414,4 +432,36 @@ function isSensitiveKey(key: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function positiveIntOrDefault(value: unknown, defaultValue: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : defaultValue;
+}
+
+// 默认值须与 buildDefaultConfig() 保持同步(单一来源在 buildDefaultConfig,此处重复仅为 normalize 兜底)。
+function normalizeToolsConfig(value: unknown): ToolsConfig {
+  const record = isRecord(value) ? value : {};
+  return {
+    bash_default_timeout: positiveIntOrDefault(record.bash_default_timeout, 120),
+    bash_max_timeout: positiveIntOrDefault(record.bash_max_timeout, 600),
+    bash_max_output: positiveIntOrDefault(record.bash_max_output, 50000),
+    code_default_timeout: positiveIntOrDefault(record.code_default_timeout, 60),
+    code_max_timeout: positiveIntOrDefault(record.code_max_timeout, 300),
+  };
+}
+
+function normalizeMemoryConfig(value: unknown): MemoryConfig {
+  const record = isRecord(value) ? value : {};
+  return {
+    index_max_lines: positiveIntOrDefault(record.index_max_lines, 200),
+    index_max_chars: positiveIntOrDefault(record.index_max_chars, 25600),
+    search_limit: positiveIntOrDefault(record.search_limit, 5),
+  };
+}
+
+function normalizeSystemGroupConfig(value: unknown): SystemGroupConfig {
+  const record = isRecord(value) ? value : {};
+  return {
+    max_content_length: positiveIntOrDefault(record.max_content_length, 104857600),
+  };
 }

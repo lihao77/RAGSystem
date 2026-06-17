@@ -128,7 +128,12 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const memoryTools = new MemoryToolService(memoryStore, conversationStore);
   const documentTools = new LocalDocumentToolService({ dataRoot: options.dataRoot, fileHistory });
   const backgroundTasks = new BackgroundTaskService();
-  const codeExecutionTools = new CodeExecutionToolService({ dataRoot: options.dataRoot });
+  const toolsConfig = systemConfig.getToolsConfig();
+  const codeExecutionTools = new CodeExecutionToolService({
+    dataRoot: options.dataRoot,
+    defaultTimeoutSeconds: toolsConfig.code_default_timeout,
+    maxTimeoutSeconds: toolsConfig.code_max_timeout,
+  });
   const skillTools = new SkillToolService({
     dataRoot: options.dataRoot,
     agentConfig,
@@ -138,12 +143,11 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   });
   agentConfig.setSkillToolService(skillTools);
   const searchTools = new LocalSearchToolService({ dataRoot: options.dataRoot });
-  const toolsConfig = asRecord(systemConfig.getConfig().tools);
   const bashTools = new LocalBashToolService({
     dataRoot: options.dataRoot,
-    defaultTimeoutSeconds: asNumber(toolsConfig?.bash_default_timeout),
-    maxTimeoutSeconds: asNumber(toolsConfig?.bash_max_timeout),
-    maxOutputChars: asNumber(toolsConfig?.bash_max_output),
+    defaultTimeoutSeconds: toolsConfig.bash_default_timeout,
+    maxTimeoutSeconds: toolsConfig.bash_max_timeout,
+    maxOutputChars: toolsConfig.bash_max_output,
     backgroundTasks,
     clientEvents,
   });
@@ -172,8 +176,13 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const agentRuntimeCore = new AgentRuntimeCore(llmChatClient, { dataRoot: options.dataRoot });
   const contextCompression = new AgentContextCompressionService(conversationStore, llmChatClient, systemConfig);
+  const memoryConfig = systemConfig.getMemoryConfig();
   const agentRuntimeContextBuilder = new AgentRuntimeContextBuilder([
-    new MemoryIndexContextSource(conversationStore, { memoryStore }),
+    new MemoryIndexContextSource(conversationStore, {
+      memoryStore,
+      indexMaxLines: memoryConfig.index_max_lines,
+      indexMaxChars: memoryConfig.index_max_chars,
+    }),
     new RecentMessagesContextSource(conversationStore),
   ], { systemConfig });
   const agentDelegation = new AgentDelegationService(

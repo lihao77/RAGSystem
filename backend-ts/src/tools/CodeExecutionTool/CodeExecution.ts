@@ -22,10 +22,25 @@ export interface CodeExecutionInput {
 
 export class CodeExecutionToolService {
   private readonly dataRoot: string;
+  private readonly defaultTimeoutSeconds: number;
+  private readonly maxTimeoutSeconds: number;
   private runtimeTools: RuntimeToolExecutor | null = null;
 
-  constructor(options: { dataRoot?: string | undefined } = {}) {
+  constructor(options: {
+    dataRoot?: string | undefined;
+    defaultTimeoutSeconds?: number | undefined;
+    maxTimeoutSeconds?: number | undefined;
+  } = {}) {
     this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
+    this.defaultTimeoutSeconds = options.defaultTimeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS;
+    this.maxTimeoutSeconds = options.maxTimeoutSeconds ?? MAX_TIMEOUT_SECONDS;
+  }
+
+  clampTimeout(value: number | null | undefined): number {
+    if (value === null || value === undefined || !Number.isInteger(value)) {
+      return this.defaultTimeoutSeconds;
+    }
+    return Math.max(1, Math.min(this.maxTimeoutSeconds, value));
   }
 
   setRuntimeTools(runtimeTools: RuntimeToolExecutor | null): void {
@@ -43,7 +58,7 @@ export class CodeExecutionToolService {
       return errorResult(`代码安全检查失败: ${safetyError}`, toolName);
     }
 
-    const timeoutSeconds = clampTimeout(input.timeout);
+    const timeoutSeconds = this.clampTimeout(input.timeout);
     const roots = this.buildRoots(context);
     for (const root of Object.values(roots)) {
       fs.mkdirSync(root, { recursive: true });
@@ -215,13 +230,6 @@ export class CodeExecutionToolService {
 
 function resolvePythonExecutable(): string {
   return process.env.RAGSYSTEM_PYTHON ?? process.env.PYTHON ?? "python";
-}
-
-function clampTimeout(value: number | null | undefined): number {
-  if (!Number.isInteger(value) || value === null || value === undefined) {
-    return DEFAULT_TIMEOUT_SECONDS;
-  }
-  return Math.max(1, Math.min(MAX_TIMEOUT_SECONDS, value));
 }
 
 function validateCodeSafety(code: string): string | null {
