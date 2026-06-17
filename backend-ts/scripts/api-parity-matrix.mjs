@@ -133,9 +133,6 @@ function buildPath(template, method) {
     params.set("limit", "5");
     params.set("offset", "0");
   }
-  if (template === "/api/agent/sessions/{session_id}/checkpoints") {
-    params.set("limit", "5");
-  }
   if (template === "/api/agent/execution/overview") {
     params.set("active_only", "false");
   }
@@ -253,7 +250,6 @@ async function sessionLifecycleScenario() {
   for (const [name, suffix] of [
     ["session-get-created", ""],
     ["session-messages-created", "/messages?limit=5&offset=0"],
-    ["session-checkpoints-created", "/checkpoints?limit=5"],
   ]) {
     const [py, ts] = await Promise.all([
       request(PY, { name, method: "GET", path: `/api/agent/sessions/${encodeURIComponent(pySession)}${suffix}` }),

@@ -84,12 +84,6 @@ export interface AgentExecuteResult {
   error: string | null;
 }
 
-export interface CheckpointRecoveryStartResult extends AgentRunStartResult {
-  checkpoint_id: string;
-  round: number;
-  agent_name: string;
-}
-
 export interface RollbackRetryStartResult extends AgentRunStartResult {
   deleted: number;
   agent_name?: string | undefined;

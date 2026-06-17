@@ -7,7 +7,6 @@ const EnvSchema = z.object({
   BACKEND_TS_PORT: z.string().optional(),
   BACKEND_TS_LOG_LEVEL: z.string().optional(),
   BACKEND_TS_DB_PATH: z.string().optional(),
-  BACKEND_TS_CHECKPOINT_DB_PATH: z.string().optional(),
   CORS_ORIGINS: z.string().optional(),
   NODE_ENV: z.string().optional(),
   PORT: z.string().optional(),
@@ -22,7 +21,6 @@ export interface AppEnv {
   corsOrigins: string[] | boolean;
   dataRoot: string;
   dbPath: string;
-  checkpointDbPath: string;
 }
 
 export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
@@ -35,8 +33,6 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
 
   const dataRoot = env.RAG_DATA_ROOT?.trim() || path.join(os.homedir(), ".ragsystem");
   const dbPath = env.BACKEND_TS_DB_PATH?.trim() || path.join(dataRoot, "db", "ragsystem.db");
-  const checkpointDbPath =
-    env.BACKEND_TS_CHECKPOINT_DB_PATH?.trim() || path.join(dataRoot, "db", "checkpoints.db");
 
   return {
     host: env.BACKEND_TS_HOST ?? "0.0.0.0",
@@ -46,7 +42,6 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     corsOrigins: parseCorsOrigins(env.CORS_ORIGINS),
     dataRoot,
     dbPath,
-    checkpointDbPath,
   };
 }
 

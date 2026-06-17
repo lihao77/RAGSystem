@@ -5,7 +5,6 @@ import type { FastifyPluginAsync } from "fastify";
 import { ok } from "../../contracts/common.js";
 import {
   CreateSessionRequestSchema,
-  RecoverSessionRequestSchema,
   RollbackAndRetryRequestSchema,
   RollbackRequestSchema,
   UpdateMessageRequestSchema,
@@ -195,47 +194,6 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
     }
   });
 
-  app.post<{ Params: SessionParams }>("/sessions/:sessionId/recover", async (request) => {
-    const payload = RecoverSessionRequestSchema.parse(request.body);
-    const checkpoint = payload.checkpoint_id?.trim()
-      ? options.container.checkpointManager.loadCheckpoint(payload.checkpoint_id.trim())
-      : options.container.checkpointManager.getLatestCheckpoint(request.params.sessionId, normalizeEmpty(payload.agent_name ?? undefined));
-    if (!checkpoint) {
-      throw new HttpError(404, "not_found", "未找到可用的检查点");
-    }
-
-    const requestId = request.headers["x-request-id"]?.toString() ?? randomUUID();
-    const result = await options.container.agentExecution.startCheckpointRecovery({
-      sessionId: request.params.sessionId,
-      userId: payload.user_id ?? null,
-      checkpoint,
-      requestId,
-    });
-    if (!result.started) {
-      throw new HttpError(400, "invalid_request", result.error ?? "恢复启动失败");
-    }
-
-    return ok(
-      {
-        ...result,
-        answer: null,
-        success: true,
-        error: null,
-        status: "started",
-      },
-      "从检查点恢复已启动",
-    );
-  });
-
-  app.get<{ Params: SessionParams }>("/sessions/:sessionId/checkpoints", async (request) => {
-    const query = request.query as { agent_name?: string; limit?: string };
-    const checkpoints = options.container.checkpointManager.listCheckpoints({
-      sessionId: request.params.sessionId,
-      agentName: normalizeEmpty(query.agent_name),
-      limit: clampInt(query.limit, 10, 1, 100),
-    });
-    return ok({ checkpoints }, "获取检查点列表成功");
-  });
 };
 
 function clampInt(rawValue: string | undefined, fallback: number, min: number, max: number): number {

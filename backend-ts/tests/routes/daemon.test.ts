@@ -79,7 +79,6 @@ describe("daemon compatibility routes", () => {
 
     const container = createRuntimeContainer({
       dbPath: ":memory:",
-      checkpointDbPath: ":memory:",
       dataRoot: root,
       modelAdapterProvidersConfigPath: "",
       mcpConfigPath: "",

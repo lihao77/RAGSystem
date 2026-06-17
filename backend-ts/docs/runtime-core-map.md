@@ -44,7 +44,7 @@ Current TS runtime-core scope:
 - hook execution around runtime tool lifecycles,
 - attachments and uploaded/session files in runtime context,
 - slash command execution, including `/compact`,
-- checkpoint recovery and file-history rollback/retry,
+- file-history rollback/retry,
 - persisted user and final assistant messages,
 - run status and compact execution steps,
 - streaming lifecycle events, WebSocket replay, and durable terminal-event outbox,

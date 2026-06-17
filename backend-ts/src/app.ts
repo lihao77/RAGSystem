@@ -38,7 +38,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     options.container ??
     createRuntimeContainer({
       dbPath: options.env.dbPath,
-      checkpointDbPath: options.env.checkpointDbPath,
       dataRoot: options.env.dataRoot,
       logger: app.log,
     });

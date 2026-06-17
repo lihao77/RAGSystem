@@ -1,7 +1,6 @@
 import type {
   AgentExecuteResult,
   AgentRunStartResult,
-  CheckpointRecoveryStartResult,
   CollaborateRequest,
   ExecuteRequest,
   ExecutionOverview,
@@ -33,14 +32,13 @@ import { FollowupQueue } from "./followup-queue.js";
 import { AgentRunEngine, type AgentExecutionLogger } from "./run-engine.js";
 import {
   createLaunchers,
-  type CheckpointRecoveryInput,
   type RollbackRetryInput,
 } from "./launchers.js";
 import { createSessionControl } from "./session-control.js";
 import { createExecutionQueryService } from "./query.js";
 
 export type { AgentExecutionLogger } from "./run-engine.js";
-export type { RollbackRetryInput, CheckpointRecoveryInput } from "./launchers.js";
+export type { RollbackRetryInput } from "./launchers.js";
 
 export interface AgentExecutionServiceApi {
   startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult>;
@@ -50,7 +48,6 @@ export interface AgentExecutionServiceApi {
     requestId: string,
   ): Promise<{ results: AgentExecuteResult[]; session_id: string; total_tasks: number }>;
   startRollbackRetry(input: RollbackRetryInput): Promise<RollbackRetryStartResult>;
-  startCheckpointRecovery(input: CheckpointRecoveryInput): Promise<CheckpointRecoveryStartResult>;
   stopSession(sessionId: string): Promise<boolean>;
   getSessionTaskStatus(sessionId: string): SessionTaskStatus;
   getSessionExecutionDiagnostics(sessionId: string): ScopedExecutionDiagnostics;

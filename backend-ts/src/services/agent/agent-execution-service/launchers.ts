@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import type {
   AgentExecuteResult,
   AgentRunStartResult,
-  CheckpointRecoveryStartResult,
   ExecuteRequest,
   RollbackRetryStartResult,
   StreamExecuteRequest,
@@ -11,7 +10,6 @@ import type {
 import { getSelectedLlm as resolveSelectedLlm } from "../../../contracts/execution.js";
 import type { AgentRuntimeContextBuilder } from "../agent-runtime-context-builder.js";
 import type { AgentSessionApplication } from "../agent-session-application.js";
-import type { CheckpointInfo } from "../../stores/checkpoint-manager.js";
 import type { IRunStore } from "../../../contracts/conversation-store/index.js";
 import type { RuntimeExecutionConfigResolver } from "../../runtime/runtime-core-service.js";
 import {
@@ -19,8 +17,6 @@ import {
   buildRunningExecutionStatus,
   buildRunStartPayload,
   buildRunStartStepPayload,
-  checkpointMessagesToConversation,
-  findLatestCheckpointUserTask,
   normalizeSessionEntryAgent,
 } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
@@ -41,18 +37,10 @@ export interface RollbackRetryInput {
   selectedLlm?: string | null;
 }
 
-export interface CheckpointRecoveryInput {
-  sessionId: string;
-  userId?: string | null;
-  checkpoint: CheckpointInfo;
-  requestId: string;
-}
-
 export interface LauncherApi {
   startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult>;
   executeSynchronously(request: ExecuteRequest, requestId: string): Promise<AgentExecuteResult>;
   startRollbackRetry(input: RollbackRetryInput): Promise<RollbackRetryStartResult>;
-  startCheckpointRecovery(input: CheckpointRecoveryInput): Promise<CheckpointRecoveryStartResult>;
 }
 
 export interface LauncherDeps {
@@ -69,7 +57,7 @@ export interface LauncherDeps {
 }
 
 /**
- * 4 个启动入口（startStream/executeSynchronously/startRollbackRetry/startCheckpointRecovery）。
+ * 3 个启动入口（startStream/executeSynchronously/startRollbackRetry）。
  * 方法体原样来自原 AgentExecutionService（this.xxx 字段访问保持不变）。
  */
 class AgentLaunchers {
@@ -474,161 +462,6 @@ class AgentLaunchers {
     };
   }
 
-  async startCheckpointRecovery(input: CheckpointRecoveryInput): Promise<CheckpointRecoveryStartResult> {
-    const sessionId = input.sessionId.trim();
-    const baseResult = {
-      session_id: sessionId || input.sessionId,
-      checkpoint_id: input.checkpoint.checkpoint_id,
-      round: input.checkpoint.round,
-      agent_name: input.checkpoint.agent_name,
-    };
-    if (!sessionId) {
-      return {
-        started: false,
-        ...baseResult,
-        error: "session_id is required",
-      };
-    }
-
-    const task = findLatestCheckpointUserTask(input.checkpoint);
-    if (!task) {
-      return {
-        started: false,
-        ...baseResult,
-        session_id: sessionId,
-        error: "检查点中没有用户消息",
-      };
-    }
-
-    const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
-    const runningStatus = this.statusTracker.getStatusBySession(sessionId);
-    if (runningStatus?.status === "running") {
-      return {
-        started: false,
-        ...baseResult,
-        session_id: sessionId,
-        error: "该会话正在执行任务，请等待完成或停止当前任务",
-      };
-    }
-
-    const ready = resolveReadyAgent(
-      this.runtimeCore,
-      {
-        agentName: normalizeSessionEntryAgent(input.checkpoint.agent_name),
-        teamName: asString(sessionMetadata.team),
-      },
-      sessionMetadata,
-    );
-    if (!ready.ok) {
-      return {
-        started: false,
-        ...baseResult,
-        session_id: sessionId,
-        error: ready.reason,
-      };
-    }
-
-    if (!this.sessions.getSession(sessionId)) {
-      this.sessions.createSession({ sessionId, userId: input.userId ?? null });
-    }
-
-    const runtimeAgent = ready.agent;
-    const runId = randomUUID();
-    const taskId = randomUUID();
-    const rootCallId = `call_${randomUUID()}`;
-    const startedAt = new Date();
-    const abortController = new AbortController();
-    const executionKind = "checkpoint_recovery";
-    const status = buildRunningExecutionStatus({
-      taskId,
-      sessionId,
-      runId,
-      requestId: input.requestId,
-      executionKind,
-      task,
-      startedAt,
-    });
-    const baseContext = this.contextBuilder.buildContext({
-      sessionId,
-      agent: runtimeAgent,
-      historyLimit: 0,
-    });
-    const recoveryConversation = [
-      ...baseContext.conversation,
-      ...checkpointMessagesToConversation(input.checkpoint.messages),
-    ];
-
-    this.conversationStore.createRun({
-      runId,
-      sessionId,
-      entrypoint: executionKind,
-      status: "running",
-      taskSummary: task.slice(0, 200),
-      userId: input.userId ?? null,
-      agentName: runtimeAgent.agent_name,
-      threadKey: "root",
-    });
-
-    const startStepPayload = buildRunStartStepPayload({
-      rootCallId,
-      runId,
-      taskId,
-      requestId: input.requestId,
-      agent: runtimeAgent,
-      description: task,
-      executionKind,
-      recoveredFrom: input.checkpoint.checkpoint_id,
-      checkpointId: input.checkpoint.checkpoint_id,
-      checkpointRound: input.checkpoint.round,
-    });
-    const runStartPayload = buildRunStartPayload({
-      runId,
-      taskId,
-      requestId: input.requestId,
-      agent: runtimeAgent,
-      executionKind,
-      recoveredFrom: input.checkpoint.checkpoint_id,
-    });
-    this.eventPublisher.publishSessionRunStarted(sessionId, runId, runStartPayload);
-    this.eventPublisher.publishRunStartStep(sessionId, runId, startStepPayload);
-    this.eventPublisher.publishRunStart(sessionId, runId, runStartPayload);
-
-    const promise = this.runEngine.executeRun({
-      sessionId,
-      runId,
-      taskId,
-      rootCallId,
-      requestId: input.requestId,
-      task,
-      startedAt,
-      abortController,
-      status,
-      agent: runtimeAgent,
-      provider: ready.provider,
-      modelName: ready.modelName,
-      executionKind,
-      contextConversation: recoveryConversation,
-      stablePrefixFingerprint: baseContext.metadata.stable_prefix_fingerprint,
-      finalMetadataExtra: {
-        recovered_from: input.checkpoint.checkpoint_id,
-        checkpoint_id: input.checkpoint.checkpoint_id,
-        checkpoint_round: input.checkpoint.round,
-      },
-    });
-    this.statusTracker.register(taskId, sessionId, { abortController, status, promise });
-
-    return {
-      started: true,
-      session_id: sessionId,
-      run_id: runId,
-      task_id: taskId,
-      request_id: input.requestId,
-      kind: "agent_run",
-      checkpoint_id: input.checkpoint.checkpoint_id,
-      round: input.checkpoint.round,
-      agent_name: runtimeAgent.agent_name,
-    };
-  }
 }
 
 export function createLaunchers(deps: LauncherDeps): LauncherApi {
@@ -648,6 +481,5 @@ export function createLaunchers(deps: LauncherDeps): LauncherApi {
     startStream: impl.startStream.bind(impl),
     executeSynchronously: impl.executeSynchronously.bind(impl),
     startRollbackRetry: impl.startRollbackRetry.bind(impl),
-    startCheckpointRecovery: impl.startCheckpointRecovery.bind(impl),
   };
 }

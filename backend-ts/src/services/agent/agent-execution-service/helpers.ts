@@ -4,7 +4,6 @@ import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import { isRuntimeStableSystemContextContent } from "../agent-runtime-context-builder.js";
 import { buildFullSystemPrompt, type AgentPromptContext } from "../agent-prompt-builder.js";
 import type { BackgroundTaskNotificationPayload } from "../../runtime/background-task-service.js";
-import type { CheckpointInfo } from "../../stores/checkpoint-manager.js";
 import type { ChatMessage } from "../../integrations/llm-chat-client.js";
 import type { RuntimeToolExecutionContext } from "../../runtime/runtime-tool-types.js";
 
@@ -58,31 +57,6 @@ export function buildRunningExecutionStatus(input: {
     finished_at: null,
     thread_alive: true,
   };
-}
-
-export function findLatestCheckpointUserTask(checkpoint: CheckpointInfo): string | null {
-  for (let index = checkpoint.messages.length - 1; index >= 0; index -= 1) {
-    const message = checkpoint.messages[index];
-    if (message?.role === "user" && typeof message.content === "string" && message.content.trim()) {
-      return message.content;
-    }
-  }
-  return null;
-}
-
-export function checkpointMessagesToConversation(messages: Array<Record<string, unknown>>): ChatMessage[] {
-  const conversation: ChatMessage[] = [];
-  for (const message of messages) {
-    const role = message.role;
-    const content = message.content;
-    if (typeof content !== "string" || !content.trim()) {
-      continue;
-    }
-    if (role === "system" || role === "user" || role === "assistant") {
-      conversation.push({ role, content });
-    }
-  }
-  return conversation;
 }
 
 export function renderBackgroundNotification(payload: BackgroundTaskNotificationPayload): string {
@@ -184,7 +158,6 @@ export function buildRunStartPayload(input: {
   requestId: string;
   agent: AgentConfig;
   executionKind?: string | undefined;
-  recoveredFrom?: string | undefined;
 }): Record<string, unknown> {
   return {
     task_id: input.taskId,
@@ -192,7 +165,6 @@ export function buildRunStartPayload(input: {
     run_id: input.runId,
     request_id: input.requestId,
     ...(input.executionKind !== undefined ? { execution_kind: input.executionKind } : {}),
-    ...(input.recoveredFrom !== undefined ? { recovered_from: input.recoveredFrom } : {}),
   };
 }
 
@@ -204,9 +176,6 @@ export function buildRunStartStepPayload(input: {
   agent: AgentConfig;
   description: string;
   executionKind?: string | undefined;
-  recoveredFrom?: string | undefined;
-  checkpointId?: string | undefined;
-  checkpointRound?: number | undefined;
 }): Record<string, unknown> {
   return {
     kind: "run",
@@ -223,9 +192,6 @@ export function buildRunStartStepPayload(input: {
     run_id: input.runId,
     request_id: input.requestId,
     ...(input.executionKind !== undefined ? { execution_kind: input.executionKind } : {}),
-    ...(input.recoveredFrom !== undefined ? { recovered_from: input.recoveredFrom } : {}),
-    ...(input.checkpointId !== undefined ? { checkpoint_id: input.checkpointId } : {}),
-    ...(input.checkpointRound !== undefined ? { checkpoint_round: input.checkpointRound } : {}),
   };
 }
 

@@ -12,7 +12,6 @@ import { BackgroundTaskService } from "./background-task-service.js";
 import { AgentConfigService } from "../agent/agent-config-service.js";
 import { AgentSessionApplication } from "../agent/agent-session-application.js";
 import { ArtifactService } from "../artifacts/artifact-service.js";
-import { CheckpointManager } from "../stores/checkpoint-manager.js";
 import { createConversationStore, type ConversationStore } from "../stores/conversation-store/index.js";
 import { DaemonService } from "../daemon/daemon-service.js";
 import { EmbeddingModelService } from "../knowledge/embedding-model-service.js";
@@ -43,7 +42,6 @@ import { DurableClientEventPublisher } from "./event-outbox/client-event-publish
 export interface RuntimeContainer {
   readonly conversationStore: ConversationStore;
   readonly sessionApplication: AgentSessionApplication;
-  readonly checkpointManager: CheckpointManager;
   readonly realtimeEvents: RealtimeEventHub;
   readonly agentExecution: AgentExecutionService;
   readonly permissionPolicy: PermissionPolicyService;
@@ -81,7 +79,6 @@ export interface RuntimeContainer {
 
 export interface RuntimeContainerOptions {
   dbPath: string;
-  checkpointDbPath?: string | undefined;
   dataRoot?: string | undefined;
   logger?: AgentExecutionLogger | undefined;
   llmChatClient?: LlmChatClient | undefined;
@@ -97,7 +94,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const conversationStore = createConversationStore({ dbPath: options.dbPath, dataRoot: options.dataRoot });
   const fileHistory = new FileHistoryService({ dataRoot: options.dataRoot });
   const sessionApplication = new AgentSessionApplication(conversationStore, fileHistory);
-  const checkpointManager = new CheckpointManager({ dbPath: options.checkpointDbPath ?? options.dbPath });
   const realtimeEvents = new RealtimeEventHub();
   const outboxDispatcher = new OutboxDispatcher(conversationStore, realtimeEvents);
   if (options.startOutboxDispatcher ?? true) {
@@ -225,7 +221,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   return {
     conversationStore,
     sessionApplication,
-    checkpointManager,
     realtimeEvents,
     agentExecution,
     permissionPolicy,

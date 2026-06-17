@@ -33,7 +33,6 @@ Node.js 24+ is required because the first persistence milestone uses the built-i
   updates, rollback, run-step sidecar reads, and session export
 - Execution persistence primitives for runs, resources, step-resource links, and child-scoped
   message reads
-- Checkpoint persistence primitives and checkpoint list route
 - Session WebSocket shell with heartbeat, replay markers, and typed error responses
 - Python-compatible idle execution status routes for frontend polling, diagnostics, and overview reads
 - Monitoring compatibility routes for empty metrics, persisted message-content reads, and tool-call raw-result reads
@@ -65,7 +64,7 @@ Node.js 24+ is required because the first persistence milestone uses the built-i
   read/write/edit/preview, foreground/background `execute_bash`, task tracking/background control,
   `glob`, `grep`, `web_fetch`, `todo_write`, restricted `execute_code`, Skill tools, MCP tools,
   vector/RAG tools, hooks, and synchronous agent delegation
-- Attachments, system slash commands including `/compact`, checkpoint recovery, file-history
+- Attachments, system slash commands including `/compact`, file-history
   rollback/retry, sequential collaboration, daemon runtime operations, and provider test routes
 
 ## Test-First Boundary

@@ -12,7 +12,6 @@ export const testEnv: AppEnv = {
   corsOrigins: true,
   dataRoot: ".test-data",
   dbPath: ":memory:",
-  checkpointDbPath: ":memory:",
 };
 
 export async function buildTestApp() {
@@ -29,7 +28,6 @@ export async function buildTestHarness(
 ) {
   const container = createRuntimeContainer({
     dbPath: ":memory:",
-    checkpointDbPath: ":memory:",
     dataRoot: testEnv.dataRoot,
     llmChatClient: options.llmChatClient,
     modelAdapterProvidersConfigPath: "",

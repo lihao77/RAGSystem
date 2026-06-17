@@ -18,10 +18,10 @@ work from reintroducing placeholder behavior or stale `501 not_migrated` assumpt
 Foundation and persistence:
 
 - Fastify application entrypoint and health routes.
-- SQLite-backed sessions, messages, runs, run steps, checkpoints, resources, uploaded files, file
+- SQLite-backed sessions, messages, runs, run steps, resources, uploaded files, file
   history, and durable event outbox.
 - Python-compatible session create/list/get/delete, message listing, message edit, rollback,
-  retry, checkpoint listing/recovery, run-step sidecar reads, and session export.
+  retry, run-step sidecar reads, and session export.
 - WebSocket replay, monotonic stream sequence handling, approval responses, stop acknowledgements,
   and durable terminal event replay.
 

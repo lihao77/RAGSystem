@@ -11,7 +11,7 @@ to their facade file.
 - `runtime/`: process-level runtime composition, runtime protocols, event bus,
   permissions, pending interactions, and background tasks.
 - `tools/`: local tool implementations and tool-facing service APIs.
-- `stores/`: persistence, checkpoints, file indexing, conversation data, and
+- `stores/`: persistence, file indexing, conversation data, and
   memory storage.
 - `config/`: system configuration services.
 - `integrations/`: external protocol or provider adapters, including LLM, MCP,
