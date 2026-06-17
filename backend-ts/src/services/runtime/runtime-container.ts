@@ -219,6 +219,10 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     daemon.close();
     vectorLibrary.close();
     fileIndex.close();
+    // conversation/file-index/vector 三个 store 各自开 SQLite 句柄（同 dbPath，WAL 允许多连接），
+    // 各自需 close 释放文件句柄/WAL。conversationStore 是最底层（被 sessionApplication/outbox 等
+    // 依赖），其上层已先关，故最后关。fileHistory/memoryStore 纯文件无句柄，无需 close。
+    conversationStore.close();
   };
   return {
     conversationStore,
