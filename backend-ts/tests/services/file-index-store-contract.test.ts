@@ -123,6 +123,19 @@ describe("输入边界 zod 契约", () => {
     ).toThrow();
   });
 
+  it("add session scope 缺 scopeId 抛错（深合约前置条件，防 sessions//uploads 路径退化）", () => {
+    const store = build();
+    expect(() =>
+      store.add({
+        originalName: "x.txt",
+        buffer: encoder.encode("x"),
+        mime: "text/plain",
+        scopeType: "session",
+        scopeId: null,
+      }),
+    ).toThrow();
+  });
+
   it("add 非 Uint8Array buffer 抛错", () => {
     const store = build();
     expect(() =>

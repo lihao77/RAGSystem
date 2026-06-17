@@ -89,9 +89,17 @@ export class FileIndexService implements IFileIndexStore {
   add(input: AddFileInput): UploadedFileRecord {
     const parsed = AddFileInputSchema.parse(input);
     const { originalName, buffer, mime, scopeType, scopeId } = parsed;
+    // 深合约前置条件：session scope 必须提供 scopeId，否则物理路径退化污染（sessions//uploads）
+    let uploadRoot: string;
+    if (scopeType === "session") {
+      if (!scopeId) {
+        throw new Error("session scope requires scopeId");
+      }
+      uploadRoot = this.getSessionUploadsRoot(scopeId);
+    } else {
+      uploadRoot = this.getGlobalUploadsRoot();
+    }
     const storedName = `${randomBytes(8).toString("hex")}_${sanitizeFilename(originalName)}`;
-    const uploadRoot =
-      scopeType === "session" ? this.getSessionUploadsRoot(scopeId ?? "") : this.getGlobalUploadsRoot();
     const storedPath = path.join(uploadRoot, storedName);
     const size = buffer.byteLength;
     // 物理 blob 落盘
@@ -131,7 +139,9 @@ export class FileIndexService implements IFileIndexStore {
     }
     const record = this.get(fileId, scopeType, scopeId ?? null);
     if (!record) {
+      // 回滚彻底：删物理文件 + DB 行（INSERT 成功却读不回的防御，避免孤儿行）
       fs.rmSync(storedPath, { force: true });
+      this.db.prepare("DELETE FROM uploaded_files WHERE id = ?").run(fileId);
       throw new Error(`failed to read created file record: ${fileId}`);
     }
     return record;

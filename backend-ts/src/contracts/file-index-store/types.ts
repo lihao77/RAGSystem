@@ -24,6 +24,8 @@ export const ListFilesInputSchema = z.object({
 });
 export type ListFilesInput = z.infer<typeof ListFilesInputSchema>;
 
+// NOTE：不要改用 z.infer<typeof AddFileInputSchema> 推断 AddFileInput——z.instanceof(Uint8Array) 的
+// z.infer 为 Uint8Array<ArrayBuffer>，过窄，Node Buffer<ArrayBufferLike> 无法赋值。见下方手写 AddFileInput。
 export const AddFileInputSchema = z.object({
   originalName: z.string(),
   // 运行时校验 Uint8Array（Node multipart 的 Buffer 是其子类，通过）；收编后 store 负责 blob 落盘。
