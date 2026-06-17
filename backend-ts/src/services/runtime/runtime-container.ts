@@ -16,6 +16,7 @@ import { createConversationStore, type ConversationStore } from "../stores/conve
 import { DaemonService } from "../daemon/daemon-service.js";
 import { EmbeddingModelService } from "../knowledge/embedding-model-service.js";
 import { FileHistoryService } from "../stores/file-history-service.js";
+import type { IFileHistoryStore } from "../../contracts/file-history-store/index.js";
 import { FileIndexService } from "../stores/file-index-service.js";
 import type { IFileIndexStore } from "../../contracts/file-index-store/index.js";
 import { RealtimeEventHub } from "./realtime-event-hub.js";
@@ -51,7 +52,7 @@ export interface RuntimeContainer {
   readonly systemConfig: SystemConfigService;
   readonly mcp: McpService;
   readonly daemon: DaemonService;
-  readonly fileHistory: FileHistoryService;
+  readonly fileHistory: IFileHistoryStore;
   readonly fileIndex: IFileIndexStore;
   readonly vectorLibrary: VectorLibraryService;
   readonly artifacts: ArtifactService;

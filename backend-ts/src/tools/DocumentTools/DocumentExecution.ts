@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { RuntimeToolExecutionContext, ToolExecutionResult } from "../../services/runtime/runtime-tool-types.js";
-import type { FileHistoryService } from "../../services/stores/file-history-service.js";
+import type { IFileHistoryStore } from "../../contracts/file-history-store/index.js";
 import {
   buildDataStructurePreview,
   DEFAULT_STRUCTURE_PREVIEW_DEPTH,
@@ -17,9 +17,9 @@ const DEFAULT_READ_MAX_LINES = 2000;
 
 export class LocalDocumentToolService {
   private readonly pathManager: LocalDocumentPathManager;
-  private readonly fileHistory: FileHistoryService | null;
+  private readonly fileHistory: IFileHistoryStore | null;
 
-  constructor(options: { dataRoot?: string | undefined; fileHistory?: FileHistoryService | null | undefined } = {}) {
+  constructor(options: { dataRoot?: string | undefined; fileHistory?: IFileHistoryStore | null | undefined } = {}) {
     const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
     this.pathManager = new LocalDocumentPathManager(dataRoot);
     this.fileHistory = options.fileHistory ?? null;

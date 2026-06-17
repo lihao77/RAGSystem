@@ -3,29 +3,19 @@ import os from "node:os";
 import path from "node:path";
 import crypto, { randomUUID } from "node:crypto";
 
-export interface FileHistoryTrackedFile {
-  backup_hash: string | null;
-  action: "modified" | "created";
-}
+import type {
+  FileHistoryRewindResult,
+  FileHistorySnapshot,
+  FileHistoryStoreOptions,
+  FileHistoryTrackedFile,
+  IFileHistoryStore,
+} from "../../contracts/file-history-store/index.js";
 
-export interface FileHistorySnapshot {
-  snapshot_id: string;
-  message_seq: number;
-  tracked_files: Record<string, FileHistoryTrackedFile>;
-  created_at: string;
-}
-
-export interface FileHistoryRewindResult {
-  success: boolean;
-  message: string;
-  reverted_files: number;
-}
-
-export class FileHistoryService {
+export class FileHistoryService implements IFileHistoryStore {
   private readonly dataRoot: string;
   private readonly trackedBySession = new Map<string, Map<string, FileHistoryTrackedFile>>();
 
-  constructor(options: { dataRoot?: string | undefined } = {}) {
+  constructor(options: FileHistoryStoreOptions = {}) {
     this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
   }
 
