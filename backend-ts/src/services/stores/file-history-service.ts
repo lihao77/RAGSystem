@@ -73,7 +73,7 @@ export class FileHistoryService implements IFileHistoryStore {
     const snapshots = this.loadSnapshots(normalizedSessionId);
     const pending = new Map(this.trackedBySession.get(normalizedSessionId)?.entries() ?? []);
     if (!snapshots.length && !pending.size) {
-      return { success: false, message: "无可用快照且无 pending 变更", reverted_files: 0 };
+      return { success: true, message: "无可回退的文件快照（该会话无编辑历史）", reverted_files: 0 };
     }
 
     const toRevert = snapshots

@@ -87,10 +87,11 @@ describe("IFileHistoryStore 契约", () => {
     expect(store.makeSnapshot("s5", 1.5)).toBeNull();
   });
 
-  it("rewind 无快照无 pending 返回失败（非抛异常）", () => {
+  it("rewind 无快照无 pending 返回 success:true（无可回退内容，非失败）", () => {
     const store = build();
     const result = store.rewind("s6", 10);
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+    expect(result.reverted_files).toBe(0);
   });
 
   it("listSnapshots / hasSnapshots 非法 session 返回空/false", () => {
@@ -108,5 +109,26 @@ describe("IFileHistoryStore 契约", () => {
     expect(store.hasSnapshots("s7")).toBe(true);
     store.cleanup("s7");
     expect(store.hasSnapshots("s7")).toBe(false);
+  });
+
+  it("多 snapshot rewind：按 message_seq 升序还原，恢复每个文件最早的备份", () => {
+    const store = build();
+    const filePath = path.join(workDir, "multi.txt");
+    fs.writeFileSync(filePath, "v0");
+
+    store.trackEdit("s8", filePath); // 备份 v0
+    fs.writeFileSync(filePath, "v1");
+    store.makeSnapshot("s8", 1);
+
+    store.trackEdit("s8", filePath); // 备份 v1
+    fs.writeFileSync(filePath, "v2");
+    store.makeSnapshot("s8", 2);
+
+    expect(fs.readFileSync(filePath, "utf8")).toBe("v2");
+    // rewind targetSeq=0：回退所有 seq>0 快照，restoreMap 取最早备份（v0），最终回到 v0
+    const result = store.rewind("s8", 0);
+    expect(result.success).toBe(true);
+    expect(result.reverted_files).toBe(1); // 同文件去重为 1
+    expect(fs.readFileSync(filePath, "utf8")).toBe("v0");
   });
 });
