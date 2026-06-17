@@ -2,68 +2,25 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-export type MemoryScopeName = "team" | "session" | "agent" | "workspace";
-
-export interface MemoryScopeSpec {
-  scope: MemoryScopeName;
-  team_name?: string;
-  session_id?: string;
-  agent_name?: string;
-  workspace_key?: string;
-}
-
-export interface MemoryStoreOptions {
-  dataRoot?: string | undefined;
-}
-
-export interface MemoryIndexReadOptions {
-  maxLines?: number | undefined;
-  maxChars?: number | undefined;
-}
-
-export interface MemoryEntryFile {
-  scope: MemoryScopeName;
-  file_name: string;
-  file_path: string;
-  content: string;
-}
-
-export interface MemoryEntry {
-  name: string;
-  description: string;
-  scope: string;
-  memory_type: string;
-  status: string;
-  file_name: string;
-  file_path: string;
-  updated_at: string;
-  body: string;
-}
-
-export interface SaveMemoryInput extends MemoryScopeSpec {
-  name: string;
-  description: string;
-  memory_type: string;
-  content: string;
-  why?: string | null | undefined;
-  how_to_apply?: string | null | undefined;
-  source_run_id?: string | null | undefined;
-  source_message_id?: string | null | undefined;
-  status?: string | null | undefined;
-}
-
-export interface SavedMemoryFile {
-  file_name: string;
-  file_path: string;
-  scope: MemoryScopeName;
-}
+import type {
+  IMemoryStore,
+  MemoryEntry,
+  MemoryEntryFile,
+  MemoryIndexReadOptions,
+  MemoryScopeName,
+  MemoryScopeSpec,
+  MemoryStoreOptions,
+  SaveMemoryInput,
+  SavedMemoryFile,
+} from "../../contracts/memory-store/index.js";
+import { SaveMemoryInputSchema } from "../../contracts/memory-store/types.js";
 
 const DEFAULT_INDEX_MAX_LINES = 200;
 const DEFAULT_INDEX_MAX_CHARS = 25600;
 const ALLOWED_MEMORY_TYPES = new Set(["preference", "constraint", "goal", "fact", "profile"]);
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
-export class MemoryStore {
+export class MemoryStore implements IMemoryStore {
   private readonly dataRoot: string;
 
   constructor(options: MemoryStoreOptions = {}) {
@@ -154,7 +111,8 @@ export class MemoryStore {
     }
   }
 
-  saveMemory(input: SaveMemoryInput): SavedMemoryFile {
+  saveMemory(rawInput: SaveMemoryInput): SavedMemoryFile {
+    const input = SaveMemoryInputSchema.parse(rawInput);
     const normalizedMemoryType = normalizeString(input.memory_type)?.toLowerCase() ?? "fact";
     if (!ALLOWED_MEMORY_TYPES.has(normalizedMemoryType)) {
       throw new Error(`不支持的 memory_type: ${input.memory_type}`);

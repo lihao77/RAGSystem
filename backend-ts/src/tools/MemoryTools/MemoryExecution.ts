@@ -1,7 +1,8 @@
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { SessionInfo } from "../../contracts/session.js";
 import type { ToolExecutionResult } from "../../services/runtime/runtime-tool-types.js";
-import { getWorkspaceMemoryKey, type MemoryScopeName, type MemoryScopeSpec, type MemoryStore } from "../../services/stores/memory-store.js";
+import { getWorkspaceMemoryKey } from "../../services/stores/memory-store.js";
+import type { IMemoryStore, MemoryScopeName, MemoryScopeSpec } from "../../contracts/memory-store/index.js";
 
 export interface RuntimeMemorySessionPort {
   getSession(sessionId: string): Pick<SessionInfo, "metadata"> | null;
@@ -51,7 +52,7 @@ interface ResolvedMemoryScopeInputs {
 
 export class MemoryToolService {
   constructor(
-    private readonly memoryStore: MemoryStore,
+    private readonly memoryStore: IMemoryStore,
     private readonly sessions: RuntimeMemorySessionPort,
   ) {}
 

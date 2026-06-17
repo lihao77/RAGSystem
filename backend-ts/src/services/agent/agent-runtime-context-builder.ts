@@ -3,7 +3,8 @@ import crypto from "node:crypto";
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { MessageInfo, SessionInfo } from "../../contracts/session.js";
 import type { ChatMessage } from "../integrations/llm-chat-client.js";
-import { getWorkspaceMemoryKey, MemoryStore, type MemoryScopeSpec } from "../stores/memory-store.js";
+import { getWorkspaceMemoryKey, MemoryStore } from "../stores/memory-store.js";
+import type { IMemoryStore, MemoryScopeSpec } from "../../contracts/memory-store/index.js";
 
 export interface RuntimeConversationHistoryPort {
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): MessageInfo[];
@@ -216,7 +217,7 @@ export function isRuntimeStableSystemContextContent(content: string): boolean {
 
 interface MemoryIndexContextSourceOptions {
   dataRoot?: string | undefined;
-  memoryStore?: MemoryStore | undefined;
+  memoryStore?: IMemoryStore | undefined;
   indexMaxLines?: number | undefined;
   indexMaxChars?: number | undefined;
 }
@@ -254,7 +255,7 @@ interface MemoryPrefixSnapshot {
 
 export class MemoryIndexContextSource implements AgentRuntimeContextSource {
   readonly name = "memory";
-  private readonly memoryStore: MemoryStore;
+  private readonly memoryStore: IMemoryStore;
   private readonly indexMaxLines: number;
   private readonly indexMaxChars: number;
 
