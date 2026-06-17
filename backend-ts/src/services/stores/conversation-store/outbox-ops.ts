@@ -18,12 +18,14 @@ import type {
   DeleteDeliveredOutboxInput,
   EventOutboxErrorSummary,
   EventOutboxStats,
+  IOutboxStore,
   ListOutboxInput,
   OutboxRow,
   OutboxStatus,
   RetryOutboxBatchInput,
   RetryOutboxResult,
-} from "./types.js";
+} from "../../../contracts/conversation-store/index.js";
+import { AppendOutboxInputSchema } from "../../../contracts/conversation-store/types.js";
 
 const OUTBOX_SELECT_COLUMNS = `
   id, event_id, session_id, run_id, session_seq, event_type, aggregate_type,
@@ -32,7 +34,7 @@ const OUTBOX_SELECT_COLUMNS = `
 `;
 
 /** event_outbox + session_event_seq 聚合根操作（迁移自 ConversationStore，方法体零改动）。 */
-export class OutboxOps {
+export class OutboxOps implements IOutboxStore {
   constructor(private readonly db: ConversationDb) {}
 
   getNextSessionSeq(sessionId: string): number {
@@ -40,7 +42,8 @@ export class OutboxOps {
   }
 
   appendOutbox(input: AppendOutboxInput): OutboxRow {
-    return runInTransaction(this.db, () => this.appendOutboxInTransaction(input));
+    const normalized = AppendOutboxInputSchema.parse(input);
+    return runInTransaction(this.db, () => this.appendOutboxInTransaction(normalized));
   }
 
   /** 事务内变体（供 ConversationStoreTransaction facade 调用，故 public）。 */

@@ -1,6 +1,5 @@
 import type { ClientEvent } from "../../../contracts/events.js";
-import type { IOutboxStore } from "../../stores/conversation-store/index.js";
-import type { OutboxRow } from "../../stores/conversation-store/types.js";
+import type { IOutboxStore, OutboxRow } from "../../../contracts/conversation-store/index.js";
 import type { RealtimeEventHub } from "../realtime-event-hub.js";
 import { ClientEventProjector } from "./projector.js";
 

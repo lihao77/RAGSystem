@@ -1,10 +1,10 @@
 import type { ClientEvent } from "../../../contracts/events.js";
 import type {
   AppendOutboxInput,
-  IOutboxStore,
   ConversationStoreTransaction,
-} from "../../stores/conversation-store/index.js";
-import type { OutboxRow } from "../../stores/conversation-store/types.js";
+  IOutboxStore,
+  OutboxRow,
+} from "../../../contracts/conversation-store/index.js";
 import type { OutboxDispatcher } from "./dispatcher.js";
 
 export interface ClientEventPublishOptions {

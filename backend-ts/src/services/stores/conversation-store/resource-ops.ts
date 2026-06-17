@@ -6,10 +6,11 @@ import { asNullableString, parseJsonObject, stringifyJson } from "./helpers.js";
 import { rowToResource } from "./mappers.js";
 import { inferResourceScope } from "./resource-scope.js";
 import { isRecord } from "./shared/primitives.js";
-import type { ResourceInfo, ResourceRow } from "./types.js";
+import type { IResourceStore, ResourceInfo } from "../../../contracts/conversation-store/index.js";
+import type { ResourceRow } from "./types.js";
 
 /** resources + step_resources 聚合根操作 + 执行投影（迁移自 ConversationStore，方法体零改动）。 */
-export class ResourceOps {
+export class ResourceOps implements IResourceStore {
   constructor(
     private readonly db: ConversationDb,
     private readonly dataRoot: string,

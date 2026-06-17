@@ -6,29 +6,14 @@ import { RunOps } from "./run-ops.js";
 import { ChildAgentOps } from "./child-agent-ops.js";
 import { OutboxOps } from "./outbox-ops.js";
 import { ResourceOps } from "./resource-ops.js";
-import type { ConversationStoreOptions, ConversationStoreTransaction } from "./types.js";
-import type { ConversationStore } from "./contracts.js";
-
-export type {
-  AddMessageInput,
-  AddRunStepInput,
-  AppendOutboxInput,
-  ChildAgentInfo,
-  ClaimOutboxInput,
+import type {
+  ConversationStore,
   ConversationStoreOptions,
   ConversationStoreTransaction,
-  DeleteDeliveredOutboxInput,
-  EventOutboxErrorSummary,
-  EventOutboxStats,
-  ListOutboxInput,
-  OutboxRow,
-  OutboxStatus,
-  ResourceInfo,
-  RunInfo,
-  RunStepRecord,
-  RetryOutboxBatchInput,
-  RetryOutboxResult,
-} from "./types.js";
+} from "../../../contracts/conversation-store/index.js";
+
+// IXxxStore 窄契约与 DTO 已上移至 contracts/conversation-store/，消费者改向该处 import。
+// 本文件仅保留 ConversationStore 聚合类型转出（见末尾），供 runtime-container 组装使用。
 
 /**
  * 组装会话存储（无主类）：创建共享 SQLite 句柄 + 6 个聚合根 ops，组合为统一 facade。
@@ -131,14 +116,5 @@ export function createConversationStore(options: ConversationStoreOptions) {
   } satisfies ConversationStore;
 }
 
-/** 对外类型（无主类）：createConversationStore 返回的 facade 类型。 */
-export type {
-  ConversationStore,
-  IChildAgentStore,
-  IConversationTransactionRunner,
-  IMessageStore,
-  IOutboxStore,
-  IResourceStore,
-  IRunStore,
-  ISessionStore,
-} from "./contracts.js";
+/** 聚合类型转出（createConversationStore facade）；窄契约/DTO 见 contracts/conversation-store。 */
+export type { ConversationStore } from "../../../contracts/conversation-store/index.js";

@@ -13,7 +13,7 @@ import type { BackgroundTaskService } from "../../runtime/background-task-servic
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js";
 import type { RuntimeToolExecutor } from "../../runtime/runtime-tool-types.js";
-import type { IRunStore, IMessageStore, ISessionStore } from "../../stores/conversation-store/index.js";
+import type { IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import {
   asString,

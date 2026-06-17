@@ -4,7 +4,7 @@ import type { ExecutionTaskStatus } from "../../../contracts/execution.js";
 import type { ContextCompressionEvent } from "../agent-context-compression-service.js";
 import type { AgentSessionApplication } from "../agent-session-application.js";
 import type { AgentRuntimeEvent } from "../agent-runtime-core.js";
-import type { IConversationTransactionRunner } from "../../stores/conversation-store/index.js";
+import type { IConversationTransactionRunner } from "../../../contracts/conversation-store/index.js";
 import type {
   DurableClientEventPublisher,
   RecordedClientEvent,

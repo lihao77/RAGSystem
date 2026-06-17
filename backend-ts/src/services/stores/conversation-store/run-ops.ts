@@ -3,12 +3,13 @@ import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
 import { asString, parseJsonObject, stringifyJson } from "./helpers.js";
 import { rowToRun, rowToRunStep } from "./mappers.js";
-import type { AddRunStepInput, RunInfo, RunRow, RunStepRecord, RunStepRow } from "./types.js";
+import type { AddRunStepInput, IRunStore, RunInfo, RunStepRecord } from "../../../contracts/conversation-store/index.js";
+import type { RunRow, RunStepRow } from "./types.js";
 
 const RUN_STEP_SELECT_COLUMNS = "id, run_id, session_id, message_id, step_order, step_type, payload, created_at";
 
 /** runs + run_steps 聚合根操作（迁移自 ConversationStore，方法体零改动）。 */
-export class RunOps {
+export class RunOps implements IRunStore {
   constructor(private readonly db: ConversationDb) {}
 
   createRun(input: {

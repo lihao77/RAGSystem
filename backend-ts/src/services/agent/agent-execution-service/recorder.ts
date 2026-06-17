@@ -1,6 +1,5 @@
 import type { MessageInfo } from "../../../contracts/session.js";
-import type { IConversationTransactionRunner, RunStepRecord } from "../../stores/conversation-store/index.js";
-import type { OutboxRow } from "../../stores/conversation-store/types.js";
+import type { IConversationTransactionRunner, OutboxRow, RunStepRecord } from "../../../contracts/conversation-store/index.js";
 
 export type RunTerminalStatus = "completed" | "failed" | "interrupted";
 

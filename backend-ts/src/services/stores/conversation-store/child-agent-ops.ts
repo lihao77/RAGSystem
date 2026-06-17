@@ -1,7 +1,8 @@
 import type { ConversationDb } from "./shared/db.js";
 import { stringifyJson } from "./helpers.js";
 import { rowToChildAgent } from "./mappers.js";
-import type { ChildAgentInfo, ChildAgentRow } from "./types.js";
+import type { ChildAgentInfo, IChildAgentStore } from "../../../contracts/conversation-store/index.js";
+import type { ChildAgentRow } from "./types.js";
 
 const CHILD_AGENT_SELECT_COLUMNS = `
   child_agent_id, session_id, agent_name, thread_key, status,
@@ -10,7 +11,7 @@ const CHILD_AGENT_SELECT_COLUMNS = `
 `;
 
 /** child_agents 聚合根操作（迁移自 ConversationStore，方法体零改动）。 */
-export class ChildAgentOps {
+export class ChildAgentOps implements IChildAgentStore {
   constructor(private readonly db: ConversationDb) {}
 
   createChildAgent(input: {

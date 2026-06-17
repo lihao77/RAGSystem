@@ -12,7 +12,7 @@ import { getSelectedLlm as resolveSelectedLlm } from "../../../contracts/executi
 import type { AgentRuntimeContextBuilder } from "../agent-runtime-context-builder.js";
 import type { AgentSessionApplication } from "../agent-session-application.js";
 import type { CheckpointInfo } from "../../stores/checkpoint-manager.js";
-import type { IRunStore } from "../../stores/conversation-store/index.js";
+import type { IRunStore } from "../../../contracts/conversation-store/index.js";
 import type { RuntimeExecutionConfigResolver } from "../../runtime/runtime-core-service.js";
 import {
   asString,

@@ -5,10 +5,11 @@ import { runInTransaction } from "./shared/transaction.js";
 import { deepMergeRecords } from "./shared/primitives.js";
 import { stringifyJson } from "./helpers.js";
 import { rowToSession, rowToSessionListItem } from "./mappers.js";
-import type { SessionRow, SessionListRow } from "./types.js";
+import type { ISessionStore } from "../../../contracts/conversation-store/index.js";
+import type { SessionListRow, SessionRow } from "./types.js";
 
 /** sessions 聚合根操作（迁移自 ConversationStore，方法体零改动）。 */
-export class SessionOps {
+export class SessionOps implements ISessionStore {
   constructor(private readonly db: ConversationDb) {}
 
   createSession(sessionId: string, userId: string | null = null, metadata: Record<string, unknown> = {}): void {

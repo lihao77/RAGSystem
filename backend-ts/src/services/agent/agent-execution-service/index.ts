@@ -22,7 +22,7 @@ import type { DurableClientEventPublisher } from "../../runtime/event-outbox/cli
 import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js";
 import type { RuntimeExecutionConfigResolver } from "../../runtime/runtime-core-service.js";
 import type { RuntimeToolExecutor } from "../../runtime/runtime-tool-types.js";
-import type { ConversationStore } from "../../stores/conversation-store/index.js";
+import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { FileIndexService } from "../../stores/file-index-service.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import { ExecutionRecorder } from "./recorder.js";

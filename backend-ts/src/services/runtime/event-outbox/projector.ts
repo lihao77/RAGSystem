@@ -1,5 +1,5 @@
 import type { ClientEvent } from "../../../contracts/events.js";
-import type { OutboxRow } from "../../stores/conversation-store/types.js";
+import type { OutboxRow } from "../../../contracts/conversation-store/index.js";
 
 export class ClientEventProjector {
   toClientEvent(row: OutboxRow): ClientEvent {

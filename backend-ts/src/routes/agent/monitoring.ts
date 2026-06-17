@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { ok } from "../../contracts/common.js";
-import type { OutboxStatus } from "../../services/stores/conversation-store/index.js";
+import type { OutboxStatus } from "../../contracts/conversation-store/index.js";
 import { resolveContextBudget, resolveRuntimeContextSettings } from "../../services/agent/agent-context-compression-service.js";
 import { buildAgentPromptContext, buildFullSystemPrompt } from "../../services/agent/agent-prompt-builder.js";
 import { resolveRuntimeHistoryView } from "../../services/agent/agent-runtime-context-builder.js";

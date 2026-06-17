@@ -1,13 +1,11 @@
 import type { RunStepInfo } from "../../../contracts/common.js";
 import type { MessageInfo, SessionInfo, SessionListItem } from "../../../contracts/session.js";
 import { asString, parseJsonObject } from "./helpers.js";
+import type { ChildAgentInfo, ResourceInfo, RunInfo } from "../../../contracts/conversation-store/types.js";
 import type {
-  ChildAgentInfo,
   ChildAgentRow,
   MessageRow,
-  ResourceInfo,
   ResourceRow,
-  RunInfo,
   RunRow,
   RunStepRow,
   SessionListRow,

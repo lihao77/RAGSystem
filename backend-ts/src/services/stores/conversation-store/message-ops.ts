@@ -5,14 +5,17 @@ import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
 import { asNullableString, asString, stringifyJson } from "./helpers.js";
 import { rowToMessage } from "./mappers.js";
-import type { AddMessageInput, MessageRow, SqlInputValue } from "./types.js";
+import type { AddMessageInput, IMessageStore } from "../../../contracts/conversation-store/index.js";
+import { AddMessageInputSchema } from "../../../contracts/conversation-store/types.js";
+import type { MessageRow, SqlInputValue } from "./types.js";
 
 /** messages 聚合根操作（迁移自 ConversationStore，方法体零改动）。 */
-export class MessageOps {
+export class MessageOps implements IMessageStore {
   constructor(private readonly db: ConversationDb) {}
 
   addMessage(input: AddMessageInput): MessageInfo {
-    return runInTransaction(this.db, () => this.addMessageInTransaction(input));
+    const normalized = AddMessageInputSchema.parse(input);
+    return runInTransaction(this.db, () => this.addMessageInTransaction(normalized));
   }
 
   /** 事务内变体（供 ConversationStoreTransaction facade 调用，故 public）。 */
