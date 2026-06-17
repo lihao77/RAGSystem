@@ -4,11 +4,11 @@ import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
-import { ConversationStore } from "../../src/services/stores/conversation-store.js";
+import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 
 describe("PendingInteractionService", () => {
   it("resolves approval interactions through the generic interaction response path", async () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     const realtimeEvents = new RealtimeEventHub();
     const dispatcher = new OutboxDispatcher(store, realtimeEvents);
     const clientEvents = new DurableClientEventPublisher(store, dispatcher);

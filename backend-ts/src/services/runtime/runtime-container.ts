@@ -13,7 +13,7 @@ import { AgentConfigService } from "../agent/agent-config-service.js";
 import { AgentSessionApplication } from "../agent/agent-session-application.js";
 import { ArtifactService } from "../artifacts/artifact-service.js";
 import { CheckpointManager } from "../stores/checkpoint-manager.js";
-import { ConversationStore } from "../stores/conversation-store.js";
+import { createConversationStore, type ConversationStore } from "../stores/conversation-store/index.js";
 import { DaemonService } from "../daemon/daemon-service.js";
 import { EmbeddingModelService } from "../knowledge/embedding-model-service.js";
 import { FileHistoryService } from "../stores/file-history-service.js";
@@ -94,7 +94,7 @@ export interface RuntimeContainerOptions {
 }
 
 export function createRuntimeContainer(options: RuntimeContainerOptions): RuntimeContainer {
-  const conversationStore = new ConversationStore({ dbPath: options.dbPath, dataRoot: options.dataRoot });
+  const conversationStore = createConversationStore({ dbPath: options.dbPath, dataRoot: options.dataRoot });
   const fileHistory = new FileHistoryService({ dataRoot: options.dataRoot });
   const sessionApplication = new AgentSessionApplication(conversationStore, fileHistory);
   const checkpointManager = new CheckpointManager({ dbPath: options.checkpointDbPath ?? options.dbPath });

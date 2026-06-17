@@ -1,5 +1,5 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
-import type { ChildAgentInfo } from "../../stores/conversation-store.js";
+import type { ChildAgentInfo } from "../../stores/conversation-store/index.js";
 import type { RuntimeToolExecutionContext } from "../../runtime/runtime-tool-types.js";
 
 export function buildDelegatedTask(task: string, contextHint: string | null | undefined): string {

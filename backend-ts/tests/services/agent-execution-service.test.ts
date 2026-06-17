@@ -16,7 +16,7 @@ import type {
   AgentRuntimeRequest,
   AgentRuntimeResult,
 } from "../../src/services/agent/agent-runtime-core.js";
-import { ConversationStore } from "../../src/services/stores/conversation-store.js";
+import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
@@ -156,7 +156,7 @@ function createMockRuntimeCore(mode: RuntimeMode, content: string) {
 function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: boolean } = {}): ServiceHarness {
   const mode = opts.mode ?? "ok";
   const ready = opts.ready ?? true;
-  const store = new ConversationStore({ dbPath: ":memory:" });
+  const store = createConversationStore({ dbPath: ":memory:" });
   const sessions = new AgentSessionApplication(store);
   const realtimeEvents = new RealtimeEventHub();
   const dispatcher = new OutboxDispatcher(store, realtimeEvents);

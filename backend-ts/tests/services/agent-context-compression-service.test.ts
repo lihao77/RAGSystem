@@ -4,7 +4,7 @@ import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
 import { AgentContextCompressionService } from "../../src/services/agent/agent-context-compression-service.js";
 import { resolveCompressionView } from "../../src/services/agent/agent-runtime-context-builder.js";
-import { ConversationStore } from "../../src/services/stores/conversation-store.js";
+import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import type { ChatCompletionRequest, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
 import { SystemConfigService } from "../../src/services/config/system-config-service.js";
 
@@ -26,7 +26,7 @@ class FakeSummaryClient implements LlmChatClient {
 
 describe("AgentContextCompressionService", () => {
   it("computes context budget from system config and agent context window", () => {
-    store = new ConversationStore({ dbPath: ":memory:" });
+    store = createConversationStore({ dbPath: ":memory:" });
     const systemConfig = new SystemConfigService();
     systemConfig.updateConfig({
       context: {
@@ -42,7 +42,7 @@ describe("AgentContextCompressionService", () => {
   });
 
   it("persists Python-compatible compression summaries and exposes the resolved view", async () => {
-    store = new ConversationStore({ dbPath: ":memory:" });
+    store = createConversationStore({ dbPath: ":memory:" });
     const systemConfig = new SystemConfigService();
     systemConfig.updateConfig({
       context: {
@@ -113,7 +113,7 @@ describe("AgentContextCompressionService", () => {
   });
 
   it("force compacts a session regardless of token threshold", async () => {
-    store = new ConversationStore({ dbPath: ":memory:" });
+    store = createConversationStore({ dbPath: ":memory:" });
     const systemConfig = new SystemConfigService();
     systemConfig.updateConfig({
       context: {
@@ -165,7 +165,7 @@ describe("AgentContextCompressionService", () => {
   });
 
   it("skips force compact when there are not enough messages to replace", async () => {
-    store = new ConversationStore({ dbPath: ":memory:" });
+    store = createConversationStore({ dbPath: ":memory:" });
     const chatClient = new FakeSummaryClient();
     const service = new AgentContextCompressionService(store, chatClient, new SystemConfigService());
     store.createSession("force-skip");

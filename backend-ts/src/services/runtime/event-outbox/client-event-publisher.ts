@@ -3,7 +3,7 @@ import type {
   AppendOutboxInput,
   ConversationStore,
   ConversationStoreTransaction,
-} from "../../stores/conversation-store.js";
+} from "../../stores/conversation-store/index.js";
 import type { OutboxRow } from "../../stores/conversation-store/types.js";
 import type { OutboxDispatcher } from "./dispatcher.js";
 

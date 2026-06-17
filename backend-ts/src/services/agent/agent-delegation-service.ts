@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentRuntimeContextBuilder } from "./agent-runtime-context-builder.js";
 import type { AgentRuntimeCore, AgentRuntimeEvent, AgentRuntimeRequest } from "./agent-runtime-core.js";
 import { buildAgentPromptContext, type AgentPromptConfigResolver } from "./agent-prompt-builder.js";
-import type { ConversationStore, ChildAgentInfo } from "../stores/conversation-store.js";
+import type { ConversationStore, ChildAgentInfo } from "../stores/conversation-store/index.js";
 import type { ClientEventPublisher } from "../runtime/event-outbox/client-event-publisher.js";
 import type { RuntimeExecutionConfigResolver } from "../runtime/runtime-core-service.js";
 import type { RuntimeToolExecutionContext, RuntimeToolExecutor, ToolExecutionResult } from "../runtime/runtime-tool-types.js";

@@ -4,11 +4,11 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { ConversationStore } from "../../src/services/stores/conversation-store.js";
+import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 
 describe("ConversationStore", () => {
   it("upserts sessions and returns Python-compatible session list metadata", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     store.createSession("s1", "u1", { title: "Pinned title", unread_count: 2 });
     store.addMessage({ sessionId: "s1", role: "user", content: "first message" });
     store.addMessage({ sessionId: "s1", role: "assistant", content: "latest answer" });
@@ -35,7 +35,7 @@ describe("ConversationStore", () => {
   });
 
   it("falls back to the first message prefix for session title", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     store.createSession("s1", null, {});
     store.addMessage({ sessionId: "s1", role: "user", content: "123456789012345678901234567890abc" });
 
@@ -46,7 +46,7 @@ describe("ConversationStore", () => {
   });
 
   it("merges session metadata patches without replacing sibling keys", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     store.createSession("s1", null, {
       title: "Pinned",
       memory_prefix_states: {
@@ -78,7 +78,7 @@ describe("ConversationStore", () => {
   });
 
   it("returns the latest window in ascending sequence order", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     store.addMessage({ sessionId: "s1", role: "user", content: "m1" });
     store.addMessage({ sessionId: "s1", role: "assistant", content: "m2" });
     store.addMessage({ sessionId: "s1", role: "user", content: "m3" });
@@ -92,7 +92,7 @@ describe("ConversationStore", () => {
   });
 
   it("deletes messages after seq but keeps the anchor", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     const first = store.addMessage({ sessionId: "s1", role: "user", content: "m1" });
     store.addMessage({ sessionId: "s1", role: "assistant", content: "m2" });
     store.addMessage({ sessionId: "s1", role: "user", content: "m3" });
@@ -105,7 +105,7 @@ describe("ConversationStore", () => {
   });
 
   it("updates messages only when session and role filters match", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     const user = store.addMessage({ sessionId: "s1", role: "user", content: "old" });
     const assistant = store.addMessage({ sessionId: "s1", role: "assistant", content: "answer" });
 
@@ -117,7 +117,7 @@ describe("ConversationStore", () => {
   });
 
   it("deletes child agents created after the rollback anchor", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     const anchor = store.addMessage({ sessionId: "s1", role: "user", content: "m1" });
     const later = store.addMessage({ sessionId: "s1", role: "assistant", content: "m2" });
     store.createChildAgent({ sessionId: "s1", childAgentId: "before", agentName: "worker", createdSeq: anchor.seq });
@@ -132,7 +132,7 @@ describe("ConversationStore", () => {
   });
 
   it("stores run steps with per-run step order and message binding", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     const assistant = store.addMessage({
       sessionId: "s1",
       role: "assistant",
@@ -163,7 +163,7 @@ describe("ConversationStore", () => {
   });
 
   it("records durable outbox rows with per-session sequence and delivery status", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     store.createSession("s1");
     store.createSession("s2");
 
@@ -208,7 +208,7 @@ describe("ConversationStore", () => {
   });
 
   it("manages failed and delivered outbox rows for operations", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     store.createSession("ops-outbox");
     const pending = store.appendOutbox({
       sessionId: "ops-outbox",
@@ -292,7 +292,7 @@ describe("ConversationStore", () => {
   });
 
   it("rolls back core state and outbox writes from the transaction facade", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
 
     expect(() =>
       store.runInTransaction((tx) => {
@@ -328,7 +328,7 @@ describe("ConversationStore", () => {
 
   it("persists runs, resources, and step resource links like Python", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "backend-ts-store-"));
-    const store = new ConversationStore({
+    const store = createConversationStore({
       dbPath: path.join(root, "conversation.db"),
       dataRoot: path.join(root, "data"),
     });
@@ -387,7 +387,7 @@ describe("ConversationStore", () => {
   });
 
   it("supports child-scoped messages and run metadata", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     try {
       store.createSession("session-thread", "user-1");
       const child = store.createChildAgent({
@@ -437,7 +437,7 @@ describe("ConversationStore", () => {
   it("infers resource scopes from managed session paths and workspace metadata", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "backend-ts-scopes-"));
     const dataRoot = path.join(root, "data");
-    const store = new ConversationStore({
+    const store = createConversationStore({
       dbPath: path.join(root, "conversation.db"),
       dataRoot,
     });

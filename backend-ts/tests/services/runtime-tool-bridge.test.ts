@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { AgentDelegationService } from "../../src/services/agent/agent-delegation-service.js";
-import { ConversationStore } from "../../src/services/stores/conversation-store.js";
+import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import { MemoryStore } from "../../src/services/stores/memory-store.js";
 import { MemoryToolService, type RuntimeMemorySessionPort } from "../../src/tools/MemoryTools/MemoryExecution.js";
 import { BackgroundTaskService } from "../../src/services/runtime/background-task-service.js";
@@ -50,7 +50,7 @@ function createDurableClientEvents(): {
   realtimeEvents: RealtimeEventHub;
   clientEvents: DurableClientEventPublisher;
 } {
-  const store = new ConversationStore({ dbPath: ":memory:" });
+  const store = createConversationStore({ dbPath: ":memory:" });
   const realtimeEvents = new RealtimeEventHub();
   const dispatcher = new OutboxDispatcher(store, realtimeEvents);
   return {

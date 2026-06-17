@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { OutboxRow } from "../../src/services/stores/conversation-store/types.js";
-import { ConversationStore } from "../../src/services/stores/conversation-store.js";
+import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { ClientEventProjector } from "../../src/services/runtime/event-outbox/projector.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
@@ -71,7 +71,7 @@ describe("event outbox projection and dispatch", () => {
   });
 
   it("publishes projected events to realtime fanout by default", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     const realtimeEvents = new RealtimeEventHub();
     store.createSession("s1");
     store.appendOutbox({
@@ -113,7 +113,7 @@ describe("event outbox projection and dispatch", () => {
   });
 
   it("marks projected events delivered after realtime fanout", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     const realtimeEvents = new RealtimeEventHub();
     store.createSession("s1");
     store.appendOutbox({
@@ -143,7 +143,7 @@ describe("event outbox projection and dispatch", () => {
   });
 
   it("does not retry delivered rows when a realtime subscriber fails", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     const realtimeEvents = new RealtimeEventHub();
     store.createSession("s1");
     realtimeEvents.subscribe("s1", () => {
@@ -190,7 +190,7 @@ describe("event outbox projection and dispatch", () => {
   it("retries projection failures with backoff before delivering", () => {
     let nowMs = Date.parse("2026-06-07T00:00:00.000Z");
     const now = () => new Date(nowMs);
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     const realtimeEvents = new RealtimeEventHub();
     store.createSession("s1");
     store.appendOutbox({
@@ -276,7 +276,7 @@ describe("event outbox projection and dispatch", () => {
   it("marks outbox rows failed after retry attempts are exhausted", () => {
     let nowMs = Date.parse("2026-06-07T00:00:00.000Z");
     const now = () => new Date(nowMs);
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     const realtimeEvents = new RealtimeEventHub();
     store.createSession("s1");
     store.appendOutbox({
@@ -333,7 +333,7 @@ describe("event outbox projection and dispatch", () => {
   it("reclaims stale locked outbox rows", () => {
     let nowMs = Date.parse("2026-06-07T00:00:00.000Z");
     const now = () => new Date(nowMs);
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     const realtimeEvents = new RealtimeEventHub();
     store.createSession("s1");
     store.appendOutbox({
@@ -387,7 +387,7 @@ describe("event outbox projection and dispatch", () => {
   });
 
   it("projects generic client event outbox rows with durable event metadata", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     const projector = new ClientEventProjector();
     store.createSession("s1");
     const row = store.appendOutbox({

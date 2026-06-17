@@ -149,3 +149,118 @@ export interface OutboxRow {
 }
 
 export type SqlInputValue = string | number | bigint | Uint8Array | null;
+
+export interface ConversationStoreOptions {
+  dbPath: string;
+  dataRoot?: string | undefined;
+}
+
+export interface AddMessageInput {
+  sessionId: string;
+  role: MessageInfo["role"];
+  content: string;
+  metadata?: Record<string, unknown>;
+  messageId?: string;
+  threadKey?: string;
+  childAgentId?: string | null;
+}
+
+export interface AddRunStepInput {
+  sessionId: string;
+  runId: string;
+  stepType: string;
+  payload: Record<string, unknown>;
+  messageId?: string | null;
+}
+
+export interface RunStepRecord {
+  id: number;
+  run_id: string;
+  step_order: number;
+  step_type: string;
+}
+
+export interface AppendOutboxInput {
+  sessionId: string;
+  runId?: string | null;
+  eventId?: string;
+  sessionSeq?: number;
+  eventType: string;
+  aggregateType: string;
+  aggregateId: string;
+  payload: Record<string, unknown>;
+  availableAt?: string | null;
+}
+
+export interface ClaimOutboxInput {
+  limit?: number;
+  lockTimeoutMs?: number;
+  now?: Date;
+}
+
+export type OutboxStatus = "pending" | "retrying" | "delivered" | "failed";
+
+export interface ListOutboxInput {
+  statuses?: OutboxStatus[] | undefined;
+  sessionId?: string | null | undefined;
+  runId?: string | null | undefined;
+  limit?: number | undefined;
+  offset?: number | undefined;
+}
+
+export interface RetryOutboxBatchInput {
+  ids?: number[] | undefined;
+  statuses?: OutboxStatus[] | undefined;
+  limit?: number | undefined;
+  availableAt?: string | undefined;
+}
+
+export interface RetryOutboxResult {
+  matched: number;
+  retried: number;
+  ids: number[];
+}
+
+export interface DeleteDeliveredOutboxInput {
+  before: string;
+  limit?: number | undefined;
+}
+
+export interface ConversationStoreTransaction {
+  addMessage(input: AddMessageInput): MessageInfo;
+  addRunStep(input: AddRunStepInput): RunStepRecord;
+  updateRunStepsMessageId(sessionId: string, runId: string, messageId: string): number;
+  updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null): boolean;
+  nextSessionSeq(sessionId: string): number;
+  appendOutbox(input: AppendOutboxInput): OutboxRow;
+}
+
+export interface EventOutboxErrorSummary {
+  id: number;
+  event_id: string;
+  session_id: string;
+  run_id: string | null;
+  event_type: string;
+  attempts: number;
+  last_error: string | null;
+  created_at: string;
+}
+
+export interface EventOutboxStats {
+  total: number;
+  pending: number;
+  retrying: number;
+  delivered: number;
+  failed: number;
+  locked: number;
+  ready: number;
+  oldest_pending_created_at: string | null;
+  oldest_pending_age_seconds: number | null;
+  oldest_retrying_created_at: string | null;
+  oldest_retrying_age_seconds: number | null;
+  oldest_pending_or_retrying_created_at: string | null;
+  oldest_pending_or_retrying_age_seconds: number | null;
+  oldest_failed_created_at: string | null;
+  oldest_failed_age_seconds: number | null;
+  recent_failed_errors: EventOutboxErrorSummary[];
+}

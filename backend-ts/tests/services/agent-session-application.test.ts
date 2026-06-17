@@ -3,11 +3,11 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { AgentSessionApplication } from "../../src/services/agent/agent-session-application.js";
-import { ConversationStore } from "../../src/services/stores/conversation-store.js";
+import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 
 describe("AgentSessionApplication", () => {
   it("returns the same compact create_session payload as Python", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     const app = new AgentSessionApplication(store);
 
     const created = app.createSession({
@@ -25,7 +25,7 @@ describe("AgentSessionApplication", () => {
   });
 
   it("normalizes Python-compatible session runtime metadata", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     const app = new AgentSessionApplication(store);
     const workspaceRoot = path.resolve("workspace-demo");
 
@@ -52,7 +52,7 @@ describe("AgentSessionApplication", () => {
   });
 
   it("filters hidden, intermediate, child, and non-root messages like Python", () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     const app = new AgentSessionApplication(store);
     app.createSession({ sessionId: "s1" });
     app.addMessage({ sessionId: "s1", role: "user", content: "visible" });

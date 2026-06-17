@@ -8,7 +8,7 @@ import {
 } from "../../src/services/agent/agent-runtime-context-builder.js";
 import type { AgentRuntimeCore, AgentRuntimeRequest } from "../../src/services/agent/agent-runtime-core.js";
 import { AgentDelegationService } from "../../src/services/agent/agent-delegation-service.js";
-import { ConversationStore } from "../../src/services/stores/conversation-store.js";
+import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
@@ -16,7 +16,7 @@ import type { RuntimeExecutionConfigResolver } from "../../src/services/runtime/
 
 describe("AgentDelegationService", () => {
   it("lists child agents and resumes an existing child thread with send_message", async () => {
-    const store = new ConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:" });
     const realtimeEvents = new RealtimeEventHub();
     const dispatcher = new OutboxDispatcher(store, realtimeEvents);
     const clientEvents = new DurableClientEventPublisher(store, dispatcher);
