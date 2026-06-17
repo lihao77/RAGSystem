@@ -17,35 +17,16 @@ import type {
   VectorFileStatusResponse,
   VectorizerConfig,
   VectorizerCreate,
+  VectorSearchResult,
 } from "../../contracts/vector-library.js";
 import type { IFileIndexStore } from "../../contracts/file-index-store/index.js";
 import type { ModelAdapterService } from "../integrations/model-adapter-service.js";
+import { VectorLibraryServiceError } from "../../contracts/vector-library.js";
 
-export class VectorLibraryServiceError extends Error {
-  readonly statusCode: number;
-
-  constructor(message: string, statusCode = 400) {
-    super(message);
-    this.name = "VectorLibraryServiceError";
-    this.statusCode = statusCode;
-  }
-}
-
-export interface VectorSearchResult {
-  id: string;
-  doc_id: string;
-  document_id: string;
-  collection: string;
-  text: string;
-  content: string;
-  metadata: Record<string, unknown>;
-  score: number;
-  similarity: number;
-  keyword_score: number;
-  vector_score: number;
-  hybrid_score: number;
-  rerank_score?: number;
-}
+// 契约泄漏修复:VectorLibraryServiceError / VectorSearchResult 收编至 contracts/vector-library.ts。
+// 本文件 re-export 保持 KnowledgeTools/routes 的 `from service` import 暂时兼容(Batch 5 改向 contracts)。
+export { VectorLibraryServiceError } from "../../contracts/vector-library.js";
+export type { VectorSearchResult } from "../../contracts/vector-library.js";
 
 export class VectorLibraryService {
   private readonly db: import("node:sqlite").DatabaseSync;

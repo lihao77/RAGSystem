@@ -12,6 +12,7 @@ import type {
   SystemConfigValue,
   SystemGroupConfig,
   ToolsConfig,
+  VectorStoreConfig,
 } from "../../contracts/system-config.js";
 
 const REDACTED_VALUE = "********";
@@ -57,6 +58,11 @@ export class SystemConfigService {
   /** 类型化读取 system 组。 */
   getSystemGroupConfig(): SystemGroupConfig {
     return normalizeSystemGroupConfig(this.config.system);
+  }
+
+  /** 类型化读取 vector_store 组(向量库后端选择 + sqlite_vec 连接参数)。 */
+  getVectorStoreConfig(): VectorStoreConfig {
+    return normalizeVectorStoreConfig(this.config.vector_store);
   }
 
   updateConfig(update: SystemConfigUpdate): SystemConfigData {
@@ -463,5 +469,24 @@ function normalizeSystemGroupConfig(value: unknown): SystemGroupConfig {
   const record = isRecord(value) ? value : {};
   return {
     max_content_length: positiveIntOrDefault(record.max_content_length, 104857600),
+  };
+}
+
+// 默认值须与 buildDefaultConfig() 的 vector_store 段保持同步(单一来源在 buildDefaultConfig)。
+function normalizeVectorStoreConfig(value: unknown): VectorStoreConfig {
+  const record = isRecord(value) ? value : {};
+  const sqliteVecRecord = isRecord(record.sqlite_vec) ? record.sqlite_vec : {};
+  const dimension = sqliteVecRecord.vector_dimension;
+  return {
+    backend: typeof record.backend === "string" && record.backend.trim() ? record.backend.trim() : "sqlite_vec",
+    sqlite_vec: {
+      database_path: typeof sqliteVecRecord.database_path === "string" ? sqliteVecRecord.database_path : "",
+      vector_dimension:
+        typeof dimension === "number" && Number.isFinite(dimension) && dimension >= 0 ? Math.floor(dimension) : 0,
+      distance_metric:
+        typeof sqliteVecRecord.distance_metric === "string" && sqliteVecRecord.distance_metric.trim()
+          ? sqliteVecRecord.distance_metric.trim()
+          : "cosine",
+    },
   };
 }
