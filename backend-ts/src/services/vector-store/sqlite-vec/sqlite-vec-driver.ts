@@ -190,26 +190,32 @@ export class SqliteVecDriver implements IVectorStore {
     }));
   }
 
-  async listDocuments(collection: string): Promise<DocumentInfo> {
+  async listDocuments(collection: string): Promise<DocumentInfo[]> {
     const rows = this.db
       .prepare(
         `SELECT document_id, COUNT(*) AS chunk_count, MIN(metadata) AS metadata
-         FROM vec_documents WHERE collection = ? GROUP BY document_id`,
+         FROM vec_documents WHERE collection = ? GROUP BY document_id ORDER BY document_id`,
       )
       .all(collection) as unknown as Array<{ document_id: string; chunk_count: number; metadata: string | null }>;
-    if (rows.length === 0) {
-      return { collection, document_id: "", chunk_count: 0, metadata: null };
-    }
-    const first = rows[0];
-    if (!first) {
-      return { collection, document_id: "", chunk_count: 0, metadata: null };
-    }
-    return {
+    return rows.map((row) => ({
       collection,
-      document_id: first.document_id,
-      chunk_count: rows.reduce((sum, row) => sum + row.chunk_count, 0),
-      metadata: first.metadata ? parseRecord(first.metadata) : null,
-    };
+      document_id: row.document_id,
+      chunk_count: row.chunk_count,
+      metadata: row.metadata ? parseRecord(row.metadata) : null,
+    }));
+  }
+
+  async countVectorsForDocument(collection: string, documentId: string, model_id: number): Promise<number> {
+    const table = vecTableName(model_id);
+    if (!this.tableExists(table)) {
+      return 0;
+    }
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM ${table} v JOIN vec_documents d ON d.id = v.rowid WHERE d.collection = ? AND d.document_id = ?`,
+      )
+      .get(collection, documentId) as unknown as { n: number } | undefined;
+    return row?.n ?? 0;
   }
 
   async countVectors(collection: string, model_id: number): Promise<number> {

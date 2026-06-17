@@ -11,7 +11,7 @@
  *   (scoring.ts)补到 keyword_score/hybrid_score;无命中返回空数组(非 null/异常);
  *   query_vector 维度与 collection 的 model_id 维度不一致 → driver 抛 VectorStoreError(前置违反);
  * - deleteDocument/deleteCollection/deleteByModel 返回受影响数;不存在返回 0(非失败);
- *   deleteByModel 是 B/A 解耦口:vectorizer registry 删 vectorizer 时调它清向量数据,而非 registry 直连库;
+ *   deleteByModel 是 B/A 解耦口:编排层删 vectorizer 时调它清向量数据,而非直连库;
  * - listCollections/listDocuments/countVectors/countChunks 返空集合/0 不抛异常;
  * - health 反映 driver 状态(runtime/ann/collections_count);ann=false 表示降级到应用层算分(无 sqlite-vec 扩展);
  * - close 释放连接(WAL/句柄),幂等。
@@ -79,8 +79,10 @@ export interface IVectorStore {
   deleteCollection(collection: string): Promise<{ deleted_chunks: number }>;
   deleteByModel(model_id: number): Promise<{ deleted: number }>;
   listCollections(): Promise<CollectionInfo[]>;
-  listDocuments(collection: string): Promise<DocumentInfo>;
+  listDocuments(collection: string): Promise<DocumentInfo[]>;
   countVectors(collection: string, model_id: number): Promise<number>;
+  /** document 级向量计数:fileStatus 判某文件在某 model_id 下是否已索引(B/A 交叉查询)。 */
+  countVectorsForDocument(collection: string, documentId: string, model_id: number): Promise<number>;
   countChunks(collection: string): Promise<number>;
   health(): Promise<VectorStoreHealth>;
   close(): void;

@@ -138,6 +138,35 @@ describe("SqliteVecDriver", () => {
     driver.close();
   });
 
+  it("listDocuments 返回 collection 下全部 documents(数组,聚合 chunk_count)", async () => {
+    const driver = new SqliteVecDriver(config());
+    await driver.upsertRecords([
+      record("d1", [1, 0], { chunk_index: 0 }),
+      record("d1", [0, 1], { chunk_index: 1 }),
+      record("d2", [1, 0]),
+    ]);
+    const docs = await driver.listDocuments("col1");
+    expect(docs).toHaveLength(2);
+    const d1 = docs.find((d) => d.document_id === "d1");
+    expect(d1?.chunk_count).toBe(2);
+    const d2 = docs.find((d) => d.document_id === "d2");
+    expect(d2?.chunk_count).toBe(1);
+    driver.close();
+  });
+
+  it("countVectorsForDocument 按 document+model_id 计数(无 vec 表返 0)", async () => {
+    const driver = new SqliteVecDriver(config());
+    await driver.upsertRecords([
+      record("d1", [1, 0], { chunk_index: 0 }),
+      record("d1", [0, 1], { chunk_index: 1 }),
+      record("d2", [1, 0]),
+    ]);
+    expect(await driver.countVectorsForDocument("col1", "d1", 1)).toBe(2);
+    expect(await driver.countVectorsForDocument("col1", "d2", 1)).toBe(1);
+    expect(await driver.countVectorsForDocument("col1", "d1", 99)).toBe(0);
+    driver.close();
+  });
+
   it("同 model_id 维度不一致抛 VectorStoreError", async () => {
     const driver = new SqliteVecDriver(config());
     await driver.upsertRecords([record("d1", [1, 0])]);
