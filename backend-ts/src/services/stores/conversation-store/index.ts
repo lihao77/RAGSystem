@@ -7,6 +7,7 @@ import { ChildAgentOps } from "./child-agent-ops.js";
 import { OutboxOps } from "./outbox-ops.js";
 import { ResourceOps } from "./resource-ops.js";
 import type { ConversationStoreOptions, ConversationStoreTransaction } from "./types.js";
+import type { ConversationStore } from "./contracts.js";
 
 export type {
   AddMessageInput,
@@ -127,8 +128,17 @@ export function createConversationStore(options: ConversationStoreOptions) {
     runInTransaction<T>(operation: (tx: ConversationStoreTransaction) => T): T {
       return runInTransaction(db, () => operation(createTransactionFacade()));
     },
-  };
+  } satisfies ConversationStore;
 }
 
 /** 对外类型（无主类）：createConversationStore 返回的 facade 类型。 */
-export type ConversationStore = ReturnType<typeof createConversationStore>;
+export type {
+  ConversationStore,
+  IChildAgentStore,
+  IConversationTransactionRunner,
+  IMessageStore,
+  IOutboxStore,
+  IResourceStore,
+  IRunStore,
+  ISessionStore,
+} from "./contracts.js";
