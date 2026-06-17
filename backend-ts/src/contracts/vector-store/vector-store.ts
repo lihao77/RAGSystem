@@ -23,6 +23,7 @@ export interface VectorRecord {
   doc_id: string;
   collection: string;
   model_id: number;
+  chunk_index: number;
   content: string;
   metadata: Record<string, unknown>;
   embedding: number[];

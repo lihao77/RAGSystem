@@ -22,10 +22,3 @@ export interface VectorStoreDriverFactory {
 }
 
 export type DriverRegistry = Map<string, VectorStoreDriverFactory>;
-
-/** 全局 driver 注册表。sqlite-vec driver 在 Batch 3 注册,未来 Qdrant 等平行注册。 */
-export const DRIVER_REGISTRY: DriverRegistry = new Map();
-
-export function registerDriver(name: string, factory: VectorStoreDriverFactory): void {
-  DRIVER_REGISTRY.set(name, factory);
-}
