@@ -18,7 +18,7 @@ import type {
   VectorizerConfig,
   VectorizerCreate,
 } from "../../contracts/vector-library.js";
-import type { FileIndexService } from "../stores/file-index-service.js";
+import type { IFileIndexStore } from "../../contracts/file-index-store/index.js";
 import type { ModelAdapterService } from "../integrations/model-adapter-service.js";
 
 export class VectorLibraryServiceError extends Error {
@@ -56,7 +56,7 @@ export class VectorLibraryService {
   private activeRerankerKey: string | null = null;
 
   constructor(
-    private readonly fileIndex: FileIndexService,
+    private readonly fileIndex: IFileIndexStore,
     private readonly modelAdapter: ModelAdapterService,
     options: { dbPath?: string | undefined; dataRoot?: string | undefined } = {},
   ) {

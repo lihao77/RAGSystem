@@ -17,6 +17,7 @@ import { DaemonService } from "../daemon/daemon-service.js";
 import { EmbeddingModelService } from "../knowledge/embedding-model-service.js";
 import { FileHistoryService } from "../stores/file-history-service.js";
 import { FileIndexService } from "../stores/file-index-service.js";
+import type { IFileIndexStore } from "../../contracts/file-index-store/index.js";
 import { RealtimeEventHub } from "./realtime-event-hub.js";
 import { LocalBashToolService } from "../../tools/BashTool/BashExecution.js";
 import { CodeExecutionToolService } from "../../tools/CodeExecutionTool/CodeExecution.js";
@@ -51,7 +52,7 @@ export interface RuntimeContainer {
   readonly mcp: McpService;
   readonly daemon: DaemonService;
   readonly fileHistory: FileHistoryService;
-  readonly fileIndex: FileIndexService;
+  readonly fileIndex: IFileIndexStore;
   readonly vectorLibrary: VectorLibraryService;
   readonly artifacts: ArtifactService;
   readonly embeddingModels: EmbeddingModelService;

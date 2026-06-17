@@ -5,6 +5,15 @@ import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 
 import type { UploadedFileRecord } from "../../contracts/files.js";
+import {
+  AddFileInputSchema,
+  ListFilesInputSchema,
+  type AddFileInput,
+  type FileIndexStoreOptions,
+  type FileScopeType,
+  type IFileIndexStore,
+  type ListFilesInput,
+} from "../../contracts/file-index-store/index.js";
 
 type SqlInputValue = string | number | bigint | Uint8Array | null;
 
@@ -24,16 +33,11 @@ interface UploadedFileRow {
   scope_id: string | null;
 }
 
-export interface FileIndexServiceOptions {
-  dbPath: string;
-  dataRoot?: string | undefined;
-}
-
-export class FileIndexService {
+export class FileIndexService implements IFileIndexStore {
   private readonly db: import("node:sqlite").DatabaseSync;
   private readonly dataRoot: string;
 
-  constructor(options: FileIndexServiceOptions) {
+  constructor(options: FileIndexStoreOptions) {
     this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
     if (options.dbPath !== ":memory:") {
       fs.mkdirSync(path.dirname(options.dbPath), { recursive: true });
@@ -56,25 +60,21 @@ export class FileIndexService {
     return path.join(this.dataRoot, "sessions", sessionId, "uploads");
   }
 
-  list(input: {
-    scopeType: "global" | "session";
-    scopeId?: string | null;
-    extensions?: string[];
-    mimeTypes?: string[];
-  }): UploadedFileRecord[] {
+  list(input: ListFilesInput): UploadedFileRecord[] {
+    const parsed = ListFilesInputSchema.parse(input);
     const rows = this.db
       .prepare(
         `
           SELECT * FROM uploaded_files
-          WHERE scope_type = ? AND ${input.scopeId == null ? "scope_id IS NULL" : "scope_id = ?"}
+          WHERE scope_type = ? AND ${parsed.scopeId == null ? "scope_id IS NULL" : "scope_id = ?"}
           ORDER BY uploaded_at DESC
         `,
       )
-      .all(...scopeParams(input.scopeType, input.scopeId)) as unknown as UploadedFileRow[];
-    return rows.map(rowToFileRecord).filter((record) => matchesFilters(record, input.extensions, input.mimeTypes));
+      .all(...scopeParams(parsed.scopeType, parsed.scopeId)) as unknown as UploadedFileRow[];
+    return rows.map(rowToFileRecord).filter((record) => matchesFilters(record, parsed.extensions, parsed.mimeTypes));
   }
 
-  get(fileId: string, scopeType: "global" | "session", scopeId?: string | null): UploadedFileRecord | null {
+  get(fileId: string, scopeType: FileScopeType, scopeId?: string | null): UploadedFileRecord | null {
     const row = this.db
       .prepare(
         `
@@ -86,49 +86,58 @@ export class FileIndexService {
     return row ? rowToFileRecord(row) : null;
   }
 
-  add(input: {
-    originalName: string;
-    storedName: string;
-    storedPath: string;
-    size: number;
-    mime: string;
-    scopeType: "global" | "session";
-    scopeId?: string | null;
-  }): UploadedFileRecord {
+  add(input: AddFileInput): UploadedFileRecord {
+    const parsed = AddFileInputSchema.parse(input);
+    const { originalName, buffer, mime, scopeType, scopeId } = parsed;
+    const storedName = `${randomBytes(8).toString("hex")}_${sanitizeFilename(originalName)}`;
+    const uploadRoot =
+      scopeType === "session" ? this.getSessionUploadsRoot(scopeId ?? "") : this.getGlobalUploadsRoot();
+    const storedPath = path.join(uploadRoot, storedName);
+    const size = buffer.byteLength;
+    // 物理 blob 落盘
+    fs.mkdirSync(uploadRoot, { recursive: true });
+    fs.writeFileSync(storedPath, buffer);
     const fileId = this.nextFileId();
     const now = new Date().toISOString();
-    this.db
-      .prepare(
-        `
-          INSERT INTO uploaded_files
-          (id, original_name, stored_name, stored_path, size, mime,
-           uploaded_at, uploaded_by, indexed_in_vector, tags, notes, scope_type, scope_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-      )
-      .run(
-        fileId,
-        input.originalName,
-        input.storedName,
-        input.storedPath,
-        input.size,
-        input.mime,
-        now,
-        null,
-        0,
-        null,
-        null,
-        input.scopeType,
-        input.scopeId ?? null,
-      );
-    const record = this.get(fileId, input.scopeType, input.scopeId ?? null);
+    // INSERT 元数据；失败回滚物理文件，不留孤儿 blob（收编：blob 写入与元数据登记同进 store）
+    try {
+      this.db
+        .prepare(
+          `
+            INSERT INTO uploaded_files
+            (id, original_name, stored_name, stored_path, size, mime,
+             uploaded_at, uploaded_by, indexed_in_vector, tags, notes, scope_type, scope_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+        )
+        .run(
+          fileId,
+          originalName,
+          storedName,
+          storedPath,
+          size,
+          mime,
+          now,
+          null,
+          0,
+          null,
+          null,
+          scopeType,
+          scopeId ?? null,
+        );
+    } catch (err) {
+      fs.rmSync(storedPath, { force: true });
+      throw err;
+    }
+    const record = this.get(fileId, scopeType, scopeId ?? null);
     if (!record) {
+      fs.rmSync(storedPath, { force: true });
       throw new Error(`failed to read created file record: ${fileId}`);
     }
     return record;
   }
 
-  delete(fileId: string, scopeType: "global" | "session", scopeId?: string | null): UploadedFileRecord | null {
+  delete(fileId: string, scopeType: FileScopeType, scopeId?: string | null): UploadedFileRecord | null {
     const record = this.get(fileId, scopeType, scopeId ?? null);
     if (!record) {
       return null;
@@ -175,7 +184,12 @@ export class FileIndexService {
   }
 }
 
-function scopeParams(scopeType: "global" | "session", scopeId?: string | null): SqlInputValue[] {
+function sanitizeFilename(filename: string): string {
+  const normalized = filename.replace(/[^\w\-.]/g, "_").replace(/^_+|_+$/g, "");
+  return normalized || "upload.bin";
+}
+
+function scopeParams(scopeType: FileScopeType, scopeId?: string | null): SqlInputValue[] {
   return scopeId == null ? [scopeType] : [scopeType, scopeId];
 }
 

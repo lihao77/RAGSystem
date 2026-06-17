@@ -1,11 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
 
 import type { FastifyReply, FastifyRequest } from "fastify";
 
+import type { IFileIndexStore } from "../contracts/file-index-store/index.js";
 import type { UploadedFileRecord } from "../contracts/files.js";
-import type { FileIndexService } from "../services/stores/file-index-service.js";
 import { HttpError } from "../utils/errors.js";
 
 export interface FileScope {
@@ -22,31 +21,24 @@ export function parseCsvList(value: string | undefined): string[] {
 
 export async function uploadMultipartFiles(input: {
   request: FastifyRequest;
-  fileIndex: FileIndexService;
-  uploadRoot: string;
+  fileIndex: IFileIndexStore;
   scope: FileScope;
 }): Promise<UploadedFileRecord[]> {
   if (!input.request.isMultipart()) {
     throw new HttpError(400, "invalid_request", "请求必须使用 multipart/form-data");
   }
 
-  await fs.promises.mkdir(input.uploadRoot, { recursive: true });
+  // 物理 blob 落盘已收编进 store.add（消除原 route 层裸 fs.writeFile 与元数据登记的非原子）
   const created: UploadedFileRecord[] = [];
   for await (const part of input.request.files()) {
     if (!part.filename) {
       continue;
     }
-    const safeName = sanitizeFilename(part.filename);
-    const storedName = `${randomBytes(8).toString("hex")}_${safeName}`;
-    const storedPath = path.join(input.uploadRoot, storedName);
     const buffer = await part.toBuffer();
-    await fs.promises.writeFile(storedPath, buffer);
     created.push(
       input.fileIndex.add({
         originalName: part.filename,
-        storedName,
-        storedPath,
-        size: buffer.byteLength,
+        buffer,
         mime: part.mimetype ?? "",
         scopeType: input.scope.scopeType,
         scopeId: input.scope.scopeId ?? null,
@@ -61,7 +53,7 @@ export async function uploadMultipartFiles(input: {
 }
 
 export function validateFileIds(input: {
-  fileIndex: FileIndexService;
+  fileIndex: IFileIndexStore;
   fileIds: string[];
   scope: FileScope;
 }): { success: true; valid: string[]; invalid: string[] } {
@@ -123,11 +115,6 @@ export async function sendFileDownload(input: {
   input.reply.header("content-type", "application/octet-stream");
   input.reply.header("content-disposition", `attachment; filename="${filename}"`);
   return input.reply.send(fs.createReadStream(storedPath));
-}
-
-function sanitizeFilename(filename: string): string {
-  const normalized = filename.replace(/[^\w\-.]/g, "_").replace(/^_+|_+$/g, "");
-  return normalized || "upload.bin";
 }
 
 function sanitizeHeaderFilename(filename: string): string {

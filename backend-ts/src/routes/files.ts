@@ -57,7 +57,6 @@ export const registerFileRoutes: FastifyPluginAsync<RouteOptions> = async (app, 
     files: await uploadMultipartFiles({
       request,
       fileIndex: options.container.fileIndex,
-      uploadRoot: options.container.fileIndex.getGlobalUploadsRoot(),
       scope: { scopeType: "global", scopeId: null },
     }),
   }));

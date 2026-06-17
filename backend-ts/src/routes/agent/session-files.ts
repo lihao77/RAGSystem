@@ -41,7 +41,6 @@ export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async
     files: await uploadMultipartFiles({
       request,
       fileIndex: options.container.fileIndex,
-      uploadRoot: options.container.fileIndex.getSessionUploadsRoot(request.params.sessionId),
       scope: { scopeType: "session", scopeId: request.params.sessionId },
     }),
   }));

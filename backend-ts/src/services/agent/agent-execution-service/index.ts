@@ -22,7 +22,7 @@ import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js"
 import type { RuntimeExecutionConfigResolver } from "../../runtime/runtime-core-service.js";
 import type { RuntimeToolExecutor } from "../../runtime/runtime-tool-types.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
-import type { FileIndexService } from "../../stores/file-index-service.js";
+import type { IFileIndexStore } from "../../../contracts/file-index-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import { ExecutionRecorder } from "./recorder.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
@@ -70,7 +70,7 @@ export interface AgentExecutionServiceParams {
   contextCompression?: AgentContextCompressionService | null;
   promptConfigResolver?: AgentPromptConfigResolver | null;
   backgroundTasks?: BackgroundTaskService | null;
-  fileIndex?: FileIndexService | null;
+  fileIndex?: IFileIndexStore | null;
   outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">;
   clientEvents: DurableClientEventPublisher;
   logger?: AgentExecutionLogger | null | undefined;

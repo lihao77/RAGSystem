@@ -1,5 +1,5 @@
 import type { AttachmentRef } from "../../../contracts/execution.js";
-import type { FileIndexService } from "../../stores/file-index-service.js";
+import type { IFileIndexStore } from "../../../contracts/file-index-store/index.js";
 
 export interface ResolvedAttachment {
   file_id: string;
@@ -17,7 +17,7 @@ export interface AttachmentResolution {
 }
 
 export class AttachmentResolver {
-  constructor(private readonly fileIndex: FileIndexService | null = null) {}
+  constructor(private readonly fileIndex: IFileIndexStore | null = null) {}
 
   resolve(sessionId: string, attachments: AttachmentRef[]): AttachmentResolution {
     if (!attachments.length) {
