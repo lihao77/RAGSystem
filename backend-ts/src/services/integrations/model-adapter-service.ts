@@ -99,6 +99,16 @@ export class ModelAdapterService {
     return this.providers.has(providerKey);
   }
 
+  /**
+   * 按 key 取单个 provider 配置（克隆，避免外部 mutate 内部状态）。无则 null。
+   * 对应 hasProvider 的值读取口：embedder/reranker 等按 provider_key 解析配置时用，
+   * 避免每次 listProviders() 克隆全部 provider。
+   */
+  getProvider(providerKey: string): ModelProviderConfig | null {
+    const config = this.providers.get(providerKey);
+    return config ? cloneProviderConfig(config) : null;
+  }
+
   createProvider(data: ProviderPayload): string {
     const config = this.buildCreateConfig(data);
     const providerKey = makeProviderKey(config);

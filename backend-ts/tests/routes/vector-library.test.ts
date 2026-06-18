@@ -316,7 +316,7 @@ describe("vector library compatibility routes", () => {
 });
 
 describe("vector management compatibility routes", () => {
-  it("migrates legacy vector document schema on startup", () => {
+  it("migrates legacy vector document schema on startup", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-vector-"));
     tempRoots.push(root);
     const dbPath = path.join(root, "legacy.db");
@@ -383,7 +383,7 @@ describe("vector management compatibility routes", () => {
         total_chunks: 1,
         sample_ids: ["legacy-doc"],
       });
-      expect(service.search({ collection_name: "kb", query: "legacy schema", top_k: 5 })).toMatchObject({
+      expect(await service.search({ collection_name: "kb", query: "legacy schema", top_k: 5 })).toMatchObject({
         count: 1,
         results: [
           {

@@ -40,7 +40,7 @@ export const registerVectorRoutes: FastifyPluginAsync<RouteOptions> = async (app
   app.post("/search", async (request) => {
     const payload = SearchVectorsRequestSchema.parse(request.body);
     try {
-      return ok(options.container.vectorLibrary.search(payload));
+      return ok(await options.container.vectorLibrary.search(payload));
     } catch (error) {
       throw toHttpError(error);
     }

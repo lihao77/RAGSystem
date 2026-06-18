@@ -20,8 +20,11 @@ import type {
   VectorSearchResult,
 } from "../../contracts/vector-library.js";
 import type { IFileIndexStore } from "../../contracts/file-index-store/index.js";
-import type { IVectorStore } from "../../contracts/vector-store/index.js";
+import type { IEmbedder, IVectorStore, VectorSearchHit } from "../../contracts/vector-store/index.js";
 import type { ModelAdapterService } from "../integrations/model-adapter-service.js";
+import { createEmbedder } from "../integrations/embedder-registry.js";
+// hybridScore 仅 scoring.ts 有;keywordOverlapScore 本地已有(降级路径用,与 scoring.ts 重复,5f 统一清理)。
+import { hybridScore } from "../vector-store/scoring.js";
 import { VectorLibraryServiceError } from "../../contracts/vector-library.js";
 
 // 契约泄漏修复:VectorLibraryServiceError / VectorSearchResult 收编至 contracts/vector-library.ts。
@@ -37,6 +40,9 @@ export class VectorLibraryService {
   private activeVectorizerKey: string | null = null;
   private activeRerankerKey: string | null = null;
   private readonly vectorStore: IVectorStore | undefined;
+  // 按 vectorizer_key 缓存 embedder,避免每次 search 重复解析 provider 配置。
+  // 注:provider 配置(api_key 等)运行时更新后,缓存项持有旧快照——本期接受(重启生效),后续可加失效。
+  private readonly embedderCache = new Map<string, IEmbedder>();
 
   constructor(
     private readonly fileIndex: IFileIndexStore,
@@ -507,7 +513,7 @@ export class VectorLibraryService {
     };
   }
 
-  search(input: SearchVectorsRequest): Record<string, unknown> {
+  async search(input: SearchVectorsRequest): Promise<Record<string, unknown>> {
     const collectionName = input.collection_name?.trim() || input.collection?.trim() || "documents";
     const query = input.query.trim();
     const topK = input.top_k ?? 5;
@@ -519,29 +525,102 @@ export class VectorLibraryService {
       throw new VectorLibraryServiceError("search_mode 只能是 hybrid 或 vector", 400);
     }
     const vectorizer = this.resolveActiveVectorizer();
-    const rows = this.loadSearchRows(collectionName, vectorizer.model_id);
-    const queryVector = embedText(query);
-    let results = rows
-      .map((row) => scoreRow(row, query, queryVector))
-      .filter((row) => row.keyword_score > 0 || row.vector_score > 0)
-      .sort((left, right) => (searchMode === "vector" ? right.vector_score - left.vector_score : right.hybrid_score - left.hybrid_score))
-      .slice(0, input.rerank_top_k ?? Math.max(topK, 20))
-      .map(toSearchResult);
+    // 双路径:vectorStore 注入(driver+真 embedder)走新路径;否则降级到旧 hash 应用层余弦(零回归)。
+    const candidates = this.vectorStore
+      ? await this.searchViaDriver(collectionName, query, topK, searchMode, vectorizer, input)
+      : this.searchViaLocal(collectionName, query, topK, searchMode, vectorizer, input);
     const rerank = input.rerank === true && searchMode === "hybrid";
-    if (rerank) {
-      results = lexicalRerank(results, query);
-    }
+    const results = rerank ? lexicalRerank(candidates, query) : candidates;
     const finalTopK = input.final_top_k ?? topK;
-    results = results.slice(0, finalTopK);
+    const sliced = results.slice(0, finalTopK);
     return {
-      results,
-      count: results.length,
+      results: sliced,
+      count: sliced.length,
       collection_name: collectionName,
       query,
       search_mode: searchMode,
       rerank,
       rerank_mode: rerank ? input.rerank_mode ?? "local" : "none",
     };
+  }
+
+  /**
+   * 新路径:真 embedder 嵌入 query → driver 真 ANN 召回(已带 vector_score)→ scoring.ts 补 keyword/hybrid → 排序截断。
+   * driver 只召回 + vector_score;keyword/hybrid/rerank 是检索策略,留编排层(契约深合约)。
+   */
+  private async searchViaDriver(
+    collectionName: string,
+    query: string,
+    topK: number,
+    searchMode: "hybrid" | "vector",
+    vectorizer: StoredVectorizer,
+    input: SearchVectorsRequest,
+  ): Promise<VectorSearchResult[]> {
+    if (!this.vectorStore) {
+      return [];
+    }
+    const embedder = await this.resolveEmbedder(vectorizer);
+    const vectors = await embedder.embed([query]);
+    const queryVector = vectors[0];
+    if (!queryVector) {
+      return [];
+    }
+    const candidateLimit = input.rerank_top_k ?? Math.max(topK, 20);
+    const hits = await this.vectorStore.search({
+      collection: collectionName,
+      model_id: vectorizer.model_id,
+      query_vector: queryVector,
+      top_k: candidateLimit,
+      search_mode: searchMode,
+      query_text: query,
+    });
+    return hits
+      .map((hit) => {
+        const keywordScore = keywordOverlapScore(query, hit.content);
+        return {
+          ...hit,
+          keyword_score: keywordScore,
+          hybrid_score: hybridScore(hit.vector_score, keywordScore),
+        };
+      })
+      .filter((hit) => hit.vector_score > 0 || hit.keyword_score > 0)
+      .sort((left, right) =>
+        searchMode === "vector" ? right.vector_score - left.vector_score : right.hybrid_score - left.hybrid_score,
+      )
+      .slice(0, candidateLimit)
+      .map(hitToSearchResult);
+  }
+
+  /** 降级路径:旧 hash embedding + 应用层全表余弦(sqlite-vec 扩展加载失败时 fallback,5f 清理)。 */
+  private searchViaLocal(
+    collectionName: string,
+    query: string,
+    topK: number,
+    searchMode: "hybrid" | "vector",
+    vectorizer: StoredVectorizer,
+    input: SearchVectorsRequest,
+  ): VectorSearchResult[] {
+    const rows = this.loadSearchRows(collectionName, vectorizer.model_id);
+    const queryVector = embedText(query);
+    return rows
+      .map((row) => scoreRow(row, query, queryVector))
+      .filter((row) => row.keyword_score > 0 || row.vector_score > 0)
+      .sort((left, right) => (searchMode === "vector" ? right.vector_score - left.vector_score : right.hybrid_score - left.hybrid_score))
+      .slice(0, input.rerank_top_k ?? Math.max(topK, 20))
+      .map(toSearchResult);
+  }
+
+  /** 按 active vectorizer 解析并缓存 embedder:provider_key=local 或查无 → HashFallbackEmbedder。 */
+  private async resolveEmbedder(vectorizer: StoredVectorizer): Promise<IEmbedder> {
+    const cached = this.embedderCache.get(vectorizer.vectorizer_key);
+    if (cached) {
+      return cached;
+    }
+    const providerKey = vectorizer.provider_key;
+    const provider = providerKey && providerKey !== "local" ? this.modelAdapter.getProvider(providerKey) : null;
+    const embedder = createEmbedder(provider, vectorizer.model_name);
+    this.embedderCache.set(vectorizer.vectorizer_key, embedder);
+    return embedder;
   }
 
   getModelStats(modelId: number): {
@@ -1465,6 +1544,24 @@ function toSearchResult(row: ScoredRow): VectorSearchResult {
     similarity: Math.round(row.vector_score * 10000) / 10000,
     keyword_score: Math.round(row.keyword_score * 10000) / 10000,
     vector_score: Math.round(row.vector_score * 10000) / 10000,
+    hybrid_score: score,
+  };
+}
+
+function hitToSearchResult(hit: VectorSearchHit): VectorSearchResult {
+  const score = Math.round(hit.hybrid_score * 10000) / 10000;
+  return {
+    id: hit.id,
+    doc_id: hit.doc_id,
+    document_id: hit.document_id,
+    collection: hit.collection,
+    text: hit.content,
+    content: hit.content,
+    metadata: hit.metadata,
+    score,
+    similarity: Math.round(hit.vector_score * 10000) / 10000,
+    keyword_score: Math.round(hit.keyword_score * 10000) / 10000,
+    vector_score: Math.round(hit.vector_score * 10000) / 10000,
     hybrid_score: score,
   };
 }

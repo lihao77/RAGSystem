@@ -99,14 +99,14 @@ export function createKnowledgeTools(deps: KnowledgeToolDeps): RuntimeTool[] {
       isVisible: (agent) => agent?.knowledge_base.enabled === true,
       isReadOnly: () => true,
       isConcurrencySafe: () => true,
-      call: (input, context) => {
+      call: async (input, context) => {
         const kbConfig = context.agent?.knowledge_base;
         const collection = input.collection ?? input.collection_name ?? kbConfig?.default_collection ?? "documents";
         const searchMode = normalizeSearchMode(input.search_mode ?? input.searchMode ?? kbConfig?.default_search_mode);
         const topK = input.top_k ?? input.topK ?? kbConfig?.default_top_k ?? 5;
         const rerank = input.rerank ?? kbConfig?.default_rerank ?? false;
         try {
-          const search = vectorLibrary.search({
+          const search = await vectorLibrary.search({
             query: input.query,
             collection,
             top_k: topK,
