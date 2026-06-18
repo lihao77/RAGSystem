@@ -1,7 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { createRequire } from "node:module";
 
 import type {
   DeleteIndexedFileRequest,
@@ -18,7 +15,7 @@ import type {
   VectorSearchResult,
 } from "../../contracts/vector-library.js";
 import type { IFileIndexStore } from "../../contracts/file-index-store/index.js";
-import type { IEmbedder, IKnowledgeConfig, IVectorStore, StoredReranker, StoredVectorizer, VectorRecord, VectorSearchHit } from "../../contracts/vector-store/index.js";
+import type { IEmbedder, IKnowledgeConfig, IVectorStore, StoredChunk, StoredReranker, StoredVectorizer, VectorRecord, VectorSearchHit } from "../../contracts/vector-store/index.js";
 import type { ModelAdapterService } from "../integrations/model-adapter-service.js";
 import { createEmbedder, HashFallbackEmbedder } from "../integrations/embedder-registry.js";
 // 打分纯函数统一从 scoring.ts 复用(cosineSimilarity/tokenize 随 5h-2 降级路径删除,本地副本已无)。
@@ -31,8 +28,6 @@ export { VectorLibraryServiceError } from "../../contracts/vector-library.js";
 export type { VectorSearchResult } from "../../contracts/vector-library.js";
 
 export class VectorLibraryService {
-  private readonly db: import("node:sqlite").DatabaseSync;
-  private readonly dataRoot: string;
   private readonly knowledgeConfig: IKnowledgeConfig;
   private readonly vectorStore: IVectorStore | undefined;
   // 按 vectorizer_key 缓存 embedder,避免每次 search 重复解析 provider 配置。
@@ -43,39 +38,36 @@ export class VectorLibraryService {
     private readonly fileIndex: IFileIndexStore,
     private readonly modelAdapter: ModelAdapterService,
     options: {
-      dbPath?: string | undefined;
-      dataRoot?: string | undefined;
       vectorStore?: IVectorStore | undefined;
       knowledgeConfig?: IKnowledgeConfig | undefined;
     } = {},
   ) {
-    this.dataRoot = path.resolve(options.dataRoot?.trim() || path.join(os.homedir(), ".ragsystem"));
     if (!options.knowledgeConfig) {
       throw new Error("VectorLibraryService 需注入 knowledgeConfig(driver 单一配置源)");
     }
     this.knowledgeConfig = options.knowledgeConfig;
-    const dbPath = options.dbPath ?? ":memory:";
-    if (dbPath !== ":memory:") {
-      fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-    }
-    this.db = new DatabaseSync(dbPath);
-    this.db.exec("PRAGMA journal_mode = WAL");
-    this.db.exec("PRAGMA synchronous = NORMAL");
     this.vectorStore = options.vectorStore;
-    this.initDatabase();
   }
 
   close(): void {
-    this.db.close();
     this.vectorStore?.close();
   }
 
   async fileStatus(): Promise<VectorFileStatusResponse> {
     const vectorizers = await this.listFileStatusVectorizers();
+    // driver 唯一源:vec_documents 跨 collection 聚合出每个 document_id 的位置 + chunk 数,
+    // 和 fileIndex join(uploaded file ↔ 已索引位置)。无 documents 主库双写。
+    const locations = new Map<string, { collection: string; chunk_count: number }>(
+      (this.vectorStore ? await this.vectorStore.listAllDocuments() : []).map((doc) => [
+        doc.document_id,
+        { collection: doc.collection, chunk_count: doc.chunk_count },
+      ]),
+    );
     const fileStatuses: VectorFileStatus[] = [];
     for (const file of this.fileIndex.list({ scopeType: "global", scopeId: null })) {
-      const collection = this.defaultCollectionForFile(file.id);
-      const chunkCount = this.countChunksForDocument(collection, file.id);
+      const location = locations.get(file.id);
+      const collection = location?.collection ?? "documents";
+      const chunkCount = location?.chunk_count ?? 0;
       const status: Record<string, "已索引" | "未索引"> = {};
       for (const vectorizer of vectorizers) {
         const vectorCount = await this.countVectorsForDocument(collection, file.id, vectorizer.model_id);
@@ -154,18 +146,8 @@ export class VectorLibraryService {
     if (!this.vectorStore) {
       return [];
     }
-    // driver 唯一向量源:service.documents 列文档(chunk 索引,全 model 共用),
-    // driver.countVectorsForDocument 按 model_id 过滤该 vectorizer 实际索引的文档 + 计向量数(N+1,管理操作低频可接受)。
-    const docs = this.db
-      .prepare(
-        `
-          SELECT document_id, collection, MIN(metadata) AS metadata
-          FROM documents
-          GROUP BY collection, document_id
-          ORDER BY collection, document_id
-        `,
-      )
-      .all() as Array<{ document_id: string; collection: string; metadata: string }>;
+    // driver 唯一源:listAllDocuments 跨 collection 列文档,按 model_id 过滤该 vectorizer 实际索引的 + 计向量数。
+    const docs = this.vectorStore ? await this.vectorStore.listAllDocuments() : [];
     const result: Array<Record<string, unknown>> = [];
     for (const doc of docs) {
       const vectorCount = await this.vectorStore.countVectorsForDocument(doc.collection, doc.document_id, vectorizer.model_id);
@@ -174,7 +156,7 @@ export class VectorLibraryService {
           document_id: doc.document_id,
           collection: doc.collection,
           vector_count: vectorCount,
-          metadata: doc.metadata,
+          metadata: doc.metadata ?? {},
         });
       }
     }
@@ -241,28 +223,24 @@ export class VectorLibraryService {
     if (!this.vectorStore) {
       return { from_key: fromKey, to_key: toKey, migrated_chunks: 0 };
     }
-    // driver 唯一源:找 source model 已索引的文档(countVectorsForDocument>0),取其全部 chunk 用 target 重嵌。
-    const distinctDocs = this.db
-      .prepare("SELECT DISTINCT collection, document_id FROM documents ORDER BY collection, document_id")
-      .all() as Array<{ collection: string; document_id: string }>;
+    // driver 唯一源:listAllDocuments 找 source model 已索引的文档(countVectorsForDocument>0),
+    // listChunks 取这些文档的全部 chunk 用 target 重嵌。无主库 documents 文本源。
+    const allDocs = await this.vectorStore.listAllDocuments();
     const sourceKeys = new Set<string>();
-    for (const doc of distinctDocs) {
+    for (const doc of allDocs) {
       const count = await this.vectorStore.countVectorsForDocument(doc.collection, doc.document_id, source.model_id);
       if (count > 0) {
         sourceKeys.add(`${doc.collection}::${doc.document_id}`);
       }
     }
-    const rows =
-      sourceKeys.size === 0
-        ? []
-        : (this.db.prepare("SELECT * FROM documents ORDER BY id ASC").all() as unknown as StoredDocument[]).filter(
-            (row) => sourceKeys.has(`${row.collection}::${row.document_id}`),
-          );
-    await this.embedAndStoreDocuments(rows, target);
+    const chunks = sourceKeys.size === 0 ? [] : (await this.vectorStore.listChunks()).filter((chunk) =>
+      sourceKeys.has(`${chunk.collection}::${chunk.document_id}`),
+    );
+    await this.embedAndStoreDocuments(chunks, target);
     return {
       from_key: fromKey,
       to_key: toKey,
-      migrated_chunks: rows.length,
+      migrated_chunks: chunks.length,
     };
   }
 
@@ -307,33 +285,42 @@ export class VectorLibraryService {
       document_id: documentId,
       chunk_count: result.chunkCount,
       collection_name: collection,
-      stats: this.collectionInfo(collection),
+      stats: await this.collectionInfo(collection),
       message: `成功索引文档，生成 ${result.chunkCount} 个分块`,
     };
   }
 
   async deleteDocument(collectionName: string, documentId: string): Promise<Record<string, unknown>> {
-    if (this.vectorStore) {
-      await this.vectorStore.deleteDocument(collectionName, documentId);
+    if (!this.vectorStore) {
+      return {
+        message: `文档 ${documentId} 已从集合 ${collectionName} 中删除`,
+        collection: collectionName,
+        document_id: documentId,
+        deleted_chunks: 0,
+      };
     }
-    const deletedChunks = this.deleteDocumentRows(collectionName, documentId);
+    const { deleted_chunks } = await this.vectorStore.deleteDocument(collectionName, documentId);
     return {
       message: `文档 ${documentId} 已从集合 ${collectionName} 中删除`,
       collection: collectionName,
       document_id: documentId,
-      deleted_chunks: deletedChunks,
+      deleted_chunks,
     };
   }
 
   async deleteCollection(collectionName: string): Promise<Record<string, unknown>> {
-    if (this.vectorStore) {
-      await this.vectorStore.deleteCollection(collectionName);
+    if (!this.vectorStore) {
+      return {
+        message: `集合 ${collectionName} 已删除`,
+        collection: collectionName,
+        deleted_chunks: 0,
+      };
     }
-    const deletedChunks = this.deleteCollectionRows(collectionName);
+    const { deleted_chunks } = await this.vectorStore.deleteCollection(collectionName);
     return {
       message: `集合 ${collectionName} 已删除`,
       collection: collectionName,
-      deleted_chunks: deletedChunks,
+      deleted_chunks,
     };
   }
 
@@ -396,7 +383,7 @@ export class VectorLibraryService {
     return {
       status: "healthy",
       runtime: "local",
-      collections_count: this.listCollections().length,
+      collections_count: (await this.listCollections()).length,
       vectorizers_count: vectorizers.length,
       rerankers_count: rerankers.length,
       active_vectorizer_key: vectorizers.find((v) => v.is_active)?.vectorizer_key ?? null,
@@ -404,56 +391,30 @@ export class VectorLibraryService {
     };
   }
 
-  listCollections(): Array<Record<string, unknown>> {
-    if (this.tableExists("collections")) {
-      const rows = this.db
-        .prepare(
-          `
-            SELECT c.name, c.vector_dimension, c.metadata, COUNT(d.id) AS total_chunks
-            FROM collections c
-            LEFT JOIN documents d ON d.collection = c.name
-            GROUP BY c.name, c.vector_dimension, c.metadata
-            ORDER BY c.name
-          `,
-        )
-        .all() as Array<{ name: string; vector_dimension: number; metadata: string | null; total_chunks: number }>;
-      return rows.map((row) => ({
-        name: row.name,
-        total_chunks: row.total_chunks,
-        embedding_dimension: row.vector_dimension,
-        model_name: "",
-        metadata: parseMetadata(row.metadata),
-      }));
-    }
-    const rows = this.db
-      .prepare(
-        `
-          SELECT collection AS name, COUNT(*) AS total_chunks, COUNT(DISTINCT document_id) AS document_count
-          FROM documents
-          GROUP BY collection
-          ORDER BY collection
-        `,
-      )
-      .all() as Array<{ name: string; total_chunks: number; document_count: number }>;
-    return rows.map((row) => ({
+  async listCollections(): Promise<Array<Record<string, unknown>>> {
+    // driver 唯一源:vec_documents 跨 collection 聚合。collections 表分支(主库从不建)已删。
+    const collections = this.vectorStore ? await this.vectorStore.listCollections() : [];
+    const active = this.resolveActiveVectorizer();
+    return collections.map((row) => ({
       name: row.name,
       total_chunks: row.total_chunks,
       chunk_count: row.total_chunks,
       document_count: row.document_count,
-      embedding_dimension: this.vectorStore?.getDimension(this.resolveActiveVectorizer().model_id) ?? 0,
-      model_name: this.resolveActiveVectorizer().model_name,
+      embedding_dimension: row.embedding_dimension ?? 0,
+      model_name: active.model_name,
       metadata: {
         document_count: row.document_count,
       },
     }));
   }
 
-  listDocuments(collectionName: string): Record<string, unknown> {
+  async listDocuments(collectionName: string): Promise<Record<string, unknown>> {
+    const docs = this.vectorStore ? await this.vectorStore.listDocuments(collectionName) : [];
     return {
       collection_name: collectionName,
-      total_chunks: this.countChunks(collectionName),
-      sample_ids: this.sampleDocumentIds(collectionName),
-      info: this.collectionInfo(collectionName),
+      total_chunks: docs.reduce((sum, doc) => sum + doc.chunk_count, 0),
+      sample_ids: docs.map((doc) => doc.document_id).slice(0, 20),
+      info: await this.collectionInfo(collectionName),
     };
   }
 
@@ -602,7 +563,7 @@ export class VectorLibraryService {
     }> = [];
     for (const vectorizer of (await this.listVectorizers()).filter((v) => v.model_id !== null)) {
       const modelId = vectorizer.model_id!;
-      const totalDocuments = this.countChunks(collection);
+      const totalDocuments = this.vectorStore ? await this.vectorStore.countChunks(collection) : 0;
       const synced = this.vectorStore ? await this.vectorStore.countVectors(collection, modelId) : 0;
       result.push({
         model_id: modelId,
@@ -625,28 +586,24 @@ export class VectorLibraryService {
     if (!this.vectorStore) {
       return { model_id: modelId, collection, synced_documents: 0 };
     }
-    // driver 唯一源:找 collection 中未索引该 model_id 的文档(countVectorsForDocument==0),补嵌其 chunk。
-    const distinctDocs = this.db
-      .prepare("SELECT DISTINCT document_id FROM documents WHERE collection = ? ORDER BY document_id")
-      .all(collection) as Array<{ document_id: string }>;
+    // driver 唯一源:collection 中 countVectorsForDocument==0 的文档(未索引该 model_id),listChunks 取其 chunk 补嵌。
+    const docs = (await this.vectorStore.listAllDocuments()).filter((doc) => doc.collection === collection);
     const pendingKeys = new Set<string>();
-    for (const doc of distinctDocs) {
+    for (const doc of docs) {
       const count = await this.vectorStore.countVectorsForDocument(collection, doc.document_id, modelId);
       if (count === 0) {
         pendingKeys.add(doc.document_id);
       }
     }
-    let rows = (this.db
-      .prepare("SELECT * FROM documents WHERE collection = ? ORDER BY id ASC")
-      .all(collection) as unknown as StoredDocument[]).filter((row) => pendingKeys.has(row.document_id));
+    let chunks = (await this.vectorStore.listChunks(collection)).filter((chunk) => pendingKeys.has(chunk.document_id));
     if (input.limit) {
-      rows = rows.slice(0, input.limit);
+      chunks = chunks.slice(0, input.limit);
     }
-    await this.embedAndStoreDocuments(rows, vectorizer);
+    await this.embedAndStoreDocuments(chunks, vectorizer);
     return {
       model_id: modelId,
       collection,
-      synced_documents: rows.length,
+      synced_documents: chunks.length,
     };
   }
 
@@ -661,11 +618,10 @@ export class VectorLibraryService {
   }): Promise<{ chunkCount: number }> {
     const chunks = chunkText(input.text, input.chunkSize, input.overlap);
     if (chunks.length === 0) {
-      // 空文本:清旧后返回(driver + service 表)
+      // 空文本:driver 清旧后返回。
       if (this.vectorStore) {
         await this.vectorStore.deleteDocument(input.collection, input.documentId);
       }
-      this.deleteDocumentRows(input.collection, input.documentId);
       return { chunkCount: 0 };
     }
     if (!this.vectorStore) {
@@ -675,8 +631,7 @@ export class VectorLibraryService {
   }
 
   /**
-   * 新路径:真 embedder 批量嵌入 → driver.upsertRecords。chunk 文本同时写 service.documents
-   * (供状态查询 fileStatus/countChunks/listDocuments + 降级 search 的 content 源;5e 状态查询切 driver 后可去)。
+   * 真 embedder 批量嵌入 → driver.upsertRecords(driver 唯一文本+向量源)。无主库 documents 双写。
    */
   private async indexViaDriver(
     input: {
@@ -690,18 +645,10 @@ export class VectorLibraryService {
     if (!this.vectorStore) {
       return { chunkCount: 0 };
     }
+    // driver 唯一源:先删旧 chunk(vec_documents + vec_chunks),再批量嵌入写入。无主库 documents 双写。
     await this.vectorStore.deleteDocument(input.collection, input.documentId);
-    this.deleteDocumentRows(input.collection, input.documentId);
     // 真 embedder 批量嵌入(一次调用替逐 chunk 嵌入);失败降级 hash 并缓存,保证 index/search 维度一致。
     const vectors = await this.embedWithFallback(input.vectorizer, chunks);
-    const now = new Date().toISOString();
-    const insertDocument = this.db.prepare(
-      `
-        INSERT INTO documents
-        (collection, document_id, chunk_index, content, metadata, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `,
-    );
     const records: VectorRecord[] = [];
     for (const [index, chunk] of chunks.entries()) {
       const metadata = {
@@ -709,8 +656,6 @@ export class VectorLibraryService {
         document_id: input.documentId,
         chunk_index: index,
       };
-      insertDocument.run(input.collection, input.documentId, index, chunk, JSON.stringify(metadata), now);
-      const embedding = vectors[index] ?? [];
       records.push({
         id: "",
         doc_id: input.documentId,
@@ -719,56 +664,36 @@ export class VectorLibraryService {
         chunk_index: index,
         content: chunk,
         metadata,
-        embedding,
+        embedding: vectors[index] ?? [],
       });
     }
     await this.vectorStore.upsertRecords(records);
     return { chunkCount: chunks.length };
   }
 
-  /** 删 service.documents 的 chunk 行(纯 SQL,不碰 driver)。index 清旧 + deleteDocument 复用。 */
-  private deleteDocumentRows(collectionName: string, documentId: string): number {
-    const rows = this.db
-      .prepare("SELECT id FROM documents WHERE collection = ? AND document_id = ?")
-      .all(collectionName, documentId) as Array<{ id: number }>;
-    this.db.prepare("DELETE FROM documents WHERE collection = ? AND document_id = ?").run(collectionName, documentId);
-    return rows.length;
-  }
-
-  /** 删 service.documents 的 chunk 行 by collection(纯 SQL,不碰 driver)。 */
-  private deleteCollectionRows(collectionName: string): number {
-    const rows = this.db
-      .prepare("SELECT id FROM documents WHERE collection = ?")
-      .all(collectionName) as Array<{ id: number }>;
-    this.db.prepare("DELETE FROM documents WHERE collection = ?").run(collectionName);
-    return rows.length;
-  }
-
   /**
-   * 给已存在的 documents 批量补向量(真 embedder)+ 写 driver。
-   * 供 migrate(源 model 的 docs 用 target embed 重嵌)/syncModel(未向量化的 docs 补嵌)复用。
+   * 已有 chunk 批量重嵌(真 embedder)+ 写 driver。
+   * 供 migrate(源 model 的 chunks 用 target embed 重嵌)/syncModel(未向量化的 chunks 补嵌)复用。
    */
-  private async embedAndStoreDocuments(documents: StoredDocument[], vectorizer: StoredVectorizer): Promise<void> {
-    if (documents.length === 0 || !this.vectorStore) {
+  private async embedAndStoreDocuments(chunks: StoredChunk[], vectorizer: StoredVectorizer): Promise<void> {
+    if (chunks.length === 0 || !this.vectorStore) {
       return;
     }
-    const store = this.vectorStore;
-    const vectors = await this.embedWithFallback(vectorizer, documents.map((doc) => doc.content));
+    const vectors = await this.embedWithFallback(vectorizer, chunks.map((chunk) => chunk.content));
     const records: VectorRecord[] = [];
-    for (const [index, doc] of documents.entries()) {
-      const embedding = vectors[index] ?? [];
+    for (const [index, chunk] of chunks.entries()) {
       records.push({
         id: "",
-        doc_id: doc.document_id,
-        collection: doc.collection,
+        doc_id: chunk.document_id,
+        collection: chunk.collection,
         model_id: vectorizer.model_id,
-        chunk_index: doc.chunk_index,
-        content: doc.content,
-        metadata: parseMetadata(doc.metadata),
-        embedding,
+        chunk_index: chunk.chunk_index,
+        content: chunk.content,
+        metadata: chunk.metadata,
+        embedding: vectors[index] ?? [],
       });
     }
-    await store.upsertRecords(records);
+    await this.vectorStore.upsertRecords(records);
   }
 
   private resolveActiveVectorizer(): StoredVectorizer {
@@ -792,14 +717,15 @@ export class VectorLibraryService {
     });
   }
 
-  private collectionInfo(collectionName: string): Record<string, unknown> {
+  private async collectionInfo(collectionName: string): Promise<Record<string, unknown>> {
     const active = this.resolveActiveVectorizer();
     const all = this.knowledgeConfig.listVectorizers();
+    const docs = this.vectorStore ? await this.vectorStore.listDocuments(collectionName) : [];
     return {
       name: collectionName,
-      total_chunks: this.countChunks(collectionName),
-      document_count: this.countDocuments(collectionName),
-      sample_ids: this.sampleDocumentIds(collectionName),
+      total_chunks: docs.reduce((sum, doc) => sum + doc.chunk_count, 0),
+      document_count: docs.length,
+      sample_ids: docs.map((doc) => doc.document_id),
       vector_dimension: this.vectorStore?.getDimension(active.model_id) ?? 0,
       active_vectorizer_key: all.find((v) => v.is_active)?.vectorizer_key ?? active.vectorizer_key,
     };
@@ -861,210 +787,12 @@ export class VectorLibraryService {
     return this.knowledgeConfig.getReranker(key);
   }
 
-  private getEmbeddingModelById(modelId: number): StoredEmbeddingModel | null {
-    if (!this.tableExists("embedding_models")) {
-      return null;
-    }
-    const row = this.db.prepare("SELECT * FROM embedding_models WHERE id = ?").get(modelId) as StoredEmbeddingModel | undefined;
-    return row ?? null;
-  }
-
-  private countChunks(collectionName: string): number {
-    const row = this.db.prepare("SELECT COUNT(*) AS count FROM documents WHERE collection = ?").get(collectionName) as
-      | { count: number }
-      | undefined;
-    return row?.count ?? 0;
-  }
-
-  private countDocuments(collectionName: string): number {
-    const row = this.db.prepare("SELECT COUNT(DISTINCT document_id) AS count FROM documents WHERE collection = ?").get(collectionName) as
-      | { count: number }
-      | undefined;
-    return row?.count ?? 0;
-  }
-
-  private sampleDocumentIds(collectionName: string): string[] {
-    const rows = this.db
-      .prepare("SELECT DISTINCT document_id FROM documents WHERE collection = ? ORDER BY document_id LIMIT 20")
-      .all(collectionName) as Array<{ document_id: string }>;
-    return rows.map((row) => row.document_id);
-  }
-
-  private countChunksForDocument(collection: string, documentId: string): number {
-    const row = this.db
-      .prepare("SELECT COUNT(*) AS count FROM documents WHERE collection = ? AND document_id = ?")
-      .get(collection, documentId) as { count: number } | undefined;
-    return row?.count ?? 0;
-  }
-
   private async countVectorsForDocument(collection: string, documentId: string, modelId: number | null): Promise<number> {
     if (modelId === null || !this.vectorStore) {
       return 0;
     }
     return this.vectorStore.countVectorsForDocument(collection, documentId, modelId);
   }
-
-  private defaultCollectionForFile(fileId: string): string {
-    const row = this.db
-      .prepare("SELECT collection FROM documents WHERE document_id = ? ORDER BY id ASC LIMIT 1")
-      .get(fileId) as { collection: string } | undefined;
-    return row?.collection ?? "documents";
-  }
-
-  private initDatabase(): void {
-    // 配置面已下沉 driver(knowledge.db);主库残留的 vectorizers/rerankers/vector_settings 表 DROP 掉。
-    this.db.exec(`
-      DROP TABLE IF EXISTS vector_settings;
-      DROP TABLE IF EXISTS vectorizers;
-      DROP TABLE IF EXISTS rerankers;
-    `);
-
-    this.ensureDocumentTables();
-
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS documents (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        collection TEXT NOT NULL,
-        document_id TEXT NOT NULL,
-        chunk_index INTEGER NOT NULL,
-        content TEXT NOT NULL,
-        metadata TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      );
-
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_collection_doc_chunk
-        ON documents(collection, document_id, chunk_index);
-      CREATE INDEX IF NOT EXISTS idx_documents_collection_doc
-        ON documents(collection, document_id);
-
-      -- 5h-2:document_vectors 表已废(driver 唯一向量源);清理历史库残留表,新库不再创建。
-      DROP TABLE IF EXISTS document_vectors;
-    `);
-  }
-
-  private ensureDocumentTables(): void {
-    if (!this.tableExists("documents")) {
-      return;
-    }
-    const columns = this.tableColumns("documents");
-    const idColumn = columns.find((column) => column.name === "id");
-    const hasCurrentShape =
-      Boolean(idColumn?.type.toUpperCase().includes("INTEGER")) &&
-      columns.some((column) => column.name === "document_id") &&
-      columns.some((column) => column.name === "chunk_index");
-    if (!hasCurrentShape) {
-      this.migrateLegacyDocumentTables();
-    }
-  }
-
-  private migrateLegacyDocumentTables(): void {
-    const suffix = Date.now().toString(36);
-    const legacyDocuments = `documents_legacy_${suffix}`;
-    this.db.exec("BEGIN");
-    try {
-      this.db.exec(`ALTER TABLE documents RENAME TO ${quoteIdentifier(legacyDocuments)}`);
-      this.createCurrentDocumentTables();
-      this.copyLegacyDocuments(legacyDocuments);
-      this.db.exec(`DROP TABLE ${quoteIdentifier(legacyDocuments)}`);
-      this.db.exec("COMMIT");
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
-  }
-
-  private createCurrentDocumentTables(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS documents (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        collection TEXT NOT NULL,
-        document_id TEXT NOT NULL,
-        chunk_index INTEGER NOT NULL,
-        content TEXT NOT NULL,
-        metadata TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      );
-    `);
-  }
-
-  private copyLegacyDocuments(legacyTable: string): Map<string, { id: number; content: string }> {
-    const mapping = new Map<string, { id: number; content: string }>();
-    const rows = this.db
-      .prepare(
-        `
-          SELECT id, collection, content, metadata, created_at
-          FROM ${quoteIdentifier(legacyTable)}
-          ORDER BY collection, id
-        `,
-      )
-      .all() as Array<{
-        id: unknown;
-        collection: unknown;
-        content: unknown;
-        metadata: unknown;
-        created_at: unknown;
-      }>;
-    const insert = this.db.prepare(
-      `
-        INSERT INTO documents
-        (collection, document_id, chunk_index, content, metadata, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `,
-    );
-    for (const row of rows) {
-      const collection = String(row.collection ?? "documents");
-      const documentId = String(row.id ?? "");
-      if (!documentId) {
-        continue;
-      }
-      const content = String(row.content ?? "");
-      const metadata = normalizeLegacyMetadata(row.metadata, documentId);
-      const createdAt = typeof row.created_at === "string" && row.created_at.trim()
-        ? row.created_at
-        : new Date().toISOString();
-      const result = insert.run(collection, documentId, 0, content, metadata, createdAt);
-      mapping.set(legacyDocumentKey(collection, documentId), {
-        id: Number(result.lastInsertRowid),
-        content,
-      });
-    }
-    return mapping;
-  }
-
-  private tableExists(tableName: string): boolean {
-    const row = this.db
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
-      .get(tableName) as { name: string } | undefined;
-    return Boolean(row);
-  }
-
-  private tableColumns(tableName: string): Array<{ name: string; type: string }> {
-    return this.db.prepare(`PRAGMA table_info(${quoteIdentifier(tableName)})`).all() as Array<{ name: string; type: string }>;
-  }
-}
-
-interface StoredEmbeddingModel {
-  id: number;
-  model_key: string;
-  provider: string;
-  model_name: string;
-  vector_dimension: number;
-  distance_metric: string;
-  is_active: number | boolean;
-  api_endpoint: string | null;
-  created_at: string;
-  last_used_at: string;
-  vectorizer_key: string | null;
-}
-
-interface StoredDocument {
-  id: number;
-  collection: string;
-  document_id: string;
-  chunk_index: number;
-  content: string;
-  metadata: string;
-  created_at: string;
 }
 
 function normalizeVectorizerKey(providerKey: string, modelName: string): string {
@@ -1158,41 +886,12 @@ function lexicalRerank(results: VectorSearchResult[], query: string): VectorSear
     .sort((left, right) => (right.rerank_score ?? 0) - (left.rerank_score ?? 0) || right.hybrid_score - left.hybrid_score);
 }
 
-function parseMetadata(value: unknown): Record<string, unknown> {
-  if (typeof value !== "string") {
-    return {};
-  }
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return asRecord(parsed);
-  } catch {
-    return {};
-  }
-}
-
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function quoteIdentifier(value: string): string {
-  return `"${value.replaceAll("\"", "\"\"")}"`;
-}
-
-function legacyDocumentKey(collection: string, documentId: string): string {
-  return `${collection}\u0000${documentId}`;
-}
-
-function normalizeLegacyMetadata(value: unknown, documentId: string): string {
-  const parsed = parseMetadata(value);
-  return JSON.stringify({
-    ...parsed,
-    document_id: typeof parsed.document_id === "string" ? parsed.document_id : documentId,
-    chunk_index: typeof parsed.chunk_index === "number" ? parsed.chunk_index : 0,
-  });
 }
 
 function readPositiveInteger(value: unknown, fallback: number): number {
@@ -1202,6 +901,3 @@ function readPositiveInteger(value: unknown, fallback: number): number {
 function readNonNegativeInteger(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : fallback;
 }
-
-const require = createRequire(import.meta.url);
-const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");

@@ -1,15 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { createRequire } from "node:module";
 
 import { buildTestApp } from "../helpers/app.js";
-import { FileIndexService } from "../../src/services/stores/file-index-service.js";
-import { ModelAdapterService } from "../../src/services/integrations/model-adapter-service.js";
-import { VectorLibraryService } from "../../src/services/knowledge/vector-library-service.js";
-import { createVectorStoreFromConfig } from "../../src/services/vector-store/vector-store-factory.js";
 
 let app: FastifyInstance | null = null;
 const tempRoots: string[] = [];
@@ -317,76 +310,6 @@ describe("vector library compatibility routes", () => {
 });
 
 describe("vector management compatibility routes", () => {
-  it("migrates legacy vector document schema on startup", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-vector-"));
-    tempRoots.push(root);
-    const dbPath = path.join(root, "legacy.db");
-    const db = new DatabaseSync(dbPath);
-    db.exec(`
-      CREATE TABLE documents (
-        id TEXT NOT NULL,
-        collection TEXT NOT NULL,
-        content TEXT NOT NULL,
-        metadata TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        vector_sync_status TEXT DEFAULT '{}',
-        last_vector_sync TIMESTAMP,
-        PRIMARY KEY (id, collection)
-      );
-      CREATE TABLE vectorizers (
-        model_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        vectorizer_key TEXT NOT NULL UNIQUE,
-        provider_key TEXT NOT NULL,
-        provider_type TEXT,
-        model_name TEXT NOT NULL,
-        distance_metric TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        vector_dimension INTEGER,
-        vector_count INTEGER NOT NULL DEFAULT 0
-      );
-    `);
-    db.prepare(
-      `
-        INSERT INTO vectorizers
-        (model_id, vectorizer_key, provider_key, provider_type, model_name, distance_metric, created_at, vector_dimension, vector_count)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-    ).run(1, "legacy_vectorizer", "local", "local", "hash", "cosine", new Date().toISOString(), 64, 1);
-    db.prepare("INSERT INTO documents (id, collection, content, metadata) VALUES (?, ?, ?, ?)").run(
-      "legacy-doc",
-      "kb",
-      "Legacy vector schema should migrate without startup failure.",
-      JSON.stringify({ source: "legacy" }),
-    );
-    db.close();
-
-    const fileIndex = new FileIndexService({ dbPath, dataRoot: root });
-    const modelAdapter = new ModelAdapterService({ dataRoot: root, providersConfigPath: "" });
-    // driver 是配置面单一可信源(构造强制注入);此处用 :memory: 隔离实例,本用例只验 documents 旧 schema 迁移。
-    const knowledgeConfig = createVectorStoreFromConfig(
-      { backend: "sqlite_vec", sqlite_vec: { database_path: ":memory:", vector_dimension: 64, distance_metric: "cosine" } },
-      root,
-    );
-    const service = new VectorLibraryService(fileIndex, modelAdapter, {
-      dbPath,
-      dataRoot: root,
-      vectorStore: knowledgeConfig,
-      knowledgeConfig,
-    });
-    try {
-      // 5h-2:document_vectors 表 + hash 降级已删(driver 唯一源);此处仅验 documents 旧 schema→新 schema 迁移不崩溃。
-      expect(service.listDocuments("kb")).toMatchObject({
-        collection_name: "kb",
-        total_chunks: 1,
-        sample_ids: ["legacy-doc"],
-      });
-    } finally {
-      service.close();
-      fileIndex.close();
-    }
-  });
-
   it("serves empty management reads and vector health status", async () => {
     app = await buildTestApp();
 
@@ -537,9 +460,6 @@ async function createEmbeddingProvider(): Promise<void> {
   });
   expect(provider.statusCode).toBe(200);
 }
-
-const require = createRequire(import.meta.url);
-const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 
 function multipartHeaders(boundary: string): Record<string, string> {
   return {

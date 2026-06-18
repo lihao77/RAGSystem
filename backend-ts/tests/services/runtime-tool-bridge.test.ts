@@ -27,7 +27,7 @@ import { TaskToolService } from "../../src/tools/TaskTools/TaskExecution.js";
 import { ModelAdapterService } from "../../src/services/integrations/model-adapter-service.js";
 import { FileIndexService } from "../../src/services/stores/file-index-service.js";
 import { VectorLibraryService } from "../../src/services/knowledge/vector-library-service.js";
-import type { IKnowledgeConfig, IVectorStore, VectorSearchHit } from "../../src/contracts/vector-store/index.js";
+import type { IKnowledgeConfig, IVectorStore, VectorRecord, VectorSearchHit } from "../../src/contracts/vector-store/index.js";
 import type { McpService } from "../../src/services/integrations/mcp-service.js";
 
 /**
@@ -36,20 +36,101 @@ import type { McpService } from "../../src/services/integrations/mcp-service.js"
  */
 function makeFakeVectorStore(hit: VectorSearchHit): IVectorStore & IKnowledgeConfig {
   const vectorizers: Array<ReturnType<IKnowledgeConfig["createVectorizer"]>> = [];
+  // 维护 upsertRecords 的内存态,read 方法据此返回(模拟 driver 真实存储,非空 stub)。
+  const chunks: VectorRecord[] = [];
+  const removeMatching = (predicate: (c: VectorRecord) => boolean): number => {
+    const before = chunks.length;
+    for (let i = chunks.length - 1; i >= 0; i--) {
+      if (predicate(chunks[i]!)) chunks.splice(i, 1);
+    }
+    return before - chunks.length;
+  };
   return {
-    upsertRecords: async () => {},
+    upsertRecords: async (records) => {
+      chunks.push(...records);
+    },
     search: async () => [hit],
-    deleteDocument: async () => ({ deleted_chunks: 0 }),
-    deleteCollection: async () => ({ deleted_chunks: 0 }),
-    deleteByModel: async () => ({ deleted: 0 }),
-    listCollections: async () => [],
-    listDocuments: async () => [],
-    countVectors: async () => 0,
-    countVectorsByModel: async () => [],
-    countVectorsForDocument: async () => 0,
-    countChunks: async () => 0,
+    deleteDocument: async (collection, documentId) => ({
+      deleted_chunks: removeMatching((c) => c.collection === collection && c.doc_id === documentId),
+    }),
+    deleteCollection: async (collection) => ({
+      deleted_chunks: removeMatching((c) => c.collection === collection),
+    }),
+    deleteByModel: async (model_id) => ({ deleted: removeMatching((c) => c.model_id === model_id) }),
+    listCollections: async () => {
+      const byName = new Map<string, { name: string; docs: Set<string>; total: number }>();
+      for (const c of chunks) {
+        let entry = byName.get(c.collection);
+        if (!entry) {
+          entry = { name: c.collection, docs: new Set(), total: 0 };
+          byName.set(c.collection, entry);
+        }
+        entry.total += 1;
+        entry.docs.add(c.doc_id);
+      }
+      return [...byName.values()].map((entry) => ({
+        name: entry.name,
+        total_chunks: entry.total,
+        document_count: entry.docs.size,
+        embedding_dimension: 64,
+      }));
+    },
+    listDocuments: async (collection) => {
+      const docs = new Map<string, { collection: string; document_id: string; chunk_count: number; metadata: null }>();
+      for (const c of chunks) {
+        if (c.collection !== collection) continue;
+        let entry = docs.get(c.doc_id);
+        if (!entry) {
+          entry = { collection, document_id: c.doc_id, chunk_count: 0, metadata: null };
+          docs.set(c.doc_id, entry);
+        }
+        entry.chunk_count += 1;
+      }
+      return [...docs.values()];
+    },
+    listChunks: async (collection) =>
+      chunks
+        .filter((c) => !collection || c.collection === collection)
+        .map((c) => ({
+          id: Number(c.id) || 0,
+          collection: c.collection,
+          document_id: c.doc_id,
+          chunk_index: c.chunk_index,
+          content: c.content,
+          metadata: c.metadata,
+        })),
+    listAllDocuments: async () => {
+      const docs = new Map<string, { collection: string; document_id: string; chunk_count: number; metadata: null }>();
+      for (const c of chunks) {
+        const key = `${c.collection}::${c.doc_id}`;
+        let entry = docs.get(key);
+        if (!entry) {
+          entry = { collection: c.collection, document_id: c.doc_id, chunk_count: 0, metadata: null };
+          docs.set(key, entry);
+        }
+        entry.chunk_count += 1;
+      }
+      return [...docs.values()];
+    },
+    countVectors: async (collection, model_id) =>
+      chunks.filter((c) => c.collection === collection && c.model_id === model_id).length,
+    countVectorsByModel: async (model_id) => {
+      const byCol = new Map<string, number>();
+      for (const c of chunks) {
+        if (c.model_id === model_id) byCol.set(c.collection, (byCol.get(c.collection) ?? 0) + 1);
+      }
+      return [...byCol.entries()].map(([collection, count]) => ({ collection, count }));
+    },
+    countVectorsForDocument: async (collection, documentId, model_id) =>
+      chunks.filter((c) => c.collection === collection && c.doc_id === documentId && c.model_id === model_id).length,
+    countChunks: async (collection) => chunks.filter((c) => c.collection === collection).length,
     getDimension: () => 64,
-    health: async () => ({ status: "healthy", runtime: "mock", ann: true, collections_count: 0 }),
+    health: async () => ({
+      status: "healthy",
+      runtime: "mock",
+      ann: true,
+      collections_count: new Set(chunks.map((c) => c.collection)).size,
+    }),
     close: () => {},
     listVectorizers: () => vectorizers,
     getVectorizerByKey: (key) => vectorizers.find((v) => v.vectorizer_key === key) ?? null,
@@ -334,8 +415,6 @@ describe("RuntimeToolBridge", () => {
       fileIndex,
       new ModelAdapterService({ providersConfigPath: "" }),
       {
-        dbPath: ":memory:",
-        dataRoot,
         vectorStore: fakeStore,
         knowledgeConfig: fakeStore,
       },

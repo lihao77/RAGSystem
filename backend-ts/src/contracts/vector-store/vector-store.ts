@@ -65,6 +65,16 @@ export interface DocumentInfo {
   metadata: Record<string, unknown> | null;
 }
 
+/** chunk 全量行(driver 唯一文本源):供 migrate/sync 重嵌取数。metadata 已 parse。 */
+export interface StoredChunk {
+  id: number;
+  collection: string;
+  document_id: string;
+  chunk_index: number;
+  content: string;
+  metadata: Record<string, unknown>;
+}
+
 export interface VectorStoreHealth {
   status: string;
   runtime: string;
@@ -86,6 +96,10 @@ export interface IVectorStore {
   /** document 级向量计数:fileStatus 判某文件在某 model_id 下是否已索引(B/A 交叉查询)。 */
   countVectorsForDocument(collection: string, documentId: string, model_id: number): Promise<number>;
   countChunks(collection: string): Promise<number>;
+  /** 全量 chunk 行(migrate/sync 重嵌取数,driver 唯一文本源);collection 可选,不传=全部。metadata 已 parse。 */
+  listChunks(collection?: string): Promise<StoredChunk[]>;
+  /** 跨 collection 的 document 聚合(fileStatus 把 file 与已索引位置 join 用)。 */
+  listAllDocuments(): Promise<DocumentInfo[]>;
   /**
    * 查 model_id 的向量维度(同步,内存查询 driver 维度缓存)。
    * 未 index 过该 model(维度未知)→ null。供编排层 listVectorizers 显示真维度(替 addVectorizer 的占位 64)。

@@ -133,8 +133,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   // vectorStore 同一对象同时实现 IVectorStore(数据面) + IKnowledgeConfig(配置面),
   // 共享 knowledge.db 单一连接——主库 ragsystem.db 不再涉及向量/配置面。
   const vectorLibrary = new VectorLibraryService(fileIndex, modelAdapter, {
-    dbPath: options.dbPath,
-    dataRoot: options.dataRoot,
     vectorStore,
     knowledgeConfig: vectorStore,
   });

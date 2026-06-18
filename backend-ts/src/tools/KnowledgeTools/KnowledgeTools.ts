@@ -145,9 +145,9 @@ export function createKnowledgeTools(deps: KnowledgeToolDeps): RuntimeTool[] {
       isVisible: (agent) => agent?.knowledge_base.enabled === true,
       isReadOnly: () => true,
       isConcurrencySafe: () => true,
-      call: () => {
+      call: async () => {
         try {
-          const collections = vectorLibrary.listCollections();
+          const collections = await vectorLibrary.listCollections();
           const content = collections.length
             ? collections.map((collection) => {
                 const name = String(collection.name ?? "");

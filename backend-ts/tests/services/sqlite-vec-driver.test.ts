@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { VectorRecord } from "../../src/contracts/vector-store/index.js";
@@ -171,6 +174,53 @@ describe("SqliteVecDriver", () => {
     const driver = new SqliteVecDriver(config());
     await driver.upsertRecords([record("d1", [1, 0])]);
     await expect(driver.upsertRecords([record("d2", [1, 0, 0])])).rejects.toThrow(/维度不一致/);
+    driver.close();
+  });
+
+  it("空表重启后从 DDL 推断维度,维度不一致抛中文错(不泄漏 sqlite-vec 原生错)", async () => {
+    // 文件库跨实例持久化,模拟"建表 → 清空数据 → 重启"。
+    const dbPath = path.join(os.tmpdir(), `vec-empty-${process.pid}-${Math.random().toString(36).slice(2)}.db`);
+    try {
+      // 阶段1:建 float[2] 表并写入,随后 deleteCollection 清空数据(表结构保留 → 空表)。
+      const driver1 = new SqliteVecDriver(config(dbPath));
+      await driver1.upsertRecords([record("d1", [1, 0])]);
+      await driver1.deleteCollection("col1");
+      driver1.close();
+
+      // 阶段2:重新打开模拟重启,loadDimensionsFromSchema 扫到空表。
+      // 旧实现:SELECT embedding LIMIT 1 读行推断,空表返回 null → dimensionByModel 漏记 →
+      //        3维 upsert 绕过中文拦截,CREATE IF NOT EXISTS 静默 no-op,INSERT 3维到 float[2] → sqlite-vec 抛原生 Dimension mismatch。
+      // 新实现:从 DDL float[2] 推断 → ensureVecTable 抛中文 维度不一致。
+      const driver2 = new SqliteVecDriver(config(dbPath));
+      await expect(driver2.upsertRecords([record("d2", [1, 0, 0])])).rejects.toThrow(/维度不一致/);
+      driver2.close();
+    } finally {
+      for (const ext of ["", "-wal", "-shm"]) {
+        fs.rmSync(dbPath + ext, { force: true });
+      }
+    }
+  });
+
+  it("listChunks 返回全量 chunk 行(metadata parsed),listAllDocuments 跨 collection 聚合", async () => {
+    const driver = new SqliteVecDriver(config());
+    await driver.upsertRecords([
+      record("d1", [1, 0], { collection: "col1", chunk_index: 0 }),
+      record("d1", [0, 1], { collection: "col1", chunk_index: 1 }),
+      record("d2", [1, 0], { collection: "col2" }),
+    ]);
+    // listChunks 全量(跨 collection),metadata 已 parse 为 object
+    const all = await driver.listChunks();
+    expect(all).toHaveLength(3);
+    expect(all[0]).toMatchObject({ collection: "col1", document_id: "d1", chunk_index: 0, content: "content-d1" });
+    expect(all[0]?.metadata).toEqual({});
+    // listChunks 按 collection 过滤
+    const col1 = await driver.listChunks("col1");
+    expect(col1).toHaveLength(2);
+    expect(col1.every((c) => c.collection === "col1")).toBe(true);
+    // listAllDocuments 跨 collection 聚合(GROUP BY collection, document_id → chunk_count)
+    const docs = await driver.listAllDocuments();
+    expect(docs).toHaveLength(2);
+    expect(docs.find((d) => d.document_id === "d1")).toMatchObject({ collection: "col1", chunk_count: 2 });
     driver.close();
   });
 });

@@ -10,6 +10,7 @@ import type {
   DocumentInfo,
   IKnowledgeConfig,
   IVectorStore,
+  StoredChunk,
   StoredReranker,
   StoredVectorizer,
   VectorRecord,
@@ -222,6 +223,45 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig {
       .all(collection) as unknown as Array<{ document_id: string; chunk_count: number; metadata: string | null }>;
     return rows.map((row) => ({
       collection,
+      document_id: row.document_id,
+      chunk_count: row.chunk_count,
+      metadata: row.metadata ? parseRecord(row.metadata) : null,
+    }));
+  }
+
+  /** 全量 chunk 行(migrate/sync 重嵌取数,driver 唯一文本源);collection 可选,不传=全部。 */
+  async listChunks(collection?: string): Promise<StoredChunk[]> {
+    const sql = collection
+      ? `SELECT id, collection, document_id, chunk_index, content, metadata FROM vec_documents WHERE collection = ? ORDER BY collection, document_id, chunk_index`
+      : `SELECT id, collection, document_id, chunk_index, content, metadata FROM vec_documents ORDER BY collection, document_id, chunk_index`;
+    const rows = (collection ? this.db.prepare(sql).all(collection) : this.db.prepare(sql).all()) as unknown as Array<{
+      id: number;
+      collection: string;
+      document_id: string;
+      chunk_index: number;
+      content: string;
+      metadata: string;
+    }>;
+    return rows.map((row) => ({
+      id: row.id,
+      collection: row.collection,
+      document_id: row.document_id,
+      chunk_index: row.chunk_index,
+      content: row.content,
+      metadata: parseRecord(row.metadata),
+    }));
+  }
+
+  /** 跨 collection 的 document 聚合(fileStatus 把 file 与已索引位置 join)。 */
+  async listAllDocuments(): Promise<DocumentInfo[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT collection, document_id, COUNT(*) AS chunk_count, MIN(metadata) AS metadata
+         FROM vec_documents GROUP BY collection, document_id ORDER BY collection, document_id`,
+      )
+      .all() as unknown as Array<{ collection: string; document_id: string; chunk_count: number; metadata: string | null }>;
+    return rows.map((row) => ({
+      collection: row.collection,
       document_id: row.document_id,
       chunk_count: row.chunk_count,
       metadata: row.metadata ? parseRecord(row.metadata) : null,
@@ -501,34 +541,48 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig {
     if (existing !== undefined) {
       throw new VectorStoreError(`model_id ${modelId} 维度不一致:已存在 ${existing},本次 ${dimension}`, 400);
     }
+    // 缓存未命中:表可能已物理存在但构造期推断漏记(如空表曾被读行推断跳过)。
+    // 再次从 DDL 读真实维度——避免 CREATE VIRTUAL TABLE IF NOT EXISTS 对已存在表静默 no-op、
+    // 却把脏维度写入缓存、最终绕过本处中文拦截、由 sqlite-vec 抛原生 Dimension mismatch。
+    const physical = this.readDimensionFromSchema(modelId);
+    if (physical !== null) {
+      this.dimensionByModel.set(modelId, physical);
+      if (physical !== dimension) {
+        throw new VectorStoreError(`model_id ${modelId} 维度不一致:已存在 ${physical},本次 ${dimension}`, 400);
+      }
+      return;
+    }
     this.db.exec(vecTableDdl(modelId, dimension));
     this.dimensionByModel.set(modelId, dimension);
   }
 
   private loadDimensionsFromSchema(): void {
-    const tables = this.db
+    // vec0 虚拟表名 vec_chunks_<model_id>;sqlite-vec 另建 *_info/*_chunks/*_rowids/*_vector_chunksNN 影子表,
+    // 仅主表严格匹配 vec_chunks_<纯数字>。维度从建表语句 float[N] 提取(不读数据行)——
+    // 旧实现 SELECT embedding LIMIT 1 读行,空表返回 null → dimensionByModel 漏记 → ensureVecTable 误判表不存在,
+    // CREATE IF NOT EXISTS 静默 no-op 后写入脏维度缓存,最终绕过中文拦截、由 sqlite-vec 抛原生维度错。
+    const rows = this.db
       .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'vec_chunks_%'`)
       .all() as unknown as Array<{ name: string }>;
-    for (const { name } of tables) {
-      const modelId = Number(name.replace("vec_chunks_", ""));
-      if (Number.isFinite(modelId)) {
-        const dimension = this.inferDimensionFromTable(name);
-        if (dimension !== null) {
-          this.dimensionByModel.set(modelId, dimension);
-        }
+    for (const { name } of rows) {
+      const match = name.match(/^vec_chunks_(\d+)$/);
+      if (!match) {
+        continue; // 影子表跳过
+      }
+      const modelId = Number(match[1]);
+      const dimension = this.readDimensionFromSchema(modelId);
+      if (dimension !== null) {
+        this.dimensionByModel.set(modelId, dimension);
       }
     }
   }
 
-  private inferDimensionFromTable(table: string): number | null {
-    const row = this.db.prepare(`SELECT embedding FROM ${table} LIMIT 1`).get() as unknown as
-      | { embedding: string }
-      | undefined;
-    if (!row?.embedding) {
-      return null;
-    }
-    const parsed = parseArray(row.embedding);
-    return parsed ? parsed.length : null;
+  /** 从 sqlite_master 的 vec_chunks_<modelId> DDL 提取维度(float[N]);表不存在或无维度声明 → null。 */
+  private readDimensionFromSchema(modelId: number): number | null {
+    const row = this.db
+      .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name = ?`)
+      .get(vecTableName(modelId)) as unknown as { sql: string | null } | undefined;
+    return row?.sql ? inferDimensionFromDdl(row.sql) : null;
   }
 
   private purgeVecRows(ids: number[]): void {
@@ -602,13 +656,10 @@ function parseRecord(value: string): Record<string, unknown> {
   }
 }
 
-function parseArray(value: string): number[] | null {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed) ? parsed.map(Number) : null;
-  } catch {
-    return null;
-  }
+/** 从 vec0 DDL 提取维度:匹配 `embedding float[N]`,如 `CREATE VIRTUAL TABLE ... USING vec0(embedding float[1536])`。 */
+function inferDimensionFromDdl(sql: string): number | null {
+  const match = sql.match(/float\[(\d+)\]/);
+  return match ? Number(match[1]) : null;
 }
 
 // 模块加载时自注册 sqlite-vec driver(单向依赖 driver→registry,避免循环)。

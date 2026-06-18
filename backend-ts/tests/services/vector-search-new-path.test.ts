@@ -29,6 +29,8 @@ function makeFakeDriver(hits: VectorSearchHit[], dimension: number | null = null
     countVectorsByModel: async () => [],
     countVectorsForDocument: async () => 0,
     countChunks: async () => 0,
+    listChunks: async () => [],
+    listAllDocuments: async () => [],
     getDimension: () => dimension,
     health: async () => ({ status: "healthy", runtime: "mock", ann: true, collections_count: 0 }),
     close: () => {},
@@ -136,7 +138,7 @@ describe("VectorLibraryService search 新路径(driver 召回 + scoring 重排)"
     ];
     const fakeDriver = makeFakeDriver(hits);
     const service = new VectorLibraryService(fileIndex, modelAdapter, {
-      dbPath: ":memory:", dataRoot, vectorStore: fakeDriver, knowledgeConfig: fakeDriver,
+      vectorStore: fakeDriver, knowledgeConfig: fakeDriver,
     });
     try {
       const result = (await service.search({
@@ -174,7 +176,7 @@ describe("VectorLibraryService search 新路径(driver 召回 + scoring 重排)"
     ];
     const fakeDriver = makeFakeDriver(hits);
     const service = new VectorLibraryService(fileIndex, modelAdapter, {
-      dbPath: ":memory:", dataRoot, vectorStore: fakeDriver, knowledgeConfig: fakeDriver,
+      vectorStore: fakeDriver, knowledgeConfig: fakeDriver,
     });
     try {
       const result = (await service.search({
@@ -189,11 +191,11 @@ describe("VectorLibraryService search 新路径(driver 召回 + scoring 重排)"
     }
   });
 
-  it("vectorStore 未注入时降级到旧 hash 路径(空表返回空)", async () => {
+  it("vectorStore 未注入时 search 返回空候选", async () => {
     const dataRoot = makeDataRoot();
     const fileIndex = new FileIndexService({ dbPath: ":memory:", dataRoot });
     const modelAdapter = new ModelAdapterService({ providersConfigPath: "" });
-    const service = new VectorLibraryService(fileIndex, modelAdapter, { dbPath: ":memory:", dataRoot, knowledgeConfig: emptyKnowledgeConfig() });
+    const service = new VectorLibraryService(fileIndex, modelAdapter, { knowledgeConfig: emptyKnowledgeConfig() });
     try {
       const result = (await service.search({ collection_name: "kb", query: "anything", top_k: 5 })) as { count: number };
       expect(result.count).toBe(0);
@@ -209,7 +211,7 @@ describe("VectorLibraryService search 新路径(driver 召回 + scoring 重排)"
     const modelAdapter = new ModelAdapterService({ providersConfigPath: "" });
     const fakeDriver = makeFakeDriver([], 1536);
     const service = new VectorLibraryService(fileIndex, modelAdapter, {
-      dbPath: ":memory:", dataRoot, vectorStore: fakeDriver, knowledgeConfig: fakeDriver,
+      vectorStore: fakeDriver, knowledgeConfig: fakeDriver,
     });
     try {
       // search 触发 resolveActiveVectorizer 创建 local_hash_embedding(model_id=1)

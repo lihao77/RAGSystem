@@ -17,7 +17,7 @@ interface DocumentParams {
 
 export const registerVectorRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.get("/collections", async () => {
-    const data = options.container.vectorLibrary.listCollections();
+    const data = await options.container.vectorLibrary.listCollections();
     return {
       success: true,
       data,
@@ -72,10 +72,13 @@ export const registerVectorRoutes: FastifyPluginAsync<RouteOptions> = async (app
     }
   });
 
-  app.get<{ Params: CollectionParams }>("/documents/:collectionName", async (request) => ({
-    success: true,
-    data: normalizeDocumentsResponse(options.container.vectorLibrary.listDocuments(request.params.collectionName)),
-  }));
+  app.get<{ Params: CollectionParams }>("/documents/:collectionName", async (request) => {
+    const data = await options.container.vectorLibrary.listDocuments(request.params.collectionName);
+    return {
+      success: true,
+      data: normalizeDocumentsResponse(data),
+    };
+  });
 
   app.get("/health", async () => ok(normalizeVectorHealth(await options.container.vectorLibrary.vectorHealth())));
 };
