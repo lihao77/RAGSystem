@@ -12,7 +12,7 @@ function makeDataRoot(): string {
 }
 
 /** 最小 IVectorStore stub:search 返回预设命中,其余 no-op。聚焦 service 编排(补 keyword/hybrid + rerank)。 */
-function makeFakeDriver(hits: VectorSearchHit[]): IVectorStore {
+function makeFakeDriver(hits: VectorSearchHit[], dimension: number | null = null): IVectorStore {
   return {
     upsertRecords: async () => {},
     search: async () => hits,
@@ -24,6 +24,7 @@ function makeFakeDriver(hits: VectorSearchHit[]): IVectorStore {
     countVectors: async () => 0,
     countVectorsForDocument: async () => 0,
     countChunks: async () => 0,
+    getDimension: () => dimension,
     health: async () => ({ status: "healthy", runtime: "mock", ann: true, collections_count: 0 }),
     close: () => {},
   } satisfies IVectorStore;
@@ -109,6 +110,26 @@ describe("VectorLibraryService search 新路径(driver 召回 + scoring 重排)"
     try {
       const result = (await service.search({ collection_name: "kb", query: "anything", top_k: 5 })) as { count: number };
       expect(result.count).toBe(0);
+    } finally {
+      service.close();
+      fileIndex.close();
+    }
+  });
+
+  it("listVectorizers 显示 driver 真维度(替占位 64)", async () => {
+    const dataRoot = makeDataRoot();
+    const fileIndex = new FileIndexService({ dbPath: ":memory:", dataRoot });
+    const modelAdapter = new ModelAdapterService({ providersConfigPath: "" });
+    const service = new VectorLibraryService(fileIndex, modelAdapter, {
+      dbPath: ":memory:", dataRoot, vectorStore: makeFakeDriver([], 1536),
+    });
+    try {
+      // search 触发 resolveActiveVectorizer 创建 local_hash_embedding(model_id=1)
+      await service.search({ collection_name: "kb", query: "probe", top_k: 5 });
+      const active = service.listVectorizers().find((vectorizer) => vectorizer.vectorizer_key === "local_hash_embedding");
+      expect(active).toBeTruthy();
+      // toVectorizerConfig 用 driver.getDimension(1)=1536,非 addVectorizer 占位的 64
+      expect(active?.vector_dimension).toBe(1536);
     } finally {
       service.close();
       fileIndex.close();

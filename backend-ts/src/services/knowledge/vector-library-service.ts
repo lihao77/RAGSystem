@@ -1126,7 +1126,7 @@ export class VectorLibraryService {
       created_at: vectorizer.created_at,
       is_active: vectorizer.vectorizer_key === this.activeVectorizerKey,
       provider_available: vectorizer.provider_key === "local" || this.modelAdapter.hasProvider(vectorizer.provider_key),
-      vector_dimension: vectorizer.vector_dimension,
+      vector_dimension: this.vectorStore?.getDimension(vectorizer.model_id) ?? vectorizer.vector_dimension,
       vector_count: stats.vector_count,
       model_id: vectorizer.model_id,
     };

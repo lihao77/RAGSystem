@@ -84,6 +84,12 @@ export interface IVectorStore {
   /** document 级向量计数:fileStatus 判某文件在某 model_id 下是否已索引(B/A 交叉查询)。 */
   countVectorsForDocument(collection: string, documentId: string, model_id: number): Promise<number>;
   countChunks(collection: string): Promise<number>;
+  /**
+   * 查 model_id 的向量维度(同步,内存查询 driver 维度缓存)。
+   * 未 index 过该 model(维度未知)→ null。供编排层 listVectorizers 显示真维度(替 addVectorizer 的占位 64)。
+   * 同步例外:纯内存 Map 查询无 I/O,故非 Promise(其余方法 async 为未来 Qdrant 等网络后端预留)。
+   */
+  getDimension(model_id: number): number | null;
   health(): Promise<VectorStoreHealth>;
   close(): void;
 }

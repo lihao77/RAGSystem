@@ -251,6 +251,10 @@ export class SqliteVecDriver implements IVectorStore {
     return row?.n ?? 0;
   }
 
+  getDimension(model_id: number): number | null {
+    return this.dimensionByModel.get(model_id) ?? null;
+  }
+
   async health(): Promise<VectorStoreHealth> {
     const row = this.db
       .prepare(`SELECT COUNT(DISTINCT collection) AS n FROM vec_documents`)
