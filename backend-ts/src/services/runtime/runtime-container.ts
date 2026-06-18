@@ -38,6 +38,8 @@ import { HookRuntimeService, type WorkspaceTrustConfig } from "./hooks/index.js"
 import { SystemConfigService } from "../config/system-config-service.js";
 import { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
 import { VectorLibraryService } from "../knowledge/vector-library-service.js";
+import { createVectorStoreFromConfig } from "../vector-store/vector-store-factory.js";
+import type { IVectorStore } from "../../contracts/vector-store/index.js";
 import { OutboxDispatcher } from "./event-outbox/dispatcher.js";
 import { DurableClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 
@@ -116,9 +118,19 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   agentConfig.setMcpService(mcp);
   const daemon = new DaemonService({ dataRoot: options.dataRoot, configPath: options.daemonConfigPath });
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
+  // sqlite-vec driver 接线:读 systemConfig 选后端实例化(触发 driver 模块自注册)。
+  // 扩展加载失败(Node/Windows ABI、vec0 不可用等)时降级为 undefined——
+  // service.search 自动走旧 hash 应用层余弦(零回归),不致启动崩溃。
+  let vectorStore: IVectorStore | undefined;
+  try {
+    vectorStore = createVectorStoreFromConfig(systemConfig.getVectorStoreConfig(), options.dataRoot);
+  } catch (error) {
+    console.warn("[vector-store] driver 初始化失败,降级到应用层余弦检索:", error);
+  }
   const vectorLibrary = new VectorLibraryService(fileIndex, modelAdapter, {
     dbPath: options.dbPath,
     dataRoot: options.dataRoot,
+    ...(vectorStore ? { vectorStore } : {}),
   });
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   const embeddingModels = new EmbeddingModelService(vectorLibrary);
