@@ -233,9 +233,8 @@ function buildSystemMetrics(options: RouteOptions): {
   agents: Record<string, Record<string, unknown>>;
 } {
   void options;
-  const agents = Object.fromEntries(
-    PYTHON_METRICS_AGENT_ORDER.map((agentName) => [agentName, buildEmptyAgentMetrics(agentName)]),
-  );
+  // TS 后端暂未实现真实 agent 调用指标追踪；返回空映射，避免塞入 Python 时代的占位 agent 名造成前端渲染脏数据。
+  const agents: Record<string, Record<string, unknown>> = {};
   return {
     total_agents: Object.keys(agents).length,
     total_calls: 0,
@@ -249,49 +248,6 @@ function buildSystemMetrics(options: RouteOptions): {
     },
     agents,
   };
-}
-
-function buildEmptyAgentMetrics(agentName: string): Record<string, unknown> {
-  return {
-    agent_name: agentName,
-    total_calls: 0,
-    success_count: 0,
-    failure_count: 0,
-    success_rate: 0,
-    avg_duration_ms: 0,
-    avg_tokens: 0,
-    tool_usage: {},
-    error_distribution: pythonMetricsErrorDistributionShape(agentName),
-    waiting: {
-      total_waits: 0,
-      total_completed: 0,
-      total_timeouts: 0,
-      total_cancelled: 0,
-      total_elapsed_ms: 0,
-      total_keepalive_rounds: 0,
-      wake_reason_distribution: {},
-    },
-    first_call: "",
-    last_call: "",
-  };
-}
-
-const PYTHON_METRICS_AGENT_ORDER = [
-  "orchestrator_agent",
-  "general_agent",
-  "plan_agent",
-  "explor_agent",
-  "review_agent",
-];
-
-function pythonMetricsErrorDistributionShape(agentName: string): Record<string, number> {
-  if (agentName === "orchestrator_agent") {
-    return { LLMError: 0, InterruptedError: 0, tool_error: 0 };
-  }
-  if (agentName === "general_agent" || agentName === "plan_agent") {
-    return { InterruptedError: 0 };
-  }
-  return {};
 }
 
 function toContextHistoryItem(message: {

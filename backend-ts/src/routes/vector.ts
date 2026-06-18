@@ -30,6 +30,7 @@ export const registerVectorRoutes: FastifyPluginAsync<RouteOptions> = async (app
       const result = await options.container.vectorLibrary.deleteCollection(request.params.collectionName);
       return {
         success: true,
+        data: result,
         message: String(result.message ?? `集合 ${request.params.collectionName} 已删除`),
       };
     } catch (error) {
@@ -63,6 +64,7 @@ export const registerVectorRoutes: FastifyPluginAsync<RouteOptions> = async (app
       );
       return {
         success: true,
+        data: result,
         message: String(result.message ?? `文档 ${request.params.documentId} 已从集合 ${request.params.collectionName} 中删除`),
       };
     } catch (error) {
