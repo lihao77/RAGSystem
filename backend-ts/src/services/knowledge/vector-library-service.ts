@@ -253,13 +253,13 @@ export class VectorLibraryService {
     };
   }
 
-  deleteIndexedFile(input: DeleteIndexedFileRequest): Record<string, unknown> {
+  async deleteIndexedFile(input: DeleteIndexedFileRequest): Promise<Record<string, unknown>> {
     const collection = input.collection.trim();
     const fileId = input.file_id.trim();
     return this.deleteDocument(collection, fileId);
   }
 
-  migrate(input: GenericVectorRequest): Record<string, unknown> {
+  async migrate(input: GenericVectorRequest): Promise<Record<string, unknown>> {
     const payload = input ?? {};
     const fromKey = asString(payload.from_key) ?? asString(payload.fromKey);
     const toKey = asString(payload.to_key) ?? asString(payload.toKey);
@@ -274,16 +274,12 @@ export class VectorLibraryService {
     const rows = this.db
       .prepare("SELECT * FROM documents WHERE id IN (SELECT doc_id FROM document_vectors WHERE model_id = ?)")
       .all(source.model_id) as unknown as StoredDocument[];
-    let migrated = 0;
-    for (const row of rows) {
-      this.upsertVector(row.id, row.collection, target.model_id, row.content);
-      migrated += 1;
-    }
+    await this.embedAndStoreDocuments(rows, target);
     this.refreshVectorCounts();
     return {
       from_key: fromKey,
       to_key: toKey,
-      migrated_chunks: migrated,
+      migrated_chunks: rows.length,
     };
   }
 
@@ -333,36 +329,30 @@ export class VectorLibraryService {
     };
   }
 
-  deleteDocument(collectionName: string, documentId: string): Record<string, unknown> {
-    const rows = this.db
-      .prepare("SELECT id FROM documents WHERE collection = ? AND document_id = ?")
-      .all(collectionName, documentId) as Array<{ id: number }>;
-    for (const row of rows) {
-      this.db.prepare("DELETE FROM document_vectors WHERE doc_id = ?").run(row.id);
+  async deleteDocument(collectionName: string, documentId: string): Promise<Record<string, unknown>> {
+    if (this.vectorStore) {
+      await this.vectorStore.deleteDocument(collectionName, documentId);
     }
-    this.db.prepare("DELETE FROM documents WHERE collection = ? AND document_id = ?").run(collectionName, documentId);
+    const deletedChunks = this.deleteDocumentRows(collectionName, documentId);
     this.refreshVectorCounts();
     return {
       message: `文档 ${documentId} 已从集合 ${collectionName} 中删除`,
       collection: collectionName,
       document_id: documentId,
-      deleted_chunks: rows.length,
+      deleted_chunks: deletedChunks,
     };
   }
 
-  deleteCollection(collectionName: string): Record<string, unknown> {
-    const rows = this.db
-      .prepare("SELECT id FROM documents WHERE collection = ?")
-      .all(collectionName) as Array<{ id: number }>;
-    for (const row of rows) {
-      this.db.prepare("DELETE FROM document_vectors WHERE doc_id = ?").run(row.id);
+  async deleteCollection(collectionName: string): Promise<Record<string, unknown>> {
+    if (this.vectorStore) {
+      await this.vectorStore.deleteCollection(collectionName);
     }
-    this.db.prepare("DELETE FROM documents WHERE collection = ?").run(collectionName);
+    const deletedChunks = this.deleteCollectionRows(collectionName);
     this.refreshVectorCounts();
     return {
       message: `集合 ${collectionName} 已删除`,
       collection: collectionName,
-      deleted_chunks: rows.length,
+      deleted_chunks: deletedChunks,
     };
   }
 
@@ -693,7 +683,7 @@ export class VectorLibraryService {
       });
   }
 
-  syncModel(modelId: number, input: { collection: string; limit?: number | null | undefined }): Record<string, unknown> {
+  async syncModel(modelId: number, input: { collection: string; limit?: number | null | undefined }): Promise<Record<string, unknown>> {
     const vectorizer = this.getVectorizerByModelId(modelId);
     if (!vectorizer) {
       throw new VectorLibraryServiceError(`模型不存在: ${modelId}`, 404);
@@ -710,9 +700,7 @@ export class VectorLibraryService {
         `,
       )
       .all(...(input.limit ? [modelId, collection, input.limit] : [modelId, collection])) as unknown as StoredDocument[];
-    for (const row of rows) {
-      this.upsertVector(row.id, row.collection, vectorizer.model_id, row.content);
-    }
+    await this.embedAndStoreDocuments(rows, vectorizer);
     this.refreshVectorCounts();
     return {
       model_id: modelId,
@@ -803,7 +791,7 @@ export class VectorLibraryService {
   }
 
   /** 降级路径:旧 hash embedding + document_vectors(embedText,sqlite-vec 扩展不可用时;5f 清理)。 */
-  private indexViaLocal(
+  private async indexViaLocal(
     input: {
       collection: string;
       documentId: string;
@@ -811,8 +799,8 @@ export class VectorLibraryService {
       vectorizer: StoredVectorizer;
     },
     chunks: string[],
-  ): { chunkCount: number } {
-    this.deleteDocument(input.collection, input.documentId);
+  ): Promise<{ chunkCount: number }> {
+    await this.deleteDocument(input.collection, input.documentId);
     const now = new Date().toISOString();
     const insertDocument = this.db.prepare(
       `
@@ -851,6 +839,50 @@ export class VectorLibraryService {
     }
     this.db.prepare("DELETE FROM documents WHERE collection = ? AND document_id = ?").run(collectionName, documentId);
     return rows.length;
+  }
+
+  /** 删 service.documents + document_vectors by collection(纯 SQL,不碰 driver)。 */
+  private deleteCollectionRows(collectionName: string): number {
+    const rows = this.db
+      .prepare("SELECT id FROM documents WHERE collection = ?")
+      .all(collectionName) as Array<{ id: number }>;
+    for (const row of rows) {
+      this.db.prepare("DELETE FROM document_vectors WHERE doc_id = ?").run(row.id);
+    }
+    this.db.prepare("DELETE FROM documents WHERE collection = ?").run(collectionName);
+    return rows.length;
+  }
+
+  /**
+   * 给已存在的 documents 批量补向量(真 embedder)+ 写 driver + 双写 document_vectors。
+   * 供 migrate(源 model 的 docs 用 target embed 重嵌)/syncModel(未向量化的 docs 补嵌)复用。
+   */
+  private async embedAndStoreDocuments(documents: StoredDocument[], vectorizer: StoredVectorizer): Promise<void> {
+    if (documents.length === 0) {
+      return;
+    }
+    const vectors = await this.embedWithFallback(vectorizer, documents.map((doc) => doc.content));
+    const upsertVectorRow = this.db.prepare(
+      "INSERT OR REPLACE INTO document_vectors (doc_id, collection, model_id, embedding) VALUES (?, ?, ?, ?)",
+    );
+    const records: VectorRecord[] = [];
+    for (const [index, doc] of documents.entries()) {
+      const embedding = vectors[index] ?? [];
+      upsertVectorRow.run(doc.id, doc.collection, vectorizer.model_id, JSON.stringify(embedding));
+      records.push({
+        id: "",
+        doc_id: doc.document_id,
+        collection: doc.collection,
+        model_id: vectorizer.model_id,
+        chunk_index: doc.chunk_index,
+        content: doc.content,
+        metadata: parseMetadata(doc.metadata),
+        embedding,
+      });
+    }
+    if (this.vectorStore) {
+      await this.vectorStore.upsertRecords(records);
+    }
   }
 
   private upsertVector(docId: number, collection: string, modelId: number, text: string): void {

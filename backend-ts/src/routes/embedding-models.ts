@@ -59,7 +59,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
     try {
       return {
         success: true,
-        ...options.container.embeddingModels.syncModel(modelId, payload),
+        ...(await options.container.embeddingModels.syncModel(modelId, payload)),
       };
     } catch (error) {
       if (error instanceof VectorLibraryServiceError && error.statusCode === 404 && error.message.startsWith("模型不存在:")) {

@@ -35,7 +35,7 @@ export const registerVectorLibraryRoutes: FastifyPluginAsync<RouteOptions> = asy
   app.post("/delete-file", async (request) => {
     const payload = DeleteIndexedFileRequestSchema.parse(request.body);
     try {
-      const result = options.container.vectorLibrary.deleteIndexedFile(payload);
+      const result = await options.container.vectorLibrary.deleteIndexedFile(payload);
       if (Number(result.deleted_chunks ?? 0) <= 0) {
         throw new HttpError(404, "not_found", "未找到该文件对应的分块");
       }
@@ -84,7 +84,7 @@ export const registerVectorLibraryRoutes: FastifyPluginAsync<RouteOptions> = asy
   app.post("/migrate", async (request) => {
     const payload = GenericVectorRequestSchema.parse(request.body ?? {});
     try {
-      return ok(options.container.vectorLibrary.migrate(payload));
+      return ok(await options.container.vectorLibrary.migrate(payload));
     } catch (error) {
       throw toHttpError(error);
     }

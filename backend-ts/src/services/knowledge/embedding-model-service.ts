@@ -120,7 +120,7 @@ export class EmbeddingModelService {
     });
   }
 
-  syncModel(modelId: number, input: SyncEmbeddingModelRequest): Record<string, unknown> {
+  async syncModel(modelId: number, input: SyncEmbeddingModelRequest): Promise<Record<string, unknown>> {
     return this.vectorLibrary.syncModel(modelId, {
       collection: input.collection,
       limit: input.limit ?? input.batch_size,

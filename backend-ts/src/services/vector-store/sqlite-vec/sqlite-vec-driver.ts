@@ -80,17 +80,32 @@ export class SqliteVecDriver implements IVectorStore {
       `INSERT INTO vec_documents (collection, document_id, chunk_index, content, metadata, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
     );
+    // vec_documents 幂等:同 (collection, document_id, chunk_index) 复用现有行——migrate/sync 给已存在 chunk
+    // 补向量时 content 已在(UNIQUE 三列不含 model_id),避免冲突;向量写各自 model_id 的 vec_chunks 表。
+    const findDoc = this.db.prepare(
+      `SELECT id FROM vec_documents WHERE collection = ? AND document_id = ? AND chunk_index = ?`,
+    );
+    const updateDoc = this.db.prepare(`UPDATE vec_documents SET content = ?, metadata = ? WHERE id = ?`);
     for (const record of records) {
       this.ensureVecTable(record.model_id, record.embedding.length);
-      const result = insertDoc.run(
-        record.collection,
-        record.doc_id,
-        record.chunk_index,
-        record.content,
-        JSON.stringify(record.metadata ?? {}),
-        now,
-      );
-      const rowid = Number(result.lastInsertRowid);
+      const existing = findDoc.get(record.collection, record.doc_id, record.chunk_index) as
+        | { id: number }
+        | undefined;
+      let rowid: number;
+      if (existing) {
+        rowid = Number(existing.id);
+        updateDoc.run(record.content, JSON.stringify(record.metadata ?? {}), rowid);
+      } else {
+        const result = insertDoc.run(
+          record.collection,
+          record.doc_id,
+          record.chunk_index,
+          record.content,
+          JSON.stringify(record.metadata ?? {}),
+          now,
+        );
+        rowid = Number(result.lastInsertRowid);
+      }
       const table = vecTableName(record.model_id);
       this.db.prepare(`DELETE FROM ${table} WHERE rowid = ?`).run(BigInt(rowid));
       this.db.prepare(`INSERT INTO ${table} (rowid, embedding) VALUES (?, ?)`).run(

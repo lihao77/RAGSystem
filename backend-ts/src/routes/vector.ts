@@ -27,7 +27,7 @@ export const registerVectorRoutes: FastifyPluginAsync<RouteOptions> = async (app
 
   app.delete<{ Params: CollectionParams }>("/collections/:collectionName", async (request) => {
     try {
-      const result = options.container.vectorLibrary.deleteCollection(request.params.collectionName);
+      const result = await options.container.vectorLibrary.deleteCollection(request.params.collectionName);
       return {
         success: true,
         message: String(result.message ?? `集合 ${request.params.collectionName} 已删除`),
@@ -57,7 +57,7 @@ export const registerVectorRoutes: FastifyPluginAsync<RouteOptions> = async (app
 
   app.delete<{ Params: DocumentParams }>("/documents/:collectionName/:documentId", async (request) => {
     try {
-      const result = options.container.vectorLibrary.deleteDocument(
+      const result = await options.container.vectorLibrary.deleteDocument(
         request.params.collectionName,
         request.params.documentId,
       );
