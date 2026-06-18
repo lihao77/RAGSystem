@@ -14,6 +14,7 @@ import {
   type IFileIndexStore,
   type ListFilesInput,
 } from "../../contracts/file-index-store/index.js";
+import { matchesFileFilters, sanitizeFilename } from "../../utils/file-filter.js";
 
 type SqlInputValue = string | number | bigint | Uint8Array | null;
 
@@ -67,7 +68,9 @@ export class FileIndexService implements IFileIndexStore {
         `,
       )
       .all(...scopeParams(parsed.scopeType, parsed.scopeId)) as unknown as UploadedFileRow[];
-    return rows.map(rowToFileRecord).filter((record) => matchesFilters(record, parsed.extensions, parsed.mimeTypes));
+    return rows
+      .map(rowToFileRecord)
+      .filter((record) => matchesFileFilters(record.original_name, record.mime, parsed.extensions, parsed.mimeTypes));
   }
 
   get(fileId: string, scopeType: FileScopeType, scopeId?: string | null): UploadedFileRecord | null {
@@ -185,11 +188,6 @@ export class FileIndexService implements IFileIndexStore {
   }
 }
 
-function sanitizeFilename(filename: string): string {
-  const normalized = filename.replace(/[^\w\-.]/g, "_").replace(/^_+|_+$/g, "");
-  return normalized || "upload.bin";
-}
-
 function scopeParams(scopeType: FileScopeType, scopeId?: string | null): SqlInputValue[] {
   return scopeId == null ? [scopeType] : [scopeType, scopeId];
 }
@@ -210,28 +208,6 @@ function rowToFileRecord(row: UploadedFileRow): UploadedFileRecord {
     scope_type: row.scope_type,
     scope_id: row.scope_id,
   };
-}
-
-function matchesFilters(record: UploadedFileRecord, extensions?: string[], mimeTypes?: string[]): boolean {
-  const extList = normalizeList(extensions);
-  const mimeList = normalizeList(mimeTypes);
-  const matchesExt = extList.some((extension) => record.original_name.toLowerCase().endsWith(extension));
-  const matchesMime = mimeList.some((mime) => record.mime.toLowerCase() === mime);
-
-  if (extList.length && mimeList.length) {
-    return matchesExt || matchesMime;
-  }
-  if (extList.length) {
-    return matchesExt;
-  }
-  if (mimeList.length) {
-    return matchesMime;
-  }
-  return true;
-}
-
-function normalizeList(values?: string[]): string[] {
-  return (values ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean);
 }
 
 const require = createRequire(import.meta.url);

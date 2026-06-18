@@ -37,8 +37,9 @@ Node.js 24+ is required because the first persistence milestone uses the built-i
 - Python-compatible idle execution status routes for frontend polling, diagnostics, and overview reads
 - Monitoring compatibility routes for empty metrics, persisted message-content reads, and tool-call raw-result reads
 - In-memory permission policy API compatible with the Python `/api/permissions/*` route shapes
-- SQLite-backed uploaded file index and file management API compatible with the Python `/api/files/*`
-  and `/api/agent/sessions/:sessionId/files/*` route shapes
+- Knowledge-base uploaded files (source blobs + metadata) owned by the sqlite-vec driver, served at
+  `/api/vector-library/files/*`; session-scoped attachments at `/api/agent/sessions/:sessionId/files/*`
+  via the main SQLite uploaded-file index
 - In-memory agent config/team API compatible with the Python `/api/agent-config/*` bootstrap and
   Team Builder route shapes, including config export and built-in preset application
 - In-memory agent management API compatible with the Python `/api/agent/agents*` route shapes

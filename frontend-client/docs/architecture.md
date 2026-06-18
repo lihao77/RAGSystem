@@ -410,7 +410,7 @@ Agent 配置页会先加载当前 Agent 配置，再读取 `config.custom_params
 - 权限模式文案与后端语义保持一致：`strict` 为严格档（全部风险工具需审批），`standard` 为默认档（中/高风险工具需审批），`relaxed` 为高风险档（仅高风险工具需审批）；三者在命中 auto-accept 规则时都可自动通过，`dangerously_skip_permissions` 表示“跳过审批”（仅跳过常规风险 ask，路径越界等 ask 仍可能触发）；前端下拉按“严格 → 默认 → 高风险 → 全开放”顺序展示
 - `pendingWorkspaceRoot`：创建 session 时写入 `metadata.workspace_root`；前端会先去掉首尾包裹引号（如 `"C:/test" -> C:/test`）后再提交，并在本地回填/展示时沿用同一规范化结果
 - `pendingEntryAgent`：创建 session 时写入 `metadata.entry_agent`（值必须是后端返回的真实 `agent_name`；空值仅表示“使用配置默认入口 Agent”，前端不应提交 `default` 这类 UI alias）
-- `sessionFiles`：当前会话私有文件列表，通过 `/api/agent/sessions/{session_id}/files*` 维护；与知识库页使用的全局 `/api/files` 文件池严格分离
+- `sessionFiles`：当前会话私有文件列表，通过 `/api/agent/sessions/{session_id}/files*` 维护；与知识库页使用的知识库文件池（`/api/vector-library/files*`，sqlite-vec driver 的 `kb_files`）严格分离
 - `pendingAttachments`：仅底部输入框中新消息的待发送附件
 - `editingDraft` / `editingAttachmentsDraft`：当前正在原地编辑的消息文本与附件草稿
 - `sessionFilesDrawerTarget`：附件抽屉当前服务对象（底部输入框 composer 或消息原地编辑）
