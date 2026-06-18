@@ -27,14 +27,15 @@ import { TaskToolService } from "../../src/tools/TaskTools/TaskExecution.js";
 import { ModelAdapterService } from "../../src/services/integrations/model-adapter-service.js";
 import { FileIndexService } from "../../src/services/stores/file-index-service.js";
 import { VectorLibraryService } from "../../src/services/knowledge/vector-library-service.js";
-import type { IKnowledgeConfig, IVectorStore, VectorRecord, VectorSearchHit } from "../../src/contracts/vector-store/index.js";
+import type { IKnowledgeConfig, IKnowledgeFileStore, IVectorStore, VectorRecord, VectorSearchHit } from "../../src/contracts/vector-store/index.js";
 import type { McpService } from "../../src/services/integrations/mcp-service.js";
 
 /**
- * 最小 IVectorStore & IKnowledgeConfig mock:search 返预设命中,配置面维护内存态。
+ * 最小 IVectorStore & IKnowledgeConfig & IKnowledgeFileStore mock:search 返预设命中,配置面维护内存态。
  * 验证 bridge→search 编排(不依赖真 driver 召回)——配置面由 driver 单元测试覆盖。
+ * 知识库文件面(IKnowledgeFileStore)本测试不触达,返空 stub 仅满足三联合契约(真实 driver 是三联合)。
  */
-function makeFakeVectorStore(hit: VectorSearchHit): IVectorStore & IKnowledgeConfig {
+function makeFakeVectorStore(hit: VectorSearchHit): IVectorStore & IKnowledgeConfig & IKnowledgeFileStore {
   const vectorizers: Array<ReturnType<IKnowledgeConfig["createVectorizer"]>> = [];
   // 维护 upsertRecords 的内存态,read 方法据此返回(模拟 driver 真实存储,非空 stub)。
   const chunks: VectorRecord[] = [];
@@ -46,12 +47,26 @@ function makeFakeVectorStore(hit: VectorSearchHit): IVectorStore & IKnowledgeCon
     return before - chunks.length;
   };
   return {
+    // IKnowledgeFileStore:本测试不触达知识库文件 CRUD,返空 stub 满足三联合契约(driver 是三联合)。
+    listKnowledgeFiles: () => [],
+    getKnowledgeFile: () => null,
+    addKnowledgeFile: () => {
+      throw new Error("makeFakeVectorStore.addKnowledgeFile 未在本测试中使用");
+    },
+    deleteKnowledgeFile: () => null,
+    getKnowledgeUploadsRoot: () => "",
     upsertRecords: async (records) => {
       chunks.push(...records);
     },
     search: async () => [hit],
     deleteDocument: async (collection, documentId) => ({
       deleted_chunks: removeMatching((c) => c.collection === collection && c.doc_id === documentId),
+    }),
+    deleteDocumentVectors: async (documentId) => ({
+      deleted_chunks: removeMatching((c) => c.doc_id === documentId),
+    }),
+    deleteDocumentVectorsByModel: async (_collection, documentId, model_id) => ({
+      deleted: removeMatching((c) => c.doc_id === documentId && c.model_id === model_id),
     }),
     deleteCollection: async (collection) => ({
       deleted_chunks: removeMatching((c) => c.collection === collection),

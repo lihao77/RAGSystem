@@ -1241,7 +1241,7 @@ async function handleIndexFileWithVectorizer(row, vectorizerKey) {
             vectorizer_key: vectorizerKey,
         });
         if (res.success) {
-            showToast(`索引成功，共 ${res.data?.indexed_count ?? 0} 个分块`, 'success');
+            showToast(`索引成功，共 ${res.data?.indexed_chunks ?? 0} 个分块`, 'success');
             await refreshFileStatus();
         } else {
             showToast(res.message || '索引失败');
@@ -1359,7 +1359,7 @@ async function handleIndexDocument() {
             res = await ingestFileToCollection(indexForm.value);
         }
         const data = res?.data || res;
-        const chunks = data?.chunk_count ?? data?.indexed_count ?? '?';
+        const chunks = data?.indexed_chunks ?? '?';
         showToast(`索引成功，生成 ${chunks} 个分块`, 'success');
         showIndexDialog.value = false;
         resetIndexForm();

@@ -127,6 +127,58 @@ describe("SqliteVecDriver", () => {
     driver.close();
   });
 
+  it("deleteDocumentVectors 跨 collection 删同一 document_id 的全部 chunks", async () => {
+    const driver = new SqliteVecDriver(config());
+    await driver.upsertRecords([
+      record("d1", [1, 0], { collection: "col1", chunk_index: 0 }),
+      record("d1", [0, 1], { collection: "col2", chunk_index: 0 }),
+      record("d2", [1, 0], { collection: "col1", chunk_index: 0 }),
+    ]);
+    const result = await driver.deleteDocumentVectors("d1");
+    expect(result.deleted_chunks).toBe(2);
+    // col1 剩 d2,col2 清空(跨 collection 全清)
+    expect(await driver.countChunks("col1")).toBe(1);
+    expect(await driver.countChunks("col2")).toBe(0);
+    // 不存在的 document_id 返 0(幂等,删文件联动可安全重试)
+    expect((await driver.deleteDocumentVectors("d1")).deleted_chunks).toBe(0);
+    driver.close();
+  });
+
+  it("deleteDocumentVectorsByModel 只清指定 model 向量,不动其他 model", async () => {
+    const driver = new SqliteVecDriver(config());
+    // 同一 document col1/d1 两个 model 各嵌一份(共享一条 chunk 文本行)
+    await driver.upsertRecords([
+      record("d1", [1, 0], { collection: "col1", model_id: 1 }),
+      record("d1", [1, 0, 0], { collection: "col1", model_id: 2 }),
+    ]);
+    // 删 model 1 的向量
+    const result = await driver.deleteDocumentVectorsByModel("col1", "d1", 1);
+    expect(result.deleted).toBe(1);
+    // model 1 召回空(已清),model 2 召回仍在(未被波及)
+    const hits1 = await driver.search({
+      collection: "col1",
+      model_id: 1,
+      query_vector: [1, 0],
+      top_k: 1,
+      search_mode: "vector",
+    });
+    expect(hits1).toHaveLength(0);
+    const hits2 = await driver.search({
+      collection: "col1",
+      model_id: 2,
+      query_vector: [1, 0, 0],
+      top_k: 1,
+      search_mode: "vector",
+    });
+    expect(hits2).toHaveLength(1);
+    expect(hits2[0]?.doc_id).toBe("d1");
+    // 共享 chunk 文本行仍在(model 2 还引用,未删 vec_documents)
+    expect(await driver.countChunks("col1")).toBe(1);
+    // 不存在的 model_id 返 0(无向量表,幂等)
+    expect((await driver.deleteDocumentVectorsByModel("col1", "d1", 999)).deleted).toBe(0);
+    driver.close();
+  });
+
   it("countVectors / countChunks / listCollections / health", async () => {
     const driver = new SqliteVecDriver(config());
     await driver.upsertRecords([record("d1", [1, 0]), record("d2", [0, 1])]);

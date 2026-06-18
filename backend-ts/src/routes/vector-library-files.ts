@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 
 import type { KnowledgeFile } from "../contracts/vector-store/index.js";
 import { HttpError } from "../utils/errors.js";
+import { matchesFileFilters } from "../utils/file-filter.js";
 import type { RouteOptions } from "./route-options.js";
 import { collectMultipartFiles, parseCsvList, sendFileDownload } from "./file-route-utils.js";
 
@@ -20,7 +21,8 @@ interface FileListQuery {
  * 不写主库 uploaded_files(后者只留会话附件 session scope)。
  */
 export const registerVectorLibraryFileRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  const store = options.container.vectorLibrary.knowledgeFileStore;
+  const vectorLibrary = options.container.vectorLibrary;
+  const store = vectorLibrary.knowledgeFileStore;
 
   app.post("/files/upload", async (request) => {
     const parts = await collectMultipartFiles(request);
@@ -48,11 +50,11 @@ export const registerVectorLibraryFileRoutes: FastifyPluginAsync<RouteOptions> =
   });
 
   app.delete<{ Params: FileParams }>("/files/:fileId", async (request) => {
-    const file = store.deleteKnowledgeFile(request.params.fileId);
-    if (!file) {
+    const result = await vectorLibrary.deleteKnowledgeFileWithVectors(request.params.fileId);
+    if (!result) {
       throw new HttpError(404, "not_found", "文件不存在");
     }
-    return { success: true };
+    return { success: true, deleted_chunks: result.deleted_chunks };
   });
 
   app.get<{ Params: FileParams }>("/files/:fileId/download", async (request, reply) => {
@@ -69,18 +71,8 @@ function filterKnowledgeFiles(
   extensions: string[],
   mimeTypes: string[],
 ): KnowledgeFile[] {
-  const extList = normalizeList(extensions);
-  const mimeList = normalizeList(mimeTypes);
-  if (!extList.length && !mimeList.length) {
+  if (!extensions.length && !mimeTypes.length) {
     return files;
   }
-  return files.filter((file) => {
-    const matchesExt = extList.some((ext) => file.original_name.toLowerCase().endsWith(ext));
-    const matchesMime = mimeList.some((mime) => file.mime.toLowerCase() === mime);
-    return matchesExt || matchesMime;
-  });
-}
-
-function normalizeList(values: string[]): string[] {
-  return values.map((value) => value.trim().toLowerCase()).filter(Boolean);
+  return files.filter((file) => matchesFileFilters(file.original_name, file.mime, extensions, mimeTypes));
 }

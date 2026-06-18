@@ -307,6 +307,120 @@ describe("vector library compatibility routes", () => {
       deleted_chunks: 1,
     });
   });
+
+  it("deleting a knowledge file cascades to purge its indexed vectors", async () => {
+    app = await buildTestApp();
+
+    await createEmbeddingProvider();
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/vector-library/vectorizers",
+      payload: { provider_key: "embedding_openai_proxy", model_name: "text-embedding-3-small" },
+    });
+    expect(created.statusCode).toBe(200);
+    const vectorizerKey = created.json().data.vectorizer_key;
+
+    const uploaded = await app.inject({
+      method: "POST",
+      url: "/api/vector-library/files/upload",
+      headers: multipartHeaders("boundary-cascade"),
+      payload: multipartBody(
+        "boundary-cascade",
+        "files",
+        "cascade.txt",
+        "text/plain",
+        "cascade delete purges indexed vectors",
+      ),
+    });
+    expect(uploaded.statusCode).toBe(200);
+    const file = uploaded.json().files[0];
+
+    const indexFile = await app.inject({
+      method: "POST",
+      url: "/api/vector-library/index-file",
+      payload: { collection: "documents", file_id: file.id, vectorizer_key: vectorizerKey },
+    });
+    expect(indexFile.statusCode).toBe(200);
+    expect(indexFile.json().data.indexed_chunks).toBe(1);
+
+    // 删前:文件已索引,向量落在 documents collection
+    const docsBefore = await app.inject({ method: "GET", url: "/api/vector/documents/documents" });
+    expect(docsBefore.json().data.sample_ids).toContain(file.id);
+
+    // 删知识库文件 → 联动清向量(跨 collection 按 document_id)
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/api/vector-library/files/${encodeURIComponent(file.id)}`,
+    });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json()).toMatchObject({ success: true, deleted_chunks: 1 });
+
+    // 文件已删(kb_files 不再含)
+    const fileList = await app.inject({ method: "GET", url: "/api/vector-library/files" });
+    expect(fileList.json().files).toEqual([]);
+
+    // 向量已删(documents collection 不再含该 document_id)
+    const docsAfter = await app.inject({ method: "GET", url: "/api/vector/documents/documents" });
+    expect(docsAfter.json().data.sample_ids).not.toContain(file.id);
+  });
+
+  it("indexing the same file under two vectorizers keeps both models' vectors", async () => {
+    app = await buildTestApp();
+    await createEmbeddingProvider();
+    // 两个 vectorizer(不同 model_name → 不同 model_id)
+    const vA = await app.inject({
+      method: "POST",
+      url: "/api/vector-library/vectorizers",
+      payload: { provider_key: "embedding_openai_proxy", model_name: "text-embedding-3-small" },
+    });
+    const vB = await app.inject({
+      method: "POST",
+      url: "/api/vector-library/vectorizers",
+      payload: { provider_key: "embedding_openai_proxy", model_name: "text-embedding-3-large" },
+    });
+    expect(vA.statusCode).toBe(200);
+    expect(vB.statusCode).toBe(200);
+    const keyA = vA.json().data.vectorizer_key;
+    const keyB = vB.json().data.vectorizer_key;
+
+    const uploaded = await app.inject({
+      method: "POST",
+      url: "/api/vector-library/files/upload",
+      headers: multipartHeaders("boundary-multi"),
+      payload: multipartBody(
+        "boundary-multi",
+        "files",
+        "multi-vectorizer.txt",
+        "text/plain",
+        "multi vectorizer indexing keeps both models vectors alive",
+      ),
+    });
+    expect(uploaded.statusCode).toBe(200);
+    const file = uploaded.json().files[0];
+
+    // 先索引 A,再索引 B(关键:B 不应清掉 A 的向量)
+    const iA = await app.inject({
+      method: "POST",
+      url: "/api/vector-library/index-file",
+      payload: { collection: "documents", file_id: file.id, vectorizer_key: keyA },
+    });
+    expect(iA.statusCode).toBe(200);
+    expect(iA.json().data.indexed_chunks).toBe(1);
+    const iB = await app.inject({
+      method: "POST",
+      url: "/api/vector-library/index-file",
+      payload: { collection: "documents", file_id: file.id, vectorizer_key: keyB },
+    });
+    expect(iB.statusCode).toBe(200);
+    expect(iB.json().data.indexed_chunks).toBe(1);
+
+    // 两个 vectorizer 都"已索引"——B 没清掉 A(修复证据);未修时 A 会被清成"未索引"
+    const status = await app.inject({ method: "GET", url: "/api/vector-library/file-status" });
+    expect(status.statusCode).toBe(200);
+    const f = status.json().data.files.find((x: { file_id: string }) => x.file_id === file.id);
+    expect(f.vectorizer_status[keyA]).toBe("已索引");
+    expect(f.vectorizer_status[keyB]).toBe("已索引");
+  });
 });
 
 describe("vector management compatibility routes", () => {
@@ -370,7 +484,7 @@ describe("vector management compatibility routes", () => {
     expect(index.statusCode).toBe(200);
     expect(index.json().data).toMatchObject({
       document_id: "doc-1",
-      chunk_count: 1,
+      indexed_chunks: 1,
       collection_name: "kb",
     });
 

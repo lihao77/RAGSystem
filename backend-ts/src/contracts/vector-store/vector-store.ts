@@ -10,8 +10,11 @@
  * - search 按 collection+model_id 召回 top_k,**仅返回 vector_score**;hybrid 的 keyword/重排由编排层
  *   (scoring.ts)补到 keyword_score/hybrid_score;无命中返回空数组(非 null/异常);
  *   query_vector 维度与 collection 的 model_id 维度不一致 → driver 抛 VectorStoreError(前置违反);
- * - deleteDocument/deleteCollection/deleteByModel 返回受影响数;不存在返回 0(非失败);
+ * - deleteDocument/deleteCollection/deleteByModel/deleteDocumentVectors/deleteDocumentVectorsByModel 返回受影响数;不存在返回 0(非失败);
  *   deleteByModel 是 B/A 解耦口:编排层删 vectorizer 时调它清向量数据,而非直连库;
+ *   deleteDocumentVectors 按 document_id 跨 collection 删(知识库文件删除联动清向量,删文件时不留孤儿 chunk);
+ *   deleteDocumentVectorsByModel 按 (collection, document_id, model_id) 只删该 model 向量(重索引幂等),
+ *     不动其他 model、不删共享 chunk 行——支撑一文件被多 vectorizer 索引(向量按 model 分表);
  * - listCollections/listDocuments/countVectors/countChunks 返空集合/0 不抛异常;
  * - health 反映 driver 状态(runtime/ann/collections_count);ann=false 表示降级到应用层算分(无 sqlite-vec 扩展);
  * - close 释放连接(WAL/句柄),幂等。
@@ -86,6 +89,15 @@ export interface IVectorStore {
   upsertRecords(records: VectorRecord[]): Promise<void>;
   search(query: VectorStoreQuery): Promise<VectorSearchHit[]>;
   deleteDocument(collection: string, documentId: string): Promise<{ deleted_chunks: number }>;
+  /** 按 document_id 删除其跨所有 collection 的向量+chunks(知识库文件删除联动清向量用);不存在返 0。 */
+  deleteDocumentVectors(documentId: string): Promise<{ deleted_chunks: number }>;
+  /**
+   * 按 (collection, document_id, model_id) 只删该 model 的向量(重索引幂等用);
+   * 不动其他 model 的向量、不删共享 chunk 文本行(vec_documents)。model 无向量表/不存在返 0。
+   * 支撑一文件被多 vectorizer 索引:重索引某 vectorizer 时只清自己的向量,别 model 保留。
+   * 约定:同文件多 vectorizer 必须用相同 chunk 划分(共享 chunk 文本,UNIQUE 不含 model_id)。
+   */
+  deleteDocumentVectorsByModel(collection: string, documentId: string, model_id: number): Promise<{ deleted: number }>;
   deleteCollection(collection: string): Promise<{ deleted_chunks: number }>;
   deleteByModel(model_id: number): Promise<{ deleted: number }>;
   listCollections(): Promise<CollectionInfo[]>;

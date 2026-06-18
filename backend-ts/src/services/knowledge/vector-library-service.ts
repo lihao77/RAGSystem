@@ -14,7 +14,7 @@ import type {
   VectorizerCreate,
   VectorSearchResult,
 } from "../../contracts/vector-library.js";
-import type { IEmbedder, IKnowledgeConfig, IKnowledgeFileStore, IVectorStore, StoredChunk, StoredReranker, StoredVectorizer, VectorRecord, VectorSearchHit } from "../../contracts/vector-store/index.js";
+import type { IEmbedder, IKnowledgeConfig, IKnowledgeFileStore, IVectorStore, KnowledgeFile, StoredChunk, StoredReranker, StoredVectorizer, VectorRecord, VectorSearchHit } from "../../contracts/vector-store/index.js";
 import type { ModelAdapterService } from "../integrations/model-adapter-service.js";
 import { createEmbedder, HashFallbackEmbedder } from "../integrations/embedder-registry.js";
 // 打分纯函数统一从 scoring.ts 复用(cosineSimilarity/tokenize 随 5h-2 降级路径删除,本地副本已无)。
@@ -213,6 +213,25 @@ export class VectorLibraryService {
     return this.deleteDocument(collection, fileId);
   }
 
+  /**
+   * 删除知识库文件并联动清向量:先按 document_id(= file.id)跨 collection 删全部已索引向量(幂等),
+   * 再删 kb_files 行 + 物理 blob。顺序保证向量删失败时文件保留、可重试,不留半删态/孤儿向量。
+   * 文件不存在返回 null(路由据此 404)。供 /api/vector-library/files/:fileId DELETE 调用。
+   */
+  async deleteKnowledgeFileWithVectors(
+    fileId: string,
+  ): Promise<{ file: KnowledgeFile; deleted_chunks: number } | null> {
+    const file = this.knowledgeFileStore.getKnowledgeFile(fileId);
+    if (!file) {
+      return null;
+    }
+    const deleted_chunks = this.vectorStore
+      ? (await this.vectorStore.deleteDocumentVectors(fileId)).deleted_chunks
+      : 0;
+    this.knowledgeFileStore.deleteKnowledgeFile(fileId);
+    return { file, deleted_chunks };
+  }
+
   async migrate(input: GenericVectorRequest): Promise<Record<string, unknown>> {
     const payload = input ?? {};
     const fromKey = asString(payload.from_key) ?? asString(payload.fromKey);
@@ -288,7 +307,7 @@ export class VectorLibraryService {
     });
     return {
       document_id: documentId,
-      chunk_count: result.chunkCount,
+      indexed_chunks: result.chunkCount,
       collection_name: collection,
       stats: await this.collectionInfo(collection),
       message: `成功索引文档，生成 ${result.chunkCount} 个分块`,
@@ -650,8 +669,14 @@ export class VectorLibraryService {
     if (!this.vectorStore) {
       return { chunkCount: 0 };
     }
-    // driver 唯一源:先删旧 chunk(vec_documents + vec_chunks),再批量嵌入写入。无主库 documents 双写。
-    await this.vectorStore.deleteDocument(input.collection, input.documentId);
+    // 重索引幂等:只清当前 vectorizer(model_id) 下该 document 的向量,不动其他 vectorizer 的向量
+    // (一文件可被多 vectorizer 索引,向量按 model 分表)。约定:同文件多 vectorizer 必须相同 chunk 划分,
+    // 否则共享 chunk 文本(vec_documents,UNIQUE 不含 model_id)会被后索引者覆盖污染。
+    await this.vectorStore.deleteDocumentVectorsByModel(
+      input.collection,
+      input.documentId,
+      input.vectorizer.model_id,
+    );
     // 真 embedder 批量嵌入(一次调用替逐 chunk 嵌入);失败降级 hash 并缓存,保证 index/search 维度一致。
     const vectors = await this.embedWithFallback(input.vectorizer, chunks);
     const records: VectorRecord[] = [];

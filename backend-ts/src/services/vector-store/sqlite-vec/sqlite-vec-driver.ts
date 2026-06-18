@@ -27,6 +27,7 @@ import type {
 import { VectorStoreError } from "../../../contracts/vector-store/index.js";
 import { registerDriver } from "../registry.js";
 import { documentsTableDdl, kbFilesTableDdl, rerankersTableDdl, vecTableDdl, vecTableName, vectorizersTableDdl } from "./schema.js";
+import { sanitizeFilename } from "../../../utils/file-filter.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -190,6 +191,44 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     this.purgeVecRows(ids.map((row) => row.id));
     this.db.prepare(`DELETE FROM vec_documents WHERE collection = ? AND document_id = ?`).run(collection, documentId);
     return { deleted_chunks: ids.length };
+  }
+
+  /** 按 document_id 跨 collection 删全部 chunks+向量(知识库文件删除联动清向量);不存在返 0。 */
+  async deleteDocumentVectors(documentId: string): Promise<{ deleted_chunks: number }> {
+    const ids = this.db
+      .prepare(`SELECT id FROM vec_documents WHERE document_id = ?`)
+      .all(documentId) as unknown as Array<{ id: number }>;
+    if (ids.length === 0) {
+      return { deleted_chunks: 0 };
+    }
+    this.purgeVecRows(ids.map((row) => row.id));
+    this.db.prepare(`DELETE FROM vec_documents WHERE document_id = ?`).run(documentId);
+    return { deleted_chunks: ids.length };
+  }
+
+  /**
+   * 按 (collection, document_id, model_id) 只删该 model 的向量(重索引幂等);
+   * 不动其他 model 向量、不删共享 chunk 文本行(vec_documents)。model 无向量表返 0。
+   */
+  async deleteDocumentVectorsByModel(
+    collection: string,
+    documentId: string,
+    model_id: number,
+  ): Promise<{ deleted: number }> {
+    if (!this.dimensionByModel.has(model_id)) {
+      return { deleted: 0 };
+    }
+    const ids = this.db
+      .prepare(`SELECT id FROM vec_documents WHERE collection = ? AND document_id = ?`)
+      .all(collection, documentId) as unknown as Array<{ id: number }>;
+    if (ids.length === 0) {
+      return { deleted: 0 };
+    }
+    const placeholders = ids.map(() => "?").join(",");
+    const result = this.db
+      .prepare(`DELETE FROM ${vecTableName(model_id)} WHERE rowid IN (${placeholders})`)
+      .run(...ids.map((row) => BigInt(row.id)));
+    return { deleted: result.changes };
   }
 
   async deleteCollection(collection: string): Promise<{ deleted_chunks: number }> {
@@ -657,7 +696,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
 
   addKnowledgeFile(input: AddKnowledgeFileInput): KnowledgeFile {
     const { originalName, buffer, mime } = input;
-    const storedName = `${randomBytes(8).toString("hex")}_${sanitizeKbFilename(originalName)}`;
+    const storedName = `${randomBytes(8).toString("hex")}_${sanitizeFilename(originalName)}`;
     const storedPath = path.join(this.knowledgeUploadsRoot, storedName);
     const size = buffer.byteLength;
     // 物理 blob 落盘(收编进 driver:知识库文件唯一持久化载体)
@@ -781,11 +820,6 @@ function rowToKnowledgeFile(row: KbFileRow): KnowledgeFile {
     mime: row.mime,
     uploaded_at: row.uploaded_at,
   };
-}
-
-function sanitizeKbFilename(filename: string): string {
-  const normalized = filename.replace(/[^\w\-.]/g, "_").replace(/^_+|_+$/g, "");
-  return normalized || "upload.bin";
 }
 
 // 模块加载时自注册 sqlite-vec driver(单向依赖 driver→registry,避免循环)。
