@@ -26,7 +26,7 @@ export const registerVectorLibraryRoutes: FastifyPluginAsync<RouteOptions> = asy
   app.post("/index-file", async (request) => {
     const payload = IndexFileRequestSchema.parse(request.body);
     try {
-      return ok(options.container.vectorLibrary.indexFile(payload));
+      return ok(await options.container.vectorLibrary.indexFile(payload));
     } catch (error) {
       throw toHttpError(error);
     }

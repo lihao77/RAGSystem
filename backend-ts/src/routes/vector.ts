@@ -49,7 +49,7 @@ export const registerVectorRoutes: FastifyPluginAsync<RouteOptions> = async (app
   app.post("/index", async (request) => {
     const payload = GenericVectorRequestSchema.parse(request.body ?? {});
     try {
-      return ok(options.container.vectorLibrary.indexDocument(payload));
+      return ok(await options.container.vectorLibrary.indexDocument(payload));
     } catch (error) {
       throw toHttpError(error);
     }

@@ -279,7 +279,7 @@ describe("RuntimeToolBridge", () => {
       },
     } satisfies AgentConfig;
 
-    vectorLibrary.indexDocument({
+    await vectorLibrary.indexDocument({
       collection_name: "kb",
       document_id: "rag-doc",
       text: "TypeScript backend now supports RAG knowledge base retrieval.",

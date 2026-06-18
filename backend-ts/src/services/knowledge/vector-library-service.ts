@@ -20,9 +20,9 @@ import type {
   VectorSearchResult,
 } from "../../contracts/vector-library.js";
 import type { IFileIndexStore } from "../../contracts/file-index-store/index.js";
-import type { IEmbedder, IVectorStore, VectorSearchHit } from "../../contracts/vector-store/index.js";
+import type { IEmbedder, IVectorStore, VectorRecord, VectorSearchHit } from "../../contracts/vector-store/index.js";
 import type { ModelAdapterService } from "../integrations/model-adapter-service.js";
-import { createEmbedder } from "../integrations/embedder-registry.js";
+import { createEmbedder, HashFallbackEmbedder } from "../integrations/embedder-registry.js";
 // hybridScore 仅 scoring.ts 有;keywordOverlapScore 本地已有(降级路径用,与 scoring.ts 重复,5f 统一清理)。
 import { hybridScore } from "../vector-store/scoring.js";
 import { VectorLibraryServiceError } from "../../contracts/vector-library.js";
@@ -214,7 +214,7 @@ export class VectorLibraryService {
       .all(vectorizer.model_id) as Array<Record<string, unknown>>;
   }
 
-  indexFile(input: IndexFileRequest): Record<string, unknown> {
+  async indexFile(input: IndexFileRequest): Promise<Record<string, unknown>> {
     const collection = input.collection.trim();
     const fileId = input.file_id.trim();
     const vectorizer = this.getStoredVectorizer(input.vectorizer_key.trim());
@@ -229,7 +229,7 @@ export class VectorLibraryService {
       throw new VectorLibraryServiceError(`文件路径无效: ${file.stored_path}`, 404);
     }
     const text = readUtf8File(file.stored_path);
-    const result = this.indexTextDocument({
+    const result = await this.indexTextDocument({
       collection,
       documentId: file.id,
       text,
@@ -287,7 +287,7 @@ export class VectorLibraryService {
     };
   }
 
-  indexDocument(input: GenericVectorRequest): Record<string, unknown> {
+  async indexDocument(input: GenericVectorRequest): Promise<Record<string, unknown>> {
     const payload = input ?? {};
     const collection = asString(payload.collection_name) ?? asString(payload.collection) ?? "documents";
     let documentId = asString(payload.document_id) ?? "";
@@ -315,7 +315,7 @@ export class VectorLibraryService {
       throw new VectorLibraryServiceError("document_id和文本内容不能为空", 400);
     }
     const vectorizer = this.resolveActiveVectorizer();
-    const result = this.indexTextDocument({
+    const result = await this.indexTextDocument({
       collection,
       documentId,
       text,
@@ -559,8 +559,7 @@ export class VectorLibraryService {
     if (!this.vectorStore) {
       return [];
     }
-    const embedder = await this.resolveEmbedder(vectorizer);
-    const vectors = await embedder.embed([query]);
+    const vectors = await this.embedWithFallback(vectorizer, [query]);
     const queryVector = vectors[0];
     if (!queryVector) {
       return [];
@@ -621,6 +620,24 @@ export class VectorLibraryService {
     const embedder = createEmbedder(provider, vectorizer.model_name);
     this.embedderCache.set(vectorizer.vectorizer_key, embedder);
     return embedder;
+  }
+
+  /**
+   * embedder 嵌入,失败时该 vectorizer 降级到本地 hash 并缓存(替换原 embedder)。
+   * 降级缓存保证 index/search 同一 vectorizer 用同一 embedder——避免真模型(如 1536 维)与 hash(64 维)
+   * 混用导致 driver 维度冲突。生产 embedding provider 故障(网络/key/配额)时退化为可用(hash 语义无效),
+   * console.warn 暴露降级,重启后缓存清、恢复真 embedder。开发期可接受;稳定环境 provider 不应故障。
+   */
+  private async embedWithFallback(vectorizer: StoredVectorizer, texts: string[]): Promise<number[][]> {
+    const embedder = await this.resolveEmbedder(vectorizer);
+    try {
+      return await embedder.embed(texts);
+    } catch (error) {
+      console.warn(`[vector-store] embedder(${embedder.key}) 失败,vectorizer 降级 hash 重嵌:`, error);
+      const fallback = new HashFallbackEmbedder();
+      this.embedderCache.set(vectorizer.vectorizer_key, fallback);
+      return fallback.embed(texts);
+    }
   }
 
   getModelStats(modelId: number): {
@@ -704,7 +721,7 @@ export class VectorLibraryService {
     };
   }
 
-  private indexTextDocument(input: {
+  private async indexTextDocument(input: {
     collection: string;
     documentId: string;
     text: string;
@@ -712,8 +729,89 @@ export class VectorLibraryService {
     vectorizer: StoredVectorizer;
     chunkSize: number;
     overlap: number;
-  }): { chunkCount: number } {
+  }): Promise<{ chunkCount: number }> {
     const chunks = chunkText(input.text, input.chunkSize, input.overlap);
+    if (chunks.length === 0) {
+      // 空文本:清旧后返回(driver + service 表)
+      if (this.vectorStore) {
+        await this.vectorStore.deleteDocument(input.collection, input.documentId);
+      }
+      this.deleteDocumentRows(input.collection, input.documentId);
+      this.refreshVectorCounts();
+      return { chunkCount: 0 };
+    }
+    return this.vectorStore ? this.indexViaDriver(input, chunks) : this.indexViaLocal(input, chunks);
+  }
+
+  /**
+   * 新路径:真 embedder 批量嵌入 → driver.upsertRecords。chunk 文本同时写 service.documents
+   * (供状态查询 fileStatus/countChunks/listDocuments + 降级 search 的 content 源;5e 状态查询切 driver 后可去)。
+   */
+  private async indexViaDriver(
+    input: {
+      collection: string;
+      documentId: string;
+      metadata: Record<string, unknown>;
+      vectorizer: StoredVectorizer;
+    },
+    chunks: string[],
+  ): Promise<{ chunkCount: number }> {
+    if (!this.vectorStore) {
+      return { chunkCount: 0 };
+    }
+    await this.vectorStore.deleteDocument(input.collection, input.documentId);
+    this.deleteDocumentRows(input.collection, input.documentId);
+    // 真 embedder 批量嵌入(一次调用替逐 chunk embedText);失败降级 hash 并缓存,保证 index/search 维度一致。
+    const vectors = await this.embedWithFallback(input.vectorizer, chunks);
+    const now = new Date().toISOString();
+    const insertDocument = this.db.prepare(
+      `
+        INSERT INTO documents
+        (collection, document_id, chunk_index, content, metadata, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `,
+    );
+    // 过渡双写:document_vectors 旧表同时写入向量,保持 file-status/modelStats/syncStatus(读旧表)
+    // 与 driver 一致;5e 状态查询切 driver 后,5f 去此双写 + document_vectors 表。
+    const upsertVectorRow = this.db.prepare(
+      "INSERT OR REPLACE INTO document_vectors (doc_id, collection, model_id, embedding) VALUES (?, ?, ?, ?)",
+    );
+    const records: VectorRecord[] = [];
+    for (const [index, chunk] of chunks.entries()) {
+      const metadata = {
+        ...input.metadata,
+        document_id: input.documentId,
+        chunk_index: index,
+      };
+      const result = insertDocument.run(input.collection, input.documentId, index, chunk, JSON.stringify(metadata), now);
+      const embedding = vectors[index] ?? [];
+      upsertVectorRow.run(Number(result.lastInsertRowid), input.collection, input.vectorizer.model_id, JSON.stringify(embedding));
+      records.push({
+        id: "",
+        doc_id: input.documentId,
+        collection: input.collection,
+        model_id: input.vectorizer.model_id,
+        chunk_index: index,
+        content: chunk,
+        metadata,
+        embedding,
+      });
+    }
+    await this.vectorStore.upsertRecords(records);
+    this.refreshVectorCounts();
+    return { chunkCount: chunks.length };
+  }
+
+  /** 降级路径:旧 hash embedding + document_vectors(embedText,sqlite-vec 扩展不可用时;5f 清理)。 */
+  private indexViaLocal(
+    input: {
+      collection: string;
+      documentId: string;
+      metadata: Record<string, unknown>;
+      vectorizer: StoredVectorizer;
+    },
+    chunks: string[],
+  ): { chunkCount: number } {
     this.deleteDocument(input.collection, input.documentId);
     const now = new Date().toISOString();
     const insertDocument = this.db.prepare(
@@ -741,6 +839,18 @@ export class VectorLibraryService {
     }
     this.refreshVectorCounts();
     return { chunkCount: chunks.length };
+  }
+
+  /** 删 service.documents + document_vectors(纯 SQL,不碰 driver)。index 清旧 + deleteDocument 复用。 */
+  private deleteDocumentRows(collectionName: string, documentId: string): number {
+    const rows = this.db
+      .prepare("SELECT id FROM documents WHERE collection = ? AND document_id = ?")
+      .all(collectionName, documentId) as Array<{ id: number }>;
+    for (const row of rows) {
+      this.db.prepare("DELETE FROM document_vectors WHERE doc_id = ?").run(row.id);
+    }
+    this.db.prepare("DELETE FROM documents WHERE collection = ? AND document_id = ?").run(collectionName, documentId);
+    return rows.length;
   }
 
   private upsertVector(docId: number, collection: string, modelId: number, text: string): void {
