@@ -1173,7 +1173,7 @@ async function uploadSelectedFiles(fileList_) {
     }
 }
 function downloadFile(file) {
-    window.open(`/api/files/${encodeURIComponent(file.id)}/download`, '_blank');
+    window.open(`/api/vector-library/files/${encodeURIComponent(file.id)}/download`, '_blank');
 }
 async function handleDeleteUploadedFile(file) {
     if (!window.confirm(`确定删除文件"${file.original_name || file.filename}"？`)) return;

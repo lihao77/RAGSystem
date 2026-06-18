@@ -37,7 +37,7 @@ export async function listFiles(extensions, mimeTypes) {
   if (extensions?.length) query.set('extensions', extensions.join(','));
   if (mimeTypes?.length) query.set('mime_types', mimeTypes.join(','));
   const suffix = query.toString() ? `?${query.toString()}` : '';
-  return request(`/api/files${suffix}`);
+  return request(`/api/vector-library/files${suffix}`);
 }
 
 /**
@@ -45,7 +45,7 @@ export async function listFiles(extensions, mimeTypes) {
  * @param {FormData} formData - 包含 files 字段的表单数据
  */
 export async function uploadFiles(formData) {
-  const response = await fetch('/api/files/upload', {
+  const response = await fetch('/api/vector-library/files/upload', {
     method: 'POST',
     body: formData,
     // 不设置 Content-Type，让浏览器自动设置 multipart/form-data
@@ -58,7 +58,7 @@ export async function uploadFiles(formData) {
  * @param {string} fileId - 文件 ID
  */
 export async function deleteFile(fileId) {
-  return request(`/api/files/${encodeURIComponent(fileId)}`, {
+  return request(`/api/vector-library/files/${encodeURIComponent(fileId)}`, {
     method: 'DELETE',
   });
 }
