@@ -3,8 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 
-import YAML from "yaml";
-
 import type {
   DeleteIndexedFileRequest,
   FileStatusVectorizer,
@@ -20,12 +18,11 @@ import type {
   VectorSearchResult,
 } from "../../contracts/vector-library.js";
 import type { IFileIndexStore } from "../../contracts/file-index-store/index.js";
-import type { IEmbedder, IVectorStore, VectorRecord, VectorSearchHit } from "../../contracts/vector-store/index.js";
+import type { IEmbedder, IKnowledgeConfig, IVectorStore, StoredReranker, StoredVectorizer, VectorRecord, VectorSearchHit } from "../../contracts/vector-store/index.js";
 import type { ModelAdapterService } from "../integrations/model-adapter-service.js";
 import { createEmbedder, HashFallbackEmbedder } from "../integrations/embedder-registry.js";
 // 打分纯函数统一从 scoring.ts 复用(cosineSimilarity/tokenize 随 5h-2 降级路径删除,本地副本已无)。
 import { hybridScore, keywordOverlapScore } from "../vector-store/scoring.js";
-import { saveYamlSync } from "../../utils/yaml-io.js";
 import { VectorLibraryServiceError } from "../../contracts/vector-library.js";
 
 // 契约泄漏修复:VectorLibraryServiceError / VectorSearchResult 收编至 contracts/vector-library.ts。
@@ -36,10 +33,7 @@ export type { VectorSearchResult } from "../../contracts/vector-library.js";
 export class VectorLibraryService {
   private readonly db: import("node:sqlite").DatabaseSync;
   private readonly dataRoot: string;
-  private readonly vectorizersConfigPath: string;
-  private readonly rerankersConfigPath: string;
-  private activeVectorizerKey: string | null = null;
-  private activeRerankerKey: string | null = null;
+  private readonly knowledgeConfig: IKnowledgeConfig;
   private readonly vectorStore: IVectorStore | undefined;
   // 按 vectorizer_key 缓存 embedder,避免每次 search 重复解析 provider 配置。
   // 注:provider 配置(api_key 等)运行时更新后,缓存项持有旧快照——本期接受(重启生效),后续可加失效。
@@ -52,11 +46,14 @@ export class VectorLibraryService {
       dbPath?: string | undefined;
       dataRoot?: string | undefined;
       vectorStore?: IVectorStore | undefined;
+      knowledgeConfig?: IKnowledgeConfig | undefined;
     } = {},
   ) {
     this.dataRoot = path.resolve(options.dataRoot?.trim() || path.join(os.homedir(), ".ragsystem"));
-    this.vectorizersConfigPath = path.join(this.dataRoot, "config", "vector_store", "vectorizers.yaml");
-    this.rerankersConfigPath = path.join(this.dataRoot, "config", "vector_store", "rerankers.yaml");
+    if (!options.knowledgeConfig) {
+      throw new Error("VectorLibraryService 需注入 knowledgeConfig(driver 单一配置源)");
+    }
+    this.knowledgeConfig = options.knowledgeConfig;
     const dbPath = options.dbPath ?? ":memory:";
     if (dbPath !== ":memory:") {
       fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -66,8 +63,6 @@ export class VectorLibraryService {
     this.db.exec("PRAGMA synchronous = NORMAL");
     this.vectorStore = options.vectorStore;
     this.initDatabase();
-    this.activeVectorizerKey = this.readSetting("active_vectorizer_key");
-    this.activeRerankerKey = this.readSetting("active_reranker_key");
   }
 
   close(): void {
@@ -77,10 +72,6 @@ export class VectorLibraryService {
 
   async fileStatus(): Promise<VectorFileStatusResponse> {
     const vectorizers = await this.listFileStatusVectorizers();
-    const files = await this.listSharedDocumentFileStatuses(vectorizers);
-    if (files !== null) {
-      return { files, vectorizers };
-    }
     const fileStatuses: VectorFileStatus[] = [];
     for (const file of this.fileIndex.list({ scopeType: "global", scopeId: null })) {
       const collection = this.defaultCollectionForFile(file.id);
@@ -105,16 +96,10 @@ export class VectorLibraryService {
   }
 
   async listVectorizers(): Promise<VectorizerConfig[]> {
-    const shared = await this.listSharedVectorizers();
-    if (shared !== null) {
-      return shared;
-    }
-    const rows = this.db
-      .prepare("SELECT * FROM vectorizers ORDER BY model_id ASC")
-      .all() as unknown as StoredVectorizer[];
+    const stored = this.knowledgeConfig.listVectorizers();
     const configs: VectorizerConfig[] = [];
-    for (const vectorizer of rows) {
-      configs.push(await this.toVectorizerConfig(vectorizer));
+    for (const v of stored) {
+      configs.push(await this.toVectorizerConfig(v));
     }
     return configs;
   }
@@ -125,121 +110,39 @@ export class VectorLibraryService {
     if (!this.modelAdapter.hasProvider(providerKey)) {
       throw new VectorLibraryServiceError(`向量化器引用的 Provider 不存在: ${providerKey}`, 400);
     }
-
     const key = input.vectorizer_key?.trim() || normalizeVectorizerKey(providerKey, modelName);
-    // 键唯一性:DB 与 YAML(shared 模式)任一存在均拒绝,与 listVectorizers 的可见性保持一致。
-    const existing = this.getStoredVectorizer(key);
-    const config = this.readVectorizerConfig();
-    const inYaml = config?.vectorizers.some((v) => v.vectorizer_key === key) ?? false;
-    if (existing || inYaml) {
+    if (this.knowledgeConfig.getVectorizerByKey(key)) {
       throw new VectorLibraryServiceError(`向量化器键已存在: ${key}`, 400);
     }
-
-    const now = new Date().toISOString();
-    // 占位维度 null:真维度未知直到 index(由 driver.getDimension 在 listVectorizers/toVectorizerConfig 暴露)。
-    const dimension: number | null = null;
-    this.db
-      .prepare(
-        `
-          INSERT INTO vectorizers
-          (vectorizer_key, provider_key, provider_type, model_name, distance_metric,
-           created_at, vector_dimension, vector_count)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-      )
-      .run(
-        key,
-        providerKey,
-        normalizeNullableString(input.provider_type),
-        modelName,
-        input.distance_metric || "cosine",
-        now,
-        dimension,
-        0,
-      );
-    const created = this.getStoredVectorizer(key);
-    if (!created) {
-      throw new VectorLibraryServiceError(`向量化器创建失败: ${key}`, 500);
-    }
-    // YAML 配置权威(shared 模式):同步追加条目,保证 listVectorizers(读 YAML)即时可见。
-    if (config) {
-      config.vectorizers.push({
-        vectorizer_key: key,
-        provider_key: providerKey,
-        provider_type: normalizeNullableString(input.provider_type),
-        model_name: modelName,
-        distance_metric: input.distance_metric || "cosine",
-        created_at: now,
-      });
-      if (!config.active_vectorizer_key) {
-        config.active_vectorizer_key = key;
-      }
-      this.writeVectorizerConfig(config);
-    }
-    if (!this.activeVectorizerKey) {
-      this.activeVectorizerKey = key;
-      this.writeSetting("active_vectorizer_key", key);
-    }
-    return {
+    const created = this.knowledgeConfig.createVectorizer({
       vectorizer_key: key,
-      vector_dimension: dimension,
+      provider_key: providerKey,
+      provider_type: normalizeNullableString(input.provider_type),
+      model_name: modelName,
+      distance_metric: input.distance_metric || "cosine",
+    });
+    return {
+      vectorizer_key: created.vectorizer_key,
+      vector_dimension: created.vector_dimension,
       model_id: created.model_id,
     };
   }
 
   activateVectorizer(key: string): { active_vectorizer_key: string } {
-    const stored = this.getStoredVectorizer(key);
-    const config = this.readVectorizerConfig();
-    const inYaml = config?.vectorizers.some((v) => v.vectorizer_key === key) ?? false;
-    if (!stored && !inYaml) {
+    if (!this.knowledgeConfig.getVectorizerByKey(key)) {
       throw new VectorLibraryServiceError(`向量化器不存在: ${key}`, 404);
     }
-    // YAML 配置权威(shared 模式):同步激活态,listVectorizers 的 is_active 与 Python 检索读到的 active 一致。
-    if (inYaml && config) {
-      config.active_vectorizer_key = key;
-      this.writeVectorizerConfig(config);
-    }
-    this.activeVectorizerKey = key;
-    this.writeSetting("active_vectorizer_key", key);
+    this.knowledgeConfig.activateVectorizer(key);
     return { active_vectorizer_key: key };
   }
 
   async deleteVectorizer(key: string): Promise<{ deleted_vectorizer_key: string }> {
-    const stored = this.getStoredVectorizer(key);
-    const config = this.readVectorizerConfig();
-    const inYaml = config?.vectorizers.some((v) => v.vectorizer_key === key) ?? false;
-    // 存在性兼容双源:Python 经 YAML 建的 vectorizer 可能不在 TS DB,反之亦然;任一存在即可删。
-    if (!stored && !inYaml) {
+    const stored = this.knowledgeConfig.getVectorizerByKey(key);
+    if (!stored) {
       throw new VectorLibraryServiceError(`向量化器不存在: ${key}`, 404);
     }
-    // driver 向量清理(仅 TS driver 自管向量;Python document_vectors 不归 TS)。
-    if (stored && this.vectorStore) {
-      await this.vectorStore.deleteByModel(stored.model_id);
-    }
-    if (stored) {
-      this.db.prepare("DELETE FROM vectorizers WHERE vectorizer_key = ?").run(key);
-    }
-    // YAML 配置权威(shared 模式):同步删除条目,使 listVectorizers(读 YAML)即时不再显示。
-    let nextActive: string | null = null;
-    if (inYaml && config) {
-      config.vectorizers = config.vectorizers.filter((v) => v.vectorizer_key !== key);
-      if (config.active_vectorizer_key === key) {
-        config.active_vectorizer_key = config.vectorizers[0]?.vectorizer_key ?? null;
-      }
-      this.writeVectorizerConfig(config);
-      nextActive = config.active_vectorizer_key;
-    }
-    // 活跃态回退:删的是当前激活时,shared 模式用 YAML(已切剩余首条),DB 模式取 DB 首条。
-    if (this.activeVectorizerKey === key) {
-      if (nextActive === null && !inYaml) {
-        const row = this.db.prepare("SELECT vectorizer_key FROM vectorizers ORDER BY model_id ASC LIMIT 1").get() as
-          | { vectorizer_key: string }
-          | undefined;
-        nextActive = row?.vectorizer_key ?? null;
-      }
-      this.activeVectorizerKey = nextActive;
-      this.writeSetting("active_vectorizer_key", this.activeVectorizerKey);
-    }
+    // driver 内部事务包"清向量 + 删实体 + 回退 active"。
+    this.knowledgeConfig.deleteVectorizer(key);
     return { deleted_vectorizer_key: key };
   }
 
@@ -435,14 +338,7 @@ export class VectorLibraryService {
   }
 
   listRerankers(): RerankerConfig[] {
-    const shared = this.listSharedRerankers();
-    if (shared !== null) {
-      return shared;
-    }
-    const rows = this.db
-      .prepare("SELECT * FROM rerankers ORDER BY created_at ASC, reranker_key ASC")
-      .all() as unknown as StoredReranker[];
-    return rows.map((reranker) => this.toRerankerConfig(reranker));
+    return this.knowledgeConfig.listRerankers().map((r) => this.toRerankerConfig(r));
   }
 
   addReranker(input: RerankerCreate): { reranker_key: string } {
@@ -457,122 +353,54 @@ export class VectorLibraryService {
         throw new VectorLibraryServiceError("model 模式的重排序器必须提供 api_endpoint", 400);
       }
     }
-
     const key = input.reranker_key?.trim() || normalizeRerankerKey(mode, providerKey, modelName);
-    // 键唯一性:DB 与 YAML(shared 模式)任一存在均拒绝,与 listRerankers 的可见性保持一致。
-    const config = this.readRerankerConfig();
-    const inYaml = config?.rerankers.some((r) => r.reranker_key === key) ?? false;
-    if (this.getStoredReranker(key) || inYaml) {
+    if (this.knowledgeConfig.getReranker(key)) {
       throw new VectorLibraryServiceError(`重排序器键已存在: ${key}`, 400);
     }
-    const now = new Date().toISOString();
-    this.db
-      .prepare(
-        `
-          INSERT INTO rerankers
-          (reranker_key, mode, provider_key, provider_type, model_name, api_endpoint, api_key, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-      )
-      .run(
-        key,
-        mode,
-        providerKey,
-        normalizeNullableString(input.provider_type),
-        modelName,
-        input.api_endpoint?.trim() || "",
-        input.api_key ?? null,
-        now,
-      );
-    // YAML 配置权威(shared 模式):同步追加条目(api_key 不入 YAML,留 DB),保证 listRerankers(读 YAML)即时可见。
-    if (config) {
-      config.rerankers.push({
-        reranker_key: key,
-        mode,
-        provider_key: providerKey,
-        provider_type: normalizeNullableString(input.provider_type),
-        model_name: modelName,
-        api_endpoint: input.api_endpoint?.trim() || "",
-        created_at: now,
-      });
-      if (!config.active_reranker_key) {
-        config.active_reranker_key = key;
-      }
-      this.writeRerankerConfig(config);
-    }
-    if (!this.activeRerankerKey) {
-      this.activeRerankerKey = key;
-      this.writeSetting("active_reranker_key", key);
-    }
+    this.knowledgeConfig.createReranker({
+      reranker_key: key,
+      mode,
+      provider_key: providerKey,
+      provider_type: normalizeNullableString(input.provider_type),
+      model_name: modelName,
+      api_endpoint: input.api_endpoint?.trim() || "",
+      api_key: input.api_key ?? null,
+    });
     return { reranker_key: key };
   }
 
   getReranker(key: string): RerankerConfig | null {
-    const reranker = this.getStoredReranker(key);
+    const reranker = this.knowledgeConfig.getReranker(key);
     return reranker ? this.toRerankerConfig(reranker) : null;
   }
 
   activateReranker(key: string): { active_reranker_key: string } {
-    const stored = this.getStoredReranker(key);
-    const config = this.readRerankerConfig();
-    const inYaml = config?.rerankers.some((r) => r.reranker_key === key) ?? false;
-    if (!stored && !inYaml) {
+    if (!this.knowledgeConfig.getReranker(key)) {
       throw new VectorLibraryServiceError(`重排序器不存在: ${key}`, 404);
     }
-    // YAML 配置权威(shared 模式):同步激活态,listRerankers 的 is_active 与 Python 检索读到的 active 一致。
-    if (inYaml && config) {
-      config.active_reranker_key = key;
-      this.writeRerankerConfig(config);
-    }
-    this.activeRerankerKey = key;
-    this.writeSetting("active_reranker_key", key);
+    this.knowledgeConfig.activateReranker(key);
     return { active_reranker_key: key };
   }
 
   deleteReranker(key: string): { deleted_reranker_key: string } {
-    const stored = this.getStoredReranker(key);
-    const config = this.readRerankerConfig();
-    const inYaml = config?.rerankers.some((r) => r.reranker_key === key) ?? false;
-    // 存在性兼容双源:Python 经 YAML 建的重排序器可能不在 TS DB,反之亦然;任一存在即可删。
-    if (!stored && !inYaml) {
+    if (!this.knowledgeConfig.getReranker(key)) {
       throw new VectorLibraryServiceError(`重排序器不存在: ${key}`, 404);
     }
-    if (stored) {
-      this.db.prepare("DELETE FROM rerankers WHERE reranker_key = ?").run(key);
-    }
-    // YAML 配置权威(shared 模式):同步删除条目,使 listRerankers(读 YAML)即时不再显示。
-    let nextActive: string | null = null;
-    if (inYaml && config) {
-      config.rerankers = config.rerankers.filter((r) => r.reranker_key !== key);
-      if (config.active_reranker_key === key) {
-        config.active_reranker_key = config.rerankers[0]?.reranker_key ?? null;
-      }
-      this.writeRerankerConfig(config);
-      nextActive = config.active_reranker_key;
-    }
-    // 活跃态回退:删的是当前激活时,shared 模式用 YAML(已切剩余首条),DB 模式取 DB 首条。
-    if (this.activeRerankerKey === key) {
-      if (nextActive === null && !inYaml) {
-        const row = this.db.prepare("SELECT reranker_key FROM rerankers ORDER BY created_at ASC LIMIT 1").get() as
-          | { reranker_key: string }
-          | undefined;
-        nextActive = row?.reranker_key ?? null;
-      }
-      this.activeRerankerKey = nextActive;
-      this.writeSetting("active_reranker_key", this.activeRerankerKey);
-    }
+    this.knowledgeConfig.deleteReranker(key);
     return { deleted_reranker_key: key };
   }
 
   async vectorHealth(): Promise<Record<string, unknown>> {
+    const vectorizers = this.knowledgeConfig.listVectorizers();
+    const rerankers = this.knowledgeConfig.listRerankers();
     return {
       status: "healthy",
       runtime: "local",
       collections_count: this.listCollections().length,
-      vectorizers_count: (await this.listVectorizers()).length,
-      rerankers_count: this.listRerankers().length,
-      active_vectorizer_key: this.activeVectorizerKey,
-      active_reranker_key: this.activeRerankerKey,
+      vectorizers_count: vectorizers.length,
+      rerankers_count: rerankers.length,
+      active_vectorizer_key: vectorizers.find((v) => v.is_active)?.vectorizer_key ?? null,
+      active_reranker_key: rerankers.find((r) => r.is_active)?.reranker_key ?? null,
     };
   }
 
@@ -944,41 +772,36 @@ export class VectorLibraryService {
   }
 
   private resolveActiveVectorizer(): StoredVectorizer {
-    if (this.activeVectorizerKey) {
-      const active = this.getStoredVectorizer(this.activeVectorizerKey);
-      if (active) {
-        return active;
-      }
+    const all = this.knowledgeConfig.listVectorizers();
+    const active = all.find((v) => v.is_active);
+    if (active) {
+      return active;
     }
-    const existing = this.db.prepare("SELECT * FROM vectorizers ORDER BY model_id ASC LIMIT 1").get() as StoredVectorizer | undefined;
-    if (existing) {
-      this.activeVectorizerKey = existing.vectorizer_key;
-      this.writeSetting("active_vectorizer_key", existing.vectorizer_key);
-      return existing;
+    if (all.length > 0) {
+      // 无 active 标记时回退到首个(不应该发生,partial UNIQUE 保证有则唯一)。
+      return all[0] as StoredVectorizer;
     }
+    // 空表自动建 local_hash_embedding(向后兼容:无 provider 配置也能跑 hash)。
     const localKey = "local_hash_embedding";
-    this.db
-      .prepare(
-        `
-          INSERT INTO vectorizers
-          (vectorizer_key, provider_key, provider_type, model_name, distance_metric, created_at, vector_dimension, vector_count)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-      )
-      .run(localKey, "local", "local", "hash-embedding", "cosine", new Date().toISOString(), null, 0);
-    this.activeVectorizerKey = localKey;
-    this.writeSetting("active_vectorizer_key", localKey);
-    return this.getStoredVectorizer(localKey)!;
+    return this.knowledgeConfig.createVectorizer({
+      vectorizer_key: localKey,
+      provider_key: "local",
+      provider_type: "local",
+      model_name: "hash-embedding",
+      distance_metric: "cosine",
+    });
   }
 
   private collectionInfo(collectionName: string): Record<string, unknown> {
+    const active = this.resolveActiveVectorizer();
+    const all = this.knowledgeConfig.listVectorizers();
     return {
       name: collectionName,
       total_chunks: this.countChunks(collectionName),
       document_count: this.countDocuments(collectionName),
       sample_ids: this.sampleDocumentIds(collectionName),
-      vector_dimension: this.vectorStore?.getDimension(this.resolveActiveVectorizer().model_id) ?? 0,
-      active_vectorizer_key: this.activeVectorizerKey,
+      vector_dimension: this.vectorStore?.getDimension(active.model_id) ?? 0,
+      active_vectorizer_key: all.find((v) => v.is_active)?.vectorizer_key ?? active.vectorizer_key,
     };
   }
 
@@ -992,201 +815,6 @@ export class VectorLibraryService {
     }));
   }
 
-  private async listSharedVectorizers(): Promise<VectorizerConfig[] | null> {
-    const config = this.readVectorizerConfig();
-    if (!config) {
-      return null;
-    }
-    const result: VectorizerConfig[] = [];
-    for (const vectorizer of config.vectorizers) {
-      const model = this.getEmbeddingModelByVectorizerKey(vectorizer.vectorizer_key);
-      const stats = model ? await this.getModelStats(model.id) : { vector_count: 0 };
-      result.push({
-        vectorizer_key: vectorizer.vectorizer_key,
-        provider_key: vectorizer.provider_key,
-        provider_type: vectorizer.provider_type,
-        model_name: vectorizer.model_name,
-        distance_metric: vectorizer.distance_metric,
-        created_at: vectorizer.created_at,
-        is_active: vectorizer.vectorizer_key === config.active_vectorizer_key,
-        provider_available: vectorizer.provider_key ? this.modelAdapter.hasProvider(vectorizer.provider_key) : false,
-        vector_dimension: model?.vector_dimension ?? null,
-        vector_count: stats.vector_count,
-        model_id: model?.id ?? null,
-      });
-    }
-    return result;
-  }
-
-  private listSharedRerankers(): RerankerConfig[] | null {
-    const config = this.readRerankerConfig();
-    if (!config) {
-      return null;
-    }
-    return config.rerankers.map((reranker) => ({
-      reranker_key: reranker.reranker_key,
-      mode: reranker.mode,
-      provider_key: reranker.provider_key,
-      provider_type: reranker.provider_type,
-      model_name: reranker.model_name,
-      api_endpoint: reranker.api_endpoint,
-      created_at: reranker.created_at,
-      is_active: reranker.reranker_key === config.active_reranker_key,
-    }));
-  }
-
-  private readVectorizerConfig(): SharedVectorizerYaml | null {
-    const raw = this.readYamlRecord(this.vectorizersConfigPath);
-    if (!raw || !isRecord(raw.vectorizers)) {
-      return null;
-    }
-    const active = typeof raw.active_vectorizer_key === "string" && raw.active_vectorizer_key.trim()
-      ? raw.active_vectorizer_key
-      : null;
-    const vectorizers = Object.entries(raw.vectorizers).flatMap(([key, value]) => {
-      if (!isRecord(value)) {
-        return [];
-      }
-      return [{
-        vectorizer_key: key,
-        provider_key: asPlainString(value.provider_key),
-        provider_type: asNullablePlainString(value.provider_type),
-        model_name: asPlainString(value.model_name),
-        distance_metric: asPlainString(value.distance_metric) || "cosine",
-        created_at: asPlainString(value.created_at),
-      }];
-    });
-    return { active_vectorizer_key: active, vectorizers };
-  }
-
-  private readRerankerConfig(): SharedRerankerYaml | null {
-    const raw = this.readYamlRecord(this.rerankersConfigPath);
-    if (!raw || !isRecord(raw.rerankers)) {
-      return null;
-    }
-    const active = typeof raw.active_reranker_key === "string" && raw.active_reranker_key.trim()
-      ? raw.active_reranker_key
-      : null;
-    const rerankers = Object.entries(raw.rerankers).flatMap(([key, value]) => {
-      if (!isRecord(value)) {
-        return [];
-      }
-      return [{
-        reranker_key: key,
-        mode: normalizeRerankerModeValue(value.mode),
-        provider_key: asPlainString(value.provider_key),
-        provider_type: asNullablePlainString(value.provider_type),
-        model_name: asPlainString(value.model_name),
-        api_endpoint: asPlainString(value.api_endpoint),
-        created_at: asPlainString(value.created_at),
-      }];
-    });
-    return { active_reranker_key: active, rerankers };
-  }
-
-  /**
-   * YAML 配置权威(shared 模式)写回:把内存结构还原成 Python 的 map 形态落盘。
-   * 与 Python VectorizerConfigStore 的写盘格式对齐(verified: yaml 包默认不会把 ISO 字符串转 Date)。
-   */
-  private writeVectorizerConfig(config: SharedVectorizerYaml): void {
-    const vectorizersMap: Record<string, Record<string, unknown>> = {};
-    for (const v of config.vectorizers) {
-      vectorizersMap[v.vectorizer_key] = {
-        provider_key: v.provider_key,
-        provider_type: v.provider_type,
-        model_name: v.model_name,
-        distance_metric: v.distance_metric,
-        created_at: v.created_at,
-      };
-    }
-    saveYamlSync(this.vectorizersConfigPath, {
-      active_vectorizer_key: config.active_vectorizer_key,
-      vectorizers: vectorizersMap,
-    });
-  }
-
-  /** YAML 配置权威(shared 模式)写回 rerankers.yaml,与 readRerankerConfig 对称(api_key 不入 YAML,留 DB)。 */
-  private writeRerankerConfig(config: SharedRerankerYaml): void {
-    const rerankersMap: Record<string, Record<string, unknown>> = {};
-    for (const r of config.rerankers) {
-      rerankersMap[r.reranker_key] = {
-        mode: r.mode,
-        provider_key: r.provider_key,
-        provider_type: r.provider_type,
-        model_name: r.model_name,
-        api_endpoint: r.api_endpoint,
-        created_at: r.created_at,
-      };
-    }
-    saveYamlSync(this.rerankersConfigPath, {
-      active_reranker_key: config.active_reranker_key,
-      rerankers: rerankersMap,
-    });
-  }
-
-  private readYamlRecord(filePath: string): Record<string, unknown> | null {
-    if (!fs.existsSync(filePath)) {
-      return null;
-    }
-    try {
-      const parsed = YAML.parse(fs.readFileSync(filePath, "utf8")) as unknown;
-      return isRecord(parsed) ? parsed : null;
-    } catch {
-      return null;
-    }
-  }
-
-  private async listSharedDocumentFileStatuses(vectorizers: FileStatusVectorizer[]): Promise<VectorFileStatus[] | null> {
-    if (!this.tableExists("documents")) {
-      return null;
-    }
-    const rows = this.db
-      .prepare(
-        `
-          SELECT
-            collection,
-            json_extract(metadata, '$.document_id') AS file_id,
-            MAX(COALESCE(
-              NULLIF(TRIM(REPLACE(json_extract(metadata, '$.original_filename'), '"', '')), ''),
-              NULLIF(TRIM(REPLACE(json_extract(metadata, '$.source'), '"', '')), ''),
-              json_extract(metadata, '$.document_id')
-            )) AS file_name,
-            COUNT(*) AS chunk_count
-          FROM documents
-          WHERE json_extract(metadata, '$.document_id') IS NOT NULL
-            AND json_extract(metadata, '$.document_id') != ''
-          GROUP BY collection, file_id
-          ORDER BY collection, file_name
-        `,
-      )
-      .all() as Array<{
-        collection: string;
-        file_id: string | null;
-        file_name: string | null;
-        chunk_count: number;
-      }>;
-
-    const result: VectorFileStatus[] = [];
-    for (const row of rows) {
-      const collection = String(row.collection ?? "");
-      const fileId = cleanJsonExtractedString(row.file_id);
-      const chunkCount = Number(row.chunk_count ?? 0);
-      const status: Record<string, "已索引" | "未索引"> = {};
-      for (const vectorizer of vectorizers) {
-        const vectorCount = await this.countVectorsForMetadataDocument(collection, fileId, vectorizer.model_id);
-        status[vectorizer.vectorizer_key] = vectorCount === chunkCount && chunkCount > 0 ? "已索引" : "未索引";
-      }
-      result.push({
-        file_name: cleanJsonExtractedString(row.file_name) || fileId,
-        file_id: fileId,
-        collection,
-        chunk_count: chunkCount,
-        vectorizer_status: status,
-      });
-    }
-    return result;
-  }
-
   private async toVectorizerConfig(vectorizer: StoredVectorizer): Promise<VectorizerConfig> {
     const stats = await this.getModelStats(vectorizer.model_id);
     return {
@@ -1196,7 +824,7 @@ export class VectorLibraryService {
       model_name: vectorizer.model_name,
       distance_metric: vectorizer.distance_metric,
       created_at: vectorizer.created_at,
-      is_active: vectorizer.vectorizer_key === this.activeVectorizerKey,
+      is_active: vectorizer.is_active,
       provider_available: vectorizer.provider_key === "local" || this.modelAdapter.hasProvider(vectorizer.provider_key),
       vector_dimension: this.vectorStore?.getDimension(vectorizer.model_id) ?? vectorizer.vector_dimension,
       vector_count: stats.vector_count,
@@ -1213,7 +841,7 @@ export class VectorLibraryService {
       model_name: reranker.model_name,
       api_endpoint: reranker.api_endpoint,
       created_at: reranker.created_at,
-      is_active: reranker.reranker_key === this.activeRerankerKey,
+      is_active: reranker.is_active,
     };
     if (reranker.api_key !== null) {
       config.api_key = reranker.api_key;
@@ -1222,28 +850,15 @@ export class VectorLibraryService {
   }
 
   private getStoredVectorizer(key: string): StoredVectorizer | null {
-    const row = this.db.prepare("SELECT * FROM vectorizers WHERE vectorizer_key = ?").get(key) as StoredVectorizer | undefined;
-    return row ?? null;
+    return this.knowledgeConfig.getVectorizerByKey(key);
   }
 
   private getVectorizerByModelId(modelId: number): StoredVectorizer | null {
-    const row = this.db.prepare("SELECT * FROM vectorizers WHERE model_id = ?").get(modelId) as StoredVectorizer | undefined;
-    return row ?? null;
+    return this.knowledgeConfig.getVectorizerByModelId(modelId);
   }
 
   private getStoredReranker(key: string): StoredReranker | null {
-    const row = this.db.prepare("SELECT * FROM rerankers WHERE reranker_key = ?").get(key) as StoredReranker | undefined;
-    return row ?? null;
-  }
-
-  private getEmbeddingModelByVectorizerKey(vectorizerKey: string): StoredEmbeddingModel | null {
-    if (!this.tableExists("embedding_models")) {
-      return null;
-    }
-    const row = this.db
-      .prepare("SELECT * FROM embedding_models WHERE vectorizer_key = ? LIMIT 1")
-      .get(vectorizerKey) as StoredEmbeddingModel | undefined;
-    return row ?? null;
+    return this.knowledgeConfig.getReranker(key);
   }
 
   private getEmbeddingModelById(modelId: number): StoredEmbeddingModel | null {
@@ -1289,13 +904,6 @@ export class VectorLibraryService {
     return this.vectorStore.countVectorsForDocument(collection, documentId, modelId);
   }
 
-  private async countVectorsForMetadataDocument(collection: string, fileId: string, modelId: number | null): Promise<number> {
-    if (modelId === null || !fileId || !this.vectorStore) {
-      return 0;
-    }
-    return this.vectorStore.countVectorsForDocument(collection, fileId, modelId);
-  }
-
   private defaultCollectionForFile(fileId: string): string {
     const row = this.db
       .prepare("SELECT collection FROM documents WHERE document_id = ? ORDER BY id ASC LIMIT 1")
@@ -1303,46 +911,12 @@ export class VectorLibraryService {
     return row?.collection ?? "documents";
   }
 
-  private readSetting(key: string): string | null {
-    const row = this.db.prepare("SELECT value FROM vector_settings WHERE key = ?").get(key) as { value: string | null } | undefined;
-    return row?.value ?? null;
-  }
-
-  private writeSetting(key: string, value: string | null): void {
-    this.db
-      .prepare("INSERT OR REPLACE INTO vector_settings (key, value) VALUES (?, ?)")
-      .run(key, value);
-  }
-
   private initDatabase(): void {
+    // 配置面已下沉 driver(knowledge.db);主库残留的 vectorizers/rerankers/vector_settings 表 DROP 掉。
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS vector_settings (
-        key TEXT PRIMARY KEY,
-        value TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS vectorizers (
-        model_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        vectorizer_key TEXT NOT NULL UNIQUE,
-        provider_key TEXT NOT NULL,
-        provider_type TEXT,
-        model_name TEXT NOT NULL,
-        distance_metric TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        vector_dimension INTEGER,
-        vector_count INTEGER NOT NULL DEFAULT 0
-      );
-
-      CREATE TABLE IF NOT EXISTS rerankers (
-        reranker_key TEXT PRIMARY KEY,
-        mode TEXT NOT NULL,
-        provider_key TEXT NOT NULL,
-        provider_type TEXT,
-        model_name TEXT NOT NULL,
-        api_endpoint TEXT NOT NULL,
-        api_key TEXT,
-        created_at TEXT NOT NULL
-      );
+      DROP TABLE IF EXISTS vector_settings;
+      DROP TABLE IF EXISTS vectorizers;
+      DROP TABLE IF EXISTS rerankers;
     `);
 
     this.ensureDocumentTables();
@@ -1469,29 +1043,6 @@ export class VectorLibraryService {
   }
 }
 
-interface StoredVectorizer {
-  model_id: number;
-  vectorizer_key: string;
-  provider_key: string;
-  provider_type: string | null;
-  model_name: string;
-  distance_metric: string;
-  created_at: string;
-  vector_dimension: number | null;
-  vector_count: number;
-}
-
-interface StoredReranker {
-  reranker_key: string;
-  mode: "model" | "lexical" | "none";
-  provider_key: string;
-  provider_type: string | null;
-  model_name: string;
-  api_endpoint: string;
-  created_at: string;
-  api_key: string | null;
-}
-
 interface StoredEmbeddingModel {
   id: number;
   model_key: string;
@@ -1504,31 +1055,6 @@ interface StoredEmbeddingModel {
   created_at: string;
   last_used_at: string;
   vectorizer_key: string | null;
-}
-
-interface SharedVectorizerYaml {
-  active_vectorizer_key: string | null;
-  vectorizers: Array<{
-    vectorizer_key: string;
-    provider_key: string;
-    provider_type: string | null;
-    model_name: string;
-    distance_metric: string;
-    created_at: string;
-  }>;
-}
-
-interface SharedRerankerYaml {
-  active_reranker_key: string | null;
-  rerankers: Array<{
-    reranker_key: string;
-    mode: "model" | "lexical" | "none";
-    provider_key: string;
-    provider_type: string | null;
-    model_name: string;
-    api_endpoint: string;
-    created_at: string;
-  }>;
 }
 
 interface StoredDocument {
@@ -1575,14 +1101,6 @@ function normalizeRerankerMode(value: string | undefined): "model" | "lexical" |
     return "none";
   }
   return "model";
-}
-
-function normalizeRerankerModeValue(value: unknown): "model" | "lexical" | "none" {
-  return normalizeRerankerMode(typeof value === "string" ? value : undefined);
-}
-
-function cleanJsonExtractedString(value: unknown): string {
-  return String(value ?? "").trim().replace(/^"+|"+$/g, "");
 }
 
 function readUtf8File(filePath: string): string {
@@ -1658,18 +1176,6 @@ function asString(value: unknown): string | null {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function asPlainString(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-function asNullablePlainString(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
 }
 
 function quoteIdentifier(value: string): string {

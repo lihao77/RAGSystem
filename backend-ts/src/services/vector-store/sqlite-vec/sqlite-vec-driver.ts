@@ -5,8 +5,13 @@ import { load as loadVec } from "sqlite-vec";
 
 import type {
   CollectionInfo,
+  CreateRerankerInput,
+  CreateVectorizerInput,
   DocumentInfo,
+  IKnowledgeConfig,
   IVectorStore,
+  StoredReranker,
+  StoredVectorizer,
   VectorRecord,
   VectorSearchHit,
   VectorStoreDriverConfig,
@@ -15,7 +20,7 @@ import type {
 } from "../../../contracts/vector-store/index.js";
 import { VectorStoreError } from "../../../contracts/vector-store/index.js";
 import { registerDriver } from "../registry.js";
-import { documentsTableDdl, vecTableDdl, vecTableName } from "./schema.js";
+import { documentsTableDdl, rerankersTableDdl, vecTableDdl, vecTableName, vectorizersTableDdl } from "./schema.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -52,7 +57,7 @@ interface KnnRow {
  * 决定(config.vector_dimension=0 自动,对齐 Python client.py:96-142)。search 召回 vector_score(1 - distance);
  * keyword/hybrid/rerank 由编排层(scoring.ts)补。
  */
-export class SqliteVecDriver implements IVectorStore {
+export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig {
   private readonly db: import("node:sqlite").DatabaseSync;
   private readonly dimensionByModel = new Map<number, number>();
 
@@ -68,7 +73,10 @@ export class SqliteVecDriver implements IVectorStore {
     this.db.exec("PRAGMA synchronous = NORMAL");
     loadVec(this.db);
     this.db.exec(documentsTableDdl());
+    this.db.exec(vectorizersTableDdl());
+    this.db.exec(rerankersTableDdl());
     this.loadDimensionsFromSchema();
+    warnLegacyVectorsDb(config.dataRoot);
   }
 
   async upsertRecords(records: VectorRecord[]): Promise<void> {
@@ -277,6 +285,214 @@ export class SqliteVecDriver implements IVectorStore {
     this.db.close();
   }
 
+  // ====== IKnowledgeConfig 实现(vectorizer/reranker 配置面)======
+
+  listVectorizers(): StoredVectorizer[] {
+    const rows = this.db
+      .prepare(
+        `SELECT model_id, vectorizer_key, provider_key, provider_type, model_name, distance_metric, created_at, vector_dimension, is_active
+         FROM vectorizers ORDER BY model_id ASC`,
+      )
+      .all() as unknown as VectorizerRow[];
+    return rows.map(rowToVectorizer);
+  }
+
+  getVectorizerByKey(key: string): StoredVectorizer | null {
+    const row = this.db
+      .prepare(
+        `SELECT model_id, vectorizer_key, provider_key, provider_type, model_name, distance_metric, created_at, vector_dimension, is_active
+         FROM vectorizers WHERE vectorizer_key = ?`,
+      )
+      .get(key) as unknown as VectorizerRow | undefined;
+    return row ? rowToVectorizer(row) : null;
+  }
+
+  getVectorizerByModelId(modelId: number): StoredVectorizer | null {
+    const row = this.db
+      .prepare(
+        `SELECT model_id, vectorizer_key, provider_key, provider_type, model_name, distance_metric, created_at, vector_dimension, is_active
+         FROM vectorizers WHERE model_id = ?`,
+      )
+      .get(modelId) as unknown as VectorizerRow | undefined;
+    return row ? rowToVectorizer(row) : null;
+  }
+
+  createVectorizer(input: CreateVectorizerInput): StoredVectorizer {
+    const createdAt = new Date().toISOString();
+    // 空表 → 自动激活;否则按现有激活态(partial UNIQUE 保证单例)。
+    const isActive = this.countVectorizers() === 0 ? 1 : 0;
+    const result = this.db
+      .prepare(
+        `INSERT INTO vectorizers (vectorizer_key, provider_key, provider_type, model_name, distance_metric, created_at, vector_dimension, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
+      )
+      .run(
+        input.vectorizer_key,
+        input.provider_key,
+        input.provider_type,
+        input.model_name,
+        input.distance_metric,
+        createdAt,
+        isActive,
+      );
+    return {
+      model_id: Number(result.lastInsertRowid),
+      vectorizer_key: input.vectorizer_key,
+      provider_key: input.provider_key,
+      provider_type: input.provider_type,
+      model_name: input.model_name,
+      distance_metric: input.distance_metric,
+      created_at: createdAt,
+      vector_dimension: null,
+      is_active: isActive === 1,
+    };
+  }
+
+  deleteVectorizer(key: string): { next_active_key: string | null } {
+    const existing = this.getVectorizerByKey(key);
+    if (!existing) {
+      throw new VectorStoreError(`vectorizer 不存在: ${key}`, 404);
+    }
+    const modelId = existing.model_id;
+    this.db.exec("BEGIN");
+    try {
+      // 1. 清向量(同 model_id 的 vec_chunks_${model_id} + dimension 缓存)
+      this.db.exec(`DROP TABLE IF EXISTS ${vecTableName(modelId)}`);
+      this.dimensionByModel.delete(modelId);
+      // 2. 删 vectorizers 行
+      this.db.prepare(`DELETE FROM vectorizers WHERE model_id = ?`).run(modelId);
+      // 3. 清旧 active 标记 + 回退到 model_id 最小的剩余项
+      this.db.exec(`UPDATE vectorizers SET is_active = 0`);
+      const next = this.db
+        .prepare(`SELECT vectorizer_key FROM vectorizers ORDER BY model_id ASC LIMIT 1`)
+        .get() as unknown as { vectorizer_key: string } | undefined;
+      let nextKey: string | null = null;
+      if (next) {
+        this.db.prepare(`UPDATE vectorizers SET is_active = 1 WHERE vectorizer_key = ?`).run(next.vectorizer_key);
+        nextKey = next.vectorizer_key;
+      }
+      this.db.exec("COMMIT");
+      return { next_active_key: nextKey };
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
+  activateVectorizer(key: string): void {
+    const existing = this.getVectorizerByKey(key);
+    if (!existing) {
+      throw new VectorStoreError(`vectorizer 不存在: ${key}`, 404);
+    }
+    // partial UNIQUE index 保证全局单例;事务原子切换。
+    this.db.exec("BEGIN");
+    try {
+      this.db.exec(`UPDATE vectorizers SET is_active = 0`);
+      this.db.prepare(`UPDATE vectorizers SET is_active = 1 WHERE vectorizer_key = ?`).run(key);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
+  listRerankers(): StoredReranker[] {
+    const rows = this.db
+      .prepare(
+        `SELECT reranker_key, mode, provider_key, provider_type, model_name, api_endpoint, api_key, created_at, is_active
+         FROM rerankers ORDER BY created_at ASC`,
+      )
+      .all() as unknown as RerankerRow[];
+    return rows.map(rowToReranker);
+  }
+
+  getReranker(key: string): StoredReranker | null {
+    const row = this.db
+      .prepare(
+        `SELECT reranker_key, mode, provider_key, provider_type, model_name, api_endpoint, api_key, created_at, is_active
+         FROM rerankers WHERE reranker_key = ?`,
+      )
+      .get(key) as unknown as RerankerRow | undefined;
+    return row ? rowToReranker(row) : null;
+  }
+
+  createReranker(input: CreateRerankerInput): StoredReranker {
+    const createdAt = new Date().toISOString();
+    const isActive = this.countRerankers() === 0 ? 1 : 0;
+    this.db
+      .prepare(
+        `INSERT INTO rerankers (reranker_key, mode, provider_key, provider_type, model_name, api_endpoint, api_key, created_at, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.reranker_key,
+        input.mode,
+        input.provider_key,
+        input.provider_type,
+        input.model_name,
+        input.api_endpoint,
+        input.api_key,
+        createdAt,
+        isActive,
+      );
+    return { ...input, created_at: createdAt, is_active: isActive === 1 };
+  }
+
+  deleteReranker(key: string): { next_active_key: string | null } {
+    const existing = this.getReranker(key);
+    if (!existing) {
+      throw new VectorStoreError(`reranker 不存在: ${key}`, 404);
+    }
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare(`DELETE FROM rerankers WHERE reranker_key = ?`).run(key);
+      this.db.exec(`UPDATE rerankers SET is_active = 0`);
+      const next = this.db
+        .prepare(`SELECT reranker_key FROM rerankers ORDER BY created_at ASC LIMIT 1`)
+        .get() as unknown as { reranker_key: string } | undefined;
+      let nextKey: string | null = null;
+      if (next) {
+        this.db.prepare(`UPDATE rerankers SET is_active = 1 WHERE reranker_key = ?`).run(next.reranker_key);
+        nextKey = next.reranker_key;
+      }
+      this.db.exec("COMMIT");
+      return { next_active_key: nextKey };
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
+  activateReranker(key: string): void {
+    const existing = this.getReranker(key);
+    if (!existing) {
+      throw new VectorStoreError(`reranker 不存在: ${key}`, 404);
+    }
+    this.db.exec("BEGIN");
+    try {
+      this.db.exec(`UPDATE rerankers SET is_active = 0`);
+      this.db.prepare(`UPDATE rerankers SET is_active = 1 WHERE reranker_key = ?`).run(key);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
+  private countVectorizers(): number {
+    const row = this.db.prepare(`SELECT COUNT(*) AS n FROM vectorizers`).get() as unknown as
+      | { n: number }
+      | undefined;
+    return row?.n ?? 0;
+  }
+
+  private countRerankers(): number {
+    const row = this.db.prepare(`SELECT COUNT(*) AS n FROM rerankers`).get() as unknown as
+      | { n: number }
+      | undefined;
+    return row?.n ?? 0;
+  }
+
   private ensureVecTable(modelId: number, dimension: number): void {
     const existing = this.dimensionByModel.get(modelId);
     if (existing === dimension) {
@@ -356,7 +572,23 @@ function resolveDbPath(databasePath: string, dataRoot: string): string {
   if (trimmed === ":memory:") {
     return ":memory:";
   }
-  return trimmed ? path.resolve(trimmed) : path.join(dataRoot, "db", "vectors.db");
+  return trimmed ? path.resolve(trimmed) : path.join(dataRoot, "db", "knowledge.db");
+}
+
+/**
+ * 旧 vectors.db 检测:Batch A2 改名 knowledge.db 后,遗留文件不会被引用。
+ * 启动 warn 提示用户重新配置(用户决策:不做自动迁移)。不删除,避免误操作。
+ */
+function warnLegacyVectorsDb(dataRoot: string | undefined): void {
+  if (!dataRoot?.trim()) {
+    return;
+  }
+  const legacy = path.join(dataRoot, "db", "vectors.db");
+  if (fs.existsSync(legacy)) {
+    console.warn(
+      `[vector-store] 检测到旧 vectors.db(${legacy})。知识库已迁移到 knowledge.db,旧文件不再引用。请重新配置 vectorizer/reranker 并重新索引。`,
+    );
+  }
 }
 
 function parseRecord(value: string): Record<string, unknown> {
@@ -383,3 +615,55 @@ function parseArray(value: string): number[] | null {
 registerDriver("sqlite_vec", {
   create: (config) => new SqliteVecDriver(config),
 });
+
+interface VectorizerRow {
+  model_id: number;
+  vectorizer_key: string;
+  provider_key: string;
+  provider_type: string | null;
+  model_name: string;
+  distance_metric: string;
+  created_at: string;
+  vector_dimension: number | null;
+  is_active: number;
+}
+
+interface RerankerRow {
+  reranker_key: string;
+  mode: string;
+  provider_key: string;
+  provider_type: string | null;
+  model_name: string;
+  api_endpoint: string;
+  api_key: string | null;
+  created_at: string;
+  is_active: number;
+}
+
+function rowToVectorizer(row: VectorizerRow): StoredVectorizer {
+  return {
+    model_id: row.model_id,
+    vectorizer_key: row.vectorizer_key,
+    provider_key: row.provider_key,
+    provider_type: row.provider_type,
+    model_name: row.model_name,
+    distance_metric: row.distance_metric,
+    created_at: row.created_at,
+    vector_dimension: row.vector_dimension,
+    is_active: row.is_active === 1,
+  };
+}
+
+function rowToReranker(row: RerankerRow): StoredReranker {
+  return {
+    reranker_key: row.reranker_key,
+    mode: row.mode as "model" | "lexical" | "none",
+    provider_key: row.provider_key,
+    provider_type: row.provider_type,
+    model_name: row.model_name,
+    api_endpoint: row.api_endpoint,
+    api_key: row.api_key,
+    created_at: row.created_at,
+    is_active: row.is_active === 1,
+  };
+}

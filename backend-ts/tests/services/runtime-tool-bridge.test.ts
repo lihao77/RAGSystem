@@ -27,11 +27,15 @@ import { TaskToolService } from "../../src/tools/TaskTools/TaskExecution.js";
 import { ModelAdapterService } from "../../src/services/integrations/model-adapter-service.js";
 import { FileIndexService } from "../../src/services/stores/file-index-service.js";
 import { VectorLibraryService } from "../../src/services/knowledge/vector-library-service.js";
-import type { IVectorStore, VectorSearchHit } from "../../src/contracts/vector-store/index.js";
+import type { IKnowledgeConfig, IVectorStore, VectorSearchHit } from "../../src/contracts/vector-store/index.js";
 import type { McpService } from "../../src/services/integrations/mcp-service.js";
 
-/** 最小 IVectorStore mock:search 返预设命中,验证 bridge→search 编排(不依赖真 driver 召回)。 */
-function makeFakeVectorStore(hit: VectorSearchHit): IVectorStore {
+/**
+ * 最小 IVectorStore & IKnowledgeConfig mock:search 返预设命中,配置面维护内存态。
+ * 验证 bridge→search 编排(不依赖真 driver 召回)——配置面由 driver 单元测试覆盖。
+ */
+function makeFakeVectorStore(hit: VectorSearchHit): IVectorStore & IKnowledgeConfig {
+  const vectorizers: Array<ReturnType<IKnowledgeConfig["createVectorizer"]>> = [];
   return {
     upsertRecords: async () => {},
     search: async () => [hit],
@@ -47,6 +51,49 @@ function makeFakeVectorStore(hit: VectorSearchHit): IVectorStore {
     getDimension: () => 64,
     health: async () => ({ status: "healthy", runtime: "mock", ann: true, collections_count: 0 }),
     close: () => {},
+    listVectorizers: () => vectorizers,
+    getVectorizerByKey: (key) => vectorizers.find((v) => v.vectorizer_key === key) ?? null,
+    getVectorizerByModelId: (modelId) => vectorizers.find((v) => v.model_id === modelId) ?? null,
+    createVectorizer: (input) => {
+      const stored = {
+        model_id: vectorizers.length + 1,
+        vectorizer_key: input.vectorizer_key,
+        provider_key: input.provider_key,
+        provider_type: input.provider_type,
+        model_name: input.model_name,
+        distance_metric: input.distance_metric,
+        created_at: new Date().toISOString(),
+        vector_dimension: null,
+        is_active: vectorizers.length === 0,
+      };
+      vectorizers.push(stored);
+      return stored;
+    },
+    deleteVectorizer: (key) => {
+      const idx = vectorizers.findIndex((v) => v.vectorizer_key === key);
+      if (idx >= 0) vectorizers.splice(idx, 1);
+      const next = vectorizers[0];
+      if (next) next.is_active = true;
+      return { next_active_key: next?.vectorizer_key ?? null };
+    },
+    activateVectorizer: (key) => {
+      for (const v of vectorizers) v.is_active = v.vectorizer_key === key;
+    },
+    listRerankers: () => [],
+    getReranker: () => null,
+    createReranker: (input) => ({
+      reranker_key: input.reranker_key,
+      mode: input.mode,
+      provider_key: input.provider_key,
+      provider_type: input.provider_type,
+      model_name: input.model_name,
+      api_endpoint: input.api_endpoint,
+      api_key: input.api_key,
+      created_at: new Date().toISOString(),
+      is_active: true,
+    }),
+    deleteReranker: () => ({ next_active_key: null }),
+    activateReranker: () => {},
   };
 }
 
@@ -272,23 +319,25 @@ describe("RuntimeToolBridge", () => {
   it("exposes and executes knowledge tools when knowledge base is enabled", async () => {
     const dataRoot = makeTempDataRoot();
     const fileIndex = new FileIndexService({ dbPath: ":memory:", dataRoot });
+    const fakeStore = makeFakeVectorStore({
+      id: "1",
+      doc_id: "rag-doc",
+      document_id: "rag-doc",
+      collection: "kb",
+      content: "TypeScript backend now supports RAG knowledge base retrieval.",
+      metadata: { source_file: "migration.md" },
+      vector_score: 0.8,
+      keyword_score: 0,
+      hybrid_score: 0,
+    });
     const vectorLibrary = new VectorLibraryService(
       fileIndex,
       new ModelAdapterService({ providersConfigPath: "" }),
       {
         dbPath: ":memory:",
         dataRoot,
-        vectorStore: makeFakeVectorStore({
-          id: "1",
-          doc_id: "rag-doc",
-          document_id: "rag-doc",
-          collection: "kb",
-          content: "TypeScript backend now supports RAG knowledge base retrieval.",
-          metadata: { source_file: "migration.md" },
-          vector_score: 0.8,
-          keyword_score: 0,
-          hybrid_score: 0,
-        }),
+        vectorStore: fakeStore,
+        knowledgeConfig: fakeStore,
       },
     );
     const bridge = new RuntimeToolBridge(

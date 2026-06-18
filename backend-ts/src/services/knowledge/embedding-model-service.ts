@@ -17,8 +17,6 @@ export class EmbeddingModelServiceError extends Error {
 }
 
 export class EmbeddingModelService {
-  private activeModelId: number | null = null;
-
   constructor(private readonly vectorLibrary: VectorLibraryService) {}
 
   async listModels(): Promise<EmbeddingModelInfo[]> {
@@ -28,7 +26,7 @@ export class EmbeddingModelService {
         continue;
       }
       const modelId = vectorizer.model_id;
-      const isActive = this.activeModelId !== null ? this.activeModelId === modelId : false;
+      const isActive = vectorizer.is_active;
       models.push({
         id: modelId,
         model_key: this.modelKey(vectorizer.provider_key, vectorizer.model_name, vectorizer.vector_dimension ?? 0),
@@ -51,9 +49,6 @@ export class EmbeddingModelService {
       });
     }
 
-    if (this.activeModelId !== null && !models.some((model) => model.id === this.activeModelId)) {
-      this.activeModelId = null;
-    }
     return models;
   }
 
@@ -61,12 +56,10 @@ export class EmbeddingModelService {
     const model = await this.getModel(modelId);
     if (!model) {
       if (options.missingOk) {
-        this.activeModelId = modelId;
         return { message: `模型 ${modelId} 已激活` };
       }
       throw new EmbeddingModelServiceError(`模型不存在: ${modelId}`, 404);
     }
-    this.activeModelId = modelId;
     this.vectorLibrary.activateVectorizer(model.vectorizer_key);
     return { message: `模型 ${modelId} 已激活` };
   }
@@ -80,9 +73,6 @@ export class EmbeddingModelService {
       throw new EmbeddingModelServiceError("删除失败，请检查日志", 400);
     }
     await this.vectorLibrary.deleteVectorizer(model.vectorizer_key);
-    if (this.activeModelId === modelId) {
-      this.activeModelId = null;
-    }
     return { message: `模型 ${modelId} 已删除` };
   }
 

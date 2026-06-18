@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import os from "node:os";
 import path from "node:path";
 
-import type { IVectorStore, VectorSearchHit } from "../../src/contracts/vector-store/index.js";
+import type { IKnowledgeConfig, IVectorStore, VectorSearchHit } from "../../src/contracts/vector-store/index.js";
 import { ModelAdapterService } from "../../src/services/integrations/model-adapter-service.js";
 import { VectorLibraryService } from "../../src/services/knowledge/vector-library-service.js";
 import { FileIndexService } from "../../src/services/stores/file-index-service.js";
@@ -11,8 +11,12 @@ function makeDataRoot(): string {
   return path.join(os.tmpdir(), `rag-vec-search-${Math.random().toString(36).slice(2)}`);
 }
 
-/** 最小 IVectorStore stub:search 返回预设命中,其余 no-op。聚焦 service 编排(补 keyword/hybrid + rerank)。 */
-function makeFakeDriver(hits: VectorSearchHit[], dimension: number | null = null): IVectorStore {
+/**
+ * 最小 IVectorStore & IKnowledgeConfig stub:search 返回预设命中,配置面维护内存态。
+ * 聚焦 service 编排(补 keyword/hybrid + rerank)——driver 配置面由 driver 单元测试覆盖。
+ */
+function makeFakeDriver(hits: VectorSearchHit[], dimension: number | null = null): IVectorStore & IKnowledgeConfig {
+  const vectorizers: Array<ReturnType<IKnowledgeConfig["createVectorizer"]>> = [];
   return {
     upsertRecords: async () => {},
     search: async () => hits,
@@ -28,7 +32,87 @@ function makeFakeDriver(hits: VectorSearchHit[], dimension: number | null = null
     getDimension: () => dimension,
     health: async () => ({ status: "healthy", runtime: "mock", ann: true, collections_count: 0 }),
     close: () => {},
-  } satisfies IVectorStore;
+    listVectorizers: () => vectorizers,
+    getVectorizerByKey: (key) => vectorizers.find((v) => v.vectorizer_key === key) ?? null,
+    getVectorizerByModelId: (modelId) => vectorizers.find((v) => v.model_id === modelId) ?? null,
+    createVectorizer: (input) => {
+      const stored = {
+        model_id: vectorizers.length + 1,
+        vectorizer_key: input.vectorizer_key,
+        provider_key: input.provider_key,
+        provider_type: input.provider_type,
+        model_name: input.model_name,
+        distance_metric: input.distance_metric,
+        created_at: new Date().toISOString(),
+        vector_dimension: null,
+        is_active: vectorizers.length === 0,
+      };
+      vectorizers.push(stored);
+      return stored;
+    },
+    deleteVectorizer: (key) => {
+      const idx = vectorizers.findIndex((v) => v.vectorizer_key === key);
+      if (idx >= 0) vectorizers.splice(idx, 1);
+      const next = vectorizers[0];
+      if (next) next.is_active = true;
+      return { next_active_key: next?.vectorizer_key ?? null };
+    },
+    activateVectorizer: (key) => {
+      for (const v of vectorizers) v.is_active = v.vectorizer_key === key;
+    },
+    listRerankers: () => [],
+    getReranker: () => null,
+    createReranker: (input) => ({
+      reranker_key: input.reranker_key,
+      mode: input.mode,
+      provider_key: input.provider_key,
+      provider_type: input.provider_type,
+      model_name: input.model_name,
+      api_endpoint: input.api_endpoint,
+      api_key: input.api_key,
+      created_at: new Date().toISOString(),
+      is_active: true,
+    }),
+    deleteReranker: () => ({ next_active_key: null }),
+    activateReranker: () => {},
+  } satisfies IVectorStore & IKnowledgeConfig;
+}
+
+/** 空 knowledgeConfig stub:用于无 driver 注入场景(service 应优雅降级)。 */
+function emptyKnowledgeConfig(): IKnowledgeConfig {
+  return {
+    listVectorizers: () => [],
+    getVectorizerByKey: () => null,
+    getVectorizerByModelId: () => null,
+    createVectorizer: (input) => ({
+      model_id: 1,
+      vectorizer_key: input.vectorizer_key,
+      provider_key: input.provider_key,
+      provider_type: input.provider_type,
+      model_name: input.model_name,
+      distance_metric: input.distance_metric,
+      created_at: new Date().toISOString(),
+      vector_dimension: null,
+      is_active: true,
+    }),
+    deleteVectorizer: () => ({ next_active_key: null }),
+    activateVectorizer: () => {},
+    listRerankers: () => [],
+    getReranker: () => null,
+    createReranker: (input) => ({
+      reranker_key: input.reranker_key,
+      mode: input.mode,
+      provider_key: input.provider_key,
+      provider_type: input.provider_type,
+      model_name: input.model_name,
+      api_endpoint: input.api_endpoint,
+      api_key: input.api_key,
+      created_at: new Date().toISOString(),
+      is_active: true,
+    }),
+    deleteReranker: () => ({ next_active_key: null }),
+    activateReranker: () => {},
+  };
 }
 
 describe("VectorLibraryService search 新路径(driver 召回 + scoring 重排)", () => {
@@ -50,8 +134,9 @@ describe("VectorLibraryService search 新路径(driver 召回 + scoring 重排)"
         vector_score: 0.3, keyword_score: 0, hybrid_score: 0,
       },
     ];
+    const fakeDriver = makeFakeDriver(hits);
     const service = new VectorLibraryService(fileIndex, modelAdapter, {
-      dbPath: ":memory:", dataRoot, vectorStore: makeFakeDriver(hits),
+      dbPath: ":memory:", dataRoot, vectorStore: fakeDriver, knowledgeConfig: fakeDriver,
     });
     try {
       const result = (await service.search({
@@ -87,8 +172,9 @@ describe("VectorLibraryService search 新路径(driver 召回 + scoring 重排)"
         vector_score: 0.4, keyword_score: 0, hybrid_score: 0,
       },
     ];
+    const fakeDriver = makeFakeDriver(hits);
     const service = new VectorLibraryService(fileIndex, modelAdapter, {
-      dbPath: ":memory:", dataRoot, vectorStore: makeFakeDriver(hits),
+      dbPath: ":memory:", dataRoot, vectorStore: fakeDriver, knowledgeConfig: fakeDriver,
     });
     try {
       const result = (await service.search({
@@ -107,7 +193,7 @@ describe("VectorLibraryService search 新路径(driver 召回 + scoring 重排)"
     const dataRoot = makeDataRoot();
     const fileIndex = new FileIndexService({ dbPath: ":memory:", dataRoot });
     const modelAdapter = new ModelAdapterService({ providersConfigPath: "" });
-    const service = new VectorLibraryService(fileIndex, modelAdapter, { dbPath: ":memory:", dataRoot });
+    const service = new VectorLibraryService(fileIndex, modelAdapter, { dbPath: ":memory:", dataRoot, knowledgeConfig: emptyKnowledgeConfig() });
     try {
       const result = (await service.search({ collection_name: "kb", query: "anything", top_k: 5 })) as { count: number };
       expect(result.count).toBe(0);
@@ -121,8 +207,9 @@ describe("VectorLibraryService search 新路径(driver 召回 + scoring 重排)"
     const dataRoot = makeDataRoot();
     const fileIndex = new FileIndexService({ dbPath: ":memory:", dataRoot });
     const modelAdapter = new ModelAdapterService({ providersConfigPath: "" });
+    const fakeDriver = makeFakeDriver([], 1536);
     const service = new VectorLibraryService(fileIndex, modelAdapter, {
-      dbPath: ":memory:", dataRoot, vectorStore: makeFakeDriver([], 1536),
+      dbPath: ":memory:", dataRoot, vectorStore: fakeDriver, knowledgeConfig: fakeDriver,
     });
     try {
       // search 触发 resolveActiveVectorizer 创建 local_hash_embedding(model_id=1)

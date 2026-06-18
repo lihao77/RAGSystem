@@ -101,9 +101,12 @@ export interface VectorFileStatusResponse {
   vectorizers: FileStatusVectorizer[];
 }
 
+/** reranker 模式:model=模型重排;lexical=词法重排(BM25 等);none=无重排透传。 */
+export type RerankerMode = "model" | "lexical" | "none";
+
 export interface RerankerConfig {
   reranker_key: string;
-  mode: "model" | "lexical" | "none";
+  mode: RerankerMode;
   provider_key: string;
   provider_type: string | null;
   model_name: string;

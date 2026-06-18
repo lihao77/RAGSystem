@@ -121,11 +121,21 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   // sqlite-vec driver 接线:读 systemConfig 选后端实例化(触发 driver 模块自注册)。
   // sqlite-vec 是唯一向量源(driver 唯一);扩展加载失败(vec0 不可用、Node/Windows ABI)直接抛错,
   // 让启动显式报错而非静默降级到无向量的空检索——5h-2 已删旧 hash 应用层降级路径。
-  const vectorStore = createVectorStoreFromConfig(systemConfig.getVectorStoreConfig(), options.dataRoot);
+  // dbPath=:memory: 是临时库信号(测试/瞬态),知识库随之走 :memory:,与主库同生命周期、随 container 关闭重置;
+  // 否则知识库会落到共享 dataRoot/db/knowledge.db 文件,跨实例泄漏配置(vectorizer/reranker)。
+  const vectorStoreConfig = systemConfig.getVectorStoreConfig();
+  const resolvedVectorStoreConfig =
+    options.dbPath === ":memory:"
+      ? { ...vectorStoreConfig, sqlite_vec: { ...vectorStoreConfig.sqlite_vec, database_path: ":memory:" } }
+      : vectorStoreConfig;
+  const vectorStore = createVectorStoreFromConfig(resolvedVectorStoreConfig, options.dataRoot);
+  // vectorStore 同一对象同时实现 IVectorStore(数据面) + IKnowledgeConfig(配置面),
+  // 共享 knowledge.db 单一连接——主库 ragsystem.db 不再涉及向量/配置面。
   const vectorLibrary = new VectorLibraryService(fileIndex, modelAdapter, {
     dbPath: options.dbPath,
     dataRoot: options.dataRoot,
     vectorStore,
+    knowledgeConfig: vectorStore,
   });
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   const embeddingModels = new EmbeddingModelService(vectorLibrary);

@@ -11,15 +11,18 @@ import os from "node:os";
 import path from "node:path";
 
 import type { VectorStoreConfig } from "../../contracts/system-config.js";
-import type { IVectorStore } from "../../contracts/vector-store/index.js";
+import type { IVectorStore, IKnowledgeConfig } from "../../contracts/vector-store/index.js";
 import { createVectorStore } from "./registry.js";
 import "./sqlite-vec/sqlite-vec-driver.js";
 
 /**
  * 按 systemConfig 的 vector_store 配置实例化 driver。
- * dataRoot 缺省 ~/​.ragsystem(与 VectorLibraryService 一致),driver 据此解析 vectors.db 路径。
+ * dataRoot 缺省 ~/​.ragsystem(与 VectorLibraryService 一致),driver 据此解析 knowledge.db 路径。
+ *
+ * 返回类型为 IVectorStore & IKnowledgeConfig——同一对象承担数据面(向量/文本) + 配置面(vectorizer/reranker),
+ * 共享 knowledge.db 单一连接,避免 runtime-container 做 `as` 类型断言。
  */
-export function createVectorStoreFromConfig(config: VectorStoreConfig, dataRoot?: string): IVectorStore {
+export function createVectorStoreFromConfig(config: VectorStoreConfig, dataRoot?: string): IVectorStore & IKnowledgeConfig {
   const resolvedDataRoot = dataRoot?.trim() || path.join(os.homedir(), ".ragsystem");
   return createVectorStore({
     backend: config.backend,

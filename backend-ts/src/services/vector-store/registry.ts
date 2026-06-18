@@ -8,6 +8,7 @@
 import type {
   DriverRegistry,
   IVectorStore,
+  IKnowledgeConfig,
   VectorStoreDriverConfig,
   VectorStoreDriverFactory,
 } from "../../contracts/vector-store/index.js";
@@ -23,7 +24,7 @@ export function registerDriver(name: string, factory: VectorStoreDriverFactory):
  * 按 config.backend 查注册表实例化 driver。未知 backend 抛 VectorStoreError(前置违反)。
  * 调用前须确保 driver 模块已 import(触发自注册),否则注册表为空。
  */
-export function createVectorStore(config: VectorStoreDriverConfig): IVectorStore {
+export function createVectorStore(config: VectorStoreDriverConfig): IVectorStore & IKnowledgeConfig {
   const factory = DRIVER_REGISTRY.get(config.backend);
   if (!factory) {
     throw new VectorStoreError(`不支持的向量存储后端: ${config.backend}`, 400);

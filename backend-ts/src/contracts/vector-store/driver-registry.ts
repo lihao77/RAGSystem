@@ -5,6 +5,7 @@
  * 加新 driver = registerDriver(name, factory),不改分发逻辑(开闭原则)。未知 backend 抛异常(前置违反)。
  */
 import type { IVectorStore } from "./vector-store.js";
+import type { IKnowledgeConfig } from "./knowledge-config.js";
 
 /**
  * driver 工厂配置:由 config.vector_store 解析后传给 factory.create。
@@ -17,8 +18,13 @@ export interface VectorStoreDriverConfig {
   dataRoot: string;
 }
 
+/**
+ * driver 工厂返回:数据面(IVectorStore) + 配置面(IKnowledgeConfig)联合。
+ * 方向 A(driver 扩责下沉):配置面在 driver,knowledge.db 单一 owner——
+ * 因此 driver 注册时必须同时实现两契约,factory.create 返回联合类型,避免 runtime-container 做 `as` 断言。
+ */
 export interface VectorStoreDriverFactory {
-  create(config: VectorStoreDriverConfig): IVectorStore;
+  create(config: VectorStoreDriverConfig): IVectorStore & IKnowledgeConfig;
 }
 
 export type DriverRegistry = Map<string, VectorStoreDriverFactory>;

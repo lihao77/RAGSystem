@@ -9,6 +9,7 @@ import { buildTestApp } from "../helpers/app.js";
 import { FileIndexService } from "../../src/services/stores/file-index-service.js";
 import { ModelAdapterService } from "../../src/services/integrations/model-adapter-service.js";
 import { VectorLibraryService } from "../../src/services/knowledge/vector-library-service.js";
+import { createVectorStoreFromConfig } from "../../src/services/vector-store/vector-store-factory.js";
 
 let app: FastifyInstance | null = null;
 const tempRoots: string[] = [];
@@ -362,7 +363,17 @@ describe("vector management compatibility routes", () => {
 
     const fileIndex = new FileIndexService({ dbPath, dataRoot: root });
     const modelAdapter = new ModelAdapterService({ dataRoot: root, providersConfigPath: "" });
-    const service = new VectorLibraryService(fileIndex, modelAdapter, { dbPath, dataRoot: root });
+    // driver 是配置面单一可信源(构造强制注入);此处用 :memory: 隔离实例,本用例只验 documents 旧 schema 迁移。
+    const knowledgeConfig = createVectorStoreFromConfig(
+      { backend: "sqlite_vec", sqlite_vec: { database_path: ":memory:", vector_dimension: 64, distance_metric: "cosine" } },
+      root,
+    );
+    const service = new VectorLibraryService(fileIndex, modelAdapter, {
+      dbPath,
+      dataRoot: root,
+      vectorStore: knowledgeConfig,
+      knowledgeConfig,
+    });
     try {
       // 5h-2:document_vectors 表 + hash 降级已删(driver 唯一源);此处仅验 documents 旧 schema→新 schema 迁移不崩溃。
       expect(service.listDocuments("kb")).toMatchObject({
