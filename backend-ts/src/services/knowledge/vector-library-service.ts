@@ -23,8 +23,8 @@ import type { IFileIndexStore } from "../../contracts/file-index-store/index.js"
 import type { IEmbedder, IVectorStore, VectorRecord, VectorSearchHit } from "../../contracts/vector-store/index.js";
 import type { ModelAdapterService } from "../integrations/model-adapter-service.js";
 import { createEmbedder, HashFallbackEmbedder } from "../integrations/embedder-registry.js";
-// hybridScore 仅 scoring.ts 有;keywordOverlapScore 本地已有(降级路径用,与 scoring.ts 重复,5f 统一清理)。
-import { hybridScore } from "../vector-store/scoring.js";
+// 打分纯函数统一从 scoring.ts 复用(本地重复副本 cosineSimilarity/keywordOverlapScore/tokenize 已在 5f 删除)。
+import { cosineSimilarity, hybridScore, keywordOverlapScore, tokenize } from "../vector-store/scoring.js";
 import { VectorLibraryServiceError } from "../../contracts/vector-library.js";
 
 // 契约泄漏修复:VectorLibraryServiceError / VectorSearchResult 收编至 contracts/vector-library.ts。
@@ -1754,55 +1754,6 @@ function parseEmbedding(value: unknown): number[] | null {
   } catch {
     return null;
   }
-}
-
-function cosineSimilarity(left: number[], right: number[]): number {
-  let dot = 0;
-  let leftNorm = 0;
-  let rightNorm = 0;
-  const length = Math.max(left.length, right.length);
-  for (let index = 0; index < length; index += 1) {
-    const a = left[index] ?? 0;
-    const b = right[index] ?? 0;
-    dot += a * b;
-    leftNorm += a * a;
-    rightNorm += b * b;
-  }
-  if (!leftNorm || !rightNorm) {
-    return 0;
-  }
-  return dot / Math.sqrt(leftNorm * rightNorm);
-}
-
-function keywordOverlapScore(query: string, content: string): number {
-  const queryTokens = new Set(tokenize(query));
-  if (!queryTokens.size) {
-    return 0;
-  }
-  const contentTokens = new Set(tokenize(content));
-  let overlap = 0;
-  for (const token of queryTokens) {
-    if (contentTokens.has(token)) {
-      overlap += 1;
-    }
-  }
-  return overlap / queryTokens.size;
-}
-
-function tokenize(text: string): string[] {
-  const words = text
-    .toLowerCase()
-    .match(/[\p{L}\p{N}_-]+/gu) ?? [];
-  return words.flatMap((word) => {
-    if (/^[\p{Script=Han}]+$/u.test(word) && word.length > 1) {
-      const grams: string[] = [word];
-      for (let index = 0; index < word.length - 1; index += 1) {
-        grams.push(word.slice(index, index + 2));
-      }
-      return grams;
-    }
-    return [word];
-  });
 }
 
 function positiveHash(value: string): number {
