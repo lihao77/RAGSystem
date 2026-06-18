@@ -223,4 +223,52 @@ describe("SqliteVecDriver", () => {
     expect(docs.find((d) => d.document_id === "d1")).toMatchObject({ collection: "col1", chunk_count: 2 });
     driver.close();
   });
+
+  it("addKnowledgeFile 落盘物理 blob + list/get 读回", () => {
+    const driver = new SqliteVecDriver(config());
+    const created = driver.addKnowledgeFile({
+      originalName: "notes.txt",
+      buffer: Buffer.from("hello kb"),
+      mime: "text/plain",
+    });
+    expect(created.id).toBeTruthy();
+    expect(created.original_name).toBe("notes.txt");
+    expect(created.size).toBe(8);
+    expect(created.mime).toBe("text/plain");
+    // 物理 blob 落盘(driver 自管目录)
+    expect(fs.existsSync(created.stored_path)).toBe(true);
+    expect(fs.readFileSync(created.stored_path, "utf8")).toBe("hello kb");
+    // list/get 读回
+    expect(driver.listKnowledgeFiles()).toHaveLength(1);
+    expect(driver.getKnowledgeFile(created.id)?.original_name).toBe("notes.txt");
+    expect(driver.getKnowledgeFile("nope")).toBeNull();
+    driver.close();
+  });
+
+  it("deleteKnowledgeFile 删行 + 删物理 blob(自包含)", () => {
+    const driver = new SqliteVecDriver(config());
+    const created = driver.addKnowledgeFile({
+      originalName: "a.txt",
+      buffer: Buffer.from("aaa"),
+      mime: "text/plain",
+    });
+    const storedPath = created.stored_path;
+    expect(fs.existsSync(storedPath)).toBe(true);
+    const deleted = driver.deleteKnowledgeFile(created.id);
+    expect(deleted?.id).toBe(created.id);
+    // 元数据行删
+    expect(driver.getKnowledgeFile(created.id)).toBeNull();
+    expect(driver.listKnowledgeFiles()).toHaveLength(0);
+    // 物理 blob 删(知识库 blob 归 driver 管,非留路由层 removeStoredFile)
+    expect(fs.existsSync(storedPath)).toBe(false);
+    // 不存在返回 null(非抛)
+    expect(driver.deleteKnowledgeFile("nope")).toBeNull();
+    driver.close();
+  });
+
+  it("getKnowledgeUploadsRoot :memory: 库落在 os.tmpdir 子目录", () => {
+    const driver = new SqliteVecDriver(config());
+    expect(driver.getKnowledgeUploadsRoot().startsWith(os.tmpdir())).toBe(true);
+    driver.close();
+  });
 });

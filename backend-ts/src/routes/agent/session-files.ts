@@ -4,9 +4,9 @@ import { ValidateFilesRequestSchema } from "../../contracts/files.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import {
+  collectMultipartFiles,
   removeStoredFile,
   sendFileDownload,
-  uploadMultipartFiles,
   validateFileIds,
 } from "../file-route-utils.js";
 
@@ -36,14 +36,20 @@ export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async
     });
   });
 
-  app.post<{ Params: SessionParams }>("/sessions/:sessionId/files/upload", async (request) => ({
-    success: true,
-    files: await uploadMultipartFiles({
-      request,
-      fileIndex: options.container.fileIndex,
-      scope: { scopeType: "session", scopeId: request.params.sessionId },
-    }),
-  }));
+  app.post<{ Params: SessionParams }>("/sessions/:sessionId/files/upload", async (request) => {
+    const parts = await collectMultipartFiles(request);
+    const sessionId = request.params.sessionId;
+    const files = parts.map((part) =>
+      options.container.fileIndex.add({
+        originalName: part.filename,
+        buffer: part.buffer,
+        mime: part.mime,
+        scopeType: "session",
+        scopeId: sessionId,
+      }),
+    );
+    return { success: true, files };
+  });
 
   app.get<{ Params: SessionFileParams }>("/sessions/:sessionId/files/:fileId", async (request) => {
     const record = options.container.fileIndex.get(request.params.fileId, "session", request.params.sessionId);

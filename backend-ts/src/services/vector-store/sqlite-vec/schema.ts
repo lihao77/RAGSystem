@@ -76,3 +76,23 @@ export function rerankersTableDdl(): string {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_rerankers_active ON rerankers(is_active) WHERE is_active = 1;
   `;
 }
+
+/**
+ * kb_files:知识库上传源文件(物理 blob 的元数据索引)。driver 是知识库文件唯一持久化载体,
+ * 不再写主库 uploaded_files(后者只留会话附件 session scope)。blob 物理文件落 driver 自管目录,
+ * 表只存元数据 + stored_path 指针。deleteKnowledgeFile 删行同时删 blob(自包含)。
+ */
+export function kbFilesTableDdl(): string {
+  return `
+    CREATE TABLE IF NOT EXISTS kb_files (
+      id TEXT PRIMARY KEY,
+      original_name TEXT NOT NULL,
+      stored_name TEXT NOT NULL,
+      stored_path TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      mime TEXT NOT NULL,
+      uploaded_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_kb_files_uploaded_at ON kb_files(uploaded_at);
+  `;
+}

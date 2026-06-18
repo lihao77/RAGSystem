@@ -4,11 +4,10 @@ import path from "node:path";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 import type { IFileIndexStore } from "../contracts/file-index-store/index.js";
-import type { UploadedFileRecord } from "../contracts/files.js";
 import { HttpError } from "../utils/errors.js";
 
 export interface FileScope {
-  scopeType: "global" | "session";
+  scopeType: "session";
   scopeId?: string | null;
 }
 
@@ -19,37 +18,37 @@ export function parseCsvList(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-export async function uploadMultipartFiles(input: {
-  request: FastifyRequest;
-  fileIndex: IFileIndexStore;
-  scope: FileScope;
-}): Promise<UploadedFileRecord[]> {
-  if (!input.request.isMultipart()) {
+export interface MultipartFile {
+  filename: string;
+  buffer: Buffer;
+  mime: string;
+}
+
+/** 下载/删除时引用已存储文件的最小结构(uploaded_files 行 / kb_files 行均结构兼容)。 */
+export interface StoredFileRef {
+  stored_path: string;
+  original_name: string;
+}
+
+/**
+ * 收集 multipart/form-data 中的全部文件为内存 buffer(纯解析,与 store 解耦)。
+ * 物理 blob 落盘由调用方各自调 store.add(IFileIndexStore session 附件 / IKnowledgeFileStore 知识库)。
+ */
+export async function collectMultipartFiles(request: FastifyRequest): Promise<MultipartFile[]> {
+  if (!request.isMultipart()) {
     throw new HttpError(400, "invalid_request", "请求必须使用 multipart/form-data");
   }
-
-  // 物理 blob 落盘已收编进 store.add（消除原 route 层裸 fs.writeFile 与元数据登记的非原子）
-  const created: UploadedFileRecord[] = [];
-  for await (const part of input.request.files()) {
+  const collected: MultipartFile[] = [];
+  for await (const part of request.files()) {
     if (!part.filename) {
       continue;
     }
-    const buffer = await part.toBuffer();
-    created.push(
-      input.fileIndex.add({
-        originalName: part.filename,
-        buffer,
-        mime: part.mimetype ?? "",
-        scopeType: input.scope.scopeType,
-        scopeId: input.scope.scopeId ?? null,
-      }),
-    );
+    collected.push({ filename: part.filename, buffer: await part.toBuffer(), mime: part.mimetype ?? "" });
   }
-
-  if (created.length === 0) {
+  if (collected.length === 0) {
     throw new HttpError(400, "invalid_request", "未选择文件");
   }
-  return created;
+  return collected;
 }
 
 export function validateFileIds(input: {
@@ -70,7 +69,7 @@ export function validateFileIds(input: {
   return { success: true, valid, invalid };
 }
 
-export async function removeStoredFile(record: UploadedFileRecord, expectedRoot: string): Promise<void> {
+export async function removeStoredFile(record: StoredFileRef, expectedRoot: string): Promise<void> {
   const storedPath = path.resolve(record.stored_path);
   if (!isPathUnder(storedPath, expectedRoot)) {
     return;
@@ -88,7 +87,7 @@ export async function removeStoredFile(record: UploadedFileRecord, expectedRoot:
 }
 
 export async function sendFileDownload(input: {
-  record: UploadedFileRecord;
+  record: StoredFileRef;
   expectedRoot: string;
   reply: FastifyReply;
 }): Promise<FastifyReply> {

@@ -132,9 +132,10 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const vectorStore = createVectorStoreFromConfig(resolvedVectorStoreConfig, options.dataRoot);
   // vectorStore 同一对象同时实现 IVectorStore(数据面) + IKnowledgeConfig(配置面),
   // 共享 knowledge.db 单一连接——主库 ragsystem.db 不再涉及向量/配置面。
-  const vectorLibrary = new VectorLibraryService(fileIndex, modelAdapter, {
+  const vectorLibrary = new VectorLibraryService(modelAdapter, {
     vectorStore,
     knowledgeConfig: vectorStore,
+    knowledgeFileStore: vectorStore,
   });
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   const embeddingModels = new EmbeddingModelService(vectorLibrary);

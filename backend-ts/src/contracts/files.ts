@@ -16,7 +16,7 @@ export interface UploadedFileRecord {
   indexed_in_vector: boolean;
   tags: string | null;
   notes: string | null;
-  scope_type: "global" | "session";
+  scope_type: "session";
   scope_id: string | null;
 }
 

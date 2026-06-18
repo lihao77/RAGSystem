@@ -27,7 +27,7 @@ export { type UploadedFileRecord } from "../files.js";
  *   INSERT 元数据；INSERT 失败或读回失败回滚物理文件 + DB 行，不留孤儿 blob/行；
  *   深合约前置：session scope 必须提供 scopeId（否则抛错，防 sessions//uploads 路径退化污染）；
  * - list 按 uploaded_at 降序，可按 extensions / mimeTypes 过滤（并集 OR）；
- * - 物理根目录由 scope 决定：global → getGlobalUploadsRoot，session → getSessionUploadsRoot(scopeId)；
+ * - 物理根目录:session → getSessionUploadsRoot(scopeId);知识库文件已独立到 driver(kb_files),uploaded_files 只留会话附件;
  * - close 释放 SQLite 连接。
  */
 export interface IFileIndexStore {
@@ -35,7 +35,6 @@ export interface IFileIndexStore {
   get(fileId: string, scopeType: FileScopeType, scopeId?: string | null): UploadedFileRecord | null;
   add(input: AddFileInput): UploadedFileRecord;
   delete(fileId: string, scopeType: FileScopeType, scopeId?: string | null): UploadedFileRecord | null;
-  getGlobalUploadsRoot(): string;
   getSessionUploadsRoot(sessionId: string): string;
   close(): void;
 }

@@ -27,7 +27,7 @@ describe("vector library compatibility routes", () => {
 
     const uploaded = await app.inject({
       method: "POST",
-      url: "/api/files/upload",
+      url: "/api/vector-library/files/upload",
       headers: multipartHeaders("boundary-vector"),
       payload: multipartBody("boundary-vector", "files", "knowledge.txt", "text/plain", "hello vector"),
     });
@@ -225,7 +225,7 @@ describe("vector library compatibility routes", () => {
 
     const uploaded = await app.inject({
       method: "POST",
-      url: "/api/files/upload",
+      url: "/api/vector-library/files/upload",
       headers: multipartHeaders("boundary-vector-index"),
       payload: multipartBody(
         "boundary-vector-index",

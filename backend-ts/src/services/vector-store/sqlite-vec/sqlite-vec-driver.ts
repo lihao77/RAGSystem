@@ -1,15 +1,20 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 import { load as loadVec } from "sqlite-vec";
 
 import type {
+  AddKnowledgeFileInput,
   CollectionInfo,
   CreateRerankerInput,
   CreateVectorizerInput,
   DocumentInfo,
   IKnowledgeConfig,
+  IKnowledgeFileStore,
   IVectorStore,
+  KnowledgeFile,
   StoredChunk,
   StoredReranker,
   StoredVectorizer,
@@ -21,7 +26,7 @@ import type {
 } from "../../../contracts/vector-store/index.js";
 import { VectorStoreError } from "../../../contracts/vector-store/index.js";
 import { registerDriver } from "../registry.js";
-import { documentsTableDdl, rerankersTableDdl, vecTableDdl, vecTableName, vectorizersTableDdl } from "./schema.js";
+import { documentsTableDdl, kbFilesTableDdl, rerankersTableDdl, vecTableDdl, vecTableName, vectorizersTableDdl } from "./schema.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -58,22 +63,31 @@ interface KnnRow {
  * 决定(config.vector_dimension=0 自动,对齐 Python client.py:96-142)。search 召回 vector_score(1 - distance);
  * keyword/hybrid/rerank 由编排层(scoring.ts)补。
  */
-export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig {
+export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowledgeFileStore {
   private readonly db: import("node:sqlite").DatabaseSync;
   private readonly dimensionByModel = new Map<number, number>();
+  private readonly knowledgeUploadsRoot: string;
+  private readonly dbIsMemory: boolean;
 
   constructor(config: VectorStoreDriverConfig) {
     const options = parseOptions(config);
     const dbPath = resolveDbPath(options.databasePath, config.dataRoot);
-    if (dbPath !== ":memory:") {
+    this.dbIsMemory = dbPath === ":memory:";
+    if (!this.dbIsMemory) {
       fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     }
+    // 知识库文件物理 blob 根:文件库 → <dataRoot>/db/knowledge-uploads(与 knowledge.db 同目录树,知识库自包含);
+    // :memory: 临时库(测试/瞬态)→ os.tmpdir 下 mkdtemp 临时目录,close 时清理,不污染工作区。
+    this.knowledgeUploadsRoot = this.dbIsMemory
+      ? fs.mkdtempSync(path.join(os.tmpdir(), "rag-kb-uploads-"))
+      : path.join(config.dataRoot ?? path.join(os.homedir(), ".ragsystem"), "db", "knowledge-uploads");
     // allowExtension:true 必须创建时设置(node:sqlite 默认禁用 extension loading 且创建后不可启用)。
     this.db = new DatabaseSync(dbPath, { allowExtension: true });
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA synchronous = NORMAL");
     loadVec(this.db);
     this.db.exec(documentsTableDdl());
+    this.db.exec(kbFilesTableDdl());
     this.db.exec(vectorizersTableDdl());
     this.db.exec(rerankersTableDdl());
     this.loadDimensionsFromSchema();
@@ -322,7 +336,14 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig {
   }
 
   close(): void {
-    this.db.close();
+    try {
+      this.db.close();
+    } finally {
+      // :memory: 临时库的 blob 目录随 close 清理(测试隔离);文件库 blob 持久保留。
+      if (this.dbIsMemory && this.knowledgeUploadsRoot.startsWith(os.tmpdir())) {
+        fs.rmSync(this.knowledgeUploadsRoot, { recursive: true, force: true });
+      }
+    }
   }
 
   // ====== IKnowledgeConfig 实现(vectorizer/reranker 配置面)======
@@ -610,6 +631,84 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig {
       | undefined;
     return row?.n ?? 0;
   }
+
+  // ====== IKnowledgeFileStore 实现(知识库上传源文件:元数据 + 物理 blob 自包含)======
+  getKnowledgeUploadsRoot(): string {
+    return this.knowledgeUploadsRoot;
+  }
+
+  listKnowledgeFiles(): KnowledgeFile[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, original_name, stored_name, stored_path, size, mime, uploaded_at FROM kb_files ORDER BY uploaded_at DESC`,
+      )
+      .all() as unknown as KbFileRow[];
+    return rows.map(rowToKnowledgeFile);
+  }
+
+  getKnowledgeFile(fileId: string): KnowledgeFile | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, original_name, stored_name, stored_path, size, mime, uploaded_at FROM kb_files WHERE id = ?`,
+      )
+      .get(fileId) as unknown as KbFileRow | undefined;
+    return row ? rowToKnowledgeFile(row) : null;
+  }
+
+  addKnowledgeFile(input: AddKnowledgeFileInput): KnowledgeFile {
+    const { originalName, buffer, mime } = input;
+    const storedName = `${randomBytes(8).toString("hex")}_${sanitizeKbFilename(originalName)}`;
+    const storedPath = path.join(this.knowledgeUploadsRoot, storedName);
+    const size = buffer.byteLength;
+    // 物理 blob 落盘(收编进 driver:知识库文件唯一持久化载体)
+    fs.mkdirSync(this.knowledgeUploadsRoot, { recursive: true });
+    fs.writeFileSync(storedPath, buffer);
+    const fileId = this.nextKbFileId();
+    const now = new Date().toISOString();
+    // INSERT 元数据;失败回滚物理文件,不留孤儿 blob
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO kb_files (id, original_name, stored_name, stored_path, size, mime, uploaded_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(fileId, originalName, storedName, storedPath, size, mime, now);
+    } catch (err) {
+      fs.rmSync(storedPath, { force: true });
+      throw err;
+    }
+    const record = this.getKnowledgeFile(fileId);
+    if (!record) {
+      // INSERT 成功却读不回(防御):删物理 + DB 行,避免孤儿
+      fs.rmSync(storedPath, { force: true });
+      this.db.prepare(`DELETE FROM kb_files WHERE id = ?`).run(fileId);
+      throw new Error(`failed to read created kb file record: ${fileId}`);
+    }
+    return record;
+  }
+
+  deleteKnowledgeFile(fileId: string): KnowledgeFile | null {
+    const record = this.getKnowledgeFile(fileId);
+    if (!record) {
+      return null;
+    }
+    this.db.prepare(`DELETE FROM kb_files WHERE id = ?`).run(fileId);
+    // 删物理 blob(自包含:知识库 blob 归 driver 管)
+    fs.rmSync(record.stored_path, { force: true });
+    return record;
+  }
+
+  private nextKbFileId(): string {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const fileId = randomBytes(5).toString("hex");
+      const row = this.db.prepare(`SELECT id FROM kb_files WHERE id = ?`).get(fileId) as
+        | { id: string }
+        | undefined;
+      if (!row) {
+        return fileId;
+      }
+    }
+    return randomBytes(8).toString("hex");
+  }
 }
 
 function parseOptions(config: VectorStoreDriverConfig): SqliteVecOptions {
@@ -660,6 +759,33 @@ function parseRecord(value: string): Record<string, unknown> {
 function inferDimensionFromDdl(sql: string): number | null {
   const match = sql.match(/float\[(\d+)\]/);
   return match ? Number(match[1]) : null;
+}
+
+interface KbFileRow {
+  id: string;
+  original_name: string;
+  stored_name: string;
+  stored_path: string;
+  size: number;
+  mime: string;
+  uploaded_at: string;
+}
+
+function rowToKnowledgeFile(row: KbFileRow): KnowledgeFile {
+  return {
+    id: row.id,
+    original_name: row.original_name,
+    stored_name: row.stored_name,
+    stored_path: row.stored_path,
+    size: row.size,
+    mime: row.mime,
+    uploaded_at: row.uploaded_at,
+  };
+}
+
+function sanitizeKbFilename(filename: string): string {
+  const normalized = filename.replace(/[^\w\-.]/g, "_").replace(/^_+|_+$/g, "");
+  return normalized || "upload.bin";
 }
 
 // 模块加载时自注册 sqlite-vec driver(单向依赖 driver→registry,避免循环)。

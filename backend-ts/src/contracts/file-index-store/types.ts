@@ -11,7 +11,7 @@ import { z } from "zod";
 
 // ────────────────────────────── 作用域 ──────────────────────────────
 
-export const FileScopeTypeSchema = z.enum(["global", "session"]);
+export const FileScopeTypeSchema = z.enum(["session"]);
 export type FileScopeType = z.infer<typeof FileScopeTypeSchema>;
 
 // ────────────────────────────── 输入边界（zod schema + z.infer） ──────────────────────────────

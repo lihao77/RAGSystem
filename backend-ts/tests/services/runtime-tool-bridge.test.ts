@@ -412,11 +412,11 @@ describe("RuntimeToolBridge", () => {
       hybrid_score: 0,
     });
     const vectorLibrary = new VectorLibraryService(
-      fileIndex,
       new ModelAdapterService({ providersConfigPath: "" }),
       {
         vectorStore: fakeStore,
         knowledgeConfig: fakeStore,
+        knowledgeFileStore: fakeStore,
       },
     );
     const bridge = new RuntimeToolBridge(

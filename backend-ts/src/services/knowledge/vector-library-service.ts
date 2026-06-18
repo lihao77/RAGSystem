@@ -14,8 +14,7 @@ import type {
   VectorizerCreate,
   VectorSearchResult,
 } from "../../contracts/vector-library.js";
-import type { IFileIndexStore } from "../../contracts/file-index-store/index.js";
-import type { IEmbedder, IKnowledgeConfig, IVectorStore, StoredChunk, StoredReranker, StoredVectorizer, VectorRecord, VectorSearchHit } from "../../contracts/vector-store/index.js";
+import type { IEmbedder, IKnowledgeConfig, IKnowledgeFileStore, IVectorStore, StoredChunk, StoredReranker, StoredVectorizer, VectorRecord, VectorSearchHit } from "../../contracts/vector-store/index.js";
 import type { ModelAdapterService } from "../integrations/model-adapter-service.js";
 import { createEmbedder, HashFallbackEmbedder } from "../integrations/embedder-registry.js";
 // 打分纯函数统一从 scoring.ts 复用(cosineSimilarity/tokenize 随 5h-2 降级路径删除,本地副本已无)。
@@ -29,23 +28,29 @@ export type { VectorSearchResult } from "../../contracts/vector-library.js";
 
 export class VectorLibraryService {
   private readonly knowledgeConfig: IKnowledgeConfig;
+  /** 知识库文件存储(driver):路由层 CRUD(upload/list/delete/download)直连,业务编排(indexFile/fileStatus)由本 service。 */
+  public readonly knowledgeFileStore: IKnowledgeFileStore;
   private readonly vectorStore: IVectorStore | undefined;
   // 按 vectorizer_key 缓存 embedder,避免每次 search 重复解析 provider 配置。
   // 注:provider 配置(api_key 等)运行时更新后,缓存项持有旧快照——本期接受(重启生效),后续可加失效。
   private readonly embedderCache = new Map<string, IEmbedder>();
 
   constructor(
-    private readonly fileIndex: IFileIndexStore,
     private readonly modelAdapter: ModelAdapterService,
     options: {
       vectorStore?: IVectorStore | undefined;
       knowledgeConfig?: IKnowledgeConfig | undefined;
+      knowledgeFileStore?: IKnowledgeFileStore | undefined;
     } = {},
   ) {
     if (!options.knowledgeConfig) {
       throw new Error("VectorLibraryService 需注入 knowledgeConfig(driver 单一配置源)");
     }
+    if (!options.knowledgeFileStore) {
+      throw new Error("VectorLibraryService 需注入 knowledgeFileStore(driver 单一知识库文件源)");
+    }
     this.knowledgeConfig = options.knowledgeConfig;
+    this.knowledgeFileStore = options.knowledgeFileStore;
     this.vectorStore = options.vectorStore;
   }
 
@@ -56,7 +61,7 @@ export class VectorLibraryService {
   async fileStatus(): Promise<VectorFileStatusResponse> {
     const vectorizers = await this.listFileStatusVectorizers();
     // driver 唯一源:vec_documents 跨 collection 聚合出每个 document_id 的位置 + chunk 数,
-    // 和 fileIndex join(uploaded file ↔ 已索引位置)。无 documents 主库双写。
+    // 和 knowledgeFile join(driver kb_files ↔ 已索引位置)。知识库文件不写主库 uploaded_files。
     const locations = new Map<string, { collection: string; chunk_count: number }>(
       (this.vectorStore ? await this.vectorStore.listAllDocuments() : []).map((doc) => [
         doc.document_id,
@@ -64,7 +69,7 @@ export class VectorLibraryService {
       ]),
     );
     const fileStatuses: VectorFileStatus[] = [];
-    for (const file of this.fileIndex.list({ scopeType: "global", scopeId: null })) {
+    for (const file of this.knowledgeFileStore.listKnowledgeFiles()) {
       const location = locations.get(file.id);
       const collection = location?.collection ?? "documents";
       const chunkCount = location?.chunk_count ?? 0;
@@ -170,7 +175,7 @@ export class VectorLibraryService {
     if (!vectorizer) {
       throw new VectorLibraryServiceError(`向量化器不存在: ${input.vectorizer_key}`, 404);
     }
-    const file = this.fileIndex.get(fileId, "global", null);
+    const file = this.knowledgeFileStore.getKnowledgeFile(fileId);
     if (!file) {
       throw new VectorLibraryServiceError(`文件不存在: ${fileId}`, 404);
     }
@@ -254,7 +259,7 @@ export class VectorLibraryService {
     const metadata = asRecord(payload.metadata);
     const fileId = asString(payload.file_id);
     if (fileId) {
-      const file = this.fileIndex.get(fileId, "global", null);
+      const file = this.knowledgeFileStore.getKnowledgeFile(fileId);
       if (!file) {
         throw new VectorLibraryServiceError(`文件不存在: ${fileId}`, 404);
       }

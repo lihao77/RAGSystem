@@ -29,7 +29,7 @@ interface UploadedFileRow {
   indexed_in_vector: number;
   tags: string | null;
   notes: string | null;
-  scope_type: "global" | "session";
+  scope_type: "session";
   scope_id: string | null;
 }
 
@@ -50,10 +50,6 @@ export class FileIndexService implements IFileIndexStore {
 
   close(): void {
     this.db.close();
-  }
-
-  getGlobalUploadsRoot(): string {
-    return path.join(this.dataRoot, "uploads");
   }
 
   getSessionUploadsRoot(sessionId: string): string {
@@ -89,16 +85,11 @@ export class FileIndexService implements IFileIndexStore {
   add(input: AddFileInput): UploadedFileRecord {
     const parsed = AddFileInputSchema.parse(input);
     const { originalName, buffer, mime, scopeType, scopeId } = parsed;
-    // 深合约前置条件：session scope 必须提供 scopeId，否则物理路径退化污染（sessions//uploads）
-    let uploadRoot: string;
-    if (scopeType === "session") {
-      if (!scopeId) {
-        throw new Error("session scope requires scopeId");
-      }
-      uploadRoot = this.getSessionUploadsRoot(scopeId);
-    } else {
-      uploadRoot = this.getGlobalUploadsRoot();
+    // session-only:知识库文件已独立到 driver(kb_files),uploaded_files 只留会话附件。
+    if (!scopeId) {
+      throw new Error("session scope requires scopeId");
     }
+    const uploadRoot = this.getSessionUploadsRoot(scopeId);
     const storedName = `${randomBytes(8).toString("hex")}_${sanitizeFilename(originalName)}`;
     const storedPath = path.join(uploadRoot, storedName);
     const size = buffer.byteLength;
