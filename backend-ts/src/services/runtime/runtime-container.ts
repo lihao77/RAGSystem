@@ -89,6 +89,7 @@ export interface RuntimeContainerOptions {
   modelAdapterProvidersConfigPath?: string | undefined;
   mcpConfigPath?: string | undefined;
   daemonConfigPath?: string | undefined;
+  systemConfigPath?: string | undefined;
   agentConfigRoot?: string | undefined;
   startOutboxDispatcher?: boolean | undefined;
   outboxDispatcherIntervalMs?: number | undefined;
@@ -112,7 +113,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     providersConfigPath: options.modelAdapterProvidersConfigPath,
     chatClient: llmChatClient,
   });
-  const systemConfig = new SystemConfigService({ dataRoot: options.dataRoot });
+  const systemConfig = new SystemConfigService({ dataRoot: options.dataRoot, configPath: options.systemConfigPath });
   const mcp = new McpService({ dataRoot: options.dataRoot, configPath: options.mcpConfigPath });
   void mcp.autoConnectEnabledServers();
   agentConfig.setMcpService(mcp);

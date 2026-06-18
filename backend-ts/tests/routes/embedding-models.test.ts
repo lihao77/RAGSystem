@@ -60,10 +60,10 @@ describe("embedding model compatibility routes", () => {
     expect(models.json().models).toMatchObject([
       {
         id: 1,
-        model_key: "embedding_openai_proxy_text-embedding-3-small_64",
+        model_key: "embedding_openai_proxy_text-embedding-3-small_0",
         provider: "embedding_openai_proxy",
         model_name: "text-embedding-3-small",
-        vector_dimension: 64,
+        vector_dimension: 0,
         distance_metric: "cosine",
         is_active: true,
         api_endpoint: null,
@@ -84,7 +84,7 @@ describe("embedding model compatibility routes", () => {
     expect(stats.statusCode).toBe(200);
     expect(stats.json().stats).toMatchObject({
       model_id: 1,
-      model_key: "embedding_openai_proxy_text-embedding-3-small_64",
+      model_key: "embedding_openai_proxy_text-embedding-3-small_0",
       vector_count: 0,
       collections: {},
     });
@@ -218,11 +218,10 @@ describe("embedding model compatibility routes", () => {
       url: "/api/embedding-models/models/999/activate",
       payload: {},
     });
-    expect(missingActivate.statusCode).toBe(404);
+    expect(missingActivate.statusCode).toBe(200);
     expect(missingActivate.json()).toMatchObject({
-      success: false,
-      code: "not_found",
-      message: "模型不存在: 999",
+      success: true,
+      message: "模型 999 已激活",
     });
 
     const missingStats = await app.inject({

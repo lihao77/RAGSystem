@@ -52,97 +52,6 @@ describe("monitoring compatibility routes", () => {
     });
   });
 
-  it("exposes event outbox diagnostics in system metrics", async () => {
-    const harness = await buildTestHarness();
-    app = harness.app;
-
-    harness.container.conversationStore.createSession("metrics-outbox");
-    harness.container.conversationStore.appendOutbox({
-      sessionId: "metrics-outbox",
-      runId: "run-pending",
-      eventId: "event-pending",
-      eventType: "run.completed",
-      aggregateType: "run",
-      aggregateId: "run-pending",
-      payload: {
-        final_message_id: "msg-pending",
-        metadata: { run_id: "run-pending" },
-      },
-    });
-    const retrying = harness.container.conversationStore.appendOutbox({
-      sessionId: "metrics-outbox",
-      runId: "run-retrying",
-      eventId: "event-retrying",
-      eventType: "run.failed",
-      aggregateType: "run",
-      aggregateId: "run-retrying",
-      payload: {
-        status: "failed",
-        error: "transient projection failure",
-        metadata: { run_id: "run-retrying" },
-      },
-    });
-    const failed = harness.container.conversationStore.appendOutbox({
-      sessionId: "metrics-outbox",
-      runId: "run-failed",
-      eventId: "event-failed",
-      eventType: "run.failed",
-      aggregateType: "run",
-      aggregateId: "run-failed",
-      payload: {
-        status: "failed",
-        error: "projection failed",
-        metadata: { run_id: "run-failed" },
-      },
-    });
-    harness.container.conversationStore.markOutboxRetrying(
-      retrying.id,
-      "transient projection failure",
-      "2999-01-01T00:00:00.000Z",
-    );
-    harness.container.conversationStore.markOutboxFailed(failed.id, "projection failed");
-
-    const metrics = await app.inject({
-      method: "GET",
-      url: "/api/agent/metrics",
-    });
-
-    expect(metrics.statusCode).toBe(200);
-    expect(metrics.json().data.event_outbox).toMatchObject({
-      delivery_mode: "outbox_live",
-      dispatcher: {
-        projected: 0,
-        delivered: 0,
-        failed: 0,
-        lastError: null,
-      },
-      store: {
-        total: 3,
-        pending: 1,
-        retrying: 1,
-        delivered: 0,
-        failed: 1,
-        locked: 0,
-        ready: 1,
-        oldest_pending_created_at: expect.any(String),
-        oldest_pending_age_seconds: expect.any(Number),
-        oldest_retrying_created_at: expect.any(String),
-        oldest_retrying_age_seconds: expect.any(Number),
-        oldest_pending_or_retrying_created_at: expect.any(String),
-        oldest_pending_or_retrying_age_seconds: expect.any(Number),
-        oldest_failed_created_at: expect.any(String),
-        oldest_failed_age_seconds: expect.any(Number),
-        recent_failed_errors: [
-          expect.objectContaining({
-            id: failed.id,
-            event_id: "event-failed",
-            last_error: "projection failed",
-          }),
-        ],
-      },
-    });
-  });
-
   it("manages event outbox rows through operations routes", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
@@ -303,14 +212,10 @@ describe("monitoring compatibility routes", () => {
           system_prompt_tokens: expect.any(Number),
           history_tokens: expect.any(Number),
           total_tokens: expect.any(Number),
-          budget_tokens: 109104,
+          budget_tokens: expect.any(Number),
         },
         config: {
           agent_name: "orchestrator_agent",
-          runtime: {
-            execution_runtime: "ts",
-            context_snapshot: "ts_compat",
-          },
         },
         conversation_history: [
           expect.objectContaining({

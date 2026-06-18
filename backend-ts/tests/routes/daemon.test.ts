@@ -197,6 +197,24 @@ describe("daemon compatibility routes", () => {
   it("supports in-memory cron task create, update, history, and delete", async () => {
     app = await buildTestApp();
 
+    await app.inject({
+      method: "PUT",
+      url: "/api/daemon/config",
+      payload: {
+        enabled: true,
+        default_session_ttl: 3600,
+        agents: [
+          {
+            team_name: "default",
+            entry_agent: "orchestrator_agent",
+            enabled: true,
+            platforms: { feishu: { enabled: false } },
+            cron_tasks: [],
+          },
+        ],
+      },
+    });
+
     const created = await app.inject({
       method: "POST",
       url: "/api/daemon/cron/tasks",
@@ -410,6 +428,24 @@ describe("daemon compatibility routes", () => {
 
   it("validates duplicate cron tasks and missing resources", async () => {
     app = await buildTestApp();
+
+    await app.inject({
+      method: "PUT",
+      url: "/api/daemon/config",
+      payload: {
+        enabled: true,
+        default_session_ttl: 3600,
+        agents: [
+          {
+            team_name: "default",
+            entry_agent: "orchestrator_agent",
+            enabled: true,
+            platforms: { feishu: { enabled: false } },
+            cron_tasks: [],
+          },
+        ],
+      },
+    });
 
     const missingAgent = await app.inject({
       method: "GET",

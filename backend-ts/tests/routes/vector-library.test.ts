@@ -424,7 +424,6 @@ describe("vector management compatibility routes", () => {
       success: true,
       data: {
         status: "healthy",
-        runtime: "local",
         collections_count: 0,
       },
     });

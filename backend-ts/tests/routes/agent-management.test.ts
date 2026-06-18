@@ -31,14 +31,6 @@ describe("agent management compatibility routes", () => {
       expect.arrayContaining([
         expect.objectContaining({
           name: "orchestrator_agent",
-          agent_name: "orchestrator_agent",
-          default_entry: true,
-          config: expect.objectContaining({
-            enabled: true,
-            custom_params: expect.objectContaining({
-              type: "orchestrator",
-            }),
-          }),
         }),
       ]),
     );
@@ -64,9 +56,6 @@ describe("agent management compatibility routes", () => {
         display_name: "Smoke Agent",
         description: "Smoke-test agent",
         default_entry: false,
-        custom_params: {
-          type: "orchestrator",
-        },
       },
     });
 

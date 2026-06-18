@@ -33,6 +33,7 @@ export async function buildTestHarness(
     modelAdapterProvidersConfigPath: "",
     mcpConfigPath: "",
     daemonConfigPath: "",
+    systemConfigPath: "",
     agentConfigRoot: "",
     startOutboxDispatcher: options.startOutboxDispatcher ?? false,
     logger: options.logger,
