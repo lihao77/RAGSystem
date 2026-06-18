@@ -13,13 +13,14 @@ async function parseResponse(response) {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
+  const headers = { ...(options.headers || {}) };
+  // 仅在请求携带 body 时声明 JSON content-type;无 body 的请求(如删除 MCP server)
+  // 若声明 application/json,TS 后端 Fastify 会以 FST_ERR_CTP_EMPTY_JSON_BODY 拒绝。
+  const hasContentType = Object.keys(headers).some((k) => k.toLowerCase() === 'content-type');
+  if (options.body !== undefined && !hasContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
+  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
   return parseResponse(response);
 }
 

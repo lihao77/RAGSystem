@@ -148,8 +148,7 @@ export async function reorderProviders(providerKeys) {
 
 export async function deleteProvider(providerKey) {
   const response = await fetch(`${API_BASE}/providers/${encodeURIComponent(providerKey)}`, {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' }
+    method: 'DELETE'
   })
   const json = await response.json()
   if (!response.ok) throw new Error(json.detail || json.message || '删除失败')

@@ -25,6 +25,7 @@ import type { ModelAdapterService } from "../integrations/model-adapter-service.
 import { createEmbedder, HashFallbackEmbedder } from "../integrations/embedder-registry.js";
 // 打分纯函数统一从 scoring.ts 复用(cosineSimilarity/tokenize 随 5h-2 降级路径删除,本地副本已无)。
 import { hybridScore, keywordOverlapScore } from "../vector-store/scoring.js";
+import { saveYamlSync } from "../../utils/yaml-io.js";
 import { VectorLibraryServiceError } from "../../contracts/vector-library.js";
 
 // 契约泄漏修复:VectorLibraryServiceError / VectorSearchResult 收编至 contracts/vector-library.ts。
@@ -126,8 +127,11 @@ export class VectorLibraryService {
     }
 
     const key = input.vectorizer_key?.trim() || normalizeVectorizerKey(providerKey, modelName);
+    // 键唯一性:DB 与 YAML(shared 模式)任一存在均拒绝,与 listVectorizers 的可见性保持一致。
     const existing = this.getStoredVectorizer(key);
-    if (existing) {
+    const config = this.readVectorizerConfig();
+    const inYaml = config?.vectorizers.some((v) => v.vectorizer_key === key) ?? false;
+    if (existing || inYaml) {
       throw new VectorLibraryServiceError(`向量化器键已存在: ${key}`, 400);
     }
 
@@ -157,6 +161,21 @@ export class VectorLibraryService {
     if (!created) {
       throw new VectorLibraryServiceError(`向量化器创建失败: ${key}`, 500);
     }
+    // YAML 配置权威(shared 模式):同步追加条目,保证 listVectorizers(读 YAML)即时可见。
+    if (config) {
+      config.vectorizers.push({
+        vectorizer_key: key,
+        provider_key: providerKey,
+        provider_type: normalizeNullableString(input.provider_type),
+        model_name: modelName,
+        distance_metric: input.distance_metric || "cosine",
+        created_at: now,
+      });
+      if (!config.active_vectorizer_key) {
+        config.active_vectorizer_key = key;
+      }
+      this.writeVectorizerConfig(config);
+    }
     if (!this.activeVectorizerKey) {
       this.activeVectorizerKey = key;
       this.writeSetting("active_vectorizer_key", key);
@@ -169,8 +188,16 @@ export class VectorLibraryService {
   }
 
   activateVectorizer(key: string): { active_vectorizer_key: string } {
-    if (!this.getStoredVectorizer(key)) {
+    const stored = this.getStoredVectorizer(key);
+    const config = this.readVectorizerConfig();
+    const inYaml = config?.vectorizers.some((v) => v.vectorizer_key === key) ?? false;
+    if (!stored && !inYaml) {
       throw new VectorLibraryServiceError(`向量化器不存在: ${key}`, 404);
+    }
+    // YAML 配置权威(shared 模式):同步激活态,listVectorizers 的 is_active 与 Python 检索读到的 active 一致。
+    if (inYaml && config) {
+      config.active_vectorizer_key = key;
+      this.writeVectorizerConfig(config);
     }
     this.activeVectorizerKey = key;
     this.writeSetting("active_vectorizer_key", key);
@@ -178,20 +205,39 @@ export class VectorLibraryService {
   }
 
   async deleteVectorizer(key: string): Promise<{ deleted_vectorizer_key: string }> {
-    const vectorizer = this.getStoredVectorizer(key);
-    if (!vectorizer) {
+    const stored = this.getStoredVectorizer(key);
+    const config = this.readVectorizerConfig();
+    const inYaml = config?.vectorizers.some((v) => v.vectorizer_key === key) ?? false;
+    // 存在性兼容双源:Python 经 YAML 建的 vectorizer 可能不在 TS DB,反之亦然;任一存在即可删。
+    if (!stored && !inYaml) {
       throw new VectorLibraryServiceError(`向量化器不存在: ${key}`, 404);
     }
-    // B/A 解耦:经 driver.deleteByModel 删向量数据(而非直连库),切断 vectorizer 元数据与向量数据物理耦合
-    if (this.vectorStore) {
-      await this.vectorStore.deleteByModel(vectorizer.model_id);
+    // driver 向量清理(仅 TS driver 自管向量;Python document_vectors 不归 TS)。
+    if (stored && this.vectorStore) {
+      await this.vectorStore.deleteByModel(stored.model_id);
     }
-    this.db.prepare("DELETE FROM vectorizers WHERE vectorizer_key = ?").run(key);
+    if (stored) {
+      this.db.prepare("DELETE FROM vectorizers WHERE vectorizer_key = ?").run(key);
+    }
+    // YAML 配置权威(shared 模式):同步删除条目,使 listVectorizers(读 YAML)即时不再显示。
+    let nextActive: string | null = null;
+    if (inYaml && config) {
+      config.vectorizers = config.vectorizers.filter((v) => v.vectorizer_key !== key);
+      if (config.active_vectorizer_key === key) {
+        config.active_vectorizer_key = config.vectorizers[0]?.vectorizer_key ?? null;
+      }
+      this.writeVectorizerConfig(config);
+      nextActive = config.active_vectorizer_key;
+    }
+    // 活跃态回退:删的是当前激活时,shared 模式用 YAML(已切剩余首条),DB 模式取 DB 首条。
     if (this.activeVectorizerKey === key) {
-      const next = this.db.prepare("SELECT vectorizer_key FROM vectorizers ORDER BY model_id ASC LIMIT 1").get() as
-        | { vectorizer_key: string }
-        | undefined;
-      this.activeVectorizerKey = next?.vectorizer_key ?? null;
+      if (nextActive === null && !inYaml) {
+        const row = this.db.prepare("SELECT vectorizer_key FROM vectorizers ORDER BY model_id ASC LIMIT 1").get() as
+          | { vectorizer_key: string }
+          | undefined;
+        nextActive = row?.vectorizer_key ?? null;
+      }
+      this.activeVectorizerKey = nextActive;
       this.writeSetting("active_vectorizer_key", this.activeVectorizerKey);
     }
     return { deleted_vectorizer_key: key };
@@ -413,9 +459,13 @@ export class VectorLibraryService {
     }
 
     const key = input.reranker_key?.trim() || normalizeRerankerKey(mode, providerKey, modelName);
-    if (this.getStoredReranker(key)) {
+    // 键唯一性:DB 与 YAML(shared 模式)任一存在均拒绝,与 listRerankers 的可见性保持一致。
+    const config = this.readRerankerConfig();
+    const inYaml = config?.rerankers.some((r) => r.reranker_key === key) ?? false;
+    if (this.getStoredReranker(key) || inYaml) {
       throw new VectorLibraryServiceError(`重排序器键已存在: ${key}`, 400);
     }
+    const now = new Date().toISOString();
     this.db
       .prepare(
         `
@@ -432,8 +482,24 @@ export class VectorLibraryService {
         modelName,
         input.api_endpoint?.trim() || "",
         input.api_key ?? null,
-        new Date().toISOString(),
+        now,
       );
+    // YAML 配置权威(shared 模式):同步追加条目(api_key 不入 YAML,留 DB),保证 listRerankers(读 YAML)即时可见。
+    if (config) {
+      config.rerankers.push({
+        reranker_key: key,
+        mode,
+        provider_key: providerKey,
+        provider_type: normalizeNullableString(input.provider_type),
+        model_name: modelName,
+        api_endpoint: input.api_endpoint?.trim() || "",
+        created_at: now,
+      });
+      if (!config.active_reranker_key) {
+        config.active_reranker_key = key;
+      }
+      this.writeRerankerConfig(config);
+    }
     if (!this.activeRerankerKey) {
       this.activeRerankerKey = key;
       this.writeSetting("active_reranker_key", key);
@@ -447,8 +513,16 @@ export class VectorLibraryService {
   }
 
   activateReranker(key: string): { active_reranker_key: string } {
-    if (!this.getStoredReranker(key)) {
+    const stored = this.getStoredReranker(key);
+    const config = this.readRerankerConfig();
+    const inYaml = config?.rerankers.some((r) => r.reranker_key === key) ?? false;
+    if (!stored && !inYaml) {
       throw new VectorLibraryServiceError(`重排序器不存在: ${key}`, 404);
+    }
+    // YAML 配置权威(shared 模式):同步激活态,listRerankers 的 is_active 与 Python 检索读到的 active 一致。
+    if (inYaml && config) {
+      config.active_reranker_key = key;
+      this.writeRerankerConfig(config);
     }
     this.activeRerankerKey = key;
     this.writeSetting("active_reranker_key", key);
@@ -456,15 +530,35 @@ export class VectorLibraryService {
   }
 
   deleteReranker(key: string): { deleted_reranker_key: string } {
-    if (!this.getStoredReranker(key)) {
+    const stored = this.getStoredReranker(key);
+    const config = this.readRerankerConfig();
+    const inYaml = config?.rerankers.some((r) => r.reranker_key === key) ?? false;
+    // 存在性兼容双源:Python 经 YAML 建的重排序器可能不在 TS DB,反之亦然;任一存在即可删。
+    if (!stored && !inYaml) {
       throw new VectorLibraryServiceError(`重排序器不存在: ${key}`, 404);
     }
-    this.db.prepare("DELETE FROM rerankers WHERE reranker_key = ?").run(key);
+    if (stored) {
+      this.db.prepare("DELETE FROM rerankers WHERE reranker_key = ?").run(key);
+    }
+    // YAML 配置权威(shared 模式):同步删除条目,使 listRerankers(读 YAML)即时不再显示。
+    let nextActive: string | null = null;
+    if (inYaml && config) {
+      config.rerankers = config.rerankers.filter((r) => r.reranker_key !== key);
+      if (config.active_reranker_key === key) {
+        config.active_reranker_key = config.rerankers[0]?.reranker_key ?? null;
+      }
+      this.writeRerankerConfig(config);
+      nextActive = config.active_reranker_key;
+    }
+    // 活跃态回退:删的是当前激活时,shared 模式用 YAML(已切剩余首条),DB 模式取 DB 首条。
     if (this.activeRerankerKey === key) {
-      const next = this.db.prepare("SELECT reranker_key FROM rerankers ORDER BY created_at ASC LIMIT 1").get() as
-        | { reranker_key: string }
-        | undefined;
-      this.activeRerankerKey = next?.reranker_key ?? null;
+      if (nextActive === null && !inYaml) {
+        const row = this.db.prepare("SELECT reranker_key FROM rerankers ORDER BY created_at ASC LIMIT 1").get() as
+          | { reranker_key: string }
+          | undefined;
+        nextActive = row?.reranker_key ?? null;
+      }
+      this.activeRerankerKey = nextActive;
       this.writeSetting("active_reranker_key", this.activeRerankerKey);
     }
     return { deleted_reranker_key: key };
@@ -988,6 +1082,46 @@ export class VectorLibraryService {
       }];
     });
     return { active_reranker_key: active, rerankers };
+  }
+
+  /**
+   * YAML 配置权威(shared 模式)写回:把内存结构还原成 Python 的 map 形态落盘。
+   * 与 Python VectorizerConfigStore 的写盘格式对齐(verified: yaml 包默认不会把 ISO 字符串转 Date)。
+   */
+  private writeVectorizerConfig(config: SharedVectorizerYaml): void {
+    const vectorizersMap: Record<string, Record<string, unknown>> = {};
+    for (const v of config.vectorizers) {
+      vectorizersMap[v.vectorizer_key] = {
+        provider_key: v.provider_key,
+        provider_type: v.provider_type,
+        model_name: v.model_name,
+        distance_metric: v.distance_metric,
+        created_at: v.created_at,
+      };
+    }
+    saveYamlSync(this.vectorizersConfigPath, {
+      active_vectorizer_key: config.active_vectorizer_key,
+      vectorizers: vectorizersMap,
+    });
+  }
+
+  /** YAML 配置权威(shared 模式)写回 rerankers.yaml,与 readRerankerConfig 对称(api_key 不入 YAML,留 DB)。 */
+  private writeRerankerConfig(config: SharedRerankerYaml): void {
+    const rerankersMap: Record<string, Record<string, unknown>> = {};
+    for (const r of config.rerankers) {
+      rerankersMap[r.reranker_key] = {
+        mode: r.mode,
+        provider_key: r.provider_key,
+        provider_type: r.provider_type,
+        model_name: r.model_name,
+        api_endpoint: r.api_endpoint,
+        created_at: r.created_at,
+      };
+    }
+    saveYamlSync(this.rerankersConfigPath, {
+      active_reranker_key: config.active_reranker_key,
+      rerankers: rerankersMap,
+    });
   }
 
   private readYamlRecord(filePath: string): Record<string, unknown> | null {

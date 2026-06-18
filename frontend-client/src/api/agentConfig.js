@@ -69,10 +69,7 @@ export async function activateTeam(teamName) {
 export async function deleteTeam(teamName) {
   try {
     const response = await fetch(`${API_BASE}/teams/${encodeURIComponent(teamName)}`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json'
-      }
+      method: 'DELETE'
     });
 
     const result = await response.json();
@@ -237,8 +234,7 @@ export async function updateAgentConfig(agentName, payload) {
 export async function deleteAgent(agentName) {
   try {
     const response = await fetch(`/api/agent/agents/delete/${encodeURIComponent(agentName)}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' }
+      method: 'DELETE'
     });
     const result = await response.json();
     if (!response.ok) {

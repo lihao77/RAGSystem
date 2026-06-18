@@ -12,13 +12,16 @@ async function parseResponse(response) {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(path, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
+  const headers = { ...(options.headers || {}) };
+  // 仅在请求携带 body 时声明 JSON content-type。
+  // 无 body 的 GET/DELETE 若声明 application/json,TS 后端 Fastify 的 JSON parser 会以
+  // FST_ERR_CTP_EMPTY_JSON_BODY("Body cannot be empty when content-type is set to 'application/json'")拒绝。
+  // (GET 无 body 时浏览器会丢弃该 header,但 DELETE 会保留——故删除类接口受影响。)
+  const hasContentType = Object.keys(headers).some((k) => k.toLowerCase() === 'content-type');
+  if (options.body !== undefined && !hasContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
+  const response = await fetch(path, { ...options, headers });
   return parseResponse(response);
 }
 
