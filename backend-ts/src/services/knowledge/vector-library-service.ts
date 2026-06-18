@@ -23,8 +23,8 @@ import type { IFileIndexStore } from "../../contracts/file-index-store/index.js"
 import type { IEmbedder, IVectorStore, VectorRecord, VectorSearchHit } from "../../contracts/vector-store/index.js";
 import type { ModelAdapterService } from "../integrations/model-adapter-service.js";
 import { createEmbedder, HashFallbackEmbedder } from "../integrations/embedder-registry.js";
-// 打分纯函数统一从 scoring.ts 复用(本地重复副本 cosineSimilarity/keywordOverlapScore/tokenize 已在 5f 删除)。
-import { cosineSimilarity, hybridScore, keywordOverlapScore, tokenize } from "../vector-store/scoring.js";
+// 打分纯函数统一从 scoring.ts 复用(cosineSimilarity/tokenize 随 5h-2 降级路径删除,本地副本已无)。
+import { hybridScore, keywordOverlapScore } from "../vector-store/scoring.js";
 import { VectorLibraryServiceError } from "../../contracts/vector-library.js";
 
 // 契约泄漏修复:VectorLibraryServiceError / VectorSearchResult 收编至 contracts/vector-library.ts。
@@ -132,7 +132,8 @@ export class VectorLibraryService {
     }
 
     const now = new Date().toISOString();
-    const dimension = LOCAL_EMBEDDING_DIMENSION;
+    // 占位维度 null:真维度未知直到 index(由 driver.getDimension 在 listVectorizers/toVectorizerConfig 暴露)。
+    const dimension: number | null = null;
     this.db
       .prepare(
         `
@@ -185,9 +186,7 @@ export class VectorLibraryService {
     if (this.vectorStore) {
       await this.vectorStore.deleteByModel(vectorizer.model_id);
     }
-    this.db.prepare("DELETE FROM document_vectors WHERE model_id = ?").run(vectorizer.model_id);
     this.db.prepare("DELETE FROM vectorizers WHERE vectorizer_key = ?").run(key);
-    this.refreshVectorCounts();
     if (this.activeVectorizerKey === key) {
       const next = this.db.prepare("SELECT vectorizer_key FROM vectorizers ORDER BY model_id ASC LIMIT 1").get() as
         | { vectorizer_key: string }
@@ -198,22 +197,39 @@ export class VectorLibraryService {
     return { deleted_vectorizer_key: key };
   }
 
-  listDocsByVectorizer(key: string): Array<Record<string, unknown>> {
+  async listDocsByVectorizer(key: string): Promise<Array<Record<string, unknown>>> {
     const vectorizer = this.getStoredVectorizer(key);
     if (!vectorizer) {
       throw new VectorLibraryServiceError(`向量化器不存在或未在 DB 注册: ${key}`, 404);
     }
-    return this.db
+    if (!this.vectorStore) {
+      return [];
+    }
+    // driver 唯一向量源:service.documents 列文档(chunk 索引,全 model 共用),
+    // driver.countVectorsForDocument 按 model_id 过滤该 vectorizer 实际索引的文档 + 计向量数(N+1,管理操作低频可接受)。
+    const docs = this.db
       .prepare(
         `
-          SELECT d.document_id, d.collection, COUNT(v.id) AS vector_count, MIN(d.metadata) AS metadata
-          FROM documents d
-          JOIN document_vectors v ON v.doc_id = d.id AND v.model_id = ?
-          GROUP BY d.collection, d.document_id
-          ORDER BY d.collection, d.document_id
+          SELECT document_id, collection, MIN(metadata) AS metadata
+          FROM documents
+          GROUP BY collection, document_id
+          ORDER BY collection, document_id
         `,
       )
-      .all(vectorizer.model_id) as Array<Record<string, unknown>>;
+      .all() as Array<{ document_id: string; collection: string; metadata: string }>;
+    const result: Array<Record<string, unknown>> = [];
+    for (const doc of docs) {
+      const vectorCount = await this.vectorStore.countVectorsForDocument(doc.collection, doc.document_id, vectorizer.model_id);
+      if (vectorCount > 0) {
+        result.push({
+          document_id: doc.document_id,
+          collection: doc.collection,
+          vector_count: vectorCount,
+          metadata: doc.metadata,
+        });
+      }
+    }
+    return result;
   }
 
   async indexFile(input: IndexFileRequest): Promise<Record<string, unknown>> {
@@ -273,11 +289,27 @@ export class VectorLibraryService {
     if (!source || !target) {
       throw new VectorLibraryServiceError("源或目标向量化器不存在", 404);
     }
-    const rows = this.db
-      .prepare("SELECT * FROM documents WHERE id IN (SELECT doc_id FROM document_vectors WHERE model_id = ?)")
-      .all(source.model_id) as unknown as StoredDocument[];
+    if (!this.vectorStore) {
+      return { from_key: fromKey, to_key: toKey, migrated_chunks: 0 };
+    }
+    // driver 唯一源:找 source model 已索引的文档(countVectorsForDocument>0),取其全部 chunk 用 target 重嵌。
+    const distinctDocs = this.db
+      .prepare("SELECT DISTINCT collection, document_id FROM documents ORDER BY collection, document_id")
+      .all() as Array<{ collection: string; document_id: string }>;
+    const sourceKeys = new Set<string>();
+    for (const doc of distinctDocs) {
+      const count = await this.vectorStore.countVectorsForDocument(doc.collection, doc.document_id, source.model_id);
+      if (count > 0) {
+        sourceKeys.add(`${doc.collection}::${doc.document_id}`);
+      }
+    }
+    const rows =
+      sourceKeys.size === 0
+        ? []
+        : (this.db.prepare("SELECT * FROM documents ORDER BY id ASC").all() as unknown as StoredDocument[]).filter(
+            (row) => sourceKeys.has(`${row.collection}::${row.document_id}`),
+          );
     await this.embedAndStoreDocuments(rows, target);
-    this.refreshVectorCounts();
     return {
       from_key: fromKey,
       to_key: toKey,
@@ -336,7 +368,6 @@ export class VectorLibraryService {
       await this.vectorStore.deleteDocument(collectionName, documentId);
     }
     const deletedChunks = this.deleteDocumentRows(collectionName, documentId);
-    this.refreshVectorCounts();
     return {
       message: `文档 ${documentId} 已从集合 ${collectionName} 中删除`,
       collection: collectionName,
@@ -350,7 +381,6 @@ export class VectorLibraryService {
       await this.vectorStore.deleteCollection(collectionName);
     }
     const deletedChunks = this.deleteCollectionRows(collectionName);
-    this.refreshVectorCounts();
     return {
       message: `集合 ${collectionName} 已删除`,
       collection: collectionName,
@@ -488,7 +518,7 @@ export class VectorLibraryService {
       total_chunks: row.total_chunks,
       chunk_count: row.total_chunks,
       document_count: row.document_count,
-      embedding_dimension: LOCAL_EMBEDDING_DIMENSION,
+      embedding_dimension: this.vectorStore?.getDimension(this.resolveActiveVectorizer().model_id) ?? 0,
       model_name: this.resolveActiveVectorizer().model_name,
       metadata: {
         document_count: row.document_count,
@@ -517,10 +547,10 @@ export class VectorLibraryService {
       throw new VectorLibraryServiceError("search_mode 只能是 hybrid 或 vector", 400);
     }
     const vectorizer = this.resolveActiveVectorizer();
-    // 双路径:vectorStore 注入(driver+真 embedder)走新路径;否则降级到旧 hash 应用层余弦(零回归)。
+    // driver 唯一源:sqlite-vec 必须可用(runtime 启动校验);未注入时返空候选(仅防御,生产不触达)。
     const candidates = this.vectorStore
       ? await this.searchViaDriver(collectionName, query, topK, searchMode, vectorizer, input)
-      : this.searchViaLocal(collectionName, query, topK, searchMode, vectorizer, input);
+      : [];
     const rerank = input.rerank === true && searchMode === "hybrid";
     const results = rerank ? lexicalRerank(candidates, query) : candidates;
     const finalTopK = input.final_top_k ?? topK;
@@ -582,25 +612,6 @@ export class VectorLibraryService {
       .map(hitToSearchResult);
   }
 
-  /** 降级路径:旧 hash embedding + 应用层全表余弦(sqlite-vec 扩展加载失败时 fallback,5f 清理)。 */
-  private searchViaLocal(
-    collectionName: string,
-    query: string,
-    topK: number,
-    searchMode: "hybrid" | "vector",
-    vectorizer: StoredVectorizer,
-    input: SearchVectorsRequest,
-  ): VectorSearchResult[] {
-    const rows = this.loadSearchRows(collectionName, vectorizer.model_id);
-    const queryVector = embedText(query);
-    return rows
-      .map((row) => scoreRow(row, query, queryVector))
-      .filter((row) => row.keyword_score > 0 || row.vector_score > 0)
-      .sort((left, right) => (searchMode === "vector" ? right.vector_score - left.vector_score : right.hybrid_score - left.hybrid_score))
-      .slice(0, input.rerank_top_k ?? Math.max(topK, 20))
-      .map(toSearchResult);
-  }
-
   /** 按 active vectorizer 解析并缓存 embedder:provider_key=local 或查无 → HashFallbackEmbedder。 */
   private async resolveEmbedder(vectorizer: StoredVectorizer): Promise<IEmbedder> {
     const cached = this.embedderCache.get(vectorizer.vectorizer_key);
@@ -637,31 +648,13 @@ export class VectorLibraryService {
     storage_size_mb: number;
     collections: Record<string, number>;
   }> {
-    if (this.vectorStore) {
-      const rows = await this.vectorStore.countVectorsByModel(modelId);
-      const collections = Object.fromEntries(rows.map((row) => [row.collection, row.count]));
-      const vectorCount = rows.reduce((sum, row) => sum + row.count, 0);
-      const dimension = this.vectorStore.getDimension(modelId) ?? LOCAL_EMBEDDING_DIMENSION;
-      return {
-        vector_count: vectorCount,
-        storage_size_mb: Math.round((vectorCount * dimension * 4 / 1024 / 1024) * 100) / 100,
-        collections,
-      };
+    if (!this.vectorStore) {
+      return { vector_count: 0, storage_size_mb: 0, collections: {} };
     }
-    // 降级:旧 document_vectors(5h-2 删)
-    const rows = this.db
-      .prepare(
-        `
-          SELECT collection, COUNT(*) AS count
-          FROM document_vectors
-          WHERE model_id = ?
-          GROUP BY collection
-        `,
-      )
-      .all(modelId) as Array<{ collection: string; count: number }>;
+    const rows = await this.vectorStore.countVectorsByModel(modelId);
     const collections = Object.fromEntries(rows.map((row) => [row.collection, row.count]));
     const vectorCount = rows.reduce((sum, row) => sum + row.count, 0);
-    const dimension = this.getEmbeddingModelById(modelId)?.vector_dimension ?? LOCAL_EMBEDDING_DIMENSION;
+    const dimension = this.vectorStore.getDimension(modelId) ?? 0;
     return {
       vector_count: vectorCount,
       storage_size_mb: Math.round((vectorCount * dimension * 4 / 1024 / 1024) * 100) / 100,
@@ -688,11 +681,7 @@ export class VectorLibraryService {
     for (const vectorizer of (await this.listVectorizers()).filter((v) => v.model_id !== null)) {
       const modelId = vectorizer.model_id!;
       const totalDocuments = this.countChunks(collection);
-      const synced = this.vectorStore
-        ? await this.vectorStore.countVectors(collection, modelId)
-        : (this.db
-            .prepare("SELECT COUNT(*) AS count FROM document_vectors WHERE collection = ? AND model_id = ?")
-            .get(collection, modelId) as { count: number } | undefined)?.count ?? 0;
+      const synced = this.vectorStore ? await this.vectorStore.countVectors(collection, modelId) : 0;
       result.push({
         model_id: modelId,
         vectorizer_key: vectorizer.vectorizer_key,
@@ -711,19 +700,27 @@ export class VectorLibraryService {
       throw new VectorLibraryServiceError(`模型不存在: ${modelId}`, 404);
     }
     const collection = input.collection || "default";
-    const rows = this.db
-      .prepare(
-        `
-          SELECT d.* FROM documents d
-          LEFT JOIN document_vectors v ON v.doc_id = d.id AND v.model_id = ?
-          WHERE d.collection = ? AND v.id IS NULL
-          ORDER BY d.id ASC
-          ${input.limit ? "LIMIT ?" : ""}
-        `,
-      )
-      .all(...(input.limit ? [modelId, collection, input.limit] : [modelId, collection])) as unknown as StoredDocument[];
+    if (!this.vectorStore) {
+      return { model_id: modelId, collection, synced_documents: 0 };
+    }
+    // driver 唯一源:找 collection 中未索引该 model_id 的文档(countVectorsForDocument==0),补嵌其 chunk。
+    const distinctDocs = this.db
+      .prepare("SELECT DISTINCT document_id FROM documents WHERE collection = ? ORDER BY document_id")
+      .all(collection) as Array<{ document_id: string }>;
+    const pendingKeys = new Set<string>();
+    for (const doc of distinctDocs) {
+      const count = await this.vectorStore.countVectorsForDocument(collection, doc.document_id, modelId);
+      if (count === 0) {
+        pendingKeys.add(doc.document_id);
+      }
+    }
+    let rows = (this.db
+      .prepare("SELECT * FROM documents WHERE collection = ? ORDER BY id ASC")
+      .all(collection) as unknown as StoredDocument[]).filter((row) => pendingKeys.has(row.document_id));
+    if (input.limit) {
+      rows = rows.slice(0, input.limit);
+    }
     await this.embedAndStoreDocuments(rows, vectorizer);
-    this.refreshVectorCounts();
     return {
       model_id: modelId,
       collection,
@@ -747,10 +744,12 @@ export class VectorLibraryService {
         await this.vectorStore.deleteDocument(input.collection, input.documentId);
       }
       this.deleteDocumentRows(input.collection, input.documentId);
-      this.refreshVectorCounts();
       return { chunkCount: 0 };
     }
-    return this.vectorStore ? this.indexViaDriver(input, chunks) : this.indexViaLocal(input, chunks);
+    if (!this.vectorStore) {
+      return { chunkCount: 0 };
+    }
+    return this.indexViaDriver(input, chunks);
   }
 
   /**
@@ -771,7 +770,7 @@ export class VectorLibraryService {
     }
     await this.vectorStore.deleteDocument(input.collection, input.documentId);
     this.deleteDocumentRows(input.collection, input.documentId);
-    // 真 embedder 批量嵌入(一次调用替逐 chunk embedText);失败降级 hash 并缓存,保证 index/search 维度一致。
+    // 真 embedder 批量嵌入(一次调用替逐 chunk 嵌入);失败降级 hash 并缓存,保证 index/search 维度一致。
     const vectors = await this.embedWithFallback(input.vectorizer, chunks);
     const now = new Date().toISOString();
     const insertDocument = this.db.prepare(
@@ -781,11 +780,6 @@ export class VectorLibraryService {
         VALUES (?, ?, ?, ?, ?, ?)
       `,
     );
-    // 过渡双写:document_vectors 旧表同时写入向量,保持 file-status/modelStats/syncStatus(读旧表)
-    // 与 driver 一致;5e 状态查询切 driver 后,5f 去此双写 + document_vectors 表。
-    const upsertVectorRow = this.db.prepare(
-      "INSERT OR REPLACE INTO document_vectors (doc_id, collection, model_id, embedding) VALUES (?, ?, ?, ?)",
-    );
     const records: VectorRecord[] = [];
     for (const [index, chunk] of chunks.entries()) {
       const metadata = {
@@ -793,9 +787,8 @@ export class VectorLibraryService {
         document_id: input.documentId,
         chunk_index: index,
       };
-      const result = insertDocument.run(input.collection, input.documentId, index, chunk, JSON.stringify(metadata), now);
+      insertDocument.run(input.collection, input.documentId, index, chunk, JSON.stringify(metadata), now);
       const embedding = vectors[index] ?? [];
-      upsertVectorRow.run(Number(result.lastInsertRowid), input.collection, input.vectorizer.model_id, JSON.stringify(embedding));
       records.push({
         id: "",
         doc_id: input.documentId,
@@ -808,89 +801,40 @@ export class VectorLibraryService {
       });
     }
     await this.vectorStore.upsertRecords(records);
-    this.refreshVectorCounts();
     return { chunkCount: chunks.length };
   }
 
-  /** 降级路径:旧 hash embedding + document_vectors(embedText,sqlite-vec 扩展不可用时;5f 清理)。 */
-  private async indexViaLocal(
-    input: {
-      collection: string;
-      documentId: string;
-      metadata: Record<string, unknown>;
-      vectorizer: StoredVectorizer;
-    },
-    chunks: string[],
-  ): Promise<{ chunkCount: number }> {
-    await this.deleteDocument(input.collection, input.documentId);
-    const now = new Date().toISOString();
-    const insertDocument = this.db.prepare(
-      `
-        INSERT INTO documents
-        (collection, document_id, chunk_index, content, metadata, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `,
-    );
-    for (const [index, chunk] of chunks.entries()) {
-      const metadata = {
-        ...input.metadata,
-        document_id: input.documentId,
-        chunk_index: index,
-      };
-      const result = insertDocument.run(
-        input.collection,
-        input.documentId,
-        index,
-        chunk,
-        JSON.stringify(metadata),
-        now,
-      );
-      this.upsertVector(Number(result.lastInsertRowid), input.collection, input.vectorizer.model_id, chunk);
-    }
-    this.refreshVectorCounts();
-    return { chunkCount: chunks.length };
-  }
-
-  /** 删 service.documents + document_vectors(纯 SQL,不碰 driver)。index 清旧 + deleteDocument 复用。 */
+  /** 删 service.documents 的 chunk 行(纯 SQL,不碰 driver)。index 清旧 + deleteDocument 复用。 */
   private deleteDocumentRows(collectionName: string, documentId: string): number {
     const rows = this.db
       .prepare("SELECT id FROM documents WHERE collection = ? AND document_id = ?")
       .all(collectionName, documentId) as Array<{ id: number }>;
-    for (const row of rows) {
-      this.db.prepare("DELETE FROM document_vectors WHERE doc_id = ?").run(row.id);
-    }
     this.db.prepare("DELETE FROM documents WHERE collection = ? AND document_id = ?").run(collectionName, documentId);
     return rows.length;
   }
 
-  /** 删 service.documents + document_vectors by collection(纯 SQL,不碰 driver)。 */
+  /** 删 service.documents 的 chunk 行 by collection(纯 SQL,不碰 driver)。 */
   private deleteCollectionRows(collectionName: string): number {
     const rows = this.db
       .prepare("SELECT id FROM documents WHERE collection = ?")
       .all(collectionName) as Array<{ id: number }>;
-    for (const row of rows) {
-      this.db.prepare("DELETE FROM document_vectors WHERE doc_id = ?").run(row.id);
-    }
     this.db.prepare("DELETE FROM documents WHERE collection = ?").run(collectionName);
     return rows.length;
   }
 
   /**
-   * 给已存在的 documents 批量补向量(真 embedder)+ 写 driver + 双写 document_vectors。
+   * 给已存在的 documents 批量补向量(真 embedder)+ 写 driver。
    * 供 migrate(源 model 的 docs 用 target embed 重嵌)/syncModel(未向量化的 docs 补嵌)复用。
    */
   private async embedAndStoreDocuments(documents: StoredDocument[], vectorizer: StoredVectorizer): Promise<void> {
-    if (documents.length === 0) {
+    if (documents.length === 0 || !this.vectorStore) {
       return;
     }
+    const store = this.vectorStore;
     const vectors = await this.embedWithFallback(vectorizer, documents.map((doc) => doc.content));
-    const upsertVectorRow = this.db.prepare(
-      "INSERT OR REPLACE INTO document_vectors (doc_id, collection, model_id, embedding) VALUES (?, ?, ?, ?)",
-    );
     const records: VectorRecord[] = [];
     for (const [index, doc] of documents.entries()) {
       const embedding = vectors[index] ?? [];
-      upsertVectorRow.run(doc.id, doc.collection, vectorizer.model_id, JSON.stringify(embedding));
       records.push({
         id: "",
         doc_id: doc.document_id,
@@ -902,17 +846,7 @@ export class VectorLibraryService {
         embedding,
       });
     }
-    if (this.vectorStore) {
-      await this.vectorStore.upsertRecords(records);
-    }
-  }
-
-  private upsertVector(docId: number, collection: string, modelId: number, text: string): void {
-    const vector = embedText(text);
-    this.db.prepare("DELETE FROM document_vectors WHERE doc_id = ? AND collection = ? AND model_id = ?").run(docId, collection, modelId);
-    this.db
-      .prepare("INSERT INTO document_vectors (doc_id, collection, model_id, embedding) VALUES (?, ?, ?, ?)")
-      .run(docId, collection, modelId, JSON.stringify(vector));
+    await store.upsertRecords(records);
   }
 
   private resolveActiveVectorizer(): StoredVectorizer {
@@ -937,25 +871,10 @@ export class VectorLibraryService {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
-      .run(localKey, "local", "local", "hash-embedding", "cosine", new Date().toISOString(), LOCAL_EMBEDDING_DIMENSION, 0);
+      .run(localKey, "local", "local", "hash-embedding", "cosine", new Date().toISOString(), null, 0);
     this.activeVectorizerKey = localKey;
     this.writeSetting("active_vectorizer_key", localKey);
     return this.getStoredVectorizer(localKey)!;
-  }
-
-  private loadSearchRows(collection: string, modelId: number): ScoredRowInput[] {
-    return this.db
-      .prepare(
-        `
-          SELECT d.id, d.document_id, d.collection, d.content, d.metadata, v.embedding
-          FROM documents d
-          LEFT JOIN document_vectors v ON v.doc_id = d.id AND v.model_id = ?
-          WHERE d.collection = ?
-          ORDER BY d.id ASC
-        `,
-      )
-      .all(modelId, collection)
-      .map((row) => normalizeSearchRow(row as Record<string, unknown>));
   }
 
   private collectionInfo(collectionName: string): Record<string, unknown> {
@@ -964,7 +883,7 @@ export class VectorLibraryService {
       total_chunks: this.countChunks(collectionName),
       document_count: this.countDocuments(collectionName),
       sample_ids: this.sampleDocumentIds(collectionName),
-      vector_dimension: LOCAL_EMBEDDING_DIMENSION,
+      vector_dimension: this.vectorStore?.getDimension(this.resolveActiveVectorizer().model_id) ?? 0,
       active_vectorizer_key: this.activeVectorizerKey,
     };
   }
@@ -1084,7 +1003,7 @@ export class VectorLibraryService {
   }
 
   private async listSharedDocumentFileStatuses(vectorizers: FileStatusVectorizer[]): Promise<VectorFileStatus[] | null> {
-    if (!this.tableExists("documents") || !this.tableExists("document_vectors")) {
+    if (!this.tableExists("documents")) {
       return null;
     }
     const rows = this.db
@@ -1230,51 +1149,17 @@ export class VectorLibraryService {
   }
 
   private async countVectorsForDocument(collection: string, documentId: string, modelId: number | null): Promise<number> {
-    if (modelId === null) {
+    if (modelId === null || !this.vectorStore) {
       return 0;
     }
-    if (this.vectorStore) {
-      return this.vectorStore.countVectorsForDocument(collection, documentId, modelId);
-    }
-    // 降级:document_vectors(5h-2 删)
-    const row = this.db
-      .prepare(
-        `
-          SELECT COUNT(*) AS count
-          FROM document_vectors v
-          JOIN documents d ON d.id = v.doc_id
-          WHERE d.collection = ? AND d.document_id = ? AND v.model_id = ?
-        `,
-      )
-      .get(collection, documentId, modelId) as { count: number } | undefined;
-    return row?.count ?? 0;
+    return this.vectorStore.countVectorsForDocument(collection, documentId, modelId);
   }
 
   private async countVectorsForMetadataDocument(collection: string, fileId: string, modelId: number | null): Promise<number> {
-    if (modelId === null || !fileId) {
+    if (modelId === null || !fileId || !this.vectorStore) {
       return 0;
     }
-    if (this.vectorStore) {
-      return this.vectorStore.countVectorsForDocument(collection, fileId, modelId);
-    }
-    // 降级:document_vectors(5h-2 删)
-    const row = this.db
-      .prepare(
-        `
-          SELECT COUNT(*) AS count
-          FROM document_vectors
-          WHERE model_id = ?
-            AND collection = ?
-            AND doc_id IN (
-              SELECT id
-              FROM documents
-              WHERE collection = ?
-                AND json_extract(metadata, '$.document_id') = ?
-            )
-        `,
-      )
-      .get(modelId, collection, collection, fileId) as { count: number } | undefined;
-    return row?.count ?? 0;
+    return this.vectorStore.countVectorsForDocument(collection, fileId, modelId);
   }
 
   private defaultCollectionForFile(fileId: string): string {
@@ -1282,16 +1167,6 @@ export class VectorLibraryService {
       .prepare("SELECT collection FROM documents WHERE document_id = ? ORDER BY id ASC LIMIT 1")
       .get(fileId) as { collection: string } | undefined;
     return row?.collection ?? "documents";
-  }
-
-  private refreshVectorCounts(): void {
-    const rows = this.db
-      .prepare("SELECT model_id, COUNT(*) AS count FROM document_vectors GROUP BY model_id")
-      .all() as Array<{ model_id: number; count: number }>;
-    this.db.prepare("UPDATE vectorizers SET vector_count = 0").run();
-    for (const row of rows) {
-      this.db.prepare("UPDATE vectorizers SET vector_count = ? WHERE model_id = ?").run(row.count, row.model_id);
-    }
   }
 
   private readSetting(key: string): string | null {
@@ -1354,17 +1229,8 @@ export class VectorLibraryService {
       CREATE INDEX IF NOT EXISTS idx_documents_collection_doc
         ON documents(collection, document_id);
 
-      CREATE TABLE IF NOT EXISTS document_vectors (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        doc_id INTEGER NOT NULL,
-        collection TEXT NOT NULL,
-        model_id INTEGER NOT NULL,
-        embedding TEXT NOT NULL,
-        UNIQUE(doc_id, collection, model_id)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_document_vectors_model_collection
-        ON document_vectors(model_id, collection);
+      -- 5h-2:document_vectors 表已废(driver 唯一向量源);清理历史库残留表,新库不再创建。
+      DROP TABLE IF EXISTS document_vectors;
     `);
   }
 
@@ -1386,23 +1252,12 @@ export class VectorLibraryService {
   private migrateLegacyDocumentTables(): void {
     const suffix = Date.now().toString(36);
     const legacyDocuments = `documents_legacy_${suffix}`;
-    const legacyVectors = `document_vectors_legacy_${suffix}`;
-    const hadVectors = this.tableExists("document_vectors");
     this.db.exec("BEGIN");
     try {
       this.db.exec(`ALTER TABLE documents RENAME TO ${quoteIdentifier(legacyDocuments)}`);
-      if (hadVectors) {
-        this.db.exec(`ALTER TABLE document_vectors RENAME TO ${quoteIdentifier(legacyVectors)}`);
-      }
       this.createCurrentDocumentTables();
-      const mapping = this.copyLegacyDocuments(legacyDocuments);
-      if (hadVectors) {
-        this.copyLegacyVectors(legacyVectors, mapping);
-      }
+      this.copyLegacyDocuments(legacyDocuments);
       this.db.exec(`DROP TABLE ${quoteIdentifier(legacyDocuments)}`);
-      if (hadVectors) {
-        this.db.exec(`DROP TABLE ${quoteIdentifier(legacyVectors)}`);
-      }
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1420,15 +1275,6 @@ export class VectorLibraryService {
         content TEXT NOT NULL,
         metadata TEXT NOT NULL,
         created_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS document_vectors (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        doc_id INTEGER NOT NULL,
-        collection TEXT NOT NULL,
-        model_id INTEGER NOT NULL,
-        embedding TEXT NOT NULL,
-        UNIQUE(doc_id, collection, model_id)
       );
     `);
   }
@@ -1475,36 +1321,6 @@ export class VectorLibraryService {
       });
     }
     return mapping;
-  }
-
-  private copyLegacyVectors(legacyTable: string, mapping: Map<string, { id: number; content: string }>): void {
-    const rows = this.db
-      .prepare(
-        `
-          SELECT doc_id, collection, model_id, embedding
-          FROM ${quoteIdentifier(legacyTable)}
-          ORDER BY id
-        `,
-      )
-      .all() as Array<{
-        doc_id: unknown;
-        collection: unknown;
-        model_id: unknown;
-        embedding: unknown;
-      }>;
-    const insert = this.db.prepare(
-      "INSERT OR REPLACE INTO document_vectors (doc_id, collection, model_id, embedding) VALUES (?, ?, ?, ?)",
-    );
-    for (const row of rows) {
-      const collection = String(row.collection ?? "documents");
-      const legacyDocId = String(row.doc_id ?? "");
-      const modelId = Number(row.model_id);
-      const mapped = mapping.get(legacyDocumentKey(collection, legacyDocId));
-      if (!mapped || !Number.isInteger(modelId)) {
-        continue;
-      }
-      insert.run(mapped.id, collection, modelId, normalizeLegacyEmbedding(row.embedding, mapped.content));
-    }
   }
 
   private tableExists(tableName: string): boolean {
@@ -1591,23 +1407,6 @@ interface StoredDocument {
   created_at: string;
 }
 
-interface ScoredRowInput {
-  id: number;
-  documentId: string;
-  collection: string;
-  content: string;
-  metadata: Record<string, unknown>;
-  embedding: number[];
-}
-
-interface ScoredRow extends ScoredRowInput {
-  keyword_score: number;
-  vector_score: number;
-  hybrid_score: number;
-}
-
-const LOCAL_EMBEDDING_DIMENSION = 64;
-
 function normalizeVectorizerKey(providerKey: string, modelName: string): string {
   return `${providerKey}_${safeKeyPart(modelName)}`;
 }
@@ -1680,47 +1479,6 @@ function chunkText(text: string, chunkSize: number, overlap: number): string[] {
   return chunks;
 }
 
-function embedText(text: string): number[] {
-  const vector = Array.from({ length: LOCAL_EMBEDDING_DIMENSION }, () => 0);
-  const tokens = tokenize(text);
-  for (const token of tokens) {
-    const index = positiveHash(token) % LOCAL_EMBEDDING_DIMENSION;
-    vector[index] = (vector[index] ?? 0) + 1;
-  }
-  const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
-  return norm > 0 ? vector.map((value) => value / norm) : vector;
-}
-
-function scoreRow(row: ScoredRowInput, query: string, queryVector: number[]): ScoredRow {
-  const vectorScore = cosineSimilarity(queryVector, row.embedding);
-  const keywordScore = keywordOverlapScore(query, row.content);
-  const hybridScore = vectorScore * 0.7 + keywordScore * 0.3;
-  return {
-    ...row,
-    keyword_score: keywordScore,
-    vector_score: vectorScore,
-    hybrid_score: hybridScore,
-  };
-}
-
-function toSearchResult(row: ScoredRow): VectorSearchResult {
-  const score = Math.round(row.hybrid_score * 10000) / 10000;
-  return {
-    id: String(row.id),
-    doc_id: String(row.id),
-    document_id: row.documentId,
-    collection: row.collection,
-    text: row.content,
-    content: row.content,
-    metadata: row.metadata,
-    score,
-    similarity: Math.round(row.vector_score * 10000) / 10000,
-    keyword_score: Math.round(row.keyword_score * 10000) / 10000,
-    vector_score: Math.round(row.vector_score * 10000) / 10000,
-    hybrid_score: score,
-  };
-}
-
 function hitToSearchResult(hit: VectorSearchHit): VectorSearchResult {
   const score = Math.round(hit.hybrid_score * 10000) / 10000;
   return {
@@ -1748,17 +1506,6 @@ function lexicalRerank(results: VectorSearchResult[], query: string): VectorSear
     .sort((left, right) => (right.rerank_score ?? 0) - (left.rerank_score ?? 0) || right.hybrid_score - left.hybrid_score);
 }
 
-function normalizeSearchRow(row: Record<string, unknown>): ScoredRowInput {
-  return {
-    id: Number(row.id),
-    documentId: String(row.document_id ?? ""),
-    collection: String(row.collection ?? ""),
-    content: String(row.content ?? ""),
-    metadata: parseMetadata(row.metadata),
-    embedding: parseEmbedding(row.embedding) ?? embedText(String(row.content ?? "")),
-  };
-}
-
 function parseMetadata(value: unknown): Record<string, unknown> {
   if (typeof value !== "string") {
     return {};
@@ -1769,27 +1516,6 @@ function parseMetadata(value: unknown): Record<string, unknown> {
   } catch {
     return {};
   }
-}
-
-function parseEmbedding(value: unknown): number[] | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed) ? parsed.map(Number).filter((item) => Number.isFinite(item)) : null;
-  } catch {
-    return null;
-  }
-}
-
-function positiveHash(value: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
 }
 
 function asString(value: unknown): string | null {
@@ -1827,23 +1553,6 @@ function normalizeLegacyMetadata(value: unknown, documentId: string): string {
     document_id: typeof parsed.document_id === "string" ? parsed.document_id : documentId,
     chunk_index: typeof parsed.chunk_index === "number" ? parsed.chunk_index : 0,
   });
-}
-
-function normalizeLegacyEmbedding(value: unknown, fallbackText: string): string {
-  if (typeof value === "string") {
-    const parsed = parseEmbedding(value);
-    if (parsed) {
-      return JSON.stringify(parsed);
-    }
-  }
-  if (value instanceof Uint8Array) {
-    const text = Buffer.from(value).toString("utf8");
-    const parsed = parseEmbedding(text);
-    if (parsed) {
-      return JSON.stringify(parsed);
-    }
-  }
-  return JSON.stringify(embedText(fallbackText));
 }
 
 function readPositiveInteger(value: unknown, fallback: number): number {

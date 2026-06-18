@@ -119,18 +119,13 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const daemon = new DaemonService({ dataRoot: options.dataRoot, configPath: options.daemonConfigPath });
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
   // sqlite-vec driver 接线:读 systemConfig 选后端实例化(触发 driver 模块自注册)。
-  // 扩展加载失败(Node/Windows ABI、vec0 不可用等)时降级为 undefined——
-  // service.search 自动走旧 hash 应用层余弦(零回归),不致启动崩溃。
-  let vectorStore: IVectorStore | undefined;
-  try {
-    vectorStore = createVectorStoreFromConfig(systemConfig.getVectorStoreConfig(), options.dataRoot);
-  } catch (error) {
-    console.warn("[vector-store] driver 初始化失败,降级到应用层余弦检索:", error);
-  }
+  // sqlite-vec 是唯一向量源(driver 唯一);扩展加载失败(vec0 不可用、Node/Windows ABI)直接抛错,
+  // 让启动显式报错而非静默降级到无向量的空检索——5h-2 已删旧 hash 应用层降级路径。
+  const vectorStore = createVectorStoreFromConfig(systemConfig.getVectorStoreConfig(), options.dataRoot);
   const vectorLibrary = new VectorLibraryService(fileIndex, modelAdapter, {
     dbPath: options.dbPath,
     dataRoot: options.dataRoot,
-    ...(vectorStore ? { vectorStore } : {}),
+    vectorStore,
   });
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   const embeddingModels = new EmbeddingModelService(vectorLibrary);

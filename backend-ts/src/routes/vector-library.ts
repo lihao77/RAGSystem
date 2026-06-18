@@ -67,7 +67,7 @@ export const registerVectorLibraryRoutes: FastifyPluginAsync<RouteOptions> = asy
   app.get<{ Params: KeyParams; Querystring: DocsQuery }>("/vectorizers/:key/docs", async (request) => {
     void request.query.collection;
     try {
-      return ok(options.container.vectorLibrary.listDocsByVectorizer(request.params.key));
+      return ok(await options.container.vectorLibrary.listDocsByVectorizer(request.params.key));
     } catch (error) {
       throw toHttpError(error);
     }

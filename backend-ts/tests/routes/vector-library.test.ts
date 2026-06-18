@@ -91,7 +91,7 @@ describe("vector library compatibility routes", () => {
       success: true,
       data: {
         vectorizer_key: "embedding_openai_proxy_text-embedding-3-small",
-        vector_dimension: 64,
+        vector_dimension: null,
         model_id: 1,
       },
     });
@@ -109,7 +109,7 @@ describe("vector library compatibility routes", () => {
         distance_metric: "cosine",
         is_active: true,
         provider_available: true,
-        vector_dimension: 64,
+        vector_dimension: null,
         vector_count: 0,
         model_id: 1,
       },
@@ -333,14 +333,6 @@ describe("vector management compatibility routes", () => {
         last_vector_sync TIMESTAMP,
         PRIMARY KEY (id, collection)
       );
-      CREATE TABLE document_vectors (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        doc_id TEXT NOT NULL,
-        collection TEXT NOT NULL,
-        model_id INTEGER NOT NULL,
-        embedding BLOB NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
       CREATE TABLE vectorizers (
         model_id INTEGER PRIMARY KEY AUTOINCREMENT,
         vectorizer_key TEXT NOT NULL UNIQUE,
@@ -366,31 +358,17 @@ describe("vector management compatibility routes", () => {
       "Legacy vector schema should migrate without startup failure.",
       JSON.stringify({ source: "legacy" }),
     );
-    db.prepare("INSERT INTO document_vectors (doc_id, collection, model_id, embedding) VALUES (?, ?, ?, ?)").run(
-      "legacy-doc",
-      "kb",
-      1,
-      Buffer.from(JSON.stringify([1, 0, 0])),
-    );
     db.close();
 
     const fileIndex = new FileIndexService({ dbPath, dataRoot: root });
     const modelAdapter = new ModelAdapterService({ dataRoot: root, providersConfigPath: "" });
     const service = new VectorLibraryService(fileIndex, modelAdapter, { dbPath, dataRoot: root });
     try {
+      // 5h-2:document_vectors 表 + hash 降级已删(driver 唯一源);此处仅验 documents 旧 schema→新 schema 迁移不崩溃。
       expect(service.listDocuments("kb")).toMatchObject({
         collection_name: "kb",
         total_chunks: 1,
         sample_ids: ["legacy-doc"],
-      });
-      expect(await service.search({ collection_name: "kb", query: "legacy schema", top_k: 5 })).toMatchObject({
-        count: 1,
-        results: [
-          {
-            document_id: "legacy-doc",
-            collection: "kb",
-          },
-        ],
       });
     } finally {
       service.close();
