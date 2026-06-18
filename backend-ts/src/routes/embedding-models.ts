@@ -25,14 +25,14 @@ interface SyncStatusQuery {
 export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.get("/models", async () => ({
     success: true,
-    models: options.container.embeddingModels.listModels(),
+    models: await options.container.embeddingModels.listModels(),
   }));
 
   app.post<{ Params: ModelParams }>("/models/:modelId/activate", async (request) => {
     try {
       return {
         success: true,
-        ...options.container.embeddingModels.activateModel(parseModelId(request.params.modelId), { missingOk: true }),
+        ...(await options.container.embeddingModels.activateModel(parseModelId(request.params.modelId), { missingOk: true })),
       };
     } catch (error) {
       throw toHttpError(error);
@@ -73,7 +73,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
     void request.query.collection;
     return {
       success: true,
-      stats: options.container.embeddingModels.getModelStats(parseModelId(request.params.modelId)),
+      stats: await options.container.embeddingModels.getModelStats(parseModelId(request.params.modelId)),
     };
   });
 
@@ -82,7 +82,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
     return {
       success: true,
       collection,
-      sync_status: options.container.embeddingModels.getSyncStatus(collection),
+      sync_status: await options.container.embeddingModels.getSyncStatus(collection),
     };
   });
 };

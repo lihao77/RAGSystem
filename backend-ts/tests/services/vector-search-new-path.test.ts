@@ -22,6 +22,7 @@ function makeFakeDriver(hits: VectorSearchHit[], dimension: number | null = null
     listCollections: async () => [],
     listDocuments: async () => [],
     countVectors: async () => 0,
+    countVectorsByModel: async () => [],
     countVectorsForDocument: async () => 0,
     countChunks: async () => 0,
     getDimension: () => dimension,
@@ -126,7 +127,7 @@ describe("VectorLibraryService search 新路径(driver 召回 + scoring 重排)"
     try {
       // search 触发 resolveActiveVectorizer 创建 local_hash_embedding(model_id=1)
       await service.search({ collection_name: "kb", query: "probe", top_k: 5 });
-      const active = service.listVectorizers().find((vectorizer) => vectorizer.vectorizer_key === "local_hash_embedding");
+      const active = (await service.listVectorizers()).find((vectorizer) => vectorizer.vectorizer_key === "local_hash_embedding");
       expect(active).toBeTruthy();
       // toVectorizerConfig 用 driver.getDimension(1)=1536,非 addVectorizer 占位的 64
       expect(active?.vector_dimension).toBe(1536);

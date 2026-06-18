@@ -81,6 +81,8 @@ export interface IVectorStore {
   listCollections(): Promise<CollectionInfo[]>;
   listDocuments(collection: string): Promise<DocumentInfo[]>;
   countVectors(collection: string, model_id: number): Promise<number>;
+  /** 该 model_id 的向量按 collection 分组计数(modelStats 的 group-by-collection breakdown 用)。 */
+  countVectorsByModel(model_id: number): Promise<Array<{ collection: string; count: number }>>;
   /** document 级向量计数:fileStatus 判某文件在某 model_id 下是否已索引(B/A 交叉查询)。 */
   countVectorsForDocument(collection: string, documentId: string, model_id: number): Promise<number>;
   countChunks(collection: string): Promise<number>;

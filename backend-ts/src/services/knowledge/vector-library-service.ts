@@ -74,8 +74,8 @@ export class VectorLibraryService {
     this.vectorStore?.close();
   }
 
-  fileStatus(): VectorFileStatusResponse {
-    const vectorizers = this.listFileStatusVectorizers();
+  async fileStatus(): Promise<VectorFileStatusResponse> {
+    const vectorizers = await this.listFileStatusVectorizers();
     const files = this.listSharedDocumentFileStatuses(vectorizers);
     if (files !== null) {
       return { files, vectorizers };
@@ -109,15 +109,19 @@ export class VectorLibraryService {
     };
   }
 
-  listVectorizers(): VectorizerConfig[] {
-    const shared = this.listSharedVectorizers();
+  async listVectorizers(): Promise<VectorizerConfig[]> {
+    const shared = await this.listSharedVectorizers();
     if (shared !== null) {
       return shared;
     }
     const rows = this.db
       .prepare("SELECT * FROM vectorizers ORDER BY model_id ASC")
       .all() as unknown as StoredVectorizer[];
-    return rows.map((vectorizer) => this.toVectorizerConfig(vectorizer));
+    const configs: VectorizerConfig[] = [];
+    for (const vectorizer of rows) {
+      configs.push(await this.toVectorizerConfig(vectorizer));
+    }
+    return configs;
   }
 
   addVectorizer(input: VectorizerCreate): Pick<VectorizerConfig, "vectorizer_key" | "vector_dimension" | "model_id"> {
@@ -442,12 +446,12 @@ export class VectorLibraryService {
     return { deleted_reranker_key: key };
   }
 
-  vectorHealth(): Record<string, unknown> {
+  async vectorHealth(): Promise<Record<string, unknown>> {
     return {
       status: "healthy",
       runtime: "local",
       collections_count: this.listCollections().length,
-      vectorizers_count: this.listVectorizers().length,
+      vectorizers_count: (await this.listVectorizers()).length,
       rerankers_count: this.listRerankers().length,
       active_vectorizer_key: this.activeVectorizerKey,
       active_reranker_key: this.activeRerankerKey,
@@ -634,11 +638,23 @@ export class VectorLibraryService {
     }
   }
 
-  getModelStats(modelId: number): {
+  async getModelStats(modelId: number): Promise<{
     vector_count: number;
     storage_size_mb: number;
     collections: Record<string, number>;
-  } {
+  }> {
+    if (this.vectorStore) {
+      const rows = await this.vectorStore.countVectorsByModel(modelId);
+      const collections = Object.fromEntries(rows.map((row) => [row.collection, row.count]));
+      const vectorCount = rows.reduce((sum, row) => sum + row.count, 0);
+      const dimension = this.vectorStore.getDimension(modelId) ?? LOCAL_EMBEDDING_DIMENSION;
+      return {
+        vector_count: vectorCount,
+        storage_size_mb: Math.round((vectorCount * dimension * 4 / 1024 / 1024) * 100) / 100,
+        collections,
+      };
+    }
+    // 降级:旧 document_vectors(5h-2 删)
     const rows = this.db
       .prepare(
         `
@@ -659,15 +675,15 @@ export class VectorLibraryService {
     };
   }
 
-  getSyncStatus(collection: string): Array<{
+  async getSyncStatus(collection: string): Promise<Array<{
     model_id: number;
     vectorizer_key: string;
     total_documents: number;
     synced_documents: number;
     pending_documents: number;
     sync_percentage: number;
-  }> {
-    return this.listVectorizers()
+  }>> {
+    return (await this.listVectorizers())
       .filter((vectorizer) => vectorizer.model_id !== null)
       .map((vectorizer) => {
         const modelId = vectorizer.model_id!;
@@ -951,8 +967,8 @@ export class VectorLibraryService {
     };
   }
 
-  private listFileStatusVectorizers(): FileStatusVectorizer[] {
-    return this.listVectorizers().map((vectorizer) => ({
+  private async listFileStatusVectorizers(): Promise<FileStatusVectorizer[]> {
+    return (await this.listVectorizers()).map((vectorizer) => ({
       vectorizer_key: vectorizer.vectorizer_key,
       model_name: vectorizer.model_name,
       provider_key: vectorizer.provider_key,
@@ -961,15 +977,16 @@ export class VectorLibraryService {
     }));
   }
 
-  private listSharedVectorizers(): VectorizerConfig[] | null {
+  private async listSharedVectorizers(): Promise<VectorizerConfig[] | null> {
     const config = this.readVectorizerConfig();
     if (!config) {
       return null;
     }
-    return config.vectorizers.map((vectorizer) => {
+    const result: VectorizerConfig[] = [];
+    for (const vectorizer of config.vectorizers) {
       const model = this.getEmbeddingModelByVectorizerKey(vectorizer.vectorizer_key);
-      const stats = model ? this.getModelStats(model.id) : { vector_count: 0 };
-      return {
+      const stats = model ? await this.getModelStats(model.id) : { vector_count: 0 };
+      result.push({
         vectorizer_key: vectorizer.vectorizer_key,
         provider_key: vectorizer.provider_key,
         provider_type: vectorizer.provider_type,
@@ -981,8 +998,9 @@ export class VectorLibraryService {
         vector_dimension: model?.vector_dimension ?? null,
         vector_count: stats.vector_count,
         model_id: model?.id ?? null,
-      };
-    });
+      });
+    }
+    return result;
   }
 
   private listSharedRerankers(): RerankerConfig[] | null {
@@ -1115,8 +1133,8 @@ export class VectorLibraryService {
     });
   }
 
-  private toVectorizerConfig(vectorizer: StoredVectorizer): VectorizerConfig {
-    const stats = this.getModelStats(vectorizer.model_id);
+  private async toVectorizerConfig(vectorizer: StoredVectorizer): Promise<VectorizerConfig> {
+    const stats = await this.getModelStats(vectorizer.model_id);
     return {
       vectorizer_key: vectorizer.vectorizer_key,
       provider_key: vectorizer.provider_key,

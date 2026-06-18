@@ -21,36 +21,35 @@ export class EmbeddingModelService {
 
   constructor(private readonly vectorLibrary: VectorLibraryService) {}
 
-  listModels(): EmbeddingModelInfo[] {
-    const models = this.vectorLibrary.listVectorizers().flatMap((vectorizer, index) => {
+  async listModels(): Promise<EmbeddingModelInfo[]> {
+    const models: EmbeddingModelInfo[] = [];
+    for (const vectorizer of await this.vectorLibrary.listVectorizers()) {
       if (vectorizer.model_id == null) {
-        return [];
+        continue;
       }
       const modelId = vectorizer.model_id;
       const isActive = this.activeModelId !== null ? this.activeModelId === modelId : false;
-      return [
-        {
+      models.push({
+        id: modelId,
+        model_key: this.modelKey(vectorizer.provider_key, vectorizer.model_name, vectorizer.vector_dimension ?? 0),
+        provider: vectorizer.provider_key,
+        model_name: vectorizer.model_name,
+        vector_dimension: vectorizer.vector_dimension ?? 0,
+        distance_metric: vectorizer.distance_metric,
+        is_active: isActive,
+        api_endpoint: null,
+        created_at: vectorizer.created_at,
+        last_used_at: vectorizer.created_at,
+        vectorizer_key: vectorizer.vectorizer_key,
+        stats: await this.buildStats({
           id: modelId,
-          model_key: this.modelKey(vectorizer.provider_key, vectorizer.model_name, vectorizer.vector_dimension ?? 0),
           provider: vectorizer.provider_key,
-          model_name: vectorizer.model_name,
-          vector_dimension: vectorizer.vector_dimension ?? 0,
-          distance_metric: vectorizer.distance_metric,
-          is_active: isActive,
-          api_endpoint: null,
-          created_at: vectorizer.created_at,
-          last_used_at: vectorizer.created_at,
-          vectorizer_key: vectorizer.vectorizer_key,
-          stats: this.buildStats({
-            id: modelId,
-            provider: vectorizer.provider_key,
-            modelName: vectorizer.model_name,
-            dimension: vectorizer.vector_dimension ?? 0,
-            isActive,
-          }),
-        } satisfies EmbeddingModelInfo,
-      ];
-    });
+          modelName: vectorizer.model_name,
+          dimension: vectorizer.vector_dimension ?? 0,
+          isActive,
+        }),
+      });
+    }
 
     if (this.activeModelId !== null && !models.some((model) => model.id === this.activeModelId)) {
       this.activeModelId = null;
@@ -58,8 +57,8 @@ export class EmbeddingModelService {
     return models;
   }
 
-  activateModel(modelId: number, options: { missingOk?: boolean } = {}): { message: string } {
-    const model = this.getModel(modelId);
+  async activateModel(modelId: number, options: { missingOk?: boolean } = {}): Promise<{ message: string }> {
+    const model = await this.getModel(modelId);
     if (!model) {
       if (options.missingOk) {
         this.activeModelId = modelId;
@@ -73,7 +72,7 @@ export class EmbeddingModelService {
   }
 
   async deleteModel(modelId: number, force: boolean): Promise<{ message: string }> {
-    const model = this.getModel(modelId);
+    const model = await this.getModel(modelId);
     if (!model) {
       throw new EmbeddingModelServiceError("删除失败，请检查日志", 400);
     }
@@ -87,12 +86,12 @@ export class EmbeddingModelService {
     return { message: `模型 ${modelId} 已删除` };
   }
 
-  getModelStats(modelId: number): EmbeddingModelStats | Record<string, never> {
-    const model = this.getModel(modelId);
+  async getModelStats(modelId: number): Promise<EmbeddingModelStats | Record<string, never>> {
+    const model = await this.getModel(modelId);
     if (!model) {
       return {};
     }
-    return this.buildStats({
+    return await this.buildStats({
       id: model.id,
       provider: model.provider,
       modelName: model.model_name,
@@ -101,9 +100,9 @@ export class EmbeddingModelService {
     });
   }
 
-  getSyncStatus(collection: string): EmbeddingSyncStatus[] {
-    const models = new Map(this.listModels().map((model) => [model.id, model]));
-    return this.vectorLibrary.getSyncStatus(collection).flatMap((status) => {
+  async getSyncStatus(collection: string): Promise<EmbeddingSyncStatus[]> {
+    const models = new Map((await this.listModels()).map((model) => [model.id, model]));
+    return (await this.vectorLibrary.getSyncStatus(collection)).flatMap((status) => {
       const model = models.get(status.model_id);
       if (!model) {
         return [];
@@ -127,18 +126,18 @@ export class EmbeddingModelService {
     });
   }
 
-  private getModel(modelId: number): EmbeddingModelInfo | null {
-    return this.listModels().find((model) => model.id === modelId) ?? null;
+  private async getModel(modelId: number): Promise<EmbeddingModelInfo | null> {
+    return (await this.listModels()).find((model) => model.id === modelId) ?? null;
   }
 
-  private buildStats(input: {
+  private async buildStats(input: {
     id: number;
     provider: string;
     modelName: string;
     dimension: number;
     isActive: boolean;
-  }): EmbeddingModelStats {
-    const stats = this.vectorLibrary.getModelStats(input.id);
+  }): Promise<EmbeddingModelStats> {
+    const stats = await this.vectorLibrary.getModelStats(input.id);
     return {
       model_id: input.id,
       model_key: this.modelKey(input.provider, input.modelName, input.dimension),

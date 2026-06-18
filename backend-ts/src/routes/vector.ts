@@ -75,7 +75,7 @@ export const registerVectorRoutes: FastifyPluginAsync<RouteOptions> = async (app
     data: normalizeDocumentsResponse(options.container.vectorLibrary.listDocuments(request.params.collectionName)),
   }));
 
-  app.get("/health", async () => ok(normalizeVectorHealth(options.container.vectorLibrary.vectorHealth())));
+  app.get("/health", async () => ok(normalizeVectorHealth(await options.container.vectorLibrary.vectorHealth())));
 };
 
 function toHttpError(error: unknown): HttpError {

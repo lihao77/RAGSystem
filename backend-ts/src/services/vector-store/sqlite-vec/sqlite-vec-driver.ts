@@ -244,6 +244,17 @@ export class SqliteVecDriver implements IVectorStore {
     return row?.n ?? 0;
   }
 
+  async countVectorsByModel(model_id: number): Promise<Array<{ collection: string; count: number }>> {
+    const table = vecTableName(model_id);
+    if (!this.tableExists(table)) {
+      return [];
+    }
+    const rows = this.db
+      .prepare(`SELECT d.collection, COUNT(*) AS count FROM ${table} v JOIN vec_documents d ON d.id = v.rowid GROUP BY d.collection`)
+      .all() as unknown as Array<{ collection: string; count: number }>;
+    return rows;
+  }
+
   async countChunks(collection: string): Promise<number> {
     const row = this.db
       .prepare(`SELECT COUNT(*) AS n FROM vec_documents WHERE collection = ?`)

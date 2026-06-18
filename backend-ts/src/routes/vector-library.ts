@@ -21,7 +21,7 @@ interface DocsQuery {
 }
 
 export const registerVectorLibraryRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  app.get("/file-status", async () => ok(options.container.vectorLibrary.fileStatus()));
+  app.get("/file-status", async () => ok(await options.container.vectorLibrary.fileStatus()));
 
   app.post("/index-file", async (request) => {
     const payload = IndexFileRequestSchema.parse(request.body);
@@ -45,7 +45,7 @@ export const registerVectorLibraryRoutes: FastifyPluginAsync<RouteOptions> = asy
     }
   });
 
-  app.get("/vectorizers", async () => ok(options.container.vectorLibrary.listVectorizers()));
+  app.get("/vectorizers", async () => ok(await options.container.vectorLibrary.listVectorizers()));
 
   app.post("/vectorizers", async (request) => {
     const payload = VectorizerCreateSchema.parse(request.body);
