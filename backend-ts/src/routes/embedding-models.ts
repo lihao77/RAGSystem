@@ -43,10 +43,10 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
     try {
       return {
         success: true,
-        ...options.container.embeddingModels.deleteModel(
+        ...(await options.container.embeddingModels.deleteModel(
           parseModelId(request.params.modelId),
           parseBoolean(request.query.force),
-        ),
+        )),
       };
     } catch (error) {
       throw toHttpError(error);

@@ -72,7 +72,7 @@ export class EmbeddingModelService {
     return { message: `模型 ${modelId} 已激活` };
   }
 
-  deleteModel(modelId: number, force: boolean): { message: string } {
+  async deleteModel(modelId: number, force: boolean): Promise<{ message: string }> {
     const model = this.getModel(modelId);
     if (!model) {
       throw new EmbeddingModelServiceError("删除失败，请检查日志", 400);
@@ -80,7 +80,7 @@ export class EmbeddingModelService {
     if (model.is_active && !force) {
       throw new EmbeddingModelServiceError("删除失败，请检查日志", 400);
     }
-    this.vectorLibrary.deleteVectorizer(model.vectorizer_key);
+    await this.vectorLibrary.deleteVectorizer(model.vectorizer_key);
     if (this.activeModelId === modelId) {
       this.activeModelId = null;
     }

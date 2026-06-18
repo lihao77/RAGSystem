@@ -178,10 +178,14 @@ export class VectorLibraryService {
     return { active_vectorizer_key: key };
   }
 
-  deleteVectorizer(key: string): { deleted_vectorizer_key: string } {
+  async deleteVectorizer(key: string): Promise<{ deleted_vectorizer_key: string }> {
     const vectorizer = this.getStoredVectorizer(key);
     if (!vectorizer) {
       throw new VectorLibraryServiceError(`向量化器不存在: ${key}`, 404);
+    }
+    // B/A 解耦:经 driver.deleteByModel 删向量数据(而非直连库),切断 vectorizer 元数据与向量数据物理耦合
+    if (this.vectorStore) {
+      await this.vectorStore.deleteByModel(vectorizer.model_id);
     }
     this.db.prepare("DELETE FROM document_vectors WHERE model_id = ?").run(vectorizer.model_id);
     this.db.prepare("DELETE FROM vectorizers WHERE vectorizer_key = ?").run(key);

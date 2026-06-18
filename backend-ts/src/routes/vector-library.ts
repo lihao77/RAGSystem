@@ -75,7 +75,7 @@ export const registerVectorLibraryRoutes: FastifyPluginAsync<RouteOptions> = asy
 
   app.delete<{ Params: KeyParams }>("/vectorizers/:key", async (request) => {
     try {
-      return ok(options.container.vectorLibrary.deleteVectorizer(request.params.key));
+      return ok(await options.container.vectorLibrary.deleteVectorizer(request.params.key));
     } catch (error) {
       throw toHttpError(error);
     }
