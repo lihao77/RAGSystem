@@ -76,37 +76,31 @@ export class VectorLibraryService {
 
   async fileStatus(): Promise<VectorFileStatusResponse> {
     const vectorizers = await this.listFileStatusVectorizers();
-    const files = this.listSharedDocumentFileStatuses(vectorizers);
+    const files = await this.listSharedDocumentFileStatuses(vectorizers);
     if (files !== null) {
       return { files, vectorizers };
     }
-    return {
-      files: this.fileIndex
-        .list({ scopeType: "global", scopeId: null })
-        .map((file): VectorFileStatus => {
-          const collection = this.defaultCollectionForFile(file.id);
-          const chunkCount = this.countChunksForDocument(collection, file.id);
-          const status = Object.fromEntries(
-            vectorizers.map((vectorizer) => [
-              vectorizer.vectorizer_key,
-              this.countVectorsForDocument(collection, file.id, vectorizer.model_id) >= chunkCount && chunkCount > 0
-                ? "已索引"
-                : "未索引",
-            ]),
-          ) as Record<string, "已索引" | "未索引">;
-          return {
-            file_name: file.original_name,
-            file_id: file.id,
-            collection,
-            chunk_count: chunkCount,
-            vectorizer_status: status,
-            uploaded_at: file.uploaded_at,
-            size: file.size,
-            mime: file.mime,
-          };
-        }),
-      vectorizers,
-    };
+    const fileStatuses: VectorFileStatus[] = [];
+    for (const file of this.fileIndex.list({ scopeType: "global", scopeId: null })) {
+      const collection = this.defaultCollectionForFile(file.id);
+      const chunkCount = this.countChunksForDocument(collection, file.id);
+      const status: Record<string, "已索引" | "未索引"> = {};
+      for (const vectorizer of vectorizers) {
+        const vectorCount = await this.countVectorsForDocument(collection, file.id, vectorizer.model_id);
+        status[vectorizer.vectorizer_key] = vectorCount >= chunkCount && chunkCount > 0 ? "已索引" : "未索引";
+      }
+      fileStatuses.push({
+        file_name: file.original_name,
+        file_id: file.id,
+        collection,
+        chunk_count: chunkCount,
+        vectorizer_status: status,
+        uploaded_at: file.uploaded_at,
+        size: file.size,
+        mime: file.mime,
+      });
+    }
+    return { files: fileStatuses, vectorizers };
   }
 
   async listVectorizers(): Promise<VectorizerConfig[]> {
@@ -683,24 +677,32 @@ export class VectorLibraryService {
     pending_documents: number;
     sync_percentage: number;
   }>> {
-    return (await this.listVectorizers())
-      .filter((vectorizer) => vectorizer.model_id !== null)
-      .map((vectorizer) => {
-        const modelId = vectorizer.model_id!;
-        const totalDocuments = this.countChunks(collection);
-        const syncedDocuments = this.db
-          .prepare("SELECT COUNT(*) AS count FROM document_vectors WHERE collection = ? AND model_id = ?")
-          .get(collection, modelId) as { count: number } | undefined;
-        const synced = syncedDocuments?.count ?? 0;
-        return {
-          model_id: modelId,
-          vectorizer_key: vectorizer.vectorizer_key,
-          total_documents: totalDocuments,
-          synced_documents: synced,
-          pending_documents: Math.max(totalDocuments - synced, 0),
-          sync_percentage: totalDocuments ? Math.round((synced / totalDocuments) * 10000) / 100 : 0,
-        };
+    const result: Array<{
+      model_id: number;
+      vectorizer_key: string;
+      total_documents: number;
+      synced_documents: number;
+      pending_documents: number;
+      sync_percentage: number;
+    }> = [];
+    for (const vectorizer of (await this.listVectorizers()).filter((v) => v.model_id !== null)) {
+      const modelId = vectorizer.model_id!;
+      const totalDocuments = this.countChunks(collection);
+      const synced = this.vectorStore
+        ? await this.vectorStore.countVectors(collection, modelId)
+        : (this.db
+            .prepare("SELECT COUNT(*) AS count FROM document_vectors WHERE collection = ? AND model_id = ?")
+            .get(collection, modelId) as { count: number } | undefined)?.count ?? 0;
+      result.push({
+        model_id: modelId,
+        vectorizer_key: vectorizer.vectorizer_key,
+        total_documents: totalDocuments,
+        synced_documents: synced,
+        pending_documents: Math.max(totalDocuments - synced, 0),
+        sync_percentage: totalDocuments ? Math.round((synced / totalDocuments) * 10000) / 100 : 0,
       });
+    }
+    return result;
   }
 
   async syncModel(modelId: number, input: { collection: string; limit?: number | null | undefined }): Promise<Record<string, unknown>> {
@@ -1081,7 +1083,7 @@ export class VectorLibraryService {
     }
   }
 
-  private listSharedDocumentFileStatuses(vectorizers: FileStatusVectorizer[]): VectorFileStatus[] | null {
+  private async listSharedDocumentFileStatuses(vectorizers: FileStatusVectorizer[]): Promise<VectorFileStatus[] | null> {
     if (!this.tableExists("documents") || !this.tableExists("document_vectors")) {
       return null;
     }
@@ -1111,26 +1113,25 @@ export class VectorLibraryService {
         chunk_count: number;
       }>;
 
-    return rows.map((row) => {
+    const result: VectorFileStatus[] = [];
+    for (const row of rows) {
       const collection = String(row.collection ?? "");
       const fileId = cleanJsonExtractedString(row.file_id);
       const chunkCount = Number(row.chunk_count ?? 0);
-      const status = Object.fromEntries(
-        vectorizers.map((vectorizer) => [
-          vectorizer.vectorizer_key,
-          this.countVectorsForMetadataDocument(collection, fileId, vectorizer.model_id) === chunkCount && chunkCount > 0
-            ? "已索引"
-            : "未索引",
-        ]),
-      ) as Record<string, "已索引" | "未索引">;
-      return {
+      const status: Record<string, "已索引" | "未索引"> = {};
+      for (const vectorizer of vectorizers) {
+        const vectorCount = await this.countVectorsForMetadataDocument(collection, fileId, vectorizer.model_id);
+        status[vectorizer.vectorizer_key] = vectorCount === chunkCount && chunkCount > 0 ? "已索引" : "未索引";
+      }
+      result.push({
         file_name: cleanJsonExtractedString(row.file_name) || fileId,
         file_id: fileId,
         collection,
         chunk_count: chunkCount,
         vectorizer_status: status,
-      };
-    });
+      });
+    }
+    return result;
   }
 
   private async toVectorizerConfig(vectorizer: StoredVectorizer): Promise<VectorizerConfig> {
@@ -1228,10 +1229,14 @@ export class VectorLibraryService {
     return row?.count ?? 0;
   }
 
-  private countVectorsForDocument(collection: string, documentId: string, modelId: number | null): number {
+  private async countVectorsForDocument(collection: string, documentId: string, modelId: number | null): Promise<number> {
     if (modelId === null) {
       return 0;
     }
+    if (this.vectorStore) {
+      return this.vectorStore.countVectorsForDocument(collection, documentId, modelId);
+    }
+    // 降级:document_vectors(5h-2 删)
     const row = this.db
       .prepare(
         `
@@ -1245,10 +1250,14 @@ export class VectorLibraryService {
     return row?.count ?? 0;
   }
 
-  private countVectorsForMetadataDocument(collection: string, fileId: string, modelId: number | null): number {
+  private async countVectorsForMetadataDocument(collection: string, fileId: string, modelId: number | null): Promise<number> {
     if (modelId === null || !fileId) {
       return 0;
     }
+    if (this.vectorStore) {
+      return this.vectorStore.countVectorsForDocument(collection, fileId, modelId);
+    }
+    // 降级:document_vectors(5h-2 删)
     const row = this.db
       .prepare(
         `
