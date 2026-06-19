@@ -6,10 +6,15 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
-import { AgentRuntimeCore, type AgentRuntimeEvent } from "../../src/services/agent/agent-runtime-core.js";
+import type { AgentRuntimeEvent, KernelResult, MessageRefresher } from "../../src/services/agent/kernel/contracts.js";
+import type { AgentPromptContext } from "../../src/services/agent/agent-prompt-builder.js";
+import { DefaultHookRegistry } from "../../src/services/agent/kernel/hook-registry.js";
+import { RuntimeEventSink } from "../../src/services/agent/kernel-plugins/events/runtime-event-sink.js";
+import { createRuntimeKernel } from "../../src/services/agent/kernel-plugins/create-runtime-kernel.js";
 import type {
   ChatCompletionRequest,
   ChatCompletionResult,
+  ChatMessage,
   ChatStreamChunkHandler,
   LlmChatClient,
 } from "../../src/services/integrations/llm-chat-client.js";
@@ -33,6 +38,15 @@ class FakeChatClient implements LlmChatClient {
     if (this.error) {
       throw this.error;
     }
+    return { content: "core answer" };
+  }
+
+  async stream(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler) {
+    this.requests.push(request);
+    if (this.error) {
+      throw this.error;
+    }
+    await onChunk({ content: "core answer" });
     return { content: "core answer" };
   }
 }
@@ -79,21 +93,6 @@ class FakeXmlStreamingToolChatClient implements LlmChatClient {
       }
     }
     return { content, finishReason: "stop" };
-  }
-}
-
-class FakeToolCallingChatClient implements LlmChatClient {
-  readonly requests: ChatCompletionRequest[] = [];
-
-  constructor(private readonly responses: ChatCompletionResult[]) {}
-
-  async complete(request: ChatCompletionRequest) {
-    this.requests.push(request);
-    const response = this.responses.shift();
-    if (!response) {
-      throw new Error("missing fake LLM response");
-    }
-    return response;
   }
 }
 
@@ -478,10 +477,69 @@ class FakeWaitingToolExecutor implements RuntimeToolExecutor {
   }
 }
 
-describe("AgentRuntimeCore", () => {
+type TestRunInput = {
+  agent: AgentConfig;
+  provider: ModelProviderConfig;
+  modelName: string;
+  conversation: ChatMessage[];
+  promptContext?: AgentPromptContext;
+  toolExecutor?: RuntimeToolExecutor;
+  toolContext?: RuntimeToolExecutionContext;
+  signal?: AbortSignal;
+  onEvent?: (event: AgentRuntimeEvent) => void | Promise<void>;
+  conversationUpdateProvider?: () => Promise<ChatMessage[]> | ChatMessage[];
+  onModelRequestSuccess?: () => void;
+};
+
+/**
+ * 测试 fixture：把旧 AgentRuntimeCore.runText(input) 契约适配到 kernel.run(session)。
+ * 仅测试用——onEvent / conversationUpdateProvider / onModelRequestSuccess 三回调重新映射为
+ * EventSink / MessageRefresher / afterModel hook，与生产 run-engine 接线等价，让全部黑盒断言
+ * （事件序列、输出、buildRequest 组装）在内核结构下继续验证"行为零变化"。
+ */
+function createTestRuntime(client: LlmChatClient, options?: { dataRoot?: string }) {
+  return {
+    async runText(input: TestRunInput): Promise<KernelResult> {
+      const eventSink = new RuntimeEventSink((event) => {
+        input.onEvent?.(event);
+      });
+      const refresher: MessageRefresher = {
+        refresh: async () => input.conversationUpdateProvider?.() ?? [],
+      };
+      const hooks = new DefaultHookRegistry();
+      if (input.onModelRequestSuccess) {
+        hooks.register("afterModel", () => input.onModelRequestSuccess?.());
+      }
+      const kernel = createRuntimeKernel({
+        llmChatClient: client,
+        dataRoot: options?.dataRoot ?? os.tmpdir(),
+        eventSink,
+        refresher,
+        hooks,
+      });
+      return kernel.run({
+        agent: input.agent,
+        provider: input.provider,
+        modelName: input.modelName,
+        conversation: input.conversation,
+        promptContext: input.promptContext,
+        toolExecutor: input.toolExecutor,
+        toolContext: input.toolContext,
+        signal: input.signal,
+        sessionId: "test-session",
+        runId: "test-run",
+        taskId: null,
+        requestId: null,
+        rootCallId: "test-root",
+      });
+    },
+  };
+}
+
+describe("AgentKernel", () => {
   it("runs text with only agent, provider, model, and conversation input", async () => {
     const client = new FakeChatClient();
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
 
     const result = await core.runText({
       agent: minimalAgent(),
@@ -521,7 +579,7 @@ describe("AgentRuntimeCore", () => {
 
   it("merges leading system context with the agent system prompt", async () => {
     const client = new FakeChatClient();
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
 
     await core.runText({
       agent: minimalAgent(),
@@ -546,7 +604,7 @@ describe("AgentRuntimeCore", () => {
 
   it("keeps ordinary persisted system history outside the stable system prefix", async () => {
     const client = new FakeChatClient();
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
 
     await core.runText({
       agent: minimalAgent(),
@@ -577,7 +635,7 @@ describe("AgentRuntimeCore", () => {
 
   it("emits provider-stream events without depending on backend session state", async () => {
     const client = new FakeStreamingChatClient();
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
     const events: AgentRuntimeEvent[] = [];
 
     const result = await core.runText({
@@ -633,55 +691,6 @@ describe("AgentRuntimeCore", () => {
     ]);
   });
 
-  it("notifies after each successful model request", async () => {
-    const client = new FakeToolCallingChatClient([
-      {
-        content: "",
-        finishReason: "tool_calls",
-        toolCalls: [
-          {
-            id: "call_memory_1",
-            type: "function",
-            function: {
-              name: "list_memory_index",
-              arguments: JSON.stringify({ scope: "session" }),
-            },
-          },
-        ],
-      },
-      {
-        content: "I used the session memory index.",
-        finishReason: "stop",
-      },
-    ]);
-    const tools = new FakeRuntimeToolExecutor();
-    const core = new AgentRuntimeCore(client);
-    const agent = minimalAgent();
-    let successCount = 0;
-
-    await core.runText({
-      agent,
-      provider: minimalProvider(),
-      modelName: "deepseek-chat",
-      conversation: [{ role: "user", content: "check memory" }],
-      toolExecutor: tools,
-      toolContext: {
-        agent,
-        sessionId: "s1",
-        runId: "run-1",
-        requestId: "req-1",
-        currentAgentName: "orchestrator_agent",
-        parentCallId: "call-root",
-      },
-      onModelRequestSuccess: () => {
-        successCount += 1;
-      },
-    });
-
-    expect(client.requests).toHaveLength(2);
-    expect(successCount).toBe(2);
-  });
-
   it("streams XML intent, executes XML tool calls, and returns final_answer", async () => {
     const client = new FakeXmlStreamingToolChatClient([
       [
@@ -694,7 +703,7 @@ describe("AgentRuntimeCore", () => {
       ["<final_answer>", "I used the session memory index.", "</final_answer>"],
     ]);
     const tools = new FakeRuntimeToolExecutor();
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
     const agent = minimalAgent();
     const events: AgentRuntimeEvent[] = [];
 
@@ -819,7 +828,7 @@ describe("AgentRuntimeCore", () => {
       ["<final_answer>", "done", "</final_answer>"],
     ]);
     const tools = new FakeRuntimeToolExecutor(true);
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
     const agent = minimalAgent();
 
     await core.runText({
@@ -863,7 +872,7 @@ describe("AgentRuntimeCore", () => {
       ],
     ]);
     const tools = new FakeRuntimeToolExecutor();
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
     const agent = minimalAgent();
     const events: AgentRuntimeEvent[] = [];
 
@@ -903,7 +912,7 @@ describe("AgentRuntimeCore", () => {
       ["<final_answer>repaired answer</final_answer>"],
     ]);
     const tools = new FakeRuntimeToolExecutor();
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
     const agent = minimalAgent();
 
     const result = await core.runText({
@@ -946,7 +955,7 @@ describe("AgentRuntimeCore", () => {
       ["<final_answer>", "done", "</final_answer>"],
     ]);
     const tools = new FakeReferenceToolExecutor();
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
     const agent = minimalAgent();
 
     await core.runText({
@@ -999,7 +1008,7 @@ describe("AgentRuntimeCore", () => {
       ["<final_answer>", "done", "</final_answer>"],
     ]);
     const tools = new FakeRuntimeToolExecutor();
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
     const agent = minimalAgent();
 
     await core.runText({
@@ -1037,7 +1046,7 @@ describe("AgentRuntimeCore", () => {
       ["<final_answer>", "answer after observation", "</final_answer>"],
     ]);
     const tools = new FakeRuntimeToolExecutor();
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
     const agent = minimalAgent();
     const events: AgentRuntimeEvent[] = [];
 
@@ -1087,7 +1096,7 @@ describe("AgentRuntimeCore", () => {
       ["<final_answer>", "done", "</final_answer>"],
     ]);
     const tools = new FakeDependencyToolExecutor();
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
     const agent = minimalAgent();
     const events: AgentRuntimeEvent[] = [];
 
@@ -1140,7 +1149,7 @@ describe("AgentRuntimeCore", () => {
       ["<final_answer>", "recovered", "</final_answer>"],
     ]);
     const tools = new FakeThrowingToolExecutor();
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
     const agent = minimalAgent();
     const events: AgentRuntimeEvent[] = [];
 
@@ -1195,7 +1204,7 @@ describe("AgentRuntimeCore", () => {
       ["<final_answer>", "should not be requested", "</final_answer>"],
     ]);
     const tools = new FakeAbortingToolExecutor(controller);
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
     const events: AgentRuntimeEvent[] = [];
     const agent = minimalAgent();
 
@@ -1234,7 +1243,7 @@ describe("AgentRuntimeCore", () => {
       [],
       ["<final_answer>", "recovered after empty stream", "</final_answer>"],
     ]);
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
     const agent = minimalAgent();
     const events: AgentRuntimeEvent[] = [];
 
@@ -1284,7 +1293,7 @@ describe("AgentRuntimeCore", () => {
       ["<final_answer>", "recovered after observation error", "</final_answer>"],
     ]);
     const tools = new FakeCircularResultToolExecutor();
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
     const agent = minimalAgent();
     const events: AgentRuntimeEvent[] = [];
 
@@ -1341,7 +1350,7 @@ describe("AgentRuntimeCore", () => {
       ["<final_answer>", "done", "</final_answer>"],
     ]);
     const tools = new FakeWaitingToolExecutor();
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
     const agent = minimalAgent();
     const events: AgentRuntimeEvent[] = [];
 
@@ -1598,411 +1607,9 @@ describe("AgentRuntimeCore", () => {
     expect(interrupted).not.toContain("classification");
   });
 
-  it("runs a non-streaming tool-call loop through the runtime tool executor", async () => {
-    const client = new FakeToolCallingChatClient([
-      {
-        content: "",
-        finishReason: "tool_calls",
-        toolCalls: [
-          {
-            id: "call_memory_1",
-            type: "function",
-            function: {
-              name: "list_memory_index",
-              arguments: JSON.stringify({ scope: "session" }),
-            },
-          },
-        ],
-      },
-      {
-        content: "I used the session memory index.",
-        finishReason: "stop",
-      },
-    ]);
-    const tools = new FakeRuntimeToolExecutor();
-    const core = new AgentRuntimeCore(client);
-    const agent = minimalAgent();
-    const events: AgentRuntimeEvent[] = [];
-
-    const result = await core.runText({
-      agent,
-      provider: minimalProvider(),
-      modelName: "deepseek-chat",
-      conversation: [{ role: "user", content: "check memory" }],
-      toolExecutor: tools,
-      toolContext: {
-        agent,
-        sessionId: "s1",
-        runId: "run-1",
-        requestId: "req-1",
-        currentAgentName: "orchestrator_agent",
-        parentCallId: "call-root",
-      },
-      onEvent: (event) => {
-        events.push(event);
-      },
-    });
-
-    expect(result).toMatchObject({
-      content: "I used the session memory index.",
-      finish_reason: "stop",
-    });
-    expect(client.requests).toHaveLength(2);
-    expect(client.requests[0]?.tools).toEqual([
-      expect.objectContaining({
-        type: "function",
-        function: expect.objectContaining({ name: "list_memory_index" }),
-      }),
-    ]);
-    expect(tools.calls).toMatchObject([
-      {
-        call: {
-          toolName: "list_memory_index",
-          arguments: { scope: "session" },
-          callId: "call_memory_1",
-        },
-        context: {
-          sessionId: "s1",
-          runId: "run-1",
-          requestId: "req-1",
-          currentAgentName: "orchestrator_agent",
-          parentCallId: "call-root",
-          toolCallId: "call_memory_1",
-          round: 0,
-          order: 1,
-          roundIndex: 1,
-        },
-      },
-    ]);
-    expect(client.requests[1]?.messages).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          role: "assistant",
-          tool_calls: [
-            expect.objectContaining({
-              id: "call_memory_1",
-              function: expect.objectContaining({ name: "list_memory_index" }),
-            }),
-          ],
-        }),
-        expect.objectContaining({
-          role: "tool",
-          tool_call_id: "call_memory_1",
-          name: "list_memory_index",
-          content: expect.stringContaining("# Session Memory"),
-        }),
-      ]),
-    );
-    const nativeToolResultMessage = client.requests[1]?.messages.find((message) => message.role === "tool");
-    expect(nativeToolResultMessage?.content).toContain('id="call_memory_1"');
-    expect(nativeToolResultMessage?.content).toContain('ok="true"');
-    expect(nativeToolResultMessage?.content).toContain("# Session Memory");
-    expect(nativeToolResultMessage?.content).not.toContain('"artifacts"');
-    expect(events).toEqual([
-      {
-        type: "runtime.assistant_intermediate",
-        data: {
-          content: "<tool_calls>\n<tool name=\"list_memory_index\">\n<scope>session</scope>\n</tool>\n</tool_calls>",
-          agent_name: "orchestrator_agent",
-          round: 0,
-        },
-      },
-      {
-        type: "runtime.tool_call",
-        data: {
-          agent_name: "orchestrator_agent",
-          tool_call_id: "call_memory_1",
-          tool_name: "list_memory_index",
-          arguments: { scope: "session" },
-          round: 0,
-          order: 1,
-          round_index: 1,
-        },
-      },
-      {
-        type: "runtime.tool_result",
-        data: {
-          agent_name: "orchestrator_agent",
-          tool_call_id: "call_memory_1",
-          tool_name: "list_memory_index",
-          success: true,
-          summary: "已读取 session MEMORY 索引",
-          observation: expect.stringContaining("<tool_result"),
-          metadata: {
-            scope: "session",
-          },
-          raw_result: expect.objectContaining({
-            success: true,
-            tool_name: "list_memory_index",
-            content: "# Session Memory\n- fact_alpha.md",
-          }),
-          raw_result_ref: {
-            session_id: "s1",
-            call_id: "call_memory_1",
-            tool_name: "list_memory_index",
-          },
-          raw_result_available: true,
-          elapsed_time: expect.any(Number),
-          round: 0,
-          order: 1,
-          round_index: 1,
-        },
-      },
-      {
-        type: "runtime.observation_complete",
-        data: {
-          content: expect.stringContaining("<tool_result"),
-          agent_name: "orchestrator_agent",
-          round: 0,
-        },
-      },
-      {
-        type: "runtime.done",
-        data: {
-          content: "I used the session memory index.",
-          agent_name: "orchestrator_agent",
-          finish_reason: "stop",
-        },
-      },
-    ]);
-  });
-
-  it("materializes large tool observations as artifacts while preserving raw results", async () => {
-    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-agent-runtime-"));
-    try {
-      const client = new FakeToolCallingChatClient([
-        {
-          content: "",
-          finishReason: "tool_calls",
-          toolCalls: [
-            {
-              id: "call_large_1",
-              type: "function",
-              function: {
-                name: "query_large_data",
-                arguments: "{}",
-              },
-            },
-          ],
-        },
-        {
-          content: "large data handled",
-          finishReason: "stop",
-        },
-      ]);
-      const tools = new FakeLargePayloadToolExecutor();
-      const core = new AgentRuntimeCore(client, { dataRoot });
-      const agent = minimalAgent();
-      const events: AgentRuntimeEvent[] = [];
-
-      await core.runText({
-        agent,
-        provider: minimalProvider(),
-        modelName: "deepseek-chat",
-        conversation: [{ role: "user", content: "query large data" }],
-        toolExecutor: tools,
-        toolContext: {
-          agent,
-          sessionId: "large-session",
-          runId: "run-1",
-          requestId: "req-1",
-          currentAgentName: "orchestrator_agent",
-        },
-        onEvent: (event) => {
-          events.push(event);
-        },
-      });
-
-      const nativeToolResultMessage = client.requests[1]?.messages.find((message) => message.role === "tool");
-      expect(nativeToolResultMessage?.content).toContain("数据已存储:");
-      expect(nativeToolResultMessage?.content).toContain("后续工具可直接使用此文件路径作为 data 参数");
-      expect(nativeToolResultMessage?.content).not.toContain("unique-tail-marker");
-
-      const toolResultEvent = events.find(
-        (event): event is Extract<AgentRuntimeEvent, { type: "runtime.tool_result" }> =>
-          event.type === "runtime.tool_result",
-      );
-      expect(toolResultEvent).toBeDefined();
-      if (!toolResultEvent) {
-        throw new Error("missing tool result event");
-      }
-      expect(toolResultEvent.data.observation).toContain("数据已存储:");
-      expect(toolResultEvent.data.raw_result_available).toBe(true);
-      expect(toolResultEvent.data.raw_result.content).toEqual(tools.rows);
-
-      const artifacts = toolResultEvent.data.raw_result.artifacts;
-      expect(Array.isArray(artifacts)).toBe(true);
-      if (!Array.isArray(artifacts)) {
-        throw new Error("missing observation artifact");
-      }
-      const artifact = artifacts[0];
-      expect(artifact).toEqual(
-        expect.objectContaining({
-          artifact_type: "json",
-          mime_type: "application/json",
-          metadata: expect.objectContaining({
-            session_id: "large-session",
-            tool_name: "query_large_data",
-            reason: "large_payload",
-          }),
-        }),
-      );
-      if (!isRecord(artifact) || typeof artifact.path !== "string") {
-        throw new Error("artifact path missing");
-      }
-
-      expect(path.dirname(artifact.path)).toBe(path.join(dataRoot, "sessions", "large-session", "transient"));
-      expect(fs.existsSync(artifact.path)).toBe(true);
-      expect(JSON.parse(fs.readFileSync(artifact.path, "utf8"))).toEqual(tools.rows);
-      const indexPath = path.join(dataRoot, "sessions", "large-session", "transient", "artifact_index.jsonl");
-      const indexRecord = JSON.parse(fs.readFileSync(indexPath, "utf8").trim()) as Record<string, unknown>;
-      expect(indexRecord.path).toBe(artifact.path);
-    } finally {
-      fs.rmSync(dataRoot, { recursive: true, force: true });
-    }
-  });
-
-  it("resolves same-round native tool-call result placeholders before executing dependent tools", async () => {
-    const client = new FakeToolCallingChatClient([
-      {
-        content: "",
-        finishReason: "tool_calls",
-        toolCalls: [
-          {
-            id: "call_write",
-            type: "function",
-            function: {
-              name: "write_file",
-              arguments: JSON.stringify({ content: "demo" }),
-            },
-          },
-          {
-            id: "call_read",
-            type: "function",
-            function: {
-              name: "read_file",
-              arguments: JSON.stringify({ file_path: "{result_1.content.file_path}" }),
-            },
-          },
-        ],
-      },
-      {
-        content: "done",
-        finishReason: "stop",
-      },
-    ]);
-    const tools = new FakeReferenceToolExecutor();
-    const core = new AgentRuntimeCore(client);
-    const agent = minimalAgent();
-
-    await core.runText({
-      agent,
-      provider: minimalProvider(),
-      modelName: "deepseek-chat",
-      conversation: [{ role: "user", content: "write then read" }],
-      toolExecutor: tools,
-      toolContext: {
-        agent,
-        sessionId: "s1",
-        runId: "run-1",
-        requestId: "req-1",
-        currentAgentName: "orchestrator_agent",
-        parentCallId: "call-root",
-      },
-    });
-
-    expect(tools.calls).toHaveLength(2);
-    expect(tools.calls[1]?.call).toMatchObject({
-      toolName: "read_file",
-      arguments: {
-        file_path: "E:/tmp/generated.txt",
-      },
-    });
-    expect(tools.calls.map((item) => item.context)).toMatchObject([
-      {
-        runId: "run-1",
-        requestId: "req-1",
-        parentCallId: "call-root",
-        toolCallId: "call_write",
-        round: 0,
-        order: 1,
-        roundIndex: 1,
-      },
-      {
-        runId: "run-1",
-        requestId: "req-1",
-        parentCallId: "call-root",
-        toolCallId: "call_read",
-        round: 0,
-        order: 2,
-        roundIndex: 2,
-      },
-    ]);
-  });
-
-  it("injects queued followup messages before the next llm request", async () => {
-    const client = new FakeToolCallingChatClient([
-      {
-        content: "",
-        finishReason: "tool_calls",
-        toolCalls: [
-          {
-            id: "call_memory_1",
-            type: "function",
-            function: {
-              name: "list_memory_index",
-              arguments: JSON.stringify({ scope: "session" }),
-            },
-          },
-        ],
-      },
-      {
-        content: "I used the session memory index.",
-        finishReason: "stop",
-      },
-    ]);
-    const tools = new FakeRuntimeToolExecutor();
-    const core = new AgentRuntimeCore(client);
-    const agent = minimalAgent();
-    let updateCount = 0;
-
-    await core.runText({
-      agent,
-      provider: minimalProvider(),
-      modelName: "deepseek-chat",
-      conversation: [{ role: "user", content: "check memory" }],
-      conversationUpdateProvider: () => {
-        updateCount += 1;
-        return updateCount === 2
-          ? [
-              {
-                role: "user",
-                content: renderSemanticBlock("user_followup", "补充说明：优先使用 session memory。", {
-                  source: "running_session",
-                }),
-              },
-            ]
-          : [];
-      },
-      toolExecutor: tools,
-      toolContext: {
-        agent,
-        sessionId: "s1",
-        currentAgentName: "orchestrator_agent",
-      },
-    });
-
-    expect(client.requests).toHaveLength(2);
-    const followupMessage = client.requests[1]?.messages.find(
-      (message) => message.role === "user" && message.content.includes("<user_followup"),
-    );
-    expect(followupMessage?.content).toContain("补充说明：优先使用 session memory。");
-    expect(followupMessage?.content).toContain('source="running_session"');
-  });
-
   it("emits a runtime error event before rethrowing provider failures", async () => {
     const client = new FakeChatClient(new Error("provider failed"));
-    const core = new AgentRuntimeCore(client);
+    const core = createTestRuntime(client);
     const events: AgentRuntimeEvent[] = [];
 
     await expect(

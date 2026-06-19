@@ -7,7 +7,8 @@ import {
   MemoryIndexContextSource,
   RecentMessagesContextSource,
 } from "../agent/agent-runtime-context-builder.js";
-import { AgentRuntimeCore } from "../agent/agent-runtime-core.js";
+import os from "node:os";
+import path from "node:path";
 import { BackgroundTaskService } from "./background-task-service.js";
 import { AgentConfigService } from "../agent/agent-config-service.js";
 import { AgentSessionApplication } from "../agent/agent-session-application.js";
@@ -72,7 +73,6 @@ export interface RuntimeContainer {
   readonly hooks: HookRuntimeService;
   readonly runtimeToolBridge: RuntimeToolBridge;
   readonly runtimeCore: RuntimeCoreService;
-  readonly agentRuntimeCore: AgentRuntimeCore;
   readonly agentRuntimeContextBuilder: AgentRuntimeContextBuilder;
   readonly contextCompression: AgentContextCompressionService;
   readonly agentDelegation: AgentDelegationService;
@@ -189,7 +189,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   );
   codeExecutionTools.setRuntimeTools(runtimeToolBridge);
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
-  const agentRuntimeCore = new AgentRuntimeCore(llmChatClient, { dataRoot: options.dataRoot });
+  const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
   const contextCompression = new AgentContextCompressionService(conversationStore, llmChatClient, systemConfig);
   const memoryConfig = systemConfig.getMemoryConfig();
   const agentRuntimeContextBuilder = new AgentRuntimeContextBuilder([
@@ -203,7 +203,8 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const agentDelegation = new AgentDelegationService(
     conversationStore,
     runtimeCore,
-    agentRuntimeCore,
+    llmChatClient,
+    dataRoot,
     agentRuntimeContextBuilder,
     clientEvents,
     agentConfig,
@@ -214,7 +215,8 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     sessions: sessionApplication,
     conversationStore,
     runtimeCore,
-    agentRuntimeCore,
+    llmChatClient,
+    dataRoot,
     contextBuilder: agentRuntimeContextBuilder,
     runtimeTools: runtimeToolBridge,
     contextCompression,
@@ -270,7 +272,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     hooks,
     runtimeToolBridge,
     runtimeCore,
-    agentRuntimeCore,
     agentRuntimeContextBuilder,
     contextCompression,
     agentDelegation,

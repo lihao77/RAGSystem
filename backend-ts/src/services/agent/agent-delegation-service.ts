@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 
 import type { AgentRuntimeContextBuilder } from "./agent-runtime-context-builder.js";
-import type { AgentRuntimeCore, AgentRuntimeEvent, AgentRuntimeRequest } from "./agent-runtime-core.js";
+import type { LlmChatClient } from "../integrations/llm-chat-client.js";
+import type { KernelSession, MessageRefresher } from "./kernel/contracts.js";
+import { DefaultHookRegistry } from "./kernel/hook-registry.js";
+import { refreshStablePrefixCache } from "./kernel/stable-prefix.js";
+import { NullEventSink } from "./kernel-plugins/events/runtime-event-sink.js";
+import { createRuntimeKernel } from "./kernel-plugins/create-runtime-kernel.js";
 import { buildAgentPromptContext, type AgentPromptConfigResolver } from "./agent-prompt-builder.js";
 import type { ChildAgentInfo, IChildAgentStore, IMessageStore, IRunStore, ISessionStore } from "../../contracts/conversation-store/index.js";
 import type { ClientEventPublisher } from "../runtime/event-outbox/client-event-publisher.js";
@@ -49,7 +54,8 @@ export class AgentDelegationService {
   constructor(
     private readonly conversationStore: IMessageStore & IChildAgentStore & IRunStore & ISessionStore,
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
-    private readonly agentRuntimeCore: AgentRuntimeCore,
+    private readonly llmChatClient: LlmChatClient,
+    private readonly dataRoot: string,
     private readonly contextBuilder: AgentRuntimeContextBuilder,
     private readonly clientEvents: ClientEventPublisher | null = null,
     private readonly promptConfigResolver: AgentPromptConfigResolver | null = null,
@@ -338,19 +344,31 @@ export class AgentDelegationService {
         configResolver: this.promptConfigResolver,
         teamName: input.teamName,
       });
-      const runtimeRequest: AgentRuntimeRequest = {
+      const eventSink = new NullEventSink();
+      const refresher: MessageRefresher = { refresh: async () => [] };
+      const hooks = new DefaultHookRegistry();
+      hooks.register("afterModel", () => {
+        refreshStablePrefixCache(
+          this.conversationStore,
+          input.sessionId,
+          input.childAgent.thread_key,
+          context.metadata.stable_prefix_fingerprint,
+        );
+      });
+      const kernel = createRuntimeKernel({
+        llmChatClient: this.llmChatClient,
+        dataRoot: this.dataRoot,
+        eventSink,
+        refresher,
+        hooks,
+      });
+      const response = await kernel.run({
         agent: targetAgent,
         provider: resolved.provider,
         modelName: resolved.modelName,
         conversation: context.conversation,
         toolExecutor: runtimeTools,
         promptContext,
-        onModelRequestSuccess: () =>
-          this.refreshStablePrefixCache(
-            input.sessionId,
-            input.childAgent.thread_key,
-            context.metadata.stable_prefix_fingerprint,
-          ),
         toolContext: buildRuntimeToolContext(targetAgent, {
           sessionId: input.sessionId,
           runId: childRunId,
@@ -362,12 +380,14 @@ export class AgentDelegationService {
           parentCallId: input.parentCallId,
           signal: input.signal,
         }),
-        onEvent: (_event: AgentRuntimeEvent) => undefined,
-      };
-      if (input.signal !== undefined) {
-        runtimeRequest.signal = input.signal;
-      }
-      const response = await this.agentRuntimeCore.runText(runtimeRequest);
+        signal: input.signal,
+        sessionId: input.sessionId,
+        runId: childRunId,
+        taskId: null,
+        requestId: input.requestId,
+        rootCallId: input.parentCallId,
+        threadKey: input.childAgent.thread_key,
+      });
       const assistantMessage = this.conversationStore.addMessage({
         sessionId: input.sessionId,
         role: "assistant",
@@ -417,25 +437,6 @@ export class AgentDelegationService {
           thread_key: input.childAgent.thread_key,
         },
       };
-    }
-  }
-
-  private refreshStablePrefixCache(
-    sessionId: string,
-    threadKey: string,
-    stablePrefixFingerprint: string | null | undefined,
-  ): void {
-    try {
-      this.conversationStore.updateSessionMetadata(sessionId, {
-        _pipeline_caches: {
-          [threadKey]: {
-            fp: stablePrefixFingerprint?.trim() || "no_stable_prefix",
-            t: Date.now() / 1000,
-          },
-        },
-      });
-    } catch {
-      // Cache refresh is opportunistic; the model response should still complete.
     }
   }
 

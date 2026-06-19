@@ -14,7 +14,7 @@ import type {
 import type { AgentContextCompressionService } from "../agent-context-compression-service.js";
 import type { AgentPromptConfigResolver } from "../agent-prompt-builder.js";
 import type { AgentRuntimeContextBuilder } from "../agent-runtime-context-builder.js";
-import type { AgentRuntimeCore } from "../agent-runtime-core.js";
+import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
 import type { AgentSessionApplication } from "../agent-session-application.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
@@ -64,7 +64,8 @@ export interface AgentExecutionServiceParams {
   sessions: AgentSessionApplication;
   conversationStore: ConversationStore;
   runtimeCore: RuntimeExecutionConfigResolver;
-  agentRuntimeCore: AgentRuntimeCore;
+  llmChatClient: LlmChatClient;
+  dataRoot: string;
   contextBuilder: AgentRuntimeContextBuilder;
   runtimeTools?: RuntimeToolExecutor | null;
   contextCompression?: AgentContextCompressionService | null;
@@ -108,7 +109,8 @@ export function createAgentExecutionService(params: AgentExecutionServiceParams)
   const runEngine = new AgentRunEngine(
     params.sessions,
     params.conversationStore,
-    params.agentRuntimeCore,
+    params.llmChatClient,
+    params.dataRoot,
     params.contextBuilder,
     params.runtimeTools ?? null,
     params.contextCompression ?? null,

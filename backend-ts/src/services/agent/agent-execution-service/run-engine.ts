@@ -6,9 +6,13 @@ import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { AgentContextCompressionService } from "../agent-context-compression-service.js";
 import { buildAgentPromptContext, type AgentPromptConfigResolver } from "../agent-prompt-builder.js";
 import type { AgentRuntimeContextBuilder } from "../agent-runtime-context-builder.js";
-import type { AgentRuntimeCore } from "../agent-runtime-core.js";
+import type { KernelSession, MessageRefresher } from "../kernel/contracts.js";
+import { DefaultHookRegistry } from "../kernel/hook-registry.js";
+import { refreshStablePrefixCache } from "../kernel/stable-prefix.js";
+import { RuntimeEventSink } from "../kernel-plugins/events/runtime-event-sink.js";
+import { createRuntimeKernel } from "../kernel-plugins/create-runtime-kernel.js";
 import type { AgentSessionApplication } from "../agent-session-application.js";
-import type { ChatMessage } from "../../integrations/llm-chat-client.js";
+import type { ChatMessage, LlmChatClient } from "../../integrations/llm-chat-client.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js";
@@ -44,7 +48,8 @@ export class AgentRunEngine {
   constructor(
     private readonly sessions: AgentSessionApplication,
     private readonly conversationStore: IRunStore & IMessageStore & ISessionStore,
-    private readonly agentRuntimeCore: AgentRuntimeCore,
+    private readonly llmChatClient: LlmChatClient,
+    private readonly dataRoot: string,
     private readonly contextBuilder: AgentRuntimeContextBuilder,
     private readonly runtimeTools: RuntimeToolExecutor | null,
     private readonly contextCompression: AgentContextCompressionService | null,
@@ -346,16 +351,37 @@ export class AgentRunEngine {
         agent_name: input.agent.agent_name,
         ...mirrorEventData(contextUsagePayload),
       });
-      const response = await this.agentRuntimeCore.runText({
+      const eventSink = new RuntimeEventSink((event) => {
+        this.eventPublisher.publishRuntimeEvent(input, event);
+      });
+      const refresher: MessageRefresher = {
+        refresh: async () =>
+          this.drainConversationUpdates(input.sessionId, input.conversationUpdateProvider),
+      };
+      const hooks = new DefaultHookRegistry();
+      hooks.register("afterModel", () => {
+        refreshStablePrefixCache(
+          this.conversationStore,
+          input.sessionId,
+          "root",
+          stablePrefixFingerprint,
+          this.logger ?? undefined,
+        );
+      });
+      const kernel = createRuntimeKernel({
+        llmChatClient: this.llmChatClient,
+        dataRoot: this.dataRoot,
+        eventSink,
+        refresher,
+        hooks,
+      });
+      const response = await kernel.run({
         agent: input.agent,
         provider: input.provider,
         modelName: input.modelName,
-        signal: input.abortController.signal,
         conversation: context.conversation,
-        conversationUpdateProvider: () => this.drainConversationUpdates(input.sessionId, input.conversationUpdateProvider),
-        onModelRequestSuccess: () => this.refreshStablePrefixCache(input.sessionId, "root", stablePrefixFingerprint),
-        toolExecutor: this.runtimeTools ?? undefined,
         promptContext,
+        toolExecutor: this.runtimeTools ?? undefined,
         toolContext: this.runtimeTools
           ? buildRuntimeToolContext(input.agent, {
               sessionId: input.sessionId,
@@ -367,9 +393,12 @@ export class AgentRunEngine {
               signal: input.abortController.signal,
             })
           : undefined,
-        onEvent: async (event) => {
-          this.eventPublisher.publishRuntimeEvent(input, event);
-        },
+        signal: input.abortController.signal,
+        sessionId: input.sessionId,
+        runId: input.runId,
+        taskId: input.taskId,
+        requestId: input.requestId,
+        rootCallId: input.rootCallId,
       });
       const assistantMessageId = randomUUID();
       const assistantMessageMetadata = {
@@ -492,30 +521,6 @@ export class AgentRunEngine {
 
   private deliverTerminalRecord(record: RunTerminalRecord): void {
     this.outboxDispatcher.dispatchRows(record.outboxRows);
-  }
-
-  private refreshStablePrefixCache(
-    sessionId: string,
-    threadKey: string,
-    stablePrefixFingerprint: string | null | undefined,
-  ): void {
-    const fp = stablePrefixFingerprint?.trim() || "no_stable_prefix";
-    try {
-      this.conversationStore.updateSessionMetadata(sessionId, {
-        _pipeline_caches: {
-          [threadKey]: {
-            fp,
-            t: Date.now() / 1000,
-          },
-        },
-      });
-    } catch (error) {
-      this.logger?.error({
-        session_id: sessionId,
-        thread_key: threadKey,
-        error: error instanceof Error ? error.message : String(error),
-      }, "failed to refresh stable prefix cache");
-    }
   }
 
   private async drainConversationUpdates(

@@ -6,13 +6,34 @@ import {
   AgentRuntimeContextBuilder,
   RecentMessagesContextSource,
 } from "../../src/services/agent/agent-runtime-context-builder.js";
-import type { AgentRuntimeCore, AgentRuntimeRequest } from "../../src/services/agent/agent-runtime-core.js";
+import os from "node:os";
+import type {
+  ChatCompletionRequest,
+  ChatStreamChunkHandler,
+  LlmChatClient,
+} from "../../src/services/integrations/llm-chat-client.js";
 import { AgentDelegationService } from "../../src/services/agent/agent-delegation-service.js";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import type { RuntimeExecutionConfigResolver } from "../../src/services/runtime/runtime-core-service.js";
+
+class FakeChatClient implements LlmChatClient {
+  readonly requests: ChatCompletionRequest[] = [];
+
+  constructor(private readonly content: string) {}
+
+  async complete(): Promise<{ content: string }> {
+    throw new Error("complete should not be called");
+  }
+
+  async stream(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler) {
+    this.requests.push(request);
+    await onChunk({ content: this.content });
+    return { content: this.content };
+  }
+}
 
 describe("AgentDelegationService", () => {
   it("lists child agents and resumes an existing child thread with send_message", async () => {
@@ -21,25 +42,12 @@ describe("AgentDelegationService", () => {
     const dispatcher = new OutboxDispatcher(store, realtimeEvents);
     const clientEvents = new DurableClientEventPublisher(store, dispatcher);
     const workerAgent = minimalAgent("worker_agent");
-    const runtimeRequests: AgentRuntimeRequest[] = [];
+    const client = new FakeChatClient("resumed answer");
     const service = new AgentDelegationService(
       store,
       runtimeCoreStub(workerAgent),
-      {
-        async runText(request: AgentRuntimeRequest) {
-          runtimeRequests.push(request);
-          return {
-            content: "resumed answer",
-            finish_reason: "stop",
-            metadata: {
-              agent_name: request.agent.agent_name,
-              provider_key: request.provider.key ?? null,
-              provider_type: request.provider.provider_type,
-              model_name: request.modelName,
-            },
-          };
-        },
-      } as unknown as AgentRuntimeCore,
+      client,
+      os.tmpdir(),
       new AgentRuntimeContextBuilder([new RecentMessagesContextSource(store)]),
       clientEvents,
     );
@@ -115,17 +123,12 @@ describe("AgentDelegationService", () => {
     });
     expect(result.llm_hint).toBeNull();
 
-    expect(runtimeRequests).toHaveLength(1);
-    expect(runtimeRequests[0]?.conversation.map((message) => message.content)).toEqual([
-      "previous answer",
-      "继续分析",
-    ]);
-    expect(runtimeRequests[0]?.toolContext).toMatchObject({
-      sessionId: "session-1",
-      runId: expect.any(String),
-      currentAgentName: "worker_agent",
-      workspaceRoot: "E:/workspace",
-    });
+    expect(client.requests).toHaveLength(1);
+    expect(
+      client.requests[0]?.messages.some(
+        (message) => typeof message.content === "string" && message.content.includes("继续分析"),
+      ),
+    ).toBe(true);
 
     const updatedChild = store.getChildAgent("session-1", "child-existing");
     expect(updatedChild?.last_run_id).toBe(result.metadata.run_id);

@@ -11,11 +11,14 @@ import {
   AgentRuntimeContextBuilder,
   RecentMessagesContextSource,
 } from "../../src/services/agent/agent-runtime-context-builder.js";
+import os from "node:os";
 import type {
-  AgentRuntimeCore,
-  AgentRuntimeRequest,
-  AgentRuntimeResult,
-} from "../../src/services/agent/agent-runtime-core.js";
+  ChatCompletionRequest,
+  ChatCompletionResult,
+  ChatStreamChunkHandler,
+  LlmChatClient,
+} from "../../src/services/integrations/llm-chat-client.js";
+import { RuntimeAbortError } from "../../src/services/runtime/abort.js";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
@@ -27,7 +30,7 @@ type RuntimeMode = "ok" | "abort" | "fail";
 interface ServiceHarness {
   service: AgentExecutionService;
   store: ConversationStore;
-  requests: AgentRuntimeRequest[];
+  requests: ChatCompletionRequest[];
   errors: Array<Record<string, unknown>>;
 }
 
@@ -120,37 +123,33 @@ function runtimeCoreStub(agent: AgentConfig, ready: boolean): RuntimeExecutionCo
   } as RuntimeExecutionConfigResolver;
 }
 
-function createMockRuntimeCore(mode: RuntimeMode, content: string) {
-  const requests: AgentRuntimeRequest[] = [];
-  const core = {
-    async runText(input: AgentRuntimeRequest): Promise<AgentRuntimeResult> {
-      requests.push(input);
-      if (mode === "fail") {
-        throw new Error("run-failed");
-      }
-      if (mode === "abort") {
-        return new Promise<AgentRuntimeResult>((_, reject) => {
-          const rejectAbort = (): void => reject(new Error("aborted"));
-          if (input.signal?.aborted) {
-            rejectAbort();
-            return;
-          }
-          input.signal?.addEventListener("abort", rejectAbort, { once: true });
-        });
-      }
-      return {
-        content,
-        finish_reason: "stop",
-        metadata: {
-          agent_name: input.agent.agent_name,
-          provider_key: null,
-          provider_type: "deepseek",
-          model_name: input.modelName,
-        },
-      } as AgentRuntimeResult;
-    },
-  };
-  return { core: core as unknown as AgentRuntimeCore, requests };
+class FakeChatClient implements LlmChatClient {
+  readonly requests: ChatCompletionRequest[] = [];
+
+  constructor(private readonly mode: RuntimeMode, private readonly content: string) {}
+
+  async complete(): Promise<{ content: string }> {
+    throw new Error("complete should not be called");
+  }
+
+  async stream(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler) {
+    this.requests.push(request);
+    if (this.mode === "fail") {
+      throw new Error("run-failed");
+    }
+    if (this.mode === "abort") {
+      return new Promise<ChatCompletionResult>((_, reject) => {
+        const rejectAbort = (): void => reject(new RuntimeAbortError("aborted"));
+        if (request.signal?.aborted) {
+          rejectAbort();
+          return;
+        }
+        request.signal?.addEventListener("abort", rejectAbort, { once: true });
+      });
+    }
+    await onChunk({ content: this.content });
+    return { content: this.content };
+  }
 }
 
 function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: boolean } = {}): ServiceHarness {
@@ -166,19 +165,20 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
   const logger: AgentExecutionLogger | null = opts.logger
     ? { error: (bindings, message) => errors.push({ ...bindings, message }) }
     : null;
-  const mock = createMockRuntimeCore(mode, "the answer");
+  const client = new FakeChatClient(mode, "the answer");
   const contextBuilder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(store)]);
   const service = createAgentExecutionService({
     sessions,
     conversationStore: store,
     runtimeCore: runtimeCoreStub(agent, ready),
-    agentRuntimeCore: mock.core,
+    llmChatClient: client,
+    dataRoot: os.tmpdir(),
     contextBuilder,
     outboxDispatcher: dispatcher,
     clientEvents,
     logger: logger ?? null,
   });
-  return { service, store, requests: mock.requests, errors };
+  return { service, store, requests: client.requests, errors };
 }
 
 const WAIT = { timeout: 4000, interval: 20 };

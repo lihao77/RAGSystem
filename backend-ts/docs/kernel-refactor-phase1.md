@@ -122,7 +122,9 @@ Protocol.invoke 内部（模型吐字中，invoke 尚未返回）:
 | tool_call / tool_result / intent_complete | 否 | 是（同事务） | 是（同事务） |
 | assistant_intermediate / observation_complete | **是**（addMessage） | 否 | 否 |
 
-> 共 10 种事件：上表 9 种 + `runtime.done`（由内核在循环结束后直接 `emit`，走 output_delta 同类的 outbox-only 投递，不在 publishRuntimeEvent 的分流分支内）。`intent_complete` 经 `publishIntentComplete` 在单事务内 addRunStep + 两条 outbox 记录，归宿同 tool_call/tool_result。
+> 共 10 种事件：上表 9 种 + `runtime.done`（由内核在循环结束后直接 `emit`）。`intent_complete` 经 `publishIntentComplete` 在单事务内 addRunStep + 两条 outbox 记录，归宿同 tool_call/tool_result。
+
+> ⚠️ **`runtime.done` 是死事件（已核对 event-publisher.ts:185-346）**：`publishRuntimeEvent` 仅 9 个分支，无 `runtime.done`，经 `onEvent` 透传后被**静默丢弃**——既不落库也不投递。前端流结束的真实信号来自 `runText` 返回后的 `recordRunTerminal` → `deliverTerminalRecord`（run-engine.ts:410/432，Transactional Outbox 产出的 terminal 记录），与 `runtime.done` 无关。重构保留该类型只为维持"10 种不变"，新内核 `emit` 后同样被丢弃 → 行为等价（都丢）。**阶段二若要让前端感知循环结束须另行接线，不能依赖现状的 `runtime.done`**——此乃定稿前多轮对齐中漏掉的一处现状误述，现已订正。
 
 - **tool_result vs observation_complete**：前者每个工具一条、结构化、给前端看（投递）；后者一整轮合并成一条纯文本、是喂回模型的 user 消息、给模型吃（只落库存档）。
 - **最终落库（recordRunTerminal）是 Transactional Outbox**：addMessage + addRunStep + appendOutbox×N 在**同一事务**原子提交，由 run-engine 在 `kernel.run()` 返回后做。内核对持久化全程无感。
@@ -180,6 +182,7 @@ Protocol.invoke 内部（模型吐字中，invoke 尚未返回）:
    - abort 中途停止正常中断、状态置 interrupted。
    - 子 agent 委派（call_agent）跑通且 child 不发 runtime 事件。
 4. （可选）npm run smoke:parity。
+5. **确认无依赖非流式回退的测试 mock**：`LlmChatClient.stream` 类型上可选（llm-chat-client.ts:66），删除 `runToolCallingText`/`completeRequest` 后，测试中"注入无 `stream` 的 mock → 原回退 `completeRequest`"的路径不再存在。跑全量 `npm test`，若存在此类 mock 须改为流式 mock，否则测试会静默走 XmlProtocol 新路径而无人察觉。
 
 ## 十一、风险与注意
 
