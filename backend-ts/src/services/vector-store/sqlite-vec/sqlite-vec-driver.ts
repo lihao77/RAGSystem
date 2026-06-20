@@ -228,7 +228,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     const result = this.db
       .prepare(`DELETE FROM ${vecTableName(model_id)} WHERE rowid IN (${placeholders})`)
       .run(...ids.map((row) => BigInt(row.id)));
-    return { deleted: result.changes };
+    return { deleted: Number(result.changes) };
   }
 
   async deleteCollection(collection: string): Promise<{ deleted_chunks: number }> {
