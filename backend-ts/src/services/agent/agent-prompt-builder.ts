@@ -264,9 +264,9 @@ function buildDirectToolsSection(tools: RuntimeToolDefinition[], mode: ToolInstr
     lines.push(`**调用能力**: ${formatAllowedCallers(tool, mode)}`);
     lines.push(...formatToolParameters(tool.parameters));
     if (isNative) {
-      lines.push(...formatToolContract(tool, false));
+      lines.push(...formatToolContract(tool, false, mode));
     } else {
-      lines.push(...formatToolContract(tool, includeExamples(tool)));
+      lines.push(...formatToolContract(tool, includeExamples(tool), mode));
     }  }
   lines.push("");
   lines.push(buildManagedSpaceRules(toolNames, mode));
@@ -734,7 +734,8 @@ function parameterNames(tool: RuntimeToolDefinition): string[] {
   return isRecord(tool.parameters.properties) ? Object.keys(tool.parameters.properties) : [];
 }
 
-function formatToolContract(tool: RuntimeToolDefinition, includeExamples: boolean): string[] {
+function formatToolContract(tool: RuntimeToolDefinition, includeExamples: boolean, mode: ToolInstructionMode = "xml"): string[] {
+  const isNative = mode === "native";
   const lines: string[] = [];
   const extendedUsage = normalizeString(tool.extended_usage);
   if (extendedUsage) {
@@ -753,7 +754,9 @@ function formatToolContract(tool: RuntimeToolDefinition, includeExamples: boolea
     }
   }
 
-  const usageContract = Array.isArray(tool.usage_contract) ? tool.usage_contract.filter((item) => item.trim()) : [];
+  const rawUsageContract = Array.isArray(tool.usage_contract) ? tool.usage_contract.filter((item) => item.trim()) : [];
+  // native 模式无同轮 {result_N} 链式引用机制，过滤掉含该占位符的约束项。
+  const usageContract = isNative ? rawUsageContract.filter((item) => !item.includes("{result_")) : rawUsageContract;
   if (usageContract.length) {
     lines.push("**使用约束**:");
     for (const item of usageContract) {
