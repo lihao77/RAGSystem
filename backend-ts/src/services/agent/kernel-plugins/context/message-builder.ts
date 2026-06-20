@@ -17,7 +17,7 @@ export function buildRuntimeMessages(
 ): ChatMessage[] {
   const messages: ChatMessage[] = [];
   const systemParts: string[] = [];
-  const systemPrompt = buildFullSystemPrompt(agent, options.promptContext);
+  const systemPrompt = buildFullSystemPrompt(agent, options.promptContext, options.toolInstructionMode);
   if (systemPrompt) {
     systemParts.push(renderSemanticBlock("system_instruction", systemPrompt, { source: "agent_config" }));
   }
