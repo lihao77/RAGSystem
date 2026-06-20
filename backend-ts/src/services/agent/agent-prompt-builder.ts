@@ -281,7 +281,7 @@ function buildToolCallingGlobalRules(agent: AgentConfig, tools: RuntimeToolDefin
   const hasCodeExecution = tools.some((tool) => tool.name === "execute_code");
   const hasCodeCallableTools = tools.some((tool) => tool.name !== "execute_code" && getAllowedCallers(tool).includes("code_execution"));
   const backgroundExecutionSection = backgroundEnabled
-    ? buildBackgroundExecutionSection(hasTaskOutput, hasTaskStop)
+    ? buildBackgroundExecutionSection(hasTaskOutput, hasTaskStop, mode)
     : "";
   const directLabel = isNative
     ? "`direct` 表示可被模型用 function calling 直接调用"
@@ -298,7 +298,8 @@ ${pathRule}
 ${backgroundExecutionSection}`;
 }
 
-function buildBackgroundExecutionSection(hasTaskOutput: boolean, hasTaskStop: boolean): string {
+function buildBackgroundExecutionSection(hasTaskOutput: boolean, hasTaskStop: boolean, mode: ToolInstructionMode = "xml"): string {
+  const isNative = mode === "native";
   const outputHint = hasTaskOutput
     ? "后台任务完成后系统会注入完成通知，并在通知中提供 `output_path`；默认用 `read_file(file_path=output_path)` 读取结果内容，需要主动查询状态或显式等待时再调用 `task_output`"
     : "后台任务完成后系统会注入完成通知并提供 `output_path`，如需结果内容请调用 `read_file(file_path=output_path)`";
@@ -306,6 +307,17 @@ function buildBackgroundExecutionSection(hasTaskOutput: boolean, hasTaskStop: bo
     ? "如需停止请调用 `task_stop`"
     : "当前 agent 未暴露后台停止能力时，不要假设可以停止后台任务";
   const backgroundTaskHint = `- \`run_in_background\` 只负责后台启动，不会自动等待；${outputHint}；${stopHint}`;
+  const exampleBlock = isNative
+    ? "示例（function calling 参数）：`execute_bash` 传 `command=\"python process_data.py --input data.csv --output result.json\"`、`run_in_background=true`、`description=\"批量处理 data.csv 并输出结果\"`、`timeout=300`"
+    : `示例：
+\`\`\`xml
+<tool name="execute_bash">
+  <command>python process_data.py --input data.csv --output result.json</command>
+  <run_in_background>true</run_in_background>
+  <description>批量处理 data.csv 并输出结果</description>
+  <timeout>300</timeout>
+</tool>
+\`\`\``;
   return `### 后台执行（execute_bash）
 
 \`execute_bash\` 支持 \`run_in_background=true\` 后台执行，适合耗时较长、不需要立即获取输出的命令（如数据处理脚本、批量转换、长时间构建等）。
@@ -326,15 +338,7 @@ ${backgroundTaskHint}
 - 简短命令（查看文件、统计行数、grep 搜索等）
 - 需要根据返回码决定下一步操作
 
-示例：
-\`\`\`xml
-<tool name="execute_bash">
-  <command>python process_data.py --input data.csv --output result.json</command>
-  <run_in_background>true</run_in_background>
-  <description>批量处理 data.csv 并输出结果</description>
-  <timeout>300</timeout>
-</tool>
-\`\`\``;
+${exampleBlock}`;
 }
 
 function buildPathRuleForTools(tools: RuntimeToolDefinition[]): string {
