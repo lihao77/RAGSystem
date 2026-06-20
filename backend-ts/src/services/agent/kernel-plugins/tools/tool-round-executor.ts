@@ -1,14 +1,14 @@
-import type { AgentConfig } from "../../../contracts/agent-config.js";
-import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
+import type { AgentConfig } from "../../../../contracts/agent-config.js";
+import type { ModelProviderConfig } from "../../../../contracts/model-adapter.js";
 import type {
   RuntimeToolExecutionContext,
   RuntimeToolExecutor,
   ToolExecutionResult,
   RuntimeToolWaitResult,
-} from "../../runtime/runtime-tool-types.js";
-import { isAbortError, throwIfAborted } from "../../runtime/abort.js";
-import { renderToolResultContent } from "../../runtime/runtime-xml-protocol.js";
-import { runToolBatchWithScheduler } from "../../../tools/scheduler.js";
+} from "../../../runtime/runtime-tool-types.js";
+import { isAbortError, throwIfAborted } from "../../../runtime/abort.js";
+import { renderToolResultContent } from "../../../runtime/runtime-xml-protocol.js";
+import { runToolBatchWithScheduler } from "../../../../tools/scheduler.js";
 import { buildLlmFacingToolResult } from "./observation.js";
 import {
   buildToolExecutionErrorResult,
@@ -18,22 +18,7 @@ import {
   materializeToolResult,
   resolveToolArgumentReferences,
 } from "./tool-call-utils.js";
-
-export interface PreparedRoundToolCall {
-  index: number;
-  callId: string;
-  toolName: string;
-  arguments: Record<string, unknown>;
-}
-
-export interface RuntimeToolRoundExecution {
-  index: number;
-  callId: string;
-  toolName: string;
-  arguments: Record<string, unknown>;
-  result: ToolExecutionResult;
-  observation: string;
-}
+import type { PreparedRoundToolCall, RuntimeToolRoundExecution } from "../../kernel/contracts.js";
 
 interface ToolObservationResult {
   success: boolean;

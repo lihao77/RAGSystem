@@ -2,8 +2,8 @@
  * 工具执行端口默认实现（kernel-plugins/tools）。
  *
  * 设计（铁律：行为零变化）：
- * - 本类只做一件事：把内核转交来的 calls 喂给现状 executeToolCallRound（该函数不动，
- *   位于 agent-runtime-core/tool-round-executor.ts），并把 EventSink 注回去，
+ * - 本类只做一件事：把内核转交来的 calls 喂给 executeToolCallRound（该函数不动，
+ *   现位于本目录 tool-round-executor.ts），并把 EventSink 注回去，
  *   使 runtime.tool_call / runtime.tool_result 两事件不脱钩。
  * - 关键事实：executeToolCallRound 内部（executeSingleToolCall L144 / L187）已逐字发射
  *   runtime.tool_call（执行前）与 runtime.tool_result（执行后），字段一字不改。因此本类
@@ -27,7 +27,7 @@ import type {
   KernelToolCall,
   ToolProvider,
 } from "../../kernel/contracts.js";
-import { executeToolCallRound } from "../../agent-runtime-core/tool-round-executor.js";
+import { executeToolCallRound } from "./tool-round-executor.js";
 
 export interface RuntimeToolProviderOptions {
   /**

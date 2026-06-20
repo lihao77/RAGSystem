@@ -1,10 +1,5 @@
-import type {
-  ChatCompletionResult,
-  ChatMessage,
-  ChatToolCall,
-  ChatToolDefinition,
-} from "../../integrations/llm-chat-client.js";
-import type { RuntimeToolDefinition, ToolExecutionResult } from "../../runtime/runtime-tool-types.js";
+import type { ChatToolDefinition } from "../../../integrations/llm-chat-client.js";
+import type { RuntimeToolDefinition, ToolExecutionResult } from "../../../runtime/runtime-tool-types.js";
 
 export function toChatToolDefinition(tool: RuntimeToolDefinition): ChatToolDefinition {
   return {
@@ -15,75 +10,6 @@ export function toChatToolDefinition(tool: RuntimeToolDefinition): ChatToolDefin
       parameters: tool.parameters,
     },
   };
-}
-
-export function buildAssistantToolCallMessage(result: ChatCompletionResult, toolCalls: ChatToolCall[]): ChatMessage {
-  return {
-    role: "assistant",
-    content: result.content,
-    tool_calls: toolCalls,
-  };
-}
-
-export function renderNativeAssistantIntermediateContent(
-  result: ChatCompletionResult,
-  toolCalls: ChatToolCall[],
-): string {
-  const content = result.content.trim();
-  const toolXml = renderNativeToolCallsXml(toolCalls);
-  if (content && toolXml) {
-    return `${content}\n\n${toolXml}`;
-  }
-  return content || toolXml;
-}
-
-function renderNativeToolCallsXml(toolCalls: ChatToolCall[]): string {
-  const tools = toolCalls
-    .map((toolCall) => {
-      const toolName = toolCall.function.name || "unknown_tool";
-      const args = parseToolArguments(toolCall);
-      const params = Object.entries(args).map(([key, value]) => renderXmlParameter(key, value)).join("\n");
-      return [`<tool name="${escapeXmlAttribute(toolName)}">`, params, "</tool>"].filter(Boolean).join("\n");
-    })
-    .join("\n");
-  return tools ? `<tool_calls>\n${tools}\n</tool_calls>` : "";
-}
-
-function renderXmlParameter(key: string, value: unknown): string {
-  const safeKey = /^[A-Za-z_][\w:-]*$/.test(key) ? key : "param";
-  if (Array.isArray(value)) {
-    const items = value.map((item) => `  <item>${escapeXmlText(renderArgumentValue(item))}</item>`).join("\n");
-    return `<${safeKey}>\n${items}\n</${safeKey}>`;
-  }
-  return `<${safeKey}>${escapeXmlText(renderArgumentValue(value))}</${safeKey}>`;
-}
-
-function renderArgumentValue(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (value === null || value === undefined) {
-    return "";
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  return stringifyJsonPretty(value);
-}
-
-export function parseToolArguments(toolCall: ChatToolCall): Record<string, unknown> {
-  const raw = toolCall.function.arguments.trim();
-  if (!raw) {
-    return {};
-  }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return isRecord(parsed) ? parsed : { value: parsed };
-  } catch {
-    return {
-      _raw_arguments: raw,
-    };
-  }
 }
 
 const RESULT_REFERENCE_PATTERN = /\{result_?(\d+)(?:\.([A-Za-z0-9_.]+))?\}/gi;
@@ -353,22 +279,6 @@ export function buildToolExecutionErrorResult(toolName: string, error: unknown):
     artifacts: [],
     llm_hint: null,
   };
-}
-
-function stringifyJsonPretty(value: unknown): string {
-  const rendered = JSON.stringify(value, null, 2);
-  return rendered === undefined ? String(value) : rendered;
-}
-
-function escapeXmlText(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function escapeXmlAttribute(value: string): string {
-  return escapeXmlText(value).replace(/"/g, "&quot;");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

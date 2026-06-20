@@ -9,8 +9,9 @@
  * - KernelSession：AgentRuntimeRequest L131-143，去掉 onEvent / conversationUpdateProvider /
  *   onModelRequestSuccess 三回调（改由注入的 EventSink / MessageRefresher / Hook 承担）。
  * - KernelResult：AgentRuntimeResult L145-155。
- * - KernelToolCall / KernelObservation：对齐 tool-round-executor.ts 的 PreparedRoundToolCall /
- *   RuntimeToolRoundExecution 真实形状，不臆造字段。
+ * - PreparedRoundToolCall / RuntimeToolRoundExecution：原定义于 tool-round-executor.ts，
+ *   阶段二上提至本文件（修依赖倒置：内核契约不再反向 import 下层零件）。
+ * - KernelToolCall / KernelObservation：即上述两个 interface 的语义别名，不臆造字段。
  */
 
 import type { AgentConfig } from "../../../contracts/agent-config.js";
@@ -22,10 +23,10 @@ import type {
 import type {
   RuntimeToolExecutionContext,
   RuntimeToolExecutor,
+  ToolExecutionResult,
 } from "../../runtime/runtime-tool-types.js";
 import type { AgentPromptContext } from "../agent-prompt-builder.js";
 import type { KernelContext } from "./kernel-context.js";
-import type { PreparedRoundToolCall, RuntimeToolRoundExecution } from "../agent-runtime-core/tool-round-executor.js";
 // KernelContext 定义在 kernel-context.ts；在此 re-export，使 contracts.ts 成为内核类型的统一出口。
 export type { KernelContext } from "./kernel-context.js";
 
@@ -137,14 +138,30 @@ export type AgentRuntimeEventHandler = (event: AgentRuntimeEvent) => void | Prom
 
 /**
  * 单轮工具调用申请（Protocol 向内核提交的"申请"，执行权在内核）。
- * 形状对齐 tool-round-executor.ts 的 PreparedRoundToolCall，逐字一致。
  */
+export interface PreparedRoundToolCall {
+  index: number;
+  callId: string;
+  toolName: string;
+  arguments: Record<string, unknown>;
+}
+
+/** KernelToolCall = PreparedRoundToolCall（语义别名，保留内核命名）。 */
 export type KernelToolCall = PreparedRoundToolCall;
 
 /**
  * 单轮工具观测结果（内核执行 ToolProvider 后回填给 Protocol 的数据）。
- * 形状对齐 tool-round-executor.ts 的 RuntimeToolRoundExecution，逐字一致。
  */
+export interface RuntimeToolRoundExecution {
+  index: number;
+  callId: string;
+  toolName: string;
+  arguments: Record<string, unknown>;
+  result: ToolExecutionResult;
+  observation: string;
+}
+
+/** KernelObservation = RuntimeToolRoundExecution（语义别名，保留内核命名）。 */
 export type KernelObservation = RuntimeToolRoundExecution;
 
 /**

@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import type { AgentConfig } from "../../../contracts/agent-config.js";
-import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
-import type { RuntimeToolExecutionContext, ToolExecutionResult } from "../../runtime/runtime-tool-types.js";
+import type { AgentConfig } from "../../../../contracts/agent-config.js";
+import type { ModelProviderConfig } from "../../../../contracts/model-adapter.js";
+import type { RuntimeToolExecutionContext, ToolExecutionResult } from "../../../runtime/runtime-tool-types.js";
 
 const GEOJSON_TYPES = new Set([
   "FeatureCollection",

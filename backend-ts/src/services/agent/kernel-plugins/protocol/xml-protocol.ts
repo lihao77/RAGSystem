@@ -34,7 +34,7 @@ import {
 } from "../../../runtime/runtime-xml-protocol.js";
 import { RuntimeAbortError, throwIfAborted } from "../../../runtime/abort.js";
 import { buildRuntimeMessages } from "../../agent-runtime-core/message-builder.js";
-import { toChatToolDefinition } from "../../agent-runtime-core/tool-call-utils.js";
+import { toChatToolDefinition } from "../tools/tool-call-utils.js";
 import type {
   EventSink,
   KernelContext,
@@ -104,12 +104,37 @@ export class XmlProtocol implements Protocol {
    * 合并 runXmlToolCallingText 外层循环（修复重试）+ runXmlStreamRound（流式解析）+
    * runStreamingText（无 tool_calls 时的纯流式自然结果）。
    */
+  /**
+   * 唯一分支：客户端支不支持流式。有工具 / 无工具都注入 XML 协议、都走 XML 解析——
+   * 无工具是“只有 <final_answer>、没有 <tool_calls>”的特例，不再单列路径。
+   *
+   * - 有 stream：边流边 XML 解析边发 delta（runXmlStreamRound），含协议修复重试。
+   * - 无 stream：complete 拿完整响应后整体 XML 解析（invokeNonStreaming）。
+   */
   async invoke(ctx: KernelContext, round: number): Promise<KernelOutcome> {
-    const session = ctx.session;
-    const agentName = session.agent.agent_name;
-    const signal = session.signal;
-
     const baseRequest = this.buildRequest(ctx);
+    const stream = this.llmChatClient.stream;
+    if (stream) {
+      return this.invokeStreaming(ctx, baseRequest, round, stream.bind(this.llmChatClient));
+    }
+    return this.invokeNonStreaming(ctx, baseRequest, round);
+  }
+
+  /**
+   * 流式 invoke：边流边 XML 解析边发 delta + 协议修复重试
+   * （合并 runXmlToolCallingText 外层循环，对齐原 L257-369）。
+   * stream 由 invoke 收窄后传入，此处不再用 `!` 假设其存在。
+   */
+  private async invokeStreaming(
+    ctx: KernelContext,
+    baseRequest: ChatCompletionRequest,
+    round: number,
+    stream: (
+      request: ChatCompletionRequest,
+      onChunk: ChatStreamChunkHandler,
+    ) => Promise<ChatCompletionResult>,
+  ): Promise<KernelOutcome> {
+    const signal = ctx.session.signal;
     let messages = [...baseRequest.messages];
 
     let protocolRepairAttempts = 0;
@@ -119,15 +144,14 @@ export class XmlProtocol implements Protocol {
         ctx,
         { ...baseRequest, messages, allowEmptyStream: true },
         round,
+        stream,
       );
       throwIfAborted(signal, "Agent run aborted");
 
-      // interrupted：对齐 L278-280。
       if (roundResult.finishReason === "interrupted") {
         throw new RuntimeAbortError("LLM stream interrupted");
       }
 
-      // 协议修复重试分支一：流中报 error（对齐 L281-292）。
       if (roundResult.error) {
         if (protocolRepairAttempts >= MAX_PROTOCOL_REPAIR_ATTEMPTS) {
           throw new Error(`XML protocol repair exceeded max attempts: ${roundResult.error}`);
@@ -147,8 +171,6 @@ export class XmlProtocol implements Protocol {
 
       protocolRepairAttempts = 0;
 
-      // 有 tool_calls → 向内核提交工具调用申请（对齐 L295-318，但只返 calls，
-      // 执行权在内核；assistant_intermediate 事件由内核/Tool 侧负责，不在 invoke 内 emit）。
       if (roundResult.toolCalls.length > 0) {
         const assistantMessage: ChatMessage = {
           role: "assistant",
@@ -168,24 +190,18 @@ export class XmlProtocol implements Protocol {
         };
       }
 
-      // 有 final / fallback → 纯流式自然结果，返回 final（对齐 L342-352）。
       const content = roundResult.finalAnswer.trim()
         ? roundResult.finalAnswer
         : roundResult.fallbackAnswer;
       if (content.trim()) {
-        const assistantMessage: ChatMessage = {
-          role: "assistant",
-          content,
-        };
         return {
           kind: "final",
           finalAnswer: content,
-          assistantMessage,
+          assistantMessage: { role: "assistant", content },
           finishReason: roundResult.finishReason,
         };
       }
 
-      // 协议修复重试分支二：既无 tool_calls 也无 final/fallback（对齐 L354-366）。
       if (protocolRepairAttempts >= MAX_PROTOCOL_REPAIR_ATTEMPTS) {
         throw new Error("XML protocol repair exceeded max attempts: no final_answer or tool_calls found");
       }
@@ -200,6 +216,54 @@ export class XmlProtocol implements Protocol {
         ),
       ];
     }
+  }
+
+  /**
+   * 非流式 invoke：client 无 stream 时走 complete，拿完整响应后整体 XML 解析。
+   * 不发 first_token / output_delta（非流式无逐字流，结果由内核 done 事件交付）；
+   * 不做协议修复重试（非流式无增量解析，失败即抛）。
+   */
+  private async invokeNonStreaming(
+    ctx: KernelContext,
+    request: ChatCompletionRequest,
+    round: number,
+  ): Promise<KernelOutcome> {
+    const signal = ctx.session.signal;
+    throwIfAborted(signal, "Agent run aborted");
+    const result = await this.llmChatClient.complete(request);
+    throwIfAborted(signal, "Agent run aborted");
+    if (result.finishReason === "interrupted") {
+      throw new RuntimeAbortError("LLM stream interrupted");
+    }
+
+    const parser = new StreamingRuntimeXmlParser();
+    parser.feed(result.content, { stopAfterClosingTag: "tool_calls" });
+    const toolCallsXml = parser.getTagContent("tool_calls");
+    if (toolCallsXml.trim()) {
+      const parsed = parseRuntimeToolCallsXml(toolCallsXml);
+      if (parsed.calls.length > 0) {
+        const calls: KernelToolCall[] = parsed.calls.map((call, index) => ({
+          index,
+          callId: call.callId ?? `xml_round_${round}_call_${index + 1}`,
+          toolName: call.toolName,
+          arguments: call.arguments ?? {},
+        }));
+        return {
+          kind: "tool_calls",
+          calls,
+          assistantMessage: { role: "assistant", content: result.content },
+          finishReason: result.finishReason ?? null,
+        };
+      }
+    }
+    const finalAnswer = parser.getTagContent("final_answer");
+    const content = finalAnswer.trim() ? finalAnswer : result.content;
+    return {
+      kind: "final",
+      finalAnswer: content,
+      assistantMessage: { role: "assistant", content },
+      finishReason: result.finishReason ?? null,
+    };
   }
 
   /**
@@ -240,6 +304,10 @@ export class XmlProtocol implements Protocol {
     ctx: KernelContext,
     request: ChatCompletionRequest,
     round: number,
+    stream: (
+      request: ChatCompletionRequest,
+      onChunk: ChatStreamChunkHandler,
+    ) => Promise<ChatCompletionResult>,
   ): Promise<{
     rawContent: string;
     finalAnswer: string;
@@ -265,7 +333,7 @@ export class XmlProtocol implements Protocol {
     const pendingFallbackDeltas: string[] = [];
     const toolCalls: RuntimeToolCall[] = [];
 
-    const result = await this.streamRequest(ctx, request, async (chunk) => {
+    const result = await stream(request, async (chunk) => {
       throwIfAborted(signal, "Agent run aborted");
       if (!chunk.content || toolCallsClosed) {
         return toolCallsClosed ? { stop: true } : undefined;
@@ -377,17 +445,4 @@ export class XmlProtocol implements Protocol {
     };
   }
 
-  /**
-   * 纯流式发请求（对齐 streamRequest L636-644，即 llmChatClient.stream）。
-   *
-   * 现状 streamRequest 在 stream 返回后调 onModelRequestSuccess（刷 stable-prefix），
-   * 该回调在本架构映射为 afterModel hook，由内核在 invoke 返回后调，故此处不重复。
-   */
-  private async streamRequest(
-    ctx: KernelContext,
-    request: ChatCompletionRequest,
-    onChunk: ChatStreamChunkHandler,
-  ): Promise<ChatCompletionResult> {
-    return await this.llmChatClient.stream!(request, onChunk);
-  }
 }
