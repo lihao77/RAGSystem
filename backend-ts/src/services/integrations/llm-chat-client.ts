@@ -51,6 +51,7 @@ export interface ChatStreamChunk {
   content: string;
   finishReason?: string | null | undefined;
   raw?: unknown;
+  toolCalls?: ChatToolCall[] | undefined;
 }
 
 export interface ChatStreamControl {
@@ -109,12 +110,36 @@ export class OpenAiCompatibleChatClient implements LlmChatClient {
   }
 
   async stream(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler): Promise<ChatCompletionResult> {
-    if (request.provider.provider_type === "openai_resp" || request.provider.provider_type === "anthropic") {
+    if (request.provider.provider_type === "openai_resp") {
       const result = await this.complete(request);
       if (result.content) {
         await onChunk({ content: result.content, raw: result.raw });
       }
       return result;
+    }
+    if (request.provider.provider_type === "anthropic") {
+      const apiKey = requireApiKey(request.provider);
+      const endpoint = resolveAnthropicEndpoint(request.provider);
+      const fetchOptions: RequestInit = {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify(buildAnthropicBody(request, true)),
+      };
+      if (request.signal) {
+        fetchOptions.signal = request.signal;
+      }
+      const response = await fetch(endpoint, fetchOptions);
+      if (!response.ok) {
+        const body = await readJsonResponseBody(response);
+        throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
+      }
+      return readAnthropicStream(response, onChunk, {
+        allowEmptyContent: request.allowEmptyStream === true,
+      });
     }
     const { endpoint, apiKey } = resolveOpenAiCompatibleRequest(request);
     const response = await fetch(endpoint, buildFetchOptions(request, apiKey, true));
@@ -176,14 +201,19 @@ async function completeAnthropicMessages(request: ChatCompletionRequest): Promis
     throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
   }
   const content = extractAnthropicContent(body);
-  if (!content) {
+  const toolCalls = extractAnthropicToolCalls(body);
+  if (!content && toolCalls.length === 0) {
     throw new Error("Anthropic response did not include assistant content");
   }
-  return {
-    content,
+  const result: ChatCompletionResult = {
+    content: content ?? "",
     raw: body,
     finishReason: isRecord(body) && typeof body.stop_reason === "string" ? body.stop_reason : null,
   };
+  if (toolCalls.length > 0) {
+    result.toolCalls = toolCalls;
+  }
+  return result;
 }
 
 function buildFetchOptions(request: ChatCompletionRequest, apiKey: string, stream: boolean): RequestInit {
@@ -298,7 +328,7 @@ function buildResponsesBody(request: ChatCompletionRequest): Record<string, unkn
   };
 }
 
-function buildAnthropicBody(request: ChatCompletionRequest): Record<string, unknown> {
+function buildAnthropicBody(request: ChatCompletionRequest, stream = false): Record<string, unknown> {
   const system = request.messages
     .filter((message) => message.role === "system")
     .map((message) => ({ type: "text", text: message.content }));
@@ -314,6 +344,7 @@ function buildAnthropicBody(request: ChatCompletionRequest): Record<string, unkn
     system: system.length ? system : undefined,
     temperature: request.temperature ?? undefined,
     max_tokens: request.maxCompletionTokens ?? request.provider.max_completion_tokens ?? request.provider.max_tokens ?? 4096,
+    stream: stream ? true : undefined,
   };
 }
 
@@ -333,6 +364,7 @@ async function readOpenAiCompatibleStream(
   let done = false;
   let stopRequested = false;
   let finishReason: string | null = null;
+  const toolCallAccumulators = new Map<number, { id: string; name: string; argsBuffer: string }>();
 
   const processLine = async (line: string): Promise<void> => {
     const trimmed = line.trim();
@@ -355,15 +387,15 @@ async function readOpenAiCompatibleStream(
         done = true;
       }
     }
+    accumulateStreamToolCalls(parsed, toolCallAccumulators);
     const delta = extractAssistantDeltaContent(parsed);
-    if (!delta) {
-      return;
-    }
-    content += delta;
-    const control = await onChunk({ content: delta, finishReason: chunkFinishReason, raw: parsed });
-    if (control?.stop) {
-      stopRequested = true;
-      done = true;
+    if (delta) {
+      content += delta;
+      const control = await onChunk({ content: delta, finishReason: chunkFinishReason, raw: parsed });
+      if (control?.stop) {
+        stopRequested = true;
+        done = true;
+      }
     }
   };
 
@@ -393,11 +425,199 @@ async function readOpenAiCompatibleStream(
   if (done) {
     await reader.cancel().catch(() => undefined);
   }
-  if (!content && finishReason !== "interrupted" && !stopRequested && !options.allowEmptyContent) {
+
+  const toolCalls = collectStreamToolCalls(toolCallAccumulators);
+  if (toolCalls.length > 0 && !stopRequested) {
+    await onChunk({ content: "", finishReason, toolCalls });
+  }
+
+  if (!content && toolCalls.length === 0 && finishReason !== "interrupted" && !stopRequested && !options.allowEmptyContent) {
     throw new Error("LLM streaming response did not include assistant content");
   }
 
-  return { content, finishReason };
+  const result: ChatCompletionResult = { content, finishReason };
+  if (toolCalls.length > 0) {
+    result.toolCalls = toolCalls;
+  }
+  return result;
+}
+
+async function readAnthropicStream(
+  response: Response,
+  onChunk: ChatStreamChunkHandler,
+  options: { allowEmptyContent?: boolean | undefined } = {},
+): Promise<ChatCompletionResult> {
+  if (!response.body) {
+    throw new Error("Anthropic streaming response did not include a readable body");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+  let done = false;
+  let stopRequested = false;
+  let finishReason: string | null = null;
+  const blockTools = new Map<number, { id: string; name: string; argsBuffer: string }>();
+
+  const finalizeBlock = (index: number): ChatToolCall | null => {
+    const acc = blockTools.get(index);
+    if (!acc || !acc.name) {
+      return null;
+    }
+    blockTools.delete(index);
+    return {
+      id: acc.id,
+      type: "function",
+      function: {
+        name: acc.name,
+        arguments: acc.argsBuffer,
+      },
+    };
+  };
+
+  const processEvent = async (event: { event: string; data: string }): Promise<void> => {
+    const data = event.data.trim();
+    if (!data) {
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(data) as unknown;
+    } catch {
+      return;
+    }
+    switch (event.event) {
+      case "content_block_start": {
+        if (!isRecord(parsed)) {
+          break;
+        }
+        const index = typeof parsed.index === "number" ? parsed.index : 0;
+        const block = parsed.content_block;
+        if (isRecord(block) && block.type === "tool_use") {
+          const name = block.name;
+          blockTools.set(index, {
+            id: typeof block.id === "string" && block.id.trim() ? block.id : `tool_call_${index}`,
+            name: typeof name === "string" ? name : "",
+            argsBuffer: "",
+          });
+        }
+        break;
+      }
+      case "content_block_delta": {
+        if (!isRecord(parsed)) {
+          break;
+        }
+        const index = typeof parsed.index === "number" ? parsed.index : 0;
+        const delta = parsed.delta;
+        if (!isRecord(delta)) {
+          break;
+        }
+        if (delta.type === "text_delta" && typeof delta.text === "string") {
+          content += delta.text;
+          const control = await onChunk({ content: delta.text, finishReason, raw: parsed });
+          if (control?.stop) {
+            stopRequested = true;
+            done = true;
+          }
+        } else if (delta.type === "input_json_delta" && typeof delta.partial_json === "string") {
+          const acc = blockTools.get(index);
+          if (acc) {
+            acc.argsBuffer += delta.partial_json;
+          }
+        }
+        break;
+      }
+      case "content_block_stop": {
+        if (!isRecord(parsed)) {
+          break;
+        }
+        const index = typeof parsed.index === "number" ? parsed.index : 0;
+        const finalized = finalizeBlock(index);
+        if (finalized && !stopRequested) {
+          await onChunk({ content: "", finishReason, toolCalls: [finalized] });
+        }
+        break;
+      }
+      case "message_delta": {
+        if (!isRecord(parsed)) {
+          break;
+        }
+        const inner = parsed.delta;
+        if (isRecord(inner) && typeof inner.stop_reason === "string") {
+          finishReason = inner.stop_reason;
+        }
+        break;
+      }
+      case "message_stop": {
+        done = true;
+        break;
+      }
+      default:
+        break;
+    }
+  };
+
+  const processBuffer = async (flush: boolean): Promise<void> => {
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = flush ? "" : (events.pop() ?? "");
+    for (const rawEvent of events) {
+      const lines = rawEvent.split(/\r?\n/);
+      let eventType = "";
+      let dataLines: string[] = [];
+      for (const line of lines) {
+        if (line.startsWith("event:")) {
+          eventType = line.slice("event:".length).trim();
+        } else if (line.startsWith("data:")) {
+          dataLines.push(line.slice("data:".length).trim());
+        }
+      }
+      if (!eventType) {
+        continue;
+      }
+      await processEvent({ event: eventType, data: dataLines.join("\n") });
+      if (done) {
+        break;
+      }
+    }
+  };
+
+  while (!done) {
+    const read = await reader.read();
+    if (read.done) {
+      break;
+    }
+    buffer += decoder.decode(read.value, { stream: true });
+    await processBuffer(false);
+  }
+  buffer += decoder.decode();
+  if (!done && buffer.trim()) {
+    await processBuffer(true);
+  }
+  if (done) {
+    await reader.cancel().catch(() => undefined);
+  }
+
+  if (!content && !blockTools.size && finishReason !== "interrupted" && !stopRequested && !options.allowEmptyContent) {
+    throw new Error("Anthropic streaming response did not include assistant content");
+  }
+
+  // any tool blocks that never received a content_block_stop (truncated stream)
+  const trailingToolCalls: ChatToolCall[] = [];
+  const trailingIndices = Array.from(blockTools.keys()).sort((a, b) => a - b);
+  for (const index of trailingIndices) {
+    const finalized = finalizeBlock(index);
+    if (finalized) {
+      trailingToolCalls.push(finalized);
+    }
+  }
+
+  const result: ChatCompletionResult = { content, finishReason };
+  if (trailingToolCalls.length > 0 && !stopRequested) {
+    await onChunk({ content: "", finishReason, toolCalls: trailingToolCalls });
+    result.toolCalls = trailingToolCalls;
+  }
+  return result;
 }
 
 async function readJsonResponseBody(response: Response): Promise<unknown> {
@@ -479,6 +699,32 @@ function extractAnthropicContent(body: unknown): string | null {
   return parts.join("");
 }
 
+function extractAnthropicToolCalls(body: unknown): ChatToolCall[] {
+  if (!isRecord(body) || !Array.isArray(body.content)) {
+    return [];
+  }
+  const toolCalls: ChatToolCall[] = [];
+  for (const [index, block] of body.content.entries()) {
+    if (!isRecord(block) || block.type !== "tool_use") {
+      continue;
+    }
+    const name = block.name;
+    if (typeof name !== "string" || !name) {
+      continue;
+    }
+    const input = block.input;
+    toolCalls.push({
+      id: typeof block.id === "string" && block.id.trim() ? block.id : `tool_call_${index}`,
+      type: "function",
+      function: {
+        name,
+        arguments: typeof input === "string" ? input : JSON.stringify(input ?? {}),
+      },
+    });
+  }
+  return toolCalls;
+}
+
 function extractAssistantToolCalls(body: unknown): ChatToolCall[] {
   const first = extractFirstChoice(body);
   if (!first) {
@@ -549,6 +795,76 @@ function extractAssistantDeltaContent(body: unknown): string | null {
     return first.text;
   }
   return null;
+}
+
+function accumulateStreamToolCalls(
+  body: unknown,
+  accumulators: Map<number, { id: string; name: string; argsBuffer: string }>,
+): void {
+  if (!isRecord(body)) {
+    return;
+  }
+  const choices = body.choices;
+  if (!Array.isArray(choices) || choices.length === 0) {
+    return;
+  }
+  const first = choices[0];
+  if (!isRecord(first)) {
+    return;
+  }
+  const delta = first.delta;
+  if (!isRecord(delta) || !Array.isArray(delta.tool_calls)) {
+    return;
+  }
+  for (const entry of delta.tool_calls) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const index = typeof entry.index === "number" ? entry.index : 0;
+    let acc = accumulators.get(index);
+    if (!acc) {
+      acc = {
+        id: typeof entry.id === "string" && entry.id.trim() ? entry.id : `tool_call_${index}`,
+        name: "",
+        argsBuffer: "",
+      };
+      accumulators.set(index, acc);
+    }
+    if (typeof entry.id === "string" && entry.id.trim()) {
+      acc.id = entry.id;
+    }
+    const fn = entry.function;
+    if (isRecord(fn)) {
+      if (typeof fn.name === "string" && fn.name) {
+        acc.name = acc.name || fn.name;
+      }
+      if (typeof fn.arguments === "string") {
+        acc.argsBuffer += fn.arguments;
+      }
+    }
+  }
+}
+
+function collectStreamToolCalls(
+  accumulators: Map<number, { id: string; name: string; argsBuffer: string }>,
+): ChatToolCall[] {
+  const indices = Array.from(accumulators.keys()).sort((a, b) => a - b);
+  const toolCalls: ChatToolCall[] = [];
+  for (const index of indices) {
+    const acc = accumulators.get(index);
+    if (!acc || !acc.name) {
+      continue;
+    }
+    toolCalls.push({
+      id: acc.id,
+      type: "function",
+      function: {
+        name: acc.name,
+        arguments: acc.argsBuffer,
+      },
+    });
+  }
+  return toolCalls;
 }
 
 function extractStreamFinishReason(body: unknown): string | null {
