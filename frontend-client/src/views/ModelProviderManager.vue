@@ -289,6 +289,14 @@
                 <input v-model.number="form.timeout" class="form-control adm-form-control" type="number"
                   step="5" min="5" placeholder="60" />
               </div>
+              <div class="form-row adm-field dialog-form-grid__full adm-form-grid__full">
+                <label class="form-label adm-field-label">工具调用协议</label>
+                <label class="fc-toggle">
+                  <input type="checkbox" v-model="form.supports_function_calling" />
+                  <span>启用原生 Function Calling</span>
+                </label>
+                <p class="form-hint adm-form-hint">勾选后 OpenAI 兼容 Provider 走厂商原生 FC（需模型支持）；anthropic 自动走原生 tool_use 无需此项；不勾选则回退 XML 协议（兼容旧行为）。</p>
+              </div>
             </div>
           </section>
 
@@ -812,7 +820,8 @@ function buildFormDefaults() {
   return {
     name: '', provider_type: '', api_key: '', api_endpoint: '',
     temperature: 0.7, max_completion_tokens: 4096,
-    max_context_tokens: 128000, timeout: 60
+    max_context_tokens: 128000, timeout: 60,
+    supports_function_calling: false
   }
 }
 
@@ -839,7 +848,8 @@ function openEditDialog(provider) {
     temperature: provider.temperature ?? 0.7,
     max_completion_tokens: provider.max_completion_tokens || 4096,
     max_context_tokens: provider.max_context_tokens || 128000,
-    timeout: provider.timeout || 60
+    timeout: provider.timeout || 60,
+    supports_function_calling: provider.supports_function_calling ?? false
   }
   for (const field of getProviderConfigFields(nextForm.provider_type)) {
     nextForm[field.key] = provider[field.key] ?? field.default ?? ''
@@ -1532,6 +1542,22 @@ input[type='number'].form-control { padding-right: 8px; }
 
 .form-hint--section {
   margin-bottom: 4px;
+}
+
+.fc-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.fc-toggle input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--color-brand-accent);
 }
 
 .form-hint code {
