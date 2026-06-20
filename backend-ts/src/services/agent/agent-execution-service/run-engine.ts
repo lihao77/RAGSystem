@@ -335,6 +335,7 @@ export class AgentRunEngine {
       });
       const contextUsagePayload = buildContextUsagePayload({
         agent: input.agent,
+        provider: input.provider,
         promptContext,
         budgetTokens: this.resolveContextBudget(input.agent, input.provider),
         messages: context.conversation,

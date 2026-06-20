@@ -3,6 +3,7 @@ import type { ExecutionObservability, ExecutionTaskStatus } from "../../../contr
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import { isRuntimeStableSystemContextContent } from "../agent-runtime-context-builder.js";
 import { buildFullSystemPrompt, type AgentPromptContext } from "../agent-prompt-builder.js";
+import { resolveToolInstructionMode } from "../kernel-plugins/protocol/select-protocol.js";
 import type { BackgroundTaskNotificationPayload } from "../../runtime/background-task-service.js";
 import type { ChatMessage } from "../../integrations/llm-chat-client.js";
 import type { RuntimeToolExecutionContext } from "../../runtime/runtime-tool-types.js";
@@ -257,6 +258,7 @@ export function buildRunEndStepPayload(input: {
 
 export function buildContextUsagePayload(input: {
   agent: AgentConfig;
+  provider?: ModelProviderConfig | null;
   promptContext: AgentPromptContext;
   budgetTokens: number;
   messages: ChatMessage[];
@@ -271,7 +273,7 @@ export function buildContextUsagePayload(input: {
     replacesUpToSeq: number | null;
   } | null;
 }): Record<string, unknown> {
-  const rawSystemPromptTokens = estimateTokens(buildFullSystemPrompt(input.agent, input.promptContext));
+  const rawSystemPromptTokens = estimateTokens(buildFullSystemPrompt(input.agent, input.promptContext, input.provider ? resolveToolInstructionMode(input.provider) : "xml"));
   const systemContextTokens = input.messages
     .filter((message) => message.role === "system" && isRuntimeStableSystemContextContent(message.content))
     .reduce((total, message) => total + estimateTokens(message.content), 0);

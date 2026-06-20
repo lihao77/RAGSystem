@@ -32,21 +32,27 @@ export interface SelectedProtocol {
   toolInstructionMode: ToolInstructionMode;
 }
 
-export function selectProtocol(deps: SelectProtocolDeps): SelectedProtocol {
-  const { provider, llmChatClient, events } = deps;
-  const providerType = provider.provider_type;
-
+/**
+ * 由 provider 配置解析工具指令形态（与 selectProtocol 同一矩阵，纯函数）。
+ * 供展示/估算场景复用（context-snapshot、token 估算）——它们不构造 Protocol，只需知道用哪种提示词。
+ */
+export function resolveToolInstructionMode(provider: ModelProviderConfig): ToolInstructionMode {
   // anthropic 原生 tool_use，无视 supports_function_calling 标注。
-  if (providerType === "anthropic") {
-    return { protocol: new NativeHybridProtocol(llmChatClient, events), toolInstructionMode: "native" };
+  if (provider.provider_type === "anthropic") {
+    return "native";
   }
-
   // OpenAI 兼容 + 显式 supports_function_calling=true → native FC。
   // supports_function_calling 未标注（undefined）或 false → 保守回退 XML（等价阶段一行为）。
-  if (OPENAI_COMPATIBLE_TYPES.has(providerType) && provider.supports_function_calling === true) {
-    return { protocol: new NativeHybridProtocol(llmChatClient, events), toolInstructionMode: "native" };
+  if (OPENAI_COMPATIBLE_TYPES.has(provider.provider_type) && provider.supports_function_calling === true) {
+    return "native";
   }
+  return "xml";
+}
 
-  // 默认：XML 内容协议。
-  return { protocol: new XmlProtocol(llmChatClient, events), toolInstructionMode: "xml" };
+export function selectProtocol(deps: SelectProtocolDeps): SelectedProtocol {
+  const toolInstructionMode = resolveToolInstructionMode(deps.provider);
+  const protocol = toolInstructionMode === "native"
+    ? new NativeHybridProtocol(deps.llmChatClient, deps.events)
+    : new XmlProtocol(deps.llmChatClient, deps.events);
+  return { protocol, toolInstructionMode };
 }
