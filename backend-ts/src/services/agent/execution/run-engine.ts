@@ -309,6 +309,7 @@ export class AgentRunEngine {
         contextUsagePayload = this.contextService.buildUsage({
           agent: input.agent,
           provider: input.provider,
+          modelName: input.modelName,
           promptContext,
           messages: context.conversation,
           round: 0,
@@ -321,6 +322,7 @@ export class AgentRunEngine {
           sessionId: input.sessionId,
           agent: input.agent,
           provider: input.provider,
+          modelName: input.modelName,
           promptContext,
           threadKey: "root",
           round: 0,

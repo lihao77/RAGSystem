@@ -125,6 +125,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
           sessionId,
           agent,
           provider: resolved.provider,
+          modelName: resolved.modelName,
           historyLimit: 500,
         }).context
       : null;
@@ -138,7 +139,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       : [];
     const systemPromptTokens = estimateTokens(systemPrompt) + estimateTokens(asString(memorySnapshot?.rendered_block) ?? "");
     const historyTokens = history.reduce((total, item) => total + item.tokens, 0);
-    const budgetTokens = options.container.agentContextService.resolveContextBudget(agent, resolved.provider);
+    const budgetTokens = options.container.agentContextService.resolveContextBudget(agent, resolved.provider, resolved.modelName);
 
     const data = {
       system_prompt: systemPrompt,

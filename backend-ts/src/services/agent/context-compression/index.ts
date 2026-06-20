@@ -8,6 +8,7 @@ import type { SystemConfigService } from "../../config/system-config-service.js"
 import { resolveCompressionView } from "../context-builder/index.js";
 import type { RuntimeModelProviderPort } from "../../runtime/runtime-core-service.js";
 import { findProviderByRef, normalizeProviderKey } from "../../runtime/provider-lookup.js";
+import { resolveRequestLlmParams } from "../../runtime/llm-params.js";
 
 export interface RuntimeContextSettings {
   compressionTriggerRatio: number;
@@ -20,19 +21,13 @@ export interface RuntimeContextSettings {
 /** 摘要核心算法的最小消息形态：MessageInfo 与 ChatMessage 均结构兼容。 */
 export type SummarizableMessage = { role: string; content: string };
 
-export interface SummarizeSegmentResult {
-  content: string;
-  status: "success" | "fallback";
-  reason: string;
-}
-
 export interface ContextCompressionEvent {
   type: "context.compression_start" | "context.compression_summary";
   data: Record<string, unknown>;
 }
 
 export interface ContextCompressionResult {
-  status: "skipped" | "success" | "fallback";
+  status: "skipped" | "success";
   reason: string;
   budgetTokens: number;
   historyTokens: number;
@@ -43,7 +38,7 @@ export interface ContextCompressionResult {
 }
 
 export interface ForceContextCompressionResult {
-  status: "skipped" | "success" | "fallback";
+  status: "skipped" | "success";
   reason: string;
   before: number;
   after: number;
@@ -61,6 +56,7 @@ interface CompressIfNeededInput {
   requestId: string;
   agent: AgentConfig;
   provider: ModelProviderConfig;
+  modelName: string;
   threadKey?: string | null | undefined;
   childAgentId?: string | null | undefined;
   signal?: AbortSignal | undefined;
@@ -102,8 +98,8 @@ export class AgentContextCompressionService {
     private readonly modelProviders: RuntimeModelProviderPort,
   ) {}
 
-  resolveContextBudget(agent: AgentConfig, provider: ModelProviderConfig): number {
-    return resolveContextBudget(agent, provider, this.systemConfig.getConfig());
+  resolveContextBudget(agent: AgentConfig, provider: ModelProviderConfig, modelName: string | null): number {
+    return resolveContextBudget(agent, provider, this.systemConfig.getConfig(), modelName);
   }
 
   resolveContextSettings(agent: AgentConfig): RuntimeContextSettings {
@@ -113,7 +109,7 @@ export class AgentContextCompressionService {
   async compressIfNeeded(input: CompressIfNeededInput): Promise<ContextCompressionResult> {
     const threadKey = input.threadKey?.trim() || "root";
     const settings = this.resolveContextSettings(input.agent);
-    const budgetTokens = this.resolveContextBudget(input.agent, input.provider);
+    const budgetTokens = this.resolveContextBudget(input.agent, input.provider, input.modelName);
     const rawMessages = this.conversationStore
       .listMessages(input.sessionId, DEFAULT_HISTORY_SCAN_LIMIT, 0, threadKey)
       .items.filter(isCompressibleHistoryMessage);
@@ -158,16 +154,19 @@ export class AgentContextCompressionService {
       },
     });
 
-    const summary = await this.summarizeSegment({
+    const summaryContent = await this.summarizeSegment({
       agent: input.agent,
+      provider: input.provider,
+      modelName: input.modelName,
       segment,
       existingSummary,
       maxTokens: settings.summarizeMaxTokens,
       signal: input.signal,
     });
-    const summaryContent = summary.content;
-    const status: ContextCompressionResult["status"] = summary.status;
-    const reason = summary.reason;
+    if (summaryContent === null) {
+      // LLM 摘要不可用：跳过本轮压缩，保留完整历史等下轮重试，绝不做有损截断。
+      return skipped("summary_unavailable", budgetTokens, historyTokens, thresholdTokens);
+    }
 
     const summaryMessage = this.conversationStore.insertCompressionMessage({
       sessionId: input.sessionId,
@@ -181,7 +180,7 @@ export class AgentContextCompressionService {
         request_id: input.requestId,
         task_id: input.taskId,
         msg_type: "context_compression_summary",
-        compression_strategy: status === "success" ? "llm_summarize" : "fallback_truncate",
+        compression_strategy: "llm_summarize",
         replaced_message_count: segment.length,
         history_tokens_before: historyTokens,
         threshold_tokens: thresholdTokens,
@@ -205,14 +204,14 @@ export class AgentContextCompressionService {
         task_id: input.taskId,
         request_id: input.requestId,
         agent_name: input.agent.agent_name,
-        status,
-        reason,
+        status: "success",
+        reason: "success",
       },
     });
 
     return {
-      status,
-      reason,
+      status: "success",
+      reason: "success",
       budgetTokens,
       historyTokens,
       thresholdTokens,
@@ -226,6 +225,7 @@ export class AgentContextCompressionService {
     sessionId: string;
     agent: AgentConfig;
     provider: ModelProviderConfig;
+    modelName: string;
     runId?: string | null | undefined;
     taskId?: string | null | undefined;
     requestId?: string | null | undefined;
@@ -235,7 +235,7 @@ export class AgentContextCompressionService {
   }): Promise<ForceContextCompressionResult> {
     const threadKey = input.threadKey?.trim() || "root";
     const settings = this.resolveContextSettings(input.agent);
-    const budgetTokens = this.resolveContextBudget(input.agent, input.provider);
+    const budgetTokens = this.resolveContextBudget(input.agent, input.provider, input.modelName);
     const rawMessages = this.conversationStore
       .listMessages(input.sessionId, DEFAULT_HISTORY_SCAN_LIMIT, 0, threadKey)
       .items.filter(isCompressibleHistoryMessage);
@@ -281,16 +281,19 @@ export class AgentContextCompressionService {
       },
     });
 
-    const summary = await this.summarizeSegment({
+    const summaryContent = await this.summarizeSegment({
       agent: input.agent,
+      provider: input.provider,
+      modelName: input.modelName,
       segment,
       existingSummary,
       maxTokens: settings.summarizeMaxTokens,
       signal: input.signal,
     });
-    const summaryContent = summary.content;
-    const status: ForceContextCompressionResult["status"] = summary.status;
-    const reason = summary.reason;
+    if (summaryContent === null) {
+      // LLM 摘要不可用：强制压缩同样不做有损截断，如实回报未执行。
+      return forceSkipped("summary_unavailable", rawMessages.length);
+    }
 
     const summaryMessage = this.conversationStore.insertCompressionMessage({
       sessionId: input.sessionId,
@@ -303,7 +306,7 @@ export class AgentContextCompressionService {
         request_id: requestId,
         task_id: taskId,
         msg_type: "context_compression_summary",
-        compression_strategy: status === "success" ? "llm_summarize" : "fallback_truncate",
+        compression_strategy: "llm_summarize",
         replaced_message_count: segment.length,
         history_tokens_before: beforeTokens,
         threshold_tokens: 0,
@@ -330,15 +333,15 @@ export class AgentContextCompressionService {
         task_id: taskId,
         request_id: requestId,
         agent_name: input.agent.agent_name,
-        status,
-        reason,
+        status: "success",
+        reason: "success",
         forced: true,
       },
     });
 
     return {
-      status,
-      reason,
+      status: "success",
+      reason: "success",
       before: rawMessages.length,
       after: messagesAfter.length,
       tokens_saved: Math.max(0, beforeTokens - afterTokens),
@@ -378,27 +381,32 @@ export class AgentContextCompressionService {
   }
 
   /**
-   * 摘要核心算法（与数据源无关）：对一段消息生成结构化摘要，失败时降级为截断说明。
+   * 摘要核心算法（与数据源无关）：对一段消息生成结构化摘要。
    * store 路径（compressIfNeeded / forceCompactSession）与内核内存路径（循环内压缩 hook）共享。
-   * 摘要目标模型由 resolveSummaryTierCandidates 按 fast→default→系统 逐级解析去重；
-   * 前级失败（非 abort）自动降级到下一候选，全候选失败才降级为截断说明。
+   * 摘要目标模型由 resolveSummaryTierCandidates 按 fast→default→系统 逐级解析去重；其中
+   * default = 传入的 provider/modelName（运行已解析的模型，已含 selectedLlm 覆盖），
+   * fast 未配置则回落到 default。前级失败（非 abort）自动降级到下一候选。
+   * 压缩只走大模型摘要——全候选失败时返回 null（调用方据此跳过本轮压缩、保留完整历史
+   * 等下轮重试），绝不做有损截断；abort 立即抛。
    */
   async summarizeSegment(input: {
     agent: AgentConfig;
+    provider: ModelProviderConfig;
+    modelName: string;
     segment: ReadonlyArray<SummarizableMessage>;
     existingSummary: string;
     maxTokens: number;
     signal?: AbortSignal | undefined;
-  }): Promise<SummarizeSegmentResult> {
+  }): Promise<string | null> {
     const candidates = resolveSummaryTierCandidates(
       input.agent,
+      { provider: input.provider, modelName: input.modelName },
       this.systemConfig.getConfig(),
       this.modelProviders.listProviders(),
     );
-    let lastError: unknown = null;
     for (const candidate of candidates) {
       try {
-        const content = await this.generateSummary({
+        return await this.generateSummary({
           agent: input.agent,
           provider: candidate.provider,
           modelName: candidate.modelName,
@@ -407,19 +415,13 @@ export class AgentContextCompressionService {
           maxTokens: input.maxTokens,
           signal: input.signal,
         });
-        return { content, status: "success", reason: "success" };
       } catch (error) {
         if (input.signal?.aborted) {
           throw error;
         }
-        lastError = error;
       }
     }
-    return {
-      content: formatFallbackSummary(input.segment.length, lastError),
-      status: "fallback",
-      reason: candidates.length === 0 ? "no_summary_tier" : "summary_failed",
-    };
+    return null;
   }
 }
 
@@ -429,33 +431,39 @@ export interface SummaryTierCandidate {
   modelName: string;
 }
 
+/** default 层（= 运行已解析的模型，已含 selectedLlm 覆盖）。 */
+export interface SummaryDefaultModel {
+  provider: ModelProviderConfig;
+  modelName: string;
+}
+
 /**
  * 解析摘要 LLM 的逐级候选：fast → default → 系统配置(systemConfig.llm)。
- * 每个 tier 经 findProviderByRef 解析成完整 ModelProviderConfig；按
- * (provider key, provider_type, model_name) 三元组归一化去重——对齐 Python
- * _try_llm_summary 的 seen 集合，避免 fast 与 default 指向同一模型时重复尝试。
- * 只解析"用哪个模型"，摘要长度由调用方统一以 summarizeMaxTokens 传入。
+ *
+ * tier 语义（与运行选模一致）：
+ * - `default` 层 = 调用方传入的 `defaultModel`，即运行已解析的模型——selectedLlm
+ *   覆盖 `llm_tiers.default` 后的结果。摘要恒以它为基准候选，故 selectedLlm-only
+ *   的 agent 也能正常 LLM 压缩。
+ * - `fast` 等其它层：`llm_tiers` 配了且能解析就用配置的；没配 / 解析失败则回落到
+ *   `default`（去重后与 default 合并为一条）。
+ * - `system`：仅在 `systemConfig.llm` 显式配置且可解析时作为最末兜底。
+ *
+ * 每条候选经 findProviderByRef 解析成完整 ModelProviderConfig，按
+ * (provider key, provider_type, model_name) 三元组归一化去重——避免不同层指向
+ * 同一模型时重复尝试。只解析"用哪个模型"，摘要长度由调用方以 summarizeMaxTokens 传入。
  */
 export function resolveSummaryTierCandidates(
   agent: AgentConfig,
+  defaultModel: SummaryDefaultModel,
   systemConfig: SystemConfigData,
   providers: ModelProviderConfig[],
 ): SummaryTierCandidate[] {
   const seen = new Set<string>();
   const candidates: SummaryTierCandidate[] = [];
-  const tryPush = (tier: string, config: Record<string, unknown> | null): void => {
-    if (!config) {
+  const tryPush = (candidate: SummaryTierCandidate | null): void => {
+    if (!candidate) {
       return;
     }
-    const provider = findProviderByRef(providers, {
-      provider: asNullableString(config.provider),
-      provider_type: asNullableString(config.provider_type),
-    });
-    const modelName = asNullableString(config.model_name);
-    if (!provider || !modelName) {
-      return;
-    }
-    const candidate: SummaryTierCandidate = { tier, provider, modelName };
     const key = summaryDedupKey(candidate);
     if (seen.has(key)) {
       return;
@@ -465,10 +473,49 @@ export function resolveSummaryTierCandidates(
   };
 
   const tiers = agent.llm_tiers ?? {};
-  tryPush("fast", asRecord(tiers.fast));
-  tryPush("default", asRecord(tiers.default));
-  tryPush("system", asRecord(systemConfig.llm));
+  // fast：配了能解析就用配置的，否则回落到 default。
+  tryPush(resolveTierWithDefault("fast", asRecord(tiers.fast), defaultModel, providers));
+  // default：运行模型（已含 selectedLlm 覆盖），恒为基准候选。
+  tryPush({ tier: "default", provider: defaultModel.provider, modelName: defaultModel.modelName });
+  // system：仅在显式配置且可解析时加入。
+  tryPush(resolveConfiguredCandidate("system", asRecord(systemConfig.llm), providers));
   return candidates;
+}
+
+/** tier 配了且可解析则返回配置候选；否则回落到 default。 */
+function resolveTierWithDefault(
+  tier: string,
+  config: Record<string, unknown> | null,
+  defaultModel: SummaryDefaultModel,
+  providers: ModelProviderConfig[],
+): SummaryTierCandidate {
+  return (
+    resolveConfiguredCandidate(tier, config, providers) ?? {
+      tier,
+      provider: defaultModel.provider,
+      modelName: defaultModel.modelName,
+    }
+  );
+}
+
+/** 仅当 config 显式配置且能解析出 provider+model 时返回候选，否则 null。 */
+function resolveConfiguredCandidate(
+  tier: string,
+  config: Record<string, unknown> | null,
+  providers: ModelProviderConfig[],
+): SummaryTierCandidate | null {
+  if (!config) {
+    return null;
+  }
+  const provider = findProviderByRef(providers, {
+    provider: asNullableString(config.provider),
+    provider_type: asNullableString(config.provider_type),
+  });
+  const modelName = asNullableString(config.model_name);
+  if (!provider || !modelName) {
+    return null;
+  }
+  return { tier, provider, modelName };
 }
 
 function summaryDedupKey(candidate: SummaryTierCandidate): string {
@@ -515,6 +562,7 @@ export function resolveContextBudget(
   agent: AgentConfig,
   provider: ModelProviderConfig | null,
   systemConfig: SystemConfigData,
+  modelName: string | null,
 ): number {
   const settings = resolveRuntimeContextSettings(agent, systemConfig);
   const systemLlmConfig = asRecord(systemConfig.llm) ?? {};
@@ -523,7 +571,12 @@ export function resolveContextBudget(
     positiveInt(provider?.max_context_tokens) ??
     positiveInt(defaultLlm?.max_context_tokens) ??
     positiveInt(systemLlmConfig.max_context_tokens);
+  // 补全预留按"本次实际运行模型"取：与请求壳同一套真相来源（resolveRequestLlmParams），
+  // 故 selectedLlm 选中其它模型时预留它自己的 max_completion_tokens；无具体运行模型
+  // （provider/modelName 缺失，如 usage 预览/快照）时回落到默认层 → 系统 → 兜底常量。
+  const runParams = provider && modelName ? resolveRequestLlmParams(agent, provider, modelName) : null;
   const maxCompletionTokens =
+    positiveInt(runParams?.maxCompletionTokens) ??
     positiveInt(defaultLlm?.max_completion_tokens) ??
     positiveInt(provider?.max_completion_tokens) ??
     positiveInt(provider?.max_tokens) ??
@@ -574,11 +627,6 @@ function formatCompactResponse(raw: string): string {
     return "";
   }
   return `${COMPACT_SUMMARY_PREFIX}Summary:\n${summaryBody}`;
-}
-
-function formatFallbackSummary(replacedMessages: number, error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return `${COMPACT_SUMMARY_PREFIX}Summary:\nLLM 摘要不可用，已降级截断 ${replacedMessages} 条较早历史消息以保持上下文预算。\n\n降级原因: ${message}`;
 }
 
 function countMessagesTokens(messages: MessageInfo[]): number {

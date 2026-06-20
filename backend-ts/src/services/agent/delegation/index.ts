@@ -342,6 +342,7 @@ export class AgentDelegationService {
         sessionId: input.sessionId,
         agent: targetAgent,
         provider: resolved.provider,
+        modelName: resolved.modelName,
         promptContext,
         threadKey: input.childAgent.thread_key,
         historyLimit: 50,

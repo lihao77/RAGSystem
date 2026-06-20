@@ -54,8 +54,26 @@ describe("AgentContextCompressionService", () => {
     });
     const service = new AgentContextCompressionService(store, new FakeSummaryClient(), systemConfig, providerPort([provider()]));
 
-    expect(service.resolveContextBudget(minimalAgent({ maxContextTokens: 1000, maxCompletionTokens: 100 }), provider())).toBe(700);
+    expect(service.resolveContextBudget(minimalAgent({ maxContextTokens: 1000, maxCompletionTokens: 100 }), provider(), "deepseek-chat")).toBe(700);
     expect(service.resolveContextSettings(minimalAgent()).compressionTriggerRatio).toBe(0.75);
+  });
+
+  it("reserves the selected model's own max_completion_tokens in the budget", () => {
+    store = createConversationStore({ dbPath: ":memory:" });
+    const systemConfig = new SystemConfigService();
+    systemConfig.updateConfig({
+      context: { system_prompt_reserve: 100, min_context_budget: 50, compression_trigger_ratio: 0.75 },
+    });
+    const service = new AgentContextCompressionService(store, new FakeSummaryClient(), systemConfig, providerPort([provider()]));
+    // 默认层窗口 1000 / 补全 100；但运行经 selectedLlm 选中 sel-model，其 provider 补全=300。
+    // 预算用选中模型的补全预留：floor(1000*0.9) - 100(reserve) - 300 = 500（而非默认层的 700）。
+    const selected = { ...makeProvider("sel-prov", "openai", "sel-model"), max_completion_tokens: 300 };
+    const budget = service.resolveContextBudget(
+      minimalAgent({ maxContextTokens: 1000, maxCompletionTokens: 100 }),
+      selected,
+      "sel-model",
+    );
+    expect(budget).toBe(500);
   });
 
   it("persists Python-compatible compression summaries and exposes the resolved view", async () => {
@@ -271,6 +289,8 @@ describe("AgentContextCompressionService tier fallback", () => {
 
     const result = await service.summarizeSegment({
       agent,
+      provider: provider(),
+      modelName: "deepseek-chat",
       segment: [
         { role: "user", content: "旧消息一" },
         { role: "assistant", content: "旧回复一" },
@@ -279,11 +299,10 @@ describe("AgentContextCompressionService tier fallback", () => {
       maxTokens: 64,
     });
 
-    expect(result.status).toBe("success");
     expect(chatClient.requests).toHaveLength(2);
     expect(chatClient.requests[0].provider.name).toBe("fast-prov");
     expect(chatClient.requests[1].provider.name).toBe("my");
-    expect(result.content).toContain("压缩后的关键上下文");
+    expect(result).toContain("压缩后的关键上下文");
   });
 
   it("dedupes fast and default pointing to the same model (tries once)", async () => {
@@ -307,16 +326,18 @@ describe("AgentContextCompressionService tier fallback", () => {
 
     const result = await service.summarizeSegment({
       agent,
+      provider: provider(),
+      modelName: "deepseek-chat",
       segment: [{ role: "user", content: "x" }],
       existingSummary: "",
       maxTokens: 64,
     });
 
-    expect(result.status).toBe("success");
+    expect(result).toContain("压缩后的关键上下文");
     expect(chatClient.requests).toHaveLength(1);
   });
 
-  it("falls back to truncate when all tiers fail", async () => {
+  it("returns null (no truncation) when all tiers fail", async () => {
     store = createConversationStore({ dbPath: ":memory:" });
     const chatClient = new FakeSummaryClient(["my"]);
     const service = new AgentContextCompressionService(
@@ -328,6 +349,8 @@ describe("AgentContextCompressionService tier fallback", () => {
 
     const result = await service.summarizeSegment({
       agent: minimalAgent(),
+      provider: provider(),
+      modelName: "deepseek-chat",
       segment: [
         { role: "user", content: "x" },
         { role: "assistant", content: "y" },
@@ -336,31 +359,35 @@ describe("AgentContextCompressionService tier fallback", () => {
       maxTokens: 64,
     });
 
-    expect(result.status).toBe("fallback");
-    expect(result.reason).toBe("summary_failed");
-    expect(result.content).toContain("降级截断");
+    expect(result).toBeNull();
   });
 
-  it("returns no_summary_tier fallback when no tier resolves a provider", async () => {
+  it("uses the passed default model (selectedLlm override) instead of llm_tiers.default", async () => {
     store = createConversationStore({ dbPath: ":memory:" });
     const chatClient = new FakeSummaryClient();
+    const selected = makeProvider("sel-prov", "openai", "sel-model");
     const service = new AgentContextCompressionService(
       store,
       chatClient,
       new SystemConfigService(),
-      providerPort([]),
+      providerPort([selected, provider()]),
     );
 
+    // agent.llm_tiers.default 指向 "my"，但运行经 selectedLlm 解析为 sel-prov；
+    // fast 未配置 → 回落到 default(= 传入的 sel-prov)，摘要应打到 sel-prov 而非 "my"。
     const result = await service.summarizeSegment({
       agent: minimalAgent(),
+      provider: selected,
+      modelName: "sel-model",
       segment: [{ role: "user", content: "x" }],
       existingSummary: "",
       maxTokens: 64,
     });
 
-    expect(result.status).toBe("fallback");
-    expect(result.reason).toBe("no_summary_tier");
-    expect(chatClient.requests).toHaveLength(0);
+    expect(result).toContain("压缩后的关键上下文");
+    expect(chatClient.requests).toHaveLength(1);
+    expect(chatClient.requests[0].provider.name).toBe("sel-prov");
+    expect(chatClient.requests[0].model).toBe("sel-model");
   });
 
   it("propagates abort without falling back", async () => {
@@ -378,6 +405,8 @@ describe("AgentContextCompressionService tier fallback", () => {
     await expect(
       service.summarizeSegment({
         agent: minimalAgent(),
+        provider: provider(),
+        modelName: "deepseek-chat",
         segment: [{ role: "user", content: "x" }],
         existingSummary: "",
         maxTokens: 64,

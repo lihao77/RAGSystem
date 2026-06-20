@@ -37,6 +37,7 @@ export interface PrepareContextInput {
   sessionId: string;
   agent: AgentConfig;
   provider: ModelProviderConfig;
+  modelName?: string | null | undefined;
   promptContext: AgentPromptContext;
   threadKey?: string | null | undefined;
   historyLimit?: number | undefined;
@@ -66,8 +67,8 @@ export class AgentContextService {
     private readonly systemConfig: SystemConfigService,
   ) {}
 
-  resolveContextBudget(agent: AgentConfig, provider: ModelProviderConfig | null): number {
-    return resolveContextBudget(agent, provider, this.systemConfig.getConfig());
+  resolveContextBudget(agent: AgentConfig, provider: ModelProviderConfig | null, modelName: string | null): number {
+    return resolveContextBudget(agent, provider, this.systemConfig.getConfig(), modelName);
   }
 
   /** run 前置上下文准备：构建(微压缩) + 算 usage/budget。压缩已下沉到内核 beforeModel hook。 */
@@ -80,7 +81,7 @@ export class AgentContextService {
       ...(input.historyLimit !== undefined ? { historyLimit: input.historyLimit } : {}),
       microcompact: true,
     });
-    const budgetTokens = this.resolveContextBudget(input.agent, input.provider);
+    const budgetTokens = this.resolveContextBudget(input.agent, input.provider, input.modelName ?? null);
     const usage = buildContextUsagePayload({
       agent: input.agent,
       provider: input.provider,
@@ -126,7 +127,7 @@ export class AgentContextService {
   }): Promise<ChatMessage[] | null> {
     const threadKey = input.threadKey?.trim() || "root";
     const settings = this.resolveContextSettings(input.agent);
-    const budgetTokens = this.resolveContextBudget(input.agent, input.provider);
+    const budgetTokens = this.resolveContextBudget(input.agent, input.provider, input.modelName);
     const thresholdTokens = Math.floor(budgetTokens * settings.compressionTriggerRatio);
 
     // ① 廉价：先 microcompact 重建（不强刷 memory 前缀，避免无谓打掉 KV 缓存）
@@ -152,6 +153,7 @@ export class AgentContextService {
       requestId: input.requestId ?? "",
       agent: input.agent,
       provider: input.provider,
+      modelName: input.modelName,
       threadKey,
       childAgentId: input.childAgentId ?? null,
       signal: input.signal,
@@ -177,6 +179,7 @@ export class AgentContextService {
   buildUsage(input: {
     agent: AgentConfig;
     provider?: ModelProviderConfig | null;
+    modelName?: string | null | undefined;
     promptContext: AgentPromptContext;
     messages: ChatMessage[];
     round: number;
@@ -185,7 +188,7 @@ export class AgentContextService {
     requestId: string;
     compressionResult?: ContextCompressionResult | null;
   }): Record<string, unknown> {
-    const budgetTokens = this.resolveContextBudget(input.agent, input.provider ?? null);
+    const budgetTokens = this.resolveContextBudget(input.agent, input.provider ?? null, input.modelName ?? null);
     return buildContextUsagePayload({
       agent: input.agent,
       provider: input.provider ?? null,
@@ -205,6 +208,7 @@ export class AgentContextService {
     sessionId: string;
     agent: AgentConfig;
     provider: ModelProviderConfig | null;
+    modelName?: string | null | undefined;
     historyLimit?: number | undefined;
   }): { context: AgentRuntimeContext; budgetTokens: number } {
     const context = this.contextBuilder.buildContext({
@@ -212,14 +216,14 @@ export class AgentContextService {
       agent: input.agent,
       ...(input.historyLimit !== undefined ? { historyLimit: input.historyLimit } : {}),
     });
-    const budgetTokens = this.resolveContextBudget(input.agent, input.provider);
+    const budgetTokens = this.resolveContextBudget(input.agent, input.provider, input.modelName ?? null);
     return { context, budgetTokens };
   }
 
   /** /compact 显式强制压缩 store 历史，成功则重建上下文刷新 stable-prefix 缓存。 */
   async forceCompact(input: ForceCompactInput): Promise<ForceContextCompressionResult> {
     const result = await this.contextCompression.forceCompactSession(input);
-    if (result.status === "success" || result.status === "fallback") {
+    if (result.status === "success") {
       this.contextBuilder.buildContext({
         sessionId: input.sessionId,
         agent: input.agent,

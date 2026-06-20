@@ -25,6 +25,7 @@ import type {
 } from "../../../integrations/llm-chat-client.js";
 import { RuntimeAbortError, throwIfAborted } from "../../../runtime/abort.js";
 import { toChatToolDefinition } from "../tools/tool-call-utils.js";
+import { resolveRequestLlmParams } from "../../../runtime/llm-params.js";
 import type {
   EventSink,
   KernelContext,
@@ -56,13 +57,14 @@ export class NativeHybridProtocol implements Protocol {
    */
   private buildRequestShell(ctx: KernelContext): ChatCompletionRequest {
     const session = ctx.session;
+    const llmParams = resolveRequestLlmParams(session.agent, session.provider, session.modelName);
     const request: ChatCompletionRequest = {
       messages: ctx.requestMessages,
       model: session.modelName,
       provider: session.provider,
       agent: session.agent,
-      temperature: session.agent.llm_tiers?.default?.temperature ?? null,
-      maxCompletionTokens: session.agent.llm_tiers?.default?.max_completion_tokens ?? null,
+      temperature: llmParams.temperature,
+      maxCompletionTokens: llmParams.maxCompletionTokens,
     };
     if (session.signal) {
       request.signal = session.signal;

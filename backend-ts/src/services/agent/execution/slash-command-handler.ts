@@ -170,6 +170,15 @@ export class SlashCommandHandler {
         },
       });
       if (result.status === "skipped") {
+        if (result.reason === "summary_unavailable") {
+          return {
+            command: "compact",
+            success: false,
+            content: "摘要模型不可用，压缩未执行（不做有损截断），请检查 LLM 配置后重试",
+            error: "summary_unavailable",
+            data: result,
+          };
+        }
         return {
           command: "compact",
           success: true,
