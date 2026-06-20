@@ -6,6 +6,9 @@ import {
   AgentRuntimeContextBuilder,
   RecentMessagesContextSource,
 } from "../../src/services/agent/context-builder/index.js";
+import { AgentContextCompressionService } from "../../src/services/agent/context-compression/index.js";
+import { AgentContextService } from "../../src/services/agent/context/index.js";
+import { SystemConfigService } from "../../src/services/config/system-config-service.js";
 import os from "node:os";
 import type {
   ChatCompletionRequest,
@@ -48,7 +51,11 @@ describe("AgentDelegationService", () => {
       runtimeCoreStub(workerAgent),
       client,
       os.tmpdir(),
-      new AgentRuntimeContextBuilder([new RecentMessagesContextSource(store)]),
+      new AgentContextService(
+        new AgentRuntimeContextBuilder([new RecentMessagesContextSource(store)]),
+        new AgentContextCompressionService(store, client, new SystemConfigService()),
+        new SystemConfigService(),
+      ),
       clientEvents,
     );
 

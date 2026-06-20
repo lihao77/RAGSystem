@@ -62,6 +62,25 @@ export class KernelContext {
   }
 
   /**
+   * 受控重写工作副本：用单条摘要消息替换 [startIndex, startIndex+deleteCount) 区间的消息。
+   * 供循环内压缩 hook 把早期历史段折叠为一条摘要；插件不得直接 mutate messages。
+   */
+  replaceHistory(startIndex: number, deleteCount: number, summaryMessage: ChatMessage): void {
+    if (deleteCount <= 0) {
+      return;
+    }
+    this.messages.splice(startIndex, deleteCount, summaryMessage);
+  }
+
+  /**
+   * 整体替换工作副本（循环内重压缩：用 store 压缩+重建后的会话换掉旧工作副本）。
+   * 调用方负责补回重建会丢失的、未入库的瞬态消息（如本轮背景通知）。
+   */
+  replaceAll(messages: ChatMessage[]): void {
+    this.messages.splice(0, this.messages.length, ...messages);
+  }
+
+  /**
    * abort 检查点。复用 abort.js 的 throwIfAborted，抛 RuntimeAbortError——
    * 保证 agent-kernel catch 能用 isAbortError 识别（abort 不发 error 事件），
    * 对齐现状 throwIfAborted(signal, "Agent run aborted")。

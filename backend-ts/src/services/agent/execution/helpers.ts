@@ -1,11 +1,6 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { ExecutionObservability, ExecutionTaskStatus } from "../../../contracts/execution.js";
-import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
-import { isRuntimeStableSystemContextContent } from "../context-builder/index.js";
-import { buildFullSystemPrompt, type AgentPromptContext } from "../prompt-builder/index.js";
-import { resolveToolInstructionMode } from "../kernel-plugins/protocol/select-protocol.js";
 import type { BackgroundTaskNotificationPayload } from "../../runtime/background-task-service.js";
-import type { ChatMessage } from "../../integrations/llm-chat-client.js";
 import type { RuntimeToolExecutionContext } from "../../runtime/runtime-tool-types.js";
 
 export function buildObservability(status: ExecutionTaskStatus): ExecutionObservability {
@@ -254,75 +249,6 @@ export function buildRunEndStepPayload(input: {
     payload.error = input.error;
   }
   return payload;
-}
-
-export function buildContextUsagePayload(input: {
-  agent: AgentConfig;
-  provider?: ModelProviderConfig | null;
-  promptContext: AgentPromptContext;
-  budgetTokens: number;
-  messages: ChatMessage[];
-  round: number;
-  runId: string;
-  taskId: string;
-  requestId: string;
-  compressionResult?: {
-    status: string;
-    reason: string;
-    replacedMessageCount: number;
-    replacesUpToSeq: number | null;
-  } | null;
-}): Record<string, unknown> {
-  const rawSystemPromptTokens = estimateTokens(buildFullSystemPrompt(input.agent, input.promptContext, input.provider ? resolveToolInstructionMode(input.provider) : "xml"));
-  const systemContextTokens = input.messages
-    .filter((message) => message.role === "system" && isRuntimeStableSystemContextContent(message.content))
-    .reduce((total, message) => total + estimateTokens(message.content), 0);
-  const historyTokens = input.messages
-    .filter((message) => message.role !== "system" || !isRuntimeStableSystemContextContent(message.content))
-    .reduce((total, message) => total + estimateTokens(message.content), 0);
-  const systemPromptTokens = rawSystemPromptTokens + systemContextTokens;
-  const totalTokens = systemPromptTokens + historyTokens;
-  return {
-    used_tokens: totalTokens,
-    system_prompt_tokens: systemPromptTokens,
-    total_tokens: totalTokens,
-    budget_tokens: input.budgetTokens,
-    round: input.round,
-    compressing: false,
-    agent_name: input.agent.agent_name,
-    run_id: input.runId,
-    task_id: input.taskId,
-    request_id: input.requestId,
-    ...(input.compressionResult
-      ? {
-          compression: {
-            status: input.compressionResult.status,
-            reason: input.compressionResult.reason,
-            replaced_message_count: input.compressionResult.replacedMessageCount,
-            replaces_up_to_seq: input.compressionResult.replacesUpToSeq,
-          },
-        }
-      : {}),
-  };
-}
-
-export function resolveLegacyContextBudget(agent: AgentConfig, provider: ModelProviderConfig): number {
-  return positiveInt(provider.max_context_tokens)
-    ?? positiveInt(agent.llm_tiers?.default?.max_context_tokens)
-    ?? 128000;
-}
-
-function estimateTokens(content: string): number {
-  if (!content) {
-    return 0;
-  }
-  const cjkChars = content.match(/[\u3400-\u9fff]/g)?.length ?? 0;
-  const nonCjk = content.length - cjkChars;
-  return Math.max(1, cjkChars + Math.ceil(nonCjk / 4));
-}
-
-function positiveInt(value: unknown): number | null {
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 }
 
 export function asString(value: unknown): string | null {

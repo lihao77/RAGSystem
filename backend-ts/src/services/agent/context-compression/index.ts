@@ -15,6 +15,15 @@ export interface RuntimeContextSettings {
   minContextBudget: number;
 }
 
+/** 摘要核心算法的最小消息形态：MessageInfo 与 ChatMessage 均结构兼容。 */
+export type SummarizableMessage = { role: string; content: string };
+
+export interface SummarizeSegmentResult {
+  content: string;
+  status: "success" | "fallback";
+  reason: string;
+}
+
 export interface ContextCompressionEvent {
   type: "context.compression_start" | "context.compression_summary";
   data: Record<string, unknown>;
@@ -147,27 +156,18 @@ export class AgentContextCompressionService {
       },
     });
 
-    let summaryContent: string;
-    let status: ContextCompressionResult["status"] = "success";
-    let reason = "success";
-    try {
-      summaryContent = await this.generateSummary({
-        agent: input.agent,
-        provider: input.provider,
-        modelName: input.modelName,
-        segment,
-        existingSummary,
-        maxTokens: settings.summarizeMaxTokens,
-        signal: input.signal,
-      });
-    } catch (error) {
-      if (input.signal?.aborted) {
-        throw error;
-      }
-      status = "fallback";
-      reason = "summary_failed";
-      summaryContent = formatFallbackSummary(segment.length, error);
-    }
+    const summary = await this.summarizeSegment({
+      agent: input.agent,
+      provider: input.provider,
+      modelName: input.modelName,
+      segment,
+      existingSummary,
+      maxTokens: settings.summarizeMaxTokens,
+      signal: input.signal,
+    });
+    const summaryContent = summary.content;
+    const status: ContextCompressionResult["status"] = summary.status;
+    const reason = summary.reason;
 
     const summaryMessage = this.conversationStore.insertCompressionMessage({
       sessionId: input.sessionId,
@@ -282,27 +282,18 @@ export class AgentContextCompressionService {
       },
     });
 
-    let summaryContent: string;
-    let status: ForceContextCompressionResult["status"] = "success";
-    let reason = "success";
-    try {
-      summaryContent = await this.generateSummary({
-        agent: input.agent,
-        provider: input.provider,
-        modelName: input.modelName,
-        segment,
-        existingSummary,
-        maxTokens: settings.summarizeMaxTokens,
-        signal: input.signal,
-      });
-    } catch (error) {
-      if (input.signal?.aborted) {
-        throw error;
-      }
-      status = "fallback";
-      reason = "summary_failed";
-      summaryContent = formatFallbackSummary(segment.length, error);
-    }
+    const summary = await this.summarizeSegment({
+      agent: input.agent,
+      provider: input.provider,
+      modelName: input.modelName,
+      segment,
+      existingSummary,
+      maxTokens: settings.summarizeMaxTokens,
+      signal: input.signal,
+    });
+    const summaryContent = summary.content;
+    const status: ForceContextCompressionResult["status"] = summary.status;
+    const reason = summary.reason;
 
     const summaryMessage = this.conversationStore.insertCompressionMessage({
       sessionId: input.sessionId,
@@ -365,7 +356,7 @@ export class AgentContextCompressionService {
     agent: AgentConfig;
     provider: ModelProviderConfig;
     modelName: string;
-    segment: MessageInfo[];
+    segment: ReadonlyArray<SummarizableMessage>;
     existingSummary: string;
     maxTokens: number;
     signal?: AbortSignal | undefined;
@@ -387,6 +378,30 @@ export class AgentContextCompressionService {
       throw new Error("summary model returned empty content");
     }
     return summary;
+  }
+
+  /**
+   * 摘要核心算法（与数据源无关）：对一段消息生成结构化摘要，失败时降级为截断说明。
+   * store 路径（compressIfNeeded / forceCompactSession）与内核内存路径（循环内压缩 hook）共享。
+   */
+  async summarizeSegment(input: {
+    agent: AgentConfig;
+    provider: ModelProviderConfig;
+    modelName: string;
+    segment: ReadonlyArray<SummarizableMessage>;
+    existingSummary: string;
+    maxTokens: number;
+    signal?: AbortSignal | undefined;
+  }): Promise<SummarizeSegmentResult> {
+    try {
+      const content = await this.generateSummary(input);
+      return { content, status: "success", reason: "success" };
+    } catch (error) {
+      if (input.signal?.aborted) {
+        throw error;
+      }
+      return { content: formatFallbackSummary(input.segment.length, error), status: "fallback", reason: "summary_failed" };
+    }
   }
 }
 
@@ -447,7 +462,7 @@ export function estimateTokens(content: string): number {
   return Math.max(1, cjkChars + Math.ceil(nonCjk / 4));
 }
 
-function buildSummaryMessages(segment: MessageInfo[], existingSummary: string): ChatMessage[] {
+function buildSummaryMessages(segment: ReadonlyArray<SummarizableMessage>, existingSummary: string): ChatMessage[] {
   const existingSection = existingSummary.trim()
     ? `\n\n---已有历史摘要（将与新内容合并）---\n${existingSummary.trim()}\n---end---`
     : "";

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import type { AgentRuntimeContextBuilder } from "../context-builder/index.js";
+import type { AgentContextService } from "../context/index.js";
+import { createCompactionHook } from "../context/runtime-compaction-hook.js";
 import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
 import type { KernelSession, MessageRefresher } from "../kernel/contracts.js";
 import { DefaultHookRegistry } from "../kernel/hook-registry.js";
@@ -56,7 +57,7 @@ export class AgentDelegationService {
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
     private readonly llmChatClient: LlmChatClient,
     private readonly dataRoot: string,
-    private readonly contextBuilder: AgentRuntimeContextBuilder,
+    private readonly contextService: AgentContextService,
     private readonly clientEvents: ClientEventPublisher | null = null,
     private readonly promptConfigResolver: AgentPromptConfigResolver | null = null,
   ) {}
@@ -330,13 +331,6 @@ export class AgentDelegationService {
     });
 
     try {
-      const context = this.contextBuilder.buildContext({
-        sessionId: input.sessionId,
-        agent: targetAgent,
-        threadKey: input.childAgent.thread_key,
-        historyLimit: 50,
-        microcompact: true,
-      });
       const runtimeTools = this.runtimeToolsProvider?.() ?? undefined;
       const promptContext = buildAgentPromptContext({
         agent: targetAgent,
@@ -344,15 +338,43 @@ export class AgentDelegationService {
         configResolver: this.promptConfigResolver,
         teamName: input.teamName,
       });
+      const prepared = await this.contextService.prepare({
+        sessionId: input.sessionId,
+        agent: targetAgent,
+        provider: resolved.provider,
+        promptContext,
+        threadKey: input.childAgent.thread_key,
+        historyLimit: 50,
+        round: 0,
+        runId: childRunId,
+        taskId: null,
+        requestId: input.requestId,
+      });
       const eventSink = new NullEventSink();
       const refresher: MessageRefresher = { refresh: async () => [] };
       const hooks = new DefaultHookRegistry();
+      const compactionHook = createCompactionHook({
+        contextService: this.contextService,
+        sessionId: input.sessionId,
+        agent: targetAgent,
+        provider: resolved.provider,
+        modelName: resolved.modelName,
+        runId: childRunId,
+        taskId: null,
+        requestId: input.requestId,
+        budgetTokens: prepared.budgetTokens,
+        triggerRatio: this.contextService.resolveContextSettings(targetAgent).compressionTriggerRatio,
+        threadKey: input.childAgent.thread_key,
+        childAgentId: input.childAgent.child_agent_id,
+        signal: input.signal,
+      });
+      hooks.register("beforeModel", (ctx) => compactionHook(ctx));
       hooks.register("afterModel", () => {
         refreshStablePrefixCache(
           this.conversationStore,
           input.sessionId,
           input.childAgent.thread_key,
-          context.metadata.stable_prefix_fingerprint,
+          prepared.stablePrefixFingerprint,
         );
       });
       const kernel = createRuntimeKernel({
@@ -367,7 +389,7 @@ export class AgentDelegationService {
         agent: targetAgent,
         provider: resolved.provider,
         modelName: resolved.modelName,
-        conversation: context.conversation,
+        conversation: prepared.conversation,
         toolExecutor: runtimeTools,
         promptContext,
         toolContext: buildRuntimeToolContext(targetAgent, {

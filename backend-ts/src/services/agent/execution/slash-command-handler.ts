@@ -1,7 +1,6 @@
 import type { AgentRunStartResult } from "../../../contracts/execution.js";
-import type { AgentContextCompressionService } from "../context-compression/index.js";
+import type { AgentContextService } from "../context/index.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
-import type { AgentRuntimeContextBuilder } from "../context-builder/index.js";
 import type { RuntimeExecutionConfigResolver } from "../../runtime/runtime-core-service.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import { asString, mirrorEventData, normalizeSessionEntryAgent } from "./helpers.js";
@@ -43,8 +42,7 @@ export class SlashCommandHandler {
     private readonly sessions: AgentSessionApplication,
     private readonly statusTracker: AgentExecutionStatusTracker,
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
-    private readonly contextCompression: AgentContextCompressionService | null,
-    private readonly contextBuilder: AgentRuntimeContextBuilder,
+    private readonly contextService: AgentContextService,
     private readonly clientEvents: DurableClientEventPublisher,
   ) {}
 
@@ -134,14 +132,6 @@ export class SlashCommandHandler {
         content: "该会话正在执行任务，请等待完成后再压缩",
       };
     }
-    if (!this.contextCompression) {
-      return {
-        command: "compact",
-        success: false,
-        content: "当前 TypeScript runtime 未启用上下文压缩服务",
-        error: "compression_unavailable",
-      };
-    }
     const sessionMetadata = this.sessions.getSession(input.sessionId)?.metadata ?? {};
     const ready = resolveReadyAgent(
       this.runtimeCore,
@@ -161,7 +151,7 @@ export class SlashCommandHandler {
       };
     }
     try {
-      const result = await this.contextCompression.forceCompactSession({
+      const result = await this.contextService.forceCompact({
         sessionId: input.sessionId,
         agent: ready.agent,
         provider: ready.provider,
@@ -179,14 +169,6 @@ export class SlashCommandHandler {
           });
         },
       });
-      if (result.status === "success" || result.status === "fallback") {
-        this.contextBuilder.buildContext({
-          sessionId: input.sessionId,
-          agent: ready.agent,
-          historyLimit: 0,
-          forceMemoryPrefixRefresh: true,
-        });
-      }
       if (result.status === "skipped") {
         return {
           command: "compact",

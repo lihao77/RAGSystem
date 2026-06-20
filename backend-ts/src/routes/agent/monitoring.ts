@@ -3,7 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { ok } from "../../contracts/common.js";
 import type { OutboxStatus } from "../../contracts/conversation-store/index.js";
-import { resolveContextBudget, resolveRuntimeContextSettings } from "../../services/agent/context-compression/index.js";
+import { resolveRuntimeContextSettings } from "../../services/agent/context-compression/index.js";
 import { buildAgentPromptContext, buildFullSystemPrompt } from "../../services/agent/prompt-builder/index.js";
 import { resolveToolInstructionMode } from "../../services/agent/kernel-plugins/protocol/select-protocol.js";
 import { resolveRuntimeHistoryView } from "../../services/agent/context-builder/index.js";
@@ -121,11 +121,12 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const toolInstructionMode = resolved.provider ? resolveToolInstructionMode(resolved.provider) : "xml";
     const systemPrompt = buildFullSystemPrompt(agent, promptContext, toolInstructionMode);
     const context = sessionId
-      ? options.container.agentRuntimeContextBuilder.buildContext({
+      ? options.container.agentContextService.snapshotContext({
           sessionId,
           agent,
+          provider: resolved.provider,
           historyLimit: 500,
-        })
+        }).context
       : null;
     const memorySnapshot = getMemorySnapshot(context?.metadata.sources ?? []);
     const threadKey = context?.metadata.thread_key ?? "root";
@@ -137,7 +138,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       : [];
     const systemPromptTokens = estimateTokens(systemPrompt) + estimateTokens(asString(memorySnapshot?.rendered_block) ?? "");
     const historyTokens = history.reduce((total, item) => total + item.tokens, 0);
-    const budgetTokens = resolveContextBudget(agent, resolved.provider, options.container.systemConfig.getConfig());
+    const budgetTokens = options.container.agentContextService.resolveContextBudget(agent, resolved.provider);
 
     const data = {
       system_prompt: systemPrompt,

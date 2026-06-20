@@ -487,13 +487,10 @@ describe("minimal runtime core execution", () => {
     expect(history.map((event) => event.type)).toEqual(
       expect.arrayContaining(["context.compression_start", "context.compression_summary", "context.usage"]),
     );
+    // 压缩已下沉到内核 beforeModel hook（round 0 触发）：run 起始的 context.usage 不再内嵌
+    // compression 块；压缩行为由上面的 compression_start/summary 事件与持久化摘要消息体现。
     expect(history.find((event) => event.type === "context.usage")?.data).toMatchObject({
       budget_tokens: 89,
-      compression: {
-        status: "success",
-        replaced_message_count: 4,
-        replaces_up_to_seq: 4,
-      },
     });
   });
 

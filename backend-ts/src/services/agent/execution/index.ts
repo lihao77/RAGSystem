@@ -11,9 +11,8 @@ import type {
   SessionTaskStatus,
   StreamExecuteRequest,
 } from "../../../contracts/execution.js";
-import type { AgentContextCompressionService } from "../context-compression/index.js";
+import type { AgentContextService } from "../context/index.js";
 import type { AgentPromptConfigResolver } from "../prompt-builder/index.js";
-import type { AgentRuntimeContextBuilder } from "../context-builder/index.js";
 import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
@@ -66,9 +65,8 @@ export interface AgentExecutionServiceParams {
   runtimeCore: RuntimeExecutionConfigResolver;
   llmChatClient: LlmChatClient;
   dataRoot: string;
-  contextBuilder: AgentRuntimeContextBuilder;
+  contextService: AgentContextService;
   runtimeTools?: RuntimeToolExecutor | null;
-  contextCompression?: AgentContextCompressionService | null;
   promptConfigResolver?: AgentPromptConfigResolver | null;
   backgroundTasks?: BackgroundTaskService | null;
   fileIndex?: IFileIndexStore | null;
@@ -102,8 +100,7 @@ export function createAgentExecutionService(params: AgentExecutionServiceParams)
     params.sessions,
     statusTracker,
     params.runtimeCore,
-    params.contextCompression ?? null,
-    params.contextBuilder,
+    params.contextService,
     params.clientEvents,
   );
   const runEngine = new AgentRunEngine(
@@ -111,9 +108,8 @@ export function createAgentExecutionService(params: AgentExecutionServiceParams)
     params.conversationStore,
     params.llmChatClient,
     params.dataRoot,
-    params.contextBuilder,
+    params.contextService,
     params.runtimeTools ?? null,
-    params.contextCompression ?? null,
     params.promptConfigResolver ?? null,
     params.backgroundTasks ?? null,
     statusTracker,
@@ -127,7 +123,6 @@ export function createAgentExecutionService(params: AgentExecutionServiceParams)
     sessions: params.sessions,
     conversationStore: params.conversationStore,
     runtimeCore: params.runtimeCore,
-    contextBuilder: params.contextBuilder,
     slashCommandHandler,
     attachmentResolver,
     followupQueue,

@@ -8,7 +8,6 @@ import type {
   StreamExecuteRequest,
 } from "../../../contracts/execution.js";
 import { getSelectedLlm as resolveSelectedLlm } from "../../../contracts/execution.js";
-import type { AgentRuntimeContextBuilder } from "../context-builder/index.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { IRunStore } from "../../../contracts/conversation-store/index.js";
 import type { RuntimeExecutionConfigResolver } from "../../runtime/runtime-core-service.js";
@@ -47,7 +46,6 @@ export interface LauncherDeps {
   sessions: AgentSessionApplication;
   conversationStore: IRunStore;
   runtimeCore: RuntimeExecutionConfigResolver;
-  contextBuilder: AgentRuntimeContextBuilder;
   slashCommandHandler: SlashCommandHandler;
   attachmentResolver: AttachmentResolver;
   followupQueue: FollowupQueue;
@@ -65,7 +63,6 @@ class AgentLaunchers {
     private readonly sessions: AgentSessionApplication,
     private readonly conversationStore: IRunStore,
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
-    private readonly contextBuilder: AgentRuntimeContextBuilder,
     private readonly slashCommandHandler: SlashCommandHandler,
     private readonly attachmentResolver: AttachmentResolver,
     private readonly followupQueue: FollowupQueue,
@@ -469,7 +466,6 @@ export function createLaunchers(deps: LauncherDeps): LauncherApi {
     deps.sessions,
     deps.conversationStore,
     deps.runtimeCore,
-    deps.contextBuilder,
     deps.slashCommandHandler,
     deps.attachmentResolver,
     deps.followupQueue,

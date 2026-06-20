@@ -3,9 +3,10 @@ import { randomUUID } from "node:crypto";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } from "../../../contracts/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
-import type { AgentContextCompressionService } from "../context-compression/index.js";
+import type { AgentContextService } from "../context/index.js";
+import { createCompactionHook } from "../context/runtime-compaction-hook.js";
 import { buildAgentPromptContext, type AgentPromptConfigResolver } from "../prompt-builder/index.js";
-import type { AgentRuntimeContextBuilder } from "../context-builder/index.js";
+import type { KernelContext } from "../kernel/kernel-context.js";
 import type { KernelSession, MessageRefresher } from "../kernel/contracts.js";
 import { DefaultHookRegistry } from "../kernel/hook-registry.js";
 import { refreshStablePrefixCache } from "../kernel/stable-prefix.js";
@@ -21,7 +22,6 @@ import type { IMessageStore, IRunStore, ISessionStore } from "../../../contracts
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import {
   asString,
-  buildContextUsagePayload,
   buildFinalStepPayload,
   buildRunEndStepPayload,
   buildRunStartPayload,
@@ -30,7 +30,6 @@ import {
   buildRunningExecutionStatus,
   mirrorEventData,
   renderBackgroundNotification,
-  resolveLegacyContextBudget,
 } from "./helpers.js";
 import { ExecutionRecorder, type RunTerminalRecord } from "./recorder.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
@@ -50,9 +49,8 @@ export class AgentRunEngine {
     private readonly conversationStore: IRunStore & IMessageStore & ISessionStore,
     private readonly llmChatClient: LlmChatClient,
     private readonly dataRoot: string,
-    private readonly contextBuilder: AgentRuntimeContextBuilder,
+    private readonly contextService: AgentContextService,
     private readonly runtimeTools: RuntimeToolExecutor | null,
-    private readonly contextCompression: AgentContextCompressionService | null,
     private readonly promptConfigResolver: AgentPromptConfigResolver | null,
     private readonly backgroundTasks: BackgroundTaskService | null,
     private readonly statusTracker: AgentExecutionStatusTracker,
@@ -294,38 +292,6 @@ export class AgentRunEngine {
         agent: input.agent,
         task: input.task,
       });
-      const compressionResult =
-        input.contextConversation !== undefined || !this.contextCompression
-          ? null
-          : await this.contextCompression.compressIfNeeded({
-              sessionId: input.sessionId,
-              runId: input.runId,
-              taskId: input.taskId,
-              requestId: input.requestId,
-              agent: input.agent,
-              provider: input.provider,
-              modelName: input.modelName,
-              threadKey: "root",
-              signal: input.abortController.signal,
-              onEvent: (event) => this.eventPublisher.publishContextCompressionEvent(input, event),
-            });
-      const pendingBackgroundNotifications = this.drainBackgroundTaskNotifications(input.sessionId);
-      let stablePrefixFingerprint = input.stablePrefixFingerprint ?? null;
-      const builtContext = input.contextConversation
-        ? null
-        : this.contextBuilder.buildContext({
-            sessionId: input.sessionId,
-            agent: input.agent,
-            microcompact: true,
-            forceMemoryPrefixRefresh: compressionResult?.status === "success" || compressionResult?.status === "fallback",
-          });
-      const context = builtContext ?? { conversation: [...input.contextConversation!, ...pendingBackgroundNotifications] };
-      if (builtContext) {
-        stablePrefixFingerprint = builtContext.metadata.stable_prefix_fingerprint;
-      }
-      if (input.contextConversation === undefined && pendingBackgroundNotifications.length) {
-        context.conversation.push(...pendingBackgroundNotifications);
-      }
       const teamName = asString(sessionMetadata.team);
       const promptContext = buildAgentPromptContext({
         agent: input.agent,
@@ -333,18 +299,57 @@ export class AgentRunEngine {
         configResolver: this.promptConfigResolver,
         teamName,
       });
-      const contextUsagePayload = buildContextUsagePayload({
-        agent: input.agent,
-        provider: input.provider,
-        promptContext,
-        budgetTokens: this.resolveContextBudget(input.agent, input.provider),
-        messages: context.conversation,
-        round: 0,
-        runId: input.runId,
-        taskId: input.taskId,
-        requestId: input.requestId,
-        compressionResult,
-      });
+      const pendingBackgroundNotifications = this.drainBackgroundTaskNotifications(input.sessionId);
+      let stablePrefixFingerprint = input.stablePrefixFingerprint ?? null;
+      let context: { conversation: ChatMessage[] };
+      let contextUsagePayload: Record<string, unknown>;
+      let compactionHook: ((ctx: KernelContext) => Promise<void>) | null = null;
+      if (input.contextConversation !== undefined) {
+        context = { conversation: [...input.contextConversation, ...pendingBackgroundNotifications] };
+        contextUsagePayload = this.contextService.buildUsage({
+          agent: input.agent,
+          provider: input.provider,
+          promptContext,
+          messages: context.conversation,
+          round: 0,
+          runId: input.runId,
+          taskId: input.taskId,
+          requestId: input.requestId,
+        });
+      } else {
+        const prepared = await this.contextService.prepare({
+          sessionId: input.sessionId,
+          agent: input.agent,
+          provider: input.provider,
+          promptContext,
+          threadKey: "root",
+          round: 0,
+          runId: input.runId,
+          taskId: input.taskId,
+          requestId: input.requestId,
+        });
+        stablePrefixFingerprint = prepared.stablePrefixFingerprint;
+        context = { conversation: prepared.conversation };
+        if (pendingBackgroundNotifications.length) {
+          context.conversation.push(...pendingBackgroundNotifications);
+        }
+        contextUsagePayload = prepared.usage;
+        compactionHook = createCompactionHook({
+          contextService: this.contextService,
+          sessionId: input.sessionId,
+          agent: input.agent,
+          provider: input.provider,
+          modelName: input.modelName,
+          runId: input.runId,
+          taskId: input.taskId,
+          requestId: input.requestId,
+          budgetTokens: prepared.budgetTokens,
+          triggerRatio: this.contextService.resolveContextSettings(input.agent).compressionTriggerRatio,
+          threadKey: "root",
+          signal: input.abortController.signal,
+          onCompressionEvent: (event) => this.eventPublisher.publishContextCompressionEvent(input, event),
+        });
+      }
       this.clientEvents.publish(input.sessionId, {
         type: "context.usage",
         session_id: input.sessionId,
@@ -360,6 +365,9 @@ export class AgentRunEngine {
           this.drainConversationUpdates(input.sessionId, input.conversationUpdateProvider),
       };
       const hooks = new DefaultHookRegistry();
+      if (compactionHook) {
+        hooks.register("beforeModel", (ctx) => compactionHook!(ctx));
+      }
       hooks.register("afterModel", () => {
         refreshStablePrefixCache(
           this.conversationStore,
@@ -540,10 +548,6 @@ export class AgentRunEngine {
       .map((payload) => renderBackgroundNotification(payload))
       .filter((content) => content.trim())
       .map((content) => ({ role: "user", content }));
-  }
-
-  private resolveContextBudget(agent: AgentConfig, provider: ModelProviderConfig): number {
-    return this.contextCompression?.resolveContextBudget(agent, provider) ?? resolveLegacyContextBudget(agent, provider);
   }
 }
 

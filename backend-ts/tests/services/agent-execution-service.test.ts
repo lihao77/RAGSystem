@@ -11,6 +11,9 @@ import {
   AgentRuntimeContextBuilder,
   RecentMessagesContextSource,
 } from "../../src/services/agent/context-builder/index.js";
+import { AgentContextCompressionService } from "../../src/services/agent/context-compression/index.js";
+import { AgentContextService } from "../../src/services/agent/context/index.js";
+import { SystemConfigService } from "../../src/services/config/system-config-service.js";
 import os from "node:os";
 import type {
   ChatCompletionRequest,
@@ -167,13 +170,18 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
     : null;
   const client = new FakeChatClient(mode, "the answer");
   const contextBuilder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(store)]);
+  const contextService = new AgentContextService(
+    contextBuilder,
+    new AgentContextCompressionService(store, client, new SystemConfigService()),
+    new SystemConfigService(),
+  );
   const service = createAgentExecutionService({
     sessions,
     conversationStore: store,
     runtimeCore: runtimeCoreStub(agent, ready),
     llmChatClient: client,
     dataRoot: os.tmpdir(),
-    contextBuilder,
+    contextService,
     outboxDispatcher: dispatcher,
     clientEvents,
     logger: logger ?? null,

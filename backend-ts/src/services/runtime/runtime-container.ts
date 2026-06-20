@@ -1,6 +1,7 @@
 import { createAgentExecutionService, type AgentExecutionService } from "../agent/execution/index.js";
 import type { AgentExecutionLogger } from "../agent/execution/index.js";
 import { AgentContextCompressionService } from "../agent/context-compression/index.js";
+import { AgentContextService } from "../agent/context/index.js";
 import { AgentDelegationService } from "../agent/delegation/index.js";
 import {
   AgentRuntimeContextBuilder,
@@ -73,8 +74,7 @@ export interface RuntimeContainer {
   readonly hooks: HookRuntimeService;
   readonly runtimeToolBridge: RuntimeToolBridge;
   readonly runtimeCore: RuntimeCoreService;
-  readonly agentRuntimeContextBuilder: AgentRuntimeContextBuilder;
-  readonly contextCompression: AgentContextCompressionService;
+  readonly agentContextService: AgentContextService;
   readonly agentDelegation: AgentDelegationService;
   readonly outboxDispatcher: OutboxDispatcher;
   readonly clientEvents: DurableClientEventPublisher;
@@ -200,12 +200,13 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     }),
     new RecentMessagesContextSource(conversationStore),
   ], { systemConfig });
+  const agentContextService = new AgentContextService(agentRuntimeContextBuilder, contextCompression, systemConfig);
   const agentDelegation = new AgentDelegationService(
     conversationStore,
     runtimeCore,
     llmChatClient,
     dataRoot,
-    agentRuntimeContextBuilder,
+    agentContextService,
     clientEvents,
     agentConfig,
   );
@@ -217,9 +218,8 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     runtimeCore,
     llmChatClient,
     dataRoot,
-    contextBuilder: agentRuntimeContextBuilder,
+    contextService: agentContextService,
     runtimeTools: runtimeToolBridge,
-    contextCompression,
     promptConfigResolver: agentConfig,
     backgroundTasks,
     fileIndex,
@@ -272,8 +272,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     hooks,
     runtimeToolBridge,
     runtimeCore,
-    agentRuntimeContextBuilder,
-    contextCompression,
+    agentContextService,
     agentDelegation,
     outboxDispatcher,
     clientEvents,
