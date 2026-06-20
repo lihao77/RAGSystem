@@ -5,14 +5,14 @@ import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
 import {
   AgentRuntimeContextBuilder,
   RecentMessagesContextSource,
-} from "../../src/services/agent/agent-runtime-context-builder/index.js";
+} from "../../src/services/agent/context-builder/index.js";
 import os from "node:os";
 import type {
   ChatCompletionRequest,
   ChatStreamChunkHandler,
   LlmChatClient,
 } from "../../src/services/integrations/llm-chat-client.js";
-import { AgentDelegationService } from "../../src/services/agent/agent-delegation-service/index.js";
+import { AgentDelegationService } from "../../src/services/agent/delegation/index.js";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";

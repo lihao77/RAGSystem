@@ -2,7 +2,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { AgentSessionApplication } from "../../src/services/agent/agent-session-application.js";
+import { AgentSessionApplication } from "../../src/services/sessions/index.js";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 
 describe("AgentSessionApplication", () => {

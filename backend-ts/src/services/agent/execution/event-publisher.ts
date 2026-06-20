@@ -1,8 +1,8 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { ClientEvent } from "../../../contracts/events.js";
 import type { ExecutionTaskStatus } from "../../../contracts/execution.js";
-import type { ContextCompressionEvent } from "../agent-context-compression-service.js";
-import type { AgentSessionApplication } from "../agent-session-application.js";
+import type { ContextCompressionEvent } from "../context-compression/index.js";
+import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { AgentRuntimeEvent } from "../kernel/contracts.js";
 import type { IConversationTransactionRunner } from "../../../contracts/conversation-store/index.js";
 import type {

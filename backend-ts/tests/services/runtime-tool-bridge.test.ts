@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
-import type { AgentDelegationService } from "../../src/services/agent/agent-delegation-service/index.js";
+import type { AgentDelegationService } from "../../src/services/agent/delegation/index.js";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import { MemoryStore } from "../../src/services/stores/memory-store.js";
 import { MemoryToolService, type RuntimeMemorySessionPort } from "../../src/tools/MemoryTools/MemoryExecution.js";

@@ -1,7 +1,7 @@
 /**
  * Agent 微内核 — stable-prefix 缓存刷新（共享函数）。
  *
- * 合并 run-engine.ts L497-519 与 agent-delegation-service.ts L423-440 两份重复实现。
+ * 合并 run-engine.ts L497-519 与 delegation.ts L423-440 两份重复实现。
  * 两份逻辑一致，仅差异：
  * - run-engine：fp 内联写成局部变量 + 失败时 logger.error 记日志；
  * - delegation：fp 直接内联在 patch 里 + 失败时静默 catch。

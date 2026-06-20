@@ -20,7 +20,7 @@ import type {
   RuntimeToolExecutor,
   ToolExecutionResult,
 } from "../../runtime/runtime-tool-types.js";
-import type { AgentPromptContext } from "../agent-prompt-builder/index.js";
+import type { AgentPromptContext } from "../prompt-builder/index.js";
 import type { KernelContext } from "./kernel-context.js";
 // KernelContext 定义在 kernel-context.ts；在此 re-export，使 contracts.ts 成为内核类型的统一出口。
 export type { KernelContext } from "./kernel-context.js";

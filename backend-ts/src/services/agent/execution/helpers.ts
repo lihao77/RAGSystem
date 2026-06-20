@@ -1,8 +1,8 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { ExecutionObservability, ExecutionTaskStatus } from "../../../contracts/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
-import { isRuntimeStableSystemContextContent } from "../agent-runtime-context-builder/index.js";
-import { buildFullSystemPrompt, type AgentPromptContext } from "../agent-prompt-builder/index.js";
+import { isRuntimeStableSystemContextContent } from "../context-builder/index.js";
+import { buildFullSystemPrompt, type AgentPromptContext } from "../prompt-builder/index.js";
 import { resolveToolInstructionMode } from "../kernel-plugins/protocol/select-protocol.js";
 import type { BackgroundTaskNotificationPayload } from "../../runtime/background-task-service.js";
 import type { ChatMessage } from "../../integrations/llm-chat-client.js";

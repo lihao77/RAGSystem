@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 
-import type { AgentRuntimeContextBuilder } from "../agent-runtime-context-builder/index.js";
+import type { AgentRuntimeContextBuilder } from "../context-builder/index.js";
 import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
 import type { KernelSession, MessageRefresher } from "../kernel/contracts.js";
 import { DefaultHookRegistry } from "../kernel/hook-registry.js";
 import { refreshStablePrefixCache } from "../kernel/stable-prefix.js";
 import { NullEventSink } from "../kernel-plugins/events/runtime-event-sink.js";
 import { createRuntimeKernel } from "../kernel-plugins/create-runtime-kernel.js";
-import { buildAgentPromptContext, type AgentPromptConfigResolver } from "../agent-prompt-builder/index.js";
+import { buildAgentPromptContext, type AgentPromptConfigResolver } from "../prompt-builder/index.js";
 import type { ChildAgentInfo, IChildAgentStore, IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { RuntimeExecutionConfigResolver } from "../../runtime/runtime-core-service.js";

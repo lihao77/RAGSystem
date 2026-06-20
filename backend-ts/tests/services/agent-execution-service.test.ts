@@ -5,12 +5,12 @@ import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
 import {
   createAgentExecutionService,
   type AgentExecutionLogger,
-} from "../../src/services/agent/agent-execution-service/index.js";
-import { AgentSessionApplication } from "../../src/services/agent/agent-session-application.js";
+} from "../../src/services/agent/execution/index.js";
+import { AgentSessionApplication } from "../../src/services/sessions/index.js";
 import {
   AgentRuntimeContextBuilder,
   RecentMessagesContextSource,
-} from "../../src/services/agent/agent-runtime-context-builder/index.js";
+} from "../../src/services/agent/context-builder/index.js";
 import os from "node:os";
 import type {
   ChatCompletionRequest,

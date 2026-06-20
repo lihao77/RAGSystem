@@ -11,11 +11,11 @@ import type {
   SessionTaskStatus,
   StreamExecuteRequest,
 } from "../../../contracts/execution.js";
-import type { AgentContextCompressionService } from "../agent-context-compression-service.js";
-import type { AgentPromptConfigResolver } from "../agent-prompt-builder/index.js";
-import type { AgentRuntimeContextBuilder } from "../agent-runtime-context-builder/index.js";
+import type { AgentContextCompressionService } from "../context-compression/index.js";
+import type { AgentPromptConfigResolver } from "../prompt-builder/index.js";
+import type { AgentRuntimeContextBuilder } from "../context-builder/index.js";
 import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
-import type { AgentSessionApplication } from "../agent-session-application.js";
+import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js";

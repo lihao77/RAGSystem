@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
-import { AgentContextCompressionService } from "../../src/services/agent/agent-context-compression-service.js";
-import { resolveCompressionView } from "../../src/services/agent/agent-runtime-context-builder/index.js";
+import { AgentContextCompressionService } from "../../src/services/agent/context-compression/index.js";
+import { resolveCompressionView } from "../../src/services/agent/context-builder/index.js";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import type { ChatCompletionRequest, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
 import { SystemConfigService } from "../../src/services/config/system-config-service.js";

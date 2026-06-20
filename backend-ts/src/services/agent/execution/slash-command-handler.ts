@@ -1,7 +1,7 @@
 import type { AgentRunStartResult } from "../../../contracts/execution.js";
-import type { AgentContextCompressionService } from "../agent-context-compression-service.js";
-import type { AgentSessionApplication } from "../agent-session-application.js";
-import type { AgentRuntimeContextBuilder } from "../agent-runtime-context-builder/index.js";
+import type { AgentContextCompressionService } from "../context-compression/index.js";
+import type { AgentSessionApplication } from "../../sessions/index.js";
+import type { AgentRuntimeContextBuilder } from "../context-builder/index.js";
 import type { RuntimeExecutionConfigResolver } from "../../runtime/runtime-core-service.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import { asString, mirrorEventData, normalizeSessionEntryAgent } from "./helpers.js";
