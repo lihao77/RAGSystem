@@ -330,6 +330,171 @@ describe("OpenAI-compatible chat client", () => {
       finishReason: "end_turn",
     });
   });
+
+  it("converts OpenAI-style tools to Anthropic tools for native function calling", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        tools: [
+          {
+            name: "list_memory_index",
+            description: "List memory index",
+            input_schema: {
+              type: "object",
+              properties: { scope: { type: "string" } },
+            },
+          },
+        ],
+        tool_choice: { type: "auto" },
+      });
+      return new Response(
+        JSON.stringify({
+          stop_reason: "tool_use",
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_1",
+              name: "list_memory_index",
+              input: { scope: "session" },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const client = new OpenAiCompatibleChatClient();
+    const result = await client.complete({
+      ...buildRequest({
+        provider_type: "anthropic",
+        model: "claude-sonnet-4-5",
+      }),
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "list_memory_index",
+            description: "List memory index",
+            parameters: {
+              type: "object",
+              properties: { scope: { type: "string" } },
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      finishReason: "tool_use",
+      toolCalls: [
+        {
+          id: "toolu_1",
+          type: "function",
+          function: {
+            name: "list_memory_index",
+            arguments: "{\"scope\":\"session\"}",
+          },
+        },
+      ],
+    });
+  });
+
+  it("maps assistant tool_calls and tool results to Anthropic blocks", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ role: string; content: unknown }> };
+      const assistant = body.messages.find((message) => message.role === "assistant");
+      expect(assistant).toEqual({
+        role: "assistant",
+        content: [
+          { type: "text", text: "Let me check." },
+          {
+            type: "tool_use",
+            id: "toolu_1",
+            name: "list_memory_index",
+            input: { scope: "session" },
+          },
+        ],
+      });
+      const userToolResult = body.messages.find(
+        (message) =>
+          message.role === "user" &&
+          Array.isArray(message.content) &&
+          (message.content as Array<{ type?: string }>)[0]?.type === "tool_result",
+      );
+      expect(userToolResult).toEqual({
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_1",
+            content: "ok",
+          },
+        ],
+      });
+      return new Response(
+        JSON.stringify({
+          stop_reason: "end_turn",
+          content: [{ type: "text", text: "done" }],
+        }),
+        { status: 200 },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const client = new OpenAiCompatibleChatClient();
+    await client.complete({
+      ...buildRequest({
+        provider_type: "anthropic",
+        model: "claude-sonnet-4-5",
+      }),
+      messages: [
+        { role: "user", content: "check" },
+        {
+          role: "assistant",
+          content: "Let me check.",
+          tool_calls: [
+            {
+              id: "toolu_1",
+              type: "function",
+              function: {
+                name: "list_memory_index",
+                arguments: "{\"scope\":\"session\"}",
+              },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: "ok",
+          tool_call_id: "toolu_1",
+        },
+      ],
+    });
+  });
+
+  it("omits tool_choice when no tools are provided for anthropic providers", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body.tools).toBeUndefined();
+      expect(body.tool_choice).toBeUndefined();
+      return new Response(
+        JSON.stringify({
+          stop_reason: "end_turn",
+          content: [{ type: "text", text: "ok" }],
+        }),
+        { status: 200 },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const client = new OpenAiCompatibleChatClient();
+    await client.complete({
+      ...buildRequest({
+        provider_type: "anthropic",
+        model: "claude-sonnet-4-5",
+      }),
+    });
+  });
 });
 
 function buildRequest(input: { provider_type?: string; model?: string } = {}): ChatCompletionRequest {

@@ -333,19 +333,66 @@ function buildAnthropicBody(request: ChatCompletionRequest, stream = false): Rec
     .filter((message) => message.role === "system")
     .map((message) => ({ type: "text", text: message.content }));
   const messages = request.messages
-    .filter((message) => message.role !== "system" && message.role !== "tool")
-    .map((message) => ({
-      role: message.role === "assistant" ? "assistant" : "user",
-      content: [{ type: "text", text: message.content }],
-    }));
+    .filter((message) => message.role !== "system")
+    .map((message) => mapAnthropicMessage(message));
   return {
     model: request.model,
     messages,
     system: system.length ? system : undefined,
     temperature: request.temperature ?? undefined,
     max_tokens: request.maxCompletionTokens ?? request.provider.max_completion_tokens ?? request.provider.max_tokens ?? 4096,
+    tools: request.tools?.length
+      ? request.tools.map((tool) => ({
+        name: tool.function.name,
+        description: tool.function.description,
+        input_schema: tool.function.parameters,
+      }))
+      : undefined,
+    tool_choice: request.tools?.length ? mapAnthropicToolChoice(request.toolChoice) : undefined,
     stream: stream ? true : undefined,
   };
+}
+
+function mapAnthropicMessage(message: ChatMessage): Record<string, unknown> {
+  if (message.role === "tool") {
+    return {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: message.tool_call_id,
+          content:
+            typeof message.content === "string" ? message.content : JSON.stringify(message.content),
+        },
+      ],
+    };
+  }
+  if (message.role === "assistant" && message.tool_calls?.length) {
+    const content: unknown[] = [];
+    if (message.content) {
+      content.push({ type: "text", text: message.content });
+    }
+    for (const toolCall of message.tool_calls) {
+      content.push({
+        type: "tool_use",
+        id: toolCall.id,
+        name: toolCall.function.name,
+        input: JSON.parse(toolCall.function.arguments || "{}"),
+      });
+    }
+    return { role: "assistant", content };
+  }
+  return {
+    role: message.role === "assistant" ? "assistant" : "user",
+    content: [{ type: "text", text: message.content }],
+  };
+}
+
+function mapAnthropicToolChoice(toolChoice: "auto" | "none" | undefined): { type: string } | undefined {
+  if (toolChoice === "none") {
+    return { type: "none" };
+  }
+  return { type: "auto" };
 }
 
 async function readOpenAiCompatibleStream(
