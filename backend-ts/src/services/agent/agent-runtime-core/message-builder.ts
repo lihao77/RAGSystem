@@ -31,9 +31,7 @@ export function buildRuntimeMessages(
     }
     conversationIndex += 1;
   }
-  if (options.xmlProtocolTools?.length) {
-    systemParts.push(renderRuntimeXmlProtocolInstruction(options.xmlProtocolTools));
-  }
+  systemParts.push(renderRuntimeXmlProtocolInstruction(options.xmlProtocolTools ?? []));
   if (systemParts.length > 0) {
     messages.push({ role: "system", content: systemParts.join("\n\n") });
   }
