@@ -12,12 +12,11 @@
  *   （L294-346）内部，本类不感知、不拆分。dataRoot 同样原样透传，供 buildLlmFacingToolResult
  *   等使用。
  *
- * 来源对照：agent-runtime-core.ts runXmlToolCallingText L306-318 / runToolCallingText L402-414
- * 对 executeToolCallRound 的调用。本类只迁移“调用 + onEvent 接线”，不碰 calls 的构造
+ * 职责边界：本类只做“调用 executeToolCallRound + onEvent 接线”，不碰 calls 的构造
  * （那由 Protocol 在 parse 阶段产出的 KernelToolCall[] 负责，形状已对齐 PreparedRoundToolCall）。
  *
- * 事件边界：observation_complete（runXmlToolCallingText L329）不在本类——它由 XmlProtocol
- * 的 renderObservations 负责；assistant_intermediate（L297）同样在 Protocol/内核侧。
+ * 事件边界：observation_complete 不在本类——它由 XmlProtocol 的 renderObservations 负责；
+ * assistant_intermediate 同样在 Protocol/内核侧。
  */
 
 import type {

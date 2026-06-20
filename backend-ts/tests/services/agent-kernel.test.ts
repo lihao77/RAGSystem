@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
 import type { AgentRuntimeEvent, KernelResult, MessageRefresher } from "../../src/services/agent/kernel/contracts.js";
-import type { AgentPromptContext } from "../../src/services/agent/agent-prompt-builder.js";
+import type { AgentPromptContext } from "../../src/services/agent/agent-prompt-builder/index.js";
 import { DefaultHookRegistry } from "../../src/services/agent/kernel/hook-registry.js";
 import { RuntimeEventSink } from "../../src/services/agent/kernel-plugins/events/runtime-event-sink.js";
 import { createRuntimeKernel } from "../../src/services/agent/kernel-plugins/create-runtime-kernel.js";

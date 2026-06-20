@@ -1,18 +1,18 @@
 import { randomUUID } from "node:crypto";
 
-import type { AgentRuntimeContextBuilder } from "./agent-runtime-context-builder.js";
-import type { LlmChatClient } from "../integrations/llm-chat-client.js";
-import type { KernelSession, MessageRefresher } from "./kernel/contracts.js";
-import { DefaultHookRegistry } from "./kernel/hook-registry.js";
-import { refreshStablePrefixCache } from "./kernel/stable-prefix.js";
-import { NullEventSink } from "./kernel-plugins/events/runtime-event-sink.js";
-import { createRuntimeKernel } from "./kernel-plugins/create-runtime-kernel.js";
-import { buildAgentPromptContext, type AgentPromptConfigResolver } from "./agent-prompt-builder.js";
-import type { ChildAgentInfo, IChildAgentStore, IMessageStore, IRunStore, ISessionStore } from "../../contracts/conversation-store/index.js";
-import type { ClientEventPublisher } from "../runtime/event-outbox/client-event-publisher.js";
-import type { RuntimeExecutionConfigResolver } from "../runtime/runtime-core-service.js";
-import type { RuntimeToolExecutionContext, RuntimeToolExecutor, ToolExecutionResult } from "../runtime/runtime-tool-types.js";
-import { publishAgentCallEnd, publishAgentCallStart } from "./agent-delegation-service/events.js";
+import type { AgentRuntimeContextBuilder } from "../agent-runtime-context-builder/index.js";
+import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
+import type { KernelSession, MessageRefresher } from "../kernel/contracts.js";
+import { DefaultHookRegistry } from "../kernel/hook-registry.js";
+import { refreshStablePrefixCache } from "../kernel/stable-prefix.js";
+import { NullEventSink } from "../kernel-plugins/events/runtime-event-sink.js";
+import { createRuntimeKernel } from "../kernel-plugins/create-runtime-kernel.js";
+import { buildAgentPromptContext, type AgentPromptConfigResolver } from "../agent-prompt-builder/index.js";
+import type { ChildAgentInfo, IChildAgentStore, IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
+import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
+import type { RuntimeExecutionConfigResolver } from "../../runtime/runtime-core-service.js";
+import type { RuntimeToolExecutionContext, RuntimeToolExecutor, ToolExecutionResult } from "../../runtime/runtime-tool-types.js";
+import { publishAgentCallEnd, publishAgentCallStart } from "./events.js";
 import {
   applyWorkspaceOverride,
   buildChildMetadata,
@@ -21,14 +21,14 @@ import {
   clampInteger,
   getChildWorkspaceRoot,
   normalizeString,
-} from "./agent-delegation-service/helpers.js";
+} from "./helpers.js";
 import {
   errorResult,
   successResult,
   summarizeReadinessFailure,
   toToolResult,
   type DelegationRunResult,
-} from "./agent-delegation-service/results.js";
+} from "./results.js";
 
 export interface AgentDelegationInput {
   agentName: string;

@@ -1,0 +1,92 @@
+import type {
+  AgentRuntimeContextContribution,
+  AgentRuntimeContextSource,
+  ResolvedAgentRuntimeContextRequest,
+  RuntimeConversationHistoryPort,
+  RuntimeSessionMetadataPort,
+} from "./types.js";
+import { getString, isRuntimeSessionMetadataPort, readPipelineCache } from "./helpers.js";
+import {
+  countObservationMessages,
+  filterRuntimeHistoryMessages,
+  messagesToConversation,
+  microcompactRuntimeHistoryMessages,
+  resolveCompressionViewDetailed,
+} from "./history-view.js";
+
+export class RecentMessagesContextSource implements AgentRuntimeContextSource {
+  readonly name = "recent_messages";
+  private readonly sessions: RuntimeSessionMetadataPort | null;
+
+  constructor(private readonly history: RuntimeConversationHistoryPort) {
+    this.sessions = isRuntimeSessionMetadataPort(history) ? history : null;
+  }
+
+  build(request: ResolvedAgentRuntimeContextRequest): AgentRuntimeContextContribution {
+    const messages = this.history.getRecentMessages(request.sessionId, request.historyLimit, request.threadKey);
+    const filteredMessages = filterRuntimeHistoryMessages(messages);
+    const compressionView = resolveCompressionViewDetailed(filteredMessages);
+    const historyMessages = compressionView.messages;
+    const microcompactDecision = request.microcompact
+      ? this.resolveMicrocompactDecision(request)
+      : { requested: false, applied: false, reason: "disabled" };
+    const microcompact = microcompactDecision.applied
+      ? microcompactRuntimeHistoryMessages(historyMessages, request.microcompactKeepRecentTools)
+      : {
+          messages: historyMessages,
+          clearedCount: 0,
+          observationCount: countObservationMessages(historyMessages),
+        };
+    const metadata: Record<string, unknown> = {
+      source_message_count: messages.length,
+      filtered_message_count: filteredMessages.length,
+      resolved_message_count: microcompact.messages.length,
+      compression_view: {
+        applied: compressionView.applied,
+        summary_seq: compressionView.summarySeq,
+        replaces_up_to_seq: compressionView.replacesUpToSeq,
+      },
+    };
+    if (request.microcompact) {
+      metadata.microcompact = {
+        applied: microcompactDecision.applied,
+        reason: microcompactDecision.reason,
+        keep_recent_tools: request.microcompactKeepRecentTools,
+        observation_count: microcompact.observationCount,
+        cleared_count: microcompact.clearedCount,
+        ttl_seconds: request.microcompactTtlSeconds,
+      };
+    }
+    return {
+      conversation: messagesToConversation(microcompact.messages),
+      metadata,
+    };
+  }
+
+  private resolveMicrocompactDecision(request: ResolvedAgentRuntimeContextRequest): {
+    requested: boolean;
+    applied: boolean;
+    reason: string;
+  } {
+    const metadata = this.sessions?.getSession(request.sessionId)?.metadata ?? {};
+    const cache = readPipelineCache(metadata, request.threadKey);
+    const currentFingerprint = request.stablePrefixFingerprint ?? "no_stable_prefix";
+    const previousFingerprint = getString(cache.fp);
+    const lastPreparedAt = typeof cache.t === "number" && Number.isFinite(cache.t) ? cache.t : null;
+    const nowSeconds = Date.now() / 1000;
+    let applied = false;
+    let reason = "cache_fresh";
+    if (previousFingerprint !== currentFingerprint) {
+      applied = true;
+      reason = "fingerprint_changed";
+    } else if (lastPreparedAt === null) {
+      applied = true;
+      reason = "missing_cache_time";
+    } else if (nowSeconds - lastPreparedAt >= request.microcompactTtlSeconds) {
+      applied = true;
+      reason = "ttl_expired";
+    }
+
+    return { requested: true, applied, reason };
+  }
+}

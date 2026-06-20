@@ -1,7 +1,7 @@
 import type { AgentConfig } from "../../../../contracts/agent-config.js";
 import type { ChatMessage } from "../../../integrations/llm-chat-client.js";
-import { buildFullSystemPrompt, type AgentPromptContext } from "../../agent-prompt-builder.js";
-import { isRuntimeStableSystemContextContent } from "../../agent-runtime-context-builder.js";
+import { buildFullSystemPrompt, type AgentPromptContext } from "../../agent-prompt-builder/index.js";
+import { isRuntimeStableSystemContextContent } from "../../agent-runtime-context-builder/index.js";
 import {
   isSemanticTaggedContent,
   renderRuntimeXmlProtocolInstruction,

@@ -4,13 +4,11 @@
  * 本文件是内核与扩展点（Protocol / ToolProvider / EventSink / MessageRefresher / HookRegistry）
  * 之间唯一的耦合面。内核只依赖本文件的类型，绝不 import 任何具体实现。
  *
- * 来源（逐字迁入，行为零变化）：
- * - AgentRuntimeEvent / AgentRuntimeEventHandler：agent-runtime-core.ts L35-129
- * - KernelSession：AgentRuntimeRequest L131-143，去掉 onEvent / conversationUpdateProvider /
- *   onModelRequestSuccess 三回调（改由注入的 EventSink / MessageRefresher / Hook 承担）。
- * - KernelResult：AgentRuntimeResult L145-155。
- * - PreparedRoundToolCall / RuntimeToolRoundExecution：原定义于 tool-round-executor.ts，
- *   阶段二上提至本文件（修依赖倒置：内核契约不再反向 import 下层零件）。
+ * 设计要点：
+ * - KernelSession：去掉 onEvent / conversationUpdateProvider / onModelRequestSuccess
+ *   三回调（改由注入的 EventSink / MessageRefresher / Hook 承担）。
+ * - PreparedRoundToolCall / RuntimeToolRoundExecution 定义于本文件（依赖倒置：
+ *   内核契约不反向 import 下层零件）。
  * - KernelToolCall / KernelObservation：即上述两个 interface 的语义别名，不臆造字段。
  */
 
@@ -22,13 +20,13 @@ import type {
   RuntimeToolExecutor,
   ToolExecutionResult,
 } from "../../runtime/runtime-tool-types.js";
-import type { AgentPromptContext } from "../agent-prompt-builder.js";
+import type { AgentPromptContext } from "../agent-prompt-builder/index.js";
 import type { KernelContext } from "./kernel-context.js";
 // KernelContext 定义在 kernel-context.ts；在此 re-export，使 contracts.ts 成为内核类型的统一出口。
 export type { KernelContext } from "./kernel-context.js";
 
 /**
- * 运行时事件（10 种类型，字段一字不改，从 agent-runtime-core.ts 整体迁入）。
+ * 运行时事件（10 种类型）。
  *
  * 下游分流（由 publishRuntimeEvent 决定，非内核/Protocol 职责）：
  * - output_delta / first_token / intent_delta / error：仅进 outbox 投递

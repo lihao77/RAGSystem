@@ -1,5 +1,5 @@
 import type { AgentConfig } from "../contracts/agent-config.js";
-import type { AgentDelegationService } from "../services/agent/agent-delegation-service.js";
+import type { AgentDelegationService } from "../services/agent/agent-delegation-service/index.js";
 import type { VectorLibraryService } from "../services/knowledge/vector-library-service.js";
 import type { McpService } from "../services/integrations/mcp-service.js";
 import type { CodeExecutionToolService } from "./CodeExecutionTool/CodeExecution.js";

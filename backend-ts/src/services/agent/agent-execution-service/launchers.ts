@@ -8,7 +8,7 @@ import type {
   StreamExecuteRequest,
 } from "../../../contracts/execution.js";
 import { getSelectedLlm as resolveSelectedLlm } from "../../../contracts/execution.js";
-import type { AgentRuntimeContextBuilder } from "../agent-runtime-context-builder.js";
+import type { AgentRuntimeContextBuilder } from "../agent-runtime-context-builder/index.js";
 import type { AgentSessionApplication } from "../agent-session-application.js";
 import type { IRunStore } from "../../../contracts/conversation-store/index.js";
 import type { RuntimeExecutionConfigResolver } from "../../runtime/runtime-core-service.js";

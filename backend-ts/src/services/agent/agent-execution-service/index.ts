@@ -12,8 +12,8 @@ import type {
   StreamExecuteRequest,
 } from "../../../contracts/execution.js";
 import type { AgentContextCompressionService } from "../agent-context-compression-service.js";
-import type { AgentPromptConfigResolver } from "../agent-prompt-builder.js";
-import type { AgentRuntimeContextBuilder } from "../agent-runtime-context-builder.js";
+import type { AgentPromptConfigResolver } from "../agent-prompt-builder/index.js";
+import type { AgentRuntimeContextBuilder } from "../agent-runtime-context-builder/index.js";
 import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
 import type { AgentSessionApplication } from "../agent-session-application.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";

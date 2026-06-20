@@ -6,7 +6,7 @@ import YAML from "yaml";
 
 import type { JsonValue } from "../../contracts/common.js";
 import { AgentConfigSchema, type AgentConfig } from "../../contracts/agent-config.js";
-import type { AgentConfigService } from "../../services/agent/agent-config-service.js";
+import type { AgentConfigService } from "../../services/agent/agent-config-service/index.js";
 import type { ArtifactService } from "../../services/artifacts/artifact-service.js";
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import type { ClientEventPublisher } from "../../services/runtime/event-outbox/client-event-publisher.js";

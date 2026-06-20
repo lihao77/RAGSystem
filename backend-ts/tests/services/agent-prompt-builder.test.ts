@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
-import { buildFullSystemPrompt } from "../../src/services/agent/agent-prompt-builder.js";
+import { buildFullSystemPrompt } from "../../src/services/agent/agent-prompt-builder/index.js";
 import {
   GLOB_TOOL_NAME,
   PREVIEW_DATA_STRUCTURE_TOOL_NAME,

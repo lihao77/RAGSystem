@@ -9,9 +9,8 @@
  * - NullEventSink：emit 空操作，专供 child run（agent-delegation.executeChildRun）。
  *   现状 child run 不发任何 runtime 事件，注入本类即可维持静默，不得改为发事件。
  *
- * 来源对照：agent-runtime-core.ts 中 `input.onEvent?.(...)` 的所有调用点
- * （runXmlToolCallingText / runToolCallingText / runXmlStreamRound / runText 的 done/error），
- * 在新架构里改由 Protocol / ToolProvider / 内核分别经 EventSink 发射——它们拿到的就是这个实例。
+ * 事件发射点：Protocol / ToolProvider / 内核分别经 EventSink 发射
+ * （runtime 流式 delta、tool_call/tool_result、done/error 等）——它们拿到的就是这个实例。
  */
 
 import type { AgentRuntimeEvent, EventSink } from "../../kernel/contracts.js";

@@ -2,7 +2,7 @@ import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { MemoryToolService } from "../../tools/MemoryTools/MemoryExecution.js";
 import type { LocalDocumentToolService } from "../../tools/DocumentTools/DocumentExecution.js";
 import type { CodeExecutionToolService } from "../../tools/CodeExecutionTool/CodeExecution.js";
-import type { AgentDelegationService } from "../agent/agent-delegation-service.js";
+import type { AgentDelegationService } from "../agent/agent-delegation-service/index.js";
 import type { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
 import type { LocalSearchToolService } from "../../tools/LocalSearchTools/SearchExecution.js";
 import type { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";

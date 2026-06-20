@@ -4,9 +4,9 @@ import type { AgentConfig } from "../../contracts/agent-config.js";
 import { ok } from "../../contracts/common.js";
 import type { OutboxStatus } from "../../contracts/conversation-store/index.js";
 import { resolveContextBudget, resolveRuntimeContextSettings } from "../../services/agent/agent-context-compression-service.js";
-import { buildAgentPromptContext, buildFullSystemPrompt } from "../../services/agent/agent-prompt-builder.js";
+import { buildAgentPromptContext, buildFullSystemPrompt } from "../../services/agent/agent-prompt-builder/index.js";
 import { resolveToolInstructionMode } from "../../services/agent/kernel-plugins/protocol/select-protocol.js";
-import { resolveRuntimeHistoryView } from "../../services/agent/agent-runtime-context-builder.js";
+import { resolveRuntimeHistoryView } from "../../services/agent/agent-runtime-context-builder/index.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 

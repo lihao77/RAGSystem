@@ -6,7 +6,7 @@
  * 三只手（Protocol / ToolProvider / MessageRefresher）+ EventSink 导线 + HookRegistry
  * 全部通过构造注入，内核绝不 import 任何具体实现，只依赖 contracts.ts 的纯类型。
  *
- * 循环顺序（逐字对齐 agent-runtime-core.ts runXmlToolCallingText L272-339）：
+ * 循环顺序：
  *   throwIfAborted → appendMessages(refresher 增量) → beforeModel hook
  *   → protocol.invoke（问模型 + 边流边解析 + 发 delta + 修复重试，全在 invoke 内部）
  *   → afterModel hook → 若 tool_calls 则 tools.executeRound + appendAssistant
@@ -16,9 +16,9 @@
  * 中断 / observation 拼回也在插件里，内核不感知。
  *
  * 事件：
- * - runtime.done：循环结束后 emit（对照 agent-runtime-core.ts L184-201）。注意这是死事件
+ * - runtime.done：循环结束后 emit。注意这是死事件
  *   （publishRuntimeEvent 无对应分支，经 sink 透传后被静默丢弃）——保留 emit 行为不变即可。
- * - abort：直接重抛，不发 error 事件（对齐 L194 的 `!signal.aborted && !isAbortError` 守卫）。
+ * - abort：直接重抛，不发 error 事件（`!signal.aborted && !isAbortError` 守卫）。
  * - 其他异常：emit runtime.error 后重抛。
  */
 

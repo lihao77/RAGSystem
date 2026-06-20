@@ -5,7 +5,7 @@ import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
 import type { IMessageStore } from "../../contracts/conversation-store/index.js";
 import type { ChatMessage, LlmChatClient } from "../integrations/llm-chat-client.js";
 import type { SystemConfigService } from "../config/system-config-service.js";
-import { resolveCompressionView } from "./agent-runtime-context-builder.js";
+import { resolveCompressionView } from "./agent-runtime-context-builder/index.js";
 
 export interface RuntimeContextSettings {
   compressionTriggerRatio: number;

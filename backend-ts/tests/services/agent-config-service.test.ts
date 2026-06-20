@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import YAML from "yaml";
 
-import { AgentConfigService } from "../../src/services/agent/agent-config-service.js";
+import { AgentConfigService } from "../../src/services/agent/agent-config-service/index.js";
 
 const tempRoots: string[] = [];
 

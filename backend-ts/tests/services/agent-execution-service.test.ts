@@ -10,7 +10,7 @@ import { AgentSessionApplication } from "../../src/services/agent/agent-session-
 import {
   AgentRuntimeContextBuilder,
   RecentMessagesContextSource,
-} from "../../src/services/agent/agent-runtime-context-builder.js";
+} from "../../src/services/agent/agent-runtime-context-builder/index.js";
 import os from "node:os";
 import type {
   ChatCompletionRequest,

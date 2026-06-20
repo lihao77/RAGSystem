@@ -1,16 +1,16 @@
 import { createAgentExecutionService, type AgentExecutionService } from "../agent/agent-execution-service/index.js";
 import type { AgentExecutionLogger } from "../agent/agent-execution-service/index.js";
 import { AgentContextCompressionService } from "../agent/agent-context-compression-service.js";
-import { AgentDelegationService } from "../agent/agent-delegation-service.js";
+import { AgentDelegationService } from "../agent/agent-delegation-service/index.js";
 import {
   AgentRuntimeContextBuilder,
   MemoryIndexContextSource,
   RecentMessagesContextSource,
-} from "../agent/agent-runtime-context-builder.js";
+} from "../agent/agent-runtime-context-builder/index.js";
 import os from "node:os";
 import path from "node:path";
 import { BackgroundTaskService } from "./background-task-service.js";
-import { AgentConfigService } from "../agent/agent-config-service.js";
+import { AgentConfigService } from "../agent/agent-config-service/index.js";
 import { AgentSessionApplication } from "../agent/agent-session-application.js";
 import { ArtifactService } from "../artifacts/artifact-service.js";
 import { createConversationStore, type ConversationStore } from "../stores/conversation-store/index.js";

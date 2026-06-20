@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { AgentConfig } from "../../contracts/agent-config.js";
-import type { AgentDelegationService } from "../../services/agent/agent-delegation-service.js";
+import type { AgentDelegationService } from "../../services/agent/agent-delegation-service/index.js";
 import {
   errorResult,
   readCallAgentArguments,

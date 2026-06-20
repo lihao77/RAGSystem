@@ -1,0 +1,213 @@
+import crypto from "node:crypto";
+
+import type { AgentConfig } from "../../../contracts/agent-config.js";
+import type { MemoryScopeSpec } from "../../../contracts/memory-store/index.js";
+import { getWorkspaceMemoryKey } from "../../stores/memory-store.js";
+import { DEFAULT_THREAD_KEY } from "./types.js";
+import {
+  asRecord,
+  getString,
+  isMemoryScopeName,
+  pythonStableJsonStringify,
+  stringArray,
+  stringRecord,
+  titleCase,
+} from "./helpers.js";
+
+export interface MemoryScopeCapabilities {
+  allowed_scopes: string[];
+  write_scopes: string[];
+  archive_scopes: string[];
+}
+
+export interface MemoryPrefixFingerprint {
+  agent_name: string | null;
+  auto_inject: boolean;
+  allowed_scopes: string[];
+  write_scopes: string[];
+  archive_scopes: string[];
+  scope_specs: Array<{
+    scope_name: string;
+    scope_spec: MemoryScopeSpec;
+  }>;
+  fingerprint: string;
+}
+
+export interface MemoryPrefixSnapshot {
+  baseline_key: string;
+  session_id: string;
+  thread_key: string;
+  agent_name: string;
+  fingerprint: MemoryPrefixFingerprint;
+  scope_capabilities: MemoryScopeCapabilities;
+  indices: Record<string, string>;
+  rendered_block: string;
+  rebased_reason: string;
+}
+
+export function buildMemoryScopeCapabilities(memoryConfig: AgentConfig["memory"]): MemoryScopeCapabilities {
+  return {
+    allowed_scopes: [...(memoryConfig.allowed_scopes ?? [])],
+    write_scopes: [...(memoryConfig.write_scopes ?? [])],
+    archive_scopes: [...(memoryConfig.archive_scopes ?? [])],
+  };
+}
+
+export function buildMemoryScopeSpecs(input: {
+  memoryConfig: AgentConfig["memory"];
+  sessionId: string;
+  agentName: string;
+  sessionMetadata: Record<string, unknown>;
+}): MemoryScopeSpec[] {
+  const allowedScopes = new Set(input.memoryConfig.allowed_scopes ?? []);
+  const teamName = getString(input.sessionMetadata.team);
+  const workspaceKey = getWorkspaceMemoryKey(getString(input.sessionMetadata.workspace_root));
+  const scopeSpecs: MemoryScopeSpec[] = [];
+  if (allowedScopes.has("team") && teamName) {
+    scopeSpecs.push({ scope: "team", team_name: teamName });
+  }
+  if (allowedScopes.has("session")) {
+    scopeSpecs.push({ scope: "session", session_id: input.sessionId });
+  }
+  if (allowedScopes.has("agent") && input.agentName && teamName) {
+    scopeSpecs.push({ scope: "agent", agent_name: input.agentName, team_name: teamName });
+  }
+  if (allowedScopes.has("workspace") && workspaceKey) {
+    scopeSpecs.push({ scope: "workspace", workspace_key: workspaceKey });
+  }
+  return scopeSpecs;
+}
+
+export function buildMemoryPrefixFingerprint(input: {
+  memoryConfig: AgentConfig["memory"];
+  scopeCapabilities: MemoryScopeCapabilities;
+  scopeSpecs: MemoryScopeSpec[];
+  agentName: string;
+}): MemoryPrefixFingerprint {
+  const payload = {
+    agent_name: input.agentName.trim() || null,
+    auto_inject: input.memoryConfig.auto_inject !== false,
+    allowed_scopes: [...input.scopeCapabilities.allowed_scopes].sort(),
+    write_scopes: [...input.scopeCapabilities.write_scopes].sort(),
+    archive_scopes: [...input.scopeCapabilities.archive_scopes].sort(),
+    scope_specs: input.scopeSpecs.map((scopeSpec) => ({
+      scope_name: scopeSpec.scope,
+      scope_spec: { ...scopeSpec },
+    })),
+  };
+  return {
+    ...payload,
+    fingerprint: crypto.createHash("sha256").update(pythonStableJsonStringify(payload), "utf8").digest("hex").slice(0, 16),
+  };
+}
+
+export function renderMemoryPrefixBlock(input: {
+  scopeCapabilities: MemoryScopeCapabilities;
+  indices: Record<string, string>;
+}): string {
+  const sections: string[] = [];
+  const allowedScopes = input.scopeCapabilities.allowed_scopes;
+  const writeScopes = input.scopeCapabilities.write_scopes;
+  const archiveScopes = input.scopeCapabilities.archive_scopes;
+  if (allowedScopes.length || writeScopes.length || archiveScopes.length) {
+    sections.push(
+      [
+        "[Memory Scope Capabilities]",
+        `- 可读取 scope: ${allowedScopes.length ? allowedScopes.join(", ") : "无"}`,
+        `- 可写入 scope: ${writeScopes.length ? writeScopes.join(", ") : "无"}`,
+        `- 可归档 scope: ${archiveScopes.length ? archiveScopes.join(", ") : "无"}`,
+        "- 执行 memory 工具前，必须先确认目标 scope 在对应权限列表内，避免误操作",
+      ].join("\n"),
+    );
+  }
+
+  const scopeTitles: Record<string, string> = {
+    team: "Team",
+    session: "Session",
+    agent: "Agent",
+    workspace: "Workspace",
+  };
+  for (const [scopeName, content] of Object.entries(input.indices)) {
+    if (!content) {
+      continue;
+    }
+    sections.push(`[${scopeTitles[scopeName] ?? titleCase(scopeName)} Memory Index]\n${content.trim()}`);
+  }
+  return sections.join("\n\n");
+}
+
+export function memoryBaselineKey(threadKey: string, agentName: string | null): string {
+  return `${threadKey.trim() || DEFAULT_THREAD_KEY}::${agentName?.trim() || "_anonymous_"}`;
+}
+
+export function readMemoryPrefixSnapshot(
+  sessionMetadata: Record<string, unknown>,
+  baselineKey: string,
+): MemoryPrefixSnapshot | null {
+  const states = asRecord(sessionMetadata.memory_prefix_states);
+  const snapshot = asRecord(states?.[baselineKey]);
+  if (!snapshot) {
+    return null;
+  }
+  const fingerprint = asRecord(snapshot.fingerprint);
+  const fingerprintValue = getString(fingerprint?.fingerprint);
+  const renderedBlock = typeof snapshot.rendered_block === "string" ? snapshot.rendered_block : null;
+  if (!fingerprintValue || renderedBlock === null) {
+    return null;
+  }
+  return {
+    baseline_key: getString(snapshot.baseline_key) ?? baselineKey,
+    session_id: getString(snapshot.session_id) ?? "",
+    thread_key: getString(snapshot.thread_key) ?? DEFAULT_THREAD_KEY,
+    agent_name: getString(snapshot.agent_name) ?? "",
+    fingerprint: {
+      agent_name: getString(fingerprint?.agent_name),
+      auto_inject: fingerprint?.auto_inject !== false,
+      allowed_scopes: stringArray(fingerprint?.allowed_scopes),
+      write_scopes: stringArray(fingerprint?.write_scopes),
+      archive_scopes: stringArray(fingerprint?.archive_scopes),
+      scope_specs: readFingerprintScopeSpecs(fingerprint?.scope_specs),
+      fingerprint: fingerprintValue,
+    },
+    scope_capabilities: readScopeCapabilities(snapshot.scope_capabilities),
+    indices: stringRecord(snapshot.indices),
+    rendered_block: renderedBlock,
+    rebased_reason: getString(snapshot.rebased_reason) ?? "loaded",
+  };
+}
+
+function readFingerprintScopeSpecs(value: unknown): MemoryPrefixFingerprint["scope_specs"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => {
+      const record = asRecord(item);
+      const scopeName = getString(record?.scope_name);
+      const scopeSpec = asRecord(record?.scope_spec);
+      if (!scopeName || !scopeSpec || !isMemoryScopeName(scopeSpec.scope)) {
+        return null;
+      }
+      const output: MemoryPrefixFingerprint["scope_specs"][number] = {
+        scope_name: scopeName,
+        scope_spec: { scope: scopeSpec.scope },
+      };
+      for (const key of ["team_name", "session_id", "agent_name", "workspace_key"] as const) {
+        const stringValue = getString(scopeSpec[key]);
+        if (stringValue) {
+          output.scope_spec[key] = stringValue;
+        }
+      }
+      return output;
+    })
+    .filter((item): item is MemoryPrefixFingerprint["scope_specs"][number] => Boolean(item));
+}
+
+function readScopeCapabilities(value: unknown): MemoryScopeCapabilities {
+  const record = asRecord(value);
+  return {
+    allowed_scopes: stringArray(record?.allowed_scopes),
+    write_scopes: stringArray(record?.write_scopes),
+    archive_scopes: stringArray(record?.archive_scopes),
+  };
+}
