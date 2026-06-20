@@ -33,7 +33,6 @@ import {
   StreamingRuntimeXmlParser,
 } from "../../../runtime/runtime-xml-protocol.js";
 import { RuntimeAbortError, throwIfAborted } from "../../../runtime/abort.js";
-import { buildRuntimeMessages } from "../../agent-runtime-core/message-builder.js";
 import { toChatToolDefinition } from "../tools/tool-call-utils.js";
 import type {
   EventSink,
@@ -61,28 +60,14 @@ export class XmlProtocol implements Protocol {
   ) {}
 
   /**
-   * 组装下发给模型的请求（吸收 buildChatRequest + buildMessages + withoutNativeTools）。
-   *
-   * 与现状差异：现状 buildChatRequest 返回带 tools/toolChoice 的请求（给 native FC 路径用），
-   * 再在 runXmlToolCallingText 内部 withoutNativeTools 剥除。本阶段统一为单一 XML 协议，
-   * 无 native FC 路径，故 buildRequest 直接返回剥除后的请求——visibleTools 仍参与
-   * buildMessages（注入 xmlProtocolTools 协议说明），只是不作为 native tools 字段下发。
+   * 组请求壳（model/provider/temperature/signal）。请求消息由 Context.buildMessages 产出到
+   * ctx.requestMessages（内核每轮调用）；visibleTools 探测 + promptContext 合并 + XML 协议
+   * 说明注入全在 Context 侧。XML 模式不下发 native tools 字段（等价原 withoutNativeTools）。
    */
-  buildRequest(ctx: KernelContext): ChatCompletionRequest {
+  private buildRequestShell(ctx: KernelContext): ChatCompletionRequest {
     const session = ctx.session;
-    const visibleTools =
-      session.toolExecutor && session.toolContext
-        ? session.toolExecutor.listVisibleTools(session.agent)
-        : [];
-    const promptContext = {
-      ...(session.promptContext ?? {}),
-      tools: session.promptContext?.tools ?? visibleTools,
-    };
     const request: ChatCompletionRequest = {
-      messages: buildRuntimeMessages(session.agent, ctx.messages, {
-        xmlProtocolTools: visibleTools,
-        promptContext,
-      }),
+      messages: ctx.requestMessages,
       model: session.modelName,
       provider: session.provider,
       agent: session.agent,
@@ -112,7 +97,7 @@ export class XmlProtocol implements Protocol {
    * - 无 stream：complete 拿完整响应后整体 XML 解析（invokeNonStreaming）。
    */
   async invoke(ctx: KernelContext, round: number): Promise<KernelOutcome> {
-    const baseRequest = this.buildRequest(ctx);
+    const baseRequest = this.buildRequestShell(ctx);
     const stream = this.llmChatClient.stream;
     if (stream) {
       return this.invokeStreaming(ctx, baseRequest, round, stream.bind(this.llmChatClient));

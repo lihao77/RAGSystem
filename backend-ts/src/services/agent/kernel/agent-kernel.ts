@@ -24,6 +24,7 @@
 
 import { isAbortError } from "../../runtime/abort.js";
 import type {
+  Context,
   EventSink,
   HookRegistry,
   KernelResult,
@@ -35,6 +36,7 @@ import type {
 import { KernelContext } from "./kernel-context.js";
 
 export interface AgentKernelOptions {
+  context: Context;
   protocol: Protocol;
   tools: ToolProvider;
   events: EventSink;
@@ -43,6 +45,7 @@ export interface AgentKernelOptions {
 }
 
 export class AgentKernel {
+  private readonly context: Context;
   private readonly protocol: Protocol;
   private readonly tools: ToolProvider;
   private readonly events: EventSink;
@@ -50,6 +53,7 @@ export class AgentKernel {
   private readonly hooks: HookRegistry;
 
   constructor(options: AgentKernelOptions) {
+    this.context = options.context;
     this.protocol = options.protocol;
     this.tools = options.tools;
     this.events = options.events;
@@ -64,6 +68,7 @@ export class AgentKernel {
         ctx.throwIfAborted();
         ctx.appendMessages(await this.refresher.refresh(ctx));
         await this.hooks.invoke("beforeModel", ctx, round);
+        ctx.setRequestMessages(this.context.buildMessages(ctx));
         const outcome = await this.protocol.invoke(ctx, round);
         await this.hooks.invoke("afterModel", ctx, round);
         if (outcome.kind === "tool_calls" && outcome.calls.length) {

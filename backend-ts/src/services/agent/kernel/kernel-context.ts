@@ -17,6 +17,12 @@ import { throwIfAborted } from "../../runtime/abort.js";
 export class KernelContext {
   /** 可变工作副本：初始 = session.conversation 的浅拷贝。 */
   readonly messages: ChatMessage[];
+  /**
+   * 当前轮请求消息（Context.buildMessages 产物：system + 会话渲染 + 协议说明）。
+   * 内核每轮在 beforeModel 后、invoke 前调 Context.buildMessages 设置；Protocol.invoke
+   * 读取作为下发请求的 messages。与 messages（会话累积）分离——后者持续 append assistant/observation。
+   */
+  requestMessages: ChatMessage[] = [];
   /** 只读快照，插件不得 mutate。 */
   readonly session: KernelSession;
 
@@ -41,6 +47,11 @@ export class KernelContext {
     for (const msg of msgs) {
       this.messages.push(msg);
     }
+  }
+
+  /** 设置当前轮请求消息（Context.buildMessages 产物，供 Protocol.invoke 读取）。 */
+  setRequestMessages(messages: ChatMessage[]): void {
+    this.requestMessages = messages;
   }
 
   /**

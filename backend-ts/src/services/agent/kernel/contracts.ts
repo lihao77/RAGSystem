@@ -16,10 +16,7 @@
 
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
-import type {
-  ChatCompletionRequest,
-  ChatMessage,
-} from "../../integrations/llm-chat-client.js";
+import type { ChatMessage } from "../../integrations/llm-chat-client.js";
 import type {
   RuntimeToolExecutionContext,
   RuntimeToolExecutor,
@@ -205,13 +202,31 @@ export interface KernelResult {
 export type HookPoint = "beforeModel" | "afterModel";
 
 /**
+ * 工具指令形态：决定 Context 是否注入 XML 协议说明。
+ * - "xml"：注入 XML <tool_calls> 用法说明（XmlProtocol）。
+ * - "native"：走厂商 function calling，不注入 XML 说明（Hybrid 协议，阶段二后续）。
+ * 由 selectProtocol 决定的协议形态产出，装配层绑进 Context 实例，不渗进内核。
+ */
+export type ToolInstructionMode = "xml" | "native";
+
+/**
+ * 上下文构建端口（三只手之一）——把会话累积组装成发给模型的消息。
+ * 只管"喂什么消息"：system prompt + stable context + 按 toolInstructionMode 决定是否
+ * 注入 XML 协议说明 + conversation 渲染。请求壳（model/provider/temperature/signal）
+ * 下沉到 Protocol.invoke。每轮由内核在 beforeModel 后、invoke 前调用，产物写入
+ * ctx.requestMessages，与 ctx.messages（会话累积）分离。
+ */
+export interface Context {
+  buildMessages(ctx: KernelContext): ChatMessage[];
+}
+
+/**
  * 问模型 + 解析 + 发 delta 的协议端口（三只手之一）。
- * - buildRequest：吸收现 buildChatRequest（含 prompt 注入策略）。
- * - invoke：问模型 + 边流边解析 + 发 delta + 修复重试，全在内部。
+ * - invoke：问模型 + 边流边解析 + 发 delta + 修复重试，全在内部；读 ctx.requestMessages
+ *   作为下发请求的 messages，自包请求壳（model/provider/temperature/signal）。
  * - renderObservations：observation → 消息形态由协议决定（XML 协议为单条 user 消息）。
  */
 export interface Protocol {
-  buildRequest(ctx: KernelContext): ChatCompletionRequest;
   invoke(ctx: KernelContext, round: number): Promise<KernelOutcome>;
   renderObservations(calls: KernelToolCall[], observations: KernelObservation[]): ChatMessage[];
 }

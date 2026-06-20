@@ -1,18 +1,19 @@
-import type { AgentConfig } from "../../../contracts/agent-config.js";
-import type { ChatMessage } from "../../integrations/llm-chat-client.js";
-import { buildFullSystemPrompt, type AgentPromptContext } from "../agent-prompt-builder.js";
-import { isRuntimeStableSystemContextContent } from "../agent-runtime-context-builder.js";
+import type { AgentConfig } from "../../../../contracts/agent-config.js";
+import type { ChatMessage } from "../../../integrations/llm-chat-client.js";
+import { buildFullSystemPrompt, type AgentPromptContext } from "../../agent-prompt-builder.js";
+import { isRuntimeStableSystemContextContent } from "../../agent-runtime-context-builder.js";
 import {
   isSemanticTaggedContent,
   renderRuntimeXmlProtocolInstruction,
   renderSemanticBlock,
-} from "../../runtime/runtime-xml-protocol.js";
-import type { RuntimeToolDefinition } from "../../runtime/runtime-tool-types.js";
+} from "../../../runtime/runtime-xml-protocol.js";
+import type { RuntimeToolDefinition } from "../../../runtime/runtime-tool-types.js";
+import type { ToolInstructionMode } from "../../kernel/contracts.js";
 
 export function buildRuntimeMessages(
   agent: AgentConfig,
   conversation: ChatMessage[],
-  options: { xmlProtocolTools?: RuntimeToolDefinition[]; promptContext?: AgentPromptContext } = {},
+  options: { xmlProtocolTools?: RuntimeToolDefinition[]; promptContext?: AgentPromptContext; toolInstructionMode?: ToolInstructionMode } = {},
 ): ChatMessage[] {
   const messages: ChatMessage[] = [];
   const systemParts: string[] = [];
@@ -31,7 +32,9 @@ export function buildRuntimeMessages(
     }
     conversationIndex += 1;
   }
-  systemParts.push(renderRuntimeXmlProtocolInstruction(options.xmlProtocolTools ?? []));
+  if (options.toolInstructionMode !== "native") {
+    systemParts.push(renderRuntimeXmlProtocolInstruction(options.xmlProtocolTools ?? []));
+  }
   if (systemParts.length > 0) {
     messages.push({ role: "system", content: systemParts.join("\n\n") });
   }
