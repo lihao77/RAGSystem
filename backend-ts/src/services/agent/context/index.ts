@@ -152,7 +152,6 @@ export class AgentContextService {
       requestId: input.requestId ?? "",
       agent: input.agent,
       provider: input.provider,
-      modelName: input.modelName,
       threadKey,
       childAgentId: input.childAgentId ?? null,
       signal: input.signal,

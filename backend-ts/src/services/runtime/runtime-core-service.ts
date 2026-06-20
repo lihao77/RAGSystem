@@ -1,6 +1,7 @@
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { RuntimeCoreReadiness, RuntimeCoreRequirement } from "../../contracts/runtime-core.js";
 import type { ModelProviderConfig, ModelMapValue } from "../../contracts/model-adapter.js";
+import { findProviderByRef, normalizeProviderKey } from "./provider-lookup.js";
 
 export interface RuntimeCoreReadinessInput {
   agentName?: string | null;
@@ -161,7 +162,7 @@ export class RuntimeCoreService {
   }
 
   private resolveProviderConfig(llm: ResolvedLlm): ModelProviderConfig | null {
-    return findProvider(this.modelProviders.listProviders(), llm);
+    return findProviderByRef(this.modelProviders.listProviders(), llm);
   }
 
   private buildRequirements(
@@ -237,28 +238,12 @@ function parseSelectedLlm(selectedLlm: string | null | undefined): Omit<Resolved
   };
 }
 
-function findProvider(providers: ModelProviderConfig[], llm: ResolvedLlm): ModelProviderConfig | null {
-  if (!llm.provider) {
-    return null;
-  }
-  const providerRef = normalizeKey(llm.provider);
-  const providerType = normalizeKey(llm.provider_type);
-  return (
-    providers.find((provider) => {
-      if (providerType && normalizeKey(provider.provider_type) !== providerType) {
-        return false;
-      }
-      return [provider.key, provider.name].some((value) => normalizeKey(value) === providerRef);
-    }) ?? null
-  );
-}
-
 function isModelAvailable(provider: ModelProviderConfig, modelName: string | null): boolean {
   if (!modelName) {
     return false;
   }
-  const target = normalizeKey(modelName);
-  return listChatModels(provider).some((model) => normalizeKey(model) === target);
+  const target = normalizeProviderKey(modelName);
+  return listChatModels(provider).some((model) => normalizeProviderKey(model) === target);
 }
 
 function listChatModels(provider: ModelProviderConfig): string[] {
@@ -296,10 +281,6 @@ function normalizeString(value: unknown): string | null {
   }
   const normalized = value.trim();
   return normalized ? normalized : null;
-}
-
-function normalizeKey(value: unknown): string {
-  return String(value ?? "").trim().toLowerCase();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

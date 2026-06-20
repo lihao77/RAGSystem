@@ -190,7 +190,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   codeExecutionTools.setRuntimeTools(runtimeToolBridge);
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
-  const contextCompression = new AgentContextCompressionService(conversationStore, llmChatClient, systemConfig);
+  const contextCompression = new AgentContextCompressionService(conversationStore, llmChatClient, systemConfig, modelAdapter);
   const memoryConfig = systemConfig.getMemoryConfig();
   const agentRuntimeContextBuilder = new AgentRuntimeContextBuilder([
     new MemoryIndexContextSource(conversationStore, {

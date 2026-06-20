@@ -40,6 +40,8 @@ TS 现役上下文子系统（`AgentContextService` 门面 + `beforeModel` 压�
 - **落点**：`context-compression/index.ts`（`generateSummary` 改造 + 新增 resolver）；依赖 `systemConfig.llm` 兜底。
 - **验收**：fast tier 不可用时自动降 default；单测覆盖逐级 fallback 与去重；`summarizeSegment` 的 fallback 截断语义不变。
 
+> **已落地**：tier resolver `resolveSummaryTierCandidates`（`context-compression/index.ts`）按 fast→default→系统(`systemConfig.llm`) 逐级解析，经共享 `findProviderByRef`（抽取到 `runtime/provider-lookup.ts`，runtime-core 与压缩服务共用、禁双写）把 tier 的 provider 名解析成 `ModelProviderConfig`，按 `(provider key, provider_type, model_name)` 三元组归一化去重；`summarizeSegment` 改候选循环（成功即返回 / 异常降级 / 空内容算失败 / `abort` 立即抛），全候选失败才 `fallback_truncate`，契约不变。摘要长度统一用 `summarizeMaxTokens`（tier 只决定用哪个模型）。门面与调用方签名**零改动**——靠注入 `RuntimeModelProviderPort` 让 tier 解析成为压缩服务内部细节。单测覆盖：fast 失败降 default、同模型去重只试一次、全失败截断、无候选 `no_summary_tier`、`abort` 不降级。
+
 ### 阶段 2：摘要 prompt 升级（质量·低风险）
 
 - **现状**：`COMPACT_PROMPT_BODY`（`context-compression/index.ts:76`）6 章节；`formatCompactResponse` 已剥 `<analysis>`。

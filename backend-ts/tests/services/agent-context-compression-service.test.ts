@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { AgentConfig } from "../../src/contracts/agent-config.js";
+import type { AgentConfig, AgentLlmConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
 import { AgentContextCompressionService } from "../../src/services/agent/context-compression/index.js";
+import type { RuntimeModelProviderPort } from "../../src/services/runtime/runtime-core-service.js";
 import { AgentContextService } from "../../src/services/agent/context/index.js";
 import {
   AgentRuntimeContextBuilder,
@@ -22,9 +23,20 @@ afterEach(() => {
 
 class FakeSummaryClient implements LlmChatClient {
   readonly requests: ChatCompletionRequest[] = [];
+  private readonly failingProviders: Set<string>;
+
+  constructor(failingProviders: Iterable<string> = []) {
+    this.failingProviders = new Set(failingProviders);
+  }
 
   async complete(request: ChatCompletionRequest) {
     this.requests.push(request);
+    if (request.signal?.aborted) {
+      throw new Error("aborted");
+    }
+    if (this.failingProviders.has(request.provider.name)) {
+      throw new Error(`provider ${request.provider.name} unavailable`);
+    }
     return { content: "<analysis>draft</analysis><summary>压缩后的关键上下文</summary>" };
   }
 }
@@ -40,7 +52,7 @@ describe("AgentContextCompressionService", () => {
         compression_trigger_ratio: 0.75,
       },
     });
-    const service = new AgentContextCompressionService(store, new FakeSummaryClient(), systemConfig);
+    const service = new AgentContextCompressionService(store, new FakeSummaryClient(), systemConfig, providerPort([provider()]));
 
     expect(service.resolveContextBudget(minimalAgent({ maxContextTokens: 1000, maxCompletionTokens: 100 }), provider())).toBe(700);
     expect(service.resolveContextSettings(minimalAgent()).compressionTriggerRatio).toBe(0.75);
@@ -59,7 +71,7 @@ describe("AgentContextCompressionService", () => {
       },
     });
     const chatClient = new FakeSummaryClient();
-    const service = new AgentContextCompressionService(store, chatClient, systemConfig);
+    const service = new AgentContextCompressionService(store, chatClient, systemConfig, providerPort([provider()]));
 
     store.createSession("s1");
     for (const [role, content] of [
@@ -130,7 +142,7 @@ describe("AgentContextCompressionService", () => {
       },
     });
     const chatClient = new FakeSummaryClient();
-    const service = new AgentContextCompressionService(store, chatClient, systemConfig);
+    const service = new AgentContextCompressionService(store, chatClient, systemConfig, providerPort([provider()]));
 
     store.createSession("force-s1");
     for (const [role, content] of [
@@ -172,7 +184,7 @@ describe("AgentContextCompressionService", () => {
   it("skips force compact when there are not enough messages to replace", async () => {
     store = createConversationStore({ dbPath: ":memory:" });
     const chatClient = new FakeSummaryClient();
-    const service = new AgentContextCompressionService(store, chatClient, new SystemConfigService());
+    const service = new AgentContextCompressionService(store, chatClient, new SystemConfigService(), providerPort([provider()]));
     store.createSession("force-skip");
     store.addMessage({ sessionId: "force-skip", role: "user", content: "only tail" });
 
@@ -237,6 +249,145 @@ describe("AgentContextService.recompact (micro-first)", () => {
   });
 });
 
+describe("AgentContextCompressionService tier fallback", () => {
+  it("falls back to default when the fast tier provider fails", async () => {
+    store = createConversationStore({ dbPath: ":memory:" });
+    const chatClient = new FakeSummaryClient(["fast-prov"]);
+    const service = new AgentContextCompressionService(
+      store,
+      chatClient,
+      new SystemConfigService(),
+      providerPort([makeProvider("fast-prov", "deepseek", "fast-model"), provider()]),
+    );
+    const agent = minimalAgent({
+      fastTier: {
+        provider: "fast-prov",
+        provider_type: "deepseek",
+        model_name: "fast-model",
+        max_completion_tokens: 64,
+        extra_params: {},
+      },
+    });
+
+    const result = await service.summarizeSegment({
+      agent,
+      segment: [
+        { role: "user", content: "旧消息一" },
+        { role: "assistant", content: "旧回复一" },
+      ],
+      existingSummary: "",
+      maxTokens: 64,
+    });
+
+    expect(result.status).toBe("success");
+    expect(chatClient.requests).toHaveLength(2);
+    expect(chatClient.requests[0].provider.name).toBe("fast-prov");
+    expect(chatClient.requests[1].provider.name).toBe("my");
+    expect(result.content).toContain("压缩后的关键上下文");
+  });
+
+  it("dedupes fast and default pointing to the same model (tries once)", async () => {
+    store = createConversationStore({ dbPath: ":memory:" });
+    const chatClient = new FakeSummaryClient();
+    const service = new AgentContextCompressionService(
+      store,
+      chatClient,
+      new SystemConfigService(),
+      providerPort([provider()]),
+    );
+    const agent = minimalAgent({
+      fastTier: {
+        provider: "my",
+        provider_type: "deepseek",
+        model_name: "deepseek-chat",
+        max_completion_tokens: 64,
+        extra_params: {},
+      },
+    });
+
+    const result = await service.summarizeSegment({
+      agent,
+      segment: [{ role: "user", content: "x" }],
+      existingSummary: "",
+      maxTokens: 64,
+    });
+
+    expect(result.status).toBe("success");
+    expect(chatClient.requests).toHaveLength(1);
+  });
+
+  it("falls back to truncate when all tiers fail", async () => {
+    store = createConversationStore({ dbPath: ":memory:" });
+    const chatClient = new FakeSummaryClient(["my"]);
+    const service = new AgentContextCompressionService(
+      store,
+      chatClient,
+      new SystemConfigService(),
+      providerPort([provider()]),
+    );
+
+    const result = await service.summarizeSegment({
+      agent: minimalAgent(),
+      segment: [
+        { role: "user", content: "x" },
+        { role: "assistant", content: "y" },
+      ],
+      existingSummary: "",
+      maxTokens: 64,
+    });
+
+    expect(result.status).toBe("fallback");
+    expect(result.reason).toBe("summary_failed");
+    expect(result.content).toContain("降级截断");
+  });
+
+  it("returns no_summary_tier fallback when no tier resolves a provider", async () => {
+    store = createConversationStore({ dbPath: ":memory:" });
+    const chatClient = new FakeSummaryClient();
+    const service = new AgentContextCompressionService(
+      store,
+      chatClient,
+      new SystemConfigService(),
+      providerPort([]),
+    );
+
+    const result = await service.summarizeSegment({
+      agent: minimalAgent(),
+      segment: [{ role: "user", content: "x" }],
+      existingSummary: "",
+      maxTokens: 64,
+    });
+
+    expect(result.status).toBe("fallback");
+    expect(result.reason).toBe("no_summary_tier");
+    expect(chatClient.requests).toHaveLength(0);
+  });
+
+  it("propagates abort without falling back", async () => {
+    store = createConversationStore({ dbPath: ":memory:" });
+    const chatClient = new FakeSummaryClient();
+    const service = new AgentContextCompressionService(
+      store,
+      chatClient,
+      new SystemConfigService(),
+      providerPort([provider()]),
+    );
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      service.summarizeSegment({
+        agent: minimalAgent(),
+        segment: [{ role: "user", content: "x" }],
+        existingSummary: "",
+        maxTokens: 64,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow();
+    expect(chatClient.requests).toHaveLength(1);
+  });
+});
+
 function buildFacade(): { service: AgentContextService; chatClient: FakeSummaryClient } {
   store = createConversationStore({ dbPath: ":memory:" });
   const systemConfig = new SystemConfigService();
@@ -253,7 +404,7 @@ function buildFacade(): { service: AgentContextService; chatClient: FakeSummaryC
     systemConfig: { getConfig: () => ({ waiting: { local_cache_ttl_seconds: 600 } }) },
   });
   const chatClient = new FakeSummaryClient();
-  const compression = new AgentContextCompressionService(store, chatClient, systemConfig);
+  const compression = new AgentContextCompressionService(store, chatClient, systemConfig, providerPort([provider()]));
   const service = new AgentContextService(builder, compression, systemConfig);
   return { service, chatClient };
 }
@@ -285,23 +436,31 @@ function recompactInput(sessionId: string) {
   };
 }
 
-function minimalAgent(input: { maxContextTokens?: number; maxCompletionTokens?: number } = {}): AgentConfig {
+function minimalAgent(input: {
+  maxContextTokens?: number;
+  maxCompletionTokens?: number;
+  fastTier?: AgentLlmConfig;
+} = {}): AgentConfig {
+  const llmTiers: Record<string, AgentLlmConfig> = {
+    default: {
+      provider: "my",
+      provider_type: "deepseek",
+      model_name: "deepseek-chat",
+      max_context_tokens: input.maxContextTokens ?? 128000,
+      max_completion_tokens: input.maxCompletionTokens ?? 4096,
+      extra_params: {},
+    },
+  };
+  if (input.fastTier) {
+    llmTiers.fast = input.fastTier;
+  }
   return {
     agent_name: "orchestrator_agent",
     display_name: "Orchestrator",
     description: null,
     enabled: true,
     default_entry: true,
-    llm_tiers: {
-      default: {
-        provider: "my",
-        provider_type: "deepseek",
-        model_name: "deepseek-chat",
-        max_context_tokens: input.maxContextTokens ?? 128000,
-        max_completion_tokens: input.maxCompletionTokens ?? 4096,
-        extra_params: {},
-      },
-    },
+    llm_tiers: llmTiers,
     tools: { enabled_tools: [] },
     skills: { enabled_skills: [], auto_inject: true },
     mcp: { enabled_servers: [] },
@@ -338,4 +497,19 @@ function provider(): ModelProviderConfig {
     models: ["deepseek-chat"],
     model_map: { chat: "deepseek-chat" },
   };
+}
+
+function makeProvider(name: string, providerType: string, chatModel: string): ModelProviderConfig {
+  return {
+    name,
+    key: `${name}_${providerType}`,
+    provider_type: providerType,
+    api_key: "sk-test",
+    models: [chatModel],
+    model_map: { chat: chatModel },
+  };
+}
+
+function providerPort(providers: ModelProviderConfig[]): RuntimeModelProviderPort {
+  return { listProviders: () => providers };
 }

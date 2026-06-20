@@ -6,6 +6,8 @@ import type { IMessageStore } from "../../../contracts/conversation-store/index.
 import type { ChatMessage, LlmChatClient } from "../../integrations/llm-chat-client.js";
 import type { SystemConfigService } from "../../config/system-config-service.js";
 import { resolveCompressionView } from "../context-builder/index.js";
+import type { RuntimeModelProviderPort } from "../../runtime/runtime-core-service.js";
+import { findProviderByRef, normalizeProviderKey } from "../../runtime/provider-lookup.js";
 
 export interface RuntimeContextSettings {
   compressionTriggerRatio: number;
@@ -59,7 +61,6 @@ interface CompressIfNeededInput {
   requestId: string;
   agent: AgentConfig;
   provider: ModelProviderConfig;
-  modelName: string;
   threadKey?: string | null | undefined;
   childAgentId?: string | null | undefined;
   signal?: AbortSignal | undefined;
@@ -98,6 +99,7 @@ export class AgentContextCompressionService {
     private readonly conversationStore: IMessageStore,
     private readonly llmChatClient: LlmChatClient,
     private readonly systemConfig: SystemConfigService,
+    private readonly modelProviders: RuntimeModelProviderPort,
   ) {}
 
   resolveContextBudget(agent: AgentConfig, provider: ModelProviderConfig): number {
@@ -158,8 +160,6 @@ export class AgentContextCompressionService {
 
     const summary = await this.summarizeSegment({
       agent: input.agent,
-      provider: input.provider,
-      modelName: input.modelName,
       segment,
       existingSummary,
       maxTokens: settings.summarizeMaxTokens,
@@ -226,7 +226,6 @@ export class AgentContextCompressionService {
     sessionId: string;
     agent: AgentConfig;
     provider: ModelProviderConfig;
-    modelName: string;
     runId?: string | null | undefined;
     taskId?: string | null | undefined;
     requestId?: string | null | undefined;
@@ -284,8 +283,6 @@ export class AgentContextCompressionService {
 
     const summary = await this.summarizeSegment({
       agent: input.agent,
-      provider: input.provider,
-      modelName: input.modelName,
       segment,
       existingSummary,
       maxTokens: settings.summarizeMaxTokens,
@@ -383,26 +380,113 @@ export class AgentContextCompressionService {
   /**
    * 摘要核心算法（与数据源无关）：对一段消息生成结构化摘要，失败时降级为截断说明。
    * store 路径（compressIfNeeded / forceCompactSession）与内核内存路径（循环内压缩 hook）共享。
+   * 摘要目标模型由 resolveSummaryTierCandidates 按 fast→default→系统 逐级解析去重；
+   * 前级失败（非 abort）自动降级到下一候选，全候选失败才降级为截断说明。
    */
   async summarizeSegment(input: {
     agent: AgentConfig;
-    provider: ModelProviderConfig;
-    modelName: string;
     segment: ReadonlyArray<SummarizableMessage>;
     existingSummary: string;
     maxTokens: number;
     signal?: AbortSignal | undefined;
   }): Promise<SummarizeSegmentResult> {
-    try {
-      const content = await this.generateSummary(input);
-      return { content, status: "success", reason: "success" };
-    } catch (error) {
-      if (input.signal?.aborted) {
-        throw error;
+    const candidates = resolveSummaryTierCandidates(
+      input.agent,
+      this.systemConfig.getConfig(),
+      this.modelProviders.listProviders(),
+    );
+    let lastError: unknown = null;
+    for (const candidate of candidates) {
+      try {
+        const content = await this.generateSummary({
+          agent: input.agent,
+          provider: candidate.provider,
+          modelName: candidate.modelName,
+          segment: input.segment,
+          existingSummary: input.existingSummary,
+          maxTokens: input.maxTokens,
+          signal: input.signal,
+        });
+        return { content, status: "success", reason: "success" };
+      } catch (error) {
+        if (input.signal?.aborted) {
+          throw error;
+        }
+        lastError = error;
       }
-      return { content: formatFallbackSummary(input.segment.length, error), status: "fallback", reason: "summary_failed" };
     }
+    return {
+      content: formatFallbackSummary(input.segment.length, lastError),
+      status: "fallback",
+      reason: candidates.length === 0 ? "no_summary_tier" : "summary_failed",
+    };
   }
+}
+
+export interface SummaryTierCandidate {
+  tier: string;
+  provider: ModelProviderConfig;
+  modelName: string;
+}
+
+/**
+ * 解析摘要 LLM 的逐级候选：fast → default → 系统配置(systemConfig.llm)。
+ * 每个 tier 经 findProviderByRef 解析成完整 ModelProviderConfig；按
+ * (provider key, provider_type, model_name) 三元组归一化去重——对齐 Python
+ * _try_llm_summary 的 seen 集合，避免 fast 与 default 指向同一模型时重复尝试。
+ * 只解析"用哪个模型"，摘要长度由调用方统一以 summarizeMaxTokens 传入。
+ */
+export function resolveSummaryTierCandidates(
+  agent: AgentConfig,
+  systemConfig: SystemConfigData,
+  providers: ModelProviderConfig[],
+): SummaryTierCandidate[] {
+  const seen = new Set<string>();
+  const candidates: SummaryTierCandidate[] = [];
+  const tryPush = (tier: string, config: Record<string, unknown> | null): void => {
+    if (!config) {
+      return;
+    }
+    const provider = findProviderByRef(providers, {
+      provider: asNullableString(config.provider),
+      provider_type: asNullableString(config.provider_type),
+    });
+    const modelName = asNullableString(config.model_name);
+    if (!provider || !modelName) {
+      return;
+    }
+    const candidate: SummaryTierCandidate = { tier, provider, modelName };
+    const key = summaryDedupKey(candidate);
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    candidates.push(candidate);
+  };
+
+  const tiers = agent.llm_tiers ?? {};
+  tryPush("fast", asRecord(tiers.fast));
+  tryPush("default", asRecord(tiers.default));
+  tryPush("system", asRecord(systemConfig.llm));
+  return candidates;
+}
+
+function summaryDedupKey(candidate: SummaryTierCandidate): string {
+  const provider = candidate.provider;
+  const providerKey = provider.key ?? `${provider.name}_${provider.provider_type}`;
+  return [
+    normalizeProviderKey(providerKey),
+    normalizeProviderKey(provider.provider_type),
+    normalizeProviderKey(candidate.modelName),
+  ].join("|");
+}
+
+function asNullableString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
 }
 
 export function resolveRuntimeContextSettings(agent: AgentConfig, systemConfig: SystemConfigData): RuntimeContextSettings {
