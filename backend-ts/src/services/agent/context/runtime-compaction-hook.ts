@@ -25,7 +25,9 @@ export interface CompactionHookDeps {
 
 /**
  * 循环内压缩 hook（beforeModel）：内核每轮问上下文前，估算工作副本 token，
- * 超阈值才触发 store 压缩 + 重建，并整体替换工作副本（补回本轮未入库的背景通知）。
+ * 超阈值才触发 micro-first 重建（recompact：先 microcompact 廉价裁剪、按裁剪后 token
+ * 重判，仍超才 LLM 压缩），并整体替换工作副本（补回本轮未入库的背景通知）。
+ * recompact 返回 null 表示无裁剪且未压缩（无需替换）。
  *
  * 正常轮次仅做一次 O(n) token 估算后直接返回，不产生额外 LLM/IO。
  */

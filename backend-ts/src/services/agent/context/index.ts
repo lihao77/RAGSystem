@@ -5,6 +5,7 @@ import type { AgentPromptContext } from "../prompt-builder/index.js";
 import type { SystemConfigService } from "../../config/system-config-service.js";
 import {
   AgentContextCompressionService,
+  estimateTokens,
   resolveContextBudget,
   type ContextCompressionEvent,
   type ContextCompressionResult,
@@ -21,7 +22,8 @@ import { buildContextUsagePayload } from "./usage.js";
  * 只问门面要上下文，不再各自拼装编排顺序。
  *
  * prepare：run 前置构建上下文 + 算 usage/budget，不压缩。
- * recompact：循环内自动压缩（compressIfNeeded + 重建），供 beforeModel hook 调用。
+ * recompact：循环内 micro-first 重建（先 microcompact 廉价裁剪 → 按裁剪后 token 重判 →
+ *   仅当仍超阈值才 LLM 压缩 + 重建），供 beforeModel hook 调用。
  * forceCompact：/compact 手动强制压缩 store 历史。
  */
 export interface PreparedContext {
@@ -103,8 +105,11 @@ export class AgentContextService {
   }
 
   /**
-   * 循环内重压缩：复用 store 压缩(seq/落库正确)+ 重建上下文。
-   * 返回重建后的会话；store 未触发压缩(skipped)时返回 null，调用方据此决定是否替换工作副本。
+   * 循环内 micro-first 重建（对齐 Python pipeline 的 microcompact→重判→压缩顺序）：
+   * ① 先 microcompact 廉价裁剪旧 observation（不强刷 memory 前缀，保 KV 缓存）；
+   * ② 按裁剪后 token 重判，未超阈值则直接返回（不触发 LLM 压缩）；
+   * ③ 仍超阈值才走 compressIfNeeded（落 store）+ 重建（强刷 memory 前缀）。
+   * 返回需替换工作副本的会话；无裁剪且未压缩时返回 null，调用方据此决定是否替换。
    */
   async recompact(input: {
     sessionId: string;
@@ -120,6 +125,26 @@ export class AgentContextService {
     onCompressionEvent?: ((event: ContextCompressionEvent) => void | Promise<void>) | undefined;
   }): Promise<ChatMessage[] | null> {
     const threadKey = input.threadKey?.trim() || "root";
+    const settings = this.resolveContextSettings(input.agent);
+    const budgetTokens = this.resolveContextBudget(input.agent, input.provider);
+    const thresholdTokens = Math.floor(budgetTokens * settings.compressionTriggerRatio);
+
+    // ① 廉价：先 microcompact 重建（不强刷 memory 前缀，避免无谓打掉 KV 缓存）
+    const micro = this.contextBuilder.buildContext({
+      sessionId: input.sessionId,
+      agent: input.agent,
+      threadKey,
+      microcompact: true,
+    });
+    const microApplied = readMicrocompactApplied(micro);
+    const microTokens = micro.conversation.reduce((total, message) => total + estimateTokens(message.content), 0);
+
+    // ② 裁剪后已达标 → 不做 LLM 压缩；仅当真有裁剪才回传替换工作副本
+    if (microTokens < thresholdTokens) {
+      return microApplied ? micro.conversation : null;
+    }
+
+    // ③ 仍超阈值 → LLM 压缩（落 store），成功则重建（强刷 memory 前缀）
     const compressionResult = await this.contextCompression.compressIfNeeded({
       sessionId: input.sessionId,
       runId: input.runId,
@@ -134,7 +159,8 @@ export class AgentContextService {
       onEvent: input.onCompressionEvent,
     });
     if (compressionResult.status === "skipped") {
-      return null;
+      // 压缩做不了（候选不足等）：退回 microcompact 视图（若有裁剪），否则不替换
+      return microApplied ? micro.conversation : null;
     }
     const context = this.contextBuilder.buildContext({
       sessionId: input.sessionId,
@@ -205,4 +231,18 @@ export class AgentContextService {
     }
     return result;
   }
+}
+
+/**
+ * 判断本次 buildContext 是否真正裁剪了 observation（recent_messages source 的
+ * microcompact.cleared_count > 0）。门控判定缓存鲜活/未启用时 cleared_count=0，视为未裁剪。
+ */
+function readMicrocompactApplied(context: AgentRuntimeContext): boolean {
+  const source = context.metadata.sources.find((entry) => entry.name === "recent_messages");
+  const microcompact = source?.metadata?.microcompact;
+  if (!microcompact || typeof microcompact !== "object") {
+    return false;
+  }
+  const clearedCount = (microcompact as { cleared_count?: unknown }).cleared_count;
+  return typeof clearedCount === "number" && clearedCount > 0;
 }
