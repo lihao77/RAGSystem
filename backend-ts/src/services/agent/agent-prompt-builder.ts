@@ -261,7 +261,7 @@ function buildDirectToolsSection(tools: RuntimeToolDefinition[], mode: ToolInstr
     lines.push("");
     lines.push(`### ${tool.name}`);
     lines.push(`**描述**: ${tool.description}`);
-    lines.push(`**调用能力**: ${formatAllowedCallers(tool)}`);
+    lines.push(`**调用能力**: ${formatAllowedCallers(tool, mode)}`);
     lines.push(...formatToolParameters(tool.parameters));
     if (isNative) {
       lines.push(...formatToolContract(tool, false));
@@ -269,7 +269,7 @@ function buildDirectToolsSection(tools: RuntimeToolDefinition[], mode: ToolInstr
       lines.push(...formatToolContract(tool, includeExamples(tool)));
     }  }
   lines.push("");
-  lines.push(buildManagedSpaceRules(toolNames));
+  lines.push(buildManagedSpaceRules(toolNames, mode));
   return lines.join("\n");
 }
 
@@ -346,15 +346,24 @@ function buildPathRuleForTools(tools: RuntimeToolDefinition[]): string {
   return `- 路径类工具统一使用 \`workspace / transient / exports\` 三个受管目录空间；\`space\` 只影响相对 ${Array.from(pathParams).map((name) => `\`${name}\``).join(" / ")} 的解析根`;
 }
 
-function buildManagedSpaceRules(toolNames: Set<string>): string {
+function buildManagedSpaceRules(toolNames: Set<string>, mode: ToolInstructionMode = "xml"): string {
+  const isNative = mode === "native";
   const hasExecuteBash = toolNames.has("execute_bash");
   const fileToolText = hasExecuteBash ? "direct 文件工具与 `execute_bash` 的相对路径/目录" : "direct 文件工具的相对路径";
-  const workingDirExamples = hasExecuteBash ? "、`<working_dir space=\"workspace\">.</working_dir>`" : "";
   const jsonParamText = hasExecuteBash
     ? "`file_path`/`working_dir` 搭配 `file_path_space`/`working_dir_space`"
     : "`file_path` 搭配 `file_path_space`";
   const pathParamText = hasExecuteBash ? "`file_path` / `working_dir`" : "`file_path`";
   const bashRule = hasExecuteBash ? "\n- 对 `execute_bash` 而言，默认工作目录为当前 effective workspace，不再默认指向 backend-fastapi/" : "";
+  if (isNative) {
+    return `### 受管目录 space 说明
+- \`workspace\`: 当前 effective workspace；${fileToolText}默认都按这里解析
+- \`transient\`: 当前 session 的临时目录，适合中间文件与临时产物
+- \`exports\`: 当前 session 的导出目录 \`exports/<run_id>\`，适合最终交付文件；使用时需要当前运行上下文提供 \`run_id\`
+- 工具参数走 JSON（function calling）：用 ${jsonParamText} 指定目录桶（例如 \`file_path_space: "transient"\`）
+- \`space\` 只影响相对 ${pathParamText} 的解析根；绝对路径仍只做受管边界校验${bashRule}`;
+  }
+  const workingDirExamples = hasExecuteBash ? "、`<working_dir space=\"workspace\">.</working_dir>`" : "";
   return `### 受管目录 space 说明
 - \`workspace\`: 当前 effective workspace；${fileToolText}默认都按这里解析
 - \`transient\`: 当前 session 的临时目录，适合中间文件与临时产物
@@ -693,11 +702,13 @@ function formatToolParameters(parameters: Record<string, unknown>): string[] {
   return lines;
 }
 
-function formatAllowedCallers(tool: RuntimeToolDefinition): string {
+function formatAllowedCallers(tool: RuntimeToolDefinition, mode: ToolInstructionMode = "xml"): string {
+  const isNative = mode === "native";
+  const directLabel = isNative ? "direct（可用 function calling 调用）" : "direct（可直接调用）";
   const labels: string[] = [];
   const allowedCallers = getAllowedCallers(tool);
   if (allowedCallers.includes("direct")) {
-    labels.push("direct（可直接调用）");
+    labels.push(directLabel);
   }
   if (allowedCallers.includes("code_execution")) {
     labels.push("code_execution（可在 execute_code 中通过 call_tool 调用）");
@@ -707,7 +718,7 @@ function formatAllowedCallers(tool: RuntimeToolDefinition): string {
       labels.push(`${caller}（自定义调用来源）`);
     }
   }
-  return labels.length ? labels.join("、") : "direct（可直接调用）";
+  return labels.length ? labels.join("、") : directLabel;
 }
 
 function getAllowedCallers(tool: RuntimeToolDefinition): string[] {
