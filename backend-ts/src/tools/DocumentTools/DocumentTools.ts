@@ -165,7 +165,6 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
     usage_contract: [
       "content 是最终要写入的文本；JSON 请先序列化成字符串。",
       "后续工具需要路径时，优先复用返回的 file_path。",
-      "若在同一轮链式调用，可引用 {result_N.content.file_path}。",
       "修改已有文件的部分内容时，请优先使用 edit_file。",
     ],
     examples: [

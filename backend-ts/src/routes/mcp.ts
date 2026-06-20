@@ -184,7 +184,7 @@ function normalizeMcpToolDefinition(tool: unknown): Record<string, unknown> {
 
 const PYTHON_MCP_USAGE_CONTRACT = [
   "先根据 description 和 parameters 判断该 MCP 工具适用场景",
-  "返回结构可能不固定，链式传递时优先使用 result_N.content",
+  "返回结构可能不固定，链式传递时优先使用工具返回的 content",
   "若结果是大对象，先读取关键信息再决定是否继续传递给下游工具",
 ];
 
