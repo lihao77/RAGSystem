@@ -77,7 +77,7 @@ const DEFAULT_ENDPOINTS: Record<string, string> = {
   modelscope: "https://api-inference.modelscope.cn/v1",
 };
 
-const OPENAI_COMPATIBLE_TYPES = new Set(["openai_chat", "openai_proxy", "deepseek", "openrouter", "modelscope"]);
+export const OPENAI_COMPATIBLE_TYPES = new Set(["openai_chat", "openai_proxy", "deepseek", "openrouter", "modelscope"]);
 
 export class OpenAiCompatibleChatClient implements LlmChatClient {
   async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {

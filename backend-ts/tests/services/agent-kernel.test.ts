@@ -512,6 +512,7 @@ function createTestRuntime(client: LlmChatClient, options?: { dataRoot?: string 
       }
       const kernel = createRuntimeKernel({
         llmChatClient: client,
+        provider: input.provider,
         dataRoot: options?.dataRoot ?? os.tmpdir(),
         eventSink,
         refresher,

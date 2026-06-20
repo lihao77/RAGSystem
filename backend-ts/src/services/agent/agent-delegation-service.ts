@@ -357,6 +357,7 @@ export class AgentDelegationService {
       });
       const kernel = createRuntimeKernel({
         llmChatClient: this.llmChatClient,
+        provider: resolved.provider,
         dataRoot: this.dataRoot,
         eventSink,
         refresher,

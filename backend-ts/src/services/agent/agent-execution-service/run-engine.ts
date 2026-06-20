@@ -370,6 +370,7 @@ export class AgentRunEngine {
       });
       const kernel = createRuntimeKernel({
         llmChatClient: this.llmChatClient,
+        provider: input.provider,
         dataRoot: this.dataRoot,
         eventSink,
         refresher,
