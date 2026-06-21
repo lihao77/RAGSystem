@@ -5,10 +5,9 @@ import { ok } from "../../contracts/common.js";
 import type { OutboxStatus } from "../../contracts/conversation-store/index.js";
 import { resolveRuntimeContextSettings } from "../../services/agent/context-compression/index.js";
 import { buildAgentPromptContext, buildFullSystemPrompt } from "../../services/agent/prompt-builder/index.js";
-import { resolveToolInstructionMode } from "../../services/agent/kernel-plugins/protocol/select-protocol.js";
+import { renderMessagesForProvider, resolveToolInstructionMode } from "../../services/agent/kernel-plugins/protocol/select-protocol.js";
 import { resolveRuntimeHistoryView } from "../../services/agent/context-builder/index.js";
 import { messagesToConversation } from "../../services/agent/context-builder/history-view.js";
-import { renderXmlModelMessage } from "../../services/agent/kernel-plugins/protocol/xml-protocol.js";
 import type { ChatMessage, ChatToolCall } from "../../services/integrations/llm-chat-client.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
@@ -142,11 +141,11 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       : [];
     // 渲染成"实际请求"形态（与模型收到的一致）：结构化 ChatMessage → 按 protocol 渲染
     // （XML 序列化回 <user_input>/<tool_result>/<tool_calls> 语境，FC 直传），保留 seq/msg_type 便于反查 DB。
-    const renderHistoryMessage = toolInstructionMode === "native"
-      ? (message: ChatMessage): ChatMessage => ({ ...message })
-      : renderXmlModelMessage;
-    const history = messagesToConversation(historyRawMessages).map((message, index) =>
-      toContextHistoryItem(renderHistoryMessage(message), historyRawMessages[index]),
+    // 走 selectProtocol 层的 renderMessagesForProvider（纯函数），与两个 Protocol.toModelMessages 逐字等价，
+    // 不再裸 import xml-protocol 内部函数。
+    const conversationMessages = renderMessagesForProvider(resolved.provider, messagesToConversation(historyRawMessages));
+    const history = conversationMessages.map((message, index) =>
+      toContextHistoryItem(message, historyRawMessages[index]),
     );
     const systemPromptTokens = estimateTokens(systemPrompt) + estimateTokens(asString(memorySnapshot?.rendered_block) ?? "");
     const historyTokens = history.reduce((total, item) => total + item.tokens, 0);

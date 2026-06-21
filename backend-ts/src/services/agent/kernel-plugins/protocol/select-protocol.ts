@@ -14,12 +14,12 @@
  * 由 createRuntimeKernel 绑进 Context 实例，不渗进内核。
  */
 
-import type { LlmChatClient } from "../../../integrations/llm-chat-client.js";
+import type { ChatMessage, LlmChatClient } from "../../../integrations/llm-chat-client.js";
 import { OPENAI_COMPATIBLE_TYPES } from "../../../integrations/provider-registry.js";
 import type { ModelProviderConfig } from "../../../../contracts/model-adapter.js";
 import type { EventSink, Protocol, ToolInstructionMode } from "../../kernel/contracts.js";
 import { NativeHybridProtocol } from "./native-hybrid-protocol.js";
-import { XmlProtocol } from "./xml-protocol.js";
+import { XmlProtocol, renderXmlModelMessage } from "./xml-protocol.js";
 
 export interface SelectProtocolDeps {
   provider: ModelProviderConfig;
@@ -55,4 +55,15 @@ export function selectProtocol(deps: SelectProtocolDeps): SelectedProtocol {
     ? new NativeHybridProtocol(deps.llmChatClient, deps.events)
     : new XmlProtocol(deps.llmChatClient, deps.events);
   return { protocol, toolInstructionMode };
+}
+
+/**
+ * 按 provider 渲染会话历史成"模型实际收到的形态"(与 selectProtocol 同一矩阵,纯函数)。
+ * native → 结构化直传;xml → renderXmlModelMessage 序列化。供 monitoring/调试视图复用,
+ * 避免外层裸 import xml-protocol 内部函数。与两个 Protocol.toModelMessages 逐字等价。
+ */
+export function renderMessagesForProvider(provider: ModelProviderConfig | null, messages: ChatMessage[]): ChatMessage[] {
+  return provider && resolveToolInstructionMode(provider) === "native"
+    ? messages.map((message) => ({ ...message }))
+    : messages.map(renderXmlModelMessage);
 }
