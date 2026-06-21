@@ -120,6 +120,12 @@
                   <div class="ctx-content-preview" :class="{ expanded: isMessageExpanded(msg, i) }">
                     {{ messageDisplayContent(msg, i) }}
                   </div>
+                  <div v-if="msg.tool_calls && msg.tool_calls.length" class="ctx-tool-calls">
+                    <div v-for="tc in msg.tool_calls" :key="tc.id || tc.function.name" class="ctx-tool-call">
+                      <span class="ctx-tool-name">→ {{ tc.function.name }}</span>
+                      <code class="ctx-tool-args">{{ tc.function.arguments }}</code>
+                    </div>
+                  </div>
                   <div v-if="messageLoadError(msg, i)" class="ctx-inline-error">{{ messageLoadError(msg, i) }}</div>
                   <button
                     v-if="shouldShowMessageToggle(msg)"
@@ -368,6 +374,10 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 .ctx-tokens { color: var(--color-text-muted, #999); float: right; }
 .ctx-content-preview { margin-top: 4px; color: var(--color-text-secondary, #666); word-break: break-all; white-space: pre-wrap; }
 .ctx-content-preview.expanded { color: var(--color-text-primary, #333); }
+.ctx-tool-calls { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
+.ctx-tool-call { display: flex; flex-direction: column; gap: 1px; padding: 2px 4px; background: var(--color-bg-tertiary, #f0f0f0); border-radius: 3px; }
+.ctx-tool-name { font-weight: 600; color: var(--color-agent-violet, #7c3aed); font-size: 11px; }
+.ctx-tool-args { font-size: 11px; color: var(--color-text-secondary, #666); word-break: break-all; white-space: pre-wrap; }
 .ctx-inline-error { margin-top: 6px; color: var(--color-error); font-size: 12px; }
 .ctx-expand-btn { margin-top: 6px; padding: 0; border: none; background: transparent; color: var(--color-active, #409eff); cursor: pointer; font-size: 12px; }
 .ctx-expand-btn:hover { text-decoration: underline; }
