@@ -185,34 +185,6 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     return ok(data, "获取上下文快照成功");
   });
 
-  app.get("/context-snapshot/message-content", async (request) => {
-    const query = request.query as { session_id?: string; seq?: string };
-    const sessionId = query.session_id?.trim();
-    if (query.seq === undefined) {
-      throw new HttpError(422, "validation_error", "请求参数验证失败", ["query -> seq: Field required"]);
-    }
-    const seq = Number.parseInt(query.seq ?? "", 10);
-    if (!sessionId || !Number.isInteger(seq) || seq < 1) {
-      throw new HttpError(400, "invalid_request", "请提供有效的 session_id 和 seq");
-    }
-
-    const message = options.container.conversationStore.getMessageBySeq(sessionId, seq);
-    if (!message) {
-      throw new HttpError(404, "not_found", "消息不存在");
-    }
-
-    return ok(
-      {
-        id: message.id,
-        seq: message.seq,
-        role: message.role,
-        content: message.content,
-        content_length: message.content.length,
-      },
-      "获取消息完整内容成功",
-    );
-  });
-
   app.get("/tool-call/raw-result", async (request) => {
     const query = request.query as { session_id?: string; call_id?: string };
     const sessionId = query.session_id?.trim();
@@ -272,8 +244,6 @@ function toContextHistoryItem(
   role: string;
   content_preview: string;
   content_length: number;
-  is_preview_truncated: boolean;
-  can_load_full_content: boolean;
   tokens: number;
   is_compression_summary: boolean;
   react_intermediate: boolean;
@@ -288,8 +258,6 @@ function toContextHistoryItem(
     role: message.role,
     content_preview: message.content,
     content_length: message.content.length,
-    is_preview_truncated: false,
-    can_load_full_content: false,
     tokens: estimateTokens(message.content),
     is_compression_summary: Boolean(original?.metadata.compression),
     react_intermediate: Boolean(original?.metadata.react_intermediate),

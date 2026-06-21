@@ -117,8 +117,8 @@
                   <span class="ctx-role">{{ msgLabel(msg) }}</span>
                   <span v-if="msg.react_intermediate" class="ctx-msg-type">R{{ msg.round || '' }}</span>
                   <span class="ctx-tokens">{{ msg.tokens }} tokens</span>
-                  <div class="ctx-content-preview" :class="{ expanded: isMessageExpanded(msg, i) }">
-                    {{ messageDisplayContent(msg, i) }}
+                  <div class="ctx-content-preview">
+                    {{ msg.content_preview || '' }}
                   </div>
                   <div v-if="msg.tool_calls && msg.tool_calls.length" class="ctx-tool-calls">
                     <div v-for="tc in msg.tool_calls" :key="tc.id || tc.function.name" class="ctx-tool-call">
@@ -126,16 +126,6 @@
                       <code class="ctx-tool-args">{{ tc.function.arguments }}</code>
                     </div>
                   </div>
-                  <div v-if="messageLoadError(msg, i)" class="ctx-inline-error">{{ messageLoadError(msg, i) }}</div>
-                  <button
-                    v-if="shouldShowMessageToggle(msg)"
-                    type="button"
-                    class="ctx-expand-btn"
-                    :disabled="isMessageLoading(msg, i)"
-                    @click="toggleMessageExpanded(msg, i)"
-                  >
-                    {{ messageToggleLabel(msg, i) }}
-                  </button>
                 </div>
               </div>
             </section>
@@ -167,10 +157,6 @@ const data = ref(null);
 const drawerRef = ref(null);
 const spExpanded = ref(false)
 const memExpanded = ref(false);
-const expandedMessages = ref({});
-const messageContents = ref({});
-const loadingMessages = ref({});
-const messageErrors = ref({});
 
 const tokenPct = computed(() => {
   if (!data.value?.token_stats?.budget_tokens) return 0;
@@ -199,121 +185,10 @@ function msgClass(msg) {
   return 'role-' + msg.role;
 }
 
-function getMessageKey(msg, index) {
-  return msg.seq != null ? `seq-${msg.seq}` : `${msg.role}-${index}`;
-}
-
-function isMessageExpanded(msg, index) {
-  return !!expandedMessages.value[getMessageKey(msg, index)];
-}
-
-function shouldShowMessageToggle(msg) {
-  return Boolean(msg?.is_preview_truncated && msg?.can_load_full_content);
-}
-
-function isMessageLoading(msg, index) {
-  return !!loadingMessages.value[getMessageKey(msg, index)];
-}
-
-function messageLoadError(msg, index) {
-  return messageErrors.value[getMessageKey(msg, index)] || '';
-}
-
-function getLoadedMessageContent(msg, index) {
-  return messageContents.value[getMessageKey(msg, index)] || '';
-}
-
-function hasLoadedMessageContent(msg, index) {
-  return getLoadedMessageContent(msg, index) !== '';
-}
-
-function messageToggleLabel(msg, index) {
-  if (isMessageExpanded(msg, index)) return '收起全文';
-  if (isMessageLoading(msg, index)) return '加载中...';
-  return '展开全文';
-}
-
-async function fetchMessageContent(msg, index) {
-  if (!props.sessionId || msg?.seq == null) {
-    throw new Error('缺少消息定位信息');
-  }
-
-  const key = getMessageKey(msg, index);
-  loadingMessages.value = {
-    ...loadingMessages.value,
-    [key]: true,
-  };
-  messageErrors.value = {
-    ...messageErrors.value,
-    [key]: '',
-  };
-
-  try {
-    const params = new URLSearchParams({
-      session_id: props.sessionId,
-      seq: String(msg.seq),
-    });
-    const res = await fetch(`/api/agent/context-snapshot/message-content?${params.toString()}`);
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.message || json.detail || '加载全文失败');
-
-    messageContents.value = {
-      ...messageContents.value,
-      [key]: json.data?.content || '',
-    };
-  } catch (e) {
-    messageErrors.value = {
-      ...messageErrors.value,
-      [key]: e.message || '加载全文失败',
-    };
-    throw e;
-  } finally {
-    loadingMessages.value = {
-      ...loadingMessages.value,
-      [key]: false,
-    };
-  }
-}
-
-async function toggleMessageExpanded(msg, index) {
-  const key = getMessageKey(msg, index);
-  if (expandedMessages.value[key]) {
-    expandedMessages.value = {
-      ...expandedMessages.value,
-      [key]: false,
-    };
-    return;
-  }
-
-  if (shouldShowMessageToggle(msg) && !hasLoadedMessageContent(msg, index)) {
-    try {
-      await fetchMessageContent(msg, index);
-    } catch (_) {
-      return;
-    }
-  }
-
-  expandedMessages.value = {
-    ...expandedMessages.value,
-    [key]: true,
-  };
-}
-
-function messageDisplayContent(msg, index) {
-  if (isMessageExpanded(msg, index)) {
-    return getLoadedMessageContent(msg, index) || msg.content_preview || '';
-  }
-  return msg.content_preview || '';
-}
-
 async function fetchSnapshot() {
   loading.value = true;
   error.value = '';
   data.value = null;
-  expandedMessages.value = {};
-  messageContents.value = {};
-  loadingMessages.value = {};
-  messageErrors.value = {};
   try {
     const params = new URLSearchParams();
     if (props.sessionId) params.set('session_id', props.sessionId);
@@ -372,15 +247,10 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 .ctx-role { font-weight: 600; text-transform: uppercase; margin-right: 8px; }
 .ctx-tokens { color: var(--color-text-muted, #999); float: right; }
 .ctx-content-preview { margin-top: 4px; color: var(--color-text-secondary, #666); word-break: break-all; white-space: pre-wrap; }
-.ctx-content-preview.expanded { color: var(--color-text-primary, #333); }
 .ctx-tool-calls { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
 .ctx-tool-call { display: flex; flex-direction: column; gap: 1px; padding: 2px 4px; background: var(--color-bg-tertiary, #f0f0f0); border-radius: 3px; }
 .ctx-tool-name { font-weight: 600; color: var(--color-agent-violet, #7c3aed); font-size: 11px; }
 .ctx-tool-args { font-size: 11px; color: var(--color-text-secondary, #666); word-break: break-all; white-space: pre-wrap; }
-.ctx-inline-error { margin-top: 6px; color: var(--color-error); font-size: 12px; }
-.ctx-expand-btn { margin-top: 6px; padding: 0; border: none; background: transparent; color: var(--color-active, #409eff); cursor: pointer; font-size: 12px; }
-.ctx-expand-btn:hover { text-decoration: underline; }
-.ctx-expand-btn:disabled { opacity: 0.65; cursor: wait; text-decoration: none; }
 .ctx-collapsible { cursor: pointer; user-select: none; }
 .ctx-arrow { font-size: 11px; margin-left: 4px; }
 .ctx-mem-scope { margin-bottom: 10px; }

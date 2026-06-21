@@ -222,15 +222,11 @@ describe("monitoring compatibility routes", () => {
             seq: systemMessage.seq,
             role: "system",
             content_preview: expect.stringContaining("<runtime_instruction"),
-            is_preview_truncated: false,
-            can_load_full_content: false,
           }),
           expect.objectContaining({
             seq: message.seq,
             role: "user",
             content_preview: expect.stringContaining("<user_input"),
-            is_preview_truncated: false,
-            can_load_full_content: false,
           }),
         ],
       },
@@ -245,22 +241,6 @@ describe("monitoring compatibility routes", () => {
     expect(systemPrompt).toContain("## 执行规则");
     expect(systemPrompt).toContain("### 数据文件传递规则");
 
-    const content = await app.inject({
-      method: "GET",
-      url: `/api/agent/context-snapshot/message-content?session_id=s1&seq=${message.seq}`,
-    });
-    expect(content.statusCode).toBe(200);
-    expect(content.json()).toMatchObject({
-      success: true,
-      message: "获取消息完整内容成功",
-      data: {
-        id: message.id,
-        seq: message.seq,
-        role: "user",
-        content: "U".repeat(300),
-        content_length: 300,
-      },
-    });
   });
 
   it("serves context snapshot history through the compression view for the root thread", async () => {
@@ -493,7 +473,6 @@ describe("monitoring compatibility routes", () => {
         seq: intent.seq,
         role: "assistant",
         content_preview: expect.stringContaining("我先执行一个只读命令"),
-        can_load_full_content: false,
         react_intermediate: true,
         msg_type: "intent",
         round: 1,
@@ -502,7 +481,6 @@ describe("monitoring compatibility routes", () => {
         seq: observation.seq,
         role: "user",
         content_preview: expect.stringContaining("<tool_result"),
-        can_load_full_content: false,
         react_intermediate: true,
         msg_type: "observation",
         round: 1,

@@ -36,6 +36,15 @@ import type {
 } from "../../kernel/contracts.js";
 
 /**
+ * 把单条结构化 ChatMessage 原样直传（浅拷贝）——厂商 FC 模型原生消费 content + tool_calls + role:tool，
+ * 无需任何序列化。与 XmlProtocol 的 renderXmlModelMessage 对称：protocol 实例与 monitoring/调试视图
+ * （renderMessagesForProvider）共用同一渲染逻辑，避免 native 渲染散落多处副本。
+ */
+export function renderNativeModelMessage(message: ChatMessage): ChatMessage {
+  return { ...message };
+}
+
+/**
  * Native Hybrid 协议实现。
  *
  * eventSink 由装配注入，invoke 边流边发事件（事件类型与 data 字段一字不改，
@@ -262,7 +271,7 @@ export class NativeHybridProtocol implements Protocol {
    * 不做 XML 包装——与 XmlProtocol.toModelMessages 的序列化分叉，是收敛在 protocol 层的物理边界。
    */
   toModelMessages(messages: ChatMessage[]): ChatMessage[] {
-    return messages.map((message) => ({ ...message }));
+    return messages.map(renderNativeModelMessage);
   }
 }
 

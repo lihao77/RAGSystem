@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { OutboxRow } from "../../src/services/stores/conversation-store/types.js";
+import type { OutboxRow } from "../../src/contracts/conversation-store/types.js";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { ClientEventProjector } from "../../src/services/runtime/event-outbox/projector.js";

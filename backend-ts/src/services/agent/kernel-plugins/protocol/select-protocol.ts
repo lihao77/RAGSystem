@@ -18,7 +18,7 @@ import type { ChatMessage, LlmChatClient } from "../../../integrations/llm-chat-
 import { OPENAI_COMPATIBLE_TYPES } from "../../../integrations/provider-registry.js";
 import type { ModelProviderConfig } from "../../../../contracts/model-adapter.js";
 import type { EventSink, Protocol, ToolInstructionMode } from "../../kernel/contracts.js";
-import { NativeHybridProtocol } from "./native-hybrid-protocol.js";
+import { NativeHybridProtocol, renderNativeModelMessage } from "./native-hybrid-protocol.js";
 import { XmlProtocol, renderXmlModelMessage } from "./xml-protocol.js";
 
 export interface SelectProtocolDeps {
@@ -64,6 +64,6 @@ export function selectProtocol(deps: SelectProtocolDeps): SelectedProtocol {
  */
 export function renderMessagesForProvider(provider: ModelProviderConfig | null, messages: ChatMessage[]): ChatMessage[] {
   return provider && resolveToolInstructionMode(provider) === "native"
-    ? messages.map((message) => ({ ...message }))
+    ? messages.map(renderNativeModelMessage)
     : messages.map(renderXmlModelMessage);
 }
