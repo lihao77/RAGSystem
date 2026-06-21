@@ -12,7 +12,8 @@ import type {
   LlmChatClient,
 } from "../../src/services/integrations/llm-chat-client.js";
 import { ClientEventProjector } from "../../src/services/runtime/event-outbox/projector.js";
-import type { OutboxRow } from "../../src/services/stores/conversation-store/types.js";
+import type { OutboxRow } from "../../src/contracts/conversation-store/types.js";
+import { RuntimeAbortError } from "../../src/services/runtime/abort.js";
 import { buildTestHarness } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
@@ -38,7 +39,7 @@ class FakeChatClient implements LlmChatClient {
       });
     }
     if (request.signal?.aborted) {
-      throw new Error("aborted");
+      throw new RuntimeAbortError("aborted");
     }
     return { content: this.content };
   }
@@ -1162,14 +1163,21 @@ describe("minimal runtime core execution", () => {
     expect(rawMessages.map((message) => [message.role, message.metadata.react_intermediate ?? false, message.metadata.msg_type ?? null])).toEqual([
       ["user", false, null],
       ["assistant", true, "intent"],
-      ["user", true, "observation"],
+      ["tool", true, "observation"],
       ["assistant", false, "assistant_final"],
     ]);
 
     const intent = rawMessages[1]!;
     expect(intent.content).toContain("我先读取 session 记忆。");
-    expect(intent.content).toContain("<tool_calls>");
-    expect(intent.content).toContain('<tool name="list_memory_index"><scope>session</scope></tool>');
+    expect(intent.tool_calls).toEqual([
+      expect.objectContaining({
+        type: "function",
+        function: expect.objectContaining({
+          name: "list_memory_index",
+          arguments: expect.stringContaining("session"),
+        }),
+      }),
+    ]);
     expect(intent.metadata).toMatchObject({
       react_intermediate: true,
       msg_type: "intent",
@@ -1205,14 +1213,14 @@ describe("minimal runtime core execution", () => {
     });
     expect(snapshot.statusCode).toBe(200);
     expect(snapshot.json().data.conversation_history).toEqual([
-      expect.objectContaining({ role: "user", content_preview: "use memory through xml" }),
+      expect.objectContaining({ role: "user", content_preview: expect.stringContaining("use memory through xml") }),
       expect.objectContaining({
         seq: intent.seq,
         role: "assistant",
         react_intermediate: true,
         msg_type: "intent",
         round: 1,
-        content_preview: intent.content,
+        content_preview: expect.stringContaining(intent.content),
       }),
       expect.objectContaining({
         seq: observation.seq,
@@ -1222,7 +1230,10 @@ describe("minimal runtime core execution", () => {
         round: 1,
         content_preview: expect.stringContaining("<tool_result"),
       }),
-      expect.objectContaining({ role: "assistant", content_preview: "The XML runtime read memory." }),
+      expect.objectContaining({
+        role: "assistant",
+        content_preview: expect.stringContaining("The XML runtime read memory."),
+      }),
     ]);
   });
 
