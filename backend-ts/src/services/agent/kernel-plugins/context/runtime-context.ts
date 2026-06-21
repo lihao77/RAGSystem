@@ -1,10 +1,12 @@
 import type { ChatMessage } from "../../../integrations/llm-chat-client.js";
-import type { Context, KernelContext, ToolInstructionMode } from "../../kernel/contracts.js";
+import type { Context, KernelContext, Protocol, ToolInstructionMode } from "../../kernel/contracts.js";
 import { buildRuntimeMessages } from "./message-builder.js";
 
 export interface RuntimeContextOptions {
   /** 工具指令形态：决定 buildMessages 是否注入 XML 协议说明。由装配层（selectProtocol）绑定。 */
   toolInstructionMode: ToolInstructionMode;
+  /** 协议实例：buildMessages 调其 toModelMessages 渲染会话历史（协议相关的"给模型下发"形态）。 */
+  protocol: Protocol;
 }
 
 /**
@@ -34,6 +36,7 @@ export class RuntimeContext implements Context {
       xmlProtocolTools: visibleTools,
       promptContext,
       toolInstructionMode: this.options.toolInstructionMode,
+      renderConversation: (messages) => this.options.protocol.toModelMessages(messages),
     });
   }
 }

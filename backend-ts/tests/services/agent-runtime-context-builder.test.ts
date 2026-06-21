@@ -84,6 +84,7 @@ describe("AgentRuntimeContextBuilder", () => {
         { role: "user", content: "hello" },
         { role: "assistant", content: "hi" },
         { role: "system", content: "runtime note" },
+        { role: "tool", content: "tool result" },
       ],
       metadata: {
         session_id: "s1",
@@ -93,11 +94,11 @@ describe("AgentRuntimeContextBuilder", () => {
         sources: [
           {
             name: "recent_messages",
-            message_count: 3,
+            message_count: 4,
             metadata: {
               source_message_count: 4,
-              filtered_message_count: 3,
-              resolved_message_count: 3,
+              filtered_message_count: 4,
+              resolved_message_count: 4,
               compression_view: {
                 applied: false,
                 summary_seq: null,
@@ -172,16 +173,17 @@ describe("AgentRuntimeContextBuilder", () => {
       { role: "user", content: "expanded review prompt" },
       { role: "assistant", content: "thought" },
       { role: "system", content: "runtime instruction" },
+      { role: "tool", content: "native tool result" },
       { role: "assistant", content: "final" },
     ]);
     expect(context.metadata.sources).toEqual([
       {
         name: "recent_messages",
-        message_count: 4,
+        message_count: 5,
         metadata: {
           source_message_count: 10,
-          filtered_message_count: 4,
-          resolved_message_count: 4,
+          filtered_message_count: 5,
+          resolved_message_count: 5,
           compression_view: {
             applied: false,
             summary_seq: null,

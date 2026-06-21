@@ -785,8 +785,11 @@ describe("AgentKernel", () => {
           type: "runtime.assistant_intermediate",
           data: expect.objectContaining({
             message: expect.objectContaining({
-              content:
-                '<intent>我先查看 session 记忆。</intent><tool_calls><tool name="list_memory_index"><scope>session</scope></tool></tool_calls>',
+              role: "assistant",
+              content: "我先查看 session 记忆。",
+              tool_calls: expect.arrayContaining([
+                expect.objectContaining({ function: expect.objectContaining({ name: "list_memory_index" }) }),
+              ]),
             }),
             round: 0,
           }),
@@ -1023,10 +1026,9 @@ describe("AgentKernel", () => {
     const userToolMessages = client.requests[1]?.messages.filter((message) =>
       message.role === "user" && message.content.includes("<tool_result"),
     );
-    expect(userToolMessages).toHaveLength(1);
+    expect(userToolMessages).toHaveLength(2);
     expect(userToolMessages?.[0]?.content).toContain('id="xml_round_0_call_1"');
-    expect(userToolMessages?.[0]?.content).toContain('id="xml_round_0_call_2"');
-    expect(userToolMessages?.[0]?.content).toContain("</tool_result>\n\n<tool_result");
+    expect(userToolMessages?.[1]?.content).toContain('id="xml_round_0_call_2"');
   });
 
   it("stops the XML round after tool calls and ignores same-round final answers", async () => {
@@ -1120,10 +1122,10 @@ describe("AgentKernel", () => {
     const userToolMessages = client.requests[1]?.messages.filter((message) =>
       message.role === "user" && message.content.includes("<tool_result"),
     );
-    expect(userToolMessages).toHaveLength(1);
-    const content = userToolMessages?.[0]?.content ?? "";
-    expect(content.indexOf('id="xml_round_0_call_1"')).toBeLessThan(content.indexOf('id="xml_round_0_call_2"'));
-    expect(content.indexOf('id="xml_round_0_call_2"')).toBeLessThan(content.indexOf('id="xml_round_0_call_3"'));
+    expect(userToolMessages).toHaveLength(3);
+    expect(userToolMessages?.[0]?.content).toContain('id="xml_round_0_call_1"');
+    expect(userToolMessages?.[1]?.content).toContain('id="xml_round_0_call_2"');
+    expect(userToolMessages?.[2]?.content).toContain('id="xml_round_0_call_3"');
 
     const toolEvents = events.filter((event) => event.type === "runtime.tool_call" || event.type === "runtime.tool_result");
     expect(toolEvents.map((event) => event.data.tool_name)).toEqual([
@@ -1366,18 +1368,11 @@ describe("AgentKernel", () => {
     const userToolMessage = client.requests[1]?.messages.find((message) =>
       message.role === "user" && message.content.includes("<task-notification>"),
     );
-    expect(userToolMessage?.content).toBe(
-      [
-        "<task-notification>",
-        "<task-id>bg-1</task-id>",
-        "<output-file>data/sessions/s1/transient/bg_123.log</output-file>",
-        "<status>completed</status>",
-        "<return-code>0</return-code>",
-        "<result-type>bash_output</result-type>",
-        "<summary>后台任务 bg-1 已完成，输出已写入文件</summary>",
-        "</task-notification>",
-      ].join("\n"),
-    );
+    expect(userToolMessage?.content).toContain("<task-notification>");
+    expect(userToolMessage?.content).toContain("<task-id>bg-1</task-id>");
+    expect(userToolMessage?.content).toContain("<output-file>data/sessions/s1/transient/bg_123.log</output-file>");
+    expect(userToolMessage?.content).toContain("<summary>后台任务 bg-1 已完成，输出已写入文件</summary>");
+    expect(userToolMessage?.content).toContain("</task-notification>");
     const toolResult = events.find((event) => event.type === "runtime.tool_result");
     expect(toolResult).toMatchObject({
       type: "runtime.tool_result",

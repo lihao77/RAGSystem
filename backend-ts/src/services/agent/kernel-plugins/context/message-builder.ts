@@ -13,7 +13,7 @@ import type { ToolInstructionMode } from "../../kernel/contracts.js";
 export function buildRuntimeMessages(
   agent: AgentConfig,
   conversation: ChatMessage[],
-  options: { xmlProtocolTools?: RuntimeToolDefinition[]; promptContext?: AgentPromptContext; toolInstructionMode?: ToolInstructionMode } = {},
+  options: { xmlProtocolTools?: RuntimeToolDefinition[]; promptContext?: AgentPromptContext; toolInstructionMode?: ToolInstructionMode; renderConversation: (messages: ChatMessage[]) => ChatMessage[] },
 ): ChatMessage[] {
   const messages: ChatMessage[] = [];
   const systemParts: string[] = [];
@@ -38,7 +38,7 @@ export function buildRuntimeMessages(
   if (systemParts.length > 0) {
     messages.push({ role: "system", content: systemParts.join("\n\n") });
   }
-  messages.push(...conversation.slice(conversationIndex).map((message) => renderSemanticChatMessage(message)));
+  messages.push(...options.renderConversation(conversation.slice(conversationIndex)));
   return messages;
 }
 
@@ -52,7 +52,7 @@ function renderSystemContextBlock(content: string): string {
   return renderSemanticBlock("runtime_instruction", content, { source: "runtime_context" });
 }
 
-function renderSemanticChatMessage(message: ChatMessage): ChatMessage {
+export function renderSemanticChatMessage(message: ChatMessage): ChatMessage {
   if (isSemanticTaggedContent(message.content)) {
     return { ...message };
   }

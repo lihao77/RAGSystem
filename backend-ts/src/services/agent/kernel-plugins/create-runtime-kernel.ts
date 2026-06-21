@@ -35,7 +35,7 @@ export function createRuntimeKernel(deps: RuntimeKernelDeps): AgentKernel {
     llmChatClient: deps.llmChatClient,
     events: deps.eventSink,
   });
-  const context = new RuntimeContext({ toolInstructionMode });
+  const context = new RuntimeContext({ toolInstructionMode, protocol });
   const tools = new RuntimeToolProvider({ dataRoot: deps.dataRoot, events: deps.eventSink });
   return new AgentKernel({
     context,

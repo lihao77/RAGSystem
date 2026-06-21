@@ -215,11 +215,15 @@ export interface Context {
  * 问模型 + 解析 + 发 delta 的协议端口（三只手之一）。
  * - invoke：问模型 + 边流边解析 + 发 delta + 修复重试，全在内部；读 ctx.requestMessages
  *   作为下发请求的 messages，自包请求壳（model/provider/temperature/signal）。
- * - renderObservations：observation → 消息形态由协议决定（XML 协议为单条 user 消息）。
+ * - renderObservations：observation → 结构化 role:tool 消息（每工具一条，XML/FC 同形态）。
+ * - toModelMessages：把会话累积的结构化 ChatMessage[] 渲染成"给模型下发"的消息（物理边界）。
+ *   XML 序列化成 XML 语境（tool_calls→<tool_calls>、role:tool→role:user+<tool_result>）；
+ *   FC 直传结构化。store/context 层协议无关。
  */
 export interface Protocol {
   invoke(ctx: KernelContext, round: number): Promise<KernelOutcome>;
   renderObservations(calls: KernelToolCall[], observations: KernelObservation[]): ChatMessage[];
+  toModelMessages(messages: ChatMessage[]): ChatMessage[];
 }
 
 /**

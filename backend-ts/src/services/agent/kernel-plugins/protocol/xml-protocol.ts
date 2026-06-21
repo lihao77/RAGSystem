@@ -24,14 +24,18 @@ import type {
   ChatCompletionResult,
   ChatMessage,
   ChatStreamChunkHandler,
+  ChatToolCall,
   LlmChatClient,
 } from "../../../integrations/llm-chat-client.js";
 import type { RuntimeToolCall } from "../../../runtime/runtime-tool-types.js";
 import {
   parseRuntimeToolCallsXml,
   renderProtocolFeedbackMessage,
+  renderSemanticBlock,
   StreamingRuntimeXmlParser,
 } from "../../../runtime/runtime-xml-protocol.js";
+import { serializeToolCallsToXml } from "../../../runtime/runtime-xml-protocol/serialize.js";
+import { renderSemanticChatMessage } from "../context/message-builder.js";
 import { RuntimeAbortError, throwIfAborted } from "../../../runtime/abort.js";
 import { toChatToolDefinition } from "../tools/tool-call-utils.js";
 import { resolveRequestLlmParams } from "../../../runtime/llm-params.js";
@@ -159,16 +163,24 @@ export class XmlProtocol implements Protocol {
       protocolRepairAttempts = 0;
 
       if (roundResult.toolCalls.length > 0) {
-        const assistantMessage: ChatMessage = {
-          role: "assistant",
-          content: roundResult.rawContent,
-        };
         const calls: KernelToolCall[] = roundResult.toolCalls.map((call, index) => ({
           index,
           callId: call.callId ?? `xml_round_${round}_call_${index + 1}`,
           toolName: call.toolName,
           arguments: call.arguments ?? {},
         }));
+        // 结构化 assistantMessage：content=intent 正文，tool_calls=结构化字段（与 FC 同形态）。
+        // 给 XML 模型回填时由 toModelMessages 序列化回 <intent>…<tool_calls>… XML 文本。
+        const toolCalls: ChatToolCall[] = calls.map((call) => ({
+          id: call.callId,
+          type: "function",
+          function: { name: call.toolName, arguments: JSON.stringify(call.arguments) },
+        }));
+        const assistantMessage: ChatMessage = {
+          role: "assistant",
+          content: roundResult.intent,
+          tool_calls: toolCalls,
+        };
         return {
           kind: "tool_calls",
           calls,
@@ -235,10 +247,15 @@ export class XmlProtocol implements Protocol {
           toolName: call.toolName,
           arguments: call.arguments ?? {},
         }));
+        const toolCalls: ChatToolCall[] = calls.map((call) => ({
+          id: call.callId,
+          type: "function",
+          function: { name: call.toolName, arguments: JSON.stringify(call.arguments) },
+        }));
         return {
           kind: "tool_calls",
           calls,
-          assistantMessage: { role: "assistant", content: result.content },
+          assistantMessage: { role: "assistant", content: parser.getTagContent("intent"), tool_calls: toolCalls },
           finishReason: result.finishReason ?? null,
         };
       }
@@ -267,17 +284,54 @@ export class XmlProtocol implements Protocol {
    * 见下方"需上层注意"。
    */
   renderObservations(
-    _calls: KernelToolCall[],
+    calls: KernelToolCall[],
     observations: KernelObservation[],
   ): ChatMessage[] {
-    const roundObservationMessages = observations
-      .sort((left, right) => left.index - right.index)
-      .map((execution) => execution.observation);
-    if (roundObservationMessages.length === 0) {
-      return [];
+    // 与 NativeHybridProtocol 同形态：每工具一条 role:tool + tool_call_id 结构化消息。
+    // 给 XML 模型回填时由 toModelMessages 转成 role:user + <tool_result>（XML 模型不认 role:tool）。
+    const byIndex = new Map<number, KernelObservation>();
+    for (const observation of observations) {
+      byIndex.set(observation.index, observation);
     }
-    const observationContent = roundObservationMessages.join("\n\n");
-    return [{ role: "user", content: observationContent }];
+    const messages: ChatMessage[] = [];
+    for (const call of calls) {
+      const observation = byIndex.get(call.index);
+      if (!observation) {
+        continue;
+      }
+      messages.push({
+        role: "tool",
+        tool_call_id: call.callId,
+        name: call.toolName,
+        content: observation.observation,
+      });
+    }
+    return messages;
+  }
+
+  /**
+   * 把结构化 ChatMessage[] 序列化成 XML 模型语境（物理边界）。
+   * - assistant 带 tool_calls → <intent>content</intent><tool_calls>…</tool_calls>（从结构化字段重建）
+   * - role:tool → role:user + <tool_result>（XML 模型不认 role:tool）
+   * - 其余（user/assistant final）沿用 XML 语义包装
+   */
+  toModelMessages(messages: ChatMessage[]): ChatMessage[] {
+    return messages.map((message) => this.renderXmlMessage(message));
+  }
+
+  private renderXmlMessage(message: ChatMessage): ChatMessage {
+    if (message.role === "tool") {
+      // observation.observation 已是 <tool_result> 包装（renderToolResultContent）。
+      // XML 模型不认 role:tool，转 user 透传 observation 文本即可，不再重复包装。
+      return { role: "user", content: message.content };
+    }
+    if (message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0) {
+      const intent = message.content ? renderSemanticBlock("intent", message.content) : "";
+      return { role: "assistant", content: `${intent}${serializeToolCallsToXml(message.tool_calls)}` };
+    }
+    // 其余（user / assistant final / system context）沿用通用语义包装（renderSemanticChatMessage
+    // 含 system 的 <runtime_instruction>/<context>、user 的 <user_input>、assistant final 的 <assistant_final>）。
+    return renderSemanticChatMessage(message);
   }
 
   /**
@@ -297,6 +351,7 @@ export class XmlProtocol implements Protocol {
     ) => Promise<ChatCompletionResult>,
   ): Promise<{
     rawContent: string;
+    intent: string;
     finalAnswer: string;
     fallbackAnswer: string;
     toolCalls: RuntimeToolCall[];
@@ -424,6 +479,7 @@ export class XmlProtocol implements Protocol {
     const fallbackAnswer = sawProtocolTag ? "" : rawContent;
     return {
       rawContent,
+      intent: parser.getTagContent("intent"),
       finalAnswer,
       fallbackAnswer,
       toolCalls,

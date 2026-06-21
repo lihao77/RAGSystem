@@ -265,7 +265,7 @@ function wrapCdata(value: string): string {
   return `<![CDATA[${value.replaceAll("]]>", "]]]]><![CDATA[>")}]]>`;
 }
 
-function escapeXmlAttribute(value: string): string {
+export function escapeXmlAttribute(value: string): string {
   return value
     .replaceAll("&", "&amp;")
     .replaceAll('"', "&quot;")

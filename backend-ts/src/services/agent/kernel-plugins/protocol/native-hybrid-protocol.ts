@@ -256,6 +256,14 @@ export class NativeHybridProtocol implements Protocol {
     }
     return messages;
   }
+
+  /**
+   * FC 直传结构化 ChatMessage（厂商模型原生消费 content + tool_calls + role:tool）。
+   * 不做 XML 包装——与 XmlProtocol.toModelMessages 的序列化分叉，是收敛在 protocol 层的物理边界。
+   */
+  toModelMessages(messages: ChatMessage[]): ChatMessage[] {
+    return messages.map((message) => ({ ...message }));
+  }
 }
 
 /**
