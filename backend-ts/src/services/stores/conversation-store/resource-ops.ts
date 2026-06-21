@@ -145,6 +145,13 @@ export class ResourceOps implements IResourceStore {
   }
 
   listResources(sessionId: string, runId?: string | null, limit = 100): { items: ResourceInfo[]; total: number } {
+    const totalRow = runId
+      ? (this.db
+          .prepare("SELECT COUNT(1) AS cnt FROM resources WHERE session_id=? AND run_id=?")
+          .get(sessionId, runId) as { cnt: number })
+      : (this.db
+          .prepare("SELECT COUNT(1) AS cnt FROM resources WHERE session_id=?")
+          .get(sessionId) as { cnt: number });
     const rows = runId
       ? (this.db
           .prepare("SELECT * FROM resources WHERE session_id=? AND run_id=? ORDER BY created_at DESC LIMIT ?")
@@ -153,7 +160,7 @@ export class ResourceOps implements IResourceStore {
           .prepare("SELECT * FROM resources WHERE session_id=? ORDER BY created_at DESC LIMIT ?")
           .all(sessionId, limit) as unknown as ResourceRow[]);
     const items = rows.map(rowToResource);
-    return { items, total: items.length };
+    return { items, total: totalRow.cnt };
   }
 
   attachResourceToStep(sessionId: string, runId: string, stepId: number, resourceId: string): void {

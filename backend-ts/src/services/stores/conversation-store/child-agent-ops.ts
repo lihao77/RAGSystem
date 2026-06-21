@@ -78,6 +78,11 @@ export class ChildAgentOps implements IChildAgentStore {
   }): { items: ChildAgentInfo[]; total: number } {
     const agentName = input.agentName ?? null;
     const limit = input.limit ?? 100;
+    const totalRow = this.db
+      .prepare(
+        "SELECT COUNT(1) AS cnt FROM child_agents WHERE session_id=? AND (? IS NULL OR agent_name=?)",
+      )
+      .get(input.sessionId, agentName, agentName) as { cnt: number };
     const rows = this.db
       .prepare(
         `
@@ -90,7 +95,7 @@ export class ChildAgentOps implements IChildAgentStore {
       )
       .all(input.sessionId, agentName, agentName, limit) as unknown as ChildAgentRow[];
     const items = rows.map(rowToChildAgent);
-    return { items, total: items.length };
+    return { items, total: totalRow.cnt };
   }
 
   getChildAgent(sessionId: string, childAgentId: string): ChildAgentInfo | null {

@@ -98,6 +98,9 @@ export class RunOps implements IRunStore {
   }
 
   listRuns(sessionId: string, limit = 50): { items: RunInfo[]; total: number } {
+    const totalRow = this.db
+      .prepare("SELECT COUNT(1) AS cnt FROM runs WHERE session_id=?")
+      .get(sessionId) as { cnt: number };
     const rows = this.db
       .prepare(
         `
@@ -112,7 +115,7 @@ export class RunOps implements IRunStore {
       )
       .all(sessionId, limit) as unknown as RunRow[];
     const items = rows.map(rowToRun);
-    return { items, total: items.length };
+    return { items, total: totalRow.cnt };
   }
 
   addRunStep(input: AddRunStepInput): RunStepRecord {
