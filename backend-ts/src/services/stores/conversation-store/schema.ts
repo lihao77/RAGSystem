@@ -1,5 +1,9 @@
-export function initializeConversationSchema(db: { exec(sql: string): unknown }): void {
-  db.exec(`
+/**
+ * 基线 schema（迁移 v1）。
+ * 全部 CREATE 用 IF NOT EXISTS,对存量库幂等——故可安全作为 user_version=0→1 的基线迁移体。
+ * 后续 schema 演进一律新增 migrations.ts 中的迁移项,不再改动本常量。
+ */
+export const BASELINE_SCHEMA_SQL = `
     CREATE TABLE IF NOT EXISTS sessions (
       session_id TEXT PRIMARY KEY,
       user_id TEXT,
@@ -137,5 +141,4 @@ export function initializeConversationSchema(db: { exec(sql: string): unknown })
     CREATE INDEX IF NOT EXISTS idx_event_outbox_pending ON event_outbox(status, available_at, id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_event_outbox_session_seq ON event_outbox(session_id, session_seq);
     CREATE INDEX IF NOT EXISTS idx_event_outbox_run_seq ON event_outbox(run_id, session_seq);
-  `);
-}
+  `;

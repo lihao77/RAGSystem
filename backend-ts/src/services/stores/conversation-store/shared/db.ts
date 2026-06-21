@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { initializeConversationSchema } from "../schema.js";
+import { runMigrations } from "../migrations.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -31,6 +31,6 @@ export function createConversationDb(options: {
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
-  initializeConversationSchema(db);
+  runMigrations(db);
   return { db, dataRoot };
 }
