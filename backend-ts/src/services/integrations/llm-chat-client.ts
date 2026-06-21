@@ -46,6 +46,11 @@ export interface ChatCompletionRequest {
 
 export interface ChatCompletionResult {
   content: string;
+  /**
+   * 思考模型（如 DeepSeek-V4）产出的思维链原文。当前不向前端渲染、不进历史正文，
+   * 仅用于非空判定（避免"有思考无正文"被误判为空响应）与调试。前端要展示时再接入。
+   */
+  reasoning?: string | undefined;
   raw?: unknown;
   finishReason?: string | null | undefined;
   toolCalls?: ChatToolCall[] | undefined;
@@ -88,15 +93,22 @@ export class OpenAiCompatibleChatClient implements LlmChatClient {
       throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
     }
     const content = extractAssistantContent(body);
+    const reasoning = extractReasoningContent(body);
     const toolCalls = extractAssistantToolCalls(body);
-    if (!content && toolCalls.length === 0) {
-      throw new Error("LLM response did not include assistant content");
+    const finishReason = extractFinishReason(body);
+    if (!content && !reasoning && toolCalls.length === 0) {
+      throw new Error(
+        `LLM response did not include assistant content (finishReason=${finishReason ?? "unknown"})`,
+      );
     }
     const result: ChatCompletionResult = {
       content: content ?? "",
       raw: body,
-      finishReason: extractFinishReason(body),
+      finishReason,
     };
+    if (reasoning) {
+      result.reasoning = reasoning;
+    }
     if (toolCalls.length > 0) {
       result.toolCalls = toolCalls;
     }
@@ -402,6 +414,7 @@ async function readOpenAiCompatibleStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let content = "";
+  let reasoning = "";
   let done = false;
   let stopRequested = false;
   let finishReason: string | null = null;
@@ -429,6 +442,12 @@ async function readOpenAiCompatibleStream(
       }
     }
     accumulateStreamToolCalls(parsed, toolCallAccumulators);
+    // 思考模型的思维链走 delta.reasoning_content：消化但不向前端 emit（与 toolCalls 同属
+    // 被处理的中间产物），仅用于流末的非空判定，避免"有思考无正文"被误判为空响应。
+    const reasoningDelta = extractStreamReasoningDelta(parsed);
+    if (reasoningDelta) {
+      reasoning += reasoningDelta;
+    }
     const delta = extractAssistantDeltaContent(parsed);
     if (delta) {
       content += delta;
@@ -472,11 +491,16 @@ async function readOpenAiCompatibleStream(
     await onChunk({ content: "", finishReason, toolCalls });
   }
 
-  if (!content && toolCalls.length === 0 && finishReason !== "interrupted" && !stopRequested && !options.allowEmptyContent) {
-    throw new Error("LLM streaming response did not include assistant content");
+  if (!content && !reasoning && toolCalls.length === 0 && finishReason !== "interrupted" && !stopRequested && !options.allowEmptyContent) {
+    throw new Error(
+      `LLM streaming response did not include assistant content (finishReason=${finishReason ?? "unknown"})`,
+    );
   }
 
   const result: ChatCompletionResult = { content, finishReason };
+  if (reasoning) {
+    result.reasoning = reasoning;
+  }
   if (toolCalls.length > 0) {
     result.toolCalls = toolCalls;
   }
@@ -688,6 +712,18 @@ function extractAssistantContent(body: unknown): string | null {
   return null;
 }
 
+function extractReasoningContent(body: unknown): string | null {
+  const first = extractFirstChoice(body);
+  if (!first) {
+    return null;
+  }
+  const message = first.message;
+  if (isRecord(message) && typeof message.reasoning_content === "string") {
+    return message.reasoning_content;
+  }
+  return null;
+}
+
 function extractResponsesContent(body: unknown): string | null {
   if (!isRecord(body)) {
     return null;
@@ -834,6 +870,25 @@ function extractAssistantDeltaContent(body: unknown): string | null {
   }
   if (typeof first.text === "string") {
     return first.text;
+  }
+  return null;
+}
+
+function extractStreamReasoningDelta(body: unknown): string | null {
+  if (!isRecord(body)) {
+    return null;
+  }
+  const choices = body.choices;
+  if (!Array.isArray(choices) || choices.length === 0) {
+    return null;
+  }
+  const first = choices[0];
+  if (!isRecord(first)) {
+    return null;
+  }
+  const delta = first.delta;
+  if (isRecord(delta) && typeof delta.reasoning_content === "string") {
+    return delta.reasoning_content;
   }
   return null;
 }

@@ -203,6 +203,63 @@ describe("OpenAI-compatible chat client", () => {
     );
   });
 
+  it("treats reasoning-only OpenAI-compatible SSE streams as non-empty for thinking models", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(
+        [
+          'data: {"choices":[{"delta":{"reasoning_content":"thinking "}}]}\n\n',
+          'data: {"choices":[{"delta":{"reasoning_content":"about it"}}]}\n\n',
+          'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+          "data: [DONE]\n\n",
+        ].join(""),
+        {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+          },
+        },
+      ),
+    ) as typeof fetch;
+
+    const client = new OpenAiCompatibleChatClient();
+    const chunks: string[] = [];
+    const result = await client.stream(buildRequest(), (chunk) => {
+      chunks.push(chunk.content);
+    });
+
+    // 思维链不向前端 emit（chunks 保持空），但 result 携带 reasoning，不再被误判为空响应。
+    expect(chunks).toEqual([]);
+    expect(result.content).toBe("");
+    expect(result.reasoning).toBe("thinking about it");
+    expect(result.finishReason).toBe("stop");
+  });
+
+  it("treats reasoning-only non-streaming responses as non-empty for thinking models", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: null,
+                reasoning_content: "internal reasoning",
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    ) as typeof fetch;
+
+    const client = new OpenAiCompatibleChatClient();
+    const result = await client.complete(buildRequest());
+
+    expect(result.content).toBe("");
+    expect(result.reasoning).toBe("internal reasoning");
+    expect(result.finishReason).toBe("stop");
+  });
+
   it("allows empty OpenAI-compatible SSE streams when requested by the runtime", async () => {
     globalThis.fetch = vi.fn(async () =>
       new Response(
