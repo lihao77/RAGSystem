@@ -659,7 +659,14 @@ function selectCompressibleSegment(historyResolved: MessageInfo[], settings: Run
 }
 
 function isCompressibleHistoryMessage(message: MessageInfo): boolean {
-  return message.role === "user" || message.role === "assistant" || Boolean(message.metadata.compression);
+  // role:"tool"（observation）纳入压缩候选：阶段3统一后 observation 是结构化 tool 消息，
+  // 若排除会导致压缩时相邻 assistant tool_calls 被摘要而 observation 残留，破坏历史段结构。
+  return (
+    message.role === "user" ||
+    message.role === "assistant" ||
+    message.role === "tool" ||
+    Boolean(message.metadata.compression)
+  );
 }
 
 function lastPositiveSeq(messages: MessageInfo[]): number | null {
