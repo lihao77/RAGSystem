@@ -46,7 +46,7 @@ function renderSystemContextBlock(content: string): string {
   if (isSemanticTaggedContent(content)) {
     return content;
   }
-  if (content.includes("[Memory Scope Capabilities]") || content.includes("Memory Index]")) {
+  if (isRuntimeStableSystemContextContent(content)) {
     return renderSemanticBlock("context", content, { source: "memory" });
   }
   return renderSemanticBlock("runtime_instruction", content, { source: "runtime_context" });

@@ -8,6 +8,8 @@ import {
   asRecord,
   getString,
   isMemoryScopeName,
+  MEMORY_INDEX_HEADING_SUFFIX,
+  MEMORY_SCOPE_CAPABILITIES_HEADING,
   pythonStableJsonStringify,
   stringArray,
   stringRecord,
@@ -112,7 +114,7 @@ export function renderMemoryPrefixBlock(input: {
   if (allowedScopes.length || writeScopes.length || archiveScopes.length) {
     sections.push(
       [
-        "[Memory Scope Capabilities]",
+        MEMORY_SCOPE_CAPABILITIES_HEADING,
         `- 可读取 scope: ${allowedScopes.length ? allowedScopes.join(", ") : "无"}`,
         `- 可写入 scope: ${writeScopes.length ? writeScopes.join(", ") : "无"}`,
         `- 可归档 scope: ${archiveScopes.length ? archiveScopes.join(", ") : "无"}`,
@@ -131,7 +133,7 @@ export function renderMemoryPrefixBlock(input: {
     if (!content) {
       continue;
     }
-    sections.push(`[${scopeTitles[scopeName] ?? titleCase(scopeName)} Memory Index]\n${content.trim()}`);
+    sections.push(`[${scopeTitles[scopeName] ?? titleCase(scopeName)} ${MEMORY_INDEX_HEADING_SUFFIX}\n${content.trim()}`);
   }
   return sections.join("\n\n");
 }
