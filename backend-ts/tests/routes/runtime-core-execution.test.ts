@@ -865,7 +865,7 @@ describe("minimal runtime core execution", () => {
     const harness = await buildTestHarness({ llmChatClient: chatClient });
     app = harness.app;
 
-    await createDefaultChatProvider(app);
+    await createDefaultChatProvider(app, { supportsFunctionCalling: true });
     writeTestMemoryFile(["memory", "sessions", "tool-runtime-session", "MEMORY.md"], "# Runtime Tool Memory\n");
 
     const started = await app.inject({
@@ -1009,7 +1009,7 @@ describe("minimal runtime core execution", () => {
     const harness = await buildTestHarness({ llmChatClient: chatClient });
     app = harness.app;
 
-    await createDefaultChatProvider(app);
+    await createDefaultChatProvider(app, { supportsFunctionCalling: true });
     harness.container.permissionPolicy.setMode("strict");
     writeTestMemoryFile(["memory", "sessions", "approval-runtime-session", "MEMORY.md"], "# Approval Runtime Memory\n");
 
@@ -1903,7 +1903,10 @@ describe("minimal runtime core execution", () => {
   });
 });
 
-async function createDefaultChatProvider(app: FastifyInstance): Promise<void> {
+async function createDefaultChatProvider(
+  app: FastifyInstance,
+  options: { supportsFunctionCalling?: boolean } = {},
+): Promise<void> {
   const provider = await app.inject({
     method: "POST",
     url: "/api/model-adapter/providers",
@@ -1911,6 +1914,7 @@ async function createDefaultChatProvider(app: FastifyInstance): Promise<void> {
       name: "my",
       provider_type: "deepseek",
       api_key: "sk-test",
+      ...(options.supportsFunctionCalling ? { supports_function_calling: true } : {}),
       model_map: {
         chat: "deepseek-chat",
       },
