@@ -48,6 +48,23 @@ import type {
   Protocol,
 } from "../../kernel/contracts.js";
 
+/**
+ * 把单条结构化 ChatMessage 渲染成 XML 模型语境（protocol 实例与 monitoring/调试视图共用同一逻辑）。
+ * - assistant 带 tool_calls → <intent>content</intent><tool_calls>…</tool_calls>（从结构化字段重建）
+ * - role:tool → role:user 透传 observation 文本（observation 已含 <tool_result>；XML 模型不认 role:tool）
+ * - 其余（user/assistant final/system）沿用 renderSemanticChatMessage 的语义包装
+ */
+export function renderXmlModelMessage(message: ChatMessage): ChatMessage {
+  if (message.role === "tool") {
+    return { role: "user", content: message.content };
+  }
+  if (message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0) {
+    const intent = message.content ? renderSemanticBlock("intent", message.content) : "";
+    return { role: "assistant", content: `${intent}${serializeToolCallsToXml(message.tool_calls)}` };
+  }
+  return renderSemanticChatMessage(message);
+}
+
 /** XML 协议修复重试上限（对齐 L267，maxProtocolRepairAttempts=2）。 */
 const MAX_PROTOCOL_REPAIR_ATTEMPTS = 2;
 
@@ -311,27 +328,10 @@ export class XmlProtocol implements Protocol {
 
   /**
    * 把结构化 ChatMessage[] 序列化成 XML 模型语境（物理边界）。
-   * - assistant 带 tool_calls → <intent>content</intent><tool_calls>…</tool_calls>（从结构化字段重建）
-   * - role:tool → role:user + <tool_result>（XML 模型不认 role:tool）
-   * - 其余（user/assistant final）沿用 XML 语义包装
+   * 见模块级 renderXmlModelMessage（protocol 实例与 monitoring/调试视图共用同一渲染逻辑）。
    */
   toModelMessages(messages: ChatMessage[]): ChatMessage[] {
-    return messages.map((message) => this.renderXmlMessage(message));
-  }
-
-  private renderXmlMessage(message: ChatMessage): ChatMessage {
-    if (message.role === "tool") {
-      // observation.observation 已是 <tool_result> 包装（renderToolResultContent）。
-      // XML 模型不认 role:tool，转 user 透传 observation 文本即可，不再重复包装。
-      return { role: "user", content: message.content };
-    }
-    if (message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0) {
-      const intent = message.content ? renderSemanticBlock("intent", message.content) : "";
-      return { role: "assistant", content: `${intent}${serializeToolCallsToXml(message.tool_calls)}` };
-    }
-    // 其余（user / assistant final / system context）沿用通用语义包装（renderSemanticChatMessage
-    // 含 system 的 <runtime_instruction>/<context>、user 的 <user_input>、assistant final 的 <assistant_final>）。
-    return renderSemanticChatMessage(message);
+    return messages.map(renderXmlModelMessage);
   }
 
   /**

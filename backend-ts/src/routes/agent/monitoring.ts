@@ -7,7 +7,9 @@ import { resolveRuntimeContextSettings } from "../../services/agent/context-comp
 import { buildAgentPromptContext, buildFullSystemPrompt } from "../../services/agent/prompt-builder/index.js";
 import { resolveToolInstructionMode } from "../../services/agent/kernel-plugins/protocol/select-protocol.js";
 import { resolveRuntimeHistoryView } from "../../services/agent/context-builder/index.js";
-import type { MessageToolCall } from "../../contracts/session.js";
+import { messagesToConversation } from "../../services/agent/context-builder/history-view.js";
+import { renderXmlModelMessage } from "../../services/agent/kernel-plugins/protocol/xml-protocol.js";
+import type { ChatMessage, ChatToolCall } from "../../services/integrations/llm-chat-client.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import { isRecord } from "../../utils/guards.js";
@@ -133,12 +135,19 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       : null;
     const memorySnapshot = getMemorySnapshot(context?.metadata.sources ?? []);
     const threadKey = context?.metadata.thread_key ?? "root";
-    const history = sessionId
+    const historyRawMessages = sessionId
       ? resolveRuntimeHistoryView(
           options.container.conversationStore.listMessages(sessionId, 500, 0, threadKey).items,
         )
-          .map(toContextHistoryItem)
       : [];
+    // 渲染成"实际请求"形态（与模型收到的一致）：结构化 ChatMessage → 按 protocol 渲染
+    // （XML 序列化回 <user_input>/<tool_result>/<tool_calls> 语境，FC 直传），保留 seq/msg_type 便于反查 DB。
+    const renderHistoryMessage = toolInstructionMode === "native"
+      ? (message: ChatMessage): ChatMessage => ({ ...message })
+      : renderXmlModelMessage;
+    const history = messagesToConversation(historyRawMessages).map((message, index) =>
+      toContextHistoryItem(renderHistoryMessage(message), historyRawMessages[index]),
+    );
     const systemPromptTokens = estimateTokens(systemPrompt) + estimateTokens(asString(memorySnapshot?.rendered_block) ?? "");
     const historyTokens = history.reduce((total, item) => total + item.tokens, 0);
     const budgetTokens = options.container.agentContextService.resolveContextBudget(agent, resolved.provider, resolved.modelName);
@@ -256,15 +265,10 @@ function buildSystemMetrics(options: RouteOptions): {
   };
 }
 
-function toContextHistoryItem(message: {
-  seq: number | null;
-  role: string;
-  content: string;
-  metadata: Record<string, unknown>;
-  tool_calls?: MessageToolCall[] | undefined;
-  tool_call_id?: string | undefined;
-  name?: string | undefined;
-}): {
+function toContextHistoryItem(
+  message: ChatMessage,
+  original: { seq: number | null; metadata: Record<string, unknown> } | undefined,
+): {
   seq: number | null;
   role: string;
   content_preview: string;
@@ -276,24 +280,22 @@ function toContextHistoryItem(message: {
   react_intermediate: boolean;
   msg_type: string | null;
   round: number | null;
-  tool_calls?: MessageToolCall[];
+  tool_calls?: ChatToolCall[];
   tool_call_id: string | null;
   name: string | null;
 } {
-  const isSystemMessage = message.role === "system";
-  const truncated = !isSystemMessage && message.content.length > 200;
   return {
-    seq: message.seq,
+    seq: original?.seq ?? null,
     role: message.role,
-    content_preview: truncated ? `${message.content.slice(0, 200)}...` : message.content,
+    content_preview: message.content,
     content_length: message.content.length,
-    is_preview_truncated: truncated,
-    can_load_full_content: !isSystemMessage && typeof message.seq === "number",
+    is_preview_truncated: false,
+    can_load_full_content: false,
     tokens: estimateTokens(message.content),
-    is_compression_summary: Boolean(message.metadata.compression),
-    react_intermediate: Boolean(message.metadata.react_intermediate),
-    msg_type: normalizeString(message.metadata.msg_type),
-    round: typeof message.metadata.round === "number" ? message.metadata.round : null,
+    is_compression_summary: Boolean(original?.metadata.compression),
+    react_intermediate: Boolean(original?.metadata.react_intermediate),
+    msg_type: normalizeString(original?.metadata.msg_type),
+    round: typeof original?.metadata.round === "number" ? original.metadata.round : null,
     ...(message.tool_calls && message.tool_calls.length > 0 ? { tool_calls: message.tool_calls } : {}),
     tool_call_id: message.tool_call_id ?? null,
     name: message.name ?? null,
