@@ -106,7 +106,24 @@ export class AgentContextCompressionService {
     return resolveRuntimeContextSettings(agent, this.systemConfig.getConfig());
   }
 
-  async compressIfNeeded(input: CompressIfNeededInput): Promise<ContextCompressionResult> {
+  /**
+   * 加载并解析压缩候选历史（settings/budget + store 历史扫描 + 压缩视图归并 + token 计数）。
+   * compressIfNeeded 与 forceCompactSession 的共享前置——二者仅"门控条件"（阈值 vs 非空）不同。
+   */
+  private loadCompressionHistory(input: {
+    sessionId: string;
+    agent: AgentConfig;
+    provider: ModelProviderConfig;
+    modelName: string;
+    threadKey?: string | null | undefined;
+  }): {
+    threadKey: string;
+    settings: RuntimeContextSettings;
+    budgetTokens: number;
+    rawMessageCount: number;
+    historyResolved: MessageInfo[];
+    historyTokens: number;
+  } {
     const threadKey = input.threadKey?.trim() || "root";
     const settings = this.resolveContextSettings(input.agent);
     const budgetTokens = this.resolveContextBudget(input.agent, input.provider, input.modelName);
@@ -115,26 +132,23 @@ export class AgentContextCompressionService {
       .items.filter(isCompressibleHistoryMessage);
     const historyResolved = resolveCompressionView(rawMessages);
     const historyTokens = countMessagesTokens(historyResolved);
+    return { threadKey, settings, budgetTokens, rawMessageCount: rawMessages.length, historyResolved, historyTokens };
+  }
+
+  async compressIfNeeded(input: CompressIfNeededInput): Promise<ContextCompressionResult> {
+    const loaded = this.loadCompressionHistory(input);
+    const { threadKey, budgetTokens, historyTokens, settings } = loaded;
     const thresholdTokens = Math.floor(budgetTokens * settings.compressionTriggerRatio);
 
     if (historyTokens < thresholdTokens) {
       return skipped("below_threshold", budgetTokens, historyTokens, thresholdTokens);
     }
 
-    const startIndex = historyResolved[0]?.metadata.compression ? 1 : 0;
-    const candidates = historyResolved.slice(startIndex);
-    const preserveCount = settings.preserveRecentTurns * 2;
-    if (candidates.length <= preserveCount) {
-      return skipped("insufficient_candidates", budgetTokens, historyTokens, thresholdTokens);
+    const selected = selectCompressibleSegment(loaded.historyResolved, settings);
+    if (!selected.ok) {
+      return skipped(selected.reason, budgetTokens, historyTokens, thresholdTokens);
     }
-
-    const segment = preserveCount > 0 ? candidates.slice(0, candidates.length - preserveCount) : [...candidates];
-    const replacesUpToSeq = lastPositiveSeq(segment);
-    if (!segment.length || replacesUpToSeq === null) {
-      return skipped("missing_segment_seq", budgetTokens, historyTokens, thresholdTokens);
-    }
-
-    const existingSummary = startIndex === 1 ? historyResolved[0]?.content ?? "" : "";
+    const { segment, replacesUpToSeq, existingSummary } = selected;
     await input.onEvent?.({
       type: "context.compression_start",
       data: {
@@ -233,34 +247,20 @@ export class AgentContextCompressionService {
     signal?: AbortSignal | undefined;
     onEvent?: ((event: ContextCompressionEvent) => void | Promise<void>) | undefined;
   }): Promise<ForceContextCompressionResult> {
-    const threadKey = input.threadKey?.trim() || "root";
-    const settings = this.resolveContextSettings(input.agent);
-    const budgetTokens = this.resolveContextBudget(input.agent, input.provider, input.modelName);
-    const rawMessages = this.conversationStore
-      .listMessages(input.sessionId, DEFAULT_HISTORY_SCAN_LIMIT, 0, threadKey)
-      .items.filter(isCompressibleHistoryMessage);
-    const historyResolved = resolveCompressionView(rawMessages);
-    if (!historyResolved.length) {
-      return forceSkipped("no_history", rawMessages.length);
+    const loaded = this.loadCompressionHistory(input);
+    const { threadKey, budgetTokens, settings } = loaded;
+    if (!loaded.historyResolved.length) {
+      return forceSkipped("no_history", loaded.rawMessageCount);
     }
-
-    const beforeTokens = countMessagesTokens(historyResolved);
-    const startIndex = historyResolved[0]?.metadata.compression ? 1 : 0;
-    const candidates = historyResolved.slice(startIndex);
-    const preserveCount = settings.preserveRecentTurns * 2;
-    if (candidates.length <= preserveCount) {
-      return forceSkipped("insufficient_candidates", rawMessages.length);
+    const selected = selectCompressibleSegment(loaded.historyResolved, settings);
+    if (!selected.ok) {
+      return forceSkipped(selected.reason, loaded.rawMessageCount);
     }
-    const segment = preserveCount > 0 ? candidates.slice(0, candidates.length - preserveCount) : [...candidates];
-    const replacesUpToSeq = lastPositiveSeq(segment);
-    if (!segment.length || replacesUpToSeq === null) {
-      return forceSkipped("missing_segment_seq", rawMessages.length);
-    }
-
+    const { segment, replacesUpToSeq, existingSummary } = selected;
+    const beforeTokens = loaded.historyTokens;
     const runId = input.runId ?? null;
     const taskId = input.taskId ?? null;
     const requestId = input.requestId ?? null;
-    const existingSummary = startIndex === 1 ? historyResolved[0]?.content ?? "" : "";
     await input.onEvent?.({
       type: "context.compression_start",
       data: {
@@ -292,7 +292,7 @@ export class AgentContextCompressionService {
     });
     if (summaryContent === null) {
       // LLM 摘要不可用：强制压缩同样不做有损截断，如实回报未执行。
-      return forceSkipped("summary_unavailable", rawMessages.length);
+      return forceSkipped("summary_unavailable", loaded.rawMessageCount);
     }
 
     const summaryMessage = this.conversationStore.insertCompressionMessage({
@@ -342,7 +342,7 @@ export class AgentContextCompressionService {
     return {
       status: "success",
       reason: "success",
-      before: rawMessages.length,
+      before: loaded.rawMessageCount,
       after: messagesAfter.length,
       tokens_saved: Math.max(0, beforeTokens - afterTokens),
       summary_content: summaryContent,
@@ -631,6 +631,31 @@ function formatCompactResponse(raw: string): string {
 
 function countMessagesTokens(messages: MessageInfo[]): number {
   return messages.reduce((total, message) => total + estimateTokens(message.content), 0);
+}
+
+/** 段选择结果:就绪(可压缩段 + 起始 seq + 既有摘要),或带原因的跳过。 */
+type SegmentSelection =
+  | { ok: true; segment: MessageInfo[]; replacesUpToSeq: number; existingSummary: string }
+  | { ok: false; reason: "insufficient_candidates" | "missing_segment_seq" };
+
+/**
+ * 从压缩视图历史中切出可压缩段:跳过开头既有摘要、保留最近 N 轮、定位段尾 seq。
+ * compressIfNeeded / forceCompactSession 共享——纯函数,不依赖门控(阈值/强制)差异。
+ */
+function selectCompressibleSegment(historyResolved: MessageInfo[], settings: RuntimeContextSettings): SegmentSelection {
+  const startIndex = historyResolved[0]?.metadata.compression ? 1 : 0;
+  const candidates = historyResolved.slice(startIndex);
+  const preserveCount = settings.preserveRecentTurns * 2;
+  if (candidates.length <= preserveCount) {
+    return { ok: false, reason: "insufficient_candidates" };
+  }
+  const segment = preserveCount > 0 ? candidates.slice(0, candidates.length - preserveCount) : [...candidates];
+  const replacesUpToSeq = lastPositiveSeq(segment);
+  if (!segment.length || replacesUpToSeq === null) {
+    return { ok: false, reason: "missing_segment_seq" };
+  }
+  const existingSummary = startIndex === 1 ? historyResolved[0]?.content ?? "" : "";
+  return { ok: true, segment, replacesUpToSeq, existingSummary };
 }
 
 function isCompressibleHistoryMessage(message: MessageInfo): boolean {
