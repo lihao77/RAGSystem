@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { AgentConfig } from "../../contracts/agent-config.js";
-import type { AgentDelegationService } from "../../services/agent/delegation/index.js";
+import type { DelegationPort } from "../../services/agent/delegation/port.js";
 import {
   errorResult,
   readCallAgentArguments,
@@ -18,7 +18,7 @@ import { buildTool, type RuntimeTool } from "../Tool.js";
 import { metadataFrom, optionalInteger, optionalString } from "../schema-helpers.js";
 
 interface DelegationToolDeps {
-  getAgentDelegation: () => AgentDelegationService | null;
+  getAgentDelegation: () => DelegationPort | null;
 }
 
 const callAgentSchema = z.object({

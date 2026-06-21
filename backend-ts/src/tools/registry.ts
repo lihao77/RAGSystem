@@ -1,5 +1,5 @@
 import type { AgentConfig } from "../contracts/agent-config.js";
-import type { AgentDelegationService } from "../services/agent/delegation/index.js";
+import type { DelegationPort } from "../services/agent/delegation/port.js";
 import type { VectorLibraryService } from "../services/knowledge/vector-library-service.js";
 import type { McpService } from "../services/integrations/mcp-service.js";
 import type { CodeExecutionToolService } from "./CodeExecutionTool/CodeExecution.js";
@@ -36,7 +36,7 @@ export interface RuntimeToolRegistryDeps {
   mcp?: McpService | null | undefined;
   codeExecutionTools?: CodeExecutionToolService | null | undefined;
   skillTools?: SkillToolService | null | undefined;
-  getAgentDelegation?: (() => AgentDelegationService | null) | undefined;
+  getAgentDelegation?: (() => DelegationPort | null) | undefined;
 }
 
 export interface RuntimeToolRegistry {

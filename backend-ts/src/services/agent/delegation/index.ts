@@ -13,6 +13,7 @@ import type { ChildAgentInfo, IChildAgentStore, IMessageStore, IRunStore, ISessi
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { RuntimeExecutionConfigResolver } from "../execution/runtime-core-service.js";
 import type { RuntimeToolExecutionContext, RuntimeToolExecutor, ToolExecutionResult } from "../../runtime/runtime-tool-types.js";
+import type { DelegationPort, AgentDelegationInput, SendMessageInput, ListChildAgentsInput } from "./port.js";
 import { publishAgentCallEnd, publishAgentCallStart } from "./events.js";
 import {
   applyWorkspaceOverride,
@@ -31,25 +32,7 @@ import {
   type DelegationRunResult,
 } from "./results.js";
 
-export interface AgentDelegationInput {
-  agentName: string;
-  task: string;
-  contextHint?: string | null | undefined;
-  callId?: string | null | undefined;
-}
-
-export interface SendMessageInput {
-  childAgentId: string;
-  message: string;
-  callId?: string | null | undefined;
-}
-
-export interface ListChildAgentsInput {
-  agentName?: string | null | undefined;
-  limit?: number | null | undefined;
-}
-
-export class AgentDelegationService {
+export class AgentDelegationService implements DelegationPort {
   private runtimeToolsProvider: (() => RuntimeToolExecutor | null) | null = null;
 
   constructor(

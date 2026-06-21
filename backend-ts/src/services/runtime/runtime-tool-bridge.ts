@@ -2,7 +2,7 @@ import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { MemoryToolService } from "../../tools/MemoryTools/MemoryExecution.js";
 import type { LocalDocumentToolService } from "../../tools/DocumentTools/DocumentExecution.js";
 import type { CodeExecutionToolService } from "../../tools/CodeExecutionTool/CodeExecution.js";
-import type { AgentDelegationService } from "../agent/delegation/index.js";
+import type { DelegationPort } from "../agent/delegation/port.js";
 import type { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
 import type { LocalSearchToolService } from "../../tools/LocalSearchTools/SearchExecution.js";
 import type { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
@@ -61,7 +61,7 @@ export interface RuntimeToolBridgeDeps {
  * 准备/审批/Hook 三簇职责分别下沉到 ToolPreparer / ToolApprovalCoordinator / ToolHookOrchestrator。
  */
 export class RuntimeToolBridge implements RuntimeToolExecutor {
-  private agentDelegation: AgentDelegationService | null = null;
+  private agentDelegation: DelegationPort | null = null;
   private readonly toolRegistry: RuntimeToolRegistry;
   private readonly preparer: ToolPreparer;
   private readonly approval: ToolApprovalCoordinator;
@@ -88,7 +88,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     this.hookOrchestrator = new ToolHookOrchestrator(deps.hooks ?? null);
   }
 
-  setAgentDelegation(agentDelegation: AgentDelegationService | null): void {
+  setAgentDelegation(agentDelegation: DelegationPort | null): void {
     this.agentDelegation = agentDelegation;
   }
 
