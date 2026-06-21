@@ -203,27 +203,23 @@ export class MessageOps implements IMessageStore {
       return 0;
     }
 
-    const rows = this.db
-      .prepare("SELECT id FROM messages WHERE session_id=? AND seq > ?")
-      .all(sessionId, afterSeq) as Array<{ id: string }>;
-    if (rows.length === 0) {
-      return 0;
-    }
-
-    const messageIds = rows.map((row) => row.id);
-
-    runInTransaction(this.db, () => {
-      if (messageIds.length > 0) {
-        const placeholders = messageIds.map(() => "?").join(",");
-        this.db.prepare(`DELETE FROM run_steps WHERE message_id IN (${placeholders})`).run(...messageIds);
+    return runInTransaction(this.db, () => {
+      const rows = this.db
+        .prepare("SELECT id FROM messages WHERE session_id=? AND seq > ?")
+        .all(sessionId, afterSeq) as Array<{ id: string }>;
+      if (rows.length === 0) {
+        return 0;
       }
+      const messageIds = rows.map((row) => row.id);
+      const placeholders = messageIds.map(() => "?").join(",");
+      this.db.prepare(`DELETE FROM run_steps WHERE message_id IN (${placeholders})`).run(...messageIds);
       this.db.prepare("DELETE FROM messages WHERE session_id=? AND seq > ?").run(sessionId, afterSeq);
       this.db
         .prepare("DELETE FROM child_agents WHERE session_id=? AND created_seq IS NOT NULL AND created_seq > ?")
         .run(sessionId, afterSeq);
       this.db.prepare("UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=?").run(sessionId);
+      return rows.length;
     });
-    return rows.length;
   }
 
   updateMessage(input: {
