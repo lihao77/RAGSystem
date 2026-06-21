@@ -681,14 +681,6 @@ describe("AgentKernel", () => {
           agent_name: "orchestrator_agent",
         },
       },
-      {
-        type: "runtime.done",
-        data: {
-          content: "hello core",
-          agent_name: "orchestrator_agent",
-          finish_reason: null,
-        },
-      },
     ]);
   });
 
@@ -814,10 +806,6 @@ describe("AgentKernel", () => {
         }),
         expect.objectContaining({
           type: "runtime.output_delta",
-          data: expect.objectContaining({ content: "I used the session memory index." }),
-        }),
-        expect.objectContaining({
-          type: "runtime.done",
           data: expect.objectContaining({ content: "I used the session memory index." }),
         }),
       ]),
@@ -1190,10 +1178,6 @@ describe("AgentKernel", () => {
             raw_result_available: true,
           }),
         },
-        {
-          type: "runtime.done",
-          data: expect.objectContaining({ content: "recovered" }),
-        },
       ]),
     );
   });
@@ -1236,7 +1220,6 @@ describe("AgentKernel", () => {
     expect(tools.calls).toHaveLength(1);
     expect(events.some((event) => event.type === "runtime.tool_result")).toBe(false);
     expect(events.some((event) => event.type === "runtime.error")).toBe(false);
-    expect(events.some((event) => event.type === "runtime.done")).toBe(false);
   });
 
   it("repairs an empty XML streaming round instead of failing before protocol feedback", async () => {
@@ -1276,14 +1259,6 @@ describe("AgentKernel", () => {
           role: "user",
           content: expect.stringContaining("no final_answer or tool_calls found"),
         }),
-      ]),
-    );
-    expect(events).toEqual(
-      expect.arrayContaining([
-        {
-          type: "runtime.done",
-          data: expect.objectContaining({ content: "recovered after empty stream" }),
-        },
       ]),
     );
   });
@@ -1332,10 +1307,6 @@ describe("AgentKernel", () => {
             success: false,
             summary: expect.stringContaining("Tool result observation failed"),
           }),
-        },
-        {
-          type: "runtime.done",
-          data: expect.objectContaining({ content: "recovered after observation error" }),
         },
       ]),
     );

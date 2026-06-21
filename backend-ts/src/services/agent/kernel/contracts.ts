@@ -26,14 +26,15 @@ import type { KernelContext } from "./kernel-context.js";
 export type { KernelContext } from "./kernel-context.js";
 
 /**
- * 运行时事件（10 种类型）。
+ * 运行时事件（9 种类型）。
  *
  * 下游分流（由 publishRuntimeEvent 决定，非内核/Protocol 职责）：
  * - output_delta / first_token / intent_delta / error：仅进 outbox 投递
  * - tool_call / tool_result / intent_complete：写 run_step + outbox（同事务）
  * - assistant_intermediate / observation_complete：写消息表（addMessage）
- * - runtime.done：现状为死事件（publishRuntimeEvent 无此分支，经 onEvent 透传后被静默丢弃）；
- *   保留仅为维持"10 种不变"。
+ *
+ * 运行结束不再发事件：内核循环结束直接返回 result，由 run-engine 据返回值落终态，
+ * 无需运行时事件透传（旧 runtime.done 是无下游消费的死事件，已删）。
  */
 export type AgentRuntimeEvent =
   | {
@@ -72,14 +73,6 @@ export type AgentRuntimeEvent =
         content: string;
         agent_name: string;
         round: number;
-      };
-    }
-  | {
-      type: "runtime.done";
-      data: {
-        content: string;
-        agent_name: string;
-        finish_reason: string | null;
       };
     }
   | {

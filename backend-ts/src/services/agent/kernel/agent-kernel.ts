@@ -16,8 +16,7 @@
  * 中断 / observation 拼回也在插件里，内核不感知。
  *
  * 事件：
- * - runtime.done：循环结束后 emit。注意这是死事件
- *   （publishRuntimeEvent 无对应分支，经 sink 透传后被静默丢弃）——保留 emit 行为不变即可。
+ * - 运行结束不发事件：循环结束直接 return result，由 run-engine 据返回值落终态。
  * - abort：直接重抛，不发 error 事件（`!signal.aborted && !isAbortError` 守卫）。
  * - 其他异常：emit runtime.error 后重抛。
  */
@@ -114,16 +113,7 @@ export class AgentKernel {
         );
         break;
       }
-      const result = ctx.toResult();
-      this.events.emit({
-        type: "runtime.done",
-        data: {
-          content: result.content,
-          agent_name: session.agent.agent_name,
-          finish_reason: result.finish_reason,
-        },
-      });
-      return result;
+      return ctx.toResult();
     } catch (error) {
       if (isAbortError(error)) {
         throw error;
