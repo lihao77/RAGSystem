@@ -8,7 +8,7 @@ import {
 } from "../../src/services/agent/execution/index.js";
 import { AgentSessionApplication } from "../../src/services/sessions/index.js";
 import {
-  AgentRuntimeContextBuilder,
+  AgentContextBuilder,
   RecentMessagesContextSource,
 } from "../../src/services/agent/context-builder/index.js";
 import { AgentContextCompressionService } from "../../src/services/agent/context-compression/index.js";
@@ -169,7 +169,7 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
     ? { error: (bindings, message) => errors.push({ ...bindings, message }) }
     : null;
   const client = new FakeChatClient(mode, "the answer");
-  const contextBuilder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(store)]);
+  const contextBuilder = new AgentContextBuilder([new RecentMessagesContextSource(store)]);
   const contextService = new AgentContextService(
     contextBuilder,
     new AgentContextCompressionService(store, client, new SystemConfigService()),

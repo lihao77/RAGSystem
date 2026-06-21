@@ -1,5 +1,5 @@
 import type { MemoryScopeSpec } from "../../../contracts/memory-store/index.js";
-import type { RuntimeSessionMetadataPort } from "./types.js";
+import type { SessionMetadataPort } from "./types.js";
 import { DEFAULT_MICROCOMPACT_TTL_SECONDS } from "./types.js";
 
 /**
@@ -46,7 +46,7 @@ export function isMemoryScopeName(value: unknown): value is MemoryScopeSpec["sco
   return value === "team" || value === "session" || value === "agent" || value === "workspace";
 }
 
-export function isRuntimeSessionMetadataPort(value: unknown): value is RuntimeSessionMetadataPort {
+export function isSessionMetadataPort(value: unknown): value is SessionMetadataPort {
   return Boolean(value && typeof value === "object" && "getSession" in value && typeof value.getSession === "function");
 }
 

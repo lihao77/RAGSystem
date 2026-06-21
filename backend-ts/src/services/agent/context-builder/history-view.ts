@@ -1,6 +1,5 @@
 import type { MessageInfo } from "../../../contracts/session.js";
 import type { ChatMessage } from "../../integrations/llm-chat-client.js";
-import type { RuntimeHistoryMessageInfo } from "./types.js";
 import { MICROCOMPACT_CLEARED_LABEL } from "./types.js";
 import { numberOrNull } from "./helpers.js";
 
@@ -17,7 +16,7 @@ export function resolveCompressionView(messages: MessageInfo[]): MessageInfo[] {
 
 export function resolveRuntimeHistoryView(
   messages: MessageInfo[],
-): RuntimeHistoryMessageInfo[] {
+): MessageInfo[] {
   const filteredMessages = filterRuntimeHistoryMessages(messages);
   const compressionView = resolveCompressionViewDetailed(filteredMessages);
   return compressionView.messages;
@@ -109,7 +108,7 @@ export function resolveCompressionViewDetailed(messages: MessageInfo[]): Compres
   };
 }
 
-export function messagesToConversation(messages: RuntimeHistoryMessageInfo[]): ChatMessage[] {
+export function messagesToConversation(messages: MessageInfo[]): ChatMessage[] {
   const conversation: ChatMessage[] = [];
   for (const message of messages) {
     if (message.role === "user" || message.role === "assistant" || message.role === "system" || message.role === "tool") {
@@ -130,10 +129,10 @@ export function messagesToConversation(messages: RuntimeHistoryMessageInfo[]): C
 }
 
 export function microcompactRuntimeHistoryMessages(
-  messages: RuntimeHistoryMessageInfo[],
+  messages: MessageInfo[],
   keepRecentTools: number,
 ): {
-  messages: RuntimeHistoryMessageInfo[];
+  messages: MessageInfo[];
   observationCount: number;
   clearedCount: number;
 } {
@@ -171,11 +170,11 @@ export function microcompactRuntimeHistoryMessages(
   };
 }
 
-export function countObservationMessages(messages: RuntimeHistoryMessageInfo[]): number {
+export function countObservationMessages(messages: MessageInfo[]): number {
   return messages.filter((message) => message.metadata.msg_type === "observation").length;
 }
 
-function microcompactClearedContent(message: RuntimeHistoryMessageInfo): string {
+function microcompactClearedContent(message: MessageInfo): string {
   if (message.content === MICROCOMPACT_CLEARED_LABEL || message.content.startsWith("[工具结果已清理")) {
     return message.content;
   }

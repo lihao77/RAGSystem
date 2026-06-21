@@ -6,7 +6,7 @@ import { AgentContextCompressionService } from "../../src/services/agent/context
 import type { RuntimeModelProviderPort } from "../../src/services/agent/execution/runtime-core-service.js";
 import { AgentContextService } from "../../src/services/agent/context/index.js";
 import {
-  AgentRuntimeContextBuilder,
+  AgentContextBuilder,
   RecentMessagesContextSource,
   resolveCompressionView,
 } from "../../src/services/agent/context-builder/index.js";
@@ -429,7 +429,7 @@ function buildFacade(): { service: AgentContextService; chatClient: FakeSummaryC
       min_context_budget: 1000,
     },
   });
-  const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(store)], {
+  const builder = new AgentContextBuilder([new RecentMessagesContextSource(store)], {
     systemConfig: { getConfig: () => ({ waiting: { local_cache_ttl_seconds: 600 } }) },
   });
   const chatClient = new FakeSummaryClient();

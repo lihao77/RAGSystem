@@ -11,7 +11,7 @@
  * 故 native FC 只需一个 NativeHybridProtocol，厂商差异下沉到 llm-chat-client。
  *
  * toolInstructionMode 随协议形态产出（native=不注入 XML 说明走厂商 FC；xml=注入 XML 协议说明），
- * 由 createRuntimeKernel 绑进 Context 实例，不渗进内核。
+ * 由 createAgentKernel 绑进 Context 实例，不渗进内核。
  */
 
 import type { ChatMessage, LlmChatClient } from "../../../integrations/llm-chat-client.js";

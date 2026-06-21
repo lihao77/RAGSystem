@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
 import {
-  AgentRuntimeContextBuilder,
+  AgentContextBuilder,
   RecentMessagesContextSource,
 } from "../../src/services/agent/context-builder/index.js";
 import { AgentContextCompressionService } from "../../src/services/agent/context-compression/index.js";
@@ -52,7 +52,7 @@ describe("AgentDelegationService", () => {
       client,
       os.tmpdir(),
       new AgentContextService(
-        new AgentRuntimeContextBuilder([new RecentMessagesContextSource(store)]),
+        new AgentContextBuilder([new RecentMessagesContextSource(store)]),
         new AgentContextCompressionService(store, client, new SystemConfigService()),
         new SystemConfigService(),
       ),

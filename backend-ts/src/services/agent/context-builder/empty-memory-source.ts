@@ -1,9 +1,9 @@
-import type { AgentRuntimeContextContribution, AgentRuntimeContextSource } from "./types.js";
+import type { AgentContextContribution, AgentContextSource } from "./types.js";
 
-export class EmptyMemoryContextSource implements AgentRuntimeContextSource {
+export class EmptyMemoryContextSource implements AgentContextSource {
   readonly name = "memory";
 
-  build(): AgentRuntimeContextContribution {
+  build(): AgentContextContribution {
     return {
       conversation: [],
       metadata: {

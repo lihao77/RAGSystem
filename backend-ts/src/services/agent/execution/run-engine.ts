@@ -11,7 +11,7 @@ import type { KernelSession, MessageRefresher } from "../kernel/contracts.js";
 import { DefaultHookRegistry } from "../kernel/hook-registry.js";
 import { refreshStablePrefixCache } from "../kernel/stable-prefix.js";
 import { RuntimeEventSink } from "../kernel-plugins/events/runtime-event-sink.js";
-import { createRuntimeKernel } from "../kernel-plugins/create-runtime-kernel.js";
+import { createAgentKernel } from "../kernel-plugins/create-agent-kernel.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { ChatMessage, LlmChatClient } from "../../integrations/llm-chat-client.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
@@ -379,7 +379,7 @@ export class AgentRunEngine {
           this.logger ?? undefined,
         );
       });
-      const kernel = createRuntimeKernel({
+      const kernel = createAgentKernel({
         llmChatClient: this.llmChatClient,
         provider: input.provider,
         dataRoot: this.dataRoot,

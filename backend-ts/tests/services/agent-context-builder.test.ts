@@ -7,13 +7,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { MessageInfo } from "../../src/contracts/session.js";
 import {
-  AgentRuntimeContextBuilder,
+  AgentContextBuilder,
   EmptyMemoryContextSource,
   MemoryIndexContextSource,
   RecentMessagesContextSource,
-  type AgentRuntimeContextSource,
-  type RuntimeConversationHistoryPort,
-  type RuntimeSessionMetadataPort,
+  type AgentContextSource,
+  type ConversationHistoryPort,
+  type SessionMetadataPort,
 } from "../../src/services/agent/context-builder/index.js";
 
 const tempRoots: string[] = [];
@@ -24,7 +24,7 @@ afterEach(() => {
   }
 });
 
-class InMemoryHistory implements RuntimeConversationHistoryPort {
+class InMemoryHistory implements ConversationHistoryPort {
   readonly calls: Array<{ sessionId: string; limit: number | undefined; threadKey: string | null | undefined }> = [];
 
   constructor(private readonly messages: MessageInfo[]) {}
@@ -35,7 +35,7 @@ class InMemoryHistory implements RuntimeConversationHistoryPort {
   }
 }
 
-class InMemorySessions implements RuntimeSessionMetadataPort {
+class InMemorySessions implements SessionMetadataPort {
   constructor(private readonly metadata: Record<string, unknown>) {}
 
   getSession() {
@@ -48,7 +48,7 @@ class InMemorySessions implements RuntimeSessionMetadataPort {
   }
 }
 
-class InMemorySessionHistory extends InMemoryHistory implements RuntimeSessionMetadataPort {
+class InMemorySessionHistory extends InMemoryHistory implements SessionMetadataPort {
   constructor(
     messages: MessageInfo[],
     private readonly metadata: Record<string, unknown> = {},
@@ -66,7 +66,7 @@ class InMemorySessionHistory extends InMemoryHistory implements RuntimeSessionMe
   }
 }
 
-describe("AgentRuntimeContextBuilder", () => {
+describe("AgentContextBuilder", () => {
   it("builds minimal runtime conversation from recent root user, assistant, and system messages", () => {
     const history = new InMemoryHistory([
       message("user", "hello"),
@@ -74,7 +74,7 @@ describe("AgentRuntimeContextBuilder", () => {
       message("system", "runtime note"),
       message("tool", "tool result"),
     ]);
-    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
+    const builder = new AgentContextBuilder([new RecentMessagesContextSource(history)]);
 
     const context = builder.buildContext({ sessionId: "s1" });
 
@@ -125,7 +125,7 @@ describe("AgentRuntimeContextBuilder", () => {
       }),
       message("assistant", "tail-after-summary", { seq: 5 }),
     ]);
-    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
+    const builder = new AgentContextBuilder([new RecentMessagesContextSource(history)]);
 
     const context = builder.buildContext({ sessionId: "compression-session" });
 
@@ -165,7 +165,7 @@ describe("AgentRuntimeContextBuilder", () => {
       message("tool", "native tool result", { seq: 9 }),
       message("assistant", "final", { seq: 10 }),
     ]);
-    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
+    const builder = new AgentContextBuilder([new RecentMessagesContextSource(history)]);
 
     const context = builder.buildContext({ sessionId: "visibility-session" });
 
@@ -207,7 +207,7 @@ describe("AgentRuntimeContextBuilder", () => {
       }),
       message("assistant", "工具测试完成", { seq: 4, metadata: { run_id: "run-1" } }),
     ]);
-    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
+    const builder = new AgentContextBuilder([new RecentMessagesContextSource(history)]);
 
     const context = builder.buildContext({ sessionId: "s1" });
 
@@ -253,7 +253,7 @@ describe("AgentRuntimeContextBuilder", () => {
       ),
       message("assistant", "测试完成", { seq: 4, metadata: { run_id: "run-1" } }),
     ]);
-    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
+    const builder = new AgentContextBuilder([new RecentMessagesContextSource(history)]);
 
     const context = builder.buildContext({ sessionId: "s1" });
 
@@ -302,7 +302,7 @@ describe("AgentRuntimeContextBuilder", () => {
       }),
       message("assistant", "final", { seq: 8 }),
     ]);
-    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)], {
+    const builder = new AgentContextBuilder([new RecentMessagesContextSource(history)], {
       systemConfig: {
         getConfig: () => ({ waiting: { local_cache_ttl_seconds: 600 } }),
       },
@@ -365,7 +365,7 @@ describe("AgentRuntimeContextBuilder", () => {
         metadata: { react_intermediate: true, msg_type: "observation", round: 3 },
       }),
     ]);
-    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)], {
+    const builder = new AgentContextBuilder([new RecentMessagesContextSource(history)], {
       systemConfig: {
         getConfig: () => ({ waiting: { local_cache_ttl_seconds: 600 } }),
       },
@@ -433,7 +433,7 @@ describe("AgentRuntimeContextBuilder", () => {
         },
       },
     );
-    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)], {
+    const builder = new AgentContextBuilder([new RecentMessagesContextSource(history)], {
       systemConfig: {
         getConfig: () => ({ waiting: { local_cache_ttl_seconds: 60 } }),
       },
@@ -481,7 +481,7 @@ describe("AgentRuntimeContextBuilder", () => {
       }),
       message("assistant", "任务完成", { seq: 4, metadata: { run_id: "run-1" } }),
     ]);
-    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
+    const builder = new AgentContextBuilder([new RecentMessagesContextSource(history)]);
 
     const context = builder.buildContext({ sessionId: "s1" });
 
@@ -498,7 +498,7 @@ describe("AgentRuntimeContextBuilder", () => {
 
   it("supports explicit thread key and history limit", () => {
     const history = new InMemoryHistory([message("user", "child hello"), message("assistant", "child answer")]);
-    const builder = new AgentRuntimeContextBuilder([new RecentMessagesContextSource(history)]);
+    const builder = new AgentContextBuilder([new RecentMessagesContextSource(history)]);
 
     const context = builder.buildContext({
       sessionId: "s2",
@@ -525,14 +525,14 @@ describe("AgentRuntimeContextBuilder", () => {
 
   it("combines context source contributions in declaration order", () => {
     const history = new InMemoryHistory([message("user", "hello")]);
-    const syntheticSource: AgentRuntimeContextSource = {
+    const syntheticSource: AgentContextSource = {
       name: "synthetic",
       build: () => ({
         conversation: [{ role: "assistant", content: "synthetic context" }],
         metadata: { mode: "test" },
       }),
     };
-    const builder = new AgentRuntimeContextBuilder([
+    const builder = new AgentContextBuilder([
       new RecentMessagesContextSource(history),
       syntheticSource,
       new EmptyMemoryContextSource(),
@@ -573,7 +573,7 @@ describe("AgentRuntimeContextBuilder", () => {
       team: "alpha-team",
       workspace_root: "E:/Python/RAGSystem/workspaces/demo-workspace",
     });
-    const builder = new AgentRuntimeContextBuilder([
+    const builder = new AgentContextBuilder([
       new MemoryIndexContextSource(sessions, {
         dataRoot,
       }),
@@ -634,7 +634,7 @@ describe("AgentRuntimeContextBuilder", () => {
     const source = new MemoryIndexContextSource(sessions, {
       dataRoot,
     });
-    const builder = new AgentRuntimeContextBuilder([source]);
+    const builder = new AgentContextBuilder([source]);
     const agent = minimalAgent({
       agentName: "chart_agent",
       allowedScopes: ["session"],
@@ -665,7 +665,7 @@ describe("AgentRuntimeContextBuilder", () => {
   it("can expose memory capabilities without auto-injecting memory indices", () => {
     const dataRoot = makeTempDataRoot();
     writeMemoryIndex(dataRoot, ["sessions", "s5"], "# Session Memory\n");
-    const builder = new AgentRuntimeContextBuilder([
+    const builder = new AgentContextBuilder([
       new MemoryIndexContextSource(new InMemorySessions({}), {
         dataRoot,
       }),

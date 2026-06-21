@@ -1,11 +1,11 @@
 import type {
-  AgentRuntimeContextContribution,
-  AgentRuntimeContextSource,
-  ResolvedAgentRuntimeContextRequest,
-  RuntimeConversationHistoryPort,
-  RuntimeSessionMetadataPort,
+  AgentContextContribution,
+  AgentContextSource,
+  ResolvedAgentContextRequest,
+  ConversationHistoryPort,
+  SessionMetadataPort,
 } from "./types.js";
-import { getString, isRuntimeSessionMetadataPort, readPipelineCache } from "./helpers.js";
+import { getString, isSessionMetadataPort, readPipelineCache } from "./helpers.js";
 import {
   countObservationMessages,
   filterRuntimeHistoryMessages,
@@ -14,15 +14,15 @@ import {
   resolveCompressionViewDetailed,
 } from "./history-view.js";
 
-export class RecentMessagesContextSource implements AgentRuntimeContextSource {
+export class RecentMessagesContextSource implements AgentContextSource {
   readonly name = "recent_messages";
-  private readonly sessions: RuntimeSessionMetadataPort | null;
+  private readonly sessions: SessionMetadataPort | null;
 
-  constructor(private readonly history: RuntimeConversationHistoryPort) {
-    this.sessions = isRuntimeSessionMetadataPort(history) ? history : null;
+  constructor(private readonly history: ConversationHistoryPort) {
+    this.sessions = isSessionMetadataPort(history) ? history : null;
   }
 
-  build(request: ResolvedAgentRuntimeContextRequest): AgentRuntimeContextContribution {
+  build(request: ResolvedAgentContextRequest): AgentContextContribution {
     const messages = this.history.getRecentMessages(request.sessionId, request.historyLimit, request.threadKey);
     const filteredMessages = filterRuntimeHistoryMessages(messages);
     const compressionView = resolveCompressionViewDetailed(filteredMessages);
@@ -63,7 +63,7 @@ export class RecentMessagesContextSource implements AgentRuntimeContextSource {
     };
   }
 
-  private resolveMicrocompactDecision(request: ResolvedAgentRuntimeContextRequest): {
+  private resolveMicrocompactDecision(request: ResolvedAgentContextRequest): {
     requested: boolean;
     applied: boolean;
     reason: string;

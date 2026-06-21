@@ -7,7 +7,7 @@ import type { KernelSession, MessageRefresher } from "../kernel/contracts.js";
 import { DefaultHookRegistry } from "../kernel/hook-registry.js";
 import { refreshStablePrefixCache } from "../kernel/stable-prefix.js";
 import { NullEventSink } from "../kernel-plugins/events/runtime-event-sink.js";
-import { createRuntimeKernel } from "../kernel-plugins/create-runtime-kernel.js";
+import { createAgentKernel } from "../kernel-plugins/create-agent-kernel.js";
 import { buildAgentPromptContext, type AgentPromptConfigResolver } from "../prompt-builder/index.js";
 import type { ChildAgentInfo, IChildAgentStore, IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
@@ -361,7 +361,7 @@ export class AgentDelegationService implements DelegationPort {
           prepared.stablePrefixFingerprint,
         );
       });
-      const kernel = createRuntimeKernel({
+      const kernel = createAgentKernel({
         llmChatClient: this.llmChatClient,
         provider: resolved.provider,
         dataRoot: this.dataRoot,

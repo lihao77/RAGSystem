@@ -10,7 +10,7 @@ import type { AgentRuntimeEvent, KernelResult, MessageRefresher } from "../../sr
 import type { AgentPromptContext } from "../../src/services/agent/prompt-builder/index.js";
 import { DefaultHookRegistry } from "../../src/services/agent/kernel/hook-registry.js";
 import { RuntimeEventSink } from "../../src/services/agent/kernel-plugins/events/runtime-event-sink.js";
-import { createRuntimeKernel } from "../../src/services/agent/kernel-plugins/create-runtime-kernel.js";
+import { createAgentKernel } from "../../src/services/agent/kernel-plugins/create-agent-kernel.js";
 import type {
   ChatCompletionRequest,
   ChatCompletionResult,
@@ -510,7 +510,7 @@ function createTestRuntime(client: LlmChatClient, options?: { dataRoot?: string 
       if (input.onModelRequestSuccess) {
         hooks.register("afterModel", () => input.onModelRequestSuccess?.());
       }
-      const kernel = createRuntimeKernel({
+      const kernel = createAgentKernel({
         llmChatClient: client,
         provider: input.provider,
         dataRoot: options?.dataRoot ?? os.tmpdir(),

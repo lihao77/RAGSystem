@@ -10,9 +10,9 @@ import {
   type ContextCompressionEvent,
   type ContextCompressionResult,
   type ForceContextCompressionResult,
-  type RuntimeContextSettings,
+  type ContextCompressionSettings,
 } from "../context-compression/index.js";
-import { AgentRuntimeContextBuilder, type AgentRuntimeContext } from "../context-builder/index.js";
+import { AgentContextBuilder, type AgentContext } from "../context-builder/index.js";
 import { buildContextUsagePayload } from "./usage.js";
 
 /**
@@ -62,7 +62,7 @@ export interface ForceCompactInput {
 
 export class AgentContextService {
   constructor(
-    private readonly contextBuilder: AgentRuntimeContextBuilder,
+    private readonly contextBuilder: AgentContextBuilder,
     private readonly contextCompression: AgentContextCompressionService,
     private readonly systemConfig: SystemConfigService,
   ) {}
@@ -101,7 +101,7 @@ export class AgentContextService {
     };
   }
 
-  resolveContextSettings(agent: AgentConfig): RuntimeContextSettings {
+  resolveContextSettings(agent: AgentConfig): ContextCompressionSettings {
     return this.contextCompression.resolveContextSettings(agent);
   }
 
@@ -210,7 +210,7 @@ export class AgentContextService {
     provider: ModelProviderConfig | null;
     modelName?: string | null | undefined;
     historyLimit?: number | undefined;
-  }): { context: AgentRuntimeContext; budgetTokens: number } {
+  }): { context: AgentContext; budgetTokens: number } {
     const context = this.contextBuilder.buildContext({
       sessionId: input.sessionId,
       agent: input.agent,
@@ -240,7 +240,7 @@ export class AgentContextService {
  * 判断本次 buildContext 是否真正裁剪了 observation（recent_messages source 的
  * microcompact.cleared_count > 0）。门控判定缓存鲜活/未启用时 cleared_count=0，视为未裁剪。
  */
-function readMicrocompactApplied(context: AgentRuntimeContext): boolean {
+function readMicrocompactApplied(context: AgentContext): boolean {
   const source = context.metadata.sources.find((entry) => entry.name === "recent_messages");
   const microcompact = source?.metadata?.microcompact;
   if (!microcompact || typeof microcompact !== "object") {

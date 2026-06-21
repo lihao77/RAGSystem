@@ -10,7 +10,7 @@ import type { RuntimeModelProviderPort } from "../execution/runtime-core-service
 import { findProviderByRef, normalizeProviderKey } from "../../runtime/provider-lookup.js";
 import { resolveRequestLlmParams } from "../../runtime/llm-params.js";
 
-export interface RuntimeContextSettings {
+export interface ContextCompressionSettings {
   compressionTriggerRatio: number;
   summarizeMaxTokens: number;
   preserveRecentTurns: number;
@@ -102,8 +102,8 @@ export class AgentContextCompressionService {
     return resolveContextBudget(agent, provider, this.systemConfig.getConfig(), modelName);
   }
 
-  resolveContextSettings(agent: AgentConfig): RuntimeContextSettings {
-    return resolveRuntimeContextSettings(agent, this.systemConfig.getConfig());
+  resolveContextSettings(agent: AgentConfig): ContextCompressionSettings {
+    return resolveContextCompressionSettings(agent, this.systemConfig.getConfig());
   }
 
   /**
@@ -118,7 +118,7 @@ export class AgentContextCompressionService {
     threadKey?: string | null | undefined;
   }): {
     threadKey: string;
-    settings: RuntimeContextSettings;
+    settings: ContextCompressionSettings;
     budgetTokens: number;
     rawMessageCount: number;
     historyResolved: MessageInfo[];
@@ -536,7 +536,7 @@ function asNullableString(value: unknown): string | null {
   return trimmed ? trimmed : null;
 }
 
-export function resolveRuntimeContextSettings(agent: AgentConfig, systemConfig: SystemConfigData): RuntimeContextSettings {
+export function resolveContextCompressionSettings(agent: AgentConfig, systemConfig: SystemConfigData): ContextCompressionSettings {
   const contextConfig = asRecord(systemConfig.context) ?? {};
   const behaviorConfig = asRecord(agent.custom_params.behavior) ?? {};
   return {
@@ -564,7 +564,7 @@ export function resolveContextBudget(
   systemConfig: SystemConfigData,
   modelName: string | null,
 ): number {
-  const settings = resolveRuntimeContextSettings(agent, systemConfig);
+  const settings = resolveContextCompressionSettings(agent, systemConfig);
   const systemLlmConfig = asRecord(systemConfig.llm) ?? {};
   const defaultLlm = agent.llm_tiers?.default;
   const contextWindow =
@@ -642,7 +642,7 @@ type SegmentSelection =
  * 从压缩视图历史中切出可压缩段:跳过开头既有摘要、保留最近 N 轮、定位段尾 seq。
  * compressIfNeeded / forceCompactSession 共享——纯函数,不依赖门控(阈值/强制)差异。
  */
-function selectCompressibleSegment(historyResolved: MessageInfo[], settings: RuntimeContextSettings): SegmentSelection {
+function selectCompressibleSegment(historyResolved: MessageInfo[], settings: ContextCompressionSettings): SegmentSelection {
   const startIndex = historyResolved[0]?.metadata.compression ? 1 : 0;
   const candidates = historyResolved.slice(startIndex);
   const preserveCount = settings.preserveRecentTurns * 2;

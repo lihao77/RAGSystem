@@ -2,20 +2,20 @@ import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { MessageInfo, SessionInfo } from "../../../contracts/session.js";
 import type { ChatMessage } from "../../integrations/llm-chat-client.js";
 
-export interface RuntimeConversationHistoryPort {
+export interface ConversationHistoryPort {
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): MessageInfo[];
 }
 
-export interface RuntimeSessionMetadataPort {
+export interface SessionMetadataPort {
   getSession(sessionId: string): Pick<SessionInfo, "metadata"> | null;
   updateSessionMetadata?(sessionId: string, patch: Record<string, unknown>): Record<string, unknown> | null;
 }
 
-export interface RuntimeSystemConfigPort {
+export interface SystemConfigPort {
   getConfig(): Record<string, unknown>;
 }
 
-export interface AgentRuntimeContextRequest {
+export interface AgentContextRequest {
   sessionId: string;
   threadKey?: string | null;
   historyLimit?: number;
@@ -25,7 +25,7 @@ export interface AgentRuntimeContextRequest {
   forceMemoryPrefixRefresh?: boolean;
 }
 
-export interface AgentRuntimeContext {
+export interface AgentContext {
   conversation: ChatMessage[];
   metadata: {
     session_id: string;
@@ -40,19 +40,17 @@ export interface AgentRuntimeContext {
   };
 }
 
-export interface AgentRuntimeContextContribution {
+export interface AgentContextContribution {
   conversation?: ChatMessage[];
   metadata?: Record<string, unknown>;
 }
 
-export interface AgentRuntimeContextSource {
+export interface AgentContextSource {
   readonly name: string;
-  build(request: ResolvedAgentRuntimeContextRequest): AgentRuntimeContextContribution;
+  build(request: ResolvedAgentContextRequest): AgentContextContribution;
 }
 
-export type RuntimeHistoryMessageInfo = MessageInfo;
-
-export interface ResolvedAgentRuntimeContextRequest {
+export interface ResolvedAgentContextRequest {
   sessionId: string;
   threadKey: string;
   historyLimit: number;
@@ -72,6 +70,6 @@ export const DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOLS = 5;
 export const DEFAULT_MICROCOMPACT_TTL_SECONDS = 600;
 export const MICROCOMPACT_CLEARED_LABEL = "[工具结果已清理]";
 
-export interface AgentRuntimeContextBuilderOptions {
-  systemConfig?: RuntimeSystemConfigPort | undefined;
+export interface AgentContextBuilderOptions {
+  systemConfig?: SystemConfigPort | undefined;
 }

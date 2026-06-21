@@ -15,11 +15,11 @@ import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
 import type { EventSink, HookRegistry, MessageRefresher } from "../kernel/contracts.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import { AgentKernel } from "../kernel/agent-kernel.js";
-import { RuntimeContext } from "./context/runtime-context.js";
+import { DefaultContext } from "./context/default-context.js";
 import { selectProtocol } from "./protocol/select-protocol.js";
 import { RuntimeToolProvider } from "./tools/runtime-tool-provider.js";
 
-export interface RuntimeKernelDeps {
+export interface AgentKernelDeps {
   llmChatClient: LlmChatClient;
   /** 阶段二 Phase 2.4 上提：selectProtocol 按其 provider_type + supports_function_calling 分派协议。 */
   provider: ModelProviderConfig;
@@ -29,13 +29,13 @@ export interface RuntimeKernelDeps {
   hooks: HookRegistry;
 }
 
-export function createRuntimeKernel(deps: RuntimeKernelDeps): AgentKernel {
+export function createAgentKernel(deps: AgentKernelDeps): AgentKernel {
   const { protocol, toolInstructionMode } = selectProtocol({
     provider: deps.provider,
     llmChatClient: deps.llmChatClient,
     events: deps.eventSink,
   });
-  const context = new RuntimeContext({ toolInstructionMode, protocol });
+  const context = new DefaultContext({ toolInstructionMode, protocol });
   const tools = new RuntimeToolProvider({ dataRoot: deps.dataRoot, events: deps.eventSink });
   return new AgentKernel({
     context,

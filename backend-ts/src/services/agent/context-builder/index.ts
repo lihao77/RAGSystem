@@ -1,10 +1,10 @@
 import type { ChatMessage } from "../../integrations/llm-chat-client.js";
 import type {
-  AgentRuntimeContext,
-  AgentRuntimeContextBuilderOptions,
-  AgentRuntimeContextRequest,
-  AgentRuntimeContextSource,
-  ResolvedAgentRuntimeContextRequest,
+  AgentContext,
+  AgentContextBuilderOptions,
+  AgentContextRequest,
+  AgentContextSource,
+  ResolvedAgentContextRequest,
 } from "./types.js";
 import {
   DEFAULT_HISTORY_LIMIT,
@@ -25,17 +25,17 @@ export { RecentMessagesContextSource } from "./recent-messages-source.js";
 export { EmptyMemoryContextSource } from "./empty-memory-source.js";
 export { MemoryIndexContextSource } from "./memory-index-source.js";
 
-export class AgentRuntimeContextBuilder {
+export class AgentContextBuilder {
   constructor(
-    private readonly sources: AgentRuntimeContextSource[],
-    private readonly options: AgentRuntimeContextBuilderOptions = {},
+    private readonly sources: AgentContextSource[],
+    private readonly options: AgentContextBuilderOptions = {},
   ) {}
 
-  buildContext(request: AgentRuntimeContextRequest): AgentRuntimeContext {
+  buildContext(request: AgentContextRequest): AgentContext {
     const resolved = resolveContextRequest(request);
     resolved.microcompactTtlSeconds = resolveMicrocompactTtlSeconds(this.options.systemConfig?.getConfig());
     const conversation: ChatMessage[] = [];
-    const sourceMetadata: AgentRuntimeContext["metadata"]["sources"] = [];
+    const sourceMetadata: AgentContext["metadata"]["sources"] = [];
     for (const source of this.sources) {
       const contribution = source.build(resolved);
       const messages = contribution.conversation ?? [];
@@ -59,7 +59,7 @@ export class AgentRuntimeContextBuilder {
   }
 }
 
-function resolveContextRequest(request: AgentRuntimeContextRequest): ResolvedAgentRuntimeContextRequest {
+function resolveContextRequest(request: AgentContextRequest): ResolvedAgentContextRequest {
   return {
     sessionId: request.sessionId,
     threadKey: request.threadKey?.trim() || DEFAULT_THREAD_KEY,

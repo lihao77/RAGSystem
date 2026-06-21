@@ -4,7 +4,7 @@ import { AgentContextCompressionService } from "../agent/context-compression/ind
 import { AgentContextService } from "../agent/context/index.js";
 import { AgentDelegationService } from "../agent/delegation/index.js";
 import {
-  AgentRuntimeContextBuilder,
+  AgentContextBuilder,
   MemoryIndexContextSource,
   RecentMessagesContextSource,
 } from "../agent/context-builder/index.js";
@@ -192,7 +192,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
   const contextCompression = new AgentContextCompressionService(conversationStore, llmChatClient, systemConfig, modelAdapter);
   const memoryConfig = systemConfig.getMemoryConfig();
-  const agentRuntimeContextBuilder = new AgentRuntimeContextBuilder([
+  const agentRuntimeContextBuilder = new AgentContextBuilder([
     new MemoryIndexContextSource(conversationStore, {
       memoryStore,
       indexMaxLines: memoryConfig.index_max_lines,

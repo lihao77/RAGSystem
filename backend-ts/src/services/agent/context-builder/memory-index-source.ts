@@ -1,10 +1,10 @@
 import type { IMemoryStore, MemoryScopeSpec } from "../../../contracts/memory-store/index.js";
 import { MemoryStore } from "../../stores/memory-store.js";
 import type {
-  AgentRuntimeContextContribution,
-  AgentRuntimeContextSource,
-  ResolvedAgentRuntimeContextRequest,
-  RuntimeSessionMetadataPort,
+  AgentContextContribution,
+  AgentContextSource,
+  ResolvedAgentContextRequest,
+  SessionMetadataPort,
 } from "./types.js";
 import { DEFAULT_INDEX_MAX_CHARS, DEFAULT_INDEX_MAX_LINES } from "./types.js";
 import {
@@ -26,14 +26,14 @@ interface MemoryIndexContextSourceOptions {
   indexMaxChars?: number | undefined;
 }
 
-export class MemoryIndexContextSource implements AgentRuntimeContextSource {
+export class MemoryIndexContextSource implements AgentContextSource {
   readonly name = "memory";
   private readonly memoryStore: IMemoryStore;
   private readonly indexMaxLines: number;
   private readonly indexMaxChars: number;
 
   constructor(
-    private readonly sessions: RuntimeSessionMetadataPort,
+    private readonly sessions: SessionMetadataPort,
     options: MemoryIndexContextSourceOptions = {},
   ) {
     this.memoryStore = options.memoryStore ?? new MemoryStore({ dataRoot: options.dataRoot });
@@ -41,7 +41,7 @@ export class MemoryIndexContextSource implements AgentRuntimeContextSource {
     this.indexMaxChars = options.indexMaxChars ?? DEFAULT_INDEX_MAX_CHARS;
   }
 
-  build(request: ResolvedAgentRuntimeContextRequest): AgentRuntimeContextContribution {
+  build(request: ResolvedAgentContextRequest): AgentContextContribution {
     if (!request.agent) {
       return {
         conversation: [],
@@ -106,7 +106,7 @@ export class MemoryIndexContextSource implements AgentRuntimeContextSource {
   }
 
   private buildAndPersistSnapshot(input: {
-    request: ResolvedAgentRuntimeContextRequest;
+    request: ResolvedAgentContextRequest;
     baselineKey: string;
     fingerprint: MemoryPrefixFingerprint;
     scopeCapabilities: MemoryScopeCapabilities;

@@ -3,7 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { ok } from "../../contracts/common.js";
 import type { OutboxStatus } from "../../contracts/conversation-store/index.js";
-import { resolveRuntimeContextSettings } from "../../services/agent/context-compression/index.js";
+import { resolveContextCompressionSettings } from "../../services/agent/context-compression/index.js";
 import { buildAgentPromptContext, buildFullSystemPrompt } from "../../services/agent/prompt-builder/index.js";
 import { renderMessagesForProvider, resolveToolInstructionMode } from "../../services/agent/kernel-plugins/protocol/select-protocol.js";
 import { resolveRuntimeHistoryView } from "../../services/agent/context-builder/index.js";
@@ -302,7 +302,7 @@ function toContextHistoryItem(
 }
 
 function buildCompressionConfig(agent: AgentConfig, options: RouteOptions): Record<string, unknown> {
-  const settings = resolveRuntimeContextSettings(agent, options.container.systemConfig.getConfig());
+  const settings = resolveContextCompressionSettings(agent, options.container.systemConfig.getConfig());
   return {
     strategy: "llm_summarize",
     trigger_ratio: settings.compressionTriggerRatio,
