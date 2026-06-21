@@ -6,7 +6,7 @@ import type { IMessageStore } from "../../../contracts/conversation-store/index.
 import type { ChatMessage, LlmChatClient } from "../../integrations/llm-chat-client.js";
 import type { SystemConfigService } from "../../config/system-config-service.js";
 import { resolveCompressionView } from "../context-builder/index.js";
-import type { RuntimeModelProviderPort } from "../../runtime/runtime-core-service.js";
+import type { RuntimeModelProviderPort } from "../execution/runtime-core-service.js";
 import { findProviderByRef, normalizeProviderKey } from "../../runtime/provider-lookup.js";
 import { resolveRequestLlmParams } from "../../runtime/llm-params.js";
 

@@ -1,7 +1,7 @@
 import type { AgentRunStartResult } from "../../../contracts/execution.js";
 import type { AgentContextService } from "../context/index.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
-import type { RuntimeExecutionConfigResolver } from "../../runtime/runtime-core-service.js";
+import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import { asString, mirrorEventData, normalizeSessionEntryAgent } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";

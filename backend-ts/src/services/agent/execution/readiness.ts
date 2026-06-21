@@ -3,7 +3,7 @@ import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type {
   RuntimeCoreReadinessInput,
   RuntimeExecutionConfigResolver,
-} from "../../runtime/runtime-core-service.js";
+} from "./runtime-core-service.js";
 import { applySessionAgentOverrides, summarizeReadinessFailure } from "./helpers.js";
 
 export type ReadinessResolution =

@@ -10,7 +10,7 @@ import type {
 import { getSelectedLlm as resolveSelectedLlm } from "../../../contracts/execution.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { IRunStore } from "../../../contracts/conversation-store/index.js";
-import type { RuntimeExecutionConfigResolver } from "../../runtime/runtime-core-service.js";
+import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import {
   asString,
   buildRunningExecutionStatus,

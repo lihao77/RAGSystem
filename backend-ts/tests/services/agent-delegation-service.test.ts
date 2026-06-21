@@ -20,7 +20,7 @@ import { createConversationStore } from "../../src/services/stores/conversation-
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
-import type { RuntimeExecutionConfigResolver } from "../../src/services/runtime/runtime-core-service.js";
+import type { RuntimeExecutionConfigResolver } from "../../src/services/agent/execution/runtime-core-service.js";
 
 class FakeChatClient implements LlmChatClient {
   readonly requests: ChatCompletionRequest[] = [];

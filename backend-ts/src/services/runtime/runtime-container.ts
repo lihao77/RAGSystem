@@ -34,7 +34,7 @@ import { McpService } from "../integrations/mcp-service.js";
 import { ModelAdapterService } from "../integrations/model-adapter-service.js";
 import { PendingInteractionService } from "./pending-interaction-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
-import { RuntimeCoreService } from "./runtime-core-service.js";
+import { RuntimeCoreService } from "../agent/execution/runtime-core-service.js";
 import { RuntimeToolBridge } from "./runtime-tool-bridge.js";
 import { HookRuntimeService, type WorkspaceTrustConfig } from "./hooks/index.js";
 import { SystemConfigService } from "../config/system-config-service.js";

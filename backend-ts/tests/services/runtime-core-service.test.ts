@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
-import { RuntimeCoreService, type RuntimeAgentConfigPort, type RuntimeModelProviderPort } from "../../src/services/runtime/runtime-core-service.js";
+import { RuntimeCoreService, type RuntimeAgentConfigPort, type RuntimeModelProviderPort } from "../../src/services/agent/execution/runtime-core-service.js";
 
 class InMemoryAgentConfigs implements RuntimeAgentConfigPort {
   constructor(

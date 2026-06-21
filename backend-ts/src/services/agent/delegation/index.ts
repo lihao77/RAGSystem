@@ -11,7 +11,7 @@ import { createRuntimeKernel } from "../kernel-plugins/create-runtime-kernel.js"
 import { buildAgentPromptContext, type AgentPromptConfigResolver } from "../prompt-builder/index.js";
 import type { ChildAgentInfo, IChildAgentStore, IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
-import type { RuntimeExecutionConfigResolver } from "../../runtime/runtime-core-service.js";
+import type { RuntimeExecutionConfigResolver } from "../execution/runtime-core-service.js";
 import type { RuntimeToolExecutionContext, RuntimeToolExecutor, ToolExecutionResult } from "../../runtime/runtime-tool-types.js";
 import { publishAgentCallEnd, publishAgentCallStart } from "./events.js";
 import {

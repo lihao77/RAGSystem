@@ -18,7 +18,7 @@ import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js";
-import type { RuntimeExecutionConfigResolver } from "../../runtime/runtime-core-service.js";
+import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { RuntimeToolExecutor } from "../../runtime/runtime-tool-types.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { IFileIndexStore } from "../../../contracts/file-index-store/index.js";
