@@ -7,6 +7,7 @@ import { resolveRuntimeContextSettings } from "../../services/agent/context-comp
 import { buildAgentPromptContext, buildFullSystemPrompt } from "../../services/agent/prompt-builder/index.js";
 import { resolveToolInstructionMode } from "../../services/agent/kernel-plugins/protocol/select-protocol.js";
 import { resolveRuntimeHistoryView } from "../../services/agent/context-builder/index.js";
+import type { MessageToolCall } from "../../contracts/session.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import { isRecord } from "../../utils/guards.js";
@@ -260,6 +261,9 @@ function toContextHistoryItem(message: {
   role: string;
   content: string;
   metadata: Record<string, unknown>;
+  tool_calls?: MessageToolCall[] | undefined;
+  tool_call_id?: string | undefined;
+  name?: string | undefined;
 }): {
   seq: number | null;
   role: string;
@@ -272,6 +276,9 @@ function toContextHistoryItem(message: {
   react_intermediate: boolean;
   msg_type: string | null;
   round: number | null;
+  tool_calls?: MessageToolCall[];
+  tool_call_id: string | null;
+  name: string | null;
 } {
   const isSystemMessage = message.role === "system";
   const truncated = !isSystemMessage && message.content.length > 200;
@@ -287,6 +294,9 @@ function toContextHistoryItem(message: {
     react_intermediate: Boolean(message.metadata.react_intermediate),
     msg_type: normalizeString(message.metadata.msg_type),
     round: typeof message.metadata.round === "number" ? message.metadata.round : null,
+    ...(message.tool_calls && message.tool_calls.length > 0 ? { tool_calls: message.tool_calls } : {}),
+    tool_call_id: message.tool_call_id ?? null,
+    name: message.name ?? null,
   };
 }
 
