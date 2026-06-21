@@ -184,20 +184,13 @@ usePointerDownOutside({
 });
 
 function msgLabel(msg) {
-  if (!msg.react_intermediate) {
-    if (msg.role === 'assistant') return 'Final Answer';
-    return msg.role;
-  }
-  if (msg.msg_type === 'intent') return 'react-thought';
-  else if (msg.msg_type === 'observation') return 'react-observation';
-  // return msg.msg_type === 'thought' ? 'MasterAgent Thought' : 'SubAgent Result';
+  // 标签对齐"实际请求"的 role（渲染后）：XML 的 observation 转成 user、tool_calls 保持 assistant，
+  // 与对话历史展示的 content（实际请求形态）一致。
+  return msg.role;
 }
 
 function msgClass(msg) {
-  if (!msg.react_intermediate) return 'role-' + msg.role;
-  if (msg.msg_type === 'intent') return 'react-thought';
-  else if (msg.msg_type === 'observation') return 'react-observation';
-  // return msg.msg_type === 'thought' ? 'react-thought' : 'react-observation';
+  return 'role-' + msg.role;
 }
 
 function getMessageKey(msg, index) {
