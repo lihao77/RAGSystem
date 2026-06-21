@@ -173,7 +173,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     enabled: hooksConfig?.enabled !== false,
     workspaceTrust: parseWorkspaceTrustConfig(asRecord(hooksConfig?.workspace_trust)),
   });
-  const runtimeToolBridge = new RuntimeToolBridge(
+  const runtimeToolBridge = new RuntimeToolBridge({
     memoryTools,
     pendingInteractions,
     permissionPolicy,
@@ -186,7 +186,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     mcp,
     codeExecutionTools,
     skillTools,
-  );
+  });
   codeExecutionTools.setRuntimeTools(runtimeToolBridge);
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));

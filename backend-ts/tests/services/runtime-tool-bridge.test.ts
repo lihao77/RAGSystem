@@ -226,9 +226,7 @@ function createDurableClientEvents(): {
 
 describe("RuntimeToolBridge", () => {
   it("exposes memory tools from agent memory scope capabilities", () => {
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})),
-    );
+    const bridge = new RuntimeToolBridge({ memoryTools: new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})) });
 
     expect(bridge.listVisibleToolNames(minimalAgent(["session"]))).toEqual([
       "list_memory_index",
@@ -258,9 +256,7 @@ describe("RuntimeToolBridge", () => {
   });
 
   it("exposes and dispatches agent delegation tools only when delegation is configured", async () => {
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})),
-    );
+    const bridge = new RuntimeToolBridge({ memoryTools: new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})) });
     const agent = minimalAgent([], [], ["plan_agent"]);
     const calls: Array<{ input: unknown; sessionId: string | null | undefined }> = [];
     const fakeDelegation = {
@@ -316,9 +312,7 @@ describe("RuntimeToolBridge", () => {
   });
 
   it("normalizes call id into runtime tool execution context", async () => {
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})),
-    );
+    const bridge = new RuntimeToolBridge({ memoryTools: new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})) });
     const agent = minimalAgent([], [], ["plan_agent"]);
     const calls: Array<{ input: unknown; context: unknown }> = [];
     const fakeDelegation = {
@@ -375,9 +369,7 @@ describe("RuntimeToolBridge", () => {
     const dataRoot = makeTempDataRoot();
     writeFile(dataRoot, ["memory", "sessions", "s1", "MEMORY.md"], "# Session Memory\n");
     writeFile(dataRoot, ["memory", "sessions", "s1", "fact_alpha.md"], "alpha body\n");
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
-    );
+    const bridge = new RuntimeToolBridge({ memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })) });
     const context = {
       agent: minimalAgent(["session"]),
       sessionId: "s1",
@@ -434,17 +426,10 @@ describe("RuntimeToolBridge", () => {
         knowledgeFileStore: fakeStore,
       },
     );
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      vectorLibrary,
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      vectorLibrary: vectorLibrary,
+    });
     const agent = {
       ...minimalAgent([]),
       knowledge_base: {
@@ -508,17 +493,9 @@ describe("RuntimeToolBridge", () => {
 
   it("exposes and executes connected MCP tools for enabled servers", async () => {
     const mcpCalls: Array<{ toolName: string; args: Record<string, unknown> | undefined }> = [];
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})),
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      {
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})),
+      mcp: {
         listRuntimeTools(enabledServers: string[]) {
           return enabledServers.includes("mock")
             ? [{
@@ -538,7 +515,7 @@ describe("RuntimeToolBridge", () => {
           return delegationSuccess(toolName, `echo:${String(args?.text ?? "")}`);
         },
       } as unknown as McpService,
-    );
+    });
     const agent = {
       ...minimalAgent([]),
       mcp: { enabled_servers: ["mock"] },
@@ -569,9 +546,7 @@ describe("RuntimeToolBridge", () => {
 
   it("dispatches write_memory and archive_memory calls to memory tools", () => {
     const dataRoot = makeTempDataRoot();
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
-    );
+    const bridge = new RuntimeToolBridge({ memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })) });
     const context = {
       agent: minimalAgent(["session"], [], [], ["session"], ["session"]),
       sessionId: "s1",
@@ -624,12 +599,10 @@ describe("RuntimeToolBridge", () => {
     const dataRoot = makeTempDataRoot();
     const workspaceRoot = path.join(dataRoot, "workspace-alpha");
     writeAbsoluteFile(path.join(workspaceRoot, "notes", "sample.txt"), "line 1\nline 2\nline 3\n");
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
-      null,
-      null,
-      new LocalDocumentToolService({ dataRoot }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      documentTools: new LocalDocumentToolService({ dataRoot }),
+    });
     const agent = minimalAgent([], ["read_file"]);
 
     expect(bridge.listVisibleToolNames(agent)).toEqual(["read_file"]);
@@ -663,12 +636,10 @@ describe("RuntimeToolBridge", () => {
     const dataRoot = makeTempDataRoot();
     const workspaceRoot = path.join(dataRoot, "workspace-read-invalid");
     writeAbsoluteFile(path.join(workspaceRoot, "sample.txt"), "line 1\n");
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
-      null,
-      null,
-      new LocalDocumentToolService({ dataRoot }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      documentTools: new LocalDocumentToolService({ dataRoot }),
+    });
     const agent = minimalAgent([], ["read_file"]);
     const context = { agent, sessionId: "s1", workspaceRoot };
 
@@ -710,12 +681,10 @@ describe("RuntimeToolBridge", () => {
     writeAbsoluteFile(path.join(workspaceRoot, "data", "sample.csv"), "name,age,active\nAlice,30,true\nBob,28,false\n");
     writeAbsoluteFile(path.join(workspaceRoot, "data", "sample.yaml"), "service:\n  name: api\n  replicas: 3\nfeatures:\n  - search\n  - export\n");
     writeAbsoluteFile(path.join(workspaceRoot, "data", "notes.txt"), "alpha\n\nbeta line\ncharlie\n");
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
-      null,
-      null,
-      new LocalDocumentToolService({ dataRoot }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      documentTools: new LocalDocumentToolService({ dataRoot }),
+    });
     const agent = minimalAgent([], ["preview_data_structure"]);
     const context = {
       agent,
@@ -829,12 +798,10 @@ describe("RuntimeToolBridge", () => {
     const dataRoot = makeTempDataRoot();
     const workspaceRoot = path.join(dataRoot, "workspace-preview-invalid");
     writeAbsoluteFile(path.join(workspaceRoot, "sample.json"), "{}");
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
-      null,
-      null,
-      new LocalDocumentToolService({ dataRoot }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      documentTools: new LocalDocumentToolService({ dataRoot }),
+    });
     const agent = minimalAgent([], ["preview_data_structure"]);
 
     expect(
@@ -859,12 +826,10 @@ describe("RuntimeToolBridge", () => {
   it("executes write_file and edit_file through managed workspace paths", () => {
     const dataRoot = makeTempDataRoot();
     const workspaceRoot = path.join(dataRoot, "workspace-beta");
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
-      null,
-      null,
-      new LocalDocumentToolService({ dataRoot }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      documentTools: new LocalDocumentToolService({ dataRoot }),
+    });
     const agent = minimalAgent([], ["write_file", "edit_file"]);
     const context = {
       agent,
@@ -922,15 +887,10 @@ describe("RuntimeToolBridge", () => {
     writeAbsoluteFile(path.join(workspaceRoot, "src", "alpha.ts"), "export const alpha = 1;\n");
     writeAbsoluteFile(path.join(workspaceRoot, "src", "beta.ts"), "export const beta = alpha + 1;\n");
     writeAbsoluteFile(path.join(workspaceRoot, "notes.txt"), "Alpha note\n");
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
-      null,
-      null,
-      null,
-      null,
-      null,
-      new LocalSearchToolService({ dataRoot }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      searchTools: new LocalSearchToolService({ dataRoot }),
+    });
     const agent = minimalAgent([], ["glob", "grep"]);
     const context = {
       agent,
@@ -978,15 +938,10 @@ describe("RuntimeToolBridge", () => {
 
   it("executes todo_write as a session-scoped runtime tool", () => {
     const dataRoot = makeTempDataRoot();
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
-      null,
-      null,
-      null,
-      null,
-      null,
-      new LocalSearchToolService({ dataRoot }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
+      searchTools: new LocalSearchToolService({ dataRoot }),
+    });
     const agent = minimalAgent([], ["todo_write"]);
 
     expect(
@@ -1031,19 +986,10 @@ describe("RuntimeToolBridge", () => {
     const workspaceRoot = path.join(dataRoot, "workspace");
     writeAbsoluteFile(path.join(workspaceRoot, "sample.json"), "{\"name\":\"workspace\"}");
     const codeExecution = new CodeExecutionToolService({ dataRoot });
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      codeExecution,
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      codeExecutionTools: codeExecution,
+    });
     codeExecution.setRuntimeTools(bridge);
     const agent = {
       ...minimalAgent([], ["execute_code"]),
@@ -1106,19 +1052,11 @@ describe("RuntimeToolBridge", () => {
     writeAbsoluteFile(path.join(workspaceRoot, "sample.json"), "{\"items\":[1,2]}");
     const documentTools = new LocalDocumentToolService({ dataRoot });
     const codeExecution = new CodeExecutionToolService({ dataRoot });
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
-      null,
-      null,
-      documentTools,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      codeExecution,
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      documentTools: documentTools,
+      codeExecutionTools: codeExecution,
+    });
     codeExecution.setRuntimeTools(bridge);
     const agent = {
       ...minimalAgent([], ["execute_code", "preview_data_structure", "read_file"]),
@@ -1168,12 +1106,10 @@ describe("RuntimeToolBridge", () => {
     const workspaceRoot = path.join(dataRoot, "workspace");
     writeAbsoluteFile(path.join(workspaceRoot, "sample.json"), "{\"items\":[1,2]}");
     const documentTools = new LocalDocumentToolService({ dataRoot });
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
-      null,
-      null,
-      documentTools,
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      documentTools: documentTools,
+    });
     const agent = {
       ...minimalAgent([], ["preview_data_structure", "read_file"]),
       custom_params: {
@@ -1224,20 +1160,10 @@ describe("RuntimeToolBridge", () => {
       builtinSkillsRoot: skillsRoot,
       userGlobalSkillsRoot: path.join(dataRoot, "global-skills"),
     });
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      skillTools,
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      skillTools: skillTools,
+    });
     const agent = {
       ...minimalAgent([], []),
       skills: { enabled_skills: ["demo-skill"], auto_inject: true },
@@ -1284,20 +1210,10 @@ describe("RuntimeToolBridge", () => {
       builtinSkillsRoot: path.join(dataRoot, "builtin-empty"),
       userGlobalSkillsRoot: path.join(dataRoot, "global-skills"),
     });
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      skillTools,
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      skillTools: skillTools,
+    });
     const agent = {
       ...minimalAgent([], []),
       custom_params: { workspace_root: workspaceRoot },
@@ -1355,16 +1271,11 @@ describe("RuntimeToolBridge", () => {
       matcher: { toolNames: ["write_file"], whenResultSuccess: true },
       backend: { type: "function", target: "test:annotate-after" },
     });
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
-      null,
-      null,
-      new LocalDocumentToolService({ dataRoot }),
-      null,
-      null,
-      null,
-      hooks,
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      documentTools: new LocalDocumentToolService({ dataRoot }),
+      hooks: hooks,
+    });
 
     const result = await bridge.executeTool(
       {
@@ -1410,16 +1321,11 @@ describe("RuntimeToolBridge", () => {
       matcher: { toolNames: ["write_file"] },
       backend: { type: "function", target: "test:block" },
     });
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
-      null,
-      null,
-      new LocalDocumentToolService({ dataRoot }),
-      null,
-      null,
-      null,
-      hooks,
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      documentTools: new LocalDocumentToolService({ dataRoot }),
+      hooks: hooks,
+    });
 
     const result = await bridge.executeTool(
       {
@@ -1449,15 +1355,10 @@ describe("RuntimeToolBridge", () => {
     const dataRoot = makeTempDataRoot();
     const server = await startHttpServer("<html><body><h1>Alpha</h1><p>Beta content</p></body></html>");
     try {
-      const bridge = new RuntimeToolBridge(
-        new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
-        null,
-        null,
-        null,
-        null,
-        null,
-        new LocalSearchToolService({ dataRoot }),
-      );
+      const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
+      searchTools: new LocalSearchToolService({ dataRoot }),
+    });
       const agent = minimalAgent([], ["web_fetch"]);
 
       await expect(
@@ -1486,12 +1387,10 @@ describe("RuntimeToolBridge", () => {
   it("allows direct absolute writes under session exports when run_id is absent", () => {
     const dataRoot = makeTempDataRoot();
     const agent = minimalAgent([], ["write_file"]);
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
-      null,
-      null,
-      new LocalDocumentToolService({ dataRoot }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
+      documentTools: new LocalDocumentToolService({ dataRoot }),
+    });
     const filePath = path.join(dataRoot, "sessions", "s1", "exports", "report.txt");
 
     const result = bridge.executeTool(
@@ -1523,12 +1422,12 @@ describe("RuntimeToolBridge", () => {
     const { store, realtimeEvents, clientEvents } = createDurableClientEvents();
     const pendingInteractions = new PendingInteractionService(clientEvents);
     const permissionPolicy = new PermissionPolicyService();
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
-      pendingInteractions,
-      permissionPolicy,
-      new LocalDocumentToolService({ dataRoot }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      pendingInteractions: pendingInteractions,
+      permissionPolicy: permissionPolicy,
+      documentTools: new LocalDocumentToolService({ dataRoot }),
+    });
     const agent = minimalAgent([], ["read_file"]);
 
     const resultPromise = Promise.resolve(
@@ -1597,12 +1496,10 @@ describe("RuntimeToolBridge", () => {
   it("still requires run_id for explicit exports writes", () => {
     const dataRoot = makeTempDataRoot();
     const agent = minimalAgent([], ["write_file"]);
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
-      null,
-      null,
-      new LocalDocumentToolService({ dataRoot }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
+      documentTools: new LocalDocumentToolService({ dataRoot }),
+    });
 
     expect(
       bridge.executeTool(
@@ -1630,13 +1527,12 @@ describe("RuntimeToolBridge", () => {
     const { store, realtimeEvents, clientEvents } = createDurableClientEvents();
     const pendingInteractions = new PendingInteractionService(clientEvents);
     const permissionPolicy = new PermissionPolicyService();
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
-      pendingInteractions,
-      permissionPolicy,
-      null,
-      new LocalBashToolService({ dataRoot, bashExecutable: null }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      pendingInteractions: pendingInteractions,
+      permissionPolicy: permissionPolicy,
+      bashTools: new LocalBashToolService({ dataRoot, bashExecutable: null }),
+    });
     const agent = minimalAgent([], ["execute_bash"]);
 
     const resultPromise = Promise.resolve(
@@ -1708,13 +1604,10 @@ describe("RuntimeToolBridge", () => {
   it("exposes and executes execute_bash when enabled by agent config", async () => {
     const dataRoot = makeTempDataRoot();
     const workspaceRoot = path.join(dataRoot, "workspace-bash");
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
-      null,
-      null,
-      null,
-      new LocalBashToolService({ dataRoot, bashExecutable: null }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      bashTools: new LocalBashToolService({ dataRoot, bashExecutable: null }),
+    });
     const agent = minimalAgent([], ["execute_bash"]);
 
     expect(bridge.listVisibleToolNames(agent)).toEqual(["execute_bash"]);
@@ -1752,14 +1645,10 @@ describe("RuntimeToolBridge", () => {
   it("exposes task workflow and background tools from task capability config", () => {
     const dataRoot = makeTempDataRoot();
     const backgroundTasks = new BackgroundTaskService();
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
-      null,
-      null,
-      null,
-      null,
-      new TaskToolService(backgroundTasks, { dataRoot }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      taskTools: new TaskToolService(backgroundTasks, { dataRoot }),
+    });
     const workflowAgent = minimalAgent([]);
     workflowAgent.tasks = { workflow: true, background: false };
     const backgroundAgent = minimalAgent([]);
@@ -1779,14 +1668,10 @@ describe("RuntimeToolBridge", () => {
   it("creates, updates, lists, and links session tasks", async () => {
     const dataRoot = makeTempDataRoot();
     const backgroundTasks = new BackgroundTaskService();
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
-      null,
-      null,
-      null,
-      null,
-      new TaskToolService(backgroundTasks, { dataRoot }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      taskTools: new TaskToolService(backgroundTasks, { dataRoot }),
+    });
     const agent = minimalAgent([]);
     agent.tasks = { workflow: true, background: false };
     const context = { agent, sessionId: "s1" };
@@ -1940,14 +1825,10 @@ describe("RuntimeToolBridge", () => {
   it("preserves empty-string task updates like the Python task tool", async () => {
     const dataRoot = makeTempDataRoot();
     const backgroundTasks = new BackgroundTaskService();
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
-      null,
-      null,
-      null,
-      null,
-      new TaskToolService(backgroundTasks, { dataRoot }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
+      taskTools: new TaskToolService(backgroundTasks, { dataRoot }),
+    });
     const agent = minimalAgent([]);
     agent.tasks = { workflow: true, background: false };
     const context = { agent, sessionId: "s1" };
@@ -2026,14 +1907,11 @@ describe("RuntimeToolBridge", () => {
     const { store, realtimeEvents, clientEvents } = createDurableClientEvents();
     const backgroundTasks = new BackgroundTaskService();
     const taskTools = new TaskToolService(backgroundTasks, { dataRoot });
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
-      null,
-      null,
-      null,
-      new LocalBashToolService({ dataRoot, bashExecutable: null, backgroundTasks, clientEvents }),
-      taskTools,
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      bashTools: new LocalBashToolService({ dataRoot, bashExecutable: null, backgroundTasks, clientEvents }),
+      taskTools: taskTools,
+    });
     const agent = minimalAgent([], ["execute_bash", "task_output"]);
     agent.tasks = { workflow: false, background: true };
     const context = {
@@ -2142,14 +2020,11 @@ describe("RuntimeToolBridge", () => {
     const dataRoot = makeTempDataRoot();
     const workspaceRoot = path.join(dataRoot, "workspace-bash-background-disabled");
     const backgroundTasks = new BackgroundTaskService();
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
-      null,
-      null,
-      null,
-      new LocalBashToolService({ dataRoot, bashExecutable: null, backgroundTasks }),
-      new TaskToolService(backgroundTasks, { dataRoot }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      bashTools: new LocalBashToolService({ dataRoot, bashExecutable: null, backgroundTasks }),
+      taskTools: new TaskToolService(backgroundTasks, { dataRoot }),
+    });
     const agent = minimalAgent([], ["execute_bash"]);
     agent.tasks = { workflow: false, background: false };
 
@@ -2184,14 +2059,12 @@ describe("RuntimeToolBridge", () => {
     const backgroundTasks = new BackgroundTaskService();
     const permissionPolicy = new PermissionPolicyService();
     permissionPolicy.setMode("dangerously_skip_permissions");
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
-      null,
-      permissionPolicy,
-      null,
-      new LocalBashToolService({ dataRoot, bashExecutable: null, backgroundTasks, clientEvents }),
-      new TaskToolService(backgroundTasks, { dataRoot }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      permissionPolicy: permissionPolicy,
+      bashTools: new LocalBashToolService({ dataRoot, bashExecutable: null, backgroundTasks, clientEvents }),
+      taskTools: new TaskToolService(backgroundTasks, { dataRoot }),
+    });
     const agent = minimalAgent([], ["execute_bash"]);
     agent.tasks = { workflow: false, background: true };
     const context = {
@@ -2271,13 +2144,10 @@ describe("RuntimeToolBridge", () => {
   it("blocks unsafe execute_bash command syntax before approval", async () => {
     const dataRoot = makeTempDataRoot();
     const workspaceRoot = path.join(dataRoot, "workspace-bash-block");
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
-      null,
-      null,
-      null,
-      new LocalBashToolService({ dataRoot, bashExecutable: null }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      bashTools: new LocalBashToolService({ dataRoot, bashExecutable: null }),
+    });
     const agent = minimalAgent([], ["execute_bash"]);
 
     await expect(
@@ -2308,13 +2178,12 @@ describe("RuntimeToolBridge", () => {
     const { store, realtimeEvents, clientEvents } = createDurableClientEvents();
     const pendingInteractions = new PendingInteractionService(clientEvents);
     const permissionPolicy = new PermissionPolicyService();
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
-      pendingInteractions,
-      permissionPolicy,
-      null,
-      new LocalBashToolService({ dataRoot, bashExecutable: null }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      pendingInteractions: pendingInteractions,
+      permissionPolicy: permissionPolicy,
+      bashTools: new LocalBashToolService({ dataRoot, bashExecutable: null }),
+    });
     const agent = minimalAgent([], ["execute_bash"]);
 
     const resultPromise = Promise.resolve(
@@ -2388,13 +2257,11 @@ describe("RuntimeToolBridge", () => {
     const workspaceRoot = path.join(dataRoot, "workspace-bash-timeout");
     const permissionPolicy = new PermissionPolicyService();
     permissionPolicy.setMode("dangerously_skip_permissions");
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
-      null,
-      permissionPolicy,
-      null,
-      new LocalBashToolService({ dataRoot, bashExecutable: null }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      permissionPolicy: permissionPolicy,
+      bashTools: new LocalBashToolService({ dataRoot, bashExecutable: null }),
+    });
     const agent = minimalAgent([], ["execute_bash"]);
 
     await expect(
@@ -2431,13 +2298,11 @@ describe("RuntimeToolBridge", () => {
     const workspaceRoot = path.join(dataRoot, "workspace-bash-stdout-truncate");
     const permissionPolicy = new PermissionPolicyService();
     permissionPolicy.setMode("dangerously_skip_permissions");
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
-      null,
-      permissionPolicy,
-      null,
-      new LocalBashToolService({ dataRoot, bashExecutable: null, maxOutputChars: 5 }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      permissionPolicy: permissionPolicy,
+      bashTools: new LocalBashToolService({ dataRoot, bashExecutable: null, maxOutputChars: 5 }),
+    });
     const agent = minimalAgent([], ["execute_bash"]);
 
     await expect(
@@ -2472,13 +2337,11 @@ describe("RuntimeToolBridge", () => {
     const workspaceRoot = path.join(dataRoot, "workspace-bash-stderr-truncate");
     const permissionPolicy = new PermissionPolicyService();
     permissionPolicy.setMode("dangerously_skip_permissions");
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
-      null,
-      permissionPolicy,
-      null,
-      new LocalBashToolService({ dataRoot, bashExecutable: null }),
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: { workspace_root: workspaceRoot } })),
+      permissionPolicy: permissionPolicy,
+      bashTools: new LocalBashToolService({ dataRoot, bashExecutable: null }),
+    });
     const agent = minimalAgent([], ["execute_bash"]);
     const result = await Promise.resolve(
       bridge.executeTool(
@@ -2508,9 +2371,7 @@ describe("RuntimeToolBridge", () => {
   });
 
   it("rejects tools that are not visible for the current agent", () => {
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})),
-    );
+    const bridge = new RuntimeToolBridge({ memoryTools: new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})) });
 
     expect(
       bridge.executeTool(
@@ -2533,10 +2394,10 @@ describe("RuntimeToolBridge", () => {
   it("runs request_user_input through pending user input interactions", async () => {
     const { store, realtimeEvents, clientEvents } = createDurableClientEvents();
     const pendingInteractions = new PendingInteractionService(clientEvents);
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})),
-      pendingInteractions,
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({})),
+      pendingInteractions: pendingInteractions,
+    });
 
     expect(bridge.listVisibleToolNames(minimalAgent([]))).toEqual(["request_user_input"]);
 
@@ -2625,11 +2486,11 @@ describe("RuntimeToolBridge", () => {
     const pendingInteractions = new PendingInteractionService(clientEvents);
     const permissionPolicy = new PermissionPolicyService();
     permissionPolicy.setMode("strict");
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
-      pendingInteractions,
-      permissionPolicy,
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} })),
+      pendingInteractions: pendingInteractions,
+      permissionPolicy: permissionPolicy,
+    });
 
     const resultPromise = Promise.resolve(
       bridge.executeTool(
@@ -2697,11 +2558,11 @@ describe("RuntimeToolBridge", () => {
     const pendingInteractions = new PendingInteractionService(clientEvents);
     const permissionPolicy = new PermissionPolicyService();
     permissionPolicy.setMode("strict");
-    const bridge = new RuntimeToolBridge(
-      new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({ s1: {} })),
-      pendingInteractions,
-      permissionPolicy,
-    );
+    const bridge = new RuntimeToolBridge({
+      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({ s1: {} })),
+      pendingInteractions: pendingInteractions,
+      permissionPolicy: permissionPolicy,
+    });
 
     const resultPromise = Promise.resolve(
       bridge.executeTool(

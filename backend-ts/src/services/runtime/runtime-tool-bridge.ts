@@ -23,73 +23,69 @@ import type {
   PermissionPolicyService,
   RuntimeToolApprovalDecision,
 } from "./permission-policy-service.js";
-import { isAbortError, throwIfAborted } from "./abort.js";
+import { throwIfAborted } from "./abort.js";
 import type { HookRuntimeService, HookResult } from "./hooks/index.js";
+import { withApprovalMetadata, withApprovedExternalPaths } from "./runtime-tool-bridge/arguments.js";
 import {
-  approvalUnsupportedError,
-  buildApprovalMetadata,
-  buildToolCallContext,
-  dedupeStrings,
-  errorResult,
-  withApprovalMetadata,
-  withApprovedExternalPaths,
-} from "./runtime-tool-bridge/arguments.js";
+  executeToolCall,
+  isToolResult,
+  ToolPreparer,
+  type PreparedRuntimeTool,
+} from "./runtime-tool-bridge/prepared.js";
+import { ToolApprovalCoordinator } from "./runtime-tool-bridge/approval.js";
+import { ToolHookOrchestrator } from "./runtime-tool-bridge/hooks-orchestrator.js";
 import { createToolRegistry, type RuntimeToolRegistry } from "../../tools/registry.js";
-import { toolToDefinition, type RuntimeTool, type RuntimeToolPermissionResult } from "../../tools/Tool.js";
-import { validateToolInput } from "../../tools/validation.js";
-import {
-  applyHookPermissionDecision,
-  denyPermissionResult,
-  isToolPermissionForceAsk,
-  mergeToolPermissionMetadata,
-} from "../../tools/permissions.js";
+import { toolToDefinition } from "../../tools/Tool.js";
+import { applyHookPermissionDecision } from "../../tools/permissions.js";
 
 export { isReadOnlyMemoryToolName } from "./runtime-tool-bridge/arguments.js";
 
-type PreparedRuntimeTool = {
-  call: RuntimeToolCall;
-  context: RuntimeToolExecutionContext;
-  toolName: string;
-  tool: RuntimeTool<Record<string, unknown>>;
-  input: Record<string, unknown>;
-  caller: string;
-  toolPermission: RuntimeToolPermissionResult | null;
-  approvedExternalPaths: string[];
-};
+/** RuntimeToolBridge 的具名依赖。memoryTools 必填,其余按需注入(未注入即该能力不可用)。 */
+export interface RuntimeToolBridgeDeps {
+  memoryTools: MemoryToolService;
+  pendingInteractions?: PendingInteractionService | null;
+  permissionPolicy?: PermissionPolicyService | null;
+  documentTools?: LocalDocumentToolService | null;
+  bashTools?: LocalBashToolService | null;
+  taskTools?: TaskToolService | null;
+  searchTools?: LocalSearchToolService | null;
+  hooks?: HookRuntimeService | null;
+  vectorLibrary?: VectorLibraryService | null;
+  mcp?: McpService | null;
+  codeExecutionTools?: CodeExecutionToolService | null;
+  skillTools?: SkillToolService | null;
+}
 
-type PreparedResult = PreparedRuntimeTool | ToolExecutionResult;
-
+/**
+ * 工具桥:面向运行时内核的工具门面。自身只做"注册表门面 + 执行编排",
+ * 准备/审批/Hook 三簇职责分别下沉到 ToolPreparer / ToolApprovalCoordinator / ToolHookOrchestrator。
+ */
 export class RuntimeToolBridge implements RuntimeToolExecutor {
   private agentDelegation: AgentDelegationService | null = null;
   private readonly toolRegistry: RuntimeToolRegistry;
+  private readonly preparer: ToolPreparer;
+  private readonly approval: ToolApprovalCoordinator;
+  private readonly hookOrchestrator: ToolHookOrchestrator;
+  private readonly taskTools: TaskToolService | null;
 
-  constructor(
-    memoryTools: MemoryToolService,
-    private readonly pendingInteractions: PendingInteractionService | null = null,
-    private readonly permissionPolicy: PermissionPolicyService | null = null,
-    documentTools: LocalDocumentToolService | null = null,
-    bashTools: LocalBashToolService | null = null,
-    private readonly taskTools: TaskToolService | null = null,
-    searchTools: LocalSearchToolService | null = null,
-    private readonly hooks: HookRuntimeService | null = null,
-    vectorLibrary: VectorLibraryService | null = null,
-    mcp: McpService | null = null,
-    codeExecutionTools: CodeExecutionToolService | null = null,
-    skillTools: SkillToolService | null = null,
-  ) {
+  constructor(deps: RuntimeToolBridgeDeps) {
+    this.taskTools = deps.taskTools ?? null;
     this.toolRegistry = createToolRegistry({
-      memoryTools,
-      pendingInteractions,
-      documentTools,
-      bashTools,
-      taskTools,
-      searchTools,
-      vectorLibrary,
-      mcp,
-      codeExecutionTools,
-      skillTools,
+      memoryTools: deps.memoryTools,
+      pendingInteractions: deps.pendingInteractions ?? null,
+      documentTools: deps.documentTools ?? null,
+      bashTools: deps.bashTools ?? null,
+      taskTools: deps.taskTools ?? null,
+      searchTools: deps.searchTools ?? null,
+      vectorLibrary: deps.vectorLibrary ?? null,
+      mcp: deps.mcp ?? null,
+      codeExecutionTools: deps.codeExecutionTools ?? null,
+      skillTools: deps.skillTools ?? null,
       getAgentDelegation: () => this.agentDelegation,
     });
+    this.preparer = new ToolPreparer(this.toolRegistry);
+    this.approval = new ToolApprovalCoordinator(deps.permissionPolicy ?? null, deps.pendingInteractions ?? null);
+    this.hookOrchestrator = new ToolHookOrchestrator(deps.hooks ?? null);
   }
 
   setAgentDelegation(agentDelegation: AgentDelegationService | null): void {
@@ -114,21 +110,21 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
 
   executeTool(call: RuntimeToolCall, context: RuntimeToolExecutionContext): ToolExecutionResult | Promise<ToolExecutionResult> {
     throwIfAborted(context.signal, "Tool execution aborted");
-    const prepared = this.prepareToolExecution(call, context);
+    const prepared = this.preparer.prepare(call, context);
     if (isToolResult(prepared)) {
       return prepared;
     }
-    if (this.hooks) {
-      return this.executePreparedToolWithPermissionHooks(prepared);
+    if (this.hookOrchestrator.enabled) {
+      return this.executeWithPermissionHooks(prepared);
     }
-    const approval = this.evaluateApproval(prepared);
+    const approval = this.approval.evaluate(prepared);
     if (isToolResult(approval)) {
       return approval;
     }
     if (approval?.action === "ask") {
-      return this.executeToolAfterApproval(prepared, approval, false);
+      return this.runAfterApproval(prepared, approval, false);
     }
-    return this.executePreparedTool(
+    return executeToolCall(
       prepared,
       withApprovedExternalPaths(prepared.context, approval?.approvedExternalPaths),
     );
@@ -160,69 +156,23 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     });
   }
 
-  private prepareToolExecution(call: RuntimeToolCall, context: RuntimeToolExecutionContext): PreparedResult {
-    const executionContext = buildToolCallContext(call, {
-      ...context,
-      caller: context.caller ?? "direct",
-    });
-    const toolName = call.toolName.trim();
-    const tool = this.toolRegistry.getVisibleTool(toolName, executionContext.agent) as RuntimeTool<Record<string, unknown>> | null;
-    if (!tool) {
-      return errorResult(`工具未暴露或暂未迁移: ${toolName}`, toolName || "unknown");
-    }
-
-    const caller = executionContext.caller ?? "direct";
-    if (!tool.allowedCallers.includes(caller)) {
-      return errorResult(
-        `工具 '${toolName}' 不允许从${caller === "code_execution" ? "代码" : caller}调用: Tool ${toolName} is not allowed from caller ${caller}`,
-        toolName,
-      );
-    }
-
-    const validation = validateToolInput(tool, call);
-    if (!validation.ok) {
-      return validation.result;
-    }
-
-    const toolPermission = tool.checkPermissions?.(validation.input, executionContext) ?? null;
-    if (toolPermission?.behavior === "deny") {
-      return toolPermission.result ?? denyPermissionResult(toolName, toolPermission);
-    }
-    attachPermissionRuntimeData(validation.input, toolPermission);
-
-    const approvedExternalPaths = dedupeStrings([
-      ...(tool.getExternalPathApprovalCandidates?.(validation.input, executionContext) ?? []),
-      ...(toolPermission?.approvedExternalPaths ?? []),
-    ]);
-
-    return {
-      call,
-      context: executionContext,
-      toolName,
-      tool,
-      input: validation.input,
-      caller,
-      toolPermission,
-      approvedExternalPaths,
-    };
-  }
-
-  private async executePreparedToolWithPermissionHooks(prepared: PreparedRuntimeTool): Promise<ToolExecutionResult> {
-    const beforePermissionHook = await this.runToolHook("tool.before_permission", {
+  /** 启用 hook 时的编排:before/after_permission 钩子 → 审批判定 → ask 等待 或 带钩子执行。 */
+  private async executeWithPermissionHooks(prepared: PreparedRuntimeTool): Promise<ToolExecutionResult> {
+    const beforePermissionHook = await this.hookOrchestrator.runToolHook("tool.before_permission", {
       toolName: prepared.toolName,
       tool: toolToDefinition(prepared.tool),
       call: prepared.call,
       context: prepared.context,
     });
     if (beforePermissionHook.blockExecution || beforePermissionHook.permissionDecision === "deny") {
-      return this.hookBlockedResult(prepared.toolName, beforePermissionHook, "before_permission");
+      return this.hookOrchestrator.hookBlockedResult(prepared.toolName, beforePermissionHook, "before_permission");
     }
 
-    const approval = this.evaluateApproval(prepared, beforePermissionHook);
+    const approval = this.approval.evaluate(prepared, beforePermissionHook);
     if (isToolResult(approval)) {
       return approval;
     }
-    const afterPermissionHook = await this.runToolHook("tool.after_permission", {
+    const afterPermissionHook = await this.hookOrchestrator.runToolHook("tool.after_permission", {
       toolName: prepared.toolName,
       tool: toolToDefinition(prepared.tool),
       call: prepared.call,
@@ -230,7 +180,7 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       permissionDecision: approval ?? null,
     });
     if (afterPermissionHook.blockExecution || afterPermissionHook.permissionDecision === "deny") {
-      return this.hookBlockedResult(prepared.toolName, afterPermissionHook, "after_permission");
+      return this.hookOrchestrator.hookBlockedResult(prepared.toolName, afterPermissionHook, "after_permission");
     }
     const finalApproval = applyHookPermissionDecision(
       approval,
@@ -239,232 +189,34 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
       prepared.toolPermission?.riskLevel ?? prepared.tool.riskLevel,
     );
     if (finalApproval?.action === "ask") {
-      return this.executeToolAfterApproval(prepared, finalApproval, true, {
+      return this.runAfterApproval(prepared, finalApproval, true, {
         beforePermissionHook,
         afterPermissionHook,
       });
     }
 
-    return this.executePreparedToolWithHooks(
+    return this.hookOrchestrator.executeWithHooks(
       prepared,
       withApprovedExternalPaths(prepared.context, finalApproval?.approvedExternalPaths),
       { beforePermissionHook, afterPermissionHook },
     );
   }
 
-  private evaluateApproval(
-    prepared: PreparedRuntimeTool,
-    hookResult?: HookResult | undefined,
-  ): RuntimeToolApprovalDecision | ToolExecutionResult | undefined {
-    if (!this.permissionPolicy) {
-      if (prepared.approvedExternalPaths.length) {
-        return approvalUnsupportedError(prepared.toolName, prepared.approvedExternalPaths);
-      }
-      if (isToolPermissionForceAsk(prepared.toolPermission)) {
-        return errorResult(`工具 ${prepared.toolName} 需要用户授权，但当前上下文不支持审批`, prepared.toolName, {
-          ...mergeToolPermissionMetadata({}, prepared.toolPermission),
-        });
-      }
-      return undefined;
-    }
-
-    const decision = this.permissionPolicy.evaluateToolApproval({
-      toolName: prepared.toolName,
-      riskLevel: prepared.toolPermission?.riskLevel ?? prepared.tool.riskLevel,
-      description: prepared.toolPermission?.description ?? prepared.tool.description,
-      arguments: this.approvalArguments(prepared),
-      sessionId: prepared.context.sessionId,
-      approvalExempt: prepared.tool.approvalExempt,
-      forceAsk: isToolPermissionForceAsk(prepared.toolPermission),
-      approvedExternalPaths: prepared.approvedExternalPaths,
-    });
-    return hookResult
-      ? applyHookPermissionDecision(
-          decision,
-          hookResult,
-          prepared.toolName,
-          prepared.toolPermission?.riskLevel ?? prepared.tool.riskLevel,
-        )
-      : decision;
-  }
-
-  private executePreparedTool(
-    prepared: PreparedRuntimeTool,
-    context: RuntimeToolExecutionContext,
-  ): ToolExecutionResult | Promise<ToolExecutionResult> {
-    throwIfAborted(context.signal, "Tool execution aborted");
-    return prepared.tool.call(prepared.input, context);
-  }
-
-  private async executePreparedToolWithHooks(
-    prepared: PreparedRuntimeTool,
-    context: RuntimeToolExecutionContext,
-    hooks: { beforePermissionHook?: HookResult | undefined; afterPermissionHook?: HookResult | undefined } = {},
-  ): Promise<ToolExecutionResult> {
-    const beforeExecuteHook = await this.runToolHook("tool.before_execute", {
-      toolName: prepared.toolName,
-      tool: toolToDefinition(prepared.tool),
-      call: prepared.call,
-      context,
-    });
-    if (beforeExecuteHook.blockExecution || beforeExecuteHook.permissionDecision === "deny") {
-      return this.hookBlockedResult(prepared.toolName, beforeExecuteHook, "before_execute");
-    }
-    try {
-      let result = await this.executePreparedTool(prepared, context);
-      throwIfAborted(context.signal, "Tool execution aborted");
-      result = this.mergeHookData(result, hooks.beforePermissionHook, "before_permission");
-      result = this.mergeHookData(result, hooks.afterPermissionHook, "after_permission");
-      result = this.mergeHookData(result, beforeExecuteHook, "before_execute");
-      const afterExecuteHook = await this.runToolHook("tool.after_execute", {
-        toolName: prepared.toolName,
-        tool: toolToDefinition(prepared.tool),
-        call: prepared.call,
-        context,
-        result,
-      });
-      result = this.mergeHookData(result, afterExecuteHook, "after_execute");
-      return result;
-    } catch (error) {
-      if (isAbortError(error) || context.signal?.aborted) {
-        throw error;
-      }
-      const onErrorHook = await this.runToolHook("tool.on_error", {
-        toolName: prepared.toolName,
-        tool: toolToDefinition(prepared.tool),
-        call: prepared.call,
-        context,
-        error,
-      });
-      if (onErrorHook.blockExecution) {
-        return this.hookBlockedResult(prepared.toolName, onErrorHook, "on_error");
-      }
-      const result = errorResult(`工具执行异常: ${error instanceof Error ? error.message : String(error)}`, prepared.toolName);
-      return this.mergeHookData(result, onErrorHook, "on_error");
-    }
-  }
-
-  private async executeToolAfterApproval(
+  /** ask 决策:等待用户审批,批准后按是否带钩子执行,并把审批元数据并入结果。 */
+  private async runAfterApproval(
     prepared: PreparedRuntimeTool,
     approvalDecision: RuntimeToolApprovalDecision,
     withHooks: boolean,
     hooks: { beforePermissionHook?: HookResult | undefined; afterPermissionHook?: HookResult | undefined } = {},
   ): Promise<ToolExecutionResult> {
-    const toolName = approvalDecision.toolName;
-    const approvalMetadata = buildApprovalMetadata(approvalDecision);
-    if (!this.pendingInteractions) {
-      return errorResult(`工具 ${toolName} 需要用户授权，但当前上下文不支持审批`, toolName, {
-        ...mergeToolPermissionMetadata({}, prepared.toolPermission),
-        approval: approvalMetadata,
-      });
-    }
-
-    const sessionId = prepared.context.sessionId?.trim();
-    if (!sessionId) {
-      return errorResult(`工具 ${toolName} 需要用户授权，但当前上下文无法等待审批`, toolName, {
-        ...mergeToolPermissionMetadata({}, prepared.toolPermission),
-        approval: approvalMetadata,
-      });
-    }
-
-    let resolution;
-    try {
-      resolution = await this.pendingInteractions.waitForApproval({
-        sessionId,
-        runId: prepared.context.runId,
-        taskId: prepared.context.taskId,
-        requestId: prepared.context.requestId,
-        toolCallId: prepared.context.toolCallId ?? prepared.call.callId ?? null,
-        agentName: prepared.context.currentAgentName ?? prepared.context.agent?.agent_name ?? null,
-        approvalType: prepared.toolPermission?.approvalType ?? "tool_execution",
-        toolName,
-        arguments: this.approvalArguments(prepared),
-        riskLevel: approvalDecision.riskLevel,
-        description: approvalDecision.description,
-        permissionMode: approvalDecision.permissionMode,
-        approvalReason: approvalDecision.reason,
-        approvalReasonCodes: approvalDecision.reasonCodes,
-        approvalSecondaryReasons: approvalDecision.secondaryReasons,
-        approvedExternalPaths: approvalDecision.approvedExternalPaths,
-        signal: prepared.context.signal,
-      });
-    } catch (error) {
-      return errorResult(`审批流程异常: ${error instanceof Error ? error.message : String(error)}`, toolName, {
-        ...mergeToolPermissionMetadata({}, prepared.toolPermission),
-        approval: approvalMetadata,
-      });
-    }
-
+    const resolution = await this.approval.waitForApproval(prepared, approvalDecision);
     if (!resolution.approved) {
-      const denyReason = resolution.message || "用户拒绝执行此操作";
-      return errorResult(`工具 ${toolName} 执行已被拒绝：${denyReason}`, toolName, {
-        approval: buildApprovalMetadata(approvalDecision, resolution.message),
-      });
+      return resolution.result;
     }
-
     const contextWithPaths = withApprovedExternalPaths(prepared.context, approvalDecision.approvedExternalPaths);
     const result = withHooks
-      ? await this.executePreparedToolWithHooks(prepared, contextWithPaths, hooks)
-      : await this.executePreparedTool(prepared, contextWithPaths);
+      ? await this.hookOrchestrator.executeWithHooks(prepared, contextWithPaths, hooks)
+      : await executeToolCall(prepared, contextWithPaths);
     return withApprovalMetadata(result, approvalDecision, resolution.message);
   }
-
-  private approvalArguments(prepared: PreparedRuntimeTool): Record<string, unknown> {
-    return prepared.toolPermission?.arguments ?? prepared.call.arguments ?? {};
-  }
-
-  private async runToolHook(
-    eventName: "tool.before_permission" | "tool.after_permission" | "tool.before_execute" | "tool.after_execute" | "tool.on_error",
-    input: Parameters<HookRuntimeService["runToolHook"]>[1],
-  ): Promise<HookResult> {
-    return this.hooks ? this.hooks.runToolHook(eventName, input) : {
-      continueExecution: true,
-      blockExecution: false,
-      blockReason: "",
-    };
-  }
-
-  private mergeHookData<T>(
-    result: ToolExecutionResult<T>,
-    hookResult: HookResult | undefined,
-    phase: "before_permission" | "after_permission" | "before_execute" | "after_execute" | "on_error",
-  ): ToolExecutionResult<T> {
-    return hookResult && this.hooks ? this.hooks.mergeHookData(result, hookResult, phase) : result;
-  }
-
-  private hookBlockedResult(
-    toolName: string,
-    hookResult: HookResult,
-    phase: "before_permission" | "after_permission" | "before_execute" | "after_execute" | "on_error",
-  ): ToolExecutionResult<string> {
-    const result = errorResult(hookResult.blockReason || "Hook blocked tool execution", toolName, {
-      hook_blocked: true,
-      hook_phase: phase,
-      ...(hookResult.permissionDecision ? { hook_permission_decision: hookResult.permissionDecision } : {}),
-    });
-    return this.mergeHookData(result, hookResult, phase);
-  }
-}
-
-function attachPermissionRuntimeData(
-  input: Record<string, unknown>,
-  permission: RuntimeToolPermissionResult | null,
-): void {
-  const bashPlan = permission?.metadata?.bash_plan;
-  if (!bashPlan) {
-    return;
-  }
-  Object.defineProperty(input, "__runtime_bash_plan", {
-    value: bashPlan,
-    enumerable: false,
-    configurable: true,
-  });
-}
-
-function isToolResult(value: unknown): value is ToolExecutionResult {
-  return isRecord(value) && typeof value.success === "boolean" && typeof value.tool_name === "string";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
