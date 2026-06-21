@@ -19,7 +19,7 @@ import {
   applyWorkspaceOverride,
   buildChildMetadata,
   buildDelegatedTask,
-  buildRuntimeToolContext,
+  buildToolContext,
   clampInteger,
   getChildWorkspaceRoot,
   normalizeString,
@@ -376,7 +376,7 @@ export class AgentDelegationService implements DelegationPort {
         conversation: prepared.conversation,
         toolExecutor: runtimeTools,
         promptContext,
-        toolContext: buildRuntimeToolContext(targetAgent, {
+        toolContext: buildToolContext(targetAgent, {
           sessionId: input.sessionId,
           runId: childRunId,
           taskId: null,

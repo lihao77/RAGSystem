@@ -1,6 +1,6 @@
 import type { ChatMessage } from "../../../integrations/llm-chat-client.js";
 import type { Context, KernelContext, Protocol, ToolInstructionMode } from "../../kernel/contracts.js";
-import { buildRuntimeMessages } from "./message-builder.js";
+import { buildModelMessages } from "./message-builder.js";
 
 export interface DefaultContextOptions {
   /** 工具指令形态：决定 buildMessages 是否注入 XML 协议说明。由装配层（selectProtocol）绑定。 */
@@ -32,7 +32,7 @@ export class DefaultContext implements Context {
       ...(session.promptContext ?? {}),
       tools: session.promptContext?.tools ?? visibleTools,
     };
-    return buildRuntimeMessages(session.agent, ctx.messages, {
+    return buildModelMessages(session.agent, ctx.messages, {
       xmlProtocolTools: visibleTools,
       promptContext,
       toolInstructionMode: this.options.toolInstructionMode,

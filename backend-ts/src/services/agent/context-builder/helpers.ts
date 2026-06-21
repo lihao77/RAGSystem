@@ -4,13 +4,13 @@ import { DEFAULT_MICROCOMPACT_TTL_SECONDS } from "./types.js";
 
 /**
  * memory 前缀块的标记串——单一信源。生成方(memory.renderMemoryPrefixBlock)与
- * 识别方(isRuntimeStableSystemContextContent / message-builder)共用同一常量,
+ * 识别方(isStableSystemContextContent / message-builder)共用同一常量,
  * 改格式只动这一处,不再各处硬编码字面量。
  */
 export const MEMORY_SCOPE_CAPABILITIES_HEADING = "[Memory Scope Capabilities]";
 export const MEMORY_INDEX_HEADING_SUFFIX = "Memory Index]";
 
-export function isRuntimeStableSystemContextContent(content: string): boolean {
+export function isStableSystemContextContent(content: string): boolean {
   return content.includes(MEMORY_SCOPE_CAPABILITIES_HEADING) || content.includes(MEMORY_INDEX_HEADING_SUFFIX);
 }
 

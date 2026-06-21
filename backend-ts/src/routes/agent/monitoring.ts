@@ -6,7 +6,7 @@ import type { OutboxStatus } from "../../contracts/conversation-store/index.js";
 import { resolveContextCompressionSettings } from "../../services/agent/context-compression/index.js";
 import { buildAgentPromptContext, buildFullSystemPrompt } from "../../services/agent/prompt-builder/index.js";
 import { renderMessagesForProvider, resolveToolInstructionMode } from "../../services/agent/kernel-plugins/protocol/select-protocol.js";
-import { resolveRuntimeHistoryView } from "../../services/agent/context-builder/index.js";
+import { resolveHistoryView } from "../../services/agent/context-builder/index.js";
 import { messagesToConversation } from "../../services/agent/context-builder/history-view.js";
 import type { ChatMessage, ChatToolCall } from "../../services/integrations/llm-chat-client.js";
 import { HttpError } from "../../utils/errors.js";
@@ -135,7 +135,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const memorySnapshot = getMemorySnapshot(context?.metadata.sources ?? []);
     const threadKey = context?.metadata.thread_key ?? "root";
     const historyRawMessages = sessionId
-      ? resolveRuntimeHistoryView(
+      ? resolveHistoryView(
           options.container.conversationStore.listMessages(sessionId, 500, 0, threadKey).items,
         )
       : [];

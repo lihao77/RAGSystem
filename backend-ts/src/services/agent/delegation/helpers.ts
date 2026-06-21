@@ -30,7 +30,7 @@ export function getChildWorkspaceRoot(child: ChildAgentInfo, context: RuntimeToo
   return normalizeString(child.metadata.workspace_root) ?? normalizeString(context.workspaceRoot);
 }
 
-export function buildRuntimeToolContext(
+export function buildToolContext(
   agent: AgentConfig,
   input: {
     sessionId: string;

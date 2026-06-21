@@ -8,9 +8,9 @@ import type {
 import { getString, isSessionMetadataPort, readPipelineCache } from "./helpers.js";
 import {
   countObservationMessages,
-  filterRuntimeHistoryMessages,
+  filterHistoryMessages,
   messagesToConversation,
-  microcompactRuntimeHistoryMessages,
+  microcompactHistoryMessages,
   resolveCompressionViewDetailed,
 } from "./history-view.js";
 
@@ -24,14 +24,14 @@ export class RecentMessagesContextSource implements AgentContextSource {
 
   build(request: ResolvedAgentContextRequest): AgentContextContribution {
     const messages = this.history.getRecentMessages(request.sessionId, request.historyLimit, request.threadKey);
-    const filteredMessages = filterRuntimeHistoryMessages(messages);
+    const filteredMessages = filterHistoryMessages(messages);
     const compressionView = resolveCompressionViewDetailed(filteredMessages);
     const historyMessages = compressionView.messages;
     const microcompactDecision = request.microcompact
       ? this.resolveMicrocompactDecision(request)
       : { requested: false, applied: false, reason: "disabled" };
     const microcompact = microcompactDecision.applied
-      ? microcompactRuntimeHistoryMessages(historyMessages, request.microcompactKeepRecentTools)
+      ? microcompactHistoryMessages(historyMessages, request.microcompactKeepRecentTools)
       : {
           messages: historyMessages,
           clearedCount: 0,

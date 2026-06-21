@@ -14,15 +14,15 @@ export function resolveCompressionView(messages: MessageInfo[]): MessageInfo[] {
   return resolveCompressionViewDetailed(messages).messages;
 }
 
-export function resolveRuntimeHistoryView(
+export function resolveHistoryView(
   messages: MessageInfo[],
 ): MessageInfo[] {
-  const filteredMessages = filterRuntimeHistoryMessages(messages);
+  const filteredMessages = filterHistoryMessages(messages);
   const compressionView = resolveCompressionViewDetailed(filteredMessages);
   return compressionView.messages;
 }
 
-export function filterRuntimeHistoryMessages(messages: MessageInfo[]): MessageInfo[] {
+export function filterHistoryMessages(messages: MessageInfo[]): MessageInfo[] {
   return messages.filter((message) => {
     if (message.role !== "user" && message.role !== "assistant" && message.role !== "system" && message.role !== "tool") {
       return false;
@@ -128,7 +128,7 @@ export function messagesToConversation(messages: MessageInfo[]): ChatMessage[] {
   return conversation;
 }
 
-export function microcompactRuntimeHistoryMessages(
+export function microcompactHistoryMessages(
   messages: MessageInfo[],
   keepRecentTools: number,
 ): {

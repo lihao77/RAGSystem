@@ -1,7 +1,7 @@
 import type { AgentConfig } from "../../../../contracts/agent-config.js";
 import type { ChatMessage } from "../../../integrations/llm-chat-client.js";
 import { buildFullSystemPrompt, type AgentPromptContext } from "../../prompt-builder/index.js";
-import { isRuntimeStableSystemContextContent } from "../../context-builder/index.js";
+import { isStableSystemContextContent } from "../../context-builder/index.js";
 import {
   isSemanticTaggedContent,
   renderRuntimeXmlProtocolInstruction,
@@ -10,7 +10,7 @@ import {
 import type { RuntimeToolDefinition } from "../../../runtime/runtime-tool-types.js";
 import type { ToolInstructionMode } from "../../kernel/contracts.js";
 
-export function buildRuntimeMessages(
+export function buildModelMessages(
   agent: AgentConfig,
   conversation: ChatMessage[],
   options: { xmlProtocolTools?: RuntimeToolDefinition[]; promptContext?: AgentPromptContext; toolInstructionMode?: ToolInstructionMode; renderConversation: (messages: ChatMessage[]) => ChatMessage[] },
@@ -24,7 +24,7 @@ export function buildRuntimeMessages(
   let conversationIndex = 0;
   while (
     conversation[conversationIndex]?.role === "system" &&
-    isRuntimeStableSystemContextContent(conversation[conversationIndex]?.content ?? "")
+    isStableSystemContextContent(conversation[conversationIndex]?.content ?? "")
   ) {
     const content = conversation[conversationIndex]?.content.trim();
     if (content) {
@@ -46,7 +46,7 @@ function renderSystemContextBlock(content: string): string {
   if (isSemanticTaggedContent(content)) {
     return content;
   }
-  if (isRuntimeStableSystemContextContent(content)) {
+  if (isStableSystemContextContent(content)) {
     return renderSemanticBlock("context", content, { source: "memory" });
   }
   return renderSemanticBlock("runtime_instruction", content, { source: "runtime_context" });

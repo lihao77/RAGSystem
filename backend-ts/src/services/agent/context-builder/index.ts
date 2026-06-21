@@ -15,11 +15,11 @@ import {
 import { positiveIntegerOrDefault, resolveMicrocompactTtlSeconds } from "./helpers.js";
 
 export * from "./types.js";
-export { isRuntimeStableSystemContextContent } from "./helpers.js";
+export { isStableSystemContextContent } from "./helpers.js";
 export {
-  filterRuntimeHistoryMessages,
+  filterHistoryMessages,
   resolveCompressionView,
-  resolveRuntimeHistoryView,
+  resolveHistoryView,
 } from "./history-view.js";
 export { RecentMessagesContextSource } from "./recent-messages-source.js";
 export { EmptyMemoryContextSource } from "./empty-memory-source.js";

@@ -26,7 +26,7 @@ import {
   buildRunEndStepPayload,
   buildRunStartPayload,
   buildRunStartStepPayload,
-  buildRuntimeToolContext,
+  buildToolContext,
   buildRunningExecutionStatus,
   mirrorEventData,
   renderBackgroundNotification,
@@ -395,7 +395,7 @@ export class AgentRunEngine {
         promptContext,
         toolExecutor: this.runtimeTools ?? undefined,
         toolContext: this.runtimeTools
-          ? buildRuntimeToolContext(input.agent, {
+          ? buildToolContext(input.agent, {
               sessionId: input.sessionId,
               runId: input.runId,
               taskId: input.taskId,

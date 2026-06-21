@@ -122,7 +122,7 @@ export function applySessionAgentOverrides(agent: AgentConfig, sessionMetadata: 
   };
 }
 
-export function buildRuntimeToolContext(
+export function buildToolContext(
   agent: AgentConfig,
   input: {
     sessionId: string;

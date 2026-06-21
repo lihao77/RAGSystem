@@ -1,7 +1,7 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { ChatMessage } from "../../integrations/llm-chat-client.js";
-import { isRuntimeStableSystemContextContent } from "../context-builder/index.js";
+import { isStableSystemContextContent } from "../context-builder/index.js";
 import { estimateTokens } from "../context-compression/index.js";
 import { buildFullSystemPrompt, type AgentPromptContext } from "../prompt-builder/index.js";
 import { resolveToolInstructionMode } from "../kernel-plugins/protocol/select-protocol.js";
@@ -31,10 +31,10 @@ export function buildContextUsagePayload(input: {
     buildFullSystemPrompt(input.agent, input.promptContext, input.provider ? resolveToolInstructionMode(input.provider) : "xml"),
   );
   const systemContextTokens = input.messages
-    .filter((message) => message.role === "system" && isRuntimeStableSystemContextContent(message.content))
+    .filter((message) => message.role === "system" && isStableSystemContextContent(message.content))
     .reduce((total, message) => total + estimateTokens(message.content), 0);
   const historyTokens = input.messages
-    .filter((message) => message.role !== "system" || !isRuntimeStableSystemContextContent(message.content))
+    .filter((message) => message.role !== "system" || !isStableSystemContextContent(message.content))
     .reduce((total, message) => total + estimateTokens(message.content), 0);
   const systemPromptTokens = rawSystemPromptTokens + systemContextTokens;
   const totalTokens = systemPromptTokens + historyTokens;
