@@ -4,6 +4,7 @@ import type { ExecutionTaskStatus } from "../../../contracts/execution.js";
 import type { ContextCompressionEvent } from "../context-compression/index.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { AgentRuntimeEvent } from "../kernel/contracts.js";
+import type { ChatMessage } from "../../integrations/llm-chat-client.js";
 import type { IConversationTransactionRunner } from "../../../contracts/conversation-store/index.js";
 import type {
   DurableClientEventPublisher,
@@ -250,23 +251,13 @@ export class AgentExecutionEventPublisher {
       return;
     }
     if (event.type === "runtime.assistant_intermediate") {
-      this.persistReactIntermediate(input, {
-        role: "assistant",
-        msgType: "intent",
-        content: event.data.content,
-        round: event.data.round,
-        agentName: event.data.agent_name,
-      });
+      this.persistReactMessage(input, event.data.message, "intent", event.data.round, event.data.agent_name);
       return;
     }
     if (event.type === "runtime.observation_complete") {
-      this.persistReactIntermediate(input, {
-        role: "user",
-        msgType: "observation",
-        content: event.data.content,
-        round: event.data.round,
-        agentName: event.data.agent_name,
-      });
+      for (const message of event.data.messages) {
+        this.persistReactMessage(input, message, "observation", event.data.round, event.data.agent_name);
+      }
       return;
     }
     if (event.type === "runtime.intent_complete") {
@@ -427,34 +418,36 @@ export class AgentExecutionEventPublisher {
     this.clientEvents.deliver([record]);
   }
 
-  private persistReactIntermediate(
+  private persistReactMessage(
     input: Omit<ExecutionEventContext, "rootCallId">,
-    event: {
-      role: "assistant" | "user";
-      msgType: "intent" | "observation";
-      content: string;
-      round: number;
-      agentName: string;
-    },
+    message: ChatMessage,
+    msgType: "intent" | "observation",
+    round: number,
+    agentName: string,
   ): void {
-    if (!event.content.trim()) {
+    // 空 content 且无 tool_calls 跳过（FC 工具调用轮 content 空但有结构化 tool_calls，需落库）。
+    const hasToolCalls = Boolean(message.tool_calls && message.tool_calls.length > 0);
+    if (!message.content.trim() && !hasToolCalls) {
       return;
     }
     this.sessions.addMessage({
       sessionId: input.sessionId,
-      role: event.role,
-      content: event.content,
+      role: message.role,
+      content: message.content,
+      toolCalls: message.tool_calls,
+      toolCallId: message.tool_call_id,
+      name: message.name,
       threadKey: "root",
       childAgentId: null,
       metadata: {
         react_intermediate: true,
-        msg_type: event.msgType,
-        round: event.round + 1,
+        msg_type: msgType,
+        round: round + 1,
         run_id: input.runId,
         task_id: input.taskId,
         request_id: input.requestId,
         agent: input.agent.agent_name,
-        agent_name: event.agentName,
+        agent_name: agentName,
         thread_key: "root",
         conversation_scope: "root",
         visible_to_user: true,

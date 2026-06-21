@@ -1,6 +1,7 @@
 import type { RunStepInfo } from "../../../contracts/common.js";
 import type { MessageInfo, SessionInfo, SessionListItem } from "../../../contracts/session.js";
 import { asString, parseJsonObject } from "./helpers.js";
+import { decodeChatFields } from "./chat-message-codec.js";
 import type { ChildAgentInfo, ResourceInfo, RunInfo } from "../../../contracts/conversation-store/types.js";
 import type {
   ChildAgentRow,
@@ -41,16 +42,18 @@ export function rowToSessionListItem(row: SessionListRow): SessionListItem {
 }
 
 export function rowToMessage(row: MessageRow): MessageInfo {
+  const metadata = parseJsonObject(row.metadata);
   return {
     seq: row.seq,
     id: row.id,
     session_id: row.session_id,
     role: row.role,
     content: row.content,
-    metadata: parseJsonObject(row.metadata),
+    metadata,
     thread_key: row.thread_key ?? "root",
     child_agent_id: row.child_agent_id,
     created_at: row.created_at,
+    ...decodeChatFields(metadata),
   };
 }
 

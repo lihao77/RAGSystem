@@ -784,8 +784,10 @@ describe("AgentKernel", () => {
         expect.objectContaining({
           type: "runtime.assistant_intermediate",
           data: expect.objectContaining({
-            content:
-              '<intent>我先查看 session 记忆。</intent><tool_calls><tool name="list_memory_index"><scope>session</scope></tool></tool_calls>',
+            message: expect.objectContaining({
+              content:
+                '<intent>我先查看 session 记忆。</intent><tool_calls><tool name="list_memory_index"><scope>session</scope></tool></tool_calls>',
+            }),
             round: 0,
           }),
         }),
@@ -800,7 +802,9 @@ describe("AgentKernel", () => {
         expect.objectContaining({
           type: "runtime.observation_complete",
           data: expect.objectContaining({
-            content: expect.stringContaining("<tool_result"),
+            messages: expect.arrayContaining([
+              expect.objectContaining({ content: expect.stringContaining("<tool_result") }),
+            ]),
             round: 0,
           }),
         }),

@@ -23,11 +23,23 @@ export type OutboxStatus = z.infer<typeof OutboxStatusSchema>;
 // TODO 校验覆盖一致性：当前仅 addMessage/appendOutbox 入口 parse，其余 *Input 仅定义形状；
 // 运行时校验待统一接入（事务 facade 与 ops 间内部调用信任输入）。契约 v2（位置参数→input）一并处理。
 
+const MessageToolCallSchema = z.object({
+  id: z.string(),
+  type: z.literal("function"),
+  function: z.object({
+    name: z.string(),
+    arguments: z.string(),
+  }),
+});
+
 export const AddMessageInputSchema = z.object({
   sessionId: z.string(),
   role: z.enum(["system", "user", "assistant", "tool"]),
   content: z.string(),
   metadata: z.record(z.unknown()).optional(),
+  toolCalls: z.array(MessageToolCallSchema).optional(),
+  toolCallId: z.string().optional(),
+  name: z.string().optional(),
   messageId: z.string().optional(),
   threadKey: z.string().optional(),
   childAgentId: z.string().nullable().optional(),

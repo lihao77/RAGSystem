@@ -75,7 +75,7 @@ export class AgentKernel {
           this.events.emit({
             type: "runtime.assistant_intermediate",
             data: {
-              content: outcome.assistantMessage.content,
+              message: outcome.assistantMessage,
               agent_name: session.agent.agent_name,
               round,
             },
@@ -86,20 +86,15 @@ export class AgentKernel {
           const observations = await this.tools.executeRound(ctx, round, outcome.calls);
           // 现状 L319：工具执行后 abort 检查点。
           ctx.throwIfAborted();
-          // 现状 L320-328：observation 回填（单条 user 消息）。
-          ctx.appendMessages(this.protocol.renderObservations(outcome.calls, observations));
-          // 现状 L329-336：有 observation 时 emit observation_complete（content=合并 observation；
-          // 该事件归宿是写消息表 addMessage，不发则 observation 不落库、跨会话丢失）。
-          if (observations.length > 0) {
-            const observationContent = observations
-              .slice()
-              .sort((left, right) => left.index - right.index)
-              .map((execution) => execution.observation)
-              .join("\n\n");
+          // observation 回填：忠实搬运 protocol.renderObservations 产物（FC=role:tool 结构化、
+          // XML=role:user 文本），append 进工作副本 + 经事件落库（逐条 serialize）。
+          const observationMessages = this.protocol.renderObservations(outcome.calls, observations);
+          ctx.appendMessages(observationMessages);
+          if (observationMessages.length > 0) {
             this.events.emit({
               type: "runtime.observation_complete",
               data: {
-                content: observationContent,
+                messages: observationMessages,
                 agent_name: session.agent.agent_name,
                 round,
               },

@@ -70,7 +70,7 @@ export type AgentRuntimeEvent =
   | {
       type: "runtime.assistant_intermediate";
       data: {
-        content: string;
+        message: ChatMessage;
         agent_name: string;
         round: number;
       };
@@ -109,7 +109,7 @@ export type AgentRuntimeEvent =
   | {
       type: "runtime.observation_complete";
       data: {
-        content: string;
+        messages: ChatMessage[];
         agent_name: string;
         round: number;
       };

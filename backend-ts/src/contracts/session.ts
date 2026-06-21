@@ -57,6 +57,22 @@ export interface SessionListItem extends SessionInfo {
   unread_count: number;
 }
 
+/**
+ * 结构化工具调用（OpenAI tool call 标准形态）。与 services/integrations/llm-chat-client.ts
+ * 的 ChatToolCall 结构一致（结构类型兼容），在 contracts 内独立定义以避免契约层反向依赖 services。
+ *
+ * 跨协议统一：XML 与 FC 协议的 assistant 工具调用态消息都用此结构化字段承载调用参数，
+ * 不再把调用信息塞进 content 文本。详见 services/stores/conversation-store/chat-message-codec.ts。
+ */
+export interface MessageToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
 export interface MessageInfo {
   id: string;
   seq: number;
@@ -67,6 +83,12 @@ export interface MessageInfo {
   created_at: string;
   thread_key: string;
   child_agent_id: string | null;
+  /** assistant 工具调用态的结构化调用参数（跨协议统一）。 */
+  tool_calls?: MessageToolCall[] | undefined;
+  /** tool 消息关联的调用 id（observation 回填）。 */
+  tool_call_id?: string | undefined;
+  /** tool 消息的工具名。 */
+  name?: string | undefined;
   has_execution?: boolean;
   execution_steps?: Record<string, unknown>[];
 }

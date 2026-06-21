@@ -108,6 +108,9 @@ export class AgentSessionApplication {
     role: MessageInfo["role"];
     content: string;
     metadata?: Record<string, unknown>;
+    toolCalls?: MessageInfo["tool_calls"];
+    toolCallId?: string | undefined;
+    name?: string | undefined;
     messageId?: string;
     threadKey?: string;
     childAgentId?: string | null;

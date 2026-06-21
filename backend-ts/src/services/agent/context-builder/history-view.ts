@@ -25,7 +25,7 @@ export function resolveRuntimeHistoryView(
 
 export function filterRuntimeHistoryMessages(messages: MessageInfo[]): MessageInfo[] {
   return messages.filter((message) => {
-    if (message.role !== "user" && message.role !== "assistant" && message.role !== "system") {
+    if (message.role !== "user" && message.role !== "assistant" && message.role !== "system" && message.role !== "tool") {
       return false;
     }
     const metadata = message.metadata ?? {};
@@ -112,8 +112,18 @@ export function resolveCompressionViewDetailed(messages: MessageInfo[]): Compres
 export function messagesToConversation(messages: RuntimeHistoryMessageInfo[]): ChatMessage[] {
   const conversation: ChatMessage[] = [];
   for (const message of messages) {
-    if (message.role === "user" || message.role === "assistant" || message.role === "system") {
-      conversation.push({ role: message.role, content: message.content });
+    if (message.role === "user" || message.role === "assistant" || message.role === "system" || message.role === "tool") {
+      const chatMessage: ChatMessage = { role: message.role, content: message.content };
+      if (message.tool_calls && message.tool_calls.length > 0) {
+        chatMessage.tool_calls = message.tool_calls;
+      }
+      if (message.tool_call_id) {
+        chatMessage.tool_call_id = message.tool_call_id;
+      }
+      if (message.name) {
+        chatMessage.name = message.name;
+      }
+      conversation.push(chatMessage);
     }
   }
   return conversation;

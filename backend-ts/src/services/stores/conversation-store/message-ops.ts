@@ -4,6 +4,7 @@ import type { MessageInfo } from "../../../contracts/session.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
 import { asNullableString, asString, stringifyJson } from "./helpers.js";
+import { decodeChatFields, encodeChatFields } from "./chat-message-codec.js";
 import { rowToMessage } from "./mappers.js";
 import type { AddMessageInput, IMessageStore } from "../../../contracts/conversation-store/index.js";
 import { AddMessageInputSchema } from "../../../contracts/conversation-store/types.js";
@@ -29,6 +30,11 @@ export class MessageOps implements IMessageStore {
     if (childAgentId) {
       metadata.child_agent_id = childAgentId;
     }
+    const persistedMetadata = encodeChatFields(metadata, {
+      tool_calls: input.toolCalls,
+      tool_call_id: input.toolCallId,
+      name: input.name,
+    });
 
     this.db.prepare("INSERT OR IGNORE INTO sessions (session_id, metadata) VALUES (?, ?)").run(input.sessionId, "{}");
     this.db
@@ -36,7 +42,7 @@ export class MessageOps implements IMessageStore {
         INSERT INTO messages (id, session_id, role, content, metadata, thread_key, child_agent_id)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `)
-      .run(messageId, input.sessionId, input.role, input.content, stringifyJson(metadata), threadKey, childAgentId);
+      .run(messageId, input.sessionId, input.role, input.content, stringifyJson(persistedMetadata), threadKey, childAgentId);
     this.db.prepare("UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=?").run(input.sessionId);
 
     const row = this.db
@@ -56,10 +62,11 @@ export class MessageOps implements IMessageStore {
       session_id: input.sessionId,
       role: row.role,
       content: row.content,
-      metadata,
+      metadata: persistedMetadata,
       thread_key: row.thread_key ?? "root",
       child_agent_id: row.child_agent_id,
       created_at: row.created_at,
+      ...decodeChatFields(persistedMetadata),
     };
   }
 
