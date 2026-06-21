@@ -15,7 +15,7 @@
  */
 
 import type { LlmChatClient } from "../../../integrations/llm-chat-client.js";
-import { OPENAI_COMPATIBLE_TYPES } from "../../../integrations/llm-chat-client.js";
+import { OPENAI_COMPATIBLE_TYPES } from "../../../integrations/provider-registry.js";
 import type { ModelProviderConfig } from "../../../../contracts/model-adapter.js";
 import type { EventSink, Protocol, ToolInstructionMode } from "../../kernel/contracts.js";
 import { NativeHybridProtocol } from "./native-hybrid-protocol.js";

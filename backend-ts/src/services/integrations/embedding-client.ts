@@ -11,6 +11,7 @@
  * - HTTP 非 2xx 抛异常(携带响应 message),非静默。
  */
 import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
+import { providerEmbeddingDefaultEndpoint } from "./provider-registry.js";
 
 export interface EmbeddingRequest {
   texts: string[];
@@ -21,15 +22,6 @@ export interface EmbeddingRequest {
 export interface EmbeddingClient {
   embed(request: EmbeddingRequest): Promise<number[][]>;
 }
-
-const DEFAULT_ENDPOINTS: Record<string, string> = {
-  openai_resp: "https://api.openai.com/v1",
-  openai_chat: "https://api.openai.com/v1",
-  openai_proxy: "https://api.openai.com/v1",
-  deepseek: "https://api.deepseek.com/v1",
-  openrouter: "https://openrouter.ai/api/v1",
-  modelscope: "https://api-inference.modelscope.cn/v1",
-};
 
 export class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
   async embed(request: EmbeddingRequest): Promise<number[][]> {
@@ -58,7 +50,7 @@ export class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
 }
 
 function resolveEmbeddingsEndpoint(provider: ModelProviderConfig): string {
-  const raw = resolveEnvPlaceholder(String(provider.api_endpoint ?? DEFAULT_ENDPOINTS[provider.provider_type] ?? "")).trim();
+  const raw = resolveEnvPlaceholder(String(provider.api_endpoint ?? providerEmbeddingDefaultEndpoint(provider.provider_type))).trim();
   if (!raw) {
     throw new Error(`Provider '${provider.name}' is missing api_endpoint for embedding`);
   }

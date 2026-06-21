@@ -13,29 +13,8 @@ import type {
 } from "../../contracts/model-adapter.js";
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { LlmChatClient } from "./llm-chat-client.js";
+import { DEFAULT_ENDPOINTS, PROVIDER_TYPES, PROVIDER_TYPE_SET } from "./provider-registry.js";
 
-const DEFAULT_ENDPOINTS: Record<string, string> = {
-  openai_resp: "https://api.openai.com/v1",
-  openai_chat: "https://api.openai.com/v1",
-  openai_proxy: "https://api.openai.com/v1",
-  anthropic: "https://api.anthropic.com",
-  deepseek: "https://api.deepseek.com/v1",
-  openrouter: "https://openrouter.ai/api/v1",
-  modelscope: "https://api-inference.modelscope.cn/v1",
-  rerank_api: "",
-};
-
-const PROVIDER_TYPES = [
-  "openai_resp",
-  "openai_chat",
-  "openai_proxy",
-  "anthropic",
-  "deepseek",
-  "openrouter",
-  "modelscope",
-  "rerank_api",
-] as const;
-const PROVIDER_TYPE_SET = new Set<string>(PROVIDER_TYPES);
 const PROVIDERS_CONFIG_RELATIVE_PATH = path.join("config", "model_adapter", "providers.yaml");
 
 const UPDATE_FIELDS = [

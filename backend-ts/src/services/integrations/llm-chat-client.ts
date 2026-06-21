@@ -1,5 +1,9 @@
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
+import {
+  DEFAULT_ENDPOINTS as PROVIDER_DEFAULT_ENDPOINTS,
+  OPENAI_COMPATIBLE_TYPES,
+} from "./provider-registry.js";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -67,17 +71,7 @@ export interface LlmChatClient {
   stream?(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler): Promise<ChatCompletionResult>;
 }
 
-const DEFAULT_ENDPOINTS: Record<string, string> = {
-  openai_resp: "https://api.openai.com/v1",
-  openai_chat: "https://api.openai.com/v1",
-  openai_proxy: "https://api.openai.com/v1",
-  anthropic: "https://api.anthropic.com",
-  deepseek: "https://api.deepseek.com/v1",
-  openrouter: "https://openrouter.ai/api/v1",
-  modelscope: "https://api-inference.modelscope.cn/v1",
-};
-
-export const OPENAI_COMPATIBLE_TYPES = new Set(["openai_chat", "openai_proxy", "deepseek", "openrouter", "modelscope"]);
+const DEFAULT_ENDPOINTS = PROVIDER_DEFAULT_ENDPOINTS;
 
 export class OpenAiCompatibleChatClient implements LlmChatClient {
   async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
