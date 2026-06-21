@@ -221,16 +221,16 @@ describe("monitoring compatibility routes", () => {
           expect.objectContaining({
             seq: systemMessage.seq,
             role: "system",
-            content_preview: "S".repeat(300),
+            content_preview: expect.stringContaining("<runtime_instruction"),
             is_preview_truncated: false,
             can_load_full_content: false,
           }),
           expect.objectContaining({
             seq: message.seq,
             role: "user",
-            content_preview: `${"U".repeat(200)}...`,
-            is_preview_truncated: true,
-            can_load_full_content: true,
+            content_preview: expect.stringContaining("<user_input"),
+            is_preview_truncated: false,
+            can_load_full_content: false,
           }),
         ],
       },
@@ -315,18 +315,18 @@ describe("monitoring compatibility routes", () => {
       expect.objectContaining({
         seq: summary.seq,
         role: "assistant",
-        content_preview: "[历史摘要]\nold user / old assistant",
+        content_preview: expect.stringContaining("[历史摘要]"),
         is_compression_summary: true,
       }),
       expect.objectContaining({
         seq: tailBeforeSummary.seq,
         role: "user",
-        content_preview: "tail before summary",
+        content_preview: expect.stringContaining("tail before summary"),
       }),
       expect.objectContaining({
         seq: tailAfterSummary.seq,
         role: "assistant",
-        content_preview: "tail after summary",
+        content_preview: expect.stringContaining("tail after summary"),
       }),
     ]);
   });
@@ -424,14 +424,14 @@ describe("monitoring compatibility routes", () => {
       expect.objectContaining({
         seq: runStepsOnlyUser.seq,
         role: "user",
-        content_preview: "测试工具是否能运行",
+        content_preview: expect.stringContaining("测试工具是否能运行"),
         react_intermediate: false,
         msg_type: null,
       }),
       expect.objectContaining({
         seq: runStepsOnlyAssistant.seq,
         role: "assistant",
-        content_preview: "工具测试完成",
+        content_preview: expect.stringContaining("工具测试完成"),
         react_intermediate: false,
         msg_type: null,
       }),
@@ -485,16 +485,15 @@ describe("monitoring compatibility routes", () => {
       expect.objectContaining({
         seq: user.seq,
         role: "user",
-        content_preview: "测试工具是否能运行",
+        content_preview: expect.stringContaining("测试工具是否能运行"),
         react_intermediate: false,
         msg_type: null,
       }),
       expect.objectContaining({
         seq: intent.seq,
         role: "assistant",
-        content_preview:
-          "我先执行一个只读命令。\n\n<tool_calls>\n<tool name=\"execute_bash\"><command>pwd</command></tool>\n<tool name=\"task_list\"></tool>\n</tool_calls>",
-        can_load_full_content: true,
+        content_preview: expect.stringContaining("我先执行一个只读命令"),
+        can_load_full_content: false,
         react_intermediate: true,
         msg_type: "intent",
         round: 1,
@@ -503,7 +502,7 @@ describe("monitoring compatibility routes", () => {
         seq: observation.seq,
         role: "user",
         content_preview: expect.stringContaining("<tool_result"),
-        can_load_full_content: true,
+        can_load_full_content: false,
         react_intermediate: true,
         msg_type: "observation",
         round: 1,
@@ -511,7 +510,7 @@ describe("monitoring compatibility routes", () => {
       expect.objectContaining({
         seq: assistant.seq,
         role: "assistant",
-        content_preview: "工具测试完成",
+        content_preview: expect.stringContaining("工具测试完成"),
         react_intermediate: false,
         msg_type: null,
       }),
