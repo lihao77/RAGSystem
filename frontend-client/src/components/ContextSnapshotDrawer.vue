@@ -184,12 +184,18 @@ usePointerDownOutside({
 });
 
 function msgLabel(msg) {
-  // 标签对齐"实际请求"的 role（渲染后）：XML 的 observation 转成 user、tool_calls 保持 assistant，
-  // 与对话历史展示的 content（实际请求形态）一致。
+  // 区分语义角色：中间轮（工具调用 intent / 工具结果 observation）显式标记，便于调试时分清
+  // final answer / 用户消息 / 中间轮次。msg_type 来自存储语义，渲染后保留。
+  if (msg.msg_type === 'observation') return 'Tool Result';
+  if (msg.msg_type === 'intent') return 'Tool Call';
+  if (msg.role === 'assistant') return 'Final Answer';
   return msg.role;
 }
 
 function msgClass(msg) {
+  // 中间轮（intent/observation）用虚线样式与 final/user 实线区分。
+  if (msg.msg_type === 'observation') return 'react-observation';
+  if (msg.msg_type === 'intent') return 'react-thought';
   return 'role-' + msg.role;
 }
 
