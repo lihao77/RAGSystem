@@ -3,8 +3,9 @@ import type { FastifyPluginAsync } from "fastify";
 import { GenericVectorRequestSchema, SearchVectorsRequestSchema } from "../contracts/vector-library.js";
 import { ok } from "../contracts/common.js";
 import { VectorLibraryServiceError } from "../services/knowledge/vector-library-service.js";
-import { HttpError } from "../utils/errors.js";
+import { HttpError, httpErrorFrom, statusHttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
+import { isRecord } from "../utils/guards.js";
 
 interface CollectionParams {
   collectionName: string;
@@ -84,13 +85,9 @@ export const registerVectorRoutes: FastifyPluginAsync<RouteOptions> = async (app
 };
 
 function toHttpError(error: unknown): HttpError {
-  if (error instanceof HttpError) {
-    return error;
-  }
-  if (error instanceof VectorLibraryServiceError) {
-    return new HttpError(error.statusCode, error.statusCode === 404 ? "not_found" : "invalid_request", error.message);
-  }
-  return new HttpError(500, "internal_error", error instanceof Error ? error.message : String(error));
+  return httpErrorFrom(error, (e) =>
+    e instanceof VectorLibraryServiceError ? statusHttpError(e.statusCode, e.message) : null,
+  );
 }
 
 function normalizeDocumentsResponse(data: Record<string, unknown>): Record<string, unknown> {
@@ -111,6 +108,3 @@ function normalizeVectorHealth(data: Record<string, unknown>): Record<string, un
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}

@@ -9,7 +9,7 @@ import {
 } from "../contracts/vector-library.js";
 import { ok } from "../contracts/common.js";
 import { VectorLibraryServiceError } from "../services/knowledge/vector-library-service.js";
-import { HttpError } from "../utils/errors.js";
+import { HttpError, httpErrorFrom } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 
 interface KeyParams {
@@ -127,17 +127,16 @@ export const registerVectorLibraryRoutes: FastifyPluginAsync<RouteOptions> = asy
 };
 
 function toHttpError(error: unknown): HttpError {
-  if (error instanceof HttpError) {
-    return error;
-  }
-  if (error instanceof VectorLibraryServiceError) {
-    if (
-      error.message.startsWith("重排序器不存在:") ||
-      error.message === "model 模式的重排序器必须提供 provider_key 和 model_name"
-    ) {
-      return new HttpError(500, "internal_error", error.message);
+  return httpErrorFrom(error, (e) => {
+    if (!(e instanceof VectorLibraryServiceError)) {
+      return null;
     }
-    return new HttpError(error.statusCode, "invalid_request", error.message);
-  }
-  return new HttpError(500, "internal_error", error instanceof Error ? error.message : String(error));
+    if (
+      e.message.startsWith("重排序器不存在:") ||
+      e.message === "model 模式的重排序器必须提供 provider_key 和 model_name"
+    ) {
+      return new HttpError(500, "internal_error", e.message);
+    }
+    return new HttpError(e.statusCode, "invalid_request", e.message);
+  });
 }

@@ -7,8 +7,9 @@ import {
 } from "../contracts/mcp.js";
 import { ok } from "../contracts/common.js";
 import { McpServiceError } from "../services/integrations/mcp-service.js";
-import { HttpError } from "../utils/errors.js";
+import { HttpError, httpErrorFrom } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
+import { isRecord } from "../utils/guards.js";
 
 interface ServerParams {
   serverName: string;
@@ -128,10 +129,6 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
   });
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 function normalizeServerListItem(server: Record<string, unknown>): Record<string, unknown> {
   const serverName = String(server.name ?? server.server_name ?? "");
   const normalized = {
@@ -212,11 +209,7 @@ function withPythonMcpToolMetadata(tool: Record<string, unknown>): Record<string
 }
 
 function toHttpError(error: unknown): HttpError {
-  if (error instanceof HttpError) {
-    return error;
-  }
-  if (error instanceof McpServiceError) {
-    return new HttpError(error.statusCode, "invalid_request", error.message);
-  }
-  return new HttpError(500, "internal_error", error instanceof Error ? error.message : String(error));
+  return httpErrorFrom(error, (e) =>
+    e instanceof McpServiceError ? new HttpError(e.statusCode, "invalid_request", e.message) : null,
+  );
 }

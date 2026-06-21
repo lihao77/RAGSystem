@@ -7,7 +7,7 @@ import {
 } from "../contracts/model-adapter.js";
 import { ok } from "../contracts/common.js";
 import { ModelAdapterServiceError } from "../services/integrations/model-adapter-service.js";
-import { HttpError } from "../utils/errors.js";
+import { HttpError, httpErrorFrom } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 
 interface ProviderParams {
@@ -119,11 +119,7 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
 };
 
 function toHttpError(error: unknown): HttpError {
-  if (error instanceof HttpError) {
-    return error;
-  }
-  if (error instanceof ModelAdapterServiceError) {
-    return new HttpError(error.statusCode, "invalid_request", error.message);
-  }
-  return new HttpError(500, "internal_error", error instanceof Error ? error.message : String(error));
+  return httpErrorFrom(error, (e) =>
+    e instanceof ModelAdapterServiceError ? new HttpError(e.statusCode, "invalid_request", e.message) : null,
+  );
 }

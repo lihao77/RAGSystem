@@ -6,6 +6,7 @@ import type { AttachmentRef } from "../../contracts/execution.js";
 import { ClientToServerMessageSchema, type ClientEvent } from "../../contracts/events.js";
 import { ClientEventProjector } from "../../services/runtime/event-outbox/projector.js";
 import type { RouteOptions } from "../route-options.js";
+import { isRecord } from "../../utils/guards.js";
 
 interface SessionWsParams {
   sessionId: string;
@@ -449,6 +450,3 @@ function timestampToMilliseconds(value: unknown): number | null {
   return null;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}

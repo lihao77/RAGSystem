@@ -9,6 +9,7 @@ import { resolveToolInstructionMode } from "../../services/agent/kernel-plugins/
 import { resolveRuntimeHistoryView } from "../../services/agent/context-builder/index.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
+import { isRecord } from "../../utils/guards.js";
 
 interface ContextSnapshotQuery {
   session_id?: string;
@@ -519,6 +520,3 @@ function parseCleanupBefore(query: OutboxCleanupQuery): string {
   return new Date(Date.now() - olderThanHours * 60 * 60 * 1000).toISOString();
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}

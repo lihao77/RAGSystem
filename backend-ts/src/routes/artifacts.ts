@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 
 import { ArtifactServiceError } from "../services/artifacts/artifact-service.js";
-import { HttpError } from "../utils/errors.js";
+import { HttpError, httpErrorFrom, statusHttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 
 interface ArtifactParams {
@@ -53,11 +53,7 @@ export const registerArtifactRoutes: FastifyPluginAsync<RouteOptions> = async (a
 };
 
 function toHttpError(error: unknown): HttpError {
-  if (error instanceof HttpError) {
-    return error;
-  }
-  if (error instanceof ArtifactServiceError) {
-    return new HttpError(error.statusCode, error.statusCode === 404 ? "not_found" : "invalid_request", error.message);
-  }
-  return new HttpError(500, "internal_error", error instanceof Error ? error.message : String(error));
+  return httpErrorFrom(error, (e) =>
+    e instanceof ArtifactServiceError ? statusHttpError(e.statusCode, e.message) : null,
+  );
 }

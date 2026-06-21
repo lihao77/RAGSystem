@@ -3,7 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { SyncEmbeddingModelRequestSchema } from "../contracts/embedding-models.js";
 import { EmbeddingModelServiceError } from "../services/knowledge/embedding-model-service.js";
 import { VectorLibraryServiceError } from "../services/knowledge/vector-library-service.js";
-import { HttpError } from "../utils/errors.js";
+import { HttpError, httpErrorFrom, statusHttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 
 interface ModelParams {
@@ -103,17 +103,16 @@ function parseBoolean(value: string | boolean | undefined): boolean {
 }
 
 function toHttpError(error: unknown): HttpError {
-  if (error instanceof HttpError) {
-    return error;
-  }
-  if (error instanceof EmbeddingModelServiceError) {
-    if (error.statusCode === 404 && error.message.startsWith("模型不存在:")) {
-      return new HttpError(500, "internal_error", error.message.replace("模型不存在: ", "模型不存在: ID="));
+  return httpErrorFrom(error, (e) => {
+    if (e instanceof EmbeddingModelServiceError) {
+      if (e.statusCode === 404 && e.message.startsWith("模型不存在:")) {
+        return new HttpError(500, "internal_error", e.message.replace("模型不存在: ", "模型不存在: ID="));
+      }
+      return statusHttpError(e.statusCode, e.message);
     }
-    return new HttpError(error.statusCode, error.statusCode === 404 ? "not_found" : "invalid_request", error.message);
-  }
-  if (error instanceof VectorLibraryServiceError) {
-    return new HttpError(error.statusCode, error.statusCode === 404 ? "not_found" : "invalid_request", error.message);
-  }
-  return new HttpError(500, "internal_error", error instanceof Error ? error.message : String(error));
+    if (e instanceof VectorLibraryServiceError) {
+      return statusHttpError(e.statusCode, e.message);
+    }
+    return null;
+  });
 }

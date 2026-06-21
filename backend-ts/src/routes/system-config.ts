@@ -4,6 +4,7 @@ import { ok } from "../contracts/common.js";
 import { SystemConfigUpdateSchema } from "../contracts/system-config.js";
 import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
+import { isRecord } from "../utils/guards.js";
 
 export const registerSystemConfigRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.get("/schema", async () => ok(options.container.systemConfig.getSchema(), "系统配置 schema"));
@@ -24,6 +25,3 @@ export const registerSystemConfigRoutes: FastifyPluginAsync<RouteOptions> = asyn
   });
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}

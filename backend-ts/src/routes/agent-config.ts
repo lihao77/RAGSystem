@@ -10,6 +10,7 @@ import {
 } from "../contracts/agent-config.js";
 import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
+import { isRecord } from "../utils/guards.js";
 
 interface AgentParams {
   agentName: string;
@@ -204,10 +205,6 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
     return ok(skills, `共有 ${skills.length} 个可用 Skill`);
   });
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

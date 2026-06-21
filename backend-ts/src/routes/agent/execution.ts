@@ -6,6 +6,7 @@ import { CollaborateRequestSchema, ExecuteRequestSchema } from "../../contracts/
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import { ZodError } from "zod";
+import { isRecord } from "../../utils/guards.js";
 
 interface ExecuteAgentParams {
   agentName: string;
@@ -139,10 +140,6 @@ function normalizeExecutionOverview<T extends { by_execution_kind: Record<string
 
 function parseActiveOnly(rawValue: string | undefined): boolean {
   return !new Set(["0", "false", "no", "off"]).has(String(rawValue ?? "true").trim().toLowerCase());
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function parseCollaborateRequest(body: unknown) {

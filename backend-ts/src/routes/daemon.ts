@@ -9,8 +9,9 @@ import {
   DaemonTestMessageSchema,
 } from "../contracts/daemon.js";
 import { DaemonServiceError } from "../services/daemon/daemon-service.js";
-import { HttpError } from "../utils/errors.js";
+import { HttpError, httpErrorFrom } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
+import { isRecord } from "../utils/guards.js";
 
 interface AgentParams {
   teamName: string;
@@ -143,15 +144,8 @@ export const registerDaemonRoutes: FastifyPluginAsync<RouteOptions> = async (app
 };
 
 function toHttpError(error: unknown): HttpError {
-  if (error instanceof HttpError) {
-    return error;
-  }
-  if (error instanceof DaemonServiceError) {
-    return new HttpError(error.statusCode, "invalid_request", error.message);
-  }
-  return new HttpError(500, "internal_error", error instanceof Error ? error.message : String(error));
+  return httpErrorFrom(error, (e) =>
+    e instanceof DaemonServiceError ? new HttpError(e.statusCode, "invalid_request", e.message) : null,
+  );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}

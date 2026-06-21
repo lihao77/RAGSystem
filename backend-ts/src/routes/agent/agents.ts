@@ -5,6 +5,7 @@ import { ok } from "../../contracts/common.js";
 import type { RouteOptions } from "../route-options.js";
 import { HttpError } from "../../utils/errors.js";
 import { ZodError } from "zod";
+import { isRecord } from "../../utils/guards.js";
 
 interface AgentParams {
   agentName: string;
@@ -148,6 +149,3 @@ function normalizeLlmTier(value: unknown): Record<string, unknown> {
   return tier;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
