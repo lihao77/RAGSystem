@@ -83,4 +83,71 @@ describe("session run step routes", () => {
       },
     });
   });
+
+  it("aggregates child agent run steps into the message run tree", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+
+    harness.container.sessionApplication.createSession({ sessionId: "s2" });
+    const assistant = harness.container.sessionApplication.addMessage({
+      sessionId: "s2",
+      role: "assistant",
+      content: "delegated answer",
+      metadata: { run_id: "root-run" },
+    });
+    // root run(final message = assistant):记录 subtask step(子 agent 容器节点)。
+    harness.container.conversationStore.createRun({
+      runId: "root-run",
+      sessionId: "s2",
+      status: "running",
+      agentName: "orchestrator_agent",
+      threadKey: "root",
+    });
+    harness.container.conversationStore.updateRunStatus("root-run", "s2", "completed", assistant.id);
+    harness.container.conversationStore.addRunStep({
+      sessionId: "s2",
+      runId: "root-run",
+      stepType: "execution.step",
+      payload: {
+        kind: "subtask",
+        phase: "start",
+        call_id: "agent-call-1",
+        parent_call_id: "root-call",
+        round: 0,
+        agent_name: "general_agent",
+      },
+    });
+    // child run(parent_run_id=root-run):其工具 step 落子 run_id 下。
+    harness.container.conversationStore.createRun({
+      runId: "child-run",
+      sessionId: "s2",
+      status: "running",
+      agentName: "general_agent",
+      threadKey: "child:child-1",
+      parentRunId: "root-run",
+      parentCallId: "agent-call-1",
+      childAgentId: "child-1",
+    });
+    harness.container.conversationStore.addRunStep({
+      sessionId: "s2",
+      runId: "child-run",
+      stepType: "execution.step",
+      payload: {
+        kind: "tool",
+        phase: "start",
+        call_id: "tool-1",
+        parent_call_id: "agent-call-1",
+        tool_name: "execute_bash",
+        round: 0,
+      },
+    });
+
+    const result = harness.container.sessionApplication.listMessageRunSteps({
+      sessionId: "s2",
+      messageId: assistant.id,
+    });
+    // run 树聚合:root 的 subtask step + child 的 tool step 都返回(root 先,子孙后)。
+    expect(result.items.map((s) => (s as { kind: string }).kind)).toEqual(["subtask", "tool"]);
+    expect(result.items.map((s) => (s as { tool_name?: string }).tool_name)).toContain("execute_bash");
+  });
 });

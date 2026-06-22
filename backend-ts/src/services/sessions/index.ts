@@ -1,6 +1,6 @@
 import type { PaginatedResult } from "../../contracts/common.js";
 import { normalizeSessionMetadata, type MessageInfo, type SessionInfo, type SessionListItem } from "../../contracts/session.js";
-import type { IMessageStore, IRunStore, ISessionStore } from "../../contracts/conversation-store/index.js";
+import type { IMessageStore, IRunStore, ISessionStore, RunInfo } from "../../contracts/conversation-store/index.js";
 import type { IFileHistoryStore } from "../../contracts/file-history-store/index.js";
 
 export class AgentSessionApplication {
@@ -58,10 +58,11 @@ export class AgentSessionApplication {
         if (item.role !== "assistant" || !item.metadata.run_id) {
           return item;
         }
-        const executionSteps = this.conversationStore
-          .listRunSteps({ runId: String(item.metadata.run_id), sessionId: input.sessionId, limit: 500 })
-          .filter((step) => step.step_type === "execution.step")
-          .map((step) => compactExecutionStep(step.payload));
+        const executionSteps = this.collectRunTreeExecutionSteps(
+          input.sessionId,
+          String(item.metadata.run_id),
+          500,
+        );
         return {
           ...item,
           execution_steps: executionSteps,
@@ -88,10 +89,13 @@ export class AgentSessionApplication {
 
     const limit = input.limit ?? 500;
     const offset = input.offset ?? 0;
-    const executionSteps = this.conversationStore
-      .listRunSteps({ messageId: input.messageId, sessionId: input.sessionId, limit: limit + offset })
-      .filter((step) => step.step_type === "execution.step")
-      .map((step) => compactExecutionStep(step.payload));
+    const rootRunId = message.metadata.run_id ? String(message.metadata.run_id) : null;
+    const executionSteps = this.collectRunTreeExecutionSteps(
+      input.sessionId,
+      rootRunId,
+      limit + offset,
+      input.messageId,
+    );
 
     return {
       message_id: input.messageId,
@@ -101,6 +105,54 @@ export class AgentSessionApplication {
       offset,
       has_more: offset + limit < executionSteps.length,
     };
+  }
+
+  /**
+   * 聚合 run 树(root + 递归子孙 run)的 execution.step。
+   * 子 agent 的工具 step 落在子 run_id 下(其 message_id 是子 run 的 final msg),
+   * 按 message_id / 单 run_id 查只能拿到 root run 的 step,子智能体容器内的工具节点会缺失;
+   * run 树聚合后前端 projector 按 parent_call_id 把子工具挂进对应 subtask 容器。
+   */
+  private collectRunTreeExecutionSteps(
+    sessionId: string,
+    rootRunId: string | null,
+    perRunLimit: number,
+    fallbackMessageId?: string | null,
+  ): Record<string, unknown>[] {
+    if (!rootRunId) {
+      // 旧数据/异常(assistant 无 run_id 关联):回退按 message_id 查,保持旧行为。
+      return this.conversationStore
+        .listRunSteps({ messageId: fallbackMessageId ?? null, sessionId, limit: perRunLimit })
+        .filter((step) => step.step_type === "execution.step")
+        .map((step) => compactExecutionStep(step.payload));
+    }
+    const allRuns = this.conversationStore.listRuns(sessionId, 1000).items;
+    const runIds = this.collectRunTreeRunIds(allRuns, rootRunId);
+    const rawSteps = runIds.flatMap((runId) =>
+      this.conversationStore.listRunSteps({ runId, sessionId, limit: perRunLimit }),
+    );
+    return rawSteps
+      .filter((step) => step.step_type === "execution.step")
+      .map((step) => compactExecutionStep(step.payload));
+  }
+
+  /** root + 递归子孙 run_id;rootRunId 始终首位,子孙按 created_at 升序(父先于子,applyStep 依赖此序)。 */
+  private collectRunTreeRunIds(allRuns: RunInfo[], rootRunId: string): string[] {
+    const idSet = new Set<string>([rootRunId]);
+    for (let changed = true; changed; ) {
+      changed = false;
+      for (const run of allRuns) {
+        if (run.parent_run_id && idSet.has(run.parent_run_id) && !idSet.has(run.run_id)) {
+          idSet.add(run.run_id);
+          changed = true;
+        }
+      }
+    }
+    const descendants = allRuns
+      .filter((run) => idSet.has(run.run_id) && run.run_id !== rootRunId)
+      .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+      .map((run) => run.run_id);
+    return [rootRunId, ...descendants];
   }
 
   addMessage(input: {
