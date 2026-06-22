@@ -28,7 +28,6 @@ import {
   buildRunStartStepPayload,
   buildToolContext,
   buildRunningExecutionStatus,
-  mirrorEventData,
   renderBackgroundNotification,
 } from "./helpers.js";
 import { ExecutionRecorder, type RunTerminalRecord } from "./recorder.js";
@@ -357,7 +356,7 @@ export class AgentRunEngine {
         session_id: input.sessionId,
         run_id: input.runId,
         agent_name: input.agent.agent_name,
-        ...mirrorEventData(contextUsagePayload),
+        data: contextUsagePayload,
       });
       const eventSink = new RuntimeEventSink((event) => {
         this.eventPublisher.publishRuntimeEvent(input, event);

@@ -3,7 +3,7 @@ import type { AgentContextService } from "../context/index.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
-import { asString, mirrorEventData, normalizeSessionEntryAgent } from "./helpers.js";
+import { asString, normalizeSessionEntryAgent } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 
@@ -162,7 +162,7 @@ export class SlashCommandHandler {
             type: event.type,
             session_id: input.sessionId,
             agent_name: ready.agent.agent_name,
-            ...mirrorEventData(event.data),
+            data: event.data,
           }, {
             aggregateType: "session",
             aggregateId: input.sessionId,

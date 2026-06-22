@@ -10,7 +10,7 @@ import type {
   DurableClientEventPublisher,
   RecordedClientEvent,
 } from "../../runtime/event-outbox/client-event-publisher.js";
-import { asString, isRecord, mirrorEventData } from "./helpers.js";
+import { asString, isRecord } from "./helpers.js";
 
 interface ExecutionEventContext {
   sessionId: string;
@@ -33,7 +33,7 @@ export class AgentExecutionEventPublisher {
       type: "session.run_started",
       session_id: sessionId,
       run_id: runId,
-      ...mirrorEventData(payload),
+      data: payload,
     });
   }
 
@@ -42,7 +42,7 @@ export class AgentExecutionEventPublisher {
       type: "execution.step",
       session_id: sessionId,
       run_id: runId,
-      ...mirrorEventData(payload),
+      data: payload,
     });
   }
 
@@ -51,7 +51,7 @@ export class AgentExecutionEventPublisher {
       type: "run.start",
       session_id: sessionId,
       run_id: runId,
-      ...mirrorEventData(payload),
+      data: payload,
     });
   }
 
@@ -64,7 +64,7 @@ export class AgentExecutionEventPublisher {
       type: "output.message_saved",
       session_id: sessionId,
       ...(runId ? { run_id: runId } : {}),
-      ...mirrorEventData(payload),
+      data: payload,
     });
   }
 
@@ -77,7 +77,7 @@ export class AgentExecutionEventPublisher {
       run_id: input.runId,
       agent_name: agentName,
       call_id: input.rootCallId,
-      ...mirrorEventData({
+      data: {
         agent_name: agentName,
         task: input.task,
         description: input.task,
@@ -85,7 +85,7 @@ export class AgentExecutionEventPublisher {
         run_id: input.runId,
         task_id: input.taskId,
         request_id: input.requestId,
-      }),
+      },
     });
     this.publish(input.sessionId, {
       type: "call.agent.start",
@@ -93,14 +93,14 @@ export class AgentExecutionEventPublisher {
       run_id: input.runId,
       agent_name: agentName,
       call_id: input.rootCallId,
-      ...mirrorEventData({
+      data: {
         agent_name: agentName,
         description: input.task,
         agent_display_name: displayName,
         run_id: input.runId,
         task_id: input.taskId,
         request_id: input.requestId,
-      }),
+      },
     });
   }
 
@@ -113,7 +113,7 @@ export class AgentExecutionEventPublisher {
       run_id: input.runId,
       agent_name: agentName,
       call_id: input.rootCallId,
-      ...mirrorEventData({
+      data: {
         agent_name: agentName,
         result: input.result.slice(0, 500),
         success: input.success,
@@ -121,7 +121,7 @@ export class AgentExecutionEventPublisher {
         run_id: input.runId,
         task_id: input.taskId,
         request_id: input.requestId,
-      }),
+      },
     });
   }
 
@@ -142,7 +142,7 @@ export class AgentExecutionEventPublisher {
       type: "user.interrupt",
       session_id: sessionId,
       ...(status.run_id ? { run_id: status.run_id } : {}),
-      ...mirrorEventData(payload),
+      data: payload,
     });
   }
 
@@ -162,7 +162,7 @@ export class AgentExecutionEventPublisher {
       session_id: input.sessionId,
       run_id: input.runId,
       agent_name: input.agent.agent_name,
-      ...mirrorEventData(payload),
+      data: payload,
     };
     if (event.type === "context.compression_start") {
       this.addExecutionStepAndPublish(input.sessionId, input.runId, {
@@ -189,13 +189,13 @@ export class AgentExecutionEventPublisher {
         type: "llm.first_token",
         session_id: input.sessionId,
         run_id: input.runId,
-        ...mirrorEventData({
+        data: {
           elapsed_ms: event.data.elapsed_ms,
           agent_name: event.data.agent_name,
           run_id: input.runId,
           task_id: input.taskId,
           request_id: input.requestId,
-        }),
+        },
       });
       return;
     }
@@ -204,13 +204,13 @@ export class AgentExecutionEventPublisher {
         type: "output.chunk",
         session_id: input.sessionId,
         run_id: input.runId,
-        ...mirrorEventData({
+        data: {
           content: event.data.content,
           agent_name: event.data.agent_name,
           run_id: input.runId,
           task_id: input.taskId,
           request_id: input.requestId,
-        }),
+        },
       });
       return;
     }
@@ -230,7 +230,7 @@ export class AgentExecutionEventPublisher {
         run_id: input.runId,
         agent_name: event.data.agent_name,
         error: event.data.message,
-        ...mirrorEventData(payload),
+        data: payload,
       });
       return;
     }
@@ -239,14 +239,14 @@ export class AgentExecutionEventPublisher {
         type: "agent.intent_delta",
         session_id: input.sessionId,
         run_id: input.runId,
-        ...mirrorEventData({
+        data: {
           content: event.data.content,
           agent_name: event.data.agent_name,
           round: event.data.round,
           run_id: input.runId,
           task_id: input.taskId,
           request_id: input.requestId,
-        }),
+        },
       });
       return;
     }
@@ -268,7 +268,6 @@ export class AgentExecutionEventPublisher {
       const payload = {
         kind: "tool",
         phase: "start",
-        legacy_phase: "call",
         step_id: `${event.data.tool_call_id}:tool`,
         parent_step_id: `${input.rootCallId}:round:${event.data.round}`,
         agent_name: event.data.agent_name,
@@ -290,7 +289,7 @@ export class AgentExecutionEventPublisher {
         type: "execution.step",
         session_id: input.sessionId,
         run_id: input.runId,
-        ...mirrorEventData(payload),
+        data: payload,
       });
       return;
     }
@@ -300,7 +299,6 @@ export class AgentExecutionEventPublisher {
       const payload = {
         kind: "tool",
         phase: "end",
-        legacy_phase: "result",
         step_id: `${event.data.tool_call_id}:tool`,
         parent_step_id: `${input.rootCallId}:round:${event.data.round}`,
         agent_name: event.data.agent_name,
@@ -331,7 +329,7 @@ export class AgentExecutionEventPublisher {
         type: "execution.step",
         session_id: input.sessionId,
         run_id: input.runId,
-        ...mirrorEventData(payload),
+        data: payload,
       });
     }
   }
@@ -368,20 +366,20 @@ export class AgentExecutionEventPublisher {
           type: "execution.step",
           session_id: input.sessionId,
           run_id: input.runId,
-          ...mirrorEventData(payload),
+          data: payload,
         }, { runId: input.runId, aggregateType: "run", aggregateId: input.runId }),
         this.clientEvents.recordInTransaction(tx, input.sessionId, {
           type: "agent.intent_complete",
           session_id: input.sessionId,
           run_id: input.runId,
-          ...mirrorEventData({
+          data: {
             content: event.data.content,
             agent_name: event.data.agent_name,
             round: event.data.round,
             run_id: input.runId,
             task_id: input.taskId,
             request_id: input.requestId,
-          }),
+          },
         }, { runId: input.runId, aggregateType: "run", aggregateId: input.runId }),
       ];
     });

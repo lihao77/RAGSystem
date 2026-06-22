@@ -24,7 +24,7 @@ export class ClientEventProjector {
         return {
           type: "execution.step",
           ...base,
-          ...mirrorEventData(step),
+          data: step,
         };
       }
       case "run.final_answer_recorded": {
@@ -35,7 +35,7 @@ export class ClientEventProjector {
         return {
           type: "output.final_answer",
           ...base,
-          ...mirrorEventData(data),
+          data: data,
         };
       }
       case "agent.call_finished": {
@@ -53,7 +53,7 @@ export class ClientEventProjector {
           ...base,
           agent_name: data.agent_name,
           call_id: asString(payload.call_id),
-          ...mirrorEventData(data),
+          data: data,
         };
       }
       case "message.saved": {
@@ -68,7 +68,7 @@ export class ClientEventProjector {
         return {
           type: "output.message_saved",
           ...base,
-          ...mirrorEventData(data),
+          data: data,
         };
       }
       case "run.completed": {
@@ -80,7 +80,7 @@ export class ClientEventProjector {
         return {
           type: "run.end",
           ...base,
-          ...mirrorEventData(data),
+          data: data,
         };
       }
       case "run.error_reported": {
@@ -99,7 +99,7 @@ export class ClientEventProjector {
           agent_name: data.agent_name,
           call_id: asString(payload.call_id),
           error: data.error,
-          ...mirrorEventData(data),
+          data: data,
         };
       }
       case "run.failed":
@@ -112,7 +112,7 @@ export class ClientEventProjector {
         return {
           type: "run.end",
           ...base,
-          ...mirrorEventData(data),
+          data: data,
         };
       }
       default:
@@ -145,10 +145,6 @@ function parsePayload(row: OutboxRow): Record<string, unknown> {
   } catch (error) {
     throw new Error(`Invalid outbox payload ${row.id}: ${error instanceof Error ? error.message : String(error)}`);
   }
-}
-
-function mirrorEventData<T extends Record<string, unknown>>(data: T): { data: T; content: T } {
-  return { data, content: data };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

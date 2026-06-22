@@ -45,7 +45,7 @@ export function publishAgentCallStart(clientEvents: ClientEventPublisher | null,
       agent_name: input.parentAgentName,
       call_id: input.agentCallId,
       ...(input.parentCallId ? { parent_call_id: input.parentCallId } : {}),
-      ...mirrorEventData(payload),
+      data: payload,
     },
     {
       runId: input.parentRunId,
@@ -76,7 +76,7 @@ export function publishAgentCallEnd(clientEvents: ClientEventPublisher | null, i
       agent_name: input.parentAgentName,
       call_id: input.agentCallId,
       ...(input.parentCallId ? { parent_call_id: input.parentCallId } : {}),
-      ...mirrorEventData(payload),
+      data: payload,
     },
     {
       runId: input.parentRunId,
@@ -84,11 +84,4 @@ export function publishAgentCallEnd(clientEvents: ClientEventPublisher | null, i
       aggregateId: input.parentRunId ?? input.sessionId,
     },
   );
-}
-
-function mirrorEventData<T extends Record<string, unknown>>(data: T): { data: T; content: T } {
-  return {
-    data,
-    content: data,
-  };
 }

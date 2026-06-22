@@ -54,7 +54,6 @@ export interface ClientEvent {
   event_seq?: number;
   timestamp?: number | string;
   data?: unknown;
-  content?: unknown;
   error?: string;
   [key: string]: unknown;
 }

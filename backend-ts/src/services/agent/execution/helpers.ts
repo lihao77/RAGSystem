@@ -20,13 +20,6 @@ export function summarizeReadinessFailure(
   return failures.length ? failures.map((item) => item.message).join("; ") : "Runtime core configuration is not ready";
 }
 
-export function mirrorEventData<T extends Record<string, unknown>>(data: T): { data: T; content: T } {
-  return {
-    data,
-    content: data,
-  };
-}
-
 export function cloneStatus(status: ExecutionTaskStatus | null): ExecutionTaskStatus | null {
   return status ? { ...status } : null;
 }

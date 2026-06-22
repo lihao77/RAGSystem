@@ -246,19 +246,16 @@ export function useSessionRunStream(deps) {
     if (!event || typeof event !== 'object') return '';
     return event.interaction_id
       || event.data?.interaction_id
-      || event.content?.interaction_id
       || event.input_id
       || event.data?.input_id
-      || event.content?.input_id
       || event.approval_id
       || event.data?.approval_id
-      || event.content?.approval_id
       || '';
   };
 
   const getEventInteractionKind = (event, fallback = '') => {
     if (!event || typeof event !== 'object') return fallback;
-    return event.kind || event.data?.kind || event.content?.kind || fallback;
+    return event.kind || event.data?.kind || fallback;
   };
 
   const rememberRequiredInteraction = (kind, interactionId) => {
@@ -395,7 +392,7 @@ export function useSessionRunStream(deps) {
   };
 
   const terminalStatusFromEvent = (event) => {
-    const status = event?.data?.status || event?.content?.status;
+    const status = event?.data?.status;
     return ['completed', 'failed', 'interrupted'].includes(status) ? status : 'completed';
   };
 
