@@ -552,6 +552,66 @@ describe("OpenAI-compatible chat client", () => {
       }),
     });
   });
+
+  it("merges extra_params into chat completion body without overriding explicit fields", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body.top_p).toBe(0.9);
+      expect(body.frequency_penalty).toBe(0.1);
+      // 显式字段不被 extra 覆盖
+      expect(body.temperature).toBe(0.7);
+      expect(body.model).toBe("deepseek-chat");
+      expect(body.max_tokens).toBe(512);
+      return new Response(
+        JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: "ok" } }] }),
+        { status: 200 },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const client = new OpenAiCompatibleChatClient();
+    await client.complete({
+      ...buildRequest(),
+      temperature: 0.7,
+      maxCompletionTokens: 512,
+      extraParams: { top_p: 0.9, frequency_penalty: 0.1, temperature: 0.99, model: "evil", max_tokens: 9999 },
+    });
+  });
+
+  it("merges extra_params into OpenAI Responses body", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body.top_p).toBe(0.9);
+      return new Response(JSON.stringify({ status: "completed", output_text: "ok" }), { status: 200 });
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const client = new OpenAiCompatibleChatClient();
+    await client.complete({
+      ...buildRequest({ provider_type: "openai_resp", model: "gpt-4.1" }),
+      extraParams: { top_p: 0.9 },
+    });
+  });
+
+  it("merges extra_params into Anthropic body without overriding explicit fields", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body.top_p).toBe(0.9);
+      expect(body.max_tokens).toBe(500);
+      return new Response(
+        JSON.stringify({ stop_reason: "end_turn", content: [{ type: "text", text: "ok" }] }),
+        { status: 200 },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const client = new OpenAiCompatibleChatClient();
+    await client.complete({
+      ...buildRequest({ provider_type: "anthropic", model: "claude-sonnet-4-5" }),
+      maxCompletionTokens: 500,
+      extraParams: { top_p: 0.9, max_tokens: 9999 },
+    });
+  });
 });
 
 function buildRequest(input: { provider_type?: string; model?: string } = {}): ChatCompletionRequest {

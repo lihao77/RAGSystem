@@ -5,6 +5,7 @@ import { normalizeProviderKey } from "../runtime/provider-lookup.js";
 export interface RequestLlmParams {
   temperature: number | null;
   maxCompletionTokens: number | null;
+  extraParams: Record<string, unknown>;
 }
 
 /**
@@ -27,11 +28,13 @@ export function resolveRequestLlmParams(
     return {
       temperature: numberOrNull(defaultTier.temperature),
       maxCompletionTokens: numberOrNull(defaultTier.max_completion_tokens),
+      extraParams: compactRecord(provider.extra_params, defaultTier.extra_params),
     };
   }
   return {
     temperature: numberOrNull(provider.temperature),
     maxCompletionTokens: numberOrNull(provider.max_completion_tokens) ?? numberOrNull(provider.max_tokens),
+    extraParams: compactRecord(provider.extra_params),
   };
 }
 
@@ -53,4 +56,29 @@ function isDefaultTierModel(
 
 function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function isRecordLike(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 合并若干 extra_params 来源（后者覆盖前者同名 key），过滤 null/undefined 条目。
+ * 单参即 compact——extra_params 作为请求扩展点，空值不发；provider/agent 的 extra_params
+ * 均经此归一后再进请求 body。协议层显式字段（model/messages/temperature/max_tokens 等）
+ * 在 body 构造时后置 spread，永远不被 extra 覆盖。
+ */
+export function compactRecord(...sources: Array<unknown>): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  for (const source of sources) {
+    if (!isRecordLike(source)) {
+      continue;
+    }
+    for (const [key, value] of Object.entries(source)) {
+      if (value !== null && value !== undefined) {
+        merged[key] = value;
+      }
+    }
+  }
+  return merged;
 }

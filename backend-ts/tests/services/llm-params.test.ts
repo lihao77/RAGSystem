@@ -11,7 +11,7 @@ describe("resolveRequestLlmParams", () => {
       makeProvider("my", "deepseek", "deepseek-chat", { temperature: 0.9, max_completion_tokens: 8192 }),
       "deepseek-chat",
     );
-    expect(params).toEqual({ temperature: 0.3, maxCompletionTokens: 4096 });
+    expect(params).toEqual({ temperature: 0.3, maxCompletionTokens: 4096, extraParams: {} });
   });
 
   it("uses the selected model's own provider params when it differs from the default tier", () => {
@@ -20,7 +20,7 @@ describe("resolveRequestLlmParams", () => {
       makeProvider("sel-prov", "openai", "sel-model", { temperature: 0.9, max_completion_tokens: 8192 }),
       "sel-model",
     );
-    expect(params).toEqual({ temperature: 0.9, maxCompletionTokens: 8192 });
+    expect(params).toEqual({ temperature: 0.9, maxCompletionTokens: 8192, extraParams: {} });
   });
 
   it("falls back to provider max_tokens when max_completion_tokens is absent (selected model)", () => {
@@ -31,7 +31,7 @@ describe("resolveRequestLlmParams", () => {
       provider,
       "sel-model",
     );
-    expect(params).toEqual({ temperature: null, maxCompletionTokens: 2048 });
+    expect(params).toEqual({ temperature: null, maxCompletionTokens: 2048, extraParams: {} });
   });
 
   it("matches the default tier by provider key as well as name", () => {
@@ -40,7 +40,55 @@ describe("resolveRequestLlmParams", () => {
       makeProvider("my", "deepseek", "deepseek-chat", { temperature: 0.9 }, "my_deepseek"),
       "deepseek-chat",
     );
-    expect(params).toEqual({ temperature: 0.2, maxCompletionTokens: 1024 });
+    expect(params).toEqual({ temperature: 0.2, maxCompletionTokens: 1024, extraParams: {} });
+  });
+
+  it("merges provider and default-tier extra_params (agent overrides provider)", () => {
+    const provider = makeProvider("my", "deepseek", "deepseek-chat", {
+      extra_params: { top_p: 0.9, frequency_penalty: 0.1 },
+    });
+    const params = resolveRequestLlmParams(
+      agentWithDefault({
+        provider: "my",
+        model_name: "deepseek-chat",
+        extra_params: { top_p: 0.5, presence_penalty: 0.2 },
+      }),
+      provider,
+      "deepseek-chat",
+    );
+    expect(params.extraParams).toEqual({
+      top_p: 0.5,
+      frequency_penalty: 0.1,
+      presence_penalty: 0.2,
+    });
+  });
+
+  it("uses only provider extra_params for a selected model (not default-tier extra)", () => {
+    const provider = makeProvider("sel-prov", "openai", "sel-model", {
+      extra_params: { top_p: 0.9 },
+    });
+    const params = resolveRequestLlmParams(
+      agentWithDefault({
+        provider: "my",
+        model_name: "deepseek-chat",
+        extra_params: { presence_penalty: 0.5 },
+      }),
+      provider,
+      "sel-model",
+    );
+    expect(params.extraParams).toEqual({ top_p: 0.9 });
+  });
+
+  it("drops null and undefined entries from extra_params", () => {
+    const provider = makeProvider("my", "deepseek", "deepseek-chat", {
+      extra_params: { top_p: 0.9, dropped: null, gone: undefined },
+    });
+    const params = resolveRequestLlmParams(
+      agentWithDefault({ provider: "my", model_name: "deepseek-chat", extra_params: {} }),
+      provider,
+      "deepseek-chat",
+    );
+    expect(params.extraParams).toEqual({ top_p: 0.9 });
   });
 });
 
@@ -62,7 +110,7 @@ function makeProvider(
   name: string,
   providerType: string,
   chatModel: string,
-  params: { temperature?: number; max_completion_tokens?: number },
+  params: { temperature?: number; max_completion_tokens?: number; extra_params?: Record<string, unknown> },
   key?: string,
 ): ModelProviderConfig {
   return {

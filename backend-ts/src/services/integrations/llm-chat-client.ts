@@ -4,6 +4,7 @@ import {
   DEFAULT_ENDPOINTS as PROVIDER_DEFAULT_ENDPOINTS,
   OPENAI_COMPATIBLE_TYPES,
 } from "./provider-registry.js";
+import { compactRecord } from "../agent/llm-params.js";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -42,6 +43,7 @@ export interface ChatCompletionRequest {
   tools?: ChatToolDefinition[] | undefined;
   toolChoice?: "auto" | "none" | undefined;
   allowEmptyStream?: boolean | undefined;
+  extraParams?: Record<string, unknown> | null;
 }
 
 export interface ChatCompletionResult {
@@ -262,6 +264,7 @@ function buildHeaders(apiKey: string): Record<string, string> {
 
 function buildChatCompletionBody(request: ChatCompletionRequest, stream: boolean): Record<string, unknown> {
   return {
+    ...compactRecord(request.extraParams),
     model: request.model,
     messages: request.messages,
     temperature: request.temperature ?? undefined,
@@ -320,6 +323,7 @@ function buildResponsesBody(request: ChatCompletionRequest): Record<string, unkn
       content: message.content,
     }));
   return {
+    ...compactRecord(request.extraParams),
     model: request.model,
     input,
     instructions,
@@ -342,6 +346,7 @@ function buildAnthropicBody(request: ChatCompletionRequest, stream = false): Rec
     .filter((message) => message.role !== "system")
     .map((message) => mapAnthropicMessage(message));
   return {
+    ...compactRecord(request.extraParams),
     model: request.model,
     messages,
     system: system.length ? system : undefined,

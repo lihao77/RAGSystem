@@ -74,6 +74,7 @@ export class NativeHybridProtocol implements Protocol {
       agent: session.agent,
       temperature: llmParams.temperature,
       maxCompletionTokens: llmParams.maxCompletionTokens,
+      extraParams: llmParams.extraParams,
     };
     if (session.signal) {
       request.signal = session.signal;
