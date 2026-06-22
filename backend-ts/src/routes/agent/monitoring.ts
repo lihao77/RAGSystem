@@ -129,7 +129,6 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
           agent,
           provider: resolved.provider,
           modelName: resolved.modelName,
-          historyLimit: 500,
         }).context
       : null;
     const memorySnapshot = getMemorySnapshot(context?.metadata.sources ?? []);

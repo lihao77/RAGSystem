@@ -328,7 +328,6 @@ export class AgentDelegationService implements DelegationPort {
         modelName: resolved.modelName,
         promptContext,
         threadKey: input.childAgent.thread_key,
-        historyLimit: 50,
         round: 0,
         runId: childRunId,
         taskId: null,

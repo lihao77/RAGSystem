@@ -9,6 +9,7 @@ import type { MessageInfo } from "../../src/contracts/session.js";
 import {
   AgentContextBuilder,
   EmptyMemoryContextSource,
+  HISTORY_SCAN_LIMIT,
   MemoryIndexContextSource,
   RecentMessagesContextSource,
   type AgentContextSource,
@@ -78,7 +79,7 @@ describe("AgentContextBuilder", () => {
 
     const context = builder.buildContext({ sessionId: "s1" });
 
-    expect(history.calls).toEqual([{ sessionId: "s1", limit: 20, threadKey: "root" }]);
+    expect(history.calls).toEqual([{ sessionId: "s1", limit: HISTORY_SCAN_LIMIT, threadKey: "root" }]);
     expect(context).toEqual({
       conversation: [
         { role: "user", content: "hello" },
@@ -89,7 +90,6 @@ describe("AgentContextBuilder", () => {
       metadata: {
         session_id: "s1",
         thread_key: "root",
-        history_limit: 20,
         stable_prefix_fingerprint: "no_stable_prefix",
         sources: [
           {
@@ -496,27 +496,28 @@ describe("AgentContextBuilder", () => {
     ]);
   });
 
-  it("supports explicit thread key and history limit", () => {
+  it("supports explicit thread key", () => {
     const history = new InMemoryHistory([message("user", "child hello"), message("assistant", "child answer")]);
     const builder = new AgentContextBuilder([new RecentMessagesContextSource(history)]);
 
     const context = builder.buildContext({
       sessionId: "s2",
       threadKey: "child:worker",
-      historyLimit: 1,
     });
 
-    expect(history.calls).toEqual([{ sessionId: "s2", limit: 1, threadKey: "child:worker" }]);
+    expect(history.calls).toEqual([{ sessionId: "s2", limit: HISTORY_SCAN_LIMIT, threadKey: "child:worker" }]);
     expect(context).toMatchObject({
-      conversation: [{ role: "user", content: "child hello" }],
+      conversation: [
+        { role: "user", content: "child hello" },
+        { role: "assistant", content: "child answer" },
+      ],
       metadata: {
         session_id: "s2",
         thread_key: "child:worker",
-        history_limit: 1,
         sources: [
           {
             name: "recent_messages",
-            message_count: 1,
+            message_count: 2,
           },
         ],
       },

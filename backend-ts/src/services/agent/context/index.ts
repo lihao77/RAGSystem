@@ -40,7 +40,6 @@ export interface PrepareContextInput {
   modelName?: string | null | undefined;
   promptContext: AgentPromptContext;
   threadKey?: string | null | undefined;
-  historyLimit?: number | undefined;
   round: number;
   runId: string;
   taskId: string | null;
@@ -78,7 +77,6 @@ export class AgentContextService {
       sessionId: input.sessionId,
       agent: input.agent,
       threadKey,
-      ...(input.historyLimit !== undefined ? { historyLimit: input.historyLimit } : {}),
       microcompact: true,
     });
     const budgetTokens = this.resolveContextBudget(input.agent, input.provider, input.modelName ?? null);
@@ -209,12 +207,10 @@ export class AgentContextService {
     agent: AgentConfig;
     provider: ModelProviderConfig | null;
     modelName?: string | null | undefined;
-    historyLimit?: number | undefined;
   }): { context: AgentContext; budgetTokens: number } {
     const context = this.contextBuilder.buildContext({
       sessionId: input.sessionId,
       agent: input.agent,
-      ...(input.historyLimit !== undefined ? { historyLimit: input.historyLimit } : {}),
     });
     const budgetTokens = this.resolveContextBudget(input.agent, input.provider, input.modelName ?? null);
     return { context, budgetTokens };
@@ -228,7 +224,6 @@ export class AgentContextService {
         sessionId: input.sessionId,
         agent: input.agent,
         ...(input.threadKey ? { threadKey: input.threadKey } : {}),
-        historyLimit: 0,
         forceMemoryPrefixRefresh: true,
       });
     }

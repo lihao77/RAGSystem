@@ -5,6 +5,7 @@ import type {
   ConversationHistoryPort,
   SessionMetadataPort,
 } from "./types.js";
+import { HISTORY_SCAN_LIMIT } from "./types.js";
 import { getString, isSessionMetadataPort, readPipelineCache } from "./helpers.js";
 import {
   countObservationMessages,
@@ -23,7 +24,7 @@ export class RecentMessagesContextSource implements AgentContextSource {
   }
 
   build(request: ResolvedAgentContextRequest): AgentContextContribution {
-    const messages = this.history.getRecentMessages(request.sessionId, request.historyLimit, request.threadKey);
+    const messages = this.history.getRecentMessages(request.sessionId, HISTORY_SCAN_LIMIT, request.threadKey);
     const filteredMessages = filterHistoryMessages(messages);
     const compressionView = resolveCompressionViewDetailed(filteredMessages);
     const historyMessages = compressionView.messages;

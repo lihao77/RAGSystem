@@ -10,6 +10,13 @@ import type { AddMessageInput, IMessageStore } from "../../../contracts/conversa
 import { AddMessageInputSchema } from "../../../contracts/conversation-store/types.js";
 import type { MessageRow, SqlInputValue } from "./types.js";
 
+/**
+ * listMessages / getRecentMessages 的默认查询条数上限（SQL LIMIT 防野）。
+ * 非上下文裁剪语义——上层 context-builder 取历史全量交由 token 压缩按预算裁，
+ * 此处仅兜底"调用方未显式传 limit"的极端情况，避免无界扫描。
+ */
+export const DEFAULT_MESSAGE_LIST_LIMIT = 10_000;
+
 /** messages 聚合根操作（迁移自 ConversationStore，方法体零改动）。 */
 export class MessageOps implements IMessageStore {
   constructor(private readonly db: ConversationDb) {}
@@ -105,7 +112,7 @@ export class MessageOps implements IMessageStore {
     return this.addMessage(messageInput);
   }
 
-  listMessages(sessionId: string, limit = 20, offset = 0, threadKey?: string | null): PaginatedResult<MessageInfo> {
+  listMessages(sessionId: string, limit = DEFAULT_MESSAGE_LIST_LIMIT, offset = 0, threadKey?: string | null): PaginatedResult<MessageInfo> {
     const resolvedThreadKey = threadKey?.trim() || null;
     const totalRow = this.db
       .prepare("SELECT COUNT(1) AS cnt FROM messages WHERE session_id=? AND (? IS NULL OR thread_key=?)")
@@ -191,7 +198,7 @@ export class MessageOps implements IMessageStore {
     return rows.map(rowToMessage);
   }
 
-  getRecentMessages(sessionId: string, limit = 20, threadKey?: string | null): MessageInfo[] {
+  getRecentMessages(sessionId: string, limit = DEFAULT_MESSAGE_LIST_LIMIT, threadKey?: string | null): MessageInfo[] {
     return this.listMessages(sessionId, limit, 0, threadKey).items;
   }
 

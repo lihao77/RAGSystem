@@ -7,7 +7,6 @@ import type {
   ResolvedAgentContextRequest,
 } from "./types.js";
 import {
-  DEFAULT_HISTORY_LIMIT,
   DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOLS,
   DEFAULT_MICROCOMPACT_TTL_SECONDS,
   DEFAULT_THREAD_KEY,
@@ -51,7 +50,6 @@ export class AgentContextBuilder {
       metadata: {
         session_id: resolved.sessionId,
         thread_key: resolved.threadKey,
-        history_limit: resolved.historyLimit,
         stable_prefix_fingerprint: resolved.stablePrefixFingerprint ?? "no_stable_prefix",
         sources: sourceMetadata,
       },
@@ -63,7 +61,6 @@ function resolveContextRequest(request: AgentContextRequest): ResolvedAgentConte
   return {
     sessionId: request.sessionId,
     threadKey: request.threadKey?.trim() || DEFAULT_THREAD_KEY,
-    historyLimit: request.historyLimit ?? DEFAULT_HISTORY_LIMIT,
     agent: request.agent ?? null,
     microcompact: request.microcompact === true,
     microcompactKeepRecentTools: positiveIntegerOrDefault(

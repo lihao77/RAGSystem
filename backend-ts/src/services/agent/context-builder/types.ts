@@ -18,7 +18,6 @@ export interface SystemConfigPort {
 export interface AgentContextRequest {
   sessionId: string;
   threadKey?: string | null;
-  historyLimit?: number;
   agent?: AgentConfig | null;
   microcompact?: boolean;
   microcompactKeepRecentTools?: number;
@@ -30,7 +29,6 @@ export interface AgentContext {
   metadata: {
     session_id: string;
     thread_key: string;
-    history_limit: number;
     stable_prefix_fingerprint: string | null;
     sources: Array<{
       name: string;
@@ -53,7 +51,6 @@ export interface AgentContextSource {
 export interface ResolvedAgentContextRequest {
   sessionId: string;
   threadKey: string;
-  historyLimit: number;
   agent: AgentConfig | null;
   microcompact: boolean;
   microcompactKeepRecentTools: number;
@@ -62,7 +59,12 @@ export interface ResolvedAgentContextRequest {
   microcompactTtlSeconds: number;
 }
 
-export const DEFAULT_HISTORY_LIMIT = 20;
+/**
+ * DB 查询技术安全阀（SQL LIMIT 防野），非上下文裁剪语义。
+ * 上下文预算由 token 压缩体系（microcompact 廉价裁剪 + 85% 阈值 LLM 摘要）统一管理——
+ * 取历史不做条数截断，全量读出交由压缩按 token 裁。值对齐压缩模块 DEFAULT_HISTORY_SCAN_LIMIT。
+ */
+export const HISTORY_SCAN_LIMIT = 10_000;
 export const DEFAULT_THREAD_KEY = "root";
 export const DEFAULT_INDEX_MAX_LINES = 200;
 export const DEFAULT_INDEX_MAX_CHARS = 25600;

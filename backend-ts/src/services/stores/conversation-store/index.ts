@@ -1,7 +1,7 @@
 import { createConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
 import { SessionOps } from "./session-ops.js";
-import { MessageOps } from "./message-ops.js";
+import { MessageOps, DEFAULT_MESSAGE_LIST_LIMIT } from "./message-ops.js";
 import { RunOps } from "./run-ops.js";
 import { ChildAgentOps } from "./child-agent-ops.js";
 import { OutboxOps } from "./outbox-ops.js";
@@ -79,7 +79,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     updateChildAgentLastRun: childAgents.updateChildAgentLastRun.bind(childAgents),
 
     /** 跨域：按 child agent 的 thread_key 取最近消息。 */
-    getRecentMessagesByChildAgent: (sessionId: string, childAgentId: string, limit = 20) => {
+    getRecentMessagesByChildAgent: (sessionId: string, childAgentId: string, limit = DEFAULT_MESSAGE_LIST_LIMIT) => {
       const child = childAgents.getChildAgent(sessionId, childAgentId);
       if (!child) {
         return [];
