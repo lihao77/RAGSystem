@@ -1,4 +1,4 @@
-import type { RuntimeToolCall } from "../runtime-tool-types.js";
+import type { RuntimeToolCall } from "../../../../runtime/runtime-tool-types.js";
 
 export interface RuntimeToolCallParseResult {
   calls: RuntimeToolCall[];

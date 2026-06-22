@@ -25,7 +25,7 @@ import type {
 } from "../../../integrations/llm-chat-client.js";
 import { RuntimeAbortError, throwIfAborted } from "../../../runtime/abort.js";
 import { toChatToolDefinition } from "../tools/tool-call-utils.js";
-import { resolveRequestLlmParams } from "../../../runtime/llm-params.js";
+import { resolveRequestLlmParams } from "../../llm-params.js";
 import type {
   EventSink,
   KernelContext,

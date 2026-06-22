@@ -1,7 +1,7 @@
 export {
   parseRuntimeToolCallsXml,
   type RuntimeToolCallParseResult,
-} from "./runtime-xml-protocol/tool-calls.js";
+} from "./tool-calls.js";
 export {
   isSemanticTaggedContent,
   renderProtocolFeedbackMessage,
@@ -9,9 +9,10 @@ export {
   renderSemanticBlock,
   renderToolResultContent,
   renderToolResultMessage,
-} from "./runtime-xml-protocol/rendering.js";
+} from "./rendering.js";
 export {
   StreamingRuntimeXmlParser,
   type RuntimeXmlParseEvent,
   type RuntimeXmlTag,
-} from "./runtime-xml-protocol/streaming-parser.js";
+} from "./streaming-parser.js";
+export { serializeToolCallsToXml } from "./serialize.js";

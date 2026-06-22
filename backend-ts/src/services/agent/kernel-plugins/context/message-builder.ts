@@ -6,7 +6,7 @@ import {
   isSemanticTaggedContent,
   renderRuntimeXmlProtocolInstruction,
   renderSemanticBlock,
-} from "../../../runtime/runtime-xml-protocol.js";
+} from "../protocol/xml/index.js";
 import type { RuntimeToolDefinition } from "../../../runtime/runtime-tool-types.js";
 import type { ToolInstructionMode } from "../../kernel/contracts.js";
 

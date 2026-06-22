@@ -1,5 +1,5 @@
 import type { ChatMessage } from "../../integrations/llm-chat-client.js";
-import { renderSemanticBlock } from "../../runtime/runtime-xml-protocol.js";
+import { renderSemanticBlock } from "../kernel-plugins/protocol/xml/index.js";
 
 /**
  * 按会话累积"运行中追加的 followup 消息"，在下一轮 runMinimalAgent 取回话时排空。

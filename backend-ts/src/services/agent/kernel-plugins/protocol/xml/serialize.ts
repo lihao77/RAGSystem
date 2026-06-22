@@ -1,4 +1,4 @@
-import type { ChatToolCall } from "../../integrations/llm-chat-client.js";
+import type { ChatToolCall } from "../../../../integrations/llm-chat-client.js";
 import { escapeXmlAttribute } from "./rendering.js";
 
 /**

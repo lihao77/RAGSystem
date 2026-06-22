@@ -18,7 +18,7 @@ import type {
   ChatStreamChunkHandler,
   LlmChatClient,
 } from "../../src/services/integrations/llm-chat-client.js";
-import { renderSemanticBlock, renderToolResultContent } from "../../src/services/runtime/runtime-xml-protocol.js";
+import { renderSemanticBlock, renderToolResultContent } from "../../src/services/agent/kernel-plugins/protocol/xml/index.js";
 import type {
   RuntimeToolCall,
   RuntimeToolDefinition,

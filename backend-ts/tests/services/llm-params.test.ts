@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentConfig, AgentLlmConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
-import { resolveRequestLlmParams } from "../../src/services/runtime/llm-params.js";
+import { resolveRequestLlmParams } from "../../src/services/agent/llm-params.js";
 
 describe("resolveRequestLlmParams", () => {
   it("uses the default-tier params when running the default-tier model", () => {

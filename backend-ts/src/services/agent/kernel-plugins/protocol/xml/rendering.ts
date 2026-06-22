@@ -1,5 +1,5 @@
-import type { ChatMessage } from "../../integrations/llm-chat-client.js";
-import type { RuntimeToolDefinition, ToolExecutionResult } from "../runtime-tool-types.js";
+import type { ChatMessage } from "../../../../integrations/llm-chat-client.js";
+import type { RuntimeToolDefinition, ToolExecutionResult } from "../../../../runtime/runtime-tool-types.js";
 
 export function renderRuntimeXmlProtocolInstruction(tools: RuntimeToolDefinition[]): string {
   const protocol = [

@@ -32,13 +32,13 @@ import {
   parseRuntimeToolCallsXml,
   renderProtocolFeedbackMessage,
   renderSemanticBlock,
+  serializeToolCallsToXml,
   StreamingRuntimeXmlParser,
-} from "../../../runtime/runtime-xml-protocol.js";
-import { serializeToolCallsToXml } from "../../../runtime/runtime-xml-protocol/serialize.js";
+} from "./xml/index.js";
 import { renderSemanticChatMessage } from "../context/message-builder.js";
 import { RuntimeAbortError, throwIfAborted } from "../../../runtime/abort.js";
 import { toChatToolDefinition } from "../tools/tool-call-utils.js";
-import { resolveRequestLlmParams } from "../../../runtime/llm-params.js";
+import { resolveRequestLlmParams } from "../../llm-params.js";
 import type {
   EventSink,
   KernelContext,

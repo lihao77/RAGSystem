@@ -8,7 +8,7 @@ import type { SystemConfigService } from "../../config/system-config-service.js"
 import { resolveCompressionView } from "../context-builder/index.js";
 import type { RuntimeModelProviderPort } from "../execution/runtime-core-service.js";
 import { findProviderByRef, normalizeProviderKey } from "../../runtime/provider-lookup.js";
-import { resolveRequestLlmParams } from "../../runtime/llm-params.js";
+import { resolveRequestLlmParams } from "../llm-params.js";
 
 export interface ContextCompressionSettings {
   compressionTriggerRatio: number;
