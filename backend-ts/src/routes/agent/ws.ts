@@ -329,10 +329,22 @@ function buildActiveRunReplay(
 
   const runId = status.run_id;
   const startedAtMs = timestampToMilliseconds(status.started_at);
+  // active run 树：root + 递归子孙 run。重放要含子 agent 事件，工作栏才看得到子 agent 步骤。
+  const allRuns = container.conversationStore.listRuns(sessionId, 1000).items;
+  const runIdSet = new Set<string>([runId]);
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const r of allRuns) {
+      if (r.parent_run_id && runIdSet.has(r.parent_run_id) && !runIdSet.has(r.run_id)) {
+        runIdSet.add(r.run_id);
+        changed = true;
+      }
+    }
+  }
   const projector = new ClientEventProjector();
   const events = container.conversationStore.listOutboxForReplay({
     sessionId,
-    runId,
+    runIds: [...runIdSet],
     limit: 500,
   }).map((row) => projector.toClientEvent(row)).filter((event) => {
     if (!isPendingInteractionReplayEvent(container, sessionId, event)) {

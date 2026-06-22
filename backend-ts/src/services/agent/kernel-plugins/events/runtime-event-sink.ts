@@ -6,8 +6,6 @@
  *   publish 的真实实例 = publishRuntimeEvent（event-publisher.ts），下游分流（写消息表 /
  *   写 run_step / 进 outbox 投递）全部由它决定，与本类无关。本类只是把
  *   现状 `input.onEvent?.(event)` 这一调用点搬进内核扩展点。
- * - NullEventSink：emit 空操作，专供 child run（agent-delegation.executeChildRun）。
- *   现状 child run 不发任何 runtime 事件，注入本类即可维持静默，不得改为发事件。
  *
  * 事件发射点：Protocol / ToolProvider / 内核分别经 EventSink 发射
  * （runtime 流式 delta、tool_call/tool_result、done/error 等）——它们拿到的就是这个实例。
@@ -30,15 +28,5 @@ export class RuntimeEventSink implements EventSink {
 
   emit(event: AgentRuntimeEvent): void {
     this.publish(event);
-  }
-}
-
-/**
- * 静默型 EventSink：child run 用。emit 丢弃一切事件，不发 runtime 事件、不落库、不投递。
- * 不得改为发事件——会破坏 child 静默现状（见 docs/kernel-refactor-phase1.md 七节、十一节）。
- */
-export class NullEventSink implements EventSink {
-  emit(_event: AgentRuntimeEvent): void {
-    // 故意空操作。
   }
 }

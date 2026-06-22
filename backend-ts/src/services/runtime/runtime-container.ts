@@ -204,13 +204,8 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const agentDelegation = new AgentDelegationService(
     conversationStore,
     runtimeCore,
-    llmChatClient,
-    dataRoot,
-    agentContextService,
     clientEvents,
-    agentConfig,
   );
-  agentDelegation.setRuntimeToolsProvider(() => runtimeToolBridge);
   runtimeToolBridge.setAgentDelegation(agentDelegation);
   const agentExecution = createAgentExecutionService({
     sessions: sessionApplication,
@@ -227,6 +222,8 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     clientEvents,
     logger: options.logger,
   });
+  agentDelegation.setRunEngine(() => agentExecution.runEngine);
+  agentDelegation.setEventPublisher(() => agentExecution.eventPublisher);
   let closed = false;
   const close = (): void => {
     if (closed) {

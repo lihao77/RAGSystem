@@ -133,19 +133,25 @@ export class OutboxOps implements IOutboxStore {
     });
   }
 
-  listOutboxForReplay(input: { sessionId: string; runId?: string | null; afterSeq?: number; limit?: number }): OutboxRow[] {
+  listOutboxForReplay(input: { sessionId: string; runId?: string | null; runIds?: readonly string[] | null; afterSeq?: number; limit?: number }): OutboxRow[] {
     const limit = input.limit ?? 100;
     const afterSeq = input.afterSeq ?? 0;
-    if (input.runId) {
+    const runIds = input.runIds && input.runIds.length > 0
+      ? [...input.runIds]
+      : input.runId
+        ? [input.runId]
+        : null;
+    if (runIds && runIds.length > 0) {
+      const placeholders = runIds.map(() => "?").join(",");
       return this.db
         .prepare(`
           SELECT ${OUTBOX_SELECT_COLUMNS}
           FROM event_outbox
-          WHERE session_id=? AND run_id=? AND session_seq > ?
+          WHERE session_id=? AND session_seq > ? AND run_id IN (${placeholders})
           ORDER BY session_seq ASC
           LIMIT ?
         `)
-        .all(input.sessionId, input.runId, afterSeq, limit) as unknown as OutboxRow[];
+        .all(input.sessionId, afterSeq, ...runIds, limit) as unknown as OutboxRow[];
     }
     return this.db
       .prepare(`

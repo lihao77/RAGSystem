@@ -157,7 +157,7 @@ export interface IOutboxStore {
   appendOutbox(input: AppendOutboxInput): OutboxRow;
   fetchPendingOutbox(limit?: number): OutboxRow[];
   claimPendingOutbox(input?: ClaimOutboxInput): OutboxRow[];
-  listOutboxForReplay(input: { sessionId: string; runId?: string | null; afterSeq?: number; limit?: number }): OutboxRow[];
+  listOutboxForReplay(input: { sessionId: string; runId?: string | null; runIds?: readonly string[] | null; afterSeq?: number; limit?: number }): OutboxRow[];
   getOutboxRow(id: number): OutboxRow | null;
   listOutbox(input?: ListOutboxInput): PaginatedResult<OutboxRow>;
   markOutboxDelivered(id: number): boolean;

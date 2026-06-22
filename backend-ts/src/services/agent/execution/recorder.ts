@@ -12,6 +12,8 @@ export interface RunCompletedRecordInput {
   rootCallId: string;
   agentName: string;
   agentDisplayName: string;
+  threadKey: string;
+  childAgentId?: string | null;
   finalMessage: {
     id: string;
     content: string;
@@ -34,6 +36,7 @@ export interface RunFailedRecordInput {
   errorMessage: string;
   errorType: "ExecutionError" | "InterruptedError";
   agentResult: string;
+  childAgentId?: string | null;
   runEndStepPayload: Record<string, unknown>;
   finalMetadata: Record<string, unknown>;
 }
@@ -59,6 +62,8 @@ export class ExecutionRecorder {
         content: input.finalMessage.content,
         metadata: input.finalMessage.metadata,
         messageId: input.finalMessage.id,
+        threadKey: input.threadKey,
+        childAgentId: input.childAgentId ?? null,
       });
       const finalStep = tx.addRunStep({
         sessionId: input.sessionId,
@@ -85,32 +90,42 @@ export class ExecutionRecorder {
           aggregateId: input.runId,
           payload: { ...common, step: input.finalStepPayload },
         }),
-        tx.appendOutbox({
-          sessionId: input.sessionId,
-          runId: input.runId,
-          eventType: "run.final_answer_recorded",
-          aggregateType: "message",
-          aggregateId: message.id,
-          payload: {
-            ...common,
-            message_id: message.id,
-            content: message.content,
-            metadata: input.finalMetadata,
-          },
-        }),
-        tx.appendOutbox({
-          sessionId: input.sessionId,
-          runId: input.runId,
-          eventType: "agent.call_finished",
-          aggregateType: "run",
-          aggregateId: input.runId,
-          payload: {
-            ...common,
-            call_id: input.rootCallId,
-            result: message.content.slice(0, 500),
-            success: true,
-          },
-        }),
+        ...(input.childAgentId
+          ? []
+          : [
+              tx.appendOutbox({
+                sessionId: input.sessionId,
+                runId: input.runId,
+                eventType: "run.final_answer_recorded",
+                aggregateType: "message",
+                aggregateId: message.id,
+                payload: {
+                  ...common,
+                  message_id: message.id,
+                  content: message.content,
+                  metadata: input.finalMetadata,
+                },
+              }),
+            ]),
+        // child run 的 call.agent.end 由 delegation 的 publishAgentCallEnd 独占（带 child_agent_id/mode），
+        // recorder 的 agent.call_finished 仅 root 发，避免重复。
+        ...(input.childAgentId
+          ? []
+          : [
+              tx.appendOutbox({
+                sessionId: input.sessionId,
+                runId: input.runId,
+                eventType: "agent.call_finished",
+                aggregateType: "run",
+                aggregateId: input.runId,
+                payload: {
+                  ...common,
+                  call_id: input.rootCallId,
+                  result: message.content.slice(0, 500),
+                  success: true,
+                },
+              }),
+            ]),
         tx.appendOutbox({
           sessionId: input.sessionId,
           runId: input.runId,
@@ -119,31 +134,39 @@ export class ExecutionRecorder {
           aggregateId: input.runId,
           payload: { ...common, step: input.runEndStepPayload },
         }),
-        tx.appendOutbox({
-          sessionId: input.sessionId,
-          runId: input.runId,
-          eventType: "message.saved",
-          aggregateType: "message",
-          aggregateId: message.id,
-          payload: {
-            ...common,
-            message_id: message.id,
-            seq: message.seq,
-            role: message.role,
-          },
-        }),
-        tx.appendOutbox({
-          sessionId: input.sessionId,
-          runId: input.runId,
-          eventType: "run.completed",
-          aggregateType: "run",
-          aggregateId: input.runId,
-          payload: {
-            ...common,
-            final_message_id: message.id,
-            metadata: input.finalMetadata,
-          },
-        }),
+        ...(input.childAgentId
+          ? []
+          : [
+              tx.appendOutbox({
+                sessionId: input.sessionId,
+                runId: input.runId,
+                eventType: "message.saved",
+                aggregateType: "message",
+                aggregateId: message.id,
+                payload: {
+                  ...common,
+                  message_id: message.id,
+                  seq: message.seq,
+                  role: message.role,
+                },
+              }),
+            ]),
+        ...(input.childAgentId
+          ? []
+          : [
+              tx.appendOutbox({
+                sessionId: input.sessionId,
+                runId: input.runId,
+                eventType: "run.completed",
+                aggregateType: "run",
+                aggregateId: input.runId,
+                payload: {
+                  ...common,
+                  final_message_id: message.id,
+                  metadata: input.finalMetadata,
+                },
+              }),
+            ]),
       ];
 
       return { message, steps: [finalStep, runEndStep], outboxRows };
@@ -162,19 +185,23 @@ export class ExecutionRecorder {
 
       const common = commonEventData(input);
       const outboxRows = [
-        tx.appendOutbox({
-          sessionId: input.sessionId,
-          runId: input.runId,
-          eventType: "agent.call_finished",
-          aggregateType: "run",
-          aggregateId: input.runId,
-          payload: {
-            ...common,
-            call_id: input.rootCallId,
-            result: input.agentResult.slice(0, 500),
-            success: false,
-          },
-        }),
+        ...(input.childAgentId
+          ? []
+          : [
+              tx.appendOutbox({
+                sessionId: input.sessionId,
+                runId: input.runId,
+                eventType: "agent.call_finished",
+                aggregateType: "run",
+                aggregateId: input.runId,
+                payload: {
+                  ...common,
+                  call_id: input.rootCallId,
+                  result: input.agentResult.slice(0, 500),
+                  success: false,
+                },
+              }),
+            ]),
         tx.appendOutbox({
           sessionId: input.sessionId,
           runId: input.runId,
@@ -183,32 +210,36 @@ export class ExecutionRecorder {
           aggregateId: input.runId,
           payload: { ...common, step: input.runEndStepPayload },
         }),
-        tx.appendOutbox({
-          sessionId: input.sessionId,
-          runId: input.runId,
-          eventType: "run.error_reported",
-          aggregateType: "run",
-          aggregateId: input.runId,
-          payload: {
-            ...common,
-            call_id: input.rootCallId,
-            error: input.errorMessage,
-            error_type: input.errorType,
-          },
-        }),
-        tx.appendOutbox({
-          sessionId: input.sessionId,
-          runId: input.runId,
-          eventType: input.status === "interrupted" ? "run.interrupted" : "run.failed",
-          aggregateType: "run",
-          aggregateId: input.runId,
-          payload: {
-            ...common,
-            status: input.status,
-            error: input.errorMessage,
-            metadata: input.finalMetadata,
-          },
-        }),
+        ...(input.childAgentId
+          ? []
+          : [
+              tx.appendOutbox({
+                sessionId: input.sessionId,
+                runId: input.runId,
+                eventType: "run.error_reported",
+                aggregateType: "run",
+                aggregateId: input.runId,
+                payload: {
+                  ...common,
+                  call_id: input.rootCallId,
+                  error: input.errorMessage,
+                  error_type: input.errorType,
+                },
+              }),
+              tx.appendOutbox({
+                sessionId: input.sessionId,
+                runId: input.runId,
+                eventType: input.status === "interrupted" ? "run.interrupted" : "run.failed",
+                aggregateType: "run",
+                aggregateId: input.runId,
+                payload: {
+                  ...common,
+                  status: input.status,
+                  error: input.errorMessage,
+                  metadata: input.finalMetadata,
+                },
+              }),
+            ]),
       ];
 
       return { message: null, steps: [runEndStep], outboxRows };

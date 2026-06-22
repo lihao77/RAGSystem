@@ -19,6 +19,10 @@ interface ExecutionEventContext {
   requestId: string;
   rootCallId: string;
   agent: AgentConfig;
+  // run 自己的 thread 归属：root run="root"，child run="child:<id>"。
+  // observation/intent 消息按此落到对应 thread，续聊 prepare 才能重建完整上下文。
+  threadKey: string;
+  childAgentId?: string | null;
 }
 
 export class AgentExecutionEventPublisher {
@@ -184,11 +188,17 @@ export class AgentExecutionEventPublisher {
   }
 
   publishRuntimeEvent(input: ExecutionEventContext, event: AgentRuntimeEvent): void {
+    // child run 的事件带上 parent_call_id/call_id（=子 run 的 rootCallId=agentCallId）：
+    // 前端 isMasterEvent 据此把子 agent 输出挂到对应 subtask，不污染主对话消息。
+    const childMarkers = input.childAgentId
+      ? { parent_call_id: input.rootCallId, call_id: input.rootCallId }
+      : {};
     if (event.type === "runtime.first_token") {
       this.publish(input.sessionId, {
         type: "llm.first_token",
         session_id: input.sessionId,
         run_id: input.runId,
+        ...childMarkers,
         data: {
           elapsed_ms: event.data.elapsed_ms,
           agent_name: event.data.agent_name,
@@ -204,6 +214,7 @@ export class AgentExecutionEventPublisher {
         type: "output.chunk",
         session_id: input.sessionId,
         run_id: input.runId,
+        ...childMarkers,
         data: {
           content: event.data.content,
           agent_name: event.data.agent_name,
@@ -228,6 +239,7 @@ export class AgentExecutionEventPublisher {
         type: "error",
         session_id: input.sessionId,
         run_id: input.runId,
+        ...childMarkers,
         agent_name: event.data.agent_name,
         error: event.data.message,
         data: payload,
@@ -239,6 +251,7 @@ export class AgentExecutionEventPublisher {
         type: "agent.intent_delta",
         session_id: input.sessionId,
         run_id: input.runId,
+        ...childMarkers,
         data: {
           content: event.data.content,
           agent_name: event.data.agent_name,
@@ -342,7 +355,7 @@ export class AgentExecutionEventPublisher {
       kind: "intent",
       phase: "complete",
       call_id: input.rootCallId,
-      parent_call_id: null,
+      parent_call_id: input.childAgentId ? input.rootCallId : null,
       step_id: `${input.rootCallId}:round:${event.data.round}`,
       parent_step_id: `${input.rootCallId}:run`,
       agent_name: event.data.agent_name,
@@ -394,7 +407,7 @@ export class AgentExecutionEventPublisher {
     });
   }
 
-  private addExecutionStepAndPublish(
+  addExecutionStepAndPublish(
     sessionId: string,
     runId: string,
     payload: Record<string, unknown>,
@@ -435,8 +448,8 @@ export class AgentExecutionEventPublisher {
       toolCalls: message.tool_calls,
       toolCallId: message.tool_call_id,
       name: message.name,
-      threadKey: "root",
-      childAgentId: null,
+      threadKey: input.threadKey,
+      childAgentId: input.childAgentId ?? null,
       metadata: {
         react_intermediate: true,
         msg_type: msgType,
@@ -446,8 +459,8 @@ export class AgentExecutionEventPublisher {
         request_id: input.requestId,
         agent: input.agent.agent_name,
         agent_name: agentName,
-        thread_key: "root",
-        conversation_scope: "root",
+        thread_key: input.threadKey,
+        conversation_scope: input.childAgentId ? "child" : "root",
         visible_to_user: true,
         execution_kind: "agent_stream",
       },

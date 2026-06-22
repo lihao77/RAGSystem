@@ -12,7 +12,7 @@ import { buildObservability, cloneStatus } from "./helpers.js";
 export interface ExecutionHandle {
   abortController: AbortController;
   status: ExecutionTaskStatus;
-  promise: Promise<void>;
+  promise: Promise<unknown>;
 }
 
 export class AgentExecutionStatusTracker {

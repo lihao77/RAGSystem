@@ -80,7 +80,9 @@ export interface AgentExecutionServiceParams {
  * + runEngine + slash/attachment handler，组合 launchers/sessionControl/query 为统一 Api。
  * 类比 tools 的 createXxxTools(deps) 工厂。
  */
-export function createAgentExecutionService(params: AgentExecutionServiceParams): AgentExecutionServiceApi {
+export function createAgentExecutionService(
+  params: AgentExecutionServiceParams,
+): AgentExecutionServiceApi & { runEngine: AgentRunEngine; eventPublisher: AgentExecutionEventPublisher } {
   if (!params.clientEvents) {
     throw new Error("AgentExecutionService requires a durable client event publisher");
   }
@@ -136,5 +138,5 @@ export function createAgentExecutionService(params: AgentExecutionServiceParams)
     executeSynchronously: launchers.executeSynchronously,
   });
   const query = createExecutionQueryService(statusTracker);
-  return { ...launchers, ...sessionControl, ...query };
+  return { ...launchers, ...sessionControl, ...query, runEngine, eventPublisher };
 }

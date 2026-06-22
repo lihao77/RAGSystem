@@ -1,25 +1,18 @@
 import { randomUUID } from "node:crypto";
 
-import type { AgentContextService } from "../context/index.js";
-import { createCompactionHook } from "../context/runtime-compaction-hook.js";
-import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
-import type { KernelSession, MessageRefresher } from "../kernel/contracts.js";
-import { DefaultHookRegistry } from "../kernel/hook-registry.js";
-import { refreshStablePrefixCache } from "../kernel/stable-prefix.js";
-import { NullEventSink } from "../kernel-plugins/events/runtime-event-sink.js";
-import { createAgentKernel } from "../kernel-plugins/create-agent-kernel.js";
-import { buildAgentPromptContext, type AgentPromptConfigResolver } from "../prompt-builder/index.js";
+import type { AgentRunEngine } from "../execution/run-engine.js";
+import type { AgentExecutionEventPublisher } from "../execution/event-publisher.js";
+import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { ChildAgentInfo, IChildAgentStore, IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { RuntimeExecutionConfigResolver } from "../execution/runtime-core-service.js";
-import type { RuntimeToolExecutionContext, RuntimeToolExecutor, ToolExecutionResult } from "../../runtime/runtime-tool-types.js";
+import type { RuntimeToolExecutionContext, ToolExecutionResult } from "../../runtime/runtime-tool-types.js";
 import type { DelegationPort, AgentDelegationInput, SendMessageInput, ListChildAgentsInput } from "./port.js";
 import { publishAgentCallEnd, publishAgentCallStart } from "./events.js";
 import {
   applyWorkspaceOverride,
   buildChildMetadata,
   buildDelegatedTask,
-  buildToolContext,
   clampInteger,
   getChildWorkspaceRoot,
   normalizeString,
@@ -33,20 +26,21 @@ import {
 } from "./results.js";
 
 export class AgentDelegationService implements DelegationPort {
-  private runtimeToolsProvider: (() => RuntimeToolExecutor | null) | null = null;
+  private runEngineProvider: (() => AgentRunEngine | null) | null = null;
+  private eventPublisherProvider: (() => AgentExecutionEventPublisher | null) | null = null;
 
   constructor(
     private readonly conversationStore: IMessageStore & IChildAgentStore & IRunStore & ISessionStore,
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
-    private readonly llmChatClient: LlmChatClient,
-    private readonly dataRoot: string,
-    private readonly contextService: AgentContextService,
     private readonly clientEvents: ClientEventPublisher | null = null,
-    private readonly promptConfigResolver: AgentPromptConfigResolver | null = null,
   ) {}
 
-  setRuntimeToolsProvider(provider: () => RuntimeToolExecutor | null): void {
-    this.runtimeToolsProvider = provider;
+  setRunEngine(provider: () => AgentRunEngine | null): void {
+    this.runEngineProvider = provider;
+  }
+
+  setEventPublisher(provider: () => AgentExecutionEventPublisher | null): void {
+    this.eventPublisherProvider = provider;
   }
 
   async callAgent(input: AgentDelegationInput, context: RuntimeToolExecutionContext): Promise<ToolExecutionResult> {
@@ -116,6 +110,8 @@ export class AgentDelegationService implements DelegationPort {
       requestId: normalizeString(context.requestId),
       parentRunId: normalizeString(context.runId),
       parentCallId: agentCallId,
+      rootParentCallId: normalizeString(context.parentCallId),
+      round: context.round ?? null,
       childAgent: child,
       entrypoint: "call_agent",
       source: "agent_call",
@@ -187,6 +183,8 @@ export class AgentDelegationService implements DelegationPort {
       requestId: normalizeString(context.requestId),
       parentRunId: normalizeString(context.runId),
       parentCallId: agentCallId,
+      rootParentCallId: normalizeString(context.parentCallId),
+      round: context.round ?? null,
       childAgent: child,
       entrypoint: "send_message",
       source: "agent_call",
@@ -259,6 +257,8 @@ export class AgentDelegationService implements DelegationPort {
     requestId: string | null;
     parentRunId: string | null;
     parentCallId: string | null;
+    rootParentCallId: string | null;
+    round: number | null;
     childAgent: ChildAgentInfo;
     entrypoint: "call_agent" | "send_message";
     source: "agent_call";
@@ -313,137 +313,139 @@ export class AgentDelegationService implements DelegationPort {
       childAgentId: input.childAgent.child_agent_id,
     });
 
-    try {
-      const runtimeTools = this.runtimeToolsProvider?.() ?? undefined;
-      const promptContext = buildAgentPromptContext({
-        agent: targetAgent,
-        toolExecutor: runtimeTools,
-        configResolver: this.promptConfigResolver,
-        teamName: input.teamName,
-      });
-      const prepared = await this.contextService.prepare({
-        sessionId: input.sessionId,
-        agent: targetAgent,
-        provider: resolved.provider,
-        modelName: resolved.modelName,
-        promptContext,
-        threadKey: input.childAgent.thread_key,
-        round: 0,
-        runId: childRunId,
-        taskId: null,
-        requestId: input.requestId,
-      });
-      const eventSink = new NullEventSink();
-      const refresher: MessageRefresher = { refresh: async () => [] };
-      const hooks = new DefaultHookRegistry();
-      const compactionHook = createCompactionHook({
-        contextService: this.contextService,
-        sessionId: input.sessionId,
-        agent: targetAgent,
-        provider: resolved.provider,
-        modelName: resolved.modelName,
-        runId: childRunId,
-        taskId: null,
-        requestId: input.requestId,
-        budgetTokens: prepared.budgetTokens,
-        triggerRatio: this.contextService.resolveContextSettings(targetAgent).compressionTriggerRatio,
-        threadKey: input.childAgent.thread_key,
-        childAgentId: input.childAgent.child_agent_id,
-        signal: input.signal,
-      });
-      hooks.register("beforeModel", (ctx) => compactionHook(ctx));
-      hooks.register("afterModel", () => {
-        refreshStablePrefixCache(
-          this.conversationStore,
-          input.sessionId,
-          input.childAgent.thread_key,
-          prepared.stablePrefixFingerprint,
-        );
-      });
-      const kernel = createAgentKernel({
-        llmChatClient: this.llmChatClient,
-        provider: resolved.provider,
-        dataRoot: this.dataRoot,
-        eventSink,
-        refresher,
-        hooks,
-      });
-      const response = await kernel.run({
-        agent: targetAgent,
-        provider: resolved.provider,
-        modelName: resolved.modelName,
-        conversation: prepared.conversation,
-        toolExecutor: runtimeTools,
-        promptContext,
-        toolContext: buildToolContext(targetAgent, {
-          sessionId: input.sessionId,
-          runId: childRunId,
-          taskId: null,
-          requestId: input.requestId,
-          sessionMetadata: this.conversationStore.getSession(input.sessionId)?.metadata ?? {},
-          childAgent: input.childAgent,
-          workspaceRoot: input.workspaceRoot,
-          parentCallId: input.parentCallId,
-          signal: input.signal,
-        }),
-        signal: input.signal,
-        sessionId: input.sessionId,
-        runId: childRunId,
-        taskId: null,
-        requestId: input.requestId,
-        rootCallId: input.parentCallId,
-        threadKey: input.childAgent.thread_key,
-      });
-      const assistantMessage = this.conversationStore.addMessage({
-        sessionId: input.sessionId,
-        role: "assistant",
-        content: response.content,
-        metadata: {
-          agent: targetAgent.agent_name,
-          run_id: childRunId,
-          request_id: input.requestId,
-          msg_type: "assistant_final",
-          execution_kind: input.entrypoint,
-          source: input.source,
-          child_agent_id: input.childAgent.child_agent_id,
-        },
-        threadKey: input.childAgent.thread_key,
-        childAgentId: input.childAgent.child_agent_id,
-      });
-      this.conversationStore.updateRunStatus(childRunId, input.sessionId, "completed", assistantMessage.id);
-      this.conversationStore.updateChildAgentLastRun({
-        sessionId: input.sessionId,
-        childAgentId: input.childAgent.child_agent_id,
-        lastRunId: childRunId,
-      });
-      return {
-        success: true,
-        content: response.content,
-        summary: response.content.slice(0, 500),
-        outputType: "text",
-        metadata: {
-          run_id: childRunId,
-          agent_name: targetAgent.agent_name,
-          child_agent_id: input.childAgent.child_agent_id,
-          thread_key: input.childAgent.thread_key,
-        },
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.conversationStore.updateRunStatus(childRunId, input.sessionId, input.signal?.aborted ? "interrupted" : "failed");
+    // 发 kind:subtask execution.step（前端 projector 据此创建子 agent 容器节点，
+    // 子 run 的工具 step 靠 parent_call_id=agentCallId 挂到该容器下）。
+    this.publishSubtaskStep("start", {
+      sessionId: input.sessionId,
+      runId: input.parentRunId,
+      parentCallId: input.parentCallId,
+      rootParentCallId: input.rootParentCallId,
+      agent: targetAgent,
+      task: input.task,
+      childAgentId: input.childAgent.child_agent_id,
+      round: input.round,
+    });
+
+    const runEngine = this.runEngineProvider?.();
+    if (!runEngine) {
+      const message = "RunEngine 未注入，无法执行子 Agent";
       return {
         success: false,
         content: message,
         summary: message,
         outputType: "error",
         metadata: {
-          run_id: childRunId,
           agent_name: targetAgent.agent_name,
           child_agent_id: input.childAgent.child_agent_id,
-          thread_key: input.childAgent.thread_key,
         },
       };
     }
+
+    // 子 run 复用 root 的 executeRun 执行核心：prepare/kernel/事件/recorder 全部统一，
+    // 靠 threadKey=child:xxx + parent_run_id/parent_call_id/child_agent_id 区分归属。
+    // observation 落子 thread、step 落子 run_id，续聊 prepare 重建完整上下文、工作栏按 parent_call_id 展示。
+    const abortController = new AbortController();
+    if (input.signal) {
+      if (input.signal.aborted) {
+        abortController.abort();
+      } else {
+        input.signal.addEventListener("abort", () => abortController.abort(), { once: true });
+      }
+    }
+
+    const outcome = await runEngine.executeRun({
+      sessionId: input.sessionId,
+      runId: childRunId,
+      taskId: randomUUID(),
+      rootCallId: input.parentCallId ?? `call_${childRunId}`,
+      requestId: input.requestId ?? "",
+      task: input.task,
+      startedAt: new Date(),
+      abortController,
+      agent: targetAgent,
+      provider: resolved.provider,
+      modelName: resolved.modelName,
+      threadKey: input.childAgent.thread_key,
+      parentRunId: input.parentRunId,
+      childAgentId: input.childAgent.child_agent_id,
+      executionKind: input.entrypoint,
+    });
+
+    this.conversationStore.updateChildAgentLastRun({
+      sessionId: input.sessionId,
+      childAgentId: input.childAgent.child_agent_id,
+      lastRunId: childRunId,
+    });
+
+    this.publishSubtaskStep("end", {
+      sessionId: input.sessionId,
+      runId: input.parentRunId,
+      parentCallId: input.parentCallId,
+      rootParentCallId: input.rootParentCallId,
+      agent: targetAgent,
+      task: input.task,
+      childAgentId: input.childAgent.child_agent_id,
+      round: input.round,
+      status: outcome.success ? "success" : "error",
+      resultPreview: outcome.content.slice(0, 500),
+    });
+
+    return {
+      success: outcome.success,
+      content: outcome.content,
+      summary: outcome.content.slice(0, 500),
+      outputType: outcome.success ? "text" : "error",
+      metadata: {
+        run_id: childRunId,
+        agent_name: targetAgent.agent_name,
+        child_agent_id: input.childAgent.child_agent_id,
+        thread_key: input.childAgent.thread_key,
+      },
+    };
+  }
+
+  private publishSubtaskStep(phase: "start" | "end", input: {
+    sessionId: string;
+    runId: string | null;
+    parentCallId: string | null;
+    rootParentCallId: string | null;
+    agent: AgentConfig;
+    task: string;
+    childAgentId: string;
+    status?: string;
+    resultPreview?: string;
+    round: number | null;
+  }): void {
+    const eventPublisher = this.eventPublisherProvider?.();
+    if (!eventPublisher || !input.parentCallId || !input.runId) {
+      return;
+    }
+    const payload: Record<string, unknown> = {
+      kind: "subtask",
+      phase,
+      step_id: `${input.parentCallId}:subtask`,
+      parent_step_id: null,
+      call_id: input.parentCallId,
+      parent_call_id: input.rootParentCallId,
+      agent_name: input.agent.agent_name,
+      agent_display_name: input.agent.display_name || input.agent.agent_name,
+      round: input.round ?? null,
+      round_index: null,
+      order: null,
+      child_agent_id: input.childAgentId,
+      status: phase === "start" ? "running" : (input.status ?? "success"),
+    };
+    if (phase === "start") {
+      payload.description = input.task.slice(0, 200);
+    } else {
+      payload.result_preview = input.resultPreview ?? "";
+    }
+    eventPublisher.addExecutionStepAndPublish(input.sessionId, input.runId, payload, {
+      type: "execution.step",
+      session_id: input.sessionId,
+      run_id: input.runId,
+      data: payload,
+    });
   }
 
 }

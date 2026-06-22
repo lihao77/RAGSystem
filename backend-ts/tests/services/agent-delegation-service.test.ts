@@ -2,41 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
-import {
-  AgentContextBuilder,
-  RecentMessagesContextSource,
-} from "../../src/services/agent/context-builder/index.js";
-import { AgentContextCompressionService } from "../../src/services/agent/context-compression/index.js";
-import { AgentContextService } from "../../src/services/agent/context/index.js";
-import { SystemConfigService } from "../../src/services/config/system-config-service.js";
-import os from "node:os";
-import type {
-  ChatCompletionRequest,
-  ChatStreamChunkHandler,
-  LlmChatClient,
-} from "../../src/services/integrations/llm-chat-client.js";
 import { AgentDelegationService } from "../../src/services/agent/delegation/index.js";
+import type { AgentRunEngine } from "../../src/services/agent/execution/run-engine.js";
+import type { RuntimeExecutionConfigResolver } from "../../src/services/agent/execution/runtime-core-service.js";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
-import type { RuntimeExecutionConfigResolver } from "../../src/services/agent/execution/runtime-core-service.js";
-
-class FakeChatClient implements LlmChatClient {
-  readonly requests: ChatCompletionRequest[] = [];
-
-  constructor(private readonly content: string) {}
-
-  async complete(): Promise<{ content: string }> {
-    throw new Error("complete should not be called");
-  }
-
-  async stream(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler) {
-    this.requests.push(request);
-    await onChunk({ content: this.content });
-    return { content: this.content };
-  }
-}
 
 describe("AgentDelegationService", () => {
   it("lists child agents and resumes an existing child thread with send_message", async () => {
@@ -45,19 +17,32 @@ describe("AgentDelegationService", () => {
     const dispatcher = new OutboxDispatcher(store, realtimeEvents);
     const clientEvents = new DurableClientEventPublisher(store, dispatcher);
     const workerAgent = minimalAgent("worker_agent");
-    const client = new FakeChatClient("resumed answer");
-    const service = new AgentDelegationService(
-      store,
-      runtimeCoreStub(workerAgent),
-      client,
-      os.tmpdir(),
-      new AgentContextService(
-        new AgentContextBuilder([new RecentMessagesContextSource(store)]),
-        new AgentContextCompressionService(store, client, new SystemConfigService()),
-        new SystemConfigService(),
-      ),
-      clientEvents,
-    );
+    const service = new AgentDelegationService(store, runtimeCoreStub(workerAgent), clientEvents);
+
+    // 子 run 复用 root 的 executeRun 执行核心（run-engine 那套由 runtime-core-execution 端到端覆盖）。
+    // 这里 mock executeRun：验证 delegation 把 child 归属（threadKey/parent_run_id/child_agent_id/parent_call_id）
+    // 正确传入统一执行核心，并模拟 recorder 的 final 落库 + 终态，让续接断言可观测。
+    const seenInputs: Array<Record<string, unknown>> = [];
+    const mockEngine = {
+      async executeRun(input: Record<string, unknown>) {
+        seenInputs.push(input);
+        const threadKey = String(input.threadKey);
+        const childAgentId = (input.childAgentId as string | null | undefined) ?? null;
+        const runId = String(input.runId);
+        const sessionId = String(input.sessionId);
+        const finalMsg = store.addMessage({
+          sessionId,
+          role: "assistant",
+          content: "resumed answer",
+          threadKey,
+          childAgentId,
+          metadata: { agent: "worker_agent", run_id: runId, msg_type: "assistant_final" },
+        });
+        store.updateRunStatus(runId, sessionId, "completed", finalMsg.id);
+        return { content: "resumed answer", success: true };
+      },
+    } as unknown as AgentRunEngine;
+    service.setRunEngine(() => mockEngine);
 
     store.createSession("session-1", null, {
       team: "default",
@@ -130,12 +115,16 @@ describe("AgentDelegationService", () => {
     });
     expect(result.llm_hint).toBeNull();
 
-    expect(client.requests).toHaveLength(1);
-    expect(
-      client.requests[0]?.messages.some(
-        (message) => typeof message.content === "string" && message.content.includes("继续分析"),
-      ),
-    ).toBe(true);
+    // delegation 给 executeRun 传了正确的 child 归属：统一执行核心靠 parent_call_id/child_agent_id 区分父子
+    expect(seenInputs).toHaveLength(1);
+    expect(seenInputs[0]).toMatchObject({
+      sessionId: "session-1",
+      threadKey: "child:child-existing",
+      parentRunId: "parent-run",
+      childAgentId: "child-existing",
+      rootCallId: result.metadata.agent_call_id,
+      executionKind: "send_message",
+    });
 
     const updatedChild = store.getChildAgent("session-1", "child-existing");
     expect(updatedChild?.last_run_id).toBe(result.metadata.run_id);

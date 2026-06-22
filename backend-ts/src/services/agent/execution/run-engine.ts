@@ -81,7 +81,7 @@ export class AgentRunEngine {
     stablePrefixFingerprint?: string | null | undefined;
     conversationUpdateProvider?: (() => Promise<ChatMessage[]> | ChatMessage[]) | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
-  }): AgentRunStartResult & { promise: Promise<void> } {
+  }): AgentRunStartResult & { promise: Promise<{ content: string; success: boolean }> } {
     const runId = randomUUID();
     const taskId = randomUUID();
     const rootCallId = `call_${randomUUID()}`;
@@ -166,6 +166,16 @@ export class AgentRunEngine {
     }
     this.eventPublisher.publishRunStartStep(input.sessionId, runId, startStepPayload);
     this.eventPublisher.publishRunStart(input.sessionId, runId, runStartPayload);
+    this.eventPublisher.publishRootAgentStart({
+      sessionId: input.sessionId,
+      runId,
+      taskId,
+      requestId: input.requestId,
+      rootCallId,
+      agent: input.agent,
+      task: input.task,
+      threadKey: "root",
+    });
 
     const promise = this.executeRun({
       sessionId: input.sessionId,
@@ -176,18 +186,22 @@ export class AgentRunEngine {
       task: input.task,
       startedAt,
       abortController,
-      status,
       agent: input.agent,
       provider: input.provider,
       modelName: input.modelName,
+      threadKey: "root",
+      parentRunId: null,
+      childAgentId: null,
       userMessageId: existingUserMessageId,
       conversationUpdateProvider: input.conversationUpdateProvider,
       executionKind: input.executionKind,
       contextConversation: input.contextConversation,
       stablePrefixFingerprint: input.stablePrefixFingerprint,
       finalMetadataExtra: input.finalMetadataExtra,
+      onTerminal: (finalStatus) => this.statusTracker.finishStatus(status, finalStatus, startedAt),
     });
     this.statusTracker.register(taskId, input.sessionId, { abortController, status, promise });
+    promise.finally(() => this.statusTracker.unregister(taskId, input.sessionId));
 
     return {
       started: true,
@@ -268,29 +282,27 @@ export class AgentRunEngine {
     task: string;
     startedAt: Date;
     abortController: AbortController;
-    status: ExecutionTaskStatus;
     agent: AgentConfig;
     provider: ModelProviderConfig;
     modelName: string;
+    // run 自己的归属：root run threadKey="root"、parent=null；child run threadKey="child:<id>"、
+    // parent_run_id/child_agent_id 指向父。执行链路据此统一落库，无 root/child 分支。
+    threadKey: string;
+    parentRunId?: string | null;
+    childAgentId?: string | null;
     userMessageId?: string | undefined;
     conversationUpdateProvider?: (() => Promise<ChatMessage[]> | ChatMessage[]) | undefined;
     executionKind?: string | undefined;
     contextConversation?: ChatMessage[] | undefined;
     stablePrefixFingerprint?: string | null | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
-  }): Promise<void> {
+    // 终态回调（替代直接耦合 statusTracker）：root 由 startRun 壳传绑定 statusTracker 的回调，
+    // child 不传。executeRun 自己用 startedAt 算 execution_time，不依赖外部 status 对象。
+    onTerminal?: (finalStatus: "completed" | "failed" | "interrupted") => void;
+  }): Promise<{ content: string; success: boolean }> {
     try {
       const sessionMetadata = this.sessions.getSession(input.sessionId)?.metadata ?? {};
       const executionKind = input.executionKind ?? "agent_stream";
-      this.eventPublisher.publishRootAgentStart({
-        sessionId: input.sessionId,
-        runId: input.runId,
-        taskId: input.taskId,
-        requestId: input.requestId,
-        rootCallId: input.rootCallId,
-        agent: input.agent,
-        task: input.task,
-      });
       const teamName = asString(sessionMetadata.team);
       const promptContext = buildAgentPromptContext({
         agent: input.agent,
@@ -323,7 +335,7 @@ export class AgentRunEngine {
           provider: input.provider,
           modelName: input.modelName,
           promptContext,
-          threadKey: "root",
+          threadKey: input.threadKey,
           round: 0,
           runId: input.runId,
           taskId: input.taskId,
@@ -346,7 +358,7 @@ export class AgentRunEngine {
           requestId: input.requestId,
           budgetTokens: prepared.budgetTokens,
           triggerRatio: this.contextService.resolveContextSettings(input.agent).compressionTriggerRatio,
-          threadKey: "root",
+          threadKey: input.threadKey,
           signal: input.abortController.signal,
           onCompressionEvent: (event) => this.eventPublisher.publishContextCompressionEvent(input, event),
         });
@@ -373,7 +385,7 @@ export class AgentRunEngine {
         refreshStablePrefixCache(
           this.conversationStore,
           input.sessionId,
-          "root",
+          input.threadKey,
           stablePrefixFingerprint,
           this.logger ?? undefined,
         );
@@ -418,15 +430,19 @@ export class AgentRunEngine {
         request_id: input.requestId,
         msg_type: "assistant_final",
         execution_kind: executionKind,
+        thread_key: input.threadKey,
+        child_agent_id: input.childAgentId ?? null,
+        conversation_scope: input.childAgentId ? "child" : "root",
         ...(input.finalMetadataExtra ?? {}),
       };
-      this.statusTracker.finishStatus(input.status, "completed", input.startedAt);
+      const elapsedSeconds = (Date.now() - input.startedAt.getTime()) / 1000;
+      input.onTerminal?.("completed");
       const finalMetadata = {
         agent: input.agent.agent_name,
         run_id: input.runId,
         request_id: input.requestId,
         execution_kind: executionKind,
-        execution_time: input.status.elapsed_seconds,
+        execution_time: elapsedSeconds,
         ...(input.finalMetadataExtra ?? {}),
       };
       const finalStepPayload = buildFinalStepPayload({
@@ -456,6 +472,8 @@ export class AgentRunEngine {
         rootCallId: input.rootCallId,
         agentName: input.agent.agent_name,
         agentDisplayName: input.agent.display_name || input.agent.agent_name,
+        threadKey: input.threadKey,
+        childAgentId: input.childAgentId ?? null,
         finalMessage: {
           id: assistantMessageId,
           content: response.content,
@@ -470,6 +488,7 @@ export class AgentRunEngine {
         throw new Error(`Completed run did not record assistant message: ${input.runId}`);
       }
       this.deliverTerminalRecord(terminalRecord);
+      return { content: response.content, success: true };
     } catch (error) {
       const interrupted = input.abortController.signal.aborted;
       const finalStatus = interrupted ? "interrupted" : "failed";
@@ -490,13 +509,14 @@ export class AgentRunEngine {
           execution_kind: executionKind,
         }, "agent runtime execution failed");
       }
-      this.statusTracker.finishStatus(input.status, finalStatus, input.startedAt);
+      const elapsedSeconds = (Date.now() - input.startedAt.getTime()) / 1000;
+      input.onTerminal?.(finalStatus);
       const finalMetadata = {
         agent: input.agent.agent_name,
         run_id: input.runId,
         request_id: input.requestId,
         execution_kind: executionKind,
-        execution_time: input.status.elapsed_seconds,
+        execution_time: elapsedSeconds,
         ...(input.finalMetadataExtra ?? {}),
       };
       const runEndStepPayload = buildRunEndStepPayload({
@@ -521,12 +541,12 @@ export class AgentRunEngine {
         errorMessage,
         errorType: interrupted ? "InterruptedError" : "ExecutionError",
         agentResult: interrupted ? "[已停止生成]" : errorMessage,
+        childAgentId: input.childAgentId ?? null,
         runEndStepPayload,
         finalMetadata,
       });
       this.deliverTerminalRecord(terminalRecord);
-    } finally {
-      this.statusTracker.unregister(input.taskId, input.sessionId);
+      return { content: errorMessage, success: false };
     }
   }
 
