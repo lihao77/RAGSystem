@@ -404,10 +404,12 @@ export function buildPromptOutputFormatSection(toolNames: Set<string>, mode: Too
   if (mode === "native") {
     return `## 输出格式
 
-**直接给答案或调用工具（function calling）。不要写冗长推理、分析过程或额外过程汇报。**
+**工具调用走 function calling；文本输出用 XML 阶段标签包裹。不要写冗长推理、分析过程或额外过程汇报。**
 
-- 无需工具时，最终答案就是普通文本回复，直接给出即可
 - 需要调用工具时，通过 function calling 发起调用；一次回复可发起多个 function call 并行处理相互独立的任务
+- 如需给用户一句简短的动作说明（可选，仅 1-2 句），放在文本里的 \`<intent>...</intent>\` 中；不要暴露隐藏推理
+- 任务完成给出最终答案时，用 \`<final_answer>答案内容</final_answer>\` 包裹——这是唯一被持久化为最终回复的文本
+- 工具参数一律走 function calling，不要在文本里序列化工具调用
 - 工具结果由系统在下一轮自动回填（作为工具返回消息），无需任何特殊引用语法；如需引用上一轮工具结果，直接在下一轮的参数或文本中使用即可`;
   }
   const toolCallExample = toolNames.size

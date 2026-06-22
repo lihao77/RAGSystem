@@ -1,15 +1,14 @@
 /**
- * Agent 微内核 — Native Hybrid 协议（厂商 function calling）。
+ * Agent 微内核 — Native Hybrid 协议（厂商 function calling + XML content 解析）。
  *
- * 与 XmlProtocol 的核心差异（native FC 是厂商结构化输出，非 XML 文本）：
- * - 不用 StreamingRuntimeXmlParser：直接消费 llm-chat-client 拼好的 chunk.toolCalls
- *   （Phase 2.2 client 已在 readOpenAiCompatibleStream / readAnthropicStream 里累积、
- *   分片拼装、流末一次性吐出 toolCalls）。
+ * 混合形态：工具调用走厂商原生 FC（结构化 chunk.toolCalls），content 走 StreamingRuntimeXmlParser
+ * 解析 <intent>/<final_answer>，补齐 XmlProtocol 才有的 intent 事件链。
  * - buildRequestShell 保留 native tools：写入 request.tools（toChatToolDefinition）
  *   + toolChoice:"auto"——与 XmlProtocol 的 withoutNativeTools 相反。
  * - renderObservations 产 role:"tool" 消息（每工具一条，tool_call_id 关联），
  *   不是 XML 的单条 user 消息。
- * - 无协议修复重试：native 是结构化输出，不存在"标签没闭合"。
+ * - 无协议修复重试：native 工具是结构化输出不存在"标签没闭合"；content 是弱约束——
+ *   能解析出 <intent>/<final_answer> 就发对应事件，模型直接吐纯文本答案时 fallback 当 final。
  *
  * 铁律（同 XmlProtocol）：content 逐字 emit（不攒整段），first_token 在首个非空 content
  *   chunk 触发；toolCalls 流末一次性（native arguments 分片在 client 侧已拼好）。
@@ -25,6 +24,7 @@ import type {
 } from "../../../integrations/llm-chat-client.js";
 import { RuntimeAbortError, throwIfAborted } from "../../../runtime/abort.js";
 import { toChatToolDefinition } from "../tools/tool-call-utils.js";
+import { StreamingRuntimeXmlParser } from "./xml/index.js";
 import { resolveRequestLlmParams } from "../../llm-params.js";
 import type {
   EventSink,
@@ -105,11 +105,12 @@ export class NativeHybridProtocol implements Protocol {
   }
 
   /**
-   * 流式 invoke：逐字 emit content delta + 累积 client 拼好的 toolCalls。
+   * 流式 invoke：content 走 StreamingRuntimeXmlParser（解析 <intent>/<final_answer>，
+   * 逐字 emit intent_delta / output_delta / intent_complete），toolCalls 走 FC 结构化字段。
    *
-   * onChunk guard：content 或 toolCalls 任一非空都处理（不像 XmlProtocol 的
-   * `if (!chunk.content) return`）。不 stopAfterClosingTag——native 要读完整个流
-   * （arguments 分片可能持续，client 已在其侧拼好整段后于流末吐 toolCalls）。
+   * 弱约束 fallback：模型未用任何协议标签、直接吐纯文本时，缓存原始 delta，流末补发为
+   * output_delta 并当 final_answer。不 stopAfterClosingTag——native 没有 <tool_calls> 标签
+   * 要截断，且要读完整个流（arguments 分片持续，client 已拼好整段后于流末吐 toolCalls）。
    */
   private async invokeStreaming(
     ctx: KernelContext,
@@ -124,36 +125,69 @@ export class NativeHybridProtocol implements Protocol {
     const agentName = session.agent.agent_name;
     const signal = session.signal;
 
+    const parser = new StreamingRuntimeXmlParser();
     let firstChunkSeen = false;
     const providerStartedAt = Date.now();
-    let accumulatedContent = "";
+    let intent = "";
+    let finalAnswer = "";
+    let protocolTagSeen = false;
+    const pendingFallbackDeltas: string[] = [];
     const toolCalls: ChatToolCall[] = [];
 
     const result = await stream(baseRequest, async (chunk) => {
       throwIfAborted(signal, "Agent run aborted");
-      // 任一非空都处理：content 逐字 emit，toolCalls 累积（流末用）。
+      // toolCalls 走 FC 结构化字段（client 侧已拼好整段，流末一次性）。
       if (chunk.toolCalls && chunk.toolCalls.length > 0) {
         toolCalls.push(...chunk.toolCalls);
       }
-      if (chunk.content) {
-        if (!firstChunkSeen) {
-          firstChunkSeen = true;
+      if (!chunk.content) {
+        return undefined;
+      }
+      if (!firstChunkSeen) {
+        firstChunkSeen = true;
+        this.eventSink.emit({
+          type: "runtime.first_token",
+          data: { elapsed_ms: Date.now() - providerStartedAt, agent_name: agentName },
+        });
+      }
+      const events = parser.feed(chunk.content);
+      let sawOpenInThisChunk = false;
+      for (const event of events) {
+        if (event.type === "tag_open") {
+          protocolTagSeen = true;
+          sawOpenInThisChunk = true;
+        }
+        if (event.type === "content" && event.tag === "intent") {
+          intent += event.content;
           this.eventSink.emit({
-            type: "runtime.first_token",
-            data: {
-              elapsed_ms: Date.now() - providerStartedAt,
-              agent_name: agentName,
-            },
+            type: "runtime.intent_delta",
+            data: { content: event.content, agent_name: agentName, round },
           });
         }
-        accumulatedContent += chunk.content;
-        this.eventSink.emit({
-          type: "runtime.output_delta",
-          data: {
-            content: chunk.content,
-            agent_name: agentName,
-          },
-        });
+        if (event.type === "content" && event.tag === "final_answer") {
+          finalAnswer += event.content;
+          this.eventSink.emit({
+            type: "runtime.output_delta",
+            data: { content: event.content, agent_name: agentName },
+          });
+        }
+        if (event.type === "tag_close" && event.tag === "intent") {
+          this.eventSink.emit({
+            type: "runtime.intent_complete",
+            data: { content: intent, agent_name: agentName, round },
+          });
+        }
+      }
+      // fallback 缓存：尚未见到任何协议标签、当前在标签外、本 chunk 未触发事件且不以 "<" 开头——
+      // 视为纯文本候选，缓存到流末统一判定（对齐 XmlProtocol 的 pendingFallbackDeltas）。
+      if (
+        !protocolTagSeen &&
+        !sawOpenInThisChunk &&
+        parser.currentState === null &&
+        events.length === 0 &&
+        !chunk.content.trimStart().startsWith("<")
+      ) {
+        pendingFallbackDeltas.push(chunk.content);
       }
       return undefined;
     });
@@ -163,6 +197,19 @@ export class NativeHybridProtocol implements Protocol {
       throw new RuntimeAbortError("LLM stream interrupted");
     }
 
+    const sawProtocolTag = Boolean(
+      parser.getTagContent("intent").trim() || parser.getTagContent("final_answer").trim(),
+    );
+    if (!sawProtocolTag) {
+      // 纯文本回退：模型未用 XML 协议标签，逐字补发积压的 delta 作为最终答案增量。
+      for (const content of pendingFallbackDeltas) {
+        this.eventSink.emit({
+          type: "runtime.output_delta",
+          data: { content, agent_name: agentName },
+        });
+      }
+    }
+
     if (toolCalls.length > 0) {
       const calls: KernelToolCall[] = toolCalls.map((tc, index) => ({
         index,
@@ -170,9 +217,11 @@ export class NativeHybridProtocol implements Protocol {
         toolName: tc.function.name,
         arguments: safeParseArguments(tc.function.arguments),
       }));
+      // assistantMessage.content = 解析出的 intent 文本（调工具轮的动作说明；无 intent 则空串）。
+      // 与 XmlProtocol 的 tool_calls 分支同形态（content=intent, tool_calls=结构化字段）。
       const assistantMessage: ChatMessage = {
         role: "assistant",
-        content: accumulatedContent,
+        content: parser.getTagContent("intent"),
         tool_calls: toolCalls,
       };
       return {
@@ -183,17 +232,22 @@ export class NativeHybridProtocol implements Protocol {
       };
     }
 
+    const rawContent = parser.getFullResponse() || result.content || "";
     return {
       kind: "final",
-      finalAnswer: accumulatedContent,
-      assistantMessage: { role: "assistant", content: accumulatedContent },
+      finalAnswer: finalAnswer.trim() ? finalAnswer : rawContent,
+      assistantMessage: {
+        role: "assistant",
+        content: finalAnswer.trim() ? finalAnswer : rawContent,
+      },
       finishReason: result.finishReason ?? null,
     };
   }
 
   /**
-   * 非流式 invoke：client 无 stream 时走 complete，拿完整响应。
-   * 不发 first_token / output_delta（非流式无逐字流，结果由内核 done 事件交付）。
+   * 非流式 invoke：client 无 stream 时走 complete，拿完整响应后整体 XML 解析。
+   * 不发 first_token / output_delta / intent_delta（非流式无逐字流，结果由内核 done 事件交付）。
+   * content 弱约束：解析出 <final_answer> 用之，否则用原始 content 兜底。
    */
   private async invokeNonStreaming(
     ctx: KernelContext,
@@ -208,6 +262,11 @@ export class NativeHybridProtocol implements Protocol {
       throw new RuntimeAbortError("LLM stream interrupted");
     }
 
+    const parser = new StreamingRuntimeXmlParser();
+    parser.feed(result.content || "");
+    const finalAnswer = parser.getTagContent("final_answer");
+    const content = finalAnswer.trim() ? finalAnswer : result.content || "";
+
     if (result.toolCalls && result.toolCalls.length > 0) {
       const calls: KernelToolCall[] = result.toolCalls.map((tc, index) => ({
         index,
@@ -215,12 +274,13 @@ export class NativeHybridProtocol implements Protocol {
         toolName: tc.function.name,
         arguments: safeParseArguments(tc.function.arguments),
       }));
+      // 非流式无逐字 intent 事件；assistantMessage.content 取解析出的 intent 文本（可能空）。
       return {
         kind: "tool_calls",
         calls,
         assistantMessage: {
           role: "assistant",
-          content: result.content,
+          content: parser.getTagContent("intent"),
           tool_calls: result.toolCalls,
         },
         finishReason: result.finishReason ?? null,
@@ -229,8 +289,8 @@ export class NativeHybridProtocol implements Protocol {
 
     return {
       kind: "final",
-      finalAnswer: result.content,
-      assistantMessage: { role: "assistant", content: result.content },
+      finalAnswer: content,
+      assistantMessage: { role: "assistant", content },
       finishReason: result.finishReason ?? null,
     };
   }

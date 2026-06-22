@@ -16,6 +16,7 @@ import type {
   ChatCompletionResult,
   ChatMessage,
   ChatStreamChunkHandler,
+  ChatToolCall,
   LlmChatClient,
 } from "../../src/services/integrations/llm-chat-client.js";
 import { renderSemanticBlock, renderToolResultContent } from "../../src/services/agent/kernel-plugins/protocol/xml/index.js";
@@ -93,6 +94,34 @@ class FakeXmlStreamingToolChatClient implements LlmChatClient {
       }
     }
     return { content, finishReason: "stop" };
+  }
+}
+
+/**
+ * Native（FC）混合协议 fake：每轮是一组 chunk，chunk 可带 content（走 XML 解析）和/或
+ * toolCalls（走厂商 FC 结构化）。content 必填（ChatStreamChunk.content 非可选），纯工具调用轮传 ""。
+ */
+class FakeNativeStreamingToolChatClient implements LlmChatClient {
+  readonly requests: ChatCompletionRequest[] = [];
+
+  constructor(private readonly rounds: Array<Array<{ content: string; toolCalls?: ChatToolCall[] }>>) {}
+
+  async complete(): Promise<ChatCompletionResult> {
+    throw new Error("complete should not be called for native streaming");
+  }
+
+  async stream(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler): Promise<ChatCompletionResult> {
+    this.requests.push(request);
+    const round = this.rounds.shift();
+    if (!round) {
+      throw new Error("missing fake native stream round");
+    }
+    for (const chunk of round) {
+      if ((await onChunk(chunk))?.stop) {
+        break;
+      }
+    }
+    return { content: "", finishReason: "stop" };
   }
 }
 
@@ -817,6 +846,146 @@ describe("AgentKernel", () => {
         }),
       ]),
     );
+  });
+
+  it("native FC streams XML intent + FC tool calls, then final_answer", async () => {
+    const client = new FakeNativeStreamingToolChatClient([
+      [
+        { content: "<intent>" },
+        { content: "我先查看 session 记忆。" },
+        { content: "</intent>" },
+        {
+          content: "",
+          toolCalls: [
+            { id: "call_1", type: "function", function: { name: "list_memory_index", arguments: '{"scope":"session"}' } },
+          ],
+        },
+      ],
+      [
+        { content: "<final_answer>" },
+        { content: "I used the session memory index." },
+        { content: "</final_answer>" },
+      ],
+    ]);
+    const tools = new FakeRuntimeToolExecutor();
+    const core = createTestRuntime(client);
+    const agent = minimalAgent();
+    const events: AgentRuntimeEvent[] = [];
+
+    const result = await core.runText({
+      agent,
+      provider: { ...minimalProvider(), provider_type: "anthropic", key: "my_anthropic" },
+      modelName: "claude-test",
+      conversation: [{ role: "user", content: "check memory" }],
+      toolExecutor: tools,
+      toolContext: {
+        agent,
+        sessionId: "s1",
+        runId: "run-1",
+        requestId: "req-1",
+        currentAgentName: "orchestrator_agent",
+        parentCallId: "call-root",
+      },
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(result).toMatchObject({
+      content: "I used the session memory index.",
+      finish_reason: "stop",
+    });
+    // native 特征：带 tools + toolChoice:auto
+    expect(client.requests[0]?.toolChoice).toBe("auto");
+    expect(client.requests[0]?.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ function: expect.objectContaining({ name: "list_memory_index" }) }),
+      ]),
+    );
+    // 混合协议说明注入，但无 tool_manifest（工具走 FC，schema 由 request.tools 下发）
+    const systemPrompt = String(client.requests[0]?.messages[0]?.content ?? "");
+    expect(systemPrompt).toContain("<runtime_instruction");
+    expect(systemPrompt).not.toContain("<tool_manifest>");
+    // native 提示词不引入 <tool_calls> 概念（工具走 FC）
+    expect(systemPrompt).not.toContain("<tool_calls>");
+    // observation 回填为 native 结构化 role:tool（非 XML 文本）
+    expect(client.requests[1]?.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: "tool", tool_call_id: "call_1", name: "list_memory_index" }),
+      ]),
+    );
+    // intent 事件链 + assistant_intermediate 携带 intent 文本 + 结构化 tool_calls
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "runtime.intent_delta",
+          data: expect.objectContaining({ content: "我先查看 session 记忆。", round: 0 }),
+        }),
+        expect.objectContaining({
+          type: "runtime.intent_complete",
+          data: expect.objectContaining({ content: "我先查看 session 记忆。", round: 0 }),
+        }),
+        expect.objectContaining({
+          type: "runtime.assistant_intermediate",
+          data: expect.objectContaining({
+            message: expect.objectContaining({
+              role: "assistant",
+              content: "我先查看 session 记忆。",
+              tool_calls: expect.arrayContaining([
+                expect.objectContaining({
+                  id: "call_1",
+                  function: expect.objectContaining({ name: "list_memory_index" }),
+                }),
+              ]),
+            }),
+            round: 0,
+          }),
+        }),
+      ]),
+    );
+    // 工具被调用（callId 用 FC 下发的 id）
+    expect(tools.calls).toMatchObject([
+      {
+        call: { toolName: "list_memory_index", arguments: { scope: "session" }, callId: "call_1" },
+      },
+    ]);
+    // 最终答案 output_delta
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "runtime.output_delta",
+          data: expect.objectContaining({ content: "I used the session memory index." }),
+        }),
+      ]),
+    );
+  });
+
+  it("native FC falls back to plain text final when no XML tags emitted", async () => {
+    const client = new FakeNativeStreamingToolChatClient([[{ content: "直接" }, { content: "回答" }]]);
+    const core = createTestRuntime(client);
+    const events: AgentRuntimeEvent[] = [];
+
+    const result = await core.runText({
+      agent: minimalAgent(),
+      provider: { ...minimalProvider(), provider_type: "anthropic", key: "my_anthropic" },
+      modelName: "claude-test",
+      conversation: [{ role: "user", content: "hi" }],
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    // 弱约束 fallback：纯文本答案无标签，整段当 final_answer
+    expect(result).toMatchObject({ content: "直接回答", finish_reason: "stop" });
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "runtime.output_delta", data: expect.objectContaining({ content: "直接" }) }),
+        expect.objectContaining({ type: "runtime.output_delta", data: expect.objectContaining({ content: "回答" }) }),
+      ]),
+    );
+    // 无 intent 事件（弱约束：未用 <intent> 标签则不发）
+    expect(events.some((event) => event.type === "runtime.intent_delta")).toBe(false);
+    expect(events.some((event) => event.type === "runtime.intent_complete")).toBe(false);
   });
 
   it("renders execute_skill_script XML arguments as itemized argv tokens in the prompt", async () => {

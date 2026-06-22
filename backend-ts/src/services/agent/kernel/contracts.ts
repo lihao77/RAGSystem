@@ -193,9 +193,11 @@ export interface KernelResult {
 export type HookPoint = "beforeModel" | "afterModel";
 
 /**
- * 工具指令形态：决定 Context 是否注入 XML 协议说明。
- * - "xml"：注入 XML <tool_calls> 用法说明（XmlProtocol）。
- * - "native"：走厂商 function calling，不注入 XML 说明（Hybrid 协议，阶段二后续）。
+ * 工具指令形态：决定 Context 注入哪种协议说明。
+ * - "xml"：注入完整 XML 协议说明（含 <tool_calls> 用法 + tool_manifest），XmlProtocol 从文本解析工具调用。
+ * - "native"：注入混合协议说明（仅 <intent>/<final_answer>，不含 tool_manifest——工具走厂商
+ *   function calling，schema 由 request.tools 下发）。NativeHybridProtocol 解析 content XML +
+ *   消费 FC 结构化 toolCalls。
  * 由 selectProtocol 决定的协议形态产出，装配层绑进 Context 实例，不渗进内核。
  */
 export type ToolInstructionMode = "xml" | "native";

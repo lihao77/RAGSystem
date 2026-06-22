@@ -9,6 +9,7 @@ import type {
   ChatCompletionRequest,
   ChatCompletionResult,
   ChatStreamChunkHandler,
+  ChatToolCall,
   LlmChatClient,
 } from "../../src/services/integrations/llm-chat-client.js";
 import { ClientEventProjector } from "../../src/services/runtime/event-outbox/projector.js";
@@ -139,6 +140,34 @@ class FakeXmlStreamingToolChatClient implements LlmChatClient {
       }
     }
     return { content, finishReason: "stop" };
+  }
+}
+
+/**
+ * Native（FC）混合协议 fake：每轮一组 chunk，chunk 可带 content（走 XML 解析）和/或
+ * toolCalls（走厂商 FC 结构化）。content 必填（ChatStreamChunk.content 非可选），纯工具调用轮传 ""。
+ */
+class FakeNativeStreamingToolChatClient implements LlmChatClient {
+  readonly requests: ChatCompletionRequest[] = [];
+
+  constructor(private readonly rounds: Array<Array<{ content: string; toolCalls?: ChatToolCall[] }>>) {}
+
+  async complete(): Promise<ChatCompletionResult> {
+    throw new Error("complete should not be called for native streaming");
+  }
+
+  async stream(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler): Promise<ChatCompletionResult> {
+    this.requests.push(request);
+    const round = this.rounds.shift();
+    if (!round) {
+      throw new Error("missing fake native stream round");
+    }
+    for (const chunk of round) {
+      if ((await onChunk(chunk))?.stop) {
+        break;
+      }
+    }
+    return { content: "", finishReason: "stop" };
   }
 }
 
@@ -1235,6 +1264,140 @@ describe("minimal runtime core execution", () => {
         content_preview: expect.stringContaining("The XML runtime read memory."),
       }),
     ]);
+  });
+
+  it("publishes agent intent events for native FC + XML content streaming tool runs", async () => {
+    const chatClient = new FakeNativeStreamingToolChatClient([
+      [
+        { content: "<intent>" },
+        { content: "我先读取 session 记忆。" },
+        { content: "</intent>" },
+        {
+          content: "",
+          toolCalls: [
+            { id: "call_native_1", type: "function", function: { name: "list_memory_index", arguments: '{"scope":"session"}' } },
+          ],
+        },
+      ],
+      [
+        { content: "<final_answer>" },
+        { content: "The native runtime read memory." },
+        { content: "</final_answer>" },
+      ],
+    ]);
+    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    app = harness.app;
+
+    await createDefaultChatProvider(app, { supportsFunctionCalling: true });
+    writeTestMemoryFile(["memory", "sessions", "native-tool-runtime-session", "MEMORY.md"], "# Native Runtime Memory\n");
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      headers: {
+        "x-request-id": "req-runtime-native-tool",
+      },
+      payload: {
+        task: "use memory through native fc",
+        session_id: "native-tool-runtime-session",
+      },
+    });
+
+    expect(started.statusCode).toBe(200);
+    await waitFor(
+      () => harness.container.agentExecution.getSessionTaskStatus("native-tool-runtime-session").task_info?.status === "completed",
+    );
+
+    expect(chatClient.requests).toHaveLength(2);
+    // native 特征：带 tools + toolChoice:auto；混合协议说明无 tool_manifest（工具走 FC）
+    expect(chatClient.requests[0]?.toolChoice).toBe("auto");
+    expect(chatClient.requests[0]?.tools).toBeDefined();
+    expect(chatClient.requests[0]?.messages[0]?.content).not.toContain("<tool_manifest>");
+    // native 提示词不引入 <tool_calls> 概念（工具走 FC）
+    expect(chatClient.requests[0]?.messages[0]?.content).not.toContain("<tool_calls>");
+    // observation 回填为 native 结构化 role:tool（content 仍含 <tool_result>，因 observation 字段已是该格式）
+    expect(chatClient.requests[1]?.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "call_native_1",
+          name: "list_memory_index",
+        }),
+      ]),
+    );
+
+    const history = harness.container.realtimeEvents.getHistory("native-tool-runtime-session");
+    expect(history.find((event) => event.type === "agent.intent_delta")?.data).toMatchObject({
+      content: "我先读取 session 记忆。",
+      round: 0,
+      request_id: "req-runtime-native-tool",
+    });
+    expect(history.find((event) => event.type === "agent.intent_complete")?.data).toMatchObject({
+      content: "我先读取 session 记忆。",
+      round: 0,
+    });
+    expect(history.find((event) => event.type === "output.final_answer")?.data).toMatchObject({
+      content: "The native runtime read memory.",
+    });
+
+    const messages = await app.inject({
+      method: "GET",
+      url: "/api/agent/sessions/native-tool-runtime-session/messages?expand=1",
+    });
+    expect(messages.json().data.items).toHaveLength(2);
+    expect(messages.json().data.items.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "The native runtime read memory.",
+    });
+
+    const rawMessages = harness.container.conversationStore.listMessages("native-tool-runtime-session", 20, 0, "root").items;
+    expect(rawMessages).toHaveLength(4);
+    expect(rawMessages.map((message) => [message.role, message.metadata.react_intermediate ?? false, message.metadata.msg_type ?? null])).toEqual([
+      ["user", false, null],
+      ["assistant", true, "intent"],
+      ["tool", true, "observation"],
+      ["assistant", false, "assistant_final"],
+    ]);
+
+    const intent = rawMessages[1]!;
+    expect(intent.content).toContain("我先读取 session 记忆。");
+    expect(intent.tool_calls).toEqual([
+      expect.objectContaining({
+        type: "function",
+        function: expect.objectContaining({
+          name: "list_memory_index",
+          arguments: expect.stringContaining("session"),
+        }),
+      }),
+    ]);
+    expect(intent.metadata).toMatchObject({
+      react_intermediate: true,
+      msg_type: "intent",
+      round: 1,
+      run_id: started.json().data.run_id,
+      request_id: "req-runtime-native-tool",
+      agent: "orchestrator_agent",
+      thread_key: "root",
+      conversation_scope: "root",
+      visible_to_user: true,
+      execution_kind: "agent_stream",
+    });
+
+    const observation = rawMessages[2]!;
+    expect(observation.content).toContain("<tool_result");
+    expect(observation.content).toContain("# Native Runtime Memory");
+    expect(observation.metadata).toMatchObject({
+      react_intermediate: true,
+      msg_type: "observation",
+      round: 1,
+      run_id: started.json().data.run_id,
+      request_id: "req-runtime-native-tool",
+      agent: "orchestrator_agent",
+      thread_key: "root",
+      conversation_scope: "root",
+      visible_to_user: true,
+      execution_kind: "agent_stream",
+    });
   });
 
   it("injects completed background task notifications into the next run context", async () => {

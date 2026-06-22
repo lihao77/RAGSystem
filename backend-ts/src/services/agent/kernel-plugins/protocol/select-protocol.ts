@@ -10,8 +10,8 @@
  * 已抽象厂商（流式都吐统一 ChatToolCall；buildAnthropicBody 补 tool_use/tool_result 转换），
  * 故 native FC 只需一个 NativeHybridProtocol，厂商差异下沉到 llm-chat-client。
  *
- * toolInstructionMode 随协议形态产出（native=不注入 XML 说明走厂商 FC；xml=注入 XML 协议说明），
- * 由 createAgentKernel 绑进 Context 实例，不渗进内核。
+ * toolInstructionMode 随协议形态产出（native=注入混合协议说明，工具走厂商 FC、content 走 XML 解析；
+ * xml=注入完整 XML 协议说明），由 createAgentKernel 绑进 Context 实例，不渗进内核。
  */
 
 import type { ChatMessage, LlmChatClient } from "../../../integrations/llm-chat-client.js";

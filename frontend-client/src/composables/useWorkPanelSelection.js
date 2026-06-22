@@ -6,6 +6,10 @@ export function useWorkPanelSelection(deps) {
 
   const getWorkPanelMessageKey = (msg) => {
     if (!msg) return '';
+    // assistant 消息在 run 期间就持有 run_id，优先用它做 key，避免后端
+    // output.message_saved 异步回填 id 时出现 idx:N -> id:XYZ 的 key 跳变——
+    // 那会让 WorkPanelExecution 的 watch(viewScopeKey) 把执行列表 scrollTop 重置为 0（视觉上"跳一下"）。
+    if (msg.role === 'assistant' && msg.run_id) return `run:${msg.run_id}`;
     if (msg.id) return `id:${msg.id}`;
     if (msg.seq != null) return `seq:${msg.seq}`;
     return `idx:${deps.messages.value.indexOf(msg)}`;

@@ -23,6 +23,28 @@ export function renderRuntimeXmlProtocolInstruction(tools: RuntimeToolDefinition
   ].join("\n\n");
 }
 
+/**
+ * Native（FC）+ XML content 混合协议说明：工具走厂商 function calling，content 仍用
+ * <intent>/<final_answer> XML 阶段（供 runtime 解析出 intent 事件链）。
+ * 不含 tool_manifest——工具 schema 由 request.tools 经厂商 FC 下发，无需在 prompt 重复。
+ * content 只讲 <intent>/<final_answer>，不引入任何工具调用标签——工具走 FC，避免模型把
+ * 工具调用同时塞进文本与 FC 造成冗余。
+ */
+export function renderNativeXmlProtocolInstruction(): string {
+  const protocol = [
+    "You call tools via native function calling. Your text output never carries tool invocation.",
+    "Your text output uses runtime XML phases for content only, without Markdown fences.",
+    "Use <intent> only for an optional short natural language action note visible to the user when calling a tool. Do not expose hidden reasoning.",
+    "Use <final_answer> only when the task is complete. The final answer is the only assistant message persisted as the final response.",
+    "Tool parameters are supplied through function calling; never serialize them as XML text.",
+  ].join("\n");
+
+  return renderSemanticBlock("runtime_instruction", protocol, {
+    source: "ts_runtime",
+    kind: "native_xml_protocol",
+  });
+}
+
 export function renderProtocolFeedbackMessage(error: string, attempt: number, maxAttempts: number): ChatMessage {
   const feedback = [
     `The previous assistant output could not be parsed by the runtime XML protocol: ${error}`,

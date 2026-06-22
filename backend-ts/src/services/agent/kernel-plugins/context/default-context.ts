@@ -17,7 +17,8 @@ export interface DefaultContextOptions {
  * 请求壳（model/provider/temperature/signal）下沉到 Protocol.buildRequestShell。
  *
  * visibleTools 探测 + promptContext 合并原在 XmlProtocol.buildRequest，整体迁入此处。
- * toolInstructionMode="native" 时跳过 XML 协议说明注入（走厂商 FC，Phase 2.3+）。
+ * toolInstructionMode="native" 时注入混合协议说明（工具走厂商 FC，content 走 XML 解析）；
+ * "xml" 时注入完整 XML 协议说明（含 tool_manifest）。
  */
 export class DefaultContext implements Context {
   constructor(private readonly options: DefaultContextOptions) {}

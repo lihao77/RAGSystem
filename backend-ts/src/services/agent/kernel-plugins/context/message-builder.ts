@@ -4,6 +4,7 @@ import { buildFullSystemPrompt, type AgentPromptContext } from "../../prompt-bui
 import { isStableSystemContextContent } from "../../context-builder/index.js";
 import {
   isSemanticTaggedContent,
+  renderNativeXmlProtocolInstruction,
   renderRuntimeXmlProtocolInstruction,
   renderSemanticBlock,
 } from "../protocol/xml/index.js";
@@ -32,7 +33,11 @@ export function buildModelMessages(
     }
     conversationIndex += 1;
   }
-  if (options.toolInstructionMode !== "native") {
+  if (options.toolInstructionMode === "native") {
+    // native（FC）+ XML content 混合：工具走厂商 FC，content 仍注入 intent/final_answer 协议说明
+    //（不含 tool_manifest——工具 schema 由 request.tools 经厂商 FC 下发，无需在 prompt 重复）。
+    systemParts.push(renderNativeXmlProtocolInstruction());
+  } else {
     systemParts.push(renderRuntimeXmlProtocolInstruction(options.xmlProtocolTools ?? []));
   }
   if (systemParts.length > 0) {
