@@ -63,7 +63,6 @@ const props = defineProps({
   subtasks: { type: Array, default: () => [] },
   running: { type: Boolean, default: false },
   sessionId: { type: String, default: '' },
-  messageKey: { type: String, default: '' },
 })
 
 const listRef = ref(null)
@@ -75,7 +74,6 @@ const focusNode = computed(() => findFocusNode(flatNodes.value))
 const focusKey = computed(() => focusNode.value ? getNodeKey(focusNode.value) : '')
 const selectedNode = computed(() => findNodeByKey(flatNodes.value, selectedNodeKey.value))
 const selectedKey = computed(() => selectedNodeKey.value)
-const viewScopeKey = computed(() => props.messageKey || props.sessionId || 'work-panel')
 
 const stats = computed(() => {
   const values = { total: 0, agent: 0, tool: 0, running: 0, success: 0, error: 0 }
@@ -162,7 +160,7 @@ watch(selectedNode, (node) => {
   }
 })
 
-watch(viewScopeKey, async () => {
+watch(() => props.executionSteps, async () => {
   clearSelectedNode()
   await nextTick()
   if (listRef.value) listRef.value.scrollTop = 0
@@ -200,7 +198,7 @@ function nodeKey(node, index) {
 }
 
 function timelineNodeKey(node, index) {
-  return `${viewScopeKey.value}:${nodeKey(node, index)}`
+  return nodeKey(node, index)
 }
 
 function getNodeKey(node) {

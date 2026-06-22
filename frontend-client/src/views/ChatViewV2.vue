@@ -141,7 +141,6 @@
       :pending-user-input="pendingUserInput"
       :context-usage="contextUsage"
       :session-id="currentSessionId || ''"
-      :message-key="currentRunMessageKey"
       @approval-submit="({ approvalId, approved, message }) => submitApproval(approvalId, approved, message, currentSessionId)"
       @user-input-submit="handleWorkPanelUserInputSubmit"
       @user-input-cancel="handleWorkPanelUserInputCancel"
@@ -337,7 +336,6 @@ const {
   selectedWorkPanelMessageKey,
   getWorkPanelMessageKey,
   currentRunMessage,
-  currentRunMessageKey,
   selectWorkPanelMessage,
   parseTaskNotifications,
   buildTaskNotificationMessage,

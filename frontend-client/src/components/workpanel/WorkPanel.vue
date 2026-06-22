@@ -22,7 +22,6 @@
           :subtasks="subtasks"
           :running="activeRun.active"
           :session-id="sessionId"
-          :message-key="messageKey"
         />
       </Transition>
 
@@ -62,7 +61,6 @@ const props = defineProps({
   pendingUserInput: { type: Object, default: null },
   contextUsage: { type: Object, default: () => ({ used: 0, max: 0 }) },
   sessionId: { type: String, default: '' },
-  messageKey: { type: String, default: '' },
 })
 
 const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel', 'artifactSelect'])
