@@ -13,9 +13,6 @@ import type { IRunStore } from "../../../contracts/conversation-store/index.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import {
   asString,
-  buildRunningExecutionStatus,
-  buildRunStartPayload,
-  buildRunStartStepPayload,
   normalizeSessionEntryAgent,
 } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
@@ -160,104 +157,30 @@ class AgentLaunchers {
       };
     }
 
-    const runId = randomUUID();
-    const taskId = randomUUID();
-    const rootCallId = `call_${randomUUID()}`;
-    const startedAt = new Date();
-    const abortController = new AbortController();
-    const status = buildRunningExecutionStatus({
-      taskId,
-      sessionId,
-      runId,
-      requestId,
-      executionKind: "agent_stream",
-      task,
-      startedAt,
-    });
-
     if (!this.sessions.getSession(sessionId)) {
       this.sessions.createSession({ sessionId, userId: request.user_id ?? null });
     }
     const runtimeAgent = ready.agent;
 
-    this.conversationStore.createRun({
-      runId,
+    const started = this.runEngine.startRun({
       sessionId,
-      entrypoint: "agent_stream",
-      status: "running",
-      taskSummary: task.slice(0, 200),
       userId: request.user_id ?? null,
-      agentName: runtimeAgent.agent_name,
-      threadKey: "root",
-    });
-    const userMessage = this.sessions.addMessage({
-      sessionId,
-      role: "user",
-      content: task,
-      metadata: {
-        agent: runtimeAgent.agent_name,
-        run_id: runId,
-        request_id: requestId,
-        execution_kind: "agent_stream",
-        ...(slashCommand ? { type: "command", command: slashCommand.name, command_mode: slashCommand.mode } : {}),
-        ...(attachmentResolution.attachments.length ? { file_references: attachmentResolution.attachments } : {}),
-      },
-    });
-    const userMessageSavedPayload = {
-      id: userMessage.id,
-      seq: userMessage.seq,
-      role: userMessage.role,
-      run_id: runId,
-      task_id: taskId,
-      request_id: requestId,
-    };
-    const runStartPayload = buildRunStartPayload({
-      runId,
-      taskId,
-      requestId,
-      agent: runtimeAgent,
-    });
-    this.eventPublisher.publishSessionRunStarted(sessionId, runId, runStartPayload);
-    this.eventPublisher.publishOutputMessageSaved(sessionId, runId, userMessageSavedPayload);
-
-    const startStepPayload = buildRunStartStepPayload({
-      rootCallId,
-      runId,
-      taskId,
-      requestId,
-      agent: runtimeAgent,
-      description: task,
-    });
-    this.eventPublisher.publishRunStartStep(sessionId, runId, startStepPayload);
-
-    this.eventPublisher.publishRunStart(sessionId, runId, runStartPayload);
-
-    const promise = this.runEngine.executeRun({
-      sessionId,
-      runId,
-      taskId,
-      rootCallId,
       requestId,
       task,
-      startedAt,
-      abortController,
-      status,
+      executionKind: "agent_stream",
       agent: runtimeAgent,
       provider: ready.provider,
       modelName: ready.modelName,
-      userMessageId: userMessage.id,
+      persistUserMessage: {
+        metadata: {
+          ...(slashCommand ? { type: "command", command: slashCommand.name, command_mode: slashCommand.mode } : {}),
+          ...(attachmentResolution.attachments.length ? { file_references: attachmentResolution.attachments } : {}),
+        },
+      },
       conversationUpdateProvider: () => this.followupQueue.drain(sessionId),
     });
-    this.statusTracker.register(taskId, sessionId, { abortController, status, promise });
-
-    return {
-      started: true,
-      session_id: sessionId,
-      run_id: runId,
-      task_id: taskId,
-      request_id: requestId,
-      kind: "agent_run",
-    };
+    const { promise: _promise, ...publicStarted } = started;
+    return publicStarted;
   }
 
   async executeSynchronously(request: ExecuteRequest, requestId: string): Promise<AgentExecuteResult> {
