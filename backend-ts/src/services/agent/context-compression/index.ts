@@ -567,9 +567,11 @@ export function resolveContextBudget(
   const settings = resolveContextCompressionSettings(agent, systemConfig);
   const systemLlmConfig = asRecord(systemConfig.llm) ?? {};
   const defaultLlm = agent.llm_tiers?.default;
+  // 上下文窗口优先取 agent 默认层——与 resolveRequestLlmParams 同源：agent 为该模型调过的值优先于
+  // provider 的通用默认；provider 次之，系统 LLM 配置兜底。
   const contextWindow =
-    positiveInt(provider?.max_context_tokens) ??
     positiveInt(defaultLlm?.max_context_tokens) ??
+    positiveInt(provider?.max_context_tokens) ??
     positiveInt(systemLlmConfig.max_context_tokens);
   // 补全预留按"本次实际运行模型"取：与请求壳同一套真相来源（resolveRequestLlmParams），
   // 故 selectedLlm 选中其它模型时预留它自己的 max_completion_tokens；无具体运行模型

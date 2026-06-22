@@ -169,8 +169,8 @@ function resolveObservationBudget(agent: AgentConfig, provider: ModelProviderCon
   const behavior = isRecord(agent.custom_params?.behavior) ? agent.custom_params.behavior : {};
   const maxContextTokens =
     positiveInt(behavior.max_context_tokens) ??
-    positiveInt(provider.max_context_tokens) ??
     positiveInt(agent.llm_tiers?.default?.max_context_tokens) ??
+    positiveInt(provider.max_context_tokens) ??
     128000;
   const budgetProfile = asNonEmptyString(behavior.budget_profile) ?? "worker";
   let budget: ObservationBudget;
