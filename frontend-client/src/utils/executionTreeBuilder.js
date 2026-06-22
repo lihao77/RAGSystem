@@ -124,7 +124,8 @@ const getDisplayAgentStep = (steps = []) => {
 };
 
 const getLinkedSubtask = (tool, subtaskByTaskId) => {
-  if (tool?.tool_name !== 'call_agent' || !tool?.linked_task_id) return null;
+  // linked_task_id 由 projector 仅对委派工具（call_agent/send_message）设置，有即认定为 subtask 关联。
+  if (!tool?.linked_task_id) return null;
   return subtaskByTaskId.get(tool.linked_task_id) || null;
 };
 

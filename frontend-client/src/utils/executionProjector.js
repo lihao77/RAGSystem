@@ -272,8 +272,9 @@ function handleToolStart(state, step) {
   const toolCall = createToolCall(step);
   state.toolMap.set(step.call_id, toolCall);
 
-  // call_agent 工具：加入待关联队列，等 subtask.start 来匹配
-  if (step.tool_name === 'call_agent' && step.parent_call_id) {
+  // 委派工具（call_agent 创建 / send_message 续接）：加入待关联队列，等 subtask.start
+  // 按 parent_call_id+round 匹配后合并为单个 agent_call 节点，避免工具节点与 subtask 重复。
+  if ((step.tool_name === 'call_agent' || step.tool_name === 'send_message') && step.parent_call_id) {
     const key = `${step.parent_call_id}:${step.round ?? ''}`;
     const queue = state.pendingCallAgentTools.get(key) || [];
     queue.push(toolCall);
