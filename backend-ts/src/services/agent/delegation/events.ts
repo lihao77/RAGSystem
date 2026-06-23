@@ -5,6 +5,9 @@ export interface AgentCallStartEventInput {
   parentRunId: string | null;
   parentAgentName: string;
   parentCallId: string | null;
+  /** root agent 的 call_id；lineage.parent_call_id 用此把 child agent 挂到父 agent 下。
+   *  parentCallId 是父 agent 的 tool call_id，挂不到 agent（execution-tree 无 tool→agent 边）。 */
+  rootParentCallId: string | null;
   agentCallId: string;
   agentName: string;
   description: string;
@@ -17,6 +20,9 @@ export interface AgentCallEndEventInput {
   parentRunId: string | null;
   parentAgentName: string;
   parentCallId: string | null;
+  /** root agent 的 call_id；lineage.parent_call_id 用此把 child agent 挂到父 agent 下。
+   *  parentCallId 是父 agent 的 tool call_id，挂不到 agent（execution-tree 无 tool→agent 边）。 */
+  rootParentCallId: string | null;
   agentCallId: string;
   agentName: string;
   result: string;
@@ -29,23 +35,21 @@ export function publishAgentCallStart(clientEvents: ClientEventPublisher | null,
   if (!clientEvents) {
     return;
   }
-  const payload = {
-    agent_name: input.agentName,
-    description: input.description,
-    agent_display_name: input.agentName,
-    child_agent_id: input.childAgentId,
-    mode: input.mode,
-  };
+  // call.agent.start → agent_started：agent_id=子 agent，call_id=子 agent call_id，
+  // lineage.parent_call_id=父 agent call_id（挂父）。task=委派描述。
   clientEvents.publish(
     input.sessionId,
     {
-      type: "call.agent.start",
+      type: "agent_started",
       session_id: input.sessionId,
       ...(input.parentRunId ? { run_id: input.parentRunId } : {}),
-      agent_name: input.parentAgentName,
+      agent_id: input.agentName,
       call_id: input.agentCallId,
-      ...(input.parentCallId ? { parent_call_id: input.parentCallId } : {}),
-      data: payload,
+      payload: {
+        phase: "start",
+        task: input.description,
+        lineage: input.rootParentCallId ? { parent_call_id: input.rootParentCallId } : undefined,
+      },
     },
     {
       runId: input.parentRunId,
@@ -59,24 +63,20 @@ export function publishAgentCallEnd(clientEvents: ClientEventPublisher | null, i
   if (!clientEvents) {
     return;
   }
-  const payload = {
-    agent_name: input.agentName,
-    result: input.result.slice(0, 500),
-    success: input.success,
-    agent_display_name: input.agentName,
-    child_agent_id: input.childAgentId,
-    mode: input.mode,
-  };
   clientEvents.publish(
     input.sessionId,
     {
-      type: "call.agent.end",
+      type: "agent_ended",
       session_id: input.sessionId,
       ...(input.parentRunId ? { run_id: input.parentRunId } : {}),
-      agent_name: input.parentAgentName,
+      agent_id: input.agentName,
       call_id: input.agentCallId,
-      ...(input.parentCallId ? { parent_call_id: input.parentCallId } : {}),
-      data: payload,
+      payload: {
+        phase: "end",
+        result: input.result.slice(0, 500),
+        success: input.success,
+        lineage: input.rootParentCallId ? { parent_call_id: input.rootParentCallId } : undefined,
+      },
     },
     {
       runId: input.parentRunId,

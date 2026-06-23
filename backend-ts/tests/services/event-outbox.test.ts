@@ -1,71 +1,79 @@
 import { describe, expect, it } from "vitest";
 
+import type { Envelope } from "../../src/contracts/events.js";
 import type { OutboxRow } from "../../src/contracts/conversation-store/types.js";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
-import { ClientEventProjector } from "../../src/services/runtime/event-outbox/projector.js";
+import { EnvelopeProjector } from "../../src/services/runtime/event-outbox/projector.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 
 describe("event outbox projection and dispatch", () => {
-  it("projects completed terminal outbox rows to client events in protocol order", () => {
-    const projector = new ClientEventProjector();
+  it("restores client.* outbox rows to envelopes, stamping persisted event_id/seq", () => {
+    const projector = new EnvelopeProjector();
     const rows = completedRows();
 
-    const projected = rows.map((row) => projector.toClientEvent(row));
+    const projected = rows.map((row) => projector.toEnvelope(row));
 
+    // projector 是单分支还原：所有产出方写 client.{envelope_type} 行，还原后盖
+    // message_id=row.event_id、seq=row.session_seq、session_id/run_id 以落库为准。
     expect(projected.map((event) => event.type)).toEqual([
-      "execution.step",
-      "output.final_answer",
-      "call.agent.end",
-      "execution.step",
-      "output.message_saved",
-      "run.end",
+      "tool_call",
+      "stream_output",
+      "agent_ended",
+      "state_sync",
+      "state_sync",
+      "run_ended",
     ]);
     expect(projected[0]).toMatchObject({
-      event_id: "event-1",
-      event_seq: 1,
-      data: { kind: "final", phase: "complete" },
+      message_id: "event-1",
+      seq: 1,
+      session_id: "s1",
+      run_id: "run-1",
+      payload: { phase: "start", tool: "list_memory_index", mode: "projection" },
     });
     expect(projected[2]).toMatchObject({
-      agent_name: "orchestrator_agent",
+      agent_id: "orchestrator_agent",
       call_id: "call-root",
-      data: {
-        agent_display_name: "Orchestrator Agent",
+      payload: {
+        phase: "end",
+        result: "answer",
         success: true,
       },
     });
     expect(projected[5]).toMatchObject({
-      data: {
+      payload: {
         status: "completed",
-        final_message_id: "msg-1",
       },
     });
+    // 还原后不再保留产出方临时 message_id/seq（盖戳为权威持久化值）。
+    expect(projected[0]?.message_id).toBe("event-1");
+    expect(projected[0]?.seq).toBe(1);
   });
 
-  it("projects failed terminal outbox rows to client events in protocol order", () => {
-    const projector = new ClientEventProjector();
-    const rows = failedRows("run.failed", "failed");
+  it("restores failed terminal client.* outbox rows in protocol order", () => {
+    const projector = new EnvelopeProjector();
+    const rows = failedRows();
 
-    const projected = rows.map((row) => projector.toClientEvent(row));
+    const projected = rows.map((row) => projector.toEnvelope(row));
 
     expect(projected.map((event) => event.type)).toEqual([
-      "call.agent.end",
-      "execution.step",
-      "agent.error",
-      "run.end",
+      "agent_ended",
+      "state_sync",
+      "error",
+      "run_ended",
     ]);
     expect(projected[2]).toMatchObject({
-      agent_name: "orchestrator_agent",
+      agent_id: "orchestrator_agent",
       call_id: "call-root",
-      error: "provider failed",
-      data: {
-        error_type: "ExecutionError",
+      payload: {
+        code: "RuntimeError",
+        message: "provider failed",
       },
     });
     expect(projected[3]).toMatchObject({
-      data: {
+      payload: {
         status: "failed",
-        error: "provider failed",
+        reason: "provider failed",
       },
     });
   });
@@ -74,17 +82,11 @@ describe("event outbox projection and dispatch", () => {
     const store = createConversationStore({ dbPath: ":memory:" });
     const realtimeEvents = new RealtimeEventHub();
     store.createSession("s1");
-    store.appendOutbox({
-      sessionId: "s1",
-      runId: "run-1",
-      eventId: "event-1",
-      eventType: "run.completed",
-      aggregateType: "run",
-      aggregateId: "run-1",
-      payload: {
-        final_message_id: "msg-1",
-        metadata: { run_id: "run-1" },
-      },
+    appendClientRow(store, "s1", "run-1", "event-1", {
+      type: "run_ended",
+      session_id: "s1",
+      run_id: "run-1",
+      payload: { status: "completed" },
     });
 
     const dispatcher = new OutboxDispatcher(store, realtimeEvents);
@@ -92,16 +94,16 @@ describe("event outbox projection and dispatch", () => {
 
     expect(projected).toHaveLength(1);
     expect(projected[0]).toMatchObject({
-      type: "run.end",
-      event_id: "event-1",
-      event_seq: 1,
+      type: "run_ended",
+      message_id: "event-1",
+      seq: 1,
     });
     expect(store.fetchPendingOutbox(10)).toEqual([]);
     expect(realtimeEvents.getHistory("s1")).toEqual([
       expect.objectContaining({
-        type: "run.end",
-        event_id: "event-1",
-        event_seq: 1,
+        type: "run_ended",
+        message_id: "event-1",
+        seq: 1,
       }),
     ]);
     expect(dispatcher.getMetrics()).toMatchObject({
@@ -116,17 +118,11 @@ describe("event outbox projection and dispatch", () => {
     const store = createConversationStore({ dbPath: ":memory:" });
     const realtimeEvents = new RealtimeEventHub();
     store.createSession("s1");
-    store.appendOutbox({
-      sessionId: "s1",
-      runId: "run-1",
-      eventId: "event-1",
-      eventType: "run.completed",
-      aggregateType: "run",
-      aggregateId: "run-1",
-      payload: {
-        final_message_id: "msg-1",
-        metadata: { run_id: "run-1" },
-      },
+    appendClientRow(store, "s1", "run-1", "event-1", {
+      type: "run_ended",
+      session_id: "s1",
+      run_id: "run-1",
+      payload: { status: "completed" },
     });
 
     const dispatcher = new OutboxDispatcher(store, realtimeEvents);
@@ -134,9 +130,9 @@ describe("event outbox projection and dispatch", () => {
 
     expect(realtimeEvents.getHistory("s1")).toEqual([
       expect.objectContaining({
-        type: "run.end",
-        event_id: "event-1",
-        event_seq: 1,
+        type: "run_ended",
+        message_id: "event-1",
+        seq: 1,
       }),
     ]);
     store.close();
@@ -149,17 +145,11 @@ describe("event outbox projection and dispatch", () => {
     realtimeEvents.subscribe("s1", () => {
       throw new Error("websocket send failed");
     });
-    store.appendOutbox({
-      sessionId: "s1",
-      runId: "run-1",
-      eventId: "event-1",
-      eventType: "run.completed",
-      aggregateType: "run",
-      aggregateId: "run-1",
-      payload: {
-        final_message_id: "msg-1",
-        metadata: { run_id: "run-1" },
-      },
+    appendClientRow(store, "s1", "run-1", "event-1", {
+      type: "run_ended",
+      session_id: "s1",
+      run_id: "run-1",
+      payload: { status: "completed" },
     });
 
     const dispatcher = new OutboxDispatcher(store, realtimeEvents);
@@ -180,8 +170,8 @@ describe("event outbox projection and dispatch", () => {
     });
     expect(realtimeEvents.getHistory("s1")).toEqual([
       expect.objectContaining({
-        type: "run.end",
-        event_id: "event-1",
+        type: "run_ended",
+        message_id: "event-1",
       }),
     ]);
     store.close();
@@ -193,33 +183,33 @@ describe("event outbox projection and dispatch", () => {
     const store = createConversationStore({ dbPath: ":memory:" });
     const realtimeEvents = new RealtimeEventHub();
     store.createSession("s1");
-    store.appendOutbox({
-      sessionId: "s1",
-      runId: "run-1",
-      eventId: "event-1",
-      eventType: "run.completed",
-      aggregateType: "run",
-      aggregateId: "run-1",
-      availableAt: now().toISOString(),
-      payload: {
-        final_message_id: "msg-1",
-        metadata: { run_id: "run-1" },
+    appendClientRow(
+      store,
+      "s1",
+      "run-1",
+      "event-1",
+      {
+        type: "run_ended",
+        session_id: "s1",
+        run_id: "run-1",
+        payload: { status: "completed" },
       },
-    });
+      now().toISOString(),
+    );
 
     let failProjection = true;
-    const projector = new ClientEventProjector();
+    const projector = new EnvelopeProjector();
     const dispatcher = new OutboxDispatcher(
       store,
       realtimeEvents,
       {
-        toClientEvent(row: OutboxRow) {
+        toEnvelope(row: OutboxRow) {
           if (failProjection) {
             throw new Error("projection unavailable");
           }
-          return projector.toClientEvent(row);
+          return projector.toEnvelope(row);
         },
-      } as ClientEventProjector,
+      } as EnvelopeProjector,
       {
         maxAttempts: 3,
         retryBaseDelayMs: 1_000,
@@ -253,8 +243,8 @@ describe("event outbox projection and dispatch", () => {
     expect(projected).toHaveLength(1);
     expect(realtimeEvents.getHistory("s1")).toEqual([
       expect.objectContaining({
-        type: "run.end",
-        event_id: "event-1",
+        type: "run_ended",
+        message_id: "event-1",
       }),
     ]);
     expect(store.listOutboxForReplay({ sessionId: "s1" })).toEqual([
@@ -279,27 +269,27 @@ describe("event outbox projection and dispatch", () => {
     const store = createConversationStore({ dbPath: ":memory:" });
     const realtimeEvents = new RealtimeEventHub();
     store.createSession("s1");
-    store.appendOutbox({
-      sessionId: "s1",
-      runId: "run-1",
-      eventId: "event-1",
-      eventType: "run.completed",
-      aggregateType: "run",
-      aggregateId: "run-1",
-      availableAt: now().toISOString(),
-      payload: {
-        final_message_id: "msg-1",
-        metadata: { run_id: "run-1" },
+    appendClientRow(
+      store,
+      "s1",
+      "run-1",
+      "event-1",
+      {
+        type: "run_ended",
+        session_id: "s1",
+        run_id: "run-1",
+        payload: { status: "completed" },
       },
-    });
+      now().toISOString(),
+    );
     const dispatcher = new OutboxDispatcher(
       store,
       realtimeEvents,
       {
-        toClientEvent() {
+        toEnvelope() {
           throw new Error("projection still unavailable");
         },
-      } as ClientEventProjector,
+      } as EnvelopeProjector,
       {
         maxAttempts: 2,
         retryBaseDelayMs: 1_000,
@@ -336,19 +326,19 @@ describe("event outbox projection and dispatch", () => {
     const store = createConversationStore({ dbPath: ":memory:" });
     const realtimeEvents = new RealtimeEventHub();
     store.createSession("s1");
-    store.appendOutbox({
-      sessionId: "s1",
-      runId: "run-1",
-      eventId: "event-1",
-      eventType: "run.completed",
-      aggregateType: "run",
-      aggregateId: "run-1",
-      availableAt: now().toISOString(),
-      payload: {
-        final_message_id: "msg-1",
-        metadata: { run_id: "run-1" },
+    appendClientRow(
+      store,
+      "s1",
+      "run-1",
+      "event-1",
+      {
+        type: "run_ended",
+        session_id: "s1",
+        run_id: "run-1",
+        payload: { status: "completed" },
       },
-    });
+      now().toISOString(),
+    );
     expect(store.claimPendingOutbox({ limit: 1, lockTimeoutMs: 1_000, now: now() })).toEqual([
       expect.objectContaining({
         status: "pending",
@@ -359,7 +349,7 @@ describe("event outbox projection and dispatch", () => {
     const dispatcher = new OutboxDispatcher(
       store,
       realtimeEvents,
-      new ClientEventProjector(),
+      new EnvelopeProjector(),
       {
         lockTimeoutMs: 1_000,
         now,
@@ -379,97 +369,145 @@ describe("event outbox projection and dispatch", () => {
     ]);
     expect(realtimeEvents.getHistory("s1")).toEqual([
       expect.objectContaining({
-        type: "run.end",
-        event_id: "event-1",
+        type: "run_ended",
+        message_id: "event-1",
       }),
     ]);
     store.close();
   });
 
-  it("projects generic client event outbox rows with durable event metadata", () => {
+  it("stamps persisted event_id/seq over transient client_event values", () => {
     const store = createConversationStore({ dbPath: ":memory:" });
-    const projector = new ClientEventProjector();
+    const projector = new EnvelopeProjector();
     store.createSession("s1");
-    const row = store.appendOutbox({
-      sessionId: "s1",
-      runId: "run-1",
-      eventId: "event-client-1",
-      eventType: "client.context.usage",
-      aggregateType: "run",
-      aggregateId: "run-1",
-      payload: {
-        client_event: {
-          type: "context.usage",
-          session_id: "wrong-session",
-          run_id: "wrong-run",
-          event_id: "stale-event",
-          event_seq: 99,
-          stream_seq: 42,
-          agent_name: "orchestrator_agent",
-          data: { used_tokens: 10 },
-          content: { used_tokens: 10 },
-        },
-      },
+    const row = appendClientRow(store, "s1", "run-1", "event-client-1", {
+      // 产出方临时值（session_id/run_id/message_id/seq）一律不可信——还原后以落库权威值盖戳。
+      type: "state_sync",
+      session_id: "wrong-session",
+      run_id: "wrong-run",
+      message_id: "stale-event",
+      seq: 99,
+      payload: { category: "context_usage", detail: { used_tokens: 10 } },
     });
 
-    expect(projector.toClientEvent(row)).toMatchObject({
-      type: "context.usage",
+    expect(projector.toEnvelope(row)).toMatchObject({
+      type: "state_sync",
       session_id: "s1",
       run_id: "run-1",
-      event_id: "event-client-1",
-      event_seq: 1,
-      agent_name: "orchestrator_agent",
-      data: { used_tokens: 10 },
+      message_id: "event-client-1",
+      seq: 1,
+      payload: { category: "context_usage", detail: { used_tokens: 10 } },
     });
-    expect(projector.toClientEvent(row).stream_seq).toBeUndefined();
+    // 还原后 message_id/seq 以落库权威值为准（盖戳覆盖产出方临时值）。
+    const restored = projector.toEnvelope(row);
+    expect(restored.message_id).toBe("event-client-1");
+    expect(restored.seq).toBe(1);
     store.close();
   });
 });
 
+/**
+ * recorder / 各产出方现在直接写 `client.{envelope_type}` 行，payload.client_event 存完整 Envelope。
+ * 这里构造同构的 outbox 行，验证 projector 的单分支还原 + 盖戳。
+ */
+function appendClientRow(
+  store: ReturnType<typeof createConversationStore>,
+  sessionId: string,
+  runId: string,
+  eventId: string,
+  clientEvent: Envelope,
+  availableAt?: string,
+): OutboxRow {
+  return store.appendOutbox({
+    sessionId,
+    runId,
+    eventId,
+    eventType: `client.${clientEvent.type}`,
+    aggregateType: "run",
+    aggregateId: runId,
+    availableAt,
+    payload: { client_event: clientEvent },
+  });
+}
+
 function completedRows(): OutboxRow[] {
   return [
-    row(1, "execution.step_recorded", { step: { kind: "final", phase: "complete", run_id: "run-1" } }),
-    row(2, "run.final_answer_recorded", { content: "answer", metadata: { run_id: "run-1" }, message_id: "msg-1" }, "msg-1"),
-    row(3, "agent.call_finished", {
-      agent_name: "orchestrator_agent",
-      agent_display_name: "Orchestrator Agent",
-      call_id: "call-root",
-      result: "answer",
-      success: true,
-      task_id: "task-1",
-      request_id: "req-1",
+    row(1, "client.tool_call", {
+      type: "tool_call",
+      session_id: "s1",
+      run_id: "run-1",
+      call_id: "call-tool-1",
+      payload: { phase: "start", tool: "list_memory_index", mode: "projection" },
     }),
-    row(4, "execution.step_recorded", { step: { kind: "run", phase: "end", status: "completed", run_id: "run-1" } }),
-    row(5, "message.saved", { message_id: "msg-1", seq: 2, role: "assistant", task_id: "task-1", request_id: "req-1" }, "msg-1"),
-    row(6, "run.completed", { final_message_id: "msg-1", metadata: { run_id: "run-1" } }),
+    row(2, "client.stream_output", {
+      type: "stream_output",
+      session_id: "s1",
+      run_id: "run-1",
+      payload: { phase: "final", content: "answer" },
+    }),
+    row(3, "client.agent_ended", {
+      type: "agent_ended",
+      session_id: "s1",
+      run_id: "run-1",
+      agent_id: "orchestrator_agent",
+      call_id: "call-root",
+      payload: { phase: "end", result: "answer", success: true },
+    }),
+    row(4, "client.state_sync", {
+      type: "state_sync",
+      session_id: "s1",
+      run_id: "run-1",
+      payload: { category: "compression", detail: { status: "success" } },
+    }),
+    row(5, "client.state_sync", {
+      type: "state_sync",
+      session_id: "s1",
+      run_id: "run-1",
+      payload: { category: "message_saved", ref: { message_id: "msg-1", seq: 2, role: "assistant" } },
+    }),
+    row(6, "client.run_ended", {
+      type: "run_ended",
+      session_id: "s1",
+      run_id: "run-1",
+      payload: { status: "completed" },
+    }),
   ];
 }
 
-function failedRows(eventType: "run.failed" | "run.interrupted", status: "failed" | "interrupted"): OutboxRow[] {
+function failedRows(): OutboxRow[] {
   return [
-    row(1, "agent.call_finished", {
-      agent_name: "orchestrator_agent",
-      agent_display_name: "Orchestrator Agent",
+    row(1, "client.agent_ended", {
+      type: "agent_ended",
+      session_id: "s1",
+      run_id: "run-1",
+      agent_id: "orchestrator_agent",
       call_id: "call-root",
-      result: "provider failed",
-      success: false,
-      task_id: "task-1",
-      request_id: "req-1",
+      payload: { phase: "end", result: "provider failed", success: false },
     }),
-    row(2, "execution.step_recorded", { step: { kind: "run", phase: "end", status: "error", run_id: "run-1" } }),
-    row(3, "run.error_reported", {
-      agent_name: "orchestrator_agent",
+    row(2, "client.state_sync", {
+      type: "state_sync",
+      session_id: "s1",
+      run_id: "run-1",
+      payload: { category: "compression", detail: { status: "error" } },
+    }),
+    row(3, "client.error", {
+      type: "error",
+      session_id: "s1",
+      run_id: "run-1",
+      agent_id: "orchestrator_agent",
       call_id: "call-root",
-      error: "provider failed",
-      error_type: "ExecutionError",
-      task_id: "task-1",
-      request_id: "req-1",
+      payload: { code: "RuntimeError", message: "provider failed" },
     }),
-    row(4, eventType, { status, error: "provider failed", metadata: { run_id: "run-1" } }),
+    row(4, "client.run_ended", {
+      type: "run_ended",
+      session_id: "s1",
+      run_id: "run-1",
+      payload: { status: "failed", reason: "provider failed" },
+    }),
   ];
 }
 
-function row(sessionSeq: number, eventType: string, payload: Record<string, unknown>, aggregateId = "run-1"): OutboxRow {
+function row(sessionSeq: number, eventType: string, clientEvent: Envelope): OutboxRow {
   return {
     id: sessionSeq,
     event_id: `event-${sessionSeq}`,
@@ -477,9 +515,9 @@ function row(sessionSeq: number, eventType: string, payload: Record<string, unkn
     run_id: "run-1",
     session_seq: sessionSeq,
     event_type: eventType,
-    aggregate_type: aggregateId === "run-1" ? "run" : "message",
-    aggregate_id: aggregateId,
-    payload: JSON.stringify(payload),
+    aggregate_type: "run",
+    aggregate_id: "run-1",
+    payload: JSON.stringify({ client_event: clientEvent }),
     status: "pending",
     attempts: 0,
     available_at: null,

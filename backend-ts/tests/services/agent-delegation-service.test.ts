@@ -134,36 +134,31 @@ describe("AgentDelegationService", () => {
       ["user", "继续分析", "child-existing"],
       ["assistant", "resumed answer", "child-existing"],
     ]);
+    // delegation 的 child agent_started/ended 由 publishAgentCallStart/End 独占发（单发）；
+    // agent_id=子 agent、call_id=子 agent call_id；本场景 context 未带 root parent call_id，
+    // 故 lineage.parent_call_id 不出现。event_seq 已统一为 seq。
     const callEvents = realtimeEvents
       .getHistory("session-1")
-      .filter((event) => event.type === "call.agent.start" || event.type === "call.agent.end");
-    expect(callEvents.map((event) => event.event_seq)).toEqual([1, 2]);
+      .filter((event) => event.type === "agent_started" || event.type === "agent_ended");
+    expect(callEvents.map((event) => event.seq)).toEqual([1, 2]);
     expect(callEvents).toEqual([
       expect.objectContaining({
-        type: "call.agent.start",
-        agent_name: "orchestrator_agent",
-        parent_call_id: "resume-call",
+        type: "agent_started",
+        agent_id: "worker_agent",
         call_id: result.metadata.agent_call_id,
-        data: {
-          agent_name: "worker_agent",
-          description: "继续分析",
-          agent_display_name: "worker_agent",
-          child_agent_id: "child-existing",
-          mode: "resume",
+        payload: {
+          phase: "start",
+          task: "继续分析",
         },
       }),
       expect.objectContaining({
-        type: "call.agent.end",
-        agent_name: "orchestrator_agent",
-        parent_call_id: "resume-call",
+        type: "agent_ended",
+        agent_id: "worker_agent",
         call_id: result.metadata.agent_call_id,
-        data: {
-          agent_name: "worker_agent",
+        payload: {
+          phase: "end",
           result: "resumed answer",
           success: true,
-          agent_display_name: "worker_agent",
-          child_agent_id: "child-existing",
-          mode: "resume",
         },
       }),
     ]);
@@ -174,8 +169,8 @@ describe("AgentDelegationService", () => {
         sessionSeq: row.session_seq,
       })),
     ).toEqual([
-      { eventType: "client.call.agent.start", status: "delivered", sessionSeq: 1 },
-      { eventType: "client.call.agent.end", status: "delivered", sessionSeq: 2 },
+      { eventType: "client.agent_started", status: "delivered", sessionSeq: 1 },
+      { eventType: "client.agent_ended", status: "delivered", sessionSeq: 2 },
     ]);
     expect(store.fetchPendingOutbox(10)).toEqual([]);
     store.close();

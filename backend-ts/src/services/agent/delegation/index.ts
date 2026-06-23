@@ -96,6 +96,7 @@ export class AgentDelegationService implements DelegationPort {
       parentRunId: normalizeString(context.runId),
       parentAgentName: parentAgent.agent_name,
       parentCallId,
+      rootParentCallId: normalizeString(context.parentCallId),
       agentCallId,
       agentName: targetAgentName,
       description: task,
@@ -124,6 +125,7 @@ export class AgentDelegationService implements DelegationPort {
       parentRunId: normalizeString(context.runId),
       parentAgentName: parentAgent.agent_name,
       parentCallId,
+      rootParentCallId: normalizeString(context.parentCallId),
       agentCallId,
       agentName: targetAgentName,
       result: result.content || result.summary,
@@ -169,6 +171,7 @@ export class AgentDelegationService implements DelegationPort {
       parentRunId: normalizeString(context.runId),
       parentAgentName: context.agent?.agent_name ?? normalizeString(context.currentAgentName) ?? "send_message",
       parentCallId,
+      rootParentCallId: normalizeString(context.parentCallId),
       agentCallId,
       agentName: child.agent_name,
       description: message,
@@ -197,6 +200,7 @@ export class AgentDelegationService implements DelegationPort {
       parentRunId: normalizeString(context.runId),
       parentAgentName: context.agent?.agent_name ?? normalizeString(context.currentAgentName) ?? "send_message",
       parentCallId,
+      rootParentCallId: normalizeString(context.parentCallId),
       agentCallId,
       agentName: child.agent_name,
       result: result.content || result.summary,
@@ -358,6 +362,7 @@ export class AgentDelegationService implements DelegationPort {
       runId: childRunId,
       taskId: randomUUID(),
       rootCallId: input.parentCallId ?? `call_${childRunId}`,
+      parentCallId: input.rootParentCallId,
       requestId: input.requestId ?? "",
       task: input.task,
       startedAt: new Date(),
@@ -440,12 +445,9 @@ export class AgentDelegationService implements DelegationPort {
     } else {
       payload.result_preview = input.resultPreview ?? "";
     }
-    eventPublisher.addExecutionStepAndPublish(input.sessionId, input.runId, payload, {
-      type: "execution.step",
-      session_id: input.sessionId,
-      run_id: input.runId,
-      data: payload,
-    });
+    // 仅写 run_step 表（API 契约，kind=subtask）；不发 outbox 事件——child agent 的
+    // agent_started/agent_ended 由 delegation publishAgentCallStart/End 独占发，避免双发。
+    eventPublisher.addExecutionStepOnly(input.sessionId, input.runId, payload);
   }
 
 }

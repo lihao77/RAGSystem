@@ -1,10 +1,10 @@
-import type { ClientEvent } from "../../contracts/events.js";
+import type { Envelope } from "../../contracts/events.js";
 
-export type RealtimeEventHandler = (event: ClientEvent) => void;
+export type RealtimeEventHandler = (event: Envelope) => void;
 
 interface SessionStream {
-  events: ClientEvent[];
-  /** 已投递事件的 event_id 集合（与 events 同步淘汰），用于幂等去重。 */
+  events: Envelope[];
+  /** 已投递事件的 message_id 集合（与 events 同步淘汰），用于幂等去重。 */
   deliveredIds: Set<string>;
 }
 
@@ -18,15 +18,15 @@ export class RealtimeEventHub {
   }
 
   /**
-   * 向会话订阅者投递事件并入历史。幂等：带 event_id 的事件若已投递过则直接跳过——
-   * outbox dispatcher 是唯一发布方，每个事件都携带唯一 event_id；当 dispatcher 在 publish
-   * 成功后、markOutboxDelivered 前崩溃/失败而重投时，这里据 event_id 去重，避免向 live
+   * 向会话订阅者投递事件并入历史。幂等：带 message_id 的事件若已投递过则直接跳过——
+   * outbox dispatcher 是唯一发布方，每个事件都携带唯一 message_id；当 dispatcher 在 publish
+   * 成功后、markOutboxDelivered 前崩溃/失败而重投时，这里据 message_id 去重，避免向 live
    * 订阅者重复 fanout、避免历史重复（影响断线重连回放）。
    */
-  publish(sessionId: string, event: ClientEvent): void {
+  publish(sessionId: string, event: Envelope): void {
     const stream = this.streams.get(sessionId) ?? { events: [], deliveredIds: new Set<string>() };
-    const eventId = typeof event.event_id === "string" ? event.event_id : null;
-    if (eventId !== null && stream.deliveredIds.has(eventId)) {
+    const messageId = typeof event.message_id === "string" ? event.message_id : null;
+    if (messageId !== null && stream.deliveredIds.has(messageId)) {
       return;
     }
 
@@ -37,14 +37,14 @@ export class RealtimeEventHub {
     };
 
     stream.events.push(normalized);
-    if (eventId !== null) {
-      stream.deliveredIds.add(eventId);
+    if (messageId !== null) {
+      stream.deliveredIds.add(messageId);
     }
     if (stream.events.length > this.maxHistory) {
       const evicted = stream.events.splice(0, stream.events.length - this.maxHistory);
       for (const old of evicted) {
-        if (typeof old.event_id === "string") {
-          stream.deliveredIds.delete(old.event_id);
+        if (typeof old.message_id === "string") {
+          stream.deliveredIds.delete(old.message_id);
         }
       }
     }
@@ -59,7 +59,7 @@ export class RealtimeEventHub {
     }
   }
 
-  getHistory(sessionId: string): ClientEvent[] {
+  getHistory(sessionId: string): Envelope[] {
     return [...(this.streams.get(sessionId)?.events ?? [])];
   }
 

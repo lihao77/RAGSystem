@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
-import type { ClientEvent } from "../../src/contracts/events.js";
+import type { Envelope } from "@ragsystem/agent-sdk-core";
 import type {
   ChatCompletionRequest,
   ChatCompletionResult,
@@ -12,9 +12,9 @@ import type {
   ChatToolCall,
   LlmChatClient,
 } from "../../src/services/integrations/llm-chat-client.js";
-import { ClientEventProjector } from "../../src/services/runtime/event-outbox/projector.js";
+import { EnvelopeProjector } from "../../src/services/runtime/event-outbox/projector.js";
 import type { OutboxRow } from "../../src/contracts/conversation-store/types.js";
-import { RuntimeAbortError } from "../../src/services/runtime/abort.js";
+import { RuntimeAbortError } from "@ragsystem/agent-sdk-core";
 import { buildTestHarness } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
@@ -235,13 +235,6 @@ describe("minimal runtime core execution", () => {
         has_execution: true,
         execution_steps: expect.arrayContaining([
           expect.objectContaining({
-            kind: "run",
-            phase: "start",
-            status: "running",
-            step_id: expect.stringMatching(/^call_.*:run$/),
-            parent_step_id: null,
-          }),
-          expect.objectContaining({
             kind: "final",
             phase: "complete",
             status: "completed",
@@ -279,137 +272,125 @@ describe("minimal runtime core execution", () => {
     const eventTypes = history.map((event) => event.type);
     expect(eventTypes).toEqual(
       expect.arrayContaining([
-        "output.message_saved",
-        "session.run_started",
-        "run.start",
-        "agent.start",
-        "call.agent.start",
-        "call.agent.end",
-        "execution.step",
-        "output.final_answer",
-        "run.end",
+        "state_sync",
+        "run_started",
+        "agent_started",
+        "agent_ended",
+        "stream_output",
+        "run_ended",
       ]),
     );
-    const agentStart = history.find((event) => event.type === "agent.start");
+    const agentStart = history.find((event) => event.type === "agent_started");
     expect(agentStart).toMatchObject({
-      agent_name: "orchestrator_agent",
+      agent_id: "orchestrator_agent",
       call_id: expect.stringMatching(/^call_/),
-      data: {
-        agent_name: "orchestrator_agent",
+      payload: {
+        phase: "start",
         task: "hello",
-        description: "hello",
       },
     });
     const rootAgentCalls = history.filter(
       (event) =>
-        (event.type === "call.agent.start" || event.type === "call.agent.end") &&
+        (event.type === "agent_started" || event.type === "agent_ended") &&
         event.call_id === agentStart?.call_id,
     );
     expect(rootAgentCalls).toEqual([
       expect.objectContaining({
-        type: "call.agent.start",
-        agent_name: "orchestrator_agent",
+        type: "agent_started",
+        agent_id: "orchestrator_agent",
         call_id: agentStart?.call_id,
-        data: expect.objectContaining({
-          agent_name: "orchestrator_agent",
-          description: "hello",
-          agent_display_name: "Orchestrator Agent",
+        payload: expect.objectContaining({
+          phase: "start",
+          task: "hello",
         }),
       }),
       expect.objectContaining({
-        type: "call.agent.end",
-        agent_name: "orchestrator_agent",
+        type: "agent_ended",
+        agent_id: "orchestrator_agent",
         call_id: agentStart?.call_id,
-        data: expect.objectContaining({
-          agent_name: "orchestrator_agent",
+        payload: expect.objectContaining({
+          phase: "end",
           result: "hello from ts core",
           success: true,
-          agent_display_name: "Orchestrator Agent",
         }),
       }),
     ]);
-    expect(history.filter((event) => event.type === "output.message_saved").map((event) => event.data)).toEqual(
+    expect(
+      history
+        .filter((event) => event.type === "state_sync")
+        .map((event) => event.payload as { category?: string; ref?: { message_id?: string; seq?: number; role?: string } })
+        .filter((payload) => payload.category === "message_saved"),
+    ).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: expect.any(String), seq: expect.any(Number), role: "user" }),
-        expect.objectContaining({ id: expect.any(String), seq: expect.any(Number), role: "assistant" }),
+        expect.objectContaining({ ref: expect.objectContaining({ message_id: expect.any(String), seq: expect.any(Number) }) }),
+        expect.objectContaining({ ref: expect.objectContaining({ message_id: expect.any(String), seq: expect.any(Number) }) }),
       ]),
     );
-    expect(history.find((event) => event.type === "execution.step")?.data).toMatchObject({
-      kind: "run",
-      phase: "start",
-    });
-    expect(history.find((event) => event.type === "context.usage")).toMatchObject({
-      agent_name: "orchestrator_agent",
-      data: {
-        used_tokens: expect.any(Number),
-        system_prompt_tokens: expect.any(Number),
-        total_tokens: expect.any(Number),
-        budget_tokens: expect.any(Number),
-        round: 0,
-        compressing: false,
-        request_id: "req-runtime-1",
-      },
-    });
-    expect(history.find((event) => event.type === "output.final_answer")?.data).toMatchObject({
+    const finalStreamOutput = history.find(
+      (event) =>
+        event.type === "stream_output" &&
+        (event.payload as { phase?: string }).phase === "final",
+    );
+    expect(finalStreamOutput?.payload).toMatchObject({
+      phase: "final",
       content: "hello from ts core",
-      metadata: expect.objectContaining({
-        run_id: started.json().data.run_id,
-        request_id: "req-runtime-1",
-        execution_kind: "agent_stream",
-        execution_time: expect.any(Number),
+    });
+    const contextUsage = history.find(
+      (event) =>
+        event.type === "state_sync" &&
+        (event.payload as { category?: string }).category === "context_usage",
+    );
+    expect(contextUsage).toMatchObject({
+      agent_id: "orchestrator_agent",
+      payload: expect.objectContaining({
+        category: "context_usage",
+        detail: expect.objectContaining({
+          used_tokens: expect.any(Number),
+          system_prompt_tokens: expect.any(Number),
+          total_tokens: expect.any(Number),
+          budget_tokens: expect.any(Number),
+          round: 0,
+          compressing: false,
+          request_id: "req-runtime-1",
+        }),
       }),
     });
-    expect(history.find((event) => event.type === "run.end")?.data).toMatchObject({
+    expect(history.find((event) => event.type === "run_ended")?.payload).toMatchObject({
       status: "completed",
-      final_message_id: expect.any(String),
     });
     expectTerminalEventTypes(history, started.json().data.run_id).toEqual([
-      "execution.step",
-      "output.final_answer",
-      "call.agent.end",
-      "execution.step",
-      "output.message_saved",
-      "run.end",
+      "stream_output",
+      "agent_ended",
+      "run_ended",
     ]);
     const outboxRows = listRunOutbox(harness, "runtime-session", started.json().data.run_id);
     expect(outboxRows.map((row) => row.event_type)).toEqual([
-      "client.session.run_started",
-      "client.output.message_saved",
-      "client.execution.step",
-      "client.run.start",
-      "client.agent.start",
-      "client.call.agent.start",
-      "client.context.usage",
-      "execution.step_recorded",
-      "run.final_answer_recorded",
-      "agent.call_finished",
-      "execution.step_recorded",
-      "message.saved",
-      "run.completed",
+      "client.run_started",
+      "client.state_sync",
+      "client.agent_started",
+      "client.state_sync",
+      "client.stream_output",
+      "client.state_sync",
+      "client.agent_ended",
+      "client.run_ended",
     ]);
     expect(outboxRows.map((row) => row.status)).toEqual(Array.from({ length: outboxRows.length }, () => "delivered"));
     expect(harness.container.conversationStore.fetchPendingOutbox(10)).toEqual([]);
-    expect(history.filter((event) => event.run_id === started.json().data.run_id).every((event) => event.event_seq !== undefined)).toBe(true);
+    expect(history.filter((event) => event.run_id === started.json().data.run_id).every((event) => event.seq !== undefined)).toBe(true);
     const terminalOutboxRows = filterTerminalOutboxRows(outboxRows);
     expect(terminalOutboxRows.map((row) => row.event_type)).toEqual([
-      "execution.step_recorded",
-      "run.final_answer_recorded",
-      "agent.call_finished",
-      "execution.step_recorded",
-      "message.saved",
-      "run.completed",
+      "client.stream_output",
+      "client.agent_ended",
+      "client.run_ended",
     ]);
-    const terminalSeq = extractTerminalEvents(history, started.json().data.run_id).map((event) => event.event_seq);
-    expect(terminalSeq).toHaveLength(6);
+    const terminalSeq = extractTerminalEvents(history, started.json().data.run_id).map((event) => event.seq);
+    expect(terminalSeq).toHaveLength(3);
     expect(terminalSeq.every((seq) => typeof seq === "number" && seq > 1)).toBe(true);
     expect([...terminalSeq].sort((left, right) => Number(left) - Number(right))).toEqual(terminalSeq);
     expect(projectOutboxEventTypes(terminalOutboxRows)).toEqual([
-      "execution.step",
-      "output.final_answer",
-      "call.agent.end",
-      "execution.step",
-      "output.message_saved",
-      "run.end",
+      "stream_output",
+      "agent_ended",
+      "run_ended",
     ]);
   });
 
@@ -514,12 +495,24 @@ describe("minimal runtime core execution", () => {
     });
 
     const history = harness.container.realtimeEvents.getHistory("runtime-compress-session");
-    expect(history.map((event) => event.type)).toEqual(
-      expect.arrayContaining(["context.compression_start", "context.compression_summary", "context.usage"]),
+    const compressionStateSyncs = history.filter(
+      (event) => event.type === "state_sync" && (event.payload as { category?: string }).category === "compression",
     );
-    // 压缩已下沉到内核 beforeModel hook（round 0 触发）：run 起始的 context.usage 不再内嵌
-    // compression 块；压缩行为由上面的 compression_start/summary 事件与持久化摘要消息体现。
-    expect(history.find((event) => event.type === "context.usage")?.data).toMatchObject({
+    // compression_start + compression_summary 各一条（context-compression 发两类事件，经
+    // event-publisher 投影为 state_sync(compression)，detail 透传原 event.data）。
+    expect(compressionStateSyncs).toHaveLength(2);
+    expect(compressionStateSyncs.map((event) => (event.payload as { detail?: { has_existing_summary?: boolean } }).detail?.has_existing_summary)).toEqual(
+      expect.arrayContaining([expect.any(Boolean), undefined]),
+    );
+    expect(compressionStateSyncs.map((event) => (event.payload as { detail?: { status?: string } }).detail?.status)).toEqual(
+      expect.arrayContaining([undefined, "success"]),
+    );
+    // 压缩已下沉到内核 beforeModel hook（round 0 触发）：run 起始的 context_usage 不再内嵌
+    // compression 块；压缩行为由上面的 state_sync(compression) 事件与持久化摘要消息体现。
+    const contextUsage = history.find(
+      (event) => event.type === "state_sync" && (event.payload as { category?: string }).category === "context_usage",
+    );
+    expect((contextUsage?.payload as { detail?: { budget_tokens?: number } }).detail).toMatchObject({
       budget_tokens: 89,
     });
   });
@@ -551,18 +544,34 @@ describe("minimal runtime core execution", () => {
 
     expect(chatClient.requests).toHaveLength(1);
     const history = harness.container.realtimeEvents.getHistory("runtime-stream-session");
-    const firstToken = history.find((event) => event.type === "llm.first_token");
-    expect(firstToken?.data).toMatchObject({
+    const firstToken = history.find(
+      (event) => event.type === "stream_output" && (event.payload as { phase?: string }).phase === "first_token",
+    );
+    expect(firstToken?.payload).toMatchObject({
+      phase: "first_token",
       elapsed_ms: expect.any(Number),
-      request_id: "req-runtime-stream",
     });
-    expect(history.filter((event) => event.type === "llm.first_token")).toHaveLength(1);
-    expect(history.filter((event) => event.type === "output.chunk").map((event) => event.data)).toEqual([
-      expect.objectContaining({ content: "hello " }),
-      expect.objectContaining({ content: "from " }),
-      expect.objectContaining({ content: "stream" }),
+    expect(
+      history.filter(
+        (event) => event.type === "stream_output" && (event.payload as { phase?: string }).phase === "first_token",
+      ),
+    ).toHaveLength(1);
+    expect(
+      history
+        .filter(
+          (event) => event.type === "stream_output" && (event.payload as { phase?: string }).phase === "delta",
+        )
+        .map((event) => event.payload),
+    ).toEqual([
+      expect.objectContaining({ phase: "delta", content: "hello " }),
+      expect.objectContaining({ phase: "delta", content: "from " }),
+      expect.objectContaining({ phase: "delta", content: "stream" }),
     ]);
-    expect(history.find((event) => event.type === "output.final_answer")?.data).toMatchObject({
+    const finalAnswer = history.find(
+      (event) => event.type === "stream_output" && (event.payload as { phase?: string }).phase === "final",
+    );
+    expect(finalAnswer?.payload).toMatchObject({
+      phase: "final",
       content: "hello from stream",
     });
 
@@ -706,11 +715,14 @@ describe("minimal runtime core execution", () => {
     expect(chatClient.requests).toHaveLength(0);
     expect(harness.container.realtimeEvents.getHistory("slash-help-session")).toEqual([
       expect.objectContaining({
-        type: "command.result",
-        data: expect.objectContaining({
-          command: "help",
-          success: true,
-          content: expect.stringContaining("/review"),
+        type: "state_sync",
+        payload: expect.objectContaining({
+          category: "command_result",
+          detail: expect.objectContaining({
+            command: "help",
+            success: true,
+            content: expect.stringContaining("/review"),
+          }),
         }),
       }),
     ]);
@@ -798,11 +810,21 @@ describe("minimal runtime core execution", () => {
     expect(chatClient.requests[0]?.messages[0]?.content).toContain("对话摘要助手");
 
     const history = harness.container.realtimeEvents.getHistory("slash-compact-session");
-    expect(history.map((event) => event.type)).toEqual(
-      expect.arrayContaining(["context.compression_start", "context.compression_summary", "command.result"]),
+    const categories = history
+      .filter((event) => event.type === "state_sync")
+      .map((event) => (event.payload as { category?: string }).category);
+    expect(categories).toEqual(
+      expect.arrayContaining(["compression", "compression", "command_result"]),
     );
-    expect(history.find((event) => event.type === "command.result")).toMatchObject({
-      data: expect.objectContaining({
+    const commandResult = history.find(
+      (event) =>
+        event.type === "state_sync" && (event.payload as { category?: string }).category === "command_result",
+    );
+    expect(commandResult).toMatchObject({
+      type: "state_sync",
+      payload: expect.objectContaining({
+        category: "command_result",
+        detail: expect.objectContaining({
           command: "compact",
           success: true,
           content: expect.stringContaining("压缩完成"),
@@ -813,6 +835,7 @@ describe("minimal runtime core execution", () => {
             replaced_message_count: 3,
             replaces_up_to_seq: 3,
           }),
+        }),
       }),
     });
 
@@ -859,14 +882,17 @@ describe("minimal runtime core execution", () => {
     expect(chatClient.requests).toHaveLength(0);
     expect(harness.container.realtimeEvents.getHistory("slash-compact-skip-session")).toEqual([
       expect.objectContaining({
-        type: "command.result",
-        data: expect.objectContaining({
-          command: "compact",
-          success: true,
-          content: "无需压缩（历史为空或消息不足）",
-          data: expect.objectContaining({
-            status: "skipped",
-            reason: "insufficient_candidates",
+        type: "state_sync",
+        payload: expect.objectContaining({
+          category: "command_result",
+          detail: expect.objectContaining({
+            command: "compact",
+            success: true,
+            content: "无需压缩（历史为空或消息不足）",
+            data: expect.objectContaining({
+              status: "skipped",
+              reason: "insufficient_candidates",
+            }),
           }),
         }),
       }),
@@ -956,34 +982,37 @@ describe("minimal runtime core execution", () => {
     );
 
     const history = harness.container.realtimeEvents.getHistory("tool-runtime-session");
-    expect(history.filter((event) => event.type === "execution.step").map((event) => event.data)).toEqual(
+    const toolCalls = history.filter((event) => event.type === "tool_call");
+    const toolResults = history.filter((event) => event.type === "tool_result");
+    expect(toolCalls.map((event) => event.payload)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          kind: "tool",
+          tool: "list_memory_index",
+          mode: "projection",
           phase: "start",
-          tool_name: "list_memory_index",
-          call_id: "call_memory_1",
-          tool_call_id: "call_memory_1",
-          step_id: "call_memory_1:tool",
-          parent_step_id: expect.stringMatching(/^call_.*:round:0$/),
           status: "running",
-          round: 0,
-          arguments: { scope: "session" },
+          input: { scope: "session" },
         }),
+      ]),
+    );
+    expect(history.find((event) => event.type === "tool_call")?.call_id).toEqual("call_memory_1");
+    expect(toolResults.map((event) => event.payload)).toEqual(
+      expect.arrayContaining([
         expect.objectContaining({
-          kind: "tool",
+          tool: "list_memory_index",
+          mode: "projection",
           phase: "end",
-          tool_name: "list_memory_index",
-          call_id: "call_memory_1",
-          step_id: "call_memory_1:tool",
-          parent_step_id: expect.stringMatching(/^call_.*:round:0$/),
-          round: 0,
-          success: true,
+          ok: true,
+          status: "succeeded",
           summary: "已读取 session MEMORY 索引",
         }),
       ]),
     );
-    expect(history.find((event) => event.type === "output.final_answer")?.data).toMatchObject({
+    const finalAnswer = history.find(
+      (event) => event.type === "stream_output" && (event.payload as { phase?: string }).phase === "final",
+    );
+    expect(finalAnswer?.payload).toMatchObject({
+      phase: "final",
       content: "The session memory index is available.",
     });
 
@@ -1060,27 +1089,36 @@ describe("minimal runtime core execution", () => {
     expect(started.statusCode).toBe(200);
     await waitFor(() =>
       harness.container.realtimeEvents.getHistory("approval-runtime-session").some((event) => {
-        const data = event.data as { kind?: string } | undefined;
-        return event.type === "interaction.required" && data?.kind === "approval";
+        const payload = event.payload as { kind?: string; phase?: string };
+        return event.type === "interaction" && payload?.kind === "approval" && payload?.phase === "required";
       }),
     );
 
     const approvalRequired = harness.container.realtimeEvents
       .getHistory("approval-runtime-session")
       .find((event) => {
-        const data = event.data as { kind?: string } | undefined;
-        return event.type === "interaction.required" && data?.kind === "approval";
+        const payload = event.payload as { kind?: string; phase?: string };
+        return event.type === "interaction" && payload?.kind === "approval" && payload?.phase === "required";
       });
-    expect(approvalRequired?.data).toMatchObject({
-      approval_id: expect.any(String),
-      tool_call_id: "call_memory_approval",
-      tool_name: "list_memory_index",
-      risk_level: "low",
-      permission_mode: "strict",
-      approval_reason: "严格模式：low 风险工具需要审批",
+    expect(approvalRequired).toMatchObject({
+      type: "interaction",
+      call_id: expect.any(String),
+      payload: expect.objectContaining({
+        kind: "approval",
+        phase: "required",
+        tool: "list_memory_index",
+        risk_level: "low",
+        message: "严格模式：low 风险工具需要审批",
+        input: expect.objectContaining({
+          approval_id: expect.any(String),
+          tool_call_id: "call_memory_approval",
+          permission_mode: "strict",
+          approval_reason: "严格模式：low 风险工具需要审批",
+        }),
+      }),
     });
 
-    const approvalId = (approvalRequired?.data as { approval_id: string }).approval_id;
+    const approvalId = approvalRequired?.call_id;
     const responded = await app.inject({
       method: "POST",
       url: `/api/agent/sessions/approval-runtime-session/interactions/${approvalId}/respond`,
@@ -1098,23 +1136,36 @@ describe("minimal runtime core execution", () => {
 
     expect(chatClient.requests).toHaveLength(2);
     const history = harness.container.realtimeEvents.getHistory("approval-runtime-session");
-    expect(history.filter((event) => event.type === "execution.step").map((event) => event.data)).toEqual(
+    // 审批通过语义在新协议下由 interaction(approval, responded) 事件承载（tool_result 不再内嵌
+    // approval 元数据——新 envelope 的 approval 字段仅在 status=pending/granted/denied 时产出）。
+    expect(history.filter((event) => event.type === "tool_result").map((event) => event.payload)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          kind: "tool",
+          tool: "list_memory_index",
           phase: "end",
-          tool_name: "list_memory_index",
-          success: true,
-          approval_message: "允许读取",
-          approval: expect.objectContaining({
-            reason: "严格模式：low 风险工具需要审批",
-            note: "允许读取",
-            reason_codes: ["ask-risk"],
-          }),
+          ok: true,
+          status: "succeeded",
         }),
       ]),
     );
-    expect(history.find((event) => event.type === "output.final_answer")?.data).toMatchObject({
+    const approvalResponded = history.find(
+      (event) =>
+        event.type === "interaction" &&
+        (event.payload as { kind?: string; phase?: string }).kind === "approval" &&
+        (event.payload as { phase?: string }).phase === "responded",
+    );
+    expect(approvalResponded?.call_id).toBe(approvalId);
+    expect(approvalResponded?.payload).toMatchObject({
+      kind: "approval",
+      phase: "responded",
+      approved: true,
+      message: "允许读取",
+    });
+    const approvalFinalAnswer = history.find(
+      (event) => event.type === "stream_output" && (event.payload as { phase?: string }).phase === "final",
+    );
+    expect(approvalFinalAnswer?.payload).toMatchObject({
+      phase: "final",
       content: "The approved memory index is available.",
     });
   });
@@ -1166,16 +1217,27 @@ describe("minimal runtime core execution", () => {
     );
 
     const history = harness.container.realtimeEvents.getHistory("xml-tool-runtime-session");
-    expect(history.find((event) => event.type === "agent.intent_delta")?.data).toMatchObject({
+    const intentDelta = history.find(
+      (event) => event.type === "stream_output" && (event.payload as { phase?: string }).phase === "intent_delta",
+    );
+    expect(intentDelta?.payload).toMatchObject({
+      phase: "intent_delta",
       content: "我先读取 session 记忆。",
       round: 0,
-      request_id: "req-runtime-xml-tool",
     });
-    expect(history.find((event) => event.type === "agent.intent_complete")?.data).toMatchObject({
+    const intentComplete = history.find(
+      (event) => event.type === "stream_output" && (event.payload as { phase?: string }).phase === "intent_complete",
+    );
+    expect(intentComplete?.payload).toMatchObject({
+      phase: "intent_complete",
       content: "我先读取 session 记忆。",
       round: 0,
     });
-    expect(history.find((event) => event.type === "output.final_answer")?.data).toMatchObject({
+    const finalAnswer = history.find(
+      (event) => event.type === "stream_output" && (event.payload as { phase?: string }).phase === "final",
+    );
+    expect(finalAnswer?.payload).toMatchObject({
+      phase: "final",
       content: "The XML runtime read memory.",
     });
 
@@ -1329,16 +1391,27 @@ describe("minimal runtime core execution", () => {
     );
 
     const history = harness.container.realtimeEvents.getHistory("native-tool-runtime-session");
-    expect(history.find((event) => event.type === "agent.intent_delta")?.data).toMatchObject({
+    const intentDelta = history.find(
+      (event) => event.type === "stream_output" && (event.payload as { phase?: string }).phase === "intent_delta",
+    );
+    expect(intentDelta?.payload).toMatchObject({
+      phase: "intent_delta",
       content: "我先读取 session 记忆。",
       round: 0,
-      request_id: "req-runtime-native-tool",
     });
-    expect(history.find((event) => event.type === "agent.intent_complete")?.data).toMatchObject({
+    const intentComplete = history.find(
+      (event) => event.type === "stream_output" && (event.payload as { phase?: string }).phase === "intent_complete",
+    );
+    expect(intentComplete?.payload).toMatchObject({
+      phase: "intent_complete",
       content: "我先读取 session 记忆。",
       round: 0,
     });
-    expect(history.find((event) => event.type === "output.final_answer")?.data).toMatchObject({
+    const finalAnswer = history.find(
+      (event) => event.type === "stream_output" && (event.payload as { phase?: string }).phase === "final",
+    );
+    expect(finalAnswer?.payload).toMatchObject({
+      phase: "final",
       content: "The native runtime read memory.",
     });
 
@@ -1440,20 +1513,41 @@ describe("minimal runtime core execution", () => {
       3000,
     );
     await waitFor(
-      () => harness.container.realtimeEvents.getHistory("bg-notify-session").some((event) => event.type === "background.task.completed"),
+      () =>
+        harness.container.realtimeEvents
+          .getHistory("bg-notify-session")
+          .some(
+            (event) =>
+              event.type === "state_sync" &&
+              (event.payload as { category?: string; detail?: { kind?: string } }).category === "command_result" &&
+              (event.payload as { detail?: { kind?: string } }).detail?.kind === "background_task",
+          ),
       5000,
     );
     const completedEvent = harness.container.realtimeEvents
       .getHistory("bg-notify-session")
-      .find((event) => event.type === "background.task.completed");
-    const backgroundTaskId = (completedEvent?.data as { background_task_id?: string } | undefined)?.background_task_id;
+      .find(
+        (event) =>
+          event.type === "state_sync" &&
+          (event.payload as { category?: string }).category === "command_result" &&
+          (event.payload as { detail?: { kind?: string } }).detail?.kind === "background_task",
+      );
+    const backgroundTaskId = (completedEvent?.payload as { detail?: { background_task_id?: string } } | undefined)?.detail
+      ?.background_task_id;
     expect(backgroundTaskId).toEqual(expect.any(String));
     expect(completedEvent).toMatchObject({
-      event_seq: expect.any(Number),
+      seq: expect.any(Number),
     });
     expect(
       listRunOutbox(harness, "bg-notify-session", firstRunId)
-        .filter((row) => row.event_type === "client.background.task.completed")
+        .filter((row) => row.event_type === "client.state_sync")
+        .filter((row) => {
+          const payload = JSON.parse(row.payload) as { client_event?: { payload?: { category?: string; detail?: { kind?: string } } } };
+          return (
+            payload.client_event?.payload?.category === "command_result" &&
+            payload.client_event?.payload?.detail?.kind === "background_task"
+          );
+        })
         .map((row) => ({
           status: row.status,
           sessionSeq: row.session_seq,
@@ -1461,7 +1555,7 @@ describe("minimal runtime core execution", () => {
     ).toEqual([
       {
         status: "delivered",
-        sessionSeq: completedEvent?.event_seq,
+        sessionSeq: completedEvent?.seq,
       },
     ]);
 
@@ -1587,61 +1681,71 @@ describe("minimal runtime core execution", () => {
     const history = harness.container.realtimeEvents.getHistory("delegate-runtime-session");
     const childAgentCalls = history.filter(
       (event) =>
-        (event.type === "call.agent.start" || event.type === "call.agent.end") &&
+        (event.type === "agent_started" || event.type === "agent_ended") &&
         event.call_id === child.created_by_call_id,
     );
-    expect(childAgentCalls).toEqual([
-      expect.objectContaining({
-        type: "call.agent.start",
-        agent_name: "orchestrator_agent",
-        call_id: child.created_by_call_id,
-        parent_call_id: "delegate-plan",
-        data: {
-          agent_name: "plan_agent",
-          description: "拆解 TS 后端迁移下一步",
-          agent_display_name: "plan_agent",
-          child_agent_id: child.child_agent_id,
-          mode: "create",
-        },
-      }),
-      expect.objectContaining({
-        type: "call.agent.end",
-        agent_name: "orchestrator_agent",
-        call_id: child.created_by_call_id,
-        parent_call_id: "delegate-plan",
-        data: {
-          agent_name: "plan_agent",
-          result: "child plan result",
-          success: true,
-          agent_display_name: "plan_agent",
-          child_agent_id: child.child_agent_id,
-          mode: "create",
-        },
-      }),
-    ]);
-    expect(history.filter((event) => event.type === "execution.step").map((event) => event.data)).toEqual(
+    // 委派 publishAgentCallStart/End 独占发 child agent_started/ended（单发）；
+    // lineage.parent_call_id 挂 root agent（orchestrator）的 call_id，core execution-tree 据此嵌套。
+    const rootAgentCallId = history.find(
+      (event) =>
+        event.type === "agent_started" &&
+        !((event.payload as { lineage?: { parent_call_id?: string } }).lineage?.parent_call_id),
+    )?.call_id;
+    expect(childAgentCalls).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          kind: "tool",
+          type: "agent_started",
+          agent_id: "plan_agent",
+          call_id: child.created_by_call_id,
+          payload: expect.objectContaining({
+            phase: "start",
+            task: "拆解 TS 后端迁移下一步",
+            lineage: { parent_call_id: rootAgentCallId },
+          }),
+        }),
+        expect.objectContaining({
+          type: "agent_ended",
+          agent_id: "plan_agent",
+          call_id: child.created_by_call_id,
+          payload: expect.objectContaining({
+            phase: "end",
+            result: "child plan result",
+            success: true,
+            lineage: { parent_call_id: rootAgentCallId },
+          }),
+        }),
+      ]),
+    );
+    expect(history.filter((event) => event.type === "tool_call").map((event) => event.payload)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tool: "call_agent",
           phase: "start",
-          tool_name: "call_agent",
-          call_id: "delegate-plan",
-          arguments: {
+          mode: "projection",
+          input: {
             agent_name: "plan_agent",
             task: "拆解 TS 后端迁移下一步",
             context_hint: "保持简洁，只输出关键步骤",
           },
         }),
+      ]),
+    );
+    expect(history.find((event) => event.type === "tool_call" && (event.payload as { tool?: string }).tool === "call_agent")?.call_id).toBe("delegate-plan");
+    expect(history.filter((event) => event.type === "tool_result").map((event) => event.payload)).toEqual(
+      expect.arrayContaining([
         expect.objectContaining({
-          kind: "tool",
+          tool: "call_agent",
           phase: "end",
-          tool_name: "call_agent",
-          success: true,
+          ok: true,
           summary: "child plan result",
         }),
       ]),
     );
-    expect(history.find((event) => event.type === "output.final_answer")?.data).toMatchObject({
+    const finalAnswer = history.find(
+      (event) => event.type === "stream_output" && (event.payload as { phase?: string }).phase === "final",
+    );
+    expect(finalAnswer?.payload).toMatchObject({
+      phase: "final",
       content: "parent final with child plan result",
     });
 
@@ -1685,24 +1789,36 @@ describe("minimal runtime core execution", () => {
 
     expect(started.statusCode).toBe(200);
     await waitFor(() =>
-      harness.container.realtimeEvents.getHistory("input-runtime-session").some((event) => event.type === "user.input_required"),
+      harness.container.realtimeEvents.getHistory("input-runtime-session").some((event) => {
+        const payload = event.payload as { kind?: string; phase?: string };
+        return event.type === "interaction" && payload?.kind === "user_input" && payload?.phase === "required";
+      }),
     );
 
     const inputRequired = harness.container.realtimeEvents
       .getHistory("input-runtime-session")
-      .find((event) => event.type === "user.input_required");
-    expect(inputRequired?.data).toMatchObject({
-      input_id: expect.any(String),
-      tool_call_id: "xml_round_0_call_1",
-      tool_name: "request_user_input",
-      prompt: "使用哪个 memory scope？",
-      input_type: "select",
-      options: ["session", "workspace"],
+      .find((event) => {
+        const payload = event.payload as { kind?: string; phase?: string };
+        return event.type === "interaction" && payload?.kind === "user_input" && payload?.phase === "required";
+      });
+    expect(inputRequired).toMatchObject({
+      type: "interaction",
+      call_id: expect.any(String),
       run_id: started.json().data.run_id,
-      request_id: "req-runtime-input",
+      payload: expect.objectContaining({
+        kind: "user_input",
+        phase: "required",
+        tool: "request_user_input",
+        prompt: "使用哪个 memory scope？",
+        input: expect.objectContaining({
+          input_type: "select",
+          options: ["session", "workspace"],
+          tool_call_id: "xml_round_0_call_1",
+        }),
+      }),
     });
 
-    const inputId = (inputRequired?.data as { input_id: string }).input_id;
+    const inputId = inputRequired?.call_id;
     const responded = await app.inject({
       method: "POST",
       url: `/api/agent/sessions/input-runtime-session/interactions/${inputId}/respond`,
@@ -1734,29 +1850,36 @@ describe("minimal runtime core execution", () => {
     expect(toolResultMessage?.content).toContain("session");
 
     const history = harness.container.realtimeEvents.getHistory("input-runtime-session");
-    expect(history.filter((event) => event.type === "execution.step").map((event) => event.data)).toEqual(
+    expect(history.filter((event) => event.type === "tool_call").map((event) => event.payload)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          kind: "tool",
+          tool: "request_user_input",
           phase: "start",
-          tool_name: "request_user_input",
-          call_id: "xml_round_0_call_1",
-          arguments: {
+          mode: "projection",
+          input: {
             prompt: "使用哪个 memory scope？",
             input_type: "select",
             options: ["session", "workspace"],
           },
         }),
+      ]),
+    );
+    expect(history.find((event) => event.type === "tool_call" && (event.payload as { tool?: string }).tool === "request_user_input")?.call_id).toBe("xml_round_0_call_1");
+    expect(history.filter((event) => event.type === "tool_result").map((event) => event.payload)).toEqual(
+      expect.arrayContaining([
         expect.objectContaining({
-          kind: "tool",
+          tool: "request_user_input",
           phase: "end",
-          tool_name: "request_user_input",
-          success: true,
+          ok: true,
           summary: "用户输入已接收",
         }),
       ]),
     );
-    expect(history.find((event) => event.type === "output.final_answer")?.data).toMatchObject({
+    const finalAnswer = history.find(
+      (event) => event.type === "stream_output" && (event.payload as { phase?: string }).phase === "final",
+    );
+    expect(finalAnswer?.payload).toMatchObject({
+      phase: "final",
       content: "已按 session memory 继续。",
     });
   });
@@ -1875,79 +1998,62 @@ describe("minimal runtime core execution", () => {
     });
 
     const history = harness.container.realtimeEvents.getHistory("interrupt-session");
-    const userInterrupt = history.find((event) => event.type === "user.interrupt");
+    const userInterrupt = history.find((event) => event.type === "abort");
     expect(userInterrupt).toMatchObject({
       session_id: "interrupt-session",
       run_id: started.json().data.run_id,
-      data: expect.objectContaining({
+      payload: expect.objectContaining({
+        scope: "run",
         reason: "user_stop",
-        task_id: started.json().data.task_id,
-        run_id: started.json().data.run_id,
-        execution_kind: "agent_stream",
       }),
     });
-    const rootCallStart = history.find((event) => event.type === "call.agent.start");
+    const rootCallStart = history.find((event) => event.type === "agent_started");
     expect(rootCallStart).toMatchObject({
-      agent_name: "orchestrator_agent",
+      agent_id: "orchestrator_agent",
       call_id: expect.stringMatching(/^call_/),
     });
-    expect(history.find((event) => event.type === "call.agent.end")).toMatchObject({
-      agent_name: "orchestrator_agent",
+    expect(history.find((event) => event.type === "agent_ended")).toMatchObject({
+      agent_id: "orchestrator_agent",
       call_id: rootCallStart?.call_id,
-      data: expect.objectContaining({
-        agent_name: "orchestrator_agent",
+      payload: expect.objectContaining({
+        phase: "end",
         result: "[已停止生成]",
         success: false,
       }),
     });
-    expect(history.find((event) => event.type === "agent.error")).toMatchObject({
-      agent_name: "orchestrator_agent",
-      call_id: rootCallStart?.call_id,
-      data: expect.objectContaining({
-        error_type: "InterruptedError",
-      }),
-    });
-    expect(history.find((event) => event.type === "run.end")).toMatchObject({
+    expect(history.find((event) => event.type === "run_ended")).toMatchObject({
       run_id: started.json().data.run_id,
-      data: expect.objectContaining({
+      payload: expect.objectContaining({
         status: "interrupted",
       }),
     });
     expectTerminalEventTypes(history, started.json().data.run_id).toEqual([
-      "call.agent.end",
-      "execution.step",
-      "agent.error",
-      "run.end",
+      "abort",
+      "agent_ended",
+      "run_ended",
     ]);
     const outboxRows = listRunOutbox(harness, "interrupt-session", started.json().data.run_id);
     expect(outboxRows.map((row) => row.event_type)).toEqual([
-      "client.session.run_started",
-      "client.output.message_saved",
-      "client.execution.step",
-      "client.run.start",
-      "client.agent.start",
-      "client.call.agent.start",
-      "client.context.usage",
-      "client.user.interrupt",
-      "agent.call_finished",
-      "execution.step_recorded",
-      "run.error_reported",
-      "run.interrupted",
+      "client.run_started",
+      "client.state_sync",
+      "client.agent_started",
+      "client.state_sync",
+      "client.abort",
+      "client.agent_ended",
+      "client.run_ended",
     ]);
     const terminalOutboxRows = filterTerminalOutboxRows(outboxRows);
     expect(terminalOutboxRows.map((row) => row.event_type)).toEqual([
-      "agent.call_finished",
-      "execution.step_recorded",
-      "run.error_reported",
-      "run.interrupted",
+      "client.abort",
+      "client.agent_ended",
+      "client.run_ended",
     ]);
     expect(outboxRows.map((row) => row.status)).toEqual(Array.from({ length: outboxRows.length }, () => "delivered"));
     expect(harness.container.conversationStore.fetchPendingOutbox(10)).toEqual([]);
     expect(projectOutboxEventTypes(terminalOutboxRows)).toEqual([
-      "call.agent.end",
-      "execution.step",
-      "agent.error",
-      "run.end",
+      "abort",
+      "agent_ended",
+      "run_ended",
     ]);
 
     // 打断后落库 interrupted assistant 锚点消息：刷新后承载工具调用步骤 + 恢复"已停止生成"
@@ -1955,7 +2061,7 @@ describe("minimal runtime core execution", () => {
       method: "GET",
       url: "/api/agent/sessions/interrupt-session/messages",
     });
-    const interruptedAssistant = interruptedMessages.json().data.items.filter((m) => m.role === "assistant");
+    const interruptedAssistant = interruptedMessages.json().data.items.filter((m: { role?: string }) => m.role === "assistant");
     expect(interruptedAssistant).toHaveLength(1);
     expect(interruptedAssistant[0]).toMatchObject({
       role: "assistant",
@@ -1996,78 +2102,63 @@ describe("minimal runtime core execution", () => {
 
     expect(chatClient.requests).toHaveLength(1);
     const history = harness.container.realtimeEvents.getHistory("failed-runtime-session");
-    const rootCallStart = history.find((event) => event.type === "call.agent.start");
+    const rootCallStart = history.find((event) => event.type === "agent_started");
     expect(rootCallStart).toMatchObject({
-      agent_name: "orchestrator_agent",
+      agent_id: "orchestrator_agent",
       call_id: expect.stringMatching(/^call_/),
     });
-    expect(history.find((event) => event.type === "call.agent.end")).toMatchObject({
-      agent_name: "orchestrator_agent",
+    expect(history.find((event) => event.type === "agent_ended")).toMatchObject({
+      agent_id: "orchestrator_agent",
       call_id: rootCallStart?.call_id,
-      data: expect.objectContaining({
+      payload: expect.objectContaining({
+        phase: "end",
         result: "provider failed",
         success: false,
       }),
     });
-    expect(history.find((event) => event.type === "agent.error")).toMatchObject({
-      agent_name: "orchestrator_agent",
+    const errorEvent = history.find((event) => event.type === "error");
+    expect(errorEvent).toMatchObject({
+      agent_id: "orchestrator_agent",
       call_id: rootCallStart?.call_id,
-      data: expect.objectContaining({
-        error: "provider failed",
-        error_type: "ExecutionError",
+      payload: expect.objectContaining({
+        code: "RuntimeError",
+        message: "provider failed",
       }),
     });
-    expect(history.find((event) => event.type === "error")).toMatchObject({
-      agent_name: "orchestrator_agent",
-      error: "provider failed",
-      data: expect.objectContaining({
-        error: "provider failed",
-        error_type: "RuntimeError",
-        request_id: "req-runtime-failed",
-      }),
-    });
-    expect(history.find((event) => event.type === "run.end")).toMatchObject({
+    expect(history.find((event) => event.type === "run_ended")).toMatchObject({
       run_id: started.json().data.run_id,
-      data: expect.objectContaining({
+      payload: expect.objectContaining({
         status: "failed",
-        error: "provider failed",
+        reason: "provider failed",
       }),
     });
     expectTerminalEventTypes(history, started.json().data.run_id).toEqual([
-      "call.agent.end",
-      "execution.step",
-      "agent.error",
-      "run.end",
+      "error",
+      "agent_ended",
+      "run_ended",
     ]);
     const outboxRows = listRunOutbox(harness, "failed-runtime-session", started.json().data.run_id);
     expect(outboxRows.map((row) => row.event_type)).toEqual([
-      "client.session.run_started",
-      "client.output.message_saved",
-      "client.execution.step",
-      "client.run.start",
-      "client.agent.start",
-      "client.call.agent.start",
-      "client.context.usage",
+      "client.run_started",
+      "client.state_sync",
+      "client.agent_started",
+      "client.state_sync",
       "client.error",
-      "agent.call_finished",
-      "execution.step_recorded",
-      "run.error_reported",
-      "run.failed",
+      "client.agent_ended",
+      "client.run_ended",
     ]);
     const terminalOutboxRows = filterTerminalOutboxRows(outboxRows);
     expect(terminalOutboxRows.map((row) => row.event_type)).toEqual([
-      "agent.call_finished",
-      "execution.step_recorded",
-      "run.error_reported",
-      "run.failed",
+      "client.error",
+      "client.agent_ended",
+      "client.run_ended",
     ]);
     expect(outboxRows.map((row) => row.status)).toEqual(Array.from({ length: outboxRows.length }, () => "delivered"));
     expect(harness.container.conversationStore.fetchPendingOutbox(10)).toEqual([]);
     expect(projectOutboxEventTypes(terminalOutboxRows)).toEqual([
-      "call.agent.end",
-      "execution.step",
-      "agent.error",
-      "run.end",
+      "error",
+      "agent_ended",
+      "run_ended",
     ]);
     expect(logEntries).toEqual([
       {
@@ -2167,7 +2258,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void
   throw new Error("Timed out waiting for condition");
 }
 
-function expectTerminalEventTypes(history: ClientEvent[], runId: string) {
+function expectTerminalEventTypes(history: Envelope[], runId: string) {
   return expect(extractTerminalEvents(history, runId).map((event) => event.type));
 }
 
@@ -2185,44 +2276,45 @@ function listRunOutbox(
 }
 
 function filterTerminalOutboxRows(rows: OutboxRow[]): OutboxRow[] {
-  return rows.filter((row) => TERMINAL_OUTBOX_EVENT_TYPES.has(row.event_type));
+  return rows.filter((row) => isTerminalOutboxRow(row));
+}
+
+/**
+ * 判定 outbox 行是否为 run 终态产出（recorder 在 recordRunTerminal 里写的事件）：
+ * stream_output(final) / agent_ended / run_ended / abort / error。
+ * message_saved(state_sync) 不计入——其 payload 不带 role，无法与起始阶段发布的
+ * user message_saved 区分；assistant message_saved 的覆盖由 history 的显式断言承担。
+ */
+function isTerminalOutboxRow(row: OutboxRow): boolean {
+  return (
+    row.event_type === "client.stream_output" ||
+    row.event_type === "client.agent_ended" ||
+    row.event_type === "client.run_ended" ||
+    row.event_type === "client.abort" ||
+    row.event_type === "client.error"
+  );
 }
 
 function projectOutboxEventTypes(rows: OutboxRow[]) {
-  const projector = new ClientEventProjector();
-  return rows.map((row) => projector.toClientEvent(row).type);
+  const projector = new EnvelopeProjector();
+  return rows.map((row) => projector.toEnvelope(row).type);
 }
 
-const TERMINAL_OUTBOX_EVENT_TYPES = new Set([
-  "execution.step_recorded",
-  "run.final_answer_recorded",
-  "agent.call_finished",
-  "message.saved",
-  "run.completed",
-  "run.error_reported",
-  "run.failed",
-  "run.interrupted",
-]);
-
-function extractTerminalEvents(history: ClientEvent[], runId: string): ClientEvent[] {
+function extractTerminalEvents(history: Envelope[], runId: string): Envelope[] {
   return history.filter((event) => {
     if (event.run_id !== runId) {
       return false;
     }
-    const data = asRecord(event.data);
-    if (event.type === "execution.step") {
-      return (
-        (data.kind === "final" && data.phase === "complete") ||
-        (data.kind === "run" && data.phase === "end")
-      );
+    const payload = event.payload as { phase?: string };
+    if (event.type === "stream_output") {
+      return payload.phase === "final";
     }
-    if (event.type === "output.message_saved") {
-      return data.role === "assistant";
-    }
-    return event.type === "output.final_answer" ||
-      event.type === "call.agent.end" ||
-      event.type === "agent.error" ||
-      event.type === "run.end";
+    return (
+      event.type === "agent_ended" ||
+      event.type === "run_ended" ||
+      event.type === "abort" ||
+      event.type === "error"
+    );
   });
 }
 

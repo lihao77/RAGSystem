@@ -120,15 +120,11 @@ class AgentLaunchers {
         },
       });
       this.followupQueue.queue(sessionId, followupMessage.content);
-      const followupPayload = {
-        id: followupMessage.id,
+      this.eventPublisher.publishOutputMessageSaved(sessionId, runningRunId, {
+        message_id: followupMessage.id,
         seq: followupMessage.seq,
         role: followupMessage.role,
-        run_id: runningStatus.run_id,
-        task_id: runningStatus.task_id,
-        request_id: requestId,
-      };
-      this.eventPublisher.publishOutputMessageSaved(sessionId, runningRunId, followupPayload);
+      });
       return {
         started: true,
         session_id: sessionId,

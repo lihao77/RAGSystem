@@ -53,19 +53,19 @@ describe("session websocket route", () => {
     }
   });
 
-  it("replays only the current active run history with monotonic stream_seq", async () => {
+  it("replays only the current active run history with monotonic seq", async () => {
     const chatClient = new HoldableChatClient();
     heldClients.push(chatClient);
     const harness = await buildTestHarness({ llmChatClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app);
+    // 手动注入一条旧 run 的 stream_output：不属于当前 active run 树，重放时应被排除。
     harness.container.clientEvents.publish("ws-active-session", {
-      type: "output.chunk",
+      type: "stream_output",
       session_id: "ws-active-session",
       run_id: "old-run",
-      data: { content: "old" },
-      content: { content: "old" },
+      payload: { phase: "delta", content: "old" },
     });
 
     const started = await app.inject({
@@ -81,43 +81,49 @@ describe("session websocket route", () => {
     expect(runId).toEqual(expect.any(String));
 
     await waitFor(() => chatClient.requests.length === 1);
+    // 手动注入一条当前 run 的 stale approval(interaction, required)：未在 pendingInteractions
+    // 注册表里，重放过滤（isPendingInteractionReplayEvent）会排除，避免前端重复弹窗。
     harness.container.clientEvents.publish("ws-active-session", {
-      type: "user.approval_required",
+      type: "interaction",
       session_id: "ws-active-session",
       run_id: runId,
-      data: { approval_id: "stale-approval" },
-      content: { approval_id: "stale-approval" },
+      call_id: "stale-approval",
+      payload: { kind: "approval", phase: "required", tool: "execute_bash" },
     });
 
     const client = await connectWs(app, "/api/agent/sessions/ws-active-session/ws");
     try {
       const reconnectStart = await client.receiveJson();
       expect(reconnectStart).toMatchObject({
-        type: "reconnect_start",
+        type: "session.reconnect",
         session_id: "ws-active-session",
         run_id: runId,
-        stream_seq: 1,
+        payload: { phase: "start" },
       });
-      expect(reconnectStart?.replay_count).toBeGreaterThan(0);
+      expect((reconnectStart?.payload as { replay_count?: number }).replay_count).toBeGreaterThan(0);
 
       const replayed = [];
-      for (let index = 0; index < Number(reconnectStart?.replay_count ?? 0); index += 1) {
+      for (let index = 0; index < Number((reconnectStart?.payload as { replay_count?: number }).replay_count ?? 0); index += 1) {
         replayed.push(await client.receiveJson());
       }
       const reconnectEnd = await client.receiveJson();
 
       expect(reconnectEnd).toMatchObject({
-        type: "reconnect_end",
+        type: "session.reconnect",
         session_id: "ws-active-session",
-        stream_seq: replayed.length + 2,
+        payload: { phase: "end" },
       });
-      expect(replayed.every((event) => event?.run_id === runId || event?.data?.run_id === runId)).toBe(true);
-      expect(replayed.some((event) => event?.type === "session.run_started")).toBe(true);
-      expect(replayed.some((event) => event?.run_id === "old-run" || event?.data?.content === "old")).toBe(false);
-      expect(replayed.some((event) => event?.data?.approval_id === "stale-approval")).toBe(false);
-      expect([reconnectStart, ...replayed, reconnectEnd].map((event) => event?.stream_seq)).toEqual(
-        Array.from({ length: replayed.length + 2 }, (_, index) => index + 1),
-      );
+      // 重放仅含当前 active run 的事件；旧 run chunk 与 stale approval 都被排除。
+      expect(replayed.every((event) => event?.run_id === runId)).toBe(true);
+      expect(replayed.some((event) => event?.type === "run_started")).toBe(true);
+      expect(replayed.some((event) => event?.run_id === "old-run")).toBe(false);
+      expect(
+        replayed.some((event) => event?.type === "interaction" && event?.call_id === "stale-approval"),
+      ).toBe(false);
+      // 重放事件 envelope seq 严格单调递增（reconnect 控制帧不经 outbox、不带 seq，不参与序号）。
+      const replayedSeqs = replayed.map((event) => event?.seq);
+      expect(replayedSeqs).toEqual([...replayedSeqs].sort((left, right) => Number(left) - Number(right)));
+      expect(new Set(replayedSeqs).size).toBe(replayedSeqs.length);
     } finally {
       client.ws.terminate();
       await harness.container.agentExecution.stopSession("ws-active-session");
@@ -125,7 +131,7 @@ describe("session websocket route", () => {
     }
   });
 
-  it("sends a Python-style run binding envelope when a connected session starts a run", async () => {
+  it("sends a run_started envelope and reconnect frames when a connected session starts a run", async () => {
     const chatClient = new HoldableChatClient();
     heldClients.push(chatClient);
     const harness = await buildTestHarness({ llmChatClient: chatClient });
@@ -151,27 +157,29 @@ describe("session websocket route", () => {
       const reconnectEnd = await client.receiveJson();
 
       expect(runStarted).toMatchObject({
-        type: "session.run_started",
+        type: "run_started",
         session_id: "ws-live-bind-session",
         run_id: runId,
-        stream_seq: 1,
+        seq: 1,
       });
+      // reconnect 控制帧不经 outbox，不带 seq（envelope seq 只属于真实事件）。
       expect(reconnectStart).toMatchObject({
-        type: "reconnect_start",
+        type: "session.reconnect",
         session_id: "ws-live-bind-session",
         run_id: runId,
-        replay_count: 0,
-        stream_seq: 2,
+        payload: { phase: "start", replay_count: 0 },
       });
+      expect(reconnectStart?.seq).toBeUndefined();
       expect(reconnectEnd).toMatchObject({
-        type: "reconnect_end",
+        type: "session.reconnect",
         session_id: "ws-live-bind-session",
-        stream_seq: 3,
+        payload: { phase: "end" },
       });
+      expect(reconnectEnd?.seq).toBeUndefined();
 
       const next = await client.receiveJson();
-      expect(next?.stream_seq).toBe(4);
-      expect(next?.run_id ?? next?.data?.run_id).toBe(runId);
+      expect(next?.seq).toBe(2);
+      expect(next?.run_id).toBe(runId);
     } finally {
       client.ws.terminate();
       await harness.container.agentExecution.stopSession("ws-live-bind-session");
@@ -179,7 +187,7 @@ describe("session websocket route", () => {
     }
   });
 
-  it("responds to legacy approval messages with the Python-compatible approval event first", async () => {
+  it("responds to approval messages with an ack and resolves the pending approval", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
@@ -189,36 +197,55 @@ describe("session websocket route", () => {
       toolName: "execute_bash",
       description: "Run command",
     });
-    const required = harness.container.realtimeEvents
+    const approvalRequired = harness.container.realtimeEvents
       .getHistory("ws-approval-session")
-      .find((event) => event.type === "user.approval_required");
-    const requiredData = required?.data && typeof required.data === "object"
-      ? required.data as Record<string, unknown>
-      : {};
-    const approvalId = typeof requiredData.approval_id === "string" ? requiredData.approval_id : "";
+      .find(
+        (event) =>
+          event.type === "interaction" &&
+          (event.payload as { kind?: string; phase?: string }).kind === "approval" &&
+          (event.payload as { phase?: string }).phase === "required",
+      );
+    const approvalId = approvalRequired?.call_id as string;
     expect(approvalId).toBeTruthy();
 
     const client = await connectWs(app, "/api/agent/sessions/ws-approval-session/ws");
     try {
+      // 上行改为 ClientToServerEnvelope：interaction(approval, responded)。
       client.ws.send(JSON.stringify({
-        type: "approve",
-        approval_id: approvalId,
-        approved: true,
-        message: "ok",
+        type: "interaction",
+        session_id: "ws-approval-session",
+        call_id: approvalId,
+        payload: {
+          kind: "approval",
+          phase: "responded",
+          approved: true,
+          message: "ok",
+        },
       }));
+
+      // respondApproval 同步发出 interaction(approval, responded) 事件（经 outbox→realtime→subscriber
+      // 推回 client），随后 ws 处理器再回 ack。新协议事件与传输确认分离，故两条都到达 client。
+      const responded = await client.receiveJson();
+      expect(responded).toMatchObject({
+        type: "interaction",
+        session_id: "ws-approval-session",
+        call_id: approvalId,
+        payload: {
+          kind: "approval",
+          phase: "responded",
+          approved: true,
+          message: "ok",
+        },
+      });
 
       const ack = await client.receiveJson();
       expect(ack).toMatchObject({
-        type: "user.approval_granted",
+        type: "ack",
         session_id: "ws-approval-session",
-        approval_id: approvalId,
-        stream_seq: 1,
-        event_seq: 3,
-        event_id: expect.any(String),
-        data: {
-          approval_id: approvalId,
-          approved: true,
-          message: "ok",
+        payload: {
+          category: "interaction",
+          ok: true,
+          ref_call_id: approvalId,
         },
       });
       expect(await approvalPromise).toMatchObject({
@@ -231,16 +258,15 @@ describe("session websocket route", () => {
           .listOutboxForReplay({ sessionId: "ws-approval-session" })
           .map((row) => row.event_type),
       ).toEqual([
-        "client.interaction.required",
-        "client.user.approval_required",
-        "client.user.approval_granted",
+        "client.interaction",
+        "client.interaction",
       ]);
     } finally {
       client.ws.terminate();
     }
   });
 
-  it("replays durable outbox events with event_seq while preserving transport stream_seq", async () => {
+  it("replays durable outbox events stamped with seq via after_seq cursor", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
     harness.container.conversationStore.createSession("ws-durable-session");
@@ -248,47 +274,46 @@ describe("session websocket route", () => {
       sessionId: "ws-durable-session",
       runId: "run-durable",
       eventId: "event-durable-1",
-      eventType: "run.completed",
+      eventType: "client.run_ended",
       aggregateType: "run",
       aggregateId: "run-durable",
       payload: {
-        final_message_id: "msg-durable",
-        metadata: { run_id: "run-durable" },
+        client_event: {
+          type: "run_ended",
+          session_id: "ws-durable-session",
+          run_id: "run-durable",
+          payload: { status: "completed" },
+        },
       },
     });
 
-    const client = await connectWs(app, "/api/agent/sessions/ws-durable-session/ws?after_event_seq=0");
+    const client = await connectWs(app, "/api/agent/sessions/ws-durable-session/ws?after_seq=0");
     try {
       const reconnectStart = await client.receiveJson();
       const replayed = await client.receiveJson();
       const reconnectEnd = await client.receiveJson();
 
       expect(reconnectStart).toMatchObject({
-        type: "reconnect_start",
+        type: "session.reconnect",
         session_id: "ws-durable-session",
         run_id: "run-durable",
-        replay_count: 1,
-        replay_source: "durable_outbox",
-        stream_seq: 1,
+        payload: { phase: "start", replay_count: 1, replay_source: "durable_outbox" },
       });
+      expect(reconnectStart?.seq).toBeUndefined();
       expect(replayed).toMatchObject({
-        type: "run.end",
+        type: "run_ended",
         session_id: "ws-durable-session",
         run_id: "run-durable",
-        event_id: "event-durable-1",
-        event_seq: 1,
-        stream_seq: 2,
-        data: {
-          status: "completed",
-          final_message_id: "msg-durable",
-        },
+        message_id: "event-durable-1",
+        seq: 1,
+        payload: { status: "completed" },
       });
       expect(reconnectEnd).toMatchObject({
-        type: "reconnect_end",
+        type: "session.reconnect",
         session_id: "ws-durable-session",
-        replay_source: "durable_outbox",
-        stream_seq: 3,
+        payload: { phase: "end", replay_source: "durable_outbox" },
       });
+      expect(reconnectEnd?.seq).toBeUndefined();
     } finally {
       client.ws.terminate();
     }

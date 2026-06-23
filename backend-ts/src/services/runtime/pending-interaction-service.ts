@@ -120,42 +120,20 @@ export class PendingInteractionService {
       this.pendingInputs.set(inputId, entry);
     });
 
-    const payload = {
-      interaction_id: inputId,
-      kind: "user_input",
-      input_id: inputId,
-      tool_call_id: input.toolCallId ?? null,
-      tool_name: "request_user_input",
-      agent_name: input.agentName ?? null,
-      prompt,
-      input_type: inputType,
-      options,
-      extra,
-      run_id: input.runId ?? null,
-      task_id: input.taskId ?? null,
-      request_id: input.requestId ?? null,
-    };
     const interactionEvent: ClientEvent = {
-      type: "interaction.required",
+      type: "interaction",
       session_id: sessionId,
-      data: payload,
-      content: payload,
+      call_id: inputId,
+      ...(input.runId ? { run_id: input.runId } : {}),
+      payload: {
+        kind: "user_input",
+        phase: "required",
+        tool: "request_user_input",
+        prompt,
+        input: { input_type: inputType, options, extra, tool_call_id: input.toolCallId ?? null, agent_name: input.agentName ?? null },
+      },
     };
-    if (input.runId) {
-      interactionEvent.run_id = input.runId;
-    }
     this.publish(sessionId, interactionEvent);
-
-    const legacyEvent: ClientEvent = {
-      type: "user.input_required",
-      session_id: sessionId,
-      data: payload,
-      content: payload,
-    };
-    if (input.runId) {
-      legacyEvent.run_id = input.runId;
-    }
-    this.publish(sessionId, legacyEvent);
 
     return promise;
   }
@@ -206,48 +184,34 @@ export class PendingInteractionService {
       this.pendingApprovals.set(approvalId, entry);
     });
 
-    const payload = {
-      interaction_id: approvalId,
-      kind: "approval",
-      approval_id: approvalId,
-      approval_type: input.approvalType ?? null,
-      tool_call_id: input.toolCallId ?? null,
-      tool_name: input.toolName,
-      agent_name: input.agentName ?? null,
-      arguments: input.arguments ?? {},
-      risk_level: input.riskLevel ?? "unknown",
-      description: input.description ?? "",
-      permission_mode: input.permissionMode ?? null,
-      approval_reason: input.approvalReason ?? "",
-      approval_reason_codes: input.approvalReasonCodes ?? [],
-      approval_secondary_reasons: input.approvalSecondaryReasons ?? [],
-      approval_hook: input.approvalHook ?? {},
-      approved_external_paths: input.approvedExternalPaths ?? [],
-      run_id: input.runId ?? null,
-      task_id: input.taskId ?? null,
-      request_id: input.requestId ?? null,
-    };
     const interactionEvent: ClientEvent = {
-      type: "interaction.required",
+      type: "interaction",
       session_id: sessionId,
-      data: payload,
-      content: payload,
+      call_id: approvalId,
+      ...(input.runId ? { run_id: input.runId } : {}),
+      payload: {
+        kind: "approval",
+        phase: "required",
+        tool: input.toolName,
+        risk_level: (input.riskLevel === "low" || input.riskLevel === "medium" || input.riskLevel === "high" ? input.riskLevel : undefined),
+        prompt: input.description ?? "",
+        input: {
+          approval_id: approvalId,
+          approval_type: input.approvalType ?? null,
+          tool_call_id: input.toolCallId ?? null,
+          agent_name: input.agentName ?? null,
+          arguments: input.arguments ?? {},
+          permission_mode: input.permissionMode ?? null,
+          approval_reason: input.approvalReason ?? "",
+          approval_reason_codes: input.approvalReasonCodes ?? [],
+          approval_secondary_reasons: input.approvalSecondaryReasons ?? [],
+          approval_hook: input.approvalHook ?? {},
+          approved_external_paths: input.approvedExternalPaths ?? [],
+        },
+        message: input.approvalReason ?? "",
+      },
     };
-    if (input.runId) {
-      interactionEvent.run_id = input.runId;
-    }
     this.publish(sessionId, interactionEvent);
-
-    const legacyEvent: ClientEvent = {
-      type: "user.approval_required",
-      session_id: sessionId,
-      data: payload,
-      content: payload,
-    };
-    if (input.runId) {
-      legacyEvent.run_id = input.runId;
-    }
-    this.publish(sessionId, legacyEvent);
 
     return promise;
   }
@@ -339,26 +303,18 @@ export class PendingInteractionService {
   }
 
   private publishApprovalResolution(entry: PendingApprovalEntry, payload: { approved: boolean; message: string }): void {
-    const eventPayload = {
-      interaction_id: entry.approvalId,
-      kind: "approval",
-      approval_id: entry.approvalId,
-      approved: payload.approved,
-      message: payload.message,
-      ...(entry.runId ? { run_id: entry.runId } : {}),
-      ...(entry.taskId ? { task_id: entry.taskId } : {}),
-      ...(entry.requestId ? { request_id: entry.requestId } : {}),
-    };
     const event: ClientEvent = {
-      type: payload.approved ? "user.approval_granted" : "user.approval_denied",
+      type: "interaction",
       session_id: entry.sessionId,
-      approval_id: entry.approvalId,
-      data: eventPayload,
-      content: eventPayload,
+      call_id: entry.approvalId,
+      ...(entry.runId ? { run_id: entry.runId } : {}),
+      payload: {
+        kind: "approval",
+        phase: "responded",
+        approved: payload.approved,
+        message: payload.message,
+      },
     };
-    if (entry.runId) {
-      event.run_id = entry.runId;
-    }
     this.publish(entry.sessionId, event);
   }
 }

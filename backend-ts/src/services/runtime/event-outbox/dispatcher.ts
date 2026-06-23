@@ -1,7 +1,7 @@
-import type { ClientEvent } from "../../../contracts/events.js";
+import type { Envelope } from "../../../contracts/events.js";
 import type { IOutboxStore, OutboxRow } from "../../../contracts/conversation-store/index.js";
 import type { RealtimeEventHub } from "../realtime-event-hub.js";
-import { ClientEventProjector } from "./projector.js";
+import { EnvelopeProjector } from "./projector.js";
 
 export interface OutboxDispatcherMetrics {
   projected: number;
@@ -37,7 +37,7 @@ export class OutboxDispatcher {
   constructor(
     private readonly conversationStore: IOutboxStore,
     private readonly realtimeEvents: RealtimeEventHub,
-    private readonly projector = new ClientEventProjector(),
+    private readonly projector = new EnvelopeProjector(),
     options: OutboxDispatcherOptions = {},
   ) {
     this.maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 5));
@@ -65,7 +65,7 @@ export class OutboxDispatcher {
     this.timer = null;
   }
 
-  pollOnce(limit = 100): ClientEvent[] {
+  pollOnce(limit = 100): Envelope[] {
     const rows = this.conversationStore.claimPendingOutbox({
       limit,
       lockTimeoutMs: this.lockTimeoutMs,
@@ -74,12 +74,12 @@ export class OutboxDispatcher {
     return this.dispatchRows(rows);
   }
 
-  dispatchRows(rows: OutboxRow[]): ClientEvent[] {
-    const projected: ClientEvent[] = [];
+  dispatchRows(rows: OutboxRow[]): Envelope[] {
+    const projected: Envelope[] = [];
 
     for (const row of [...rows].sort((left, right) => left.id - right.id)) {
       try {
-        const event = this.projector.toClientEvent(row);
+        const event = this.projector.toEnvelope(row);
         projected.push(event);
         this.metrics.projected += 1;
         this.realtimeEvents.publish(row.session_id, event);

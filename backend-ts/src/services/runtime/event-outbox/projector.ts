@@ -1,142 +1,35 @@
-import type { ClientEvent } from "../../../contracts/events.js";
+import type { Envelope } from "../../../contracts/events.js";
 import type { OutboxRow } from "../../../contracts/conversation-store/index.js";
 
-export class ClientEventProjector {
-  toClientEvent(row: OutboxRow): ClientEvent {
+/**
+ * Outbox 行 → Envelope 还原器。
+ *
+ * 所有产出方（实时 event-publisher + 终态 recorder）一律写 `client.{envelope_type}` 行，
+ * payload.client_event 存完整 Envelope。还原时以持久化权威值（row.event_id / row.session_seq）
+ * 盖 message_id / seq——它们是去重键与连续性游标，须以落库序为准，不信任产出方临时值。
+ */
+export class EnvelopeProjector {
+  toEnvelope(row: OutboxRow): Envelope {
     const payload = parsePayload(row);
-    const base = {
+    const event = asEnvelope(payload.client_event);
+    return {
+      ...event,
       session_id: row.session_id,
       ...(row.run_id ? { run_id: row.run_id } : {}),
-      event_id: row.event_id,
-      event_seq: row.session_seq,
+      message_id: row.event_id,
+      seq: row.session_seq,
     };
-
-    if (row.event_type.startsWith("client.")) {
-      return {
-        ...asClientEvent(payload.client_event),
-        ...base,
-      };
-    }
-
-    switch (row.event_type) {
-      case "execution.step_recorded": {
-        const step = asRecord(payload.step);
-        return {
-          type: "execution.step",
-          ...base,
-          data: step,
-        };
-      }
-      case "run.final_answer_recorded": {
-        const data = {
-          content: payload.content,
-          metadata: asRecord(payload.metadata),
-        };
-        return {
-          type: "output.final_answer",
-          ...base,
-          data: data,
-        };
-      }
-      case "agent.call_finished": {
-        const data = {
-          agent_name: asString(payload.agent_name),
-          result: asString(payload.result) ?? "",
-          success: Boolean(payload.success),
-          agent_display_name: asString(payload.agent_display_name) ?? asString(payload.agent_name),
-          run_id: row.run_id,
-          task_id: asString(payload.task_id),
-          request_id: asString(payload.request_id),
-        };
-        return {
-          type: "call.agent.end",
-          ...base,
-          agent_name: data.agent_name,
-          call_id: asString(payload.call_id),
-          data: data,
-        };
-      }
-      case "message.saved": {
-        const data = {
-          id: asString(payload.message_id),
-          seq: asNumber(payload.seq),
-          role: asString(payload.role),
-          run_id: row.run_id,
-          task_id: asString(payload.task_id),
-          request_id: asString(payload.request_id),
-        };
-        return {
-          type: "output.message_saved",
-          ...base,
-          data: data,
-        };
-      }
-      case "run.completed": {
-        const data = {
-          status: "completed",
-          final_message_id: asString(payload.final_message_id),
-          metadata: asRecord(payload.metadata),
-        };
-        return {
-          type: "run.end",
-          ...base,
-          data: data,
-        };
-      }
-      case "run.error_reported": {
-        const data = {
-          agent_name: asString(payload.agent_name),
-          error: asString(payload.error) ?? "",
-          error_type: asString(payload.error_type) ?? "ExecutionError",
-          content: asString(payload.error) ?? "",
-          run_id: row.run_id,
-          task_id: asString(payload.task_id),
-          request_id: asString(payload.request_id),
-        };
-        return {
-          type: "agent.error",
-          ...base,
-          agent_name: data.agent_name,
-          call_id: asString(payload.call_id),
-          error: data.error,
-          data: data,
-        };
-      }
-      case "run.failed":
-      case "run.interrupted": {
-        const data = {
-          status: asString(payload.status) ?? (row.event_type === "run.interrupted" ? "interrupted" : "failed"),
-          error: asString(payload.error) ?? "",
-          metadata: asRecord(payload.metadata),
-        };
-        return {
-          type: "run.end",
-          ...base,
-          data: data,
-        };
-      }
-      default:
-        throw new Error(`Unsupported outbox event type: ${row.event_type}`);
-    }
   }
 }
 
-function asClientEvent(value: unknown): ClientEvent {
+function asEnvelope(value: unknown): Envelope {
   const event = asRecord(value);
   const type = asString(event.type);
   if (!type) {
     throw new Error("client event payload is missing type");
   }
-  const {
-    stream_seq: _streamSeq,
-    event_id: _eventId,
-    event_seq: _eventSeq,
-    ...rest
-  } = event;
-  return {
-    ...rest,
-    type,
-  };
+  const { message_id: _messageId, seq: _seq, ...rest } = event;
+  return { ...rest, type } as Envelope;
 }
 
 function parsePayload(row: OutboxRow): Record<string, unknown> {
@@ -148,13 +41,9 @@ function parsePayload(row: OutboxRow): Record<string, unknown> {
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
-}
-
-function asNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }

@@ -1,3 +1,4 @@
+import type { Envelope } from "../../../contracts/events.js";
 import type { MessageInfo } from "../../../contracts/session.js";
 import type { IConversationTransactionRunner, OutboxRow, RunStepRecord } from "../../../contracts/conversation-store/index.js";
 
@@ -19,6 +20,7 @@ export interface RunCompletedRecordInput {
     content: string;
     metadata: Record<string, unknown>;
   };
+  /** run_step 表（API 契约）的最终答案 step 与 run 结束 step；不进 WS 事件流。 */
   finalStepPayload: Record<string, unknown>;
   runEndStepPayload: Record<string, unknown>;
   finalMetadata: Record<string, unknown>;
@@ -48,6 +50,13 @@ export interface RunTerminalRecord {
   outboxRows: OutboxRow[];
 }
 
+/**
+ * run 终态落库：addMessage + addRunStep（API 契约，旧 execution.step 结构）+ appendOutbox（新 envelope）。
+ *
+ * outbox 产出新协议 envelope（stream_output(final) / state_sync(message_saved) / agent_ended / run_ended），
+ * 与实时 event-publisher 走同一条 `client.{type}` 路径，projector 单分支还原。
+ * child run 的 agent_ended 由 delegation publishAgentCallEnd 独占，此处 outbox 为空，仅落库 + run_step。
+ */
 export class ExecutionRecorder {
   constructor(private readonly conversationStore: IConversationTransactionRunner) {}
 
@@ -81,94 +90,39 @@ export class ExecutionRecorder {
       tx.updateRunStepsMessageId(input.sessionId, input.runId, message.id);
       tx.updateRunStatus(input.runId, input.sessionId, "completed", message.id);
 
-      const common = commonEventData(input);
-      const outboxRows = [
-        tx.appendOutbox({
-          sessionId: input.sessionId,
-          runId: input.runId,
-          eventType: "execution.step_recorded",
-          aggregateType: "run",
-          aggregateId: input.runId,
-          payload: { ...common, step: input.finalStepPayload },
-        }),
-        ...(input.childAgentId
-          ? []
-          : [
-              tx.appendOutbox({
-                sessionId: input.sessionId,
-                runId: input.runId,
-                eventType: "run.final_answer_recorded",
-                aggregateType: "message",
-                aggregateId: message.id,
-                payload: {
-                  ...common,
-                  message_id: message.id,
-                  content: message.content,
-                  metadata: input.finalMetadata,
-                },
-              }),
-            ]),
-        // child run 的 call.agent.end 由 delegation 的 publishAgentCallEnd 独占（带 child_agent_id/mode），
-        // recorder 的 agent.call_finished 仅 root 发，避免重复。
-        ...(input.childAgentId
-          ? []
-          : [
-              tx.appendOutbox({
-                sessionId: input.sessionId,
-                runId: input.runId,
-                eventType: "agent.call_finished",
-                aggregateType: "run",
-                aggregateId: input.runId,
-                payload: {
-                  ...common,
-                  call_id: input.rootCallId,
-                  result: message.content.slice(0, 500),
-                  success: true,
-                },
-              }),
-            ]),
-        tx.appendOutbox({
-          sessionId: input.sessionId,
-          runId: input.runId,
-          eventType: "execution.step_recorded",
-          aggregateType: "run",
-          aggregateId: input.runId,
-          payload: { ...common, step: input.runEndStepPayload },
-        }),
-        ...(input.childAgentId
-          ? []
-          : [
-              tx.appendOutbox({
-                sessionId: input.sessionId,
-                runId: input.runId,
-                eventType: "message.saved",
-                aggregateType: "message",
-                aggregateId: message.id,
-                payload: {
-                  ...common,
-                  message_id: message.id,
-                  seq: message.seq,
-                  role: message.role,
-                },
-              }),
-            ]),
-        ...(input.childAgentId
-          ? []
-          : [
-              tx.appendOutbox({
-                sessionId: input.sessionId,
-                runId: input.runId,
-                eventType: "run.completed",
-                aggregateType: "run",
-                aggregateId: input.runId,
-                payload: {
-                  ...common,
-                  final_message_id: message.id,
-                  metadata: input.finalMetadata,
-                },
-              }),
-            ]),
-      ];
+      const outboxRows: OutboxRow[] = [];
+      if (!input.childAgentId) {
+        outboxRows.push(
+          this.appendEnvelope(tx, input, {
+            type: "stream_output",
+            session_id: input.sessionId,
+            run_id: input.runId,
+            call_id: input.rootCallId,
+            agent_id: input.agentName,
+            payload: { phase: "final", content: message.content },
+          }),
+          this.appendEnvelope(tx, input, {
+            type: "state_sync",
+            session_id: input.sessionId,
+            run_id: input.runId,
+            payload: { category: "message_saved", ref: { message_id: message.id, seq: message.seq } },
+          }),
+          this.appendEnvelope(tx, input, {
+            type: "agent_ended",
+            session_id: input.sessionId,
+            run_id: input.runId,
+            call_id: input.rootCallId,
+            agent_id: input.agentName,
+            payload: { phase: "end", result: message.content.slice(0, 500), success: true },
+          }),
+          this.appendEnvelope(tx, input, {
+            type: "run_ended",
+            session_id: input.sessionId,
+            run_id: input.runId,
+            payload: { status: "completed" },
+          }),
+        );
+      }
 
       return { message, steps: [finalStep, runEndStep], outboxRows };
     });
@@ -199,85 +153,42 @@ export class ExecutionRecorder {
         payload: input.runEndStepPayload,
       });
 
-      const common = commonEventData(input);
-      const outboxRows = [
-        ...(input.childAgentId
-          ? []
-          : [
-              tx.appendOutbox({
-                sessionId: input.sessionId,
-                runId: input.runId,
-                eventType: "agent.call_finished",
-                aggregateType: "run",
-                aggregateId: input.runId,
-                payload: {
-                  ...common,
-                  call_id: input.rootCallId,
-                  result: input.agentResult.slice(0, 500),
-                  success: false,
-                },
-              }),
-            ]),
-        tx.appendOutbox({
-          sessionId: input.sessionId,
-          runId: input.runId,
-          eventType: "execution.step_recorded",
-          aggregateType: "run",
-          aggregateId: input.runId,
-          payload: { ...common, step: input.runEndStepPayload },
-        }),
-        ...(input.childAgentId
-          ? []
-          : [
-              tx.appendOutbox({
-                sessionId: input.sessionId,
-                runId: input.runId,
-                eventType: "run.error_reported",
-                aggregateType: "run",
-                aggregateId: input.runId,
-                payload: {
-                  ...common,
-                  call_id: input.rootCallId,
-                  error: input.errorMessage,
-                  error_type: input.errorType,
-                },
-              }),
-              tx.appendOutbox({
-                sessionId: input.sessionId,
-                runId: input.runId,
-                eventType: input.status === "interrupted" ? "run.interrupted" : "run.failed",
-                aggregateType: "run",
-                aggregateId: input.runId,
-                payload: {
-                  ...common,
-                  status: input.status,
-                  error: input.errorMessage,
-                  metadata: input.finalMetadata,
-                  ...(message ? { final_message_id: message.id } : {}),
-                },
-              }),
-            ]),
-      ];
+      const outboxRows: OutboxRow[] = [];
+      if (!input.childAgentId) {
+        outboxRows.push(
+          this.appendEnvelope(tx, input, {
+            type: "agent_ended",
+            session_id: input.sessionId,
+            run_id: input.runId,
+            call_id: input.rootCallId,
+            agent_id: input.agentName,
+            payload: { phase: "end", result: input.agentResult.slice(0, 500), success: false },
+          }),
+          this.appendEnvelope(tx, input, {
+            type: "run_ended",
+            session_id: input.sessionId,
+            run_id: input.runId,
+            payload: { status: input.status, reason: input.errorMessage },
+          }),
+        );
+      }
 
       return { message, steps: [runEndStep], outboxRows };
     });
   }
-}
 
-function commonEventData(input: {
-  sessionId: string;
-  runId: string;
-  taskId: string;
-  requestId: string;
-  agentName: string;
-  agentDisplayName: string;
-}): Record<string, unknown> {
-  return {
-    session_id: input.sessionId,
-    run_id: input.runId,
-    task_id: input.taskId,
-    request_id: input.requestId,
-    agent_name: input.agentName,
-    agent_display_name: input.agentDisplayName,
-  };
+  private appendEnvelope(
+    tx: Parameters<Parameters<IConversationTransactionRunner["runInTransaction"]>[0]>[0],
+    input: { sessionId: string; runId: string },
+    envelope: Envelope,
+  ): OutboxRow {
+    return tx.appendOutbox({
+      sessionId: input.sessionId,
+      runId: input.runId,
+      eventType: `client.${envelope.type}`,
+      aggregateType: "run",
+      aggregateId: input.runId,
+      payload: { client_event: envelope },
+    });
+  }
 }

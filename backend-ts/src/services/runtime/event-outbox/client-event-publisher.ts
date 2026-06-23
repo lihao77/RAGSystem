@@ -1,4 +1,4 @@
-import type { ClientEvent } from "../../../contracts/events.js";
+import type { Envelope } from "../../../contracts/events.js";
 import type {
   AppendOutboxInput,
   ConversationStoreTransaction,
@@ -15,12 +15,12 @@ export interface ClientEventPublishOptions {
 }
 
 export interface ClientEventPublisher {
-  publish(sessionId: string, event: ClientEvent, options?: ClientEventPublishOptions): void;
+  publish(sessionId: string, event: Envelope, options?: ClientEventPublishOptions): void;
 }
 
 export interface RecordedClientEvent {
   sessionId: string;
-  event: ClientEvent;
+  event: Envelope;
   row: OutboxRow;
 }
 
@@ -30,7 +30,7 @@ export class DurableClientEventPublisher {
     private readonly outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">,
   ) {}
 
-  publish(sessionId: string, event: ClientEvent, options: ClientEventPublishOptions = {}): OutboxRow {
+  publish(sessionId: string, event: Envelope, options: ClientEventPublishOptions = {}): OutboxRow {
     const row = this.conversationStore.appendOutbox(this.toOutboxInput(sessionId, event, options));
     this.deliver([{ sessionId, event, row }]);
     return row;
@@ -39,7 +39,7 @@ export class DurableClientEventPublisher {
   recordInTransaction(
     tx: ConversationStoreTransaction,
     sessionId: string,
-    event: ClientEvent,
+    event: Envelope,
     options: ClientEventPublishOptions = {},
   ): RecordedClientEvent {
     const row = tx.appendOutbox(this.toOutboxInput(sessionId, event, options));
@@ -53,7 +53,7 @@ export class DurableClientEventPublisher {
     this.outboxDispatcher.dispatchRows(records.map((record) => record.row));
   }
 
-  private toOutboxInput(sessionId: string, event: ClientEvent, options: ClientEventPublishOptions): AppendOutboxInput {
+  private toOutboxInput(sessionId: string, event: Envelope, options: ClientEventPublishOptions): AppendOutboxInput {
     const runId = options.runId ?? event.run_id ?? null;
     return {
       sessionId,
@@ -62,18 +62,8 @@ export class DurableClientEventPublisher {
       aggregateType: options.aggregateType ?? (runId ? "run" : "session"),
       aggregateId: options.aggregateId ?? runId ?? sessionId,
       payload: {
-        client_event: sanitizeClientEvent(event),
+        client_event: event,
       },
     };
   }
-}
-
-function sanitizeClientEvent(event: ClientEvent): ClientEvent {
-  const {
-    stream_seq: _streamSeq,
-    event_id: _eventId,
-    event_seq: _eventSeq,
-    ...rest
-  } = event;
-  return { ...rest };
 }

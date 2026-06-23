@@ -26,8 +26,8 @@ describe("interaction response routes", () => {
     });
     const approvalRequired = harness.container.realtimeEvents
       .getHistory("approval-route-session")
-      .find((event) => event.type === "user.approval_required");
-    const approvalId = (approvalRequired?.data as { approval_id: string }).approval_id;
+      .find((event) => event.type === "interaction");
+    const approvalId = approvalRequired?.call_id;
 
     const responded = await app.inject({
       method: "POST",
@@ -60,10 +60,6 @@ describe("interaction response routes", () => {
       harness.container.conversationStore
         .listOutboxForReplay({ sessionId: "approval-route-session" })
         .map((row) => row.event_type),
-    ).toEqual([
-      "client.interaction.required",
-      "client.user.approval_required",
-      "client.user.approval_granted",
-    ]);
+    ).toEqual(["client.interaction", "client.interaction"]);
   });
 });

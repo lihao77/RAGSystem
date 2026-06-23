@@ -24,8 +24,6 @@ import {
   asString,
   buildFinalStepPayload,
   buildRunEndStepPayload,
-  buildRunStartPayload,
-  buildRunStartStepPayload,
   buildToolContext,
   buildRunningExecutionStatus,
   renderBackgroundNotification,
@@ -131,47 +129,24 @@ export class AgentRunEngine {
       };
     }
 
-    const runStartPayload = {
-      ...buildRunStartPayload({
-        runId,
-        taskId,
-        requestId: input.requestId,
-        agent: input.agent,
-        executionKind: input.executionKind,
-      }),
-      ...(input.runStartExtra ?? {}),
-    };
-    const startStepPayload = {
-      ...buildRunStartStepPayload({
-        rootCallId,
-        runId,
-        taskId,
-        requestId: input.requestId,
-        agent: input.agent,
-        description: input.task,
-        executionKind: input.executionKind,
-      }),
-      ...(input.startStepExtra ?? {}),
-    };
-
-    this.eventPublisher.publishSessionRunStarted(input.sessionId, runId, runStartPayload);
+    this.eventPublisher.publishRunStarted(input.sessionId, runId, {
+      request_id: input.requestId,
+      task: input.task,
+    });
     if (userMessageSavedPayload) {
       this.eventPublisher.publishOutputMessageSaved(input.sessionId, runId, {
-        ...userMessageSavedPayload,
-        run_id: runId,
-        task_id: taskId,
-        request_id: input.requestId,
-        execution_kind: input.executionKind,
+        message_id: typeof userMessageSavedPayload.id === "string" ? userMessageSavedPayload.id : "",
+        ...(typeof userMessageSavedPayload.seq === "number" ? { seq: userMessageSavedPayload.seq } : {}),
+        ...(typeof userMessageSavedPayload.role === "string" ? { role: userMessageSavedPayload.role } : {}),
       });
     }
-    this.eventPublisher.publishRunStartStep(input.sessionId, runId, startStepPayload);
-    this.eventPublisher.publishRunStart(input.sessionId, runId, runStartPayload);
     this.eventPublisher.publishRootAgentStart({
       sessionId: input.sessionId,
       runId,
       taskId,
       requestId: input.requestId,
       rootCallId,
+      parentCallId: null,
       agent: input.agent,
       task: input.task,
       threadKey: "root",
@@ -289,6 +264,7 @@ export class AgentRunEngine {
     // parent_run_id/child_agent_id 指向父。执行链路据此统一落库，无 root/child 分支。
     threadKey: string;
     parentRunId?: string | null;
+    parentCallId?: string | null | undefined;
     childAgentId?: string | null;
     userMessageId?: string | undefined;
     conversationUpdateProvider?: (() => Promise<ChatMessage[]> | ChatMessage[]) | undefined;
@@ -364,11 +340,11 @@ export class AgentRunEngine {
         });
       }
       this.clientEvents.publish(input.sessionId, {
-        type: "context.usage",
+        type: "state_sync",
         session_id: input.sessionId,
         run_id: input.runId,
-        agent_name: input.agent.agent_name,
-        data: contextUsagePayload,
+        agent_id: input.agent.agent_name,
+        payload: { category: "context_usage", detail: contextUsagePayload },
       });
       const eventSink = new RuntimeEventSink((event) => {
         this.eventPublisher.publishRuntimeEvent(input, event);

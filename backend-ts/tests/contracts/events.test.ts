@@ -1,31 +1,58 @@
 import { describe, expect, it } from "vitest";
 
-import { ClientEventTypeSchema, ClientToServerMessageSchema } from "../../src/contracts/events.js";
+import { ClientToServerEnvelopeSchema, EnvelopeTypeSchema } from "../../src/contracts/events.js";
 
-describe("client event contract", () => {
-  it("includes interaction and legacy user input acknowledgement events", () => {
-    expect(ClientEventTypeSchema.safeParse("interaction.required").success).toBe(true);
-    expect(ClientEventTypeSchema.safeParse("interaction.ack").success).toBe(true);
-    expect(ClientEventTypeSchema.safeParse("interaction.error").success).toBe(true);
-    expect(ClientEventTypeSchema.safeParse("user.approval_granted").success).toBe(true);
-    expect(ClientEventTypeSchema.safeParse("user.approval_denied").success).toBe(true);
-    expect(ClientEventTypeSchema.safeParse("user_input.ack").success).toBe(true);
-    expect(ClientEventTypeSchema.safeParse("user_input.error").success).toBe(true);
+describe("envelope contract", () => {
+  it("includes core protocol types", () => {
+    expect(EnvelopeTypeSchema.safeParse("run_started").success).toBe(true);
+    expect(EnvelopeTypeSchema.safeParse("run_ended").success).toBe(true);
+    expect(EnvelopeTypeSchema.safeParse("agent_started").success).toBe(true);
+    expect(EnvelopeTypeSchema.safeParse("agent_ended").success).toBe(true);
+    expect(EnvelopeTypeSchema.safeParse("tool_call").success).toBe(true);
+    expect(EnvelopeTypeSchema.safeParse("tool_result").success).toBe(true);
+    expect(EnvelopeTypeSchema.safeParse("stream_output").success).toBe(true);
+    expect(EnvelopeTypeSchema.safeParse("interaction").success).toBe(true);
+    expect(EnvelopeTypeSchema.safeParse("state_sync").success).toBe(true);
+    expect(EnvelopeTypeSchema.safeParse("ack").success).toBe(true);
+    expect(EnvelopeTypeSchema.safeParse("abort").success).toBe(true);
   });
 
-  it("accepts generic interaction response client messages", () => {
+  it("parses uplink user_driven_change", () => {
     expect(
-      ClientToServerMessageSchema.parse({
-        type: "interaction.respond",
-        interaction_id: "input-1",
-        kind: "user_input",
-        value: "session",
+      ClientToServerEnvelopeSchema.parse({
+        type: "user_driven_change",
+        session_id: "s1",
+        payload: { category: "task_submit", task: "hi" },
       }),
     ).toMatchObject({
-      type: "interaction.respond",
-      interaction_id: "input-1",
-      kind: "user_input",
-      value: "session",
+      type: "user_driven_change",
+      session_id: "s1",
+      payload: { category: "task_submit", task: "hi", attachments: [] },
     });
+  });
+
+  it("parses uplink interaction responded", () => {
+    expect(
+      ClientToServerEnvelopeSchema.parse({
+        type: "interaction",
+        session_id: "s1",
+        call_id: "approval-1",
+        payload: { kind: "approval", phase: "responded", approved: true, message: "ok" },
+      }),
+    ).toMatchObject({
+      type: "interaction",
+      call_id: "approval-1",
+      payload: { kind: "approval", phase: "responded", approved: true },
+    });
+  });
+
+  it("parses uplink abort", () => {
+    expect(
+      ClientToServerEnvelopeSchema.parse({
+        type: "abort",
+        session_id: "s1",
+        payload: { scope: "run" },
+      }),
+    ).toMatchObject({ type: "abort", payload: { scope: "run" } });
   });
 });

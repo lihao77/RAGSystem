@@ -1446,27 +1446,36 @@ describe("RuntimeToolBridge", () => {
       ),
     );
 
-    const approvalRequired = realtimeEvents.getHistory("s1").find((event) => event.type === "interaction.required");
-    expect(approvalRequired?.data).toMatchObject({
-      interaction_id: expect.any(String),
+    const approvalRequired = realtimeEvents.getHistory("s1").find(
+      (event) =>
+        event.type === "interaction" &&
+        (event.payload as { kind?: string; phase?: string }).kind === "approval" &&
+        (event.payload as { phase?: string }).phase === "required",
+    );
+    expect(approvalRequired?.payload).toMatchObject({
       kind: "approval",
-      approval_id: expect.any(String),
-      approval_type: "tool_execution",
-      tool_call_id: "read-external-call",
-      tool_name: "read_file",
+      phase: "required",
+      tool: "read_file",
       risk_level: "low",
-      permission_mode: "standard",
-      approval_reason: "路径越界访问需要审批",
-      approval_reason_codes: ["ask-path"],
-      approved_external_paths: [externalFile],
-      arguments: {
-        file_path: externalFile,
+      message: "路径越界访问需要审批",
+      input: {
+        approval_id: expect.any(String),
+        approval_type: "tool_execution",
+        tool_call_id: "read-external-call",
+        agent_name: expect.any(String),
+        permission_mode: "standard",
+        approval_reason: "路径越界访问需要审批",
+        approval_reason_codes: ["ask-path"],
+        approved_external_paths: [externalFile],
+        arguments: {
+          file_path: externalFile,
+        },
       },
     });
 
-    const approvalId = (approvalRequired?.data as { approval_id: string }).approval_id;
+    const approvalId = approvalRequired?.call_id;
     expect(
-      pendingInteractions.respondInteraction("s1", approvalId, {
+      pendingInteractions.respondInteraction("s1", approvalId as string, {
         kind: "approval",
         approved: true,
         message: "允许读取外部文件",
@@ -1554,28 +1563,37 @@ describe("RuntimeToolBridge", () => {
       ),
     );
 
-    const approvalRequired = realtimeEvents.getHistory("s1").find((event) => event.type === "interaction.required");
-    expect(approvalRequired?.data).toMatchObject({
-      interaction_id: expect.any(String),
+    const approvalRequired = realtimeEvents.getHistory("s1").find(
+      (event) =>
+        event.type === "interaction" &&
+        (event.payload as { kind?: string; phase?: string }).kind === "approval" &&
+        (event.payload as { phase?: string }).phase === "required",
+    );
+    expect(approvalRequired?.payload).toMatchObject({
       kind: "approval",
-      approval_id: expect.any(String),
-      approval_type: "bash_command",
-      tool_call_id: "bash-external-call",
-      tool_name: "execute_bash",
+      phase: "required",
+      tool: "execute_bash",
       risk_level: "low",
-      approval_reason: "路径越界访问需要审批",
-      approval_reason_codes: ["ask-path"],
-      approved_external_paths: [externalRoot],
-      arguments: expect.objectContaining({
-        command: "echo external-ok",
-        working_dir: externalRoot,
-        classification: "read_only",
-      }),
+      message: "路径越界访问需要审批",
+      input: {
+        approval_id: expect.any(String),
+        approval_type: "bash_command",
+        tool_call_id: "bash-external-call",
+        agent_name: expect.any(String),
+        approval_reason: "路径越界访问需要审批",
+        approval_reason_codes: ["ask-path"],
+        approved_external_paths: [externalRoot],
+        arguments: expect.objectContaining({
+          command: "echo external-ok",
+          working_dir: externalRoot,
+          classification: "read_only",
+        }),
+      },
     });
 
-    const approvalId = (approvalRequired?.data as { approval_id: string }).approval_id;
+    const approvalId = approvalRequired?.call_id;
     expect(
-      pendingInteractions.respondInteraction("s1", approvalId, {
+      pendingInteractions.respondInteraction("s1", approvalId as string, {
         kind: "approval",
         approved: true,
         message: "允许外部工作目录",
@@ -1955,22 +1973,35 @@ describe("RuntimeToolBridge", () => {
     });
 
     const backgroundTaskId = (started.content as { background_task_id: string }).background_task_id;
-    await waitFor(() => realtimeEvents.getHistory("s1").some((event) => event.type === "background.task.completed"));
+    await waitFor(() =>
+      realtimeEvents
+        .getHistory("s1")
+        .some(
+          (event) =>
+            event.type === "state_sync" &&
+            (event.payload as { category?: string; detail?: { kind?: string } }).category === "command_result" &&
+            (event.payload as { detail?: { kind?: string } }).detail?.kind === "background_task",
+        ),
+    );
 
     expect(realtimeEvents.getHistory("s1")).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          type: "background.task.completed",
+          type: "state_sync",
           session_id: "s1",
           run_id: "run-bg-1",
-          data: expect.objectContaining({
-            background_task_id: backgroundTaskId,
-            status: "completed",
-            return_code: 0,
-            success: true,
-            owner_task_id: "owner-task-1",
-            result_type: "bash_output",
-          }),
+          payload: {
+            category: "command_result",
+            detail: expect.objectContaining({
+              kind: "background_task",
+              background_task_id: backgroundTaskId,
+              status: "completed",
+              return_code: 0,
+              success: true,
+              owner_task_id: "owner-task-1",
+              result_type: "bash_output",
+            }),
+          },
         }),
       ]),
     );
@@ -1981,7 +2012,7 @@ describe("RuntimeToolBridge", () => {
         sessionSeq: row.session_seq,
       })),
     ).toEqual([
-      { eventType: "client.background.task.completed", status: "delivered", sessionSeq: 1 },
+      { eventType: "client.state_sync", status: "delivered", sessionSeq: 1 },
     ]);
 
     await expect(
@@ -2127,14 +2158,18 @@ describe("RuntimeToolBridge", () => {
       () =>
         realtimeEvents.getHistory("s1").some(
           (event) =>
-            event.type === "background.task.completed" &&
-            (event.data as { background_task_id?: string } | undefined)?.background_task_id === backgroundTaskId,
+            event.type === "state_sync" &&
+            (event.payload as { category?: string; detail?: { kind?: string; background_task_id?: string } })
+              .category === "command_result" &&
+            (event.payload as { detail?: { kind?: string } }).detail?.kind === "background_task" &&
+            (event.payload as { detail?: { background_task_id?: string } }).detail?.background_task_id ===
+              backgroundTaskId,
         ),
       5000,
     );
     expect(store.listOutboxForReplay({ sessionId: "s1" })).toEqual([
       expect.objectContaining({
-        event_type: "client.background.task.completed",
+        event_type: "client.state_sync",
         status: "delivered",
       }),
     ]);
@@ -2207,26 +2242,35 @@ describe("RuntimeToolBridge", () => {
       ),
     );
 
-    const approvalRequired = realtimeEvents.getHistory("s1").find((event) => event.type === "interaction.required");
-    expect(approvalRequired?.data).toMatchObject({
-      interaction_id: expect.any(String),
+    const approvalRequired = realtimeEvents.getHistory("s1").find(
+      (event) =>
+        event.type === "interaction" &&
+        (event.payload as { kind?: string; phase?: string }).kind === "approval" &&
+        (event.payload as { phase?: string }).phase === "required",
+    );
+    expect(approvalRequired?.payload).toMatchObject({
       kind: "approval",
-      approval_id: expect.any(String),
-      approval_type: "bash_command",
-      tool_call_id: "bash-approval-call",
-      tool_name: "execute_bash",
+      phase: "required",
+      tool: "execute_bash",
       risk_level: "medium",
-      approval_reason: "当前策略要求人工审批",
-      arguments: expect.objectContaining({
-        command: "mkdir created_dir",
-        command_segments: ["mkdir"],
-        classification: "write",
-      }),
+      message: "当前策略要求人工审批",
+      input: {
+        approval_id: expect.any(String),
+        approval_type: "bash_command",
+        tool_call_id: "bash-approval-call",
+        agent_name: expect.any(String),
+        approval_reason: "当前策略要求人工审批",
+        arguments: expect.objectContaining({
+          command: "mkdir created_dir",
+          command_segments: ["mkdir"],
+          classification: "write",
+        }),
+      },
     });
 
-    const approvalId = (approvalRequired?.data as { approval_id: string }).approval_id;
+    const approvalId = approvalRequired?.call_id;
     expect(
-      pendingInteractions.respondInteraction("s1", approvalId, {
+      pendingInteractions.respondInteraction("s1", approvalId as string, {
         kind: "approval",
         approved: true,
         message: "允许创建目录",
@@ -2423,38 +2467,40 @@ describe("RuntimeToolBridge", () => {
       ),
     );
 
-    const interactionRequired = realtimeEvents.getHistory("s1").find((event) => event.type === "interaction.required");
-    expect(interactionRequired?.data).toMatchObject({
-      interaction_id: expect.any(String),
-      kind: "user_input",
-      input_id: expect.any(String),
-      tool_call_id: "input-call-1",
-      tool_name: "request_user_input",
-      prompt: "使用哪个 memory scope？",
-      input_type: "select",
-      options: ["session", "workspace"],
+    const interactionRequired = realtimeEvents.getHistory("s1").find(
+      (event) =>
+        event.type === "interaction" &&
+        (event.payload as { kind?: string; phase?: string }).kind === "user_input" &&
+        (event.payload as { phase?: string }).phase === "required",
+    );
+    expect(interactionRequired).toMatchObject({
+      type: "interaction",
+      session_id: "s1",
       run_id: "run-1",
-      task_id: "task-1",
-      request_id: "req-1",
+      call_id: expect.any(String),
+      payload: {
+        kind: "user_input",
+        phase: "required",
+        tool: "request_user_input",
+        prompt: "使用哪个 memory scope？",
+        input: {
+          input_type: "select",
+          options: ["session", "workspace"],
+          tool_call_id: "input-call-1",
+          agent_name: "orchestrator_agent",
+        },
+      },
     });
 
-    const inputRequired = realtimeEvents.getHistory("s1").find((event) => event.type === "user.input_required");
-    expect(inputRequired?.data).toMatchObject({
-      interaction_id: expect.any(String),
-      kind: "user_input",
-      input_id: expect.any(String),
-      tool_call_id: "input-call-1",
-      tool_name: "request_user_input",
-      prompt: "使用哪个 memory scope？",
-      input_type: "select",
-      options: ["session", "workspace"],
-      run_id: "run-1",
-      task_id: "task-1",
-      request_id: "req-1",
-    });
-
-    const inputId = (inputRequired?.data as { input_id: string }).input_id;
-    expect((interactionRequired?.data as { interaction_id: string }).interaction_id).toBe(inputId);
+    const inputId = interactionRequired?.call_id as string;
+    // 新协议下 pending-interaction-service 发单条 interaction（call_id = input id），
+    // 不再双发 interaction.required + user.input_required。
+    expect(
+      realtimeEvents
+        .getHistory("s1")
+        .filter((event) => event.type === "interaction")
+        .filter((event) => (event.payload as { kind?: string }).kind === "user_input"),
+    ).toHaveLength(1);
     expect(bridge.listVisibleToolNames(minimalAgent(["session"]))).toEqual([
       "request_user_input",
       "list_memory_index",
@@ -2510,24 +2556,33 @@ describe("RuntimeToolBridge", () => {
       ),
     );
 
-    const approvalRequired = realtimeEvents.getHistory("s1").find((event) => event.type === "interaction.required");
-    expect(approvalRequired?.data).toMatchObject({
-      interaction_id: expect.any(String),
+    const approvalRequired = realtimeEvents.getHistory("s1").find(
+      (event) =>
+        event.type === "interaction" &&
+        (event.payload as { kind?: string; phase?: string }).kind === "approval" &&
+        (event.payload as { phase?: string }).phase === "required",
+    );
+    expect(approvalRequired?.payload).toMatchObject({
       kind: "approval",
-      approval_id: expect.any(String),
-      approval_type: "tool_execution",
-      tool_call_id: "approval-call-1",
-      tool_name: "list_memory_index",
+      phase: "required",
+      tool: "list_memory_index",
       risk_level: "low",
-      permission_mode: "strict",
-      approval_reason: "严格模式：low 风险工具需要审批",
-      approval_reason_codes: ["ask-risk"],
+      message: "严格模式：low 风险工具需要审批",
+      input: {
+        approval_id: expect.any(String),
+        approval_type: "tool_execution",
+        tool_call_id: "approval-call-1",
+        agent_name: expect.any(String),
+        permission_mode: "strict",
+        approval_reason: "严格模式：low 风险工具需要审批",
+        approval_reason_codes: ["ask-risk"],
+      },
     });
 
-    const approvalId = (approvalRequired?.data as { approval_id: string }).approval_id;
-    expect(pendingInteractions.isApprovalPending("s1", approvalId)).toBe(true);
+    const approvalId = approvalRequired?.call_id;
+    expect(pendingInteractions.isApprovalPending("s1", approvalId as string)).toBe(true);
     expect(
-      pendingInteractions.respondInteraction("s1", approvalId, {
+      pendingInteractions.respondInteraction("s1", approvalId as string, {
         kind: "approval",
         approved: true,
         message: "允许读取",
@@ -2577,11 +2632,16 @@ describe("RuntimeToolBridge", () => {
         },
       ),
     );
-    const approvalRequired = realtimeEvents.getHistory("s1").find((event) => event.type === "interaction.required");
-    const approvalId = (approvalRequired?.data as { approval_id: string }).approval_id;
+    const approvalRequired = realtimeEvents.getHistory("s1").find(
+      (event) =>
+        event.type === "interaction" &&
+        (event.payload as { kind?: string; phase?: string }).kind === "approval" &&
+        (event.payload as { phase?: string }).phase === "required",
+    );
+    const approvalId = approvalRequired?.call_id;
 
     expect(
-      pendingInteractions.respondInteraction("s1", approvalId, {
+      pendingInteractions.respondInteraction("s1", approvalId as string, {
         kind: "approval",
         approved: false,
         message: "不允许",

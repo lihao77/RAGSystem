@@ -30,9 +30,14 @@ describe("PendingInteractionService", () => {
     });
 
     const history = realtimeEvents.getHistory("s1");
-    const interactionRequired = history.find((event) => event.type === "interaction.required");
-    const approvalRequired = history.find((event) => event.type === "user.approval_required");
-    expect(history.map((event) => event.event_seq)).toEqual([1, 2]);
+    const approvalRequired = history.find(
+      (event) =>
+        event.type === "interaction" &&
+        (event.payload as { kind?: string; phase?: string }).kind === "approval" &&
+        (event.payload as { phase?: string }).phase === "required",
+    );
+    // 新协议：interaction.required + user.approval_required 合并为单条 interaction(approval, required)。
+    expect(history.map((event) => event.seq)).toEqual([1]);
     expect(
       store.listOutboxForReplay({ sessionId: "s1" }).map((row) => ({
         eventType: row.event_type,
@@ -40,32 +45,35 @@ describe("PendingInteractionService", () => {
         sessionSeq: row.session_seq,
       })),
     ).toEqual([
-      { eventType: "client.interaction.required", status: "delivered", sessionSeq: 1 },
-      { eventType: "client.user.approval_required", status: "delivered", sessionSeq: 2 },
+      { eventType: "client.interaction", status: "delivered", sessionSeq: 1 },
     ]);
-    expect(interactionRequired?.data).toMatchObject({
-      interaction_id: expect.any(String),
-      kind: "approval",
-      approval_id: expect.any(String),
-      tool_call_id: "tool-call-1",
-      tool_name: "execute_bash",
-      arguments: { command: "echo ok" },
-      risk_level: "high",
-      description: "Execute bash command",
-      permission_mode: "standard",
-      approval_reason: "标准模式：high 风险工具需要审批",
-      approval_reason_codes: ["ask-risk"],
+    expect(approvalRequired).toMatchObject({
+      call_id: expect.any(String),
       run_id: "run-1",
-      task_id: "task-1",
-      request_id: "req-1",
-    });
-    expect(approvalRequired?.data).toMatchObject({
-      interaction_id: expect.any(String),
-      kind: "approval",
-      approval_id: expect.any(String),
+      payload: {
+        kind: "approval",
+        phase: "required",
+        tool: "execute_bash",
+        risk_level: "high",
+        prompt: "Execute bash command",
+        input: {
+          approval_id: expect.any(String),
+          approval_type: null,
+          tool_call_id: "tool-call-1",
+          agent_name: null,
+          arguments: { command: "echo ok" },
+          permission_mode: "standard",
+          approval_reason: "标准模式：high 风险工具需要审批",
+          approval_reason_codes: ["ask-risk"],
+          approval_secondary_reasons: [],
+          approval_hook: {},
+          approved_external_paths: [],
+        },
+        message: "标准模式：high 风险工具需要审批",
+      },
     });
 
-    const approvalId = (approvalRequired?.data as { approval_id: string }).approval_id;
+    const approvalId = approvalRequired?.call_id as string;
     expect(service.isApprovalPending("s1", approvalId)).toBe(true);
     expect(
       service.respondInteraction("s1", approvalId, {
@@ -88,21 +96,22 @@ describe("PendingInteractionService", () => {
     });
     expect(service.isApprovalPending("s1", approvalId)).toBe(false);
     const resolvedHistory = realtimeEvents.getHistory("s1");
-    const approvalResolved = resolvedHistory.find((event) => event.type === "user.approval_granted");
-    expect(resolvedHistory.map((event) => event.event_seq)).toEqual([1, 2, 3]);
+    const approvalResolved = resolvedHistory.find(
+      (event) =>
+        event.type === "interaction" &&
+        (event.payload as { kind?: string; phase?: string }).kind === "approval" &&
+        (event.payload as { phase?: string }).phase === "responded",
+    );
+    expect(resolvedHistory.map((event) => event.seq)).toEqual([1, 2]);
     expect(approvalResolved).toMatchObject({
-      event_seq: 3,
+      seq: 2,
       run_id: "run-1",
-      approval_id: approvalId,
-      data: {
-        interaction_id: approvalId,
+      call_id: approvalId,
+      payload: {
         kind: "approval",
-        approval_id: approvalId,
+        phase: "responded",
         approved: true,
         message: "允许执行",
-        run_id: "run-1",
-        task_id: "task-1",
-        request_id: "req-1",
       },
     });
     expect(
@@ -112,9 +121,8 @@ describe("PendingInteractionService", () => {
         sessionSeq: row.session_seq,
       })),
     ).toEqual([
-      { eventType: "client.interaction.required", status: "delivered", sessionSeq: 1 },
-      { eventType: "client.user.approval_required", status: "delivered", sessionSeq: 2 },
-      { eventType: "client.user.approval_granted", status: "delivered", sessionSeq: 3 },
+      { eventType: "client.interaction", status: "delivered", sessionSeq: 1 },
+      { eventType: "client.interaction", status: "delivered", sessionSeq: 2 },
     ]);
     store.close();
   });

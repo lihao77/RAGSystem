@@ -1,87 +1,122 @@
+/**
+ * 后端事件契约：统一为 SDK core 的 Envelope 协议。
+ *
+ * 后端产出/消费的下行事件一律为 core `Envelope`（17 种协议语义词 type + payload），
+ * 旧 ClientEvent/ClientEventType/ClientToServerMessage 已彻底移除。上行（host→runtime）
+ * 的合法帧由 ClientToServerEnvelopeSchema 校验（user_driven_change / abort / interaction(responded)）。
+ *
+ * 类型与运行时 schema 自 core re-export，后端零重复定义；core 保持零后端依赖。
+ */
 import { z } from "zod";
 
-import { InteractionRespondMessageSchema } from "./interactions.js";
+import {
+  EnvelopeTypeSchema,
+  type Envelope,
+  type EnvelopeType,
+  type ProtocolEnvelope,
+  type RunStartedPayload,
+  type RunEndedPayload,
+  type AgentLifecyclePayload,
+  type StreamOutputPayload,
+  type StateSyncPayload,
+  type ToolCallPayload,
+  type ToolResultPayload,
+  type InteractionPayload,
+  type UserDrivenChangePayload,
+  type AbortPayload,
+  type AckPayload,
+  type HeartbeatPayload,
+  type ReconnectPayload,
+  type ErrorPayload,
+  type CapabilityManifestPayload,
+  type HelloPayload,
+  type InteractionKind,
+  type RiskLevel,
+  type AttachmentRef,
+} from "@ragsystem/agent-sdk-core";
 
-export const ClientEventTypeSchema = z.enum([
-  "heartbeat",
-  "error",
-  "reconnect_start",
-  "reconnect_end",
-  "send.ack",
-  "send.error",
-  "stop.ack",
-  "approve.error",
-  "interaction.ack",
-  "interaction.error",
-  "user_input.ack",
-  "user_input.error",
-  "session.run_started",
-  "run.start",
-  "run.end",
-  "session.updated",
-  "command.result",
-  "execution.step",
-  "agent.start",
-  "agent.end",
-  "agent.error",
-  "agent.intent_delta",
-  "agent.intent_complete",
-  "call.agent.start",
-  "call.agent.end",
-  "context.usage",
-  "context.compression_start",
-  "context.compression_summary",
-  "llm.first_token",
-  "output.chunk",
-  "output.final_answer",
-  "output.message_saved",
-  "interaction.required",
-  "user.approval_required",
-  "user.approval_granted",
-  "user.approval_denied",
-  "user.input_required",
-  "user.interrupt",
+export type {
+  Envelope,
+  EnvelopeType,
+  ProtocolEnvelope,
+  RunStartedPayload,
+  RunEndedPayload,
+  AgentLifecyclePayload,
+  StreamOutputPayload,
+  StateSyncPayload,
+  ToolCallPayload,
+  ToolResultPayload,
+  InteractionPayload,
+  UserDrivenChangePayload,
+  AbortPayload,
+  AckPayload,
+  HeartbeatPayload,
+  ReconnectPayload,
+  ErrorPayload,
+  CapabilityManifestPayload,
+  HelloPayload,
+  InteractionKind,
+  RiskLevel,
+  AttachmentRef,
+};
+
+export { EnvelopeTypeSchema };
+
+/** 后端下行 envelope 构造辅助：返回 ProtocolEnvelope 的宽松别名，供各产出点直接引用。 */
+export type ClientEvent = Envelope;
+
+/* ============================================================
+ * 上行 envelope（host → runtime）校验
+ * ========================================================== */
+
+const UplinkAttachmentRefSchema = z.object({
+  file_id: z.string().min(1),
+  original_name: z.string().nullable().optional(),
+  stored_name: z.string().nullable().optional(),
+  stored_path: z.string().nullable().optional(),
+  mime: z.string().nullable().optional(),
+  size: z.number().int().nonnegative().nullable().optional(),
+  kind: z.string().nullable().optional(),
+});
+
+/**
+ * 上行合法帧：用户驱动变更 / 取消 / 交互响应。
+ * session.hello、heartbeat、capability_manifest 等握手/控制帧本期不强求，按需扩展。
+ */
+export const ClientToServerEnvelopeSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("user_driven_change"),
+    session_id: z.string().min(1),
+    payload: z.object({
+      category: z.enum(["task_submit", "message", "redirect", "env_notice"]),
+      task: z.string().optional().default(""),
+      selected_llm: z.string().optional(),
+      attachments: z.array(UplinkAttachmentRefSchema).optional().default([]),
+      request_id: z.string().optional(),
+    }),
+  }),
+  z.object({
+    type: z.literal("abort"),
+    session_id: z.string().min(1),
+    payload: z
+      .object({
+        scope: z.literal("run"),
+        reason: z.string().optional(),
+      })
+      .optional(),
+  }),
+  z.object({
+    type: z.literal("interaction"),
+    session_id: z.string().min(1),
+    call_id: z.string().min(1),
+    payload: z.object({
+      kind: z.enum(["approval", "user_input"]),
+      phase: z.literal("responded"),
+      approved: z.boolean().optional(),
+      value: z.string().optional().default(""),
+      message: z.string().optional().default(""),
+    }),
+  }),
 ]);
 
-export type ClientEventType = z.infer<typeof ClientEventTypeSchema>;
-
-export interface ClientEvent {
-  type: ClientEventType | string;
-  session_id?: string;
-  run_id?: string;
-  stream_seq?: number;
-  event_id?: string;
-  event_seq?: number;
-  timestamp?: number | string;
-  data?: unknown;
-  error?: string;
-  [key: string]: unknown;
-}
-
-export const ClientToServerMessageSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("send"),
-    task: z.string().optional().default(""),
-    user_id: z.string().optional(),
-    selected_llm: z.string().optional(),
-    attachments: z.array(z.unknown()).optional().default([]),
-    request_id: z.string().optional(),
-  }),
-  z.object({
-    type: z.literal("stop"),
-  }),
-  z.object({
-    type: z.literal("approve"),
-    approval_id: z.string(),
-    approved: z.boolean(),
-    message: z.string().optional().default(""),
-  }),
-  InteractionRespondMessageSchema,
-  z.object({
-    type: z.literal("user_input"),
-    input_id: z.string(),
-    value: z.string().optional().default(""),
-  }),
-]);
-
-export type ClientToServerMessage = z.infer<typeof ClientToServerMessageSchema>;
+export type ClientToServerEnvelope = z.infer<typeof ClientToServerEnvelopeSchema>;

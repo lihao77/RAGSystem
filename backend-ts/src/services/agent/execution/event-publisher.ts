@@ -1,5 +1,5 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
-import type { ClientEvent } from "../../../contracts/events.js";
+import type { Envelope, StateSyncPayload, StreamOutputPayload } from "../../../contracts/events.js";
 import type { ExecutionTaskStatus } from "../../../contracts/execution.js";
 import type { ContextCompressionEvent } from "../context-compression/index.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
@@ -18,11 +18,32 @@ interface ExecutionEventContext {
   taskId: string;
   requestId: string;
   rootCallId: string;
+  /**
+   * 父 agent 的 call_id：child run 非空（指向发起委派的父 agent），root run 为空。
+   * 新协议 agent_started/stream_output/tool 靠它（lineage.parent_call_id）把子 agent 嵌套到父——
+   * core execution-tree 据此重建 ReAct 树，缺失则子 agent 沦为平级 root。
+   */
+  parentCallId?: string | null | undefined;
   agent: AgentConfig;
   // run 自己的 thread 归属：root run="root"，child run="child:<id>"。
   // observation/intent 消息按此落到对应 thread，续聊 prepare 才能重建完整上下文。
   threadKey: string;
-  childAgentId?: string | null;
+  childAgentId?: string | null | undefined;
+}
+
+/**
+ * 把 ExecutionEventContext 的公共字段投影到 envelope 顶层 + payload.lineage。
+ * child run 带 lineage.parent_call_id（挂父）；root run 不带（顶层 root）。
+ */
+function contextMarkers(input: ExecutionEventContext): {
+  top: { run_id: string; agent_id: string; call_id: string };
+  lineage: { parent_call_id?: string } | undefined;
+} {
+  const lineage = input.parentCallId ? { parent_call_id: input.parentCallId } : undefined;
+  return {
+    top: { run_id: input.runId, agent_id: input.agent.agent_name, call_id: input.rootCallId },
+    lineage,
+  };
 }
 
 export class AgentExecutionEventPublisher {
@@ -32,100 +53,48 @@ export class AgentExecutionEventPublisher {
     private readonly conversationStore: IConversationTransactionRunner,
   ) {}
 
-  publishSessionRunStarted(sessionId: string, runId: string, payload: Record<string, unknown>): void {
+  publishRunStarted(sessionId: string, runId: string, payload: { request_id?: string; task?: string }): void {
     this.publish(sessionId, {
-      type: "session.run_started",
+      type: "run_started",
       session_id: sessionId,
       run_id: runId,
-      data: payload,
-    });
-  }
-
-  publishRunStartStep(sessionId: string, runId: string, payload: Record<string, unknown>): void {
-    this.addExecutionStepAndPublish(sessionId, runId, payload, {
-      type: "execution.step",
-      session_id: sessionId,
-      run_id: runId,
-      data: payload,
-    });
-  }
-
-  publishRunStart(sessionId: string, runId: string, payload: Record<string, unknown>): void {
-    this.publish(sessionId, {
-      type: "run.start",
-      session_id: sessionId,
-      run_id: runId,
-      data: payload,
+      payload: { request_id: payload.request_id, task: payload.task },
     });
   }
 
   publishOutputMessageSaved(
     sessionId: string,
     runId: string | null | undefined,
-    payload: Record<string, unknown>,
+    payload: { message_id: string; seq?: number; role?: string },
   ): void {
     this.publish(sessionId, {
-      type: "output.message_saved",
+      type: "state_sync",
       session_id: sessionId,
       ...(runId ? { run_id: runId } : {}),
-      data: payload,
+      payload: {
+        category: "message_saved",
+        ref: { message_id: payload.message_id, ...(payload.seq !== undefined ? { seq: payload.seq } : {}) },
+      } satisfies StateSyncPayload,
     });
   }
 
   publishRootAgentStart(input: ExecutionEventContext & { task: string }): void {
-    const agentName = input.agent.agent_name;
-    const displayName = input.agent.display_name || agentName;
+    const { top, lineage } = contextMarkers(input);
     this.publish(input.sessionId, {
-      type: "agent.start",
+      type: "agent_started",
       session_id: input.sessionId,
-      run_id: input.runId,
-      agent_name: agentName,
-      call_id: input.rootCallId,
-      data: {
-        agent_name: agentName,
-        task: input.task,
-        description: input.task,
-        metadata: {},
-        run_id: input.runId,
-        task_id: input.taskId,
-        request_id: input.requestId,
-      },
-    });
-    this.publish(input.sessionId, {
-      type: "call.agent.start",
-      session_id: input.sessionId,
-      run_id: input.runId,
-      agent_name: agentName,
-      call_id: input.rootCallId,
-      data: {
-        agent_name: agentName,
-        description: input.task,
-        agent_display_name: displayName,
-        run_id: input.runId,
-        task_id: input.taskId,
-        request_id: input.requestId,
-      },
+      ...top,
+      payload: { phase: "start", task: input.task, lineage },
     });
   }
 
   publishRootAgentEnd(input: ExecutionEventContext & { result: string; success: boolean }): void {
-    const agentName = input.agent.agent_name;
-    const displayName = input.agent.display_name || agentName;
+    const { top, lineage } = contextMarkers(input);
     this.publish(input.sessionId, {
-      type: "call.agent.end",
+      type: "agent_ended",
       session_id: input.sessionId,
-      run_id: input.runId,
-      agent_name: agentName,
-      call_id: input.rootCallId,
-      data: {
-        agent_name: agentName,
-        result: input.result.slice(0, 500),
-        success: input.success,
-        agent_display_name: displayName,
-        run_id: input.runId,
-        task_id: input.taskId,
-        request_id: input.requestId,
-      },
+      ...top,
+      payload: { phase: "end", result: input.result.slice(0, 500), success: input.success, lineage },
     });
   }
 
@@ -134,132 +103,75 @@ export class AgentExecutionEventPublisher {
     if (!sessionId) {
       return;
     }
-    const payload = {
-      reason,
-      task_id: status.task_id,
-      session_id: sessionId,
-      run_id: status.run_id,
-      execution_kind: status.execution_kind,
-      request_id: status.request_id,
-    };
     this.publish(sessionId, {
-      type: "user.interrupt",
+      type: "abort",
       session_id: sessionId,
       ...(status.run_id ? { run_id: status.run_id } : {}),
-      data: payload,
+      payload: { scope: "run", reason },
     });
   }
 
   publishContextCompressionEvent(
-    input: Omit<ExecutionEventContext, "rootCallId">,
+    input: Omit<ExecutionEventContext, "rootCallId" | "parentCallId">,
     event: ContextCompressionEvent,
   ): void {
-    const payload = {
+    const detail = {
       ...event.data,
       run_id: input.runId,
       task_id: input.taskId,
       request_id: input.requestId,
       agent_name: input.agent.agent_name,
     };
-    const clientEvent: ClientEvent = {
-      type: event.type,
-      session_id: input.sessionId,
-      run_id: input.runId,
-      agent_name: input.agent.agent_name,
-      data: payload,
-    };
-    if (event.type === "context.compression_start") {
-      this.addExecutionStepAndPublish(input.sessionId, input.runId, {
-        kind: "context",
-        phase: "compression_start",
-        ...payload,
-      }, clientEvent);
-      return;
-    }
-    if (event.type === "context.compression_summary") {
-      this.addExecutionStepAndPublish(input.sessionId, input.runId, {
-        kind: "context",
-        phase: "compression_summary",
-        ...payload,
-      }, clientEvent);
-      return;
-    }
-    this.publish(input.sessionId, clientEvent);
+    // run_step 表（API 契约）仍存旧 kind=context 结构；下行事件改为 state_sync(compression)。
+    this.addExecutionStepAndPublish(
+      input.sessionId,
+      input.runId,
+      { kind: "context", phase: event.type === "context.compression_start" ? "compression_start" : "compression_summary", ...detail },
+      {
+        type: "state_sync",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        agent_id: input.agent.agent_name,
+        payload: { category: "compression", detail } satisfies StateSyncPayload,
+      },
+    );
   }
 
   publishRuntimeEvent(input: ExecutionEventContext, event: AgentRuntimeEvent): void {
-    // child run 的事件带上 parent_call_id/call_id（=子 run 的 rootCallId=agentCallId）：
-    // 前端 isMasterEvent 据此把子 agent 输出挂到对应 subtask，不污染主对话消息。
-    const childMarkers = input.childAgentId
-      ? { parent_call_id: input.rootCallId, call_id: input.rootCallId }
-      : {};
+    const { top, lineage } = contextMarkers(input);
     if (event.type === "runtime.first_token") {
       this.publish(input.sessionId, {
-        type: "llm.first_token",
+        type: "stream_output",
         session_id: input.sessionId,
-        run_id: input.runId,
-        ...childMarkers,
-        data: {
-          elapsed_ms: event.data.elapsed_ms,
-          agent_name: event.data.agent_name,
-          run_id: input.runId,
-          task_id: input.taskId,
-          request_id: input.requestId,
-        },
+        ...top,
+        payload: { phase: "first_token", elapsed_ms: event.data.elapsed_ms } satisfies StreamOutputPayload,
       });
       return;
     }
     if (event.type === "runtime.output_delta") {
       this.publish(input.sessionId, {
-        type: "output.chunk",
+        type: "stream_output",
         session_id: input.sessionId,
-        run_id: input.runId,
-        ...childMarkers,
-        data: {
-          content: event.data.content,
-          agent_name: event.data.agent_name,
-          run_id: input.runId,
-          task_id: input.taskId,
-          request_id: input.requestId,
-        },
+        ...top,
+        payload: { phase: "delta", content: event.data.content } satisfies StreamOutputPayload,
       });
       return;
     }
     if (event.type === "runtime.error") {
-      const payload = {
-        error: event.data.message,
-        message: event.data.message,
-        agent_name: event.data.agent_name,
-        error_type: "RuntimeError",
-        run_id: input.runId,
-        task_id: input.taskId,
-        request_id: input.requestId,
-      };
       this.publish(input.sessionId, {
         type: "error",
         session_id: input.sessionId,
-        run_id: input.runId,
-        ...childMarkers,
-        agent_name: event.data.agent_name,
-        error: event.data.message,
-        data: payload,
+        ...top,
+        payload: { code: "RuntimeError", message: event.data.message },
       });
       return;
     }
     if (event.type === "runtime.intent_delta") {
       this.publish(input.sessionId, {
-        type: "agent.intent_delta",
+        type: "stream_output",
         session_id: input.sessionId,
-        run_id: input.runId,
-        ...childMarkers,
-        data: {
-          content: event.data.content,
-          agent_name: event.data.agent_name,
-          round: event.data.round,
-          run_id: input.runId,
-          task_id: input.taskId,
-          request_id: input.requestId,
-        },
+        ...top,
+        payload: { phase: "intent_delta", content: event.data.content, round: event.data.round } satisfies StreamOutputPayload,
       });
       return;
     }
@@ -278,16 +190,18 @@ export class AgentExecutionEventPublisher {
       return;
     }
     if (event.type === "runtime.tool_call") {
-      const payload = {
+      const toolCallId = event.data.tool_call_id;
+      // run_step 表存旧 kind=tool 结构（API 契约：buildSynchronousResult 按 kind/phase 读取）。
+      const stepPayload = {
         kind: "tool",
         phase: "start",
-        step_id: `${event.data.tool_call_id}:tool`,
+        step_id: `${toolCallId}:tool`,
         parent_step_id: `${input.rootCallId}:round:${event.data.round}`,
         agent_name: event.data.agent_name,
         agent_display_name: input.agent.display_name || event.data.agent_name,
         tool_name: event.data.tool_name,
-        call_id: event.data.tool_call_id,
-        tool_call_id: event.data.tool_call_id,
+        call_id: toolCallId,
+        tool_call_id: toolCallId,
         parent_call_id: input.rootCallId,
         arguments: event.data.arguments,
         round: event.data.round,
@@ -298,27 +212,37 @@ export class AgentExecutionEventPublisher {
         task_id: input.taskId,
         request_id: input.requestId,
       };
-      this.addExecutionStepAndPublish(input.sessionId, input.runId, payload, {
-        type: "execution.step",
+      this.addExecutionStepAndPublish(input.sessionId, input.runId, stepPayload, {
+        type: "tool_call",
         session_id: input.sessionId,
         run_id: input.runId,
-        data: payload,
+        call_id: toolCallId,
+        agent_id: event.data.agent_name,
+        payload: {
+          tool: event.data.tool_name,
+          input: event.data.arguments,
+          mode: "projection",
+          phase: "start",
+          status: "running",
+          lineage,
+        },
       });
       return;
     }
     if (event.type === "runtime.tool_result") {
+      const toolCallId = event.data.tool_call_id;
       const approvalMessage = asString(event.data.metadata.approval_message);
       const approvalMetadata = isRecord(event.data.metadata.approval) ? event.data.metadata.approval : null;
-      const payload = {
+      const stepPayload = {
         kind: "tool",
         phase: "end",
-        step_id: `${event.data.tool_call_id}:tool`,
+        step_id: `${toolCallId}:tool`,
         parent_step_id: `${input.rootCallId}:round:${event.data.round}`,
         agent_name: event.data.agent_name,
         agent_display_name: input.agent.display_name || event.data.agent_name,
         tool_name: event.data.tool_name,
-        call_id: event.data.tool_call_id,
-        tool_call_id: event.data.tool_call_id,
+        call_id: toolCallId,
+        tool_call_id: toolCallId,
         parent_call_id: input.rootCallId,
         round: event.data.round,
         status: event.data.success ? "success" : "error",
@@ -338,11 +262,27 @@ export class AgentExecutionEventPublisher {
         task_id: input.taskId,
         request_id: input.requestId,
       };
-      this.addExecutionStepAndPublish(input.sessionId, input.runId, payload, {
-        type: "execution.step",
+      const approvalStatus = asString(approvalMetadata?.status);
+      this.addExecutionStepAndPublish(input.sessionId, input.runId, stepPayload, {
+        type: "tool_result",
         session_id: input.sessionId,
         run_id: input.runId,
-        data: payload,
+        call_id: toolCallId,
+        agent_id: event.data.agent_name,
+        payload: {
+          tool: event.data.tool_name,
+          mode: "projection",
+          phase: "end",
+          ok: event.data.success,
+          status: event.data.success ? "succeeded" : "failed",
+          observation: event.data.observation,
+          summary: event.data.summary,
+          elapsed_ms: typeof event.data.elapsed_time === "number" ? event.data.elapsed_time * 1000 : undefined,
+          ...(approvalStatus === "pending" || approvalStatus === "granted" || approvalStatus === "denied"
+            ? { approval: { status: approvalStatus, ...(approvalMessage ? { message: approvalMessage } : {}) } }
+            : {}),
+          lineage,
+        },
       });
     }
   }
@@ -351,11 +291,12 @@ export class AgentExecutionEventPublisher {
     input: ExecutionEventContext,
     event: Extract<AgentRuntimeEvent, { type: "runtime.intent_complete" }>,
   ): void {
-    const payload = {
+    const { top, lineage } = contextMarkers(input);
+    const stepPayload = {
       kind: "intent",
       phase: "complete",
       call_id: input.rootCallId,
-      parent_call_id: input.childAgentId ? input.rootCallId : null,
+      parent_call_id: input.parentCallId ?? null,
       step_id: `${input.rootCallId}:round:${event.data.round}`,
       parent_step_id: `${input.rootCallId}:run`,
       agent_name: event.data.agent_name,
@@ -372,34 +313,26 @@ export class AgentExecutionEventPublisher {
         sessionId: input.sessionId,
         runId: input.runId,
         stepType: "execution.step",
-        payload,
+        payload: stepPayload,
       });
       return [
-        this.clientEvents.recordInTransaction(tx, input.sessionId, {
-          type: "execution.step",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          data: payload,
-        }, { runId: input.runId, aggregateType: "run", aggregateId: input.runId }),
-        this.clientEvents.recordInTransaction(tx, input.sessionId, {
-          type: "agent.intent_complete",
-          session_id: input.sessionId,
-          run_id: input.runId,
-          data: {
-            content: event.data.content,
-            agent_name: event.data.agent_name,
-            round: event.data.round,
-            run_id: input.runId,
-            task_id: input.taskId,
-            request_id: input.requestId,
+        this.clientEvents.recordInTransaction(
+          tx,
+          input.sessionId,
+          {
+            type: "stream_output",
+            session_id: input.sessionId,
+            ...top,
+            payload: { phase: "intent_complete", content: event.data.content, round: event.data.round } satisfies StreamOutputPayload,
           },
-        }, { runId: input.runId, aggregateType: "run", aggregateId: input.runId }),
+          { runId: input.runId, aggregateType: "run", aggregateId: input.runId },
+        ),
       ];
     });
     this.clientEvents.deliver(records);
   }
 
-  private publish(sessionId: string, event: ClientEvent): void {
+  private publish(sessionId: string, event: Envelope): void {
     this.clientEvents.publish(sessionId, event, {
       runId: typeof event.run_id === "string" ? event.run_id : null,
       aggregateType: typeof event.run_id === "string" ? "run" : "session",
@@ -407,20 +340,24 @@ export class AgentExecutionEventPublisher {
     });
   }
 
+  /**
+   * run_step 表（API 契约，旧 execution.step 结构）+ outbox 事件（新 envelope）原子写入。
+   * stepPayload 给 listRunSteps/buildSynchronousResult；envelope 给 WS 实时流 + 回放。
+   */
   addExecutionStepAndPublish(
     sessionId: string,
     runId: string,
-    payload: Record<string, unknown>,
-    event: ClientEvent,
+    stepPayload: Record<string, unknown>,
+    envelope: Envelope,
   ): void {
     const record = this.conversationStore.runInTransaction((tx) => {
       tx.addRunStep({
         sessionId,
         runId,
         stepType: "execution.step",
-        payload,
+        payload: stepPayload,
       });
-      return this.clientEvents.recordInTransaction(tx, sessionId, event, {
+      return this.clientEvents.recordInTransaction(tx, sessionId, envelope, {
         runId,
         aggregateType: "run",
         aggregateId: runId,
@@ -429,8 +366,23 @@ export class AgentExecutionEventPublisher {
     this.clientEvents.deliver([record]);
   }
 
+  /**
+   * 仅写 run_step 表（API 契约），不发 outbox 事件。child agent 的 subtask step 用此——
+   * 其 agent_started/agent_ended 事件由 delegation publishAgentCallStart/End 独占发，避免双发。
+   */
+  addExecutionStepOnly(sessionId: string, runId: string, stepPayload: Record<string, unknown>): void {
+    this.conversationStore.runInTransaction((tx) => {
+      tx.addRunStep({
+        sessionId,
+        runId,
+        stepType: "execution.step",
+        payload: stepPayload,
+      });
+    });
+  }
+
   private persistReactMessage(
-    input: Omit<ExecutionEventContext, "rootCallId">,
+    input: Omit<ExecutionEventContext, "rootCallId" | "parentCallId">,
     message: ChatMessage,
     msgType: "intent" | "observation",
     round: number,

@@ -382,11 +382,16 @@ export class BackgroundTaskService {
     clientEvents.publish(
       task.session_id,
       {
-        type: "background.task.completed",
+        type: "state_sync",
         session_id: task.session_id,
         ...(task.run_id ? { run_id: task.run_id } : {}),
-        data: payload,
-        content: payload,
+        payload: {
+          category: "command_result",
+          detail: {
+            kind: "background_task",
+            ...payload,
+          },
+        },
       },
       {
         runId: task.run_id,

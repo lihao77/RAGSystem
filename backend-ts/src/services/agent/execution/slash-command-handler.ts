@@ -94,15 +94,18 @@ export class SlashCommandHandler {
       },
     });
     this.clientEvents.publish(input.sessionId, {
-      type: "command.result",
+      type: "state_sync",
       session_id: input.sessionId,
-      data: {
-        command: result.command,
-        success: result.success,
-        content: result.content,
-        ...(result.error ? { error: result.error } : {}),
-        ...(result.data !== undefined ? { data: result.data } : {}),
-        message_id: message.id,
+      payload: {
+        category: "command_result",
+        ref: { message_id: message.id },
+        detail: {
+          command: result.command,
+          success: result.success,
+          content: result.content,
+          ...(result.error ? { error: result.error } : {}),
+          ...(result.data !== undefined ? { data: result.data } : {}),
+        },
       },
     }, {
       aggregateType: "session",
@@ -159,10 +162,10 @@ export class SlashCommandHandler {
         requestId: input.requestId,
         onEvent: (event) => {
           this.clientEvents.publish(input.sessionId, {
-            type: event.type,
+            type: "state_sync",
             session_id: input.sessionId,
-            agent_name: ready.agent.agent_name,
-            data: event.data,
+            agent_id: ready.agent.agent_name,
+            payload: { category: "compression", detail: event.data },
           }, {
             aggregateType: "session",
             aggregateId: input.sessionId,
