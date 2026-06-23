@@ -666,6 +666,7 @@
 .message-actions {
   display: flex;
   align-items: center;
+  min-height: 28px;
 }
 
 .msg-action-btn {
@@ -1202,7 +1203,9 @@
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-sm);
-  padding: var(--spacing-sm);
+  padding: 4px var(--spacing-sm);
+  line-height: 1;
+  min-height: 28px;
   color: var(--color-text-secondary);
 }
 

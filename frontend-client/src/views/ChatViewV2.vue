@@ -1358,6 +1358,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   padding: 4px 12px;
+  line-height: 1;
+  min-height: 28px;
   border-radius: var(--radius-full);
   background: var(--color-warning-bg, rgba(250, 173, 20, 0.1));
   color: var(--color-warning, #faad14);
