@@ -125,15 +125,7 @@ export function useSessionSend(deps) {
       ...(deps.sessionTaskInfo.value || {}),
       status: 'cancel_requested',
     };
-
-    const lastMsg = deps.messages.value[deps.messages.value.length - 1];
-    if (lastMsg && lastMsg.role === 'assistant' && !lastMsg.finished) {
-      lastMsg.stopped = true;
-      lastMsg.finished = true;
-    }
-
-    deps.activeRun.active = false;
-    deps.isLoading.value = false;
+    // 不在此处乐观结束 run / 显示"已停止"tag：等 WS 回传 run.end(interrupted) 确认打断成功后再显示
   };
 
   const handleSend = async (payload = null) => {

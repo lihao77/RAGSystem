@@ -32,7 +32,7 @@
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <rect x="6" y="6" width="12" height="12" rx="2"></rect>
     </svg>
-    <span>{{ msg.metadata?.interrupted ? '已中断' : '已停止生成' }}</span>
+    <span>已停止生成</span>
   </div>
 </template>
 

@@ -37,6 +37,7 @@ export interface RunFailedRecordInput {
   errorType: "ExecutionError" | "InterruptedError";
   agentResult: string;
   childAgentId?: string | null;
+  threadKey: string;
   runEndStepPayload: Record<string, unknown>;
   finalMetadata: Record<string, unknown>;
 }
@@ -175,7 +176,22 @@ export class ExecutionRecorder {
 
   private recordFailed(input: RunFailedRecordInput): RunTerminalRecord {
     return this.conversationStore.runInTransaction((tx) => {
-      tx.updateRunStatus(input.runId, input.sessionId, input.status);
+      // interrupted 时落库一条 assistant 锚点消息：承载打断前已记录的工具调用步骤，
+      // 并让前端刷新后能恢复"已停止生成"状态（metadata.interrupted）。
+      // filterHistoryMessages 会把该消息排除出后续 LLM 上下文，故不污染新 run。
+      let message: MessageInfo | null = null;
+      if (input.status === "interrupted") {
+        message = tx.addMessage({
+          sessionId: input.sessionId,
+          role: "assistant",
+          content: "",
+          metadata: { interrupted: true, ...input.finalMetadata },
+          threadKey: input.threadKey,
+          childAgentId: input.childAgentId ?? null,
+        });
+        tx.updateRunStepsMessageId(input.sessionId, input.runId, message.id);
+      }
+      tx.updateRunStatus(input.runId, input.sessionId, input.status, message?.id ?? null);
       const runEndStep = tx.addRunStep({
         sessionId: input.sessionId,
         runId: input.runId,
@@ -237,12 +253,13 @@ export class ExecutionRecorder {
                   status: input.status,
                   error: input.errorMessage,
                   metadata: input.finalMetadata,
+                  ...(message ? { final_message_id: message.id } : {}),
                 },
               }),
             ]),
       ];
 
-      return { message: null, steps: [runEndStep], outboxRows };
+      return { message, steps: [runEndStep], outboxRows };
     });
   }
 }

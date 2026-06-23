@@ -543,6 +543,7 @@ export class AgentRunEngine {
         errorType: interrupted ? "InterruptedError" : "ExecutionError",
         agentResult: interrupted ? "[已停止生成]" : errorMessage,
         childAgentId: input.childAgentId ?? null,
+        threadKey: input.threadKey,
         runEndStepPayload,
         finalMetadata,
       });

@@ -1949,6 +1949,19 @@ describe("minimal runtime core execution", () => {
       "agent.error",
       "run.end",
     ]);
+
+    // 打断后落库 interrupted assistant 锚点消息：刷新后承载工具调用步骤 + 恢复"已停止生成"
+    const interruptedMessages = await app.inject({
+      method: "GET",
+      url: "/api/agent/sessions/interrupt-session/messages",
+    });
+    const interruptedAssistant = interruptedMessages.json().data.items.filter((m) => m.role === "assistant");
+    expect(interruptedAssistant).toHaveLength(1);
+    expect(interruptedAssistant[0]).toMatchObject({
+      role: "assistant",
+      content: "",
+      metadata: expect.objectContaining({ interrupted: true }),
+    });
   });
 
   it("publishes the failed terminal event sequence when the provider fails", async () => {

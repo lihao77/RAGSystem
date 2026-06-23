@@ -993,10 +993,16 @@ export function useSessionRunStream(deps) {
 
     if (eventType === 'run.end' || eventType === 'done') {
       if (eventType === 'run.end') mergeRunEndMetadata(event);
+      const terminalStatus = terminalStatusFromEvent(event);
+      // 打断确认：run 真正以 interrupted 终止时才显示"已停止生成"tag
+      if (terminalStatus === 'interrupted') {
+        const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
+        if (currentMsg) currentMsg.stopped = true;
+      }
       deps.sessionTaskInfo.value = {
         ...(deps.sessionTaskInfo.value || {}),
         thread_alive: false,
-        status: 'completed',
+        status: terminalStatus,
       };
       finalizeActiveRun(sessionId);
       return;
