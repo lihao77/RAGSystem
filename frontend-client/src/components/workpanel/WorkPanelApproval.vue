@@ -111,7 +111,7 @@ function submit(approved) {
 
 /* 苹果风卡片：实色 + 大圆角 + 柔和多层阴影，靠阴影和留白分层，不用 border/横线 */
 .wpa-card {
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--color-border);
   border-radius: 16px;
   overflow: hidden;
   background: var(--color-bg-elevated, #1c1c1e);
@@ -239,7 +239,7 @@ function submit(approved) {
   font-size: 11px;
   font-family: var(--font-mono);
   color: var(--color-text-secondary);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--color-bg-secondary);
   padding: 8px 11px;
   max-height: 100px;
   overflow-y: auto;
@@ -253,19 +253,18 @@ function submit(approved) {
   margin: 0 18px 14px;
   font-size: 13px;
   padding: 9px 12px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   color: var(--color-text-primary);
   outline: none;
   box-sizing: border-box;
-  transition: border-color var(--transition-fast), background var(--transition-fast);
+  transition: border-color var(--transition-fast);
 }
 
 .wpa-note::placeholder { color: var(--color-text-muted); }
 .wpa-note:focus {
-  border-color: rgba(var(--color-warning-rgb, 245, 158, 11), 0.55);
-  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--color-warning);
 }
 
 .wpa-actions {
