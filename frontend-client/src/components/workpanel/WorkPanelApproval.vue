@@ -153,13 +153,16 @@ function submit(approved) {
 }
 
 .wpa-card {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm, 8px);
+  border: 1px solid rgba(var(--color-warning-rgb), 0.28);
+  border-radius: var(--radius-md, 10px);
   overflow: hidden;
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.82);
-  backdrop-filter: blur(8px) saturate(120%);
-  -webkit-backdrop-filter: blur(8px) saturate(120%);
-  box-shadow: var(--shadow-md);
+  background:
+    linear-gradient(180deg, rgba(var(--color-warning-rgb), 0.07), transparent 42%),
+    var(--color-bg-elevated, #1c1c1e);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.44),
+    0 0 0 1px rgba(255, 255, 255, 0.03),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
   display: flex;
   flex-direction: column;
   gap: 0;

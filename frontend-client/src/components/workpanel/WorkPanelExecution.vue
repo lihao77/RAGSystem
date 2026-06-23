@@ -545,13 +545,17 @@ button.wpe-chip:hover {
   opacity: 0;
 }
 
-.wpe-node-enter-active,
+.wpe-node-enter-active {
+  transition: opacity 260ms ease, transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 .wpe-node-leave-active {
-  transition: opacity 180ms ease;
+  transition: opacity 150ms ease;
 }
 
 .wpe-node-enter-from {
   opacity: 0;
+  transform: translateY(-4px);
 }
 
 .wpe-node-leave-to {
@@ -559,7 +563,7 @@ button.wpe-chip:hover {
 }
 
 .wpe-node-move {
-  transition: none;
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .wpe-inspector-slot {
