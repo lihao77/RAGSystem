@@ -104,74 +104,63 @@ function submit(approved) {
 
 <style scoped>
 .wpa-root {
-  padding: 6px 14px 12px;
+  padding: 6px 14px 14px;
   background: transparent;
   letter-spacing: 0;
 }
 
-/* 卡片：实色 + 左侧审批色条（替代多条横线作视觉标识）+ 双层阴影浮起 */
+/* 苹果风卡片：实色 + 大圆角 + 柔和多层阴影，靠阴影和留白分层，不用 border/横线 */
 .wpa-card {
-  position: relative;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md, 10px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
   overflow: hidden;
   background: var(--color-bg-elevated, #1c1c1e);
   box-shadow:
-    0 14px 36px rgba(0, 0, 0, 0.46),
-    0 3px 10px rgba(0, 0, 0, 0.26);
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 6px 16px rgba(0, 0, 0, 0.16),
+    0 18px 44px rgba(0, 0, 0, 0.24);
   display: flex;
   flex-direction: column;
-}
-
-.wpa-card::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: linear-gradient(180deg, var(--color-warning, #f59e0b), rgba(var(--color-warning-rgb, 245, 158, 11), 0.35));
 }
 
 .wpa-section-label {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 11px 14px 3px;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
+  gap: 6px;
+  padding: 15px 18px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   color: var(--color-warning, #f59e0b);
 }
 
 .wpa-section-icon {
-  width: 18px;
-  height: 18px;
-  border-radius: 6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   color: var(--color-warning, #f59e0b);
-  background: rgba(var(--color-warning-rgb), 0.12);
-  border: 1px solid rgba(var(--color-warning-rgb), 0.22);
+  background: rgba(var(--color-warning-rgb), 0.16);
 }
 
 .wpa-section-icon :deep(svg) {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
 }
 
 .wpa-queue-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
+  min-width: 16px;
   height: 16px;
-  border-radius: 50%;
+  padding: 0 5px;
+  border-radius: 999px;
   background: var(--color-warning, #f59e0b);
-  color: #fff;
+  color: #1c1c1e;
   font-size: 10px;
   font-weight: 700;
 }
@@ -180,12 +169,12 @@ function submit(approved) {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 14px 11px;
+  padding: 0 18px 13px;
 }
 
 .wpa-tool-name {
-  font-size: 13px;
-  font-weight: 650;
+  font-size: 16px;
+  font-weight: 600;
   color: var(--color-text-primary);
   font-family: var(--font-mono);
   flex: 1;
@@ -197,29 +186,28 @@ function submit(approved) {
 
 .wpa-risk-badge {
   font-size: 10px;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 20px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  letter-spacing: 0.01em;
   flex-shrink: 0;
 }
 
-.risk-low    { background: rgba(34,197,94,0.14); color: var(--color-success, #22c55e); }
-.risk-medium { background: rgba(245,158,11,0.14); color: var(--color-warning, #f59e0b); }
-.risk-high, .risk-critical { background: rgba(239,68,68,0.14); color: var(--color-error, #ef4444); }
+.risk-low    { background: rgba(34,197,94,0.18); color: var(--color-success, #22c55e); }
+.risk-medium { background: rgba(245,158,11,0.18); color: var(--color-warning, #f59e0b); }
+.risk-high, .risk-critical { background: rgba(239,68,68,0.18); color: var(--color-error, #ef4444); }
 
 .wpa-agent {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--color-text-muted);
-  padding: 0 14px 3px;
+  padding: 0 18px 3px;
 }
 
 .wpa-reason {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--color-text-secondary);
-  line-height: 1.5;
-  padding: 0 14px 10px;
+  line-height: 1.45;
+  padding: 3px 18px 13px;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
@@ -230,14 +218,13 @@ function submit(approved) {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--color-text-muted);
   background: none;
   border: none;
-  padding: 0 14px 4px;
+  padding: 0 18px 6px;
   cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .wpa-chevron {
@@ -247,30 +234,28 @@ function submit(approved) {
 }
 .wpa-chevron.open { transform: rotate(90deg); }
 
-/* 参数块：独立圆角浅块，不再用全宽 border-top 分隔 */
 .wpa-pre {
-  margin: 0 14px 10px;
+  margin: 0 18px 12px;
   font-size: 11px;
   font-family: var(--font-mono);
   color: var(--color-text-secondary);
-  background: rgba(255, 255, 255, 0.04);
-  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 8px 11px;
   max-height: 100px;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-all;
-  border-radius: 6px;
+  border-radius: 9px;
 }
 
-/* 附言：独立输入框（边框 + 圆角），不再用全宽 border-top */
 .wpa-note {
   width: auto;
-  margin: 4px 14px 10px;
-  font-size: 12px;
-  padding: 7px 10px;
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.22);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
+  margin: 0 18px 14px;
+  font-size: 13px;
+  padding: 9px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
   color: var(--color-text-primary);
   outline: none;
   box-sizing: border-box;
@@ -279,52 +264,44 @@ function submit(approved) {
 
 .wpa-note::placeholder { color: var(--color-text-muted); }
 .wpa-note:focus {
-  border-color: rgba(var(--color-warning-rgb, 245, 158, 11), 0.5);
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.32);
+  border-color: rgba(var(--color-warning-rgb, 245, 158, 11), 0.55);
+  background: rgba(255, 255, 255, 0.08);
 }
 
-/* 操作区：按钮各自独立（边框 + 圆角 + 色调），gap 分隔，不再用 border-top/border-right */
 .wpa-actions {
   display: flex;
-  gap: 8px;
-  padding: 0 14px 12px;
+  gap: 10px;
+  padding: 0 18px 16px;
 }
 
+/* 苹果风按钮：filled 实心（主操作绿、destructive 红），大圆角连续角，hover 亮度变化 */
 .wpa-btn {
   flex: 1;
-  padding: 8px 0;
-  font-size: 12px;
-  font-weight: 650;
+  padding: 11px 0;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  border: 1px solid var(--color-border);
-  border-radius: 7px;
+  border: none;
+  border-radius: 11px;
   background: transparent;
-  transition: background 0.12s, transform 0.1s, border-color 0.12s;
+  transition: filter 0.12s, transform 0.1s;
 }
 .wpa-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .wpa-btn:active:not(:disabled) { transform: scale(0.97); }
 
 .wpa-btn--approve {
-  color: var(--color-success, #22c55e);
-  border-color: rgba(34, 197, 94, 0.32);
+  background: var(--color-success, #22c55e);
+  color: #fff;
 }
 .wpa-btn--approve:hover:not(:disabled) {
-  background: rgba(34, 197, 94, 0.1);
-  border-color: rgba(34, 197, 94, 0.44);
-}
-.wpa-btn--approve:active:not(:disabled) {
-  background: rgba(34, 197, 94, 0.16);
+  filter: brightness(1.08);
 }
 
 .wpa-btn--deny {
-  color: var(--color-error, #ef4444);
-  border-color: rgba(239, 68, 68, 0.32);
+  background: var(--color-error, #ef4444);
+  color: #fff;
 }
 .wpa-btn--deny:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.44);
-}
-.wpa-btn--deny:active:not(:disabled) {
-  background: rgba(239, 68, 68, 0.16);
+  filter: brightness(1.08);
 }
 </style>
