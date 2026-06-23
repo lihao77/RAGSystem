@@ -147,10 +147,10 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
                   approved: payload.approved ?? false,
                   message: payload.message,
                 });
-                sendAck("interaction", ok, ok ? { ref_call_id: message.call_id } : { error: "未找到对应的审批请求，可能已被取消或不存在" });
+                sendAck("interaction", ok, { ref_call_id: message.call_id, ...(ok ? {} : { error: "未找到对应的审批请求，可能已被取消或不存在" }) });
               } else {
                 const ok = container.pendingInteractions.respondUserInput(sessionId, message.call_id, { value: payload.value });
-                sendAck("interaction", ok, ok ? { ref_call_id: message.call_id } : { error: "未找到对应的输入请求，可能已被取消或不存在" });
+                sendAck("interaction", ok, { ref_call_id: message.call_id, ...(ok ? {} : { error: "未找到对应的输入请求，可能已被取消或不存在" }) });
               }
               break;
             }

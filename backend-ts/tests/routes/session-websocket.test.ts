@@ -266,6 +266,38 @@ describe("session websocket route", () => {
     }
   });
 
+  it("responds to approval for a non-existent call with ack carrying ref_call_id (ok=false)", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+    harness.container.conversationStore.createSession("ws-approval-missing");
+
+    const client = await connectWs(app, "/api/agent/sessions/ws-approval-missing/ws");
+    try {
+      // 不存在的 approval（已取消/不存在）→ respondApproval 返回 false → ack(ok=false)。
+      // 关键：ack 必须带 ref_call_id，前端据此移除残留 approval 弹窗，避免点击失败后弹窗卡死。
+      client.ws.send(JSON.stringify({
+        type: "interaction",
+        session_id: "ws-approval-missing",
+        call_id: "missing-approval",
+        payload: { kind: "approval", phase: "responded", approved: true, message: "" },
+      }));
+
+      const ack = await client.receiveJson();
+      expect(ack).toMatchObject({
+        type: "ack",
+        session_id: "ws-approval-missing",
+        payload: {
+          category: "interaction",
+          ok: false,
+          ref_call_id: "missing-approval",
+          error: expect.any(String),
+        },
+      });
+    } finally {
+      client.ws.terminate();
+    }
+  });
+
   it("replays durable outbox events stamped with seq via after_seq cursor", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
