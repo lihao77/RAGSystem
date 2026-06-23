@@ -66,6 +66,12 @@ export class AgentContextService {
     private readonly systemConfig: SystemConfigService,
   ) {}
 
+  /** systemConfig.llm 作为请求参数三级 fallback 的系统兜底（供 run-engine 注入 protocol）。 */
+  getSystemLlm(): Record<string, unknown> | null {
+    const llm = this.systemConfig.getConfig().llm as unknown;
+    return typeof llm === "object" && llm !== null ? (llm as Record<string, unknown>) : null;
+  }
+
   resolveContextBudget(agent: AgentConfig, provider: ModelProviderConfig | null, modelName: string | null): number {
     return resolveContextBudget(agent, provider, this.systemConfig.getConfig(), modelName);
   }

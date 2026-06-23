@@ -38,7 +38,7 @@ import {
 import { renderSemanticChatMessage } from "../context/message-builder.js";
 import { RuntimeAbortError, throwIfAborted } from "../../../runtime/abort.js";
 import { toChatToolDefinition } from "../tools/tool-call-utils.js";
-import { resolveRequestLlmParams } from "../../llm-params.js";
+import { resolveTierLlmParams } from "../../llm-params.js";
 import type {
   EventSink,
   KernelContext,
@@ -79,6 +79,7 @@ export class XmlProtocol implements Protocol {
   constructor(
     private readonly llmChatClient: LlmChatClient,
     private readonly eventSink: EventSink,
+    private readonly systemLlm: Record<string, unknown> | null,
   ) {}
 
   /**
@@ -88,7 +89,12 @@ export class XmlProtocol implements Protocol {
    */
   private buildRequestShell(ctx: KernelContext): ChatCompletionRequest {
     const session = ctx.session;
-    const llmParams = resolveRequestLlmParams(session.agent, session.provider, session.modelName);
+    const llmParams = resolveTierLlmParams({
+      agent: session.agent,
+      tier: "default",
+      runModel: { provider: session.provider, modelName: session.modelName },
+      systemLlm: this.systemLlm,
+    });
     const request: ChatCompletionRequest = {
       messages: ctx.requestMessages,
       model: session.modelName,

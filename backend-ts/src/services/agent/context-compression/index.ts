@@ -8,7 +8,7 @@ import type { SystemConfigService } from "../../config/system-config-service.js"
 import { resolveCompressionView } from "../context-builder/index.js";
 import type { RuntimeModelProviderPort } from "../execution/runtime-core-service.js";
 import { findProviderByRef, normalizeProviderKey } from "../../runtime/provider-lookup.js";
-import { resolveRequestLlmParams } from "../llm-params.js";
+import { resolveTierLlmParams, type RequestLlmParams } from "../llm-params.js";
 
 export interface ContextCompressionSettings {
   compressionTriggerRatio: number;
@@ -356,6 +356,7 @@ export class AgentContextCompressionService {
     agent: AgentConfig;
     provider: ModelProviderConfig;
     modelName: string;
+    params: RequestLlmParams;
     segment: ReadonlyArray<SummarizableMessage>;
     existingSummary: string;
     maxTokens: number;
@@ -366,8 +367,9 @@ export class AgentContextCompressionService {
       model: input.modelName,
       provider: input.provider,
       agent: input.agent,
-      temperature: 0.2,
+      temperature: input.params.temperature,
       maxCompletionTokens: input.maxTokens,
+      extraParams: input.params.extraParams,
     };
     if (input.signal !== undefined) {
       request.signal = input.signal;
@@ -404,12 +406,20 @@ export class AgentContextCompressionService {
       this.systemConfig.getConfig(),
       this.modelProviders.listProviders(),
     );
+    const systemLlm = asRecord(this.systemConfig.getConfig().llm) ?? null;
     for (const candidate of candidates) {
+      const params = resolveTierLlmParams({
+        agent: input.agent,
+        tier: candidate.tier,
+        runModel: { provider: input.provider, modelName: input.modelName },
+        systemLlm,
+      });
       try {
         return await this.generateSummary({
           agent: input.agent,
           provider: candidate.provider,
           modelName: candidate.modelName,
+          params,
           segment: input.segment,
           existingSummary: input.existingSummary,
           maxTokens: input.maxTokens,
@@ -573,15 +583,15 @@ export function resolveContextBudget(
     positiveInt(defaultLlm?.max_context_tokens) ??
     positiveInt(provider?.max_context_tokens) ??
     positiveInt(systemLlmConfig.max_context_tokens);
-  // 补全预留按"本次实际运行模型"取：与请求壳同一套真相来源（resolveRequestLlmParams），
-  // 故 selectedLlm 选中其它模型时预留它自己的 max_completion_tokens；无具体运行模型
-  // （provider/modelName 缺失，如 usage 预览/快照）时回落到默认层 → 系统 → 兜底常量。
-  const runParams = provider && modelName ? resolveRequestLlmParams(agent, provider, modelName) : null;
+  // 补全预留按"本次实际运行模型"取：与请求壳同一套真相来源（resolveTierLlmParams），
+  // 三级 fallback（场景 tier → default[selectedLlm 替换] → system）；provider/modelName 缺失
+  // （如 usage 预览/快照）时回落默认层 → 系统 → 兜底常量。
+  const runParams = provider && modelName
+    ? resolveTierLlmParams({ agent, tier: "default", runModel: { provider, modelName }, systemLlm: systemLlmConfig })
+    : null;
   const maxCompletionTokens =
     positiveInt(runParams?.maxCompletionTokens) ??
     positiveInt(defaultLlm?.max_completion_tokens) ??
-    positiveInt(provider?.max_completion_tokens) ??
-    positiveInt(provider?.max_tokens) ??
     positiveInt(systemLlmConfig.max_completion_tokens) ??
     DEFAULT_MAX_COMPLETION_TOKENS;
 

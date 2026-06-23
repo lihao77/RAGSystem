@@ -397,6 +397,7 @@ export class AgentRunEngine {
         eventSink,
         refresher,
         hooks,
+        systemLlm: this.contextService.getSystemLlm(),
       });
       const response = await kernel.run({
         agent: input.agent,

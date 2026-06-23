@@ -27,6 +27,8 @@ export interface AgentKernelDeps {
   eventSink: EventSink;
   refresher: MessageRefresher;
   hooks: HookRegistry;
+  /** systemConfig.llm：请求参数三级 fallback 的系统兜底。 */
+  systemLlm: Record<string, unknown> | null;
 }
 
 export function createAgentKernel(deps: AgentKernelDeps): AgentKernel {
@@ -34,6 +36,7 @@ export function createAgentKernel(deps: AgentKernelDeps): AgentKernel {
     provider: deps.provider,
     llmChatClient: deps.llmChatClient,
     events: deps.eventSink,
+    systemLlm: deps.systemLlm,
   });
   const context = new DefaultContext({ toolInstructionMode, protocol });
   const tools = new RuntimeToolProvider({ dataRoot: deps.dataRoot, events: deps.eventSink });

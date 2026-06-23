@@ -25,6 +25,8 @@ export interface SelectProtocolDeps {
   provider: ModelProviderConfig;
   llmChatClient: LlmChatClient;
   events: EventSink;
+  /** 系统默认 LLM 参数（systemConfig.llm），作为请求参数三级 fallback 的最末兜底。 */
+  systemLlm: Record<string, unknown> | null;
 }
 
 export interface SelectedProtocol {
@@ -52,8 +54,8 @@ export function resolveToolInstructionMode(provider: ModelProviderConfig): ToolI
 export function selectProtocol(deps: SelectProtocolDeps): SelectedProtocol {
   const toolInstructionMode = resolveToolInstructionMode(deps.provider);
   const protocol = toolInstructionMode === "native"
-    ? new NativeHybridProtocol(deps.llmChatClient, deps.events)
-    : new XmlProtocol(deps.llmChatClient, deps.events);
+    ? new NativeHybridProtocol(deps.llmChatClient, deps.events, deps.systemLlm)
+    : new XmlProtocol(deps.llmChatClient, deps.events, deps.systemLlm);
   return { protocol, toolInstructionMode };
 }
 

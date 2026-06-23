@@ -76,6 +76,32 @@ describe("AgentContextCompressionService", () => {
     expect(budget).toBe(500);
   });
 
+  it("uses fast-tier temperature and extra_params for the summary request", async () => {
+    store = createConversationStore({ dbPath: ":memory:" });
+    const systemConfig = new SystemConfigService();
+    const chatClient = new FakeSummaryClient();
+    const service = new AgentContextCompressionService(store, chatClient, systemConfig, providerPort([provider()]));
+    const agent = minimalAgent({ maxContextTokens: 1000, maxCompletionTokens: 100 });
+    agent.llm_tiers!.fast = {
+      provider: "my",
+      provider_type: "deepseek",
+      model_name: "deepseek-chat",
+      temperature: 0.1,
+      max_completion_tokens: 64,
+      extra_params: { top_p: 0.8 },
+    } as AgentLlmConfig;
+    await service.summarizeSegment({
+      agent,
+      provider: provider(),
+      modelName: "deepseek-chat",
+      segment: [{ role: "user", content: "待压缩内容" }],
+      existingSummary: "",
+      maxTokens: 64,
+    });
+    expect(chatClient.requests[0]).toMatchObject({ temperature: 0.1, maxCompletionTokens: 64 });
+    expect(chatClient.requests[0].extraParams).toEqual({ top_p: 0.8 });
+  });
+
   it("persists Python-compatible compression summaries and exposes the resolved view", async () => {
     store = createConversationStore({ dbPath: ":memory:" });
     const systemConfig = new SystemConfigService();
@@ -123,9 +149,10 @@ describe("AgentContextCompressionService", () => {
       replacesUpToSeq: 3,
     });
     expect(chatClient.requests).toHaveLength(1);
+    // temperature 走三级 fallback：agent 未配 fast/default temperature → system 默认(0.7)。
     expect(chatClient.requests[0]).toMatchObject({
       maxCompletionTokens: 64,
-      temperature: 0.2,
+      temperature: 0.7,
     });
     expect(events).toEqual(["context.compression_start", "context.compression_summary"]);
 
