@@ -110,6 +110,7 @@ function isErrorStatusItem(item) {
   bottom: 0;
   left: 0;
   right: 0;
+  z-index: 10;
   padding-top: 22px;
   background: linear-gradient(
     to bottom,

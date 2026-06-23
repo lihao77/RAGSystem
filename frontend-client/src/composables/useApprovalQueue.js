@@ -58,6 +58,9 @@ export function useApprovalQueue(deps) {
 
   const showNextApproval = (sessionId = deps.currentSessionId.value) => {
     if (!sessionId || approvalSubmittingId.value) return;
+    // WorkPanel 模式：审批框靠 approvalQueue prop 自动渲染（currentApproval = queue[0]），
+    // resolve 后 queue[0] 自动切到下一个，不触发 ApprovalQueueHost 弹窗——避免窄屏弹窗覆盖工作栏。
+    if (deps.showWorkPanel.value) return;
     const nextApproval = approvalQueue.value[0] || null;
     if (!nextApproval) {
       hideApprovalDialogs();
