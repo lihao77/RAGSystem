@@ -274,34 +274,39 @@ function submit(approved) {
   padding: 0 18px 16px;
 }
 
-/* 苹果风按钮：filled 实心（主操作绿、destructive 红），大圆角连续角，hover 亮度变化 */
+/* 按钮对齐系统 btn-send / btn-stop 风格，不另搞苹果 filled */
 .wpa-btn {
   flex: 1;
-  padding: 11px 0;
-  font-size: 14px;
+  padding: 9px 18px;
+  border-radius: 10px;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
-  border: none;
-  border-radius: 11px;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
   background: transparent;
-  transition: filter 0.12s, transform 0.1s;
 }
 .wpa-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .wpa-btn:active:not(:disabled) { transform: scale(0.97); }
 
 .wpa-btn--approve {
-  background: var(--color-success, #22c55e);
-  color: #fff;
+  background: var(--color-success);
+  color: var(--color-on-color);
+  box-shadow: 0 2px 12px rgba(var(--color-success-rgb), 0.3);
 }
 .wpa-btn--approve:hover:not(:disabled) {
   filter: brightness(1.08);
+  box-shadow: 0 4px 20px rgba(var(--color-success-rgb), 0.45);
+  transform: translateY(-1px);
 }
 
 .wpa-btn--deny {
-  background: color-mix(in srgb, var(--color-bg-elevated, #1c1c1e) 84%, var(--color-error, #ef4444) 16%);
-  color: var(--color-error, #ef4444);
+  color: var(--color-error);
+  border-color: var(--color-border);
 }
 .wpa-btn--deny:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-bg-elevated, #1c1c1e) 72%, var(--color-error, #ef4444) 28%);
+  border-color: var(--color-error);
+  background: rgba(var(--color-error-rgb), 0.08);
+  transform: translateY(-1px);
 }
 </style>
