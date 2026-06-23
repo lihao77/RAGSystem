@@ -160,6 +160,8 @@ export interface AgentLifecyclePayload {
   task?: string;
   result?: string;
   success?: boolean;
+  /** agent 展示名（中文等）；后端 AgentConfig.display_name，UI 据此显示而非英文 agent_id。 */
+  display_name?: string;
   /** 子 agent 挂父：parent_call_id 指向父 agent 的 call_id（root agent 无）。 */
   lineage?: { parent_call_id?: string };
 }
@@ -186,7 +188,7 @@ export interface StateSyncPayload {
     | "retry"
     | "waiting"
     | "reflection";
-  ref?: { message_id?: string; seq?: number };
+  ref?: { message_id?: string; seq?: number; role?: string; request_id?: string };
   metrics?: Record<string, number>;
   detail?: unknown;
 }
@@ -399,6 +401,7 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
       .object({
         phase: z.literal("start"),
         task: z.string().optional(),
+        display_name: z.string().optional(),
         lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
       })
       .optional(),
@@ -413,6 +416,7 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
         phase: z.literal("end"),
         result: z.string().optional(),
         success: z.boolean().optional(),
+        display_name: z.string().optional(),
         lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
       })
       .optional(),
@@ -451,6 +455,8 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
         .object({
           message_id: z.string().optional(),
           seq: z.number().int().nonnegative().optional(),
+          role: z.string().optional(),
+          request_id: z.string().optional(),
         })
         .optional(),
       metrics: z.record(z.number()).optional(),

@@ -58,12 +58,13 @@ function asNumber(value: unknown): number | undefined {
 function ensureAgent(
   state: ExecutionTreeState,
   callId: string,
-  init: { agentId?: string | undefined; task?: string | undefined; parentCallId?: string | undefined },
+  init: { agentId?: string | undefined; task?: string | undefined; parentCallId?: string | undefined; displayName?: string | undefined },
 ): ExecutionAgent {
   const existing = state.agentsByCallId.get(callId);
   if (existing) {
     // 隐式创建时 agentId 回退为 callId；agent_started 带真实 agent_id 时补正。
     if (init.agentId && existing.agentId === existing.callId) existing.agentId = init.agentId;
+    if (init.displayName && !existing.displayName) existing.displayName = init.displayName;
     if (init.task && !existing.task) existing.task = init.task;
     if (init.parentCallId && !existing.parentCallId) {
       existing.parentCallId = init.parentCallId;
@@ -78,6 +79,7 @@ function ensureAgent(
     rounds: [],
     children: [],
   };
+  if (init.displayName) agent.displayName = init.displayName;
   if (init.task) agent.task = init.task;
   if (init.parentCallId) agent.parentCallId = init.parentCallId;
   state.agentsByCallId.set(callId, agent);
@@ -150,6 +152,16 @@ function applyIntentStream(state: ExecutionTreeState, env: Envelope, payload: Re
   if (phase === "intent_complete") r.intentComplete = true;
 }
 
+/** stream_output(delta/final)：agent 输出内容（非 intent 思考），累加到 agent.output（delta 累加 / final 覆盖）。 */
+function applyOutputStream(state: ExecutionTreeState, env: Envelope, payload: Record<string, unknown>): void {
+  const phase = asString(payload.phase);
+  if (phase !== "delta" && phase !== "final") return;
+  const agent = routeStreamAgent(state, env);
+  const content = asString(payload.content);
+  if (!content) return;
+  agent.output = phase === "final" ? content : (agent.output ?? "") + content;
+}
+
 function applyToolCall(state: ExecutionTreeState, env: Envelope, payload: Record<string, unknown>): void {
   const callId = asString(env.call_id);
   if (!callId) return;
@@ -198,6 +210,7 @@ export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
       const lineage = asRecord(payload.lineage);
       ensureAgent(state, callId, {
         agentId: asString(env.agent_id),
+        displayName: asString(payload.display_name),
         task: asString(payload.task),
         parentCallId: asString(lineage.parent_call_id),
       });
@@ -213,9 +226,15 @@ export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
       if (result) agent.result = result;
       return;
     }
-    case "stream_output":
-      applyIntentStream(state, env, payload);
+    case "stream_output": {
+      const phase = asString(payload.phase);
+      if (phase === "intent_delta" || phase === "intent_complete") {
+        applyIntentStream(state, env, payload);
+      } else if (phase === "delta" || phase === "final") {
+        applyOutputStream(state, env, payload);
+      }
       return;
+    }
     case "tool_call":
       applyToolCall(state, env, payload);
       return;

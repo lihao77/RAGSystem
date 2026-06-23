@@ -156,6 +156,8 @@ export interface ExecutionAgent {
   agentId: string;
   callId: string;
   displayName?: string;
+  /** agent 流式输出（stream_output delta/final 累加）；子 agent 实时展示用，result 为终态。 */
+  output?: string;
   task?: string;
   status: "running" | "succeeded" | "failed";
   result?: string;
