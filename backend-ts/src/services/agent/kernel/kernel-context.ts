@@ -12,7 +12,7 @@
 
 import type { ChatMessage } from "../../integrations/llm-chat-client.js";
 import type { KernelResult, KernelSession } from "./contracts.js";
-import { throwIfAborted } from "../../runtime/abort.js";
+import { throwIfAborted } from "@ragsystem/agent-sdk-core";
 
 export class KernelContext {
   /** 可变工作副本：初始 = session.conversation 的浅拷贝。 */

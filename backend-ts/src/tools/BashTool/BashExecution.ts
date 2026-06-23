@@ -15,7 +15,7 @@ import {
 } from "./command-policy.js";
 import { BashPathResolver } from "./paths.js";
 import type { RuntimeToolExecutionContext, ToolExecutionResult } from "../../services/runtime/runtime-tool-types.js";
-import { throwIfAborted } from "../../services/runtime/abort.js";
+import { throwIfAborted } from "@ragsystem/agent-sdk-core";
 
 const TOOL_NAME = "execute_bash";
 const DEFAULT_TIMEOUT_SECONDS = 120;

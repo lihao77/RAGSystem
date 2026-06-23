@@ -22,7 +22,7 @@ import type {
   ChatToolCall,
   LlmChatClient,
 } from "../../../integrations/llm-chat-client.js";
-import { RuntimeAbortError, throwIfAborted } from "../../../runtime/abort.js";
+import { RuntimeAbortError, throwIfAborted } from "@ragsystem/agent-sdk-core";
 import { toChatToolDefinition } from "../tools/tool-call-utils.js";
 import { StreamingRuntimeXmlParser } from "./xml/index.js";
 import { resolveTierLlmParams } from "../../llm-params.js";

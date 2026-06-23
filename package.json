@@ -1,0 +1,21 @@
+{
+  "name": "ragsystem-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "examples/*",
+    "backend-ts",
+    "frontend-client"
+  ],
+  "scripts": {
+    "build:core": "npm -w @ragsystem/agent-sdk-core run build",
+    "typecheck:core": "npm -w @ragsystem/agent-sdk-core run typecheck",
+    "typecheck:backend": "npm -w @ragsystem/backend-ts run typecheck",
+    "build:frontend": "npm -w frontend-client run build",
+    "demo": "npm -w @ragsystem/demo-app run start"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

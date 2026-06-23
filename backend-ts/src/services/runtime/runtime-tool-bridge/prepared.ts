@@ -3,7 +3,7 @@ import type {
   RuntimeToolExecutionContext,
   ToolExecutionResult,
 } from "../runtime-tool-types.js";
-import { throwIfAborted } from "../abort.js";
+import { throwIfAborted } from "@ragsystem/agent-sdk-core";
 import {
   buildToolCallContext,
   dedupeStrings,

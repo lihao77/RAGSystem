@@ -21,7 +21,7 @@
  * - 其他异常：emit runtime.error 后重抛。
  */
 
-import { isAbortError } from "../../runtime/abort.js";
+import { isAbortError } from "@ragsystem/agent-sdk-core";
 import type {
   Context,
   EventSink,

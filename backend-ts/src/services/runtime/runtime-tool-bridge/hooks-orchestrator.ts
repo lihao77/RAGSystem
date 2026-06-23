@@ -1,5 +1,5 @@
 import type { RuntimeToolExecutionContext, ToolExecutionResult } from "../runtime-tool-types.js";
-import { isAbortError, throwIfAborted } from "../abort.js";
+import { isAbortError, throwIfAborted } from "@ragsystem/agent-sdk-core";
 import type { HookRuntimeService, HookResult } from "../hooks/index.js";
 import { errorResult } from "./arguments.js";
 import { executeToolCall, type PreparedRuntimeTool } from "./prepared.js";
