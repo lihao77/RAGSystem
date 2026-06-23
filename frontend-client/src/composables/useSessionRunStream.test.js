@@ -30,6 +30,7 @@ function createDeps(overrides = {}) {
     showToast: [],
     clearLlmRetryState: 0,
     handleApprovalResolved: [],
+    resetApprovalState: [],
   };
 
   const deps = {
@@ -79,6 +80,7 @@ function createDeps(overrides = {}) {
     findRunningExecutionAgentByAgentId: () => null,
     enqueueApproval: () => {},
     handleApprovalResolved: (...args) => { calls.handleApprovalResolved.push(args); },
+    resetApprovalState: (...args) => { calls.resetApprovalState.push(args); },
     buildTaskNotificationMessage: () => ({ role: 'user', metadata: { source: 'system.bg_notification' } }),
     isRootEvent: () => true,
     isMasterEvent: () => true,
@@ -947,4 +949,33 @@ test('run_ended 事件会收尾 active run 并刷新执行态', () => {
   assert.equal(calls.updateRecentSession.length, 1);
   assert.deepEqual(calls.refreshSessionExecutionState, [['session-1', { silent: true }]]);
   assert.deepEqual(calls.scrollToBottom, [[]]);
+});
+
+test('run_ended 以 interrupted/failed 终止时清空残留 approval/input 弹窗', () => {
+  const { deps, calls } = createDeps();
+  deps.messages.value = [createAssistantMessage({ content: 'partial' })];
+  deps.isLoading.value = true;
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+
+  const stream = useSessionRunStream(deps);
+
+  // interrupted：后端 abort 只 reject waitForApproval 不发取消事件，前端据终态清弹窗
+  stream.handleWSMessage({ type: 'run_ended', payload: { status: 'interrupted' } }, 'session-1');
+  assert.equal(calls.resetApprovalState.length, 1);
+
+  calls.resetApprovalState.length = 0;
+  stream.handleWSMessage({ type: 'run_ended', payload: { status: 'failed' } }, 'session-1');
+  assert.equal(calls.resetApprovalState.length, 1);
+});
+
+test('run_ended 正常完成时不清 approval（应已 resolved）', () => {
+  const { deps, calls } = createDeps();
+  deps.messages.value = [createAssistantMessage({ content: 'done' })];
+  deps.activeRun.active = true;
+  deps.activeRun.assistantMsgIndex = 0;
+
+  const stream = useSessionRunStream(deps);
+  stream.handleWSMessage({ type: 'run_ended', payload: { status: 'completed' } }, 'session-1');
+  assert.equal(calls.resetApprovalState.length, 0);
 });

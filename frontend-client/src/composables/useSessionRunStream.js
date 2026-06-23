@@ -943,6 +943,12 @@ export function useSessionRunStream(deps) {
         // run 真正以 failed 终止时标记，wpr-label 据此显示"执行异常"（工具失败不等于 run 异常）
         if (terminalStatus === 'failed') currentMsg.run_failed = true;
       }
+      // run 非正常终止时，pending approval/input 已失效——后端 abort 只 reject
+      // waitForApproval/waitForUserInput 但不发取消事件，前端 approvalQueue 会残留导致弹窗不消失。
+      // 据权威终态信号清空 approvalQueue + pendingUserInput，关闭残留弹窗。
+      if (terminalStatus === 'interrupted' || terminalStatus === 'failed') {
+        deps.resetApprovalState?.();
+      }
       deps.sessionTaskInfo.value = {
         ...(deps.sessionTaskInfo.value || {}),
         thread_alive: false,

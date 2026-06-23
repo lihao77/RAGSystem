@@ -565,6 +565,7 @@ const {
     enqueueApproval: (...a) => enqueueApproval(...a),
     handleApprovalResolved: (...a) => handleApprovalResolved(...a),
     showUserInput,
+    resetApprovalState: () => resetApprovalState(),
   },
   notifications: {
     buildTaskNotificationMessage: (...a) => buildTaskNotificationMessage(...a),
