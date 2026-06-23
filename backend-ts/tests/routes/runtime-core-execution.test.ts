@@ -614,8 +614,8 @@ describe("minimal runtime core execution", () => {
       .map((message) => message.content) ?? [];
     expect(userContents).toEqual(
       expect.arrayContaining([
-        expect.stringContaining("[普通文件附件引用]"),
-        expect.stringContaining(`file_id=${fileId}`),
+        expect.stringContaining("<attachments>"),
+        expect.stringContaining(`file_id="${fileId}"`),
         expect.stringContaining("alpha.txt"),
       ]),
     );
@@ -623,10 +623,12 @@ describe("minimal runtime core execution", () => {
       method: "GET",
       url: "/api/agent/sessions/attachment-runtime-session/messages",
     });
+    // 持久化 content 为用户原文；附件清单仅注入 LLM、不落库
     expect(messages.json().data.items[0]).toMatchObject({
       role: "user",
+      content: "summarize attachment",
       metadata: {
-        file_references: [
+        attachments: [
           expect.objectContaining({
             file_id: fileId,
             original_name: "alpha.txt",

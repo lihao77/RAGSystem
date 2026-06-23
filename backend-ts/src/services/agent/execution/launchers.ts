@@ -16,7 +16,7 @@ import {
   normalizeSessionEntryAgent,
 } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
-import { appendAttachmentContext, type AttachmentResolver } from "./attachment-resolver.js";
+import type { AttachmentResolver } from "./attachment-resolver.js";
 import { parseSlashCommand, type SlashCommandHandler } from "./slash-command-handler.js";
 import type { FollowupQueue } from "./followup-queue.js";
 import type { AgentRunEngine } from "./run-engine.js";
@@ -101,7 +101,6 @@ class AgentLaunchers {
         error: attachmentResolution.error,
       };
     }
-    task = appendAttachmentContext(task, attachmentResolution.attachments);
     const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
     const runningStatus = this.statusTracker.getStatusBySession(sessionId);
     if (runningStatus?.status === "running") {
@@ -174,7 +173,7 @@ class AgentLaunchers {
       persistUserMessage: {
         metadata: {
           ...(slashCommand ? { type: "command", command: slashCommand.name, command_mode: slashCommand.mode } : {}),
-          ...(attachmentResolution.attachments.length ? { file_references: attachmentResolution.attachments } : {}),
+          ...(attachmentResolution.attachments.length ? { attachments: attachmentResolution.attachments } : {}),
         },
       },
       conversationUpdateProvider: () => this.followupQueue.drain(sessionId),

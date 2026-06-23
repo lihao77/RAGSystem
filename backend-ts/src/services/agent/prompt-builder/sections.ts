@@ -511,7 +511,7 @@ export function buildDataFileRulesSection(toolNames: Set<string>, mode: ToolInst
   }
   if (toolNames.has("read_file") || toolNames.has("preview_data_structure")) {
     const contentTools = ["read_file", "preview_data_structure"].filter((name) => toolNames.has(name));
-    lines.push(`- 当前轮若存在普通文件附件引用，这些文件默认不会自动注入模型正文；需要内容时，显式调用 ${contentTools.map((name) => `\`${name}\``).join(" 或 ")}`);
+    lines.push(`- 当前轮若用户消息末尾出现 <attachments> 附件清单，这些文件默认不会自动注入模型正文；需要内容时，按其中的 file_path 显式调用 ${contentTools.map((name) => `\`${name}\``).join(" 或 ")}`);
   }
   if (isNative) {
     lines.push(`- ${finalAnswerLabel} 中引用数据文件格式：\`[data:文件路径]\``);

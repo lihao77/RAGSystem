@@ -2,6 +2,7 @@ import type { MessageInfo } from "../../../contracts/session.js";
 import type { ChatMessage } from "../../integrations/llm-chat-client.js";
 import { MICROCOMPACT_CLEARED_LABEL } from "./types.js";
 import { numberOrNull } from "./helpers.js";
+import { formatAttachmentContext, type ResolvedAttachment } from "../execution/attachment-resolver.js";
 
 interface CompressionViewResolution {
   messages: MessageInfo[];
@@ -112,7 +113,7 @@ export function messagesToConversation(messages: MessageInfo[]): ChatMessage[] {
   const conversation: ChatMessage[] = [];
   for (const message of messages) {
     if (message.role === "user" || message.role === "assistant" || message.role === "system" || message.role === "tool") {
-      const chatMessage: ChatMessage = { role: message.role, content: message.content };
+      const chatMessage: ChatMessage = { role: message.role, content: buildLlmContent(message) };
       if (message.tool_calls && message.tool_calls.length > 0) {
         chatMessage.tool_calls = message.tool_calls;
       }
@@ -126,6 +127,39 @@ export function messagesToConversation(messages: MessageInfo[]): ChatMessage[] {
     }
   }
   return conversation;
+}
+
+/**
+ * user 消息若带附件，把附件清单（属性式 XML）追加到 content 末尾，仅作为 LLM 运行时上下文，
+ * 不落库（store 里 content 仍是用户原文）。其它角色原样返回。
+ */
+function buildLlmContent(message: MessageInfo): string {
+  if (message.role !== "user") {
+    return message.content;
+  }
+  const attachments = readMessageAttachments(message.metadata);
+  if (!attachments.length) {
+    return message.content;
+  }
+  const context = formatAttachmentContext(attachments);
+  return message.content ? `${message.content}\n\n${context}` : context;
+}
+
+function readMessageAttachments(metadata: Record<string, unknown> | undefined): ResolvedAttachment[] {
+  const raw = metadata?.attachments;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.filter(isResolvedAttachment);
+}
+
+function isResolvedAttachment(value: unknown): value is ResolvedAttachment {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    typeof (value as ResolvedAttachment).file_id === "string" &&
+    (value as ResolvedAttachment).file_id.length > 0
+  );
 }
 
 export function microcompactHistoryMessages(
