@@ -149,6 +149,7 @@ describe("AgentDelegationService", () => {
         payload: {
           phase: "start",
           task: "继续分析",
+          display_name: "worker_agent",
         },
       }),
       expect.objectContaining({
@@ -159,6 +160,7 @@ describe("AgentDelegationService", () => {
           phase: "end",
           result: "resumed answer",
           success: true,
+          display_name: "worker_agent",
         },
       }),
     ]);

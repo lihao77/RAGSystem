@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { ClientEvent } from "../../contracts/events.js";
+import type { Envelope } from "../../contracts/events.js";
 import type { ApprovalRequest, UserInputRequest } from "../../contracts/execution.js";
 import type { InteractionKind, InteractionResponsePayload } from "../../contracts/interactions.js";
 import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
@@ -120,7 +120,7 @@ export class PendingInteractionService {
       this.pendingInputs.set(inputId, entry);
     });
 
-    const interactionEvent: ClientEvent = {
+    const interactionEvent: Envelope = {
       type: "interaction",
       session_id: sessionId,
       call_id: inputId,
@@ -184,7 +184,7 @@ export class PendingInteractionService {
       this.pendingApprovals.set(approvalId, entry);
     });
 
-    const interactionEvent: ClientEvent = {
+    const interactionEvent: Envelope = {
       type: "interaction",
       session_id: sessionId,
       call_id: approvalId,
@@ -293,7 +293,7 @@ export class PendingInteractionService {
     return Boolean(entry && entry.sessionId === sessionId);
   }
 
-  private publish(sessionId: string, event: ClientEvent): void {
+  private publish(sessionId: string, event: Envelope): void {
     const runId = typeof event.run_id === "string" && event.run_id ? event.run_id : null;
     this.clientEvents.publish(sessionId, event, {
       runId,
@@ -303,7 +303,7 @@ export class PendingInteractionService {
   }
 
   private publishApprovalResolution(entry: PendingApprovalEntry, payload: { approved: boolean; message: string }): void {
-    const event: ClientEvent = {
+    const event: Envelope = {
       type: "interaction",
       session_id: entry.sessionId,
       call_id: entry.approvalId,

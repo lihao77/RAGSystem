@@ -138,6 +138,7 @@ export class AgentRunEngine {
         message_id: typeof userMessageSavedPayload.id === "string" ? userMessageSavedPayload.id : "",
         ...(typeof userMessageSavedPayload.seq === "number" ? { seq: userMessageSavedPayload.seq } : {}),
         ...(typeof userMessageSavedPayload.role === "string" ? { role: userMessageSavedPayload.role } : {}),
+        ...(input.requestId ? { request_id: input.requestId } : {}),
       });
     }
     this.eventPublisher.publishRootAgentStart({

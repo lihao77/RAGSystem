@@ -10,6 +10,8 @@ export interface AgentCallStartEventInput {
   rootParentCallId: string | null;
   agentCallId: string;
   agentName: string;
+  /** child agent 中文展示名；agent_started payload.display_name 用此（前端据 displayName 显示而非英文 agent_id）。 */
+  childDisplayName: string;
   description: string;
   childAgentId: string;
   mode: "create" | "resume";
@@ -25,6 +27,8 @@ export interface AgentCallEndEventInput {
   rootParentCallId: string | null;
   agentCallId: string;
   agentName: string;
+  /** child agent 中文展示名；agent_ended payload.display_name 用此。 */
+  childDisplayName: string;
   result: string;
   success: boolean;
   childAgentId: string;
@@ -48,6 +52,7 @@ export function publishAgentCallStart(clientEvents: ClientEventPublisher | null,
       payload: {
         phase: "start",
         task: input.description,
+        display_name: input.childDisplayName,
         lineage: input.rootParentCallId ? { parent_call_id: input.rootParentCallId } : undefined,
       },
     },
@@ -75,6 +80,7 @@ export function publishAgentCallEnd(clientEvents: ClientEventPublisher | null, i
         phase: "end",
         result: input.result.slice(0, 500),
         success: input.success,
+        display_name: input.childDisplayName,
         lineage: input.rootParentCallId ? { parent_call_id: input.rootParentCallId } : undefined,
       },
     },

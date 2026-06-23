@@ -124,6 +124,7 @@ class AgentLaunchers {
         message_id: followupMessage.id,
         seq: followupMessage.seq,
         role: followupMessage.role,
+        request_id: requestId,
       });
       return {
         started: true,

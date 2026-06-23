@@ -65,7 +65,7 @@ export class AgentExecutionEventPublisher {
   publishOutputMessageSaved(
     sessionId: string,
     runId: string | null | undefined,
-    payload: { message_id: string; seq?: number; role?: string },
+    payload: { message_id: string; seq?: number; role?: string; request_id?: string },
   ): void {
     this.publish(sessionId, {
       type: "state_sync",
@@ -73,7 +73,12 @@ export class AgentExecutionEventPublisher {
       ...(runId ? { run_id: runId } : {}),
       payload: {
         category: "message_saved",
-        ref: { message_id: payload.message_id, ...(payload.seq !== undefined ? { seq: payload.seq } : {}) },
+        ref: {
+          message_id: payload.message_id,
+          ...(payload.seq !== undefined ? { seq: payload.seq } : {}),
+          ...(payload.role ? { role: payload.role } : {}),
+          ...(payload.request_id ? { request_id: payload.request_id } : {}),
+        },
       } satisfies StateSyncPayload,
     });
   }
@@ -84,7 +89,7 @@ export class AgentExecutionEventPublisher {
       type: "agent_started",
       session_id: input.sessionId,
       ...top,
-      payload: { phase: "start", task: input.task, lineage },
+      payload: { phase: "start", task: input.task, display_name: input.agent.display_name || input.agent.agent_name, lineage },
     });
   }
 
@@ -94,7 +99,7 @@ export class AgentExecutionEventPublisher {
       type: "agent_ended",
       session_id: input.sessionId,
       ...top,
-      payload: { phase: "end", result: input.result.slice(0, 500), success: input.success, lineage },
+      payload: { phase: "end", result: input.result.slice(0, 500), success: input.success, display_name: input.agent.display_name || input.agent.agent_name, lineage },
     });
   }
 
@@ -224,7 +229,7 @@ export class AgentExecutionEventPublisher {
           mode: "projection",
           phase: "start",
           status: "running",
-          lineage,
+          lineage: { parent_call_id: input.rootCallId },
         },
       });
       return;
@@ -281,7 +286,7 @@ export class AgentExecutionEventPublisher {
           ...(approvalStatus === "pending" || approvalStatus === "granted" || approvalStatus === "denied"
             ? { approval: { status: approvalStatus, ...(approvalMessage ? { message: approvalMessage } : {}) } }
             : {}),
-          lineage,
+          lineage: { parent_call_id: input.rootCallId },
         },
       });
     }

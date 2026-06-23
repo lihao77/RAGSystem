@@ -91,6 +91,7 @@ export class AgentDelegationService implements DelegationPort {
       metadata: buildChildMetadata(context, threadKey, "call_agent"),
     });
 
+    const childDisplayName = this.resolveChildDisplayName(targetAgentName, normalizeString(context.teamName));
     publishAgentCallStart(this.clientEvents, {
       sessionId,
       parentRunId: normalizeString(context.runId),
@@ -99,6 +100,7 @@ export class AgentDelegationService implements DelegationPort {
       rootParentCallId: normalizeString(context.parentCallId),
       agentCallId,
       agentName: targetAgentName,
+      childDisplayName,
       description: task,
       childAgentId,
       mode: "create",
@@ -128,6 +130,7 @@ export class AgentDelegationService implements DelegationPort {
       rootParentCallId: normalizeString(context.parentCallId),
       agentCallId,
       agentName: targetAgentName,
+      childDisplayName,
       result: result.content || result.summary,
       success: result.success,
       childAgentId,
@@ -166,6 +169,7 @@ export class AgentDelegationService implements DelegationPort {
       return errorResult(`子 Agent '${childAgentId}' 当前不可用`, toolName);
     }
 
+    const childDisplayName = this.resolveChildDisplayName(child.agent_name, normalizeString(context.teamName));
     publishAgentCallStart(this.clientEvents, {
       sessionId,
       parentRunId: normalizeString(context.runId),
@@ -174,6 +178,7 @@ export class AgentDelegationService implements DelegationPort {
       rootParentCallId: normalizeString(context.parentCallId),
       agentCallId,
       agentName: child.agent_name,
+      childDisplayName,
       description: message,
       childAgentId,
       mode: "resume",
@@ -203,6 +208,7 @@ export class AgentDelegationService implements DelegationPort {
       rootParentCallId: normalizeString(context.parentCallId),
       agentCallId,
       agentName: child.agent_name,
+      childDisplayName,
       result: result.content || result.summary,
       success: result.success,
       childAgentId,
@@ -252,6 +258,12 @@ export class AgentDelegationService implements DelegationPort {
         toolName: "list_child_agents",
       },
     );
+  }
+
+  /** 提前解析 child agent 展示名（agent_started/ended payload.display_name）；resolve 失败回退 agent_name。 */
+  private resolveChildDisplayName(agentName: string, teamName: string | null): string {
+    const resolved = this.runtimeCore.resolveExecutionConfig({ agentName, teamName });
+    return resolved.agent?.display_name || agentName;
   }
 
   private async executeChildRun(input: {

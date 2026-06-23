@@ -62,9 +62,6 @@ export type {
 
 export { EnvelopeTypeSchema };
 
-/** 后端下行 envelope 构造辅助：返回 ProtocolEnvelope 的宽松别名，供各产出点直接引用。 */
-export type ClientEvent = Envelope;
-
 /* ============================================================
  * 上行 envelope（host → runtime）校验
  * ========================================================== */
