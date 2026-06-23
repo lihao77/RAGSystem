@@ -298,10 +298,10 @@ function submit(approved) {
 }
 
 .wpa-btn--deny {
-  background: var(--color-error, #ef4444);
-  color: #fff;
+  background: color-mix(in srgb, var(--color-bg-elevated, #1c1c1e) 84%, var(--color-error, #ef4444) 16%);
+  color: var(--color-error, #ef4444);
 }
 .wpa-btn--deny:hover:not(:disabled) {
-  filter: brightness(1.08);
+  background: color-mix(in srgb, var(--color-bg-elevated, #1c1c1e) 72%, var(--color-error, #ef4444) 28%);
 }
 </style>
