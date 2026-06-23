@@ -1,14 +1,14 @@
 <template>
   <div v-if="currentApproval" class="wpa-root">
-    <div class="wpa-section-label">
-      <span class="wpa-section-icon" aria-hidden="true">
-        <WorkPanelStateIcon kind="approval" />
-      </span>
-      <span>待审批</span>
-      <span v-if="queue.length > 1" class="wpa-queue-badge">{{ queue.length }}</span>
-    </div>
-
     <div class="wpa-card">
+      <div class="wpa-section-label">
+        <span class="wpa-section-icon" aria-hidden="true">
+          <WorkPanelStateIcon kind="approval" />
+        </span>
+        <span>待审批</span>
+        <span v-if="queue.length > 1" class="wpa-queue-badge">{{ queue.length }}</span>
+      </div>
+
       <!-- Tool + risk -->
       <div class="wpa-card-header">
         <span class="wpa-tool-name">{{ currentApproval.tool_name }}</span>
@@ -109,16 +109,40 @@ function submit(approved) {
   letter-spacing: 0;
 }
 
+/* 卡片：实色 + 左侧审批色条（替代多条横线作视觉标识）+ 双层阴影浮起 */
+.wpa-card {
+  position: relative;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 10px);
+  overflow: hidden;
+  background: var(--color-bg-elevated, #1c1c1e);
+  box-shadow:
+    0 14px 36px rgba(0, 0, 0, 0.46),
+    0 3px 10px rgba(0, 0, 0, 0.26);
+  display: flex;
+  flex-direction: column;
+}
+
+.wpa-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--color-warning, #f59e0b), rgba(var(--color-warning-rgb, 245, 158, 11), 0.35));
+}
+
 .wpa-section-label {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  padding: 11px 14px 3px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.09em;
   color: var(--color-warning, #f59e0b);
-  margin-bottom: 8px;
 }
 
 .wpa-section-icon {
@@ -130,8 +154,8 @@ function submit(approved) {
   justify-content: center;
   flex-shrink: 0;
   color: var(--color-warning, #f59e0b);
-  background: rgba(var(--color-warning-rgb), 0.1);
-  border: 1px solid rgba(var(--color-warning-rgb), 0.2);
+  background: rgba(var(--color-warning-rgb), 0.12);
+  border: 1px solid rgba(var(--color-warning-rgb), 0.22);
 }
 
 .wpa-section-icon :deep(svg) {
@@ -152,33 +176,16 @@ function submit(approved) {
   font-weight: 700;
 }
 
-.wpa-card {
-  border: 1px solid rgba(var(--color-warning-rgb), 0.28);
-  border-radius: var(--radius-md, 10px);
-  overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(var(--color-warning-rgb), 0.07), transparent 42%),
-    var(--color-bg-elevated, #1c1c1e);
-  box-shadow:
-    0 12px 32px rgba(0, 0, 0, 0.44),
-    0 0 0 1px rgba(255, 255, 255, 0.03),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
 .wpa-card-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 12px 8px;
-  border-bottom: 1px solid var(--color-border);
+  padding: 4px 14px 11px;
 }
 
 .wpa-tool-name {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 650;
   color: var(--color-text-primary);
   font-family: var(--font-mono);
   flex: 1;
@@ -191,28 +198,28 @@ function submit(approved) {
 .wpa-risk-badge {
   font-size: 10px;
   font-weight: 700;
-  padding: 2px 7px;
+  padding: 2px 8px;
   border-radius: 20px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   flex-shrink: 0;
 }
 
-.risk-low    { background: rgba(34,197,94,0.12); color: var(--color-success, #22c55e); }
-.risk-medium { background: rgba(245,158,11,0.12); color: var(--color-warning, #f59e0b); }
-.risk-high, .risk-critical { background: rgba(239,68,68,0.12); color: var(--color-error, #ef4444); }
+.risk-low    { background: rgba(34,197,94,0.14); color: var(--color-success, #22c55e); }
+.risk-medium { background: rgba(245,158,11,0.14); color: var(--color-warning, #f59e0b); }
+.risk-high, .risk-critical { background: rgba(239,68,68,0.14); color: var(--color-error, #ef4444); }
 
 .wpa-agent {
   font-size: 11px;
   color: var(--color-text-muted);
-  padding: 4px 12px 0;
+  padding: 0 14px 3px;
 }
 
 .wpa-reason {
   font-size: 12px;
   color: var(--color-text-secondary);
   line-height: 1.5;
-  padding: 6px 12px;
+  padding: 0 14px 10px;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
@@ -227,7 +234,7 @@ function submit(approved) {
   color: var(--color-text-muted);
   background: none;
   border: none;
-  padding: 2px 12px 4px;
+  padding: 0 14px 4px;
   cursor: pointer;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -240,70 +247,84 @@ function submit(approved) {
 }
 .wpa-chevron.open { transform: rotate(90deg); }
 
+/* 参数块：独立圆角浅块，不再用全宽 border-top 分隔 */
 .wpa-pre {
-  margin: 0;
+  margin: 0 14px 10px;
   font-size: 11px;
   font-family: var(--font-mono);
   color: var(--color-text-secondary);
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.52);
-  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 7px 10px;
   max-height: 100px;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-all;
-  border-top: 1px solid var(--color-border);
+  border-radius: 6px;
 }
 
+/* 附言：独立输入框（边框 + 圆角），不再用全宽 border-top */
 .wpa-note {
-  width: 100%;
+  width: auto;
+  margin: 4px 14px 10px;
   font-size: 12px;
-  padding: 7px 12px;
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.18);
-  border: none;
-  border-top: 1px solid var(--color-border);
+  padding: 7px 10px;
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.22);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
   color: var(--color-text-primary);
   outline: none;
   box-sizing: border-box;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
 }
 
 .wpa-note::placeholder { color: var(--color-text-muted); }
+.wpa-note:focus {
+  border-color: rgba(var(--color-warning-rgb, 245, 158, 11), 0.5);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.32);
+}
 
+/* 操作区：按钮各自独立（边框 + 圆角 + 色调），gap 分隔，不再用 border-top/border-right */
 .wpa-actions {
   display: flex;
-  border-top: 1px solid var(--color-border);
+  gap: 8px;
+  padding: 0 14px 12px;
 }
 
 .wpa-btn {
   flex: 1;
   padding: 8px 0;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 650;
   cursor: pointer;
-  border: none;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
   background: transparent;
-  transition: background 0.12s, transform 0.1s;
+  transition: background 0.12s, transform 0.1s, border-color 0.12s;
 }
 .wpa-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .wpa-btn:active:not(:disabled) { transform: scale(0.97); }
 
 .wpa-btn--approve {
   color: var(--color-success, #22c55e);
-  border-right: 1px solid var(--color-border);
+  border-color: rgba(34, 197, 94, 0.32);
 }
 .wpa-btn--approve:hover:not(:disabled) {
-  background: rgba(34,197,94,0.08);
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.44);
 }
 .wpa-btn--approve:active:not(:disabled) {
-  background: rgba(34,197,94,0.14);
+  background: rgba(34, 197, 94, 0.16);
 }
 
 .wpa-btn--deny {
   color: var(--color-error, #ef4444);
+  border-color: rgba(239, 68, 68, 0.32);
 }
 .wpa-btn--deny:hover:not(:disabled) {
-  background: rgba(239,68,68,0.08);
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.44);
 }
 .wpa-btn--deny:active:not(:disabled) {
-  background: rgba(239,68,68,0.14);
+  background: rgba(239, 68, 68, 0.16);
 }
 </style>

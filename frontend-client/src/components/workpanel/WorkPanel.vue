@@ -112,14 +112,6 @@ function isErrorStatusItem(item) {
   right: 0;
   z-index: 10;
   padding-top: 22px;
-  background: linear-gradient(
-    to bottom,
-    transparent 0,
-    rgba(var(--surface-workpanel-rgb, 8, 8, 12), 0.90) 22px,
-    rgba(var(--surface-workpanel-rgb, 8, 8, 12), 0.97) 100%
-  );
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
   will-change: transform, opacity;
 }
 
