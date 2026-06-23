@@ -1,7 +1,6 @@
 import type { Envelope } from "../../../contracts/events.js";
 import type { MessageInfo } from "../../../contracts/session.js";
 import type { ConversationStore, OutboxRow, RunStepRecord } from "../../../contracts/conversation-store/index.js";
-import type { RunStepInfo } from "../../../contracts/common.js";
 import { asString, isRecord } from "./helpers.js";
 
 export type RunTerminalStatus = "completed" | "failed" | "interrupted";
@@ -241,38 +240,46 @@ export class ExecutionRecorder {
   }
 
   /**
-   * 收集 run 内「已 start 未 end」的悬空工具调用（按 tool_call_id 配对 start/end step）。
-   * 打断发生在工具执行阶段时，已 emit tool_call(start) 但未 emit tool_result(end)。
+   * 收集该 run 的 assistant(tool_calls) 中无配对 role:tool(tool_call_id) 的悬空 tool_use。
+   * 直接以 messages 表为准（而非 run_step 表）——覆盖所有中断时机，含 abort 在 tool_call 事件
+   * 落库前（assistant_intermediate 已落 messages、但 run_step 还没 tool_call start）的早中断。
    */
   private collectDanglingToolCalls(input: RunFailedRecordInput): DanglingToolCall[] {
-    const steps = this.conversationStore.listRunSteps({ sessionId: input.sessionId, runId: input.runId, limit: 1000 });
-    const started = new Map<string, RunStepInfo>();
-    const ended = new Set<string>();
-    for (const step of steps) {
-      const payload = step.payload ?? {};
-      if (payload.kind !== "tool") continue;
-      const callId = asString(payload.tool_call_id ?? payload.call_id);
-      if (!callId) continue;
-      if (payload.phase === "end") {
-        ended.add(callId);
-      } else if (payload.phase === "start") {
-        started.set(callId, step);
+    const recent = this.conversationStore.listMessages(input.sessionId, 1000, 0, input.threadKey);
+    const answeredToolCallIds = new Set<string>();
+    for (const message of recent.items) {
+      if (message.role === "tool" && message.tool_call_id) {
+        answeredToolCallIds.add(message.tool_call_id);
       }
     }
     const dangling: DanglingToolCall[] = [];
-    for (const [callId, step] of started) {
-      if (ended.has(callId)) continue;
-      const payload = step.payload;
-      dangling.push({
-        callId,
-        toolName: asString(payload.tool_name) ?? "unknown",
-        arguments: isRecord(payload.arguments) ? payload.arguments : {},
-        round: typeof payload.round === "number" ? payload.round : 0,
-        order: typeof payload.order === "number" ? payload.order : 1,
-        roundIndex: typeof payload.round_index === "number" ? payload.round_index : 1,
-        agentName: asString(payload.agent_name) ?? input.agentName,
-        agentDisplayName: asString(payload.agent_display_name) ?? input.agentDisplayName,
-      });
+    for (const message of recent.items) {
+      if (message.role !== "assistant" || !Array.isArray(message.tool_calls) || message.tool_calls.length === 0) {
+        continue;
+      }
+      if (asString(message.metadata?.run_id) !== input.runId) {
+        continue;
+      }
+      const round = resolveRound(message.metadata?.round);
+      let order = 1;
+      for (const toolCall of message.tool_calls) {
+        const callId = toolCall.id;
+        if (!callId || answeredToolCallIds.has(callId)) {
+          order += 1;
+          continue;
+        }
+        dangling.push({
+          callId,
+          toolName: toolCall.function?.name ?? "unknown",
+          arguments: parseToolArguments(toolCall.function?.arguments),
+          round,
+          order,
+          roundIndex: order,
+          agentName: asString(message.metadata?.agent_name) ?? input.agentName,
+          agentDisplayName: input.agentDisplayName,
+        });
+        order += 1;
+      }
     }
     return dangling;
   }
@@ -338,5 +345,21 @@ export class ExecutionRecorder {
       aggregateId: input.runId,
       payload: { client_event: envelope },
     });
+  }
+}
+
+function resolveRound(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, value - 1) : 0;
+}
+
+function parseToolArguments(raw: string | undefined): Record<string, unknown> {
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
   }
 }

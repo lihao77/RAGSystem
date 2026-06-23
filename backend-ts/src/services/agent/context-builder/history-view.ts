@@ -109,21 +109,49 @@ export function resolveCompressionViewDetailed(messages: MessageInfo[]): Compres
   };
 }
 
+/** 历史中悬空 tool_use（无配对 tool result）的占位结果，保证厂商 FC 请求合法。 */
+const UNANSWERED_TOOL_PLACEHOLDER = "工具未返回结果";
+
 export function messagesToConversation(messages: MessageInfo[]): ChatMessage[] {
+  // 收集所有已配对的 tool_call_id（role:tool 消息）。
+  const answeredToolCallIds = new Set<string>();
+  for (const message of messages) {
+    if (message.role === "tool" && message.tool_call_id) {
+      answeredToolCallIds.add(message.tool_call_id);
+    }
+  }
   const conversation: ChatMessage[] = [];
   for (const message of messages) {
-    if (message.role === "user" || message.role === "assistant" || message.role === "system" || message.role === "tool") {
-      const chatMessage: ChatMessage = { role: message.role, content: buildLlmContent(message) };
-      if (message.tool_calls && message.tool_calls.length > 0) {
-        chatMessage.tool_calls = message.tool_calls;
+    if (message.role !== "user" && message.role !== "assistant" && message.role !== "system" && message.role !== "tool") {
+      continue;
+    }
+    const chatMessage: ChatMessage = { role: message.role, content: buildLlmContent(message) };
+    if (message.tool_calls && message.tool_calls.length > 0) {
+      chatMessage.tool_calls = message.tool_calls;
+    }
+    if (message.tool_call_id) {
+      chatMessage.tool_call_id = message.tool_call_id;
+    }
+    if (message.name) {
+      chatMessage.name = message.name;
+    }
+    conversation.push(chatMessage);
+    // 契约保证：assistant 的每个 tool_use 必须有配对的 role:tool，否则厂商 FC API 拒绝
+    // （"insufficient tool messages following tool_calls message"）。历史 data 可能因中断/
+    // 崩溃/旧版本出现悬空 tool_use，此处为无配对的 tool_call 补占位 tool result 兜底。
+    if (message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0) {
+      for (const toolCall of message.tool_calls) {
+        const callId = toolCall.id;
+        if (callId && !answeredToolCallIds.has(callId)) {
+          conversation.push({
+            role: "tool",
+            tool_call_id: callId,
+            name: toolCall.function?.name ?? "",
+            content: UNANSWERED_TOOL_PLACEHOLDER,
+          });
+          answeredToolCallIds.add(callId);
+        }
       }
-      if (message.tool_call_id) {
-        chatMessage.tool_call_id = message.tool_call_id;
-      }
-      if (message.name) {
-        chatMessage.name = message.name;
-      }
-      conversation.push(chatMessage);
     }
   }
   return conversation;
