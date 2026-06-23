@@ -11,6 +11,7 @@
     "screenshot:smoke": "node scripts/screenshot-smoke.mjs"
   },
   "dependencies": {
+    "@ragsystem/agent-sdk-core": "*",
     "axios": "^1.13.2",
     "echarts": "^6.0.0",
     "github-markdown-css": "^5.8.1",

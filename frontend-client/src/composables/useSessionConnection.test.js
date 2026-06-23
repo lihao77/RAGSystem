@@ -72,21 +72,21 @@ function installFakeSessionSocketEnv() {
   };
 }
 
-test('session connection 重连时使用已观察到的 event_seq durable cursor', () => {
+test('session connection 重连时使用已观察到的 seq durable cursor', () => {
   const restore = installFakeSessionSocketEnv();
   const received = [];
 
   try {
     const connection = useSessionConnection(createConnectionDeps((event, sessionId) => {
-      received.push([event.type, sessionId, event.event_seq || null]);
+      received.push([event.type, sessionId, event.seq || null]);
     }));
 
     connection.connectSessionWS('session-1');
     assert.equal(FakeWebSocket.instances[0].url, 'ws://localhost:5174/api/agent/sessions/session-1/ws');
 
-    FakeWebSocket.instances[0].emit({ type: 'session.run_started', event_seq: 3 });
+    FakeWebSocket.instances[0].emit({ type: 'run_started', seq: 3, run_id: 'run-1' });
     assert.equal(connection.getLastEventSeq('session-1'), 3);
-    assert.deepEqual(received, [['session.run_started', 'session-1', 3]]);
+    assert.deepEqual(received, [['run_started', 'session-1', 3]]);
 
     connection.disconnectSessionWS();
     connection.connectSessionWS('session-1');
@@ -95,33 +95,33 @@ test('session connection 重连时使用已观察到的 event_seq durable cursor
       'ws://localhost:5174/api/agent/sessions/session-1/ws?after_event_seq=3',
     );
 
-    FakeWebSocket.instances[1].emit({ type: 'session.run_started', event_seq: 3 });
-    FakeWebSocket.instances[1].emit({ type: 'output.chunk', event_seq: 4, data: { content: 'x' } });
+    FakeWebSocket.instances[1].emit({ type: 'run_started', seq: 3, run_id: 'run-1' });
+    FakeWebSocket.instances[1].emit({ type: 'stream_output', seq: 4, payload: { phase: 'delta', content: 'x' } });
 
     assert.equal(connection.getLastEventSeq('session-1'), 4);
     assert.deepEqual(received, [
-      ['session.run_started', 'session-1', 3],
-      ['output.chunk', 'session-1', 4],
+      ['run_started', 'session-1', 3],
+      ['stream_output', 'session-1', 4],
     ]);
   } finally {
     restore();
   }
 });
 
-test('session connection 使用 heartbeat.last_event_seq 推进重连 cursor', () => {
+test('session connection 使用 heartbeat.last_seq 推进重连 cursor', () => {
   const restore = installFakeSessionSocketEnv();
   const received = [];
 
   try {
     const connection = useSessionConnection(createConnectionDeps((event, sessionId) => {
-      received.push([event.type, sessionId, event.event_seq || null, event.stream_seq || null]);
+      received.push([event.type, sessionId, event.seq || null]);
     }));
 
     connection.connectSessionWS('session-1');
-    FakeWebSocket.instances[0].emit({ type: 'heartbeat', last_event_seq: 5, last_stream_seq: 42 });
+    FakeWebSocket.instances[0].emit({ type: 'heartbeat', payload: { last_seq: 5 } });
     assert.equal(connection.getLastEventSeq('session-1'), 5);
 
-    FakeWebSocket.instances[0].emit({ type: 'heartbeat', last_event_seq: 3 });
+    FakeWebSocket.instances[0].emit({ type: 'heartbeat', payload: { last_seq: 3 } });
     assert.equal(connection.getLastEventSeq('session-1'), 5);
 
     connection.disconnectSessionWS();
@@ -131,16 +131,16 @@ test('session connection 使用 heartbeat.last_event_seq 推进重连 cursor', (
       'ws://localhost:5174/api/agent/sessions/session-1/ws?after_event_seq=5',
     );
 
-    FakeWebSocket.instances[1].emit({ type: 'output.chunk', event_seq: 5, data: { content: 'duplicate' } });
-    FakeWebSocket.instances[1].emit({ type: 'output.chunk', stream_seq: 99, data: { content: 'transport only' } });
-    FakeWebSocket.instances[1].emit({ type: 'output.chunk', event_seq: 6, data: { content: 'next' } });
+    FakeWebSocket.instances[1].emit({ type: 'stream_output', seq: 5, payload: { phase: 'delta', content: 'duplicate' } });
+    FakeWebSocket.instances[1].emit({ type: 'stream_output', payload: { phase: 'delta', content: 'transport only' } });
+    FakeWebSocket.instances[1].emit({ type: 'stream_output', seq: 6, payload: { phase: 'delta', content: 'next' } });
 
     assert.equal(connection.getLastEventSeq('session-1'), 6);
     assert.deepEqual(received, [
-      ['heartbeat', 'session-1', null, null],
-      ['heartbeat', 'session-1', null, null],
-      ['output.chunk', 'session-1', null, 99],
-      ['output.chunk', 'session-1', 6, null],
+      ['heartbeat', 'session-1', null],
+      ['heartbeat', 'session-1', null],
+      ['stream_output', 'session-1', null],
+      ['stream_output', 'session-1', 6],
     ]);
   } finally {
     restore();
@@ -154,7 +154,7 @@ test('session connection 可重置 session durable cursor 以支持快照加载�
     const connection = useSessionConnection(createConnectionDeps(() => {}));
 
     connection.connectSessionWS('session-1');
-    FakeWebSocket.instances[0].emit({ type: 'output.chunk', event_seq: 9, data: { content: 'x' } });
+    FakeWebSocket.instances[0].emit({ type: 'stream_output', seq: 9, payload: { phase: 'delta', content: 'x' } });
     assert.equal(connection.getLastEventSeq('session-1'), 9);
 
     connection.disconnectSessionWS();

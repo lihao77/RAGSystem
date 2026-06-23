@@ -59,8 +59,7 @@ import ExecutionTimelineNode from './ExecutionTimelineNode.vue'
 import WorkPanelInspector from './WorkPanelInspector.vue'
 
 const props = defineProps({
-  executionSteps: { type: Array, default: () => [] },
-  subtasks: { type: Array, default: () => [] },
+  executionTree: { type: Object, default: () => ({ root: null, steps: [] }) },
   running: { type: Boolean, default: false },
   sessionId: { type: String, default: '' },
 })
@@ -68,7 +67,7 @@ const props = defineProps({
 const listRef = ref(null)
 const selectedNodeKey = ref('')
 let selectionScrollTimer = null
-const nodes = computed(() => buildExecutionTree(props.executionSteps, props.subtasks))
+const nodes = computed(() => buildExecutionTree(props.executionTree))
 const flatNodes = computed(() => flattenNodes(nodes.value))
 const focusNode = computed(() => findFocusNode(flatNodes.value))
 const focusKey = computed(() => focusNode.value ? getNodeKey(focusNode.value) : '')

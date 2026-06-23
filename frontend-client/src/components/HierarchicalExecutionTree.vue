@@ -8,7 +8,7 @@
 
     <div class="tree-container">
       <ExecutionNode
-        v-for="(node, index) in executionTree"
+        v-for="(node, index) in executionTreeNodes"
         :key="index"
         :node="node"
         :level="0"
@@ -24,13 +24,12 @@ import ExecutionNode from './ExecutionNode.vue';
 import { buildExecutionTree } from '../utils/executionTreeBuilder';
 
 const props = defineProps({
-  executionSteps: { type: Array, default: () => [] },
-  subtasks: { type: Array, default: () => [] },
+  executionTree: { type: Object, default: () => ({ root: null, steps: [] }) },
   sessionId: { type: String, default: '' }
 });
 
-const executionTree = computed(() =>
-  buildExecutionTree(props.executionSteps, props.subtasks)
+const executionTreeNodes = computed(() =>
+  buildExecutionTree(props.executionTree)
 );
 </script>
 

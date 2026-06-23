@@ -1,4 +1,5 @@
-import { buildExecutionState } from './executionProjector';
+import { createExecutionTreeState, applyEnvelope, getExecutionTree } from '@ragsystem/agent-sdk-core';
+import { legacyStepToEnvelope } from './legacyStepToEnvelope';
 
 export const SMOKE_ARTIFACT_ID = 'viz_smoke_chart';
 
@@ -131,7 +132,11 @@ const smokeExecutionSteps = [
 ];
 
 export function createSmokeArtifactMessages() {
-  const projected = buildExecutionState(smokeExecutionSteps);
+  const execState = createExecutionTreeState();
+  for (const env of legacyStepToEnvelope(smokeExecutionSteps)) {
+    applyEnvelope(execState, env);
+  }
+  const executionTree = getExecutionTree(execState);
   const assistant = {
     role: 'assistant',
     id: 'smoke-assistant-1',
@@ -143,8 +148,7 @@ export function createSmokeArtifactMessages() {
       '',
       '图表下方应继续显示文本内容，移动端和桌面端都不能出现横向溢出。',
     ].join('\n'),
-    subtasks: projected.subtasks,
-    execution_steps: projected.execution_steps,
+    executionTree,
     showFullSubtasks: false,
     status: [],
     finished: true,
@@ -159,7 +163,7 @@ export function createSmokeArtifactMessages() {
       execution_time: 1.36,
       first_token_time: 0.28,
     },
-    _executionProjector: projected,
+    _execState: execState,
   };
 
   return [

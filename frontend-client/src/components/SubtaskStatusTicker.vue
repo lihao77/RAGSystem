@@ -78,13 +78,9 @@ import { computed } from 'vue';
 import { getAgentBadgeClass } from '../utils/agentBadge';
 
 const props = defineProps({
-  subtasks: {
-    type: Array,
-    required: true
-  },
-  executionSteps: {
-    type: Array,
-    default: () => []
+  executionTree: {
+    type: Object,
+    default: () => ({ root: null, steps: [] })
   },
   expanded: {
     type: Boolean,
@@ -106,118 +102,100 @@ const props = defineProps({
 
 defineEmits(['toggle-view']);
 
-const resolveAgentLabel = (item) => (
-  item?.agent_display_name
-  || item?.agentDisplayName
-  || item?.agent_name
-  || ''
-);
+const resolveAgentLabel = (agent) => agent?.displayName || agent?.agentId || agent?.agent_display_name || '';
 
-const flattenSubtasks = (subtasks = []) => {
+const flattenAgents = (executionTree) => {
   const result = [];
-  const stack = [...subtasks];
+  if (!executionTree?.root) return result;
+  const stack = [executionTree.root];
   while (stack.length > 0) {
-    const subtask = stack.shift();
-    if (!subtask) continue;
-    result.push(subtask);
-    if (Array.isArray(subtask.children) && subtask.children.length > 0) {
-      stack.unshift(...subtask.children);
+    const agent = stack.shift();
+    if (!agent) continue;
+    result.push(agent);
+    if (Array.isArray(agent.children) && agent.children.length > 0) {
+      stack.push(...agent.children);
     }
   }
   return result;
 };
 
-const allSubtasks = computed(() => flattenSubtasks(props.subtasks || []));
+const findRunningTool = (agent) => {
+  for (const round of agent.rounds || []) {
+    for (const toolCall of round.toolCalls || []) {
+      if (toolCall.status === 'running') return toolCall;
+    }
+  }
+  return null;
+};
+
+const allAgents = computed(() => flattenAgents(props.executionTree));
+const rootAgent = computed(() => props.executionTree?.root || null);
 
 const currentActivity = computed(() => {
-  const runningTask = allSubtasks.value.find(t => t.status === 'running');
-  if (runningTask) {
-    let runningTool = null;
-    if (runningTask.react_steps) {
-      for (const step of runningTask.react_steps) {
-        if (step.toolCalls) {
-          const activeTool = step.toolCalls.find(t => t.status === 'running');
-          if (activeTool) {
-            runningTool = activeTool;
-            break;
-          }
-        }
-      }
-    }
+  // 非根 running agent（子 agent 执行中）
+  const runningChild = allAgents.value.find(a => a !== rootAgent.value && a.status === 'running');
+  if (runningChild) {
+    const runningTool = findRunningTool(runningChild);
     return {
-      agent_display_name: resolveAgentLabel(runningTask),
-      description: runningTask.description,
-      tool_name: runningTool ? runningTool.tool_name : null
+      agent_display_name: resolveAgentLabel(runningChild),
+      description: runningChild.task || '',
+      tool_name: runningTool ? runningTool.toolName : null,
     };
   }
-
-  const executionSteps = props.executionSteps || [];
-  for (const step of executionSteps) {
-    if (step.toolCalls) {
-      const activeTool = step.toolCalls.find(t => t.status === 'running');
-      if (activeTool) {
-        return {
-          agent_display_name: resolveAgentLabel(step),
-          description: null,
-          tool_name: activeTool.tool_name
-        };
-      }
+  // 根 agent 的 running tool
+  const root = rootAgent.value;
+  if (root) {
+    const runningTool = findRunningTool(root);
+    if (runningTool) {
+      return {
+        agent_display_name: resolveAgentLabel(root),
+        description: null,
+        tool_name: runningTool.toolName,
+      };
     }
   }
-
   return null;
 });
 
 const hasRunningRootExecution = computed(() => {
-  return (props.executionSteps || []).some(step => step?.status === 'running' || step?.run_status === 'running');
+  const root = rootAgent.value;
+  if (!root) return false;
+  return root.status === 'running' || Boolean(findRunningTool(root));
 });
 
 const rootExecutionAgentLabel = computed(() => {
-  const executionSteps = props.executionSteps || [];
-  const runningRoot = executionSteps.find(step => step?.status === 'running' || step?.run_status === 'running');
-  if (runningRoot) return resolveAgentLabel(runningRoot) || 'orchestrator_agent';
-
-  const completedRoot = [...executionSteps].reverse().find(step => step?.run_status === 'success' || step?.run_status === 'error');
-  if (completedRoot) return resolveAgentLabel(completedRoot) || 'orchestrator_agent';
-
-  const lastLabeledRoot = [...executionSteps].reverse().find(step => resolveAgentLabel(step));
-  return resolveAgentLabel(lastLabeledRoot) || 'orchestrator_agent';
+  const root = rootAgent.value;
+  return resolveAgentLabel(root) || 'orchestrator_agent';
 });
 
 const lastCompletedTask = computed(() => {
-  const completedTasks = allSubtasks.value.filter(t => t.status === 'success' || t.status === 'error');
-  if (completedTasks.length > 0) {
-    return completedTasks[completedTasks.length - 1];
+  const completed = allAgents.value.filter(a => a !== rootAgent.value && (a.status === 'succeeded' || a.status === 'failed'));
+  if (completed.length > 0) {
+    const last = completed[completed.length - 1];
+    return {
+      agent_display_name: resolveAgentLabel(last),
+      description: last.task || '',
+      status: last.status === 'failed' ? 'error' : 'success',
+    };
   }
-  const executionSteps = props.executionSteps || [];
-  for (let i = executionSteps.length - 1; i >= 0; i--) {
-    const step = executionSteps[i];
-    if (step.toolCalls && step.toolCalls.length > 0) {
-      const lastTool = step.toolCalls[step.toolCalls.length - 1];
-      if (lastTool.status === 'success') {
-        return {
-          agent_display_name: rootExecutionAgentLabel.value,
-          description: lastTool.tool_name,
-          status: 'success'
-        };
+  // 根 agent 的最后完成工具
+  const root = rootAgent.value;
+  if (root) {
+    const rounds = root.rounds || [];
+    for (let i = rounds.length - 1; i >= 0; i -= 1) {
+      const tools = rounds[i]?.toolCalls || [];
+      if (tools.length > 0) {
+        const lastTool = tools[tools.length - 1];
+        if (lastTool.status === 'succeeded') {
+          return { agent_display_name: rootExecutionAgentLabel.value, description: lastTool.toolName, status: 'success' };
+        }
       }
     }
-  }
-  if (!props.running && executionSteps.length > 0) {
-    return { agent_display_name: rootExecutionAgentLabel.value, status: 'success' };
+    if (!props.running && (rounds.length > 0 || (root.children || []).length > 0)) {
+      return { agent_display_name: rootExecutionAgentLabel.value, status: 'success' };
+    }
   }
   return null;
-});
-
-const totalTasks = computed(() => allSubtasks.value.length);
-const completedCount = computed(() => allSubtasks.value.filter(t => t.status === 'success').length);
-
-const progressPercentage = computed(() => {
-    if (totalTasks.value === 0) return 0;
-    const running = allSubtasks.value.find(t => t.status === 'running');
-    const base = (completedCount.value / totalTasks.value) * 100;
-    const extra = running ? (1 / totalTasks.value) * 50 : 0;
-    return Math.min(100, base + extra);
 });
 
 </script>

@@ -1,11 +1,11 @@
-import { buildExecutionState, createExecutionState } from '../utils/executionProjector.js';
+import { createExecutionTreeState, applyEnvelope, getExecutionTree } from '@ragsystem/agent-sdk-core';
 import { getMessageRunSteps } from '../api/monitoring.js';
+import { legacyStepToEnvelope } from '../utils/legacyStepToEnvelope.js';
 
 export const createAssistantMessage = (overrides = {}) => ({
   role: 'assistant',
   content: '',
-  subtasks: [],
-  execution_steps: [],
+  executionTree: { root: null, steps: [] },
   showFullSubtasks: false,
   status: [],
   finished: false,
@@ -14,25 +14,26 @@ export const createAssistantMessage = (overrides = {}) => ({
   executionStepsLoading: false,
   executionStepsLoadError: '',
   run_id: null,
+  run_failed: false,
   metadata: {},
+  _execState: null,
   ...overrides,
 });
+
+const executionTreeHasContent = (executionTree) => Boolean(executionTree?.root);
 
 export const normalizeAssistantExecutionState = (msg) => {
   if (!msg || msg.role !== 'assistant') return msg;
   const metadata = msg.metadata || {};
+  if (!msg.executionTree) msg.executionTree = { root: null, steps: [] };
+  if (msg._execState === undefined) msg._execState = null;
   msg.has_execution = Boolean(
     msg.has_execution
     || msg.run_id
     || metadata.run_id
-    || (Array.isArray(msg.execution_steps) && msg.execution_steps.length > 0)
-    || (Array.isArray(msg.subtasks) && msg.subtasks.length > 0)
+    || executionTreeHasContent(msg.executionTree)
   );
-  msg.executionStepsLoaded = Boolean(
-    msg.executionStepsLoaded
-    || (Array.isArray(msg.execution_steps) && msg.execution_steps.length > 0)
-    || (Array.isArray(msg.subtasks) && msg.subtasks.length > 0)
-  );
+  msg.executionStepsLoaded = Boolean(msg.executionStepsLoaded);
   msg.executionStepsLoading = Boolean(msg.executionStepsLoading);
   msg.executionStepsLoadError = msg.executionStepsLoadError || '';
   msg.run_id = msg.run_id || metadata.run_id || null;
@@ -69,25 +70,29 @@ const formatPreciseExecutionTime = (seconds) => {
 export function useMessageExecution(deps) {
   const hasExecutionContent = (msg) => {
     if (!msg || msg.role !== 'assistant') return false;
-    return Boolean(
-      msg.has_execution
-      || (Array.isArray(msg.subtasks) && msg.subtasks.length > 0)
-      || (Array.isArray(msg.execution_steps) && msg.execution_steps.length > 0)
-    );
+    return Boolean(msg.has_execution) || executionTreeHasContent(msg.executionTree);
   };
 
-  const ensureExecutionProjector = (msg) => {
-    if (!msg._executionProjector) {
-      msg._executionProjector = createExecutionState();
+  // core ExecutionTreeState（增量投影状态机）懒挂在 msg._execState。
+  const ensureExecutionTreeState = (msg) => {
+    if (!msg._execState) {
+      msg._execState = createExecutionTreeState();
     }
-    return msg._executionProjector;
+    return msg._execState;
   };
 
   const syncExecutionProjection = (msg) => {
-    const state = ensureExecutionProjector(msg);
-    msg.subtasks = state.subtasks;
-    msg.execution_steps = state.execution_steps;
-    msg.has_execution = state.rawSteps.length > 0 || msg.has_execution;
+    const state = ensureExecutionTreeState(msg);
+    msg.executionTree = getExecutionTree(state);
+    if (executionTreeHasContent(msg.executionTree)) msg.has_execution = true;
+  };
+
+  // 实时投影：把一条 Envelope 喂进 core 状态机，刷新 msg.executionTree。
+  const applyEnvelopeToMessage = (msg, envelope) => {
+    const state = ensureExecutionTreeState(msg);
+    applyEnvelope(state, envelope);
+    msg.executionTree = getExecutionTree(state);
+    if (executionTreeHasContent(msg.executionTree)) msg.has_execution = true;
   };
 
   const ensureExecutionStepsLoaded = async (msg) => {
@@ -99,10 +104,10 @@ export function useMessageExecution(deps) {
     try {
       const payload = await getMessageRunSteps(deps.currentSessionId.value, msg.id, { limit: 500, offset: 0 });
       const executionSteps = Array.isArray(payload?.items) ? payload.items : [];
-      const projected = buildExecutionState(executionSteps);
-      msg._executionProjector = projected;
-      msg.subtasks = projected.subtasks;
-      msg.execution_steps = projected.execution_steps;
+      const envelopes = legacyStepToEnvelope(executionSteps);
+      const state = ensureExecutionTreeState(msg);
+      for (const env of envelopes) applyEnvelope(state, env);
+      msg.executionTree = getExecutionTree(state);
       msg.executionStepsLoaded = true;
     } catch (error) {
       msg.executionStepsLoadError = error?.message || '加载执行过程失败';
@@ -135,8 +140,7 @@ export function useMessageExecution(deps) {
       id: item.id,
       seq: item.seq,
       content: interrupted ? '' : (item.content || ''),
-      subtasks: [],
-      execution_steps: [],
+      executionTree: { root: null, steps: [] },
       status: interrupted ? [{ type: 'error', content: '已中断' }] : (item.status || []),
       finished: true,
       stopped: interrupted,
@@ -146,36 +150,39 @@ export function useMessageExecution(deps) {
       executionStepsLoadError: '',
       run_id: item.metadata?.run_id || null,
       metadata: item.metadata || {},
-      _executionProjector: null,
+      _execState: null,
     });
   };
 
-  const isRootEvent = (event) => !(event?.parent_call_id || event?.data?.parent_call_id);
+  // root/master 判定：无 lineage.parent_call_id 即根（顶层 orchestrator）。
+  const isRootEvent = (event) => !(event?.payload?.lineage?.parent_call_id);
   const isMasterEvent = (event) => isRootEvent(event);
 
-  const findSubtaskByCallId = (subtasks, callId) => {
-    if (!callId || !Array.isArray(subtasks)) return null;
-    const stack = [...subtasks];
+  // 遍历 core ExecutionAgent 树（root + 递归 children）按 callId 找 agent。
+  const findExecutionAgentByCallId = (executionTree, callId) => {
+    if (!callId || !executionTree?.root) return null;
+    const stack = [executionTree.root];
     while (stack.length > 0) {
-      const subtask = stack.shift();
-      if (!subtask) continue;
-      if (subtask.task_id === callId) return subtask;
-      if (Array.isArray(subtask.children) && subtask.children.length > 0) {
-        stack.unshift(...subtask.children);
+      const agent = stack.shift();
+      if (!agent) continue;
+      if (agent.callId === callId) return agent;
+      if (Array.isArray(agent.children) && agent.children.length > 0) {
+        stack.unshift(...agent.children);
       }
     }
     return null;
   };
 
-  const findRunningSubtaskByAgentName = (subtasks, agentName) => {
-    if (!agentName || !Array.isArray(subtasks)) return null;
-    const stack = [...subtasks];
+  // 按 agentId 找 status=running 的 agent（context_usage 挂 ctx 用）。
+  const findRunningExecutionAgentByAgentId = (executionTree, agentId) => {
+    if (!agentId || !executionTree?.root) return null;
+    const stack = [executionTree.root];
     while (stack.length > 0) {
-      const subtask = stack.shift();
-      if (!subtask) continue;
-      if (subtask.agent_name === agentName && subtask.status === 'running') return subtask;
-      if (Array.isArray(subtask.children) && subtask.children.length > 0) {
-        stack.unshift(...subtask.children);
+      const agent = stack.shift();
+      if (!agent) continue;
+      if (agent.agentId === agentId && agent.status === 'running') return agent;
+      if (Array.isArray(agent.children) && agent.children.length > 0) {
+        stack.unshift(...agent.children);
       }
     }
     return null;
@@ -201,15 +208,16 @@ export function useMessageExecution(deps) {
     createAssistantMessage,
     normalizeAssistantExecutionState,
     hasExecutionContent,
-    ensureExecutionProjector,
+    ensureExecutionTreeState,
+    applyEnvelopeToMessage,
     syncExecutionProjection,
     ensureExecutionStepsLoaded,
     toggleExecutionView,
     createAssistantMessageFromHistory,
     isRootEvent,
     isMasterEvent,
-    findSubtaskByCallId,
-    findRunningSubtaskByAgentName,
+    findExecutionAgentByCallId,
+    findRunningExecutionAgentByAgentId,
     getMessageExecutionTimeText,
     getMessageExecutionTimeTitle,
   };

@@ -82,7 +82,7 @@ test('work panel auto-selects the active run when its execution data appears', a
   assert.equal(state.selectedWorkPanelMessageKey.value, '');
 
   runningMessage.has_execution = true;
-  runningMessage.execution_steps = [{ round: 1, intent: 'active-step' }];
+  runningMessage.executionTree = { root: { agentId: 'orchestrator_agent', callId: 'root', status: 'running', rounds: [{ round: 1, intent: 'active-step', intentComplete: false, toolCalls: [] }], children: [] }, steps: [] };
   messageRef.value = [...messageRef.value];
   await nextTick();
 

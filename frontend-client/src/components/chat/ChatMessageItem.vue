@@ -18,8 +18,7 @@
       class="subtasks-container-full"
     >
       <SubtaskStatusTicker
-        :subtasks="msg.subtasks"
-        :execution-steps="msg.execution_steps"
+        :execution-tree="msg.executionTree"
         :expanded="msg.showFullSubtasks"
         :running="!msg.finished"
         :has-execution="msg.has_execution"
@@ -30,8 +29,7 @@
       <transition name="expand">
         <div v-if="msg.showFullSubtasks" class="subtasks-full-view">
           <HierarchicalExecutionTree
-            :execution-steps="msg.execution_steps || []"
-            :subtasks="msg.subtasks || []"
+            :execution-tree="msg.executionTree"
             :session-id="currentSessionId"
           />
         </div>

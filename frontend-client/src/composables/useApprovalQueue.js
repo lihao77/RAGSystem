@@ -3,12 +3,18 @@ import { ref } from 'vue';
 function normalizeApprovalEventData(event, eventData) {
   const rawData = eventData && typeof eventData === 'object'
     ? eventData
-    : (event?.data && typeof event.data === 'object' ? event.data : null);
+    : (event?.payload && typeof event.payload === 'object' ? event.payload : null);
   const data = rawData ? { ...rawData } : {};
+  // 新协议 interaction(required, approval)：payload{tool,input,risk_level,message} + 顶层{call_id,agent_id}
+  // 映射到 UI 展示字段（approval_id/tool_name/agent_name/approval_reason/arguments）。
   return {
     ...data,
-    approval_id: data.approval_id || data.interaction_id || event?.interaction_id || '',
-    agent_name: event?.agent_name || data.agent_name || '智能体',
+    approval_id: data.approval_id || data.interaction_id || event?.call_id || event?.interaction_id || '',
+    tool_name: data.tool_name || data.tool || '',
+    agent_name: event?.agent_id || event?.agent_name || data.agent_name || data.input?.agent_name || '智能体',
+    approval_reason: data.approval_reason || data.message || data.prompt || '',
+    arguments: data.arguments ?? data.input?.arguments ?? data.input ?? null,
+    approval_type: data.approval_type ?? data.input?.approval_type ?? null,
   };
 }
 
@@ -83,7 +89,7 @@ export function useApprovalQueue(deps) {
 
     const ws = deps.getWS?.();
     if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'interaction.respond', interaction_id: approvalId, kind: 'approval', approved, message }));
+      ws.send(JSON.stringify({ type: 'interaction', session_id: sid, call_id: approvalId, payload: { kind: 'approval', phase: 'responded', approved, message } }));
       const ackTimer = setTimeout(async () => {
         ackTimers.delete(approvalId);
         if (approvalSubmittingId.value !== approvalId) return;

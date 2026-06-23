@@ -36,16 +36,17 @@ test('仅接受正整数 event_seq 作为 durable cursor', () => {
   assert.equal(normalizeEventSeq(-1), null);
   assert.equal(normalizeEventSeq(1.5), null);
   assert.equal(normalizeEventSeq('x'), null);
-  assert.equal(getDurableEventSeq({ event_seq: 7 }), 7);
+  assert.equal(getDurableEventSeq({ seq: 7 }), 7);
   assert.equal(getDurableEventSeq({ stream_seq: 7 }), null);
 });
 
-test('durable reconnect cursor 仅从 event_seq 或 heartbeat.last_event_seq 推进', () => {
-  assert.equal(getDurableCursorSeq({ event_seq: 7 }), 7);
-  assert.equal(getDurableCursorSeq({ type: 'heartbeat', last_event_seq: 8 }), 8);
-  assert.equal(getDurableCursorSeq({ type: 'heartbeat', last_event_seq: '9' }), 9);
-  assert.equal(getDurableCursorSeq({ type: 'heartbeat', last_event_seq: 0 }), null);
-  assert.equal(getDurableCursorSeq({ type: 'output.chunk', last_event_seq: 10 }), null);
+test('durable reconnect cursor 仅从 seq/cursor 或 heartbeat.payload 推进', () => {
+  assert.equal(getDurableCursorSeq({ seq: 7 }), 7);
+  assert.equal(getDurableCursorSeq({ cursor: 5 }), 5);
+  assert.equal(getDurableCursorSeq({ type: 'heartbeat', payload: { last_cursor: 8 } }), 8);
+  assert.equal(getDurableCursorSeq({ type: 'heartbeat', payload: { last_seq: 9 } }), 9);
+  assert.equal(getDurableCursorSeq({ type: 'heartbeat', payload: { last_seq: 0 } }), null);
+  assert.equal(getDurableCursorSeq({ type: 'stream_output', payload: { last_cursor: 10 } }), null);
   assert.equal(getDurableCursorSeq({ stream_seq: 11 }), null);
 });
 

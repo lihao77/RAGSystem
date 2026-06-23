@@ -6,9 +6,7 @@
       </span>
       <div class="wpr-label-block">
         <span class="wpr-kicker">工作栏</span>
-        <Transition name="wpr-label" mode="out-in">
-          <span :key="displayLabel" class="wpr-label">{{ displayLabel }}</span>
-        </Transition>
+        <span class="wpr-label">{{ displayLabel }}</span>
       </div>
       <Transition name="wpr-elapsed">
         <span v-if="elapsedText" class="wpr-elapsed">{{ elapsedText }}</span>
@@ -39,6 +37,7 @@ const props = defineProps({
   approvalCount: { type: Number, default: 0 },
   hasError: { type: Boolean, default: false },
   completed: { type: Boolean, default: false },
+  stopped: { type: Boolean, default: false },
 })
 
 const PHASE_LABELS = {
@@ -59,6 +58,7 @@ const displayState = computed(() => {
   if (props.pendingInput) return { label: '待输入', tone: 'input', icon: 'input' }
   if (props.approvalCount > 0 || props.phase === 'approval_waiting') return { label: '等待审批', tone: 'warning', icon: 'approval' }
   if (props.hasError) return { label: '执行异常', tone: 'error', icon: 'error' }
+  if (props.stopped) return { label: '已停止', tone: 'idle', icon: 'idle' }
   if (props.phase === 'retrying') return { label: '重试中', tone: 'warning', icon: 'approval' }
   if (props.phase && props.phase !== 'idle') {
     return { label: PHASE_LABELS[props.phase] || '执行中', tone: 'running', icon: 'running' }

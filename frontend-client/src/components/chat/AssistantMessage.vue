@@ -1,6 +1,6 @@
 <template>
   <div
-    v-if="!msg.content && (!msg.subtasks || msg.subtasks.length === 0) && !msg.finished"
+    v-if="!msg.content && !msg.executionTree?.root && !msg.finished"
     class="loading-indicator"
   >
     <div class="loading-dots" aria-hidden="true">

@@ -137,9 +137,10 @@ test('运行中发送会作为 session followup 插入当前 assistant 前并复
   assert.deepEqual(calls.scheduleCommandFallback, []);
   assert.equal(calls.beginOptimisticExecutionState.length, 0);
   assert.equal(calls.wsSend.length, 1);
-  assert.equal(calls.wsSend[0].type, 'send');
-  assert.equal(calls.wsSend[0].task, '补充：优先处理 A');
-  assert.equal(calls.wsSend[0].request_id, deps.messages.value[1].metadata.request_id);
+  assert.equal(calls.wsSend[0].type, 'user_driven_change');
+  assert.equal(calls.wsSend[0].payload.category, 'task_submit');
+  assert.equal(calls.wsSend[0].payload.task, '补充：优先处理 A');
+  assert.equal(calls.wsSend[0].payload.request_id, deps.messages.value[1].metadata.request_id);
 });
 
 test('本地 activeRun 丢失但服务端仍 running 时发送会升级为 session followup', async (t) => {
@@ -172,7 +173,7 @@ test('本地 activeRun 丢失但服务端仍 running 时发送会升级为 sessi
   assert.equal(calls.beginOptimisticExecutionState.length, 0);
   assert.equal(calls.scheduleCommandFallback.length, 0);
   assert.equal(calls.wsSend.length, 1);
-  assert.equal(calls.wsSend[0].request_id, deps.messages.value[2].metadata.request_id);
+  assert.equal(calls.wsSend[0].payload.request_id, deps.messages.value[2].metadata.request_id);
 });
 
 test('普通发送仍会创建 assistant 占位并启动新的 active run', async (t) => {
@@ -194,5 +195,5 @@ test('普通发送仍会创建 assistant 占位并启动新的 active run', asyn
   assert.equal(calls.materializeAttachmentsForSend.length, 1);
   assert.equal(calls.beginOptimisticExecutionState.length, 1);
   assert.equal(calls.scheduleCommandFallback.length, 1);
-  assert.equal(calls.wsSend[0].request_id, deps.messages.value[0].metadata.request_id);
+  assert.equal(calls.wsSend[0].payload.request_id, deps.messages.value[0].metadata.request_id);
 });

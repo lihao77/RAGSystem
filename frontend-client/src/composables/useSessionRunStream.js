@@ -57,33 +57,17 @@ export function useSessionRunStream(deps) {
   const USER_INPUT_ACK_TIMEOUT_CODE = 'USER_INPUT_ACK_TIMEOUT';
   const USER_INPUT_REJECTED_CODE = 'USER_INPUT_REJECTED';
   const DURABLE_REPLAY_RUN_EVENT_TYPES = new Set([
-    'agent.error',
-    'agent.end',
-    'agent.intent_complete',
-    'agent.intent_delta',
-    'agent.reflection',
-    'agent.retry_scheduled',
-    'agent.start',
-    'background.task.completed',
-    'call.agent.end',
-    'call.agent.start',
-    'call.tool.end',
-    'call.tool.start',
-    'context.compression_start',
-    'context.compression_summary',
-    'context.usage',
-    'execution.step',
-    'execution.waiting_end',
-    'execution.waiting_start',
-    'execution.waiting_timeout',
-    'interaction.required',
-    'llm.first_token',
-    'output.chunk',
-    'output.final_answer',
-    'run.start',
-    'user.interrupt',
-    'user.approval_required',
-    'user.input_required',
+    'run_started',
+    'run_ended',
+    'agent_started',
+    'agent_ended',
+    'stream_output',
+    'tool_call',
+    'tool_result',
+    'state_sync',
+    'interaction',
+    'error',
+    'abort',
   ]);
   const _pendingUserInputSubmissions = new Map();
   const _handledRequiredInteractions = new Set();
@@ -189,23 +173,8 @@ export function useSessionRunStream(deps) {
     if (deps.activeRun.active) deps.activeRun.phase = 'llm_waiting_first_token';
   };
 
-  const mergeRunEndMetadata = (event) => {
-    const metadata = event.data?.metadata;
-    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return;
-    const normalized = {};
-    for (const key of ['execution_time', 'first_token_time']) {
-      const value = metadata[key];
-      if (value == null) continue;
-      const numericValue = Number(value);
-      if (Number.isFinite(numericValue)) normalized[key] = numericValue;
-    }
-    if (Object.keys(normalized).length === 0) return;
-    const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
-    mergeMessageMetadata(currentMsg, normalized);
-  };
-
   const observeDeliverySeq = (event) => {
-    const deliverySeq = Number(event?.stream_seq ?? 0);
+    const deliverySeq = Number(event?.seq ?? 0);
     if (!Number.isFinite(deliverySeq) || deliverySeq <= 0) return;
     if (deps.activeRun.lastSeenSeq > 0 && deliverySeq > deps.activeRun.lastSeenSeq + 1) {
       _pendingReconciliation = true;
@@ -239,23 +208,17 @@ export function useSessionRunStream(deps) {
 
   const extractRunId = (source) => {
     if (!source || typeof source !== 'object') return null;
-    return source.run_id || source.data?.run_id || source.metadata?.run_id || null;
+    return source.run_id || source.payload?.run_id || source.metadata?.run_id || null;
   };
 
   const getEventInteractionId = (event) => {
     if (!event || typeof event !== 'object') return '';
-    return event.interaction_id
-      || event.data?.interaction_id
-      || event.input_id
-      || event.data?.input_id
-      || event.approval_id
-      || event.data?.approval_id
-      || '';
+    return event.call_id || '';
   };
 
   const getEventInteractionKind = (event, fallback = '') => {
     if (!event || typeof event !== 'object') return fallback;
-    return event.kind || event.data?.kind || fallback;
+    return event.payload?.kind || fallback;
   };
 
   const rememberRequiredInteraction = (kind, interactionId) => {
@@ -268,8 +231,11 @@ export function useSessionRunStream(deps) {
 
   const normalizeUserInputRequiredData = (event, eventData = {}) => {
     const inputId = eventData.input_id || getEventInteractionId(event);
+    // 后端 user_input payload.input={input_type,options,extra,...}；展开到顶层供 WorkPanelUserInput 读取。
+    const inputSchema = eventData.input && typeof eventData.input === 'object' ? eventData.input : {};
     return {
       ...eventData,
+      ...inputSchema,
       kind: 'user_input',
       interaction_id: eventData.interaction_id || inputId,
       input_id: inputId,
@@ -330,7 +296,7 @@ export function useSessionRunStream(deps) {
     return true;
   };
 
-  const isDurableOutboxReplayEnvelope = (event) => event?.replay_source === 'durable_outbox';
+  const isDurableOutboxReplayEnvelope = (event) => event?.payload?.replay_source === 'durable_outbox';
 
   const messageRunId = (msg) => msg?.run_id || msg?.metadata?.run_id || null;
 
@@ -392,7 +358,7 @@ export function useSessionRunStream(deps) {
   };
 
   const terminalStatusFromEvent = (event) => {
-    const status = event?.data?.status;
+    const status = event?.payload?.status;
     return ['completed', 'failed', 'interrupted'].includes(status) ? status : 'completed';
   };
 
@@ -407,7 +373,7 @@ export function useSessionRunStream(deps) {
     const eventType = event.type;
     const runId = getDurableReplayRunId(event);
     if (runId && hasFinishedAssistantForRun(runId)) {
-      if (eventType === 'run.end' || eventType === 'done') {
+      if (eventType === 'run_ended') {
         deps.sessionTaskInfo.value = {
           ...(deps.sessionTaskInfo.value || {}),
           run_id: runId,
@@ -420,7 +386,7 @@ export function useSessionRunStream(deps) {
       return true;
     }
 
-    if (eventType === 'run.end' || eventType === 'done') {
+    if (eventType === 'run_ended') {
       deps.sessionTaskInfo.value = {
         ...(deps.sessionTaskInfo.value || {}),
         ...(runId ? { run_id: runId } : {}),
@@ -448,9 +414,9 @@ export function useSessionRunStream(deps) {
     }
   };
 
-  const submitUserInputWs = (ws, inputId, value) => new Promise((resolve, reject) => {
+  const submitUserInputWs = (ws, sessionId, inputId, value) => new Promise((resolve, reject) => {
     if (!inputId) {
-      reject(new Error('用户输入请求缺少 input_id'));
+      reject(new Error('用户输入请求缺少 call_id'));
       return;
     }
     const existing = clearPendingUserInputSubmission(inputId);
@@ -465,7 +431,7 @@ export function useSessionRunStream(deps) {
     }, USER_INPUT_ACK_TIMEOUT_MS);
     _pendingUserInputSubmissions.set(inputId, { resolve, reject, timer });
     try {
-      ws.send(JSON.stringify({ type: 'interaction.respond', interaction_id: inputId, kind: 'user_input', value }));
+      ws.send(JSON.stringify({ type: 'interaction', session_id: sessionId, call_id: inputId, payload: { kind: 'user_input', phase: 'responded', value } }));
     } catch (error) {
       clearPendingUserInputSubmission(inputId);
       reject(error);
@@ -477,7 +443,7 @@ export function useSessionRunStream(deps) {
     const ws = deps.getWS?.();
     if (isOpenWebSocket(ws)) {
       try {
-        await submitUserInputWs(ws, inputId, normalizedValue);
+        await submitUserInputWs(ws, sessionId, inputId, normalizedValue);
         return;
       } catch (error) {
         if (error?.code === USER_INPUT_ACK_TIMEOUT_CODE || error?.code === USER_INPUT_REJECTED_CODE) {
@@ -594,148 +560,145 @@ export function useSessionRunStream(deps) {
   };
 
   const handleRunEvent = (event, currentMsg, sessionId) => {
-    const eventData = event.data || {};
     const eventType = event.type;
+    const payload = event.payload || {};
 
+    // LLM 重试清除：流恢复信号（非 retry state_sync）到达即清
     if (
       deps.llmRetryState.value
-      && eventType !== 'agent.retry_scheduled'
+      && eventType !== 'state_sync'
       && (
-        eventType === 'llm.first_token'
-        || eventType === 'agent.intent_delta'
-        || eventType === 'agent.intent_complete'
-        || eventType === 'call.tool.start'
-        || eventType === 'output.chunk'
-        || eventType === 'output.final_answer'
-        || eventType === 'agent.end'
-        || eventType === 'agent.error'
-        || eventType === 'done'
+        eventType === 'stream_output'
+        || eventType === 'tool_call'
+        || eventType === 'tool_result'
+        || eventType === 'agent_ended'
+        || eventType === 'error'
       )
     ) {
       deps.clearLlmRetryState();
     }
 
-    if (eventType === 'agent.retry_scheduled') {
-      const waitMs = Number.isFinite(eventData.wait_ms) ? eventData.wait_ms : Math.round((eventData.wait_seconds || 0) * 1000);
-      deps.setLlmRetryState({
-        scope: eventData.scope || 'chat_completion_stream',
-        nextAttempt: eventData.next_attempt || ((eventData.failed_attempt || 0) + 1),
-        maxAttempts: eventData.max_attempts || 1,
-        waitMs,
-        error: eventData.error || '',
-        provider: eventData.provider || '',
-        model: eventData.model || '',
-      });
-      deps.activeRun.phase = 'retrying';
-      deps.sessionTaskInfo.value = { ...(deps.sessionTaskInfo.value || {}), status: 'running' };
-    } else if (eventType === 'llm.first_token') {
-      if (deps.isMasterEvent(event)) markLlmFirstToken(event, eventData);
-    } else if (eventType === 'execution.waiting_start') {
-      if (deps.isMasterEvent(event)) markWaitingStart(event, eventData);
-    } else if (eventType === 'execution.waiting_end' || eventType === 'execution.waiting_timeout') {
-      if (deps.isMasterEvent(event)) markWaitingFinished(eventData);
-    } else if (eventType === 'call.tool.start') {
+    if (eventType === 'state_sync') {
+      const category = payload.category;
+      if (category === 'retry') {
+        const detail = payload.detail || {};
+        const waitMs = Number.isFinite(detail.wait_ms) ? detail.wait_ms : Math.round((detail.wait_seconds || 0) * 1000);
+        deps.setLlmRetryState({
+          scope: detail.scope || 'chat_completion_stream',
+          nextAttempt: detail.next_attempt || ((detail.failed_attempt || 0) + 1),
+          maxAttempts: detail.max_attempts || 1,
+          waitMs,
+          error: detail.error || '',
+          provider: detail.provider || '',
+          model: detail.model || '',
+        });
+        deps.activeRun.phase = 'retrying';
+        deps.sessionTaskInfo.value = { ...(deps.sessionTaskInfo.value || {}), status: 'running' };
+      } else if (category === 'waiting') {
+        const detail = payload.detail || {};
+        const isStart = detail.phase === 'start' || Boolean(detail.wait_id && !deps.activeRun.waiting);
+        if (deps.isMasterEvent(event)) {
+          if (isStart) markWaitingStart(event, detail);
+          else markWaitingFinished(detail);
+        }
+      } else if (category === 'reflection') {
+        if (deps.isMasterEvent(event)) deps.activeRun.phase = 'reflecting';
+      } else if (category === 'context_usage') {
+        const detail = payload.detail || {};
+        if (detail.compressing) deps.isCompressing.value = true;
+        const agentId = event.agent_id;
+        const ctx = { used: detail.used_tokens, max: detail.budget_tokens };
+        if (deps.isRootEvent(event)) {
+          deps.contextUsage.value = ctx;
+        } else {
+          const agent = deps.findRunningExecutionAgentByAgentId(currentMsg.executionTree, agentId);
+          if (agent) agent.ctx = ctx;
+        }
+      } else if (category === 'compression') {
+        const detail = payload.detail || {};
+        const isSummary = detail.type === 'compression_summary' || Boolean(detail.content);
+        if (!isSummary) {
+          deps.isCompressing.value = true;
+        } else {
+          deps.isCompressing.value = false;
+          if (isVisibleRootCompressionSummary(detail)) {
+            const summaryContent = detail.content || '';
+            const alreadyExists = deps.messages.value.some(
+              m => m.metadata?.compression && m.content === summaryContent
+            );
+            if (!alreadyExists) {
+              const compressionMsg = {
+                role: 'system',
+                content: summaryContent,
+                metadata: {
+                  compression: true,
+                  ...(detail.thread_key != null ? { thread_key: detail.thread_key } : {}),
+                  ...(detail.conversation_scope != null ? { conversation_scope: detail.conversation_scope } : {}),
+                  ...(detail.visible_to_user != null ? { visible_to_user: detail.visible_to_user } : {}),
+                  ...(detail.child_agent_id != null ? { child_agent_id: detail.child_agent_id } : {}),
+                  ...(detail.run_id != null ? { run_id: detail.run_id } : {}),
+                },
+              };
+              deps.messages.value.splice(deps.activeRun.assistantMsgIndex, 0, compressionMsg);
+              deps.activeRun.assistantMsgIndex++;
+            }
+          }
+        }
+      }
+    } else if (eventType === 'stream_output') {
+      const phase = payload.phase;
+      if (phase === 'first_token') {
+        if (deps.isMasterEvent(event)) markLlmFirstToken(event, payload);
+      } else if (phase === 'delta') {
+        if (deps.isMasterEvent(event)) {
+          currentMsg.content += payload.content;
+          markOutputChunk(event, payload.content || '');
+        } else {
+          // 子 agent 流式输出 → core applyOutputStream 累加到 agent.output
+          deps.applyEnvelopeToMessage(currentMsg, event);
+        }
+      } else if (phase === 'final') {
+        if (deps.isMasterEvent(event)) {
+          // content 补偿：若 delta 累积不完整，用 final 的完整内容覆盖
+          const serverContent = payload.content || '';
+          if (serverContent && (!currentMsg.content || currentMsg.content.length < serverContent.length)) {
+            currentMsg.content = serverContent;
+          }
+          currentMsg.finished = true;
+          markRecentSessionUpdated(sessionId, currentMsg);
+          deps.cacheMessages(sessionId, deps.messages.value);
+          deps.checkSituationScreenTrigger(currentMsg.content);
+        } else {
+          deps.applyEnvelopeToMessage(currentMsg, event);
+        }
+      } else if (phase === 'intent_delta' || phase === 'intent_complete') {
+        deps.applyEnvelopeToMessage(currentMsg, event);
+      }
+    } else if (eventType === 'tool_call') {
+      deps.applyEnvelopeToMessage(currentMsg, event);
       if (deps.isMasterEvent(event)) deps.activeRun.phase = 'tool_running';
-    } else if (eventType === 'call.tool.end') {
+    } else if (eventType === 'tool_result') {
+      deps.applyEnvelopeToMessage(currentMsg, event);
       if (deps.isMasterEvent(event) && deps.activeRun.phase !== 'background_waiting') {
         deps.activeRun.phase = 'llm_waiting_first_token';
       }
-    } else if (eventType === 'execution.step') {
-      const projector = deps.ensureExecutionProjector(currentMsg);
-      deps.applyStep(projector, eventData);
-      deps.syncExecutionProjection(currentMsg);
-    } else if (eventType === 'output.chunk') {
-      if (deps.isMasterEvent(event)) {
-        currentMsg.content += eventData.content;
-        markOutputChunk(event, eventData.content || '');
-        deps.scrollToBottom();
-      } else {
-        const subtask = deps.findSubtaskByCallId(currentMsg.subtasks, event.call_id);
-        if (subtask) subtask.result_summary = (subtask.result_summary || '') + eventData.content;
-      }
-    } else if (eventType === 'output.final_answer') {
-      if (deps.isMasterEvent(event)) {
-        // content 补偿：若 chunk 累积不完整，用 final_answer 的完整内容覆盖
-        const serverContent = eventData.content || '';
-        if (serverContent && (!currentMsg.content || currentMsg.content.length < serverContent.length)) {
-          currentMsg.content = serverContent;
-        }
-        Object.assign(currentMsg, {
-          ...(eventData.metadata ? { metadata: { ...(currentMsg.metadata || {}), ...eventData.metadata } } : {}),
-          finished: true,
-        });
-        markRecentSessionUpdated(sessionId, currentMsg);
-        deps.cacheMessages(sessionId, deps.messages.value);
-        deps.checkSituationScreenTrigger(currentMsg.content);
-      } else {
-        const subtask = deps.findSubtaskByCallId(currentMsg.subtasks, event.call_id);
-        if (subtask) {
-          if (!subtask.result_summary) subtask.result_summary = eventData.content || '';
-          if (subtask.status === 'running') subtask.status = 'success';
-          subtask.expanded = false;
-        }
-      }
-    } else if (eventType === 'output.message_saved') {
-      const target = eventData.role === 'user'
-        ? findUserMessageSavedTarget(eventData)
-        : currentMsg;
-      applyMessageSaved(target, eventData, sessionId);
-    } else if (eventType === 'agent.end' && deps.isMasterEvent(event)) {
-      if (!currentMsg.finished) {
+    } else if (eventType === 'agent_started') {
+      deps.applyEnvelopeToMessage(currentMsg, event);
+    } else if (eventType === 'agent_ended') {
+      deps.applyEnvelopeToMessage(currentMsg, event);
+      if (deps.isMasterEvent(event) && !currentMsg.finished) {
         currentMsg.finished = true;
         markRecentSessionUpdated(sessionId, currentMsg);
         deps.checkSituationScreenTrigger(currentMsg.content);
       }
-    } else if (eventType === 'agent.error') {
-      currentMsg.status.push({ type: 'error', content: eventData.error || eventData.content });
-    } else if (eventType === 'agent.reflection') {
-      if (deps.isMasterEvent(event)) deps.activeRun.phase = 'reflecting';
-    } else if (eventType === 'context.usage') {
-      if (eventData.compressing) deps.isCompressing.value = true;
-      const agentName = event.agent_name;
-      const ctx = { used: eventData.used_tokens, max: eventData.budget_tokens };
-      if (deps.isRootEvent(event)) {
-        deps.contextUsage.value = ctx;
-      } else {
-        const subtask = deps.findRunningSubtaskByAgentName(currentMsg.subtasks, agentName);
-        if (subtask) subtask.ctx = ctx;
+    } else if (eventType === 'error') {
+      currentMsg.status.push({ type: 'error', content: payload.message || '' });
+    } else if (eventType === 'interaction' && payload.phase === 'required') {
+      if (payload.kind === 'approval') {
+        handleApprovalRequired(event, payload, sessionId);
+      } else if (payload.kind === 'user_input') {
+        handleUserInputRequired(event, payload, sessionId);
       }
-    } else if (eventType === 'context.compression_start') {
-      deps.isCompressing.value = true;
-    } else if (eventType === 'context.compression_summary') {
-      deps.isCompressing.value = false;
-      if (!isVisibleRootCompressionSummary(eventData)) return;
-      const summaryContent = eventData.content || '';
-      const alreadyExists = deps.messages.value.some(
-        m => m.metadata?.compression && m.content === summaryContent
-      );
-      if (!alreadyExists) {
-        const compressionMsg = {
-          role: 'system',
-          content: summaryContent,
-          metadata: {
-            compression: true,
-            ...(eventData.thread_key != null ? { thread_key: eventData.thread_key } : {}),
-            ...(eventData.conversation_scope != null ? { conversation_scope: eventData.conversation_scope } : {}),
-            ...(eventData.visible_to_user != null ? { visible_to_user: eventData.visible_to_user } : {}),
-            ...(eventData.child_agent_id != null ? { child_agent_id: eventData.child_agent_id } : {}),
-            ...(eventData.run_id != null ? { run_id: eventData.run_id } : {}),
-          },
-        };
-        deps.messages.value.splice(deps.activeRun.assistantMsgIndex, 0, compressionMsg);
-        deps.activeRun.assistantMsgIndex++;
-      }
-    } else if (eventType === 'interaction.required') {
-      const kind = getEventInteractionKind(event, eventData.input_id ? 'user_input' : '');
-      if (kind === 'approval') {
-        handleApprovalRequired(event, eventData, sessionId);
-      } else if (kind === 'user_input') {
-        handleUserInputRequired(event, eventData, sessionId);
-      }
-    } else if (eventType === 'user.approval_required') {
-      handleApprovalRequired(event, eventData, sessionId);
-    } else if (eventType === 'user.input_required') {
-      handleUserInputRequired(event, eventData, sessionId);
     }
 
     deps.scrollToBottom();
@@ -745,52 +708,51 @@ export function useSessionRunStream(deps) {
     if (sessionId !== deps.currentSessionId.value) return;
 
     const eventType = event.type;
+    const payload = event.payload || {};
 
     if (eventType === 'heartbeat') return;
-    if (deps.activeRun.isReplaying && eventType === 'done') return;
 
     // 统一推进投递序号（内部对无效 seq 自动跳过）
     if (deps.activeRun.active || deps.isLoading.value) {
       observeDeliverySeq(event);
     }
 
-    if (eventType === 'reconnect_start') {
+    if (eventType === 'session.reconnect') {
+      const phase = payload.phase;
       deps.clearSessionResumeRecovery();
       deps.activeRun.isReplaying = true;
-      if (isDurableOutboxReplayEnvelope(event)) {
-        _durableReplay = {
-          active: true,
-          runId: event.run_id || null,
-        };
+      if (phase === 'start') {
+        if (isDurableOutboxReplayEnvelope(event)) {
+          _durableReplay = { active: true, runId: event.run_id || null };
+          return;
+        }
+        _durableReplay = { active: false, runId: null };
+        if (!deps.isLoading.value) {
+          deps.isLoading.value = true;
+          const lastMsg = deps.messages.value[deps.messages.value.length - 1];
+          if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.finished) {
+            deps.messages.value.push(deps.createAssistantMessage());
+          }
+          deps.activeRun.active = true;
+          deps.activeRun.assistantMsgIndex = deps.messages.value.length - 1;
+          deps.activeRun.runId = event.run_id || null;
+          deps.activeRun.lastSeenSeq = 0;
+          if (!deps.activeRun.phase || deps.activeRun.phase === 'idle') {
+            deps.activeRun.phase = 'llm_waiting_first_token';
+            deps.activeRun.runStartedAt = eventTimestampSeconds(event);
+          }
+        }
+        if (event.run_id) {
+          deps.sessionTaskInfo.value = {
+            ...(deps.sessionTaskInfo.value || {}),
+            run_id: event.run_id,
+            session_id: sessionId,
+            status: 'running',
+          };
+        }
         return;
       }
-      _durableReplay = { active: false, runId: null };
-      if (!deps.isLoading.value) {
-        deps.isLoading.value = true;
-        const lastMsg = deps.messages.value[deps.messages.value.length - 1];
-        if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.finished) {
-          deps.messages.value.push(deps.createAssistantMessage());
-        }
-        deps.activeRun.active = true;
-        deps.activeRun.assistantMsgIndex = deps.messages.value.length - 1;
-        deps.activeRun.runId = event.run_id || null;
-        deps.activeRun.lastSeenSeq = 0;
-        if (!deps.activeRun.phase || deps.activeRun.phase === 'idle') {
-          deps.activeRun.phase = 'llm_waiting_first_token';
-          deps.activeRun.runStartedAt = eventTimestampSeconds(event);
-        }
-      }
-      if (event.run_id) {
-        deps.sessionTaskInfo.value = {
-          ...(deps.sessionTaskInfo.value || {}),
-          run_id: event.run_id,
-          session_id: sessionId,
-          status: 'running',
-        };
-      }
-      return;
-    }
-    if (eventType === 'reconnect_end') {
+      // phase === 'end'
       if (isDurableOutboxReplayEnvelope(event)) {
         _durableReplay = { active: false, runId: null };
       }
@@ -800,114 +762,85 @@ export function useSessionRunStream(deps) {
 
     if (handleInactiveDurableReplayEvent(event, sessionId)) return;
 
-    if (eventType === 'send.ack') {
-      deps.clearCommandFallback();
-      const ackData = event;
-      if (!ackData.started && ackData.kind !== 'command') {
-        const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
-        if (currentMsg) {
-          currentMsg.content = `\n\n[System Error: ${ackData.error || '启动执行失败'}]`;
-          currentMsg.finished = true;
+    if (eventType === 'ack') {
+      const category = payload.category;
+      if (category === 'send') {
+        deps.clearCommandFallback();
+        if (!payload.ok) {
+          const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
+          if (currentMsg) {
+            currentMsg.content = `\n\n[System Error: ${payload.error || '启动执行失败'}]`;
+            currentMsg.finished = true;
+          }
+          deps.sessionTaskInfo.value = { ...(deps.sessionTaskInfo.value || {}), status: 'failed' };
+          deps.activeRun.active = false;
+          resetActiveRunRuntime();
+          deps.isLoading.value = false;
+          return;
         }
-        deps.sessionTaskInfo.value = { ...(deps.sessionTaskInfo.value || {}), status: 'failed' };
-        deps.activeRun.active = false;
-        resetActiveRunRuntime();
-        deps.isLoading.value = false;
+        if (deps.activeRun.active && startupPhases.has(deps.activeRun.phase)) {
+          deps.activeRun.phase = 'llm_waiting_first_token';
+        }
         return;
       }
-      if (ackData.kind === 'command' && !ackData.started) {
-        deps.scheduleCommandFallback(sessionId, deps.activeRun.assistantMsgIndex);
+      if (category === 'stop') {
         return;
       }
-      deps.activeRun.runId = ackData.run_id || null;
-      if (deps.activeRun.active && startupPhases.has(deps.activeRun.phase)) {
-        deps.activeRun.phase = 'llm_waiting_first_token';
-      }
-      if (ackData.kind === 'command') {
-        deps.scheduleCommandFallback(sessionId, deps.activeRun.assistantMsgIndex, 60000);
+      if (category === 'interaction') {
+        const refCallId = payload.ref_call_id || '';
+        if (payload.ok) {
+          if (_pendingUserInputSubmissions.has(refCallId)) {
+            resolveUserInputSubmission({ call_id: refCallId });
+            return;
+          }
+          if (deps.activeRun.active && deps.activeRun.phase === 'approval_waiting') {
+            deps.activeRun.phase = 'tool_running';
+          }
+          deps.handleApprovalResolved(refCallId, sessionId);
+          return;
+        }
+        // ok=false：先查 user_input pending，否则按 approval 失败处理
+        if (_pendingUserInputSubmissions.has(refCallId)) {
+          const error = new Error(payload.error || '用户输入提交失败');
+          error.code = USER_INPUT_REJECTED_CODE;
+          const pending = clearPendingUserInputSubmission(refCallId);
+          if (pending) pending.reject(error);
+          else deps.showToast(payload.error || '交互提交失败', 'warning');
+          return;
+        }
+        deps.handleApprovalResolved(refCallId, sessionId);
+        deps.showToast(payload.error || '交互提交失败', 'warning');
+        return;
       }
       return;
     }
 
-    if (eventType === 'send.error') {
-      deps.clearCommandFallback();
+    if (eventType === 'error') {
       const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
       if (currentMsg) {
-        currentMsg.content = `\n\n[System Error: ${event.error || 'Request failed'}]`;
-        currentMsg.finished = true;
-      }
-      deps.sessionTaskInfo.value = { ...(deps.sessionTaskInfo.value || {}), status: 'failed' };
-      deps.activeRun.active = false;
-      deps.isLoading.value = false;
-      deps.showToast('消息发送失败', 'warning');
-      return;
-    }
-
-    if (eventType === 'interaction.error') {
-      const kind = getEventInteractionKind(event);
-      const interactionId = getEventInteractionId(event);
-      if (kind === 'user_input') {
-        const handled = rejectUserInputSubmission(event);
-        if (!handled) deps.showToast(event.error || '用户输入提交失败', 'warning');
-        return;
-      }
-      if (kind === 'approval') {
-        deps.handleApprovalResolved(interactionId, sessionId);
-        deps.showToast(event.error || '审批提交失败', 'warning');
-        return;
-      }
-      if (!rejectUserInputSubmission(event)) {
-        deps.showToast(event.error || '交互提交失败', 'warning');
+        currentMsg.status.push({ type: 'error', content: payload.message || '' });
       }
       return;
     }
 
-    if (eventType === 'interaction.ack') {
-      const kind = getEventInteractionKind(event);
-      const interactionId = getEventInteractionId(event);
-      if (kind === 'user_input') {
-        resolveUserInputSubmission(event);
-        return;
-      }
-      if (kind === 'approval') {
+    if (eventType === 'interaction' && payload.phase === 'responded') {
+      const refCallId = event.call_id || '';
+      if (payload.kind === 'approval') {
         if (deps.activeRun.active && deps.activeRun.phase === 'approval_waiting') {
-          deps.activeRun.phase = event.data?.approved === false ? 'llm_waiting_first_token' : 'tool_running';
+          deps.activeRun.phase = payload.approved === false ? 'llm_waiting_first_token' : 'tool_running';
         }
-        deps.handleApprovalResolved(interactionId, sessionId);
-        return;
+        deps.handleApprovalResolved(refCallId, sessionId);
       }
-      resolveUserInputSubmission(event);
+      // user_input responded：兜底 resolve pending（主路径由 ack(interaction) 确认）
+      if (_pendingUserInputSubmissions.has(refCallId)) {
+        resolveUserInputSubmission({ call_id: refCallId });
+      }
       return;
     }
 
-    if (eventType === 'approve.error') {
-      if (event.approval_id) {
-        deps.handleApprovalResolved(event.approval_id, sessionId);
-      }
-      deps.showToast(event.error || '审批提交失败', 'warning');
-      return;
-    }
-    if (eventType === 'user.approval_granted' || eventType === 'user.approval_denied') {
-      if (deps.activeRun.active && deps.activeRun.phase === 'approval_waiting') {
-        deps.activeRun.phase = eventType === 'user.approval_granted' ? 'tool_running' : 'llm_waiting_first_token';
-      }
-      const approvalId = event.data?.approval_id || event.approval_id || '';
-      deps.handleApprovalResolved(approvalId, sessionId);
-      return;
-    }
-
-    if (eventType === 'user_input.error') {
-      const handled = rejectUserInputSubmission(event);
-      if (!handled) deps.showToast(event.error || '用户输入提交失败', 'warning');
-      return;
-    }
-    if (eventType === 'user_input.ack') {
-      resolveUserInputSubmission(event);
-      return;
-    }
-    if (eventType === 'session.run_started') {
+    if (eventType === 'run_started') {
       _pendingReconciliation = false; // 新 run 重置 gap 标记
-      const nextRunId = event.run_id || event.data?.run_id || null;
+      const nextRunId = event.run_id || null;
       const shouldStartNewMessage = !deps.activeRun.active || (deps.activeRun.runId && nextRunId && deps.activeRun.runId !== nextRunId);
       if (shouldStartNewMessage) {
         const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
@@ -945,59 +878,70 @@ export function useSessionRunStream(deps) {
       return;
     }
 
-    if (eventType === 'command.result') {
-      const cmdData = event.data || event;
-      if (cmdData.type === 'command.started') {
-        deps.scheduleCommandFallback(sessionId, deps.activeRun.assistantMsgIndex, 120000);
+    if (eventType === 'state_sync') {
+      const category = payload.category;
+      if (category === 'message_saved') {
+        const ref = payload.ref || {};
+        const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
+        const target = ref.role === 'user' ? findUserMessageSavedTarget(ref) : currentMsg;
+        applyMessageSaved(target, ref, sessionId);
         return;
       }
-      deps.clearCommandFallback();
-      let targetIndex = deps.messages.value.length - 1;
-      let targetMsg = deps.messages.value[targetIndex];
-      if (!targetMsg || targetMsg.role !== 'assistant' || targetMsg.finished) {
-        deps.messages.value.push(deps.createAssistantMessage());
-        targetIndex = deps.messages.value.length - 1;
-        targetMsg = deps.messages.value[targetIndex];
-      }
-      targetMsg.content = cmdData.content || '';
-      targetMsg.metadata = {
-        ...targetMsg.metadata,
-        type: 'command_result',
-        command: cmdData.command || 'unknown',
-        success: cmdData.success !== false,
-        error: cmdData.error || null,
-        data: cmdData.data || null,
-      };
-      targetMsg.finished = true;
-      deps.isLoading.value = false;
-      deps.deleteMessageCache(sessionId);
-      deps.loadSessionMessages(sessionId, { silent: true });
-      nextTick(() => deps.scrollToBottom(true));
-      return;
-    }
-
-    if (eventType === 'session.updated') {
-      if (isRecentlyFinalizedUpdate(event, sessionId)) {
-        if (typeof deps.mergeMessageIdsFromServer === 'function') {
-          deps.mergeMessageIdsFromServer(sessionId);
+      if (category === 'session_updated') {
+        if (isRecentlyFinalizedUpdate(event, sessionId)) {
+          if (typeof deps.mergeMessageIdsFromServer === 'function') {
+            deps.mergeMessageIdsFromServer(sessionId);
+          }
+          deps.refreshSessionExecutionState(sessionId, { silent: true });
+          return;
         }
-        deps.refreshSessionExecutionState(sessionId, { silent: true });
+        if (!deps.isLoading.value && !deps.activeRun.active) {
+          deps.deleteMessageCache(sessionId);
+          deps.loadSessionMessages(sessionId, { silent: true });
+        }
         return;
       }
-      if (!deps.isLoading.value && !deps.activeRun.active) {
+      if (category === 'command_result') {
+        const detail = payload.detail || {};
+        if (detail.type === 'command.started') {
+          deps.scheduleCommandFallback(sessionId, deps.activeRun.assistantMsgIndex, 120000);
+          return;
+        }
+        deps.clearCommandFallback();
+        let targetIndex = deps.messages.value.length - 1;
+        let targetMsg = deps.messages.value[targetIndex];
+        if (!targetMsg || targetMsg.role !== 'assistant' || targetMsg.finished) {
+          deps.messages.value.push(deps.createAssistantMessage());
+          targetIndex = deps.messages.value.length - 1;
+          targetMsg = deps.messages.value[targetIndex];
+        }
+        targetMsg.content = detail.content || '';
+        targetMsg.metadata = {
+          ...targetMsg.metadata,
+          type: 'command_result',
+          command: detail.command || 'unknown',
+          success: detail.success !== false,
+          error: detail.error || null,
+          data: detail.data || null,
+        };
+        targetMsg.finished = true;
+        deps.isLoading.value = false;
         deps.deleteMessageCache(sessionId);
         deps.loadSessionMessages(sessionId, { silent: true });
+        nextTick(() => deps.scrollToBottom(true));
+        return;
       }
-      return;
+      // 其余 category（context_usage/compression/retry/waiting/reflection）转 handleRunEvent
     }
 
-    if (eventType === 'run.end' || eventType === 'done') {
-      if (eventType === 'run.end') mergeRunEndMetadata(event);
+    if (eventType === 'run_ended') {
       const terminalStatus = terminalStatusFromEvent(event);
-      // 打断确认：run 真正以 interrupted 终止时才显示"已停止生成"tag
-      if (terminalStatus === 'interrupted') {
-        const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
-        if (currentMsg) currentMsg.stopped = true;
+      const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
+      if (currentMsg) {
+        // 打断确认：run 真正以 interrupted 终止时才显示"已停止生成"tag
+        if (terminalStatus === 'interrupted') currentMsg.stopped = true;
+        // run 真正以 failed 终止时标记，wpr-label 据此显示"执行异常"（工具失败不等于 run 异常）
+        if (terminalStatus === 'failed') currentMsg.run_failed = true;
       }
       deps.sessionTaskInfo.value = {
         ...(deps.sessionTaskInfo.value || {}),

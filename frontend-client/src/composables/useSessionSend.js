@@ -109,7 +109,7 @@ export function useSessionSend(deps) {
 
     const ws = deps.getWS?.();
     if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'stop' }));
+      ws.send(JSON.stringify({ type: 'abort', session_id: deps.currentSessionId.value, payload: { scope: 'run' } }));
     } else {
       try {
         await fetch('/api/agent/stream/stop', {
@@ -309,8 +309,18 @@ export function useSessionSend(deps) {
 
       const ws = deps.getWS?.();
       if (ws?.readyState === WebSocket.OPEN) {
-        // 通过 WS 发送，ack 结果由 handleWSMessage 中的 send.ack / send.error 处理
-        ws.send(JSON.stringify({ type: 'send', ...body, request_id: requestId }));
+        // 通过 WS 发送，ack 结果由 handleWSMessage 中的 ack(category=send) 处理
+        ws.send(JSON.stringify({
+          type: 'user_driven_change',
+          session_id: sessionId,
+          payload: {
+            category: 'task_submit',
+            task: body.task,
+            attachments: body.attachments,
+            ...(body.selected_llm ? { selected_llm: body.selected_llm } : {}),
+            request_id: requestId,
+          },
+        }));
         if (!isRunningFollowup) {
           deps.scheduleCommandFallback(sessionId, assistantMsgIndex, 30000);
         }

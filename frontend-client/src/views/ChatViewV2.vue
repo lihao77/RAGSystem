@@ -196,7 +196,6 @@
 import { ref, computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, watch, inject } from 'vue';
 import { useRoute } from 'vue-router';
 import { renderMarkdown } from '../utils/markdown';
-import { applyStep } from '../utils/executionProjector';
 import { shouldRefreshSessionMessagesAfterResume, shouldRunResumeRecoveryWatchdog } from '../utils/sessionSocket';
 import { useActiveRunState } from '../composables/useActiveRunState';
 import { useChatSessionController } from '../composables/useChatSessionController';
@@ -322,15 +321,16 @@ const {
   createAssistantMessage,
   normalizeAssistantExecutionState,
   hasExecutionContent,
-  ensureExecutionProjector,
+  ensureExecutionTreeState,
   syncExecutionProjection,
+  applyEnvelopeToMessage,
   ensureExecutionStepsLoaded,
   toggleExecutionView,
   createAssistantMessageFromHistory,
   isRootEvent,
   isMasterEvent,
-  findSubtaskByCallId,
-  findRunningSubtaskByAgentName,
+  findExecutionAgentByCallId,
+  findRunningExecutionAgentByAgentId,
   getMessageExecutionTimeText,
   getMessageExecutionTimeTitle,
   selectedWorkPanelMessageKey,
@@ -553,13 +553,13 @@ const {
     setLlmRetryState: (...a) => setLlmRetryState(...a),
   },
   execution: {
-    ensureExecutionProjector: (...a) => ensureExecutionProjector(...a),
+    ensureExecutionTreeState: (...a) => ensureExecutionTreeState(...a),
     syncExecutionProjection: (...a) => syncExecutionProjection(...a),
-    findSubtaskByCallId: (...a) => findSubtaskByCallId(...a),
-    findRunningSubtaskByAgentName: (...a) => findRunningSubtaskByAgentName(...a),
+    applyEnvelopeToMessage: (...a) => applyEnvelopeToMessage(...a),
+    findExecutionAgentByCallId: (...a) => findExecutionAgentByCallId(...a),
+    findRunningExecutionAgentByAgentId: (...a) => findRunningExecutionAgentByAgentId(...a),
     isRootEvent: (...a) => isRootEvent(...a),
     isMasterEvent: (...a) => isMasterEvent(...a),
-    applyStep,
   },
   approvals: {
     enqueueApproval: (...a) => enqueueApproval(...a),

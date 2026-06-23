@@ -8,6 +8,7 @@
       :approval-count="approvalQueue.length"
       :has-error="messageHasError"
       :completed="messageCompleted"
+      :stopped="Boolean(currentMessage?.stopped)"
     />
 
     <div class="wp-body">
@@ -18,8 +19,7 @@
 
       <Transition name="wp-content" mode="out-in">
         <WorkPanelExecution
-          :execution-steps="executionSteps"
-          :subtasks="subtasks"
+          :execution-tree="executionTree"
           :running="activeRun.active"
           :session-id="sessionId"
         />
@@ -68,38 +68,23 @@ const emit = defineEmits(['approvalSubmit', 'userInputSubmit', 'userInputCancel'
 const messageHasError = computed(() => {
   const msg = props.currentMessage
   if (!msg) return false
+  if (msg.run_failed) return true
   if (msg.error) return true
   if (String(msg.content || '').includes('[System Error:')) return true
-  if (Array.isArray(msg.status) && msg.status.some(isErrorStatusItem)) return true
-  return hasErrorInItems(msg.execution_steps) || hasErrorInItems(msg.subtasks)
+  return false
 })
 
 const messageCompleted = computed(() => {
   const msg = props.currentMessage
-  return Boolean(msg?.finished && !props.activeRun?.active && !messageHasError.value)
+  return Boolean(msg?.finished && !msg?.stopped && !props.activeRun?.active && !messageHasError.value)
 })
 
-const executionSteps = computed(() => props.currentMessage?.execution_steps || [])
-const subtasks = computed(() => props.currentMessage?.subtasks || [])
+const executionTree = computed(() => props.currentMessage?.executionTree || { root: null, steps: [] })
 
 function isErrorStatusItem(item) {
   if (!item) return false
   const type = String(item.type || item.kind || item.status || '').toLowerCase()
   return type === 'error' || type === 'failed'
-}
-
-function hasErrorInItems(items) {
-  if (!Array.isArray(items)) return false
-  return items.some((item) => {
-    if (!item || typeof item !== 'object') return false
-    const status = String(item.status || item.run_status || item.phase || '').toLowerCase()
-    if (status === 'error' || status === 'failed') return true
-    if (item.error || item.error_message) return true
-    return hasErrorInItems(item.children)
-      || hasErrorInItems(item.subtasks)
-      || hasErrorInItems(item.execution_steps)
-      || hasErrorInItems(item.steps)
-  })
 }
 </script>
 
