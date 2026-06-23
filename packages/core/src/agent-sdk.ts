@@ -126,48 +126,49 @@ export interface PendingInteraction {
   receivedAt: number;
 }
 
-/**
- * 单条执行步骤（execution.step 帧的 SDK 结构化视图）。
- *
- * @todo 盘点报告待讨论#2：execution.step 的 data schema 当前埋在
- *       services/agent/execution/event-publisher.ts，未上浮到 contracts/events.ts。
- *       本类型字段对齐其现状产出，待 schema 上浮后改为引用权威定义。
- */
-export interface ExecutionStep {
-  kind: string; // 现状为 "tool"，未来可扩展 "subtask" 等
-  phase: "start" | "end";
-  toolCallId?: string;
-  toolName?: string;
-  arguments?: unknown;
-  status?: "running" | "succeeded" | "failed";
-  success?: boolean;
-  summary?: string;
-  elapsedMs?: number;
-  approval?: { status: "pending" | "granted" | "denied" };
-  runId?: string | null;
-  /** 原始帧，供需要完整 payload 的宿主使用。 */
-  raw: Envelope;
-}
-
-/** 执行树中的工具调用节点（可含子 agent 分支，按 parent_call_id 关联）。 */
-export interface ToolCallNode {
+/** 单次工具调用（tool_call + tool_result 按 call_id 配对后的视图）。 */
+export interface ExecutionToolCall {
   callId: string;
   toolName: string;
   status: "running" | "succeeded" | "failed";
   arguments?: unknown;
+  observation?: string;
   summary?: string;
+  rawResultRef?: string;
   approval?: { status: "pending" | "granted" | "denied" };
-  parentCallId?: string;
   elapsedMs?: number;
-  children: ToolCallNode[];
-  rawStep?: ExecutionStep;
 }
 
-/** SDK 消费 execution.step 流后产出的结构化执行树（复用 executionProjector 算法）。 */
+/** ReAct 单轮：一段 intent（思考文本）+ 该轮发起的工具调用。 */
+export interface ExecutionRound {
+  round: number;
+  intent: string;
+  intentComplete: boolean;
+  toolCalls: ExecutionToolCall[];
+}
+
+/**
+ * 执行体（一个 agent 的 ReAct 轮次集合；可嵌套子 agent）。
+ * root agent（orchestrator）的 rounds 即主对话执行步骤；children 为子 agent 任务树。
+ * round/order 不进协议顶层，由 core 据 ReAct 结构（intent→tools→observation→intent）推断。
+ */
+export interface ExecutionAgent {
+  agentId: string;
+  callId: string;
+  displayName?: string;
+  task?: string;
+  status: "running" | "succeeded" | "failed";
+  result?: string;
+  rounds: ExecutionRound[];
+  children: ExecutionAgent[];
+  parentCallId?: string;
+}
+
+/** SDK 消费事件流后产出的执行树投影（消费 tool_call/tool_result/stream_output/agent_started/agent_ended）。 */
 export interface ExecutionTree {
-  /** 当前 active run 根下的调用树（含子 agent 分支）。 */
-  roots: ToolCallNode[];
-  /** 扁平原始帧流（tool_call / tool_result envelope），保留顺序（供调试 / 自定义渲染）。 */
+  /** root 执行体（orchestrator agent）；无事件时为 null。 */
+  root: ExecutionAgent | null;
+  /** 扁平原始帧流，保留顺序（供调试 / 自定义渲染）。 */
   steps: Envelope[];
 }
 

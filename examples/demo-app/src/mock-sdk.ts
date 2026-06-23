@@ -7,6 +7,7 @@
 import {
   applyEnvelope,
   createExecutionTreeState,
+  getExecutionTree,
   type AgentSDK,
   type ConnectionStatus,
   type ConnectOptions,
@@ -59,7 +60,7 @@ export class MockAgentSDK implements AgentSDK {
 
   readonly status = new Box<ConnectionStatus>({ state: "idle" });
   readonly events = new Box<Envelope>(PLACEHOLDER_ENVELOPE);
-  readonly executionTree = new Box<ExecutionTree>({ roots: [], steps: [] });
+  readonly executionTree = new Box<ExecutionTree>({ root: null, steps: [] });
   readonly runStatus = new Box<RunStatus>({ runId: null, state: "idle" });
   readonly pendingInteractions = new Box<PendingInteraction[]>([]);
 
@@ -116,7 +117,7 @@ export class MockAgentSDK implements AgentSDK {
   feedMock(env: Envelope): void {
     applyEnvelope(this.treeState, env);
     this.events.set(env);
-    this.executionTree.set({ roots: this.treeState.roots, steps: this.treeState.raw });
+    this.executionTree.set(getExecutionTree(this.treeState));
 
     // 委托模式：tool_call(delegation, request) 触发宿主 handler
     if (env.type === "tool_call" && this.delegationEnabled && this.toolHandler) {

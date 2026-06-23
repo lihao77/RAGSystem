@@ -29,13 +29,34 @@ async function main(): Promise<void> {
     return { ok: true, observation: `delegated:${req.toolName}` };
   });
 
-  // —— 投影链：tool_call(start) → tool_result(end) ——
+  // —— 投影链：agent_started → stream_output(intent) → tool_call → tool_result ——
+  sdk.feedMock({
+    type: "agent_started",
+    session_id: "session-1",
+    run_id: "run-1",
+    call_id: "root-1",
+    agent_id: "orchestrator",
+    payload: { phase: "start", task: "list files" },
+  });
+  sdk.feedMock({
+    type: "stream_output",
+    session_id: "session-1",
+    run_id: "run-1",
+    call_id: "root-1",
+    payload: { phase: "intent_complete", content: "I will list files", round: 1 },
+  });
   sdk.feedMock({
     type: "tool_call",
     session_id: "session-1",
     run_id: "run-1",
     call_id: "call-1",
-    payload: { tool: "execute_bash", phase: "start", mode: "projection", input: { cmd: "ls" } },
+    payload: {
+      tool: "execute_bash",
+      phase: "start",
+      mode: "projection",
+      input: { cmd: "ls" },
+      lineage: { parent_call_id: "root-1" },
+    },
   });
   sdk.feedMock({
     type: "tool_result",
@@ -46,10 +67,15 @@ async function main(): Promise<void> {
   });
 
   const tree = sdk.executionTree.get();
-  const root = tree.roots[0];
-  const projectionOk = tree.roots.length === 1 && root?.status === "succeeded" && root?.toolName === "execute_bash";
+  const root = tree.root;
+  const tool = root?.rounds[0]?.toolCalls[0];
+  const projectionOk =
+    root?.agentId === "orchestrator"
+    && root.rounds[0]?.intent === "I will list files"
+    && tool?.toolName === "execute_bash"
+    && tool?.status === "succeeded";
   console.log(
-    `[demo] executionTree: roots=${tree.roots.length} rootStatus=${root?.status} rootTool=${root?.toolName}`,
+    `[demo] executionTree: rootAgent=${root?.agentId} rounds=${root?.rounds.length} toolStatus=${tool?.status}`,
   );
   console.assert(projectionOk, "executionTree projection FAILED");
 
