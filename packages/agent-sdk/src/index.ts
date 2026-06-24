@@ -18,3 +18,11 @@ export { createCompactionHook } from "./compression/compaction-hook.js";
 export { resolveContextBudget } from "./llm-params/budget.js";
 export { resolveSummaryTierCandidates } from "./llm-params/summary-tier.js";
 export { readTierParams } from "./llm-params/tier-params.js";
+// Tools 模块（SDK 自带编排 + observation 渲染）
+export { RuntimeToolProvider, executeToolCallRound, buildLlmFacingToolResult, renderToolResultContent, resolveToolArgumentReferences, materializeToolResult, buildToolReferenceErrorResult, buildToolExecutionErrorResult, runToolBatchWithScheduler, partitionToolCalls } from "./tools/index.js";
+export type { RuntimeToolProviderOptions, ToolRoundExecutorOptions, ToolSchedulerCall, ToolSchedulerExecutor } from "./tools/index.js";
+// Protocol module（SDK 自带协议解析 + 自动选择）
+export { XmlProtocol, NativeHybridProtocol, createProtocol, resolveToolInstructionMode } from "./protocol/index.js";
+export type { XmlProtocolDeps, NativeHybridProtocolDeps, ProtocolFactoryOptions, SelectedProtocol } from "./protocol/index.js";
+export { renderSemanticChatMessage, renderXmlModelMessage, renderNativeModelMessage, StreamingRuntimeXmlParser, parseRuntimeToolCallsXml, serializeToolCallsToXml, renderRuntimeXmlProtocolInstruction, renderNativeXmlProtocolInstruction } from "./protocol/index.js";
+export type { RuntimeXmlTag, RuntimeXmlParseEvent, ParsedToolCall, RuntimeToolCallParseResult } from "./protocol/index.js";

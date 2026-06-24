@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agent-sdk Playground</title>
+<style>
+  :root { --bg:#0f1115; --panel:#181b21; --panel2:#1e2229; --border:#2a2f38; --tx:#e0e3e8; --mut:#7c8290; --ac:#4f8ef7; --ac2:#6366f1; --ok:#22c55e; --warn:#f59e0b; --err:#ef4444; --tool:#a855f7; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--tx);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+  header{padding:10px 20px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-shrink:0}
+  header h1{font-size:15px;font-weight:600}
+  header .badge{font-size:11px;color:var(--mut);background:var(--panel2);padding:2px 8px;border-radius:4px}
+  .main{display:flex;flex:1;overflow:hidden}
+  /* 左侧配置面板 */
+  .sidebar{width:340px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);overflow-y:auto;padding:16px}
+  .field{margin-bottom:14px}
+  .field label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px;font-weight:500}
+  .field input,.field textarea,.field select{width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--tx);font-size:13px;font-family:inherit}
+  .field input:focus,.field textarea:focus,.field select:focus{outline:none;border-color:var(--ac)}
+  .field textarea{resize:vertical;min-height:60px;font-family:"Cascadia Code",Consolas,monospace;font-size:12px}
+  .field textarea.task{min-height:80px}
+  .row{display:flex;gap:10px}
+  .row .field{flex:1}
+  .btn-run{width:100%;padding:11px;background:var(--ac);color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s}
+  .btn-run:hover{background:var(--ac2)}
+  .btn-run:disabled{background:var(--border);cursor:not-allowed;opacity:.6}
+  .preset{font-size:11px;color:var(--ac);cursor:pointer;text-decoration:underline;margin-bottom:10px}
+  .tools-list{font-size:11px;color:var(--mut);background:var(--panel2);border-radius:6px;padding:8px;border:1px solid var(--border)}
+  .tools-list code{color:var(--tool);font-size:11px}
+  /* 右侧运行面板 */
+  .output{flex:1;display:flex;flex-direction:column;overflow:hidden}
+  .output-head{padding:10px 18px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+  .output-head .status{font-size:12px;color:var(--mut)}
+  .round-pill{font-size:11px;background:var(--ac);color:#fff;padding:2px 10px;border-radius:12px}
+  .round-pill.hidden{display:none}
+  .btn-stop{background:var(--err);color:#fff;border:none;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer}
+  .btn-stop.hidden{display:none}
+  .answer{padding:16px 20px;overflow-y:auto;flex:1}
+  .stream-text{font-size:14px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
+  .stream-text .cursor{display:inline-block;width:2px;height:16px;background:var(--ac);animation:blink 1s infinite;vertical-align:text-bottom;margin-left:1px}
+  @keyframes blink{0%,50%{opacity:1}51%,100%{opacity:0}}
+  .events{padding:0 20px 16px;overflow-y:auto;max-height:38vh;flex-shrink:0}
+  .events-head{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;cursor:pointer;user-select:none}
+  .ev{font-family:"Cascadia Code",Consolas,monospace;font-size:11px;line-height:1.5;padding:3px 0;display:flex;gap:8px;align-items:flex-start}
+  .ev .tag{flex-shrink:0;width:90px;font-weight:600}
+  .ev .body{color:var(--mut);word-break:break-all}
+  .ev.intent_delta .tag,.ev.intent_complete .tag{color:var(--warn)}
+  .ev.output_delta .tag{color:var(--ac)}
+  .ev.first_token .tag{color:var(--ok)}
+  .ev.tool_call .tag,.ev.tool_result .tag{color:var(--tool)}
+  .ev.error .tag,.ev._error .tag{color:var(--err)}
+  .tool-card{background:var(--panel2);border:1px solid var(--border);border-left:3px solid var(--tool);border-radius:5px;padding:10px 14px;margin:10px 0}
+  .tool-card .tc-head{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+  .tool-card .tc-args{font-size:11px;color:var(--mut);font-family:"Cascadia Code",Consolas,monospace;margin-top:4px}
+  .tool-card .tc-result{font-size:12px;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)}
+  .tool-card.ok{border-left-color:var(--ok)}
+  .tool-card.fail{border-left-color:var(--err)}
+  .intent-line{font-size:13px;color:var(--warn);font-style:italic;margin:8px 0;padding:4px 0;border-left:2px solid var(--warn);padding-left:10px}
+  .err-banner{background:rgba(239,68,68,.12);border:1px solid var(--err);border-radius:6px;padding:10px 14px;margin:10px 0;color:var(--err);font-size:13px}
+  .done-marker{text-align:center;padding:12px;color:var(--mut);font-size:12px}
+  .empty{color:var(--mut);font-size:14px;text-align:center;padding:60px 20px}
+</style>
+</head>
+<body>
+<header>
+  <h1>agent-sdk Playground</h1>
+  <span class="badge">ReAct loop · protocol auto-select</span>
+  <span class="badge" id="mode-badge">mode: —</span>
+</header>
+<div class="main">
+  <!-- 配置面板 -->
+  <div class="sidebar">
+    <div class="preset" id="preset-link">[ 填充 DeepSeek 预设 ]</div>
+    <div class="field">
+      <label>Provider Type</label>
+      <select id="provider_type">
+        <option value="openai_chat">openai_chat (OpenAI /chat/completions)</option>
+        <option value="deepseek" selected>deepseek</option>
+        <option value="openrouter">openrouter</option>
+        <option value="modelscope">modelscope</option>
+        <option value="anthropic">anthropic (native FC)</option>
+        <option value="openai_resp">openai_resp (Responses API)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>API Endpoint</label>
+      <input id="api_endpoint" placeholder="https://api.deepseek.com/v1">
+    </div>
+    <div class="field">
+      <label>API Key</label>
+      <input id="api_key" type="password" placeholder="sk-...">
+    </div>
+    <div class="field">
+      <label>Model Name</label>
+      <input id="model_name" placeholder="deepseek-chat">
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Temperature</label>
+        <input id="temperature" type="number" step="0.1" value="0.7">
+      </div>
+      <div class="field">
+        <label>Max Tokens</label>
+        <input id="max_tokens" type="number" value="2048">
+      </div>
+    </div>
+    <div class="field">
+      <label>Context Window (tokens)</label>
+      <input id="max_context" type="number" value="32768">
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Supports FC</label>
+        <select id="supports_fc">
+          <option value="">未标注 (→ XML)</option>
+          <option value="true">true (→ Native)</option>
+          <option value="false">false (→ XML)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Session ID</label>
+        <input id="session_id" placeholder="留空=自动生成">
+      </div>
+    </div>
+    <div class="field">
+      <label>System Prompt（可选）</label>
+      <textarea id="system_prompt" placeholder="留空则用 SDK 内置默认 prompt"></textarea>
+    </div>
+    <div class="field">
+      <label>Task / 用户消息</label>
+      <textarea id="task" class="task" placeholder="帮我算一下 (12+8)*3 等于多少，顺便告诉我现在几点"></textarea>
+    </div>
+    <div class="tools-list">
+      可用工具: <code>get_time</code> <code>calculate</code> <code>random_choice</code>
+    </div>
+    <div style="height:14px"></div>
+    <button class="btn-run" id="btn-run">▶ 运行</button>
+    <div style="height:8px"></div>
+    <button class="btn-run" id="btn-stop" style="background:var(--err);display:none">■ 停止</button>
+  </div>
+  <!-- 输出面板 -->
+  <div class="output">
+    <div class="output-head">
+      <span class="status" id="status">待运行</span>
+      <span class="round-pill hidden" id="round-pill">Round 0</span>
+      <button class="btn-stop hidden" id="btn-stop-top">停止</button>
+    </div>
+    <div class="answer" id="answer-area">
+      <div class="empty">填写左侧配置，点击「运行」启动 ReAct 循环</div>
+    </div>
+    <div class="events" id="events-panel">
+      <div class="events-head" id="events-toggle">▾ 事件流 (原始 KernelEvent)</div>
+      <div id="events-list"></div>
+    </div>
+  </div>
+</div>
+
+
+
+    <div class="output">
+      <div class="output-head">
+        <span class="status" id="status">待运行</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="round-pill hidden" id="round-pill">Round 0</span>
+          <span class="badge" id="turn-count" style="display:none">0 轮</span>
+          <button class="btn-stop hidden" id="btn-stop-top">停止</button>
+          <button id="btn-new" style="background:var(--panel2);border:1px solid var(--border);color:var(--mut);padding:6px 12px;border-radius:5px;font-size:12px;cursor:pointer">新会话</button>
+        </div>
+      </div>
+      <div class="answer" id="answer-area">
+        <div class="empty">填写左侧配置，点击「运行」启动 ReAct 循环</div>
+      </div>
+      <div class="events" id="events-panel">
+        <div class="events-head" id="events-toggle">▾ 当前轮事件流 (原始 KernelEvent)</div>
+        <div id="events-list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let running = false;
+let abortCtl = null;
+// 前端自管理对话历史（user/assistant final），跨 run 延续上下文
+let conversation = [];
+
+const PRESETS = {
+  deepseek: { provider_type:'deepseek', api_endpoint:'https://api.deepseek.com/v1', model_name:'deepseek-chat', supports_fc:'', task:'帮我算一下 (12+8)*3 等于多少，顺便告诉我现在几点' },
+  openrouter: { provider_type:'openrouter', api_endpoint:'https://openrouter.ai/api/v1', model_name:'google/gemini-2.0-flash-001', supports_fc:'true', task:'从 苹果、香蕉、橙子 中随机帮我选一个水果' },
+  anthropic: { provider_type:'anthropic', api_endpoint:'https://api.anthropic.com', model_name:'claude-3-5-haiku-20241022', supports_fc:'', task:'先告诉我现在几点，然后算 99*13 等于多少' },
+  openai: { provider_type:'openai_chat', api_endpoint:'https://api.openai.com/v1', model_name:'gpt-4o-mini', supports_fc:'true', task:'算一下 2^10 等于多少' },
+};
+$('preset-link').onclick = () => { applyPreset(PRESETS.deepseek); };
+function applyPreset(p) {
+  $('provider_type').value = p.provider_type;
+  if (p.api_endpoint) $('api_endpoint').value = p.api_endpoint;
+  if (p.model_name) $('model_name').value = p.model_name;
+  if (p.supports_fc !== undefined) $('supports_fc').value = p.supports_fc;
+  if (p.task) $('task').value = p.task;
+}
+applyPreset(PRESETS.deepseek);
+$('provider_type').onchange = () => {
+  const pt = $('provider_type').value;
+  const ep = { deepseek:'https://api.deepseek.com/v1', openrouter:'https://openrouter.ai/api/v1', modelscope:'https://api-inference.modelscope.cn/v1', anthropic:'https://api.anthropic.com', openai_chat:'https://api.openai.com/v1', openai_resp:'https://api.openai.com/v1' };
+  if (ep[pt]) $('api_endpoint').value = ep[pt];
+};
+
+// 事件流折叠
+let eventsCollapsed = false;
+$('events-toggle').onclick = () => {
+  eventsCollapsed = !eventsCollapsed;
+  $('events-list').style.display = eventsCollapsed ? 'none':'block';
+  $('events-toggle').textContent = (eventsCollapsed?'▸':'▾') + ' 当前轮事件流 (原始 KernelEvent)';
+};
+
+function setStatus(s) { $('status').textContent = s; }
+function setRunning(v) {
+  running = v;
+  $('btn-run').disabled = v;
+  $('btn-stop').style.display = v ? 'block':'none';
+  $('btn-stop-top').className = v ? 'btn-stop':'btn-stop hidden';
+}
+function updateTurnCount() {
+  const tc = $('turn-count');
+  if (conversation.length === 0) { tc.style.display='none'; return; }
+  tc.style.display = 'inline-block';
+  const turns = conversation.filter(m => m.role === 'user').length;
+  tc.textContent = turns + ' 轮';
+}
+
+/* === 对话区渲染（多轮） === */
+let curRound = 0;
+let streamBuf = '';
+let curStreamEl = null;
+
+function renderConversation() {
+  const area = $('answer-area');
+  area.innerHTML = '';
+  for (const msg of conversation) {
+    const bubble = document.createElement('div');
+    bubble.className = 'msg ' + msg.role;
+    const avatar = document.createElement('div'); avatar.className='avatar';
+    avatar.textContent = msg.role === 'user' ? '你' : 'AI';
+    const content = document.createElement('div'); content.className='msg-content';
+    content.textContent = msg.content;
+    bubble.appendChild(avatar); bubble.appendChild(content);
+    area.appendChild(bubble);
+  }
+  updateTurnCount();
+  area.scrollTop = area.scrollHeight;
+}
+
+function startAssistantTurn() {
+  const area = $('answer-area');
+  const bubble = document.createElement('div');
+  bubble.className = 'msg assistant';
+  const avatar = document.createElement('div'); avatar.className='avatar'; avatar.textContent='AI';
+  const content = document.createElement('div'); content.className='msg-content';
+  bubble.appendChild(avatar); bubble.appendChild(content);
+  area.appendChild(bubble);
+  area.scrollTop = area.scrollHeight;
+  return content;
+}
+
+function clearEvents() {
+  $('events-list').innerHTML = '';
+  streamBuf = '';
+  curStreamEl = null;
+}
+
+function addRawEvent(ev) {
+  const list = $('events-list');
+  const div = document.createElement('div');
+  div.className = 'ev ' + ev.type;
+  const tag = document.createElement('span'); tag.className='tag'; tag.textContent = ev.type;
+  const body = document.createElement('span'); body.className='body';
+  body.textContent = summarizeEvent(ev);
+  div.appendChild(tag); div.appendChild(body);
+  list.appendChild(div);
+  list.parentElement.scrollTop = list.parentElement.scrollHeight;
+}
+function summarizeEvent(ev) {
+  switch(ev.type) {
+    case 'first_token': return `首 token (${ev.elapsedMs}ms)`;
+    case 'output_delta': return ev.content;
+    case 'intent_delta': return ev.content;
+    case 'intent_complete': return `[round ${ev.round}] ${ev.content}`;
+    case 'tool_call': return `${ev.toolName}(${JSON.stringify(ev.arguments)}) [round ${ev.round} #${ev.order}]`;
+    case 'tool_result': return `${ev.toolName} → ${ev.success?'ok':'fail'} (${ev.elapsedTime.toFixed(2)}s) ${ev.summary}`;
+    case 'observation_complete': return `[round ${ev.round}] ${ev.messages.length} 条 observation`;
+    case 'assistant_intermediate': return `[round ${ev.round}] assistant 中间态`;
+    case 'error': return ev.message;
+    case '_done': return `完成: finishReason=${ev.finishReason}`;
+    case '_error': return ev.message;
+    default: return JSON.stringify(ev).slice(0,200);
+  }
+}
+
+function appendStream(content, el) {
+  streamBuf += content;
+  el.textContent = streamBuf;
+  const cursor = document.createElement('span'); cursor.className='cursor';
+  el.appendChild(cursor);
+  el.parentElement.parentElement.scrollTop = el.parentElement.parentElement.scrollHeight;
+}
+
+function renderToolCall(ev, container) {
+  const card = document.createElement('div');
+  card.className = 'tool-card';
+  card.id = 'tc-' + ev.toolCallId;
+  card.innerHTML = '<div class="tc-head">🔧 '+ev.toolName+'</div><div class="tc-args">'+JSON.stringify(ev.arguments,null,1)+'</div>';
+  container.appendChild(card);
+  container.scrollTop = container.scrollHeight;
+}
+function renderToolResult(ev) {
+  const card = $('tc-' + ev.toolCallId);
+  if (card) {
+    card.className = 'tool-card ' + (ev.success?'ok':'fail');
+    const r = document.createElement('div'); r.className='tc-result';
+    r.innerHTML = '<b>'+(ev.success?'✓':'✗')+'</b> '+ev.summary+' <span style="color:var(--mut)">('+ev.elapsedTime.toFixed(2)+'s)</span>';
+    card.appendChild(r);
+  }
+}
+function renderIntent(ev, container) {
+  const line = document.createElement('div'); line.className='intent-line';
+  line.textContent = '💭 '+ev.content;
+  container.appendChild(line);
+  container.scrollTop = container.scrollHeight;
+}
+function renderError(msg, container) {
+  const b = document.createElement('div'); b.className='err-banner';
+  b.textContent='✗ '+msg;
+  (container||$('answer-area')).appendChild(b);
+}
+function updateRound(round) {
+  curRound = round;
+  const pill = $('round-pill');
+  pill.textContent = 'Round '+round;
+  pill.className = 'round-pill';
+}
+
+function detectMode(config) {
+  const pt = config.provider.provider_type;
+  const fc = config.provider.supports_function_calling;
+  if (pt === 'anthropic') return 'native';
+  if (['openai_chat','openai_proxy','deepseek','openrouter','modelscope'].includes(pt) && fc === true) return 'native';
+  return 'xml';
+}
+
+function newSession() {
+  conversation = [];
+  curRound = 0;
+  streamBuf = '';
+  curStreamEl = null;
+  const area = $('answer-area');
+  area.innerHTML = '<div class="empty">填写左侧配置，点击「运行」启动 ReAct 循环</div>';
+  $('events-list').innerHTML = '';
+  $('round-pill').className = 'round-pill hidden';
+  updateTurnCount();
+  setStatus('待运行');
+}
+$('btn-new').onclick = newSession;
+
+async function run() {
+  if (running) return;
+  const task = $('task').value.trim();
+  if (!task) { alert('请填写 Task'); return; }
+  const provider = {
+    key: null,
+    name: $('provider_type').value,
+    provider_type: $('provider_type').value,
+    api_endpoint: $('api_endpoint').value.trim() || undefined,
+    api_key: $('api_key').value.trim() || undefined,
+    supports_function_calling: $('supports_fc').value === '' ? undefined : ($('supports_fc').value === 'true'),
+    max_completion_tokens: parseInt($('max_tokens').value) || undefined,
+  };
+  if (!provider.api_key) { alert('请填写 API Key'); return; }
+  // 组装完整对话历史 + 当前用户消息
+  const userMsg = { role:'user', content:task };
+  const messages = [...conversation, userMsg];
+  const config = {
+    provider,
+    modelName: $('model_name').value.trim(),
+    temperature: parseFloat($('temperature').value) || 0.7,
+    maxCompletionTokens: parseInt($('max_tokens').value) || 2048,
+    maxContextTokens: parseInt($('max_context').value) || 32768,
+    systemPrompt: $('system_prompt').value.trim(),
+    messages,
+  };
+
+  $('mode-badge').textContent = 'mode: ' + detectMode(config);
+  setRunning(true);
+  // 渲染对话区：历史 + 当前 user + 新 assistant 气泡（流式填充）
+  conversation.push(userMsg);
+  renderConversation();
+  clearEvents();
+  curStreamEl = startAssistantTurn();
+  setStatus('运行中...');
+  abortCtl = new AbortController();
+
+  let assistantContent = '';
+  let hadError = false;
+  try {
+    const resp = await fetch('/api/run', {
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body: JSON.stringify(config),
+      signal: abortCtl.signal,
+    });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream:true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        let ev; try { ev = JSON.parse(trimmed); } catch { continue; }
+        handleEvent(ev, curStreamEl);
+        if (ev.type === '_done') assistantContent = ev.content;
+        if (ev.type === '_error') hadError = true;
+      }
+    }
+    if (buf.trim()) { try { handleEvent(JSON.parse(buf.trim()), curStreamEl); } catch {} }
+  } catch (err) {
+    if (err.name !== 'AbortError') { renderError(err.message, curStreamEl); hadError = true; }
+  } finally {
+    // 移除流式游标
+    const c = curStreamEl?.querySelector('.cursor'); if (c) c.remove();
+    // 如果成功且有内容，把 assistant 回复加入历史
+    if (assistantContent && !hadError) {
+      conversation.push({ role:'assistant', content:assistantContent });
+    } else if (!curStreamEl?.textContent.trim() && !hadError) {
+      // 空回复：移除空气泡
+      const area = $('answer-area');
+      const last = area.querySelector('.msg.assistant:last-child');
+      if (last && !last.querySelector('.msg-content').textContent.trim()) last.remove();
+      // 同时从 conversation 撤回 user 消息（因为没得到回复）
+      conversation.pop();
+    }
+    setStatus(hadError ? '出错' : '完成');
+    setRunning(false);
+    abortCtl = null;
+    renderConversation();
+  }
+}
+
+function handleEvent(ev, streamEl) {
+  addRawEvent(ev);
+  const area = $('answer-area');
+  switch (ev.type) {
+    case 'first_token': break;
+    case 'output_delta': appendStream(ev.content, streamEl); break;
+    case 'intent_delta': break;
+    case 'intent_complete': renderIntent(ev, area); break;
+    case 'tool_call': updateRound(ev.round); renderToolCall(ev, area); break;
+    case 'tool_result': renderToolResult(ev); break;
+    case 'observation_complete': updateRound(ev.round); break;
+    case 'assistant_intermediate': break;
+    case 'error': renderError(ev.message, area); break;
+    case '_done': break;
+    case '_error': renderError(ev.message, area); break;
+  }
+}
+
+function stop() { if (abortCtl) abortCtl.abort(); }
+$('btn-run').onclick = run;
+$('btn-stop').onclick = stop;
+$('btn-stop-top').onclick = stop;
+</script>
+</body>
+</html>

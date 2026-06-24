@@ -54,7 +54,7 @@ export interface IntentCompleteEvent {
   content: string;
   round: number;
   /** intent 落库的 assistant 消息（Dispatcher 据此 addMessage + 关联 step）。 */
-  assistantMessage: ChatMessage;
+  assistantMessage?: ChatMessage;
 }
 
 export interface AssistantIntermediateEvent {
@@ -134,7 +134,16 @@ export interface PreparedRoundToolCall {
 /** 工具调用 = PreparedRoundToolCall（语义别名）。 */
 export type KernelToolCall = PreparedRoundToolCall;
 
-/** 工具执行结果（解耦 backend-ts ToolExecutionResult 核心字段）。 */
+/** observation 落盘产物（大 payload 物化成文件后的引用）。 */
+export interface ToolArtifact {
+  artifactType: "json" | "text";
+  path: string;
+  mimeType: string;
+  size: number;
+  metadata: Record<string, unknown>;
+}
+
+/** 工具执行结果（对齐 backend-ts ToolExecutionResult 形状）。 */
 export interface ToolExecutionResult {
   success: boolean;
   toolName: string;
@@ -143,6 +152,8 @@ export interface ToolExecutionResult {
   outputType: string;
   content: unknown;
   metadata: Record<string, unknown>;
+  artifacts: ToolArtifact[];
+  llmHint: string | null;
 }
 
 /** 单轮工具观测结果（内核执行 ToolProvider 后回填给 Protocol）。 */
@@ -202,6 +213,52 @@ export interface Protocol {
 /** 工具执行端口。executeRound 内部 emit tool_call/tool_result（经 EventSink）。 */
 export interface ToolProvider {
   executeRound(ctx: KernelContext, round: number, calls: KernelToolCall[]): Promise<KernelObservation[]>;
+}
+
+/** 工具执行调用（消费端 ToolExecutor 收到的单次调用）。 */
+export interface ToolExecutorCall {
+  toolName: string;
+  arguments: Record<string, unknown>;
+  callId: string;
+}
+
+/** 工具执行上下文（透传运行时元数据给消费端）。 */
+export interface ToolExecContext {
+  sessionId: string | null;
+  runId: string | null;
+  taskId: string | null;
+  requestId: string | null;
+  parentCallId: string | null;
+  toolCallId: string | null;
+  round: number | null;
+  order: number | null;
+  roundIndex: number | null;
+  signal?: AbortSignal;
+}
+
+/** 后台任务等待请求。 */
+export interface ToolWaitRequest {
+  backgroundTaskId: string;
+  timeoutMs?: number | null;
+}
+
+/** 后台任务等待结果。 */
+export interface ToolWaitResult {
+  success: boolean;
+  timeout: boolean;
+  payloads: Array<Record<string, unknown>>;
+}
+
+/**
+ * 工具执行端口（消费端实现）：负责"工具实际跑什么 + 产出原始 ToolExecutionResult"。
+ * SDK 的 RuntimeToolProvider 负责编排（依赖分批、并发调度、abort、{result_N} 引用解析、
+ * observation 渲染落盘）后调用它。
+ */
+export interface ToolExecutor {
+  listTools(): import("./prompt/tool-types.js").RuntimeToolDefinition[];
+  executeTool(call: ToolExecutorCall, ctx: ToolExecContext): ToolExecutionResult | Promise<ToolExecutionResult>;
+  classifyConcurrency?(call: ToolExecutorCall, ctx: ToolExecContext): boolean;
+  waitForToolResult?(request: ToolWaitRequest, ctx: ToolExecContext): ToolWaitResult | Promise<ToolWaitResult>;
 }
 
 /** 实时输出导线（穿过 Protocol/Tool 内部），零翻译透传 KernelEvent 给 Dispatcher。 */

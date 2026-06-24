@@ -6,12 +6,14 @@
  * AgentKernel.run(挂 context/protocol/tools/hook) → finalize → handle(events + result)。
  *
  * Context 端口 / MessageRefresher / HookRegistry 内置默认实现（SDK 自带）；
- * Protocol（XML/native 解析）与 ToolProvider（工具执行）由调用方注入——它们是协议/工具特定
+ * Protocol（XML/native 解析）由 SDK 按 provider_type 自动选择（createProtocol）；ToolProvider（工具执行）
  * 的重型件，SDK 通过端口消费。memory/compression 在 createRuntime 时按 profile 装配进 context sources。
  */
 import { randomUUID } from "node:crypto";
+import os from "node:os";
+import path from "node:path";
 import type { ChatMessage, LlmClient } from "@ragsystem/agent-llm";
-import type { Context, HookPoint, HookRegistry, KernelResult, MessageRefresher, Protocol, RuntimeSession, ToolProvider, RuntimeStore } from "./contracts.js";
+import type { Context, HookPoint, HookRegistry, KernelResult, MessageRefresher, RuntimeSession, ToolExecutor, ToolExecContext, RuntimeStore } from "./contracts.js";
 import type { KernelEvent } from "./contracts.js";
 import { KernelContext } from "./kernel-context.js";
 import type { KernelContext as KernelContextType } from "./kernel-context.js";
@@ -25,21 +27,18 @@ import { MemoryIndexContextSource } from "./memory/index.js";
 import { buildFullSystemPrompt } from "./prompt/prompt-builder.js";
 import { AgentContextCompressionService } from "./compression/context-compression.js";
 import { createCompactionHook } from "./compression/compaction-hook.js";
-import type { ToolInstructionMode } from "./contracts.js";
+import { createProtocol } from "./protocol/index.js";
+import { RuntimeToolProvider } from "./tools/index.js";
 
 export interface CreateRuntimeOptions {
   llm: LlmClient;
   provider: AgentProfile["llmTiers"][string]["provider"];
   modelName: string;
   profile: AgentProfile;
-  /** 协议端口（XML/native 解析 + 渲染），调用方注入。 */
-  protocol: Protocol;
-  /** 工具执行端口，调用方注入。 */
-  tools: ToolProvider;
+  /** 工具执行端口（消费端实现：工具实际跑什么 + 产出原始结果）。 */
+  toolExecutor: ToolExecutor;
   /** 数据根目录；默认 ~/.ragsystem。 */
   dataRoot?: string;
-  /** 工具指令形态（决定 prompt 协议说明注入），默认 xml。 */
-  toolInstructionMode?: ToolInstructionMode;
   /** 自定义 store（默认 SqliteRuntimeStore）。 */
   store?: RuntimeStore;
   /** session 元数据读写端口（memory 前缀指纹缓存 + microcompact 缓存用）。 */
@@ -72,8 +71,9 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
   const storeOpts: import("./store/sqlite-store.js").SqliteStoreOptions = {};
   if (options.dataRoot) { storeOpts.dataRoot = options.dataRoot; }
   const store = options.store ?? new SqliteRuntimeStore(storeOpts);
-  const toolInstructionMode = options.toolInstructionMode ?? "xml";
+
   const ownsStore = !options.store;
+  const dataRoot = options.dataRoot ?? path.join(os.homedir(), ".ragsystem");
 
   return {
     run: (input: RunInput): RunHandle => {
@@ -87,7 +87,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
         getRecentMessages: (sid, _limit, tk) => store.listMessages(sid, tk ?? "root") as unknown as MessageInfo[],
       };
       const metadataPort = options.sessionMetadata ?? makeNoopSessionMetadata();
-      const sources = options.contextSources ?? buildDefaultSources(historyPort, metadataPort, profile, options.dataRoot);
+      const sources = options.contextSources ?? buildDefaultSources(historyPort, metadataPort, profile, dataRoot);
       const contextBuilder = new AgentContextBuilder(sources);
 
       const dispatcherCtx: DispatcherRunContext = {
@@ -100,6 +100,12 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       const dispatcher = new Dispatcher(store, dispatcherCtx);
       dispatcher.startRun();
 
+      const { protocol, toolInstructionMode } = createProtocol({
+        provider: options.provider,
+        llm: options.llm,
+        events: dispatcher,
+        getTools: () => options.toolExecutor.listTools(),
+      });
       const context: Context = makeContextPort(contextBuilder, profile, toolInstructionMode);
       const refresher: MessageRefresher = { refresh: async () => [] };
 
@@ -131,7 +137,20 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
      };
       if (input.signal) { session.signal = input.signal; }
 
-      const kernel = new AgentKernel({ context, protocol: options.protocol, tools: options.tools, events: dispatcher, refresher, hooks });
+      const toolContext: ToolExecContext = {
+        sessionId,
+        runId,
+        taskId: input.task ?? null,
+        requestId: null,
+        parentCallId,
+        toolCallId: null,
+        round: null,
+        order: null,
+        roundIndex: null,
+      };
+      if (input.signal) { toolContext.signal = input.signal; }
+      const tools = new RuntimeToolProvider({ toolExecutor: options.toolExecutor, toolContext, dataRoot, events: dispatcher });
+      const kernel = new AgentKernel({ context, protocol, tools, events: dispatcher, refresher, hooks });
       const resultPromise = runKernel(kernel, session, dispatcher);
       return { events: dispatcher.events, result: resultPromise, runId };
     },
@@ -177,13 +196,16 @@ function makeNoopSessionMetadata(): SessionMetadataPort {
   };
 }
 
-function makeContextPort(builder: AgentContextBuilder, profile: AgentProfile, mode: ToolInstructionMode): Context {
+function makeContextPort(builder: AgentContextBuilder, profile: AgentProfile, mode: "xml" | "native"): Context {
   return {
     buildMessages: (ctx: KernelContextType): ChatMessage[] => {
       const systemPrompt = buildFullSystemPrompt(profile, {}, mode);
-      const built = builder.buildContext({ sessionId: ctx.session.sessionId, threadKey: ctx.session.threadKey, microcompact: true });
+      // ctx.messages 是内核工作副本（session.conversation 浅拷贝），含当前用户消息 + 历史 + 历轮 assistant/tool 消息。
+      // context builder 从 store 读历史视图（触发 memory prefix / microcompact 等 side effect），
+      // 但基础对话以 ctx.messages 为准——store 历史转换可能丢 tool_call_id 等结构化字段。
+      builder.buildContext({ sessionId: ctx.session.sessionId, threadKey: ctx.session.threadKey, microcompact: true });
       const prefix = systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : [];
-      return [...prefix, ...built.conversation];
+      return [...prefix, ...ctx.messages];
     },
   };
 }
