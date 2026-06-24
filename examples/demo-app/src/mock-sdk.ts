@@ -1,14 +1,14 @@
 /**
- * 最小 MockAgentSDK —— implements AgentSDK，内存事件总线，无真实 WS。
+ * 最小 MockAgentClient —— implements AgentClient，内存事件总线，无真实 WS。
  *
  * 仅用于 demo 验证「协议契约 + 投影骨架 + 委托回调装配」的接入闭环；
- * 非闭环方法做空实现。core 包本身不含 mock（保持纯净）。
+ * 非闭环方法做空实现。agent-protocol 包本身不含 mock（保持纯净）。
  */
 import {
   applyEnvelope,
   createExecutionTreeState,
   getExecutionTree,
-  type AgentSDK,
+  type AgentClient,
   type ConnectionStatus,
   type ConnectOptions,
   type DelegatedToolSpec,
@@ -26,7 +26,7 @@ import {
   type ToolPresentationSpec,
   type ToolResult,
   type Unsubscribe,
-} from "@ragsystem/agent-sdk-core";
+} from "@ragsystem/agent-protocol";
 
 /** 极简可观察容器：持值 + 订阅通知。 */
 class Box<T> implements Observable<T> {
@@ -52,7 +52,7 @@ class Box<T> implements Observable<T> {
 
 const PLACEHOLDER_ENVELOPE: Envelope = { type: "heartbeat", session_id: "mock" };
 
-export class MockAgentSDK implements AgentSDK {
+export class MockAgentClient implements AgentClient {
   private readonly treeState: ExecutionTreeState = createExecutionTreeState();
   private readonly tools = new Map<string, DelegatedToolSpec>();
   private toolHandler: ToolCallHandler | null = null;

@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
-import type { Envelope } from "@ragsystem/agent-sdk-core";
+import type { Envelope } from "@ragsystem/agent-protocol";
 import type {
   ChatCompletionRequest,
   ChatCompletionResult,
@@ -14,7 +14,7 @@ import type {
 } from "../../src/services/integrations/llm-chat-client.js";
 import { EnvelopeProjector } from "../../src/services/runtime/event-outbox/projector.js";
 import type { OutboxRow } from "../../src/contracts/conversation-store/types.js";
-import { RuntimeAbortError } from "@ragsystem/agent-sdk-core";
+import { RuntimeAbortError } from "@ragsystem/agent-protocol";
 import { buildTestHarness } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;

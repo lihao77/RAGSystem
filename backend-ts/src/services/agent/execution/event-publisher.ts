@@ -21,7 +21,7 @@ interface ExecutionEventContext {
   /**
    * 父 agent 的 call_id：child run 非空（指向发起委派的父 agent），root run 为空。
    * 新协议 agent_started/stream_output/tool 靠它（lineage.parent_call_id）把子 agent 嵌套到父——
-   * core execution-tree 据此重建 ReAct 树，缺失则子 agent 沦为平级 root。
+   * agent-protocol execution-tree 据此重建 ReAct 树，缺失则子 agent 沦为平级 root。
    */
   parentCallId?: string | null | undefined;
   agent: AgentConfig;

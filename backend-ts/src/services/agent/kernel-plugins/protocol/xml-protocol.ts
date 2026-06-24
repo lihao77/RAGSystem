@@ -36,7 +36,7 @@ import {
   StreamingRuntimeXmlParser,
 } from "./xml/index.js";
 import { renderSemanticChatMessage } from "../context/message-builder.js";
-import { RuntimeAbortError, throwIfAborted } from "@ragsystem/agent-sdk-core";
+import { RuntimeAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
 import { toChatToolDefinition } from "../tools/tool-call-utils.js";
 import { resolveTierLlmParams } from "../../llm-params.js";
 import type {

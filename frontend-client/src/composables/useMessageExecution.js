@@ -1,4 +1,4 @@
-import { createExecutionTreeState, applyEnvelope, getExecutionTree } from '@ragsystem/agent-sdk-core';
+import { createExecutionTreeState, applyEnvelope, getExecutionTree } from '@ragsystem/agent-protocol';
 import { getMessageRunSteps } from '../api/monitoring.js';
 import { legacyStepToEnvelope } from '../utils/legacyStepToEnvelope.js';
 

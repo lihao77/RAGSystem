@@ -4,7 +4,7 @@
  * 与原文件的差异：
  *   • 消费新 envelope 字段（cursor / seq），不再依赖旧 event_seq / last_event_seq。
  *   • 仅保留协议/传输四函数；业务判断函数（shouldRefreshSessionMessagesAfterResume /
- *     shouldRunResumeRecoveryWatchdog）留在前端 composable，不进 core。
+ *     shouldRunResumeRecoveryWatchdog）留在前端 composable，不进本包。
  *
  * 注意：buildSessionSocketUrl 产出的查询参数 after_event_seq 是后端 WS 路由
  * (routes/agent/ws.ts durable outbox 重放边界) 的参数名；本期后端未改协议，故保留。

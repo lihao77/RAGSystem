@@ -23,7 +23,7 @@ import type {
   PermissionPolicyService,
   RuntimeToolApprovalDecision,
 } from "./permission-policy-service.js";
-import { throwIfAborted } from "@ragsystem/agent-sdk-core";
+import { throwIfAborted } from "@ragsystem/agent-protocol";
 import type { HookRuntimeService, HookResult } from "./hooks/index.js";
 import { withApprovalMetadata, withApprovedExternalPaths } from "./runtime-tool-bridge/arguments.js";
 import {

@@ -8,7 +8,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@ragsystem/agent-sdk-core": "*"
+    "@ragsystem/agent-protocol": "*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

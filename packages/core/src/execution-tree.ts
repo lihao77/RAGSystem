@@ -9,7 +9,7 @@
  *   - tool_call / tool_result：工具调用按 call_id 配对，挂到所属 agent 的当前轮。
  *
  * ReAct 轮次推断：工具的 round = 所属 agent 最近一次 intent 的 round（stream_output 携带）；
- * 无 intent 时归到 round 0。协议顶层刻意不带 round/order（业务值下沉），core 据 ReAct
+ * 无 intent 时归到 round 0。协议顶层刻意不带 round/order（业务值下沉），本包据 ReAct
  * 结构（intent→tools→observation→intent）复现轮次分组——这是方案 B 的投影智能所在。
  *
  * 乱序容错：子 agent 可能先于父 agent 到达，按 parent_call_id 入 pending 队列，
@@ -22,7 +22,7 @@ import type {
   ExecutionRound,
   ExecutionToolCall,
   ExecutionTree,
-} from "./agent-sdk.js";
+} from "./agent-client.js";
 
 /** 无显式 call_id 时的隐式 root 标识（容错：tool 无父时挂到此处）。 */
 const IMPLICIT_ROOT_CALL_ID = "__root__";

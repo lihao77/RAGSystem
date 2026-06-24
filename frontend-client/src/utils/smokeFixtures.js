@@ -1,4 +1,4 @@
-import { createExecutionTreeState, applyEnvelope, getExecutionTree } from '@ragsystem/agent-sdk-core';
+import { createExecutionTreeState, applyEnvelope, getExecutionTree } from '@ragsystem/agent-protocol';
 import { legacyStepToEnvelope } from './legacyStepToEnvelope';
 
 export const SMOKE_ARTIFACT_ID = 'viz_smoke_chart';

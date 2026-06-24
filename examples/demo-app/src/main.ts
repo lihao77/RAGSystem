@@ -3,10 +3,10 @@
  *           → 喂投影链 tool_call/tool_result → 验证 executionTree
  *           → 喂委托 tool_call(request) → 验证 handler 被触发
  */
-import { MockAgentSDK } from "./mock-sdk.js";
+import { MockAgentClient } from "./mock-sdk.js";
 
 async function main(): Promise<void> {
-  const sdk = new MockAgentSDK();
+  const sdk = new MockAgentClient();
   await sdk.connect({ url: "mock://session-1" });
   console.log("[demo] connected, status =", sdk.status.get().state);
 

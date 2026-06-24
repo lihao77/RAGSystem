@@ -21,7 +21,7 @@ import type {
   ChatStreamChunkHandler,
   LlmChatClient,
 } from "../../src/services/integrations/llm-chat-client.js";
-import { RuntimeAbortError } from "@ragsystem/agent-sdk-core";
+import { RuntimeAbortError } from "@ragsystem/agent-protocol";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";

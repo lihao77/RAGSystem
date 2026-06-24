@@ -6,7 +6,7 @@ import type {
   ToolExecutionResult,
   RuntimeToolWaitResult,
 } from "../../../runtime/runtime-tool-types.js";
-import { isAbortError, throwIfAborted } from "@ragsystem/agent-sdk-core";
+import { isAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
 import { renderToolResultContent } from "../protocol/xml/index.js";
 import { runToolBatchWithScheduler } from "../../../../tools/scheduler.js";
 import { buildLlmFacingToolResult } from "./observation.js";

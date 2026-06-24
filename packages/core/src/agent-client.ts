@@ -1,5 +1,5 @@
 /**
- * AgentSDK 公开契约（core 契约层）。
+ * AgentClient 公开契约（协议契约层）。
  *
  * 本文件仅定义「宿主接入」的公开类型契约，不含任何实现逻辑：
  * - 实现侧（adapter）负责满足此形状；现有 runtime 实现「贴上契约」是后续步骤。
@@ -28,9 +28,9 @@ import type { Envelope, InteractionKind, AttachmentRef } from "./protocol.js";
 export type Unsubscribe = () => void;
 
 /**
- * core 最小可观察抽象。
+ * 本包最小可观察抽象。
  * 各 adapter（Vue composable / React hook / Svelte store）负责把它转成各自的响应式形态；
- * core 自身保持纯回调，不依赖任何响应式运行时。
+ * agent-protocol 自身保持纯回调，不依赖任何响应式运行时。
  */
 export interface Observable<T> {
   /** 当前快照（订阅前立即可取值，非 reactive 宿主也能用）。 */
@@ -54,7 +54,7 @@ export type ConnectionStatus =
  * 二、连接与生命周期（common · wired）
  * ========================================================== */
 
-/** 重连退避策略。core 提供默认值（指数退避），宿主可覆盖。 */
+/** 重连退避策略。本包提供默认值（指数退避），宿主可覆盖。 */
 export interface ReconnectPolicy {
   enabled: boolean;
   maxRetries?: number;
@@ -62,12 +62,12 @@ export interface ReconnectPolicy {
   maxDelayMs?: number;
 }
 
-/** 传输适配抽象。core 不直接依赖 ws 库；adapter 注入原生 WebSocket 或测试 mock。 */
+/** 传输适配抽象。本包不直接依赖 ws 库；adapter 注入原生 WebSocket 或测试 mock。 */
 export interface WebSocketTransport {
   open(url: string): WebSocketLike;
 }
 
-/** core 声明的传输句柄形状，对齐浏览器 WebSocket / ws 包的子集。 */
+/** 本包声明的传输句柄形状，对齐浏览器 WebSocket / ws 包的子集。 */
 export interface WebSocketLike {
   readonly readyState: number;
   send(data: string): void;
@@ -93,7 +93,7 @@ export interface ConnectOptions {
   afterEventSeq?: number;
   /** 传输适配器；adapter 注入。 */
   transport?: WebSocketTransport;
-  /** 重连退避策略；不传用 core 默认。 */
+  /** 重连退避策略；不传用本包默认。 */
   reconnect?: ReconnectPolicy;
 }
 
@@ -150,7 +150,7 @@ export interface ExecutionRound {
 /**
  * 执行体（一个 agent 的 ReAct 轮次集合；可嵌套子 agent）。
  * root agent（orchestrator）的 rounds 即主对话执行步骤；children 为子 agent 任务树。
- * round/order 不进协议顶层，由 core 据 ReAct 结构（intent→tools→observation→intent）推断。
+ * round/order 不进协议顶层，由本包据 ReAct 结构（intent→tools→observation→intent）推断。
  */
 export interface ExecutionAgent {
   agentId: string;
@@ -260,7 +260,7 @@ export interface DelegatedToolSpec {
   description: string;
   /** JSON Schema 参数描述，与后端 RuntimeTool 的 tool schema 对齐。 */
   inputSchema: Record<string, unknown>;
-  /** 执行函数；返回结果由 SDK 自动包装成协议消息回传（见 AgentSDK.onToolCall）。 */
+  /** 执行函数；返回结果由 SDK 自动包装成协议消息回传（见 AgentClient.onToolCall）。 */
   execute(input: unknown, ctx: DelegationContext): Promise<ToolResult>;
   riskLevel?: "low" | "medium" | "high";
   cancellable?: boolean;
@@ -283,14 +283,14 @@ export interface DelegationError extends Error {
 }
 
 /* ============================================================
- * 六、AgentSDK 公开契约
+ * 六、AgentClient 公开契约
  * ========================================================== */
 
 /**
  * 宿主接入 Agent 运行时的公开门面契约。
- * 实现侧以 `class XxxAgentSDK implements AgentSDK` 满足；消费者依赖此形状。
+ * 实现侧以 `class XxxAgentClient implements AgentClient` 满足；消费者依赖此形状。
  */
-export interface AgentSDK {
+export interface AgentClient {
   /* ---- 连接与生命周期（common · wired）---- */
 
   /** 建立连接。幂等：已连接时直接 resolve 当前连接。 @mode common @status wired */

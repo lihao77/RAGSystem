@@ -1,4 +1,4 @@
-import { throwIfAborted } from "@ragsystem/agent-sdk-core";
+import { throwIfAborted } from "@ragsystem/agent-protocol";
 
 const DEFAULT_MAX_TOOL_CONCURRENCY = 8;
 

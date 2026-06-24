@@ -9,8 +9,8 @@
     "frontend-client"
   ],
   "scripts": {
-    "build:core": "npm -w @ragsystem/agent-sdk-core run build",
-    "typecheck:core": "npm -w @ragsystem/agent-sdk-core run typecheck",
+    "build:protocol": "npm -w @ragsystem/agent-protocol run build",
+    "typecheck:protocol": "npm -w @ragsystem/agent-protocol run typecheck",
     "typecheck:backend": "npm -w @ragsystem/backend-ts run typecheck",
     "build:frontend": "npm -w frontend-client run build",
     "demo": "npm -w @ragsystem/demo-app run start"

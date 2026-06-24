@@ -1,5 +1,5 @@
 /**
- * Agent 通信协议 envelope —— SDK core 协议面（步骤三固化版）。
+ * Agent 通信协议 envelope —— agent-protocol 协议面（步骤三固化版）。
  *
  * 设计基线：
  *   • 顶层仅协议语义词（传输/会话/调用/序号/时间），业务值下沉 payload。
@@ -7,8 +7,8 @@
  *   • 投影与委托共用 tool_call/tool_result 一对 type，以 payload.mode 区分。
  *   • 交互收敛为单一 interaction type；legacy 双发由 adapter 层屏蔽（协议不复制债务）。
  *
- * 与现有 backend-ts/contracts/events.ts 共存：旧后端按 events.ts 产出，adapter 负责映射。
- * 本文件不 import backend-ts/contracts —— SDK core 保持零后端依赖。
+ * backend-ts/contracts/events.ts re-export 本包 Envelope（后端零重复定义）；后端 kernel 产 runtime.* 事件经 event-publisher 翻译为 Envelope。
+ * 本文件不 import backend-ts/contracts —— agent-protocol 保持零后端依赖。
  */
 import { z } from "zod";
 
@@ -96,7 +96,7 @@ export interface ToolAllowance {
 }
 
 /* ============================================================
- * 三、内联复用类型（避免 SDK core 依赖 backend-ts/contracts）
+ * 三、内联复用类型（避免 agent-protocol 依赖 backend-ts/contracts）
  * ========================================================== */
 
 export type InteractionKind = "approval" | "user_input";

@@ -1,11 +1,11 @@
 /**
- * 后端事件契约：统一为 SDK core 的 Envelope 协议。
+ * 后端事件契约：统一为 agent-protocol 的 Envelope 协议。
  *
- * 后端产出/消费的下行事件一律为 core `Envelope`（17 种协议语义词 type + payload），
+ * 后端产出/消费的下行事件一律为 agent-protocol `Envelope`（17 种协议语义词 type + payload），
  * 旧 ClientEvent/ClientEventType/ClientToServerMessage 已彻底移除。上行（host→runtime）
  * 的合法帧由 ClientToServerEnvelopeSchema 校验（user_driven_change / abort / interaction(responded)）。
  *
- * 类型与运行时 schema 自 core re-export，后端零重复定义；core 保持零后端依赖。
+ * 类型与运行时 schema 自 agent-protocol re-export，后端零重复定义；agent-protocol 保持零后端依赖。
  */
 import { z } from "zod";
 
@@ -33,7 +33,7 @@ import {
   type InteractionKind,
   type RiskLevel,
   type AttachmentRef,
-} from "@ragsystem/agent-sdk-core";
+} from "@ragsystem/agent-protocol";
 
 export type {
   Envelope,
