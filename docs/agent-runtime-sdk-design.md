@@ -78,7 +78,7 @@ const handle = runtime.run({
   signal?,
 });
 
-// 调用者从这里读事件，自己去 outbox / WS（SDK 不认识投递）
+// 调用者从这里读 KernelEvent，自己翻译成 Envelope/可视化 + outbox / WS（SDK 不认识投递）
 for await (const event of handle.events) { ... }
 const { content, finish_reason, metadata } = await handle.result;
 ```
@@ -155,7 +155,7 @@ createRuntime({ llm, provider, modelName, profile, tools, storagePath? })
 │   → 挂 beforeModel hook（压缩 + refresher）                   │
 │   → AgentKernel.run                                          │
 │        │                                                       │
-│        │  emit(RuntimeEvent)        ← 统一事件，废 runtime.*  │
+│        │  emit(KernelEvent)        ← 运行时语义事件，透传不翻译  │
 │        ▼                                                       │
 │   ┌────────────────────────────────────────────┐              │
 │   │  统一消费点（单一 Dispatcher）              │              │
@@ -175,7 +175,7 @@ createRuntime({ llm, provider, modelName, profile, tools, storagePath? })
 │   → recordTerminal（final message + run_step + updateRunStatus）│
 └──────────────────────────────────────────────────────────────┘
         │
-        ▼  handle.events（AsyncIterable<RuntimeEvent>）
+        ▼  handle.events（AsyncIterable<KernelEvent>，原始透传）
    调用者（backend-ts，SDK 视野外）
       event → 自己的 outbox 表 → claim/重试/WS 投递
       （SDK 不认识 outbox / WS，原子性与投递是两件事）
@@ -222,15 +222,19 @@ interface RuntimeTx {
 
 ### 设计原则
 
-1. **统一事件**：内核发 `RuntimeEvent`（已是 Envelope 词汇超集，非 `runtime.*` 方言）
-2. **单一消费点**：一个 Dispatcher 处理所有事件，按类型分流
-3. **SDK 自己维护 step+message 的原子性**：`runInTransaction` 内同事务写两者
-4. **outbox 不进 SDK**：实时投递是调用者的事；SDK 只把实时事件扔进 `handle.events` 流
-5. **悬空收口进 SDK**：interrupted 时扫历史补配对 tool_result，保证 message 序列完整
+1. **内核事件透传**：内核发 `KernelEvent`（运行时语义：first_token / output_delta / tool_call /
+   tool_result / intent_complete / error 等），SDK **不翻译**成 Envelope。
+2. **单一消费点**：一个 Dispatcher 处理所有 KernelEvent，按类型分流（落库 + 推流）。
+3. **SDK 自己维护 step+message 的原子性**：`runInTransaction` 内同事务写两者。
+4. **Dispatcher 只落库 + 推流，不翻译**：把**原始 KernelEvent** 推进 `handle.events` 流；
+   翻译成 Envelope（或别的可视化形态）是消费端（backend-ts）的事——消费端可能不止消费
+   Envelope 一种类型，故 SDK 不替它做翻译决策，只透传语义完整的 KernelEvent。
+5. **outbox 不进 SDK**：实时投递是调用者的事。
+6. **悬空收口进 SDK**：interrupted 时扫历史补配对 tool_result，保证 message 序列完整。
 
 ### 事件分流表
 
-| RuntimeEvent | 事件流 | tx 内 |
+| KernelEvent | 推流 | tx 内 |
 |---|---|---|
 | `run_started` / `run_ended` | 是 | createRun / updateRunStatus |
 | `agent_started` / `agent_ended` | 是 | — |
@@ -359,7 +363,7 @@ recompact（micro-first），整体替换工作副本（补回本轮未入库的
 packages/agent-sdk/src/
   index.ts                         # createRuntime + 类型 re-export
   runtime.ts                       # 入口：createRuntime(opts).run(input)
-  contracts.ts                     # 端口：ToolExecutor/Protocol/Context + RuntimeEvent + RuntimeSession
+  contracts.ts                     # 端口：ToolExecutor/Protocol/Context + KernelEvent（透传不翻译）+ RuntimeSession
   kernel.ts                        # ReAct 主循环
   kernel-context.ts                # 状态机
   dispatcher.ts                    # 统一消费点：分流 + tx + 事件流 + 悬空收口
