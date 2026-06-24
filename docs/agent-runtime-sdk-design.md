@@ -20,7 +20,7 @@ agent-sdk = backend-ts agent 运行时的核心功能子集。一个进程 `crea
 
 ### 内置（调用者不传，SDK 自己跑）
 
-- 内置 store：message / run_step / run 的存储 + 自带事务（内存或可选持久化路径）
+- 内置 store：message / run_step / run 的存储 + 自带事务（node:sqlite 单库，按 dataRoot 落盘）
 - 统一事件管线：单一消费点，事务内原子写 step+message；实时事件走返回的事件流
 - 上下文管理：`context-builder`（recent-messages / microcompaction / stable-prefix 指纹去重 / sources 数组）+ `AgentContextService` 装配门面
 - 提示词组装：`prompt-builder` / sections / system prompt 构造 / 协议说明 / memory 前缀注入
@@ -65,7 +65,7 @@ const runtime = createRuntime({
   tools,                     // ToolExecutor
 
   // —— 内置 store ——
-  storagePath?,              // 持久化路径；不传=内存
+  dataRoot?,                // 数据根目录；默认 ~/.ragsystem，store 在其下建库
 });
 
 const handle = runtime.run({
@@ -146,7 +146,7 @@ function projectLlmTiers(agent, selectedLlm, providers, systemLlm): Record<strin
 ## 4. 架构总览
 
 ```
-createRuntime({ llm, provider, modelName, profile, tools, storagePath? })
+createRuntime({ llm, provider, modelName, profile, tools, dataRoot? })
         │
         ▼
 ┌──────────────────────────────────────────────────────────────┐
@@ -209,8 +209,8 @@ interface RuntimeTx {
 
 ### 实现
 
-- 内存：进程内默认（`Map` keyed by sessionId；事务=同步直调，天然原子）
-- 持久化：传 `storagePath` → better-sqlite3 单库（schema 对齐 backend-ts messages/run_step/run
+- 单一实现：node:sqlite 单库（DatabaseSync），按 dataRoot（默认 ~/.ragsystem）在其下建库。
+  schema 对齐 backend-ts messages/run_step/run 表结构（node:sqlite 同驱动、同 WAL/foreign_keys 设置），
   表结构，便于 backend-ts 直读同一文件作消费者）。事务=SQLite 事务。
 
 > 决策：SDK 的内置 store 即权威表。backend-ts 改造为消费者后，**直读 SDK 的 store**
@@ -234,23 +234,30 @@ interface RuntimeTx {
 
 ### 事件分流表
 
-| KernelEvent | 推流 | tx 内 |
-|---|---|---|
-| `run_started` / `run_ended` | 是 | createRun / updateRunStatus |
-| `agent_started` / `agent_ended` | 是 | — |
-| `first_token` / `output_delta` / `intent_delta` | 是 | — |
-| `intent_complete` | 是 | addRunStep(intent) |
-| `tool_call` | 是 | addRunStep(tool, phase:start) |
-| `tool_result` | 是 | addRunStep(tool, phase:end) |
-| `error` | 是 | — |
-| `assistant_message` | — | addMessage(intent) |
-| `observation_message` | — | addMessage(observation) |
+| KernelEvent | 落库动作（tx 内） |
+|---|---|
+| `run_started` / `run_ended` | createRun / updateRunStatus |
+| `agent_started` / `agent_ended` | — |
+| `first_token` / `output_delta` / `intent_delta` | — |
+| `intent_complete` | addRunStep(intent) |
+| `tool_call` | addRunStep(tool, phase:start) |
+| `tool_result` | addRunStep(tool, phase:end) |
+| `error` | — |
+| `assistant_message` | addMessage(intent) |
+| `observation_message` | addMessage(observation) |
+
+> **所有 KernelEvent 一律推流**（`handle.events`）。Dispatcher 不替消费端决定"哪条值得推"——
+落库是 SDK 的存储职责（独立副产物），推流是"全部推"。消费端自己决定消费哪些、丢弃哪些。
+当前 backend-ts 只把其中一部分翻译成 Envelope 投递前端，但这是消费端的取舍，不影响 SDK 全推。
 
 ### 原子边界
 
-SDK 在 `runInTransaction` 内写 step+message 两者原子。`handle.events` 流是实时导线，
-与 tx 独立——push 到流的时机和 tx 提交不耦合。outbox 投递（backend-ts 的事）是第三个独立
-事务，SDK 不保证它成不成。三者各司其职。
+落库与推流解耦，是两件独立的事：
+- **落库**：Dispatcher 在 `runInTransaction` 内写 step+message 两者原子（设计稿 §6 原则 3）。
+- **推流**：把**原始 KernelEvent** 推进 `handle.events`，与 tx 提交时机不耦合、与落库行为解耦——
+  即便某事件不落库（如 delta），也照样推；即便某事件落库（如 assistant_message），也照样推。
+- **翻译**：消费端把 KernelEvent 翻译成 Envelope（或别的可视化形态），是第三件事，SDK 不管（§6 原则 4）。
+三者各司其职。
 
 ### 悬空 tool_use 收口
 
@@ -368,8 +375,8 @@ packages/agent-sdk/src/
   kernel-context.ts                # 状态机
   dispatcher.ts                    # 统一消费点：分流 + tx + 事件流 + 悬空收口
   store/                           # ★ 内置存储
-    runtime-store.ts               # RuntimeStore 接口 + 内存实现
-    sqlite-store.ts                # 可选持久化（better-sqlite3）
+    runtime-store.ts               # RuntimeStore 接口（SQLite 实现）
+    sqlite-store.ts                # 持久化（node:sqlite DatabaseSync，同库同 schema）
     schema.ts                      # messages/run_step/run 表结构
   context/                         # ★ 上下文管理（迁入）
     context-builder.ts             # AgentContextBuilder + sources
@@ -407,13 +414,13 @@ packages/agent-sdk/src/
 
 ### 第一包落地顺序（按依赖）
 
-1. **内置 store**（store/）：内存 + sqlite，自带 tx。其余全依赖它。
+1. **内置 store**（store/）：node:sqlite 单库（dataRoot），自带 tx。其余全依赖它。
 2. **统一事件管线**（dispatcher.ts）：分流 + tx 原子 + 悬空收口 + 事件流。骨架。
 3. **tier 表读取**（llm-params/）：投影已算死，内核薄读 + 纯算术。
 4. **上下文管理 + 提示词组装**（context/ + prompt/）：解耦 AgentConfig → profile。
 5. **memory**（memory/）：整块迁入。
 6. **压缩**（compression/）：依赖 tier + store。
-7. **createRuntime/run 调用面重接**：llm + provider + modelName + profile + tools + storagePath。
+7. **createRuntime/run 调用面重接**：llm + provider + modelName + profile + tools + dataRoot。
 8. **编译 + demo 闭环验证**。
 
 ### 不进第一包
