@@ -18,6 +18,9 @@ export { createCompactionHook } from "./compression/compaction-hook.js";
 export { resolveContextBudget } from "./llm-params/budget.js";
 export { resolveSummaryTierCandidates } from "./llm-params/summary-tier.js";
 export { readTierParams } from "./llm-params/tier-params.js";
+// 端口类型补全：消费端实现 ToolExecutor 端口所需（contracts + prompt/tool-types）。
+export type { ToolExecutor, ToolExecutorCall, ToolExecContext, ToolWaitRequest, ToolWaitResult, ToolArtifact } from "./contracts.js";
+export type { RuntimeToolDefinition, RuntimeToolReturns, RuntimeToolExample } from "./prompt/tool-types.js";
 // Tools 模块（SDK 自带编排 + observation 渲染）
 export { RuntimeToolProvider, executeToolCallRound, buildLlmFacingToolResult, renderToolResultContent, resolveToolArgumentReferences, materializeToolResult, buildToolReferenceErrorResult, buildToolExecutionErrorResult, runToolBatchWithScheduler, partitionToolCalls } from "./tools/index.js";
 export type { RuntimeToolProviderOptions, ToolRoundExecutorOptions, ToolSchedulerCall, ToolSchedulerExecutor } from "./tools/index.js";

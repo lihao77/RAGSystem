@@ -17,9 +17,11 @@
     "smoke:parity": "tsx scripts/parity-smoke.ts",
     "smoke:outbox-live": "tsx scripts/outbox-live-smoke.ts"
   },
-  "dependencies": {
-    "@ragsystem/agent-protocol": "*",
-    "@fastify/cors": "^10.0.0",
+ "dependencies": {
+   "@ragsystem/agent-protocol": "*",
+    "@ragsystem/agent-llm": "*",
+    "@ragsystem/agent-sdk": "*",
+   "@fastify/cors": "^10.0.0",
     "@fastify/multipart": "^9.4.0",
     "@fastify/websocket": "^11.0.0",
     "fastify": "^5.0.0",
