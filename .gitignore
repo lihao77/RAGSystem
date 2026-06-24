@@ -106,6 +106,7 @@ backend_start.*.log
 /fix_*.py
 /unpacked*/
 /notify.ps1
+graphify-out/
 
 
 build/
