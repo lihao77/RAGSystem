@@ -22,6 +22,34 @@ export function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+export function stringRecord(value: unknown): Record<string, string> {
+  const record = asRecord(value);
+  if (!record) { return {}; }
+  const output: Record<string, string> = {};
+  for (const [key, item] of Object.entries(record)) {
+    if (typeof item === "string") { output[key] = item; }
+  }
+  return output;
+}
+
+export function isMemoryScopeName(value: unknown): value is "team" | "session" | "agent" | "workspace" {
+  return value === "team" || value === "session" || value === "agent" || value === "workspace";
+}
+
+export function pythonStableJsonStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => pythonStableJsonStringify(item)).join(", ")}]`;
+  }
+  if (isRecord(value)) {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}: ${pythonStableJsonStringify(value[key])}`).join(", ")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+export function titleCase(value: string): string {
+  return value ? `${value.slice(0, 1).toUpperCase()}${value.slice(1)}` : value;
+}
+
 export function isSessionMetadataPort(value: unknown): value is SessionMetadataPort {
   return Boolean(value && typeof value === "object" && "getSession" in value && typeof value.getSession === "function");
 }
