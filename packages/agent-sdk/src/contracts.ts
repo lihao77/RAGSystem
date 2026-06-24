@@ -326,8 +326,16 @@ export interface CreateRunInput {
   id: string;
   sessionId: string;
   rootCallId: string;
-  threadKey: string;
-  parentCallId: string | null;
+ threadKey: string;
+ parentCallId: string | null;
+  /** run 的 agent 名（投影后内联，落 runs.agent_name）。 */
+  agentName?: string | null;
+  /** run 入口标识（executionKind），落 runs.entrypoint。 */
+  entrypoint?: string | null;
+  /** run 任务摘要（task 前 200 字），落 runs.task_summary。 */
+  taskSummary?: string | null;
+  /** run 发起用户，落 runs.user_id。 */
+  userId?: string | null;
 }
 
 export interface RuntimeTx {

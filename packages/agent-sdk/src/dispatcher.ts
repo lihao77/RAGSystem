@@ -17,9 +17,13 @@ import { AsyncQueue } from "./async-queue.js";
 export interface DispatcherRunContext {
   sessionId: string;
   runId: string;
-  threadKey: string;
-  agentName: string;
-  parentCallId: string;
+ threadKey: string;
+ agentName: string;
+ parentCallId: string;
+  /** run 入口标识 / 任务摘要 / 用户（透传 createRun，落 runs 表；可选）。 */
+  entrypoint?: string | null;
+  taskSummary?: string | null;
+  userId?: string | null;
 }
 
 export class Dispatcher implements EventSink {
@@ -36,15 +40,18 @@ export class Dispatcher implements EventSink {
   }
 
   /** run 起始：createRun。 */
-  startRun(): void {
-    this.store.createRun({
-      id: this.ctx.runId,
-      sessionId: this.ctx.sessionId,
-      rootCallId: this.ctx.parentCallId,
-      threadKey: this.ctx.threadKey,
-      parentCallId: this.ctx.parentCallId,
-    });
-  }
+ startRun(): void {
+   this.store.createRun({
+     id: this.ctx.runId,
+     sessionId: this.ctx.sessionId,
+     rootCallId: this.ctx.parentCallId,
+     threadKey: this.ctx.threadKey,
+     parentCallId: this.ctx.parentCallId,
+      ...(this.ctx.entrypoint !== undefined ? { entrypoint: this.ctx.entrypoint } : {}),
+      ...(this.ctx.taskSummary !== undefined ? { taskSummary: this.ctx.taskSummary } : {}),
+      ...(this.ctx.userId !== undefined ? { userId: this.ctx.userId } : {}),
+   });
+ }
 
   /**
    * run 终态收口。completed：落最终 assistant 消息 + run_step + updateRunStatus。

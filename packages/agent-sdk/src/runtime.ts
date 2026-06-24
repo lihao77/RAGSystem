@@ -54,8 +54,12 @@ export interface RunInput {
   runId?: string;
   rootCallId?: string;
   threadKey?: string;
-  parentCallId?: string;
-  signal?: AbortSignal;
+ parentCallId?: string;
+ signal?: AbortSignal;
+  /** run 入口标识（executionKind）；透传 createRun → runs.entrypoint。 */
+  entrypoint?: string;
+  /** run 发起用户；透传 createRun → runs.user_id。 */
+  userId?: string | null;
 }
 
 export interface RunHandle {
@@ -90,13 +94,16 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       const sources = options.contextSources ?? buildDefaultSources(historyPort, metadataPort, profile, dataRoot);
       const contextBuilder = new AgentContextBuilder(sources);
 
-      const dispatcherCtx: DispatcherRunContext = {
-        sessionId,
-        runId,
-        threadKey,
-       agentName: profile.agentName,
-       parentCallId: parentCallId ?? rootCallId,
-      };
+     const dispatcherCtx: DispatcherRunContext = {
+       sessionId,
+       runId,
+       threadKey,
+      agentName: profile.agentName,
+      parentCallId: parentCallId ?? rootCallId,
+       taskSummary: input.task.slice(0, 200),
+       ...(input.entrypoint !== undefined ? { entrypoint: input.entrypoint } : {}),
+       ...(input.userId !== undefined ? { userId: input.userId } : {}),
+     };
       const dispatcher = new Dispatcher(store, dispatcherCtx);
       dispatcher.startRun();
 

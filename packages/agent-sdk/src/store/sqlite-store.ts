@@ -218,16 +218,28 @@ export class SqliteRuntimeStore implements RuntimeStore {
   createRun(input: CreateRunInput): void {
     // sessions 是 runs/messages 的外键父表；INSERT OR IGNORE 保证调用顺序无关（createRun 先于
     // addMessage 也能跑），对齐 addMessageInternal 的同名兜底。
-    this.db
-      .prepare("INSERT OR IGNORE INTO sessions (session_id, metadata) VALUES (?, ?)")
-      .run(input.sessionId, "{}");
-    this.db
-      .prepare(
-        `INSERT INTO runs (run_id, session_id, status, thread_key, parent_call_id)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(input.id, input.sessionId, "running", input.threadKey, input.parentCallId);
-  }
+   this.db
+     .prepare("INSERT OR IGNORE INTO sessions (session_id, metadata) VALUES (?, ?)")
+     .run(input.sessionId, "{}");
+   this.db
+     .prepare(
+       `INSERT INTO runs (run_id, session_id, status, thread_key, parent_call_id)
+        VALUES (?, ?, ?, ?, ?)`,
+     )
+     .run(input.id, input.sessionId, "running", input.threadKey, input.parentCallId);
+    // 可选字段（agentName/entrypoint/taskSummary/userId）补填：投影算死后透传，
+    // 缺省不落（NULL），SDK standalone 用例不传即空。
+    const patch = this.db.prepare(
+      `UPDATE runs SET agent_name=?, entrypoint=?, task_summary=?, user_id=? WHERE run_id=?`,
+    );
+    patch.run(
+      input.agentName ?? null,
+      input.entrypoint ?? null,
+      input.taskSummary ?? null,
+      input.userId ?? null,
+      input.id,
+    );
+ }
 
   getRun(runId: string): RunRecord | null {
     const row = this.db
