@@ -256,6 +256,8 @@ export interface RuntimeSession {
 /** 运行时 store 端口（设计稿 §5：内核读历史 / 落 step+message 的事务边界）。 */
 export interface RuntimeStore {
   runInTransaction<T>(fn: (tx: RuntimeTx) => T): T;
+  /** 关闭底层资源（如 sqlite 句柄）；无资源的实现可不提供。 */
+  close?(): void;
   listMessages(sessionId: string, threadKey?: string, limit?: number): MessageInfo[];
   getMessageById(sessionId: string, messageId: string): MessageInfo | null;
   createRun(input: CreateRunInput): void;
