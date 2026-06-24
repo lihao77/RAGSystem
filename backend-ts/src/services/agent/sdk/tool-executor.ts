@@ -22,7 +22,7 @@ import type {
 } from "@ragsystem/agent-sdk";
 import type { RuntimeToolDefinition as SdkRuntimeToolDefinition } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
-import type { RuntimeToolBridge } from "../../runtime/runtime-tool-bridge.js";
+import type { RuntimeToolExecutor } from "../../runtime/runtime-tool-types.js";
 import type {
   RuntimeToolCall,
   RuntimeToolExecutionContext,
@@ -33,8 +33,8 @@ import type {
 } from "../../runtime/runtime-tool-types.js";
 
 export interface SdkToolExecutorOptions {
-  /** 现有工具桥（保留 approval/hooks/registry/preparer 全流水线）。 */
-  bridge: RuntimeToolBridge;
+  /** 工具执行器接口（RuntimeToolBridge 实现，保留 approval/hooks/registry/preparer 全流水线）。 */
+  bridge: RuntimeToolExecutor;
   /** 当次 run 的 agent 配置（工具可见性 + custom_params.workspace_root）。 */
   agent: AgentConfig;
   /** 当次 session 元数据（team / workspace_root 等富上下文来源）。 */
@@ -77,11 +77,11 @@ export class SdkToolExecutor implements ToolExecutor {
       toolName: call.toolName,
       arguments: call.arguments,
       callId: call.callId,
-    };
-    return this.options.bridge.classifyConcurrency(bridgeCall, this.buildExecutionContext(ctx));
-  }
+   };
+   return this.options.bridge.classifyConcurrency?.(bridgeCall, this.buildExecutionContext(ctx)) ?? false;
+ }
 
-  waitForToolResult(
+ waitForToolResult(
     request: import("@ragsystem/agent-sdk").ToolWaitRequest,
     ctx: ToolExecContext,
   ): import("@ragsystem/agent-sdk").ToolWaitResult | Promise<import("@ragsystem/agent-sdk").ToolWaitResult> {

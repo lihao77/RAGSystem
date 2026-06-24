@@ -181,9 +181,20 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
     runtimeCore: runtimeCoreStub(agent, ready),
     llmChatClient: client,
     dataRoot: os.tmpdir(),
-    contextService,
-    outboxDispatcher: dispatcher,
-    clientEvents,
+   contextService,
+   outboxDispatcher: dispatcher,
+   providersProvider: () => [
+     {
+       name: "test-provider",
+       provider_type: "openai_compatible",
+       key: "test",
+       models: ["test-model"],
+       model_map: { chat: "test-model" },
+       api_key: "test-key",
+       api_endpoint: "http://localhost:0",
+     },
+   ],
+   clientEvents,
     logger: logger ?? null,
   });
   return { service, store, requests: client.requests, errors };

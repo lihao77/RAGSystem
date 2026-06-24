@@ -12,6 +12,7 @@ import type {
   StreamExecuteRequest,
 } from "../../../contracts/execution.js";
 import type { AgentContextService } from "../context/index.js";
+import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { AgentPromptConfigResolver } from "../prompt-builder/index.js";
 import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
@@ -71,8 +72,10 @@ export interface AgentExecutionServiceParams {
   backgroundTasks?: BackgroundTaskService | null;
   fileIndex?: IFileIndexStore | null;
   outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">;
-  clientEvents: DurableClientEventPublisher;
-  logger?: AgentExecutionLogger | null | undefined;
+ clientEvents: DurableClientEventPublisher;
+ /** 已加载的 provider 列表提供者（SDK 投影层解析 tier.provider 引用用）。 */
+ providersProvider: () => ModelProviderConfig[];
+ logger?: AgentExecutionLogger | null | undefined;
 }
 
 /**
@@ -111,9 +114,10 @@ export function createAgentExecutionService(
     params.llmChatClient,
     params.dataRoot,
     params.contextService,
-    params.runtimeTools ?? null,
-    params.promptConfigResolver ?? null,
-    params.backgroundTasks ?? null,
+   params.runtimeTools ?? null,
+   params.promptConfigResolver ?? null,
+   params.providersProvider,
+   params.backgroundTasks ?? null,
     statusTracker,
     eventPublisher,
     executionRecorder,

@@ -4,21 +4,16 @@ import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } from "../../../contracts/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { AgentContextService } from "../context/index.js";
-import { createCompactionHook } from "../context/runtime-compaction-hook.js";
-import { buildAgentPromptContext, type AgentPromptConfigResolver } from "../prompt-builder/index.js";
-import type { KernelContext } from "../kernel/kernel-context.js";
-import type { KernelSession, MessageRefresher } from "../kernel/contracts.js";
-import { DefaultHookRegistry } from "../kernel/hook-registry.js";
-import { refreshStablePrefixCache } from "../kernel/stable-prefix.js";
-import { RuntimeEventSink } from "../kernel-plugins/events/runtime-event-sink.js";
-import { createAgentKernel } from "../kernel-plugins/create-agent-kernel.js";
+import type { AgentPromptConfigResolver } from "../prompt-builder/index.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { ChatMessage, LlmChatClient } from "../../integrations/llm-chat-client.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
+import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js";
 import type { RuntimeToolExecutor } from "../../runtime/runtime-tool-types.js";
 import type { IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
+import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import {
   asString,
@@ -47,9 +42,11 @@ export class AgentRunEngine {
     private readonly llmChatClient: LlmChatClient,
     private readonly dataRoot: string,
     private readonly contextService: AgentContextService,
-    private readonly runtimeTools: RuntimeToolExecutor | null,
-    private readonly promptConfigResolver: AgentPromptConfigResolver | null,
-    private readonly backgroundTasks: BackgroundTaskService | null,
+   private readonly runtimeTools: RuntimeToolExecutor | null,
+   private readonly promptConfigResolver: AgentPromptConfigResolver | null,
+   /** 已加载的 provider 列表提供者（投影层解析 tier.provider 引用用）。 */
+   private readonly providersProvider: () => ModelProviderConfig[],
+   private readonly backgroundTasks: BackgroundTaskService | null,
     private readonly statusTracker: AgentExecutionStatusTracker,
     private readonly eventPublisher: AgentExecutionEventPublisher,
     private readonly executionRecorder: ExecutionRecorder,
@@ -95,16 +92,6 @@ export class AgentRunEngine {
       startedAt,
     });
 
-    this.conversationStore.createRun({
-      runId,
-      sessionId: input.sessionId,
-      entrypoint: input.entrypoint ?? input.executionKind,
-      status: "running",
-      taskSummary: input.task.slice(0, 200),
-      userId: input.userId ?? null,
-      agentName: input.agent.agent_name,
-      threadKey: "root",
-    });
     let userMessageSavedPayload = input.userMessageSavedPayload;
     let existingUserMessageId = input.existingUserMessageId;
     if (input.persistUserMessage) {
@@ -280,195 +267,78 @@ export class AgentRunEngine {
     try {
       const sessionMetadata = this.sessions.getSession(input.sessionId)?.metadata ?? {};
       const executionKind = input.executionKind ?? "agent_stream";
-      const teamName = asString(sessionMetadata.team);
-      const promptContext = buildAgentPromptContext({
-        agent: input.agent,
-        toolExecutor: this.runtimeTools,
-        configResolver: this.promptConfigResolver,
-        teamName,
-      });
       const pendingBackgroundNotifications = this.drainBackgroundTaskNotifications(input.sessionId);
-      let stablePrefixFingerprint = input.stablePrefixFingerprint ?? null;
-      let context: { conversation: ChatMessage[] };
-      let contextUsagePayload: Record<string, unknown>;
-      let compactionHook: ((ctx: KernelContext) => Promise<void>) | null = null;
-      if (input.contextConversation !== undefined) {
-        context = { conversation: [...input.contextConversation, ...pendingBackgroundNotifications] };
-        contextUsagePayload = this.contextService.buildUsage({
-          agent: input.agent,
-          provider: input.provider,
-          modelName: input.modelName,
-          promptContext,
-          messages: context.conversation,
-          round: 0,
-          runId: input.runId,
-          taskId: input.taskId,
-          requestId: input.requestId,
-        });
-      } else {
-        const prepared = await this.contextService.prepare({
-          sessionId: input.sessionId,
-          agent: input.agent,
-          provider: input.provider,
-          modelName: input.modelName,
-          promptContext,
-          threadKey: input.threadKey,
-          round: 0,
-          runId: input.runId,
-          taskId: input.taskId,
-          requestId: input.requestId,
-        });
-        stablePrefixFingerprint = prepared.stablePrefixFingerprint;
-        context = { conversation: prepared.conversation };
-        if (pendingBackgroundNotifications.length) {
-          context.conversation.push(...pendingBackgroundNotifications);
-        }
-        contextUsagePayload = prepared.usage;
-        compactionHook = createCompactionHook({
-          contextService: this.contextService,
-          sessionId: input.sessionId,
-          agent: input.agent,
-          provider: input.provider,
-          modelName: input.modelName,
-          runId: input.runId,
-          taskId: input.taskId,
-          requestId: input.requestId,
-          budgetTokens: prepared.budgetTokens,
-          triggerRatio: this.contextService.resolveContextSettings(input.agent).compressionTriggerRatio,
-          threadKey: input.threadKey,
-          signal: input.abortController.signal,
-          onCompressionEvent: (event) => this.eventPublisher.publishContextCompressionEvent(input, event),
-        });
-      }
-      this.clientEvents.publish(input.sessionId, {
-        type: "state_sync",
-        session_id: input.sessionId,
-        run_id: input.runId,
-        agent_id: input.agent.agent_name,
-        payload: { category: "context_usage", detail: contextUsagePayload },
-      });
-      const eventSink = new RuntimeEventSink((event) => {
-        this.eventPublisher.publishRuntimeEvent(input, event);
-      });
-      const refresher: MessageRefresher = {
-        refresh: async () =>
-          this.drainConversationUpdates(input.sessionId, input.conversationUpdateProvider),
-      };
-      const hooks = new DefaultHookRegistry();
-      if (compactionHook) {
-        hooks.register("beforeModel", (ctx) => compactionHook!(ctx));
-      }
-      hooks.register("afterModel", () => {
-        refreshStablePrefixCache(
-          this.conversationStore,
-          input.sessionId,
-          input.threadKey,
-          stablePrefixFingerprint,
-          this.logger ?? undefined,
-        );
-      });
-      const kernel = createAgentKernel({
-        llmChatClient: this.llmChatClient,
-        provider: input.provider,
-        dataRoot: this.dataRoot,
-        eventSink,
-        refresher,
-        hooks,
-        systemLlm: this.contextService.getSystemLlm(),
-      });
-      const response = await kernel.run({
-        agent: input.agent,
-        provider: input.provider,
-        modelName: input.modelName,
-        conversation: context.conversation,
-        promptContext,
-        toolExecutor: this.runtimeTools ?? undefined,
-        toolContext: this.runtimeTools
-          ? buildToolContext(input.agent, {
-              sessionId: input.sessionId,
-              runId: input.runId,
-              taskId: input.taskId,
-              requestId: input.requestId,
-              sessionMetadata,
-              parentCallId: input.rootCallId,
-              signal: input.abortController.signal,
-            })
-          : undefined,
-        signal: input.abortController.signal,
-        sessionId: input.sessionId,
-        runId: input.runId,
-        taskId: input.taskId,
-        requestId: input.requestId,
-        rootCallId: input.rootCallId,
-      });
-      const assistantMessageId = randomUUID();
-      const assistantMessageMetadata = {
-        agent: input.agent.agent_name,
-        run_id: input.runId,
-        request_id: input.requestId,
-        msg_type: "assistant_final",
-        execution_kind: executionKind,
-        thread_key: input.threadKey,
-        child_agent_id: input.childAgentId ?? null,
-        conversation_scope: input.childAgentId ? "child" : "root",
-        ...(input.finalMetadataExtra ?? {}),
-      };
-      const elapsedSeconds = (Date.now() - input.startedAt.getTime()) / 1000;
-      input.onTerminal?.("completed");
-      const finalMetadata = {
-        agent: input.agent.agent_name,
-        run_id: input.runId,
-        request_id: input.requestId,
-        execution_kind: executionKind,
-        execution_time: elapsedSeconds,
-        ...(input.finalMetadataExtra ?? {}),
-      };
-      const finalStepPayload = buildFinalStepPayload({
-        rootCallId: input.rootCallId,
-        runId: input.runId,
-        taskId: input.taskId,
-        requestId: input.requestId,
-        agent: input.agent,
-        messageId: assistantMessageId,
-        resultPreview: response.content.slice(0, 500),
-      });
-      const runEndStepPayload = buildRunEndStepPayload({
-        rootCallId: input.rootCallId,
-        runId: input.runId,
-        taskId: input.taskId,
-        requestId: input.requestId,
-        agent: input.agent,
-        status: "completed",
-        resultPreview: response.content.slice(0, 500),
-      });
-      const terminalRecord = this.executionRecorder.recordRunTerminal({
-        status: "completed",
-        sessionId: input.sessionId,
-        runId: input.runId,
-        taskId: input.taskId,
-        requestId: input.requestId,
-        rootCallId: input.rootCallId,
-        agentName: input.agent.agent_name,
-        agentDisplayName: input.agent.display_name || input.agent.agent_name,
-        threadKey: input.threadKey,
-        childAgentId: input.childAgentId ?? null,
-        finalMessage: {
-          id: assistantMessageId,
-          content: response.content,
-          metadata: assistantMessageMetadata,
+
+      // 构建对话：优先用调用方传入的 contextConversation，否则从 store 历史 + 当前 user 消息组装。
+      const conversation: ChatMessage[] = input.contextConversation
+        ? [...input.contextConversation, ...pendingBackgroundNotifications]
+        : [
+            ...this.conversationStore.getRecentMessages(input.sessionId, undefined, input.threadKey).map(toStructuredChatMessage),
+            { role: "user" as const, content: input.task },
+            ...pendingBackgroundNotifications,
+          ];
+
+      const result = await executeRunWithSdk(
+       {
+          // run-engine 的 conversationStore 实际是完整 ConversationStore（构造时传入窄类型）。
+          conversationStore: this.conversationStore as unknown as ConversationStore,
+          // 无工具桥时用空工具执行器（SDK 内核照常跑，仅无工具可调）。
+          runtimeToolBridge: this.runtimeTools ?? emptyToolExecutor,
+          llmChatClient: this.llmChatClient,
+          eventPublisher: this.eventPublisher,
+          clientEvents: this.clientEvents,
+          providers: this.providersProvider(),
+          dataRoot: this.dataRoot,
         },
-        finalStepPayload,
-        runEndStepPayload,
-        finalMetadata,
-      });
-      const assistantMessage = terminalRecord.message;
-      if (!assistantMessage) {
-        throw new Error(`Completed run did not record assistant message: ${input.runId}`);
+        {
+          sessionId: input.sessionId,
+          runId: input.runId,
+          taskId: input.taskId,
+          requestId: input.requestId,
+          rootCallId: input.rootCallId,
+          agent: input.agent,
+          provider: input.provider,
+          modelName: input.modelName,
+          task: input.task,
+          threadKey: input.threadKey,
+          ...(input.parentCallId !== undefined && input.parentCallId !== null ? { parentCallId: input.parentCallId } : {}),
+         ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
+          // backend-ts ChatMessage 与 agent-llm ChatMessage 结构同构（exactOptionalPropertyTypes 差异），边界强转。
+          conversation: conversation as unknown as import("@ragsystem/agent-llm").ChatMessage[],
+         sessionMetadata,
+         ...(input.executionKind !== undefined ? { executionKind } : {}),
+          ...(asString(sessionMetadata.user_id) ? { userId: asString(sessionMetadata.user_id) } : {}),
+         signal: input.abortController.signal,
+          selectedLlm: { provider: input.provider, modelName: input.modelName },
+        },
+      );
+
+      if (!result.success) {
+        const interrupted = input.abortController.signal.aborted;
+        if (!interrupted) {
+          this.logger?.error(
+            {
+              session_id: input.sessionId,
+              run_id: input.runId,
+              task_id: input.taskId,
+              request_id: input.requestId,
+              agent_name: input.agent.agent_name,
+              provider_key: input.provider.key ?? null,
+              provider_name: input.provider.name,
+              provider_type: input.provider.provider_type,
+              model_name: input.modelName,
+              execution_kind: executionKind,
+            },
+            `agent runtime execution failed: ${result.content}`,
+          );
+        }
+        input.onTerminal?.(interrupted ? "interrupted" : "failed");
+        return result;
       }
-      this.deliverTerminalRecord(terminalRecord);
-      return { content: response.content, success: true };
-    } catch (error) {
-      const interrupted = input.abortController.signal.aborted;
+      input.onTerminal?.("completed");
+      return result;
+   } catch (error) {
+     const interrupted = input.abortController.signal.aborted;
       const finalStatus = interrupted ? "interrupted" : "failed";
       const errorMessage = error instanceof Error ? error.message : String(error);
       const executionKind = input.executionKind ?? "agent_stream";
@@ -487,49 +357,12 @@ export class AgentRunEngine {
           execution_kind: executionKind,
         }, "agent runtime execution failed");
       }
-      const elapsedSeconds = (Date.now() - input.startedAt.getTime()) / 1000;
-      input.onTerminal?.(finalStatus);
-      const finalMetadata = {
-        agent: input.agent.agent_name,
-        run_id: input.runId,
-        request_id: input.requestId,
-        execution_kind: executionKind,
-        execution_time: elapsedSeconds,
-        ...(input.finalMetadataExtra ?? {}),
-      };
-      const runEndStepPayload = buildRunEndStepPayload({
-        rootCallId: input.rootCallId,
-        runId: input.runId,
-        taskId: input.taskId,
-        requestId: input.requestId,
-        agent: input.agent,
-        status: interrupted ? "interrupted" : "error",
-        resultPreview: interrupted ? "[已停止生成]" : errorMessage,
-        error: errorMessage,
-      });
-      const terminalRecord = this.executionRecorder.recordRunTerminal({
-        status: finalStatus,
-        sessionId: input.sessionId,
-        runId: input.runId,
-        taskId: input.taskId,
-        requestId: input.requestId,
-        rootCallId: input.rootCallId,
-        agentName: input.agent.agent_name,
-        agentDisplayName: input.agent.display_name || input.agent.agent_name,
-        errorMessage,
-        errorType: interrupted ? "InterruptedError" : "ExecutionError",
-        agentResult: interrupted ? "[已停止生成]" : errorMessage,
-        childAgentId: input.childAgentId ?? null,
-        threadKey: input.threadKey,
-        runEndStepPayload,
-        finalMetadata,
-      });
-      this.deliverTerminalRecord(terminalRecord);
-      return { content: errorMessage, success: false };
+     input.onTerminal?.(finalStatus);
+     return { content: errorMessage, success: false };
     }
-  }
+ }
 
-  private deliverTerminalRecord(record: RunTerminalRecord): void {
+ private deliverTerminalRecord(record: RunTerminalRecord): void {
     this.outboxDispatcher.dispatchRows(record.outboxRows);
   }
 
@@ -592,4 +425,39 @@ function serializeErrorCause(cause: unknown): unknown {
 
 function hasCause(error: Error): error is Error & { cause: unknown } {
   return "cause" in error;
+}
+
+/** 无工具桥时的空执行器（listTools 返回空数组，executeTool 拒绝）。 */
+const emptyToolExecutor: import("../../runtime/runtime-tool-types.js").RuntimeToolExecutor = {
+  listVisibleTools: () => [],
+  executeTool: (call) => ({
+    success: false,
+    tool_name: call.toolName,
+    summary: `工具不可用（未注入工具桥）: ${call.toolName}`,
+    answer: null,
+    output_type: "error",
+    content: null,
+    metadata: {},
+    artifacts: [],
+    llm_hint: null,
+  }),
+};
+
+/** backend-ts MessageInfo → ChatMessage（保留 tool_calls/tool_call_id 结构化字段）。 */
+function toStructuredChatMessage(message: import("../../../contracts/session.js").MessageInfo): ChatMessage {
+  const result: ChatMessage = { role: message.role, content: message.content };
+  if (message.name) {
+    result.name = message.name;
+  }
+  if (message.tool_call_id) {
+    result.tool_call_id = message.tool_call_id;
+  }
+  if (message.tool_calls && message.tool_calls.length > 0) {
+    result.tool_calls = message.tool_calls.map((call) => ({
+      id: call.id,
+      type: "function" as const,
+      function: { name: call.function.name, arguments: call.function.arguments },
+    }));
+  }
+  return result;
 }

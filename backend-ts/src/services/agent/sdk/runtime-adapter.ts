@@ -1,0 +1,312 @@
+/**
+ * Runtime 适配器（方案 A 的集成钥匙）—— 组装投影 + ToolExecutor + store 适配器 +
+ * createRuntime，跑 SDK 事件循环 + 翻译 + terminal。
+ *
+ * SDK 内核 + Dispatcher 独占 run/message/run_step 落库（经 SdkStoreAdapter 委托 ConversationStore）；
+ * 本适配器只做：组装 createRuntime 入参、消费 KernelEvent 翻译成 Envelope 推 outbox（无 DB 落库，
+ * 避免 SDK 与 backend-ts 双写 message/run_step）、terminal 补 run:end/final step + 终态 envelope
+ *（final assistant 消息由 SDK Dispatcher.finalize 已写，此处只查库取其 id/seq 供 message_saved）。
+ */
+import { createRuntime, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
+import type { ChatMessage } from "@ragsystem/agent-llm";
+import type { AgentConfig } from "../../../contracts/agent-config.js";
+import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
+import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
+import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
+import type { MessageInfo } from "../../../contracts/session.js";
+import type { Envelope } from "../../../contracts/events.js";
+import type { AgentExecutionEventPublisher } from "../execution/event-publisher.js";
+import type { DurableClientEventPublisher, RecordedClientEvent } from "../../runtime/event-outbox/client-event-publisher.js";
+import type { RuntimeToolExecutor } from "../../runtime/runtime-tool-types.js";
+import { projectAgentProfile } from "./projection.js";
+import { getDefaultTier } from "./projection.js";
+import { SdkStoreAdapter } from "./sdk-store-adapter.js";
+import { LlmClientAdapter } from "./llm-client-adapter.js";
+import { SdkToolExecutor } from "./tool-executor.js";
+import { translateKernelEvent, type SdkEventTranslationContext } from "./event-translator.js";
+import { asString, buildRunEndStepPayload, buildFinalStepPayload } from "../execution/helpers.js";
+
+export interface SdkRuntimeAdapterDeps {
+conversationStore: ConversationStore;
+ runtimeToolBridge: RuntimeToolExecutor;
+  /** backend-ts LLM 客户端（经 LlmClientAdapter 适配成 SDK LlmClient；保留测试 mock 注入点）。 */
+  llmChatClient: LlmChatClient;
+ eventPublisher: AgentExecutionEventPublisher;
+  clientEvents: DurableClientEventPublisher;
+  /** 已加载的全部 provider（投影层解析 tier.provider 引用用）。 */
+  providers: ModelProviderConfig[];
+  dataRoot: string;
+}
+
+export interface SdkExecuteRunInput {
+  sessionId: string;
+  runId: string;
+  taskId: string;
+  requestId: string;
+  rootCallId: string;
+  agent: AgentConfig;
+  provider: ModelProviderConfig;
+  modelName: string;
+  task: string;
+  threadKey: string;
+  parentCallId?: string | null;
+  childAgentId?: string | null;
+  /** 已准备的会话上下文（含历史 + 当前 user 消息）。 */
+  conversation: ChatMessage[];
+  sessionMetadata: Record<string, unknown>;
+  userId?: string | null;
+  executionKind?: string;
+  signal: AbortSignal;
+  /** selectLlm 解析结果（前端选定的 provider+model，整体替换 default 档）。 */
+  selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
+}
+
+export interface SdkExecuteRunResult {
+  content: string;
+  success: boolean;
+}
+
+/**
+ * 用 SDK createRuntime 执行一次 agent run。
+ *
+ * 生命周期：createRuntime(opts).run(input) → 消费 handle.events（翻译推 outbox）→
+ * await handle.result（SDK Dispatcher.finalize 已落最终消息 + updateRunStatus）→ terminal 补步/envelope。
+ */
+export async function executeRunWithSdk(
+  deps: SdkRuntimeAdapterDeps,
+  input: SdkExecuteRunInput,
+): Promise<SdkExecuteRunResult> {
+ const profile = projectAgentProfile({
+   agent: input.agent,
+   providers: deps.providers,
+   ...(input.selectedLlm !== undefined ? { selectedLlm: input.selectedLlm } : {}),
+ });
+  const defaultTier = getDefaultTier(profile.llmTiers);
+ const storeAdapter = new SdkStoreAdapter({ conversationStore: deps.conversationStore });
+  const llmClient = new LlmClientAdapter({ chatClient: deps.llmChatClient, agent: input.agent });
+  const toolExecutor = new SdkToolExecutor({
+    bridge: deps.runtimeToolBridge,
+    agent: input.agent,
+    sessionMetadata: input.sessionMetadata,
+    run: { taskId: input.taskId, requestId: input.requestId, rootCallId: input.rootCallId },
+  });
+
+ const runtimeOpts: CreateRuntimeOptions = {
+   llm: llmClient,
+    provider: defaultTier.provider,
+    modelName: defaultTier.modelName,
+   profile,
+    toolExecutor,
+    dataRoot: deps.dataRoot,
+    store: storeAdapter,
+  };
+
+  const translationCtx: SdkEventTranslationContext = {
+    sessionId: input.sessionId,
+    runId: input.runId,
+    taskId: input.taskId,
+    requestId: input.requestId,
+    rootCallId: input.rootCallId,
+   agent: input.agent,
+   threadKey: input.threadKey,
+   ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
+ };
+  if (input.parentCallId !== undefined && input.parentCallId !== null) {
+    translationCtx.parentCallId = input.parentCallId;
+  }
+
+  const runtime = createRuntime(runtimeOpts);
+  const handle = runtime.run({
+    sessionId: input.sessionId,
+    task: input.task,
+    messages: input.conversation,
+    runId: input.runId,
+    rootCallId: input.rootCallId,
+   threadKey: input.threadKey,
+    ...(input.parentCallId !== undefined && input.parentCallId !== null ? { parentCallId: input.parentCallId } : {}),
+   signal: input.signal,
+    ...(input.executionKind !== undefined ? { entrypoint: input.executionKind } : {}),
+    ...(input.userId !== undefined ? { userId: input.userId } : {}),
+  });
+
+  // 事件循环：翻译 KernelEvent → Envelope，推 outbox（SDK Dispatcher 已落库 message/run_step，此处只推流）。
+  const consumeEvents = (async () => {
+    for await (const event of handle.events) {
+      translateKernelEvent(event, translationCtx, deps.eventPublisher);
+    }
+  })();
+
+  let result;
+  try {
+    result = await handle.result;
+ } catch (error) {
+   await consumeEvents.catch(() => undefined);
+    runtime.close();
+    const interrupted = input.signal.aborted;
+    recordTerminal(deps, input, interrupted ? "interrupted" : "failed", null, error);
+    const message = error instanceof Error ? error.message : String(error);
+    return { content: message, success: false };
+  }
+
+  await consumeEvents;
+  runtime.close();
+
+  // completed：SDK Dispatcher.finalize 已落最终 assistant 消息 + updateRunStatus。
+  // 查库取该消息 id/seq，供 message_saved envelope；补 run:end/final step + 终态 envelope。
+ const finalMessage = resolveFinalMessage(deps, input);
+ recordTerminal(deps, input, "completed", finalMessage, null);
+  return { content: result.content, success: true };
+}
+
+/** 查库取 SDK finalize 写入的最终 assistant 消息（runs.final_message_id → messages）。 */
+function resolveFinalMessage(
+  deps: SdkRuntimeAdapterDeps,
+  input: SdkExecuteRunInput,
+): MessageInfo | null {
+  const run = deps.conversationStore.getRun(input.sessionId, input.runId);
+  if (!run || !run.final_message_id) {
+    return null;
+  }
+  return deps.conversationStore.getMessageById(input.sessionId, run.final_message_id);
+}
+
+/**
+ * Terminal 落库（方案 A：只写 run:end/final step + outbox envelope，不写最终消息/不改 run 状态——
+ * SDK Dispatcher.finalize 已做）。completed 用查到的 finalMessage 的 id/seq；failed/interrupted 无 final。
+ */
+function recordTerminal(
+  deps: SdkRuntimeAdapterDeps,
+  input: SdkExecuteRunInput,
+  status: "completed" | "failed" | "interrupted",
+  finalMessage: MessageInfo | null,
+  error: unknown,
+): void {
+  const isRoot = !input.childAgentId;
+  const agentDisplayName = input.agent.display_name || input.agent.agent_name;
+  const executionKind = input.executionKind ?? "agent_stream";
+
+  const records = deps.conversationStore.runInTransaction((tx): RecordedClientEvent[] => {
+    if (status === "completed") {
+      tx.addRunStep({
+        sessionId: input.sessionId,
+        runId: input.runId,
+        stepType: "execution.step",
+        payload: buildFinalStepPayload({
+          rootCallId: input.rootCallId,
+          runId: input.runId,
+          taskId: input.taskId,
+          requestId: input.requestId,
+          agent: input.agent,
+          messageId: finalMessage?.id ?? "",
+          resultPreview: (finalMessage?.content ?? "").slice(0, 500),
+        }),
+      });
+      tx.addRunStep({
+        sessionId: input.sessionId,
+        runId: input.runId,
+        stepType: "execution.step",
+        payload: buildRunEndStepPayload({
+          rootCallId: input.rootCallId,
+          runId: input.runId,
+          taskId: input.taskId,
+          requestId: input.requestId,
+          agent: input.agent,
+          status: "completed",
+          resultPreview: (finalMessage?.content ?? "").slice(0, 500),
+        }),
+      });
+    } else {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      tx.addRunStep({
+        sessionId: input.sessionId,
+        runId: input.runId,
+        stepType: "execution.step",
+        payload: buildRunEndStepPayload({
+          rootCallId: input.rootCallId,
+          runId: input.runId,
+          taskId: input.taskId,
+          requestId: input.requestId,
+          agent: input.agent,
+          status: status === "interrupted" ? "interrupted" : "error",
+          resultPreview: status === "interrupted" ? "[已停止生成]" : errorMessage,
+          ...(status !== "interrupted" ? { error: errorMessage } : {}),
+        }),
+      });
+    }
+
+    if (!isRoot) {
+      return [];
+    }
+
+    // outbox envelope（root run 才发；child 的 agent_ended 由 delegation 独占）。
+    const collected: RecordedClientEvent[] = [];
+    if (status === "completed" && finalMessage) {
+      collected.push(appendEnvelope(tx, deps.clientEvents, input, {
+        type: "stream_output",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        call_id: input.rootCallId,
+        agent_id: input.agent.agent_name,
+        payload: { phase: "final", content: finalMessage.content },
+      }));
+      collected.push(appendEnvelope(tx, deps.clientEvents, input, {
+        type: "state_sync",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        payload: { category: "message_saved", ref: { message_id: finalMessage.id, seq: finalMessage.seq } },
+      }));
+      collected.push(appendEnvelope(tx, deps.clientEvents, input, {
+        type: "agent_ended",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        call_id: input.rootCallId,
+        agent_id: input.agent.agent_name,
+        payload: { phase: "end", result: finalMessage.content.slice(0, 500), success: true },
+      }));
+      collected.push(appendEnvelope(tx, deps.clientEvents, input, {
+        type: "run_ended",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        payload: { status: "completed" },
+      }));
+    } else {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      collected.push(appendEnvelope(tx, deps.clientEvents, input, {
+        type: "agent_ended",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        call_id: input.rootCallId,
+        agent_id: input.agent.agent_name,
+        payload: {
+          phase: "end",
+          result: status === "interrupted" ? "[已停止生成]" : errorMessage.slice(0, 500),
+          success: false,
+        },
+      }));
+      collected.push(appendEnvelope(tx, deps.clientEvents, input, {
+        type: "run_ended",
+        session_id: input.sessionId,
+        run_id: input.runId,
+        payload: { status, ...(status !== "interrupted" ? { reason: errorMessage } : {}) },
+      }));
+    }
+    return collected;
+  });
+  deps.clientEvents.deliver(records);
+}
+
+function appendEnvelope(
+  tx: Parameters<Parameters<ConversationStore["runInTransaction"]>[0]>[0],
+  clientEvents: DurableClientEventPublisher,
+  input: { sessionId: string; runId: string },
+  envelope: Envelope,
+): RecordedClientEvent {
+  return clientEvents.recordInTransaction(tx, input.sessionId, envelope, {
+    runId: input.runId,
+    aggregateType: "run",
+    aggregateId: input.runId,
+  });
+}
+
+// 抑制未使用 import（asString 可能被未来 logging 用）。
+void asString;
