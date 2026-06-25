@@ -182,6 +182,14 @@ function buildTierFromProvider(provider: ModelProviderConfig, modelName: string)
 // ────────────────────────────── behavior / memory 投影 ──────────────────────────────
 
 function resolveBehavior(agent: AgentConfig): AgentProfile["behavior"] {
+  return projectBehavior(agent);
+}
+
+/**
+ * 只投影 prompt 所需的 behavior（systemPrompt + compression 设置）——调试/preview 场景用。
+ * 不解析 LLM tier，故 agent 缺 default tier / provider 未加载时仍可构建 system prompt。
+ */
+export function projectBehavior(agent: AgentConfig): AgentProfile["behavior"] {
   const behavior = asRecord(agent.custom_params.behavior);
   const systemPrompt = behavior ? normalizeString(behavior.system_prompt) ?? "" : "";
   const result: AgentProfile["behavior"] = {

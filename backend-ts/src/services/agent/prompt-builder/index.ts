@@ -1,24 +1,13 @@
+/**
+ * prompt context 算取入口——backend-ts 侧消费端（context-snapshot / runtime-adapter）算 AgentPromptContext。
+ *
+ * system prompt 拼装（sections/buildFullSystemPrompt）已下沉 SDK（agent-sdk prompt 模块，与内核 makeContextPort
+ * 同源）。本模块只保留"算 context"：skills/delegatedAgents 依赖 backend-ts agentConfig 容器（listAvailableSkills/
+ * getConfig），不下沉。buildAgentPromptContext 产出 SDK AgentPromptContext，喂给 SDK buildFullSystemPrompt / previewLlmRequest。
+ */
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { RuntimeToolDefinition } from "@ragsystem/agent-sdk";
-import type { ToolInstructionMode } from "./types.js";
 import type { AgentPromptConfigResolver, AgentPromptContext } from "./types.js";
-import { collectSections, isRecord, normalizeString } from "./helpers.js";
-import { prepareToolsForPrompt } from "./tool-format.js";
-import {
-  buildAgentSpecificPromptSections,
-  buildCodeExecutionPromptSection,
-  buildDataFileRulesSection,
-  buildPromptActionsSection,
-  buildPromptDoingTasksSection,
-  buildPromptGoalSection,
-  buildPromptOutputFormatSection,
-  buildPromptPrinciplesSection,
-  buildPromptRulesSection,
-  buildPromptSkillsSection,
-  buildPromptSystemSection,
-  buildPromptToolsSection,
-  hasDelegationTools,
-} from "./sections.js";
 import { buildPromptDelegatedAgents, buildPromptSkills } from "./prompt-context.js";
 
 export type {
@@ -37,51 +26,15 @@ export function buildAgentPromptContext(input: {
   teamName?: string | null | undefined;
 }): AgentPromptContext {
   const tools = input.tools ?? [];
+  const hasDelegation = tools.some(
+    (tool) => tool.name === "call_agent" || tool.name === "list_child_agents" || tool.name === "send_message",
+  );
   return {
     tools,
     skills: buildPromptSkills(input.agent, input.configResolver),
-    delegatedAgents: hasDelegationTools(tools)
+    delegatedAgents: hasDelegation
       ? buildPromptDelegatedAgents(input.agent, input.configResolver, input.teamName)
       : [],
+    ...(input.agent.tasks.background ? { backgroundTasks: true } : {}),
   };
-}
-
-export function buildFullSystemPrompt(agent: AgentConfig, context: AgentPromptContext = {}, mode: ToolInstructionMode = "xml"): string {
-  const staticPart = buildStaticSystemPrompt();
-  const dynamicPart = buildDynamicSystemPrompt(agent, context, mode);
-  return collectSections([staticPart, dynamicPart]).join("\n\n");
-}
-
-export function getAgentBaseSystemPrompt(agent: AgentConfig): string {
-  const behavior = agent.custom_params.behavior;
-  if (!isRecord(behavior)) {
-    return "";
-  }
-  return normalizeString(behavior.system_prompt) ?? "";
-}
-
-function buildStaticSystemPrompt(): string {
-  return collectSections([
-    buildPromptSystemSection(),
-  ]).join("\n\n");
-}
-
-function buildDynamicSystemPrompt(agent: AgentConfig, context: AgentPromptContext, mode: ToolInstructionMode): string {
-  const tools = context.tools ?? [];
-  const toolNames = new Set(tools.map((tool) => tool.name));
-  const promptTools = prepareToolsForPrompt(agent, tools);
-  return collectSections([
-    buildPromptGoalSection(toolNames),
-    buildPromptDoingTasksSection(toolNames),
-    buildPromptPrinciplesSection(toolNames, mode),
-    buildPromptActionsSection(toolNames, mode),
-    getAgentBaseSystemPrompt(agent),
-    buildPromptToolsSection(agent, promptTools, mode),
-    buildPromptSkillsSection(context.skills ?? []),
-    buildCodeExecutionPromptSection(promptTools),
-    ...buildAgentSpecificPromptSections(context.delegatedAgents ?? [], mode),
-    buildPromptOutputFormatSection(toolNames, mode),
-    buildPromptRulesSection(toolNames, mode),
-    buildDataFileRulesSection(toolNames, mode),
-  ]).join("\n\n");
 }

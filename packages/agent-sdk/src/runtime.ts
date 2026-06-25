@@ -27,6 +27,7 @@ import { AgentContextBuilder, type AgentContextSource, type SessionMetadataPort,
 import { RecentMessagesContextSource, EmptyMemoryContextSource } from "./context/index.js";
 import { MemoryIndexContextSource } from "./memory/index.js";
 import { buildFullSystemPrompt } from "./prompt/prompt-builder.js";
+import type { AgentPromptContext } from "./prompt/types.js";
 import { AgentContextCompressionService } from "./compression/context-compression.js";
 import { createCompactionHook } from "./compression/compaction-hook.js";
 import { createHookRegistry } from "./hooks/index.js";
@@ -61,6 +62,12 @@ export interface CreateRuntimeOptions {
   approvalInteraction?: ApprovalInteraction;
   /** 后台任务等待回调（消费端注入；不提供则忽略 suggest_wait 信号）。 */
   waitForToolResult?: (request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>;
+  /**
+   * prompt 上下文（消费端算好注入）：skills/delegatedAgents/backgroundTasks。
+   * tools 由内核从 registry 自动填充（per-run 工具集），消费端无需传 tools。
+   * 不注入则 system prompt 不含 skills/delegation/background 段（与历史行为一致）。
+   */
+  promptContext?: Omit<AgentPromptContext, "tools">;
 }
 
 export interface RunInput {
@@ -144,7 +151,12 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
         events: dispatcher,
         getTools: () => registry.listDefinitions(),
       });
-      const context: Context = makeContextPort(contextBuilder, profile, toolInstructionMode);
+      const context: Context = makeContextPort(contextBuilder, profile, toolInstructionMode, {
+        tools: registry.listDefinitions(),
+        skills: options.promptContext?.skills,
+        delegatedAgents: options.promptContext?.delegatedAgents,
+        backgroundTasks: options.promptContext?.backgroundTasks,
+      });
       const refresher: MessageRefresher = { refresh: async () => [] };
 
       const compression = new AgentContextCompressionService({ store, llm: options.llm, profile });
@@ -263,10 +275,10 @@ function makeNoopSessionMetadata(): SessionMetadataPort {
   };
 }
 
-function makeContextPort(builder: AgentContextBuilder, profile: AgentProfile, mode: "xml" | "native"): Context {
+function makeContextPort(builder: AgentContextBuilder, profile: AgentProfile, mode: "xml" | "native", promptContext: AgentPromptContext = {}): Context {
   return {
     buildMessages: (ctx: KernelContextType): ChatMessage[] => {
-      const systemPrompt = buildFullSystemPrompt(profile, {}, mode);
+      const systemPrompt = buildFullSystemPrompt(profile, promptContext, mode);
       // ctx.messages 是内核工作副本（session.conversation 浅拷贝），含当前用户消息 + 历史 + 历轮 assistant/tool 消息。
       // context builder 从 store 读历史视图（触发 memory prefix / microcompact 等 side effect），
       // 但基础对话以 ctx.messages 为准——store 历史转换可能丢 tool_call_id 等结构化字段。

@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
-import { buildFullSystemPrompt } from "../../src/services/agent/prompt-builder/index.js";
+import { buildFullSystemPrompt, type AgentPromptContext, type RuntimeToolDefinition } from "@ragsystem/agent-sdk";
 import {
   GLOB_TOOL_NAME,
   PREVIEW_DATA_STRUCTURE_TOOL_NAME,
 } from "../../src/services/runtime/runtime-tool-bridge/registry.js";
 import { DOCUMENT_TOOLS } from "../../src/tools/DocumentTools/DocumentTools.js";
 import { LOCAL_SEARCH_TOOLS } from "../../src/tools/LocalSearchTools/LocalSearchTools.js";
-import type { RuntimeToolDefinition } from "../../src/services/runtime/runtime-tool-types.js";
 
 const EXECUTE_CODE_TOOL: RuntimeToolDefinition = {
   name: "execute_code",
@@ -20,6 +19,18 @@ const EXECUTE_CODE_TOOL: RuntimeToolDefinition = {
     properties: { code: { type: "string", description: "Python code." } },
   },
 };
+
+/**
+ * 用 SDK buildFullSystemPrompt 构造 prompt（profile 仅投影 behavior；backgroundTasks 按 agent.tasks.background 注入）。
+ * 验证 SDK prompt 模块产出与 backend-ts 历史 buildFullSystemPrompt 一致。
+ */
+function buildPrompt(agent: AgentConfig, context: AgentPromptContext): string {
+  const behavior = agent.custom_params.behavior as { system_prompt?: string } | null;
+  const promptContext: AgentPromptContext = agent.tasks.background
+    ? { ...context, backgroundTasks: true }
+    : context;
+  return buildFullSystemPrompt({ behavior: { systemPrompt: behavior?.system_prompt ?? "" } }, promptContext, "xml");
+}
 
 describe("agent prompt builder", () => {
   it("renders tool contracts and code-execution callable tools", () => {
@@ -76,7 +87,7 @@ describe("agent prompt builder", () => {
       },
     ];
 
-    const prompt = buildFullSystemPrompt(minimalAgent(), { tools });
+    const prompt = buildPrompt(minimalAgent(), { tools });
 
     expect(prompt).toContain("### execute_code usage");
     expect(prompt).toContain("**调用能力**: direct（可直接调用）、code_execution（可在 execute_code 中通过 call_tool 调用）");
@@ -93,7 +104,7 @@ describe("agent prompt builder", () => {
   });
 
   it("prefers tool_calls in output format while documenting legacy tools alias", () => {
-    const prompt = buildFullSystemPrompt(minimalAgent(), {
+    const prompt = buildPrompt(minimalAgent(), {
       tools: [
         {
           name: "read_file",
@@ -118,7 +129,7 @@ describe("agent prompt builder", () => {
   });
 
   it("omits unavailable module guidance from minimal prompts", () => {
-    const prompt = buildFullSystemPrompt(minimalAgent(), { tools: [] });
+    const prompt = buildPrompt(minimalAgent(), { tools: [] });
 
     expect(prompt).not.toContain("request_user_input");
     expect(prompt).not.toContain("execute_code");
@@ -133,7 +144,7 @@ describe("agent prompt builder", () => {
   });
 
   it("omits background execution guidance unless tasks.background is enabled", () => {
-    const disabledPrompt = buildFullSystemPrompt(minimalAgent(), {
+    const disabledPrompt = buildPrompt(minimalAgent(), {
       tools: [
         {
           name: "execute_bash",
@@ -148,7 +159,7 @@ describe("agent prompt builder", () => {
     });
     const backgroundAgent = minimalAgent();
     backgroundAgent.tasks = { workflow: false, background: true };
-    const enabledPrompt = buildFullSystemPrompt(backgroundAgent, {
+    const enabledPrompt = buildPrompt(backgroundAgent, {
       tools: [
         {
           name: "execute_bash",
@@ -191,7 +202,7 @@ describe("agent prompt builder", () => {
   });
 
   it("keeps special-section tools out of the generic direct tool list", () => {
-    const prompt = buildFullSystemPrompt(minimalAgent(), {
+    const prompt = buildPrompt(minimalAgent(), {
       tools: [
         {
           name: "request_user_input",
@@ -230,7 +241,7 @@ describe("agent prompt builder", () => {
   });
 
   it("keeps registry code-execution tool list aligned with runtime allowlist", () => {
-    const prompt = buildFullSystemPrompt(minimalAgent(), {
+    const prompt = buildPrompt(minimalAgent(), {
       tools: [
         EXECUTE_CODE_TOOL,
         { ...DOCUMENT_TOOLS.find((tool) => tool.name === PREVIEW_DATA_STRUCTURE_TOOL_NAME)! },
@@ -247,7 +258,7 @@ describe("agent prompt builder", () => {
   });
 
   it("renders delegation guidance when delegated agents are present", () => {
-    const prompt = buildFullSystemPrompt(minimalAgent(), {
+    const prompt = buildPrompt(minimalAgent(), {
       tools: [
         {
           name: "call_agent",

@@ -3,8 +3,9 @@ import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { ChatMessage } from "../../integrations/llm-chat-client.js";
 import { isStableSystemContextContent } from "../context-builder/index.js";
 import { estimateTokens } from "../context-compression/index.js";
-import { buildFullSystemPrompt, type AgentPromptContext } from "../prompt-builder/index.js";
-import { resolveToolInstructionMode } from "@ragsystem/agent-sdk";
+import type { AgentPromptContext } from "../prompt-builder/index.js";
+import { buildFullSystemPrompt, resolveToolInstructionMode } from "@ragsystem/agent-sdk";
+import { projectBehavior } from "../sdk/projection.js";
 import type { ProviderConfig } from "@ragsystem/agent-llm";
 
 /**
@@ -29,7 +30,11 @@ export function buildContextUsagePayload(input: {
   } | null;
 }): Record<string, unknown> {
   const rawSystemPromptTokens = estimateTokens(
-    buildFullSystemPrompt(input.agent, input.promptContext, input.provider ? resolveToolInstructionMode(input.provider as ProviderConfig) : "xml"),
+    buildFullSystemPrompt(
+      { behavior: projectBehavior(input.agent) },
+      input.promptContext,
+      input.provider ? resolveToolInstructionMode(input.provider as ProviderConfig) : "xml",
+    ),
   );
   const systemContextTokens = input.messages
     .filter((message) => message.role === "system" && isStableSystemContextContent(message.content))

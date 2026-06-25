@@ -292,6 +292,7 @@ export class AgentRunEngine {
           dataRoot: this.dataRoot,
           permissionPolicy: this.permissionPolicy,
           pendingInteractions: this.pendingInteractions,
+          promptConfigResolver: this.promptConfigResolver,
         },
         {
           sessionId: input.sessionId,

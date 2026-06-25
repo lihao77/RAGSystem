@@ -1,13 +1,49 @@
 /**
  * 工具格式化（迁自 backend-ts tool-format.ts）。
- * prepareToolsForPrompt 删 agent.tasks.background 读取（profile 无 tasks，SDK 不做后台参数裁剪）。
+ * prepareToolsForPrompt 接收 backgroundTasks 标志（替代 agent.tasks.background 读取），决定是否裁剪 run_in_background 参数。
  */
 import type { ToolInstructionMode } from "../contracts.js";
 import type { RuntimeToolDefinition } from "./tool-types.js";
+import type { AgentPromptSkill } from "./types.js";
 import { isRecord, normalizeString } from "./types.js";
 
-export function prepareToolsForPrompt(tools: RuntimeToolDefinition[]): RuntimeToolDefinition[] {
-  return tools;
+export function prepareToolsForPrompt(tools: RuntimeToolDefinition[], backgroundTasks = false): RuntimeToolDefinition[] {
+  if (backgroundTasks) {
+    return tools;
+  }
+  return tools.map((tool) => omitBackgroundParameters(tool));
+}
+
+function omitBackgroundParameters(tool: RuntimeToolDefinition): RuntimeToolDefinition {
+  if (tool.name !== "execute_bash" && tool.name !== "execute_skill_script") {
+    return tool;
+  }
+  const parameters = tool.parameters;
+  if (!isRecord(parameters.properties) || !Object.prototype.hasOwnProperty.call(parameters.properties, "run_in_background")) {
+    return tool;
+  }
+  const properties = { ...parameters.properties };
+  delete properties.run_in_background;
+  return {
+    ...tool,
+    parameters: {
+      ...parameters,
+      properties,
+    },
+  };
+}
+
+export function formatSkillsDescription(skills: AgentPromptSkill[]): string {
+  if (!skills.length) {
+    return "当前无可用的领域知识。";
+  }
+  const lines = ["可用 Skills：", ""];
+  for (const [index, skill] of skills.entries()) {
+    lines.push(`### Skill ${index + 1}: ${skill.name}`);
+    lines.push(`**适用场景**: ${skill.description ?? ""}`);
+    lines.push("");
+  }
+  return lines.join("\n").trimEnd();
 }
 
 export function formatToolParameters(parameters: Record<string, unknown>): string[] {

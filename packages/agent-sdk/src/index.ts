@@ -36,6 +36,12 @@ export type { PreparedTool, PrepareResult, ToolPreparerOptions } from "./tools/p
 // 端口类型（ToolExecutor deprecated，保留供过渡；新代码用 Tool + ToolRegistry）
 export type { ToolExecutor, ToolExecutorCall, ToolExecContext, ToolWaitRequest, ToolWaitResult, ToolArtifact } from "./contracts.js";
 export type { RuntimeToolDefinition, RuntimeToolReturns, RuntimeToolExample } from "./prompt/tool-types.js";
+// Prompt 模块（system prompt 构建——与内核 makeContextPort 同源）
+export { buildFullSystemPrompt, getAgentBaseSystemPrompt } from "./prompt/prompt-builder.js";
+export type { AgentPromptContext, AgentPromptSkill, AgentPromptDelegatedAgent } from "./prompt/types.js";
+// Preview 模块（调试用：组模型真实收到的请求，不调 LLM）
+export { previewLlmRequest } from "./preview.js";
+export type { PreviewLlmRequestInput, PreviewLlmRequestResult } from "./preview.js";
 // Tools 模块（SDK 自带编排 + observation 渲染）
 export { RuntimeToolProvider, executeToolCallRound, buildLlmFacingToolResult, renderToolResultContent, resolveToolArgumentReferences, materializeToolResult, buildToolReferenceErrorResult, buildToolExecutionErrorResult, runToolBatchWithScheduler, partitionToolCalls } from "./tools/index.js";
 export type { RuntimeToolProviderOptions, ToolRoundExecutorOptions, ToolSchedulerCall, ToolSchedulerExecutor } from "./tools/index.js";

@@ -4,8 +4,9 @@ import type { AgentConfig } from "../../contracts/agent-config.js";
 import { ok } from "../../contracts/common.js";
 import type { OutboxStatus } from "../../contracts/conversation-store/index.js";
 import { resolveContextCompressionSettings } from "../../services/agent/context-compression/index.js";
-import { buildAgentPromptContext, buildFullSystemPrompt } from "../../services/agent/prompt-builder/index.js";
-import { resolveToolInstructionMode, renderXmlModelMessage, renderNativeModelMessage, toolToDefinition } from "@ragsystem/agent-sdk";
+import { buildAgentPromptContext } from "../../services/agent/prompt-builder/index.js";
+import { previewLlmRequest, resolveToolInstructionMode, toolToDefinition } from "@ragsystem/agent-sdk";
+import { projectBehavior } from "../../services/agent/sdk/projection.js";
 import { createBackendTools } from "../../tools/registry.js";
 import type { ChatMessage as SdkChatMessage, ProviderConfig } from "@ragsystem/agent-llm";
 import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
@@ -130,7 +131,6 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       teamName: normalizeString(sessionMetadata.team),
     });
     const toolInstructionMode = resolved.provider ? resolveToolInstructionMode(resolved.provider as ProviderConfig) : "xml";
-    const systemPrompt = buildFullSystemPrompt(agent, promptContext, toolInstructionMode);
     const context = sessionId
       ? options.container.agentContextService.snapshotContext({
           sessionId,
@@ -146,20 +146,27 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
           options.container.conversationStore.listMessages(sessionId, 500, 0, threadKey).items,
         )
       : [];
-    // 渲染成"实际请求"形态（与模型收到的一致）：结构化 ChatMessage → 按 protocol 渲染
-    // （XML 序列化回 <user_input>/<tool_result>/<tool_calls> 语境，FC 直传），保留 seq/msg_type 便于反查 DB。
-    // 走 selectProtocol 层的 renderMessagesForProvider（纯函数），与两个 Protocol.toModelMessages 逐字等价，
-    // 不再裸 import xml-protocol 内部函数。
-    const conversationMessages = renderMessagesForProvider(resolved.provider, messagesToConversation(historyRawMessages));
-    const history = conversationMessages.map((message, index) =>
-      toContextHistoryItem(message, historyRawMessages[index]),
+    // 走 SDK preview：组"模型真实收到的请求"（system prompt + 协议说明 + 历史渲染），与内核 makeContextPort +
+    // protocol.prepareMessages 同源。调试快照即真实 run 所见，不再 backend-ts 自己组装（消除漂移）。
+    // profile 只投影 prompt 所需的 behavior（preview 不调 LLM，不需完整 tier 解析；provider 未加载也能展示）。
+    const preview = previewLlmRequest({
+      profile: { behavior: projectBehavior(agent) },
+      promptContext,
+      conversation: messagesToConversation(historyRawMessages) as unknown as SdkChatMessage[],
+      mode: toolInstructionMode,
+    });
+    // preview.requestMessages = [system, ...rendered history]；历史项与 historyRawMessages 逐条对应。
+    const renderedHistory = preview.requestMessages.slice(1);
+    const history = renderedHistory.map((message, index) =>
+      toContextHistoryItem(message as ChatMessage, historyRawMessages[index]),
     );
-    const systemPromptTokens = estimateTokens(systemPrompt) + estimateTokens(asString(memorySnapshot?.rendered_block) ?? "");
-    const historyTokens = history.reduce((total, item) => total + item.tokens, 0);
+    const memoryBlockTokens = estimateTokens(asString(memorySnapshot?.rendered_block) ?? "");
+    const systemPromptTokens = preview.tokenStats.systemPromptTokens + memoryBlockTokens;
+    const historyTokens = preview.tokenStats.historyTokens;
     const budgetTokens = options.container.agentContextService.resolveContextBudget(agent, resolved.provider, resolved.modelName);
 
     const data = {
-      system_prompt: systemPrompt,
+      system_prompt: preview.systemPrompt,
       available_agent_tools: buildAvailableAgentTools(agent, normalizeString(sessionMetadata.team), options),
       conversation_history: history,
       token_stats: {
@@ -209,12 +216,6 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     return ok(item, "获取工具调用原始结果成功");
   });
 };
-
-function renderMessagesForProvider(provider: ModelProviderConfig | null, messages: ChatMessage[]): ChatMessage[] {
-  const useNative = provider !== null && resolveToolInstructionMode(provider as ProviderConfig) === "native";
-  const render = useNative ? renderNativeModelMessage : renderXmlModelMessage;
-  return (messages as unknown as SdkChatMessage[]).map(render) as unknown as ChatMessage[];
-}
 
 function buildSystemMetrics(options: RouteOptions): {
   total_agents: number;

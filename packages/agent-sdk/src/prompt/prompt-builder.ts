@@ -1,26 +1,35 @@
 /**
- * buildFullSystemPrompt（设计稿 §7，迁自 backend-ts）。
- * 读 profile.behavior.systemPrompt（解耦 AgentConfig.custom_params.behavior）；
- * skill/delegation section 不产出（profile 不含这些衍生字段）。
+ * buildFullSystemPrompt（设计稿 §7，完整版——与 backend-ts 同源）。
+ * 只读 profile.behavior.systemPrompt（经 getAgentBaseSystemPrompt），其余 profile 字段（tier/memory 等）不参与
+ * prompt 构建——故 profile 类型放宽为 Pick<AgentProfile, "behavior">，让调试/preview 场景无需完整 tier 投影。
+ * skills/delegation/background 段消费 AgentPromptContext 里的纯展示数据（消费端算好注入）。
  */
 import type { AgentProfile } from "../types.js";
 import type { ToolInstructionMode } from "../contracts.js";
 import type { AgentPromptContext } from "./types.js";
-import { collectSections, isRecord, normalizeString } from "./types.js";
+import { collectSections, normalizeString } from "./types.js";
 import { prepareToolsForPrompt } from "./tool-format.js";
-import { buildPromptActionsSection } from "./sections.js";
-import { buildPromptDoingTasksSection } from "./sections.js";
-import { buildPromptGoalSection } from "./sections.js";
-import { buildPromptOutputFormatSection } from "./sections.js";
-import { buildPromptPrinciplesSection } from "./sections.js";
-import { buildPromptRulesSection } from "./sections.js";
-import { buildPromptSystemSection } from "./sections.js";
-import { buildPromptToolsSection } from "./sections.js";
-import { buildCodeExecutionPromptSection } from "./sections.js";
-import { buildDataFileRulesSection } from "./sections.js";
+import {
+  buildAgentSpecificPromptSections,
+  buildCodeExecutionPromptSection,
+  buildDataFileRulesSection,
+  buildPromptActionsSection,
+  buildPromptDoingTasksSection,
+  buildPromptGoalSection,
+  buildPromptOutputFormatSection,
+  buildPromptPrinciplesSection,
+  buildPromptRulesSection,
+  buildPromptSkillsSection,
+  buildPromptSystemSection,
+  buildPromptToolsSection,
+  hasDelegationTools,
+} from "./sections.js";
+
+/** prompt 构建只需 behavior.systemPrompt；放宽 profile 类型，调试/preview 无需完整 tier 投影。 */
+type PromptProfile = Pick<AgentProfile, "behavior">;
 
 export function buildFullSystemPrompt(
-  profile: AgentProfile,
+  profile: PromptProfile,
   context: AgentPromptContext = {},
   mode: ToolInstructionMode = "xml",
 ): string {
@@ -29,30 +38,26 @@ export function buildFullSystemPrompt(
   return collectSections([staticPart, dynamicPart]).join("\n\n");
 }
 
-export function getAgentBaseSystemPrompt(profile: AgentProfile): string {
+export function getAgentBaseSystemPrompt(profile: PromptProfile): string {
   return normalizeString(profile.behavior.systemPrompt) ?? "";
 }
 
-function buildDynamicSystemPrompt(
-  profile: AgentProfile,
-  context: AgentPromptContext,
-  mode: ToolInstructionMode,
-): string {
+function buildDynamicSystemPrompt(profile: PromptProfile, context: AgentPromptContext, mode: ToolInstructionMode): string {
   const tools = context.tools ?? [];
   const toolNames = new Set(tools.map((tool) => tool.name));
-  const promptTools = prepareToolsForPrompt(tools);
+  const promptTools = prepareToolsForPrompt(tools, context.backgroundTasks ?? false);
   return collectSections([
     buildPromptGoalSection(toolNames),
     buildPromptDoingTasksSection(toolNames),
     buildPromptPrinciplesSection(toolNames, mode),
     buildPromptActionsSection(toolNames, mode),
     getAgentBaseSystemPrompt(profile),
-    buildPromptToolsSection(promptTools, mode),
+    buildPromptToolsSection(promptTools, mode, context.backgroundTasks ?? false),
+    buildPromptSkillsSection(context.skills ?? []),
     buildCodeExecutionPromptSection(promptTools),
+    ...buildAgentSpecificPromptSections(context.delegatedAgents ?? [], mode),
     buildPromptOutputFormatSection(toolNames, mode),
     buildPromptRulesSection(toolNames, mode),
     buildDataFileRulesSection(toolNames, mode),
   ]).join("\n\n");
 }
-
-void isRecord;

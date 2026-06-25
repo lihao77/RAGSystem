@@ -8,7 +8,7 @@
  *（final assistant 消息由 SDK Dispatcher.finalize 已写，此处只查库取其 id/seq 供 message_saved）。
  */
 import { createRuntime, createToolRegistry, prepareTool, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
-import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry } from "@ragsystem/agent-sdk";
+import type { AgentPromptContext, Tool, ToolExecContext, ToolExecutionResult, ToolRegistry } from "@ragsystem/agent-sdk";
 import { translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
@@ -31,6 +31,8 @@ import { SdkStoreAdapter } from "./sdk-store-adapter.js";
 import { LlmClientAdapter } from "./llm-client-adapter.js";
 import { SdkPermissionPolicyAdapter } from "./permission-adapter.js";
 import { SdkApprovalInteractionAdapter } from "./approval-interaction-adapter.js";
+import { buildPromptDelegatedAgents, buildPromptSkills } from "../prompt-builder/prompt-context.js";
+import type { AgentPromptConfigResolver } from "../prompt-builder/types.js";
 
 export interface SdkRuntimeAdapterDeps {
   conversationStore: ConversationStore;
@@ -51,6 +53,8 @@ export interface SdkRuntimeAdapterDeps {
   permissionPolicy: PermissionPolicyService;
   /** 审批交互服务（SDK 审批编排阻塞等待端口用）。 */
   pendingInteractions: PendingInteractionService;
+  /** agent 配置解析器（算 promptContext 的 skills/delegatedAgents 用；可空）。 */
+  promptConfigResolver?: AgentPromptConfigResolver | null;
 }
 
 export interface SdkExecuteRunInput {
@@ -114,6 +118,18 @@ export async function executeRunWithSdk(
   });
   const registry: ToolRegistry = createToolRegistry({ tools });
 
+  // 算 promptContext（skills/delegatedAgents/backgroundTasks）；tools 由 SDK 内核从 registry 自动填充。
+  // 与 context-snapshot 同源（buildPromptSkills/buildPromptDelegatedAgents），保证真实 run 的 system prompt
+  // 含完整 tools/skills/delegation/background 段，消除"调试显示完整、内核发出残缺"的漂移。
+  const hasDelegation = tools.some((tool) => tool.name === "call_agent" || tool.name === "list_child_agents" || tool.name === "send_message");
+  const promptContext: Omit<AgentPromptContext, "tools"> = {
+    skills: buildPromptSkills(input.agent, deps.promptConfigResolver ?? null),
+    ...(hasDelegation
+      ? { delegatedAgents: buildPromptDelegatedAgents(input.agent, deps.promptConfigResolver ?? null, teamName) }
+      : {}),
+    ...(input.agent.tasks.background ? { backgroundTasks: true } : {}),
+  };
+
   // per-run 工具执行上下文模板（caller/caller 的 currentAgentName/workspaceRoot 等在 executeTool 时覆盖）
   const baseExecCtx: ToolExecContext = {
     sessionId: input.sessionId,
@@ -166,6 +182,7 @@ export async function executeRunWithSdk(
       service: deps.pendingInteractions,
       agentName: input.agent.agent_name,
     }),
+    promptContext,
     ...(waitForToolResult ? { waitForToolResult } : {}),
   };
 

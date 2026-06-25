@@ -1,36 +1,23 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
-import type { RuntimeToolDefinition } from "@ragsystem/agent-sdk";
 
-export interface AgentPromptSkill {
-  name: string;
-  description?: string | null | undefined;
-}
+/**
+ * prompt 上下文类型已下沉 SDK（agent-sdk prompt 模块）。本文件 re-export SDK 类型，
+ * 供 backend-ts 消费端（context-snapshot / runtime-adapter 算 promptContext）使用。
+ * backend-ts 只保留 AgentPromptConfigResolver 端口（依赖 agentConfig 容器，不下沉）。
+ */
+export type {
+  AgentPromptContext,
+  AgentPromptSkill,
+  AgentPromptDelegatedAgent,
+} from "@ragsystem/agent-sdk";
 
-export interface AgentPromptDelegatedAgent {
-  agent_name: string;
-  display_name?: string | null | undefined;
-  description?: string | null | undefined;
-  use_cases?: unknown;
-  tool_count?: number | null | undefined;
-}
+export type { ToolInstructionMode } from "@ragsystem/agent-sdk";
 
-export interface AgentPromptContext {
-  tools?: RuntimeToolDefinition[] | undefined;
-  skills?: AgentPromptSkill[] | undefined;
-  delegatedAgents?: AgentPromptDelegatedAgent[] | undefined;
-}
-
+/**
+ * agent 配置解析端口：backend-ts agentConfig 容器实现。
+ * 算 promptContext 的 skills/delegatedAgents 时用（listAvailableSkills / getConfig），SDK 不依赖此端口。
+ */
 export interface AgentPromptConfigResolver {
   getConfig(agentName: string, options?: { teamName?: string | null }): AgentConfig | null;
   listAvailableSkills?(): unknown[];
 }
-
-/**
- * 工具指令形态：决定 prompt 注入哪种协议说明。
- * - "xml"：注入完整 XML 协议说明（含 <tool_calls> 用法 + tool_manifest），工具走 XML 文本协议。
- * - "native"：注入混合协议说明（仅 <intent>/<final_answer>），工具走厂商 function calling。
- *
- * 与 SDK @ragsystem/agent-sdk 的 ToolInstructionMode 同义；此处保留 backend-ts prompt-builder
- * 本地类型，供 monitoring/调试与 token 估算场景在不经 SDK 运行时的情况下构建提示词。
- */
-export type ToolInstructionMode = "xml" | "native";
