@@ -120,6 +120,19 @@ export type AgentRuntimeEvent =
         message: string;
         agent_name: string;
       };
+    }
+  | {
+      type: "runtime.context_usage";
+      data: {
+        agent_name: string;
+        round: number;
+        system_prompt_tokens: number;
+        history_tokens: number;
+        used_tokens: number;
+        total_tokens: number;
+        budget_tokens: number;
+        compressing: boolean;
+      };
     };
 
 export type AgentRuntimeEventHandler = (event: AgentRuntimeEvent) => void | Promise<void>;

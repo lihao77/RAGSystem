@@ -37,24 +37,25 @@ export interface LlmClientAdapterOptions {
  * SDK protocol 调 llm.stream(LlmRequest, onChunk) → 本适配器转 ChatCompletionRequest → chatClient.stream。
  */
 export class LlmClientAdapter implements LlmClient {
-  constructor(private readonly options: LlmClientAdapterOptions) {}
+  /** 流式入口（仅底层 chatClient 支持 stream 时存在；缺省 → SDK 协议走非流式）。 */
+  stream?: (request: LlmRequest, onChunk: LlmStreamHandler) => Promise<LlmResult>;
+
+  constructor(private readonly options: LlmClientAdapterOptions) {
+    // 仅当底层 chatClient 真正支持流式时才暴露 stream——否则 SDK 协议走非流式路径
+    //（invokeNonStreaming，不发 first_token/output_delta），对齐旧内核"非流式无逐字流"语义。
+    if (typeof this.options.chatClient.stream === "function") {
+      this.stream = this.streamOverChatClient.bind(this);
+    }
+  }
 
   async complete(request: LlmRequest): Promise<LlmResult> {
     const result = await this.options.chatClient.complete(this.toChatRequest(request));
     return toLlmResult(result);
   }
 
- async stream(request: LlmRequest, onChunk: LlmStreamHandler): Promise<LlmResult> {
-    const stream = this.options.chatClient.stream;
-    if (!stream) {
-      // chatClient 无 stream 实现：降级为 complete 非流式单次 emit（对齐 SDK stream 契约）。
-      const result = await this.complete(request);
-      if (result.content) {
-        await onChunk({ content: result.content, ...(result.finishReason !== undefined ? { finishReason: result.finishReason } : {}), ...(result.raw !== undefined ? { raw: result.raw } : {}) });
-      }
-      return result;
-    }
-    const result = await stream.call(
+  /** 流式实现（仅 chatClient 支持 stream 时由构造期赋给 this.stream）。 */
+  private async streamOverChatClient(request: LlmRequest, onChunk: LlmStreamHandler): Promise<LlmResult> {
+    const result = await this.options.chatClient.stream!.call(
       this.options.chatClient,
       this.toChatRequest(request),
       this.wrapOnChunk(onChunk),

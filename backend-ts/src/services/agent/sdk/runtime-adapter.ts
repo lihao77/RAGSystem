@@ -59,6 +59,11 @@ export interface SdkExecuteRunInput {
   signal: AbortSignal;
   /** selectLlm 解析结果（前端选定的 provider+model，整体替换 default 档）。 */
   selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
+  /**
+   * run 级附加消息元数据：透传给 SDK Dispatcher，合并到最终 assistant 消息。
+   * 投影点把 execution_kind / retry_of_* 等调用点元数据在这里打好（无值不影响默认）。
+   */
+  messageMetadata?: Record<string, unknown> | null;
 }
 
 export interface SdkExecuteRunResult {
@@ -125,8 +130,9 @@ export async function executeRunWithSdk(
    threadKey: input.threadKey,
     ...(input.parentCallId !== undefined && input.parentCallId !== null ? { parentCallId: input.parentCallId } : {}),
    signal: input.signal,
-    ...(input.executionKind !== undefined ? { entrypoint: input.executionKind } : {}),
-    ...(input.userId !== undefined ? { userId: input.userId } : {}),
+   ...(input.executionKind !== undefined ? { entrypoint: input.executionKind } : {}),
+   ...(input.userId !== undefined ? { userId: input.userId } : {}),
+    ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
   });
 
   // 事件循环：翻译 KernelEvent → Envelope，推 outbox（SDK Dispatcher 已落库 message/run_step，此处只推流）。

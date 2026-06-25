@@ -104,6 +104,23 @@ export interface RuntimeErrorEvent {
   message: string;
 }
 
+/**
+ * 上下文用量遥测：每轮请求消息组好后（buildMessages 后、问模型前）发一次。
+ * 消费端据此推 state_sync(category: context_usage)（token 预算/用量）；内核只报数。
+ * budgetTokens 由 createRuntime 注入的纯函数算（读 profile.llmTiers，零兜底）；
+ * 各 token 分桶由注入的 estimateTokens 估算（CJK/非 CJK 启发式）。
+ */
+export interface ContextUsageEvent {
+  type: "context_usage";
+  agentName: string;
+  round: number;
+  systemPromptTokens: number;
+  historyTokens: number;
+  totalTokens: number;
+  budgetTokens: number;
+  compressing: boolean;
+}
+
 /** 内核事件（运行时语义，透传给 Dispatcher）。 */
 export type KernelEvent =
   | FirstTokenEvent
@@ -114,7 +131,8 @@ export type KernelEvent =
   | ToolCallEvent
   | ToolResultEvent
   | ObservationCompleteEvent
-  | RuntimeErrorEvent;
+  | RuntimeErrorEvent
+  | ContextUsageEvent;
 
 /** 内核事件处理器（EventSink 透传用）。 */
 export type KernelEventHandler = (event: KernelEvent) => void | Promise<void>;

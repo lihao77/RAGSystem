@@ -32,7 +32,9 @@ export interface SdkEventTranslationContext {
 /**
  * 把单条 SDK KernelEvent 翻译成 AgentRuntimeEvent 方言，委托 publisher 落库 + 推 Envelope。
  *
- * 映射 1:1（无事件丢失，无事件合成）：每个 KernelEvent 类型对应一个 runtime.* 方言事件。
+ * 映射：只有需要实时 Envelope 的 KernelEvent 才翻译成 runtime.* 方言（委托 publisher 落 run_step + 推流）。
+ * assistant_intermediate / observation_complete 是纯落库事件——SDK Dispatcher 已独占持久化（方案 A
+ * 单 store 无双写），这里返回 null 不再触发 publisher.persistReactMessage，否则会与 SDK 双写 message。
  */
 export function translateKernelEvent(
   event: KernelEvent,
@@ -69,10 +71,9 @@ function toAgentRuntimeEvent(event: KernelEvent): AgentRuntimeEvent | null {
         data: { content: event.content, agent_name: event.agentName, round: event.round },
       };
     case "assistant_intermediate":
-      return {
-        type: "runtime.assistant_intermediate",
-        data: { message: event.message, agent_name: event.agentName, round: event.round },
-      };
+      // 纯落库事件：SDK Dispatcher.persistAssistantMessage 已写 message（含 react_intermediate/msg_type），
+      // 翻译层不重复落库（方案 A 单 store）。无实时 Envelope（中间态不推前端）。
+      return null;
     case "tool_call":
       return {
         type: "runtime.tool_call",
@@ -109,14 +110,26 @@ function toAgentRuntimeEvent(event: KernelEvent): AgentRuntimeEvent | null {
         },
       };
     case "observation_complete":
-      return {
-        type: "runtime.observation_complete",
-        data: { messages: event.messages, agent_name: event.agentName, round: event.round },
-      };
+      // 纯落库事件：SDK Dispatcher.persistObservations 已写 observation message，翻译层不重复落库。
+      return null;
     case "error":
       return {
         type: "runtime.error",
         data: { message: event.message, agent_name: event.agentName },
+      };
+    case "context_usage":
+      return {
+        type: "runtime.context_usage",
+        data: {
+          agent_name: event.agentName,
+          round: event.round,
+          system_prompt_tokens: event.systemPromptTokens,
+          history_tokens: event.historyTokens,
+          used_tokens: event.totalTokens,
+          total_tokens: event.totalTokens,
+          budget_tokens: event.budgetTokens,
+          compressing: event.compressing,
+        },
       };
     default: {
       // 穷尽性守卫：新增 KernelEvent 类型时编译报错，强制补全翻译。

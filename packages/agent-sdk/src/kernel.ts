@@ -28,7 +28,23 @@ import type {
   RuntimeSession,
   ToolProvider,
 } from "./contracts.js";
+import type { AgentProfile } from "./types.js";
 import { KernelContext } from "./kernel-context.js";
+
+/**
+ * 上下文用量计算端口：从当前轮请求消息 + profile 算 token 分桶与预算。
+ * 内核本身不做 token 估算/预算解析（零兜底），由 createRuntime 注入实现。
+ * 返回 ContextUsageEvent 除 type/agentName/round 外的字段。
+ */
+export interface ContextUsageProvider {
+  (requestMessages: import("@ragsystem/agent-llm").ChatMessage[], profile: AgentProfile): {
+    systemPromptTokens: number;
+    historyTokens: number;
+    totalTokens: number;
+    budgetTokens: number;
+    compressing: boolean;
+  };
+}
 
 export interface AgentKernelOptions {
   context: Context;
@@ -37,6 +53,8 @@ export interface AgentKernelOptions {
   events: EventSink;
   refresher: MessageRefresher;
   hooks: HookRegistry;
+  /** 上下文用量遥测端口（可选；无则不报 context_usage 事件）。 */
+  contextUsage?: ContextUsageProvider;
 }
 
 export class AgentKernel {
@@ -46,6 +64,7 @@ export class AgentKernel {
   private readonly events: EventSink;
   private readonly refresher: MessageRefresher;
   private readonly hooks: HookRegistry;
+  private readonly contextUsage: ContextUsageProvider | null;
 
   constructor(options: AgentKernelOptions) {
     this.context = options.context;
@@ -54,6 +73,7 @@ export class AgentKernel {
     this.events = options.events;
     this.refresher = options.refresher;
     this.hooks = options.hooks;
+    this.contextUsage = options.contextUsage ?? null;
   }
 
   async run(session: RuntimeSession): Promise<KernelResult> {
@@ -65,6 +85,11 @@ export class AgentKernel {
         ctx.appendMessages(await this.refresher.refresh(ctx));
         await this.hooks.invoke("beforeModel", ctx, round);
         ctx.setRequestMessages(this.context.buildMessages(ctx));
+        // 请求消息组好后报上下文用量（消费端推 context_usage 遥测）。无 provider 时不报。
+        if (this.contextUsage) {
+          const usage = this.contextUsage(ctx.requestMessages, session.profile);
+          this.events.emit({ type: "context_usage", agentName, round, ...usage });
+        }
         const outcome = await this.protocol.invoke(ctx, round);
         await this.hooks.invoke("afterModel", ctx, round);
 

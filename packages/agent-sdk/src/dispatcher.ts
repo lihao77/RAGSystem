@@ -24,6 +24,11 @@ export interface DispatcherRunContext {
   entrypoint?: string | null;
   taskSummary?: string | null;
   userId?: string | null;
+  /**
+   * run 级附加消息元数据（透传给 finalize，合并到最终 assistant 消息 metadata）。
+   * 消费端据此把 execution_kind / retry_of_* 等调用点元数据打到最终消息上（无值不影响默认）。
+   */
+  messageMetadata?: Record<string, unknown> | null;
 }
 
 export class Dispatcher implements EventSink {
@@ -76,12 +81,20 @@ export class Dispatcher implements EventSink {
           sessionId: this.ctx.sessionId,
           role: "assistant",
           content: finalMessage.content,
-          threadKey: this.ctx.threadKey,
-          metadata: { agent_name: this.ctx.agentName, run_id: this.ctx.runId, ...(finalMessage.metadata ?? {}) },
-        };
-        if (finalMessage.id) {
-          input.messageId = finalMessage.id;
-        }
+         threadKey: this.ctx.threadKey,
+          // messageMetadata 在 base 之后、finalMessage.metadata 之前合并：
+          // 调用点元数据（execution_kind/retry_of_*）盖过默认，但 finalMessage 自带 metadata（如最终内容标记）优先。
+        metadata: {
+          agent_name: this.ctx.agentName,
+          msg_type: "assistant_final",
+          run_id: this.ctx.runId,
+          ...(this.ctx.messageMetadata ?? {}),
+          ...(finalMessage.metadata ?? {}),
+        },
+       };
+       if (finalMessage.id) {
+         input.messageId = finalMessage.id;
+       }
         const msg = tx.addMessage(input);
         tx.updateRunStepsMessageId(this.ctx.sessionId, this.ctx.runId, msg.id);
         finalMessageId = msg.id;
@@ -116,6 +129,9 @@ export class Dispatcher implements EventSink {
       case "output_delta":
       case "intent_delta":
       case "error":
+        break;
+      case "context_usage":
+        // 纯遥测，仅推流（emit 已 push 进 events 队列），无落库副作用。
         break;
     }
   }
@@ -162,15 +178,15 @@ export class Dispatcher implements EventSink {
         sessionId: this.ctx.sessionId,
         role: "assistant",
         content: message.content,
-        threadKey: this.ctx.threadKey,
-        metadata: { agent_name: this.ctx.agentName, run_id: this.ctx.runId, react_intermediate: true },
-      };
-      if (message.tool_calls) {
-        input.toolCalls = message.tool_calls;
-      }
-      tx.addMessage(input);
-    });
-  }
+         threadKey: this.ctx.threadKey,
+          metadata: { agent_name: this.ctx.agentName, run_id: this.ctx.runId, react_intermediate: true, msg_type: "intent" },
+       };
+       if (message.tool_calls) {
+         input.toolCalls = message.tool_calls;
+       }
+       tx.addMessage(input);
+     });
+   }
 
   private persistObservations(messages: readonly ChatMessage[]): void {
     this.store.runInTransaction((tx) => {
@@ -179,9 +195,9 @@ export class Dispatcher implements EventSink {
           sessionId: this.ctx.sessionId,
           role: "tool",
           content: message.content,
-          threadKey: this.ctx.threadKey,
-          metadata: { agent_name: this.ctx.agentName, run_id: this.ctx.runId, msg_type: "observation" },
-        };
+         threadKey: this.ctx.threadKey,
+          metadata: { agent_name: this.ctx.agentName, run_id: this.ctx.runId, react_intermediate: true, msg_type: "observation" },
+       };
         if (message.tool_call_id) {
           input.toolCallId = message.tool_call_id;
         }

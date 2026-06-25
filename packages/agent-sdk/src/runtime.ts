@@ -29,6 +29,8 @@ import { AgentContextCompressionService } from "./compression/context-compressio
 import { createCompactionHook } from "./compression/compaction-hook.js";
 import { createProtocol } from "./protocol/index.js";
 import { RuntimeToolProvider } from "./tools/index.js";
+import { estimateTokens } from "./compression/token-estimate.js";
+import type { ContextUsageProvider } from "./kernel.js";
 
 export interface CreateRuntimeOptions {
   llm: LlmClient;
@@ -60,6 +62,11 @@ export interface RunInput {
   entrypoint?: string;
   /** run 发起用户；透传 createRun → runs.user_id。 */
   userId?: string | null;
+  /**
+   * run 级附加消息元数据：透传给 Dispatcher，合并到最终 assistant 消息 metadata。
+   * 消费端用此把 execution_kind / retry_of_seq / retry_of_message_id 打到最终消息上。
+   */
+  messageMetadata?: Record<string, unknown> | null;
 }
 
 export interface RunHandle {
@@ -101,10 +108,11 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       agentName: profile.agentName,
       parentCallId: parentCallId ?? rootCallId,
        taskSummary: input.task.slice(0, 200),
-       ...(input.entrypoint !== undefined ? { entrypoint: input.entrypoint } : {}),
-       ...(input.userId !== undefined ? { userId: input.userId } : {}),
-     };
-      const dispatcher = new Dispatcher(store, dispatcherCtx);
+      ...(input.entrypoint !== undefined ? { entrypoint: input.entrypoint } : {}),
+      ...(input.userId !== undefined ? { userId: input.userId } : {}),
+      ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
+    };
+    const dispatcher = new Dispatcher(store, dispatcherCtx);
       dispatcher.startRun();
 
       const { protocol, toolInstructionMode } = createProtocol({
@@ -157,7 +165,27 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       };
       if (input.signal) { toolContext.signal = input.signal; }
       const tools = new RuntimeToolProvider({ toolExecutor: options.toolExecutor, toolContext, dataRoot, events: dispatcher });
-      const kernel = new AgentKernel({ context, protocol, tools, events: dispatcher, refresher, hooks });
+      // 上下文用量遥测：system（含稳定 system context）与 history 分桶估算 + 预算（零兜底，纯读 profile）。
+      const contextUsage: ContextUsageProvider = (requestMessages) => {
+        let systemPromptTokens = 0;
+        let historyTokens = 0;
+        for (const message of requestMessages) {
+          const tokens = estimateTokens(message.content ?? "");
+          if (message.role === "system") {
+            systemPromptTokens += tokens;
+          } else {
+            historyTokens += tokens;
+          }
+        }
+        return {
+          systemPromptTokens,
+          historyTokens,
+          totalTokens: systemPromptTokens + historyTokens,
+          budgetTokens,
+          compressing: false,
+        };
+      };
+      const kernel = new AgentKernel({ context, protocol, tools, events: dispatcher, refresher, hooks, contextUsage });
       const resultPromise = runKernel(kernel, session, dispatcher);
       return { events: dispatcher.events, result: resultPromise, runId };
     },

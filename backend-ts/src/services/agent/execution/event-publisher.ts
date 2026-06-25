@@ -162,12 +162,33 @@ export class AgentExecutionEventPublisher {
       });
       return;
     }
-    if (event.type === "runtime.error") {
+   if (event.type === "runtime.error") {
+     this.publish(input.sessionId, {
+       type: "error",
+       session_id: input.sessionId,
+       ...top,
+       payload: { code: "RuntimeError", message: event.data.message },
+     });
+     return;
+   }
+    // 上下文用量遥测：内核每轮请求消息组好后报一次，下行 state_sync(compression-like context_usage)。
+    if (event.type === "runtime.context_usage") {
       this.publish(input.sessionId, {
-        type: "error",
+        type: "state_sync",
         session_id: input.sessionId,
         ...top,
-        payload: { code: "RuntimeError", message: event.data.message },
+        payload: {
+          category: "context_usage",
+          detail: {
+            round: event.data.round,
+            used_tokens: event.data.used_tokens,
+            system_prompt_tokens: event.data.system_prompt_tokens,
+            total_tokens: event.data.total_tokens,
+            budget_tokens: event.data.budget_tokens,
+            compressing: event.data.compressing,
+            request_id: input.requestId,
+          },
+        } satisfies StateSyncPayload,
       });
       return;
     }

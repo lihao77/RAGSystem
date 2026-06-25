@@ -308,10 +308,12 @@ export class AgentRunEngine {
          sessionMetadata,
          ...(input.executionKind !== undefined ? { executionKind } : {}),
           ...(asString(sessionMetadata.user_id) ? { userId: asString(sessionMetadata.user_id) } : {}),
-         signal: input.abortController.signal,
-          selectedLlm: { provider: input.provider, modelName: input.modelName },
-        },
-      );
+        signal: input.abortController.signal,
+         selectedLlm: { provider: input.provider, modelName: input.modelName },
+         // 最终 assistant 消息的调用点元数据：execution_kind + finalMetadataExtra（retry_of_* 等）。
+         messageMetadata: { execution_kind: executionKind, ...(input.finalMetadataExtra ?? {}) },
+       },
+     );
 
       if (!result.success) {
         const interrupted = input.abortController.signal.aborted;
