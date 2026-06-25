@@ -2,16 +2,18 @@ import { z } from "zod";
 
 import type { PendingInteractionService } from "../../services/runtime/pending-interaction-service.js";
 import {
-  errorResult,
   readInputType,
   readOptions,
   readPrompt,
 } from "../../services/runtime/runtime-tool-bridge/arguments.js";
 import { REQUEST_USER_INPUT_TOOL_NAME } from "../../services/runtime/runtime-tool-bridge/registry.js";
-import { buildTool, type RuntimeTool } from "../Tool.js";
+import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
+import type { AgentConfig } from "../../contracts/agent-config.js";
+import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
 
 interface RequestUserInputToolDeps {
   pendingInteractions: PendingInteractionService | null;
+  agent: AgentConfig;
 }
 
 const requestUserInputSchema = z.object({
@@ -23,7 +25,12 @@ const requestUserInputSchema = z.object({
   options: z.array(z.string()).optional(),
 }).strict();
 
-export function createRequestUserInputTools(deps: RequestUserInputToolDeps): RuntimeTool[] {
+export function createRequestUserInputTools(deps: RequestUserInputToolDeps): Tool[] {
+  // 可见性：pendingInteractions 不可用时无工具
+  if (!deps.pendingInteractions) {
+    return [];
+  }
+  const { agent } = deps;
   return [
     buildTool({
       name: REQUEST_USER_INPUT_TOOL_NAME,
@@ -55,39 +62,32 @@ export function createRequestUserInputTools(deps: RequestUserInputToolDeps): Run
         },
       },
       inputSchema: requestUserInputSchema,
-      isVisible: () => deps.pendingInteractions !== null,
-      call: async (input, context) => {
-        if (!deps.pendingInteractions) {
-          return errorResult("request_user_input 暂不可用", REQUEST_USER_INPUT_TOOL_NAME);
-        }
+      call: async (input, ctx: ToolExecContext) => {
         const prompt = readPrompt(input);
         if (!prompt) {
-          return errorResult("request_user_input 缺少 prompt", REQUEST_USER_INPUT_TOOL_NAME);
+          return toolError(REQUEST_USER_INPUT_TOOL_NAME, "request_user_input 缺少 prompt");
         }
-        const sessionId = context.sessionId?.trim();
+        const sessionId = ctx.sessionId?.trim();
         if (!sessionId) {
-          return errorResult("request_user_input 缺少 session_id", REQUEST_USER_INPUT_TOOL_NAME);
+          return toolError(REQUEST_USER_INPUT_TOOL_NAME, "request_user_input 缺少 session_id");
         }
         try {
-          const resolution = await deps.pendingInteractions.waitForUserInput({
+          const resolution = await deps.pendingInteractions!.waitForUserInput({
             sessionId,
-            runId: context.runId,
-            taskId: context.taskId,
-            requestId: context.requestId,
-            toolCallId: context.toolCallId,
-            agentName: context.currentAgentName ?? context.agent?.agent_name ?? null,
+            runId: ctx.runId,
+            taskId: ctx.taskId,
+            requestId: ctx.requestId,
+            toolCallId: ctx.toolCallId,
+            agentName: ctx.currentAgentName ?? agent.agent_name,
             prompt,
             inputType: readInputType(input),
             options: readOptions(input),
-            signal: context.signal,
+            signal: ctx.signal,
           });
-          return {
-            success: true,
-            tool_name: REQUEST_USER_INPUT_TOOL_NAME,
+          return toolSuccess(resolution.value, {
+            toolName: REQUEST_USER_INPUT_TOOL_NAME,
             summary: "用户输入已接收",
-            answer: null,
-            output_type: "text",
-            content: resolution.value,
+            outputType: "text",
             metadata: {
               input_id: resolution.inputId,
               input_type: readInputType(input),
@@ -95,13 +95,11 @@ export function createRequestUserInputTools(deps: RequestUserInputToolDeps): Run
               responded_at: resolution.respondedAt,
               degraded: false,
             },
-            artifacts: [],
-            llm_hint: null,
-          };
+          });
         } catch (error) {
-          return errorResult(
-            `request_user_input 失败: ${error instanceof Error ? error.message : String(error)}`,
+          return toolError(
             REQUEST_USER_INPUT_TOOL_NAME,
+            `request_user_input 失败: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
       },

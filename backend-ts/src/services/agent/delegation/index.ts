@@ -6,8 +6,13 @@ import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { ChildAgentInfo, IChildAgentStore, IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { RuntimeExecutionConfigResolver } from "../execution/runtime-core-service.js";
-import type { RuntimeToolExecutionContext, ToolExecutionResult } from "../../runtime/runtime-tool-types.js";
-import type { DelegationPort, AgentDelegationInput, SendMessageInput, ListChildAgentsInput } from "./port.js";
+import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
+import type {
+  DelegationPort,
+  AgentDelegationCall,
+  SendMessageCall,
+  ListChildAgentsCall,
+} from "./port.js";
 import { publishAgentCallEnd, publishAgentCallStart } from "./events.js";
 import {
   applyWorkspaceOverride,
@@ -43,19 +48,16 @@ export class AgentDelegationService implements DelegationPort {
     this.eventPublisherProvider = provider;
   }
 
-  async callAgent(input: AgentDelegationInput, context: RuntimeToolExecutionContext): Promise<ToolExecutionResult> {
+  async callAgent(call: AgentDelegationCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
+    const { agent: parentAgent, teamName, input } = call;
     const toolName = "call_agent";
-    const parentAgent = context.agent;
-    const sessionId = normalizeString(context.sessionId);
+    const sessionId = normalizeString(ctx.sessionId);
     const targetAgentName = normalizeString(input.agentName);
     const task = normalizeString(input.task);
     const parentCallId = normalizeString(input.callId);
     const agentCallId = `call_${randomUUID()}`;
     if (!sessionId) {
       return errorResult("call_agent 缺少 session_id", toolName);
-    }
-    if (!parentAgent) {
-      return errorResult("当前上下文缺少父 Agent 配置", toolName);
     }
     if (!targetAgentName) {
       return errorResult("call_agent 缺少 agent_name", toolName);
@@ -84,20 +86,20 @@ export class AgentDelegationService implements DelegationPort {
       agentName: targetAgentName,
       threadKey,
       createdSeq,
-      createdByRunId: normalizeString(context.runId),
+      createdByRunId: normalizeString(ctx.runId),
       createdByCallId: agentCallId,
-      parentRunId: normalizeString(context.runId),
+      parentRunId: normalizeString(ctx.runId),
       parentCallId,
-      metadata: buildChildMetadata(context, threadKey, "call_agent"),
+      metadata: buildChildMetadata(ctx, threadKey, "call_agent"),
     });
 
-    const childDisplayName = this.resolveChildDisplayName(targetAgentName, normalizeString(context.teamName));
+    const childDisplayName = this.resolveChildDisplayName(targetAgentName, normalizeString(teamName));
     publishAgentCallStart(this.clientEvents, {
       sessionId,
-      parentRunId: normalizeString(context.runId),
+      parentRunId: normalizeString(ctx.runId),
       parentAgentName: parentAgent.agent_name,
       parentCallId,
-      rootParentCallId: normalizeString(context.parentCallId),
+      rootParentCallId: normalizeString(ctx.parentCallId),
       agentCallId,
       agentName: targetAgentName,
       childDisplayName,
@@ -110,24 +112,24 @@ export class AgentDelegationService implements DelegationPort {
       sessionId,
       agentName: targetAgentName,
       task: buildDelegatedTask(task, input.contextHint),
-      requestId: normalizeString(context.requestId),
-      parentRunId: normalizeString(context.runId),
+      requestId: normalizeString(ctx.requestId),
+      parentRunId: normalizeString(ctx.runId),
       parentCallId: agentCallId,
-      rootParentCallId: normalizeString(context.parentCallId),
-      round: context.round ?? null,
+      rootParentCallId: normalizeString(ctx.parentCallId),
+      round: ctx.round ?? null,
       childAgent: child,
       entrypoint: "call_agent",
       source: "agent_call",
-      signal: context.signal,
-      teamName: normalizeString(context.teamName),
-      workspaceRoot: getChildWorkspaceRoot(child, context),
+      signal: ctx.signal,
+      teamName: normalizeString(teamName),
+      workspaceRoot: getChildWorkspaceRoot(child, ctx),
     });
     publishAgentCallEnd(this.clientEvents, {
       sessionId,
-      parentRunId: normalizeString(context.runId),
+      parentRunId: normalizeString(ctx.runId),
       parentAgentName: parentAgent.agent_name,
       parentCallId,
-      rootParentCallId: normalizeString(context.parentCallId),
+      rootParentCallId: normalizeString(ctx.parentCallId),
       agentCallId,
       agentName: targetAgentName,
       childDisplayName,
@@ -145,9 +147,10 @@ export class AgentDelegationService implements DelegationPort {
     });
   }
 
-  async sendMessage(input: SendMessageInput, context: RuntimeToolExecutionContext): Promise<ToolExecutionResult> {
+  async sendMessage(call: SendMessageCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
+    const { agent: parentAgent, teamName, input } = call;
     const toolName = "send_message";
-    const sessionId = normalizeString(context.sessionId);
+    const sessionId = normalizeString(ctx.sessionId);
     const childAgentId = normalizeString(input.childAgentId);
     const message = normalizeString(input.message);
     const parentCallId = normalizeString(input.callId);
@@ -169,13 +172,13 @@ export class AgentDelegationService implements DelegationPort {
       return errorResult(`子 Agent '${childAgentId}' 当前不可用`, toolName);
     }
 
-    const childDisplayName = this.resolveChildDisplayName(child.agent_name, normalizeString(context.teamName));
+    const childDisplayName = this.resolveChildDisplayName(child.agent_name, normalizeString(teamName));
     publishAgentCallStart(this.clientEvents, {
       sessionId,
-      parentRunId: normalizeString(context.runId),
-      parentAgentName: context.agent?.agent_name ?? normalizeString(context.currentAgentName) ?? "send_message",
+      parentRunId: normalizeString(ctx.runId),
+      parentAgentName: parentAgent.agent_name,
       parentCallId,
-      rootParentCallId: normalizeString(context.parentCallId),
+      rootParentCallId: normalizeString(ctx.parentCallId),
       agentCallId,
       agentName: child.agent_name,
       childDisplayName,
@@ -188,24 +191,24 @@ export class AgentDelegationService implements DelegationPort {
       sessionId,
       agentName: child.agent_name,
       task: message,
-      requestId: normalizeString(context.requestId),
-      parentRunId: normalizeString(context.runId),
+      requestId: normalizeString(ctx.requestId),
+      parentRunId: normalizeString(ctx.runId),
       parentCallId: agentCallId,
-      rootParentCallId: normalizeString(context.parentCallId),
-      round: context.round ?? null,
+      rootParentCallId: normalizeString(ctx.parentCallId),
+      round: ctx.round ?? null,
       childAgent: child,
       entrypoint: "send_message",
       source: "agent_call",
-      signal: context.signal,
-      teamName: normalizeString(context.teamName),
-      workspaceRoot: getChildWorkspaceRoot(child, context),
+      signal: ctx.signal,
+      teamName: normalizeString(teamName),
+      workspaceRoot: getChildWorkspaceRoot(child, ctx),
     });
     publishAgentCallEnd(this.clientEvents, {
       sessionId,
-      parentRunId: normalizeString(context.runId),
-      parentAgentName: context.agent?.agent_name ?? normalizeString(context.currentAgentName) ?? "send_message",
+      parentRunId: normalizeString(ctx.runId),
+      parentAgentName: parentAgent.agent_name,
       parentCallId,
-      rootParentCallId: normalizeString(context.parentCallId),
+      rootParentCallId: normalizeString(ctx.parentCallId),
       agentCallId,
       agentName: child.agent_name,
       childDisplayName,
@@ -223,8 +226,9 @@ export class AgentDelegationService implements DelegationPort {
     });
   }
 
-  listChildAgents(input: ListChildAgentsInput, context: RuntimeToolExecutionContext): ToolExecutionResult {
-    const sessionId = normalizeString(context.sessionId);
+  listChildAgents(call: ListChildAgentsCall, ctx: ToolExecContext): ToolExecutionResult {
+    const { input } = call;
+    const sessionId = normalizeString(ctx.sessionId);
     if (!sessionId) {
       return errorResult("list_child_agents 缺少 session_id", "list_child_agents");
     }

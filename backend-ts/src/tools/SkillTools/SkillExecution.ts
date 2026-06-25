@@ -10,7 +10,7 @@ import type { AgentConfigService } from "../../services/agent/config/index.js";
 import type { ArtifactService } from "../../services/artifacts/artifact-service.js";
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import type { ClientEventPublisher } from "../../services/runtime/event-outbox/client-event-publisher.js";
-import type { RuntimeToolExecutionContext, ToolExecutionResult } from "../../services/runtime/runtime-tool-types.js";
+import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
 
 type SkillSourceType = "workspace" | "user_global" | "builtin";
 
@@ -114,10 +114,10 @@ export class SkillToolService {
     return this.resolveVisibleSkills(agent, workspaceRoot ?? resolveAgentWorkspaceRoot(agent)).length > 0;
   }
 
-  getSkillInfo(input: SkillToolInput, context: RuntimeToolExecutionContext): ToolExecutionResult {
+  getSkillInfo(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null): ToolExecutionResult {
     const toolName = "get_skill_info";
-    const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context);
-    const skill = this.findVisibleSkill(input.skillName, context, workspaceRoot);
+    const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context, agent);
+    const skill = this.findVisibleSkill(input.skillName, agent, context, workspaceRoot);
     if (!skill) {
       return errorResult(`Skill '${input.skillName}' 不存在或当前 Agent 无权使用`, toolName, {
         available_skills: this.loadAllSkills(workspaceRoot).map((item) => item.name),
@@ -144,10 +144,10 @@ export class SkillToolService {
     );
   }
 
-  activateSkill(input: SkillToolInput, context: RuntimeToolExecutionContext): ToolExecutionResult {
+  activateSkill(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null): ToolExecutionResult {
     const toolName = "activate_skill";
-    const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context);
-    const skill = this.findVisibleSkill(input.skillName, context, workspaceRoot);
+    const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context, agent);
+    const skill = this.findVisibleSkill(input.skillName, agent, context, workspaceRoot);
     if (!skill) {
       return errorResult(
         `Skill '${input.skillName}' 不存在或当前 Agent 无权使用。可用的 Skills: ${JSON.stringify(this.loadAllSkills(workspaceRoot).map((item) => item.name))}`,
@@ -175,14 +175,14 @@ export class SkillToolService {
     );
   }
 
-  loadSkillResource(input: SkillToolInput, context: RuntimeToolExecutionContext): ToolExecutionResult {
+  loadSkillResource(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null): ToolExecutionResult {
     const toolName = "load_skill_resource";
     const resourceFile = input.resourceFile?.trim();
     if (!resourceFile) {
       return errorResult("resource_file 不能为空", toolName);
     }
-    const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context);
-    const skill = this.findVisibleSkill(input.skillName, context, workspaceRoot);
+    const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context, agent);
+    const skill = this.findVisibleSkill(input.skillName, agent, context, workspaceRoot);
     if (!skill) {
       return errorResult(`Skill '${input.skillName}' 不存在或当前 Agent 无权使用`, toolName);
     }
@@ -212,14 +212,14 @@ export class SkillToolService {
     );
   }
 
-  async executeSkillScript(input: SkillToolInput, context: RuntimeToolExecutionContext): Promise<ToolExecutionResult> {
+  async executeSkillScript(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null): Promise<ToolExecutionResult> {
     const toolName = "execute_skill_script";
     const scriptName = input.scriptName?.trim();
     if (!scriptName) {
       return errorResult("script_name 不能为空", toolName);
     }
-    const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context);
-    const skill = this.findVisibleSkill(input.skillName, context, workspaceRoot);
+    const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context, agent);
+    const skill = this.findVisibleSkill(input.skillName, agent, context, workspaceRoot);
     if (!skill) {
       return errorResult(`Skill '${input.skillName}' 不存在或当前 Agent 无权使用`, toolName);
     }
@@ -231,7 +231,7 @@ export class SkillToolService {
     if (!isPathUnder(scriptPath, scriptsDir) || !fs.existsSync(scriptPath) || !fs.statSync(scriptPath).isFile()) {
       return errorResult(`脚本不存在: ${scriptName}`, toolName);
     }
-    if (input.runInBackground && !context.agent?.tasks?.background) {
+    if (input.runInBackground && !agent?.tasks?.background) {
       return errorResult("当前 Agent 未启用 tasks.background，不能使用 run_in_background 后台执行", toolName, {
         skill: skill.name,
         script_name: scriptName,
@@ -239,7 +239,7 @@ export class SkillToolService {
       });
     }
     if (input.runInBackground) {
-      return this.executeSkillScriptInBackground(skill, scriptPath, scriptName, input.arguments ?? [], context);
+      return this.executeSkillScriptInBackground(skill, scriptPath, scriptName, input.arguments ?? [], context, agent);
     }
 
     const scriptResult = await this.runScript(skill, scriptPath, input.arguments ?? [], context);
@@ -302,9 +302,9 @@ export class SkillToolService {
     return this.loadAllSkills(workspaceRoot).find((skill) => skill.name === normalized) ?? null;
   }
 
-  private findVisibleSkill(skillName: string, context: RuntimeToolExecutionContext, workspaceRoot?: string | null): SkillInfo | null {
+  private findVisibleSkill(skillName: string, agent: AgentConfig | null, context: ToolExecContext, workspaceRoot?: string | null): SkillInfo | null {
     const normalized = skillName.trim();
-    return this.resolveVisibleSkills(context.agent, workspaceRoot ?? resolveWorkspaceRoot(context)).find((skill) => skill.name === normalized) ?? null;
+    return this.resolveVisibleSkills(agent, workspaceRoot ?? resolveWorkspaceRoot(context, agent)).find((skill) => skill.name === normalized) ?? null;
   }
 
   private resolveVisibleSkills(agent: AgentConfig | null, workspaceRoot?: string | null): SkillInfo[] {
@@ -339,7 +339,7 @@ export class SkillToolService {
     skill: SkillInfo,
     scriptPath: string,
     args: string[],
-    context: RuntimeToolExecutionContext,
+    context: ToolExecContext,
   ): Promise<{ stdout: string; stderr: string; returnCode: number }> {
     const environment = await this.ensureSkillEnvironment(skill);
     if ("error" in environment) {
@@ -387,7 +387,8 @@ export class SkillToolService {
     scriptPath: string,
     scriptName: string,
     args: string[],
-    context: RuntimeToolExecutionContext,
+    context: ToolExecContext,
+    agent: AgentConfig | null,
   ): ToolExecutionResult {
     const toolName = "execute_skill_script";
     if (!this.backgroundTasks) {
@@ -415,7 +416,7 @@ export class SkillToolService {
       kind: "callable",
       resultType: "tool_execution_result",
       clientEvents: this.clientEvents,
-      run: () => this.executeSkillScript({ skillName: skill.name, scriptName, arguments: args, runInBackground: false }, context),
+      run: () => this.executeSkillScript({ skillName: skill.name, scriptName, arguments: args, runInBackground: false }, context, agent),
     });
     return successResult(
       {
@@ -451,7 +452,7 @@ export class SkillToolService {
     scriptName: string,
     skillName: string,
     metadata: Record<string, unknown>,
-    context: RuntimeToolExecutionContext,
+    context: ToolExecContext,
   ): ToolExecutionResult {
     let payload = rawPayload;
     let rawArtifact: unknown = null;
@@ -559,7 +560,7 @@ export class SkillToolService {
     }
   }
 
-  private applyArtifactProtocol(rawArtifact: unknown, context: RuntimeToolExecutionContext): { info: { artifact_id: string; viz_type: string; title: string; version: number } } | { error: string } {
+  private applyArtifactProtocol(rawArtifact: unknown, context: ToolExecContext): { info: { artifact_id: string; viz_type: string; title: string; version: number } } | { error: string } {
     if (!isRecord(rawArtifact)) {
       return { error: "artifact 字段必须是对象" };
     }
@@ -801,17 +802,17 @@ function successResult<T>(
     toolName: string;
     llmHint?: string | null;
   },
-): ToolExecutionResult<T> {
+): ToolExecutionResult {
   return {
     success: true,
-    tool_name: input.toolName,
+    toolName: input.toolName,
     summary: input.summary,
     answer: null,
-    output_type: input.outputType,
+    outputType: input.outputType,
     content,
     metadata: input.metadata,
     artifacts: [],
-    llm_hint: input.llmHint ?? null,
+    llmHint: input.llmHint ?? null,
   };
 }
 
@@ -819,20 +820,20 @@ function errorResult(
   message: string,
   toolName: string,
   metadata: Record<string, unknown> = {},
-): ToolExecutionResult<string> {
+): ToolExecutionResult {
   return {
     success: false,
-    tool_name: toolName,
+    toolName,
     summary: message,
     answer: null,
-    output_type: "error",
+    outputType: "error",
     content: message,
     metadata: {
       source_shape: "error",
       ...metadata,
     },
     artifacts: [],
-    llm_hint: null,
+    llmHint: null,
   };
 }
 
@@ -934,8 +935,8 @@ function spawnProcess(
   });
 }
 
-function resolveWorkspaceRoot(context: RuntimeToolExecutionContext): string | null {
-  return normalizeString(context.workspaceRoot) ?? resolveAgentWorkspaceRoot(context.agent);
+function resolveWorkspaceRoot(context: ToolExecContext, agent: AgentConfig | null): string | null {
+  return normalizeString(context.workspaceRoot) ?? resolveAgentWorkspaceRoot(agent);
 }
 
 function resolveAgentWorkspaceRoot(agent: AgentConfig | null): string | null {

@@ -3,16 +3,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type {
-  RuntimeToolCall,
-  RuntimeToolExecutionContext,
-  RuntimeToolExecutor,
-  ToolExecutionResult,
-} from "../../services/runtime/runtime-tool-types.js";
+import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
 
 const DEFAULT_TIMEOUT_SECONDS = 60;
 const MAX_TIMEOUT_SECONDS = 300;
 const DISPLAY_PATH_PREFIX = "./data/";
+
+/** 工具互调回调——execute_code 沙箱内 call_tool 用。runtime-adapter per-run 注入。 */
+export type ToolCaller = (
+  toolName: string,
+  args: Record<string, unknown>,
+  ctx: ToolExecContext,
+) => Promise<ToolExecutionResult>;
 
 export interface CodeExecutionInput {
   code: string;
@@ -24,7 +26,7 @@ export class CodeExecutionToolService {
   private readonly dataRoot: string;
   private readonly defaultTimeoutSeconds: number;
   private readonly maxTimeoutSeconds: number;
-  private runtimeTools: RuntimeToolExecutor | null = null;
+  private toolCaller: ToolCaller | null = null;
 
   constructor(options: {
     dataRoot?: string | undefined;
@@ -43,11 +45,11 @@ export class CodeExecutionToolService {
     return Math.max(1, Math.min(this.maxTimeoutSeconds, value));
   }
 
-  setRuntimeTools(runtimeTools: RuntimeToolExecutor | null): void {
-    this.runtimeTools = runtimeTools;
+  setToolCaller(caller: ToolCaller | null): void {
+    this.toolCaller = caller;
   }
 
-  async executeCode(input: CodeExecutionInput, context: RuntimeToolExecutionContext): Promise<ToolExecutionResult> {
+  async executeCode(input: CodeExecutionInput, context: ToolExecContext): Promise<ToolExecutionResult> {
     const toolName = "execute_code";
     const code = input.code;
     if (!code.trim()) {
@@ -136,10 +138,10 @@ export class CodeExecutionToolService {
       const executionTime = (Date.now() - startedAt) / 1000;
       return {
         success: true,
-        tool_name: toolName,
+        toolName,
         summary: `代码执行成功，工具调用 ${parsed.tool_calls_count ?? 0} 次`,
         answer: null,
-        output_type: typeof parsed.result === "string" ? "text" : "json",
+        outputType: typeof parsed.result === "string" ? "text" : "json",
         content: parsed.result,
         metadata: {
           stdout: parsed.stdout ?? "",
@@ -149,7 +151,7 @@ export class CodeExecutionToolService {
           classification: classifyCodeRisk(code),
         },
         artifacts: [],
-        llm_hint: null,
+        llmHint: null,
       };
     } finally {
       clearTimeout(timer);
@@ -163,21 +165,12 @@ export class CodeExecutionToolService {
   async callCodeCallableTool(
     toolName: string,
     args: Record<string, unknown>,
-    context: RuntimeToolExecutionContext,
+    context: ToolExecContext,
   ): Promise<unknown> {
-    if (!this.runtimeTools) {
-      throw new Error("execute_code 当前缺少工具调用桥");
+    if (!this.toolCaller) {
+      throw new Error("execute_code 当前缺少工具调用回调");
     }
-    const result = await this.runtimeTools.executeTool(
-      {
-        toolName,
-        arguments: args,
-      },
-      {
-        ...context,
-        caller: "code_execution",
-      },
-    );
+    const result = await this.toolCaller(toolName, args, context);
     if (!result.success) {
       throw new Error(result.summary || String(result.content ?? "tool failed"));
     }
@@ -187,7 +180,7 @@ export class CodeExecutionToolService {
   private async handleProtocolMessage(
     message: Record<string, unknown>,
     child: ReturnType<typeof spawn>,
-    context: RuntimeToolExecutionContext,
+    context: ToolExecContext,
   ): Promise<void> {
     if (message.type !== "tool_call") {
       return;
@@ -211,10 +204,10 @@ export class CodeExecutionToolService {
     }
   }
 
-  private buildRoots(context: RuntimeToolExecutionContext): Record<string, string> {
+  private buildRoots(context: ToolExecContext): Record<string, string> {
     const sessionId = normalizeString(context.sessionId) ?? "anonymous";
     const runId = normalizeString(context.runId);
-    const workspaceRoot = normalizeString(context.workspaceRoot) ?? normalizeString(asRecord(context.agent?.custom_params)?.workspace_root);
+    const workspaceRoot = normalizeString(context.workspaceRoot);
     const sessionRoot = path.join(this.dataRoot, "sessions", sessionId);
     const exportsRoot = runId ? path.join(sessionRoot, "exports", runId) : path.join(sessionRoot, "exports");
     return {
@@ -353,20 +346,20 @@ function errorResult(
   message: string,
   toolName: string,
   metadata: Record<string, unknown> = {},
-): ToolExecutionResult<string> {
+): ToolExecutionResult {
   return {
     success: false,
-    tool_name: toolName,
+    toolName,
     summary: message,
     answer: null,
-    output_type: "error",
+    outputType: "error",
     content: message,
     metadata: {
       source_shape: "error",
       ...metadata,
     },
     artifacts: [],
-    llm_hint: null,
+    llmHint: null,
   };
 }
 

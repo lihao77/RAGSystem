@@ -1,6 +1,6 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { ChildAgentInfo } from "../../../contracts/conversation-store/index.js";
-import type { RuntimeToolExecutionContext } from "../../runtime/runtime-tool-types.js";
+import type { ToolExecContext } from "@ragsystem/agent-sdk";
 
 export function buildDelegatedTask(task: string, contextHint: string | null | undefined): string {
   const hint = normalizeString(contextHint);
@@ -11,7 +11,7 @@ export function buildDelegatedTask(task: string, contextHint: string | null | un
 }
 
 export function buildChildMetadata(
-  context: RuntimeToolExecutionContext,
+  context: ToolExecContext,
   threadKey: string,
   createdVia: "call_agent",
 ): Record<string, unknown> {
@@ -26,36 +26,8 @@ export function buildChildMetadata(
   };
 }
 
-export function getChildWorkspaceRoot(child: ChildAgentInfo, context: RuntimeToolExecutionContext): string | null {
+export function getChildWorkspaceRoot(child: ChildAgentInfo, context: ToolExecContext): string | null {
   return normalizeString(child.metadata.workspace_root) ?? normalizeString(context.workspaceRoot);
-}
-
-export function buildToolContext(
-  agent: AgentConfig,
-  input: {
-    sessionId: string;
-    runId: string;
-    taskId: string | null;
-    requestId: string | null;
-    sessionMetadata: Record<string, unknown>;
-    childAgent: ChildAgentInfo;
-    workspaceRoot: string | null;
-    parentCallId?: string | null | undefined;
-    signal?: AbortSignal | undefined;
-  },
-): RuntimeToolExecutionContext {
-  return {
-    agent,
-    sessionId: input.sessionId,
-    runId: input.runId,
-    taskId: input.taskId,
-    requestId: input.requestId,
-    currentAgentName: agent.agent_name,
-    parentCallId: input.parentCallId ?? null,
-    teamName: normalizeString(input.sessionMetadata.team),
-    workspaceRoot: input.workspaceRoot ?? normalizeString(input.sessionMetadata.workspace_root),
-    signal: input.signal,
-  };
 }
 
 export function applyWorkspaceOverride(agent: AgentConfig, workspaceRoot: string | null): AgentConfig {

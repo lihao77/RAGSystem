@@ -2,7 +2,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { RuntimeToolExecutionContext, ToolExecutionResult } from "../../services/runtime/runtime-tool-types.js";
+import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
+import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
+import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { IFileHistoryStore } from "../../contracts/file-history-store/index.js";
 import {
   buildDataStructurePreview,
@@ -33,14 +35,16 @@ export class LocalDocumentToolService {
       limit?: number | null;
       filePathSpace?: string | null;
     },
-    context: RuntimeToolExecutionContext,
-  ): ToolExecutionResult<string> {
+    context: ToolExecContext,
+    agent: AgentConfig,
+  ): ToolExecutionResult {
     const toolName = "read_file";
     try {
       const resolvedPath = this.pathManager.resolveManagedPath(input.filePath, {
         context,
         operation: "read",
         explicitSpace: input.filePathSpace ?? null,
+        customParams: agent.custom_params,
       });
       if (!fs.existsSync(resolvedPath)) {
         return errorResult(`文件不存在: ${input.filePath}`, toolName);
@@ -123,7 +127,8 @@ export class LocalDocumentToolService {
       mode?: string | null;
       filePathSpace?: string | null;
     },
-    context: RuntimeToolExecutionContext,
+    context: ToolExecContext,
+    agent: AgentConfig,
   ): ToolExecutionResult {
     const toolName = "write_file";
     try {
@@ -133,6 +138,7 @@ export class LocalDocumentToolService {
         operation: "write",
         explicitSpace: input.filePathSpace ?? null,
         suffix: mode === "json" ? ".json" : ".txt",
+        customParams: agent.custom_params,
       });
       fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
       const encoding = normalizeEncoding(input.encoding);
@@ -171,7 +177,8 @@ export class LocalDocumentToolService {
       replaceAll?: boolean | null;
       filePathSpace?: string | null;
     },
-    context: RuntimeToolExecutionContext,
+    context: ToolExecContext,
+    agent: AgentConfig,
   ): ToolExecutionResult {
     const toolName = "edit_file";
     try {
@@ -179,6 +186,7 @@ export class LocalDocumentToolService {
         context,
         operation: "edit",
         explicitSpace: input.filePathSpace ?? null,
+        customParams: agent.custom_params,
       });
       if (!fs.existsSync(resolvedPath)) {
         return errorResult(`文件不存在: ${input.filePath}`, toolName);
@@ -247,7 +255,8 @@ export class LocalDocumentToolService {
       maxFields?: number | null;
       filePathSpace?: string | null;
     },
-    context: RuntimeToolExecutionContext,
+    context: ToolExecContext,
+    agent: AgentConfig,
   ): ToolExecutionResult {
     const toolName = "preview_data_structure";
     try {
@@ -255,6 +264,7 @@ export class LocalDocumentToolService {
         context,
         operation: "read",
         explicitSpace: input.filePathSpace ?? null,
+        customParams: agent.custom_params,
       });
       if (!fs.existsSync(resolvedPath)) {
         return errorResult(`文件不存在: ${input.filePath}`, toolName);
@@ -312,7 +322,7 @@ export class LocalDocumentToolService {
   getExternalPathApprovalCandidates(
     toolName: string,
     args: Record<string, unknown> | undefined,
-    context: RuntimeToolExecutionContext,
+    context: ToolExecContext,
   ): string[] {
     return this.pathManager.getExternalPathApprovalCandidates(toolName, args, context);
   }
@@ -326,34 +336,12 @@ function successResult<T>(
     metadata: Record<string, unknown>;
     toolName: string;
   },
-): ToolExecutionResult<T> {
-  return {
-    success: true,
-    tool_name: input.toolName,
-    summary: input.summary,
-    answer: null,
-    output_type: input.outputType,
-    content,
-    metadata: input.metadata,
-    artifacts: [],
-    llm_hint: null,
-  };
+): ToolExecutionResult {
+  return toolSuccess(content, input);
 }
 
-function errorResult(message: string, toolName: string): ToolExecutionResult<string> {
-  return {
-    success: false,
-    tool_name: toolName,
-    summary: message,
-    answer: null,
-    output_type: "error",
-    content: message,
-    metadata: {
-      source_shape: "error",
-    },
-    artifacts: [],
-    llm_hint: null,
-  };
+function errorResult(message: string, toolName: string): ToolExecutionResult {
+  return toolError(toolName, message);
 }
 
 function splitPreservingLineEndings(content: string): string[] {

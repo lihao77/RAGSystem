@@ -1,5 +1,5 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
-import type { RuntimeToolDefinition } from "../../runtime/runtime-tool-types.js";
+import type { RuntimeToolDefinition } from "@ragsystem/agent-sdk";
 
 export interface AgentPromptSkill {
   name: string;

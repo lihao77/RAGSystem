@@ -1,13 +1,20 @@
 import { z } from "zod";
 
+import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
+import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { CodeExecutionToolService } from "./CodeExecution.js";
 import { readCodeExecutionArguments } from "../../services/runtime/runtime-tool-bridge/arguments.js";
 import { EXECUTE_CODE_TOOL_NAME } from "../../services/runtime/runtime-tool-bridge/registry.js";
-import { buildTool, type RuntimeTool } from "../Tool.js";
 import { optionalInteger, optionalString } from "../schema-helpers.js";
 
 interface CodeExecutionToolDeps {
   codeExecutionTools: CodeExecutionToolService | null;
+  agent: AgentConfig;
+}
+
+function resolveWorkspaceRoot(agent: AgentConfig): string | null {
+  const value = agent.custom_params?.workspace_root;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 const executeCodeSchema = z.object({
@@ -16,11 +23,17 @@ const executeCodeSchema = z.object({
   timeout: optionalInteger,
 }).strict();
 
-export function createCodeExecutionTools(deps: CodeExecutionToolDeps): RuntimeTool[] {
+export function createCodeExecutionTools(deps: CodeExecutionToolDeps): Tool[] {
   const codeExecutionTools = deps.codeExecutionTools;
+  const agent = deps.agent;
   if (!codeExecutionTools) {
     return [];
   }
+  const enabled = new Set(agent.tools?.enabled_tools ?? []);
+  if (!enabled.has(EXECUTE_CODE_TOOL_NAME)) {
+    return [];
+  }
+  const agentWorkspaceRoot = resolveWorkspaceRoot(agent);
   return [
     buildTool({
       name: EXECUTE_CODE_TOOL_NAME,
@@ -59,7 +72,11 @@ export function createCodeExecutionTools(deps: CodeExecutionToolDeps): RuntimeTo
       },
       inputSchema: executeCodeSchema,
       isConcurrencySafe: () => false,
-      call: (input, context) => codeExecutionTools.executeCode(readCodeExecutionArguments(input), context),
+      call: (input, ctx: ToolExecContext) =>
+        codeExecutionTools.executeCode(readCodeExecutionArguments(input), {
+          ...ctx,
+          workspaceRoot: ctx.workspaceRoot ?? agentWorkspaceRoot,
+        }),
     }),
   ];
 }

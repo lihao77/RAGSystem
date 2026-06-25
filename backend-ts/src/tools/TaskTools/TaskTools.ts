@@ -16,12 +16,19 @@ import {
   TASK_STOP_TOOL_NAME,
   TASK_UPDATE_TOOL_NAME,
 } from "../../services/runtime/runtime-tool-bridge/registry.js";
-import type { RuntimeToolDefinition } from "../../services/runtime/runtime-tool-types.js";
-import { buildTool, type RuntimeTool } from "../Tool.js";
+import {
+  buildTool,
+  type Tool,
+  type ToolExecContext,
+  type ToolPermissionResult,
+  type RuntimeToolDefinition,
+} from "@ragsystem/agent-sdk";
 import { metadataFrom, nullableStringArray, optionalBoolean, optionalInteger, optionalRecord, optionalString } from "../schema-helpers.js";
+import type { AgentConfig } from "../../contracts/agent-config.js";
 
 interface TaskToolDeps {
   taskTools: TaskToolService | null;
+  agent: AgentConfig;
 }
 
 const taskCreateSchema = z.object({
@@ -176,56 +183,68 @@ const TASK_STOP_TOOL: RuntimeToolDefinition = {
   },
 };
 
-export function createTaskTools(deps: TaskToolDeps): RuntimeTool[] {
+export function createTaskTools(deps: TaskToolDeps): Tool[] {
   const taskTools = deps.taskTools;
+  const agent = deps.agent;
   if (!taskTools) {
     return [];
   }
   const workflowDefinitions = new Map(TASK_WORKFLOW_TOOLS.map((definition) => [definition.name, definition]));
-  return [
-    buildTool({
-      ...metadataFrom(workflowDefinitions.get(TASK_CREATE_TOOL_NAME)!),
-      inputSchema: taskCreateSchema,
-      isVisible: (agent) => agent?.tasks.workflow === true,
-      call: (input, context) => taskTools.taskCreate(readTaskCreateArguments(input), context),
-    }),
-    buildTool({
-      ...metadataFrom(workflowDefinitions.get(TASK_GET_TOOL_NAME)!),
-      inputSchema: taskGetSchema,
-      isVisible: (agent) => agent?.tasks.workflow === true,
-      isReadOnly: () => true,
-      isConcurrencySafe: () => true,
-      call: (input, context) => taskTools.taskGet(readTaskGetArguments(input), context),
-    }),
-    buildTool({
-      ...metadataFrom(workflowDefinitions.get(TASK_UPDATE_TOOL_NAME)!),
-      inputSchema: taskUpdateSchema,
-      isVisible: (agent) => agent?.tasks.workflow === true,
-      call: (input, context) => taskTools.taskUpdate(readTaskUpdateArguments(input), context),
-    }),
-    buildTool({
-      ...metadataFrom(workflowDefinitions.get(TASK_LIST_TOOL_NAME)!),
-      inputSchema: taskListSchema,
-      isVisible: (agent) => agent?.tasks.workflow === true,
-      isReadOnly: () => true,
-      isConcurrencySafe: () => true,
-      call: (_input, context) => taskTools.taskList(context),
-    }),
-    buildTool({
-      ...metadataFrom(TASK_OUTPUT_TOOL),
-      inputSchema: taskOutputSchema,
-      isVisible: (agent) => agent?.tasks.background === true || new Set(agent?.tools.enabled_tools ?? []).has(TASK_OUTPUT_TOOL_NAME),
-      isReadOnly: () => true,
-      isConcurrencySafe: () => false,
-      call: (input) => taskTools.taskOutput(readTaskOutputArguments(input)),
-    }),
-    buildTool({
-      ...metadataFrom(TASK_STOP_TOOL),
-      inputSchema: taskStopSchema,
-      isVisible: (agent) => agent?.tasks.background === true,
-      call: (input) => taskTools.taskStop(readTaskStopArguments(input)),
-    }),
-  ];
+  const enabledTools = new Set(agent.tools?.enabled_tools ?? []);
+  const tools: Tool[] = [];
+
+  if (agent.tasks?.workflow === true) {
+    tools.push(
+      buildTool({
+        ...metadataFrom(workflowDefinitions.get(TASK_CREATE_TOOL_NAME)!),
+        inputSchema: taskCreateSchema,
+        call: (input, ctx: ToolExecContext) => taskTools.taskCreate(readTaskCreateArguments(input), ctx),
+      }),
+      buildTool({
+        ...metadataFrom(workflowDefinitions.get(TASK_GET_TOOL_NAME)!),
+        inputSchema: taskGetSchema,
+        isReadOnly: () => true,
+        isConcurrencySafe: () => true,
+        call: (input, ctx: ToolExecContext) => taskTools.taskGet(readTaskGetArguments(input), ctx),
+      }),
+      buildTool({
+        ...metadataFrom(workflowDefinitions.get(TASK_UPDATE_TOOL_NAME)!),
+        inputSchema: taskUpdateSchema,
+        call: (input, ctx: ToolExecContext) => taskTools.taskUpdate(readTaskUpdateArguments(input), ctx),
+      }),
+      buildTool({
+        ...metadataFrom(workflowDefinitions.get(TASK_LIST_TOOL_NAME)!),
+        inputSchema: taskListSchema,
+        isReadOnly: () => true,
+        isConcurrencySafe: () => true,
+        call: (_input, ctx: ToolExecContext) => taskTools.taskList(ctx),
+      }),
+    );
+  }
+
+  if (agent.tasks?.background === true || enabledTools.has(TASK_OUTPUT_TOOL_NAME)) {
+    tools.push(
+      buildTool({
+        ...metadataFrom(TASK_OUTPUT_TOOL),
+        inputSchema: taskOutputSchema,
+        isReadOnly: () => true,
+        isConcurrencySafe: () => false,
+        call: (input) => taskTools.taskOutput(readTaskOutputArguments(input)),
+      }),
+    );
+  }
+
+  if (agent.tasks?.background === true) {
+    tools.push(
+      buildTool({
+        ...metadataFrom(TASK_STOP_TOOL),
+        inputSchema: taskStopSchema,
+        call: (input) => taskTools.taskStop(readTaskStopArguments(input)),
+      }),
+    );
+  }
+
+  return tools;
 }
 
 export { TASK_OUTPUT_TOOL_NAME, TASK_STOP_TOOL_NAME };

@@ -14,7 +14,9 @@ import {
   type CommandCategory,
 } from "./command-policy.js";
 import { BashPathResolver } from "./paths.js";
-import type { RuntimeToolExecutionContext, ToolExecutionResult } from "../../services/runtime/runtime-tool-types.js";
+import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
+import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
+import type { AgentConfig } from "../../contracts/agent-config.js";
 import { throwIfAborted } from "@ragsystem/agent-protocol";
 
 const TOOL_NAME = "execute_bash";
@@ -50,7 +52,7 @@ export interface BashExecutionPlan {
 
 export type BashExecutionPlanResult =
   | { ok: true; plan: BashExecutionPlan }
-  | { ok: false; result: ToolExecutionResult<string> };
+  | { ok: false; result: ToolExecutionResult };
 
 interface ForegroundResult {
   stdout: string;
@@ -88,12 +90,12 @@ export class LocalBashToolService {
     this.paths = new BashPathResolver(this.dataRoot);
   }
 
-  prepareExecution(input: BashExecutionInput, context: RuntimeToolExecutionContext): BashExecutionPlanResult {
+  prepareExecution(input: BashExecutionInput, context: ToolExecContext, agent: AgentConfig | null): BashExecutionPlanResult {
     const command = normalizeString(input.command);
     if (!command) {
       return { ok: false, result: errorResult("execute_bash 缺少 command", { command: "" }) };
     }
-    if (input.runInBackground && !context.agent?.tasks?.background) {
+    if (input.runInBackground && !agent?.tasks?.background) {
       return {
         ok: false,
         result: errorResult("当前 Agent 未启用 tasks.background，不能使用 run_in_background 后台执行", {
@@ -179,11 +181,11 @@ export class LocalBashToolService {
     };
   }
 
-  getExternalPathApprovalCandidates(input: BashExecutionInput, context: RuntimeToolExecutionContext): string[] {
+  getExternalPathApprovalCandidates(input: BashExecutionInput, context: ToolExecContext): string[] {
     return this.paths.getExternalPathApprovalCandidates(input.workingDir, context);
   }
 
-  async executePlan(plan: BashExecutionPlan, context: RuntimeToolExecutionContext): Promise<ToolExecutionResult> {
+  async executePlan(plan: BashExecutionPlan, context: ToolExecContext): Promise<ToolExecutionResult> {
     throwIfAborted(context.signal, "Bash execution aborted");
     if (plan.runInBackground) {
       return this.executeBackgroundPlan(plan, context);
@@ -232,7 +234,7 @@ export class LocalBashToolService {
     }
   }
 
-  private executeBackgroundPlan(plan: BashExecutionPlan, context: RuntimeToolExecutionContext): ToolExecutionResult {
+  private executeBackgroundPlan(plan: BashExecutionPlan, context: ToolExecContext): ToolExecutionResult {
     throwIfAborted(context.signal, "Bash execution aborted");
     if (!this.backgroundTasks) {
       return errorResult("execute_bash 后台执行暂不可用", {
@@ -380,35 +382,12 @@ function successResult<T>(
     outputType: string;
     metadata: Record<string, unknown>;
   },
-): ToolExecutionResult<T> {
-  return {
-    success: true,
-    tool_name: TOOL_NAME,
-    summary: input.summary,
-    answer: null,
-    output_type: input.outputType,
-    content,
-    metadata: input.metadata,
-    artifacts: [],
-    llm_hint: null,
-  };
+): ToolExecutionResult {
+  return toolSuccess(content, { toolName: TOOL_NAME, summary: input.summary, outputType: input.outputType, metadata: input.metadata });
 }
 
-function errorResult(message: string, metadata: Record<string, unknown> = {}): ToolExecutionResult<string> {
-  return {
-    success: false,
-    tool_name: TOOL_NAME,
-    summary: message,
-    answer: null,
-    output_type: "error",
-    content: message,
-    metadata: {
-      source_shape: "error",
-      ...metadata,
-    },
-    artifacts: [],
-    llm_hint: null,
-  };
+function errorResult(message: string, metadata: Record<string, unknown> = {}): ToolExecutionResult {
+  return toolError(TOOL_NAME, message, metadata);
 }
 
 function findBashExecutable(): string | null {

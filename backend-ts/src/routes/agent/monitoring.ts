@@ -5,7 +5,8 @@ import { ok } from "../../contracts/common.js";
 import type { OutboxStatus } from "../../contracts/conversation-store/index.js";
 import { resolveContextCompressionSettings } from "../../services/agent/context-compression/index.js";
 import { buildAgentPromptContext, buildFullSystemPrompt } from "../../services/agent/prompt-builder/index.js";
-import { resolveToolInstructionMode, renderXmlModelMessage, renderNativeModelMessage } from "@ragsystem/agent-sdk";
+import { resolveToolInstructionMode, renderXmlModelMessage, renderNativeModelMessage, toolToDefinition } from "@ragsystem/agent-sdk";
+import { createBackendTools } from "../../tools/registry.js";
 import type { ChatMessage as SdkChatMessage, ProviderConfig } from "@ragsystem/agent-llm";
 import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
 import { resolveHistoryView } from "../../services/agent/context-builder/index.js";
@@ -117,9 +118,14 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     }
 
     const agent = applySessionAgentOverrides(resolved.agent, sessionMetadata);
+    const toolDefs = createBackendTools({
+      ...options.container.toolsDeps,
+      agent,
+      ...(normalizeString(sessionMetadata.team) ? { teamName: normalizeString(sessionMetadata.team) } : {}),
+    }).map(toolToDefinition);
     const promptContext = buildAgentPromptContext({
       agent,
-      toolExecutor: options.container.runtimeToolBridge,
+      tools: toolDefs,
       configResolver: options.container.agentConfig,
       teamName: normalizeString(sessionMetadata.team),
     });
@@ -169,9 +175,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
         model: resolved.modelName ?? agent.llm_tiers?.default?.model_name ?? "",
         ...(query.selected_llm ? { llm_override: parseSelectedLlmForSnapshot(query.selected_llm) } : {}),
       },
-      available_tools: options.container.runtimeToolBridge
-        .listVisibleTools(agent)
-        .map((tool) => ({ name: tool.name, description: tool.description })),
+      available_tools: toolDefs.map((tool) => ({ name: tool.name, description: tool.description })),
       available_skills: buildAvailableSkills(agent, options),
       ...(memorySnapshot
         ? {

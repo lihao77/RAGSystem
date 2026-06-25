@@ -5,7 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { URL } from "node:url";
 
-import type { RuntimeToolExecutionContext, ToolExecutionResult } from "../../services/runtime/runtime-tool-types.js";
+import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
+import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
 
 const DEFAULT_MAX_RESULTS = 200;
 const DEFAULT_MAX_CHARS = 20_000;
@@ -27,13 +28,13 @@ export class LocalSearchToolService {
       recursive?: boolean | null;
       maxResults?: number | null;
     },
-    context: RuntimeToolExecutionContext,
+    context: ToolExecContext,
   ): ToolExecutionResult {
     const toolName = "glob";
     try {
       const pattern = input.pattern.trim();
       if (!pattern) {
-        return errorResult("pattern 不能为空", toolName);
+        return toolError(toolName, "pattern 不能为空");
       }
       const maxResults = clampPositiveInt(input.maxResults, DEFAULT_MAX_RESULTS, 1, 5000);
       const baseRoot = this.resolveSearchRoot(input.path ?? null, context);
@@ -42,7 +43,7 @@ export class LocalSearchToolService {
         maxResults,
       });
       const displayMatches = matches.items.map((item) => toPortableRelative(baseRoot, item));
-      return successResult(
+      return toolSuccess(
         {
           base_path: baseRoot,
           pattern,
@@ -51,6 +52,7 @@ export class LocalSearchToolService {
           truncated: matches.truncated,
         },
         {
+          toolName,
           summary: `glob 匹配 ${displayMatches.length} 个文件${matches.truncated ? "（已截断）" : ""}`,
           outputType: "json",
           metadata: {
@@ -59,11 +61,10 @@ export class LocalSearchToolService {
             count: displayMatches.length,
             truncated: matches.truncated,
           },
-          toolName,
         },
       );
     } catch (error) {
-      return errorResult(`glob 执行失败: ${formatError(error)}`, toolName);
+      return toolError(toolName, `glob 执行失败: ${formatError(error)}`);
     }
   }
 
@@ -76,13 +77,13 @@ export class LocalSearchToolService {
       maxResults?: number | null;
       contextLines?: number | null;
     },
-    context: RuntimeToolExecutionContext,
+    context: ToolExecContext,
   ): ToolExecutionResult {
     const toolName = "grep";
     try {
       const pattern = input.pattern;
       if (!pattern.trim()) {
-        return errorResult("pattern 不能为空", toolName);
+        return toolError(toolName, "pattern 不能为空");
       }
       const maxResults = clampPositiveInt(input.maxResults, DEFAULT_MAX_RESULTS, 1, 5000);
       const contextLines = clampPositiveInt(input.contextLines, 0, 0, 20);
@@ -123,7 +124,7 @@ export class LocalSearchToolService {
         }
       }
       const truncated = matches.length >= maxResults;
-      return successResult(
+      return toolSuccess(
         {
           base_path: baseRoot,
           pattern,
@@ -133,6 +134,7 @@ export class LocalSearchToolService {
           truncated,
         },
         {
+          toolName,
           summary: `grep 找到 ${matches.length} 个匹配${truncated ? "（已截断）" : ""}`,
           outputType: "json",
           metadata: {
@@ -142,11 +144,10 @@ export class LocalSearchToolService {
             scanned_files: scannedFiles,
             truncated,
           },
-          toolName,
         },
       );
     } catch (error) {
-      return errorResult(`grep 执行失败: ${formatError(error)}`, toolName);
+      return toolError(toolName, `grep 执行失败: ${formatError(error)}`);
     }
   }
 
@@ -155,7 +156,7 @@ export class LocalSearchToolService {
     try {
       const url = new URL(input.url);
       if (url.protocol !== "http:" && url.protocol !== "https:") {
-        return errorResult("仅支持 http/https URL", toolName);
+        return toolError(toolName, "仅支持 http/https URL");
       }
       const timeoutMs = clampPositiveInt(input.timeoutMs, DEFAULT_WEB_TIMEOUT_MS, 1000, 60_000);
       const maxChars = clampPositiveInt(input.maxChars, DEFAULT_MAX_CHARS, 1000, 200_000);
@@ -163,7 +164,8 @@ export class LocalSearchToolService {
       const markdown = htmlToText(response.body);
       const truncated = response.truncated || markdown.length > maxChars;
       const content = markdown.slice(0, maxChars);
-      return successResult(content, {
+      return toolSuccess(content, {
+        toolName,
         summary: `已获取 ${url.toString()}，HTTP ${response.statusCode}${truncated ? "（内容已截断）" : ""}`,
         outputType: "text",
         metadata: {
@@ -173,24 +175,23 @@ export class LocalSearchToolService {
           truncated,
           length: content.length,
         },
-        toolName,
       });
     } catch (error) {
-      return errorResult(`web_fetch 失败: ${formatError(error)}`, toolName);
+      return toolError(toolName, `web_fetch 失败: ${formatError(error)}`);
     }
   }
 
-  todoWrite(input: { todos: unknown }, context: RuntimeToolExecutionContext): ToolExecutionResult {
+  todoWrite(input: { todos: unknown }, context: ToolExecContext): ToolExecutionResult {
     const toolName = "todo_write";
     const sessionId = context.sessionId?.trim() || "anonymous";
     const previous = this.todosBySession.get(sessionId) ?? [];
     const parsed = parseTodos(input.todos);
     if ("error" in parsed) {
-      return errorResult(parsed.error, toolName);
+      return toolError(toolName, parsed.error);
     }
     this.todosBySession.set(sessionId, parsed.todos);
     const counts = countTodos(parsed.todos);
-    return successResult(
+    return toolSuccess(
       {
         old_todos: previous,
         new_todos: parsed.todos,
@@ -200,6 +201,7 @@ export class LocalSearchToolService {
         completed_count: counts.completed,
       },
       {
+        toolName,
         summary: parsed.todos.length
           ? `todo 列表已更新：${parsed.todos.length} 项`
           : previous.length
@@ -213,14 +215,12 @@ export class LocalSearchToolService {
           in_progress_count: counts.in_progress,
           completed_count: counts.completed,
         },
-        toolName,
       },
     );
   }
 
-  private resolveSearchRoot(rawPath: string | null, context: RuntimeToolExecutionContext): string {
-    const workspaceRoot = normalizeString(context.workspaceRoot) ??
-      normalizeString(asRecord(context.agent?.custom_params)?.workspace_root);
+  private resolveSearchRoot(rawPath: string | null, context: ToolExecContext): string {
+    const workspaceRoot = normalizeString(context.workspaceRoot) ?? null;
     const root = workspaceRoot ?? (context.sessionId ? path.join(this.dataRoot, "sessions", context.sessionId, "workspace") : this.dataRoot);
     const candidate = rawPath?.trim() ? path.resolve(root, rawPath) : path.resolve(root);
     const allowedRoots = [
@@ -454,44 +454,6 @@ function htmlToText(value: string): string {
     .trim();
 }
 
-function successResult<T>(
-  content: T,
-  input: {
-    summary: string;
-    outputType: string;
-    metadata: Record<string, unknown>;
-    toolName: string;
-  },
-): ToolExecutionResult<T> {
-  return {
-    success: true,
-    tool_name: input.toolName,
-    summary: input.summary,
-    answer: null,
-    output_type: input.outputType,
-    content,
-    metadata: input.metadata,
-    artifacts: [],
-    llm_hint: null,
-  };
-}
-
-function errorResult(message: string, toolName: string): ToolExecutionResult<string> {
-  return {
-    success: false,
-    tool_name: toolName,
-    summary: message,
-    answer: null,
-    output_type: "error",
-    content: message,
-    metadata: {
-      source_shape: "error",
-    },
-    artifacts: [],
-    llm_hint: null,
-  };
-}
-
 function clampPositiveInt(value: number | null | undefined, fallback: number, min: number, max: number): number {
   if (typeof value !== "number" || !Number.isInteger(value)) {
     return fallback;
@@ -505,10 +467,6 @@ function toPortableRelative(root: string, filePath: string): string {
 
 function normalizeString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

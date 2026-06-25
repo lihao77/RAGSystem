@@ -11,7 +11,8 @@ import type { BackgroundTaskService } from "../../runtime/background-task-servic
 import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js";
-import type { RuntimeToolRegistry } from "../../../tools/registry.js";
+import type { BackendToolsDeps } from "../../../tools/registry.js";
+import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/CodeExecution.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
 import type { PendingInteractionService } from "../../runtime/pending-interaction-service.js";
@@ -41,7 +42,8 @@ export class AgentRunEngine {
     private readonly llmChatClient: LlmChatClient,
     private readonly dataRoot: string,
     private readonly contextService: AgentContextService,
-   private readonly toolRegistry: RuntimeToolRegistry | null,
+   private readonly toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName"> | null,
+   private readonly codeExecutionTools: CodeExecutionToolService | null,
    private readonly taskTools: TaskToolService | null,
    private readonly promptConfigResolver: AgentPromptConfigResolver | null,
    /** 已加载的 provider 列表提供者（投影层解析 tier.provider 引用用）。 */
@@ -280,7 +282,8 @@ export class AgentRunEngine {
        {
           // run-engine 的 conversationStore 实际是完整 ConversationStore（构造时传入窄类型）。
           conversationStore: this.conversationStore as unknown as ConversationStore,
-          toolRegistry: this.toolRegistry ?? emptyToolRegistry,
+          toolsDeps: this.toolsDeps ?? emptyToolsDeps,
+          codeExecutionTools: this.codeExecutionTools,
           taskTools: this.taskTools,
           llmChatClient: this.llmChatClient,
           eventPublisher: this.eventPublisher,
@@ -416,12 +419,19 @@ function hasCause(error: Error): error is Error & { cause: unknown } {
   return "cause" in error;
 }
 
-/** 无工具注册表时的空实现（listTools 返回空数组）。 */
-const emptyToolRegistry: import("../../../tools/registry.js").RuntimeToolRegistry = {
-  listTools: () => [],
-  listDefinitions: () => [],
-  getVisibleTool: () => null,
-  classifyConcurrency: () => false,
+/** 无工具依赖时的空实现（所有 service 为 null，工具工厂返回 []）。 */
+const emptyToolsDeps: Omit<BackendToolsDeps, "agent" | "teamName"> = {
+  memoryTools: null as unknown as import("../../../tools/MemoryTools/MemoryExecution.js").MemoryToolService,
+  pendingInteractions: null,
+  documentTools: null,
+  bashTools: null,
+  taskTools: null,
+  searchTools: null,
+  vectorLibrary: null,
+  mcp: null,
+  codeExecutionTools: null,
+  skillTools: null,
+  getAgentDelegation: () => null,
 };
 
 /** backend-ts MessageInfo → ChatMessage（保留 tool_calls/tool_call_id 结构化字段）。 */

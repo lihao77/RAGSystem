@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import type { RuntimeToolExecutionContext } from "../../services/runtime/runtime-tool-types.js";
+import type { ToolExecContext } from "@ragsystem/agent-sdk";
 
 const DISPLAY_PATH_PREFIX = "./data/";
 
@@ -12,7 +12,7 @@ export class BashPathResolver {
 
   getExternalPathApprovalCandidates(
     workingDir: string | null | undefined,
-    context: RuntimeToolExecutionContext,
+    context: ToolExecContext,
   ): string[] {
     const rawDir = normalizeString(workingDir);
     if (!rawDir || rawDir.startsWith(DISPLAY_PATH_PREFIX) || !isAbsolutePathLike(rawDir)) {
@@ -37,7 +37,7 @@ export class BashPathResolver {
   resolveWorkingDirectory(
     workingDir: string | null,
     workingDirSpace: string | null,
-    context: RuntimeToolExecutionContext,
+    context: ToolExecContext,
   ): string {
     const rawDir = normalizeString(workingDir) ?? ".";
     const displayMapped = this.fromDisplayPath(rawDir);
@@ -65,7 +65,7 @@ export class BashPathResolver {
     return resolved;
   }
 
-  private managedSpaceRoot(space: ManagedSpace, context: RuntimeToolExecutionContext): string {
+  private managedSpaceRoot(space: ManagedSpace, context: ToolExecContext): string {
     if (space === "workspace") {
       const root = this.effectiveWorkspaceRoot(context);
       if (!root) {
@@ -92,8 +92,8 @@ export class BashPathResolver {
     return root;
   }
 
-  private effectiveWorkspaceRoot(context: RuntimeToolExecutionContext): string | null {
-    const workspaceRoot = normalizeString(context.workspaceRoot) ?? normalizeString(asRecord(context.agent?.custom_params)?.workspace_root);
+  private effectiveWorkspaceRoot(context: ToolExecContext): string | null {
+    const workspaceRoot = normalizeString(context.workspaceRoot);
     if (workspaceRoot) {
       return path.resolve(workspaceRoot);
     }
@@ -101,7 +101,7 @@ export class BashPathResolver {
     return sessionId ? path.join(this.dataRoot, "sessions", sessionId, "workspace") : null;
   }
 
-  private allowedRoots(context: RuntimeToolExecutionContext): string[] {
+  private allowedRoots(context: ToolExecContext): string[] {
     const sessionId = normalizeString(context.sessionId);
     const runId = normalizeString(context.runId);
     return dedupePaths([
@@ -112,7 +112,7 @@ export class BashPathResolver {
     ]);
   }
 
-  private assertAllowedPath(candidatePath: string, context: RuntimeToolExecutionContext, originalPath: string): string {
+  private assertAllowedPath(candidatePath: string, context: ToolExecContext, originalPath: string): string {
     const resolved = path.resolve(candidatePath);
     const allowedRoots = this.allowedRoots(context);
     if (allowedRoots.some((root) => isPathUnder(resolved, root))) {

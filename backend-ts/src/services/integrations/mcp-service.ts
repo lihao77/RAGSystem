@@ -14,7 +14,8 @@ import type {
   McpServerStatus,
 } from "../../contracts/mcp.js";
 import type { RiskLevel } from "../../contracts/permissions.js";
-import type { ToolExecutionResult } from "../runtime/runtime-tool-types.js";
+import type { ToolExecutionResult } from "@ragsystem/agent-sdk";
+import { toolError, toolSuccess } from "../agent/sdk/tool-results.js";
 
 const MCP_TOOL_PREFIX = "mcp__";
 const MCP_PROTOCOL_VERSION = "2024-11-05";
@@ -823,34 +824,12 @@ function normalizeToolResult(
     return toolError(text || "MCP 工具返回错误", fullToolName, { server_name: serverName });
   }
   const content = otherContent.length ? { text, content: otherContent } : text;
-  return {
-    success: true,
-    tool_name: fullToolName,
+  return toolSuccess(content, {
+    toolName: fullToolName,
     summary: `MCP 工具 ${toolName} 执行成功`,
-    answer: null,
-    output_type: otherContent.length ? "json" : "text",
-    content,
+    outputType: otherContent.length ? "json" : "text",
     metadata: { server_name: serverName },
-    artifacts: [],
-    llm_hint: null,
-  };
-}
-
-function toolError(message: string, toolName: string, metadata: Record<string, unknown> = {}): ToolExecutionResult<string> {
-  return {
-    success: false,
-    tool_name: toolName,
-    summary: message,
-    answer: null,
-    output_type: "error",
-    content: message,
-    metadata: {
-      source_shape: "error",
-      ...metadata,
-    },
-    artifacts: [],
-    llm_hint: null,
-  };
+  });
 }
 
 function buildServerConfigFromRegistryInstall(payload: McpRegistryInstall): McpServerConfig {

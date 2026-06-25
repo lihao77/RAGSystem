@@ -1,23 +1,6 @@
 import type { BashExecutionInput } from "../../../tools/BashTool/BashExecution.js";
 import { readCodeExecutionArguments } from "../../../tools/CodeExecutionTool/CodeExecution.js";
 import { readSkillToolArguments } from "../../../tools/SkillTools/SkillExecution.js";
-import type { RuntimeToolCall, RuntimeToolExecutionContext, ToolExecutionResult } from "../runtime-tool-types.js";
-import type { RuntimeToolApprovalDecision } from "../permission-policy-service.js";
-import { READ_ONLY_MEMORY_TOOL_NAMES, type ReadOnlyMemoryToolName } from "./registry.js";
-
-export function buildToolCallContext(
-  call: RuntimeToolCall,
-  context: RuntimeToolExecutionContext,
-): RuntimeToolExecutionContext {
-  const callId = context.toolCallId ?? call.callId ?? null;
-  if (callId === context.toolCallId) {
-    return context;
-  }
-  return {
-    ...context,
-    toolCallId: callId,
-  };
-}
 
 export function readTaskCreateArguments(value: Record<string, unknown> | undefined): {
   subject: string;
@@ -373,20 +356,17 @@ export function errorResult(
   message: string,
   toolName: string,
   metadata: Record<string, unknown> = {},
-): ToolExecutionResult<string> {
+): import("@ragsystem/agent-sdk").ToolExecutionResult {
   return {
     success: false,
-    tool_name: toolName,
+    toolName,
     summary: message,
     answer: null,
-    output_type: "error",
+    outputType: "error",
     content: message,
-    metadata: {
-      source_shape: "error",
-      ...metadata,
-    },
+    metadata: { source_shape: "error", ...metadata },
     artifacts: [],
-    llm_hint: null,
+    llmHint: null,
   };
 }
 
@@ -398,17 +378,17 @@ export function successResult<T>(
     metadata: Record<string, unknown>;
     toolName: string;
   },
-): ToolExecutionResult<T> {
+): import("@ragsystem/agent-sdk").ToolExecutionResult {
   return {
     success: true,
-    tool_name: input.toolName,
+    toolName: input.toolName,
     summary: input.summary,
     answer: null,
-    output_type: input.outputType,
+    outputType: input.outputType,
     content,
     metadata: input.metadata,
     artifacts: [],
-    llm_hint: null,
+    llmHint: null,
   };
 }
 
@@ -425,74 +405,6 @@ export function readOptions(value: Record<string, unknown> | undefined): string[
     return [];
   }
   return value.options.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
-}
-
-export function buildApprovalMetadata(
-  decision: RuntimeToolApprovalDecision,
-  note = "",
-): Record<string, unknown> {
-  return {
-    reason: decision.reason,
-    note,
-    ...(decision.reasonCodes.length ? { reason_codes: decision.reasonCodes } : {}),
-    ...(decision.secondaryReasons.length ? { secondary_reasons: decision.secondaryReasons } : {}),
-    ...(decision.approvedExternalPaths.length ? { approved_external_paths: decision.approvedExternalPaths } : {}),
-  };
-}
-
-export function withApprovalMetadata<T>(
-  result: ToolExecutionResult<T>,
-  decision: RuntimeToolApprovalDecision,
-  note: string,
-): ToolExecutionResult<T> {
-  return {
-    ...result,
-    metadata: {
-      ...result.metadata,
-      approval: buildApprovalMetadata(decision, note),
-      ...(note ? { approval_message: note } : {}),
-    },
-  };
-}
-
-export function isReadOnlyMemoryToolName(toolName: string): toolName is ReadOnlyMemoryToolName {
-  return READ_ONLY_MEMORY_TOOL_NAMES.includes(toolName as ReadOnlyMemoryToolName);
-}
-
-export function withApprovedExternalPaths(
-  context: RuntimeToolExecutionContext,
-  approvedExternalPaths: string[] | undefined,
-): RuntimeToolExecutionContext {
-  const merged = dedupeStrings([...(context.approvedExternalPaths ?? []), ...(approvedExternalPaths ?? [])]);
-  return merged.length ? { ...context, approvedExternalPaths: merged } : context;
-}
-
-export function approvalUnsupportedError(
-  toolName: string,
-  approvedExternalPaths: string[],
-): ToolExecutionResult<string> {
-  return errorResult(`工具 ${toolName} 需要用户授权，但当前上下文不支持审批`, toolName, {
-    approval: {
-      reason: "路径越界访问需要审批",
-      note: "",
-      reason_codes: ["ask-path"],
-      approved_external_paths: approvedExternalPaths,
-    },
-  });
-}
-
-export function dedupeStrings(values: string[]): string[] {
-  const seen = new Set<string>();
-  const output: string[] = [];
-  for (const value of values) {
-    const normalized = value.trim();
-    if (!normalized || seen.has(normalized)) {
-      continue;
-    }
-    seen.add(normalized);
-    output.push(normalized);
-  }
-  return output;
 }
 
 function asString(value: unknown): string | null {

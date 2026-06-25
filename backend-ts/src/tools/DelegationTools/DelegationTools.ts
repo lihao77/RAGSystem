@@ -1,9 +1,14 @@
 import { z } from "zod";
 
+import {
+  buildTool,
+  type RuntimeToolDefinition,
+  type Tool,
+  type ToolExecContext,
+} from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { DelegationPort } from "../../services/agent/delegation/port.js";
 import {
-  errorResult,
   readCallAgentArguments,
   readListChildAgentsArguments,
   readSendMessageArguments,
@@ -13,11 +18,13 @@ import {
   LIST_CHILD_AGENTS_TOOL_NAME,
   SEND_MESSAGE_TOOL_NAME,
 } from "../../services/runtime/runtime-tool-bridge/registry.js";
-import type { RuntimeToolDefinition } from "../../services/runtime/runtime-tool-types.js";
-import { buildTool, type RuntimeTool } from "../Tool.js";
+import { toolError } from "../../services/agent/sdk/tool-results.js";
 import { metadataFrom, optionalInteger, optionalString } from "../schema-helpers.js";
 
 interface DelegationToolDeps {
+  agent: AgentConfig;
+  /** 当前 session 的 team（用于解析 child agent 展示名）；SDK ToolExecContext 不携带 teamName，由工厂注入。 */
+  teamName: string | null;
   getAgentDelegation: () => DelegationPort | null;
 }
 
@@ -119,46 +126,52 @@ const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
   },
 ];
 
-export function createDelegationTools(deps: DelegationToolDeps): RuntimeTool[] {
+export function createDelegationTools(deps: DelegationToolDeps): Tool[] {
+  const { agent, teamName, getAgentDelegation } = deps;
+  // 可见性筛选：未启用委派能力 或 当前 Agent 未配置 enabled_agents 时，整体不提供工具。
+  if (getAgentDelegation() === null || !(agent.delegation.enabled_agents?.length)) {
+    return [];
+  }
   const definitionByName = new Map(AGENT_DELEGATION_TOOLS.map((definition) => [definition.name, definition]));
-  const isVisible = (agent: AgentConfig | null): boolean =>
-    deps.getAgentDelegation() !== null && Boolean(agent?.delegation.enabled_agents?.length);
   return [
     buildTool({
       ...metadataFrom(definitionByName.get(CALL_AGENT_TOOL_NAME)!),
       inputSchema: callAgentSchema,
-      isVisible,
       isConcurrencySafe: () => false,
-      call: (input, context) => {
-        const service = deps.getAgentDelegation();
+      call: (input, ctx: ToolExecContext) => {
+        const service = getAgentDelegation();
         return service
-          ? service.callAgent(readCallAgentArguments(input, context.toolCallId ?? undefined), context)
-          : errorResult("当前 Agent 未启用子 Agent 委派能力", CALL_AGENT_TOOL_NAME);
+          ? service.callAgent(
+              { agent, teamName, input: readCallAgentArguments(input, ctx.toolCallId ?? undefined) },
+              ctx,
+            )
+          : toolError(CALL_AGENT_TOOL_NAME, "当前 Agent 未启用子 Agent 委派能力");
       },
     }),
     buildTool({
       ...metadataFrom(definitionByName.get(LIST_CHILD_AGENTS_TOOL_NAME)!),
       inputSchema: listChildAgentsSchema,
-      isVisible,
       isReadOnly: () => true,
       isConcurrencySafe: () => true,
-      call: (input, context) => {
-        const service = deps.getAgentDelegation();
+      call: (input, ctx: ToolExecContext) => {
+        const service = getAgentDelegation();
         return service
-          ? service.listChildAgents(readListChildAgentsArguments(input), context)
-          : errorResult("当前 Agent 未启用子 Agent 委派能力", LIST_CHILD_AGENTS_TOOL_NAME);
+          ? service.listChildAgents({ agent, teamName, input: readListChildAgentsArguments(input) }, ctx)
+          : toolError(LIST_CHILD_AGENTS_TOOL_NAME, "当前 Agent 未启用子 Agent 委派能力");
       },
     }),
     buildTool({
       ...metadataFrom(definitionByName.get(SEND_MESSAGE_TOOL_NAME)!),
       inputSchema: sendMessageSchema,
-      isVisible,
       isConcurrencySafe: () => false,
-      call: (input, context) => {
-        const service = deps.getAgentDelegation();
+      call: (input, ctx: ToolExecContext) => {
+        const service = getAgentDelegation();
         return service
-          ? service.sendMessage(readSendMessageArguments(input, context.toolCallId ?? undefined), context)
-          : errorResult("当前 Agent 未启用子 Agent 委派能力", SEND_MESSAGE_TOOL_NAME);
+          ? service.sendMessage(
+              { agent, teamName, input: readSendMessageArguments(input, ctx.toolCallId ?? undefined) },
+              ctx,
+            )
+          : toolError(SEND_MESSAGE_TOOL_NAME, "当前 Agent 未启用子 Agent 委派能力");
       },
     }),
   ];

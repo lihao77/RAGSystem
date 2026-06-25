@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+import {
+  buildTool,
+  type RuntimeToolDefinition,
+  type Tool,
+} from "@ragsystem/agent-sdk";
+import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { LocalSearchToolService } from "./SearchExecution.js";
 import {
   readGlobArguments,
@@ -13,12 +19,11 @@ import {
   TODO_WRITE_TOOL_NAME,
   WEB_FETCH_TOOL_NAME,
 } from "../../services/runtime/runtime-tool-bridge/registry.js";
-import type { RuntimeToolDefinition } from "../../services/runtime/runtime-tool-types.js";
-import { buildTool, type RuntimeTool } from "../Tool.js";
 import { metadataFrom, optionalBoolean, optionalInteger, optionalString } from "../schema-helpers.js";
 
 interface LocalSearchToolDeps {
-  searchTools: LocalSearchToolService | null;
+  service: LocalSearchToolService | null;
+  agent: AgentConfig;
 }
 
 const globSchema = z.object({
@@ -201,38 +206,55 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
   },
 ];
 
-export function createLocalSearchTools(deps: LocalSearchToolDeps): RuntimeTool[] {
-  const searchTools = deps.searchTools;
-  if (!searchTools) {
+export function createLocalSearchTools(deps: LocalSearchToolDeps): Tool[] {
+  const service = deps.service;
+  if (!service) {
     return [];
   }
+  const enabled = new Set(deps.agent.tools.enabled_tools ?? []);
   const definitionByName = new Map(LOCAL_SEARCH_TOOLS.map((definition) => [definition.name, definition]));
-  return [
-    buildTool({
-      ...metadataFrom(definitionByName.get(GLOB_TOOL_NAME)!),
-      inputSchema: globSchema,
-      isReadOnly: () => true,
-      isConcurrencySafe: () => true,
-      call: (input, context) => searchTools.glob(readGlobArguments(input), context),
-    }),
-    buildTool({
-      ...metadataFrom(definitionByName.get(GREP_TOOL_NAME)!),
-      inputSchema: grepSchema,
-      isReadOnly: () => true,
-      isConcurrencySafe: () => true,
-      call: (input, context) => searchTools.grep(readGrepArguments(input), context),
-    }),
-    buildTool({
-      ...metadataFrom(definitionByName.get(WEB_FETCH_TOOL_NAME)!),
-      inputSchema: webFetchSchema,
-      isReadOnly: () => true,
-      isConcurrencySafe: () => false,
-      call: (input) => searchTools.webFetch(readWebFetchArguments(input)),
-    }),
-    buildTool({
-      ...metadataFrom(definitionByName.get(TODO_WRITE_TOOL_NAME)!),
-      inputSchema: todoSchema,
-      call: (input, context) => searchTools.todoWrite(readTodoWriteArguments(input), context),
-    }),
-  ];
+  const tools: Tool[] = [];
+  if (enabled.has(GLOB_TOOL_NAME)) {
+    tools.push(
+      buildTool({
+        ...metadataFrom(definitionByName.get(GLOB_TOOL_NAME)!),
+        inputSchema: globSchema,
+        isReadOnly: () => true,
+        isConcurrencySafe: () => true,
+        call: (input, context) => service.glob(readGlobArguments(input), context),
+      }),
+    );
+  }
+  if (enabled.has(GREP_TOOL_NAME)) {
+    tools.push(
+      buildTool({
+        ...metadataFrom(definitionByName.get(GREP_TOOL_NAME)!),
+        inputSchema: grepSchema,
+        isReadOnly: () => true,
+        isConcurrencySafe: () => true,
+        call: (input, context) => service.grep(readGrepArguments(input), context),
+      }),
+    );
+  }
+  if (enabled.has(WEB_FETCH_TOOL_NAME)) {
+    tools.push(
+      buildTool({
+        ...metadataFrom(definitionByName.get(WEB_FETCH_TOOL_NAME)!),
+        inputSchema: webFetchSchema,
+        isReadOnly: () => true,
+        isConcurrencySafe: () => false,
+        call: (input) => service.webFetch(readWebFetchArguments(input)),
+      }),
+    );
+  }
+  if (enabled.has(TODO_WRITE_TOOL_NAME)) {
+    tools.push(
+      buildTool({
+        ...metadataFrom(definitionByName.get(TODO_WRITE_TOOL_NAME)!),
+        inputSchema: todoSchema,
+        call: (input, context) => service.todoWrite(readTodoWriteArguments(input), context),
+      }),
+    );
+  }
+  return tools;
 }

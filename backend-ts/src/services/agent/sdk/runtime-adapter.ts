@@ -7,8 +7,8 @@
  * 避免 SDK 与 backend-ts 双写 message/run_step）、terminal 补 run:end/final step + 终态 envelope
  *（final assistant 消息由 SDK Dispatcher.finalize 已写，此处只查库取其 id/seq 供 message_saved）。
  */
-import { createRuntime, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
-import type { ToolRegistry } from "@ragsystem/agent-sdk";
+import { createRuntime, createToolRegistry, prepareTool, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
+import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry } from "@ragsystem/agent-sdk";
 import { translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
@@ -19,24 +19,27 @@ import type { MessageInfo } from "../../../contracts/session.js";
 import type { Envelope } from "../../../contracts/events.js";
 import type { AgentExecutionEventPublisher } from "../execution/event-publisher.js";
 import type { DurableClientEventPublisher, RecordedClientEvent } from "../../runtime/event-outbox/client-event-publisher.js";
-import type { RuntimeToolExecutor } from "../../runtime/runtime-tool-types.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
 import type { PendingInteractionService } from "../../runtime/pending-interaction-service.js";
-import type { RuntimeToolRegistry } from "../../../tools/registry.js";
+import type { BackendToolsDeps } from "../../../tools/registry.js";
+import { createBackendTools } from "../../../tools/registry.js";
+import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/CodeExecution.js";
+import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
 import { getDefaultTier } from "./projection.js";
 import { SdkStoreAdapter } from "./sdk-store-adapter.js";
 import { LlmClientAdapter } from "./llm-client-adapter.js";
-import { buildSdkToolRegistry, createWaitForToolResultAdapter } from "./tool-adapter.js";
 import { SdkPermissionPolicyAdapter } from "./permission-adapter.js";
 import { SdkApprovalInteractionAdapter } from "./approval-interaction-adapter.js";
 
 export interface SdkRuntimeAdapterDeps {
   conversationStore: ConversationStore;
-  /** backend-ts 工具注册表（RuntimeTool 实例集合）——适配为 SDK ToolRegistry。 */
-  toolRegistry: RuntimeToolRegistry;
+  /** 工具依赖集合（service + getAgentDelegation；agent/teamName 由 per-run 提供）。 */
+  toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName">;
+  /** CodeExecution service——per-run 注入 callTool 回调用（execute_code 沙箱内工具互调）。 */
+  codeExecutionTools: CodeExecutionToolService | null;
   /** 后台任务等待——从 taskTools 适配。 */
-  taskTools: import("../../../tools/TaskTools/TaskExecution.js").TaskToolService | null;
+  taskTools: TaskToolService | null;
   /** backend-ts LLM 客户端（经 LlmClientAdapter 适配成 SDK LlmClient；保留测试 mock 注入点）。 */
   llmChatClient: LlmChatClient;
   eventPublisher: AgentExecutionEventPublisher;
@@ -102,21 +105,60 @@ export async function executeRunWithSdk(
   const storeAdapter = new SdkStoreAdapter({ conversationStore: deps.conversationStore });
   const llmClient = new LlmClientAdapter({ chatClient: deps.llmChatClient, agent: input.agent });
 
-  // 构建 SDK ToolRegistry：backend-ts RuntimeTool[] → SDK Tool[]
-  const toolAdapterOpts = {
+  // per-run 构建工具集合：各工厂闭包绑定 agent，返回 SDK Tool[]
+  const teamName = asString(input.sessionMetadata.team);
+  const tools: Tool[] = createBackendTools({
+    ...deps.toolsDeps,
     agent: input.agent,
-    sessionMetadata: input.sessionMetadata,
-    run: { taskId: input.taskId, requestId: input.requestId, rootCallId: input.rootCallId },
+    ...(teamName ? { teamName } : {}),
+  });
+  const registry: ToolRegistry = createToolRegistry({ tools });
+
+  // per-run 工具执行上下文模板（caller/caller 的 currentAgentName/workspaceRoot 等在 executeTool 时覆盖）
+  const baseExecCtx: ToolExecContext = {
+    sessionId: input.sessionId,
+    runId: input.runId,
+    taskId: input.taskId,
+    requestId: input.requestId,
+    parentCallId: input.parentCallId ?? input.rootCallId,
+    toolCallId: null,
+    round: null,
+    order: null,
+    roundIndex: null,
+    currentAgentName: input.agent.agent_name,
+    workspaceRoot: asString(input.sessionMetadata.workspace_root) ?? asString(input.agent.custom_params.workspace_root),
+    ...(input.signal ? { signal: input.signal } : {}),
   };
-  const sdkRegistry = buildSdkToolRegistry(deps.toolRegistry, toolAdapterOpts);
-  const waitForToolResult = createWaitForToolResultAdapter(deps.taskTools);
+
+  // CodeExecution 工具互调回调：execute_code 沙箱内 call_tool 走 SDK prepareTool + tool.call。
+  // caller=code_execution 走 allowedCallers 准入；互调不走审批（execute_code 已是审批过的上下文）。
+  if (deps.codeExecutionTools) {
+    deps.codeExecutionTools.setToolCaller(async (toolName, args, callerCtx) => {
+      const ctx: ToolExecContext = { ...baseExecCtx, ...callerCtx, caller: "code_execution" };
+      const prepare = prepareTool({ registry }, toolName, args, ctx);
+      if (!prepare.ok) {
+        return prepare.result;
+      }
+      return prepare.prepared.tool.call(prepare.prepared.input, ctx);
+    });
+  }
+
+  // 后台任务等待回调（task_output 等用）
+  const waitForToolResult = deps.taskTools
+    ? (request: import("@ragsystem/agent-sdk").ToolWaitRequest, ctx: ToolExecContext) =>
+        deps.taskTools!.waitForBackgroundTask({
+          taskId: request.backgroundTaskId,
+          ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
+          ...(ctx.signal ? { signal: ctx.signal } : {}),
+        })
+    : undefined;
 
   const runtimeOpts: CreateRuntimeOptions = {
     llm: llmClient,
     provider: defaultTier.provider,
     modelName: defaultTier.modelName,
     profile,
-    tools: sdkRegistry,
+    tools: registry,
     dataRoot: deps.dataRoot,
     store: storeAdapter,
     permissionPolicy: new SdkPermissionPolicyAdapter({ service: deps.permissionPolicy }),
@@ -285,4 +327,8 @@ function appendEnvelope(
     aggregateType: "run",
     aggregateId: input.runId,
   });
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }

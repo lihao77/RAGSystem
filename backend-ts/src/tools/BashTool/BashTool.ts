@@ -1,13 +1,15 @@
 import { z } from "zod";
 
 import type { BashExecutionPlan, LocalBashToolService } from "./BashExecution.js";
-import { errorResult, readBashArguments, withApprovedExternalPaths } from "../../services/runtime/runtime-tool-bridge/arguments.js";
+import { readBashArguments } from "../../services/runtime/runtime-tool-bridge/arguments.js";
 import { EXECUTE_BASH_TOOL_NAME } from "../../services/runtime/runtime-tool-bridge/registry.js";
-import { buildTool, type RuntimeTool } from "../Tool.js";
+import { buildTool, type Tool, type ToolExecContext, type ToolPermissionResult } from "@ragsystem/agent-sdk";
+import type { AgentConfig } from "../../contracts/agent-config.js";
 import { optionalBoolean, optionalInteger, optionalString } from "../schema-helpers.js";
 
 interface BashToolDeps {
   bashTools: LocalBashToolService | null;
+  agent: AgentConfig;
 }
 
 const bashSchema = z.object({
@@ -22,9 +24,13 @@ const bashSchema = z.object({
   description: optionalString,
 }).strict();
 
-export function createBashTools(deps: BashToolDeps): RuntimeTool[] {
+export function createBashTools(deps: BashToolDeps): Tool[] {
   const bashTools = deps.bashTools;
   if (!bashTools) {
+    return [];
+  }
+  const enabled = new Set(deps.agent.tools.enabled_tools ?? []);
+  if (!enabled.has(EXECUTE_BASH_TOOL_NAME)) {
     return [];
   }
   return [
@@ -79,12 +85,13 @@ export function createBashTools(deps: BashToolDeps): RuntimeTool[] {
       },
       inputSchema: bashSchema,
       isConcurrencySafe: () => false,
-      getExternalPathApprovalCandidates: (input, context) =>
-        bashTools.getExternalPathApprovalCandidates(readBashArguments(input), context),
-      checkPermissions: (input, context) => {
+      getExternalPathApprovalCandidates: (input, ctx: ToolExecContext) =>
+        bashTools.getExternalPathApprovalCandidates(readBashArguments(input), ctx),
+      checkPermissions: (input, ctx: ToolExecContext): ToolPermissionResult => {
         const bashInput = readBashArguments(input);
-        const approvedExternalPaths = bashTools.getExternalPathApprovalCandidates(bashInput, context);
-        const prepared = bashTools.prepareExecution(bashInput, withApprovedExternalPaths(context, approvedExternalPaths));
+        const approvedExternalPaths = bashTools.getExternalPathApprovalCandidates(bashInput, ctx);
+        const ctxWithPaths: ToolExecContext = { ...ctx, approvedExternalPaths: mergePaths(ctx.approvedExternalPaths, approvedExternalPaths) };
+        const prepared = bashTools.prepareExecution(bashInput, ctxWithPaths, deps.agent);
         if (!prepared.ok) {
           return {
             behavior: "deny",
@@ -105,19 +112,31 @@ export function createBashTools(deps: BashToolDeps): RuntimeTool[] {
           metadata: { bash_plan: plan },
         };
       },
-      call: (input, context) => {
+      call: (input, ctx: ToolExecContext) => {
         const plan = readCachedPlan(input);
         if (plan) {
-          return bashTools.executePlan(plan, context);
+          return bashTools.executePlan(plan, ctx);
         }
-        const prepared = bashTools.prepareExecution(readBashArguments(input), context);
+        const prepared = bashTools.prepareExecution(readBashArguments(input), ctx, deps.agent);
         if (!prepared.ok) {
           return prepared.result;
         }
-        return bashTools.executePlan(prepared.plan, context);
+        return bashTools.executePlan(prepared.plan, ctx);
       },
     }),
   ];
+}
+
+function mergePaths(existing: string[] | undefined, extra: string[]): string[] {
+  const seen = new Set(existing ?? []);
+  const merged = [...(existing ?? [])];
+  for (const p of extra) {
+    if (!seen.has(p)) {
+      seen.add(p);
+      merged.push(p);
+    }
+  }
+  return merged;
 }
 
 function readCachedPlan(input: Record<string, unknown>): BashExecutionPlan | null {

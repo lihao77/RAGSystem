@@ -35,7 +35,6 @@ import { ModelAdapterService } from "../integrations/model-adapter-service.js";
 import { PendingInteractionService } from "./pending-interaction-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
 import { RuntimeCoreService } from "../agent/execution/runtime-core-service.js";
-import { RuntimeToolBridge } from "./runtime-tool-bridge.js";
 import { SystemConfigService } from "../config/system-config-service.js";
 import { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
 import { VectorLibraryService } from "../knowledge/vector-library-service.js";
@@ -70,7 +69,8 @@ export interface RuntimeContainer {
   readonly backgroundTasks: BackgroundTaskService;
   readonly taskTools: TaskToolService;
   readonly pendingInteractions: PendingInteractionService;
-  readonly runtimeToolBridge: RuntimeToolBridge;
+  /** per-agent 工具依赖集合（runtime-adapter per-run 构建 Tool[] 用）。 */
+  readonly toolsDeps: Omit<import("../../tools/registry.js").BackendToolsDeps, "agent" | "teamName">;
   readonly runtimeCore: RuntimeCoreService;
   readonly agentContextService: AgentContextService;
   readonly agentDelegation: AgentDelegationService;
@@ -166,20 +166,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   });
   const taskTools = new TaskToolService(backgroundTasks, { dataRoot: options.dataRoot });
   const pendingInteractions = new PendingInteractionService(clientEvents);
-  const runtimeToolBridge = new RuntimeToolBridge({
-    memoryTools,
-    pendingInteractions,
-    permissionPolicy,
-    documentTools,
-    bashTools,
-    taskTools,
-    searchTools,
-    vectorLibrary,
-    mcp,
-    codeExecutionTools,
-    skillTools,
-  });
-  codeExecutionTools.setRuntimeTools(runtimeToolBridge);
+  // agentDelegation 需先实例化（工具依赖它），但其 runEngine/eventPublisher 延迟设置。
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
   const contextCompression = new AgentContextCompressionService(conversationStore, llmChatClient, systemConfig, modelAdapter);
@@ -198,7 +185,20 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     runtimeCore,
     clientEvents,
   );
-  runtimeToolBridge.setAgentDelegation(agentDelegation);
+  // per-agent 工具依赖（agent/teamName 由 runtime-adapter per-run 提供）
+  const toolsDeps = {
+    memoryTools,
+    pendingInteractions,
+    documentTools,
+    bashTools,
+    taskTools,
+    searchTools,
+    vectorLibrary,
+    mcp,
+    codeExecutionTools,
+    skillTools,
+    getAgentDelegation: () => agentDelegation,
+  };
   const agentExecution = createAgentExecutionService({
     sessions: sessionApplication,
     conversationStore,
@@ -206,8 +206,9 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     llmChatClient,
     dataRoot,
     contextService: agentContextService,
-   runtimeTools: runtimeToolBridge.toolRegistry,
-   taskTools: taskTools,
+   toolsDeps,
+   codeExecutionTools,
+   taskTools,
    promptConfigResolver: agentConfig,
    providersProvider: () => modelAdapter.listProviders(),
    backgroundTasks,
@@ -262,7 +263,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     backgroundTasks,
     taskTools,
     pendingInteractions,
-    runtimeToolBridge,
+    toolsDeps,
     runtimeCore,
     agentContextService,
     agentDelegation,

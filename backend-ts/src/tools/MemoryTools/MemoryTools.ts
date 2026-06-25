@@ -12,12 +12,17 @@ import {
   ARCHIVE_MEMORY_TOOL_NAME,
   WRITE_MEMORY_TOOL_NAME,
 } from "../../services/runtime/runtime-tool-bridge/registry.js";
-import type { RuntimeToolDefinition } from "../../services/runtime/runtime-tool-types.js";
-import { buildTool, type RuntimeTool } from "../Tool.js";
+import {
+  buildTool,
+  type RuntimeToolDefinition,
+  type Tool,
+  type ToolExecContext,
+} from "@ragsystem/agent-sdk";
 import { metadataFrom, optionalString } from "../schema-helpers.js";
 
 interface MemoryToolDeps {
   memoryTools: MemoryToolService;
+  agent: AgentConfig;
 }
 
 const memoryScopeSchema = z.object({
@@ -323,42 +328,64 @@ const ARCHIVE_MEMORY_TOOL: RuntimeToolDefinition = {
   },
 };
 
-export function createMemoryTools(deps: MemoryToolDeps): RuntimeTool[] {
+export function createMemoryTools(deps: MemoryToolDeps): Tool[] {
+  const { memoryTools, agent } = deps;
   const readOnlyDefinitions = new Map(READ_ONLY_MEMORY_TOOLS.map((definition) => [definition.name, definition]));
-  return [
-    buildTool({
-      ...metadataFrom(readOnlyDefinitions.get("list_memory_index")!),
-      inputSchema: listMemoryIndexSchema,
-      isVisible: hasReadableMemory,
-      isReadOnly: () => true,
-      isConcurrencySafe: () => true,
-      call: (input, context) => deps.memoryTools.listMemoryIndex(readListMemoryIndexArguments(input), context),
-    }),
-    buildTool({
-      ...metadataFrom(readOnlyDefinitions.get("read_memory_entry")!),
-      inputSchema: readMemoryEntrySchema,
-      isVisible: hasReadableMemory,
-      isReadOnly: () => true,
-      isConcurrencySafe: () => true,
-      call: (input, context) => deps.memoryTools.readMemoryEntry(readMemoryEntryArguments(input), context),
-    }),
-    buildTool({
-      ...metadataFrom(WRITE_MEMORY_TOOL),
-      inputSchema: writeMemorySchema,
-      isVisible: (agent) => Boolean(agent?.memory.write_scopes?.length),
-      call: (input, context) => deps.memoryTools.writeMemory(readWriteMemoryArguments(input), context),
-    }),
-    buildTool({
-      ...metadataFrom(ARCHIVE_MEMORY_TOOL),
-      inputSchema: archiveMemorySchema,
-      isVisible: (agent) => Boolean(agent?.memory.archive_scopes?.length),
-      call: (input, context) => deps.memoryTools.archiveMemory(readArchiveMemoryArguments(input), context),
-    }),
-  ];
+  const tools: Tool[] = [];
+
+  if (agent.memory.allowed_scopes?.length) {
+    tools.push(
+      buildTool({
+        ...metadataFrom(readOnlyDefinitions.get("list_memory_index")!),
+        inputSchema: listMemoryIndexSchema,
+        isReadOnly: () => true,
+        isConcurrencySafe: () => true,
+        call: (input, ctx: ToolExecContext) =>
+          memoryTools.listMemoryIndex(readListMemoryIndexArguments(input), toMemoryRuntimeContext(agent, ctx)),
+      }),
+      buildTool({
+        ...metadataFrom(readOnlyDefinitions.get("read_memory_entry")!),
+        inputSchema: readMemoryEntrySchema,
+        isReadOnly: () => true,
+        isConcurrencySafe: () => true,
+        call: (input, ctx: ToolExecContext) =>
+          memoryTools.readMemoryEntry(readMemoryEntryArguments(input), toMemoryRuntimeContext(agent, ctx)),
+      }),
+    );
+  }
+
+  if (agent.memory.write_scopes?.length) {
+    tools.push(
+      buildTool({
+        ...metadataFrom(WRITE_MEMORY_TOOL),
+        inputSchema: writeMemorySchema,
+        call: (input, ctx: ToolExecContext) =>
+          memoryTools.writeMemory(readWriteMemoryArguments(input), toMemoryRuntimeContext(agent, ctx)),
+      }),
+    );
+  }
+
+  if (agent.memory.archive_scopes?.length) {
+    tools.push(
+      buildTool({
+        ...metadataFrom(ARCHIVE_MEMORY_TOOL),
+        inputSchema: archiveMemorySchema,
+        call: (input, ctx: ToolExecContext) =>
+          memoryTools.archiveMemory(readArchiveMemoryArguments(input), toMemoryRuntimeContext(agent, ctx)),
+      }),
+    );
+  }
+
+  return tools;
 }
 
-function hasReadableMemory(agent: AgentConfig | null): boolean {
-  return Boolean(agent?.memory.allowed_scopes?.length);
+function toMemoryRuntimeContext(agent: AgentConfig, ctx: ToolExecContext) {
+  return {
+    agent,
+    sessionId: ctx.sessionId,
+    currentAgentName: ctx.currentAgentName,
+    workspaceRoot: ctx.workspaceRoot,
+  };
 }
 
 export const MEMORY_TOOL_NAMES = ["list_memory_index", "read_memory_entry", WRITE_MEMORY_TOOL_NAME, ARCHIVE_MEMORY_TOOL_NAME];

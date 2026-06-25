@@ -1,13 +1,13 @@
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { McpService } from "../../services/integrations/mcp-service.js";
-import { buildTool, type RuntimeTool } from "../Tool.js";
+import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
 
 interface McpToolDeps {
   mcp: McpService | null;
   agent: AgentConfig | null;
 }
 
-export function createMcpTools(deps: McpToolDeps): RuntimeTool[] {
+export function createMcpTools(deps: McpToolDeps): Tool[] {
   if (!deps.mcp) {
     return [];
   }
@@ -22,10 +22,9 @@ export function createMcpTools(deps: McpToolDeps): RuntimeTool[] {
       category: "mcp",
       riskLevel: definition.riskLevel,
       allowedCallers: ["direct"],
-      isVisible: () => true,
       isReadOnly: () => false,
       isConcurrencySafe: () => false,
-      call: (_input, _context) => deps.mcp!.callRuntimeTool(definition.name, _input),
+      call: (input, _ctx: ToolExecContext) => deps.mcp!.callRuntimeTool(definition.name, input),
     }),
   );
 }

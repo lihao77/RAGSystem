@@ -1,17 +1,19 @@
 import { z } from "zod";
 
 import type { VectorLibraryService, VectorSearchResult } from "../../services/knowledge/vector-library-service.js";
-import { errorResult } from "../../services/runtime/runtime-tool-bridge/arguments.js";
 import {
   LIST_KNOWLEDGE_COLLECTIONS_TOOL_NAME,
   SEARCH_KNOWLEDGE_BASE_TOOL_NAME,
 } from "../../services/runtime/runtime-tool-bridge/registry.js";
-import type { RuntimeToolDefinition } from "../../services/runtime/runtime-tool-types.js";
-import { buildTool, type RuntimeTool } from "../Tool.js";
+import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
+import type { RuntimeToolDefinition } from "@ragsystem/agent-sdk";
+import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
+import type { AgentConfig } from "../../contracts/agent-config.js";
 import { metadataFrom, optionalBoolean, optionalInteger, optionalRecord, optionalString } from "../schema-helpers.js";
 
-interface KnowledgeToolDeps {
+export interface KnowledgeToolDeps {
   vectorLibrary: VectorLibraryService | null;
+  agent: AgentConfig;
 }
 
 const searchKnowledgeBaseSchema = z.object({
@@ -86,25 +88,29 @@ const KNOWLEDGE_TOOLS: RuntimeToolDefinition[] = [
   },
 ];
 
-export function createKnowledgeTools(deps: KnowledgeToolDeps): RuntimeTool[] {
+export function createKnowledgeTools(deps: KnowledgeToolDeps): Tool[] {
   const vectorLibrary = deps.vectorLibrary;
   if (!vectorLibrary) {
     return [];
   }
+  const agent = deps.agent;
+  // 可见性筛选：agent.knowledge_base.enabled === true 时返回两个工具，否则返回 []
+  if (agent.knowledge_base.enabled !== true) {
+    return [];
+  }
+  const kbConfig = agent.knowledge_base;
   const definitionByName = new Map(KNOWLEDGE_TOOLS.map((definition) => [definition.name, definition]));
   return [
     buildTool({
       ...metadataFrom(definitionByName.get(SEARCH_KNOWLEDGE_BASE_TOOL_NAME)!),
       inputSchema: searchKnowledgeBaseSchema,
-      isVisible: (agent) => agent?.knowledge_base.enabled === true,
       isReadOnly: () => true,
       isConcurrencySafe: () => true,
-      call: async (input, context) => {
-        const kbConfig = context.agent?.knowledge_base;
-        const collection = input.collection ?? input.collection_name ?? kbConfig?.default_collection ?? "documents";
-        const searchMode = normalizeSearchMode(input.search_mode ?? input.searchMode ?? kbConfig?.default_search_mode);
-        const topK = input.top_k ?? input.topK ?? kbConfig?.default_top_k ?? 5;
-        const rerank = input.rerank ?? kbConfig?.default_rerank ?? false;
+      call: async (input, _ctx: ToolExecContext) => {
+        const collection = input.collection ?? input.collection_name ?? kbConfig.default_collection ?? "documents";
+        const searchMode = normalizeSearchMode(input.search_mode ?? input.searchMode ?? kbConfig.default_search_mode);
+        const topK = input.top_k ?? input.topK ?? kbConfig.default_top_k ?? 5;
+        const rerank = input.rerank ?? kbConfig.default_rerank ?? false;
         try {
           const search = await vectorLibrary.search({
             query: input.query,
@@ -113,28 +119,26 @@ export function createKnowledgeTools(deps: KnowledgeToolDeps): RuntimeTool[] {
             search_mode: searchMode,
             rerank,
             filters: input.filters ?? undefined,
-            reranker_key: kbConfig?.default_reranker_key ?? undefined,
+            reranker_key: kbConfig.default_reranker_key ?? undefined,
           });
           const results = Array.isArray(search.results) ? search.results as VectorSearchResult[] : [];
-          return {
-            success: true,
-            tool_name: SEARCH_KNOWLEDGE_BASE_TOOL_NAME,
-            summary: `在 ${collection} 中搜索到 ${results.length} 条结果`,
-            answer: null,
-            output_type: "text",
-            content: formatSearchResults(results),
-            metadata: {
-              count: results.length,
-              collection,
-              search_mode: searchMode,
+          return toolSuccess(
+            formatSearchResults(results),
+            {
+              toolName: SEARCH_KNOWLEDGE_BASE_TOOL_NAME,
+              summary: `在 ${collection} 中搜索到 ${results.length} 条结果`,
+              outputType: "text",
+              metadata: {
+                count: results.length,
+                collection,
+                search_mode: searchMode,
+              },
             },
-            artifacts: [],
-            llm_hint: null,
-          };
+          );
         } catch (error) {
-          return errorResult(
-            `知识库搜索失败: ${error instanceof Error ? error.message : String(error)}`,
+          return toolError(
             SEARCH_KNOWLEDGE_BASE_TOOL_NAME,
+            `知识库搜索失败: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
       },
@@ -142,10 +146,9 @@ export function createKnowledgeTools(deps: KnowledgeToolDeps): RuntimeTool[] {
     buildTool({
       ...metadataFrom(definitionByName.get(LIST_KNOWLEDGE_COLLECTIONS_TOOL_NAME)!),
       inputSchema: emptyArgsSchema,
-      isVisible: (agent) => agent?.knowledge_base.enabled === true,
       isReadOnly: () => true,
       isConcurrencySafe: () => true,
-      call: async () => {
+      call: async (_input, _ctx: ToolExecContext) => {
         try {
           const collections = await vectorLibrary.listCollections();
           const content = collections.length
@@ -156,21 +159,19 @@ export function createKnowledgeTools(deps: KnowledgeToolDeps): RuntimeTool[] {
                 return `- ${name}: ${docCount} 文档, ${chunkCount} 分块`;
               }).join("\n")
             : "当前没有可用的知识库集合。";
-          return {
-            success: true,
-            tool_name: LIST_KNOWLEDGE_COLLECTIONS_TOOL_NAME,
-            summary: collections.length ? `共 ${collections.length} 个集合` : "无可用集合",
-            answer: null,
-            output_type: "text",
+          return toolSuccess(
             content,
-            metadata: { count: collections.length },
-            artifacts: [],
-            llm_hint: null,
-          };
+            {
+              toolName: LIST_KNOWLEDGE_COLLECTIONS_TOOL_NAME,
+              summary: collections.length ? `共 ${collections.length} 个集合` : "无可用集合",
+              outputType: "text",
+              metadata: { count: collections.length },
+            },
+          );
         } catch (error) {
-          return errorResult(
-            `列出集合失败: ${error instanceof Error ? error.message : String(error)}`,
+          return toolError(
             LIST_KNOWLEDGE_COLLECTIONS_TOOL_NAME,
+            `列出集合失败: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
       },

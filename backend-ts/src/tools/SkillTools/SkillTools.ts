@@ -9,12 +9,13 @@ import {
   GET_SKILL_INFO_TOOL_NAME,
   LOAD_SKILL_RESOURCE_TOOL_NAME,
 } from "../../services/runtime/runtime-tool-bridge/registry.js";
-import type { RuntimeToolDefinition } from "../../services/runtime/runtime-tool-types.js";
-import { buildTool, type RuntimeTool } from "../Tool.js";
+import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
+import type { RuntimeToolDefinition } from "@ragsystem/agent-sdk";
 import { metadataFrom, nullableStringArray, optionalBoolean, optionalString } from "../schema-helpers.js";
 
 interface SkillToolDeps {
   skillTools: SkillToolService | null;
+  agent: AgentConfig | null;
 }
 
 const skillBaseSchema = z.object({
@@ -151,45 +152,40 @@ const SKILL_TOOLS: RuntimeToolDefinition[] = [
   },
 ];
 
-export function createSkillTools(deps: SkillToolDeps): RuntimeTool[] {
+export function createSkillTools(deps: SkillToolDeps): Tool[] {
   const skillTools = deps.skillTools;
-  if (!skillTools) {
+  const agent = deps.agent;
+  if (!skillTools || !skillTools.hasVisibleSkills(agent, agentWorkspaceRoot(agent))) {
     return [];
   }
   const definitionByName = new Map(SKILL_TOOLS.map((definition) => [definition.name, definition]));
-  const isVisible = (agent: AgentConfig | null): boolean =>
-    skillTools.hasVisibleSkills(agent, agentWorkspaceRoot(agent));
   return [
     buildTool({
       ...metadataFrom(definitionByName.get(ACTIVATE_SKILL_TOOL_NAME)!),
       inputSchema: activateSkillSchema,
-      isVisible,
       isReadOnly: () => true,
       isConcurrencySafe: () => true,
-      call: (input, context) => skillTools.activateSkill(readSkillToolArguments(input), context),
+      call: (input: Record<string, unknown>, context: ToolExecContext) => skillTools.activateSkill(readSkillToolArguments(input), context, agent),
     }),
     buildTool({
       ...metadataFrom(definitionByName.get(LOAD_SKILL_RESOURCE_TOOL_NAME)!),
       inputSchema: loadSkillResourceSchema,
-      isVisible,
       isReadOnly: () => true,
       isConcurrencySafe: () => true,
-      call: (input, context) => skillTools.loadSkillResource(readSkillToolArguments(input), context),
+      call: (input: Record<string, unknown>, context: ToolExecContext) => skillTools.loadSkillResource(readSkillToolArguments(input), context, agent),
     }),
     buildTool({
       ...metadataFrom(definitionByName.get(EXECUTE_SKILL_SCRIPT_TOOL_NAME)!),
       inputSchema: executeSkillScriptSchema,
-      isVisible,
       isConcurrencySafe: () => false,
-      call: (input, context) => skillTools.executeSkillScript(readSkillToolArguments(input), context),
+      call: (input: Record<string, unknown>, context: ToolExecContext) => skillTools.executeSkillScript(readSkillToolArguments(input), context, agent),
     }),
     buildTool({
       ...metadataFrom(definitionByName.get(GET_SKILL_INFO_TOOL_NAME)!),
       inputSchema: getSkillInfoSchema,
-      isVisible,
       isReadOnly: () => true,
       isConcurrencySafe: () => true,
-      call: (input, context) => skillTools.getSkillInfo(readSkillToolArguments(input), context),
+      call: (input: Record<string, unknown>, context: ToolExecContext) => skillTools.getSkillInfo(readSkillToolArguments(input), context, agent),
     }),
   ];
 }

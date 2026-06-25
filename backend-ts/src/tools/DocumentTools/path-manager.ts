@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import type { RuntimeToolExecutionContext } from "../../services/runtime/runtime-tool-types.js";
+import type { ToolExecContext } from "@ragsystem/agent-sdk";
 
 const DISPLAY_PATH_PREFIX = "./data/";
 
@@ -14,10 +14,11 @@ export class LocalDocumentPathManager {
   resolveManagedPath(
     filePath: string | null,
     input: {
-      context: RuntimeToolExecutionContext;
+      context: ToolExecContext;
       operation: ManagedOperation;
       explicitSpace?: string | null;
       suffix?: string | undefined;
+      customParams?: { workspace_root?: string | null; default_output_space?: string | null } | null;
     },
   ): string {
     const rawPath = String(filePath ?? "").trim();
@@ -28,9 +29,9 @@ export class LocalDocumentPathManager {
     const sessionId = normalizeString(input.context.sessionId);
     const runId = normalizeString(input.context.runId);
     const workspaceRoot = normalizeString(input.context.workspaceRoot) ??
-      normalizeString(asRecord(input.context.agent?.custom_params)?.workspace_root);
+      normalizeString(input.customParams?.workspace_root);
     const explicitSpace = normalizeManagedSpace(input.explicitSpace);
-    const defaultOutputSpace = normalizeManagedSpace(asRecord(input.context.agent?.custom_params)?.default_output_space) ?? null;
+    const defaultOutputSpace = normalizeManagedSpace(input.customParams?.default_output_space) ?? null;
     const approvedExternalPaths = input.context.approvedExternalPaths ?? [];
 
     if (!rawPath) {
@@ -113,7 +114,7 @@ export class LocalDocumentPathManager {
   getExternalPathApprovalCandidates(
     toolName: string,
     args: Record<string, unknown> | undefined,
-    context: RuntimeToolExecutionContext,
+    context: ToolExecContext,
   ): string[] {
     const operation = documentOperationForTool(toolName);
     if (!operation) {
@@ -126,8 +127,7 @@ export class LocalDocumentPathManager {
 
     const sessionId = normalizeString(context.sessionId);
     const runId = normalizeString(context.runId);
-    const workspaceRoot = normalizeString(context.workspaceRoot) ??
-      normalizeString(asRecord(context.agent?.custom_params)?.workspace_root);
+    const workspaceRoot = normalizeString(context.workspaceRoot);
     const candidatePath = resolvePathLike(rawPath);
     try {
       this.assertAllowedPath(candidatePath, {

@@ -1,6 +1,7 @@
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { SessionInfo } from "../../contracts/session.js";
-import type { ToolExecutionResult } from "../../services/runtime/runtime-tool-types.js";
+import type { ToolExecutionResult } from "@ragsystem/agent-sdk";
+import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
 import { getWorkspaceMemoryKey } from "../../services/stores/memory-store.js";
 import type { IMemoryStore, MemoryScopeName, MemoryScopeSpec } from "../../contracts/memory-store/index.js";
 
@@ -10,10 +11,10 @@ export interface RuntimeMemorySessionPort {
 
 export interface MemoryToolRuntimeContext {
   agent: AgentConfig | null;
-  sessionId?: string | null;
-  currentAgentName?: string | null;
-  teamName?: string | null;
-  workspaceRoot?: string | null;
+  sessionId?: string | null | undefined;
+  currentAgentName?: string | null | undefined;
+  teamName?: string | null | undefined;
+  workspaceRoot?: string | null | undefined;
 }
 
 export interface ListMemoryIndexInput {
@@ -59,58 +60,58 @@ export class MemoryToolService {
   listMemoryIndex(
     input: ListMemoryIndexInput,
     context: MemoryToolRuntimeContext,
-  ): ToolExecutionResult<string> {
+  ): ToolExecutionResult {
     const toolName = "list_memory_index";
     const setup = this.resolveReadableScope(input, context, toolName);
     if ("error" in setup) {
-      return errorResult(setup.error, toolName);
+      return toolError(toolName, setup.error);
     }
 
     const content = this.memoryStore.loadIndexHead(setup.scopeSpec);
-    return successResult(content, {
+    return toolSuccess(content, {
+      toolName,
       summary: `已读取 ${setup.scopeSpec.scope} MEMORY 索引`,
       outputType: "text",
       metadata: {
         scope: setup.scopeSpec.scope,
         index_file_path: this.memoryStore.getIndexPath(setup.scopeSpec),
       },
-      toolName,
     });
   }
 
   readMemoryEntry(
     input: ReadMemoryEntryInput,
     context: MemoryToolRuntimeContext,
-  ): ToolExecutionResult<string> {
+  ): ToolExecutionResult {
     const toolName = "read_memory_entry";
     const setup = this.resolveReadableScope(input, context, toolName);
     if ("error" in setup) {
-      return errorResult(setup.error, toolName);
+      return toolError(toolName, setup.error);
     }
 
     const entry = this.memoryStore.readEntryFile(setup.scopeSpec, input.fileName);
     if (!entry) {
-      return errorResult(`memory 文件不存在: ${input.fileName}`, toolName);
+      return toolError(toolName, `memory 文件不存在: ${input.fileName}`);
     }
-    return successResult(entry.content, {
+    return toolSuccess(entry.content, {
+      toolName,
       summary: `已读取记忆文件: ${entry.file_name}`,
       outputType: "text",
       metadata: {
         file_path: entry.file_path,
         scope: entry.scope,
       },
-      toolName,
     });
   }
 
   writeMemory(
     input: WriteMemoryInput,
     context: MemoryToolRuntimeContext,
-  ): ToolExecutionResult<{ file_path: string; file_name: string; scope: string } | string> {
+  ): ToolExecutionResult {
     const toolName = "write_memory";
     const setup = this.resolveMemoryScope(input, context, toolName, "write");
     if ("error" in setup) {
-      return errorResult(setup.error, toolName);
+      return toolError(toolName, setup.error);
     }
 
     try {
@@ -125,63 +126,63 @@ export class MemoryToolService {
         source_run_id: input.sourceRunId,
         source_message_id: input.sourceMessageId,
       });
-      return successResult(
+      return toolSuccess(
         {
           file_path: saved.file_path,
           file_name: saved.file_name,
           scope: saved.scope,
         },
         {
+          toolName,
           summary: `已写入 ${saved.scope} memory: ${saved.file_name}`,
           outputType: "json",
           metadata: {
             file_path: saved.file_path,
             scope: saved.scope,
           },
-          toolName,
         },
       );
     } catch (error) {
-      return errorResult(`写入 memory 失败: ${error instanceof Error ? error.message : String(error)}`, toolName);
+      return toolError(toolName, `写入 memory 失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   archiveMemory(
     input: ArchiveMemoryInput,
     context: MemoryToolRuntimeContext,
-  ): ToolExecutionResult<{ archived: boolean; file_name: string; scope: string } | string> {
+  ): ToolExecutionResult {
     const toolName = "archive_memory";
     const setup = this.resolveMemoryScope(input, context, toolName, "archive");
     if ("error" in setup) {
-      return errorResult(setup.error, toolName);
+      return toolError(toolName, setup.error);
     }
 
     try {
       const archived = this.memoryStore.archiveMemory(setup.scopeSpec, input.fileName);
       if (!archived) {
-        return errorResult(
-          `未找到可归档的 memory: ${input.fileName}。请先通过 list_memory_index 确认当前 scope 下的真实文件名。`,
+        return toolError(
           toolName,
+          `未找到可归档的 memory: ${input.fileName}。请先通过 list_memory_index 确认当前 scope 下的真实文件名。`,
         );
       }
-      return successResult(
+      return toolSuccess(
         {
           archived: true,
           file_name: input.fileName,
           scope: setup.scopeSpec.scope,
         },
         {
+          toolName,
           summary: `已归档 ${setup.scopeSpec.scope} memory: ${input.fileName}`,
           outputType: "json",
           metadata: {
             file_name: input.fileName,
             scope: setup.scopeSpec.scope,
           },
-          toolName,
         },
       );
     } catch (error) {
-      return errorResult(`归档 memory 失败: ${error instanceof Error ? error.message : String(error)}`, toolName);
+      return toolError(toolName, `归档 memory 失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -264,44 +265,6 @@ export class MemoryToolService {
     const workspaceKey = normalizeString(input.workspaceKey) ?? getWorkspaceMemoryKey(workspaceRoot);
     return workspaceKey ? { scope, workspace_key: workspaceKey } : { error: "workspace_key" };
   }
-}
-
-function successResult<T>(
-  content: T,
-  input: {
-    summary: string;
-    outputType: string;
-    metadata: Record<string, unknown>;
-    toolName: string;
-  },
-): ToolExecutionResult<T> {
-  return {
-    success: true,
-    tool_name: input.toolName,
-    summary: input.summary,
-    answer: null,
-    output_type: input.outputType,
-    content,
-    metadata: input.metadata,
-    artifacts: [],
-    llm_hint: null,
-  };
-}
-
-function errorResult(message: string, toolName: string): ToolExecutionResult<string> {
-  return {
-    success: false,
-    tool_name: toolName,
-    summary: message,
-    answer: null,
-    output_type: "error",
-    content: message,
-    metadata: {
-      source_shape: "error",
-    },
-    artifacts: [],
-    llm_hint: null,
-  };
 }
 
 function hasMemoryCapability(memoryConfig: AgentConfig["memory"]): boolean {

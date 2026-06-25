@@ -1,5 +1,5 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
-import type { RuntimeToolExecutor } from "../../runtime/runtime-tool-types.js";
+import type { RuntimeToolDefinition } from "@ragsystem/agent-sdk";
 import type { ToolInstructionMode } from "./types.js";
 import type { AgentPromptConfigResolver, AgentPromptContext } from "./types.js";
 import { collectSections, isRecord, normalizeString } from "./helpers.js";
@@ -31,11 +31,12 @@ export type {
 
 export function buildAgentPromptContext(input: {
   agent: AgentConfig;
-  toolExecutor?: RuntimeToolExecutor | null | undefined;
+  /** 已为该 agent 解析的工具定义列表（调用方用 createBackendTools + toolToDefinition 准备）。 */
+  tools?: RuntimeToolDefinition[] | null | undefined;
   configResolver?: AgentPromptConfigResolver | null | undefined;
   teamName?: string | null | undefined;
 }): AgentPromptContext {
-  const tools = input.toolExecutor?.listVisibleTools(input.agent) ?? [];
+  const tools = input.tools ?? [];
   return {
     tools,
     skills: buildPromptSkills(input.agent, input.configResolver),

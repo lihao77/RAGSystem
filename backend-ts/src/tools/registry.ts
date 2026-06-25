@@ -1,3 +1,10 @@
+/**
+ * 工具注册表工厂——per-agent 聚合所有 SDK Tool 实例。
+ *
+ * 各 createXxxTools 工厂接收 agent，闭包绑定 agent 配置，工厂内部按 agent 决定返回哪些工具
+ * （可见性融入"是否返回"）。本函数聚合所有工厂 + 动态 MCP，返回 Tool[] 供 SDK createToolRegistry 使用。
+ */
+import type { Tool } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../contracts/agent-config.js";
 import type { DelegationPort } from "../services/agent/delegation/port.js";
 import type { VectorLibraryService } from "../services/knowledge/vector-library-service.js";
@@ -10,9 +17,6 @@ import type { MemoryToolService } from "./MemoryTools/MemoryExecution.js";
 import type { SkillToolService } from "./SkillTools/SkillExecution.js";
 import type { TaskToolService } from "./TaskTools/TaskExecution.js";
 import type { PendingInteractionService } from "../services/runtime/pending-interaction-service.js";
-import type { RuntimeToolCall, RuntimeToolDefinition, RuntimeToolExecutionContext } from "../services/runtime/runtime-tool-types.js";
-import { toolToDefinition, type RuntimeTool } from "./Tool.js";
-import { validateToolInput } from "./validation.js";
 import { createBashTools } from "./BashTool/BashTool.js";
 import { createCodeExecutionTools } from "./CodeExecutionTool/CodeExecutionTool.js";
 import { createDelegationTools } from "./DelegationTools/DelegationTools.js";
@@ -25,64 +29,44 @@ import { createRequestUserInputTools } from "./RequestUserInputTool/RequestUserI
 import { createSkillTools } from "./SkillTools/SkillTools.js";
 import { createTaskTools } from "./TaskTools/TaskTools.js";
 
-export interface RuntimeToolRegistryDeps {
+export interface BackendToolsDeps {
+  agent: AgentConfig;
   memoryTools: MemoryToolService;
-  pendingInteractions?: PendingInteractionService | null | undefined;
-  documentTools?: LocalDocumentToolService | null | undefined;
-  bashTools?: LocalBashToolService | null | undefined;
-  taskTools?: TaskToolService | null | undefined;
-  searchTools?: LocalSearchToolService | null | undefined;
-  vectorLibrary?: VectorLibraryService | null | undefined;
-  mcp?: McpService | null | undefined;
-  codeExecutionTools?: CodeExecutionToolService | null | undefined;
-  skillTools?: SkillToolService | null | undefined;
-  getAgentDelegation?: (() => DelegationPort | null) | undefined;
+  pendingInteractions: PendingInteractionService | null;
+  documentTools: LocalDocumentToolService | null;
+  bashTools: LocalBashToolService | null;
+  taskTools: TaskToolService | null;
+  searchTools: LocalSearchToolService | null;
+  vectorLibrary: VectorLibraryService | null;
+  mcp: McpService | null;
+  codeExecutionTools: CodeExecutionToolService | null;
+  skillTools: SkillToolService | null;
+  getAgentDelegation: () => DelegationPort | null;
+  /** session team（delegation 工具用）。 */
+  teamName?: string | null;
 }
 
-export interface RuntimeToolRegistry {
-  listTools(agent: AgentConfig | null): RuntimeTool[];
-  listDefinitions(agent: AgentConfig | null): RuntimeToolDefinition[];
-  getVisibleTool(toolName: string, agent: AgentConfig | null): RuntimeTool | null;
-  classifyConcurrency(call: RuntimeToolCall, context: RuntimeToolExecutionContext): boolean;
-}
-
-export function createToolRegistry(deps: RuntimeToolRegistryDeps): RuntimeToolRegistry {
-  const staticTools = [
-    ...createRequestUserInputTools({ pendingInteractions: deps.pendingInteractions ?? null }),
-    ...createDocumentTools({ documentTools: deps.documentTools ?? null }),
-    ...createBashTools({ bashTools: deps.bashTools ?? null }),
-    ...createCodeExecutionTools({ codeExecutionTools: deps.codeExecutionTools ?? null }),
-    ...createLocalSearchTools({ searchTools: deps.searchTools ?? null }),
-    ...createSkillTools({ skillTools: deps.skillTools ?? null }),
-    ...createKnowledgeTools({ vectorLibrary: deps.vectorLibrary ?? null }),
-    ...createTaskTools({ taskTools: deps.taskTools ?? null }),
-    ...createMemoryTools({ memoryTools: deps.memoryTools }),
-    ...createDelegationTools({ getAgentDelegation: deps.getAgentDelegation ?? (() => null) }),
+/**
+ * 聚合所有工具工厂，返回 per-agent 的 SDK Tool[]。
+ * 可见性由各工厂内部按 agent 配置决定（不满足条件的工具不返回）。
+ */
+export function createBackendTools(deps: BackendToolsDeps): Tool[] {
+  const { agent } = deps;
+  return [
+    ...createRequestUserInputTools({ pendingInteractions: deps.pendingInteractions, agent }),
+    ...createDocumentTools({ documentTools: deps.documentTools, agent }),
+    ...createBashTools({ bashTools: deps.bashTools, agent }),
+    ...createCodeExecutionTools({ codeExecutionTools: deps.codeExecutionTools, agent }),
+    ...createLocalSearchTools({ service: deps.searchTools, agent }),
+    ...createSkillTools({ skillTools: deps.skillTools, agent }),
+    ...createKnowledgeTools({ vectorLibrary: deps.vectorLibrary, agent }),
+    ...createTaskTools({ taskTools: deps.taskTools, agent }),
+    ...createMemoryTools({ memoryTools: deps.memoryTools, agent }),
+    ...createDelegationTools({
+      getAgentDelegation: deps.getAgentDelegation,
+      agent,
+      teamName: deps.teamName ?? null,
+    }),
+    ...createMcpTools({ mcp: deps.mcp, agent }),
   ];
-
-  return {
-    listTools(agent) {
-      return [
-        ...staticTools.filter((tool) => tool.isVisible(agent)),
-        ...createMcpTools({ mcp: deps.mcp ?? null, agent }),
-      ];
-    },
-    listDefinitions(agent) {
-      return this.listTools(agent).map(toolToDefinition);
-    },
-    getVisibleTool(toolName, agent) {
-      return this.listTools(agent).find((tool) => tool.name === toolName) ?? null;
-    },
-    classifyConcurrency(call, context) {
-      const tool = this.getVisibleTool(call.toolName.trim(), context.agent);
-      if (!tool) {
-        return false;
-      }
-      const validation = validateToolInput(tool as RuntimeTool<Record<string, unknown>>, call);
-      if (!validation.ok) {
-        return false;
-      }
-      return tool.isReadOnly(validation.input) && tool.isConcurrencySafe(validation.input);
-    },
-  };
 }

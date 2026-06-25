@@ -13,12 +13,14 @@ import {
   READ_FILE_TOOL_NAME,
   WRITE_FILE_TOOL_NAME,
 } from "../../services/runtime/runtime-tool-bridge/registry.js";
-import type { RuntimeToolDefinition } from "../../services/runtime/runtime-tool-types.js";
-import { buildTool, type RuntimeTool } from "../Tool.js";
+import type { RuntimeToolDefinition, Tool, ToolExecContext } from "@ragsystem/agent-sdk";
+import { buildTool } from "@ragsystem/agent-sdk";
+import type { AgentConfig } from "../../contracts/agent-config.js";
 import { optionalInteger, optionalString, metadataFrom } from "../schema-helpers.js";
 
 interface DocumentToolDeps {
   documentTools: LocalDocumentToolService | null;
+  agent: AgentConfig;
 }
 
 const readFileSchema = z.object({
@@ -333,44 +335,53 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
   },
 ];
 
-export function createDocumentTools(deps: DocumentToolDeps): RuntimeTool[] {
+export function createDocumentTools(deps: DocumentToolDeps): Tool[] {
   const definitionByName = new Map(DOCUMENT_TOOLS.map((definition) => [definition.name, definition]));
   const documentTools = deps.documentTools;
   if (!documentTools) {
     return [];
   }
-  return [
-    buildTool({
+  const enabled = new Set(deps.agent.tools.enabled_tools ?? []);
+  const tools: Tool[] = [];
+  if (enabled.has(READ_FILE_TOOL_NAME)) {
+    tools.push(buildTool({
       ...metadataFrom(definitionByName.get(READ_FILE_TOOL_NAME)!),
       inputSchema: readFileSchema,
       isReadOnly: () => true,
       isConcurrencySafe: () => true,
-      call: (input, context) => documentTools.readFile(readFileArguments(input), context),
-      getExternalPathApprovalCandidates: (input, context) =>
-        documentTools.getExternalPathApprovalCandidates(READ_FILE_TOOL_NAME, input, context),
-    }),
-    buildTool({
+      call: (input, ctx: ToolExecContext) => documentTools.readFile(readFileArguments(input), ctx, deps.agent),
+      getExternalPathApprovalCandidates: (input, ctx: ToolExecContext) =>
+        documentTools.getExternalPathApprovalCandidates(READ_FILE_TOOL_NAME, input, ctx),
+    }));
+  }
+  if (enabled.has(WRITE_FILE_TOOL_NAME)) {
+    tools.push(buildTool({
       ...metadataFrom(definitionByName.get(WRITE_FILE_TOOL_NAME)!),
       inputSchema: writeFileSchema,
-      call: (input, context) => documentTools.writeFile(writeFileArguments(input), context),
-      getExternalPathApprovalCandidates: (input, context) =>
-        documentTools.getExternalPathApprovalCandidates(WRITE_FILE_TOOL_NAME, input, context),
-    }),
-    buildTool({
+      call: (input, ctx: ToolExecContext) => documentTools.writeFile(writeFileArguments(input), ctx, deps.agent),
+      getExternalPathApprovalCandidates: (input, ctx: ToolExecContext) =>
+        documentTools.getExternalPathApprovalCandidates(WRITE_FILE_TOOL_NAME, input, ctx),
+    }));
+  }
+  if (enabled.has(EDIT_FILE_TOOL_NAME)) {
+    tools.push(buildTool({
       ...metadataFrom(definitionByName.get(EDIT_FILE_TOOL_NAME)!),
       inputSchema: editFileSchema,
-      call: (input, context) => documentTools.editFile(editFileArguments(input), context),
-      getExternalPathApprovalCandidates: (input, context) =>
-        documentTools.getExternalPathApprovalCandidates(EDIT_FILE_TOOL_NAME, input, context),
-    }),
-    buildTool({
+      call: (input, ctx: ToolExecContext) => documentTools.editFile(editFileArguments(input), ctx, deps.agent),
+      getExternalPathApprovalCandidates: (input, ctx: ToolExecContext) =>
+        documentTools.getExternalPathApprovalCandidates(EDIT_FILE_TOOL_NAME, input, ctx),
+    }));
+  }
+  if (enabled.has(PREVIEW_DATA_STRUCTURE_TOOL_NAME)) {
+    tools.push(buildTool({
       ...metadataFrom(definitionByName.get(PREVIEW_DATA_STRUCTURE_TOOL_NAME)!),
       inputSchema: previewDataStructureSchema,
       isReadOnly: () => true,
       isConcurrencySafe: () => true,
-      call: (input, context) => documentTools.previewDataStructure(previewDataStructureArguments(input), context),
-      getExternalPathApprovalCandidates: (input, context) =>
-        documentTools.getExternalPathApprovalCandidates(PREVIEW_DATA_STRUCTURE_TOOL_NAME, input, context),
-    }),
-  ];
+      call: (input, ctx: ToolExecContext) => documentTools.previewDataStructure(previewDataStructureArguments(input), ctx, deps.agent),
+      getExternalPathApprovalCandidates: (input, ctx: ToolExecContext) =>
+        documentTools.getExternalPathApprovalCandidates(PREVIEW_DATA_STRUCTURE_TOOL_NAME, input, ctx),
+    }));
+  }
+  return tools;
 }

@@ -2,7 +2,8 @@ import os from "node:os";
 import path from "node:path";
 
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
-import type { RuntimeToolExecutionContext, RuntimeToolWaitResult, ToolExecutionResult } from "../../services/runtime/runtime-tool-types.js";
+import type { ToolWaitResult as RuntimeToolWaitResult, ToolExecutionResult, ToolExecContext } from "@ragsystem/agent-sdk";
+import { toolSuccess, toolError } from "../../services/agent/sdk/tool-results.js";
 import {
   asString,
   buildBackgroundNotificationPayload,
@@ -57,14 +58,14 @@ export class TaskToolService {
     this.taskStore = new TaskStore(this.dataRoot);
   }
 
-  taskCreate(input: TaskCreateInput, context: RuntimeToolExecutionContext): ToolExecutionResult {
+  taskCreate(input: TaskCreateInput, context: ToolExecContext): ToolExecutionResult {
     const toolName = "task_create";
     try {
       const sessionId = resolveTaskSessionId(context);
       const subject = input.subject.trim();
       const description = input.description.trim();
       if (!subject || !description) {
-        return errorResult("task_create 缺少 subject 或 description", toolName);
+        return toolError(toolName, "task_create 缺少 subject 或 description");
       }
       const task = this.taskStore.createTask(sessionId, {
         subject,
@@ -76,51 +77,51 @@ export class TaskToolService {
         blocked_by: [],
         metadata: input.metadata ?? {},
       });
-      return successResult(
+      return toolSuccess(
         { task },
         {
+          toolName,
           summary: `已创建任务 #${task.id}: ${subject}`,
           outputType: "json",
           metadata: { task_id: task.id, session_id: sessionId },
-          toolName,
         },
       );
     } catch (error) {
-      return errorResult(`创建任务失败: ${error instanceof Error ? error.message : String(error)}`, toolName);
+      return toolError(toolName, `创建任务失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  taskGet(input: TaskGetInput, context: RuntimeToolExecutionContext): ToolExecutionResult {
+  taskGet(input: TaskGetInput, context: ToolExecContext): ToolExecutionResult {
     const toolName = "task_get";
     try {
       const taskId = input.taskId.trim();
       const task = this.taskStore.getTask(resolveTaskSessionId(context), taskId);
       if (!task) {
-        return successResult(
+        return toolSuccess(
           { task: null },
           {
+            toolName,
             summary: `任务 #${taskId} 不存在`,
             outputType: "json",
             metadata: { task_id: taskId, found: false },
-            toolName,
           },
         );
       }
-      return successResult(
+      return toolSuccess(
         { task },
         {
+          toolName,
           summary: `已获取任务 #${taskId}: ${task.subject}`,
           outputType: "json",
           metadata: { task_id: taskId, status: task.status },
-          toolName,
         },
       );
     } catch (error) {
-      return errorResult(`获取任务失败: ${error instanceof Error ? error.message : String(error)}`, toolName);
+      return toolError(toolName, `获取任务失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  taskUpdate(input: TaskUpdateInput, context: RuntimeToolExecutionContext): ToolExecutionResult {
+  taskUpdate(input: TaskUpdateInput, context: ToolExecContext): ToolExecutionResult {
     const toolName = "task_update";
     try {
       const sessionId = resolveTaskSessionId(context);
@@ -153,7 +154,7 @@ export class TaskToolService {
 
       const result = this.taskStore.updateTask(sessionId, taskId, updates, updateOptions);
       if (input.status === "deleted") {
-        return successResult(
+        return toolSuccess(
           {
             success: true,
             task_id: taskId,
@@ -161,19 +162,19 @@ export class TaskToolService {
             status_change: { from: oldStatus, to: "deleted" },
           },
           {
+            toolName,
             summary: `已删除任务 #${taskId}`,
             outputType: "json",
             metadata: {},
-            toolName,
           },
         );
       }
       if (!result) {
-        return errorResult(`任务 #${taskId} 不存在`, toolName);
+        return toolError(toolName, `任务 #${taskId} 不存在`);
       }
 
       const statusChange = oldStatus !== result.status ? { from: oldStatus, to: result.status } : null;
-      return successResult(
+      return toolSuccess(
         {
           success: true,
           task_id: taskId,
@@ -181,18 +182,18 @@ export class TaskToolService {
           status_change: statusChange,
         },
         {
+          toolName,
           summary: `已更新任务 #${taskId}（${updatedFields.join(", ") || "无变更"}）`,
           outputType: "json",
           metadata: { task_id: taskId, status: result.status },
-          toolName,
         },
       );
     } catch (error) {
-      return errorResult(`更新任务失败: ${error instanceof Error ? error.message : String(error)}`, toolName);
+      return toolError(toolName, `更新任务失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  taskList(context: RuntimeToolExecutionContext): ToolExecutionResult {
+  taskList(context: ToolExecContext): ToolExecutionResult {
     const toolName = "task_list";
     try {
       const sessionId = resolveTaskSessionId(context);
@@ -207,17 +208,17 @@ export class TaskToolService {
           owner: task.owner,
           blocked_by: task.blocked_by.filter((id) => statusById.get(String(id)) !== "completed"),
         }));
-      return successResult(
+      return toolSuccess(
         { tasks: summaries },
         {
+          toolName,
           summary: `共 ${summaries.length} 个任务`,
           outputType: "json",
           metadata: { count: summaries.length, session_id: sessionId },
-          toolName,
         },
       );
     } catch (error) {
-      return errorResult(`列出任务失败: ${error instanceof Error ? error.message : String(error)}`, toolName);
+      return toolError(toolName, `列出任务失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -227,14 +228,14 @@ export class TaskToolService {
       const taskId = input.taskId.trim();
       const snapshot = this.backgroundTasks.getTaskSnapshot(taskId);
       if (!snapshot) {
-        return errorResult(`后台任务 ${taskId} 不存在`, toolName);
+        return toolError(toolName, `后台任务 ${taskId} 不存在`);
       }
       const rawOutput = this.backgroundTasks.readOutput(taskId, clampInteger(input.maxChars ?? 8000, 200, Number.MAX_SAFE_INTEGER));
       const content = buildBackgroundOutputContent(snapshot, rawOutput);
       const completed = Boolean(content.completed);
       const waitTimeoutMs = clampInteger(input.timeout ?? 30000, 0, 600000);
       if (input.block && !completed) {
-        return successResult(
+        return toolSuccess(
           {
             ...content,
             background_task_id: taskId,
@@ -242,6 +243,7 @@ export class TaskToolService {
             wait_timeout_ms: waitTimeoutMs,
           },
           {
+            toolName,
             summary: `后台任务 ${taskId} 仍在运行，已进入等待`,
             outputType: "json",
             metadata: {
@@ -249,18 +251,17 @@ export class TaskToolService {
               suggest_wait: true,
               wait_timeout_ms: waitTimeoutMs,
             },
-            toolName,
           },
         );
       }
-      return successResult(content, {
+      return toolSuccess(content, {
+        toolName,
         summary: completed ? `后台任务 ${taskId} 已完成，状态：${content.status}` : `后台任务 ${taskId} 当前状态：${content.status}`,
         outputType: "json",
         metadata: { task_id: taskId, status: content.status, completed },
-        toolName,
       });
     } catch (error) {
-      return errorResult(`读取后台任务失败: ${error instanceof Error ? error.message : String(error)}`, toolName);
+      return toolError(toolName, `读取后台任务失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -270,12 +271,12 @@ export class TaskToolService {
       const taskId = input.taskId.trim();
       const snapshot = this.backgroundTasks.getTaskSnapshot(taskId);
       if (!snapshot) {
-        return errorResult(`后台任务 ${taskId} 不存在`, toolName);
+        return toolError(toolName, `后台任务 ${taskId} 不存在`);
       }
       const status = String(snapshot.status ?? "");
       const cancelSupported = Boolean(snapshot.cancel_supported);
       if (["completed", "failed", "cancelled"].includes(status)) {
-        return successResult(
+        return toolSuccess(
           {
             task_id: taskId,
             found: true,
@@ -285,23 +286,23 @@ export class TaskToolService {
             cancel_supported: cancelSupported,
           },
           {
+            toolName,
             summary: `后台任务 ${taskId} 已结束，无需停止`,
             outputType: "json",
             metadata: { task_id: taskId, status },
-            toolName,
           },
         );
       }
       if (!cancelSupported) {
-        return errorResult(`后台任务 ${taskId} 当前类型不支持可靠停止`, toolName, { task_id: taskId, status });
+        return toolError(toolName, `后台任务 ${taskId} 当前类型不支持可靠停止`, { task_id: taskId, status });
       }
       const stopped = this.backgroundTasks.cancel(taskId);
       const updated = this.backgroundTasks.getTaskSnapshot(taskId) ?? snapshot;
       const currentStatus = String(updated.status ?? status);
       if (!stopped) {
-        return errorResult(`后台任务 ${taskId} 停止失败`, toolName, { task_id: taskId, status: currentStatus });
+        return toolError(toolName, `后台任务 ${taskId} 停止失败`, { task_id: taskId, status: currentStatus });
       }
-      return successResult(
+      return toolSuccess(
         {
           task_id: taskId,
           found: true,
@@ -311,14 +312,14 @@ export class TaskToolService {
           cancel_supported: Boolean(updated.cancel_supported),
         },
         {
+          toolName,
           summary: `已请求停止后台任务 ${taskId}`,
           outputType: "json",
           metadata: { task_id: taskId, status: currentStatus },
-          toolName,
         },
       );
     } catch (error) {
-      return errorResult(`停止后台任务失败: ${error instanceof Error ? error.message : String(error)}`, toolName);
+      return toolError(toolName, `停止后台任务失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -380,7 +381,7 @@ function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
   });
 }
 
-function resolveTaskSessionId(context: RuntimeToolExecutionContext): string {
+function resolveTaskSessionId(context: ToolExecContext): string {
   return context.sessionId?.trim() || "default";
 }
 
@@ -395,45 +396,6 @@ function addOptionalStringUpdate(
   }
   updates[key] = value;
   updatedFields.push(key);
-}
-
-function successResult<T>(
-  content: T,
-  input: {
-    summary: string;
-    outputType: string;
-    metadata: Record<string, unknown>;
-    toolName: string;
-  },
-): ToolExecutionResult<T> {
-  return {
-    success: true,
-    tool_name: input.toolName,
-    summary: input.summary,
-    answer: null,
-    output_type: input.outputType,
-    content,
-    metadata: input.metadata,
-    artifacts: [],
-    llm_hint: null,
-  };
-}
-
-function errorResult(message: string, toolName: string, metadata: Record<string, unknown> = {}): ToolExecutionResult<string> {
-  return {
-    success: false,
-    tool_name: toolName,
-    summary: message,
-    answer: null,
-    output_type: "error",
-    content: message,
-    metadata: {
-      source_shape: "error",
-      ...metadata,
-    },
-    artifacts: [],
-    llm_hint: null,
-  };
 }
 
 function clampInteger(value: unknown, min: number, max: number): number {

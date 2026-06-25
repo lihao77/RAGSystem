@@ -20,7 +20,6 @@ import type { BackgroundTaskService } from "../../runtime/background-task-servic
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
-import type { RuntimeToolRegistry } from "../../../tools/registry.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
 import type { PendingInteractionService } from "../../runtime/pending-interaction-service.js";
@@ -68,7 +67,9 @@ export interface AgentExecutionServiceParams {
   llmChatClient: LlmChatClient;
   dataRoot: string;
   contextService: AgentContextService;
-  runtimeTools?: RuntimeToolRegistry | null;
+  /** per-agent 工具依赖（runtime-adapter per-run 构建 Tool[] 用）。 */
+  toolsDeps?: Omit<import("../../../tools/registry.js").BackendToolsDeps, "agent" | "teamName"> | null;
+  codeExecutionTools?: import("../../../tools/CodeExecutionTool/CodeExecution.js").CodeExecutionToolService | null;
   taskTools?: TaskToolService | null;
   promptConfigResolver?: AgentPromptConfigResolver | null;
   backgroundTasks?: BackgroundTaskService | null;
@@ -118,7 +119,8 @@ export function createAgentExecutionService(
     params.llmChatClient,
     params.dataRoot,
     params.contextService,
-   params.runtimeTools ?? null,
+   params.toolsDeps ?? null,
+   params.codeExecutionTools ?? null,
    params.taskTools ?? null,
    params.promptConfigResolver ?? null,
    params.providersProvider,
