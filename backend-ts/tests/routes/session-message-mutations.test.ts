@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
+import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import { buildTestHarness } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
@@ -227,10 +228,10 @@ describe("session message mutation routes", () => {
         content: "v1",
       },
       {
-        agent: null,
         sessionId: "file-rollback-session",
         workspaceRoot,
       },
+      rollbackAgent(workspaceRoot),
     );
     expect(firstWrite).toMatchObject({ success: true });
     const secondUser = harness.container.sessionApplication.addMessage({
@@ -246,10 +247,10 @@ describe("session message mutation routes", () => {
         content: "v2",
       },
       {
-        agent: null,
         sessionId: "file-rollback-session",
         workspaceRoot,
       },
+      rollbackAgent(workspaceRoot),
     );
     expect(secondWrite).toMatchObject({ success: true });
     harness.container.sessionApplication.addMessage({
@@ -373,4 +374,27 @@ async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error("Timed out waiting for condition");
+}
+
+function rollbackAgent(workspaceRoot: string): AgentConfig {
+  return {
+    agent_name: "rollback_agent",
+    enabled: true,
+    default_entry: false,
+    tools: { enabled_tools: [] },
+    skills: { enabled_skills: [], auto_inject: true },
+    mcp: { enabled_servers: [] },
+    memory: { auto_inject: true, allowed_scopes: [], write_scopes: [], archive_scopes: [] },
+    tasks: { workflow: false, background: false },
+    delegation: { enabled_agents: [] },
+    knowledge_base: {
+      enabled: false,
+      default_collection: "documents",
+      default_search_mode: "hybrid",
+      default_top_k: 5,
+      default_rerank: false,
+      default_reranker_key: null,
+    },
+    custom_params: { workspace_root: workspaceRoot },
+  };
 }

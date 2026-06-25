@@ -44,6 +44,9 @@ export class SdkPermissionPolicyAdapter implements PermissionPolicy {
       riskLevel: decision.riskLevel,
       description: decision.description,
       ...(decision.approvedExternalPaths.length ? { approvedExternalPaths: decision.approvedExternalPaths } : {}),
+      permissionMode: decision.permissionMode,
+      ...(decision.reasonCodes.length ? { reasonCodes: decision.reasonCodes } : {}),
+      ...(decision.secondaryReasons.length ? { secondaryReasons: decision.secondaryReasons } : {}),
     };
   }
 }

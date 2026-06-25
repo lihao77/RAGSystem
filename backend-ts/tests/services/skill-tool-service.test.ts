@@ -66,19 +66,19 @@ describe("SkillToolService", () => {
     });
 
     expect(service.hasVisibleSkills(skillAgent([], true, workspaceRoot), workspaceRoot)).toBe(true);
-    expect(service.activateSkill({ skillName: "workspace-skill" }, { agent: skillAgent([], true, workspaceRoot), workspaceRoot })).toMatchObject({
+    expect(service.activateSkill({ skillName: "workspace-skill" }, { workspaceRoot }, skillAgent([], true, workspaceRoot))).toMatchObject({
       success: true,
     });
-    expect(service.activateSkill({ skillName: "global-skill" }, { agent: skillAgent([], true, workspaceRoot), workspaceRoot })).toMatchObject({
+    expect(service.activateSkill({ skillName: "global-skill" }, { workspaceRoot }, skillAgent([], true, workspaceRoot))).toMatchObject({
       success: false,
       summary: expect.stringContaining("无权使用"),
     });
     expect(service.hasVisibleSkills(skillAgent([], true), null)).toBe(false);
     expect(service.hasVisibleSkills(skillAgent(["global-skill"], false), null)).toBe(true);
-    expect(service.activateSkill({ skillName: "global-skill" }, { agent: skillAgent(["global-skill"], false) })).toMatchObject({
+    expect(service.activateSkill({ skillName: "global-skill" }, {}, skillAgent(["global-skill"], false))).toMatchObject({
       success: true,
     });
-    expect(service.activateSkill({ skillName: "builtin-skill" }, { agent: skillAgent(["builtin-skill"], false) })).toMatchObject({
+    expect(service.activateSkill({ skillName: "builtin-skill" }, {}, skillAgent(["builtin-skill"], false))).toMatchObject({
       success: true,
     });
   });
@@ -96,9 +96,10 @@ describe("SkillToolService", () => {
       "utf8",
     );
     const service = new SkillToolService({ dataRoot: root, builtinSkillsRoot: builtinRoot, userGlobalSkillsRoot: path.join(root, "global") });
-    const context = { agent: skillAgent(["demo-skill"]), sessionId: "s1" };
+    const context = { sessionId: "s1" };
+    const agent = skillAgent(["demo-skill"]);
 
-    expect(service.getSkillInfo({ skillName: "demo-skill" }, context)).toMatchObject({
+    expect(service.getSkillInfo({ skillName: "demo-skill" }, context, agent)).toMatchObject({
       success: true,
       content: {
         name: "demo-skill",
@@ -108,14 +109,14 @@ describe("SkillToolService", () => {
         resource_count: 1,
       },
     });
-    expect(service.activateSkill({ skillName: "demo-skill" }, context)).toMatchObject({
+    expect(service.activateSkill({ skillName: "demo-skill" }, context, agent)).toMatchObject({
       success: true,
-      output_type: "markdown",
+      outputType: "markdown",
       content: {
         main_content: "# Demo\nUse resource.",
       },
     });
-    expect(service.loadSkillResource({ skillName: "demo-skill", resourceFile: "reference.md" }, context)).toMatchObject({
+    expect(service.loadSkillResource({ skillName: "demo-skill", resourceFile: "reference.md" }, context, agent)).toMatchObject({
       success: true,
       content: {
         file_name: "reference.md",
@@ -124,10 +125,10 @@ describe("SkillToolService", () => {
     });
 
     await expect(
-      service.executeSkillScript({ skillName: "demo-skill", scriptName: "report.py", arguments: [] }, context),
+      service.executeSkillScript({ skillName: "demo-skill", scriptName: "report.py", arguments: [] }, context, agent),
     ).resolves.toMatchObject({
       success: true,
-      output_type: "json",
+      outputType: "json",
       content: {
         items: [1, 2],
       },
@@ -181,7 +182,8 @@ describe("SkillToolService", () => {
     await expect(
       service.executeSkillScript(
         { skillName: "team-generation", scriptName: "generate_team.py", arguments: [] },
-        { agent: skillAgent(["team-generation"]) },
+        {},
+        skillAgent(["team-generation"]),
       ),
     ).resolves.toMatchObject({
       success: true,
@@ -244,12 +246,13 @@ describe("SkillToolService", () => {
 
     const created = await service.executeSkillScript(
       { skillName: "visualization", scriptName: "create_chart.py", arguments: [] },
-      { agent: skillAgent(["visualization"]), sessionId: "viz-session" },
+      { sessionId: "viz-session" },
+      skillAgent(["visualization"]),
     );
 
     expect(created).toMatchObject({
       success: true,
-      output_type: "chart",
+      outputType: "chart",
       content: {
         title: "Rainfall",
         viz_type: "chart",
@@ -259,7 +262,7 @@ describe("SkillToolService", () => {
       },
     });
     const artifactId = readArtifactId(created.content);
-    expect(created.llm_hint).toBe(`在 <final_answer> 中插入 [viz:${artifactId}] 来展示此可视化`);
+    expect(created.llmHint).toBe(`在 <final_answer> 中插入 [viz:${artifactId}] 来展示此可视化`);
     expect(artifacts.getVisualization(artifactId)).toMatchObject({
       artifact_id: artifactId,
       viz_type: "chart",
@@ -292,11 +295,12 @@ describe("SkillToolService", () => {
     await expect(
       service.executeSkillScript(
         { skillName: "visualization", scriptName: "revise_chart.py", arguments: [artifactId] },
-        { agent: skillAgent(["visualization"]), sessionId: "viz-session" },
+        { sessionId: "viz-session" },
+        skillAgent(["visualization"]),
       ),
     ).resolves.toMatchObject({
       success: true,
-      output_type: "chart",
+      outputType: "chart",
       content: {
         artifact_id: artifactId,
         viz_type: "chart",
@@ -337,7 +341,8 @@ describe("SkillToolService", () => {
     agent.tasks = { workflow: false, background: true };
     const started = await service.executeSkillScript(
       { skillName: "demo-skill", scriptName: "report.py", arguments: [], runInBackground: true },
-      { agent, sessionId: "bg-session", runId: "run-1", taskId: "task-1" },
+      { sessionId: "bg-session", runId: "run-1", taskId: "task-1" },
+      agent,
     );
 
     expect(started).toMatchObject({
@@ -367,8 +372,8 @@ describe("SkillToolService", () => {
       success: true,
       result_type: "tool_execution_result",
       result: {
-        tool_name: "execute_skill_script",
-        output_type: "json",
+        toolName: "execute_skill_script",
+        outputType: "json",
         content: {
           river: [{ site_name: "柳州水文站" }],
         },
@@ -393,12 +398,13 @@ describe("SkillToolService", () => {
 
     const result = await service.executeSkillScript(
       { skillName: "demo-skill", scriptName: "report.py", arguments: [], runInBackground: true },
-      { agent: skillAgent(["demo-skill"]), sessionId: "bg-session" },
+      { sessionId: "bg-session" },
+      skillAgent(["demo-skill"]),
     );
 
     expect(result).toMatchObject({
       success: false,
-      tool_name: "execute_skill_script",
+      toolName: "execute_skill_script",
       content: expect.stringContaining("未启用 tasks.background"),
       metadata: {
         background_started: false,
@@ -428,7 +434,8 @@ describe("SkillToolService", () => {
 
     const result = await service.executeSkillScript(
       { skillName: "shared-skill", scriptName: "where.py", arguments: [] },
-      { agent: skillAgent(["shared-skill"]) },
+      {},
+      skillAgent(["shared-skill"]),
     );
 
     expect(result).toMatchObject({ success: true });
@@ -456,7 +463,8 @@ describe("SkillToolService", () => {
 
     const result = await service.executeSkillScript(
       { skillName: "venv-skill", scriptName: "where.py", arguments: [] },
-      { agent: skillAgent(["venv-skill"]) },
+      {},
+      skillAgent(["venv-skill"]),
     );
 
     expect(result).toMatchObject({ success: true });

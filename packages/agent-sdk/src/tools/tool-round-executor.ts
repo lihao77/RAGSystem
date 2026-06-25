@@ -253,6 +253,9 @@ async function runToolApproval(input: {
       riskLevel: decision.riskLevel,
       description: decision.description,
       ...(decision.approvedExternalPaths?.length ? { approvedExternalPaths: decision.approvedExternalPaths } : {}),
+      ...(decision.permissionMode ? { permissionMode: decision.permissionMode } : {}),
+      ...(decision.reasonCodes?.length ? { reasonCodes: decision.reasonCodes } : {}),
+      ...(decision.secondaryReasons?.length ? { secondaryReasons: decision.secondaryReasons } : {}),
       ctx: toolContext,
     });
   } catch (error) {

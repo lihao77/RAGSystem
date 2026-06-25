@@ -50,9 +50,9 @@ describe("MemoryToolService", () => {
 
     expect(service.listMemoryIndex({ scope: "team" }, context)).toMatchObject({
       success: true,
-      tool_name: "list_memory_index",
+      toolName: "list_memory_index",
       content: "# Team Memory",
-      output_type: "text",
+      outputType: "text",
       metadata: {
         scope: "team",
         index_file_path: path.join(dataRoot, "memory", "teams", "alpha-team", "MEMORY.md"),
@@ -96,7 +96,7 @@ describe("MemoryToolService", () => {
 
     expect(result).toMatchObject({
       success: true,
-      tool_name: "read_memory_entry",
+      toolName: "read_memory_entry",
       summary: "已读取记忆文件: fact_alpha.md",
       content: expect.stringContaining("body"),
       metadata: {
@@ -121,7 +121,7 @@ describe("MemoryToolService", () => {
       ),
     ).toMatchObject({
       success: false,
-      output_type: "error",
+      outputType: "error",
       content: "当前 Agent 不允许访问 memory scope: team",
       metadata: {
         source_shape: "error",
@@ -156,8 +156,8 @@ describe("MemoryToolService", () => {
 
     expect(writeResult).toMatchObject({
       success: true,
-      tool_name: "write_memory",
-      output_type: "json",
+      toolName: "write_memory",
+      outputType: "json",
       content: {
         file_name: "fact_Alpha-Fact.md",
         scope: "session",
@@ -180,7 +180,7 @@ describe("MemoryToolService", () => {
     );
     expect(archiveResult).toMatchObject({
       success: true,
-      tool_name: "archive_memory",
+      toolName: "archive_memory",
       content: {
         archived: true,
         file_name: "fact_Alpha-Fact.md",

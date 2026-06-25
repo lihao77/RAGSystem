@@ -70,7 +70,14 @@ describe("AgentDelegationService", () => {
     });
 
     expect(
-      service.listChildAgents({ agentName: "worker_agent" }, { agent: minimalAgent("orchestrator_agent"), sessionId: "session-1" }),
+      service.listChildAgents(
+        {
+          agent: minimalAgent("orchestrator_agent"),
+          teamName: null,
+          input: { agentName: "worker_agent" },
+        },
+        { sessionId: "session-1" },
+      ),
     ).toMatchObject({
       success: true,
       content: {
@@ -86,24 +93,26 @@ describe("AgentDelegationService", () => {
 
     const result = await service.sendMessage(
       {
-        childAgentId: "child-existing",
-        message: "继续分析",
-        callId: "resume-call",
+        agent: minimalAgent("orchestrator_agent"),
+        teamName: "default",
+        input: {
+          childAgentId: "child-existing",
+          message: "继续分析",
+          callId: "resume-call",
+        },
       },
       {
-        agent: minimalAgent("orchestrator_agent"),
         sessionId: "session-1",
         runId: "parent-run",
         requestId: "request-1",
         currentAgentName: "orchestrator_agent",
-        teamName: "default",
         workspaceRoot: "E:/workspace",
       },
     );
 
     expect(result).toMatchObject({
       success: true,
-      tool_name: "send_message",
+      toolName: "send_message",
       content: "resumed answer",
       metadata: {
         agent_name: "worker_agent",
@@ -113,7 +122,7 @@ describe("AgentDelegationService", () => {
         mode: "resume",
       },
     });
-    expect(result.llm_hint).toBeNull();
+    expect(result.llmHint).toBeNull();
 
     // delegation 给 executeRun 传了正确的 child 归属：统一执行核心靠 parent_call_id/child_agent_id 区分父子
     expect(seenInputs).toHaveLength(1);

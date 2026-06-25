@@ -285,7 +285,17 @@ export interface ToolApprovalInput {
  */
 export type ToolApprovalDecision =
   | { action: "allow"; reason: string; approvedExternalPaths?: string[] }
-  | { action: "ask"; reason: string; riskLevel: string; description: string; approvedExternalPaths?: string[] }
+  | {
+      action: "ask";
+      reason: string;
+      riskLevel: string;
+      description: string;
+      approvedExternalPaths?: string[];
+      /** 策略模式标签（如 strict/standard/permissive），由消费端策略透传，供审批交互展示。 */
+      permissionMode?: string;
+      reasonCodes?: string[];
+      secondaryReasons?: string[];
+    }
   | { action: "deny"; reason: string };
 
 /** 审批策略端口：判定某次工具调用是否需要审批。 */
@@ -302,6 +312,10 @@ export interface ApprovalRequest {
   description: string;
   /** 待审批的外部路径候选（供前端展示）。 */
   approvedExternalPaths?: string[];
+  /** 策略模式标签（如 strict/standard/permissive），由消费端策略透传，供审批交互展示。 */
+  permissionMode?: string;
+  reasonCodes?: string[];
+  secondaryReasons?: string[];
   ctx: ToolExecContext;
 }
 
