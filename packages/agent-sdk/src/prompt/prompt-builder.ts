@@ -11,7 +11,6 @@ import { collectSections, normalizeString } from "./types.js";
 import { prepareToolsForPrompt } from "./tool-format.js";
 import {
   buildAgentSpecificPromptSections,
-  buildCodeExecutionPromptSection,
   buildDataFileRulesSection,
   buildPromptActionsSection,
   buildPromptDoingTasksSection,
@@ -22,7 +21,6 @@ import {
   buildPromptSkillsSection,
   buildPromptSystemSection,
   buildPromptToolsSection,
-  hasDelegationTools,
 } from "./sections.js";
 
 /** prompt 构建只需 behavior.systemPrompt；放宽 profile 类型，调试/preview 无需完整 tier 投影。 */
@@ -47,17 +45,16 @@ function buildDynamicSystemPrompt(profile: PromptProfile, context: AgentPromptCo
   const toolNames = new Set(tools.map((tool) => tool.name));
   const promptTools = prepareToolsForPrompt(tools, context.backgroundTasks ?? false);
   return collectSections([
-    buildPromptGoalSection(toolNames),
-    buildPromptDoingTasksSection(toolNames),
-    buildPromptPrinciplesSection(toolNames, mode),
-    buildPromptActionsSection(toolNames, mode),
+    buildPromptGoalSection(),
+    buildPromptDoingTasksSection(),
+    buildPromptPrinciplesSection(mode),
+    buildPromptActionsSection(mode),
     getAgentBaseSystemPrompt(profile),
-    buildPromptToolsSection(promptTools, mode, context.backgroundTasks ?? false),
+    buildPromptToolsSection(promptTools, mode),
     buildPromptSkillsSection(context.skills ?? []),
-    buildCodeExecutionPromptSection(promptTools),
     ...buildAgentSpecificPromptSections(context.delegatedAgents ?? [], mode),
     buildPromptOutputFormatSection(toolNames, mode),
-    buildPromptRulesSection(toolNames, mode),
-    buildDataFileRulesSection(toolNames, mode),
+    buildPromptRulesSection(mode),
+    buildDataFileRulesSection(),
   ]).join("\n\n");
 }

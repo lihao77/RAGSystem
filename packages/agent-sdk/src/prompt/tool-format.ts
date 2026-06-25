@@ -15,9 +15,6 @@ export function prepareToolsForPrompt(tools: RuntimeToolDefinition[], background
 }
 
 function omitBackgroundParameters(tool: RuntimeToolDefinition): RuntimeToolDefinition {
-  if (tool.name !== "execute_bash" && tool.name !== "execute_skill_script") {
-    return tool;
-  }
   const parameters = tool.parameters;
   if (!isRecord(parameters.properties) || !Object.prototype.hasOwnProperty.call(parameters.properties, "run_in_background")) {
     return tool;

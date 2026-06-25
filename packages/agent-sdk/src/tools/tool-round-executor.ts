@@ -372,6 +372,8 @@ async function resolveToolObservation(input: {
   const waitSignal = extractToolWaitSignal(input.result);
   if (!waitSignal || !input.opts.waitForToolResult) {
     try {
+      const tool = input.opts.registry.getTool(input.toolName);
+      const observationPolicy = tool?.observationPolicy ?? "default";
       const llmFacingResult = await buildLlmFacingToolResult({
         toolContext: input.toolContext,
         toolName: input.toolName,
@@ -379,6 +381,7 @@ async function resolveToolObservation(input: {
         profile: input.opts.profile,
         provider: input.opts.provider,
         dataRoot: input.opts.dataRoot,
+        observationPolicy,
       });
       return {
         success: input.result.success,

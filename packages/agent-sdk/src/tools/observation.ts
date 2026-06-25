@@ -19,11 +19,10 @@ import path from "node:path";
 import type { ProviderConfig } from "@ragsystem/agent-llm";
 import type { ToolArtifact, ToolExecutionResult, ToolExecContext } from "../contracts.js";
 import type { AgentProfile } from "../types.js";
+import type { ObservationPolicy } from "../prompt/tool-types.js";
 import { renderSemanticBlock } from "../protocol/xml/rendering.js";
 
 const GEOJSON_TYPES = new Set(["FeatureCollection", "Feature", "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"]);
-const SKILLS_DOC_TOOL_NAMES = new Set(["activate_skill", "load_skill_resource", "get_skill_info"]);
-const SOURCE_READ_TOOL_NAMES = new Set(["read_file"]);
 
 interface ObservationDecision {
   mode: "inline" | "artifact_ref";
@@ -47,14 +46,11 @@ export async function buildLlmFacingToolResult(input: {
   profile: AgentProfile;
   provider: ProviderConfig;
   dataRoot: string;
+  observationPolicy?: ObservationPolicy;
 }): Promise<ToolExecutionResult> {
-  const decision = decideObservation(input.result, { toolName: input.toolName, profile: input.profile, provider: input.provider });
+  const decision = decideObservation(input.result, { toolName: input.toolName, profile: input.profile, provider: input.provider, observationPolicy: input.observationPolicy ?? "default" });
   if (decision.mode === "inline") {
     return input.result;
-  }
-
-  if (isSourceReadResult(input.result, input.toolName)) {
-    return makeObservationOnlyToolResult(input.result, formatSourceReadReference(input.result));
   }
 
   const sessionId = asNonEmptyString(input.toolContext.sessionId);
@@ -81,7 +77,7 @@ export async function buildLlmFacingToolResult(input: {
  * 大 payload 决策 + 落盘
  * ========================================================== */
 
-function decideObservation(result: ToolExecutionResult, input: { toolName: string; profile: AgentProfile; provider: ProviderConfig }): ObservationDecision {
+function decideObservation(result: ToolExecutionResult, input: { toolName: string; profile: AgentProfile; provider: ProviderConfig; observationPolicy: ObservationPolicy }): ObservationDecision {
   const estimatedSize = estimateObservationSize(result.content);
   const budget = resolveObservationBudget(input.profile, input.provider);
   const metadata = result.metadata ?? {};
@@ -96,12 +92,8 @@ function decideObservation(result: ToolExecutionResult, input: { toolName: strin
   if (outputType === "chart" || outputType === "map") {
     return { mode: "inline", reason: "visualization_inline", estimatedSize, artifactTtlSeconds: null, budgetBucket: budget.bucketName };
   }
-  const effectiveToolName = result.toolName || input.toolName;
-  if (SKILLS_DOC_TOOL_NAMES.has(effectiveToolName)) {
-    return { mode: "inline", reason: "skills_inline", estimatedSize, artifactTtlSeconds: null, budgetBucket: budget.bucketName };
-  }
-  if (effectiveToolName === "read_file") {
-    return { mode: "inline", reason: result.metadata.user_approved_full_read ? "user_approved_read" : "read_file_inline", estimatedSize, artifactTtlSeconds: null, budgetBucket: budget.bucketName };
+  if (input.observationPolicy === "inline") {
+    return { mode: "inline", reason: "tool_policy_inline", estimatedSize, artifactTtlSeconds: null, budgetBucket: budget.bucketName };
   }
   const inlineLimit = inlineLimitForObservation(result, budget);
   return {
@@ -235,31 +227,6 @@ function extractFieldNames(fields: unknown): string | null {
   if (names.length === 0) { return null; }
   const suffix = fields.length > 5 ? ` 等 ${fields.length} 个字段` : "";
   return `字段: ${names.join(", ")}${suffix}`;
-}
-
-function formatSourceReadReference(result: ToolExecutionResult): string {
-  const metadata = result.metadata ?? {};
-  const filePath = asNonEmptyString(metadata.file_path) ?? "";
-  const content = typeof result.content === "string" ? result.content : String(result.content);
-  let preview = content.slice(0, 500);
-  if (content.length > 500) { preview = `${preview.trimEnd()}...`; }
-  const parts: string[] = [];
-  const answer = asNonEmptyString(result.answer);
-  const approvalMessage = asNonEmptyString(metadata.approval_message);
-  if (answer) { parts.push(`${answer}\n`); } else if (result.summary) { parts.push(`${result.summary}\n`); }
-  if (approvalMessage) { parts.push(`用户批注: ${approvalMessage}\n`); }
-  parts.push(`原始文件: ${filePath}`);
-  const startLine = metadata.start_line;
-  const endLine = metadata.end_line;
-  if (startLine !== undefined && endLine !== undefined) { parts.push(`当前片段: 行 ${String(startLine)}-${String(endLine)}`); }
-  if (metadata.has_more) { parts.push(`如需后续内容，请继续调用 read_file(file_path='${filePath}', offset=${String(metadata.next_offset)})`); }
-  if (preview) { parts.push(`预览: ${preview}`); }
-  return parts.join("\n");
-}
-
-function isSourceReadResult(result: ToolExecutionResult, toolName: string): boolean {
-  const effectiveToolName = result.toolName || toolName;
-  return SOURCE_READ_TOOL_NAMES.has(effectiveToolName) && Boolean(asNonEmptyString(result.metadata?.file_path));
 }
 
 function buildStructuredPreview(content: unknown): string | null {

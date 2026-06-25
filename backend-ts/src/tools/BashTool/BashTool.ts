@@ -42,7 +42,11 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
       category: "execution",
       riskLevel: "high",
       allowedCallers: ["direct"],
-      extendedUsage: `### 工作目录说明
+      extendedUsage: `### 适用场景
+
+仅在确实需要 shell/系统命令、且没有专用工具（read_file/edit_file/write_file/glob/grep 等）适用时使用 execute_bash；文件读写与搜索请优先用专用工具。
+
+### 工作目录说明
 
 三个受管目录空间：\`workspace\`（默认）、\`transient\`（临时）、\`exports\`（导出）。
 

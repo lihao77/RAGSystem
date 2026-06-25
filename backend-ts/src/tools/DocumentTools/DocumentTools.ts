@@ -78,6 +78,7 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
     category: "filesystem",
     riskLevel: "low",
     allowed_callers: ["direct"],
+    observationPolicy: "inline",
     description:
       "Read a managed workspace/session file by line range. Defaults to line 1 and at most 2000 lines. Use offset/limit for large files.",
     returns: {
@@ -96,6 +97,7 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
       },
     },
     usage_contract: [
+      "读取已有文件内容优先用 read_file，而非 execute_bash 的 cat 或 execute_code。",
       "read_file 默认只返回前 2000 行；大文件请用 metadata.next_offset 继续分页。",
       "可用 offset/limit 指定行号区间。",
       "返回内容为文件原始文本内容，不附带行号。",

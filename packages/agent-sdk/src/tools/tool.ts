@@ -6,7 +6,7 @@
  * 消费端在构建 ToolRegistry 时按 agent 配置筛选工具实例。
  */
 import type { ToolExecContext, ToolExecutionResult } from "../contracts.js";
-import type { RuntimeToolDefinition, RuntimeToolReturns } from "../prompt/tool-types.js";
+import type { ObservationPolicy, RuntimeToolDefinition, RuntimeToolReturns } from "../prompt/tool-types.js";
 
 /* ── 标量类型 ── */
 
@@ -56,6 +56,7 @@ export interface Tool<I = Record<string, unknown>, O = unknown> {
   readonly examples?: unknown[];
   readonly extendedUsage?: string;
   readonly returns?: RuntimeToolReturns;
+  readonly observationPolicy?: ObservationPolicy;
 
   /** 输入是否只读（影响并发分类）。 */
   isReadOnly(input: I): boolean;
@@ -86,6 +87,7 @@ export interface BuildToolInput<I, O> {
   examples?: unknown[];
   extendedUsage?: string;
   returns?: RuntimeToolReturns;
+  observationPolicy?: ObservationPolicy;
   isReadOnly?(input: I): boolean;
   isConcurrencySafe?(input: I): boolean;
   checkPermissions?(input: I, ctx: ToolExecContext): ToolPermissionResult;
@@ -120,6 +122,7 @@ export function buildTool<I extends Record<string, unknown>, O = unknown>(
   if (def.examples !== undefined) { (tool as MutableTool<I, O>).examples = def.examples; }
   if (def.extendedUsage !== undefined) { (tool as MutableTool<I, O>).extendedUsage = def.extendedUsage; }
   if (def.returns !== undefined) { (tool as MutableTool<I, O>).returns = def.returns; }
+  if (def.observationPolicy !== undefined) { (tool as MutableTool<I, O>).observationPolicy = def.observationPolicy; }
   if (def.checkPermissions !== undefined) { (tool as MutableTool<I, O>).checkPermissions = def.checkPermissions; }
   if (def.getExternalPathApprovalCandidates !== undefined) { (tool as MutableTool<I, O>).getExternalPathApprovalCandidates = def.getExternalPathApprovalCandidates; }
   return tool;
@@ -142,6 +145,7 @@ export function toolToDefinition(tool: Tool): RuntimeToolDefinition {
   if (tool.category) { definition.category = tool.category; }
   if (tool.riskLevel) { definition.riskLevel = tool.riskLevel; }
   if (tool.approvalExempt !== undefined) { definition.approvalExempt = tool.approvalExempt; }
+  if (tool.observationPolicy) { definition.observationPolicy = tool.observationPolicy; }
   return definition;
 }
 

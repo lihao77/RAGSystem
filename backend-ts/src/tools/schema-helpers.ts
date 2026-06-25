@@ -22,6 +22,7 @@ export function metadataFrom<T extends {
   examples?: unknown[] | undefined;
   extended_usage?: string | undefined;
   returns?: unknown;
+  observationPolicy?: "default" | "inline" | undefined;
 }>(definition: T) {
   const base = {
     name: definition.name,
@@ -55,6 +56,9 @@ export function metadataFrom<T extends {
   }
   if (definition.returns !== undefined) {
     (base as Record<string, unknown>).returns = definition.returns as never;
+  }
+  if (definition.observationPolicy !== undefined) {
+    (base as Record<string, unknown>).observationPolicy = definition.observationPolicy;
   }
   return base;
 }

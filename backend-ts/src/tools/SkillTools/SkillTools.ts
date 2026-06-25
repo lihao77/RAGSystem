@@ -46,6 +46,7 @@ const SKILL_TOOLS: RuntimeToolDefinition[] = [
     category: "skill",
     riskLevel: "low",
     allowed_callers: ["direct"],
+    observationPolicy: "inline",
     description: "Activate a Skill and return its SKILL.md main instructions.",
     returns: {
       description: "成功时返回 Skill 主文件内容和基础信息。",
@@ -77,6 +78,7 @@ const SKILL_TOOLS: RuntimeToolDefinition[] = [
     category: "skill",
     riskLevel: "low",
     allowed_callers: ["direct"],
+    observationPolicy: "inline",
     description: "Load an additional resource file from an activated Skill.",
     returns: {
       description: "成功时返回指定资源文件的内容。",
@@ -139,6 +141,7 @@ const SKILL_TOOLS: RuntimeToolDefinition[] = [
     category: "skill",
     riskLevel: "low",
     allowed_callers: ["direct"],
+    observationPolicy: "inline",
     description: "Get lightweight Skill metadata without loading full instructions.",
     parameters: {
       type: "object",
