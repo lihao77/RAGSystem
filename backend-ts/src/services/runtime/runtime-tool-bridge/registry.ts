@@ -1,6 +1,3 @@
-export const READ_ONLY_MEMORY_TOOL_NAMES = ["list_memory_index", "read_memory_entry"] as const;
-export type ReadOnlyMemoryToolName = (typeof READ_ONLY_MEMORY_TOOL_NAMES)[number];
-
 export const REQUEST_USER_INPUT_TOOL_NAME = "request_user_input";
 export const READ_FILE_TOOL_NAME = "read_file";
 export const WRITE_FILE_TOOL_NAME = "write_file";

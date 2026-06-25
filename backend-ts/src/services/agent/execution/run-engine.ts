@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } from "../../../contracts/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
-import type { AgentContextService } from "../context/index.js";
 import type { AgentPromptConfigResolver } from "../prompt-builder/index.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { ChatMessage, LlmChatClient } from "../../integrations/llm-chat-client.js";
@@ -41,7 +40,6 @@ export class AgentRunEngine {
     private readonly conversationStore: IRunStore & IMessageStore & ISessionStore,
     private readonly llmChatClient: LlmChatClient,
     private readonly dataRoot: string,
-    private readonly contextService: AgentContextService,
    private readonly toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName"> | null,
    private readonly codeExecutionTools: CodeExecutionToolService | null,
    private readonly taskTools: TaskToolService | null,

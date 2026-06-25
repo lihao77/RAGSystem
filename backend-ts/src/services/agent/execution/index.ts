@@ -118,7 +118,6 @@ export function createAgentExecutionService(
     params.conversationStore,
     params.llmChatClient,
     params.dataRoot,
-    params.contextService,
    params.toolsDeps ?? null,
    params.codeExecutionTools ?? null,
    params.taskTools ?? null,

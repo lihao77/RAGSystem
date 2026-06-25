@@ -387,5 +387,3 @@ function toMemoryRuntimeContext(agent: AgentConfig, ctx: ToolExecContext) {
     workspaceRoot: ctx.workspaceRoot,
   };
 }
-
-export const MEMORY_TOOL_NAMES = ["list_memory_index", "read_memory_entry", WRITE_MEMORY_TOOL_NAME, ARCHIVE_MEMORY_TOOL_NAME];
