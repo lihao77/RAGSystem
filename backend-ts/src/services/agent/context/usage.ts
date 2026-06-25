@@ -4,7 +4,8 @@ import type { ChatMessage } from "../../integrations/llm-chat-client.js";
 import { isStableSystemContextContent } from "../context-builder/index.js";
 import { estimateTokens } from "../context-compression/index.js";
 import { buildFullSystemPrompt, type AgentPromptContext } from "../prompt-builder/index.js";
-import { resolveToolInstructionMode } from "../kernel-plugins/protocol/select-protocol.js";
+import { resolveToolInstructionMode } from "@ragsystem/agent-sdk";
+import type { ProviderConfig } from "@ragsystem/agent-llm";
 
 /**
  * context.usage 事件 payload 计算 —— 从 execution/helpers.ts 迁入，归位到上下文模块。
@@ -28,7 +29,7 @@ export function buildContextUsagePayload(input: {
   } | null;
 }): Record<string, unknown> {
   const rawSystemPromptTokens = estimateTokens(
-    buildFullSystemPrompt(input.agent, input.promptContext, input.provider ? resolveToolInstructionMode(input.provider) : "xml"),
+    buildFullSystemPrompt(input.agent, input.promptContext, input.provider ? resolveToolInstructionMode(input.provider as ProviderConfig) : "xml"),
   );
   const systemContextTokens = input.messages
     .filter((message) => message.role === "system" && isStableSystemContextContent(message.content))

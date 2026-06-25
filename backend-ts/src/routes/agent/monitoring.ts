@@ -5,7 +5,9 @@ import { ok } from "../../contracts/common.js";
 import type { OutboxStatus } from "../../contracts/conversation-store/index.js";
 import { resolveContextCompressionSettings } from "../../services/agent/context-compression/index.js";
 import { buildAgentPromptContext, buildFullSystemPrompt } from "../../services/agent/prompt-builder/index.js";
-import { renderMessagesForProvider, resolveToolInstructionMode } from "../../services/agent/kernel-plugins/protocol/select-protocol.js";
+import { resolveToolInstructionMode, renderXmlModelMessage, renderNativeModelMessage } from "@ragsystem/agent-sdk";
+import type { ChatMessage as SdkChatMessage, ProviderConfig } from "@ragsystem/agent-llm";
+import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
 import { resolveHistoryView } from "../../services/agent/context-builder/index.js";
 import { messagesToConversation } from "../../services/agent/context-builder/history-view.js";
 import type { ChatMessage, ChatToolCall } from "../../services/integrations/llm-chat-client.js";
@@ -121,7 +123,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       configResolver: options.container.agentConfig,
       teamName: normalizeString(sessionMetadata.team),
     });
-    const toolInstructionMode = resolved.provider ? resolveToolInstructionMode(resolved.provider) : "xml";
+    const toolInstructionMode = resolved.provider ? resolveToolInstructionMode(resolved.provider as ProviderConfig) : "xml";
     const systemPrompt = buildFullSystemPrompt(agent, promptContext, toolInstructionMode);
     const context = sessionId
       ? options.container.agentContextService.snapshotContext({
@@ -203,6 +205,12 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     return ok(item, "获取工具调用原始结果成功");
   });
 };
+
+function renderMessagesForProvider(provider: ModelProviderConfig | null, messages: ChatMessage[]): ChatMessage[] {
+  const useNative = provider !== null && resolveToolInstructionMode(provider as ProviderConfig) === "native";
+  const render = useNative ? renderNativeModelMessage : renderXmlModelMessage;
+  return (messages as unknown as SdkChatMessage[]).map(render) as unknown as ChatMessage[];
+}
 
 function buildSystemMetrics(options: RouteOptions): {
   total_agents: number;

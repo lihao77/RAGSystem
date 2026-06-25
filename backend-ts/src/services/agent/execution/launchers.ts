@@ -18,7 +18,6 @@ import {
 import { resolveReadyAgent } from "./readiness.js";
 import type { AttachmentResolver } from "./attachment-resolver.js";
 import { parseSlashCommand, type SlashCommandHandler } from "./slash-command-handler.js";
-import type { FollowupQueue } from "./followup-queue.js";
 import type { AgentRunEngine } from "./run-engine.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { AgentExecutionEventPublisher } from "./event-publisher.js";
@@ -45,7 +44,6 @@ export interface LauncherDeps {
   runtimeCore: RuntimeExecutionConfigResolver;
   slashCommandHandler: SlashCommandHandler;
   attachmentResolver: AttachmentResolver;
-  followupQueue: FollowupQueue;
   statusTracker: AgentExecutionStatusTracker;
   eventPublisher: AgentExecutionEventPublisher;
   runEngine: AgentRunEngine;
@@ -62,7 +60,6 @@ class AgentLaunchers {
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
     private readonly slashCommandHandler: SlashCommandHandler,
     private readonly attachmentResolver: AttachmentResolver,
-    private readonly followupQueue: FollowupQueue,
     private readonly statusTracker: AgentExecutionStatusTracker,
     private readonly eventPublisher: AgentExecutionEventPublisher,
     private readonly runEngine: AgentRunEngine,
@@ -119,7 +116,6 @@ class AgentLaunchers {
           source: "running_session",
         },
       });
-      this.followupQueue.queue(sessionId, followupMessage.content);
       this.eventPublisher.publishOutputMessageSaved(sessionId, runningRunId, {
         message_id: followupMessage.id,
         seq: followupMessage.seq,
@@ -173,7 +169,6 @@ class AgentLaunchers {
           ...(attachmentResolution.attachments.length ? { attachments: attachmentResolution.attachments } : {}),
         },
       },
-      conversationUpdateProvider: () => this.followupQueue.drain(sessionId),
     });
     const { promise: _promise, ...publicStarted } = started;
     return publicStarted;
@@ -387,7 +382,6 @@ export function createLaunchers(deps: LauncherDeps): LauncherApi {
     deps.runtimeCore,
     deps.slashCommandHandler,
     deps.attachmentResolver,
-    deps.followupQueue,
     deps.statusTracker,
     deps.eventPublisher,
     deps.runEngine,

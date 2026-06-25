@@ -17,13 +17,9 @@ import type { ConversationStore } from "../../../contracts/conversation-store/in
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import {
   asString,
-  buildFinalStepPayload,
-  buildRunEndStepPayload,
-  buildToolContext,
   buildRunningExecutionStatus,
   renderBackgroundNotification,
 } from "./helpers.js";
-import { ExecutionRecorder, type RunTerminalRecord } from "./recorder.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
 
 export interface AgentExecutionLogger {
@@ -49,7 +45,6 @@ export class AgentRunEngine {
    private readonly backgroundTasks: BackgroundTaskService | null,
     private readonly statusTracker: AgentExecutionStatusTracker,
     private readonly eventPublisher: AgentExecutionEventPublisher,
-    private readonly executionRecorder: ExecutionRecorder,
     private readonly outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">,
     private readonly clientEvents: DurableClientEventPublisher,
     private readonly logger: AgentExecutionLogger | null,
@@ -74,7 +69,6 @@ export class AgentRunEngine {
     startStepExtra?: Record<string, unknown> | undefined;
     contextConversation?: ChatMessage[] | undefined;
     stablePrefixFingerprint?: string | null | undefined;
-    conversationUpdateProvider?: (() => Promise<ChatMessage[]> | ChatMessage[]) | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
   }): AgentRunStartResult & { promise: Promise<{ content: string; success: boolean }> } {
     const runId = randomUUID();
@@ -156,7 +150,6 @@ export class AgentRunEngine {
       parentRunId: null,
       childAgentId: null,
       userMessageId: existingUserMessageId,
-      conversationUpdateProvider: input.conversationUpdateProvider,
       executionKind: input.executionKind,
       contextConversation: input.contextConversation,
       stablePrefixFingerprint: input.stablePrefixFingerprint,
@@ -255,7 +248,6 @@ export class AgentRunEngine {
     parentCallId?: string | null | undefined;
     childAgentId?: string | null;
     userMessageId?: string | undefined;
-    conversationUpdateProvider?: (() => Promise<ChatMessage[]> | ChatMessage[]) | undefined;
     executionKind?: string | undefined;
     contextConversation?: ChatMessage[] | undefined;
     stablePrefixFingerprint?: string | null | undefined;
@@ -363,19 +355,6 @@ export class AgentRunEngine {
      return { content: errorMessage, success: false };
     }
  }
-
- private deliverTerminalRecord(record: RunTerminalRecord): void {
-    this.outboxDispatcher.dispatchRows(record.outboxRows);
-  }
-
-  private async drainConversationUpdates(
-    sessionId: string,
-    provider?: (() => Promise<ChatMessage[]> | ChatMessage[]) | undefined,
-  ): Promise<ChatMessage[]> {
-    const notifications = this.drainBackgroundTaskNotifications(sessionId);
-    const updates = provider ? await provider() : [];
-    return [...notifications, ...updates];
-  }
 
   private drainBackgroundTaskNotifications(sessionId: string): ChatMessage[] {
     const payloads = this.backgroundTasks?.drainPendingNotifications(sessionId) ?? [];

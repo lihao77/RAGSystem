@@ -8,6 +8,7 @@
  *（final assistant 消息由 SDK Dispatcher.finalize 已写，此处只查库取其 id/seq 供 message_saved）。
  */
 import { createRuntime, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
+import { translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
@@ -23,14 +24,13 @@ import { getDefaultTier } from "./projection.js";
 import { SdkStoreAdapter } from "./sdk-store-adapter.js";
 import { LlmClientAdapter } from "./llm-client-adapter.js";
 import { SdkToolExecutor } from "./tool-executor.js";
-import { translateKernelEvent, type SdkEventTranslationContext } from "./event-translator.js";
 
 export interface SdkRuntimeAdapterDeps {
-conversationStore: ConversationStore;
- runtimeToolBridge: RuntimeToolExecutor;
+  conversationStore: ConversationStore;
+  runtimeToolBridge: RuntimeToolExecutor;
   /** backend-ts LLM 客户端（经 LlmClientAdapter 适配成 SDK LlmClient；保留测试 mock 注入点）。 */
   llmChatClient: LlmChatClient;
- eventPublisher: AgentExecutionEventPublisher;
+  eventPublisher: AgentExecutionEventPublisher;
   clientEvents: DurableClientEventPublisher;
   /** 已加载的全部 provider（投影层解析 tier.provider 引用用）。 */
   providers: ModelProviderConfig[];
@@ -80,13 +80,13 @@ export async function executeRunWithSdk(
   deps: SdkRuntimeAdapterDeps,
   input: SdkExecuteRunInput,
 ): Promise<SdkExecuteRunResult> {
- const profile = projectAgentProfile({
-   agent: input.agent,
-   providers: deps.providers,
-   ...(input.selectedLlm !== undefined ? { selectedLlm: input.selectedLlm } : {}),
- });
+  const profile = projectAgentProfile({
+    agent: input.agent,
+    providers: deps.providers,
+    ...(input.selectedLlm !== undefined ? { selectedLlm: input.selectedLlm } : {}),
+  });
   const defaultTier = getDefaultTier(profile.llmTiers);
- const storeAdapter = new SdkStoreAdapter({ conversationStore: deps.conversationStore });
+  const storeAdapter = new SdkStoreAdapter({ conversationStore: deps.conversationStore });
   const llmClient = new LlmClientAdapter({ chatClient: deps.llmChatClient, agent: input.agent });
   const toolExecutor = new SdkToolExecutor({
     bridge: deps.runtimeToolBridge,
@@ -95,28 +95,27 @@ export async function executeRunWithSdk(
     run: { taskId: input.taskId, requestId: input.requestId, rootCallId: input.rootCallId },
   });
 
- const runtimeOpts: CreateRuntimeOptions = {
-   llm: llmClient,
+  const runtimeOpts: CreateRuntimeOptions = {
+    llm: llmClient,
     provider: defaultTier.provider,
     modelName: defaultTier.modelName,
-   profile,
+    profile,
     toolExecutor,
     dataRoot: deps.dataRoot,
     store: storeAdapter,
   };
 
-  const translationCtx: SdkEventTranslationContext = {
+  // 翻译上下文（agent-protocol.translateKernelEvent 纯函数用）：root call + lineage。
+  const wireCtx: WireTranslationContext = {
     sessionId: input.sessionId,
     runId: input.runId,
-    taskId: input.taskId,
-    requestId: input.requestId,
     rootCallId: input.rootCallId,
-   agent: input.agent,
-   threadKey: input.threadKey,
-   ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
- };
+    requestId: input.requestId,
+    agentId: input.agent.agent_name,
+    agentDisplayName: input.agent.display_name || input.agent.agent_name,
+  };
   if (input.parentCallId !== undefined && input.parentCallId !== null) {
-    translationCtx.parentCallId = input.parentCallId;
+    wireCtx.parentCallId = input.parentCallId;
   }
 
   const runtime = createRuntime(runtimeOpts);
@@ -126,28 +125,30 @@ export async function executeRunWithSdk(
     messages: input.conversation,
     runId: input.runId,
     rootCallId: input.rootCallId,
-   threadKey: input.threadKey,
+    threadKey: input.threadKey,
     ...(input.parentCallId !== undefined && input.parentCallId !== null ? { parentCallId: input.parentCallId } : {}),
-   signal: input.signal,
-  ...(input.executionKind !== undefined ? { entrypoint: input.executionKind } : {}),
-  ...(input.userId !== undefined ? { userId: input.userId } : {}),
-   taskId: input.taskId,
-   requestId: input.requestId,
-   ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
- });
+    signal: input.signal,
+    ...(input.executionKind !== undefined ? { entrypoint: input.executionKind } : {}),
+    ...(input.userId !== undefined ? { userId: input.userId } : {}),
+    taskId: input.taskId,
+    requestId: input.requestId,
+    ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
+  });
 
-  // 事件循环：翻译 KernelEvent → Envelope，推 outbox（SDK Dispatcher 已落库 message/run_step，此处只推流）。
+  // 事件循环：翻译 KernelEvent → Envelope[]（agent-protocol 纯函数），逐条推 outbox（SDK Dispatcher 已落库，此处只推流）。
   const consumeEvents = (async () => {
     for await (const event of handle.events) {
-      translateKernelEvent(event, translationCtx, deps.eventPublisher);
+      for (const envelope of translateKernelEvent(event, wireCtx)) {
+        deps.eventPublisher.publishEnvelope(envelope);
+      }
     }
   })();
 
   let result;
   try {
     result = await handle.result;
- } catch (error) {
-   await consumeEvents.catch(() => undefined);
+  } catch (error) {
+    await consumeEvents.catch(() => undefined);
     runtime.close();
     const interrupted = input.signal.aborted;
     recordTerminal(deps, input, interrupted ? "interrupted" : "failed", null, error);
@@ -160,8 +161,8 @@ export async function executeRunWithSdk(
 
   // completed：SDK Dispatcher.finalize 已落最终 assistant 消息 + updateRunStatus。
   // 查库取该消息 id/seq，供 message_saved envelope；补 run:end/final step + 终态 envelope。
- const finalMessage = resolveFinalMessage(deps, input);
- recordTerminal(deps, input, "completed", finalMessage, null);
+  const finalMessage = resolveFinalMessage(deps, input);
+  recordTerminal(deps, input, "completed", finalMessage, null);
   return { content: result.content, success: true };
 }
 
@@ -194,58 +195,57 @@ function recordTerminal(
   // envelope（root run 的 stream_output(final)/message_saved/agent_ended/run_ended）到实时流。
   const records: RecordedClientEvent[] = isRoot
     ? deps.conversationStore.runInTransaction((tx): RecordedClientEvent[] => {
-        const collected: RecordedClientEvent[] = [];
-    if (status === "completed" && finalMessage) {
-      collected.push(appendEnvelope(tx, deps.clientEvents, input, {
-        type: "stream_output",
-        session_id: input.sessionId,
-        run_id: input.runId,
-        call_id: input.rootCallId,
-        agent_id: input.agent.agent_name,
-        payload: { phase: "final", content: finalMessage.content },
-      }));
-      collected.push(appendEnvelope(tx, deps.clientEvents, input, {
-        type: "state_sync",
-        session_id: input.sessionId,
-        run_id: input.runId,
-        payload: { category: "message_saved", ref: { message_id: finalMessage.id, seq: finalMessage.seq } },
-      }));
-      collected.push(appendEnvelope(tx, deps.clientEvents, input, {
-        type: "agent_ended",
-        session_id: input.sessionId,
-        run_id: input.runId,
-        call_id: input.rootCallId,
-        agent_id: input.agent.agent_name,
-        payload: { phase: "end", result: finalMessage.content.slice(0, 500), success: true },
-      }));
-      collected.push(appendEnvelope(tx, deps.clientEvents, input, {
-        type: "run_ended",
-        session_id: input.sessionId,
-        run_id: input.runId,
-        payload: { status: "completed" },
-      }));
-    } else {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      collected.push(appendEnvelope(tx, deps.clientEvents, input, {
-        type: "agent_ended",
-        session_id: input.sessionId,
-        run_id: input.runId,
-        call_id: input.rootCallId,
-        agent_id: input.agent.agent_name,
-        payload: {
-          phase: "end",
-          result: status === "interrupted" ? "[已停止生成]" : errorMessage.slice(0, 500),
-          success: false,
-        },
-      }));
-      collected.push(appendEnvelope(tx, deps.clientEvents, input, {
-        type: "run_ended",
-        session_id: input.sessionId,
-        run_id: input.runId,
-        payload: { status, ...(status !== "interrupted" ? { reason: errorMessage } : {}) },
-      }));
-    }
-   return collected;
+      const collected: RecordedClientEvent[] = [];
+      if (status === "completed" && finalMessage) {
+        collected.push(appendEnvelope(tx, deps.clientEvents, input, {
+          type: "stream_output",
+          session_id: input.sessionId,
+          run_id: input.runId,
+          call_id: input.rootCallId,
+          agent_id: input.agent.agent_name,
+          payload: { phase: "final", content: finalMessage.content },
+        }));
+        collected.push(appendEnvelope(tx, deps.clientEvents, input, {
+          type: "state_sync",
+          session_id: input.sessionId,
+          run_id: input.runId,
+          payload: { category: "message_saved", ref: { message_id: finalMessage.id, seq: finalMessage.seq } },
+        }));
+        collected.push(appendEnvelope(tx, deps.clientEvents, input, {
+          type: "agent_ended",
+          session_id: input.sessionId,
+          run_id: input.runId,
+          call_id: input.rootCallId,
+          agent_id: input.agent.agent_name,
+          payload: { phase: "end", result: finalMessage.content.slice(0, 500), success: true },
+        }));
+        collected.push(appendEnvelope(tx, deps.clientEvents, input, {
+          type: "run_ended",
+          session_id: input.sessionId,
+          run_id: input.runId,
+          payload: { status: "completed" },
+        }));
+      } else {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        collected.push(appendEnvelope(tx, deps.clientEvents, input, {
+          type: "agent_ended",
+          session_id: input.sessionId,
+          run_id: input.runId,
+          call_id: input.rootCallId,
+          agent_id: input.agent.agent_name,
+          payload: {
+            phase: "end",
+            result: status === "interrupted" ? "[已停止生成]" : errorMessage.slice(0, 500),
+            success: false,
+          },
+        }));
+        collected.push(appendEnvelope(tx, deps.clientEvents, input, {
+          type: "run_ended",
+          session_id: input.sessionId,
+          run_id: input.runId,
+          payload: { status, ...(status !== "interrupted" ? { reason: errorMessage } : {}) },
+        }));
+      }
       return collected;
     })
     : [];

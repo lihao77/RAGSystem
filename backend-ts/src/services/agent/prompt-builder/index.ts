@@ -1,6 +1,6 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { RuntimeToolExecutor } from "../../runtime/runtime-tool-types.js";
-import type { ToolInstructionMode } from "../kernel/contracts.js";
+import type { ToolInstructionMode } from "./types.js";
 import type { AgentPromptConfigResolver, AgentPromptContext } from "./types.js";
 import { collectSections, isRecord, normalizeString } from "./helpers.js";
 import { prepareToolsForPrompt } from "./tool-format.js";
@@ -26,6 +26,7 @@ export type {
   AgentPromptContext,
   AgentPromptDelegatedAgent,
   AgentPromptSkill,
+  ToolInstructionMode,
 } from "./types.js";
 
 export function buildAgentPromptContext(input: {

@@ -1,5 +1,7 @@
 /** agent-protocol 公共导出。 */
 export * from "./protocol.js";
+export * from "./kernel-events.js";
+export * from "./event-translation.js";
 export * from "./agent-client.js";
 export * from "./abort.js";
 export * from "./session-socket.js";

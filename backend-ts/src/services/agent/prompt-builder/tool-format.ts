@@ -1,6 +1,6 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { RuntimeToolDefinition } from "../../runtime/runtime-tool-types.js";
-import type { ToolInstructionMode } from "../kernel/contracts.js";
+import type { ToolInstructionMode } from "./types.js";
 import type { AgentPromptSkill } from "./types.js";
 import { isRecord, normalizeString } from "./helpers.js";
 

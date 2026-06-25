@@ -10,6 +10,31 @@
  * - 端口词汇去掉 backend-ts 的 runtime-tool-types 依赖，工具执行端口直接收 profile
  */
 import type { ChatMessage } from "@ragsystem/agent-llm";
+// 标量事件壳从协议面 import（供本文件 KernelEvent union 引用）+ re-export（供下游使用）。
+// 3 个携带 ChatMessage 的事件（intent_complete/assistant_intermediate/observation_complete）在下方 extends 壳扩展。
+import type {
+  FirstTokenEvent,
+  OutputDeltaEvent,
+  IntentDeltaEvent,
+  ToolCallEvent,
+  ToolResultEvent,
+  RuntimeErrorEvent,
+  ContextUsageEvent,
+  IntentCompleteEvent as IntentCompleteWire,
+  AssistantIntermediateEvent as AssistantIntermediateWire,
+  ObservationCompleteEvent as ObservationCompleteWire,
+} from "@ragsystem/agent-protocol";
+export type {
+  FirstTokenEvent,
+  OutputDeltaEvent,
+  IntentDeltaEvent,
+  ToolCallEvent,
+  ToolResultEvent,
+  RuntimeErrorEvent,
+  ContextUsageEvent,
+  KernelWireEvent,
+  WireTranslationContext,
+} from "@ragsystem/agent-protocol";
 import type {
   AgentProfile,
   ToolCallRef,
@@ -25,103 +50,33 @@ import type { KernelContext } from "./kernel-context.js";
 /* ============================================================
  * 一、KernelEvent —— 内核产出的运行时语义事件（透传，不翻译）
  *
- * Dispatcher 按类型分流（落 store + 推 handle.events 流），翻译成 Envelope 或其它可视化形态
- * 是消费端（backend-ts）的事。内核只 emit 这些语义完整的事件。
+ * 事件契约下沉协议面：标量壳定义在 @ragsystem/agent-protocol（packages/core/src/kernel-events.ts），
+ * 本文件 re-export 7 个纯标量事件（first_token/output_delta/intent_delta/tool_call/tool_result/error/context_usage）。
+ * 3 个携带 ChatMessage 的事件（intent_complete/assistant_intermediate/observation_complete）在此 extends 标量壳
+ * + 补 message 字段——ChatMessage 持久化由 Dispatcher 用本 union 落库，翻译成 Envelope 由协议面纯函数完成
+ *（translateKernelEvent 只读壳的标量字段，不读 message）。内核仍 emit 单一 KernelEvent union，Dispatcher 零改。
+ *
+ * Dispatcher 按类型分流（落 store + 推 handle.events 流）；翻译成 Envelope 是消费端（backend-ts）的事。
  * ========================================================== */
 
-export interface FirstTokenEvent {
-  type: "first_token";
-  agentName: string;
-  elapsedMs: number;
-}
-
-export interface OutputDeltaEvent {
-  type: "output_delta";
-  agentName: string;
-  content: string;
-}
-
-export interface IntentDeltaEvent {
-  type: "intent_delta";
-  agentName: string;
-  content: string;
-  round: number;
-}
-
-export interface IntentCompleteEvent {
-  type: "intent_complete";
-  agentName: string;
-  content: string;
-  round: number;
-  /** intent 落库的 assistant 消息（Dispatcher 据此 addMessage + 关联 step）。 */
+/**
+ * intent 完成（完整事件）：在协议面标量壳上扩展 assistantMessage——Dispatcher 据此 addMessage + 关联 step。
+ */
+export interface IntentCompleteEvent extends IntentCompleteWire {
   assistantMessage?: ChatMessage;
 }
 
-export interface AssistantIntermediateEvent {
-  type: "assistant_intermediate";
-  agentName: string;
-  round: number;
+/** assistant 中间态（完整事件）：壳上扩展 message——Dispatcher.persistAssistantMessage 据此落库。 */
+export interface AssistantIntermediateEvent extends AssistantIntermediateWire {
   message: ChatMessage;
 }
 
-export interface ToolCallEvent {
-  type: "tool_call";
-  agentName: string;
-  toolCallId: string;
-  toolName: string;
-  arguments: Record<string, unknown>;
-  round: number;
-  order: number;
-  roundIndex: number;
-}
-
-export interface ToolResultEvent {
-  type: "tool_result";
-  agentName: string;
-  toolCallId: string;
-  toolName: string;
-  success: boolean;
-  summary: string;
-  observation: string;
-  metadata: Record<string, unknown>;
-  elapsedTime: number;
-  round: number;
-  order: number;
-  roundIndex: number;
-}
-
-export interface ObservationCompleteEvent {
-  type: "observation_complete";
-  agentName: string;
-  round: number;
-  /** observation 落库的结构化 role:tool 消息（Dispatcher 据此 addMessage）。 */
+/** observation 完成（完整事件）：壳上扩展 messages——Dispatcher.persistObservations 据此落库。 */
+export interface ObservationCompleteEvent extends ObservationCompleteWire {
   messages: ChatMessage[];
 }
 
-export interface RuntimeErrorEvent {
-  type: "error";
-  agentName: string;
-  message: string;
-}
-
-/**
- * 上下文用量遥测：每轮请求消息组好后（buildMessages 后、问模型前）发一次。
- * 消费端据此推 state_sync(category: context_usage)（token 预算/用量）；内核只报数。
- * budgetTokens 由 createRuntime 注入的纯函数算（读 profile.llmTiers，零兜底）；
- * 各 token 分桶由注入的 estimateTokens 估算（CJK/非 CJK 启发式）。
- */
-export interface ContextUsageEvent {
-  type: "context_usage";
-  agentName: string;
-  round: number;
-  systemPromptTokens: number;
-  historyTokens: number;
-  totalTokens: number;
-  budgetTokens: number;
-  compressing: boolean;
-}
-
-/** 内核事件（运行时语义，透传给 Dispatcher）。 */
+/** 内核事件 union（含 ChatMessage 字段的完整版，内核 emit / Dispatcher 落库用）。 */
 export type KernelEvent =
   | FirstTokenEvent
   | OutputDeltaEvent

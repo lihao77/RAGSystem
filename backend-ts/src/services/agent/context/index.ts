@@ -17,8 +17,8 @@ import { buildContextUsagePayload } from "./usage.js";
 
 /**
  * 上下文统一门面 —— 把"构建(含微压缩) → 算 usage/budget"收归一处；
- * LLM 摘要压缩由内核 beforeModel hook 驱动（见 runtime-compaction-hook.ts），
- * 不在 run 前置同步触发。调用方（run-engine / delegation / slash / monitoring）
+ * 执行链的 LLM 摘要压缩由 SDK 运行时内核承担，本门面不参与执行链压缩；
+ * 仅供 /compact 手动压缩与 monitoring 调试快照。调用方（delegation / slash / monitoring）
  * 只问门面要上下文，不再各自拼装编排顺序。
  *
  * prepare：run 前置构建上下文 + 算 usage/budget，不压缩。

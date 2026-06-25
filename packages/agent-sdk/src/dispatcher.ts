@@ -53,17 +53,18 @@ export class Dispatcher implements EventSink {
 
   /** run 起始：createRun。 */
  startRun(): void {
-  this.store.createRun({
-    id: this.ctx.runId,
-    sessionId: this.ctx.sessionId,
-    rootCallId: this.ctx.rootCallId,
-    threadKey: this.ctx.threadKey,
-    parentCallId: this.ctx.parentCallId,
-     ...(this.ctx.executionKind !== undefined ? { entrypoint: this.ctx.executionKind } : {}),
-     ...(this.ctx.taskSummary !== undefined ? { taskSummary: this.ctx.taskSummary } : {}),
-     ...(this.ctx.userId !== undefined ? { userId: this.ctx.userId } : {}),
-  });
- }
+ this.store.createRun({
+   id: this.ctx.runId,
+   sessionId: this.ctx.sessionId,
+   rootCallId: this.ctx.rootCallId,
+   threadKey: this.ctx.threadKey,
+   parentCallId: this.ctx.parentCallId,
+    ...(this.ctx.executionKind !== undefined ? { entrypoint: this.ctx.executionKind } : {}),
+    ...(this.ctx.taskSummary !== undefined ? { taskSummary: this.ctx.taskSummary } : {}),
+  ...(this.ctx.userId !== undefined ? { userId: this.ctx.userId } : {}),
+   agentName: this.ctx.agentName,
+ });
+}
 
   /**
    * run 终态收口。completed：落最终 assistant 消息 + run_step + updateRunStatus。
@@ -148,7 +149,7 @@ export class Dispatcher implements EventSink {
      tx.addRunStep({
        sessionId: this.ctx.sessionId,
        runId: this.ctx.runId,
-       stepType: "intent",
+       stepType: "execution.step",
         payload: {
           kind: "intent",
           phase: "complete",
@@ -172,7 +173,7 @@ export class Dispatcher implements EventSink {
       tx.addRunStep({
         sessionId: this.ctx.sessionId,
         runId: this.ctx.runId,
-      stepType: "tool",
+      stepType: "execution.step",
        payload: this.buildToolStepPayload(event, phase),
      });
    });
@@ -389,7 +390,7 @@ export class Dispatcher implements EventSink {
         tx.addRunStep({
           sessionId: this.ctx.sessionId,
           runId: this.ctx.runId,
-          stepType: "tool",
+          stepType: "execution.step",
           payload: { kind: "tool", phase: "end", tool_name: toolCall.function.name, call_id: toolCall.id, round, order, success: false, observation: INTERRUPTED_OBSERVATION, summary: INTERRUPTED_SUMMARY, agent_name: this.ctx.agentName, run_id: this.ctx.runId },
         });
         order += 1;

@@ -24,11 +24,9 @@ import type { RuntimeToolExecutor } from "../../runtime/runtime-tool-types.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { IFileIndexStore } from "../../../contracts/file-index-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
-import { ExecutionRecorder } from "./recorder.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
 import { AttachmentResolver } from "./attachment-resolver.js";
 import { SlashCommandHandler } from "./slash-command-handler.js";
-import { FollowupQueue } from "./followup-queue.js";
 import { AgentRunEngine, type AgentExecutionLogger } from "./run-engine.js";
 import {
   createLaunchers,
@@ -93,13 +91,11 @@ export function createAgentExecutionService(
     throw new Error("AgentExecutionService requires an outbox dispatcher");
   }
   const statusTracker = new AgentExecutionStatusTracker();
-  const followupQueue = new FollowupQueue();
   const eventPublisher = new AgentExecutionEventPublisher(
     params.sessions,
     params.clientEvents,
     params.conversationStore,
   );
-  const executionRecorder = new ExecutionRecorder(params.conversationStore);
   const attachmentResolver = new AttachmentResolver(params.fileIndex ?? null);
   const slashCommandHandler = new SlashCommandHandler(
     params.sessions,
@@ -120,7 +116,6 @@ export function createAgentExecutionService(
    params.backgroundTasks ?? null,
     statusTracker,
     eventPublisher,
-    executionRecorder,
     params.outboxDispatcher,
     params.clientEvents,
     params.logger ?? null,
@@ -131,7 +126,6 @@ export function createAgentExecutionService(
     runtimeCore: params.runtimeCore,
     slashCommandHandler,
     attachmentResolver,
-    followupQueue,
     statusTracker,
     eventPublisher,
     runEngine,
