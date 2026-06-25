@@ -24,7 +24,6 @@ import { SdkStoreAdapter } from "./sdk-store-adapter.js";
 import { LlmClientAdapter } from "./llm-client-adapter.js";
 import { SdkToolExecutor } from "./tool-executor.js";
 import { translateKernelEvent, type SdkEventTranslationContext } from "./event-translator.js";
-import { asString, buildRunEndStepPayload, buildFinalStepPayload } from "../execution/helpers.js";
 
 export interface SdkRuntimeAdapterDeps {
 conversationStore: ConversationStore;
@@ -130,10 +129,12 @@ export async function executeRunWithSdk(
    threadKey: input.threadKey,
     ...(input.parentCallId !== undefined && input.parentCallId !== null ? { parentCallId: input.parentCallId } : {}),
    signal: input.signal,
-   ...(input.executionKind !== undefined ? { entrypoint: input.executionKind } : {}),
-   ...(input.userId !== undefined ? { userId: input.userId } : {}),
-    ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
-  });
+  ...(input.executionKind !== undefined ? { entrypoint: input.executionKind } : {}),
+  ...(input.userId !== undefined ? { userId: input.userId } : {}),
+   taskId: input.taskId,
+   requestId: input.requestId,
+   ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
+ });
 
   // 事件循环：翻译 KernelEvent → Envelope，推 outbox（SDK Dispatcher 已落库 message/run_step，此处只推流）。
   const consumeEvents = (async () => {
@@ -188,64 +189,12 @@ function recordTerminal(
   error: unknown,
 ): void {
   const isRoot = !input.childAgentId;
-  const agentDisplayName = input.agent.display_name || input.agent.agent_name;
-  const executionKind = input.executionKind ?? "agent_stream";
 
-  const records = deps.conversationStore.runInTransaction((tx): RecordedClientEvent[] => {
-    if (status === "completed") {
-      tx.addRunStep({
-        sessionId: input.sessionId,
-        runId: input.runId,
-        stepType: "execution.step",
-        payload: buildFinalStepPayload({
-          rootCallId: input.rootCallId,
-          runId: input.runId,
-          taskId: input.taskId,
-          requestId: input.requestId,
-          agent: input.agent,
-          messageId: finalMessage?.id ?? "",
-          resultPreview: (finalMessage?.content ?? "").slice(0, 500),
-        }),
-      });
-      tx.addRunStep({
-        sessionId: input.sessionId,
-        runId: input.runId,
-        stepType: "execution.step",
-        payload: buildRunEndStepPayload({
-          rootCallId: input.rootCallId,
-          runId: input.runId,
-          taskId: input.taskId,
-          requestId: input.requestId,
-          agent: input.agent,
-          status: "completed",
-          resultPreview: (finalMessage?.content ?? "").slice(0, 500),
-        }),
-      });
-    } else {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      tx.addRunStep({
-        sessionId: input.sessionId,
-        runId: input.runId,
-        stepType: "execution.step",
-        payload: buildRunEndStepPayload({
-          rootCallId: input.rootCallId,
-          runId: input.runId,
-          taskId: input.taskId,
-          requestId: input.requestId,
-          agent: input.agent,
-          status: status === "interrupted" ? "interrupted" : "error",
-          resultPreview: status === "interrupted" ? "[已停止生成]" : errorMessage,
-          ...(status !== "interrupted" ? { error: errorMessage } : {}),
-        }),
-      });
-    }
-
-    if (!isRoot) {
-      return [];
-    }
-
-    // outbox envelope（root run 才发；child 的 agent_ended 由 delegation 独占）。
-    const collected: RecordedClientEvent[] = [];
+  // run_step / 最终 message 由 SDK Dispatcher 独占落库（方案 A 单 store）。本函数只推终态 outbox
+  // envelope（root run 的 stream_output(final)/message_saved/agent_ended/run_ended）到实时流。
+  const records: RecordedClientEvent[] = isRoot
+    ? deps.conversationStore.runInTransaction((tx): RecordedClientEvent[] => {
+        const collected: RecordedClientEvent[] = [];
     if (status === "completed" && finalMessage) {
       collected.push(appendEnvelope(tx, deps.clientEvents, input, {
         type: "stream_output",
@@ -296,8 +245,10 @@ function recordTerminal(
         payload: { status, ...(status !== "interrupted" ? { reason: errorMessage } : {}) },
       }));
     }
-    return collected;
-  });
+   return collected;
+      return collected;
+    })
+    : [];
   deps.clientEvents.deliver(records);
 }
 
@@ -314,5 +265,3 @@ function appendEnvelope(
   });
 }
 
-// 抑制未使用 import（asString 可能被未来 logging 用）。
-void asString;

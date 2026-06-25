@@ -17,16 +17,23 @@ import { AsyncQueue } from "./async-queue.js";
 export interface DispatcherRunContext {
   sessionId: string;
   runId: string;
- threadKey: string;
- agentName: string;
- parentCallId: string;
-  /** run 入口标识 / 任务摘要 / 用户（透传 createRun，落 runs 表；可选）。 */
-  entrypoint?: string | null;
+  threadKey: string;
+  agentName: string;
+  agentDisplayName: string;
+  /** 当前 run 的 root call id（step_id 规则基准；root run=自身 call_id，child run=父 call_id）。 */
+  rootCallId: string;
+  /** 父 run 的 call_id（root run=null；用于 lineage / conversation_scope 判定）。 */
+  parentCallId: string | null;
+  taskId?: string | null;
+  requestId?: string | null;
+  /** run 入口标识（executionKind）；落 message metadata.execution_kind + runs.entrypoint。 */
+  executionKind?: string | null;
+  /** 任务摘要 / 用户（透传 createRun，落 runs 表；可选）。 */
   taskSummary?: string | null;
   userId?: string | null;
   /**
    * run 级附加消息元数据（透传给 finalize，合并到最终 assistant 消息 metadata）。
-   * 消费端据此把 execution_kind / retry_of_* 等调用点元数据打到最终消息上（无值不影响默认）。
+   * 消费端据此把 retry_of_* 等调用点元数据打到最终消息上（无值不影响默认）。
    */
   messageMetadata?: Record<string, unknown> | null;
 }
@@ -46,16 +53,16 @@ export class Dispatcher implements EventSink {
 
   /** run 起始：createRun。 */
  startRun(): void {
-   this.store.createRun({
-     id: this.ctx.runId,
-     sessionId: this.ctx.sessionId,
-     rootCallId: this.ctx.parentCallId,
-     threadKey: this.ctx.threadKey,
-     parentCallId: this.ctx.parentCallId,
-      ...(this.ctx.entrypoint !== undefined ? { entrypoint: this.ctx.entrypoint } : {}),
-      ...(this.ctx.taskSummary !== undefined ? { taskSummary: this.ctx.taskSummary } : {}),
-      ...(this.ctx.userId !== undefined ? { userId: this.ctx.userId } : {}),
-   });
+  this.store.createRun({
+    id: this.ctx.runId,
+    sessionId: this.ctx.sessionId,
+    rootCallId: this.ctx.rootCallId,
+    threadKey: this.ctx.threadKey,
+    parentCallId: this.ctx.parentCallId,
+     ...(this.ctx.executionKind !== undefined ? { entrypoint: this.ctx.executionKind } : {}),
+     ...(this.ctx.taskSummary !== undefined ? { taskSummary: this.ctx.taskSummary } : {}),
+     ...(this.ctx.userId !== undefined ? { userId: this.ctx.userId } : {}),
+  });
  }
 
   /**
@@ -70,37 +77,37 @@ export class Dispatcher implements EventSink {
         const anchor = tx.addMessage({
           sessionId: this.ctx.sessionId,
           role: "assistant",
-          content: "",
-          threadKey: this.ctx.threadKey,
-          metadata: { interrupted: true, agent_name: this.ctx.agentName, run_id: this.ctx.runId },
-        });
-        tx.updateRunStepsMessageId(this.ctx.sessionId, this.ctx.runId, anchor.id);
-        finalMessageId = anchor.id;
+         content: "",
+         threadKey: this.ctx.threadKey,
+          metadata: { ...this.finalMessageMeta(), msg_type: "assistant_final", interrupted: true },
+       });
+       tx.updateRunStepsMessageId(this.ctx.sessionId, this.ctx.runId, anchor.id);
+       finalMessageId = anchor.id;
       } else if (finalMessage) {
         const input: import("./contracts.js").AddMessageInput = {
           sessionId: this.ctx.sessionId,
           role: "assistant",
           content: finalMessage.content,
-         threadKey: this.ctx.threadKey,
-          // messageMetadata 在 base 之后、finalMessage.metadata 之前合并：
-          // 调用点元数据（execution_kind/retry_of_*）盖过默认，但 finalMessage 自带 metadata（如最终内容标记）优先。
+        threadKey: this.ctx.threadKey,
+          // finalMessageMeta（agent/thread/scope/execution_kind）打底，调用点 messageMetadata（retry_of_*）盖之，finalMessage 自带 metadata 优先。
         metadata: {
-          agent_name: this.ctx.agentName,
+          ...this.finalMessageMeta(),
           msg_type: "assistant_final",
-          run_id: this.ctx.runId,
           ...(this.ctx.messageMetadata ?? {}),
           ...(finalMessage.metadata ?? {}),
         },
-       };
+      };
        if (finalMessage.id) {
          input.messageId = finalMessage.id;
        }
-        const msg = tx.addMessage(input);
-        tx.updateRunStepsMessageId(this.ctx.sessionId, this.ctx.runId, msg.id);
-        finalMessageId = msg.id;
-      }
-    });
-    this.store.updateRunStatus(this.ctx.runId, status, finalMessageId);
+       const msg = tx.addMessage(input);
+       tx.updateRunStepsMessageId(this.ctx.sessionId, this.ctx.runId, msg.id);
+       finalMessageId = msg.id;
+     }
+      // 终态 run_step（final + run:end），对齐 backend-ts execution.step 契约。
+      this.persistTerminalSteps(tx, status, finalMessageId ?? null, finalMessage?.content ?? "");
+   });
+   this.store.updateRunStatus(this.ctx.runId, status, finalMessageId);
     this.events.close();
   }
 
@@ -119,12 +126,12 @@ export class Dispatcher implements EventSink {
       case "tool_result":
         this.persistToolStep(event, "end");
         break;
-      case "assistant_intermediate":
-        this.persistAssistantMessage(event.message);
-        break;
-      case "observation_complete":
-        this.persistObservations(event.messages);
-        break;
+     case "assistant_intermediate":
+        this.persistAssistantMessage(event.message, event.round);
+       break;
+     case "observation_complete":
+        this.persistObservations(event.messages, event.round);
+       break;
       case "first_token":
       case "output_delta":
       case "intent_delta":
@@ -136,51 +143,190 @@ export class Dispatcher implements EventSink {
     }
   }
 
-  private persistIntentComplete(event: KernelEvent & { type: "intent_complete" }): void {
-    this.store.runInTransaction((tx) => {
-      tx.addRunStep({
-        sessionId: this.ctx.sessionId,
-        runId: this.ctx.runId,
-        stepType: "intent",
-        payload: { kind: "intent", content: event.content, round: event.round, agent_name: event.agentName, run_id: this.ctx.runId },
-      });
-    });
-  }
+ private persistIntentComplete(event: KernelEvent & { type: "intent_complete" }): void {
+   this.store.runInTransaction((tx) => {
+     tx.addRunStep({
+       sessionId: this.ctx.sessionId,
+       runId: this.ctx.runId,
+       stepType: "intent",
+        payload: {
+          kind: "intent",
+          phase: "complete",
+          call_id: this.ctx.rootCallId,
+          parent_call_id: this.ctx.parentCallId,
+          step_id: `${this.ctx.rootCallId}:round:${event.round}`,
+          parent_step_id: `${this.ctx.rootCallId}:run`,
+          agent_name: event.agentName,
+          agent_display_name: this.ctx.agentDisplayName,
+          content: event.content,
+          round: event.round,
+          status: "completed",
+          ...this.stepMarkers(),
+        },
+     });
+   });
+ }
 
   private persistToolStep(event: KernelEvent & { type: "tool_call" | "tool_result" }, phase: "start" | "end"): void {
     this.store.runInTransaction((tx) => {
       tx.addRunStep({
         sessionId: this.ctx.sessionId,
         runId: this.ctx.runId,
-        stepType: "tool",
+      stepType: "tool",
+       payload: this.buildToolStepPayload(event, phase),
+     });
+   });
+ }
+ 
+  /** tool run_step payload（对齐 backend-ts execution.step 契约：step_id/parent_step_id/display_name/task_id/request_id/status）。 */
+  private buildToolStepPayload(event: KernelEvent & { type: "tool_call" | "tool_result" }, phase: "start" | "end"): Record<string, unknown> {
+    const payload: Record<string, unknown> = {
+      kind: "tool",
+      phase,
+      step_id: `${event.toolCallId}:tool`,
+      parent_step_id: `${this.ctx.rootCallId}:round:${event.round}`,
+      agent_name: event.agentName,
+      agent_display_name: this.ctx.agentDisplayName,
+      tool_name: event.toolName,
+      call_id: event.toolCallId,
+      tool_call_id: event.toolCallId,
+      parent_call_id: this.ctx.rootCallId,
+      round: event.round,
+      order: event.order,
+      round_index: event.roundIndex,
+      status: phase === "start" ? "running" : event.type === "tool_result" && event.success ? "success" : "error",
+      ...this.stepMarkers(),
+    };
+    if (event.type === "tool_call") {
+      payload.arguments = event.arguments;
+    } else {
+      payload.success = event.success;
+      payload.summary = event.summary;
+      payload.observation = event.observation;
+      payload.result_preview = event.observation || event.summary;
+      payload.elapsed_time = event.elapsedTime;
+    }
+   return payload;
+ }
+
+  /** run_step payload 公共字段（run_id/task_id/request_id/execution_kind；按可用性展开）。 */
+  private stepMarkers(): Record<string, unknown> {
+    const markers: Record<string, unknown> = { run_id: this.ctx.runId };
+    if (this.ctx.taskId) {
+      markers.task_id = this.ctx.taskId;
+    }
+    if (this.ctx.requestId) {
+      markers.request_id = this.ctx.requestId;
+    }
+   return markers;
+ }
+
+  /** 中间 message 公共 metadata（react_intermediate + run/task/request/agent/thread/scope/visible/execution_kind；对齐旧内核契约）。 */
+  private messageMeta(round: number): Record<string, unknown> {
+    const meta: Record<string, unknown> = {
+      agent_name: this.ctx.agentName,
+      run_id: this.ctx.runId,
+      agent: this.ctx.agentName,
+      thread_key: this.ctx.threadKey,
+      conversation_scope: this.ctx.parentCallId !== null ? "child" : "root",
+      react_intermediate: true,
+      visible_to_user: true,
+      round: round + 1,
+    };
+    if (this.ctx.taskId) {
+      meta.task_id = this.ctx.taskId;
+    }
+    if (this.ctx.requestId) {
+      meta.request_id = this.ctx.requestId;
+    }
+   if (this.ctx.executionKind) {
+     meta.execution_kind = this.ctx.executionKind;
+   }
+   return meta;
+ }
+
+  /** 最终 assistant 消息 metadata（非 react_intermediate；agent/thread/scope + 可选 task/request/execution_kind）。 */
+  private finalMessageMeta(): Record<string, unknown> {
+    const meta: Record<string, unknown> = {
+      agent_name: this.ctx.agentName,
+      run_id: this.ctx.runId,
+      agent: this.ctx.agentName,
+      thread_key: this.ctx.threadKey,
+      conversation_scope: this.ctx.parentCallId !== null ? "child" : "root",
+    };
+    if (this.ctx.taskId) {
+      meta.task_id = this.ctx.taskId;
+    }
+    if (this.ctx.requestId) {
+      meta.request_id = this.ctx.requestId;
+    }
+    if (this.ctx.executionKind) {
+      meta.execution_kind = this.ctx.executionKind;
+    }
+    return meta;
+  }
+
+  /**
+   * 终态 run_step：completed 落 final + run:end；failed/interrupted 仅落 run:end。
+   * 对齐 backend-ts buildFinalStepPayload / buildRunEndStepPayload 契约（step_id/parent_step_id/display_name/task_id/request_id/status/result_preview）。
+   */
+  private persistTerminalSteps(tx: RuntimeTx, status: "completed" | "failed" | "interrupted", finalMessageId: string | null, finalContent: string): void {
+    const resultPreview = finalContent.slice(0, 500);
+    if (status === "completed") {
+      tx.addRunStep({
+        sessionId: this.ctx.sessionId,
+        runId: this.ctx.runId,
+        stepType: "execution.step",
         payload: {
-          kind: "tool",
-          phase,
-          tool_name: event.toolName,
-          call_id: event.toolCallId,
-          arguments: event.type === "tool_call" ? event.arguments : {},
-          round: event.round,
-          order: event.order,
-          round_index: event.roundIndex,
-          agent_name: event.agentName,
-          run_id: this.ctx.runId,
-          ...(event.type === "tool_result"
-            ? { success: event.success, observation: event.observation, summary: event.summary, elapsed_time: event.elapsedTime }
-            : {}),
+          kind: "final",
+          phase: "complete",
+          call_id: this.ctx.rootCallId,
+          parent_call_id: null,
+          step_id: `${this.ctx.rootCallId}:final`,
+          parent_step_id: `${this.ctx.rootCallId}:run`,
+          agent_name: this.ctx.agentName,
+          agent_display_name: this.ctx.agentDisplayName,
+          message_id: finalMessageId ?? "",
+          status: "completed",
+          result_preview: resultPreview,
+          ...this.stepMarkers(),
         },
       });
+    }
+    const runEndPayload: Record<string, unknown> = {
+      kind: "run",
+      phase: "end",
+      call_id: this.ctx.rootCallId,
+      parent_call_id: null,
+      step_id: `${this.ctx.rootCallId}:run`,
+      parent_step_id: null,
+      agent_name: this.ctx.agentName,
+      agent_display_name: this.ctx.agentDisplayName,
+      status,
+      ...this.stepMarkers(),
+    };
+    if (status === "completed") {
+      runEndPayload.result_preview = resultPreview;
+    } else if (status === "interrupted") {
+      runEndPayload.result_preview = "[已停止生成]";
+    }
+    tx.addRunStep({
+      sessionId: this.ctx.sessionId,
+      runId: this.ctx.runId,
+      stepType: "execution.step",
+      payload: runEndPayload,
     });
   }
 
-  private persistAssistantMessage(message: ChatMessage): void {
-    this.store.runInTransaction((tx) => {
-      const input: import("./contracts.js").AddMessageInput = {
-        sessionId: this.ctx.sessionId,
-        role: "assistant",
-        content: message.content,
-         threadKey: this.ctx.threadKey,
-          metadata: { agent_name: this.ctx.agentName, run_id: this.ctx.runId, react_intermediate: true, msg_type: "intent" },
-       };
+ private persistAssistantMessage(message: ChatMessage, round: number): void {
+   this.store.runInTransaction((tx) => {
+     const input: import("./contracts.js").AddMessageInput = {
+       sessionId: this.ctx.sessionId,
+       role: "assistant",
+       content: message.content,
+        threadKey: this.ctx.threadKey,
+          metadata: { ...this.messageMeta(round), msg_type: "intent" },
+      };
        if (message.tool_calls) {
          input.toolCalls = message.tool_calls;
        }
@@ -188,16 +334,16 @@ export class Dispatcher implements EventSink {
      });
    }
 
-  private persistObservations(messages: readonly ChatMessage[]): void {
-    this.store.runInTransaction((tx) => {
+  private persistObservations(messages: readonly ChatMessage[], round: number): void {
+   this.store.runInTransaction((tx) => {
       for (const message of messages) {
         const input: import("./contracts.js").AddMessageInput = {
           sessionId: this.ctx.sessionId,
-          role: "tool",
-          content: message.content,
-         threadKey: this.ctx.threadKey,
-          metadata: { agent_name: this.ctx.agentName, run_id: this.ctx.runId, react_intermediate: true, msg_type: "observation" },
-       };
+       role: "tool",
+       content: message.content,
+        threadKey: this.ctx.threadKey,
+          metadata: { ...this.messageMeta(round), msg_type: "observation" },
+      };
         if (message.tool_call_id) {
           input.toolCallId = message.tool_call_id;
         }

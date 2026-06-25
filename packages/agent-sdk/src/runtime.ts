@@ -62,6 +62,10 @@ export interface RunInput {
   entrypoint?: string;
   /** run 发起用户；透传 createRun → runs.user_id。 */
   userId?: string | null;
+  /** run task id；透传给 Dispatcher，落 run_step/message 的 task_id 字段。 */
+  taskId?: string | null;
+  /** run request id；透传给 Dispatcher，落 run_step/message 的 request_id 字段。 */
+  requestId?: string | null;
   /**
    * run 级附加消息元数据：透传给 Dispatcher，合并到最终 assistant 消息 metadata。
    * 消费端用此把 execution_kind / retry_of_seq / retry_of_message_id 打到最终消息上。
@@ -101,14 +105,18 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       const sources = options.contextSources ?? buildDefaultSources(historyPort, metadataPort, profile, dataRoot);
       const contextBuilder = new AgentContextBuilder(sources);
 
-     const dispatcherCtx: DispatcherRunContext = {
-       sessionId,
-       runId,
-       threadKey,
+    const dispatcherCtx: DispatcherRunContext = {
+      sessionId,
+      runId,
+      threadKey,
       agentName: profile.agentName,
-      parentCallId: parentCallId ?? rootCallId,
-       taskSummary: input.task.slice(0, 200),
-      ...(input.entrypoint !== undefined ? { entrypoint: input.entrypoint } : {}),
+      agentDisplayName: profile.displayName ?? profile.agentName,
+      rootCallId,
+      parentCallId,
+      ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
+      ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
+      ...(input.entrypoint !== undefined ? { executionKind: input.entrypoint } : {}),
+      taskSummary: input.task.slice(0, 200),
       ...(input.userId !== undefined ? { userId: input.userId } : {}),
       ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
     };
