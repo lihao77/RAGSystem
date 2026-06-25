@@ -131,13 +131,6 @@ function buildDefaultConfig(): SystemConfigData {
       model_name: "",
       batch_size: 100,
     },
-    hooks: {
-      enabled: true,
-      workspace_trust: {
-        default: "trusted",
-        rules: [],
-      },
-    },
     waiting: {
       enabled: true,
       default_poll_interval_seconds: 3,
@@ -229,18 +222,6 @@ function buildSystemConfigSchema(): SystemConfigSchema {
           textField("model_name", "Model Name", "Embedding 模型名称", ""),
           numberField("batch_size", "Batch Size", "批处理大小", 100, { min: 1, step: 1 }),
         ],
-      },
-      {
-        key: "hooks",
-        label: "Hook 系统",
-        description: "Hook 系统配置",
-        fields: [booleanField("enabled", "Enabled", "是否启用 Hook 系统", true)],
-      },
-      {
-        key: "hooks.workspace_trust",
-        label: "工作区信任",
-        description: "工作区信任配置",
-        fields: [selectField("default", "Default", "", "trusted", ["trusted", "untrusted"], false)],
       },
       {
         key: "waiting",

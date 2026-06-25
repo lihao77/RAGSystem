@@ -1,6 +1,3 @@
-import type { RiskLevel } from "../contracts/permissions.js";
-import type { HookResult } from "../services/runtime/hooks/index.js";
-import type { RuntimeToolApprovalDecision } from "../services/runtime/permission-policy-service.js";
 import type { ToolExecutionResult } from "../services/runtime/runtime-tool-types.js";
 import { errorResult } from "../services/runtime/runtime-tool-bridge/arguments.js";
 import type { RuntimeToolPermissionResult } from "./Tool.js";
@@ -36,46 +33,5 @@ export function mergeToolPermissionMetadata(
       reason: permission.reason ?? "",
       ...(permission.metadata ?? {}),
     },
-  };
-}
-
-export function applyHookPermissionDecision(
-  decision: RuntimeToolApprovalDecision | undefined,
-  hookResult: HookResult,
-  toolName: string,
-  riskLevel: RiskLevel | undefined,
-): RuntimeToolApprovalDecision | undefined {
-  if (!hookResult.permissionDecision) {
-    return decision;
-  }
-  if (hookResult.permissionDecision === "allow") {
-    return {
-      ...(decision ?? buildHookApprovalDecision(toolName, riskLevel)),
-      action: "allow",
-      reason: "hook permission decision: allow",
-    };
-  }
-  if (hookResult.permissionDecision === "ask") {
-    return {
-      ...(decision ?? buildHookApprovalDecision(toolName, riskLevel)),
-      action: "ask",
-      reason: hookResult.uiMessage ?? "hook permission decision: ask",
-      reasonCodes: [...(decision?.reasonCodes ?? []), "ask-hook"],
-    };
-  }
-  return decision;
-}
-
-function buildHookApprovalDecision(toolName: string, riskLevel: RiskLevel | undefined): RuntimeToolApprovalDecision {
-  return {
-    action: "allow",
-    toolName,
-    riskLevel: riskLevel ?? "low",
-    description: `Tool ${toolName}`,
-    permissionMode: "standard",
-    reason: "hook permission decision",
-    reasonCodes: [],
-    secondaryReasons: [],
-    approvedExternalPaths: [],
   };
 }

@@ -5,8 +5,7 @@
  * 映射成 backend-ts waitForApproval 入参（发布 interaction:approval 事件到 outbox，阻塞至 respondApproval），
  * 再把 PendingApprovalResolution 映射回 SDK ApprovalResolution。
  *
- * agent/workspace 等富上下文由 SdkToolExecutor 在 buildExecutionContext 绑定；本适配器只需透传
- * SDK 已携带的标量（sessionId/runId/taskId/requestId/toolCallId）。
+ * 本适配器只透传 SDK ToolExecContext 已携带的标量（sessionId/runId/taskId/requestId/toolCallId）。
  */
 import type { ApprovalInteraction, ApprovalRequest, ApprovalResolution, ToolExecContext } from "@ragsystem/agent-sdk";
 import type { PendingApprovalRequest, PendingApprovalResolution, PendingInteractionService } from "../../runtime/pending-interaction-service.js";

@@ -22,7 +22,6 @@ import { SkillToolService } from "../../src/tools/SkillTools/SkillExecution.js";
 import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
 import { PermissionPolicyService } from "../../src/services/runtime/permission-policy-service.js";
 import { RuntimeToolBridge } from "../../src/services/runtime/runtime-tool-bridge.js";
-import { HookRuntimeService } from "../../src/services/runtime/hooks/index.js";
 import { TaskToolService } from "../../src/tools/TaskTools/TaskExecution.js";
 import { ModelAdapterService } from "../../src/services/integrations/model-adapter-service.js";
 import { FileIndexService } from "../../src/services/stores/file-index-service.js";
@@ -1237,118 +1236,6 @@ describe("RuntimeToolBridge", () => {
         name: "workspace-skill",
       },
     });
-  });
-
-  it("runs hook lifecycle handlers around tool execution", async () => {
-    const dataRoot = makeTempDataRoot();
-    const hooks = new HookRuntimeService({ enabled: false });
-    hooks.registerHandler("test:annotate-before", () => ({
-      continueExecution: true,
-      blockExecution: false,
-      blockReason: "",
-      tags: ["before-tag"],
-      metadata: { before_seen: true },
-      additionalContext: ["extra context"],
-    }));
-    hooks.registerHandler("test:annotate-after", ({ context }) => ({
-      continueExecution: true,
-      blockExecution: false,
-      blockReason: "",
-      tags: ["after-tag"],
-      metadata: { result_success: context.resultSnapshot.success },
-    }));
-    hooks.registerHook({
-      id: "annotate-before",
-      name: "Annotate Before",
-      events: ["tool.before_execute"],
-      matcher: { toolNames: ["write_file"] },
-      backend: { type: "function", target: "test:annotate-before" },
-    });
-    hooks.registerHook({
-      id: "annotate-after",
-      name: "Annotate After",
-      events: ["tool.after_execute"],
-      matcher: { toolNames: ["write_file"], whenResultSuccess: true },
-      backend: { type: "function", target: "test:annotate-after" },
-    });
-    const bridge = new RuntimeToolBridge({
-      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
-      documentTools: new LocalDocumentToolService({ dataRoot }),
-      hooks: hooks,
-    });
-
-    const result = await bridge.executeTool(
-      {
-        toolName: "write_file",
-        arguments: {
-          file_path: "notes/hook.txt",
-          content: "hooked",
-        },
-      },
-      {
-        agent: minimalAgent([], ["write_file"]),
-        sessionId: "hook-session",
-      },
-    );
-
-    expect(result.success).toBe(true);
-    expect(result.metadata).toMatchObject({
-      hook_additional_context: { before_execute: ["extra context"] },
-      hook_phase_metadata: {
-        before_execute: { before_seen: true },
-        after_execute: { result_success: true },
-      },
-      hook_tags: {
-        before_execute: ["before-tag"],
-        after_execute: ["after-tag"],
-      },
-    });
-  });
-
-  it("allows before-execute hooks to block tool execution", async () => {
-    const dataRoot = makeTempDataRoot();
-    const hooks = new HookRuntimeService({ enabled: false });
-    hooks.registerHandler("test:block", () => ({
-      continueExecution: false,
-      blockExecution: true,
-      blockReason: "blocked by hook",
-      tags: ["blocked"],
-    }));
-    hooks.registerHook({
-      id: "block-writes",
-      name: "Block Writes",
-      events: ["tool.before_execute"],
-      matcher: { toolNames: ["write_file"] },
-      backend: { type: "function", target: "test:block" },
-    });
-    const bridge = new RuntimeToolBridge({
-      memoryTools: new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({})),
-      documentTools: new LocalDocumentToolService({ dataRoot }),
-      hooks: hooks,
-    });
-
-    const result = await bridge.executeTool(
-      {
-        toolName: "write_file",
-        arguments: {
-          file_path: "notes/blocked.txt",
-          content: "blocked",
-        },
-      },
-      {
-        agent: minimalAgent([], ["write_file"]),
-        sessionId: "hook-block-session",
-      },
-    );
-
-    expect(result.success).toBe(false);
-    expect(result.summary).toBe("blocked by hook");
-    expect(result.metadata).toMatchObject({
-      hook_blocked: true,
-      hook_phase: "before_execute",
-      hook_tags: { before_execute: ["blocked"] },
-    });
-    expect(fs.existsSync(path.join(dataRoot, "workspace", "notes", "blocked.txt"))).toBe(false);
   });
 
   it("executes web_fetch against an HTTP endpoint", async () => {

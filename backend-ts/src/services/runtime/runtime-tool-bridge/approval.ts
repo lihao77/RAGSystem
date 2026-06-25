@@ -4,7 +4,6 @@ import type {
   PermissionPolicyService,
   RuntimeToolApprovalDecision,
 } from "../permission-policy-service.js";
-import type { HookResult } from "../hooks/index.js";
 import type { PreparedRuntimeTool } from "./prepared.js";
 import {
   approvalUnsupportedError,
@@ -12,7 +11,6 @@ import {
   errorResult,
 } from "./arguments.js";
 import {
-  applyHookPermissionDecision,
   isToolPermissionForceAsk,
   mergeToolPermissionMetadata,
 } from "../../../tools/permissions.js";
@@ -23,9 +21,8 @@ export type ApprovalResolution =
   | { approved: true; message: string };
 
 /**
- * 审批协调:持有 permissionPolicy + pendingInteractions 两个权限相关依赖。
- * 负责"是否需要审批"的判定(evaluate)与"等待用户审批"的阻塞(waitForApproval);
- * 不负责工具的实际执行——执行交回 bridge 编排。自 RuntimeToolBridge 迁出,逻辑零改动。
+ * 审批协调——为 CodeExecution 工具互调提供审批判定 + 阻塞等待。
+ * SDK 主路径的审批编排已在 tool-round-executor；本类仅供 bridge.executeTool(互调入口)使用。
  */
 export class ToolApprovalCoordinator {
   constructor(
@@ -39,7 +36,6 @@ export class ToolApprovalCoordinator {
 
   evaluate(
     prepared: PreparedRuntimeTool,
-    hookResult?: HookResult | undefined,
   ): RuntimeToolApprovalDecision | ToolExecutionResult | undefined {
     if (!this.permissionPolicy) {
       if (prepared.approvedExternalPaths.length) {
@@ -53,7 +49,7 @@ export class ToolApprovalCoordinator {
       return undefined;
     }
 
-    const decision = this.permissionPolicy.evaluateToolApproval({
+    return this.permissionPolicy.evaluateToolApproval({
       toolName: prepared.toolName,
       riskLevel: prepared.toolPermission?.riskLevel ?? prepared.tool.riskLevel,
       description: prepared.toolPermission?.description ?? prepared.tool.description,
@@ -63,14 +59,6 @@ export class ToolApprovalCoordinator {
       forceAsk: isToolPermissionForceAsk(prepared.toolPermission),
       approvedExternalPaths: prepared.approvedExternalPaths,
     });
-    return hookResult
-      ? applyHookPermissionDecision(
-          decision,
-          hookResult,
-          prepared.toolName,
-          prepared.toolPermission?.riskLevel ?? prepared.tool.riskLevel,
-        )
-      : decision;
   }
 
   async waitForApproval(

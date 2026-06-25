@@ -24,7 +24,6 @@ import type {
   RuntimeToolApprovalDecision,
 } from "./permission-policy-service.js";
 import { throwIfAborted } from "@ragsystem/agent-protocol";
-import type { HookRuntimeService, HookResult } from "./hooks/index.js";
 import { withApprovalMetadata, withApprovedExternalPaths } from "./runtime-tool-bridge/arguments.js";
 import {
   executeToolCall,
@@ -32,11 +31,8 @@ import {
   ToolPreparer,
   type PreparedRuntimeTool,
 } from "./runtime-tool-bridge/prepared.js";
-import { ToolApprovalCoordinator } from "./runtime-tool-bridge/approval.js";
-import { ToolHookOrchestrator } from "./runtime-tool-bridge/hooks-orchestrator.js";
+import { ToolApprovalCoordinator, type ApprovalResolution } from "./runtime-tool-bridge/approval.js";
 import { createToolRegistry, type RuntimeToolRegistry } from "../../tools/registry.js";
-import { toolToDefinition } from "../../tools/Tool.js";
-import { applyHookPermissionDecision } from "../../tools/permissions.js";
 
 export { isReadOnlyMemoryToolName } from "./runtime-tool-bridge/arguments.js";
 
@@ -49,7 +45,6 @@ export interface RuntimeToolBridgeDeps {
   bashTools?: LocalBashToolService | null;
   taskTools?: TaskToolService | null;
   searchTools?: LocalSearchToolService | null;
-  hooks?: HookRuntimeService | null;
   vectorLibrary?: VectorLibraryService | null;
   mcp?: McpService | null;
   codeExecutionTools?: CodeExecutionToolService | null;
@@ -57,8 +52,14 @@ export interface RuntimeToolBridgeDeps {
 }
 
 /**
- * 工具桥:面向运行时内核的工具门面。自身只做"注册表门面 + 执行编排",
- * 准备/审批/Hook 三簇职责分别下沉到 ToolPreparer / ToolApprovalCoordinator / ToolHookOrchestrator。
+ * 工具桥——backend-ts 工具体系的门面。
+ *
+ * 职责收窄为两类：
+ * 1. 持有工具注册表（toolRegistry），暴露给 SDK 适配层 + 监控/prompt-builder 查询可见工具。
+ * 2. 为 CodeExecution 的工具互调（call_tool）提供 executeTool——走 prepare + 审批 + 执行。
+ *
+ * SDK 主路径（agent run）的工具编排已下沉到 SDK tool-round-executor，不再经过本桥。
+ * hook 体系已移除（被 SDK 事件 hook 取代）。
  */
 export class RuntimeToolBridge implements RuntimeToolExecutor {
   private agentDelegation: DelegationPort | null = null;
@@ -66,7 +67,6 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
   readonly toolRegistry: RuntimeToolRegistry;
   private readonly preparer: ToolPreparer;
   private readonly approval: ToolApprovalCoordinator;
-  private readonly hookOrchestrator: ToolHookOrchestrator;
   private readonly taskTools: TaskToolService | null;
 
   constructor(deps: RuntimeToolBridgeDeps) {
@@ -86,7 +86,6 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     });
     this.preparer = new ToolPreparer(this.toolRegistry);
     this.approval = new ToolApprovalCoordinator(deps.permissionPolicy ?? null, deps.pendingInteractions ?? null);
-    this.hookOrchestrator = new ToolHookOrchestrator(deps.hooks ?? null);
   }
 
   setAgentDelegation(agentDelegation: DelegationPort | null): void {
@@ -115,15 +114,12 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     if (isToolResult(prepared)) {
       return prepared;
     }
-    if (this.hookOrchestrator.enabled) {
-      return this.executeWithPermissionHooks(prepared);
-    }
     const approval = this.approval.evaluate(prepared);
     if (isToolResult(approval)) {
       return approval;
     }
     if (approval?.action === "ask") {
-      return this.runAfterApproval(prepared, approval, false);
+      return this.runAfterApproval(prepared, approval);
     }
     return executeToolCall(
       prepared,
@@ -157,67 +153,17 @@ export class RuntimeToolBridge implements RuntimeToolExecutor {
     });
   }
 
-  /** 启用 hook 时的编排:before/after_permission 钩子 → 审批判定 → ask 等待 或 带钩子执行。 */
-  private async executeWithPermissionHooks(prepared: PreparedRuntimeTool): Promise<ToolExecutionResult> {
-    const beforePermissionHook = await this.hookOrchestrator.runToolHook("tool.before_permission", {
-      toolName: prepared.toolName,
-      tool: toolToDefinition(prepared.tool),
-      call: prepared.call,
-      context: prepared.context,
-    });
-    if (beforePermissionHook.blockExecution || beforePermissionHook.permissionDecision === "deny") {
-      return this.hookOrchestrator.hookBlockedResult(prepared.toolName, beforePermissionHook, "before_permission");
-    }
-
-    const approval = this.approval.evaluate(prepared, beforePermissionHook);
-    if (isToolResult(approval)) {
-      return approval;
-    }
-    const afterPermissionHook = await this.hookOrchestrator.runToolHook("tool.after_permission", {
-      toolName: prepared.toolName,
-      tool: toolToDefinition(prepared.tool),
-      call: prepared.call,
-      context: prepared.context,
-      permissionDecision: approval ?? null,
-    });
-    if (afterPermissionHook.blockExecution || afterPermissionHook.permissionDecision === "deny") {
-      return this.hookOrchestrator.hookBlockedResult(prepared.toolName, afterPermissionHook, "after_permission");
-    }
-    const finalApproval = applyHookPermissionDecision(
-      approval,
-      afterPermissionHook,
-      prepared.toolName,
-      prepared.toolPermission?.riskLevel ?? prepared.tool.riskLevel,
-    );
-    if (finalApproval?.action === "ask") {
-      return this.runAfterApproval(prepared, finalApproval, true, {
-        beforePermissionHook,
-        afterPermissionHook,
-      });
-    }
-
-    return this.hookOrchestrator.executeWithHooks(
-      prepared,
-      withApprovedExternalPaths(prepared.context, finalApproval?.approvedExternalPaths),
-      { beforePermissionHook, afterPermissionHook },
-    );
-  }
-
-  /** ask 决策:等待用户审批,批准后按是否带钩子执行,并把审批元数据并入结果。 */
+  /** ask 决策：等待用户审批，批准后执行，并把审批元数据并入结果。 */
   private async runAfterApproval(
     prepared: PreparedRuntimeTool,
     approvalDecision: RuntimeToolApprovalDecision,
-    withHooks: boolean,
-    hooks: { beforePermissionHook?: HookResult | undefined; afterPermissionHook?: HookResult | undefined } = {},
   ): Promise<ToolExecutionResult> {
-    const resolution = await this.approval.waitForApproval(prepared, approvalDecision);
+    const resolution: ApprovalResolution = await this.approval.waitForApproval(prepared, approvalDecision);
     if (!resolution.approved) {
       return resolution.result;
     }
     const contextWithPaths = withApprovedExternalPaths(prepared.context, approvalDecision.approvedExternalPaths);
-    const result = withHooks
-      ? await this.hookOrchestrator.executeWithHooks(prepared, contextWithPaths, hooks)
-      : await executeToolCall(prepared, contextWithPaths);
+    const result = await executeToolCall(prepared, contextWithPaths);
     return withApprovalMetadata(result, approvalDecision, resolution.message);
   }
 }
