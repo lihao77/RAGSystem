@@ -1,28 +1,39 @@
 /**
- * 单轮工具执行编排（迁自 backend-ts tool-round-executor.ts）。
+ * 单轮工具执行编排——SDK 工具体系的发动机。
  *
- * ReAct 循环工具执行的"发动机"：把内核转交来的 calls 编排执行，产出 observation。
- * 顺序：依赖序分批（{result_N} 未满足的推后）→ 每批内 runToolBatchWithScheduler 并发/串行 →
- * 逐个 executeSingleToolCall（{result_N} 解析 → toolExecutor.executeTool → observation 渲染）→
- * emit tool_call/tool_result → 后台 wait 透传。
+ * ReAct 循环工具执行：calls → 依赖序分批 → 每批内并发/串行 →
+ * 逐个 executeSingleToolCall（prepare → 审批 → hook.before → tool.call → hook.after/error → observation 渲染）
+ * → emit tool_call/tool_result → 后台 wait 透传。
  *
- * observation 渲染在执行后立刻发生（buildLlmFacingToolResult + renderToolResultContent），
- * 是 ReAct 的有机部分——它决定下一轮模型看到什么。
- *
- * 与 backend-ts 差异：
- * - agent: AgentConfig → profile: AgentProfile；provider: ModelProviderConfig → ProviderConfig。
- * - 事件 runtime.tool_call/runtime.tool_result(data 包裹) → 扁平 ToolCallEvent/ToolResultEvent。
- * - result 字段 snake_case → camelCase；raw_result/observation 字段从事件精简（消费端按需取）。
- * - buildLlmFacingToolResult/renderToolResultContent 从 tools/observation.ts 取。
+ * 审批编排内置：prepare 产出权限信号 → policy 判定（含 prepare 的 riskLevel/forceAsk/approvedExternalPaths）
+ * → ask 阻塞等待 → 放行/拒绝。不注入 policy 即全部 allow。
  */
 import type { ProviderConfig } from "@ragsystem/agent-llm";
 import { isAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
-import type { ToolExecutionResult, ToolExecutor, ToolExecutorCall, ToolExecContext, ToolWaitRequest, ToolWaitResult } from "../contracts.js";
+import type {
+  ApprovalInteraction,
+  PermissionPolicy,
+  ToolApprovalDecision,
+  ToolExecutionResult,
+  ToolExecContext,
+  ToolWaitRequest,
+  ToolWaitResult,
+} from "../contracts.js";
 import type { KernelToolCall, KernelObservation, EventSink } from "../contracts.js";
+import type { HookRegistry } from "../hooks/types.js";
 import type { AgentProfile } from "../types.js";
+import type { ToolRegistry } from "./registry.js";
+import type { PreparedTool } from "./preparer.js";
+import { prepareTool } from "./preparer.js";
 import { buildLlmFacingToolResult, renderToolResultContent } from "./observation.js";
 import { runToolBatchWithScheduler } from "./scheduler.js";
-import { buildToolExecutionErrorResult, buildToolReferenceErrorResult, collectResultPlaceholders, collectResultReferenceIndexes, resolveToolArgumentReferences } from "./tool-references.js";
+import {
+  buildToolExecutionErrorResult,
+  buildToolReferenceErrorResult,
+  collectResultPlaceholders,
+  collectResultReferenceIndexes,
+  resolveToolArgumentReferences,
+} from "./tool-references.js";
 
 interface ToolObservationResult {
   success: boolean;
@@ -32,7 +43,8 @@ interface ToolObservationResult {
 }
 
 export interface ToolRoundExecutorOptions {
-  toolExecutor: ToolExecutor;
+  /** 工具注册表（SDK 定义的 Tool 实例集合）。 */
+  registry: ToolRegistry;
   toolContext: ToolExecContext;
   dataRoot: string;
   round: number;
@@ -40,6 +52,14 @@ export interface ToolRoundExecutorOptions {
   profile: AgentProfile;
   provider: ProviderConfig;
   events: EventSink;
+  /** 事件 Hook 注册表（tool.before/after/error），可选。 */
+  hooks?: HookRegistry;
+  /** 审批策略端口，可选；不注入即全部 allow。 */
+  permissionPolicy?: PermissionPolicy;
+  /** 审批交互端口，可选；policy 返回 ask 时阻塞等待。 */
+  approvalInteraction?: ApprovalInteraction;
+  /** 后台任务等待回调（消费端注入；不提供则忽略 suggest_wait 信号）。 */
+  waitForToolResult?: (request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>;
 }
 
 export async function executeToolCallRound(calls: KernelToolCall[], opts: ToolRoundExecutorOptions): Promise<KernelObservation[]> {
@@ -52,11 +72,10 @@ export async function executeToolCallRound(calls: KernelToolCall[], opts: ToolRo
       executeSingleToolCall({ call, previousResults: roundResults, opts });
     const batchExecutions = await runToolBatchWithScheduler(batch, {
       signal: opts.toolContext.signal,
-      classify: (call) =>
-        opts.toolExecutor.classifyConcurrency?.(
-          { toolName: call.toolName, arguments: resolveToolArgumentReferences(call.arguments, roundResults), callId: call.callId },
-          buildToolCallExecutionContext(opts.toolContext, { callId: call.callId, round: opts.round, index: call.index }),
-        ) ?? false,
+      classify: (call) => {
+        const resolved = resolveToolArgumentReferences(call.arguments, roundResults);
+        return opts.registry.classifyConcurrency(call.toolName, resolved);
+      },
       run: runCall,
     });
     throwIfAborted(opts.toolContext.signal, "Agent run aborted");
@@ -68,7 +87,11 @@ export async function executeToolCallRound(calls: KernelToolCall[], opts: ToolRo
   return [...executions.values()].sort((left, right) => left.index - right.index);
 }
 
-async function executeSingleToolCall(input: { call: KernelToolCall; previousResults: Map<number, ToolExecutionResult>; opts: ToolRoundExecutorOptions }): Promise<KernelObservation> {
+async function executeSingleToolCall(input: {
+  call: KernelToolCall;
+  previousResults: Map<number, ToolExecutionResult>;
+  opts: ToolRoundExecutorOptions;
+}): Promise<KernelObservation> {
   const { call, previousResults, opts } = input;
   const toolContext = buildToolCallExecutionContext(opts.toolContext, { callId: call.callId, round: opts.round, index: call.index });
   throwIfAborted(toolContext.signal, "Agent run aborted");
@@ -87,11 +110,28 @@ async function executeSingleToolCall(input: { call: KernelToolCall; previousResu
 
   const startedAt = Date.now();
   const unresolvedPlaceholders = collectResultPlaceholders(toolArguments);
-  const toolResult = unresolvedPlaceholders.length
-    ? buildToolReferenceErrorResult(call.toolName, unresolvedPlaceholders)
-    : await executeToolSafely({ toolExecutor: opts.toolExecutor, toolContext, toolExecutorCall: { toolName: call.toolName, arguments: toolArguments, callId: call.callId } });
+
+  let toolResult: ToolExecutionResult;
+  if (unresolvedPlaceholders.length) {
+    toolResult = buildToolReferenceErrorResult(call.toolName, unresolvedPlaceholders);
+  } else {
+    // prepare → approve → hook.before → tool.call → hook.after/error
+    toolResult = await prepareAndExecute({
+      toolName: call.toolName,
+      toolArguments,
+      toolContext,
+      opts,
+    });
+  }
+
   throwIfAborted(toolContext.signal, "Agent run aborted");
-  const observationResult = await resolveToolObservation({ toolExecutor: opts.toolExecutor, toolContext, callId: call.callId, toolName: call.toolName, result: toolResult, opts });
+  const observationResult = await resolveToolObservation({
+    toolContext,
+    callId: call.callId,
+    toolName: call.toolName,
+    result: toolResult,
+    opts,
+  });
   throwIfAborted(toolContext.signal, "Agent run aborted");
   const elapsedTime = (Date.now() - startedAt) / 1000;
   opts.events.emit({
@@ -110,6 +150,180 @@ async function executeSingleToolCall(input: { call: KernelToolCall; previousResu
   });
 
   return { index: call.index, callId: call.callId, toolName: call.toolName, arguments: toolArguments, result: toolResult, observation: observationResult.observation };
+}
+
+/**
+ * prepare → 审批编排 → hook.before → tool.call → hook.after/error。
+ * 全流程内置，消费端只提供 Tool 实例 + 可选审批端口。
+ */
+async function prepareAndExecute(input: {
+  toolName: string;
+  toolArguments: Record<string, unknown>;
+  toolContext: ToolExecContext;
+  opts: ToolRoundExecutorOptions;
+}): Promise<ToolExecutionResult> {
+  const { toolName, toolArguments, toolContext, opts } = input;
+
+  // 1. prepare（校验 + 权限自检 + 路径收集）
+  const prepareResult = prepareTool(
+    { registry: opts.registry },
+    toolName,
+    toolArguments,
+    toolContext,
+  );
+  if (!prepareResult.ok) {
+    return prepareResult.result;
+  }
+  const { prepared } = prepareResult;
+
+  // 2. 审批编排（产出可能含已批准的外部路径，回填到执行 ctx）
+  const approvalResult = await runToolApproval({ prepared, toolContext, opts });
+  throwIfAborted(toolContext.signal, "Agent run aborted");
+  if (approvalResult.denied) {
+    return approvalResult.denied;
+  }
+  const execContext = approvalResult.execContext;
+
+  // 3. hook.before → tool.call → hook.after/error
+  if (opts.hooks) {
+    await opts.hooks.emit("tool.before", { toolName, arguments: toolArguments, ctx: execContext });
+  }
+  return executeToolWithHookError({ prepared, execContext, ...(opts.hooks ? { hooks: opts.hooks } : {}) });
+}
+
+/**
+ * 审批编排：prepare 产出的权限信号 → policy 判定 → ask 阻塞等待 → 放行/拒绝。
+ * 返回 execContext（含审批通过的 approvedExternalPaths 回填）；denied 表示已被拒绝。
+ */
+async function runToolApproval(input: {
+  prepared: PreparedTool;
+  toolContext: ToolExecContext;
+  opts: ToolRoundExecutorOptions;
+}): Promise<{ denied: ToolExecutionResult; execContext: ToolExecContext } | { denied: null; execContext: ToolExecContext }> {
+  const { prepared, toolContext, opts } = input;
+  const policy = opts.permissionPolicy;
+
+  // 无 policy：审批旁路。但仍把 prepare 收集的外部路径候选回填到执行 ctx——
+  // 工具据此判断路径准入（无审批端口时，外部路径工具应自行拒绝越界，路径声明供审计/日志）。
+  if (!policy) {
+    return { denied: null, execContext: mergeApprovedPaths(toolContext, prepared.approvedExternalPaths) };
+  }
+
+  // 从 prepare 结果取权限信号，喂给 policy
+  const permission = prepared.permission;
+  const riskLevel = permission?.riskLevel ?? prepared.tool.riskLevel ?? "low";
+  const forceAsk = permission?.behavior === "ask";
+  const approvalExempt = prepared.tool.approvalExempt;
+
+  let decision: ToolApprovalDecision;
+  try {
+    decision = policy.evaluate({
+      toolName: prepared.tool.name,
+      arguments: prepared.input,
+      riskLevel,
+      ...(forceAsk ? { forceAsk } : {}),
+      ...(approvalExempt !== undefined ? { approvalExempt } : {}),
+      ...(prepared.approvedExternalPaths.length ? { approvedExternalPaths: prepared.approvedExternalPaths } : {}),
+      ctx: toolContext,
+    });
+  } catch (error) {
+    if (isAbortError(error) || toolContext.signal?.aborted) { throw error; }
+    decision = { action: "deny", reason: `审批策略异常: ${error instanceof Error ? error.message : String(error)}` };
+  }
+
+  if (decision.action === "deny") {
+    return { denied: buildToolExecutionErrorResult(prepared.tool.name, new Error(decision.reason)), execContext: toolContext };
+  }
+  if (decision.action === "allow") {
+    // allow 时 decision 可能携带 approvedExternalPaths（auto-accept 路径模式）
+    return { denied: null, execContext: mergeApprovedPaths(toolContext, prepared.approvedExternalPaths, decision.approvedExternalPaths) };
+  }
+
+  // action === "ask"：阻塞等待用户审批
+  if (!opts.approvalInteraction) {
+    return { denied: buildToolExecutionErrorResult(prepared.tool.name, new Error(`工具 ${prepared.tool.name} 需要审批，但当前上下文不支持审批`)), execContext: toolContext };
+  }
+  throwIfAborted(toolContext.signal, "Agent run aborted");
+  let resolution;
+  try {
+    resolution = await opts.approvalInteraction.waitForApproval({
+      toolName: prepared.tool.name,
+      arguments: prepared.input,
+      reason: decision.reason,
+      riskLevel: decision.riskLevel,
+      description: decision.description,
+      ...(decision.approvedExternalPaths?.length ? { approvedExternalPaths: decision.approvedExternalPaths } : {}),
+      ctx: toolContext,
+    });
+  } catch (error) {
+    if (isAbortError(error) || toolContext.signal?.aborted) { throw error; }
+    return { denied: buildToolExecutionErrorResult(prepared.tool.name, new Error(`审批流程异常: ${error instanceof Error ? error.message : String(error)}`)), execContext: toolContext };
+  }
+  if (!resolution.approved) {
+    return { denied: buildToolExecutionErrorResult(prepared.tool.name, new Error(`工具 ${prepared.tool.name} 执行已被拒绝：${resolution.reason}`)), execContext: toolContext };
+  }
+  // 用户审批通过——决策中的 approvedExternalPaths 回填到执行 ctx
+  return { denied: null, execContext: mergeApprovedPaths(toolContext, prepared.approvedExternalPaths, decision.approvedExternalPaths) };
+}
+
+/** 把审批通过/收集的外部路径合并回 ToolExecContext（去重；无变化则返回原 ctx）。 */
+function mergeApprovedPaths(ctx: ToolExecContext, ...sources: Array<string[] | undefined>): ToolExecContext {
+  const existing = ctx.approvedExternalPaths ?? [];
+  const collected: string[] = [];
+  for (const source of sources) {
+    if (source) { collected.push(...source); }
+  }
+  const merged = dedupeStrings([...existing, ...collected]);
+  const sameLength = merged.length === existing.length;
+  if (sameLength && merged.every((p, i) => p === existing[i])) {
+    return ctx;
+  }
+  return { ...ctx, approvedExternalPaths: merged };
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const value of values) {
+    if (typeof value !== "string") { continue; }
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) { continue; }
+    seen.add(normalized);
+    output.push(normalized);
+  }
+  return output;
+}
+
+/** tool.call + hook.after/error 包装。 */
+async function executeToolWithHookError(input: {
+  prepared: PreparedTool;
+  execContext: ToolExecContext;
+  hooks?: HookRegistry;
+}): Promise<ToolExecutionResult> {
+  const { prepared, execContext, hooks } = input;
+  try {
+    const result = await prepared.tool.call(prepared.input, execContext);
+    if (hooks && result.success) {
+      await hooks.emit("tool.after", {
+        toolName: prepared.tool.name,
+        arguments: prepared.input,
+        result,
+        ctx: execContext,
+      });
+    }
+    return result;
+  } catch (error) {
+    if (isAbortError(error) || execContext.signal?.aborted) { throw error; }
+    if (hooks) {
+      await hooks.emit("tool.error", {
+        toolName: prepared.tool.name,
+        arguments: prepared.input,
+        error,
+        ctx: execContext,
+      });
+    }
+    return buildToolExecutionErrorResult(prepared.tool.name, error);
+  }
 }
 
 function buildExecutionBatches(calls: KernelToolCall[]): KernelToolCall[][] {
@@ -144,19 +358,16 @@ function toolCallHasUnmetDependencies(call: KernelToolCall, completed: Set<numbe
   return dependencies.some((index) => !completed.has(index));
 }
 
-async function executeToolSafely(input: { toolExecutor: ToolExecutor; toolContext: ToolExecContext; toolExecutorCall: ToolExecutorCall }): Promise<ToolExecutionResult> {
-  try {
-    return await input.toolExecutor.executeTool(input.toolExecutorCall, input.toolContext);
-  } catch (error) {
-    if (isAbortError(error) || input.toolContext.signal?.aborted) { throw error; }
-    return buildToolExecutionErrorResult(input.toolExecutorCall.toolName, error);
-  }
-}
-
-async function resolveToolObservation(input: { toolExecutor: ToolExecutor; toolContext: ToolExecContext; callId: string; toolName: string; result: ToolExecutionResult; opts: ToolRoundExecutorOptions }): Promise<ToolObservationResult> {
+async function resolveToolObservation(input: {
+  toolContext: ToolExecContext;
+  callId: string;
+  toolName: string;
+  result: ToolExecutionResult;
+  opts: ToolRoundExecutorOptions;
+}): Promise<ToolObservationResult> {
   throwIfAborted(input.toolContext.signal, "Agent run aborted");
   const waitSignal = extractToolWaitSignal(input.result);
-  if (!waitSignal || !input.toolExecutor.waitForToolResult) {
+  if (!waitSignal || !input.opts.waitForToolResult) {
     try {
       const llmFacingResult = await buildLlmFacingToolResult({
         toolContext: input.toolContext,
@@ -186,7 +397,7 @@ async function resolveToolObservation(input: { toolExecutor: ToolExecutor; toolC
 
   const waitReq: ToolWaitRequest = { backgroundTaskId: waitSignal.backgroundTaskId };
   if (waitSignal.timeoutMs !== null && waitSignal.timeoutMs !== undefined) { waitReq.timeoutMs = waitSignal.timeoutMs; }
-  const waitResult = await input.toolExecutor.waitForToolResult(waitReq, input.toolContext);
+  const waitResult = await input.opts.waitForToolResult(waitReq, input.toolContext);
   throwIfAborted(input.toolContext.signal, "Agent run aborted");
   return {
     success: waitResult.success,

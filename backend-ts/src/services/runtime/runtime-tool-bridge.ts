@@ -62,7 +62,8 @@ export interface RuntimeToolBridgeDeps {
  */
 export class RuntimeToolBridge implements RuntimeToolExecutor {
   private agentDelegation: DelegationPort | null = null;
-  private readonly toolRegistry: RuntimeToolRegistry;
+  /** 暴露内部注册表供 SDK ToolRegistry 适配层使用。 */
+  readonly toolRegistry: RuntimeToolRegistry;
   private readonly preparer: ToolPreparer;
   private readonly approval: ToolApprovalCoordinator;
   private readonly hookOrchestrator: ToolHookOrchestrator;

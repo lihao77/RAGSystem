@@ -13,8 +13,10 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import type { ChatMessage, LlmClient } from "@ragsystem/agent-llm";
-import type { Context, HookPoint, HookRegistry, KernelResult, MessageRefresher, RuntimeSession, ToolExecutor, ToolExecContext, RuntimeStore } from "./contracts.js";
+import type { ApprovalInteraction, Context, KernelResult, MessageRefresher, PermissionPolicy, RuntimeSession, ToolExecContext, ToolWaitRequest, ToolWaitResult, RuntimeStore } from "./contracts.js";
 import type { KernelEvent } from "./contracts.js";
+import type { ToolRegistry } from "./tools/registry.js";
+import type { Tool } from "./tools/tool.js";
 import { KernelContext } from "./kernel-context.js";
 import type { KernelContext as KernelContextType } from "./kernel-context.js";
 import { AgentKernel } from "./kernel.js";
@@ -27,8 +29,10 @@ import { MemoryIndexContextSource } from "./memory/index.js";
 import { buildFullSystemPrompt } from "./prompt/prompt-builder.js";
 import { AgentContextCompressionService } from "./compression/context-compression.js";
 import { createCompactionHook } from "./compression/compaction-hook.js";
+import { createHookRegistry } from "./hooks/index.js";
 import { createProtocol } from "./protocol/index.js";
 import { RuntimeToolProvider } from "./tools/index.js";
+import { createToolRegistry } from "./tools/registry.js";
 import { estimateTokens } from "./compression/token-estimate.js";
 import type { ContextUsageProvider } from "./kernel.js";
 
@@ -37,8 +41,12 @@ export interface CreateRuntimeOptions {
   provider: AgentProfile["llmTiers"][string]["provider"];
   modelName: string;
   profile: AgentProfile;
-  /** 工具执行端口（消费端实现：工具实际跑什么 + 产出原始结果）。 */
-  toolExecutor: ToolExecutor;
+  /**
+   * 工具注册表或工具实例数组。
+   * - ToolRegistry：消费端已组装好的注册表（含静态+动态源）。
+   * - Tool[]：简单场景传实例数组，内部用 createToolRegistry 包装。
+   */
+  tools: ToolRegistry | Tool[];
   /** 数据根目录；默认 ~/.ragsystem。 */
   dataRoot?: string;
   /** 自定义 store（默认 SqliteRuntimeStore）。 */
@@ -47,6 +55,12 @@ export interface CreateRuntimeOptions {
   sessionMetadata?: SessionMetadataPort;
   /** 自定义 context sources（默认 recent_messages + memory_index）。 */
   contextSources?: AgentContextSource[];
+  /** 审批策略端口（可选；不注入即全部 allow）。 */
+  permissionPolicy?: PermissionPolicy;
+  /** 审批交互端口（可选；permissionPolicy 返回 ask 时阻塞等待）。 */
+  approvalInteraction?: ApprovalInteraction;
+  /** 后台任务等待回调（消费端注入；不提供则忽略 suggest_wait 信号）。 */
+  waitForToolResult?: (request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>;
 }
 
 export interface RunInput {
@@ -79,8 +93,6 @@ export interface RunHandle {
   runId: string;
 }
 
-type HookFn = (ctx: KernelContextType, round?: number) => void | Promise<void>;
-
 export function createRuntime(options: CreateRuntimeOptions): { run: (input: RunInput) => RunHandle; close: () => void } {
   const profile = options.profile;
   const storeOpts: import("./store/sqlite-store.js").SqliteStoreOptions = {};
@@ -89,6 +101,9 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
 
   const ownsStore = !options.store;
   const dataRoot = options.dataRoot ?? path.join(os.homedir(), ".ragsystem");
+  const registry: ToolRegistry = Array.isArray(options.tools)
+    ? createToolRegistry({ tools: options.tools })
+    : options.tools;
 
   return {
     run: (input: RunInput): RunHandle => {
@@ -127,7 +142,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
         provider: options.provider,
         llm: options.llm,
         events: dispatcher,
-        getTools: () => options.toolExecutor.listTools(),
+        getTools: () => registry.listDefinitions(),
       });
       const context: Context = makeContextPort(contextBuilder, profile, toolInstructionMode);
       const refresher: MessageRefresher = { refresh: async () => [] };
@@ -135,15 +150,15 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       const compression = new AgentContextCompressionService({ store, llm: options.llm, profile });
       const budgetTokens = compression.resolveContextBudget();
       const triggerRatio = compression.resolveContextSettings().compressionTriggerRatio;
-      const compactionHook = createCompactionHook({
+      const hooks = createHookRegistry();
+      hooks.on("round.before", createCompactionHook({
         recompact: async () => {
           const result = await compression.compressIfNeeded({ sessionId, runId, taskId: null, requestId: null, threadKey, childAgentId: parentCallId });
           return result.status === "success" ? [] : null;
         },
         budgetTokens,
         triggerRatio,
-      });
-      const hooks = makeHookRegistry({ beforeModel: [compactionHook] });
+      }));
 
      const session: RuntimeSession = {
        profile,
@@ -172,7 +187,16 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
         roundIndex: null,
       };
       if (input.signal) { toolContext.signal = input.signal; }
-      const tools = new RuntimeToolProvider({ toolExecutor: options.toolExecutor, toolContext, dataRoot, events: dispatcher });
+      const tools = new RuntimeToolProvider({
+        registry,
+        toolContext,
+        dataRoot,
+        events: dispatcher,
+        hooks,
+        ...(options.permissionPolicy ? { permissionPolicy: options.permissionPolicy } : {}),
+        ...(options.approvalInteraction ? { approvalInteraction: options.approvalInteraction } : {}),
+        ...(options.waitForToolResult ? { waitForToolResult: options.waitForToolResult } : {}),
+      });
       // 上下文用量遥测：system（含稳定 system context）与 history 分桶估算 + 预算（零兜底，纯读 profile）。
       const contextUsage: ContextUsageProvider = (requestMessages) => {
         let systemPromptTokens = 0;
@@ -249,20 +273,6 @@ function makeContextPort(builder: AgentContextBuilder, profile: AgentProfile, mo
       builder.buildContext({ sessionId: ctx.session.sessionId, threadKey: ctx.session.threadKey, microcompact: true });
       const prefix = systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : [];
       return [...prefix, ...ctx.messages];
-    },
-  };
-}
-
-function makeHookRegistry(initial: Partial<Record<HookPoint, HookFn[]>>): HookRegistry {
-  const registry: Record<HookPoint, HookFn[]> = { beforeModel: [...(initial.beforeModel ?? [])], afterModel: [...(initial.afterModel ?? [])] };
-  return {
-    invoke: async (point, ctx, round) => {
-      for (const fn of registry[point]) {
-        await fn(ctx, round);
-      }
-    },
-    register: (point, fn) => {
-      registry[point].push(fn);
     },
   };
 }

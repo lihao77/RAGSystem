@@ -1,8 +1,8 @@
 /**
- * 循环内压缩 hook（beforeModel，迁自 backend-ts runtime-compaction-hook.ts）。
+ * 循环内压缩 hook（round.before，迁自 backend-ts runtime-compaction-hook.ts）。
  * 每轮问模型前估算工作副本 token，超阈值才触发 micro-first 重建。
  */
-import type { KernelContext } from "../kernel-context.js";
+import type { RoundBeforeInput } from "../hooks/types.js";
 import { estimateTokens } from "./token-estimate.js";
 
 const BACKGROUND_NOTIFICATION_PREFIX = "<task-notification>";
@@ -15,9 +15,10 @@ export interface CompactionHookDeps {
 
 export function createCompactionHook(
   deps: CompactionHookDeps,
-): (ctx: KernelContext) => Promise<void> {
+): (input: RoundBeforeInput) => Promise<void> {
   const threshold = Math.floor(deps.budgetTokens * deps.triggerRatio);
-  return async (ctx: KernelContext): Promise<void> => {
+  return async (input: RoundBeforeInput): Promise<void> => {
+    const ctx = input.ctx;
     const tokens = ctx.messages.reduce((total, message) => total + estimateTokens(message.content), 0);
     if (tokens < threshold) {
       return;

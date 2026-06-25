@@ -11,7 +11,10 @@ import type { BackgroundTaskService } from "../../runtime/background-task-servic
 import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js";
-import type { RuntimeToolExecutor } from "../../runtime/runtime-tool-types.js";
+import type { RuntimeToolRegistry } from "../../../tools/registry.js";
+import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
+import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
+import type { PendingInteractionService } from "../../runtime/pending-interaction-service.js";
 import type { IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
@@ -38,7 +41,8 @@ export class AgentRunEngine {
     private readonly llmChatClient: LlmChatClient,
     private readonly dataRoot: string,
     private readonly contextService: AgentContextService,
-   private readonly runtimeTools: RuntimeToolExecutor | null,
+   private readonly toolRegistry: RuntimeToolRegistry | null,
+   private readonly taskTools: TaskToolService | null,
    private readonly promptConfigResolver: AgentPromptConfigResolver | null,
    /** 已加载的 provider 列表提供者（投影层解析 tier.provider 引用用）。 */
    private readonly providersProvider: () => ModelProviderConfig[],
@@ -47,6 +51,8 @@ export class AgentRunEngine {
     private readonly eventPublisher: AgentExecutionEventPublisher,
     private readonly outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">,
     private readonly clientEvents: DurableClientEventPublisher,
+    private readonly permissionPolicy: PermissionPolicyService,
+    private readonly pendingInteractions: PendingInteractionService,
     private readonly logger: AgentExecutionLogger | null,
   ) {}
 
@@ -274,13 +280,15 @@ export class AgentRunEngine {
        {
           // run-engine 的 conversationStore 实际是完整 ConversationStore（构造时传入窄类型）。
           conversationStore: this.conversationStore as unknown as ConversationStore,
-          // 无工具桥时用空工具执行器（SDK 内核照常跑，仅无工具可调）。
-          runtimeToolBridge: this.runtimeTools ?? emptyToolExecutor,
+          toolRegistry: this.toolRegistry ?? emptyToolRegistry,
+          taskTools: this.taskTools,
           llmChatClient: this.llmChatClient,
           eventPublisher: this.eventPublisher,
           clientEvents: this.clientEvents,
           providers: this.providersProvider(),
           dataRoot: this.dataRoot,
+          permissionPolicy: this.permissionPolicy,
+          pendingInteractions: this.pendingInteractions,
         },
         {
           sessionId: input.sessionId,
@@ -408,20 +416,12 @@ function hasCause(error: Error): error is Error & { cause: unknown } {
   return "cause" in error;
 }
 
-/** 无工具桥时的空执行器（listTools 返回空数组，executeTool 拒绝）。 */
-const emptyToolExecutor: import("../../runtime/runtime-tool-types.js").RuntimeToolExecutor = {
-  listVisibleTools: () => [],
-  executeTool: (call) => ({
-    success: false,
-    tool_name: call.toolName,
-    summary: `工具不可用（未注入工具桥）: ${call.toolName}`,
-    answer: null,
-    output_type: "error",
-    content: null,
-    metadata: {},
-    artifacts: [],
-    llm_hint: null,
-  }),
+/** 无工具注册表时的空实现（listTools 返回空数组）。 */
+const emptyToolRegistry: import("../../../tools/registry.js").RuntimeToolRegistry = {
+  listTools: () => [],
+  listDefinitions: () => [],
+  getVisibleTool: () => null,
+  classifyConcurrency: () => false,
 };
 
 /** backend-ts MessageInfo → ChatMessage（保留 tool_calls/tool_call_id 结构化字段）。 */

@@ -1,9 +1,12 @@
 /** @ragsystem/agent-sdk 公共导出。 */
 export { createRuntime } from "./runtime.js";
 export type { CreateRuntimeOptions, RunInput, RunHandle } from "./runtime.js";
+// 事件 Hook 系统
+export { createHookRegistry, EMPTY_HOOK_OUTPUT } from "./hooks/index.js";
+export type { HookEvent, HookHandler, HookInputMap, HookOutput, HookRegistry, RunBeforeInput, RunAfterInput, RoundBeforeInput, RoundAfterInput, ToolBeforeInput, ToolAfterInput, ToolErrorInput } from "./hooks/index.js";
 export type { AgentProfile, ResolvedTier, TierMap, CompressionBudgetConfig, AgentBehavior, MemoryConfig, MessageInfo, RunStepRecord, RunRecord, RunStatus, MessageRole, ToolCallRef } from "./types.js";
 export { DEFAULT_COMPRESSION_BUDGET } from "./types.js";
-export type { KernelEvent, FirstTokenEvent, OutputDeltaEvent, IntentCompleteEvent, ToolCallEvent, ToolResultEvent, ObservationCompleteEvent, RuntimeErrorEvent, ContextUsageEvent, EventSink, Context, Protocol, ToolProvider, MessageRefresher, HookRegistry, HookPoint, ToolInstructionMode, RuntimeSession, RuntimeStore, RuntimeTx, KernelResult, KernelOutcome, PreparedRoundToolCall, KernelToolCall, KernelObservation, ToolExecutionResult, CreateRunInput, AddMessageInput, AddRunStepInput, InsertCompressionMessageInput } from "./contracts.js";
+export type { KernelEvent, FirstTokenEvent, OutputDeltaEvent, IntentCompleteEvent, ToolCallEvent, ToolResultEvent, ObservationCompleteEvent, RuntimeErrorEvent, ContextUsageEvent, EventSink, Context, Protocol, ToolProvider, MessageRefresher, ToolInstructionMode, RuntimeSession, RuntimeStore, RuntimeTx, KernelResult, KernelOutcome, PreparedRoundToolCall, KernelToolCall, KernelObservation, ToolExecutionResult, CreateRunInput, AddMessageInput, AddRunStepInput, InsertCompressionMessageInput, PermissionPolicy, ApprovalInteraction, ToolApprovalInput, ToolApprovalDecision, ApprovalRequest, ApprovalResolution } from "./contracts.js";
 export { AgentKernel } from "./kernel.js";
 export type { AgentKernelOptions, ContextUsageProvider } from "./kernel.js";
 export { KernelContext } from "./kernel-context.js";
@@ -18,7 +21,19 @@ export { createCompactionHook } from "./compression/compaction-hook.js";
 export { resolveContextBudget } from "./llm-params/budget.js";
 export { resolveSummaryTierCandidates } from "./llm-params/summary-tier.js";
 export { readTierParams } from "./llm-params/tier-params.js";
-// 端口类型补全：消费端实现 ToolExecutor 端口所需（contracts + prompt/tool-types）。
+// Tool 富模型（SDK 定义的工具接口）
+export { buildTool, toolToDefinition } from "./tools/tool.js";
+export type { Tool, BuildToolInput, InputSchema, ToolPermissionResult, RiskLevel, ToolCaller, ToolSource } from "./tools/tool.js";
+// ToolRegistry
+export { createToolRegistry } from "./tools/registry.js";
+export type { ToolRegistry, ToolRegistryOptions } from "./tools/registry.js";
+// Validation
+export { validateToolInput } from "./tools/validation.js";
+export type { ToolValidationResult, ToolValidationSuccess, ToolValidationFailure } from "./tools/validation.js";
+// Preparer
+export { prepareTool } from "./tools/preparer.js";
+export type { PreparedTool, PrepareResult, ToolPreparerOptions } from "./tools/preparer.js";
+// 端口类型（ToolExecutor deprecated，保留供过渡；新代码用 Tool + ToolRegistry）
 export type { ToolExecutor, ToolExecutorCall, ToolExecContext, ToolWaitRequest, ToolWaitResult, ToolArtifact } from "./contracts.js";
 export type { RuntimeToolDefinition, RuntimeToolReturns, RuntimeToolExample } from "./prompt/tool-types.js";
 // Tools 模块（SDK 自带编排 + observation 渲染）

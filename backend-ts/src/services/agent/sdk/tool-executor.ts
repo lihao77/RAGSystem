@@ -56,6 +56,14 @@ export class SdkToolExecutor implements ToolExecutor {
       .map(toSdkToolDefinition);
   }
 
+  /** 查询工具风险等级（SDK 审批编排用）。从 bridge 工具定义取 riskLevel。 */
+  getToolRiskLevel(toolName: string): string | undefined {
+    const def = this.options.bridge
+      .listVisibleTools(this.options.agent)
+      .find((tool) => tool.name === toolName);
+    return def?.riskLevel;
+  }
+
   executeTool(
     call: ToolExecutorCall,
     ctx: ToolExecContext,

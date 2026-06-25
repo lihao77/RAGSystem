@@ -20,7 +20,10 @@ import type { BackgroundTaskService } from "../../runtime/background-task-servic
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
-import type { RuntimeToolExecutor } from "../../runtime/runtime-tool-types.js";
+import type { RuntimeToolRegistry } from "../../../tools/registry.js";
+import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
+import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
+import type { PendingInteractionService } from "../../runtime/pending-interaction-service.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { IFileIndexStore } from "../../../contracts/file-index-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
@@ -65,7 +68,8 @@ export interface AgentExecutionServiceParams {
   llmChatClient: LlmChatClient;
   dataRoot: string;
   contextService: AgentContextService;
-  runtimeTools?: RuntimeToolExecutor | null;
+  runtimeTools?: RuntimeToolRegistry | null;
+  taskTools?: TaskToolService | null;
   promptConfigResolver?: AgentPromptConfigResolver | null;
   backgroundTasks?: BackgroundTaskService | null;
   fileIndex?: IFileIndexStore | null;
@@ -73,6 +77,10 @@ export interface AgentExecutionServiceParams {
  clientEvents: DurableClientEventPublisher;
  /** 已加载的 provider 列表提供者（SDK 投影层解析 tier.provider 引用用）。 */
  providersProvider: () => ModelProviderConfig[];
+ /** 权限策略服务（SDK 审批编排判定用）。 */
+ permissionPolicy: PermissionPolicyService;
+ /** 审批交互服务（SDK 审批编排阻塞等待用）。 */
+ pendingInteractions: PendingInteractionService;
  logger?: AgentExecutionLogger | null | undefined;
 }
 
@@ -111,6 +119,7 @@ export function createAgentExecutionService(
     params.dataRoot,
     params.contextService,
    params.runtimeTools ?? null,
+   params.taskTools ?? null,
    params.promptConfigResolver ?? null,
    params.providersProvider,
    params.backgroundTasks ?? null,
@@ -118,6 +127,8 @@ export function createAgentExecutionService(
     eventPublisher,
     params.outboxDispatcher,
     params.clientEvents,
+    params.permissionPolicy,
+    params.pendingInteractions,
     params.logger ?? null,
   );
   const launchers = createLaunchers({

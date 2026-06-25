@@ -1,5 +1,5 @@
 /**
- * Runtime 适配器（方案 A 的集成钥匙）—— 组装投影 + ToolExecutor + store 适配器 +
+ * Runtime 适配器（方案 A 的集成钥匙）—— 组装投影 + ToolRegistry + store 适配器 +
  * createRuntime，跑 SDK 事件循环 + 翻译 + terminal。
  *
  * SDK 内核 + Dispatcher 独占 run/message/run_step 落库（经 SdkStoreAdapter 委托 ConversationStore）；
@@ -8,6 +8,7 @@
  *（final assistant 消息由 SDK Dispatcher.finalize 已写，此处只查库取其 id/seq 供 message_saved）。
  */
 import { createRuntime, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
+import type { ToolRegistry } from "@ragsystem/agent-sdk";
 import { translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
@@ -19,15 +20,23 @@ import type { Envelope } from "../../../contracts/events.js";
 import type { AgentExecutionEventPublisher } from "../execution/event-publisher.js";
 import type { DurableClientEventPublisher, RecordedClientEvent } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { RuntimeToolExecutor } from "../../runtime/runtime-tool-types.js";
+import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
+import type { PendingInteractionService } from "../../runtime/pending-interaction-service.js";
+import type { RuntimeToolRegistry } from "../../../tools/registry.js";
 import { projectAgentProfile } from "./projection.js";
 import { getDefaultTier } from "./projection.js";
 import { SdkStoreAdapter } from "./sdk-store-adapter.js";
 import { LlmClientAdapter } from "./llm-client-adapter.js";
-import { SdkToolExecutor } from "./tool-executor.js";
+import { buildSdkToolRegistry, createWaitForToolResultAdapter } from "./tool-adapter.js";
+import { SdkPermissionPolicyAdapter } from "./permission-adapter.js";
+import { SdkApprovalInteractionAdapter } from "./approval-interaction-adapter.js";
 
 export interface SdkRuntimeAdapterDeps {
   conversationStore: ConversationStore;
-  runtimeToolBridge: RuntimeToolExecutor;
+  /** backend-ts 工具注册表（RuntimeTool 实例集合）——适配为 SDK ToolRegistry。 */
+  toolRegistry: RuntimeToolRegistry;
+  /** 后台任务等待——从 taskTools 适配。 */
+  taskTools: import("../../../tools/TaskTools/TaskExecution.js").TaskToolService | null;
   /** backend-ts LLM 客户端（经 LlmClientAdapter 适配成 SDK LlmClient；保留测试 mock 注入点）。 */
   llmChatClient: LlmChatClient;
   eventPublisher: AgentExecutionEventPublisher;
@@ -35,6 +44,10 @@ export interface SdkRuntimeAdapterDeps {
   /** 已加载的全部 provider（投影层解析 tier.provider 引用用）。 */
   providers: ModelProviderConfig[];
   dataRoot: string;
+  /** 权限策略服务（SDK 审批编排判定端口用）。 */
+  permissionPolicy: PermissionPolicyService;
+  /** 审批交互服务（SDK 审批编排阻塞等待端口用）。 */
+  pendingInteractions: PendingInteractionService;
 }
 
 export interface SdkExecuteRunInput {
@@ -88,21 +101,30 @@ export async function executeRunWithSdk(
   const defaultTier = getDefaultTier(profile.llmTiers);
   const storeAdapter = new SdkStoreAdapter({ conversationStore: deps.conversationStore });
   const llmClient = new LlmClientAdapter({ chatClient: deps.llmChatClient, agent: input.agent });
-  const toolExecutor = new SdkToolExecutor({
-    bridge: deps.runtimeToolBridge,
+
+  // 构建 SDK ToolRegistry：backend-ts RuntimeTool[] → SDK Tool[]
+  const toolAdapterOpts = {
     agent: input.agent,
     sessionMetadata: input.sessionMetadata,
     run: { taskId: input.taskId, requestId: input.requestId, rootCallId: input.rootCallId },
-  });
+  };
+  const sdkRegistry = buildSdkToolRegistry(deps.toolRegistry, toolAdapterOpts);
+  const waitForToolResult = createWaitForToolResultAdapter(deps.taskTools);
 
   const runtimeOpts: CreateRuntimeOptions = {
     llm: llmClient,
     provider: defaultTier.provider,
     modelName: defaultTier.modelName,
     profile,
-    toolExecutor,
+    tools: sdkRegistry,
     dataRoot: deps.dataRoot,
     store: storeAdapter,
+    permissionPolicy: new SdkPermissionPolicyAdapter({ service: deps.permissionPolicy }),
+    approvalInteraction: new SdkApprovalInteractionAdapter({
+      service: deps.pendingInteractions,
+      agentName: input.agent.agent_name,
+    }),
+    ...(waitForToolResult ? { waitForToolResult } : {}),
   };
 
   // 翻译上下文（agent-protocol.translateKernelEvent 纯函数用）：root call + lineage。
@@ -264,4 +286,3 @@ function appendEnvelope(
     aggregateId: input.runId,
   });
 }
-

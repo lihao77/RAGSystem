@@ -65,7 +65,8 @@ export interface MemoryConfig {
 /**
  * AgentProfile —— AgentConfig 的核心投影（设计稿 §3）。
  *
- * 调用方投影后传入。衍生字段（tools/skills/mcp/knowledge_base/delegation/审批/outbox）不进。
+ * 调用方投影后传入。包含内核所需的 LLM 配置 + 行为 + 记忆。
+ * 工具可见性不在 profile 上——消费端在 per-run 构建 ToolRegistry 时自行筛选。
  */
 export interface AgentProfile {
   agentName: string;

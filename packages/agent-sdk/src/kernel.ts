@@ -3,12 +3,12 @@
  *
  * 内核只回答"下一步"：轮次推进、abort 检查、round 计数、消息 append 时机、终止判断。
  * 它不知道怎么组上下文 / 问模型 / 解析 / 调工具 / 落库。三只手（Protocol / ToolProvider /
- * MessageRefresher）+ EventSink 导线 + HookRegistry 全部构造注入，内核绝不 import 任何具体实现。
+ * MessageRefresher）+ EventSink 导线 + 事件 Hook 全部构造注入，内核绝不 import 任何具体实现。
  *
  * 循环顺序：
- *   throwIfAborted → appendMessages(refresher 增量) → beforeModel hook
+ *   throwIfAborted → appendMessages(refresher 增量) → round.before hook
  *   → context.buildMessages → protocol.invoke（问模型 + 边流边解析 + 发 delta + 修复重试，全在 invoke 内部）
- *   → afterModel hook → 若 tool_calls 则 tools.executeRound + appendAssistant
+ *   → round.after hook → 若 tool_calls 则 tools.executeRound + appendAssistant
  *   + appendMessages(renderObservations) 再 continue；否则 setFinalAnswer + break。
  *
  * 事件：发 KernelEvent（扁平运行时语义），EventSink 透传给 Dispatcher——不翻译（设计稿 §6 原则 1/4）。
@@ -21,13 +21,13 @@ import { isAbortError } from "@ragsystem/agent-protocol";
 import type {
   Context,
   EventSink,
-  HookRegistry,
   KernelResult,
   MessageRefresher,
   Protocol,
   RuntimeSession,
   ToolProvider,
 } from "./contracts.js";
+import type { HookRegistry } from "./hooks/types.js";
 import type { AgentProfile } from "./types.js";
 import { KernelContext } from "./kernel-context.js";
 
@@ -79,11 +79,12 @@ export class AgentKernel {
   async run(session: RuntimeSession): Promise<KernelResult> {
     const ctx = KernelContext.create(session);
     const agentName = session.profile.agentName;
+    await this.hooks.emit("run.before", { session });
     try {
       for (let round = 0; ; round++) {
         ctx.throwIfAborted();
         ctx.appendMessages(await this.refresher.refresh(ctx));
-        await this.hooks.invoke("beforeModel", ctx, round);
+        await this.hooks.emit("round.before", { ctx, round });
         ctx.setRequestMessages(this.context.buildMessages(ctx));
         // 请求消息组好后报上下文用量（消费端推 context_usage 遥测）。无 provider 时不报。
         if (this.contextUsage) {
@@ -91,7 +92,7 @@ export class AgentKernel {
           this.events.emit({ type: "context_usage", agentName, round, ...usage });
         }
         const outcome = await this.protocol.invoke(ctx, round);
-        await this.hooks.invoke("afterModel", ctx, round);
+        await this.hooks.emit("round.after", { ctx, round, outcome });
 
         if (outcome.kind === "tool_calls" && outcome.calls.length > 0) {
           // executeRound 前先 emit assistant_intermediate，把工具调用态 assistant 消息透传。
@@ -126,7 +127,9 @@ export class AgentKernel {
         );
         break;
       }
-      return ctx.toResult();
+      const result = ctx.toResult();
+      await this.hooks.emit("run.after", { session, result });
+      return result;
     } catch (error) {
       if (isAbortError(error)) {
         throw error;

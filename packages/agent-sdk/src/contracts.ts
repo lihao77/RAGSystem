@@ -1,7 +1,8 @@
 /**
  * Agent 运行时 SDK 契约层（纯类型 + 端口，零运行时代码）。
  *
- * 这是内核与扩展点（Protocol / ToolProvider / Context / HookRegistry）之间唯一的耦合面。
+ * 这是内核与扩展点（Protocol / ToolProvider / Context / 审批端口）之间唯一的耦合面。
+ * 事件 Hook 类型在 hooks/ 下单独定义（事件 hook 与端口契约职责不同，分开导出）。
  * 内核只依赖本文件的类型，绝不 import 任何具体实现。
  *
  * 与 backend-ts kernel/contracts.ts 的差异：
@@ -195,7 +196,7 @@ export interface ToolExecutorCall {
   callId: string;
 }
 
-/** 工具执行上下文（透传运行时元数据给消费端）。 */
+/** 工具执行上下文（运行时元数据 + 工具生命周期所需的 caller/workspaceRoot）。 */
 export interface ToolExecContext {
   sessionId: string | null;
   runId: string | null;
@@ -207,6 +208,14 @@ export interface ToolExecContext {
   order: number | null;
   roundIndex: number | null;
   signal?: AbortSignal;
+  /** 调用者来源（direct / code_execution / ...）。 */
+  caller?: string;
+  /** 当前 agent 名称。 */
+  currentAgentName?: string | null;
+  /** 工作空间根路径（文件类工具判断外部路径用）。 */
+  workspaceRoot?: string | null;
+  /** 已批准的外部路径（审批流程中注入）。 */
+  approvedExternalPaths?: string[];
 }
 
 /** 后台任务等待请求。 */
@@ -223,15 +232,19 @@ export interface ToolWaitResult {
 }
 
 /**
- * 工具执行端口（消费端实现）：负责"工具实际跑什么 + 产出原始 ToolExecutionResult"。
- * SDK 的 RuntimeToolProvider 负责编排（依赖分批、并发调度、abort、{result_N} 引用解析、
- * observation 渲染落盘）后调用它。
+ * 工具执行端口（已退役——由 ToolRegistry + Tool 替代）。
+ *
+ * 保留类型定义仅供消费端过渡期引用（backend-ts SdkToolExecutor 等尚未迁移的适配器）。
+ * SDK 内部不再使用；createRuntime 接收 ToolRegistry | Tool[]。
+ *
+ * @deprecated 使用 Tool + ToolRegistry（from tools/tool.ts + tools/registry.ts）替代。
  */
 export interface ToolExecutor {
   listTools(): import("./prompt/tool-types.js").RuntimeToolDefinition[];
   executeTool(call: ToolExecutorCall, ctx: ToolExecContext): ToolExecutionResult | Promise<ToolExecutionResult>;
   classifyConcurrency?(call: ToolExecutorCall, ctx: ToolExecContext): boolean;
   waitForToolResult?(request: ToolWaitRequest, ctx: ToolExecContext): ToolWaitResult | Promise<ToolWaitResult>;
+  getToolRiskLevel?(toolName: string): string | undefined;
 }
 
 /** 实时输出导线（穿过 Protocol/Tool 内部），零翻译透传 KernelEvent 给 Dispatcher。 */
@@ -244,27 +257,76 @@ export interface MessageRefresher {
   refresh(ctx: KernelContext): Promise<ChatMessage[]>;
 }
 
-/** 钩子点：beforeModel（轮首问模型前）；afterModel（问模型返回后，刷 stable-prefix 缓存）。 */
-export type HookPoint = "beforeModel" | "afterModel";
+/* ============================================================
+ * 四、审批编排端口（可选注入；下沉到 tool-round-executor）
+ *
+ * 审批是工具执行生命周期的固有环节，由 SDK 内置编排（policy 判定 → ask 时阻塞等待 → 放行/拒绝）。
+ * 消费端只需注入两个端口：策略判定（PermissionPolicy）与审批交互（ApprovalInteraction）。
+ * 不注入即全部 allow（向后兼容，测试/脚本场景）。
+ * ========================================================== */
 
-/** 钩子注册表：invoke 顺序 await 执行该 point 下所有 fn。 */
-export interface HookRegistry {
-  invoke(point: HookPoint, ctx: KernelContext, round?: number): Promise<void>;
-  register(point: HookPoint, fn: (ctx: KernelContext, round?: number) => void | Promise<void>): void;
+/** 审批判定输入。 */
+export interface ToolApprovalInput {
+  toolName: string;
+  arguments: Record<string, unknown>;
+  /** 工具风险等级（缺省 "low"）。 */
+  riskLevel: string;
+  /** 工具自声明是否强制 ask（forceAsk / approvalExempt 由消费端从工具定义解析）。 */
+  forceAsk?: boolean;
+  approvalExempt?: boolean;
+  /** prepare 收集的外部路径候选（越界访问需审批的路径）。 */
+  approvedExternalPaths?: string[];
+  ctx: ToolExecContext;
+}
+
+/**
+ * 审批判定结果。allow 直接执行；ask 需用户审批；deny 直接拒绝。
+ * allow/ask 可携带 approvedExternalPaths——决策放行的外部路径，回填到执行 ctx。
+ */
+export type ToolApprovalDecision =
+  | { action: "allow"; reason: string; approvedExternalPaths?: string[] }
+  | { action: "ask"; reason: string; riskLevel: string; description: string; approvedExternalPaths?: string[] }
+  | { action: "deny"; reason: string };
+
+/** 审批策略端口：判定某次工具调用是否需要审批。 */
+export interface PermissionPolicy {
+  evaluate(input: ToolApprovalInput): ToolApprovalDecision;
+}
+
+/** 审批请求（action=ask 时阻塞等待用户响应）。 */
+export interface ApprovalRequest {
+  toolName: string;
+  arguments: Record<string, unknown>;
+  reason: string;
+  riskLevel: string;
+  description: string;
+  /** 待审批的外部路径候选（供前端展示）。 */
+  approvedExternalPaths?: string[];
+  ctx: ToolExecContext;
+}
+
+/** 审批结果：批准携带用户留言，拒绝携带原因。 */
+export type ApprovalResolution =
+  | { approved: true; message: string }
+  | { approved: false; reason: string };
+
+/** 审批交互端口：阻塞等待用户审批响应。 */
+export interface ApprovalInteraction {
+  waitForApproval(request: ApprovalRequest): Promise<ApprovalResolution>;
 }
 
 /* ============================================================
- * 四、KernelContext（前向声明；实现在 kernel-context.ts）
+ * 五、KernelContext（前向声明；实现在 kernel-context.ts）
  * ========================================================== */
 
 // KernelContext 定义在 kernel-context.ts；在此 re-export，使 contracts.ts 成为类型统一出口。
 export type { KernelContext } from "./kernel-context.js";
 
 /* ============================================================
- * 五、RuntimeSession —— 一次 run 的输入（对齐设计稿 §2 run() 入参）
+ * 六、RuntimeSession —— 一次 run 的输入（对齐设计稿 §2 run() 入参）
  *
  * 去掉 backend-ts 的 onEvent / conversationUpdateProvider 回调——改注入 EventSink /
- * MessageRefresher / Hook。conversation 只读初始快照；KernelContext 持其浅拷贝作可变工作副本。
+ * MessageRefresher / 事件 Hook。conversation 只读初始快照；KernelContext 持其浅拷贝作可变工作副本。
  * ========================================================== */
 
 export interface RuntimeSession {
