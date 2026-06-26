@@ -18,5 +18,7 @@ export type {
   ToolBeforeInput,
   ToolBeforeOutput,
   ToolErrorInput,
+  ToolGateInput,
+  ToolGateOutput,
 } from "./types.js";
 export { EMPTY_HOOK_OUTPUT } from "./types.js";

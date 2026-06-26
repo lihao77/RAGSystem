@@ -11,9 +11,6 @@
 import type { ProviderConfig } from "@ragsystem/agent-llm";
 import { isAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
 import type {
-  ApprovalInteraction,
-  PermissionPolicy,
-  ToolApprovalDecision,
   ToolExecutionResult,
   ToolExecContext,
   ToolWaitRequest,
@@ -52,12 +49,8 @@ export interface ToolRoundExecutorOptions {
   profile: AgentProfile;
   provider: ProviderConfig;
   events: EventSink;
-  /** 事件 Hook 注册表（tool.before/after/error），可选。 */
+  /** 事件 Hook 注册表（tool.before/gate/after/error）。permission 经 tool.gate handler 实现（由 createRuntime 注册）。 */
   hooks?: HookRegistry;
-  /** 审批策略端口，可选；不注入即全部 allow。 */
-  permissionPolicy?: PermissionPolicy;
-  /** 审批交互端口，可选；policy 返回 ask 时阻塞等待。 */
-  approvalInteraction?: ApprovalInteraction;
   /** 后台任务等待回调（消费端注入；不提供则忽略 suggest_wait 信号）。 */
   waitForToolResult?: (request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>;
 }
@@ -193,97 +186,34 @@ async function prepareAndExecute(input: {
     }
   }
 
-  // 3. 审批编排（对最终入参判定；产出可能含已批准的外部路径，回填到执行 ctx）
-  const approvalResult = await runToolApproval({ prepared, toolContext, opts });
-  throwIfAborted(toolContext.signal, "Agent run aborted");
-  if (approvalResult.denied) {
-    return approvalResult.denied;
+  // 3. tool.gate：门禁最终入参（permission 等挂这里）。deny→跳过；approvedPaths→回填执行 ctx。
+  //    无 hooks 时仍把 prepare 收集的外部路径候选回填（工具据此自判路径准入）。
+  let gateApprovedPaths: string[] | undefined;
+  if (opts.hooks) {
+    const gateOut = await opts.hooks.emit("tool.gate", {
+      toolName: prepared.tool.name,
+      arguments: prepared.input,
+      ctx: toolContext,
+      riskLevel: prepared.permission?.riskLevel ?? prepared.tool.riskLevel ?? "low",
+      forceAsk: prepared.permission?.behavior === "ask",
+      approvalExempt: prepared.tool.approvalExempt ?? false,
+      approvedExternalPaths: prepared.approvedExternalPaths,
+    });
+    throwIfAborted(toolContext.signal, "Agent run aborted");
+    if (gateOut.decision === "deny") {
+      return buildToolExecutionErrorResult(prepared.tool.name, new Error(gateOut.reason ?? `工具 ${prepared.tool.name} 被门禁拒绝`));
+    }
+    gateApprovedPaths = gateOut.approvedPaths;
   }
-  const execContext = approvalResult.execContext;
+  const execContext = mergeApprovedPaths(toolContext, prepared.approvedExternalPaths, gateApprovedPaths);
 
   // 4. tool.call + hook.after（可改结果）/ hook.error
   return executeToolWithHookError({ prepared, execContext, ...(opts.hooks ? { hooks: opts.hooks } : {}) });
 }
 
 /**
- * 审批编排：prepare 产出的权限信号 → policy 判定 → ask 阻塞等待 → 放行/拒绝。
- * 返回 execContext（含审批通过的 approvedExternalPaths 回填）；denied 表示已被拒绝。
+ * 把审批通过/收集的外部路径合并回 ToolExecContext（去重；无变化则返回原 ctx）。
  */
-async function runToolApproval(input: {
-  prepared: PreparedTool;
-  toolContext: ToolExecContext;
-  opts: ToolRoundExecutorOptions;
-}): Promise<{ denied: ToolExecutionResult; execContext: ToolExecContext } | { denied: null; execContext: ToolExecContext }> {
-  const { prepared, toolContext, opts } = input;
-  const policy = opts.permissionPolicy;
-
-  // 无 policy：审批旁路。但仍把 prepare 收集的外部路径候选回填到执行 ctx——
-  // 工具据此判断路径准入（无审批端口时，外部路径工具应自行拒绝越界，路径声明供审计/日志）。
-  if (!policy) {
-    return { denied: null, execContext: mergeApprovedPaths(toolContext, prepared.approvedExternalPaths) };
-  }
-
-  // 从 prepare 结果取权限信号，喂给 policy
-  const permission = prepared.permission;
-  const riskLevel = permission?.riskLevel ?? prepared.tool.riskLevel ?? "low";
-  const forceAsk = permission?.behavior === "ask";
-  const approvalExempt = prepared.tool.approvalExempt;
-
-  let decision: ToolApprovalDecision;
-  try {
-    decision = policy.evaluate({
-      toolName: prepared.tool.name,
-      arguments: prepared.input,
-      riskLevel,
-      ...(forceAsk ? { forceAsk } : {}),
-      ...(approvalExempt !== undefined ? { approvalExempt } : {}),
-      ...(prepared.approvedExternalPaths.length ? { approvedExternalPaths: prepared.approvedExternalPaths } : {}),
-      ctx: toolContext,
-    });
-  } catch (error) {
-    if (isAbortError(error) || toolContext.signal?.aborted) { throw error; }
-    decision = { action: "deny", reason: `审批策略异常: ${error instanceof Error ? error.message : String(error)}` };
-  }
-
-  if (decision.action === "deny") {
-    return { denied: buildToolExecutionErrorResult(prepared.tool.name, new Error(decision.reason)), execContext: toolContext };
-  }
-  if (decision.action === "allow") {
-    // allow 时 decision 可能携带 approvedExternalPaths（auto-accept 路径模式）
-    return { denied: null, execContext: mergeApprovedPaths(toolContext, prepared.approvedExternalPaths, decision.approvedExternalPaths) };
-  }
-
-  // action === "ask"：阻塞等待用户审批
-  if (!opts.approvalInteraction) {
-    return { denied: buildToolExecutionErrorResult(prepared.tool.name, new Error(`工具 ${prepared.tool.name} 需要审批，但当前上下文不支持审批`)), execContext: toolContext };
-  }
-  throwIfAborted(toolContext.signal, "Agent run aborted");
-  let resolution;
-  try {
-    resolution = await opts.approvalInteraction.waitForApproval({
-      toolName: prepared.tool.name,
-      arguments: prepared.input,
-      reason: decision.reason,
-      riskLevel: decision.riskLevel,
-      description: decision.description,
-      ...(decision.approvedExternalPaths?.length ? { approvedExternalPaths: decision.approvedExternalPaths } : {}),
-      ...(decision.permissionMode ? { permissionMode: decision.permissionMode } : {}),
-      ...(decision.reasonCodes?.length ? { reasonCodes: decision.reasonCodes } : {}),
-      ...(decision.secondaryReasons?.length ? { secondaryReasons: decision.secondaryReasons } : {}),
-      ctx: toolContext,
-    });
-  } catch (error) {
-    if (isAbortError(error) || toolContext.signal?.aborted) { throw error; }
-    return { denied: buildToolExecutionErrorResult(prepared.tool.name, new Error(`审批流程异常: ${error instanceof Error ? error.message : String(error)}`)), execContext: toolContext };
-  }
-  if (!resolution.approved) {
-    return { denied: buildToolExecutionErrorResult(prepared.tool.name, new Error(`工具 ${prepared.tool.name} 执行已被拒绝：${resolution.reason}`)), execContext: toolContext };
-  }
-  // 用户审批通过——决策中的 approvedExternalPaths 回填到执行 ctx
-  return { denied: null, execContext: mergeApprovedPaths(toolContext, prepared.approvedExternalPaths, decision.approvedExternalPaths) };
-}
-
-/** 把审批通过/收集的外部路径合并回 ToolExecContext（去重；无变化则返回原 ctx）。 */
 function mergeApprovedPaths(ctx: ToolExecContext, ...sources: Array<string[] | undefined>): ToolExecContext {
   const existing = ctx.approvedExternalPaths ?? [];
   const collected: string[] = [];

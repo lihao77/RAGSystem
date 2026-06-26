@@ -5,6 +5,7 @@ import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } fro
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { LlmClient } from "@ragsystem/agent-llm";
+import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
@@ -52,6 +53,7 @@ export class AgentRunEngine {
     private readonly permissionPolicy: PermissionPolicyService,
     private readonly pendingInteractions: PendingInteractionService,
     private readonly logger: AgentExecutionLogger | null,
+    private readonly hooks: ((registry: HookRegistry) => void) | null,
   ) {}
 
   startRun(input: {
@@ -278,6 +280,7 @@ export class AgentRunEngine {
           dataRoot: this.dataRoot,
           permissionPolicy: this.permissionPolicy,
           pendingInteractions: this.pendingInteractions,
+          ...(this.hooks ? { hooks: this.hooks } : {}),
         },
         {
           sessionId: input.sessionId,

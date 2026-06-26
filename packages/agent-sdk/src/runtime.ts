@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import type { ChatMessage, LlmClient } from "@ragsystem/agent-llm";
+import { isAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
 import type { ApprovalInteraction, Context, KernelResult, MessageRefresher, PermissionPolicy, RuntimeSession, ToolExecContext, ToolWaitRequest, ToolWaitResult, RuntimeStore } from "./contracts.js";
 import type { KernelEvent } from "./contracts.js";
 import type { ToolRegistry } from "./tools/registry.js";
@@ -77,11 +78,12 @@ export interface CreateRuntimeOptions {
    */
   execContext?: Partial<ToolExecContext>;
   /**
-   * 消费端 hook 注册表（可选）。传入后内核用它驱动生命周期 hook，compaction 也会挂到它上面；
-   * 消费端可借此注册 tool.before（deny/改入参）、tool.after（改结果）、round.before（注入上下文）等 handler。
-   * 不传则内核内部新建 registry（仅 compaction 使用）。
+   * 消费端 hook 注册回调（可选）。每 run 新建 registry、挂好 compaction 后调用本回调，
+   * 消费端在传入的 registry 上注册 tool.before（deny/改入参）、tool.after（改结果）、
+   * round.before（注入上下文）等 handler。用回调而非 registry 实例——避免 compaction 跨 run 重复注册。
+   * 不传则每 run 仅 compaction。
    */
-  hooks?: HookRegistry;
+  hooks?: (registry: HookRegistry) => void;
 }
 
 export interface RunInput {
@@ -173,9 +175,9 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       const compression = new AgentContextCompressionService({ store, llm: options.llm, profile });
       const budgetTokens = compression.resolveContextBudget();
       const triggerRatio = compression.resolveContextSettings().compressionTriggerRatio;
-      // 消费端可传入自己的 registry（注册 tool.before/after、round.before 等 handler）；
-      // 不传则内部新建。compaction 始终挂到最终 registry 上。
-      const hooks = options.hooks ?? createHookRegistry();
+      // per-run registry：每 run 新建，挂 compaction 后调消费端回调注册其 handler。
+      // 用回调（而非长驻 registry 实例）避免 compaction 跨 run 重复注册累积。
+      const hooks = createHookRegistry();
       hooks.on("round.before", createCompactionHook({
         recompact: async () => {
           const result = await compression.compressIfNeeded({ sessionId, runId, taskId: null, requestId: null, threadKey, childAgentId: parentCallId });
@@ -184,6 +186,12 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
         budgetTokens,
         triggerRatio,
       }));
+      // permission：作为 tool.gate handler 注册（不可移除的安全网）。policy.evaluate → deny/allow/ask；
+      // ask 经 approvalInteraction 阻塞 resolve。无 permissionPolicy 则不注册（放行，由工具自判路径准入）。
+      if (options.permissionPolicy) {
+        registerPermissionGateHandler(hooks, options.permissionPolicy, options.approvalInteraction ?? null);
+      }
+      options.hooks?.(hooks);
 
      const session: RuntimeSession = {
        profile,
@@ -223,8 +231,6 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
         dataRoot,
         events: dispatcher,
         hooks,
-        ...(options.permissionPolicy ? { permissionPolicy: options.permissionPolicy } : {}),
-        ...(options.approvalInteraction ? { approvalInteraction: options.approvalInteraction } : {}),
         ...(options.waitForToolResult ? { waitForToolResult: options.waitForToolResult } : {}),
       });
       // 上下文用量遥测：system（含稳定 system context）与 history 分桶估算 + 预算（零兜底，纯读 profile）。
@@ -279,6 +285,68 @@ function buildDefaultSources(historyPort: ConversationHistoryPort, metadataPort:
   if (dataRoot) { memOpts.dataRoot = dataRoot; }
   const memory = memoryEnabled ? new MemoryIndexContextSource(metadataPort, profile, memOpts) : new EmptyMemoryContextSource();
   return [recent, memory];
+}
+
+/**
+ * permission tool.gate handler：把 permissionPolicy/approvalInteraction 编排成一个 tool.gate handler。
+ * 端口原 runToolApproval 的逻辑（迁出 executor）：policy.evaluate → deny/allow/ask；ask 经 approval 阻塞 resolve。
+ * 作为不可移除的安全网注册（deny 在 deny>allow 聚合下永远压过消费方 rogue allow）。
+ */
+function registerPermissionGateHandler(
+  hooks: HookRegistry,
+  policy: PermissionPolicy,
+  approval: ApprovalInteraction | null,
+): void {
+  hooks.on("tool.gate", async (input) => {
+    let decision;
+    try {
+      decision = policy.evaluate({
+        toolName: input.toolName,
+        arguments: input.arguments,
+        riskLevel: input.riskLevel,
+        ...(input.forceAsk ? { forceAsk: input.forceAsk } : {}),
+        ...(input.approvalExempt ? { approvalExempt: input.approvalExempt } : {}),
+        ...(input.approvedExternalPaths.length ? { approvedExternalPaths: input.approvedExternalPaths } : {}),
+        ctx: input.ctx,
+      });
+    } catch (error) {
+      if (isAbortError(error) || input.ctx.signal?.aborted) { throw error; }
+      return { decision: "deny" as const, reason: `审批策略异常: ${error instanceof Error ? error.message : String(error)}` };
+    }
+    if (decision.action === "deny") {
+      return { decision: "deny", reason: decision.reason };
+    }
+    if (decision.action === "allow") {
+      return { decision: "allow", ...(decision.approvedExternalPaths?.length ? { approvedPaths: decision.approvedExternalPaths } : {}) };
+    }
+    // ask：阻塞等用户审批
+    if (!approval) {
+      return { decision: "deny", reason: `工具 ${input.toolName} 需要审批，但当前上下文不支持审批` };
+    }
+    throwIfAborted(input.ctx.signal, "Agent run aborted");
+    let resolution;
+    try {
+      resolution = await approval.waitForApproval({
+        toolName: input.toolName,
+        arguments: input.arguments,
+        reason: decision.reason,
+        riskLevel: decision.riskLevel,
+        description: decision.description,
+        ...(decision.approvedExternalPaths?.length ? { approvedExternalPaths: decision.approvedExternalPaths } : {}),
+        ...(decision.permissionMode ? { permissionMode: decision.permissionMode } : {}),
+        ...(decision.reasonCodes?.length ? { reasonCodes: decision.reasonCodes } : {}),
+        ...(decision.secondaryReasons?.length ? { secondaryReasons: decision.secondaryReasons } : {}),
+        ctx: input.ctx,
+      });
+    } catch (error) {
+      if (isAbortError(error) || input.ctx.signal?.aborted) { throw error; }
+      return { decision: "deny", reason: `审批流程异常: ${error instanceof Error ? error.message : String(error)}` };
+    }
+    if (!resolution.approved) {
+      return { decision: "deny", reason: `工具 ${input.toolName} 执行已被拒绝：${resolution.reason}` };
+    }
+    return { decision: "allow", ...(decision.approvedExternalPaths?.length ? { approvedPaths: decision.approvedExternalPaths } : {}) };
+  });
 }
 
 function makeNoopSessionMetadata(): SessionMetadataPort {

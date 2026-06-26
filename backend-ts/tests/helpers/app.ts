@@ -3,6 +3,7 @@ import type { AppEnv } from "../../src/config/env.js";
 import { createRuntimeContainer } from "../../src/services/runtime/runtime-container.js";
 import type { AgentExecutionLogger } from "../../src/services/agent/execution/index.js";
 import type { LlmClient } from "@ragsystem/agent-llm";
+import type { HookRegistry } from "@ragsystem/agent-sdk";
 
 export const testEnv: AppEnv = {
   host: "127.0.0.1",
@@ -24,6 +25,7 @@ export async function buildTestHarness(
     llmClient?: LlmClient;
     startOutboxDispatcher?: boolean;
     logger?: AgentExecutionLogger;
+    hooks?: (registry: HookRegistry) => void;
   } = {},
 ) {
   const container = createRuntimeContainer({
@@ -37,6 +39,7 @@ export async function buildTestHarness(
     agentConfigRoot: "",
     startOutboxDispatcher: options.startOutboxDispatcher ?? false,
     logger: options.logger,
+    ...(options.hooks ? { hooks: options.hooks } : {}),
   });
   const app = await buildApp({ env: testEnv, container });
   await app.ready();

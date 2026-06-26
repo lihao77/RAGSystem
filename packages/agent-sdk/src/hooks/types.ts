@@ -26,6 +26,7 @@ export type HookEvent =
   | "round.after"
   // tool 级
   | "tool.before"
+  | "tool.gate"
   | "tool.after"
   | "tool.error";
 
@@ -60,6 +61,22 @@ export interface ToolBeforeInput {
   ctx: ToolExecContext;
 }
 
+/** 工具门禁（tool.before 改完入参 + re-prepare 之后、执行之前）。permission 挂这里。 */
+export interface ToolGateInput {
+  toolName: string;
+  /** 最终入参（已应用 tool.before 的 modifiedInput 并 re-prepare）。 */
+  arguments: Record<string, unknown>;
+  ctx: ToolExecContext;
+  /** prepare 派生信号（Tool+ctx 派生，permission 判定用）。 */
+  riskLevel: string;
+  /** 工具自声明强制 ask（来自 checkPermissions behavior==="ask"）。 */
+  forceAsk: boolean;
+  /** 工具声明审批豁免。 */
+  approvalExempt: boolean;
+  /** prepare 收集的外部路径候选（越界访问需审批）。 */
+  approvedExternalPaths: string[];
+}
+
 /** 单次工具执行后。 */
 export interface ToolAfterInput {
   toolName: string;
@@ -83,6 +100,7 @@ export interface HookInputMap {
   "round.before": RoundBeforeInput;
   "round.after": RoundAfterInput;
   "tool.before": ToolBeforeInput;
+  "tool.gate": ToolGateInput;
   "tool.after": ToolAfterInput;
   "tool.error": ToolErrorInput;
 }
@@ -110,6 +128,12 @@ export interface ToolBeforeOutput extends BaseHookOutput, DecisionFields {
   modifiedInput?: Record<string, unknown>;
 }
 
+/** tool.gate 输出：permission 门禁最终入参。deny>allow 聚合；ask 由 handler 内部 resolve 成 allow/deny。 */
+export interface ToolGateOutput extends BaseHookOutput, DecisionFields {
+  /** 决策放行的外部路径（合并进执行 ctx）；多 handler 取并集。 */
+  approvedPaths?: string[];
+}
+
 /** tool.after 输出：可改写工具结果。 */
 export interface ToolAfterOutput extends BaseHookOutput {
   /** 替换工具执行结果（喂给模型的 observation）；多 handler 末者生效。 */
@@ -129,6 +153,7 @@ export interface HookOutputMap {
   "round.before": RoundBeforeOutput;
   "round.after": BaseHookOutput;
   "tool.before": ToolBeforeOutput;
+  "tool.gate": ToolGateOutput;
   "tool.after": ToolAfterOutput;
   "tool.error": BaseHookOutput;
 }

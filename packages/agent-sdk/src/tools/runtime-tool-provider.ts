@@ -2,17 +2,16 @@
  * ToolProvider 端口默认实现——把内核转交的 calls 喂给 executeToolCallRound。
  *
  * 接收 ToolRegistry（SDK Tool 实例集合）而非 ToolExecutor（已退役）。
- * 透传 hooks / 审批端口 / waitForToolResult，实际编排由 executeToolCallRound 负责。
+ * 透传 hooks / waitForToolResult，实际编排由 executeToolCallRound 负责。
+ * permission 经 tool.gate handler 实现（由 createRuntime 在 hooks 上注册），不再经此透传。
  */
 import type {
-  ApprovalInteraction,
   EventSink,
   KernelContext,
   KernelObservation,
   KernelToolCall,
   ToolProvider,
   ToolExecContext,
-  PermissionPolicy,
   ToolWaitRequest,
   ToolWaitResult,
 } from "../contracts.js";
@@ -29,12 +28,8 @@ export interface RuntimeToolProviderOptions {
   dataRoot: string;
   /** 实时输出导线：tool_call / tool_result 经它透传到 Dispatcher。 */
   events: EventSink;
-  /** 事件 Hook 注册表（tool.before/after/error）。 */
+  /** 事件 Hook 注册表（tool.before/gate/after/error）。 */
   hooks?: HookRegistry;
-  /** 审批策略端口（可选；不注入即全部 allow）。 */
-  permissionPolicy?: PermissionPolicy;
-  /** 审批交互端口（可选；policy 返回 ask 时阻塞等待）。 */
-  approvalInteraction?: ApprovalInteraction;
   /** 后台任务等待回调（消费端注入）。 */
   waitForToolResult?: (request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>;
 }
@@ -45,8 +40,6 @@ export class RuntimeToolProvider implements ToolProvider {
   private readonly dataRoot: string;
   private readonly events: EventSink;
   private readonly hooks: HookRegistry | undefined;
-  private readonly permissionPolicy: PermissionPolicy | undefined;
-  private readonly approvalInteraction: ApprovalInteraction | undefined;
   private readonly waitForToolResultFn: ((request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>) | undefined;
 
   constructor(options: RuntimeToolProviderOptions) {
@@ -55,8 +48,6 @@ export class RuntimeToolProvider implements ToolProvider {
     this.dataRoot = options.dataRoot;
     this.events = options.events;
     this.hooks = options.hooks;
-    this.permissionPolicy = options.permissionPolicy;
-    this.approvalInteraction = options.approvalInteraction;
     this.waitForToolResultFn = options.waitForToolResult;
   }
 
@@ -72,8 +63,6 @@ export class RuntimeToolProvider implements ToolProvider {
       provider: session.provider,
       events: this.events,
       ...(this.hooks ? { hooks: this.hooks } : {}),
-      ...(this.permissionPolicy ? { permissionPolicy: this.permissionPolicy } : {}),
-      ...(this.approvalInteraction ? { approvalInteraction: this.approvalInteraction } : {}),
       ...(this.waitForToolResultFn ? { waitForToolResult: this.waitForToolResultFn } : {}),
     });
   }

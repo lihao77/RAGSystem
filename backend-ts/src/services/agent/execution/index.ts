@@ -13,6 +13,7 @@ import type {
 } from "../../../contracts/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { LlmClient } from "@ragsystem/agent-llm";
+import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
@@ -78,6 +79,8 @@ export interface AgentExecutionServiceParams {
  permissionPolicy: PermissionPolicyService;
  /** 审批交互服务（SDK 审批编排阻塞等待用）。 */
  pendingInteractions: PendingInteractionService;
+ /** 消费端 hook 注册回调（可选）；透传 SDK，让 backend 注册 tool.before/after、round.before 等 handler。 */
+ hooks?: (registry: HookRegistry) => void;
  logger?: AgentExecutionLogger | null | undefined;
 }
 
@@ -128,6 +131,7 @@ export function createAgentExecutionService(
     params.permissionPolicy,
     params.pendingInteractions,
     params.logger ?? null,
+    params.hooks ?? null,
   );
   const launchers = createLaunchers({
     sessions: params.sessions,

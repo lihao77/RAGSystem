@@ -12,6 +12,7 @@ import type { AgentPromptContext, Tool, ToolExecContext, ToolExecutionResult, To
 import { translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { LlmClient } from "@ragsystem/agent-llm";
+import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { MessageInfo } from "../../../contracts/session.js";
@@ -49,6 +50,8 @@ export interface SdkRuntimeAdapterDeps {
   permissionPolicy: PermissionPolicyService;
   /** 审批交互服务（SDK 审批编排阻塞等待端口用）。 */
   pendingInteractions: PendingInteractionService;
+  /** 消费端 hook 注册回调（可选）；透传给 createRuntime，让 backend 注册 tool.before/after、round.before 等 handler。 */
+  hooks?: (registry: HookRegistry) => void;
 }
 
 export interface SdkExecuteRunInput {
@@ -172,6 +175,7 @@ export async function executeRunWithSdk(
     }),
     promptContext,
     execContext: baseExecCtx,
+    ...(deps.hooks ? { hooks: deps.hooks } : {}),
     ...(waitForToolResult ? { waitForToolResult } : {}),
   };
 

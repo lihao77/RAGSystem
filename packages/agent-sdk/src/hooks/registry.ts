@@ -17,6 +17,7 @@ interface AggregatedOutput extends BaseHookOutput {
   modifiedInput?: Record<string, unknown>;
   modifiedResult?: unknown;
   additionalContext?: string;
+  approvedPaths?: string[];
 }
 
 const DECISION_RANK: Record<HookDecision, number> = { allow: 1, ask: 2, deny: 3 };
@@ -65,14 +66,17 @@ export function createHookRegistry(): HookRegistry {
             hasMetadata = true;
             metadata = { ...(metadata ?? {}), ...output.metadata };
           }
-          // decision：deny>ask>allow，取最高优先级（及其 reason）
+          // decision：deny>ask>allow，取最高优先级（及其 reason）；无 baseline（undefined=rank 0，allow 也能被显式置位）
           const candidate = output as Partial<AggregatedOutput>;
-          if (candidate.decision && DECISION_RANK[candidate.decision] > DECISION_RANK[aggregated.decision ?? "allow"]) {
-            aggregated.decision = candidate.decision;
-            if (candidate.reason !== undefined) {
-              aggregated.reason = candidate.reason;
-            } else if (aggregated.reason !== undefined) {
-              delete aggregated.reason;
+          if (candidate.decision) {
+            const currentRank = aggregated.decision === undefined ? 0 : DECISION_RANK[aggregated.decision];
+            if (DECISION_RANK[candidate.decision] > currentRank) {
+              aggregated.decision = candidate.decision;
+              if (candidate.reason !== undefined) {
+                aggregated.reason = candidate.reason;
+              } else if (aggregated.reason !== undefined) {
+                delete aggregated.reason;
+              }
             }
           }
           // 注入字段：末个非 undefined 生效
@@ -84,6 +88,17 @@ export function createHookRegistry(): HookRegistry {
           }
           if (candidate.additionalContext !== undefined) {
             aggregated.additionalContext = candidate.additionalContext;
+          }
+          // approvedPaths：取并集去重（tool.gate 多 handler 的放行路径合并）
+          if (candidate.approvedPaths && candidate.approvedPaths.length > 0) {
+            const existing = aggregated.approvedPaths ?? [];
+            const merged = [...existing];
+            for (const path of candidate.approvedPaths) {
+              if (!merged.includes(path)) {
+                merged.push(path);
+              }
+            }
+            aggregated.approvedPaths = merged;
           }
         } catch (error) {
           if (!hookErrors) {
@@ -105,6 +120,7 @@ export function createHookRegistry(): HookRegistry {
         aggregated.modifiedInput !== undefined ||
         aggregated.modifiedResult !== undefined ||
         aggregated.additionalContext !== undefined ||
+        aggregated.approvedPaths !== undefined ||
         aggregated.metadata !== undefined;
       return (hasAny ? aggregated : EMPTY_HOOK_OUTPUT) as HookOutputMap[E];
     },

@@ -27,6 +27,7 @@ import { LocalDocumentToolService } from "../../tools/DocumentTools/DocumentExec
 import { LocalSearchToolService } from "../../tools/LocalSearchTools/SearchExecution.js";
 import { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
 import { OpenAiCompatibleClient, type LlmClient } from "@ragsystem/agent-llm";
+import type { HookRegistry } from "@ragsystem/agent-sdk";
 import { MemoryStore } from "../stores/memory-store.js";
 import { MemoryToolService } from "../../tools/MemoryTools/MemoryExecution.js";
 import { McpService } from "../integrations/mcp-service.js";
@@ -90,6 +91,8 @@ export interface RuntimeContainerOptions {
   agentConfigRoot?: string | undefined;
   startOutboxDispatcher?: boolean | undefined;
   outboxDispatcherIntervalMs?: number | undefined;
+  /** 消费端 hook 注册回调（可选）；透传 SDK，让 backend 注册 tool.before/after、round.before 等 handler。 */
+  hooks?: ((registry: HookRegistry) => void) | undefined;
 }
 
 export function createRuntimeContainer(options: RuntimeContainerOptions): RuntimeContainer {
@@ -215,6 +218,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     permissionPolicy,
     pendingInteractions,
     logger: options.logger,
+    ...(options.hooks ? { hooks: options.hooks } : {}),
   });
   agentDelegation.setRunEngine(() => agentExecution.runEngine);
   agentDelegation.setEventPublisher(() => agentExecution.eventPublisher);
