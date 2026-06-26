@@ -280,21 +280,18 @@
 .chat-stage-enter-active,
 .chat-stage-leave-active {
   transition:
-    opacity 220ms var(--ease-out-expo),
-    transform 260ms var(--ease-out-expo),
-    filter 260ms var(--ease-out-expo);
+    opacity var(--duration-base) var(--ease-default),
+    transform var(--duration-base) var(--ease-default);
 }
 
 .chat-stage-enter-from {
   opacity: 0;
-  transform: translateY(14px) scale(0.994);
-  filter: blur(1.5px);
+  transform: translateY(8px);
 }
 
 .chat-stage-leave-to {
   opacity: 0;
-  transform: translateY(-12px) scale(0.992);
-  filter: blur(2px);
+  transform: translateY(-6px);
 }
 
 .chat-main.is-switching-to-new-chat .chat-stage-enter-active,
@@ -496,7 +493,6 @@
   opacity: 0;
   /* Apple-style smooth entrance */
   animation: messageSlideIn 0.5s var(--ease-default) forwards;
-  will-change: opacity, transform;
   width: 100%;
 }
 

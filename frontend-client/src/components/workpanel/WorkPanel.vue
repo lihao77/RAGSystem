@@ -119,7 +119,7 @@ function isErrorStatusItem(item) {
 
 .wp-content-enter-active,
 .wp-content-leave-active {
-  transition: opacity 180ms ease, transform 180ms ease;
+  transition: opacity var(--duration-base) ease, transform var(--duration-base) ease;
 }
 
 .wp-content-enter-from {
@@ -134,7 +134,7 @@ function isErrorStatusItem(item) {
 
 .wp-overlay-enter-active,
 .wp-overlay-leave-active {
-  transition: opacity 180ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: opacity var(--duration-base) ease, transform var(--duration-base) cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .wp-overlay-enter-from,

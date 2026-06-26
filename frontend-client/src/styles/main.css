@@ -180,9 +180,16 @@
     --ease-out-expo: cubic-bezier(0.22, 1, 0.36, 1);
     --ease-material: cubic-bezier(0.4, 0, 0.2, 1);
 
-    /* Transitions */
-    --transition-fast: 0.2s var(--ease-default);
-    --transition-normal: 0.3s var(--ease-default);
+    /* Duration scale — 全前端动画时长统一收敛到这几档 */
+    --duration-instant: 80ms;
+    --duration-fast: 160ms;
+    --duration-base: 200ms;
+    --duration-slow: 280ms;
+    --duration-stage: 360ms;
+
+    /* Transitions（基于 duration 档位） */
+    --transition-fast: var(--duration-fast) var(--ease-default);
+    --transition-normal: var(--duration-base) var(--ease-default);
 
     /* ── Breakpoints (CSS 不支持变量用于 @media，此处仅做文档) ──
      *  xs   480px   小屏手机（单列堆叠）

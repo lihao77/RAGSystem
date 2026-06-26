@@ -298,7 +298,7 @@ function compactNumber(value) {
 .wpr-label-leave-active,
 .wpr-elapsed-enter-active,
 .wpr-elapsed-leave-active {
-  transition: opacity 140ms ease;
+  transition: opacity var(--duration-fast) ease;
 }
 
 .wpr-label-enter-from,

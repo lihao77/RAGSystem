@@ -538,7 +538,7 @@ button.wpe-chip:hover {
 
 .wpe-list-state-enter-active,
 .wpe-list-state-leave-active {
-  transition: opacity 180ms ease;
+  transition: opacity var(--duration-base) ease;
 }
 
 .wpe-list-state-enter-from {
@@ -551,12 +551,12 @@ button.wpe-chip:hover {
 
 .wpe-tree-swap-enter-active,
 .wpe-tree-swap-leave-active {
-  transition: opacity 180ms ease, transform 180ms ease;
+  transition: opacity var(--duration-base) ease, transform var(--duration-base) ease;
 }
 
 .wpe-state-enter-active,
 .wpe-state-leave-active {
-  transition: opacity 160ms ease;
+  transition: opacity var(--duration-fast) ease;
 }
 
 .wpe-state-enter-from,
@@ -575,11 +575,11 @@ button.wpe-chip:hover {
 }
 
 .wpe-node-enter-active {
-  transition: opacity 260ms ease, transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity var(--duration-slow) ease, transform var(--duration-slow) cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .wpe-node-leave-active {
-  transition: opacity 150ms ease;
+  transition: opacity var(--duration-fast) ease;
 }
 
 .wpe-node-enter-from {
@@ -592,14 +592,14 @@ button.wpe-chip:hover {
 }
 
 .wpe-node-move {
-  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform var(--duration-slow) cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .wpe-inspector-slot {
   flex: 0 0 0;
   min-height: 0;
   overflow: hidden;
-  transition: flex-basis 190ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: flex-basis var(--duration-base) cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .wpe-inspector-slot.is-open {

@@ -748,7 +748,7 @@ function dedupeMeta(items) {
   height: 100%;
   border-radius: inherit;
   background: var(--color-brand-accent);
-  transition: width 420ms ease;
+  transition: width var(--duration-stage) ease;
 }
 
 @media (prefers-reduced-motion: reduce) {
