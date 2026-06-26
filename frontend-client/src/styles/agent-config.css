@@ -52,7 +52,7 @@
   align-items: center;
   justify-content: center;
   z-index: var(--z-sidebar);
-  transition: all 0.2s var(--ease-default);
+  transition: all var(--transition-fast);
   box-shadow: var(--shadow-md), inset 0 1px 0 var(--color-soft-inset);
 }
 
@@ -147,7 +147,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: all 0.2s var(--ease-default);
+  transition: all var(--transition-fast);
   box-shadow: var(--shadow-sm);
 }
 
@@ -231,7 +231,7 @@
   color: var(--color-text-primary);
   font-size: var(--font-size-base);
   font-family: var(--font-sans);
-  transition: all 0.2s var(--ease-default);
+  transition: all var(--transition-fast);
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
@@ -331,7 +331,7 @@ input[type='number'].form-control {
   border: 1px solid var(--color-border);
   display: inline-flex;
   align-items: center;
-  transition: all 0.2s var(--ease-default);
+  transition: all var(--transition-fast);
 }
 
 .switch-control__thumb {
@@ -339,7 +339,7 @@ input[type='number'].form-control {
   height: 18px;
   border-radius: var(--radius-full);
   background: var(--color-text-muted);
-  transition: transform 0.2s var(--ease-default), background 0.2s var(--ease-default);
+  transition: transform var(--transition-fast), background var(--transition-fast);
 }
 
 .switch-control input:checked + .switch-control__track {
@@ -377,7 +377,7 @@ input[type='number'].form-control {
   border-radius: var(--radius-md);
   background: var(--color-hover-overlay);
   cursor: pointer;
-  transition: all 0.2s var(--ease-default);
+  transition: all var(--transition-fast);
   user-select: none;
 }
 
@@ -418,7 +418,7 @@ input[type='number'].form-control {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s var(--ease-default);
+  transition: all var(--transition-fast);
   color: var(--color-brand-accent-light);
   flex-shrink: 0;
 }
@@ -522,7 +522,7 @@ input[type='number'].form-control {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
   background: var(--color-bg-secondary);
-  transition: all 0.2s var(--ease-default);
+  transition: all var(--transition-fast);
   cursor: pointer;
 }
 
@@ -543,7 +543,7 @@ input[type='number'].form-control {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s var(--ease-default);
+  transition: all var(--transition-fast);
   cursor: pointer;
   position: relative;
 }
@@ -555,7 +555,7 @@ input[type='number'].form-control {
   border-radius: var(--radius-full);
   background: var(--color-brand-accent-light);
   transform: scale(0);
-  transition: transform 0.2s var(--ease-default);
+  transition: transform var(--transition-fast);
 }
 
 .memory-scope-card__permission input[type='checkbox']:checked {
@@ -762,7 +762,7 @@ input[type='number'].form-control {
   justify-content: center;
   color: var(--color-brand-accent-light);
   flex-shrink: 0;
-  transition: all 0.2s var(--ease-default);
+  transition: all var(--transition-fast);
 }
 
 .tier-toggle__indicator-icon {
@@ -888,7 +888,7 @@ input[type='number'].form-control {
   border-radius: var(--radius-full);
   background: currentColor;
   flex-shrink: 0;
-  transition: transform 0.2s var(--ease-default);
+  transition: transform var(--transition-fast);
 }
 
 .section-nav--desktop a.active .section-nav__dot {
@@ -1083,7 +1083,7 @@ input[type='number'].form-control {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s var(--ease-default);
+  transition: all var(--transition-fast);
   flex-shrink: 0;
 }
 

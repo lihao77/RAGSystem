@@ -877,7 +877,7 @@ const formatResultContent = (value) => {
 }
 
 .status-dot-fade-enter-active {
-  transition: opacity 0.3s ease, transform 0.3s ease, width 0.3s ease, margin-right 0.3s ease;
+  transition: opacity var(--duration-base), transform var(--duration-base), width var(--duration-base), margin-right var(--duration-base);
 }
 
 .status-dot-fade-leave-active {
@@ -1147,7 +1147,7 @@ const formatResultContent = (value) => {
   border-radius: 50%;
   flex-shrink: 0;
   background: var(--color-text-muted);
-  transition: background-color 0.3s ease;
+  transition: background-color var(--duration-base);
 }
 
 .substep-dot.success {
@@ -1433,7 +1433,7 @@ const formatResultContent = (value) => {
   display: grid;
   grid-template-rows: 0fr;
   transition: grid-template-rows 0.35s cubic-bezier(0.4, 0, 0.2, 1),
-              opacity 0.25s ease;
+              opacity var(--duration-base);
   opacity: 0;
 }
 

@@ -32,6 +32,6 @@ defineProps({
 <style scoped>
 .icon-trash {
   flex-shrink: 0;
-  transition: all 0.3s ease;
+  transition: all var(--transition-normal);
 }
 </style>

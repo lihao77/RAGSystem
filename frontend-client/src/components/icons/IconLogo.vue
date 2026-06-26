@@ -81,7 +81,7 @@ const gradientId = computed(() => `logo-gradient-${Math.random().toString(36).su
 .icon-logo {
   flex-shrink: 0;
   filter: drop-shadow(0 2px 8px rgba(99, 102, 241, 0.3));
-  transition: all 0.3s ease;
+  transition: all var(--transition-normal);
 }
 
 .icon-logo.with-animation {

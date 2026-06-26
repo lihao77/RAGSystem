@@ -30,6 +30,6 @@ defineProps({
 <style scoped>
 .icon-new-conversation {
   flex-shrink: 0;
-  transition: all 0.3s ease;
+  transition: all var(--transition-normal);
 }
 </style>

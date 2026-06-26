@@ -37,6 +37,6 @@ defineProps({
 <style scoped>
 .icon-menu {
   flex-shrink: 0;
-  transition: all 0.3s ease;
+  transition: all var(--transition-normal);
 }
 </style>

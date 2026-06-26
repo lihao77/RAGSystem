@@ -323,7 +323,7 @@ const handleHistoryItemBeforeLeave = (el) => {
 
 const handleHistoryItemLeave = (el, done) => {
   void el.offsetHeight;
-  el.style.transition = 'height 0.24s cubic-bezier(0.22, 1, 0.36, 1), margin 0.24s cubic-bezier(0.22, 1, 0.36, 1), padding 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.18s ease';
+  el.style.transition = 'height 200ms cubic-bezier(0.22, 1, 0.36, 1), margin 200ms cubic-bezier(0.22, 1, 0.36, 1), padding 200ms cubic-bezier(0.22, 1, 0.36, 1), opacity 160ms ease';
   el.style.height = '0';
   el.style.marginTop = '0';
   el.style.marginBottom = '0';
@@ -505,7 +505,7 @@ onUnmounted(() => {
 
 .history-list-move,
 .history-list-enter-active {
-  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.22s ease;
+  transition: transform var(--duration-base) cubic-bezier(0.22, 1, 0.36, 1), opacity var(--duration-base) ease;
 }
 
 .history-list-enter-from {
@@ -518,8 +518,8 @@ onUnmounted(() => {
 }
 
 .chat-layout {
-  --sidebar-btn-text-transition-in: opacity 0.25s ease 0.05s;
-  --sidebar-btn-text-transition-out: opacity 0.15s ease;
+  --sidebar-btn-text-transition-in: opacity var(--duration-base) ease 0.05s;
+  --sidebar-btn-text-transition-out: opacity var(--duration-fast) ease;
   display: flex;
   height: 100vh;
   width: 100%;
@@ -536,7 +536,7 @@ onUnmounted(() => {
   background: rgba(0, 0, 0, 0.36);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.25s ease;
+  transition: opacity var(--duration-base) ease;
   z-index: calc(var(--z-sidebar) - 1);
 }
 
@@ -554,7 +554,7 @@ onUnmounted(() => {
   flex-direction: column;
   flex-shrink: 0;
   z-index: var(--z-sidebar);
-  transition: width 0.3s var(--ease-default), transform 0.3s ease;
+  transition: width var(--transition-normal), transform var(--transition-normal);
   --icon-center-line: 25px;
 }
 
@@ -568,7 +568,7 @@ onUnmounted(() => {
   align-items: center;
   padding: var(--spacing-md) calc(var(--icon-center-line) - 16px);
   padding-bottom: var(--spacing-md);
-  transition: all 0.3s var(--ease-default);
+  transition: all var(--transition-normal);
 }
 
 .sidebar.collapsed .sidebar-top-bar {
@@ -584,13 +584,13 @@ onUnmounted(() => {
   align-items: center;
   justify-content: left;
   flex: 1;
-  transition: all 0.3s var(--ease-default);
+  transition: all var(--transition-normal);
 }
 
 .sidebar-logo-icon {
   flex-shrink: 0;
   filter: drop-shadow(0 4px 16px rgba(var(--color-brand-accent-rgb), 0.4));
-  transition: opacity 0.3s var(--ease-default), filter 0.3s var(--ease-default);
+  transition: opacity var(--transition-normal), filter var(--transition-normal);
 }
 
 .sidebar-logo-wrapper:hover .sidebar-logo-icon {
@@ -605,7 +605,7 @@ onUnmounted(() => {
   opacity: 0;
   color: var(--color-text-secondary);
   pointer-events: none;
-  transition: opacity 0.3s var(--ease-default);
+  transition: opacity var(--transition-normal);
 }
 
 .sidebar:not(.collapsed) .sidebar-logo-icon {
@@ -645,7 +645,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.3s var(--ease-default);
+  transition: all var(--transition-normal);
   flex-shrink: 0;
   opacity: 1;
   max-width: 32px;
@@ -688,7 +688,7 @@ onUnmounted(() => {
   justify-content: left;
   gap: var(--spacing-sm);
   cursor: pointer;
-  transition: all 0.3s var(--ease-default);
+  transition: all var(--transition-normal);
   white-space: nowrap;
   overflow: hidden;
   width: 100%;
@@ -698,7 +698,7 @@ onUnmounted(() => {
 .sidebar-btn .icon {
   flex-shrink: 0;
   color: var(--color-text-primary);
-  transition: all 0.3s var(--ease-default);
+  transition: all var(--transition-normal);
 }
 
 .sidebar-btn.active {
@@ -806,7 +806,7 @@ onUnmounted(() => {
   overflow-y: auto;
   opacity: 1;
   max-height: 100%;
-  transition: opacity 0.3s var(--ease-default), max-height 0.3s var(--ease-default);
+  transition: opacity var(--transition-normal), max-height var(--transition-normal);
 }
 
 .sidebar.collapsed .history-list {
@@ -851,7 +851,7 @@ onUnmounted(() => {
   align-items: center;
   gap: var(--spacing-sm);
   color: var(--color-text-secondary);
-  transition: all 0.3s var(--ease-default);
+  transition: all var(--transition-normal);
   border: 1px solid transparent;
   background: transparent;
   position: relative;
@@ -887,7 +887,7 @@ onUnmounted(() => {
   flex-shrink: 0;
   opacity: 0.7;
   color: var(--color-text-secondary);
-  transition: all 0.2s var(--ease-default);
+  transition: all var(--transition-fast);
 }
 
 .history-item:hover .history-icon {
@@ -968,7 +968,7 @@ onUnmounted(() => {
   color: var(--color-text-muted);
   cursor: pointer;
   flex-shrink: 0;
-  transition: all 0.3s var(--ease-default);
+  transition: all var(--transition-normal);
 }
 
 .history-delete-btn:hover {

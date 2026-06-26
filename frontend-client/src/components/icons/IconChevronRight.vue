@@ -36,6 +36,6 @@ defineProps({
 
 <style scoped>
 .icon-chevron {
-  transition: all 0.3s ease;
+  transition: all var(--transition-normal);
 }
 </style>
