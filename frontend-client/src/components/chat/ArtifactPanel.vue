@@ -1,6 +1,16 @@
 <template>
-  <section v-if="artifacts.length" class="artifact-panel">
-    <div class="artifact-panel-header">
+  <section class="artifact-panel">
+    <Transition
+      :css="false"
+      @before-enter="onBeforeEnter"
+      @enter="onEnter"
+      @after-enter="onAfterEnter"
+      @before-leave="onBeforeLeave"
+      @leave="onLeave"
+      @after-leave="onAfterLeave"
+    >
+      <div v-if="artifacts.length" class="artifact-reveal-inner">
+        <div class="artifact-panel-header">
       <div class="artifact-panel-title">
         <span class="artifact-panel-icon" aria-hidden="true">
           <svg viewBox="0 0 20 20">
@@ -13,9 +23,8 @@
         <span>产物</span>
       </div>
       <span class="artifact-count">{{ artifacts.length }}</span>
-    </div>
-
-    <div class="artifact-list">
+        </div>
+        <div class="artifact-list">
       <button
         v-for="artifact in artifacts"
         :key="artifact.artifactId"
@@ -37,6 +46,8 @@
         </span>
       </button>
     </div>
+      </div>
+    </Transition>
   </section>
 </template>
 
@@ -69,13 +80,68 @@ const artifacts = computed(() => {
 
   return items;
 });
+
+const ARTIFACT_REVEAL_MS = 300;
+const ARTIFACT_EASING = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+
+function prefersReducedMotion() {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+}
+
+function bindEnd(el, done) {
+  const finish = (e) => {
+    if (e && (e.target !== el || e.propertyName !== 'height')) return;
+    el.removeEventListener('transitionend', finish);
+    done();
+  };
+  el.addEventListener('transitionend', finish);
+  return finish;
+}
+
+// 高度测量驱动的展开/收起：框架与内容作为一个整体一起动，避免分两批出现。
+function onBeforeEnter(el) {
+  el.style.height = '0';
+  el.style.overflow = 'hidden';
+}
+
+function onEnter(el, done) {
+  const target = el.scrollHeight;
+  el.style.transition = `height ${ARTIFACT_REVEAL_MS}ms ${ARTIFACT_EASING}`;
+  void el.offsetHeight; // 强制 reflow，确保从 0 过渡到目标高度
+  el.style.height = `${target}px`;
+  if (prefersReducedMotion()) { done(); return; }
+  bindEnd(el, done);
+}
+
+function onAfterEnter(el) {
+  el.style.height = '';
+  el.style.transition = '';
+  el.style.overflow = '';
+}
+
+function onBeforeLeave(el) {
+  el.style.height = `${el.scrollHeight}px`;
+  el.style.overflow = 'hidden';
+}
+
+function onLeave(el, done) {
+  void el.offsetHeight;
+  el.style.transition = `height ${ARTIFACT_REVEAL_MS}ms ${ARTIFACT_EASING}`;
+  el.style.height = '0';
+  if (prefersReducedMotion()) { done(); return; }
+  bindEnd(el, done);
+}
+
+function onAfterLeave(el) {
+  el.style.height = '';
+  el.style.transition = '';
+  el.style.overflow = '';
+}
 </script>
 
 <style scoped>
 .artifact-panel {
   flex-shrink: 0;
-  border-top: 1px solid var(--color-border);
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.18);
 }
 
 .artifact-panel-header {
@@ -132,6 +198,11 @@ const artifacts = computed(() => {
   font-weight: 650;
   line-height: 18px;
   text-align: center;
+}
+
+.artifact-reveal-inner {
+  border-top: 1px solid var(--color-border);
+  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.18);
 }
 
 .artifact-list {
