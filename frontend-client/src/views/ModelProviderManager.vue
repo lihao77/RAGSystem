@@ -1118,7 +1118,7 @@ onMounted(() => {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  /* gap: 8px; */
   padding: 0 12px 0 0;
   overflow: hidden;
   border-radius: 16px;
@@ -1288,6 +1288,7 @@ onMounted(() => {
 }
 
 .result--ok  {
+  margin: 0 0 12px 24px;
   background: rgba(var(--color-success-rgb), 0.08);
   border-color: rgba(var(--color-success-rgb), 0.18);
   color: var(--color-success);
