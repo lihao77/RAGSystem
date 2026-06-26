@@ -1,6 +1,6 @@
 /**
  * Provider 类型单一信源。
- * 此前 DEFAULT_ENDPOINTS 在 llm-chat-client / embedding-client / model-adapter-service 各定义一份、
+ * 此前 DEFAULT_ENDPOINTS 在 chat client / embedding-client / model-adapter-service 各定义一份、
  * PROVIDER_TYPES 与 OPENAI_COMPATIBLE_TYPES 又各自散落；新增一种 provider 要改三处以上。
  * 现统一由 PROVIDER_TYPE_SPECS 派生所有视图(默认 endpoint、chat 分发种类、是否支持 embedding)。
  * 新增 provider 类型 = 在此追加一条 spec，无需改动任何 client。

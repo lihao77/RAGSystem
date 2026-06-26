@@ -2,7 +2,7 @@ import { buildApp } from "../../src/app.js";
 import type { AppEnv } from "../../src/config/env.js";
 import { createRuntimeContainer } from "../../src/services/runtime/runtime-container.js";
 import type { AgentExecutionLogger } from "../../src/services/agent/execution/index.js";
-import type { LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
+import type { LlmClient } from "@ragsystem/agent-llm";
 
 export const testEnv: AppEnv = {
   host: "127.0.0.1",
@@ -21,7 +21,7 @@ export async function buildTestApp() {
 
 export async function buildTestHarness(
   options: {
-    llmChatClient?: LlmChatClient;
+    llmClient?: LlmClient;
     startOutboxDispatcher?: boolean;
     logger?: AgentExecutionLogger;
   } = {},
@@ -29,7 +29,7 @@ export async function buildTestHarness(
   const container = createRuntimeContainer({
     dbPath: ":memory:",
     dataRoot: testEnv.dataRoot,
-    llmChatClient: options.llmChatClient,
+    llmClient: options.llmClient,
     modelAdapterProvidersConfigPath: "",
     mcpConfigPath: "",
     daemonConfigPath: "",

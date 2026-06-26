@@ -12,7 +12,7 @@ import type { ChatMessage as SdkChatMessage, ProviderConfig } from "@ragsystem/a
 import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
 import { resolveHistoryView } from "../../services/agent/context-builder/index.js";
 import { messagesToConversation } from "../../services/agent/context-builder/history-view.js";
-import type { ChatMessage, ChatToolCall } from "../../services/integrations/llm-chat-client.js";
+import type { ChatMessage, ChatToolCall } from "@ragsystem/agent-llm";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import { isRecord } from "../../utils/guards.js";

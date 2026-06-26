@@ -1,5 +1,5 @@
 import type { MessageInfo } from "../../../contracts/session.js";
-import type { ChatMessage } from "../../integrations/llm-chat-client.js";
+import type { ChatMessage } from "@ragsystem/agent-llm";
 import { MICROCOMPACT_CLEARED_LABEL } from "./types.js";
 import { numberOrNull } from "./helpers.js";
 import { formatAttachmentContext, type ResolvedAttachment } from "../execution/attachment-resolver.js";

@@ -3,7 +3,7 @@ import type { MessageInfo } from "../../../contracts/session.js";
 import type { SystemConfigData } from "../../../contracts/system-config.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { IMessageStore } from "../../../contracts/conversation-store/index.js";
-import type { ChatMessage, LlmChatClient } from "../../integrations/llm-chat-client.js";
+import type { ChatMessage, LlmClient, LlmRequest, ProviderConfig } from "@ragsystem/agent-llm";
 import type { SystemConfigService } from "../../config/system-config-service.js";
 import { resolveCompressionView } from "../context-builder/index.js";
 import type { RuntimeModelProviderPort } from "../execution/runtime-core-service.js";
@@ -93,7 +93,7 @@ const COMPACT_PROMPT_BODY = `<summary>
 export class AgentContextCompressionService {
   constructor(
     private readonly conversationStore: IMessageStore,
-    private readonly llmChatClient: LlmChatClient,
+    private readonly llmClient: LlmClient,
     private readonly systemConfig: SystemConfigService,
     private readonly modelProviders: RuntimeModelProviderPort,
   ) {}
@@ -353,7 +353,6 @@ export class AgentContextCompressionService {
   }
 
   private async generateSummary(input: {
-    agent: AgentConfig;
     provider: ModelProviderConfig;
     modelName: string;
     params: RequestLlmParams;
@@ -362,11 +361,10 @@ export class AgentContextCompressionService {
     maxTokens: number;
     signal?: AbortSignal | undefined;
   }): Promise<string> {
-    const request: Parameters<LlmChatClient["complete"]>[0] = {
+    const request: LlmRequest = {
       messages: buildSummaryMessages(input.segment, input.existingSummary),
       model: input.modelName,
-      provider: input.provider,
-      agent: input.agent,
+      provider: input.provider as unknown as ProviderConfig,
       temperature: input.params.temperature,
       maxCompletionTokens: input.maxTokens,
       extraParams: input.params.extraParams,
@@ -374,7 +372,7 @@ export class AgentContextCompressionService {
     if (input.signal !== undefined) {
       request.signal = input.signal;
     }
-    const response = await this.llmChatClient.complete(request);
+    const response = await this.llmClient.complete(request);
     const summary = formatCompactResponse(response.content);
     if (!summary.trim()) {
       throw new Error("summary model returned empty content");
@@ -416,7 +414,6 @@ export class AgentContextCompressionService {
       });
       try {
         return await this.generateSummary({
-          agent: input.agent,
           provider: candidate.provider,
           modelName: candidate.modelName,
           params,

@@ -10,7 +10,7 @@ import {
   resolveCompressionView,
 } from "../../src/services/agent/context-builder/index.js";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
-import type { ChatCompletionRequest, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
+import type { LlmRequest, LlmClient } from "@ragsystem/agent-llm";
 import { SystemConfigService } from "../../src/services/config/system-config-service.js";
 
 let store: ConversationStore | null = null;
@@ -20,15 +20,15 @@ afterEach(() => {
   store = null;
 });
 
-class FakeSummaryClient implements LlmChatClient {
-  readonly requests: ChatCompletionRequest[] = [];
+class FakeSummaryClient implements LlmClient {
+  readonly requests: LlmRequest[] = [];
   private readonly failingProviders: Set<string>;
 
   constructor(failingProviders: Iterable<string> = []) {
     this.failingProviders = new Set(failingProviders);
   }
 
-  async complete(request: ChatCompletionRequest) {
+  async complete(request: LlmRequest) {
     this.requests.push(request);
     if (request.signal?.aborted) {
       throw new Error("aborted");

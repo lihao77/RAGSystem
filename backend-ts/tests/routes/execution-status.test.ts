@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
-import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
+import type { LlmRequest, LlmResult, LlmClient } from "@ragsystem/agent-llm";
 import { buildTestApp, buildTestHarness } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
@@ -111,7 +111,7 @@ describe("execution compatibility routes", () => {
 
   it("executes synchronous default and specific-agent requests", async () => {
     const chatClient = new FakeSequenceChatClient(["sync answer", "specific answer"]);
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
     await createDefaultChatProvider(app);
 
@@ -166,7 +166,7 @@ describe("execution compatibility routes", () => {
 
   it("executes sequential collaboration and still rejects parallel mode", async () => {
     const chatClient = new FakeSequenceChatClient(["first", "second"]);
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
     await createDefaultChatProvider(app);
 
@@ -211,12 +211,12 @@ describe("execution compatibility routes", () => {
   });
 });
 
-class FakeSequenceChatClient implements LlmChatClient {
-  readonly requests: ChatCompletionRequest[] = [];
+class FakeSequenceChatClient implements LlmClient {
+  readonly requests: LlmRequest[] = [];
 
   constructor(private readonly responses: string[]) {}
 
-  async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
+  async complete(request: LlmRequest): Promise<LlmResult> {
     this.requests.push(request);
     const content = this.responses.shift();
     if (content === undefined) {

@@ -6,12 +6,12 @@ import type { FastifyInstance } from "fastify";
 
 import type { Envelope } from "@ragsystem/agent-protocol";
 import type {
-  ChatCompletionRequest,
-  ChatCompletionResult,
-  ChatStreamChunkHandler,
   ChatToolCall,
-  LlmChatClient,
-} from "../../src/services/integrations/llm-chat-client.js";
+  LlmClient,
+  LlmRequest,
+  LlmResult,
+  LlmStreamHandler,
+} from "@ragsystem/agent-llm";
 import { EnvelopeProjector } from "../../src/services/runtime/event-outbox/projector.js";
 import type { OutboxRow } from "../../src/contracts/conversation-store/types.js";
 import { RuntimeAbortError } from "@ragsystem/agent-protocol";
@@ -26,13 +26,13 @@ afterEach(async () => {
   }
 });
 
-class FakeChatClient implements LlmChatClient {
-  readonly requests: ChatCompletionRequest[] = [];
+class FakeChatClient implements LlmClient {
+  readonly requests: LlmRequest[] = [];
   private resolver: (() => void) | null = null;
 
   constructor(private readonly content = "TS runtime answer") {}
 
-  async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
+  async complete(request: LlmRequest): Promise<LlmResult> {
     this.requests.push(request);
     if (this.resolver) {
       await new Promise<void>((resolve) => {
@@ -54,23 +54,23 @@ class FakeChatClient implements LlmChatClient {
   }
 }
 
-class FailingChatClient implements LlmChatClient {
-  readonly requests: ChatCompletionRequest[] = [];
+class FailingChatClient implements LlmClient {
+  readonly requests: LlmRequest[] = [];
 
   constructor(private readonly error = new Error("provider failed")) {}
 
-  async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
+  async complete(request: LlmRequest): Promise<LlmResult> {
     this.requests.push(request);
     throw this.error;
   }
 }
 
-class FakeSequenceChatClient implements LlmChatClient {
-  readonly requests: ChatCompletionRequest[] = [];
+class FakeSequenceChatClient implements LlmClient {
+  readonly requests: LlmRequest[] = [];
 
   constructor(private readonly responses: string[]) {}
 
-  async complete(request: ChatCompletionRequest) {
+  async complete(request: LlmRequest) {
     this.requests.push(request);
     const content = this.responses.shift();
     if (content === undefined) {
@@ -80,8 +80,8 @@ class FakeSequenceChatClient implements LlmChatClient {
   }
 }
 
-class FakeStreamingChatClient implements LlmChatClient {
-  readonly requests: ChatCompletionRequest[] = [];
+class FakeStreamingChatClient implements LlmClient {
+  readonly requests: LlmRequest[] = [];
 
   constructor(private readonly chunks: string[]) {}
 
@@ -89,7 +89,7 @@ class FakeStreamingChatClient implements LlmChatClient {
     throw new Error("complete should not be called when stream is available");
   }
 
-  async stream(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler) {
+  async stream(request: LlmRequest, onChunk: LlmStreamHandler) {
     this.requests.push(request);
     let content = "";
     for (const chunk of this.chunks) {
@@ -102,12 +102,12 @@ class FakeStreamingChatClient implements LlmChatClient {
   }
 }
 
-class FakeToolCallingChatClient implements LlmChatClient {
-  readonly requests: ChatCompletionRequest[] = [];
+class FakeToolCallingChatClient implements LlmClient {
+  readonly requests: LlmRequest[] = [];
 
-  constructor(private readonly responses: ChatCompletionResult[]) {}
+  constructor(private readonly responses: LlmResult[]) {}
 
-  async complete(request: ChatCompletionRequest) {
+  async complete(request: LlmRequest) {
     this.requests.push(request);
     const response = this.responses.shift();
     if (!response) {
@@ -117,8 +117,8 @@ class FakeToolCallingChatClient implements LlmChatClient {
   }
 }
 
-class FakeXmlStreamingToolChatClient implements LlmChatClient {
-  readonly requests: ChatCompletionRequest[] = [];
+class FakeXmlStreamingToolChatClient implements LlmClient {
+  readonly requests: LlmRequest[] = [];
 
   constructor(private readonly responses: string[][]) {}
 
@@ -126,7 +126,7 @@ class FakeXmlStreamingToolChatClient implements LlmChatClient {
     throw new Error("complete should not be called for XML streaming tool loops");
   }
 
-  async stream(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler) {
+  async stream(request: LlmRequest, onChunk: LlmStreamHandler) {
     this.requests.push(request);
     const response = this.responses.shift();
     if (!response) {
@@ -145,18 +145,18 @@ class FakeXmlStreamingToolChatClient implements LlmChatClient {
 
 /**
  * Native（FC）混合协议 fake：每轮一组 chunk，chunk 可带 content（走 XML 解析）和/或
- * toolCalls（走厂商 FC 结构化）。content 必填（ChatStreamChunk.content 非可选），纯工具调用轮传 ""。
+ * toolCalls（走厂商 FC 结构化）。content 必填（LlmStreamChunk.content 非可选），纯工具调用轮传 ""。
  */
-class FakeNativeStreamingToolChatClient implements LlmChatClient {
-  readonly requests: ChatCompletionRequest[] = [];
+class FakeNativeStreamingToolChatClient implements LlmClient {
+  readonly requests: LlmRequest[] = [];
 
   constructor(private readonly rounds: Array<Array<{ content: string; toolCalls?: ChatToolCall[] }>>) {}
 
-  async complete(): Promise<ChatCompletionResult> {
+  async complete(): Promise<LlmResult> {
     throw new Error("complete should not be called for native streaming");
   }
 
-  async stream(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler): Promise<ChatCompletionResult> {
+  async stream(request: LlmRequest, onChunk: LlmStreamHandler): Promise<LlmResult> {
     this.requests.push(request);
     const round = this.rounds.shift();
     if (!round) {
@@ -174,7 +174,7 @@ class FakeNativeStreamingToolChatClient implements LlmChatClient {
 describe("minimal runtime core execution", () => {
   it("starts a configured single-agent text run and persists the final answer", async () => {
     const chatClient = new FakeChatClient("hello from ts core");
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app);
@@ -399,7 +399,7 @@ describe("minimal runtime core execution", () => {
       "<analysis>draft</analysis><summary>旧问题、已完成操作和当前约束</summary>",
       "answer after compression",
     ]);
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app);
@@ -519,7 +519,7 @@ describe("minimal runtime core execution", () => {
 
   it("publishes first-token and output chunk events when the chat client supports streaming", async () => {
     const chatClient = new FakeStreamingChatClient(["hello ", "from ", "stream"]);
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     disableDefaultAgentMemoryTools(harness);
@@ -587,7 +587,7 @@ describe("minimal runtime core execution", () => {
 
   it("injects validated session attachments into the runtime user message", async () => {
     const chatClient = new FakeChatClient("attachment answer");
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app);
@@ -649,7 +649,7 @@ describe("minimal runtime core execution", () => {
 
   it("expands prompt slash commands before starting the runtime", async () => {
     const chatClient = new FakeChatClient("review answer");
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app);
@@ -689,7 +689,7 @@ describe("minimal runtime core execution", () => {
 
   it("handles system slash help without starting an agent run", async () => {
     const chatClient = new FakeChatClient("should not run");
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app);
@@ -746,7 +746,7 @@ describe("minimal runtime core execution", () => {
 
   it("handles system slash compact by forcing context compression without starting an agent run", async () => {
     const chatClient = new FakeChatClient("<analysis>draft</analysis><summary>旧问题、已完成操作和当前约束</summary>");
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app);
@@ -864,7 +864,7 @@ describe("minimal runtime core execution", () => {
 
   it("skips system slash compact when history has nothing to compress", async () => {
     const chatClient = new FakeChatClient("should not run");
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app);
@@ -920,7 +920,7 @@ describe("minimal runtime core execution", () => {
         finishReason: "stop",
       },
     ]);
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app, { supportsFunctionCalling: true });
@@ -1067,7 +1067,7 @@ describe("minimal runtime core execution", () => {
         finishReason: "stop",
       },
     ]);
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app, { supportsFunctionCalling: true });
@@ -1181,7 +1181,7 @@ describe("minimal runtime core execution", () => {
       ],
       ["<final_answer>", "The XML runtime read memory.", "</final_answer>"],
     ]);
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app);
@@ -1349,7 +1349,7 @@ describe("minimal runtime core execution", () => {
         { content: "</final_answer>" },
       ],
     ]);
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app, { supportsFunctionCalling: true });
@@ -1489,7 +1489,7 @@ describe("minimal runtime core execution", () => {
       ["<final_answer>", "background started", "</final_answer>"],
       ["<final_answer>", "notification consumed", "</final_answer>"],
     ]);
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app);
@@ -1597,7 +1597,7 @@ describe("minimal runtime core execution", () => {
       ["<final_answer>", "child plan result", "</final_answer>"],
       ["<final_answer>", "parent final with child plan result", "</final_answer>"],
     ]);
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app);
@@ -1621,12 +1621,10 @@ describe("minimal runtime core execution", () => {
     );
 
     expect(chatClient.requests).toHaveLength(3);
-    expect(chatClient.requests[0]?.agent?.agent_name).toBe("orchestrator_agent");
     expect(chatClient.requests[0]?.tools).toBeUndefined();
     expect(chatClient.requests[0]?.messages[0]?.content).toContain("call_agent");
 
     const childRequest = chatClient.requests[1];
-    expect(childRequest?.agent?.agent_name).toBe("plan_agent");
     expect(childRequest?.messages.some((message) => message.content.includes("拆解 TS 后端迁移下一步"))).toBe(true);
     expect(childRequest?.messages.some((message) => message.content.includes("保持简洁，只输出关键步骤"))).toBe(true);
 
@@ -1654,7 +1652,6 @@ describe("minimal runtime core execution", () => {
     const toolResultMessage = parentFinalRequest?.messages.find((message) =>
       message.role === "user" && message.content.includes("call_agent"),
     );
-    expect(parentFinalRequest?.agent?.agent_name).toBe("orchestrator_agent");
     expect(toolResultMessage?.content).toContain("<tool_result");
     expect(toolResultMessage?.content).toContain(child.child_agent_id);
     expect(toolResultMessage?.content).toContain("child plan result");
@@ -1770,7 +1767,7 @@ describe("minimal runtime core execution", () => {
       ],
       ["<final_answer>", "已按 session memory 继续。", "</final_answer>"],
     ]);
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app);
@@ -1886,7 +1883,7 @@ describe("minimal runtime core execution", () => {
 
   it("uses session team, entry agent, and workspace metadata when resolving runtime config", async () => {
     const chatClient = new FakeChatClient("team scoped answer");
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app);
@@ -1935,14 +1932,6 @@ describe("minimal runtime core execution", () => {
     await waitFor(() => harness.container.agentExecution.getSessionTaskStatus("team-runtime-session").task_info?.status === "completed");
 
     expect(chatClient.requests).toHaveLength(1);
-    expect(chatClient.requests[0]).toMatchObject({
-      agent: {
-        agent_name: "research_agent",
-        custom_params: expect.objectContaining({
-          workspace_root: workspaceRoot,
-        }),
-      },
-    });
     expect(chatClient.requests[0]?.messages[0]).toMatchObject({
       role: "system",
       content: expect.stringContaining("You are research."),
@@ -1963,7 +1952,7 @@ describe("minimal runtime core execution", () => {
   it("can interrupt a running minimal runtime-core request", async () => {
     const chatClient = new FakeChatClient();
     chatClient.hold();
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app);
@@ -2074,7 +2063,7 @@ describe("minimal runtime core execution", () => {
     const chatClient = new FailingChatClient(new Error("provider failed"));
     const logEntries: Array<{ bindings: Record<string, unknown>; message: string }> = [];
     const harness = await buildTestHarness({
-      llmChatClient: chatClient,
+      llmClient: chatClient,
       logger: {
         error: (bindings, message) => {
           logEntries.push({ bindings, message });

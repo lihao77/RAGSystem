@@ -16,11 +16,11 @@ import { AgentContextService } from "../../src/services/agent/context/index.js";
 import { SystemConfigService } from "../../src/services/config/system-config-service.js";
 import os from "node:os";
 import type {
-  ChatCompletionRequest,
-  ChatCompletionResult,
-  ChatStreamChunkHandler,
-  LlmChatClient,
-} from "../../src/services/integrations/llm-chat-client.js";
+  LlmRequest,
+  LlmResult,
+  LlmStreamHandler,
+  LlmClient,
+} from "@ragsystem/agent-llm";
 import { RuntimeAbortError } from "@ragsystem/agent-protocol";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
@@ -33,7 +33,7 @@ type RuntimeMode = "ok" | "abort" | "fail";
 interface ServiceHarness {
   service: AgentExecutionService;
   store: ConversationStore;
-  requests: ChatCompletionRequest[];
+  requests: LlmRequest[];
   errors: Array<Record<string, unknown>>;
 }
 
@@ -126,8 +126,8 @@ function runtimeCoreStub(agent: AgentConfig, ready: boolean): RuntimeExecutionCo
   } as RuntimeExecutionConfigResolver;
 }
 
-class FakeChatClient implements LlmChatClient {
-  readonly requests: ChatCompletionRequest[] = [];
+class FakeChatClient implements LlmClient {
+  readonly requests: LlmRequest[] = [];
 
   constructor(private readonly mode: RuntimeMode, private readonly content: string) {}
 
@@ -135,13 +135,13 @@ class FakeChatClient implements LlmChatClient {
     throw new Error("complete should not be called");
   }
 
-  async stream(request: ChatCompletionRequest, onChunk: ChatStreamChunkHandler) {
+  async stream(request: LlmRequest, onChunk: LlmStreamHandler) {
     this.requests.push(request);
     if (this.mode === "fail") {
       throw new Error("run-failed");
     }
     if (this.mode === "abort") {
-      return new Promise<ChatCompletionResult>((_, reject) => {
+      return new Promise<LlmResult>((_, reject) => {
         const rejectAbort = (): void => reject(new RuntimeAbortError("aborted"));
         if (request.signal?.aborted) {
           rejectAbort();
@@ -179,7 +179,7 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
     sessions,
     conversationStore: store,
     runtimeCore: runtimeCoreStub(agent, ready),
-    llmChatClient: client,
+    llmClient: client,
     dataRoot: os.tmpdir(),
    contextService,
    outboxDispatcher: dispatcher,

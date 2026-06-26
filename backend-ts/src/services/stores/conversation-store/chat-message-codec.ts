@@ -1,4 +1,4 @@
-import type { ChatToolCall } from "../../integrations/llm-chat-client.js";
+import type { ChatToolCall } from "@ragsystem/agent-llm";
 
 /**
  * ChatMessage 结构化字段（tool_calls / tool_call_id / name）↔ messages.metadata 的编解码。

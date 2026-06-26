@@ -58,8 +58,8 @@ export interface SessionListItem extends SessionInfo {
 }
 
 /**
- * 结构化工具调用（OpenAI tool call 标准形态）。与 services/integrations/llm-chat-client.ts
- * 的 ChatToolCall 结构一致（结构类型兼容），在 contracts 内独立定义以避免契约层反向依赖 services。
+ * 结构化工具调用（OpenAI tool call 标准形态）。与 @ragsystem/agent-llm 的 ChatToolCall
+ * 结构一致（结构类型兼容），在 contracts 内独立定义以避免契约层反向依赖外部包。
  *
  * 跨协议统一：XML 与 FC 协议的 assistant 工具调用态消息都用此结构化字段承载调用参数，
  * 不再把调用信息塞进 content 文本。详见 services/stores/conversation-store/chat-message-codec.ts。

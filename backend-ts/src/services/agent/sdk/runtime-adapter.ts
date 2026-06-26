@@ -11,7 +11,7 @@ import { createRuntime, createToolRegistry, prepareTool, type CreateRuntimeOptio
 import type { AgentPromptContext, Tool, ToolExecContext, ToolExecutionResult, ToolRegistry } from "@ragsystem/agent-sdk";
 import { translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
-import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
+import type { LlmClient } from "@ragsystem/agent-llm";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { MessageInfo } from "../../../contracts/session.js";
@@ -27,7 +27,6 @@ import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js"
 import { projectAgentProfile } from "./projection.js";
 import { getDefaultTier } from "./projection.js";
 import { SdkStoreAdapter } from "./sdk-store-adapter.js";
-import { LlmClientAdapter } from "./llm-client-adapter.js";
 import { SdkPermissionPolicyAdapter } from "./permission-adapter.js";
 import { SdkApprovalInteractionAdapter } from "./approval-interaction-adapter.js";
 
@@ -39,8 +38,8 @@ export interface SdkRuntimeAdapterDeps {
   codeExecutionTools: CodeExecutionToolService | null;
   /** 后台任务等待——从 taskTools 适配。 */
   taskTools: TaskToolService | null;
-  /** backend-ts LLM 客户端（经 LlmClientAdapter 适配成 SDK LlmClient；保留测试 mock 注入点）。 */
-  llmChatClient: LlmChatClient;
+  /** LLM 客户端（agent-llm LlmClient；直接喂 SDK createRuntime，保留测试 mock 注入点）。 */
+  llmClient: LlmClient;
   eventPublisher: AgentExecutionEventPublisher;
   clientEvents: DurableClientEventPublisher;
   /** 已加载的全部 provider（投影层解析 tier.provider 引用用）。 */
@@ -100,7 +99,6 @@ export async function executeRunWithSdk(
   });
   const defaultTier = getDefaultTier(profile.llmTiers);
   const storeAdapter = new SdkStoreAdapter({ conversationStore: deps.conversationStore });
-  const llmClient = new LlmClientAdapter({ chatClient: deps.llmChatClient, agent: input.agent });
 
   // per-run 构建工具集合：各工厂闭包绑定 agent，返回 SDK Tool[]
   const teamName = asString(input.sessionMetadata.team);
@@ -160,7 +158,7 @@ export async function executeRunWithSdk(
     : undefined;
 
   const runtimeOpts: CreateRuntimeOptions = {
-    llm: llmClient,
+    llm: deps.llmClient,
     provider: defaultTier.provider,
     modelName: defaultTier.modelName,
     profile,

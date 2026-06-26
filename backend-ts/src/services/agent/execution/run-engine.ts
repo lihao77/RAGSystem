@@ -4,7 +4,7 @@ import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } from "../../../contracts/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
-import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
+import type { LlmClient } from "@ragsystem/agent-llm";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
@@ -37,7 +37,7 @@ export class AgentRunEngine {
   constructor(
     private readonly sessions: AgentSessionApplication,
     private readonly conversationStore: IRunStore & IMessageStore & ISessionStore,
-    private readonly llmChatClient: LlmChatClient,
+    private readonly llmClient: LlmClient,
     private readonly dataRoot: string,
    private readonly toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName"> | null,
    private readonly codeExecutionTools: CodeExecutionToolService | null,
@@ -271,7 +271,7 @@ export class AgentRunEngine {
           toolsDeps: this.toolsDeps ?? emptyToolsDeps,
           codeExecutionTools: this.codeExecutionTools,
           taskTools: this.taskTools,
-          llmChatClient: this.llmChatClient,
+          llmClient: this.llmClient,
           eventPublisher: this.eventPublisher,
           clientEvents: this.clientEvents,
           providers: this.providersProvider(),

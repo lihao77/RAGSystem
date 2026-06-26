@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
-import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
+import type { LlmRequest, LlmResult, LlmClient } from "@ragsystem/agent-llm";
 import { buildTestApp, buildTestHarness } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
@@ -254,7 +254,7 @@ describe("model adapter compatibility routes", () => {
 
   it("checks provider availability and runs provider tests", async () => {
     const chatClient = new FakeChatClient("pong");
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await app.inject({
@@ -374,12 +374,12 @@ describe("model adapter compatibility routes", () => {
   });
 });
 
-class FakeChatClient implements LlmChatClient {
-  readonly requests: ChatCompletionRequest[] = [];
+class FakeChatClient implements LlmClient {
+  readonly requests: LlmRequest[] = [];
 
   constructor(private readonly content: string) {}
 
-  async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
+  async complete(request: LlmRequest): Promise<LlmResult> {
     this.requests.push(request);
     return { content: this.content, finishReason: "stop" };
   }

@@ -1,7 +1,7 @@
 /**
  * Embedding client(OpenAI 兼容 /embeddings)。
  *
- * 独立于 LlmChatClient(embedding 与 chat 是不同 API,刻意分开,对齐 Python EmbedderBase)。
+ * 独立于 chat 客户端（@ragsystem/agent-llm，embedding 与 chat 是不同 API,刻意分开,对齐 Python EmbedderBase）。
  * 不处理 anthropic(无 embedding API)/openai_resp(走 /embeddings 同 chat 兼容)。仅 OpenAI 兼容 provider_type。
  *
  * 深合约:

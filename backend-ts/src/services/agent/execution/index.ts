@@ -13,7 +13,7 @@ import type {
 } from "../../../contracts/execution.js";
 import type { AgentContextService } from "../context/index.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
-import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
+import type { LlmClient } from "@ragsystem/agent-llm";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
@@ -63,7 +63,7 @@ export interface AgentExecutionServiceParams {
   sessions: AgentSessionApplication;
   conversationStore: ConversationStore;
   runtimeCore: RuntimeExecutionConfigResolver;
-  llmChatClient: LlmChatClient;
+  llmClient: LlmClient;
   dataRoot: string;
   contextService: AgentContextService;
   /** per-agent 工具依赖（runtime-adapter per-run 构建 Tool[] 用）。 */
@@ -114,7 +114,7 @@ export function createAgentExecutionService(
   const runEngine = new AgentRunEngine(
     params.sessions,
     params.conversationStore,
-    params.llmChatClient,
+    params.llmClient,
     params.dataRoot,
    params.toolsDeps ?? null,
    params.codeExecutionTools ?? null,

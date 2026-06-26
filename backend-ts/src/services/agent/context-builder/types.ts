@@ -1,6 +1,6 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { MessageInfo, SessionInfo } from "../../../contracts/session.js";
-import type { ChatMessage } from "../../integrations/llm-chat-client.js";
+import type { ChatMessage } from "@ragsystem/agent-llm";
 
 export interface ConversationHistoryPort {
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): MessageInfo[];

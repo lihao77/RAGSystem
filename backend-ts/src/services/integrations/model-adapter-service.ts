@@ -11,8 +11,7 @@ import type {
   ProviderTypeInfo,
   TestProviderRequest,
 } from "../../contracts/model-adapter.js";
-import type { AgentConfig } from "../../contracts/agent-config.js";
-import type { LlmChatClient } from "./llm-chat-client.js";
+import type { LlmClient, ProviderConfig } from "@ragsystem/agent-llm";
 import { DEFAULT_ENDPOINTS, PROVIDER_TYPES, PROVIDER_TYPE_SET } from "./provider-registry.js";
 
 const PROVIDERS_CONFIG_RELATIVE_PATH = path.join("config", "model_adapter", "providers.yaml");
@@ -47,12 +46,12 @@ export class ModelAdapterServiceError extends Error {
 export class ModelAdapterService {
   private readonly providers = new Map<string, ModelProviderConfig>();
   private readonly providersConfigPath: string | null;
-  private readonly chatClient: LlmChatClient | null;
+  private readonly chatClient: LlmClient | null;
 
   constructor(options: {
     dataRoot?: string | undefined;
     providersConfigPath?: string | undefined;
-    chatClient?: LlmChatClient | null | undefined;
+    chatClient?: LlmClient | null | undefined;
   } = {}) {
     this.providersConfigPath = resolveProvidersConfigPath(options);
     this.chatClient = options.chatClient ?? null;
@@ -246,8 +245,7 @@ export class ModelAdapterService {
         const response = await this.chatClient.complete({
           messages: [{ role: "user", content: data.prompt ?? "" }],
           model,
-          provider,
-          agent: testAgentConfig(provider, model),
+          provider: provider as unknown as ProviderConfig,
           temperature: 0.7,
           maxCompletionTokens: 500,
         });
@@ -684,43 +682,6 @@ function summarizeAvailabilityFailure(
     return "Provider 未配置可用模型";
   }
   return "Provider 不可用";
-}
-
-function testAgentConfig(provider: ModelProviderConfig, model: string): AgentConfig {
-  return {
-    agent_name: "provider_test",
-    display_name: "Provider Test",
-    description: "Temporary provider test agent",
-    enabled: true,
-    default_entry: false,
-    llm_tiers: {
-      default: {
-        provider: provider.name,
-        provider_type: provider.provider_type,
-        model_name: model,
-        extra_params: {},
-      },
-    },
-    tools: { enabled_tools: [] },
-    skills: { enabled_skills: [], auto_inject: false },
-    mcp: { enabled_servers: [] },
-    memory: { auto_inject: false, allowed_scopes: [], write_scopes: [], archive_scopes: [] },
-    tasks: { workflow: false, background: false },
-    delegation: { enabled_agents: [] },
-    knowledge_base: {
-      enabled: false,
-      default_collection: "documents",
-      default_search_mode: "hybrid",
-      default_top_k: 5,
-      default_rerank: false,
-      default_reranker_key: null,
-    },
-    custom_params: {
-      behavior: {
-        system_prompt: "You are testing a provider configuration.",
-      },
-    },
-  };
 }
 
 function deterministicEmbedding(text: string): number[][] {

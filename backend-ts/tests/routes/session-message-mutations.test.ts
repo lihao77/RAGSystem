@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { ChatCompletionRequest, ChatCompletionResult, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
+import type { LlmRequest, LlmResult, LlmClient } from "@ragsystem/agent-llm";
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import { buildTestHarness } from "../helpers/app.js";
 
@@ -131,7 +131,7 @@ describe("session message mutation routes", () => {
 
   it("rolls back to a user message, optionally edits it, and starts retry execution", async () => {
     const chatClient = new FakeChatClient("retried answer");
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
     await createDefaultChatProvider(app);
 
@@ -338,12 +338,12 @@ describe("session message mutation routes", () => {
   });
 });
 
-class FakeChatClient implements LlmChatClient {
-  readonly requests: ChatCompletionRequest[] = [];
+class FakeChatClient implements LlmClient {
+  readonly requests: LlmRequest[] = [];
 
   constructor(private readonly content: string) {}
 
-  async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
+  async complete(request: LlmRequest): Promise<LlmResult> {
     this.requests.push(request);
     return { content: this.content };
   }

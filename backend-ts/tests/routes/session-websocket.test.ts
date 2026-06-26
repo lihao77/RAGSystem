@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { ChatCompletionRequest, LlmChatClient } from "../../src/services/integrations/llm-chat-client.js";
+import type { LlmRequest, LlmClient } from "@ragsystem/agent-llm";
 import { buildTestHarness } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
@@ -17,11 +17,11 @@ afterEach(async () => {
   }
 });
 
-class HoldableChatClient implements LlmChatClient {
-  readonly requests: ChatCompletionRequest[] = [];
+class HoldableChatClient implements LlmClient {
+  readonly requests: LlmRequest[] = [];
   private releaseCurrent: (() => void) | null = null;
 
-  async complete(request: ChatCompletionRequest) {
+  async complete(request: LlmRequest) {
     this.requests.push(request);
     await new Promise<void>((resolve) => {
       this.releaseCurrent = resolve;
@@ -56,7 +56,7 @@ describe("session websocket route", () => {
   it("replays only the current active run history with monotonic seq", async () => {
     const chatClient = new HoldableChatClient();
     heldClients.push(chatClient);
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app);
@@ -134,7 +134,7 @@ describe("session websocket route", () => {
   it("sends a run_started envelope and reconnect frames when a connected session starts a run", async () => {
     const chatClient = new HoldableChatClient();
     heldClients.push(chatClient);
-    const harness = await buildTestHarness({ llmChatClient: chatClient });
+    const harness = await buildTestHarness({ llmClient: chatClient });
     app = harness.app;
 
     await createDefaultChatProvider(app);

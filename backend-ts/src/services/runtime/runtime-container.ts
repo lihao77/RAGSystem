@@ -27,7 +27,7 @@ import { CodeExecutionToolService } from "../../tools/CodeExecutionTool/CodeExec
 import { LocalDocumentToolService } from "../../tools/DocumentTools/DocumentExecution.js";
 import { LocalSearchToolService } from "../../tools/LocalSearchTools/SearchExecution.js";
 import { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
-import { OpenAiCompatibleChatClient, type LlmChatClient } from "../integrations/llm-chat-client.js";
+import { OpenAiCompatibleClient, type LlmClient } from "@ragsystem/agent-llm";
 import { MemoryStore } from "../stores/memory-store.js";
 import { MemoryToolService } from "../../tools/MemoryTools/MemoryExecution.js";
 import { McpService } from "../integrations/mcp-service.js";
@@ -83,7 +83,7 @@ export interface RuntimeContainerOptions {
   dbPath: string;
   dataRoot?: string | undefined;
   logger?: AgentExecutionLogger | undefined;
-  llmChatClient?: LlmChatClient | undefined;
+  llmClient?: LlmClient | undefined;
   modelAdapterProvidersConfigPath?: string | undefined;
   mcpConfigPath?: string | undefined;
   daemonConfigPath?: string | undefined;
@@ -104,12 +104,12 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   }
   const clientEvents = new DurableClientEventPublisher(conversationStore, outboxDispatcher);
   const permissionPolicy = new PermissionPolicyService();
-  const llmChatClient = options.llmChatClient ?? new OpenAiCompatibleChatClient();
+  const llmClient = options.llmClient ?? new OpenAiCompatibleClient();
   const agentConfig = new AgentConfigService({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot });
   const modelAdapter = new ModelAdapterService({
     dataRoot: options.dataRoot,
     providersConfigPath: options.modelAdapterProvidersConfigPath,
-    chatClient: llmChatClient,
+    chatClient: llmClient,
   });
   const systemConfig = new SystemConfigService({ dataRoot: options.dataRoot, configPath: options.systemConfigPath });
   const mcp = new McpService({ dataRoot: options.dataRoot, configPath: options.mcpConfigPath });
@@ -169,7 +169,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   // agentDelegation 需先实例化（工具依赖它），但其 runEngine/eventPublisher 延迟设置。
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
-  const contextCompression = new AgentContextCompressionService(conversationStore, llmChatClient, systemConfig, modelAdapter);
+  const contextCompression = new AgentContextCompressionService(conversationStore, llmClient, systemConfig, modelAdapter);
   const memoryConfig = systemConfig.getMemoryConfig();
   const agentRuntimeContextBuilder = new AgentContextBuilder([
     new MemoryIndexContextSource(conversationStore, {
@@ -204,7 +204,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     sessions: sessionApplication,
     conversationStore,
     runtimeCore,
-    llmChatClient,
+    llmClient,
     dataRoot,
     contextService: agentContextService,
    toolsDeps,

@@ -1,4 +1,4 @@
-import type { ChatMessage } from "../../integrations/llm-chat-client.js";
+import type { ChatMessage } from "@ragsystem/agent-llm";
 import type {
   AgentContext,
   AgentContextBuilderOptions,

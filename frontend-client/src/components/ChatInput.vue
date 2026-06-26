@@ -56,19 +56,24 @@
 
           <div class="input-footer-right">
             <slot name="rightActions" />
-            <button
-              v-if="isLoading"
-              class="send-btn stop-btn"
+           <button
+              v-if="isLoading && sendDisabled"
+             class="send-btn stop-btn"
               @click="handleStop"
-              aria-label="Stop generation"
+             aria-label="停止生成"
+              title="停止生成"
             >
-              <span class="stop-icon">■</span>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="send-icon" aria-hidden="true">
+                <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+              </svg>
             </button>
             <button
+              v-else
               class="send-btn"
               :disabled="sendDisabled"
               @click="handleSend"
-              aria-label="Send message"
+              aria-label="发送消息"
+              title="发送消息"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="send-icon">
                 <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
