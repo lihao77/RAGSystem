@@ -68,6 +68,13 @@ export interface CreateRuntimeOptions {
    * 不注入则 system prompt 不含 skills/delegation/background 段（与历史行为一致）。
    */
   promptContext?: Omit<AgentPromptContext, "tools">;
+  /**
+   * 工具执行上下文的消费端切片：承载 run 内稳定、但内核无法自行推导的字段
+   * （workspaceRoot / currentAgentName 等）。
+   * 内核权威字段（sessionId/runId/taskId/requestId/parentCallId/toolCallId/round/order/roundIndex）
+   * 在构造 toolContext 时后置覆盖，execContext 不得误传这些。
+   */
+  execContext?: Partial<ToolExecContext>;
 }
 
 export interface RunInput {
@@ -187,10 +194,13 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       if (input.signal) { session.signal = input.signal; }
 
     const toolContext: ToolExecContext = {
+      // 消费端切片（workspaceRoot/currentAgentName 等）在前；内核权威字段在后覆盖。
+      ...options.execContext,
+      caller: options.execContext?.caller ?? "direct",
       sessionId,
       runId,
       taskId: input.task ?? null,
-      requestId: null,
+      requestId: input.requestId ?? null,
       // 工具的 parent 是当前 agent 的 root call（委派工具据此把子 agent lineage 挂到本 agent 下）。
       // root run 的 parentCallId 为 null，但工具不属于"父 run"，其父是当前 agent —— 故回退 rootCallId。
       parentCallId: parentCallId ?? rootCallId,

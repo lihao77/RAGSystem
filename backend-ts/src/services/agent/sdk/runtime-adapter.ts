@@ -127,7 +127,9 @@ export async function executeRunWithSdk(
     ...(input.agent.tasks.background ? { backgroundTasks: true } : {}),
   };
 
-  // per-run 工具执行上下文模板（caller/caller 的 currentAgentName/workspaceRoot 等在 executeTool 时覆盖）
+  // per-run 工具执行上下文消费端切片：workspaceRoot/currentAgentName 等内核无法自行推导的字段。
+  // 经 createRuntime({ execContext }) 注入；内核权威字段（sessionId/runId/...）在 toolContext 构造时后置覆盖。
+  // toolCallId/round/order/roundIndex 由 tool-round-executor 在每次调用时覆盖。
   const baseExecCtx: ToolExecContext = {
     sessionId: input.sessionId,
     runId: input.runId,
@@ -180,6 +182,7 @@ export async function executeRunWithSdk(
       agentName: input.agent.agent_name,
     }),
     promptContext,
+    execContext: baseExecCtx,
     ...(waitForToolResult ? { waitForToolResult } : {}),
   };
 
