@@ -3,7 +3,7 @@ export { createRuntime } from "./runtime.js";
 export type { CreateRuntimeOptions, RunInput, RunHandle } from "./runtime.js";
 // 事件 Hook 系统
 export { createHookRegistry, EMPTY_HOOK_OUTPUT } from "./hooks/index.js";
-export type { HookEvent, HookHandler, HookInputMap, HookOutput, HookRegistry, RunBeforeInput, RunAfterInput, RoundBeforeInput, RoundAfterInput, ToolBeforeInput, ToolAfterInput, ToolErrorInput } from "./hooks/index.js";
+export type { HookEvent, HookHandler, HookInputMap, HookOutputMap, HookRegistry, HookDecision, ToolBeforeOutput, ToolAfterOutput, RoundBeforeOutput, BaseHookOutput, RunBeforeInput, RunAfterInput, RoundBeforeInput, RoundAfterInput, ToolBeforeInput, ToolAfterInput, ToolErrorInput } from "./hooks/index.js";
 export type { AgentProfile, ResolvedTier, TierMap, CompressionBudgetConfig, AgentBehavior, MemoryConfig, MessageInfo, RunStepRecord, RunRecord, RunStatus, MessageRole, ToolCallRef } from "./types.js";
 export { DEFAULT_COMPRESSION_BUDGET } from "./types.js";
 export type { KernelEvent, FirstTokenEvent, OutputDeltaEvent, IntentCompleteEvent, ToolCallEvent, ToolResultEvent, ObservationCompleteEvent, RuntimeErrorEvent, ContextUsageEvent, EventSink, Context, Protocol, ToolProvider, MessageRefresher, ToolInstructionMode, RuntimeSession, RuntimeStore, RuntimeTx, KernelResult, KernelOutcome, PreparedRoundToolCall, KernelToolCall, KernelObservation, ToolExecutionResult, CreateRunInput, AddMessageInput, AddRunStepInput, InsertCompressionMessageInput, PermissionPolicy, ApprovalInteraction, ToolApprovalInput, ToolApprovalDecision, ApprovalRequest, ApprovalResolution } from "./contracts.js";
@@ -17,6 +17,8 @@ export type { SqliteStoreOptions, StoreDb } from "./store/sqlite-store.js";
 export { AgentContextBuilder } from "./context/context-builder.js";
 export { MemoryStore } from "./memory/memory-store.js";
 export { AgentContextCompressionService } from "./compression/context-compression.js";
+export { compactSession } from "./compression/compact-session.js";
+export type { CompactSessionInput, CompactSessionResult } from "./compression/compact-session.js";
 export { createCompactionHook } from "./compression/compaction-hook.js";
 export { resolveContextBudget } from "./llm-params/budget.js";
 export { resolveSummaryTierCandidates } from "./llm-params/summary-tier.js";

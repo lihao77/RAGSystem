@@ -814,7 +814,7 @@ describe("minimal runtime core execution", () => {
       .filter((event) => event.type === "state_sync")
       .map((event) => (event.payload as { category?: string }).category);
     expect(categories).toEqual(
-      expect.arrayContaining(["compression", "compression", "command_result"]),
+      expect.arrayContaining(["compression", "command_result"]),
     );
     const commandResult = history.find(
       (event) =>
@@ -830,10 +830,7 @@ describe("minimal runtime core execution", () => {
           content: expect.stringContaining("压缩完成"),
           data: expect.objectContaining({
             status: "success",
-            before: 5,
-            after: 3,
-            replaced_message_count: 3,
-            replaces_up_to_seq: 3,
+            reason: "success",
           }),
         }),
       }),

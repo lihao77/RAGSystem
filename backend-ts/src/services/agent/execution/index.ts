@@ -11,7 +11,6 @@ import type {
   SessionTaskStatus,
   StreamExecuteRequest,
 } from "../../../contracts/execution.js";
-import type { AgentContextService } from "../context/index.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { LlmClient } from "@ragsystem/agent-llm";
 import type { AgentSessionApplication } from "../../sessions/index.js";
@@ -65,7 +64,6 @@ export interface AgentExecutionServiceParams {
   runtimeCore: RuntimeExecutionConfigResolver;
   llmClient: LlmClient;
   dataRoot: string;
-  contextService: AgentContextService;
   /** per-agent 工具依赖（runtime-adapter per-run 构建 Tool[] 用）。 */
   toolsDeps?: Omit<import("../../../tools/registry.js").BackendToolsDeps, "agent" | "teamName"> | null;
   codeExecutionTools?: import("../../../tools/CodeExecutionTool/CodeExecution.js").CodeExecutionToolService | null;
@@ -108,7 +106,9 @@ export function createAgentExecutionService(
     params.sessions,
     statusTracker,
     params.runtimeCore,
-    params.contextService,
+    params.providersProvider,
+    params.conversationStore,
+    params.llmClient,
     params.clientEvents,
   );
   const runEngine = new AgentRunEngine(

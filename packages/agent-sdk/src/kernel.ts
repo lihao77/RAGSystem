@@ -84,8 +84,12 @@ export class AgentKernel {
       for (let round = 0; ; round++) {
         ctx.throwIfAborted();
         ctx.appendMessages(await this.refresher.refresh(ctx));
-        await this.hooks.emit("round.before", { ctx, round });
+        const roundBeforeOut = await this.hooks.emit("round.before", { ctx, round });
         ctx.setRequestMessages(this.context.buildMessages(ctx));
+        // round.before hook 可注入 additionalContext：追加为 system 消息（本轮请求的附加上下文）。
+        if (roundBeforeOut.additionalContext) {
+          ctx.requestMessages.push({ role: "system", content: roundBeforeOut.additionalContext });
+        }
         // 请求消息组好后报上下文用量（消费端推 context_usage 遥测）。无 provider 时不报。
         if (this.contextUsage) {
           const usage = this.contextUsage(ctx.requestMessages, session.profile);

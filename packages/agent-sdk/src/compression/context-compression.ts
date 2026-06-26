@@ -124,6 +124,52 @@ export class AgentContextCompressionService {
     };
   }
 
+  /**
+   * 手动强制压缩（无阈值门控）：与 compressIfNeeded 共享 loadHistory/selectSegment/summarize/insert，
+   * 仅去掉"historyTokens < threshold"那道闸。供 compactSession（外部 /compact）调用；
+   * 幂等——loadCompressionView 已按压缩边界归并，已压缩区间不会重复压缩。
+   */
+  async forceCompact(input: CompressInput): Promise<ContextCompressionResult> {
+    const loaded = this.loadCompressionHistory(input);
+    const { threadKey, budgetTokens, historyTokens, settings } = loaded;
+    const thresholdTokens = Math.floor(budgetTokens * settings.compressionTriggerRatio);
+    const selected = selectCompressibleSegment(loaded.historyResolved, settings);
+    if (!selected.ok) {
+      return skipped(selected.reason, budgetTokens, historyTokens, thresholdTokens);
+    }
+    const summarizeArgs: { segment: MessageInfo[]; existingSummary: string; maxTokens: number; signal?: AbortSignal } = {
+      segment: selected.segment,
+      existingSummary: selected.existingSummary,
+      maxTokens: settings.summarizeMaxTokens,
+    };
+    if (input.signal) {
+      summarizeArgs.signal = input.signal;
+    }
+    const summaryContent = await this.summarizeSegment(summarizeArgs);
+    if (summaryContent === null) {
+      return skipped("summary_unavailable", budgetTokens, historyTokens, thresholdTokens);
+    }
+    const summaryMessage = this.store.runInTransaction((tx) =>
+      tx.insertCompressionMessage({
+        sessionId: input.sessionId,
+        threadKey,
+        content: summaryContent,
+        replacesUpToSeq: selected.replacesUpToSeq,
+        metadata: compressionMetadata(this.profile, input, selected.segment.length, historyTokens, thresholdTokens, budgetTokens, true),
+      }),
+    );
+    return {
+      status: "success",
+      reason: "success",
+      budgetTokens,
+      historyTokens,
+      thresholdTokens,
+      summaryMessage,
+      replacedMessageCount: selected.segment.length,
+      replacesUpToSeq: selected.replacesUpToSeq,
+    };
+  }
+
   private loadCompressionHistory(input: { sessionId: string; threadKey?: string | null }): {
     threadKey: string;
     settings: ContextCompressionSettings;
@@ -209,9 +255,10 @@ export class AgentContextCompressionService {
 
 export interface CompressInput {
   sessionId: string;
-  runId: string;
-  taskId: string | null;
-  requestId: string | null;
+  /** 自动路径必填（run 内）；手动路径（compactSession）无 run，可省。 */
+  runId?: string;
+  taskId?: string | null;
+  requestId?: string | null;
   threadKey?: string | null;
   childAgentId?: string | null;
   signal?: AbortSignal;

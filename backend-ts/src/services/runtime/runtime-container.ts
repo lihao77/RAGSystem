@@ -1,6 +1,5 @@
 import { createAgentExecutionService, type AgentExecutionService } from "../agent/execution/index.js";
 import type { AgentExecutionLogger } from "../agent/execution/index.js";
-import { AgentContextCompressionService } from "../agent/context-compression/index.js";
 import { AgentContextService } from "../agent/context/index.js";
 import { AgentDelegationService } from "../agent/delegation/index.js";
 import {
@@ -169,7 +168,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   // agentDelegation 需先实例化（工具依赖它），但其 runEngine/eventPublisher 延迟设置。
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
-  const contextCompression = new AgentContextCompressionService(conversationStore, llmClient, systemConfig, modelAdapter);
   const memoryConfig = systemConfig.getMemoryConfig();
   const agentRuntimeContextBuilder = new AgentContextBuilder([
     new MemoryIndexContextSource(conversationStore, {
@@ -179,7 +177,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     }),
     new RecentMessagesContextSource(conversationStore),
   ], { systemConfig });
-  const agentContextService = new AgentContextService(agentRuntimeContextBuilder, contextCompression, systemConfig);
+  const agentContextService = new AgentContextService(agentRuntimeContextBuilder, systemConfig);
   const agentDelegation = new AgentDelegationService(
     conversationStore,
     runtimeCore,
@@ -206,7 +204,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     runtimeCore,
     llmClient,
     dataRoot,
-    contextService: agentContextService,
    toolsDeps,
    codeExecutionTools,
    taskTools,

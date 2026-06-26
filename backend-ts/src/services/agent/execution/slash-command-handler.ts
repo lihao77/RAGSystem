@@ -1,8 +1,13 @@
 import type { AgentRunStartResult } from "../../../contracts/execution.js";
-import type { AgentContextService } from "../context/index.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
+import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
+import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
+import { compactSession } from "@ragsystem/agent-sdk";
+import type { LlmClient } from "@ragsystem/agent-llm";
+import { projectAgentProfile } from "../sdk/projection.js";
+import { SdkStoreAdapter } from "../sdk/sdk-store-adapter.js";
 import { asString, normalizeSessionEntryAgent } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
@@ -42,7 +47,9 @@ export class SlashCommandHandler {
     private readonly sessions: AgentSessionApplication,
     private readonly statusTracker: AgentExecutionStatusTracker,
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
-    private readonly contextService: AgentContextService,
+    private readonly providersProvider: () => ModelProviderConfig[],
+    private readonly conversationStore: ConversationStore,
+    private readonly llmClient: LlmClient,
     private readonly clientEvents: DurableClientEventPublisher,
   ) {}
 
@@ -154,23 +161,17 @@ export class SlashCommandHandler {
       };
     }
     try {
-      const result = await this.contextService.forceCompact({
-        sessionId: input.sessionId,
+      const profile = projectAgentProfile({
         agent: ready.agent,
-        provider: ready.provider,
-        modelName: ready.modelName,
-        requestId: input.requestId,
-        onEvent: (event) => {
-          this.clientEvents.publish(input.sessionId, {
-            type: "state_sync",
-            session_id: input.sessionId,
-            agent_id: ready.agent.agent_name,
-            payload: { category: "compression", detail: event.data },
-          }, {
-            aggregateType: "session",
-            aggregateId: input.sessionId,
-          });
-        },
+        providers: this.providersProvider(),
+        ...(ready.provider && ready.modelName ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } } : {}),
+      });
+      const store = new SdkStoreAdapter({ conversationStore: this.conversationStore });
+      const result = await compactSession({
+        sessionId: input.sessionId,
+        store,
+        profile,
+        llm: this.llmClient,
       });
       if (result.status === "skipped") {
         if (result.reason === "summary_unavailable") {
@@ -189,10 +190,19 @@ export class SlashCommandHandler {
           data: result,
         };
       }
+      this.clientEvents.publish(input.sessionId, {
+        type: "state_sync",
+        session_id: input.sessionId,
+        agent_id: ready.agent.agent_name,
+        payload: { category: "compression", detail: { replaced_message_count: result.replacedMessageCount, replaces_up_to_seq: result.replacesUpToSeq } },
+      }, {
+        aggregateType: "session",
+        aggregateId: input.sessionId,
+      });
       return {
         command: "compact",
         success: true,
-        content: `压缩完成：${result.before} → ${result.after} 条消息，节省 ${result.tokens_saved} tokens`,
+        content: `压缩完成：${result.replacedMessageCount} 条早期消息已压缩为摘要`,
         data: result,
       };
     } catch (error) {

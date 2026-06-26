@@ -30,7 +30,7 @@ import { buildFullSystemPrompt } from "./prompt/prompt-builder.js";
 import type { AgentPromptContext } from "./prompt/types.js";
 import { AgentContextCompressionService } from "./compression/context-compression.js";
 import { createCompactionHook } from "./compression/compaction-hook.js";
-import { createHookRegistry } from "./hooks/index.js";
+import { createHookRegistry, type HookRegistry } from "./hooks/index.js";
 import { createProtocol } from "./protocol/index.js";
 import { RuntimeToolProvider } from "./tools/index.js";
 import { createToolRegistry } from "./tools/registry.js";
@@ -76,6 +76,12 @@ export interface CreateRuntimeOptions {
    * 在构造 toolContext 时后置覆盖，execContext 不得误传这些。
    */
   execContext?: Partial<ToolExecContext>;
+  /**
+   * 消费端 hook 注册表（可选）。传入后内核用它驱动生命周期 hook，compaction 也会挂到它上面；
+   * 消费端可借此注册 tool.before（deny/改入参）、tool.after（改结果）、round.before（注入上下文）等 handler。
+   * 不传则内核内部新建 registry（仅 compaction 使用）。
+   */
+  hooks?: HookRegistry;
 }
 
 export interface RunInput {
@@ -167,7 +173,9 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       const compression = new AgentContextCompressionService({ store, llm: options.llm, profile });
       const budgetTokens = compression.resolveContextBudget();
       const triggerRatio = compression.resolveContextSettings().compressionTriggerRatio;
-      const hooks = createHookRegistry();
+      // 消费端可传入自己的 registry（注册 tool.before/after、round.before 等 handler）；
+      // 不传则内部新建。compaction 始终挂到最终 registry 上。
+      const hooks = options.hooks ?? createHookRegistry();
       hooks.on("round.before", createCompactionHook({
         recompact: async () => {
           const result = await compression.compressIfNeeded({ sessionId, runId, taskId: null, requestId: null, threadKey, childAgentId: parentCallId });

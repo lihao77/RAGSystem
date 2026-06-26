@@ -153,7 +153,8 @@ async function executeSingleToolCall(input: {
 }
 
 /**
- * prepare → 审批编排 → hook.before → tool.call → hook.after/error。
+ * prepare → hook.before（可 deny/改入参）→ 审批编排 → tool.call → hook.after（可改结果）/hook.error。
+ * hook 是智能层（先跑、可改判/改入参），permission 是兜底安全网（对最终入参判定）。
  * 全流程内置，消费端只提供 Tool 实例 + 可选审批端口。
  */
 async function prepareAndExecute(input: {
@@ -174,9 +175,25 @@ async function prepareAndExecute(input: {
   if (!prepareResult.ok) {
     return prepareResult.result;
   }
-  const { prepared } = prepareResult;
+  let prepared = prepareResult.prepared;
 
-  // 2. 审批编排（产出可能含已批准的外部路径，回填到执行 ctx）
+  // 2. hook.before：可 deny（跳过工具）或 modifiedInput（re-prepare 校验后替换）
+  if (opts.hooks) {
+    const hookOut = await opts.hooks.emit("tool.before", { toolName, arguments: prepared.input, ctx: toolContext });
+    throwIfAborted(toolContext.signal, "Agent run aborted");
+    if (hookOut.decision === "deny") {
+      return buildToolExecutionErrorResult(prepared.tool.name, new Error(hookOut.reason ?? `工具 ${prepared.tool.name} 被 hook 拒绝`));
+    }
+    if (hookOut.modifiedInput) {
+      const reprepared = prepareTool({ registry: opts.registry }, prepared.tool.name, hookOut.modifiedInput, toolContext);
+      if (!reprepared.ok) {
+        return reprepared.result;
+      }
+      prepared = reprepared.prepared;
+    }
+  }
+
+  // 3. 审批编排（对最终入参判定；产出可能含已批准的外部路径，回填到执行 ctx）
   const approvalResult = await runToolApproval({ prepared, toolContext, opts });
   throwIfAborted(toolContext.signal, "Agent run aborted");
   if (approvalResult.denied) {
@@ -184,10 +201,7 @@ async function prepareAndExecute(input: {
   }
   const execContext = approvalResult.execContext;
 
-  // 3. hook.before → tool.call → hook.after/error
-  if (opts.hooks) {
-    await opts.hooks.emit("tool.before", { toolName, arguments: toolArguments, ctx: execContext });
-  }
+  // 4. tool.call + hook.after（可改结果）/ hook.error
   return executeToolWithHookError({ prepared, execContext, ...(opts.hooks ? { hooks: opts.hooks } : {}) });
 }
 
@@ -297,7 +311,7 @@ function dedupeStrings(values: string[]): string[] {
   return output;
 }
 
-/** tool.call + hook.after/error 包装。 */
+/** tool.call + hook.after（可改结果）/hook.error 包装。 */
 async function executeToolWithHookError(input: {
   prepared: PreparedTool;
   execContext: ToolExecContext;
@@ -305,14 +319,17 @@ async function executeToolWithHookError(input: {
 }): Promise<ToolExecutionResult> {
   const { prepared, execContext, hooks } = input;
   try {
-    const result = await prepared.tool.call(prepared.input, execContext);
+    let result = await prepared.tool.call(prepared.input, execContext);
     if (hooks && result.success) {
-      await hooks.emit("tool.after", {
+      const hookOut = await hooks.emit("tool.after", {
         toolName: prepared.tool.name,
         arguments: prepared.input,
         result,
         ctx: execContext,
       });
+      if (hookOut.modifiedResult) {
+        result = hookOut.modifiedResult;
+      }
     }
     return result;
   } catch (error) {

@@ -1,16 +1,22 @@
 export { createHookRegistry } from "./registry.js";
 export type {
+  BaseHookOutput,
+  DecisionFields,
+  HookDecision,
   HookEvent,
   HookHandler,
   HookInputMap,
-  HookOutput,
+  HookOutputMap,
   HookRegistry,
+  RoundBeforeOutput,
   RunAfterInput,
   RunBeforeInput,
   RoundAfterInput,
   RoundBeforeInput,
   ToolAfterInput,
+  ToolAfterOutput,
   ToolBeforeInput,
+  ToolBeforeOutput,
   ToolErrorInput,
 } from "./types.js";
 export { EMPTY_HOOK_OUTPUT } from "./types.js";

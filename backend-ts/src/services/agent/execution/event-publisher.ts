@@ -1,7 +1,6 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { Envelope, StateSyncPayload } from "../../../contracts/events.js";
 import type { ExecutionTaskStatus } from "../../../contracts/execution.js";
-import type { ContextCompressionEvent } from "../context-compression/index.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { IConversationTransactionRunner } from "../../../contracts/conversation-store/index.js";
 import type {
@@ -111,32 +110,6 @@ export class AgentExecutionEventPublisher {
       ...(status.run_id ? { run_id: status.run_id } : {}),
       payload: { scope: "run", reason },
     });
-  }
-
-  publishContextCompressionEvent(
-    input: Omit<ExecutionEventContext, "rootCallId" | "parentCallId">,
-    event: ContextCompressionEvent,
-  ): void {
-    const detail = {
-      ...event.data,
-      run_id: input.runId,
-      task_id: input.taskId,
-      request_id: input.requestId,
-      agent_name: input.agent.agent_name,
-    };
-    // run_step 表（API 契约）仍存旧 kind=context 结构；下行事件改为 state_sync(compression)。
-    this.addExecutionStepAndPublish(
-      input.sessionId,
-      input.runId,
-      { kind: "context", phase: event.type === "context.compression_start" ? "compression_start" : "compression_summary", ...detail },
-      {
-        type: "state_sync",
-        session_id: input.sessionId,
-        run_id: input.runId,
-        agent_id: input.agent.agent_name,
-        payload: { category: "compression", detail } satisfies StateSyncPayload,
-      },
-    );
   }
 
   /**
