@@ -118,8 +118,6 @@
     /* Dot Grid Background */
     --dot-color: rgba(255, 255, 255, 0.045);
     --dot-spacing: 24px;
-    --glow-color: rgba(10, 132, 255, 0.04);
-    --glow-size: 220px;
 
     /* Low-transparency surface tokens for tool UIs. */
     --glass-bg: rgba(28, 28, 30, 0.94);
@@ -390,8 +388,6 @@
     /* Dot Grid Background */
     --dot-color: rgba(0, 0, 0, 0.035);
     --dot-spacing: 24px;
-    --glow-color: rgba(0, 122, 255, 0.025);
-    --glow-size: 220px;
 
     /* Glass - Light：保留 token，但收敛为近似实体表面 */
     --glass-bg: rgba(255, 255, 255, 0.96);
