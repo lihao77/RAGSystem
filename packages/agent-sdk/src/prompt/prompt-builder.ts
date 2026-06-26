@@ -2,7 +2,8 @@
  * buildFullSystemPrompt（设计稿 §7，完整版——与 backend-ts 同源）。
  * 只读 profile.behavior.systemPrompt（经 getAgentBaseSystemPrompt），其余 profile 字段（tier/memory 等）不参与
  * prompt 构建——故 profile 类型放宽为 Pick<AgentProfile, "behavior">，让调试/preview 场景无需完整 tier 投影。
- * skills/delegation/background 段消费 AgentPromptContext 里的纯展示数据（消费端算好注入）。
+ * skill / delegation 的可用清单由对应工具（skill 工具、call_agent）自行以 enum + extended_usage 自描述，
+ * 走统一的 tools 段；内核不再持有这两个领域概念。backgroundTasks 仍是内核级开关（裁剪 run_in_background）。
  */
 import type { AgentProfile } from "../types.js";
 import type { ToolInstructionMode } from "../contracts.js";
@@ -10,7 +11,6 @@ import type { AgentPromptContext } from "./types.js";
 import { collectSections, normalizeString } from "./types.js";
 import { prepareToolsForPrompt } from "./tool-format.js";
 import {
-  buildAgentSpecificPromptSections,
   buildDataFileRulesSection,
   buildPromptActionsSection,
   buildPromptDoingTasksSection,
@@ -18,7 +18,6 @@ import {
   buildPromptOutputFormatSection,
   buildPromptPrinciplesSection,
   buildPromptRulesSection,
-  buildPromptSkillsSection,
   buildPromptSystemSection,
   buildPromptToolsSection,
 } from "./sections.js";
@@ -51,8 +50,6 @@ function buildDynamicSystemPrompt(profile: PromptProfile, context: AgentPromptCo
     buildPromptActionsSection(mode),
     getAgentBaseSystemPrompt(profile),
     buildPromptToolsSection(promptTools, mode),
-    buildPromptSkillsSection(context.skills ?? []),
-    ...buildAgentSpecificPromptSections(context.delegatedAgents ?? [], mode),
     buildPromptOutputFormatSection(toolNames, mode),
     buildPromptRulesSection(mode),
     buildDataFileRulesSection(),

@@ -38,7 +38,7 @@ export type { ToolExecutor, ToolExecutorCall, ToolExecContext, ToolWaitRequest, 
 export type { RuntimeToolDefinition, RuntimeToolReturns, RuntimeToolExample } from "./prompt/tool-types.js";
 // Prompt 模块（system prompt 构建——与内核 makeContextPort 同源）
 export { buildFullSystemPrompt, getAgentBaseSystemPrompt } from "./prompt/prompt-builder.js";
-export type { AgentPromptContext, AgentPromptSkill, AgentPromptDelegatedAgent } from "./prompt/types.js";
+export type { AgentPromptContext } from "./prompt/types.js";
 // Preview 模块（调试用：组模型真实收到的请求，不调 LLM）
 export { previewLlmRequest } from "./preview.js";
 export type { PreviewLlmRequestInput, PreviewLlmRequestResult } from "./preview.js";

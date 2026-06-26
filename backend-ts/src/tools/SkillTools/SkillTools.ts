@@ -6,7 +6,6 @@ import { readSkillToolArguments } from "../../services/runtime/runtime-tool-brid
 import {
   ACTIVATE_SKILL_TOOL_NAME,
   EXECUTE_SKILL_SCRIPT_TOOL_NAME,
-  GET_SKILL_INFO_TOOL_NAME,
   LOAD_SKILL_RESOURCE_TOOL_NAME,
 } from "../../services/runtime/runtime-tool-bridge/registry.js";
 import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
@@ -26,7 +25,6 @@ const skillBaseSchema = z.object({
 });
 
 const activateSkillSchema = skillBaseSchema.strict();
-const getSkillInfoSchema = skillBaseSchema.strict();
 const loadSkillResourceSchema = skillBaseSchema.extend({
   resource_file: z.string(),
   resourceFile: z.string().optional(),
@@ -135,36 +133,28 @@ const SKILL_TOOLS: RuntimeToolDefinition[] = [
       },
     },
   },
-  {
-    name: GET_SKILL_INFO_TOOL_NAME,
-    source: "runtime_builtin",
-    category: "skill",
-    riskLevel: "low",
-    allowed_callers: ["direct"],
-    observationPolicy: "inline",
-    description: "Get lightweight Skill metadata without loading full instructions.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["skill_name"],
-      properties: {
-        skill_name: { type: "string", description: "Skill name." },
-        workspace_root: { type: "string", description: "Optional workspace root for workspace Skills." },
-      },
-    },
-  },
 ];
 
 export function createSkillTools(deps: SkillToolDeps): Tool[] {
   const skillTools = deps.skillTools;
   const agent = deps.agent;
-  if (!skillTools || !skillTools.hasVisibleSkills(agent, agentWorkspaceRoot(agent))) {
+  const workspaceRoot = agentWorkspaceRoot(agent);
+  const visibleSkills = skillTools ? skillTools.listVisibleSkills(agent, workspaceRoot) : [];
+  if (!skillTools || !visibleSkills.length) {
     return [];
   }
+  // 把可见 Skill 清单作为 skill 工具的自描述：skill_name 参数 enum + extended_usage 渲染清单。
+  const skillNames = visibleSkills.map((skill) => skill.name);
+  const skillListDescription = formatSkillsSelfDescription(visibleSkills);
+  const withSkillList = (definition: RuntimeToolDefinition): RuntimeToolDefinition => ({
+    ...definition,
+    parameters: injectSkillNameEnum(definition.parameters, skillNames),
+    extended_usage: skillListDescription,
+  });
   const definitionByName = new Map(SKILL_TOOLS.map((definition) => [definition.name, definition]));
   return [
     buildTool({
-      ...metadataFrom(definitionByName.get(ACTIVATE_SKILL_TOOL_NAME)!),
+      ...metadataFrom(withSkillList(definitionByName.get(ACTIVATE_SKILL_TOOL_NAME)!)),
       inputSchema: activateSkillSchema,
       isReadOnly: () => true,
       isConcurrencySafe: () => true,
@@ -183,14 +173,34 @@ export function createSkillTools(deps: SkillToolDeps): Tool[] {
       isConcurrencySafe: () => false,
       call: (input: Record<string, unknown>, context: ToolExecContext) => skillTools.executeSkillScript(readSkillToolArguments(input), context, agent),
     }),
-    buildTool({
-      ...metadataFrom(definitionByName.get(GET_SKILL_INFO_TOOL_NAME)!),
-      inputSchema: getSkillInfoSchema,
-      isReadOnly: () => true,
-      isConcurrencySafe: () => true,
-      call: (input: Record<string, unknown>, context: ToolExecContext) => skillTools.getSkillInfo(readSkillToolArguments(input), context, agent),
-    }),
   ];
+}
+
+/** 给 skill_name 参数补 enum（限定为当前可见 Skill 名），让模型直接看到合法取值。 */
+function injectSkillNameEnum(parameters: Record<string, unknown>, skillNames: string[]): Record<string, unknown> {
+  const properties = isRecord(parameters.properties) ? { ...parameters.properties } : {};
+  const rawSkillName = isRecord(properties.skill_name) ? properties.skill_name : {};
+  const baseDescription = typeof rawSkillName.description === "string" ? rawSkillName.description : "Skill name.";
+  properties.skill_name = {
+    ...rawSkillName,
+    enum: skillNames,
+    description: `${baseDescription} 当前可见 Skill 见下方 extended_usage。`,
+  };
+  return { ...parameters, properties };
+}
+
+/**
+ * 渲染可见 Skill 清单（activate_skill 的 extended_usage）。
+ * 原本由 SDK 内核 formatSkillsDescription 产出，现下沉为 skill 工具自描述。
+ */
+function formatSkillsSelfDescription(skills: { name: string; description: string }[]): string {
+  const lines = ["可用 Skills：", ""];
+  for (const skill of skills) {
+    lines.push(`### Skill: ${skill.name}`);
+    lines.push(`**适用场景**: ${skill.description}`);
+    lines.push("");
+  }
+  return lines.join("\n").trimEnd();
 }
 
 function agentWorkspaceRoot(agent: AgentConfig | null): string | null {

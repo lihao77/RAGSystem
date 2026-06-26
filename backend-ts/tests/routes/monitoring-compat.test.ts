@@ -235,8 +235,11 @@ describe("monitoring compatibility routes", () => {
     expect(systemPrompt).toContain("You are RAGSystem");
     expect(systemPrompt).toContain("## 可直接调用的工具");
     expect(systemPrompt).toContain("request_user_input");
-    expect(systemPrompt).toContain("## 子 Agent 委派");
+    // delegation 不再有独立 section：可委派清单由 call_agent 自描述进 tools 段。
+    expect(systemPrompt).not.toContain("## 子 Agent 委派");
     expect(systemPrompt).toContain("call_agent");
+    expect(systemPrompt).toContain("可委派子 Agent");
+    expect(systemPrompt).toContain("general_agent");
     expect(systemPrompt).toContain("## 输出格式");
     expect(systemPrompt).toContain("## 执行规则");
     expect(systemPrompt).toContain("### 数据文件传递规则");

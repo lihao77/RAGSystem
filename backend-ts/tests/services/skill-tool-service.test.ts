@@ -99,16 +99,6 @@ describe("SkillToolService", () => {
     const context = { sessionId: "s1" };
     const agent = skillAgent(["demo-skill"]);
 
-    expect(service.getSkillInfo({ skillName: "demo-skill" }, context, agent)).toMatchObject({
-      success: true,
-      content: {
-        name: "demo-skill",
-        has_scripts: true,
-      },
-      metadata: {
-        resource_count: 1,
-      },
-    });
     expect(service.activateSkill({ skillName: "demo-skill" }, context, agent)).toMatchObject({
       success: true,
       outputType: "markdown",

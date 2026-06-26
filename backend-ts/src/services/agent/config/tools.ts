@@ -19,7 +19,6 @@ export const CONFIG_MANAGED_TOOL_NAMES = new Set([
   "list_knowledge_collections",
   "activate_skill",
   "load_skill_resource",
-  "get_skill_info",
   "execute_skill_script",
 ]);
 
@@ -65,7 +64,6 @@ function allRuntimeTools(): AvailableToolInfo[] {
     implementedTool("list_knowledge_collections", "List available knowledge base collections", "knowledge", "low"),
     implementedTool("activate_skill", "Activate a Skill and load its main instructions", "skill", "low"),
     implementedTool("load_skill_resource", "Load a Skill additional resource file", "skill", "low"),
-    implementedTool("get_skill_info", "Read lightweight Skill metadata", "skill", "low"),
     implementedTool("execute_skill_script", "Execute a Skill utility script", "skill", "medium"),
   ];
 }

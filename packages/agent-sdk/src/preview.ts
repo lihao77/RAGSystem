@@ -35,7 +35,7 @@ export interface PreviewLlmRequestInput {
 }
 
 export interface PreviewLlmRequestResult {
-  /** 完整 system prompt（buildFullSystemPrompt 产出，含 tools/skills/delegation/background 段）。 */
+  /** 完整 system prompt（buildFullSystemPrompt 产出；skill/delegation 清单由对应工具自描述进 tools 段）。 */
   systemPrompt: string;
   /** 协议说明块（注入到 system message；XML 含 tool_manifest，native 仅阶段标签说明）。 */
   protocolInstruction: string;

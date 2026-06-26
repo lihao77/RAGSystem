@@ -176,7 +176,6 @@ describe("agent config compatibility routes", () => {
       "task_stop",
       "activate_skill",
       "load_skill_resource",
-      "get_skill_info",
       "execute_skill_script",
       "call_agent",
       "list_child_agents",

@@ -178,35 +178,49 @@ describe("agent prompt builder", () => {
     expect(prompt).toContain("### call_agent");
   });
 
-  it("renders delegation guidance when delegated agents are present", () => {
+  it("renders delegation guidance as call_agent self-description in the tools section", () => {
+    // delegation 不再有独立 section：可委派清单与委派语义由 call_agent 工具自描述
+    // （agent_name enum + extended_usage + examples），统一进 ## 可直接调用的工具 段。
     const prompt = buildPrompt(minimalAgent(), {
       tools: [
         {
           name: "call_agent",
           description: "Delegate.",
+          allowed_callers: ["direct"],
           parameters: {
             type: "object",
             required: ["agent_name", "task"],
-            properties: { agent_name: { type: "string" }, task: { type: "string" } },
+            properties: {
+              agent_name: {
+                type: "string",
+                enum: ["plan_agent"],
+                description: "Target child Agent name from the current delegation allowlist.",
+              },
+              task: { type: "string" },
+            },
           },
-        },
-      ],
-      delegatedAgents: [
-        {
-          agent_name: "plan_agent",
-          display_name: "Plan Agent",
-          description: "Plan work.",
-          use_cases: ["plan"],
-          tool_count: 3,
+          extended_usage: [
+            "可委派子 Agent：",
+            "- `plan_agent` (Plan Agent): Plan work.",
+            "  - use_cases: plan",
+          ].join("\n"),
+          examples: [
+            {
+              input: {
+                agent_name: "plan_agent",
+                task: "draft a plan",
+              },
+            },
+          ],
         },
       ],
     });
 
-    expect(prompt).toContain("## 子 Agent 委派");
+    expect(prompt).not.toContain("## 子 Agent 委派");
+    expect(prompt).toContain("### call_agent");
     expect(prompt).toContain("`plan_agent` (Plan Agent): Plan work.");
     expect(prompt).toContain("use_cases: plan");
     expect(prompt).toContain("<tool name=\"call_agent\">");
-    expect(prompt).toContain("<tool name=\"send_message\">");
   });
 });
 

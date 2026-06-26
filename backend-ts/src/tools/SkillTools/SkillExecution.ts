@@ -111,37 +111,15 @@ export class SkillToolService {
   }
 
   hasVisibleSkills(agent: AgentConfig | null, workspaceRoot?: string | null): boolean {
-    return this.resolveVisibleSkills(agent, workspaceRoot ?? resolveAgentWorkspaceRoot(agent)).length > 0;
+    return this.listVisibleSkills(agent, workspaceRoot).length > 0;
   }
 
-  getSkillInfo(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null): ToolExecutionResult {
-    const toolName = "get_skill_info";
-    const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context, agent);
-    const skill = this.findVisibleSkill(input.skillName, agent, context, workspaceRoot);
-    if (!skill) {
-      return errorResult(`Skill '${input.skillName}' 不存在或当前 Agent 无权使用`, toolName, {
-        available_skills: this.loadAllSkills(workspaceRoot).map((item) => item.name),
-      });
-    }
-    return successResult(
-      {
-        name: skill.name,
-        description: skill.description,
-        has_scripts: fs.existsSync(path.join(skill.skillDir, "scripts")),
-        source_type: skill.sourceType,
-        source_label: skill.sourceLabel,
-      },
-      {
-        summary: `Skill '${skill.name}' 信息`,
-        outputType: "json",
-        metadata: {
-          resource_count: this.countSkillResources(skill.skillDir),
-          source_type: skill.sourceType,
-          source_label: skill.sourceLabel,
-        },
-        toolName,
-      },
-    );
+  /**
+   * 当前 Agent 可见的 Skill 列表（含 name/description），供 skill 工具自描述其参数 enum 与
+   * extended_usage 清单——可见性规则与 activate_skill 运行时校验完全一致。
+   */
+  listVisibleSkills(agent: AgentConfig | null, workspaceRoot?: string | null): SkillInfo[] {
+    return this.resolveVisibleSkills(agent, workspaceRoot ?? resolveAgentWorkspaceRoot(agent));
   }
 
   activateSkill(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null): ToolExecutionResult {
@@ -317,22 +295,6 @@ export class SkillToolService {
       }
       return isEntry && skill.sourceType === "workspace";
     });
-  }
-
-  private countSkillResources(skillDir: string): number {
-    const scriptsDir = path.join(skillDir, "scripts");
-    const hasScriptsDir = fs.existsSync(scriptsDir) && fs.statSync(scriptsDir).isDirectory();
-    let count = 0;
-    for (const filePath of walkFiles(skillDir)) {
-      if (path.basename(filePath) === "SKILL.md") {
-        continue;
-      }
-      if (hasScriptsDir && isPathUnder(filePath, scriptsDir)) {
-        continue;
-      }
-      count += 1;
-    }
-    return count;
   }
 
   private async runScript(
@@ -739,23 +701,6 @@ function listSkillDirs(root: string): string[] {
   } catch {
     return [];
   }
-}
-
-function walkFiles(root: string): string[] {
-  const result: string[] = [];
-  try {
-    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-      const filePath = path.join(root, entry.name);
-      if (entry.isDirectory()) {
-        result.push(...walkFiles(filePath));
-      } else if (entry.isFile()) {
-        result.push(filePath);
-      }
-    }
-  } catch {
-    return result;
-  }
-  return result;
 }
 
 function parseJsonStdout(stdout: string): unknown | null {

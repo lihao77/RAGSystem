@@ -127,8 +127,6 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const promptContext = buildAgentPromptContext({
       agent,
       tools: toolDefs,
-      configResolver: options.container.agentConfig,
-      teamName: normalizeString(sessionMetadata.team),
     });
     const toolInstructionMode = resolved.provider ? resolveToolInstructionMode(resolved.provider as ProviderConfig) : "xml";
     const context = sessionId

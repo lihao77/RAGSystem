@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } from "../../../contracts/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
-import type { AgentPromptConfigResolver } from "../prompt-builder/index.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
@@ -43,7 +42,6 @@ export class AgentRunEngine {
    private readonly toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName"> | null,
    private readonly codeExecutionTools: CodeExecutionToolService | null,
    private readonly taskTools: TaskToolService | null,
-   private readonly promptConfigResolver: AgentPromptConfigResolver | null,
    /** 已加载的 provider 列表提供者（投影层解析 tier.provider 引用用）。 */
    private readonly providersProvider: () => ModelProviderConfig[],
    private readonly backgroundTasks: BackgroundTaskService | null,
@@ -280,7 +278,6 @@ export class AgentRunEngine {
           dataRoot: this.dataRoot,
           permissionPolicy: this.permissionPolicy,
           pendingInteractions: this.pendingInteractions,
-          promptConfigResolver: this.promptConfigResolver,
         },
         {
           sessionId: input.sessionId,

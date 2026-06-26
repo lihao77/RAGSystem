@@ -19,7 +19,7 @@ import type { TaskToolService } from "./TaskTools/TaskExecution.js";
 import type { PendingInteractionService } from "../services/runtime/pending-interaction-service.js";
 import { createBashTools } from "./BashTool/BashTool.js";
 import { createCodeExecutionTools } from "./CodeExecutionTool/CodeExecutionTool.js";
-import { createDelegationTools } from "./DelegationTools/DelegationTools.js";
+import { createDelegationTools, type DelegationAgentConfigLookup } from "./DelegationTools/DelegationTools.js";
 import { createDocumentTools } from "./DocumentTools/DocumentTools.js";
 import { createKnowledgeTools } from "./KnowledgeTools/KnowledgeTools.js";
 import { createLocalSearchTools } from "./LocalSearchTools/LocalSearchTools.js";
@@ -42,6 +42,11 @@ export interface BackendToolsDeps {
   codeExecutionTools: CodeExecutionToolService | null;
   skillTools: SkillToolService | null;
   getAgentDelegation: () => DelegationPort | null;
+  /**
+   * agent 配置查找（delegation 工厂解析可委派 agent 展示信息用；结构上与 agentConfig 容器 getConfig 兼容）。
+   * 用于让 call_agent 等工具自描述 allowlist，不提供则 allowlist 仅含 agent_name、无展示文案。
+   */
+  agentConfig?: DelegationAgentConfigLookup | null;
   /** session team（delegation 工具用）。 */
   teamName?: string | null;
 }
@@ -66,6 +71,7 @@ export function createBackendTools(deps: BackendToolsDeps): Tool[] {
       getAgentDelegation: deps.getAgentDelegation,
       agent,
       teamName: deps.teamName ?? null,
+      agentConfig: deps.agentConfig ?? null,
     }),
     ...createMcpTools({ mcp: deps.mcp, agent }),
   ];

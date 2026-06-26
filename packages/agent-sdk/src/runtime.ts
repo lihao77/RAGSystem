@@ -63,9 +63,10 @@ export interface CreateRuntimeOptions {
   /** 后台任务等待回调（消费端注入；不提供则忽略 suggest_wait 信号）。 */
   waitForToolResult?: (request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>;
   /**
-   * prompt 上下文（消费端算好注入）：skills/delegatedAgents/backgroundTasks。
+   * prompt 上下文（消费端算好注入）：backgroundTasks。
    * tools 由内核从 registry 自动填充（per-run 工具集），消费端无需传 tools。
-   * 不注入则 system prompt 不含 skills/delegation/background 段（与历史行为一致）。
+   * skill / delegation 的可用清单由对应工具自身以 enum + extended_usage 自描述，不再经此注入。
+   * 不注入 backgroundTasks 则 run_in_background 参数不被裁剪（与历史行为一致）。
    */
   promptContext?: Omit<AgentPromptContext, "tools">;
   /**
@@ -159,8 +160,6 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       });
       const context: Context = makeContextPort(contextBuilder, profile, toolInstructionMode, {
         tools: registry.listDefinitions(),
-        skills: options.promptContext?.skills,
-        delegatedAgents: options.promptContext?.delegatedAgents,
         backgroundTasks: options.promptContext?.backgroundTasks,
       });
       const refresher: MessageRefresher = { refresh: async () => [] };

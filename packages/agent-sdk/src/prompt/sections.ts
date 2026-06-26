@@ -1,15 +1,14 @@
 /**
  * prompt sections（迁自 backend-ts sections.ts，完整版）。
  * agent.tasks.background 读取改为 backgroundTasks 标志参数（profile 不含 tasks）。
- * skills/delegation section 消费 AgentPromptContext 里的纯展示数据（由消费端算好注入）。
+ * skill / delegation 不再有独立 section：可用清单由对应工具（skill 工具、call_agent）以
+ * enum + extended_usage 自描述，统一进 tools 段；本文件只剩通用规则段。
  */
 import type { RuntimeToolDefinition } from "./tool-types.js";
 import type { ToolInstructionMode } from "../contracts.js";
-import type { AgentPromptDelegatedAgent, AgentPromptSkill } from "./types.js";
 import { collectSections } from "./types.js";
 import {
   formatAllowedCallers,
-  formatSkillsDescription,
   formatToolContract,
   formatToolParameters,
   getAllowedCallers,
@@ -174,71 +173,6 @@ function buildManagedSpaceRules(mode: ToolInstructionMode = "xml"): string {
 - XML 直接调用时，可用属性形式指定目录桶，例如 \`<file_path space="transient">tmp.txt</file_path>\`、\`<file_path space="exports">report.md</file_path>\`
 - JSON 参数调用时，不要传字符串化 XML 标签；应使用 \`file_path_space\`/\`working_dir_space\`
 - \`space\` 只影响相对路径参数的解析根；绝对路径仍只做受管边界校验`;
-}
-
-export function buildPromptSkillsSection(skills: AgentPromptSkill[]): string {
-  if (!skills.length) {
-    return "";
-  }
-  const description = formatSkillsDescription(skills);
-  return `## Skills
-
-${description}`;
-}
-
-export function buildAgentSpecificPromptSections(delegatedAgents: AgentPromptDelegatedAgent[], mode: ToolInstructionMode): string[] {
-  if (!delegatedAgents.length) {
-    return [];
-  }
-  const isNative = mode === "native";
-  const lines = [
-    "## 子 Agent 委派",
-    "",
-    "只有在直接回答或直接工具不足以完成任务时，才委派子 Agent。优先顺序始终是：直答 > direct tool > 单子 Agent > 多 Agent。",
-    "你可以通过 `call_agent` 创建子 Agent，通过 `list_child_agents` 找回已有 child_agent_id，并通过 `send_message` 继续既有子 Agent。",
-    "",
-    "### 委派规则",
-    "- `agent_name` 必须从当前 allowlist 中选择",
-    "- 首次创建子 Agent 用 `call_agent`，已有合适 `child_agent_id` 时优先用 `send_message(...)` 续接",
-    "- `task` 需要写完整上下文、目标与输出要求；只有确实需要目标 Agent 专长或独立上下文时才委派",
-    "- 若一个子 Agent 足以完成任务，就不要拆成多个；子 Agent 已返回足够结果时，主编排器应直接收束",
-    "- 子 Agent 失败后，下一次委派必须改变任务描述、范围、输入或目标；不要原样重发同一委派任务",
-    "",
-    "### 当前可委派子 Agent 列表",
-  ];
-  for (const item of delegatedAgents) {
-    lines.push("");
-    lines.push(`- \`${item.agent_name}\` (${item.display_name || item.agent_name}): ${item.description ?? ""}`);
-    if (item.use_cases !== null && item.use_cases !== undefined && String(item.use_cases).trim()) {
-      lines.push(`  - use_cases: ${String(item.use_cases)}`);
-    }
-  }
-  const exampleAgent = delegatedAgents[0]!.agent_name;
-  const exampleSection = isNative
-    ? `### 示例
-
-创建子 Agent：用 function calling 调用 \`call_agent\`，参数 \`agent_name=${exampleAgent}\`、\`task\`（如“查询2023年广西洪涝灾害受灾人口，需要分市统计”）、\`context_hint\`（如“返回 Markdown 表格，并保留统计口径说明”）。
-
-续接已有子 Agent：用 function calling 调用 \`send_message\`，参数 \`child_agent_id\`（由 \`call_agent\` 返回，取其 \`content.items.0.child_agent_id\`）、\`message\`（如“继续基于上一轮结果补充结论，并输出最终摘要”）。`
-    : `### 示例
-
-创建子 Agent：
-<tool_calls>
-<tool name="call_agent">
-  <agent_name>${exampleAgent}</agent_name>
-  <task>查询2023年广西洪涝灾害受灾人口，需要分市统计</task>
-  <context_hint>返回 Markdown 表格，并保留统计口径说明</context_hint>
-</tool>
-</tool_calls>
-
-续接已有子 Agent：
-<tool_calls>
-<tool name="send_message">
-  <child_agent_id>{result_1.content.items.0.child_agent_id}</child_agent_id>
-  <message>继续基于上一轮结果补充结论，并输出最终摘要</message>
-</tool>
-</tool_calls>`;
-  return [lines.join("\n"), exampleSection];
 }
 
 export function buildPromptOutputFormatSection(toolNames: Set<string>, mode: ToolInstructionMode): string {

@@ -25,4 +25,3 @@ export const LIST_KNOWLEDGE_COLLECTIONS_TOOL_NAME = "list_knowledge_collections"
 export const ACTIVATE_SKILL_TOOL_NAME = "activate_skill";
 export const LOAD_SKILL_RESOURCE_TOOL_NAME = "load_skill_resource";
 export const EXECUTE_SKILL_SCRIPT_TOOL_NAME = "execute_skill_script";
-export const GET_SKILL_INFO_TOOL_NAME = "get_skill_info";

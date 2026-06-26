@@ -30,8 +30,6 @@ import { SdkStoreAdapter } from "./sdk-store-adapter.js";
 import { LlmClientAdapter } from "./llm-client-adapter.js";
 import { SdkPermissionPolicyAdapter } from "./permission-adapter.js";
 import { SdkApprovalInteractionAdapter } from "./approval-interaction-adapter.js";
-import { buildPromptDelegatedAgents, buildPromptSkills } from "../prompt-builder/prompt-context.js";
-import type { AgentPromptConfigResolver } from "../prompt-builder/types.js";
 
 export interface SdkRuntimeAdapterDeps {
   conversationStore: ConversationStore;
@@ -52,8 +50,6 @@ export interface SdkRuntimeAdapterDeps {
   permissionPolicy: PermissionPolicyService;
   /** 审批交互服务（SDK 审批编排阻塞等待端口用）。 */
   pendingInteractions: PendingInteractionService;
-  /** agent 配置解析器（算 promptContext 的 skills/delegatedAgents 用；可空）。 */
-  promptConfigResolver?: AgentPromptConfigResolver | null;
 }
 
 export interface SdkExecuteRunInput {
@@ -115,15 +111,10 @@ export async function executeRunWithSdk(
   });
   const registry: ToolRegistry = createToolRegistry({ tools });
 
-  // 算 promptContext（skills/delegatedAgents/backgroundTasks）；tools 由 SDK 内核从 registry 自动填充。
-  // 与 context-snapshot 同源（buildPromptSkills/buildPromptDelegatedAgents），保证真实 run 的 system prompt
-  // 含完整 tools/skills/delegation/background 段，消除"调试显示完整、内核发出残缺"的漂移。
-  const hasDelegation = tools.some((tool) => tool.name === "call_agent" || tool.name === "list_child_agents" || tool.name === "send_message");
+  // 算 promptContext（仅 backgroundTasks）；tools 由 SDK 内核从 registry 自动填充。
+  // skill / delegation 的可用清单已由对应工具（skill 工具、call_agent）以 enum + extended_usage 自描述，
+  // 统一进 tools 段，不再经 promptContext 注入。
   const promptContext: Omit<AgentPromptContext, "tools"> = {
-    skills: buildPromptSkills(input.agent, deps.promptConfigResolver ?? null),
-    ...(hasDelegation
-      ? { delegatedAgents: buildPromptDelegatedAgents(input.agent, deps.promptConfigResolver ?? null, teamName) }
-      : {}),
     ...(input.agent.tasks.background ? { backgroundTasks: true } : {}),
   };
 

@@ -13,7 +13,6 @@ import type {
 } from "../../../contracts/execution.js";
 import type { AgentContextService } from "../context/index.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
-import type { AgentPromptConfigResolver } from "../prompt-builder/index.js";
 import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
@@ -71,7 +70,6 @@ export interface AgentExecutionServiceParams {
   toolsDeps?: Omit<import("../../../tools/registry.js").BackendToolsDeps, "agent" | "teamName"> | null;
   codeExecutionTools?: import("../../../tools/CodeExecutionTool/CodeExecution.js").CodeExecutionToolService | null;
   taskTools?: TaskToolService | null;
-  promptConfigResolver?: AgentPromptConfigResolver | null;
   backgroundTasks?: BackgroundTaskService | null;
   fileIndex?: IFileIndexStore | null;
   outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">;
@@ -121,7 +119,6 @@ export function createAgentExecutionService(
    params.toolsDeps ?? null,
    params.codeExecutionTools ?? null,
    params.taskTools ?? null,
-   params.promptConfigResolver ?? null,
    params.providersProvider,
    params.backgroundTasks ?? null,
     statusTracker,

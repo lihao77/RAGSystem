@@ -198,6 +198,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     codeExecutionTools,
     skillTools,
     getAgentDelegation: () => agentDelegation,
+    agentConfig,
   };
   const agentExecution = createAgentExecutionService({
     sessions: sessionApplication,
@@ -209,7 +210,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
    toolsDeps,
    codeExecutionTools,
    taskTools,
-   promptConfigResolver: agentConfig,
    providersProvider: () => modelAdapter.listProviders(),
    backgroundTasks,
     fileIndex,

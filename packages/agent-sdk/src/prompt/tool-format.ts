@@ -4,7 +4,6 @@
  */
 import type { ToolInstructionMode } from "../contracts.js";
 import type { RuntimeToolDefinition } from "./tool-types.js";
-import type { AgentPromptSkill } from "./types.js";
 import { isRecord, normalizeString } from "./types.js";
 
 export function prepareToolsForPrompt(tools: RuntimeToolDefinition[], backgroundTasks = false): RuntimeToolDefinition[] {
@@ -28,19 +27,6 @@ function omitBackgroundParameters(tool: RuntimeToolDefinition): RuntimeToolDefin
       properties,
     },
   };
-}
-
-export function formatSkillsDescription(skills: AgentPromptSkill[]): string {
-  if (!skills.length) {
-    return "当前无可用的领域知识。";
-  }
-  const lines = ["可用 Skills：", ""];
-  for (const [index, skill] of skills.entries()) {
-    lines.push(`### Skill ${index + 1}: ${skill.name}`);
-    lines.push(`**适用场景**: ${skill.description ?? ""}`);
-    lines.push("");
-  }
-  return lines.join("\n").trimEnd();
 }
 
 export function formatToolParameters(parameters: Record<string, unknown>): string[] {
