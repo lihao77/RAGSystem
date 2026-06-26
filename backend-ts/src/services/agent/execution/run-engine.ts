@@ -5,7 +5,7 @@ import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } fro
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { AgentPromptConfigResolver } from "../prompt-builder/index.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
-import type { ChatMessage, LlmChatClient } from "../../integrations/llm-chat-client.js";
+import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
@@ -73,7 +73,6 @@ export class AgentRunEngine {
     } | undefined;
     runStartExtra?: Record<string, unknown> | undefined;
     startStepExtra?: Record<string, unknown> | undefined;
-    contextConversation?: ChatMessage[] | undefined;
     stablePrefixFingerprint?: string | null | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
   }): AgentRunStartResult & { promise: Promise<{ content: string; success: boolean }> } {
@@ -157,7 +156,6 @@ export class AgentRunEngine {
       childAgentId: null,
       userMessageId: existingUserMessageId,
       executionKind: input.executionKind,
-      contextConversation: input.contextConversation,
       stablePrefixFingerprint: input.stablePrefixFingerprint,
       finalMetadataExtra: input.finalMetadataExtra,
       onTerminal: (finalStatus) => this.statusTracker.finishStatus(status, finalStatus, startedAt),
@@ -255,7 +253,6 @@ export class AgentRunEngine {
     childAgentId?: string | null;
     userMessageId?: string | undefined;
     executionKind?: string | undefined;
-    contextConversation?: ChatMessage[] | undefined;
     stablePrefixFingerprint?: string | null | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
     // 终态回调（替代直接耦合 statusTracker）：root 由 startRun 壳传绑定 statusTracker 的回调，
@@ -265,16 +262,9 @@ export class AgentRunEngine {
     try {
       const sessionMetadata = this.sessions.getSession(input.sessionId)?.metadata ?? {};
       const executionKind = input.executionKind ?? "agent_stream";
-      const pendingBackgroundNotifications = this.drainBackgroundTaskNotifications(input.sessionId);
-
-      // 构建对话：优先用调用方传入的 contextConversation，否则从 store 历史 + 当前 user 消息组装。
-      const conversation: ChatMessage[] = input.contextConversation
-        ? [...input.contextConversation, ...pendingBackgroundNotifications]
-        : [
-            ...this.conversationStore.getRecentMessages(input.sessionId, undefined, input.threadKey).map(toStructuredChatMessage),
-            { role: "user" as const, content: input.task },
-            ...pendingBackgroundNotifications,
-          ];
+      // 后台任务完成通知落库为 user 消息（系统注入的上下文）；SDK 从 store 读取对话历史时一并看到，
+      // backend 不再组装消息数组传给 SDK。
+      this.persistBackgroundNotifications(input.sessionId, input.threadKey);
 
       const result = await executeRunWithSdk(
        {
@@ -305,8 +295,6 @@ export class AgentRunEngine {
           threadKey: input.threadKey,
           ...(input.parentCallId !== undefined && input.parentCallId !== null ? { parentCallId: input.parentCallId } : {}),
          ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
-          // backend-ts ChatMessage 与 agent-llm ChatMessage 结构同构（exactOptionalPropertyTypes 差异），边界强转。
-          conversation: conversation as unknown as import("@ragsystem/agent-llm").ChatMessage[],
          sessionMetadata,
          ...(input.executionKind !== undefined ? { executionKind } : {}),
           ...(asString(sessionMetadata.user_id) ? { userId: asString(sessionMetadata.user_id) } : {}),
@@ -366,12 +354,21 @@ export class AgentRunEngine {
     }
  }
 
-  private drainBackgroundTaskNotifications(sessionId: string): ChatMessage[] {
+  private persistBackgroundNotifications(sessionId: string, threadKey: string): void {
     const payloads = this.backgroundTasks?.drainPendingNotifications(sessionId) ?? [];
-    return payloads
-      .map((payload) => renderBackgroundNotification(payload))
-      .filter((content) => content.trim())
-      .map((content) => ({ role: "user", content }));
+    for (const payload of payloads) {
+      const content = renderBackgroundNotification(payload);
+      if (!content.trim()) {
+        continue;
+      }
+      this.conversationStore.addMessage({
+        sessionId,
+        role: "user",
+        content,
+        threadKey,
+        metadata: { source: "background_notification" },
+      });
+    }
   }
 }
 
@@ -432,22 +429,3 @@ const emptyToolsDeps: Omit<BackendToolsDeps, "agent" | "teamName"> = {
   skillTools: null,
   getAgentDelegation: () => null,
 };
-
-/** backend-ts MessageInfo → ChatMessage（保留 tool_calls/tool_call_id 结构化字段）。 */
-function toStructuredChatMessage(message: import("../../../contracts/session.js").MessageInfo): ChatMessage {
-  const result: ChatMessage = { role: message.role, content: message.content };
-  if (message.name) {
-    result.name = message.name;
-  }
-  if (message.tool_call_id) {
-    result.tool_call_id = message.tool_call_id;
-  }
-  if (message.tool_calls && message.tool_calls.length > 0) {
-    result.tool_calls = message.tool_calls.map((call) => ({
-      id: call.id,
-      type: "function" as const,
-      function: { name: call.function.name, arguments: call.function.arguments },
-    }));
-  }
-  return result;
-}

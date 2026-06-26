@@ -73,7 +73,6 @@ export interface CreateRuntimeOptions {
 export interface RunInput {
   sessionId: string;
   task: string;
-  messages?: ChatMessage[];
   runId?: string;
   rootCallId?: string;
   threadKey?: string;
@@ -176,7 +175,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
        profile,
        provider: options.provider,
        modelName: options.modelName,
-       conversation: input.messages ?? store.listMessages(sessionId, threadKey).map(toChatMessage),
+       conversation: store.listMessages(sessionId, threadKey).map(toChatMessage),
        sessionId,
        runId,
        taskId: input.task ?? null,
@@ -187,17 +186,19 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
      };
       if (input.signal) { session.signal = input.signal; }
 
-      const toolContext: ToolExecContext = {
-        sessionId,
-        runId,
-        taskId: input.task ?? null,
-        requestId: null,
-        parentCallId,
-        toolCallId: null,
-        round: null,
-        order: null,
-        roundIndex: null,
-      };
+    const toolContext: ToolExecContext = {
+      sessionId,
+      runId,
+      taskId: input.task ?? null,
+      requestId: null,
+      // 工具的 parent 是当前 agent 的 root call（委派工具据此把子 agent lineage 挂到本 agent 下）。
+      // root run 的 parentCallId 为 null，但工具不属于"父 run"，其父是当前 agent —— 故回退 rootCallId。
+      parentCallId: parentCallId ?? rootCallId,
+      toolCallId: null,
+      round: null,
+      order: null,
+      roundIndex: null,
+    };
       if (input.signal) { toolContext.signal = input.signal; }
       const tools = new RuntimeToolProvider({
         registry,
@@ -279,9 +280,9 @@ function makeContextPort(builder: AgentContextBuilder, profile: AgentProfile, mo
   return {
     buildMessages: (ctx: KernelContextType): ChatMessage[] => {
       const systemPrompt = buildFullSystemPrompt(profile, promptContext, mode);
-      // ctx.messages 是内核工作副本（session.conversation 浅拷贝），含当前用户消息 + 历史 + 历轮 assistant/tool 消息。
-      // context builder 从 store 读历史视图（触发 memory prefix / microcompact 等 side effect），
-      // 但基础对话以 ctx.messages 为准——store 历史转换可能丢 tool_call_id 等结构化字段。
+      // store 是对话历史的唯一来源：user 消息由宿主落库、agent 产物由 Dispatcher 落库，
+      // 内核启动时 session.conversation 已从 store 读出（含结构化 tool_calls/tool_call_id 字段），
+      // ctx.messages 是其可变工作副本。context builder 仍触发 memory prefix / microcompact 等 side effect。
       builder.buildContext({ sessionId: ctx.session.sessionId, threadKey: ctx.session.threadKey, microcompact: true });
       const prefix = systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : [];
       return [...prefix, ...ctx.messages];
@@ -290,5 +291,19 @@ function makeContextPort(builder: AgentContextBuilder, profile: AgentProfile, mo
 }
 
 function toChatMessage(m: MessageInfo): ChatMessage {
-  return { role: m.role, content: m.content };
+  const result: ChatMessage = { role: m.role, content: m.content };
+  if (m.name) {
+    result.name = m.name;
+  }
+  if (m.toolCallId) {
+    result.tool_call_id = m.toolCallId;
+  }
+  if (m.toolCalls && m.toolCalls.length > 0) {
+    result.tool_calls = m.toolCalls.map((call) => ({
+      id: call.id,
+      type: "function" as const,
+      function: { name: call.function.name, arguments: call.function.arguments },
+    }));
+  }
+  return result;
 }

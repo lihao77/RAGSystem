@@ -63,8 +63,13 @@ export class SdkStoreAdapter implements RuntimeStore {
   }
 
  createRun(input: CreateRunInput): void {
-   this.runSessions.set(input.id, input.sessionId);
-   // root run（threadKey="root"）：parentCallId 置 null（SDK 把 rootCallId 塞进了 parentCallId）。
+  this.runSessions.set(input.id, input.sessionId);
+   // child run 可能已被消费端预创建（delegation 预置 parent_run_id/child_agent_id 等 SDK 不携带的
+   // 血缘字段）。SDK 的 startRun→createRun 此时幂等跳过，避免 UNIQUE 冲突 + 不覆盖预置血缘。
+   if (this.store.getRun(input.sessionId, input.id)) {
+     return;
+   }
+  // root run（threadKey="root"）：parentCallId 置 null（SDK 把 rootCallId 塞进了 parentCallId）。
    // child run（threadKey="child:*"）：用 SDK 透传的 parentCallId 指向父 agent。
    const isRoot = input.threadKey === "root";
     this.store.createRun(buildBackendCreateRun(input, isRoot));

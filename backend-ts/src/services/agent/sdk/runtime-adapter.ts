@@ -10,7 +10,6 @@
 import { createRuntime, createToolRegistry, prepareTool, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
 import type { AgentPromptContext, Tool, ToolExecContext, ToolExecutionResult, ToolRegistry } from "@ragsystem/agent-sdk";
 import { translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
-import type { ChatMessage } from "@ragsystem/agent-llm";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { LlmChatClient } from "../../integrations/llm-chat-client.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
@@ -70,8 +69,6 @@ export interface SdkExecuteRunInput {
   threadKey: string;
   parentCallId?: string | null;
   childAgentId?: string | null;
-  /** 已准备的会话上下文（含历史 + 当前 user 消息）。 */
-  conversation: ChatMessage[];
   sessionMetadata: Record<string, unknown>;
   userId?: string | null;
   executionKind?: string;
@@ -203,7 +200,6 @@ export async function executeRunWithSdk(
   const handle = runtime.run({
     sessionId: input.sessionId,
     task: input.task,
-    messages: input.conversation,
     runId: input.runId,
     rootCallId: input.rootCallId,
     threadKey: input.threadKey,
