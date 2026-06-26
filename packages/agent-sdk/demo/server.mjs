@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { OpenAiCompatibleClient } from "../../agent-llm/dist/index.js";
-import { createRuntime } from "../dist/index.js";
+import { createRuntime, SqliteRuntimeStore } from "../dist/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.DEMO_PORT ?? 4199;
@@ -154,9 +154,23 @@ function buildProfile(config) {
   };
 }
 
-async function runAgent(config, messages, sessionId, signal, onEvent) {
+async function runAgent(config, messages, task, sessionId, signal, onEvent) {
   const llm = new OpenAiCompatibleClient();
   const profile = buildProfile(config);
+  // SDK 从 store 读取对话历史（唯一来源）。standalone demo 自持 store，先把入参 messages 落库，
+  // 再 createRuntime({ store })，run 只传 task（元数据用途）。
+  const store = new SqliteRuntimeStore({ dataRoot: config.dataRoot });
+  const sid = sessionId || `demo-${Date.now()}`;
+  store.runInTransaction((tx) => {
+    for (const m of messages) {
+      tx.addMessage({
+        sessionId: sid,
+        role: m.role,
+        content: typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? ""),
+        threadKey: "root",
+      });
+    }
+  });
   const runtime = createRuntime({
     llm,
     provider: config.provider,
@@ -164,11 +178,12 @@ async function runAgent(config, messages, sessionId, signal, onEvent) {
     profile,
     toolExecutor,
     dataRoot: config.dataRoot,
+    store,
   });
   try {
     const handle = runtime.run({
-      sessionId: sessionId || `demo-${Date.now()}`,
-      messages,
+      sessionId: sid,
+      task,
       signal,
       threadKey: "root",
     });
@@ -222,7 +237,7 @@ const server = http.createServer(async (req, res) => {
     };
 
     try {
-      await runAgent(config, config.messages ?? [{ role: 'user', content: config.task }], config.sessionId, controller.signal, send);
+      await runAgent(config, config.messages ?? [{ role: 'user', content: config.task }], config.task, config.sessionId, controller.signal, send);
     } catch (err) {
       send({ type: "_error", message: err?.message ?? String(err) });
     } finally {
