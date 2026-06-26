@@ -134,11 +134,13 @@ export function useSessionTaskStatus(deps) {
     }
   };
 
-  const clearExecutionState = () => {
+  const clearExecutionState = ({ resetContextUsage = false } = {}) => {
     deps.clearLlmRetryState();
     sessionTaskInfo.value = null;
     sessionExecutionObservability.value = null;
-    contextUsage.value = { used: 0, max: 0 };
+    // contextUsage 是纯数据快照，切换会话时保留旧值，由 loadContextSnapshot 自然覆盖；
+    // 仅在进入空白会话（无后续快照会到达）时显式重置，避免残留。
+    if (resetContextUsage) contextUsage.value = { used: 0, max: 0 };
   };
 
   const beginOptimisticExecutionState = (sessionId) => {

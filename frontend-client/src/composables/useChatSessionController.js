@@ -255,12 +255,12 @@ export function useChatSessionController(deps) {
       return;
     }
 
-    if (!sessionId && deps.currentSessionId.value) {
-      deps.disconnectSessionWS();
-      deps.invalidateActiveStream();
-      deps.clearExecutionState();
-      deps.isLoading.value = false;
-      deps.currentSessionId.value = null;
+   if (!sessionId && deps.currentSessionId.value) {
+     deps.disconnectSessionWS();
+     deps.invalidateActiveStream();
+      deps.clearExecutionState({ resetContextUsage: true });
+     deps.isLoading.value = false;
+     deps.currentSessionId.value = null;
       deps.sessionFiles.value = [];
       pendingWorkspaceRoot.value = '';
       pendingEntryAgent.value = '';

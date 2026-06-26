@@ -21,27 +21,31 @@
         </component>
       </div>
     </div>
-    <div class="wpe-body-state">
-      <div v-if="!executionView.hasNodes" class="wpe-empty">
-        <span class="wpe-empty-mark" aria-hidden="true"></span>
-        <span>{{ executionView.emptyText }}</span>
-      </div>
-      <div v-else class="wpe-list">
-        <div class="wpe-scroll" ref="listRef">
-          <TransitionGroup name="wpe-node" tag="div" class="wpe-node-stack">
-            <ExecutionTimelineNode
-              v-for="(node, i) in executionView.nodes"
-              :key="timelineNodeKey(node, i)"
-              :node="node"
-              :depth="0"
-              :session-id="sessionId"
-              :focus-key="focusKey"
-              :selected-key="selectedKey"
-              @inspect="selectNode"
-            />
-          </TransitionGroup>
+   <div class="wpe-body-state">
+     <Transition name="wpe-state" mode="out-in">
+        <div v-if="!executionView.hasNodes" class="wpe-empty" key="empty">
+          <span class="wpe-empty-mark" aria-hidden="true"></span>
+          <span>{{ executionView.emptyText }}</span>
         </div>
-      </div>
+        <div v-else class="wpe-list" key="list">
+         <Transition name="wpe-tree-swap" mode="out-in" appear>
+            <div class="wpe-scroll" :key="messageKey" ref="listRef">
+              <TransitionGroup name="wpe-node" tag="div" class="wpe-node-stack">
+                <ExecutionTimelineNode
+                  v-for="(node, i) in executionView.nodes"
+                  :key="timelineNodeKey(node, i)"
+                  :node="node"
+                  :depth="0"
+                  :session-id="sessionId"
+                  :focus-key="focusKey"
+                  :selected-key="selectedKey"
+                  @inspect="selectNode"
+                />
+              </TransitionGroup>
+            </div>
+          </Transition>
+        </div>
+      </Transition>
     </div>
 
     <div class="wpe-inspector-slot" :class="{ 'is-open': selectedNode }">
@@ -62,12 +66,14 @@ const props = defineProps({
   executionTree: { type: Object, default: () => ({ root: null, steps: [] }) },
   running: { type: Boolean, default: false },
   sessionId: { type: String, default: '' },
+  messageKey: { type: String, default: '' },
 })
 
 const listRef = ref(null)
 const selectedNodeKey = ref('')
 let selectionScrollTimer = null
 const nodes = computed(() => buildExecutionTree(props.executionTree))
+
 const flatNodes = computed(() => flattenNodes(nodes.value))
 const focusNode = computed(() => findFocusNode(flatNodes.value))
 const focusKey = computed(() => focusNode.value ? getNodeKey(focusNode.value) : '')
@@ -121,10 +127,10 @@ const executionView = computed(() => {
   }
 
   return {
-    title: '执行过程',
-    hasNodes: total > 0,
+   title: '执行过程',
+   hasNodes: total > 0,
     nodes: nodes.value,
-    summary: total ? formatExecutionSummary(stats.value) : (props.running ? '准备中' : '无记录'),
+   summary: total ? formatExecutionSummary(stats.value) : (props.running ? '准备中' : '无记录'),
     emptyText: props.running ? '等待第一步执行' : '暂无执行过程',
     meta,
   }
@@ -159,10 +165,8 @@ watch(selectedNode, (node) => {
   }
 })
 
-watch(() => props.executionSteps, async () => {
+watch(() => props.messageKey, () => {
   clearSelectedNode()
-  await nextTick()
-  if (listRef.value) listRef.value.scrollTop = 0
 })
 
 function flattenNodes(items = []) {
@@ -545,6 +549,31 @@ button.wpe-chip:hover {
   opacity: 0;
 }
 
+.wpe-tree-swap-enter-active,
+.wpe-tree-swap-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.wpe-state-enter-active,
+.wpe-state-leave-active {
+  transition: opacity 160ms ease;
+}
+
+.wpe-state-enter-from,
+.wpe-state-leave-to {
+  opacity: 0;
+}
+
+.wpe-tree-swap-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.wpe-tree-swap-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
 .wpe-node-enter-active {
   transition: opacity 260ms ease, transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -603,14 +632,20 @@ button.wpe-chip:hover {
   .wpe-list-state-leave-active,
   .wpe-node-enter-active,
   .wpe-node-leave-active,
-  .wpe-node-move,
-  .wpe-inspector-enter-active,
+ .wpe-node-move,
+ .wpe-tree-swap-enter-active,
+ .wpe-tree-swap-leave-active,
+  .wpe-state-enter-active,
+  .wpe-state-leave-active,
+ .wpe-inspector-enter-active,
   .wpe-inspector-leave-active {
     transition-duration: 1ms;
   }
 
   .wpe-list-state-enter-from,
   .wpe-list-state-leave-to,
+  .wpe-tree-swap-enter-from,
+  .wpe-tree-swap-leave-to,
   .wpe-node-enter-from,
   .wpe-node-leave-to {
     transform: none;

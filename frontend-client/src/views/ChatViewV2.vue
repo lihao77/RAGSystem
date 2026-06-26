@@ -135,8 +135,9 @@
       :show-work-panel="visibleWorkPanel"
       :disable-transition="switchingToNewChat"
       :active-run="_activeRun"
-      :current-message="currentRunMessage"
-      :approval-queue="approvalQueue"
+     :current-message="currentRunMessage"
+      :message-key="selectedWorkPanelMessageKey"
+     :approval-queue="approvalQueue"
       :approval-submitting-id="approvalSubmittingId"
       :pending-user-input="pendingUserInput"
       :context-usage="contextUsage"
@@ -583,8 +584,8 @@ const {
 });
 
 // clearExecutionState 需要额外清理 view 级状态
-const clearExecutionState = () => {
-  _clearExecutionStateBase();
+const clearExecutionState = (opts) => {
+  _clearExecutionStateBase(opts);
   resetStreamSessionState();
   resetActiveRun();
   isCompressing.value = false;
@@ -629,7 +630,7 @@ const {
     resetSessionEventCursor,
   },
   runtime: {
-    clearExecutionState: () => clearExecutionState(),
+    clearExecutionState: (...a) => clearExecutionState(...a),
     checkSessionTaskStatus: (...a) => checkSessionTaskStatus(...a),
   },
   ui: {

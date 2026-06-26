@@ -17,11 +17,12 @@
         @select="emit('artifactSelect', $event)"
       />
 
-      <Transition name="wp-content" mode="out-in">
+     <Transition name="wp-content" mode="out-in">
         <WorkPanelExecution
           :execution-tree="executionTree"
           :running="activeRun.active"
           :session-id="sessionId"
+          :message-key="messageKey"
         />
       </Transition>
 
@@ -54,9 +55,10 @@ import WorkPanelUserInput from './WorkPanelUserInput.vue'
 import ArtifactPanel from '../chat/ArtifactPanel.vue'
 
 const props = defineProps({
-  activeRun: { type: Object, required: true },
-  currentMessage: { type: Object, default: null },
-  approvalQueue: { type: Array, default: () => [] },
+ activeRun: { type: Object, required: true },
+ currentMessage: { type: Object, default: null },
+  messageKey: { type: String, default: '' },
+ approvalQueue: { type: Array, default: () => [] },
   approvalSubmittingId: { type: String, default: '' },
   pendingUserInput: { type: Object, default: null },
   contextUsage: { type: Object, default: () => ({ used: 0, max: 0 }) },
