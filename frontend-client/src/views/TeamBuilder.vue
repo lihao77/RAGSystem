@@ -1071,8 +1071,8 @@ onMounted(() => {
   justify-content: flex-end;
 }
 
-@media (max-width: 1100px) {
-  .composition-board {
+ @media (max-width: 1024px) {
+      .composition-board {
     grid-template-columns: 1fr;
   }
 
@@ -1085,8 +1085,8 @@ onMounted(() => {
   }
 }
 
-@media (max-width: 960px) {
-  .summary-grid {
+ @media (max-width: 900px) {
+      .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

@@ -155,6 +155,10 @@
     --spacing-2xl: 48px;
     --spacing-3xl: 64px;
 
+    /* Layout — workbench 双栏布局尺寸（JS 端 useWorkbenchLayout 的 WIDE_BREAKPOINT=1200 与此对齐）*/
+    --workbench-breakpoint: 1200px;
+    --work-panel-width: clamp(360px, 30vw, 430px);
+
     /* Control Dimensions */
     --control-height-sm: 32px;
     --control-height-compact: 38px;

@@ -50,7 +50,6 @@
 }
 
 .chat-main {
-  --work-panel-width: clamp(360px, 30vw, 430px);
   flex: 1;
   display: flex;
   flex-direction: column;

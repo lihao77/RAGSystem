@@ -1,5 +1,6 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 
+// 与 main.css 的 --workbench-breakpoint (1200px) 对齐；改一处记得同步。
 const WIDE_BREAKPOINT = 1200
 
 function getInitialWideScreen() {

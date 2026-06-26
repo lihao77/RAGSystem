@@ -187,7 +187,8 @@ const getPageDepth = (targetRoute) => targetRoute.meta?.depth ?? 0;
 const getPageOrder = (targetRoute) => targetRoute.meta?.pageOrder ?? getPageDepth(targetRoute);
 const getPageRouteKey = (targetRoute) => targetRoute.meta?.pageKey || targetRoute.meta?.mainView || 'chat';
 const sidebarNavItems = [sidebarAdminNavItem];
-const sidebarOverlayBreakpoint = computed(() => isChatRoute.value ? 768 : 900);
+// 侧栏在所有路由下于同一断点（lg 900px）切抽屉/固定，避免切页时行为不一致。
+const sidebarOverlayBreakpoint = 900;
 
 const showToast = (message, actionOrType = null, actionLabel = '重试') => {
   let type = 'error';
@@ -217,7 +218,7 @@ const getChildProps = (childRoute) => {
 };
 
 const checkMobile = () => {
-  isMobile.value = window.innerWidth < sidebarOverlayBreakpoint.value;
+  isMobile.value = window.innerWidth < sidebarOverlayBreakpoint;
   if (!isMobile.value) {
     mobileOpen.value = false;
     document.body.style.overflow = '';
@@ -238,8 +239,6 @@ provide('shellSidebarControl', {
   openMobileSidebar,
   closeMobileSidebar,
 });
-
-watch(sidebarOverlayBreakpoint, checkMobile);
 
 const toggleSidebar = () => {
   if (isMobile.value) {

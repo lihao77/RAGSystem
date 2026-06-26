@@ -1642,8 +1642,8 @@ input[type='number'].form-control { padding-right: 8px; }
   -webkit-backdrop-filter: blur(10px);
 }
 
-@media (max-width: 1100px) {
-  .provider-row-main {
+ @media (max-width: 1024px) {
+      .provider-row-main {
     grid-template-columns: 72px minmax(260px, 1fr) auto;
   }
 }

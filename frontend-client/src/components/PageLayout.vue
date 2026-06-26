@@ -528,8 +528,8 @@ usePointerDownOutside({
 }
 
 
-@media (max-width: 1180px) {
-  .page-header {
+ @media (max-width: 1200px) {
+      .page-header {
     gap: 10px;
   }
 

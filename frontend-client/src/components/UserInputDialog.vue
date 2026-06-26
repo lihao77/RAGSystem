@@ -567,8 +567,8 @@ defineExpose({ show, hide, toggleCollapsed });
 }
 
 /* ── 响应式 ── */
-@media (max-width: 540px) {
-  .input-container { border-radius: 14px; max-width: 100%; }
+ @media (max-width: 480px) {
+      .input-container { border-radius: 14px; max-width: 100%; }
   .input-header, .input-body { padding-inline: 16px; }
   .input-header { align-items: stretch; flex-direction: column; }
   .input-header-action { width: 100%; justify-content: center; }

@@ -1943,8 +1943,8 @@ onUnmounted(() => {
 .tool-desc { color: var(--color-text-secondary); font-size: var(--font-size-sm); margin: 0; }
 
 /* ─── 响应式 ────────────────────────────────────────────── */
-@media (max-width: 1100px) {
-  .summary-grid { grid-template-columns: repeat(2, 1fr); }
+ @media (max-width: 1024px) {
+      .summary-grid { grid-template-columns: repeat(2, 1fr); }
   .server-card {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:

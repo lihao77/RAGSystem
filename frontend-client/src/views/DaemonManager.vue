@@ -1269,8 +1269,8 @@ select.form-ctrl { cursor: pointer; }
 }
 
 /* ── 响应式 ── */
-@media (max-width: 680px) {
-  .stats-grid { grid-template-columns: 1fr 1fr; }
+ @media (max-width: 640px) {
+      .stats-grid { grid-template-columns: 1fr 1fr; }
   .config-grid { grid-template-columns: 1fr; }
   .form-two-col { grid-template-columns: 1fr; }
   .platform-grid { grid-template-columns: 1fr; }
@@ -1280,8 +1280,8 @@ select.form-ctrl { cursor: pointer; }
   .permission-rule-form { grid-template-columns: 1fr; }
   .permission-rule-item { align-items: flex-start; }
 }
-@media (max-width: 400px) {
-  .stats-grid { grid-template-columns: 1fr; }
+ @media (max-width: 360px) {
+      .stats-grid { grid-template-columns: 1fr; }
   .stat-card { padding: var(--spacing-md); }
 }
 </style>
