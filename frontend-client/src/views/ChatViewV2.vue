@@ -1,6 +1,6 @@
 <template>
-  <div class="chat-page-shell">
-    <main class="chat-main" :class="{ 'has-messages': messages.length > 0, 'workbench-layout': visibleWorkPanel, 'is-new-chat': messages.length === 0, 'is-launching-chat': newChatLaunching, 'is-switching-to-new-chat': switchingToNewChat, 'is-restoring-session-scroll': restoringSessionScroll }">
+ <div class="chat-page-shell">
+    <main class="chat-main" :class="chatMainClasses">
     <div class="chat-conversation-column">
       <SessionContextBar
         ref="sessionContextBarRef"
@@ -56,8 +56,8 @@
           </template>
         </ChatMessageList>
         <!-- <div class="input-area-wrapper" :class="{ 'centered': messages.length === 0 }"> -->
-        <div class="bottom-dock" :class="{ 'bottom-dock--new-chat': messages.length === 0, 'bottom-dock--launching': newChatLaunching && messages.length > 0 }">
-          <transition name="scroll-btn-fade">
+        <div class="bottom-dock" :class="{ 'bottom-dock--new-chat': !hasMessages, 'bottom-dock--launching': newChatLaunching && hasMessages }">
+         <transition name="scroll-btn-fade">
             <LiquidGlass v-if="showScrollToBottomButton" :width="40" :height="40" :radius="999"
               extra-filter="blur(2px) contrast(1.15) brightness(1.06) saturate(1.1)"
               class="scroll-to-bottom-btn" @click="onScrollToBottomClick" title="滚动到底部">
@@ -82,8 +82,8 @@
           >
             <template #footerMeta>
               <div class="composer-status-row">
-                <TaskLauncher
-                  v-if="messages.length === 0"
+                 <TaskLauncher
+                  v-if="!hasMessages"
                   v-model:entry-agent="pendingEntryAgent"
                   v-model:workspace-root="pendingWorkspaceRoot"
                   :entry-agent-options="entryAgentOptions"
@@ -425,6 +425,16 @@ const {
 });
 
 const visibleWorkPanel = computed(() => showWorkPanel.value);
+const hasMessages = computed(() => messages.value.length > 0);
+// Layout phase (has-messages/workbench) + transient motion flags on .chat-main,
+// consolidated to a single source of truth. is-new-chat dropped (== !has-messages).
+const chatMainClasses = computed(() => ({
+  'has-messages': hasMessages.value,
+  'workbench-layout': visibleWorkPanel.value,
+  'is-launching-chat': newChatLaunching.value,
+  'is-switching-to-new-chat': switchingToNewChat.value,
+  'is-restoring-session-scroll': restoringSessionScroll.value,
+}));
 
 const {
   invalidateActiveStream, scheduleCommandFallback, clearCommandFallback,

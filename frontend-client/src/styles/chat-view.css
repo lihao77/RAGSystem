@@ -65,7 +65,7 @@
   border-radius: 0;
 }
 
-.chat-main.is-new-chat::before {
+.chat-main:not(.has-messages)::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -74,7 +74,7 @@
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.16);
 }
 
-.chat-main.is-new-chat .chat-conversation-column {
+.chat-main:not(.has-messages) .chat-conversation-column {
   position: relative;
   z-index: 1;
 }
