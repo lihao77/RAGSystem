@@ -1,16 +1,17 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { LlmRequest, LlmResult, LlmClient } from "@ragsystem/agent-llm";
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import { buildTestHarness } from "../helpers/app.js";
+import { mockLlm } from "../helpers/llm-fetch-mock.js";
 
 let app: FastifyInstance | null = null;
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
   if (app) {
     await app.close();
     app = null;
@@ -130,8 +131,8 @@ describe("session message mutation routes", () => {
   });
 
   it("rolls back to a user message, optionally edits it, and starts retry execution", async () => {
-    const chatClient = new FakeChatClient("retried answer");
-    const harness = await buildTestHarness({ llmClient: chatClient });
+    const llm = mockLlm({ contents: ["retried answer"] });
+    const harness = await buildTestHarness();
     app = harness.app;
     await createDefaultChatProvider(app);
 
@@ -179,8 +180,8 @@ describe("session message mutation routes", () => {
 
     await waitFor(() => harness.container.agentExecution.getSessionTaskStatus("retry-session").task_info?.status === "completed");
 
-    expect(chatClient.requests).toHaveLength(1);
-    expect(chatClient.requests[0]?.messages.at(-1)?.content).toContain("new task");
+    expect(llm.requests).toHaveLength(1);
+    expect(((llm.requests[0]?.body?.messages ?? []).at(-1) as { content?: string } | undefined)?.content).toContain("new task");
     const messages = await app.inject({
       method: "GET",
       url: "/api/agent/sessions/retry-session/messages?expand=1",
@@ -337,17 +338,6 @@ describe("session message mutation routes", () => {
     });
   });
 });
-
-class FakeChatClient implements LlmClient {
-  readonly requests: LlmRequest[] = [];
-
-  constructor(private readonly content: string) {}
-
-  async complete(request: LlmRequest): Promise<LlmResult> {
-    this.requests.push(request);
-    return { content: this.content };
-  }
-}
 
 async function createDefaultChatProvider(app: FastifyInstance): Promise<void> {
   const provider = await app.inject({

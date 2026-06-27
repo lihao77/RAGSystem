@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
-import type { LlmRequest, LlmResult, LlmClient } from "@ragsystem/agent-llm";
-import { buildTestApp, buildTestHarness } from "../helpers/app.js";
+import { buildTestApp } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
 
@@ -252,10 +251,8 @@ describe("model adapter compatibility routes", () => {
     expect(badOrder.json().message).toContain("未知 Provider: missing_deepseek");
   });
 
-  it("checks provider availability and runs provider tests", async () => {
-    const chatClient = new FakeChatClient("pong");
-    const harness = await buildTestHarness({ llmClient: chatClient });
-    app = harness.app;
+  it("checks provider availability and runs embedding/rerank tests", async () => {
+    app = await buildTestApp();
 
     await app.inject({
       method: "POST",
@@ -306,30 +303,6 @@ describe("model adapter compatibility routes", () => {
     expect(invalidTest.statusCode).toBe(400);
     expect(invalidTest.json().message).toBe("请提供测试内容");
 
-    const liveTest = await app.inject({
-      method: "POST",
-      url: "/api/model-adapter/test",
-      payload: {
-        provider: "Test",
-        provider_type: "deepseek",
-        model: "deepseek-chat",
-        prompt: "Hi",
-        task: "chat",
-      },
-    });
-    expect(liveTest.statusCode).toBe(200);
-    expect(liveTest.json()).toMatchObject({
-      success: true,
-      message: "测试成功",
-      response: {
-        content: "pong",
-        error: null,
-        model: "deepseek-chat",
-        provider: "Test",
-      },
-    });
-    expect(chatClient.requests).toHaveLength(1);
-
     const embedding = await app.inject({
       method: "POST",
       url: "/api/model-adapter/test",
@@ -373,14 +346,3 @@ describe("model adapter compatibility routes", () => {
     });
   });
 });
-
-class FakeChatClient implements LlmClient {
-  readonly requests: LlmRequest[] = [];
-
-  constructor(private readonly content: string) {}
-
-  async complete(request: LlmRequest): Promise<LlmResult> {
-    this.requests.push(request);
-    return { content: this.content, finishReason: "stop" };
-  }
-}

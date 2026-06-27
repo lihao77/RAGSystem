@@ -1,12 +1,13 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 
-import type { LlmRequest, LlmResult, LlmClient } from "@ragsystem/agent-llm";
 import { buildTestApp, buildTestHarness } from "../helpers/app.js";
+import { mockLlm } from "../helpers/llm-fetch-mock.js";
 
 let app: FastifyInstance | null = null;
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
   if (app) {
     await app.close();
     app = null;
@@ -110,8 +111,8 @@ describe("execution compatibility routes", () => {
   });
 
   it("executes synchronous default and specific-agent requests", async () => {
-    const chatClient = new FakeSequenceChatClient(["sync answer", "specific answer"]);
-    const harness = await buildTestHarness({ llmClient: chatClient });
+    const llm = mockLlm({ contents: ["sync answer", "specific answer"] });
+    const harness = await buildTestHarness();
     app = harness.app;
     await createDefaultChatProvider(app);
 
@@ -159,14 +160,14 @@ describe("execution compatibility routes", () => {
       },
     });
 
-    expect(chatClient.requests).toHaveLength(2);
-    expect(chatClient.requests[0]?.messages.at(-1)?.content).toContain("hello");
-    expect(chatClient.requests[1]?.messages.at(-1)?.content).toContain("hello specific");
+    expect(llm.requests).toHaveLength(2);
+    expect(((llm.requests[0]?.body?.messages ?? []).at(-1) as { content?: string } | undefined)?.content).toContain("hello");
+    expect(((llm.requests[1]?.body?.messages ?? []).at(-1) as { content?: string } | undefined)?.content).toContain("hello specific");
   });
 
   it("executes sequential collaboration and still rejects parallel mode", async () => {
-    const chatClient = new FakeSequenceChatClient(["first", "second"]);
-    const harness = await buildTestHarness({ llmClient: chatClient });
+    const llm = mockLlm({ contents: ["first", "second"] });
+    const harness = await buildTestHarness();
     app = harness.app;
     await createDefaultChatProvider(app);
 
@@ -210,21 +211,6 @@ describe("execution compatibility routes", () => {
     });
   });
 });
-
-class FakeSequenceChatClient implements LlmClient {
-  readonly requests: LlmRequest[] = [];
-
-  constructor(private readonly responses: string[]) {}
-
-  async complete(request: LlmRequest): Promise<LlmResult> {
-    this.requests.push(request);
-    const content = this.responses.shift();
-    if (content === undefined) {
-      throw new Error("missing fake LLM response");
-    }
-    return { content };
-  }
-}
 
 async function createDefaultChatProvider(app: FastifyInstance): Promise<void> {
   const provider = await app.inject({

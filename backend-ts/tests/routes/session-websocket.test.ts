@@ -1,42 +1,18 @@
 import type { FastifyInstance } from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { LlmRequest, LlmClient } from "@ragsystem/agent-llm";
 import { buildTestHarness } from "../helpers/app.js";
+import { mockLlm } from "../helpers/llm-fetch-mock.js";
 
 let app: FastifyInstance | null = null;
-const heldClients: HoldableChatClient[] = [];
 
 afterEach(async () => {
-  for (const client of heldClients.splice(0)) {
-    client.release();
-  }
+  vi.unstubAllGlobals();
   if (app) {
     await app.close();
     app = null;
   }
 });
-
-class HoldableChatClient implements LlmClient {
-  readonly requests: LlmRequest[] = [];
-  private releaseCurrent: (() => void) | null = null;
-
-  async complete(request: LlmRequest) {
-    this.requests.push(request);
-    await new Promise<void>((resolve) => {
-      this.releaseCurrent = resolve;
-    });
-    if (request.signal?.aborted) {
-      throw new Error("aborted");
-    }
-    return { content: "held answer" };
-  }
-
-  release(): void {
-    this.releaseCurrent?.();
-    this.releaseCurrent = null;
-  }
-}
 
 describe("session websocket route", () => {
   it("does not send an empty reconnect envelope for idle sessions", async () => {
@@ -54,9 +30,9 @@ describe("session websocket route", () => {
   });
 
   it("replays only the current active run history with monotonic seq", async () => {
-    const chatClient = new HoldableChatClient();
-    heldClients.push(chatClient);
-    const harness = await buildTestHarness({ llmClient: chatClient });
+    const llm = mockLlm({ contents: ["held answer"] });
+    llm.hold();
+    const harness = await buildTestHarness();
     app = harness.app;
 
     await createDefaultChatProvider(app);
@@ -80,7 +56,7 @@ describe("session websocket route", () => {
     const runId = started.json().data.run_id;
     expect(runId).toEqual(expect.any(String));
 
-    await waitFor(() => chatClient.requests.length === 1);
+    await waitFor(() => llm.requests.length === 1);
     // 手动注入一条当前 run 的 stale approval(interaction, required)：未在 pendingInteractions
     // 注册表里，重放过滤（isPendingInteractionReplayEvent）会排除，避免前端重复弹窗。
     harness.container.clientEvents.publish("ws-active-session", {
@@ -127,14 +103,14 @@ describe("session websocket route", () => {
     } finally {
       client.ws.terminate();
       await harness.container.agentExecution.stopSession("ws-active-session");
-      chatClient.release();
+      llm.release();
     }
   });
 
   it("sends a run_started envelope and reconnect frames when a connected session starts a run", async () => {
-    const chatClient = new HoldableChatClient();
-    heldClients.push(chatClient);
-    const harness = await buildTestHarness({ llmClient: chatClient });
+    const llm = mockLlm({ contents: ["held answer"] });
+    llm.hold();
+    const harness = await buildTestHarness();
     app = harness.app;
 
     await createDefaultChatProvider(app);
@@ -183,7 +159,7 @@ describe("session websocket route", () => {
     } finally {
       client.ws.terminate();
       await harness.container.agentExecution.stopSession("ws-live-bind-session");
-      chatClient.release();
+      llm.release();
     }
   });
 

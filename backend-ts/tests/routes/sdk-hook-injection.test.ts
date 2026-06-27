@@ -1,26 +1,18 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 
-import type { LlmClient, LlmRequest, LlmResult } from "@ragsystem/agent-llm";
 import { buildTestHarness } from "../helpers/app.js";
+import { mockLlm } from "../helpers/llm-fetch-mock.js";
 
 let app: FastifyInstance | null = null;
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
   if (app) {
     await app.close();
     app = null;
   }
 });
-
-class FakeChatClient implements LlmClient {
-  readonly requests: LlmRequest[] = [];
-  constructor(private readonly content = "ok") {}
-  async complete(request: LlmRequest): Promise<LlmResult> {
-    this.requests.push(request);
-    return { content: this.content };
-  }
-}
 
 async function createDefaultChatProvider(app: FastifyInstance): Promise<void> {
   const res = await app.inject({
@@ -42,10 +34,9 @@ async function waitFor(fn: () => boolean, timeoutMs = 4000): Promise<void> {
 
 describe("hook 透传到 backend（round.before 注入）", () => {
   it("backend 注册的 round.before hook 注入 additionalContext，进入 LLM 请求", async () => {
-    const chatClient = new FakeChatClient("done");
+    const llm = mockLlm({ contents: ["done"] });
     const INJECT_MARKER = "<hook-injected-context>HOOK_CONTEXT_BODY</hook-injected-context>";
     const harness = await buildTestHarness({
-      llmClient: chatClient,
       hooks: (registry) => {
         registry.on("round.before", () => ({ additionalContext: INJECT_MARKER }));
       },
@@ -66,8 +57,8 @@ describe("hook 透传到 backend（round.before 注入）", () => {
       () => harness.container.agentExecution.getSessionTaskStatus("hook-inject-session").task_info?.status === "completed",
     );
 
-    expect(chatClient.requests.length).toBeGreaterThanOrEqual(1);
-    const requestMessages = chatClient.requests[0]!.messages;
+    expect(llm.requests.length).toBeGreaterThanOrEqual(1);
+    const requestMessages = (llm.requests[0]!.body?.messages ?? []) as Array<{ content?: string }>;
     const injected = requestMessages.some((message) => typeof message.content === "string" && message.content.includes(INJECT_MARKER));
     expect(injected).toBe(true);
   });

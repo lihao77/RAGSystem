@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
@@ -8,25 +8,22 @@ import {
 } from "../../src/services/agent/execution/index.js";
 import { AgentSessionApplication } from "../../src/services/sessions/index.js";
 import os from "node:os";
-import type {
-  LlmRequest,
-  LlmResult,
-  LlmStreamHandler,
-  LlmClient,
-} from "@ragsystem/agent-llm";
-import { RuntimeAbortError } from "@ragsystem/agent-protocol";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
+import { mockLlm } from "../helpers/llm-fetch-mock.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import type { RuntimeExecutionConfigResolver } from "../../src/services/agent/execution/runtime-core-service.js";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 type RuntimeMode = "ok" | "abort" | "fail";
 
 interface ServiceHarness {
   service: AgentExecutionService;
   store: ConversationStore;
-  requests: LlmRequest[];
   errors: Array<Record<string, unknown>>;
 }
 
@@ -119,35 +116,6 @@ function runtimeCoreStub(agent: AgentConfig, ready: boolean): RuntimeExecutionCo
   } as RuntimeExecutionConfigResolver;
 }
 
-class FakeChatClient implements LlmClient {
-  readonly requests: LlmRequest[] = [];
-
-  constructor(private readonly mode: RuntimeMode, private readonly content: string) {}
-
-  async complete(): Promise<{ content: string }> {
-    throw new Error("complete should not be called");
-  }
-
-  async stream(request: LlmRequest, onChunk: LlmStreamHandler) {
-    this.requests.push(request);
-    if (this.mode === "fail") {
-      throw new Error("run-failed");
-    }
-    if (this.mode === "abort") {
-      return new Promise<LlmResult>((_, reject) => {
-        const rejectAbort = (): void => reject(new RuntimeAbortError("aborted"));
-        if (request.signal?.aborted) {
-          rejectAbort();
-          return;
-        }
-        request.signal?.addEventListener("abort", rejectAbort, { once: true });
-      });
-    }
-    await onChunk({ content: this.content });
-    return { content: this.content };
-  }
-}
-
 function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: boolean } = {}): ServiceHarness {
   const mode = opts.mode ?? "ok";
   const ready = opts.ready ?? true;
@@ -161,12 +129,11 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
   const logger: AgentExecutionLogger | null = opts.logger
     ? { error: (bindings, message) => errors.push({ ...bindings, message }) }
     : null;
-  const client = new FakeChatClient(mode, "the answer");
+  mockLlm({ mode, contents: ["the answer"] });
   const service = createAgentExecutionService({
     sessions,
     conversationStore: store,
     runtimeCore: runtimeCoreStub(agent, ready),
-    llmClient: client,
     dataRoot: os.tmpdir(),
    outboxDispatcher: dispatcher,
    providersProvider: () => [
@@ -183,7 +150,7 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
    clientEvents,
     logger: logger ?? null,
   });
-  return { service, store, requests: client.requests, errors };
+  return { service, store, errors };
 }
 
 const WAIT = { timeout: 4000, interval: 20 };
