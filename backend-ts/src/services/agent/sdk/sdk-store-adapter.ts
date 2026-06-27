@@ -198,7 +198,7 @@ function buildBackendCreateRun(
 // ────────────────────────────── 字段大小写映射 ──────────────────────────────
 
 /** backend-ts MessageInfo（snake_case）→ SDK MessageInfo（camelCase）。 */
-function toSdkMessageInfo(message: BackendMessageInfo): SdkMessageInfo {
+export function toSdkMessageInfo(message: BackendMessageInfo): SdkMessageInfo {
   const info: SdkMessageInfo = {
     id: message.id,
     seq: message.seq,

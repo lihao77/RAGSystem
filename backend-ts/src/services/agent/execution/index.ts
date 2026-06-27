@@ -81,6 +81,8 @@ export interface AgentExecutionServiceParams {
  pendingInteractions: PendingInteractionService;
  /** 消费端 hook 注册回调（可选）；透传 SDK，让 backend 注册 tool.before/after、round.before 等 handler。 */
  hooks?: (registry: HookRegistry) => void;
+ /** microcompact 缓存 TTL（秒）——透传 createRuntime，与 snapshot 路径同源（systemConfig 单一来源）。 */
+ microcompactTtlSeconds?: number;
  logger?: AgentExecutionLogger | null | undefined;
 }
 
@@ -132,6 +134,7 @@ export function createAgentExecutionService(
     params.pendingInteractions,
     params.logger ?? null,
     params.hooks ?? null,
+    params.microcompactTtlSeconds,
   );
   const launchers = createLaunchers({
     sessions: params.sessions,

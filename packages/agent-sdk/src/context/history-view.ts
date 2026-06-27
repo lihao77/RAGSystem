@@ -90,15 +90,29 @@ export function messagesToConversation(messages: MessageInfo[]): ChatMessage[] {
       answeredToolCallIds.add(message.toolCallId);
     }
   }
-  const conversation: ChatMessage[] = [];
-  for (const message of messages) {
-    if (message.role !== "user" && message.role !== "assistant" && message.role !== "system" && message.role !== "tool") {
-      continue;
-    }
-    conversation.push({ role: message.role, content: message.content });
+ const conversation: ChatMessage[] = [];
+ for (const message of messages) {
+   if (message.role !== "user" && message.role !== "assistant" && message.role !== "system" && message.role !== "tool") {
+     continue;
+   }
+   const entry: ChatMessage = { role: message.role, content: message.content };
+   if (message.role === "tool" && message.toolCallId) {
+     entry.tool_call_id = message.toolCallId;
+     if (message.name) {
+       entry.name = message.name;
+     }
+   }
     if (message.role === "assistant" && message.toolCalls && message.toolCalls.length > 0) {
-      for (const toolCall of message.toolCalls) {
-        if (toolCall.id && !answeredToolCallIds.has(toolCall.id)) {
+      entry.tool_calls = message.toolCalls.map((call) => ({
+        id: call.id,
+        type: "function" as const,
+        function: { name: call.function.name, arguments: call.function.arguments },
+      }));
+    }
+   conversation.push(entry);
+   if (message.role === "assistant" && message.toolCalls && message.toolCalls.length > 0) {
+     for (const toolCall of message.toolCalls) {
+       if (toolCall.id && !answeredToolCallIds.has(toolCall.id)) {
           conversation.push({
             role: "tool",
             tool_call_id: toolCall.id,

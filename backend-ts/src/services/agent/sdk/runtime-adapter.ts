@@ -7,7 +7,7 @@
  * 避免 SDK 与 backend-ts 双写 message/run_step）、terminal 补 run:end/final step + 终态 envelope
  *（final assistant 消息由 SDK Dispatcher.finalize 已写，此处只查库取其 id/seq 供 message_saved）。
  */
-import { createRuntime, createToolRegistry, prepareTool, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
+import { createRuntime, createToolRegistry, prepareTool, type CreateRuntimeOptions, type SessionMetadataPort } from "@ragsystem/agent-sdk";
 import type { AgentPromptContext, Tool, ToolExecContext, ToolExecutionResult, ToolRegistry } from "@ragsystem/agent-sdk";
 import { translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
@@ -26,7 +26,6 @@ import { createBackendTools } from "../../../tools/registry.js";
 import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/CodeExecution.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
-import { getDefaultTier } from "./projection.js";
 import { SdkStoreAdapter } from "./sdk-store-adapter.js";
 import { SdkPermissionPolicyAdapter } from "./permission-adapter.js";
 import { SdkApprovalInteractionAdapter } from "./approval-interaction-adapter.js";
@@ -52,6 +51,8 @@ export interface SdkRuntimeAdapterDeps {
   pendingInteractions: PendingInteractionService;
   /** 消费端 hook 注册回调（可选）；透传给 createRuntime，让 backend 注册 tool.before/after、round.before 等 handler。 */
   hooks?: (registry: HookRegistry) => void;
+  /** microcompact 缓存 TTL（秒）；透传 createRuntime，与 snapshot 路径同源（systemConfig 单一来源）。 */
+  microcompactTtlSeconds?: number;
 }
 
 export interface SdkExecuteRunInput {
@@ -100,8 +101,16 @@ export async function executeRunWithSdk(
     providers: deps.providers,
     ...(input.selectedLlm !== undefined ? { selectedLlm: input.selectedLlm } : {}),
   });
-  const defaultTier = getDefaultTier(profile.llmTiers);
   const storeAdapter = new SdkStoreAdapter({ conversationStore: deps.conversationStore });
+  // session metadata 端口：委托真实 ConversationStore，让 memory 源能读到 team/workspace_root，
+  // 解析出 team/agent/workspace scope（否则只 session scope 存活，其余静默丢弃）。
+  const sessionMetadata: SessionMetadataPort = {
+    getSession: (sessionId) => {
+      const session = deps.conversationStore.getSession(sessionId);
+      return session ? { metadata: session.metadata ?? {} } : null;
+    },
+    updateSessionMetadata: (sessionId, patch) => deps.conversationStore.updateSessionMetadata(sessionId, patch),
+  };
 
   // per-run 构建工具集合：各工厂闭包绑定 agent，返回 SDK Tool[]
   const teamName = asString(input.sessionMetadata.team);
@@ -153,21 +162,20 @@ export async function executeRunWithSdk(
   // 后台任务等待回调（task_output 等用）
   const waitForToolResult = deps.taskTools
     ? (request: import("@ragsystem/agent-sdk").ToolWaitRequest, ctx: ToolExecContext) =>
-        deps.taskTools!.waitForBackgroundTask({
-          taskId: request.backgroundTaskId,
-          ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
-          ...(ctx.signal ? { signal: ctx.signal } : {}),
-        })
+      deps.taskTools!.waitForBackgroundTask({
+        taskId: request.backgroundTaskId,
+        ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
+        ...(ctx.signal ? { signal: ctx.signal } : {}),
+      })
     : undefined;
 
   const runtimeOpts: CreateRuntimeOptions = {
     llm: deps.llmClient,
-    provider: defaultTier.provider,
-    modelName: defaultTier.modelName,
     profile,
     tools: registry,
     dataRoot: deps.dataRoot,
     store: storeAdapter,
+    sessionMetadata,
     permissionPolicy: new SdkPermissionPolicyAdapter({ service: deps.permissionPolicy }),
     approvalInteraction: new SdkApprovalInteractionAdapter({
       service: deps.pendingInteractions,
@@ -175,6 +183,7 @@ export async function executeRunWithSdk(
     }),
     promptContext,
     execContext: baseExecCtx,
+    ...(deps.microcompactTtlSeconds !== undefined ? { microcompactTtlSeconds: deps.microcompactTtlSeconds } : {}),
     ...(deps.hooks ? { hooks: deps.hooks } : {}),
     ...(waitForToolResult ? { waitForToolResult } : {}),
   };

@@ -64,14 +64,6 @@ export function projectAgentProfile(input: ProjectionInput): AgentProfile {
  * 取 default 档已内联的 provider + modelName —— createRuntime 的顶层 provider/modelName。
  * 投影保证 tiers.default 恒在（projectAgentProfile 已抛错守卫）。
  */
-export function getDefaultTier(tiers: TierMap): { provider: ProviderConfig; modelName: string } {
-  const def = tiers.default;
-  if (!def) {
-    throw new Error("AgentProfile.llmTiers.default missing（投影契约违反）");
-  }
-  return { provider: def.provider, modelName: def.modelName };
-}
-
 // ────────────────────────────── tier 表解析 ──────────────────────────────
 
 function resolveTierMap(input: ProjectionInput): TierMap {
@@ -221,7 +213,11 @@ function resolveCompressionBudget(behavior: Record<string, unknown> | null): Com
   };
 }
 
-function resolveMemory(agent: AgentConfig): MemoryConfig {
+/**
+ * 投影 agent.memory → SDK MemoryConfig（snake → camel）。
+ * snapshot 路径装配 SDK MemoryIndexContextSource 时用（无需完整 profile/tier 解析）。
+ */
+export function projectMemory(agent: AgentConfig): MemoryConfig {
   const memory = agent.memory;
   return {
     autoInject: memory.auto_inject,
@@ -229,6 +225,10 @@ function resolveMemory(agent: AgentConfig): MemoryConfig {
     writeScopes: memory.write_scopes,
     archiveScopes: memory.archive_scopes,
   };
+}
+
+function resolveMemory(agent: AgentConfig): MemoryConfig {
+  return projectMemory(agent);
 }
 
 /** 从 custom_params 透传副本中移除 behavior（已单独投影到 profile.behavior）。 */

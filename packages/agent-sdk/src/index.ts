@@ -14,8 +14,11 @@ export { Dispatcher } from "./dispatcher.js";
 export type { DispatcherRunContext } from "./dispatcher.js";
 export { SqliteRuntimeStore } from "./store/sqlite-store.js";
 export type { SqliteStoreOptions, StoreDb } from "./store/sqlite-store.js";
-export { AgentContextBuilder } from "./context/context-builder.js";
-export { MemoryStore } from "./memory/memory-store.js";
+// Context 组装原语 + 端口（消费端 snapshot/调试与 createRuntime run 路径同源，单一实现，消除 backend 平行组装）
+export { AgentContextBuilder, RecentMessagesContextSource, EmptyMemoryContextSource, filterHistoryMessages, resolveCompressionView, resolveHistoryView, messagesToConversation } from "./context/index.js";
+export type { AgentContextBuilderOptions, AgentContext, AgentContextRequest, AgentContextSource, AgentContextContribution, ResolvedAgentContextRequest, ConversationHistoryPort, SessionMetadataPort } from "./context/types.js";
+export { MemoryStore, getWorkspaceMemoryKey, MemoryIndexContextSource } from "./memory/index.js";
+export type { MemoryIndexContextSourceOptions } from "./memory/index.js";
 export { AgentContextCompressionService } from "./compression/context-compression.js";
 export { compactSession } from "./compression/compact-session.js";
 export type { CompactSessionInput, CompactSessionResult } from "./compression/compact-session.js";

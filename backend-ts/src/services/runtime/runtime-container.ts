@@ -2,11 +2,6 @@ import { createAgentExecutionService, type AgentExecutionService } from "../agen
 import type { AgentExecutionLogger } from "../agent/execution/index.js";
 import { AgentContextService } from "../agent/context/index.js";
 import { AgentDelegationService } from "../agent/delegation/index.js";
-import {
-  AgentContextBuilder,
-  MemoryIndexContextSource,
-  RecentMessagesContextSource,
-} from "../agent/context-builder/index.js";
 import os from "node:os";
 import path from "node:path";
 import { BackgroundTaskService } from "./background-task-service.js";
@@ -172,15 +167,16 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
   const memoryConfig = systemConfig.getMemoryConfig();
-  const agentRuntimeContextBuilder = new AgentContextBuilder([
-    new MemoryIndexContextSource(conversationStore, {
-      memoryStore,
-      indexMaxLines: memoryConfig.index_max_lines,
-      indexMaxChars: memoryConfig.index_max_chars,
-    }),
-    new RecentMessagesContextSource(conversationStore),
-  ], { systemConfig });
-  const agentContextService = new AgentContextService(agentRuntimeContextBuilder, systemConfig);
+  const microcompactTtlSeconds = systemConfig.getMicrocompactTtlSeconds();
+  // snapshot 与 run（createRuntime）同源：SDK AgentContextBuilder + memory/recent sources，
+  // TTL 经 systemConfig 单一来源注入两条路径。backend 不再组装平行 context-builder。
+  const agentContextService = new AgentContextService(
+    conversationStore,
+    systemConfig,
+    memoryConfig,
+    dataRoot,
+    microcompactTtlSeconds,
+  );
   const agentDelegation = new AgentDelegationService(
     conversationStore,
     runtimeCore,
@@ -218,6 +214,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     permissionPolicy,
     pendingInteractions,
     logger: options.logger,
+    microcompactTtlSeconds,
     ...(options.hooks ? { hooks: options.hooks } : {}),
   });
   agentDelegation.setRunEngine(() => agentExecution.runEngine);

@@ -25,7 +25,7 @@ import { Dispatcher, type DispatcherRunContext } from "./dispatcher.js";
 import { SqliteRuntimeStore } from "./store/sqlite-store.js";
 import type { AgentProfile, MessageInfo } from "./types.js";
 import { AgentContextBuilder, type AgentContextSource, type SessionMetadataPort, type ConversationHistoryPort } from "./context/index.js";
-import { RecentMessagesContextSource, EmptyMemoryContextSource } from "./context/index.js";
+import { RecentMessagesContextSource, EmptyMemoryContextSource, filterHistoryMessages } from "./context/index.js";
 import { MemoryIndexContextSource } from "./memory/index.js";
 import { buildFullSystemPrompt } from "./prompt/prompt-builder.js";
 import type { AgentPromptContext } from "./prompt/types.js";
@@ -40,8 +40,6 @@ import type { ContextUsageProvider } from "./kernel.js";
 
 export interface CreateRuntimeOptions {
   llm: LlmClient;
-  provider: AgentProfile["llmTiers"][string]["provider"];
-  modelName: string;
   profile: AgentProfile;
   /**
    * 工具注册表或工具实例数组。
@@ -57,6 +55,12 @@ export interface CreateRuntimeOptions {
   sessionMetadata?: SessionMetadataPort;
   /** 自定义 context sources（默认 recent_messages + memory_index）。 */
   contextSources?: AgentContextSource[];
+  /**
+   * microcompact 缓存 TTL（秒）：recent-messages source 据此判断旧 tool 结果的清理视图是否过期。
+   * 不注入则用默认（DEFAULT_MICROCOMPACT_TTL_SECONDS=600）。消费端从 systemConfig 算好传入，
+   * 与 snapshot 路径同源，避免 run/snapshot 分叉。
+   */
+  microcompactTtlSeconds?: number;
   /** 审批策略端口（可选；不注入即全部 allow）。 */
   permissionPolicy?: PermissionPolicy;
   /** 审批交互端口（可选；permissionPolicy 返回 ask 时阻塞等待）。 */
@@ -127,6 +131,10 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
     ? createToolRegistry({ tools: options.tools })
     : options.tools;
 
+  // default tier 内部自取：provider/modelName 已在 profile.llmTiers.default（投影算死），消费端无需再传。
+  const defaultTier = profile.llmTiers.default;
+  if (!defaultTier) { throw new Error("AgentProfile.llmTiers.default missing（投影契约违反：default 档必填）"); }
+
   return {
     run: (input: RunInput): RunHandle => {
       const runId = input.runId ?? randomUUID();
@@ -140,7 +148,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       };
       const metadataPort = options.sessionMetadata ?? makeNoopSessionMetadata();
       const sources = options.contextSources ?? buildDefaultSources(historyPort, metadataPort, profile, dataRoot);
-      const contextBuilder = new AgentContextBuilder(sources);
+      const contextBuilder = new AgentContextBuilder(sources, options.microcompactTtlSeconds !== undefined ? { microcompactTtlSeconds: options.microcompactTtlSeconds } : {});
 
     const dispatcherCtx: DispatcherRunContext = {
       sessionId,
@@ -161,7 +169,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       dispatcher.startRun();
 
       const { protocol, toolInstructionMode } = createProtocol({
-        provider: options.provider,
+        provider: defaultTier.provider,
         llm: options.llm,
         events: dispatcher,
         getTools: () => registry.listDefinitions(),
@@ -193,11 +201,11 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       }
       options.hooks?.(hooks);
 
-     const session: RuntimeSession = {
-       profile,
-       provider: options.provider,
-       modelName: options.modelName,
-       conversation: store.listMessages(sessionId, threadKey).map(toChatMessage),
+    const session: RuntimeSession = {
+      profile,
+     provider: defaultTier.provider,
+     modelName: defaultTier.modelName,
+     conversation: filterHistoryMessages(store.listMessages(sessionId, threadKey)).map(toChatMessage),
        sessionId,
        runId,
        taskId: input.task ?? null,
@@ -283,8 +291,10 @@ function buildDefaultSources(historyPort: ConversationHistoryPort, metadataPort:
   const memoryEnabled = profile.memory.allowedScopes.length > 0 || profile.memory.writeScopes.length > 0 || profile.memory.archiveScopes.length > 0;
   const memOpts: import("./memory/memory-index-source.js").MemoryIndexContextSourceOptions = {};
   if (dataRoot) { memOpts.dataRoot = dataRoot; }
-  const memory = memoryEnabled ? new MemoryIndexContextSource(metadataPort, profile, memOpts) : new EmptyMemoryContextSource();
-  return [recent, memory];
+  const memory = memoryEnabled ? new MemoryIndexContextSource(metadataPort, profile.memory, profile.agentName, memOpts) : new EmptyMemoryContextSource();
+  // 顺序：memory 在前——它写 stablePrefixFingerprint，recent 在后读它做 microcompact 缓存判定。
+  // 输出顺序也正确：memory prefix（system 段）在历史消息之前。
+  return [memory, recent];
 }
 
 /**
@@ -365,12 +375,12 @@ function makeContextPort(builder: AgentContextBuilder, profile: AgentProfile, mo
   return {
     buildMessages: (ctx: KernelContextType): ChatMessage[] => {
       const systemPrompt = buildFullSystemPrompt(profile, promptContext, mode);
-      // store 是对话历史的唯一来源：user 消息由宿主落库、agent 产物由 Dispatcher 落库，
-      // 内核启动时 session.conversation 已从 store 读出（含结构化 tool_calls/tool_call_id 字段），
-      // ctx.messages 是其可变工作副本。context builder 仍触发 memory prefix / microcompact 等 side effect。
-      builder.buildContext({ sessionId: ctx.session.sessionId, threadKey: ctx.session.threadKey, microcompact: true });
+      // context builder 从 store 读历史（Dispatcher 实时落库 assistant/observation，含当前 run 动态进展；
+      // compression 经 insertCompressionMessage 写 store，recompact 后从 store 重读也正确）。
+      // 产出含 memory prefix（system 段）+ microcompact 后的历史——直接进 LLM，不再降级为 side effect。
+      const built = builder.buildContext({ sessionId: ctx.session.sessionId, threadKey: ctx.session.threadKey, microcompact: true });
       const prefix = systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : [];
-      return [...prefix, ...ctx.messages];
+      return [...prefix, ...built.conversation];
     },
   };
 }

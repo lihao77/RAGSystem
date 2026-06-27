@@ -12,7 +12,7 @@ import type { MessageRow, SqlInputValue } from "./types.js";
 
 /**
  * listMessages / getRecentMessages 的默认查询条数上限（SQL LIMIT 防野）。
- * 非上下文裁剪语义——上层 context-builder 取历史全量交由 token 压缩按预算裁，
+ * 非上下文裁剪语义——上层 SDK AgentContextBuilder 取历史全量交由 token 压缩按预算裁，
  * 此处仅兜底"调用方未显式传 limit"的极端情况，避免无界扫描。
  */
 export const DEFAULT_MESSAGE_LIST_LIMIT = 10_000;

@@ -5,13 +5,12 @@ import { ok } from "../../contracts/common.js";
 import type { OutboxStatus } from "../../contracts/conversation-store/index.js";
 import { resolveContextCompressionSettings } from "../../services/agent/context-compression/index.js";
 import { buildAgentPromptContext } from "../../services/agent/prompt-builder/index.js";
-import { previewLlmRequest, resolveToolInstructionMode, toolToDefinition } from "@ragsystem/agent-sdk";
+import { previewLlmRequest, resolveHistoryView, messagesToConversation, resolveToolInstructionMode, toolToDefinition } from "@ragsystem/agent-sdk";
 import { projectBehavior } from "../../services/agent/sdk/projection.js";
+import { toSdkMessageInfo } from "../../services/agent/sdk/sdk-store-adapter.js";
 import { createBackendTools } from "../../tools/registry.js";
 import type { ChatMessage as SdkChatMessage, ProviderConfig } from "@ragsystem/agent-llm";
 import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
-import { resolveHistoryView } from "../../services/agent/context-builder/index.js";
-import { messagesToConversation } from "../../services/agent/context-builder/history-view.js";
 import type { ChatMessage, ChatToolCall } from "@ragsystem/agent-llm";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
@@ -141,7 +140,9 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const threadKey = context?.metadata.thread_key ?? "root";
     const historyRawMessages = sessionId
       ? resolveHistoryView(
-          options.container.conversationStore.listMessages(sessionId, 500, 0, threadKey).items,
+          options.container.conversationStore
+            .listMessages(sessionId, 500, 0, threadKey)
+            .items.map(toSdkMessageInfo),
         )
       : [];
     // 走 SDK preview：组"模型真实收到的请求"（system prompt + 协议说明 + 历史渲染），与内核 makeContextPort +

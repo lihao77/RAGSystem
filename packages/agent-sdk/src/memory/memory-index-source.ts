@@ -1,11 +1,12 @@
 /**
- * MemoryIndexContextSource（迁自 backend-ts，profile 经构造注入——request 不再带 agent）。
- * 按 profile.memory 加载 scope 前缀 + 指纹缓存（写 session metadata）。
+ * MemoryIndexContextSource（迁自 backend-ts）。
+ * 按 memory 配置加载 scope 前缀 + 指纹缓存（写 session metadata）。
+ * 只需 MemoryConfig + agentName 两字段，不耦合完整 AgentProfile——消费端（createRuntime 投影后 / 调试 snapshot 直投 agent.memory）均能直接装配。
  */
 import type { IMemoryStore, MemoryScopeSpec } from "./types.js";
 import { MemoryStore } from "./memory-store.js";
 import type { AgentContextContribution, AgentContextSource, ResolvedAgentContextRequest, SessionMetadataPort } from "../context/types.js";
-import type { AgentProfile } from "../types.js";
+import type { MemoryConfig } from "../types.js";
 import { buildMemoryPrefixFingerprint } from "./memory-prefix.js";
 import { buildMemoryScopeCapabilities } from "./memory-prefix.js";
 import { buildMemoryScopeSpecs } from "./memory-prefix.js";
@@ -31,7 +32,8 @@ export class MemoryIndexContextSource implements AgentContextSource {
 
   constructor(
     private readonly sessions: SessionMetadataPort,
-    private readonly profile: AgentProfile,
+    private readonly memory: MemoryConfig,
+    private readonly agentName: string,
    options: MemoryIndexContextSourceOptions = {},
  ) {
     const storeOptions: import("./types.js").MemoryStoreOptions = {};
@@ -42,7 +44,7 @@ export class MemoryIndexContextSource implements AgentContextSource {
   }
 
   build(request: ResolvedAgentContextRequest): AgentContextContribution {
-    const memoryConfig = this.profile.memory;
+    const memoryConfig = this.memory;
     const scopeCapabilities = buildMemoryScopeCapabilities(memoryConfig);
     const memoryEnabled = Boolean(
       scopeCapabilities.allowed_scopes.length ||
@@ -56,16 +58,16 @@ export class MemoryIndexContextSource implements AgentContextSource {
     const scopeSpecs = buildMemoryScopeSpecs({
       memoryConfig,
       sessionId: request.sessionId,
-      agentName: this.profile.agentName,
+      agentName: this.agentName,
       sessionMetadata,
     });
     const fingerprint = buildMemoryPrefixFingerprint({
       memoryConfig,
       scopeCapabilities,
       scopeSpecs,
-      agentName: this.profile.agentName,
+      agentName: this.agentName,
     });
-    const baselineKey = memoryBaselineKey(request.threadKey, this.profile.agentName);
+    const baselineKey = memoryBaselineKey(request.threadKey, this.agentName);
     const existingSnapshot = readMemoryPrefixSnapshot(sessionMetadata, baselineKey);
     const snapshot =
       !request.forceMemoryPrefixRefresh && existingSnapshot?.fingerprint.fingerprint === fingerprint.fingerprint
@@ -87,7 +89,7 @@ export class MemoryIndexContextSource implements AgentContextSource {
     scopeSpecs: MemoryScopeSpec[];
   }): MemoryPrefixSnapshot {
     const indices: Record<string, string> = {};
-    if (this.profile.memory.autoInject !== false) {
+    if (this.memory.autoInject !== false) {
       for (const scopeSpec of input.scopeSpecs) {
         const content = this.memoryStore.loadIndexHead(scopeSpec, { maxLines: this.indexMaxLines, maxChars: this.indexMaxChars });
         if (content) { indices[scopeSpec.scope] = content; }
@@ -98,7 +100,7 @@ export class MemoryIndexContextSource implements AgentContextSource {
       baseline_key: input.baselineKey,
       session_id: input.request.sessionId,
       thread_key: input.request.threadKey,
-      agent_name: this.profile.agentName,
+      agent_name: this.agentName,
       fingerprint: input.fingerprint,
       scope_capabilities: input.scopeCapabilities,
       indices,

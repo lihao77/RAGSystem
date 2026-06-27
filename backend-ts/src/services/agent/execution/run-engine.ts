@@ -54,6 +54,7 @@ export class AgentRunEngine {
     private readonly pendingInteractions: PendingInteractionService,
     private readonly logger: AgentExecutionLogger | null,
     private readonly hooks: ((registry: HookRegistry) => void) | null,
+    private readonly microcompactTtlSeconds?: number,
   ) {}
 
   startRun(input: {
@@ -280,6 +281,7 @@ export class AgentRunEngine {
           dataRoot: this.dataRoot,
           permissionPolicy: this.permissionPolicy,
           pendingInteractions: this.pendingInteractions,
+          ...(this.microcompactTtlSeconds !== undefined ? { microcompactTtlSeconds: this.microcompactTtlSeconds } : {}),
           ...(this.hooks ? { hooks: this.hooks } : {}),
         },
         {

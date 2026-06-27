@@ -55,6 +55,17 @@ export class SystemConfigService {
     return normalizeMemoryConfig(this.config.memory);
   }
 
+  /**
+   * microcompact 缓存 TTL（秒）：读 waiting.local_cache_ttl_seconds。
+   * 缺失/非法回落 600（与 buildDefaultConfig 默认一致）。run/snapshot 两条路径均经此读取，
+   * 单一来源避免分叉。
+   */
+  getMicrocompactTtlSeconds(): number {
+    const waiting = isRecord(this.config.waiting) ? this.config.waiting : null;
+    const ttl = waiting?.local_cache_ttl_seconds;
+    return typeof ttl === "number" && Number.isFinite(ttl) && ttl > 0 ? ttl : 600;
+  }
+
   /** 类型化读取 system 组。 */
   getSystemGroupConfig(): SystemGroupConfig {
     return normalizeSystemGroupConfig(this.config.system);
