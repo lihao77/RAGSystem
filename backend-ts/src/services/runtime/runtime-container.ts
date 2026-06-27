@@ -21,7 +21,6 @@ import { CodeExecutionToolService } from "../../tools/CodeExecutionTool/CodeExec
 import { LocalDocumentToolService } from "../../tools/DocumentTools/DocumentExecution.js";
 import { LocalSearchToolService } from "../../tools/LocalSearchTools/SearchExecution.js";
 import { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
-import { OpenAiCompatibleClient, type LlmClient } from "@ragsystem/agent-llm";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import { MemoryStore } from "../stores/memory-store.js";
 import { MemoryToolService } from "../../tools/MemoryTools/MemoryExecution.js";
@@ -78,7 +77,6 @@ export interface RuntimeContainerOptions {
   dbPath: string;
   dataRoot?: string | undefined;
   logger?: AgentExecutionLogger | undefined;
-  llmClient?: LlmClient | undefined;
   modelAdapterProvidersConfigPath?: string | undefined;
   mcpConfigPath?: string | undefined;
   daemonConfigPath?: string | undefined;
@@ -101,12 +99,10 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   }
   const clientEvents = new DurableClientEventPublisher(conversationStore, outboxDispatcher);
   const permissionPolicy = new PermissionPolicyService();
-  const llmClient = options.llmClient ?? new OpenAiCompatibleClient();
   const agentConfig = new AgentConfigService({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot });
   const modelAdapter = new ModelAdapterService({
     dataRoot: options.dataRoot,
     providersConfigPath: options.modelAdapterProvidersConfigPath,
-    chatClient: llmClient,
   });
   const systemConfig = new SystemConfigService({ dataRoot: options.dataRoot, configPath: options.systemConfigPath });
   const mcp = new McpService({ dataRoot: options.dataRoot, configPath: options.mcpConfigPath });
@@ -201,7 +197,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     sessions: sessionApplication,
     conversationStore,
     runtimeCore,
-    llmClient,
     dataRoot,
    toolsDeps,
    codeExecutionTools,

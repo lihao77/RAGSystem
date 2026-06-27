@@ -12,13 +12,14 @@
 import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
-import type { ChatMessage, LlmClient } from "@ragsystem/agent-llm";
+import type { ChatMessage } from "@ragsystem/agent-llm";
 import { isAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
 import type { ApprovalInteraction, Context, KernelResult, MessageRefresher, PermissionPolicy, RuntimeSession, ToolExecContext, ToolWaitRequest, ToolWaitResult, RuntimeStore } from "./contracts.js";
 import type { KernelEvent } from "./contracts.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import type { Tool } from "./tools/tool.js";
 import { KernelContext } from "./kernel-context.js";
+import { getDefaultLlmClient } from "./llm-client.js";
 import type { KernelContext as KernelContextType } from "./kernel-context.js";
 import { AgentKernel } from "./kernel.js";
 import { Dispatcher, type DispatcherRunContext } from "./dispatcher.js";
@@ -39,7 +40,6 @@ import { estimateTokens } from "./compression/token-estimate.js";
 import type { ContextUsageProvider } from "./kernel.js";
 
 export interface CreateRuntimeOptions {
-  llm: LlmClient;
   profile: AgentProfile;
   /**
    * 工具注册表或工具实例数组。
@@ -134,6 +134,9 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
   // default tier 内部自取：provider/modelName 已在 profile.llmTiers.default（投影算死），消费端无需再传。
   const defaultTier = profile.llmTiers.default;
   if (!defaultTier) { throw new Error("AgentProfile.llmTiers.default missing（投影契约违反：default 档必填）"); }
+  // LLM 客户端 SDK 内部自建（agent-llm OpenAiCompatibleClient 单例）：消费端不再注入，
+  // SDK 据 profile.llmTiers.default.provider 自带的 ProviderConfig 自行调用。
+  const llm = getDefaultLlmClient();
 
   return {
     run: (input: RunInput): RunHandle => {
@@ -170,7 +173,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
 
       const { protocol, toolInstructionMode } = createProtocol({
         provider: defaultTier.provider,
-        llm: options.llm,
+        llm,
         events: dispatcher,
         getTools: () => registry.listDefinitions(),
       });
@@ -180,7 +183,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       });
       const refresher: MessageRefresher = { refresh: async () => [] };
 
-      const compression = new AgentContextCompressionService({ store, llm: options.llm, profile });
+      const compression = new AgentContextCompressionService({ store, llm, profile });
       const budgetTokens = compression.resolveContextBudget();
       const triggerRatio = compression.resolveContextSettings().compressionTriggerRatio;
       // per-run registry：每 run 新建，挂 compaction 后调消费端回调注册其 handler。

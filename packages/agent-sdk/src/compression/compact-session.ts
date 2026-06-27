@@ -7,9 +7,9 @@
  * session 状态；调用方（backend）用自己的 active-run 追踪（statusTracker）在调本入口前拦截。
  *
  * provider/modelName 不传——从 profile.llmTiers（fast→default）自取（投影层已算死）。
- * llm 不传时 SDK 内部用 OpenAiCompatibleClient 默认实现（与 createRuntime 一致）。
+ * llm 不传——SDK 内部用 agent-llm 默认实现（getDefaultLlmClient 单例，与 createRuntime 一致）。
  */
-import { OpenAiCompatibleClient, type LlmClient } from "@ragsystem/agent-llm";
+import { getDefaultLlmClient } from "../llm-client.js";
 import type { RuntimeStore } from "../contracts.js";
 import type { AgentProfile } from "../types.js";
 import { AgentContextCompressionService, type CompressInput, type ContextCompressionResult } from "./context-compression.js";
@@ -18,8 +18,6 @@ export interface CompactSessionInput {
   sessionId: string;
   store: RuntimeStore;
   profile: AgentProfile;
-  /** 可选：测试注入 fake；生产不传，内部 new OpenAiCompatibleClient()。 */
-  llm?: LlmClient;
   threadKey?: string | null;
   signal?: AbortSignal;
 }
@@ -27,7 +25,7 @@ export interface CompactSessionInput {
 export type CompactSessionResult = ContextCompressionResult;
 
 export async function compactSession(input: CompactSessionInput): Promise<CompactSessionResult> {
-  const llm = input.llm ?? new OpenAiCompatibleClient();
+  const llm = getDefaultLlmClient();
   const service = new AgentContextCompressionService({ store: input.store, llm, profile: input.profile });
   const compressInput: CompressInput = {
     sessionId: input.sessionId,

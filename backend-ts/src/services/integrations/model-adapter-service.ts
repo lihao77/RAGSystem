@@ -11,7 +11,7 @@ import type {
   ProviderTypeInfo,
   TestProviderRequest,
 } from "../../contracts/model-adapter.js";
-import type { LlmClient, ProviderConfig } from "@ragsystem/agent-llm";
+import { OpenAiCompatibleClient, type ProviderConfig } from "@ragsystem/agent-llm";
 import { DEFAULT_ENDPOINTS, PROVIDER_TYPES, PROVIDER_TYPE_SET } from "./provider-registry.js";
 
 const PROVIDERS_CONFIG_RELATIVE_PATH = path.join("config", "model_adapter", "providers.yaml");
@@ -46,15 +46,12 @@ export class ModelAdapterServiceError extends Error {
 export class ModelAdapterService {
   private readonly providers = new Map<string, ModelProviderConfig>();
   private readonly providersConfigPath: string | null;
-  private readonly chatClient: LlmClient | null;
 
   constructor(options: {
     dataRoot?: string | undefined;
     providersConfigPath?: string | undefined;
-    chatClient?: LlmClient | null | undefined;
   } = {}) {
     this.providersConfigPath = resolveProvidersConfigPath(options);
-    this.chatClient = options.chatClient ?? null;
     this.loadProvidersFromDisk();
   }
 
@@ -237,12 +234,10 @@ export class ModelAdapterService {
     }
 
     if (task === "chat") {
-      if (!this.chatClient) {
-        throw new ModelAdapterServiceError("当前运行时未配置 chat client", 500);
-      }
       const startedAt = Date.now();
       try {
-        const response = await this.chatClient.complete({
+        // 测连通性用真实 agent-llm client（OpenAiCompatibleClient 无状态）；mock 假响应无意义。
+        const response = await new OpenAiCompatibleClient().complete({
           messages: [{ role: "user", content: data.prompt ?? "" }],
           model,
           provider: provider as unknown as ProviderConfig,

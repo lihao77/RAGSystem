@@ -12,7 +12,6 @@ import type {
   StreamExecuteRequest,
 } from "../../../contracts/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
-import type { LlmClient } from "@ragsystem/agent-llm";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
@@ -63,7 +62,6 @@ export interface AgentExecutionServiceParams {
   sessions: AgentSessionApplication;
   conversationStore: ConversationStore;
   runtimeCore: RuntimeExecutionConfigResolver;
-  llmClient: LlmClient;
   dataRoot: string;
   /** per-agent 工具依赖（runtime-adapter per-run 构建 Tool[] 用）。 */
   toolsDeps?: Omit<import("../../../tools/registry.js").BackendToolsDeps, "agent" | "teamName"> | null;
@@ -113,13 +111,11 @@ export function createAgentExecutionService(
     params.runtimeCore,
     params.providersProvider,
     params.conversationStore,
-    params.llmClient,
     params.clientEvents,
   );
   const runEngine = new AgentRunEngine(
     params.sessions,
     params.conversationStore,
-    params.llmClient,
     params.dataRoot,
    params.toolsDeps ?? null,
    params.codeExecutionTools ?? null,

@@ -5,7 +5,6 @@ import type { DurableClientEventPublisher } from "../../runtime/event-outbox/cli
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import { compactSession } from "@ragsystem/agent-sdk";
-import type { LlmClient } from "@ragsystem/agent-llm";
 import { projectAgentProfile } from "../sdk/projection.js";
 import { SdkStoreAdapter } from "../sdk/sdk-store-adapter.js";
 import { asString, normalizeSessionEntryAgent } from "./helpers.js";
@@ -49,7 +48,6 @@ export class SlashCommandHandler {
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
     private readonly providersProvider: () => ModelProviderConfig[],
     private readonly conversationStore: ConversationStore,
-    private readonly llmClient: LlmClient,
     private readonly clientEvents: DurableClientEventPublisher,
   ) {}
 
@@ -171,7 +169,6 @@ export class SlashCommandHandler {
         sessionId: input.sessionId,
         store,
         profile,
-        llm: this.llmClient,
       });
       if (result.status === "skipped") {
         if (result.reason === "summary_unavailable") {
