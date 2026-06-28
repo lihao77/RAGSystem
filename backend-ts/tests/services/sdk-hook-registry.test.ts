@@ -15,23 +15,13 @@ describe("HookRegistry aggregation", () => {
     expect(out.modifiedInput).toBeUndefined();
   });
 
-  it("aggregates decisions deny > ask > allow", async () => {
+  it("aggregates decisions deny > allow", async () => {
     const hooks = createHookRegistry();
     hooks.on("tool.before", () => ({ decision: "allow", reason: "a" }));
-    hooks.on("tool.before", () => ({ decision: "ask", reason: "b" }));
     hooks.on("tool.before", () => ({ decision: "deny", reason: "c" }));
     const out = await hooks.emit("tool.before", { toolName: "x", arguments: {}, ctx: toolCtx });
     expect(out.decision).toBe("deny");
     expect(out.reason).toBe("c");
-  });
-
-  it("ask beats allow when no deny", async () => {
-    const hooks = createHookRegistry();
-    hooks.on("tool.before", () => ({ decision: "allow" }));
-    hooks.on("tool.before", () => ({ decision: "ask", reason: "need-approval" }));
-    const out = await hooks.emit("tool.before", { toolName: "x", arguments: {}, ctx: toolCtx });
-    expect(out.decision).toBe("ask");
-    expect(out.reason).toBe("need-approval");
   });
 
   it("modifiedInput: last non-undefined wins", async () => {
@@ -98,40 +88,28 @@ describe("HookRegistry aggregation", () => {
   });
 });
 
-describe("HookRegistry tool.gate 聚合（permission 安全网）", () => {
+describe("HookRegistry tool.gate 聚合（审批安全网）", () => {
   const gateCtx = { sessionId: "s1", runId: "r1", toolCallId: "t1" } as never;
   const gateInput = {
     toolName: "write_file",
     arguments: { path: "/etc/passwd" },
     ctx: gateCtx,
     riskLevel: "medium",
-    forceAsk: false,
-    approvalExempt: false,
-    approvedExternalPaths: ["/workspace/a"],
+    access: null,
   };
 
   it("policy deny 压过消费方 rogue allow（deny>allow 安全网）", async () => {
     const hooks = createHookRegistry();
-    hooks.on("tool.gate", () => ({ decision: "allow", approvedPaths: ["/workspace/b"] }));  // 消费方 rogue allow
-    hooks.on("tool.gate", () => ({ decision: "deny", reason: "policy: 越界写入" }));          // policy deny
+    hooks.on("tool.gate", () => ({ decision: "allow" }));  // 消费方 rogue allow
+    hooks.on("tool.gate", () => ({ decision: "deny", reason: "policy: 越界写入" }));  // policy deny
     const out = await hooks.emit("tool.gate", gateInput);
     expect(out.decision).toBe("deny");
     expect(out.reason).toBe("policy: 越界写入");
   });
 
-  it("approvedPaths 取并集（policy + 消费方放行路径合并）", async () => {
-    const hooks = createHookRegistry();
-    hooks.on("tool.gate", () => ({ decision: "allow", approvedPaths: ["/workspace/b"] }));
-    hooks.on("tool.gate", () => ({ decision: "allow", approvedPaths: ["/workspace/c", "/workspace/b"] }));
-    const out = await hooks.emit("tool.gate", gateInput);
-    expect(out.decision).toBe("allow");
-    expect(out.approvedPaths).toEqual(["/workspace/b", "/workspace/c"]);
-  });
-
-  it("无 handler 时放行（无 policy = 全 allow，approvedPaths absent）", async () => {
+  it("无 handler 时放行（无 policy = 全 allow）", async () => {
     const hooks = createHookRegistry();
     const out = await hooks.emit("tool.gate", gateInput);
     expect(out.decision).toBeUndefined();
-    expect(out.approvedPaths).toBeUndefined();
   });
 });

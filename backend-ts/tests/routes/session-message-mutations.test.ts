@@ -6,6 +6,7 @@ import path from "node:path";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import { buildTestHarness } from "../helpers/app.js";
+import { PathApprovalService } from "../../src/services/runtime/path-service.js";
 import { mockLlm } from "../helpers/llm-fetch-mock.js";
 
 let app: FastifyInstance | null = null;
@@ -233,6 +234,7 @@ describe("session message mutation routes", () => {
         workspaceRoot,
       },
       rollbackAgent(workspaceRoot),
+      new PathApprovalService(),
     );
     expect(firstWrite).toMatchObject({ success: true });
     const secondUser = harness.container.sessionApplication.addMessage({
@@ -252,6 +254,7 @@ describe("session message mutation routes", () => {
         workspaceRoot,
       },
       rollbackAgent(workspaceRoot),
+      new PathApprovalService(),
     );
     expect(secondWrite).toMatchObject({ success: true });
     harness.container.sessionApplication.addMessage({

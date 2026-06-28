@@ -219,8 +219,6 @@ export interface ToolExecContext {
   currentAgentName?: string | null;
   /** 工作空间根路径（文件类工具判断外部路径用）。 */
   workspaceRoot?: string | null;
-  /** 已批准的外部路径（审批流程中注入）。 */
-  approvedExternalPaths?: string[];
 }
 
 /** 后台任务等待请求。 */

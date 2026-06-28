@@ -5,11 +5,13 @@ import { readBashArguments } from "../../services/runtime/runtime-tool-bridge/ar
 import { EXECUTE_BASH_TOOL_NAME } from "../../services/runtime/runtime-tool-bridge/registry.js";
 import { buildTool, type Tool, type ToolExecContext, type ToolAccessDecision } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../contracts/agent-config.js";
+import type { PathApprovalService } from "../../services/runtime/path-service.js";
 import { optionalBoolean, optionalInteger, optionalString } from "../schema-helpers.js";
 
 interface BashToolDeps {
   bashTools: LocalBashToolService | null;
   agent: AgentConfig;
+  pathService: PathApprovalService;
 }
 
 const bashSchema = z.object({
@@ -89,13 +91,10 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
       },
       inputSchema: bashSchema,
       isConcurrencySafe: () => false,
-      getExternalPathApprovalCandidates: (input, ctx: ToolExecContext) =>
-        bashTools.getExternalPathApprovalCandidates(readBashArguments(input), ctx),
       checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision => {
         const bashInput = readBashArguments(input);
-        const approvedExternalPaths = bashTools.getExternalPathApprovalCandidates(bashInput, ctx);
-        const ctxWithPaths: ToolExecContext = { ...ctx, approvedExternalPaths: mergePaths(ctx.approvedExternalPaths, approvedExternalPaths) };
-        const prepared = bashTools.prepareExecution(bashInput, ctxWithPaths, deps.agent);
+        const pathCandidates = bashTools.getExternalCandidates(bashInput, ctx, deps.pathService);
+        const prepared = bashTools.prepareExecution(bashInput, ctx, deps.agent, deps.pathService);
         if (!prepared.ok) {
           return {
             action: "deny",
@@ -105,19 +104,29 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
           };
         }
         const plan = prepared.plan;
+        const baseSignals: Record<string, unknown> = { bash_plan: plan, approval_arguments: plan.approvalArguments, approval_type: "bash_command" };
         if (plan.approvalRequired) {
           return {
             action: "ask",
             reason: "当前策略要求人工审批",
             riskLevel: plan.riskLevel,
             description: plan.approvalDescription,
-            signals: { bash_plan: plan, approval_arguments: plan.approvalArguments, approval_type: "bash_command", approved_external_paths: approvedExternalPaths },
+            signals: { ...baseSignals, ...(pathCandidates.length ? { candidatePaths: pathCandidates } : {}) },
+          };
+        }
+        if (pathCandidates.length) {
+          return {
+            action: "ask",
+            reason: "路径越界访问需要审批",
+            riskLevel: plan.riskLevel,
+            description: `外部路径: ${pathCandidates.join(", ")}`,
+            signals: { ...baseSignals, candidatePaths: pathCandidates },
           };
         }
         return {
           action: "allow",
           riskLevel: plan.riskLevel,
-          signals: { bash_plan: plan, approval_arguments: plan.approvalArguments, approval_type: "bash_command", approved_external_paths: approvedExternalPaths },
+          signals: baseSignals,
         };
       },
       call: (input, ctx: ToolExecContext) => {
@@ -125,7 +134,7 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
         if (plan) {
           return bashTools.executePlan(plan, ctx);
         }
-        const prepared = bashTools.prepareExecution(readBashArguments(input), ctx, deps.agent);
+        const prepared = bashTools.prepareExecution(readBashArguments(input), ctx, deps.agent, deps.pathService);
         if (!prepared.ok) {
           return prepared.result;
         }
@@ -133,18 +142,6 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
       },
     }),
   ];
-}
-
-function mergePaths(existing: string[] | undefined, extra: string[]): string[] {
-  const seen = new Set(existing ?? []);
-  const merged = [...(existing ?? [])];
-  for (const p of extra) {
-    if (!seen.has(p)) {
-      seen.add(p);
-      merged.push(p);
-    }
-  }
-  return merged;
 }
 
 function readCachedPlan(input: Record<string, unknown>): BashExecutionPlan | null {

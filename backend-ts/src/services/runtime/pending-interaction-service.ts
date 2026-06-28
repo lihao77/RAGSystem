@@ -42,7 +42,7 @@ export interface PendingApprovalRequest {
   approvalReasonCodes?: string[] | undefined;
   approvalSecondaryReasons?: string[] | undefined;
   approvalHook?: Record<string, unknown> | undefined;
-  approvedExternalPaths?: string[] | undefined;
+  externalPathCandidates?: string[] | undefined;
   signal?: AbortSignal | undefined;
 }
 
@@ -206,7 +206,7 @@ export class PendingInteractionService {
           approval_reason_codes: input.approvalReasonCodes ?? [],
           approval_secondary_reasons: input.approvalSecondaryReasons ?? [],
           approval_hook: input.approvalHook ?? {},
-          approved_external_paths: input.approvedExternalPaths ?? [],
+          external_path_candidates: input.externalPathCandidates ?? [],
         },
         message: input.approvalReason ?? "",
       },

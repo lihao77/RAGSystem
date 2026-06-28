@@ -14,6 +14,7 @@ import {
   readPreviewLimit,
 } from "./preview.js";
 import { LocalDocumentPathManager, normalizeString } from "./path-manager.js";
+import type { PathApprovalService } from "../../services/runtime/path-service.js";
 
 const DEFAULT_READ_MAX_LINES = 2000;
 
@@ -37,6 +38,7 @@ export class LocalDocumentToolService {
     },
     context: ToolExecContext,
     agent: AgentConfig,
+    pathService: PathApprovalService,
   ): ToolExecutionResult {
     const toolName = "read_file";
     try {
@@ -45,7 +47,7 @@ export class LocalDocumentToolService {
         operation: "read",
         explicitSpace: input.filePathSpace ?? null,
         customParams: agent.custom_params,
-      });
+      }, pathService);
       if (!fs.existsSync(resolvedPath)) {
         return errorResult(`文件不存在: ${input.filePath}`, toolName);
       }
@@ -129,6 +131,7 @@ export class LocalDocumentToolService {
     },
     context: ToolExecContext,
     agent: AgentConfig,
+    pathService: PathApprovalService,
   ): ToolExecutionResult {
     const toolName = "write_file";
     try {
@@ -139,7 +142,7 @@ export class LocalDocumentToolService {
         explicitSpace: input.filePathSpace ?? null,
         suffix: mode === "json" ? ".json" : ".txt",
         customParams: agent.custom_params,
-      });
+      }, pathService);
       fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
       const encoding = normalizeEncoding(input.encoding);
       this.fileHistory?.trackEdit(context.sessionId, resolvedPath);
@@ -179,6 +182,7 @@ export class LocalDocumentToolService {
     },
     context: ToolExecContext,
     agent: AgentConfig,
+    pathService: PathApprovalService,
   ): ToolExecutionResult {
     const toolName = "edit_file";
     try {
@@ -187,7 +191,7 @@ export class LocalDocumentToolService {
         operation: "edit",
         explicitSpace: input.filePathSpace ?? null,
         customParams: agent.custom_params,
-      });
+      }, pathService);
       if (!fs.existsSync(resolvedPath)) {
         return errorResult(`文件不存在: ${input.filePath}`, toolName);
       }
@@ -257,6 +261,7 @@ export class LocalDocumentToolService {
     },
     context: ToolExecContext,
     agent: AgentConfig,
+    pathService: PathApprovalService,
   ): ToolExecutionResult {
     const toolName = "preview_data_structure";
     try {
@@ -265,7 +270,7 @@ export class LocalDocumentToolService {
         operation: "read",
         explicitSpace: input.filePathSpace ?? null,
         customParams: agent.custom_params,
-      });
+      }, pathService);
       if (!fs.existsSync(resolvedPath)) {
         return errorResult(`文件不存在: ${input.filePath}`, toolName);
       }
@@ -319,12 +324,13 @@ export class LocalDocumentToolService {
     }
   }
 
-  getExternalPathApprovalCandidates(
+  getExternalCandidates(
     toolName: string,
     args: Record<string, unknown> | undefined,
     context: ToolExecContext,
+    pathService: PathApprovalService,
   ): string[] {
-    return this.pathManager.getExternalPathApprovalCandidates(toolName, args, context);
+    return this.pathManager.getExternalCandidates(toolName, args, context, pathService);
   }
 }
 

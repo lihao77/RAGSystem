@@ -64,10 +64,10 @@
                   <div v-for="reason in approvalSecondaryReasons" :key="reason" class="approval-extra-list-item">{{ reason }}</div>
                 </div>
               </div>
-              <div v-if="hasApprovedExternalPaths" class="approval-extra-item approval-extra-item-stack">
-                <span class="approval-extra-label">本次授权路径</span>
+              <div v-if="hasExternalPathCandidates" class="approval-extra-item approval-extra-item-stack">
+                <span class="approval-extra-label">待审批路径</span>
                 <div class="approval-extra-list">
-                  <div v-for="path in approvedExternalPaths" :key="path" class="approval-extra-list-item mono">{{ path }}</div>
+                  <div v-for="path in externalPathCandidates" :key="path" class="approval-extra-list-item mono">{{ path }}</div>
                 </div>
               </div>
             </div>
@@ -185,7 +185,7 @@ const permissionMode = ref('');
 const approvalReason = ref('');
 const approvalReasonCodes = ref([]);
 const approvalSecondaryReasons = ref([]);
-const approvedExternalPaths = ref([]);
+const externalPathCandidates = ref([]);
 const queueCount = ref(1);
 const activeMode = ref('approve');
 const approveMessage = ref('');
@@ -207,7 +207,7 @@ const hasPermissionMode = computed(() => Boolean(permissionMode.value));
 const hasApprovalReason = computed(() => Boolean(approvalReasonText.value));
 const hasApprovalReasonLabels = computed(() => approvalReasonLabels.value.length > 0);
 const hasApprovalSecondaryReasons = computed(() => approvalSecondaryReasons.value.length > 0);
-const hasApprovedExternalPaths = computed(() => approvedExternalPaths.value.length > 0);
+const hasExternalPathCandidates = computed(() => externalPathCandidates.value.length > 0);
 
 const hasArguments = computed(() => {
   if (!toolArguments.value) return false;
@@ -224,7 +224,7 @@ const formattedArguments = computed(() => {
 
 /**
  * 显示审批对话框
- * @param {object} data - { approval_id, tool_name, arguments, risk_level, description, agent_name, permission_mode, approval_reason, approval_reason_codes, approval_secondary_reasons, approved_external_paths }
+ * @param {object} data - { approval_id, tool_name, arguments, risk_level, description, agent_name, permission_mode, approval_reason, approval_reason_codes, approval_secondary_reasons, external_path_candidates }
  * @param {function} onApprove - (approvalId, message) => void
  * @param {function} onDeny   - (approvalId, message) => void
  */
@@ -239,7 +239,7 @@ const show = (data, onApprove, onDeny) => {
   approvalReason.value = data.approval_reason || '';
   approvalReasonCodes.value = Array.isArray(data.approval_reason_codes) ? data.approval_reason_codes : [];
   approvalSecondaryReasons.value = Array.isArray(data.approval_secondary_reasons) ? data.approval_secondary_reasons : [];
-  approvedExternalPaths.value = Array.isArray(data.approved_external_paths) ? data.approved_external_paths : [];
+  externalPathCandidates.value = Array.isArray(data.external_path_candidates) ? data.external_path_candidates : [];
   queueCount.value = Number.isFinite(data.queue_count) && data.queue_count > 0 ? data.queue_count : 1;
   activeMode.value = 'approve';
   approveMessage.value = '';

@@ -98,7 +98,7 @@ describe("PermissionPolicyService", () => {
         riskLevel: "medium",
         description: "Execute bash",
         arguments: { command: "mkdir out" },
-        forceAsk: true,
+        toolAsksApproval: true,
       }),
     ).toMatchObject({
       action: "allow",
@@ -111,15 +111,15 @@ describe("PermissionPolicyService", () => {
         riskLevel: "medium",
         description: "Execute bash",
         arguments: { command: "mkdir out", working_dir: "C:\\outside" },
-        forceAsk: true,
-        approvedExternalPaths: ["C:\\outside"],
+        toolAsksApproval: true,
+        externalPathCandidates: ["C:\\outside"],
       }),
     ).toMatchObject({
       action: "ask",
       reason: "路径越界访问需要审批",
       reasonCodes: ["ask-risk", "ask-path"],
       secondaryReasons: ["工具名匹配规则 'execute_bash' 自动接受"],
-      approvedExternalPaths: ["C:\\outside"],
+      externalPathCandidates: ["C:\\outside"],
     });
   });
 
@@ -187,14 +187,14 @@ describe("PermissionPolicyService", () => {
         riskLevel: "low",
         description: "Read file",
         arguments: { file_path: "C:\\outside\\note.txt" },
-        approvedExternalPaths: ["C:\\outside\\note.txt"],
+        externalPathCandidates: ["C:\\outside\\note.txt"],
       }),
     ).toMatchObject({
       action: "ask",
       reason: "路径越界访问需要审批",
       reasonCodes: ["ask-path"],
       secondaryReasons: [],
-      approvedExternalPaths: ["C:\\outside\\note.txt"],
+      externalPathCandidates: ["C:\\outside\\note.txt"],
     });
 
     expect(
@@ -203,14 +203,14 @@ describe("PermissionPolicyService", () => {
         riskLevel: "high",
         description: "Write file",
         arguments: { file_path: "C:\\outside\\note.txt" },
-        approvedExternalPaths: ["C:\\outside\\note.txt"],
+        externalPathCandidates: ["C:\\outside\\note.txt"],
       }),
     ).toMatchObject({
       action: "ask",
       reason: "路径越界访问需要审批",
       reasonCodes: ["ask-risk", "ask-path"],
       secondaryReasons: ["标准模式：high 风险工具需要审批"],
-      approvedExternalPaths: ["C:\\outside\\note.txt"],
+      externalPathCandidates: ["C:\\outside\\note.txt"],
     });
   });
 });

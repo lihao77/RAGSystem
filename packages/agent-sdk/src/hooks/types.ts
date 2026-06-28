@@ -7,6 +7,7 @@
  * - 多 handler 并行语义经 registry 聚合：decision 用 deny>ask>allow，注入字段末者生效，metadata 浅合并。
  * - 策略层（permissionPolicy 端口）是兜底安全网，与 hook 协作但职责不同（后续 permission 可迁居为 tool.before handler）。
  */
+import type { ToolAccessDecision } from "../tools/tool.js";
 import type { KernelContext } from "../kernel-context.js";
 import type {
   KernelOutcome,
@@ -61,20 +62,16 @@ export interface ToolBeforeInput {
   ctx: ToolExecContext;
 }
 
-/** 工具门禁（tool.before 改完入参 + re-prepare 之后、执行之前）。permission 挂这里。 */
+/** 工具门禁（tool.before 改完入参 + re-prepare 之后、执行之前）。审批策略挂这里。 */
 export interface ToolGateInput {
   toolName: string;
   /** 最终入参（已应用 tool.before 的 modifiedInput 并 re-prepare）。 */
   arguments: Record<string, unknown>;
   ctx: ToolExecContext;
-  /** prepare 派生信号（Tool+ctx 派生，permission 判定用）。 */
+  /** prepare 派生风险等级（Tool.riskLevel + checkAccess.riskLevel 综合，审批展示用）。 */
   riskLevel: string;
-  /** 工具自声明强制 ask（来自 checkPermissions behavior==="ask"）。 */
-  forceAsk: boolean;
-  /** 工具声明审批豁免。 */
-  approvalExempt: boolean;
-  /** prepare 收集的外部路径候选（越界访问需审批）。 */
-  approvedExternalPaths: string[];
+  /** 工具 checkAccess 决策（自检 + 审批声明 + 业务 signals；handler 据此调 backend 审批服务）。 */
+  access: ToolAccessDecision | null;
 }
 
 /** 单次工具执行后。 */
@@ -112,11 +109,11 @@ export interface BaseHookOutput {
   metadata?: Record<string, unknown>;
 }
 
-/** 阻断决策（tool.before 用）。 */
-export type HookDecision = "allow" | "deny" | "ask";
+/** 阻断决策。多 handler 聚合：deny>allow（ask 由 gate handler 内部消化成 allow/deny，不外泄）。 */
+export type HookDecision = "allow" | "deny";
 
 export interface DecisionFields {
-  /** allow=放行 / deny=拒绝（跳过工具） / ask=请求审批。多 handler 聚合：deny>ask>allow。 */
+  /** allow=放行 / deny=拒绝（跳过工具）。多 handler 聚合：deny>allow。 */
   decision?: HookDecision;
   /** 决策理由（随决策一起取自同一 handler）。 */
   reason?: string;
@@ -128,11 +125,8 @@ export interface ToolBeforeOutput extends BaseHookOutput, DecisionFields {
   modifiedInput?: Record<string, unknown>;
 }
 
-/** tool.gate 输出：permission 门禁最终入参。deny>allow 聚合；ask 由 handler 内部 resolve 成 allow/deny。 */
-export interface ToolGateOutput extends BaseHookOutput, DecisionFields {
-  /** 决策放行的外部路径（合并进执行 ctx）；多 handler 取并集。 */
-  approvedPaths?: string[];
-}
+/** tool.gate 输出：审批门禁最终入参。handler 内部消化审批交互，返回 allow/deny；多 handler 聚合 deny>allow。 */
+export interface ToolGateOutput extends BaseHookOutput, DecisionFields {}
 
 /** tool.after 输出：可改写工具结果。 */
 export interface ToolAfterOutput extends BaseHookOutput {

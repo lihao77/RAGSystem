@@ -49,7 +49,6 @@ export interface Tool<I = Record<string, unknown>, O = unknown> {
   readonly parameters: Record<string, unknown>;
   readonly riskLevel?: RiskLevel;
   readonly allowedCallers: ToolCaller[];
-  readonly approvalExempt?: boolean;
   readonly source?: ToolSource;
   readonly category?: string;
   readonly usageContract?: string[];
@@ -66,8 +65,6 @@ export interface Tool<I = Record<string, unknown>, O = unknown> {
   checkAccess?(input: I, ctx: ToolExecContext): ToolAccessDecision;
   /** 实际执行。 */
   call(input: I, ctx: ToolExecContext): ToolExecutionResult | Promise<ToolExecutionResult>;
-  /** 收集需审批的外部路径候选（文件访问等）。 */
-  getExternalPathApprovalCandidates?(input: I, ctx: ToolExecContext): string[];
 }
 
 /* ── buildTool 工厂输入 ── */
@@ -80,7 +77,6 @@ export interface BuildToolInput<I, O> {
   parameters?: Record<string, unknown>;
   riskLevel?: RiskLevel;
   allowedCallers?: ToolCaller[];
-  approvalExempt?: boolean;
   source?: ToolSource;
   category?: string;
   usageContract?: string[];
@@ -92,7 +88,6 @@ export interface BuildToolInput<I, O> {
   isConcurrencySafe?(input: I): boolean;
   checkAccess?(input: I, ctx: ToolExecContext): ToolAccessDecision;
   call(input: I, ctx: ToolExecContext): ToolExecutionResult | Promise<ToolExecutionResult>;
-  getExternalPathApprovalCandidates?(input: I, ctx: ToolExecContext): string[];
 }
 
 /* ── buildTool 工厂 ── */
@@ -115,7 +110,6 @@ export function buildTool<I extends Record<string, unknown>, O = unknown>(
     call: def.call,
   };
   if (def.riskLevel !== undefined) { (tool as MutableTool<I, O>).riskLevel = def.riskLevel; }
-  if (def.approvalExempt !== undefined) { (tool as MutableTool<I, O>).approvalExempt = def.approvalExempt; }
   if (def.source !== undefined) { (tool as MutableTool<I, O>).source = def.source; }
   if (def.category !== undefined) { (tool as MutableTool<I, O>).category = def.category; }
   if (def.usageContract !== undefined) { (tool as MutableTool<I, O>).usageContract = def.usageContract; }
@@ -124,7 +118,6 @@ export function buildTool<I extends Record<string, unknown>, O = unknown>(
   if (def.returns !== undefined) { (tool as MutableTool<I, O>).returns = def.returns; }
   if (def.observationPolicy !== undefined) { (tool as MutableTool<I, O>).observationPolicy = def.observationPolicy; }
   if (def.checkAccess !== undefined) { (tool as MutableTool<I, O>).checkAccess = def.checkAccess; }
-  if (def.getExternalPathApprovalCandidates !== undefined) { (tool as MutableTool<I, O>).getExternalPathApprovalCandidates = def.getExternalPathApprovalCandidates; }
   return tool;
 }
 
@@ -144,7 +137,6 @@ export function toolToDefinition(tool: Tool): RuntimeToolDefinition {
   if (tool.source) { definition.source = tool.source; }
   if (tool.category) { definition.category = tool.category; }
   if (tool.riskLevel) { definition.riskLevel = tool.riskLevel; }
-  if (tool.approvalExempt !== undefined) { definition.approvalExempt = tool.approvalExempt; }
   if (tool.observationPolicy) { definition.observationPolicy = tool.observationPolicy; }
   return definition;
 }

@@ -5,8 +5,8 @@
  * 逐个 executeSingleToolCall（prepare → 审批 → hook.before → tool.call → hook.after/error → observation 渲染）
  * → emit tool_call/tool_result → 后台 wait 透传。
  *
- * 审批编排内置：prepare 产出权限信号 → policy 判定（含 prepare 的 riskLevel/forceAsk/approvedExternalPaths）
- * → ask 阻塞等待 → 放行/拒绝。不注入 policy 即全部 allow。
+ * 审批编排：prepare 产出 checkAccess 决策（access）→ tool.gate handler 调 backend 审批服务
+ * （综合 riskLevel + access.action + signals）→ deny 跳过 / allow 放行。无 handler 即全部 allow。
  */
 import type { ProviderConfig } from "@ragsystem/agent-llm";
 import { isAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
@@ -186,59 +186,24 @@ async function prepareAndExecute(input: {
     }
   }
 
-  // 3. tool.gate：门禁最终入参（permission 等挂这里）。deny→跳过；approvedPaths→回填执行 ctx。
-  //    无 hooks 时仍把 prepare 收集的外部路径候选回填（工具据此自判路径准入）。
-  let gateApprovedPaths: string[] | undefined;
+  // 3. tool.gate：门禁最终入参（审批策略挂这里）。deny→跳过工具。handler 内部消化审批交互，
+  //    返回 allow/deny；路径准入由 backend pathService 在 handler↔tool.call 间流转（不经 ctx）。
   if (opts.hooks) {
     const gateOut = await opts.hooks.emit("tool.gate", {
       toolName: prepared.tool.name,
       arguments: prepared.input,
       ctx: toolContext,
       riskLevel: prepared.permission?.riskLevel ?? prepared.tool.riskLevel ?? "low",
-      forceAsk: prepared.permission?.action === "ask",
-      approvalExempt: prepared.tool.approvalExempt ?? false,
-      approvedExternalPaths: prepared.approvedExternalPaths,
+      access: prepared.permission,
     });
     throwIfAborted(toolContext.signal, "Agent run aborted");
     if (gateOut.decision === "deny") {
       return buildToolExecutionErrorResult(prepared.tool.name, new Error(gateOut.reason ?? `工具 ${prepared.tool.name} 被门禁拒绝`));
     }
-    gateApprovedPaths = gateOut.approvedPaths;
   }
-  const execContext = mergeApprovedPaths(toolContext, prepared.approvedExternalPaths, gateApprovedPaths);
 
   // 4. tool.call + hook.after（可改结果）/ hook.error
-  return executeToolWithHookError({ prepared, execContext, ...(opts.hooks ? { hooks: opts.hooks } : {}) });
-}
-
-/**
- * 把审批通过/收集的外部路径合并回 ToolExecContext（去重；无变化则返回原 ctx）。
- */
-function mergeApprovedPaths(ctx: ToolExecContext, ...sources: Array<string[] | undefined>): ToolExecContext {
-  const existing = ctx.approvedExternalPaths ?? [];
-  const collected: string[] = [];
-  for (const source of sources) {
-    if (source) { collected.push(...source); }
-  }
-  const merged = dedupeStrings([...existing, ...collected]);
-  const sameLength = merged.length === existing.length;
-  if (sameLength && merged.every((p, i) => p === existing[i])) {
-    return ctx;
-  }
-  return { ...ctx, approvedExternalPaths: merged };
-}
-
-function dedupeStrings(values: string[]): string[] {
-  const seen = new Set<string>();
-  const output: string[] = [];
-  for (const value of values) {
-    if (typeof value !== "string") { continue; }
-    const normalized = value.trim();
-    if (!normalized || seen.has(normalized)) { continue; }
-    seen.add(normalized);
-    output.push(normalized);
-  }
-  return output;
+  return executeToolWithHookError({ prepared, execContext: toolContext, ...(opts.hooks ? { hooks: opts.hooks } : {}) });
 }
 
 /** tool.call + hook.after（可改结果）/hook.error 包装。 */

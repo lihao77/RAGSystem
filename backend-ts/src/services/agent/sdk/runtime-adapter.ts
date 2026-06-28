@@ -28,6 +28,7 @@ import { projectAgentProfile } from "./projection.js";
 import { SdkStoreAdapter } from "./sdk-store-adapter.js";
 import { MemoryIndexContextSource, isMemoryEnabled } from "../memory/index.js";
 import { registerGateHook } from "./gate-hook.js";
+import { PathApprovalService } from "../../../services/runtime/path-service.js";
 
 export interface SdkRuntimeAdapterDeps {
   conversationStore: ConversationStore;
@@ -111,11 +112,12 @@ export async function executeRunWithSdk(
 
   // per-run 构建工具集合：各工厂闭包绑定 agent，返回 SDK Tool[]
   const teamName = asString(input.sessionMetadata.team);
+  const pathService = new PathApprovalService();
   const tools: Tool[] = createBackendTools({
     ...deps.toolsDeps,
     agent: input.agent,
     ...(teamName ? { teamName } : {}),
-  });
+  }, pathService);
   const registry: ToolRegistry = createToolRegistry({ tools });
 
   // 算 promptContext（仅 backgroundTasks）；tools 由 SDK 内核从 registry 自动填充。
@@ -183,6 +185,7 @@ export async function executeRunWithSdk(
       registerGateHook(registry, {
         permissionPolicy: deps.permissionPolicy,
         pendingInteractions: deps.pendingInteractions,
+        pathService,
         agentName: input.agent.agent_name,
       });
       deps.hooks?.(registry);

@@ -6,9 +6,12 @@ export interface RuntimeToolApprovalInput {
   description?: string | null | undefined;
   arguments?: Record<string, unknown> | undefined;
   sessionId?: string | null | undefined;
+  /** 工具自声明审批豁免（checkAccess signals.approvalExempt，交互类工具）。 */
   approvalExempt?: boolean | undefined;
-  forceAsk?: boolean | undefined;
-  approvedExternalPaths?: string[] | undefined;
+  /** 工具 checkAccess 声明 ask（高危/需审批）。 */
+  toolAsksApproval?: boolean | undefined;
+  /** 越界外部路径候选（checkAccess signals.candidatePaths，需路径审批）。 */
+  externalPathCandidates?: string[] | undefined;
 }
 
 export interface RuntimeToolApprovalDecision {
@@ -20,7 +23,7 @@ export interface RuntimeToolApprovalDecision {
   reason: string;
   reasonCodes: string[];
   secondaryReasons: string[];
-  approvedExternalPaths: string[];
+  externalPathCandidates: string[];
 }
 
 export class PermissionPolicyService {
@@ -116,7 +119,7 @@ export class PermissionPolicyService {
     const toolName = input.toolName.trim();
     const riskLevel = input.riskLevel ?? "low";
     const description = input.description?.trim() || `Tool ${toolName}`;
-    const approvedExternalPaths = dedupeStrings(input.approvedExternalPaths ?? []);
+    const externalPathCandidates = dedupeStrings(input.externalPathCandidates ?? []);
     const base = {
       toolName,
       riskLevel,
@@ -124,7 +127,7 @@ export class PermissionPolicyService {
       permissionMode: policy.mode,
       reasonCodes: [],
       secondaryReasons: [],
-      approvedExternalPaths,
+      externalPathCandidates,
     };
 
     if (input.approvalExempt) {
@@ -153,7 +156,7 @@ export class PermissionPolicyService {
     } else if (policy.mode === "dangerously_skip_permissions") {
       allowReason = "dangerously_skip_permissions 模式，跳过审批";
       riskReason = allowReason;
-    } else if (input.forceAsk) {
+    } else if (input.toolAsksApproval) {
       riskRequiresApproval = true;
       riskReason = "当前策略要求人工审批";
     } else {
@@ -161,10 +164,10 @@ export class PermissionPolicyService {
       riskRequiresApproval = Boolean(riskReason);
     }
 
-    if (approvedExternalPaths.length) {
+    if (externalPathCandidates.length) {
       const reasonPayload = buildApprovalReasonPayload({
         riskReason,
-        forceAsk: input.forceAsk === true,
+        toolAsksApproval: input.toolAsksApproval === true,
         hasExternalPaths: true,
       });
       return {
@@ -275,13 +278,13 @@ function dedupeStrings(values: string[]): string[] {
 
 function buildApprovalReasonPayload(input: {
   riskReason: string;
-  forceAsk: boolean;
+  toolAsksApproval: boolean;
   hasExternalPaths: boolean;
 }): { reason: string; reasonCodes: string[]; secondaryReasons: string[] } {
   const reasons: string[] = [];
   const reasonCodes: string[] = [];
   const normalizedRiskReason = input.riskReason.trim();
-  if (normalizedRiskReason || input.forceAsk) {
+  if (normalizedRiskReason || input.toolAsksApproval) {
     reasonCodes.push("ask-risk");
     reasons.push(normalizedRiskReason || "当前策略要求人工审批");
   }

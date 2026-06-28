@@ -7,7 +7,7 @@ import {
   readPrompt,
 } from "../../services/runtime/runtime-tool-bridge/arguments.js";
 import { REQUEST_USER_INPUT_TOOL_NAME } from "../../services/runtime/runtime-tool-bridge/registry.js";
-import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
+import { buildTool, type Tool, type ToolAccessDecision, type ToolExecContext } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
 
@@ -39,7 +39,7 @@ export function createRequestUserInputTools(deps: RequestUserInputToolDeps): Too
       source: "runtime_builtin",
       category: "interaction",
       riskLevel: "low",
-      approvalExempt: true,
+      checkAccess: (): ToolAccessDecision => ({ action: "allow", signals: { approvalExempt: true } }),
       parameters: {
         type: "object",
         additionalProperties: false,

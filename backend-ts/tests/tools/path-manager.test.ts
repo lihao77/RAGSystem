@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { LocalDocumentPathManager } from "../../src/tools/DocumentTools/path-manager.js";
+import { PathApprovalService } from "../../src/services/runtime/path-service.js";
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
 
 const sessionId = "sess-test";
@@ -45,7 +46,7 @@ describe("LocalDocumentPathManager 越界守卫", () => {
   it("写操作命中 dataRoot 外的绝对路径 → 抛错", () => {
     const evil = process.platform === "win32" ? "C:\\Windows\\evil.txt" : "/etc/evil";
     expect(() =>
-      new LocalDocumentPathManager(dataRoot).resolveManagedPath(evil, { context: ctx(), operation: "write" }),
+      new LocalDocumentPathManager(dataRoot).resolveManagedPath(evil, { context: ctx(), operation: "write" }, new PathApprovalService()),
     ).toThrow(/超出允许的受管目录范围/);
   });
 
@@ -54,7 +55,7 @@ describe("LocalDocumentPathManager 越界守卫", () => {
       new LocalDocumentPathManager(dataRoot).resolveManagedPath("../../../../etc/passwd", {
         context: ctx(),
         operation: "read",
-      }),
+      }, new PathApprovalService()),
     ).toThrow(/超出允许的受管目录范围/);
   });
 
@@ -62,6 +63,7 @@ describe("LocalDocumentPathManager 越界守卫", () => {
     const p = new LocalDocumentPathManager(dataRoot).resolveManagedPath(
       `./data/sessions/${sessionId}/workspace/x.txt`,
       { context: ctx(), operation: "write" },
+      new PathApprovalService(),
     );
     expect(p).toContain(path.join("sessions", sessionId, "workspace"));
   });
@@ -71,6 +73,7 @@ describe("LocalDocumentPathManager 越界守卫", () => {
       new LocalDocumentPathManager(dataRoot).resolveManagedPath(
         `./data/sessions/${sessionId}/uploads/a.txt`,
         { context: ctx(), operation: "write" },
+        new PathApprovalService(),
       ),
     ).toThrow(/超出允许的受管目录范围/);
   });
@@ -79,27 +82,30 @@ describe("LocalDocumentPathManager 越界守卫", () => {
     const p = new LocalDocumentPathManager(dataRoot).resolveManagedPath(
       `./data/sessions/${sessionId}/uploads/u.txt`,
       { context: ctx(), operation: "read" },
+      new PathApprovalService(),
     );
     expect(p.endsWith(path.join("sessions", sessionId, "uploads", "u.txt"))).toBe(true);
   });
 });
 
-describe("approved_external_paths 单次提权", () => {
+describe("PathApprovalService 已批准路径放行", () => {
   it("未批准的外部绝对路径 → 抛错", () => {
     expect(() =>
       new LocalDocumentPathManager(dataRoot).resolveManagedPath(path.join(externalWs, "note.txt"), {
         context: ctx(),
         operation: "read",
-      }),
+      }, new PathApprovalService()),
     ).toThrow(/超出允许的受管目录范围/);
   });
 
-  it("批准根后 → 外部路径放行", () => {
+  it("pathService.approve 批准后 → 外部路径放行", () => {
     const target = path.join(externalWs, "note.txt");
+    const pathService = new PathApprovalService();
+    pathService.approve([externalWs]);
     const p = new LocalDocumentPathManager(dataRoot).resolveManagedPath(target, {
-      context: ctx({ approvedExternalPaths: [externalWs] }),
+      context: ctx(),
       operation: "read",
-    });
+    }, pathService);
     expect(p).toBe(path.resolve(target));
   });
 });
@@ -110,7 +116,7 @@ describe("workspaceRoot 注入", () => {
     const p = new LocalDocumentPathManager(dataRoot).resolveManagedPath(target, {
       context: ctx({ workspaceRoot: externalWs }),
       operation: "write",
-    });
+    }, new PathApprovalService());
     expect(p).toBe(path.resolve(target));
   });
 
@@ -118,7 +124,7 @@ describe("workspaceRoot 注入", () => {
     const p = new LocalDocumentPathManager(dataRoot).resolveManagedPath("rel.txt", {
       context: ctx(),
       operation: "write",
-    });
+    }, new PathApprovalService());
     expect(p).toContain(path.join("sessions", sessionId, "workspace"));
   });
 
@@ -127,7 +133,7 @@ describe("workspaceRoot 注入", () => {
       new LocalDocumentPathManager(dataRoot).resolveManagedPath("rel.txt", {
         context: ctx({ sessionId: null }),
         operation: "write",
-      }),
+      }, new PathApprovalService()),
     ).toThrow(/缺少可用的受管根目录|路径/);
   });
 });

@@ -18,6 +18,7 @@ import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk"
 import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { throwIfAborted } from "@ragsystem/agent-protocol";
+import type { PathApprovalService } from "../../services/runtime/path-service.js";
 
 const TOOL_NAME = "execute_bash";
 const DEFAULT_TIMEOUT_SECONDS = 120;
@@ -90,7 +91,7 @@ export class LocalBashToolService {
     this.paths = new BashPathResolver(this.dataRoot);
   }
 
-  prepareExecution(input: BashExecutionInput, context: ToolExecContext, agent: AgentConfig | null): BashExecutionPlanResult {
+  prepareExecution(input: BashExecutionInput, context: ToolExecContext, agent: AgentConfig | null, pathService: PathApprovalService): BashExecutionPlanResult {
     const command = normalizeString(input.command);
     if (!command) {
       return { ok: false, result: errorResult("execute_bash 缺少 command", { command: "" }) };
@@ -107,7 +108,7 @@ export class LocalBashToolService {
 
     let cwd: string;
     try {
-      cwd = this.paths.resolveWorkingDirectory(input.workingDir ?? null, input.workingDirSpace ?? null, context);
+      cwd = this.paths.resolveWorkingDirectory(input.workingDir ?? null, input.workingDirSpace ?? null, context, pathService);
     } catch (error) {
       return {
         ok: false,
@@ -181,8 +182,8 @@ export class LocalBashToolService {
     };
   }
 
-  getExternalPathApprovalCandidates(input: BashExecutionInput, context: ToolExecContext): string[] {
-    return this.paths.getExternalPathApprovalCandidates(input.workingDir, context);
+  getExternalCandidates(input: BashExecutionInput, context: ToolExecContext, pathService: PathApprovalService): string[] {
+    return this.paths.getExternalCandidates(input.workingDir, context, pathService);
   }
 
   async executePlan(plan: BashExecutionPlan, context: ToolExecContext): Promise<ToolExecutionResult> {

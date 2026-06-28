@@ -1,8 +1,8 @@
 /**
- * 工具准备阶段——校验 + 权限自检 + 路径收集。
+ * 工具准备阶段——校验 + 权限自检。
  *
- * prepare 的产出 PreparedTool 携带已校验的 input + 权限信号，
- * 供 tool-round-executor 的审批编排和执行阶段使用。
+ * prepare 的产出 PreparedTool 携带已校验的 input + 权限信号（checkAccess 的 ToolAccessDecision），
+ * 供 tool-round-executor 的审批编排和执行阶段使用。路径越界候选等业务信号经 access.signals 透传。
  */
 import type { ToolExecContext, ToolExecutionResult } from "../contracts.js";
 import type { Tool, ToolAccessDecision } from "./tool.js";
@@ -14,7 +14,6 @@ export interface PreparedTool<I = Record<string, unknown>> {
   tool: Tool<I>;
   input: I;
   permission: ToolAccessDecision | null;
-  approvedExternalPaths: string[];
 }
 
 export type PrepareResult<I = Record<string, unknown>> =
@@ -72,12 +71,9 @@ export function prepareTool(
     attachAccessSignals(input, permission);
   }
 
-  // 5. 路径收集
-  const approvedExternalPaths = tool.getExternalPathApprovalCandidates?.(input, ctx) ?? [];
-
   return {
     ok: true,
-    prepared: { tool, input, permission, approvedExternalPaths },
+    prepared: { tool, input, permission },
   };
 }
 

@@ -67,7 +67,7 @@ describe("PendingInteractionService", () => {
           approval_reason_codes: ["ask-risk"],
           approval_secondary_reasons: [],
           approval_hook: {},
-          approved_external_paths: [],
+          external_path_candidates: [],
         },
         message: "标准模式：high 风险工具需要审批",
       },

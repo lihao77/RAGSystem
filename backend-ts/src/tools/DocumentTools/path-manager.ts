@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
+import type { PathApprovalService } from "../../services/runtime/path-service.js";
 
 const DISPLAY_PATH_PREFIX = "./data/";
 
@@ -20,6 +21,7 @@ export class LocalDocumentPathManager {
       suffix?: string | undefined;
       customParams?: { workspace_root?: string | null; default_output_space?: string | null } | null;
     },
+    pathService: PathApprovalService,
   ): string {
     const rawPath = String(filePath ?? "").trim();
     if (!rawPath && input.operation === "read") {
@@ -32,7 +34,6 @@ export class LocalDocumentPathManager {
       normalizeString(input.customParams?.workspace_root);
     const explicitSpace = normalizeManagedSpace(input.explicitSpace);
     const defaultOutputSpace = normalizeManagedSpace(input.customParams?.default_output_space) ?? null;
-    const approvedExternalPaths = input.context.approvedExternalPaths ?? [];
 
     if (!rawPath) {
       const root = this.allocateOutputRoot({
@@ -54,8 +55,7 @@ export class LocalDocumentPathManager {
         operation: input.operation,
         workspaceRoot,
         originalPath: rawPath,
-        approvedExternalPaths,
-      });
+      }, pathService);
     }
 
     if (isAbsolutePathLike(rawPath)) {
@@ -65,8 +65,7 @@ export class LocalDocumentPathManager {
         operation: input.operation,
         workspaceRoot,
         originalPath: rawPath,
-        approvedExternalPaths,
-      });
+      }, pathService);
     }
 
     if (explicitSpace) {
@@ -77,8 +76,7 @@ export class LocalDocumentPathManager {
         operation: input.operation,
         workspaceRoot,
         originalPath: rawPath,
-        approvedExternalPaths,
-      });
+      }, pathService);
     }
 
     const candidateRoots = this.relativeCandidateRoots({ sessionId, runId, operation: input.operation, workspaceRoot });
@@ -95,8 +93,7 @@ export class LocalDocumentPathManager {
             operation: input.operation,
             workspaceRoot,
             originalPath: rawPath,
-            approvedExternalPaths,
-          });
+          }, pathService);
         }
       }
     }
@@ -107,14 +104,18 @@ export class LocalDocumentPathManager {
       operation: input.operation,
       workspaceRoot,
       originalPath: rawPath,
-      approvedExternalPaths,
-    });
+    }, pathService);
   }
 
-  getExternalPathApprovalCandidates(
+  /**
+   * 越界外部路径候选（工具 checkAccess 产 ask 用）：绝对外部路径 + 未批准 + 不在受管根 → 候选。
+   * 返回非空时 checkAccess 应 ask（signals.candidatePaths），gate handler 审批后 pathService.approve。
+   */
+  getExternalCandidates(
     toolName: string,
     args: Record<string, unknown> | undefined,
     context: ToolExecContext,
+    pathService: PathApprovalService,
   ): string[] {
     const operation = documentOperationForTool(toolName);
     if (!operation) {
@@ -124,24 +125,18 @@ export class LocalDocumentPathManager {
     if (!rawPath || rawPath.startsWith(DISPLAY_PATH_PREFIX) || !isAbsolutePathLike(rawPath)) {
       return [];
     }
-
+    const candidatePath = resolvePathLike(rawPath);
+    if (pathService.isApproved(candidatePath)) {
+      return [];
+    }
     const sessionId = normalizeString(context.sessionId);
     const runId = normalizeString(context.runId);
     const workspaceRoot = normalizeString(context.workspaceRoot);
-    const candidatePath = resolvePathLike(rawPath);
-    try {
-      this.assertAllowedPath(candidatePath, {
-        sessionId,
-        runId,
-        operation,
-        workspaceRoot,
-        originalPath: rawPath,
-        approvedExternalPaths: [],
-      });
+    const roots = this.allowedRoots({ sessionId, runId, operation, workspaceRoot });
+    if (roots.some((root) => isPathUnder(candidatePath, root))) {
       return [];
-    } catch {
-      return [candidatePath];
     }
+    return [candidatePath];
   }
 
   toDisplayPath(filePath: string): string {
@@ -161,21 +156,16 @@ export class LocalDocumentPathManager {
       operation: ManagedOperation;
       workspaceRoot: string | null;
       originalPath: string;
-      approvedExternalPaths?: string[] | undefined;
     },
+    pathService: PathApprovalService,
   ): string {
-    const resolvedPath = path.resolve(candidatePath);
     const allowedRoots = this.allowedRoots({
       sessionId: input.sessionId,
       runId: input.runId,
       operation: input.operation,
       workspaceRoot: input.workspaceRoot,
-      approvedExternalPaths: input.approvedExternalPaths,
     });
-    if (allowedRoots.some((root) => isPathUnder(resolvedPath, root))) {
-      return resolvedPath;
-    }
-    throw new Error(`路径 '${input.originalPath}' 超出允许的受管目录范围，禁止访问`);
+    return pathService.assertWithin(candidatePath, allowedRoots, input.originalPath);
   }
 
   private relativeCandidateRoots(input: {
@@ -183,14 +173,12 @@ export class LocalDocumentPathManager {
     runId: string | null;
     operation: ManagedOperation;
     workspaceRoot: string | null;
-    approvedExternalPaths?: string[] | undefined;
   }): string[] {
     if (input.operation === "read") {
       return dedupePaths([
         this.effectiveWorkspaceRoot(input.sessionId, input.workspaceRoot),
         ...this.sessionReadRoots(input.sessionId, input.runId, input.workspaceRoot),
         this.dataRoot,
-        ...(input.approvedExternalPaths ?? []),
       ]);
     }
     return dedupePaths([
@@ -201,7 +189,6 @@ export class LocalDocumentPathManager {
         : input.sessionId
           ? path.join(this.dataRoot, "sessions", input.sessionId, "exports")
           : null,
-      ...(input.approvedExternalPaths ?? []),
     ]);
   }
 
@@ -210,14 +197,12 @@ export class LocalDocumentPathManager {
     runId: string | null;
     operation: ManagedOperation;
     workspaceRoot: string | null;
-    approvedExternalPaths?: string[] | undefined;
   }): string[] {
     if (input.operation === "read") {
       return dedupePaths([
         this.effectiveWorkspaceRoot(input.sessionId, input.workspaceRoot),
         ...this.sessionReadRoots(input.sessionId, input.runId, input.workspaceRoot),
         this.dataRoot,
-        ...(input.approvedExternalPaths ?? []),
       ]);
     }
     return dedupePaths([
@@ -228,7 +213,6 @@ export class LocalDocumentPathManager {
         : input.sessionId
           ? path.join(this.dataRoot, "sessions", input.sessionId, "exports")
           : null,
-      ...(input.approvedExternalPaths ?? []),
     ]);
   }
 
@@ -355,10 +339,6 @@ function resolvePathLike(value: string): string {
     return value.replace(/\//g, "\\");
   }
   return path.resolve(value);
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
 function dedupePaths(paths: Array<string | null | undefined>): string[] {

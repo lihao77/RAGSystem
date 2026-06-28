@@ -9,6 +9,7 @@ import { projectAgentProfile } from "../../services/agent/sdk/projection.js";
 import { SdkStoreAdapter } from "../../services/agent/sdk/sdk-store-adapter.js";
 import { MemoryIndexContextSource, isMemoryEnabled } from "../../services/agent/memory/index.js";
 import { createBackendTools } from "../../tools/registry.js";
+import { PathApprovalService } from "../../services/runtime/path-service.js";
 import type { ChatMessage, ChatToolCall } from "@ragsystem/agent-llm";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
@@ -134,7 +135,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
         ...options.container.toolsDeps,
         agent,
         ...(teamName ? { teamName } : {}),
-      }),
+      }, new PathApprovalService()),
     });
     const sessionMetadataPort = {
       getSession: (sid: string) => options.container.conversationStore.getSession(sid),

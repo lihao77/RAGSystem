@@ -3,7 +3,7 @@
  *
  * 存储：Map<event, Set<handler>>。Set 保证同一 handler 不会重复注册；反注册直接 delete。
  * emit：顺序 await 所有 handler，**聚合输出**——
- *   - decision：deny > ask > allow（任一 deny 即 deny；否则 ask 压过 allow；决策与 reason 取自同一 handler）
+ *   - decision：deny > allow（任一 deny 即 deny；决策与 reason 取自同一 handler）
  *   - 注入字段（modifiedInput / modifiedResult / additionalContext）：末个非 undefined 生效
  *   - metadata：多 handler 浅合并（后者覆盖前者）
  *   - 单个 handler 异常 catch 不阻断其余；异常记进 metadata.hook_errors 供观测
@@ -17,10 +17,9 @@ interface AggregatedOutput extends BaseHookOutput {
   modifiedInput?: Record<string, unknown>;
   modifiedResult?: unknown;
   additionalContext?: string;
-  approvedPaths?: string[];
 }
 
-const DECISION_RANK: Record<HookDecision, number> = { allow: 1, ask: 2, deny: 3 };
+const DECISION_RANK: Record<HookDecision, number> = { allow: 1, deny: 2 };
 
 export function createHookRegistry(): HookRegistry {
   const handlers = new Map<HookEvent, Set<HookHandler<HookEvent>>>();
@@ -89,17 +88,6 @@ export function createHookRegistry(): HookRegistry {
           if (candidate.additionalContext !== undefined) {
             aggregated.additionalContext = candidate.additionalContext;
           }
-          // approvedPaths：取并集去重（tool.gate 多 handler 的放行路径合并）
-          if (candidate.approvedPaths && candidate.approvedPaths.length > 0) {
-            const existing = aggregated.approvedPaths ?? [];
-            const merged = [...existing];
-            for (const path of candidate.approvedPaths) {
-              if (!merged.includes(path)) {
-                merged.push(path);
-              }
-            }
-            aggregated.approvedPaths = merged;
-          }
         } catch (error) {
           if (!hookErrors) {
             hookErrors = [];
@@ -120,7 +108,6 @@ export function createHookRegistry(): HookRegistry {
         aggregated.modifiedInput !== undefined ||
         aggregated.modifiedResult !== undefined ||
         aggregated.additionalContext !== undefined ||
-        aggregated.approvedPaths !== undefined ||
         aggregated.metadata !== undefined;
       return (hasAny ? aggregated : EMPTY_HOOK_OUTPUT) as HookOutputMap[E];
     },

@@ -13,14 +13,16 @@ import {
   READ_FILE_TOOL_NAME,
   WRITE_FILE_TOOL_NAME,
 } from "../../services/runtime/runtime-tool-bridge/registry.js";
-import type { RuntimeToolDefinition, Tool, ToolExecContext } from "@ragsystem/agent-sdk";
+import type { RuntimeToolDefinition, Tool, ToolAccessDecision, ToolExecContext } from "@ragsystem/agent-sdk";
 import { buildTool } from "@ragsystem/agent-sdk";
+import type { PathApprovalService } from "../../services/runtime/path-service.js";
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { optionalInteger, optionalString, metadataFrom } from "../schema-helpers.js";
 
 interface DocumentToolDeps {
   documentTools: LocalDocumentToolService | null;
   agent: AgentConfig;
+  pathService: PathApprovalService;
 }
 
 const readFileSchema = z.object({
@@ -351,27 +353,27 @@ export function createDocumentTools(deps: DocumentToolDeps): Tool[] {
       inputSchema: readFileSchema,
       isReadOnly: () => true,
       isConcurrencySafe: () => true,
-      call: (input, ctx: ToolExecContext) => documentTools.readFile(readFileArguments(input), ctx, deps.agent),
-      getExternalPathApprovalCandidates: (input, ctx: ToolExecContext) =>
-        documentTools.getExternalPathApprovalCandidates(READ_FILE_TOOL_NAME, input, ctx),
+      checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision =>
+        documentAccessDecision(documentTools, READ_FILE_TOOL_NAME, input, ctx, deps.pathService),
+      call: (input, ctx: ToolExecContext) => documentTools.readFile(readFileArguments(input), ctx, deps.agent, deps.pathService),
     }));
   }
   if (enabled.has(WRITE_FILE_TOOL_NAME)) {
     tools.push(buildTool({
       ...metadataFrom(definitionByName.get(WRITE_FILE_TOOL_NAME)!),
       inputSchema: writeFileSchema,
-      call: (input, ctx: ToolExecContext) => documentTools.writeFile(writeFileArguments(input), ctx, deps.agent),
-      getExternalPathApprovalCandidates: (input, ctx: ToolExecContext) =>
-        documentTools.getExternalPathApprovalCandidates(WRITE_FILE_TOOL_NAME, input, ctx),
+      checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision =>
+        documentAccessDecision(documentTools, WRITE_FILE_TOOL_NAME, input, ctx, deps.pathService),
+      call: (input, ctx: ToolExecContext) => documentTools.writeFile(writeFileArguments(input), ctx, deps.agent, deps.pathService),
     }));
   }
   if (enabled.has(EDIT_FILE_TOOL_NAME)) {
     tools.push(buildTool({
       ...metadataFrom(definitionByName.get(EDIT_FILE_TOOL_NAME)!),
       inputSchema: editFileSchema,
-      call: (input, ctx: ToolExecContext) => documentTools.editFile(editFileArguments(input), ctx, deps.agent),
-      getExternalPathApprovalCandidates: (input, ctx: ToolExecContext) =>
-        documentTools.getExternalPathApprovalCandidates(EDIT_FILE_TOOL_NAME, input, ctx),
+      checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision =>
+        documentAccessDecision(documentTools, EDIT_FILE_TOOL_NAME, input, ctx, deps.pathService),
+      call: (input, ctx: ToolExecContext) => documentTools.editFile(editFileArguments(input), ctx, deps.agent, deps.pathService),
     }));
   }
   if (enabled.has(PREVIEW_DATA_STRUCTURE_TOOL_NAME)) {
@@ -380,10 +382,30 @@ export function createDocumentTools(deps: DocumentToolDeps): Tool[] {
       inputSchema: previewDataStructureSchema,
       isReadOnly: () => true,
       isConcurrencySafe: () => true,
-      call: (input, ctx: ToolExecContext) => documentTools.previewDataStructure(previewDataStructureArguments(input), ctx, deps.agent),
-      getExternalPathApprovalCandidates: (input, ctx: ToolExecContext) =>
-        documentTools.getExternalPathApprovalCandidates(PREVIEW_DATA_STRUCTURE_TOOL_NAME, input, ctx),
+      checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision =>
+        documentAccessDecision(documentTools, PREVIEW_DATA_STRUCTURE_TOOL_NAME, input, ctx, deps.pathService),
+      call: (input, ctx: ToolExecContext) => documentTools.previewDataStructure(previewDataStructureArguments(input), ctx, deps.agent, deps.pathService),
     }));
   }
   return tools;
+}
+
+/** 文档工具 checkAccess：越界外部路径 → ask（signals.candidatePaths），否则 allow。 */
+function documentAccessDecision(
+  documentTools: LocalDocumentToolService,
+  toolName: string,
+  input: Record<string, unknown>,
+  ctx: ToolExecContext,
+  pathService: PathApprovalService,
+): ToolAccessDecision {
+  const candidates = documentTools.getExternalCandidates(toolName, input, ctx, pathService);
+  if (candidates.length) {
+    return {
+      action: "ask",
+      reason: "路径越界访问需要审批",
+      description: `外部路径: ${candidates.join(", ")}`,
+      signals: { candidatePaths: candidates },
+    };
+  }
+  return { action: "allow" };
 }

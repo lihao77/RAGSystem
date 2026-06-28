@@ -15,7 +15,6 @@ export function metadataFrom<T extends {
   parameters: Record<string, unknown>;
   riskLevel?: unknown;
   allowed_callers?: string[] | undefined;
-  approvalExempt?: boolean | undefined;
   source?: unknown;
   category?: string | undefined;
   usage_contract?: string[] | undefined;
@@ -35,9 +34,6 @@ export function metadataFrom<T extends {
   }
   if (definition.allowed_callers !== undefined) {
     (base as Record<string, unknown>).allowedCallers = definition.allowed_callers;
-  }
-  if (definition.approvalExempt !== undefined) {
-    (base as Record<string, unknown>).approvalExempt = definition.approvalExempt;
   }
   if (definition.source !== undefined) {
     (base as Record<string, unknown>).source = definition.source as never;

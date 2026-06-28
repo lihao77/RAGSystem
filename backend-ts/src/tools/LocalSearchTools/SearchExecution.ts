@@ -223,11 +223,7 @@ export class LocalSearchToolService {
     const workspaceRoot = normalizeString(context.workspaceRoot) ?? null;
     const root = workspaceRoot ?? (context.sessionId ? path.join(this.dataRoot, "sessions", context.sessionId, "workspace") : this.dataRoot);
     const candidate = rawPath?.trim() ? path.resolve(root, rawPath) : path.resolve(root);
-    const allowedRoots = [
-      path.resolve(root),
-      path.resolve(this.dataRoot),
-      ...(context.approvedExternalPaths ?? []).map((item) => path.resolve(item)),
-    ];
+    const allowedRoots = [path.resolve(root), path.resolve(this.dataRoot)];
     if (!allowedRoots.some((allowedRoot) => isPathUnder(candidate, allowedRoot))) {
       throw new Error(`路径 '${rawPath}' 超出允许的受管目录范围，禁止访问`);
     }

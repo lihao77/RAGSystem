@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
+import type { PathApprovalService } from "../../services/runtime/path-service.js";
 
 const DISPLAY_PATH_PREFIX = "./data/";
 
@@ -10,34 +11,31 @@ type ManagedSpace = "workspace" | "transient" | "exports";
 export class BashPathResolver {
   constructor(private readonly dataRoot: string) {}
 
-  getExternalPathApprovalCandidates(
+  getExternalCandidates(
     workingDir: string | null | undefined,
     context: ToolExecContext,
+    pathService: PathApprovalService,
   ): string[] {
     const rawDir = normalizeString(workingDir);
     if (!rawDir || rawDir.startsWith(DISPLAY_PATH_PREFIX) || !isAbsolutePathLike(rawDir)) {
       return [];
     }
     const candidatePath = resolvePathLike(rawDir);
-    try {
-      this.assertAllowedPath(
-        candidatePath,
-        {
-          ...context,
-          approvedExternalPaths: [],
-        },
-        rawDir,
-      );
+    if (pathService.isApproved(candidatePath)) {
       return [];
-    } catch {
-      return [candidatePath];
     }
+    const roots = this.allowedRoots(context);
+    if (roots.some((root) => isPathUnder(candidatePath, root))) {
+      return [];
+    }
+    return [candidatePath];
   }
 
   resolveWorkingDirectory(
     workingDir: string | null,
     workingDirSpace: string | null,
     context: ToolExecContext,
+    pathService: PathApprovalService,
   ): string {
     const rawDir = normalizeString(workingDir) ?? ".";
     const displayMapped = this.fromDisplayPath(rawDir);
@@ -46,7 +44,7 @@ export class BashPathResolver {
       : isAbsolutePathLike(rawDir)
         ? resolvePathLike(rawDir)
         : path.resolve(this.managedSpaceRoot(normalizeManagedSpace(workingDirSpace) ?? "workspace", context), rawDir);
-    const resolved = this.assertAllowedPath(candidate, context, rawDir);
+    const resolved = this.assertAllowedPath(candidate, context, rawDir, pathService);
     if (!fs.existsSync(resolved)) {
       throw new Error(`工作目录不存在: ${workingDir ?? rawDir}`);
     }
@@ -108,17 +106,12 @@ export class BashPathResolver {
       this.effectiveWorkspaceRoot(context),
       sessionId ? path.join(this.dataRoot, "sessions", sessionId, "transient") : null,
       sessionId && runId ? path.join(this.dataRoot, "sessions", sessionId, "exports", runId) : null,
-      ...(context.approvedExternalPaths ?? []),
     ]);
   }
 
-  private assertAllowedPath(candidatePath: string, context: ToolExecContext, originalPath: string): string {
-    const resolved = path.resolve(candidatePath);
+  private assertAllowedPath(candidatePath: string, context: ToolExecContext, originalPath: string, pathService: PathApprovalService): string {
     const allowedRoots = this.allowedRoots(context);
-    if (allowedRoots.some((root) => isPathUnder(resolved, root))) {
-      return resolved;
-    }
-    throw new Error(`路径 '${originalPath}' 超出允许的受管目录范围，禁止访问`);
+    return pathService.assertWithin(candidatePath, allowedRoots, originalPath);
   }
 
   private fromDisplayPath(filePath: string): string | null {
