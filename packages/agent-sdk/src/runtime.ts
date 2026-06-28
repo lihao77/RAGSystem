@@ -12,9 +12,9 @@
 import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
-import type { ChatMessage } from "@ragsystem/agent-llm";
+import type { ChatMessage, LlmRequest } from "@ragsystem/agent-llm";
 import { isAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
-import type { ApprovalInteraction, Context, KernelResult, MessageRefresher, PermissionPolicy, RuntimeSession, ToolExecContext, ToolWaitRequest, ToolWaitResult, RuntimeStore } from "./contracts.js";
+import type { ApprovalInteraction, Context, EventSink, KernelResult, MessageRefresher, PermissionPolicy, RuntimeSession, ToolExecContext, ToolWaitRequest, ToolWaitResult, RuntimeStore } from "./contracts.js";
 import type { KernelEvent } from "./contracts.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import type { Tool } from "./tools/tool.js";
@@ -25,11 +25,12 @@ import { AgentKernel } from "./kernel.js";
 import { Dispatcher, type DispatcherRunContext } from "./dispatcher.js";
 import { SqliteRuntimeStore } from "./store/sqlite-store.js";
 import type { AgentProfile, MessageInfo } from "./types.js";
-import { AgentContextBuilder, type AgentContextSource, type SessionMetadataPort, type ConversationHistoryPort } from "./context/index.js";
+import { AgentContextBuilder, type AgentContext, type AgentContextSource, type SessionMetadataPort, type ConversationHistoryPort } from "./context/index.js";
 import { RecentMessagesContextSource, EmptyMemoryContextSource, filterHistoryMessages } from "./context/index.js";
 import { MemoryIndexContextSource } from "./memory/index.js";
 import { buildFullSystemPrompt } from "./prompt/prompt-builder.js";
 import type { AgentPromptContext } from "./prompt/types.js";
+import type { RuntimeToolDefinition } from "./prompt/tool-types.js";
 import { AgentContextCompressionService } from "./compression/context-compression.js";
 import { createCompactionHook } from "./compression/compaction-hook.js";
 import { createHookRegistry, type HookRegistry } from "./hooks/index.js";
@@ -119,7 +120,35 @@ export interface RunHandle {
   runId: string;
 }
 
-export function createRuntime(options: CreateRuntimeOptions): { run: (input: RunInput) => RunHandle; close: () => void } {
+/** preview 入口：组"模型收到的请求"不调 LLM，供调试快照等只读场景。 */
+export interface PreviewInput {
+  sessionId: string;
+  threadKey?: string | null;
+}
+
+/** preview 结果：模型真实收到的请求 + system prompt + token 用量 + 可见工具。 */
+export interface PreviewResult {
+  /** 模型真实收到的 LLM 请求（messages 协议渲染 + tools + model/provider/参数），与 run 第一轮同源。 */
+  request: LlmRequest;
+  /** 完整 system prompt（请求首条 system message 内容）。 */
+  systemPrompt: string;
+  tokenStats: {
+    systemPromptTokens: number;
+    historyTokens: number;
+    totalTokens: number;
+  };
+  /** 本 runtime 可见的工具定义。 */
+  toolDefinitions: RuntimeToolDefinition[];
+  /** 协议渲染后的历史（去掉 system + memory prefix），与 context.rawMessages 一一对应。 */
+  renderedHistory: ChatMessage[];
+  /** buildContext 产出：rawMessages（历史 MessageInfo，含 seq/metadata）+ metadata.sources（memory snapshot）。 */
+  context: AgentContext;
+}
+
+/** preview 协议用的空事件槽：buildRequest 不发事件，run 在闭包内另建 events=dispatcher 的 protocol。 */
+const NOOP_EVENT_SINK: EventSink = { emit: () => undefined };
+
+export function createRuntime(options: CreateRuntimeOptions): { run: (input: RunInput) => RunHandle; preview: (input: PreviewInput) => PreviewResult; close: () => void } {
   const profile = options.profile;
   const storeOpts: import("./store/sqlite-store.js").SqliteStoreOptions = {};
   if (options.dataRoot) { storeOpts.dataRoot = options.dataRoot; }
@@ -131,27 +160,40 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
     ? createToolRegistry({ tools: options.tools })
     : options.tools;
 
-  // default tier 内部自取：provider/modelName 已在 profile.llmTiers.default（投影算死），消费端无需再传。
+  // default tier 可缺：preview 不调 LLM、不需 tier；run 在闭包内守卫 default 必填（调 LLM 必须有 tier）。
   const defaultTier = profile.llmTiers.default;
-  if (!defaultTier) { throw new Error("AgentProfile.llmTiers.default missing（投影契约违反：default 档必填）"); }
   // LLM 客户端 SDK 内部自建（agent-llm OpenAiCompatibleClient 单例）：消费端不再注入，
   // SDK 据 profile.llmTiers.default.provider 自带的 ProviderConfig 自行调用。
   const llm = getDefaultLlmClient();
 
+  // 实例级上下文装配（run/preview 共用）：builder + context 组 requestMessages；protocol 组 LlmRequest。
+  // preview 用 events=noop 的 protocol（buildRequest 不发事件），run 闭包内另建 events=dispatcher 的
+  // protocol——两者 buildRequest 同源（同一 Protocol 类），保证 preview 组出的请求 = run 实际发的。
+  const historyPort: ConversationHistoryPort = {
+    getRecentMessages: (sid, _limit, tk) => store.listMessages(sid, tk ?? "root") as unknown as MessageInfo[],
+  };
+  const metadataPort = options.sessionMetadata ?? makeNoopSessionMetadata();
+  const sources = options.contextSources ?? buildDefaultSources(historyPort, metadataPort, profile, dataRoot);
+  const contextBuilder = new AgentContextBuilder(sources, options.microcompactTtlSeconds !== undefined ? { microcompactTtlSeconds: options.microcompactTtlSeconds } : {});
+  const { protocol: previewProtocol, toolInstructionMode } = createProtocol({
+    provider: defaultTier?.provider,
+    llm,
+    events: NOOP_EVENT_SINK,
+    getTools: () => registry.listDefinitions(),
+  });
+  const contextPort: Context = makeContextPort(contextBuilder, profile, toolInstructionMode, {
+    tools: registry.listDefinitions(),
+    backgroundTasks: options.promptContext?.backgroundTasks,
+  });
+
   return {
     run: (input: RunInput): RunHandle => {
+      if (!defaultTier) { throw new Error("AgentProfile.llmTiers.default missing（run 调 LLM 必须有 default tier）"); }
       const runId = input.runId ?? randomUUID();
       const rootCallId = input.rootCallId ?? randomUUID();
       const threadKey = input.threadKey ?? "root";
       const sessionId = input.sessionId;
       const parentCallId = input.parentCallId ?? null;
-
-      const historyPort: ConversationHistoryPort = {
-        getRecentMessages: (sid, _limit, tk) => store.listMessages(sid, tk ?? "root") as unknown as MessageInfo[],
-      };
-      const metadataPort = options.sessionMetadata ?? makeNoopSessionMetadata();
-      const sources = options.contextSources ?? buildDefaultSources(historyPort, metadataPort, profile, dataRoot);
-      const contextBuilder = new AgentContextBuilder(sources, options.microcompactTtlSeconds !== undefined ? { microcompactTtlSeconds: options.microcompactTtlSeconds } : {});
 
     const dispatcherCtx: DispatcherRunContext = {
       sessionId,
@@ -171,15 +213,12 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
     const dispatcher = new Dispatcher(store, dispatcherCtx);
       dispatcher.startRun();
 
-      const { protocol, toolInstructionMode } = createProtocol({
+      // run 的 protocol：events=dispatcher（发事件）；buildRequest 与实例级 preview 协议同源。
+      const { protocol } = createProtocol({
         provider: defaultTier.provider,
         llm,
         events: dispatcher,
         getTools: () => registry.listDefinitions(),
-      });
-      const context: Context = makeContextPort(contextBuilder, profile, toolInstructionMode, {
-        tools: registry.listDefinitions(),
-        backgroundTasks: options.promptContext?.backgroundTasks,
       });
       const refresher: MessageRefresher = { refresh: async () => [] };
 
@@ -264,9 +303,56 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
           compressing: false,
         };
       };
-      const kernel = new AgentKernel({ context, protocol, tools, events: dispatcher, refresher, hooks, contextUsage });
+      const kernel = new AgentKernel({ context: contextPort, protocol, tools, events: dispatcher, refresher, hooks, contextUsage });
       const resultPromise = runKernel(kernel, session, dispatcher);
       return { events: dispatcher.events, result: resultPromise, runId };
+    },
+    preview: (input: PreviewInput): PreviewResult => {
+      const threadKey = input.threadKey ?? "root";
+      const promptContext = { tools: registry.listDefinitions(), backgroundTasks: options.promptContext?.backgroundTasks };
+      // buildContext 一次：conversation（memory prefix + 历史）+ rawMessages（历史 MessageInfo，含 seq/metadata）+
+      // memory sources。与 run 的 makeContextPort.buildMessages 同源（buildFullSystemPrompt + builder.buildContext），
+      // 只是 preview 直调底层以保留 rawMessages 给调试快照展示元数据。
+      const built = contextBuilder.buildContext({ sessionId: input.sessionId, threadKey, microcompact: true });
+      const systemPrompt = buildFullSystemPrompt(profile, promptContext, toolInstructionMode);
+      const prefix: ChatMessage[] = systemPrompt ? [{ role: "system", content: systemPrompt }] : [];
+      const requestMessages: ChatMessage[] = [...prefix, ...built.conversation];
+      const session = {
+        profile,
+        provider: defaultTier?.provider,
+        modelName: defaultTier?.modelName,
+        conversation: built.conversation,
+        sessionId: input.sessionId,
+        runId: "preview",
+        taskId: null,
+        requestId: null,
+        rootCallId: "preview",
+        threadKey,
+        parentCallId: null,
+      } as RuntimeSession;
+      const ctx = { session, requestMessages } as unknown as KernelContextType;
+      const request = previewProtocol.buildRequest(ctx);
+      // renderedHistory = request.messages 去掉 systemPrompt + memory prefix，与 context.rawMessages 一一对应。
+      const memoryPrefixCount = built.metadata.sources.find((s) => s.name === "memory")?.message_count ?? 0;
+      const renderedHistory = request.messages.slice(1 + memoryPrefixCount);
+      let systemPromptTokens = 0;
+      let historyTokens = 0;
+      for (const message of request.messages) {
+        const tokens = estimateTokens(message.content ?? "");
+        if (message.role === "system") {
+          systemPromptTokens += tokens;
+        } else {
+          historyTokens += tokens;
+        }
+      }
+      return {
+        request,
+        systemPrompt,
+        tokenStats: { systemPromptTokens, historyTokens, totalTokens: systemPromptTokens + historyTokens },
+        toolDefinitions: registry.listDefinitions(),
+        renderedHistory,
+        context: built,
+      };
     },
     close: () => {
       if (ownsStore) {

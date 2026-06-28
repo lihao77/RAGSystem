@@ -32,7 +32,7 @@ export class NativeHybridProtocol implements Protocol {
   constructor(private readonly deps: NativeHybridProtocolDeps) {}
 
   async invoke(ctx: KernelContext, round: number): Promise<KernelOutcome> {
-    const baseRequest = this.buildRequestShell(ctx);
+    const baseRequest = this.buildRequest(ctx);
     const stream = this.deps.llm.stream;
     if (stream) {
       return this.invokeStreaming(ctx, baseRequest, round, stream.bind(this.deps.llm));
@@ -40,8 +40,13 @@ export class NativeHybridProtocol implements Protocol {
     return this.invokeNonStreaming(ctx, baseRequest, round);
   }
 
-  /** 组请求壳 + native tools。native 模式下发 request.tools + toolChoice:"auto"（与 XmlProtocol 的 withoutNativeTools 相反）。 */
-  private buildRequestShell(ctx: KernelContext): LlmRequest {
+  /**
+   * 组"模型收到的 LLM 请求"（messages 经 prepareMessages 注入 native 协议说明 + native tools +
+   * model/provider/参数），**不调 LLM**。run 的 invoke 与 preview 共用此步——run 组完发请求，
+   * preview 组完即返回。native 模式下发 request.tools + toolChoice:"auto"（与 XmlProtocol 的
+   * withoutNativeTools 相反）。
+   */
+  buildRequest(ctx: KernelContext): LlmRequest {
     const session = ctx.session;
     const llmParams = readTierParams(session.profile.llmTiers, "default");
     const messages = this.prepareMessages(ctx.requestMessages);

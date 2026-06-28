@@ -10,7 +10,7 @@
  * - EventSink 透传 KernelEvent，SDK 不翻译成 Envelope（设计稿 §6 原则 1/4：消费端翻译）
  * - 端口词汇去掉 backend-ts 的 runtime-tool-types 依赖，工具执行端口直接收 profile
  */
-import type { ChatMessage } from "@ragsystem/agent-llm";
+import type { ChatMessage, LlmRequest } from "@ragsystem/agent-llm";
 // 标量事件壳从协议面 import（供本文件 KernelEvent union 引用）+ re-export（供下游使用）。
 // 3 个携带 ChatMessage 的事件（intent_complete/assistant_intermediate/observation_complete）在下方 extends 壳扩展。
 import type {
@@ -179,6 +179,11 @@ export interface Context {
  * 读 ctx.requestMessages 作下发 messages；内部完成边流边解析 + 修复重试。
  */
 export interface Protocol {
+  /**
+   * 组"模型收到的 LLM 请求"（messages 经协议渲染/注入说明 + tools + model/provider/参数），**不调 LLM**。
+   * run 的 invoke 与 preview 共用此步——run 组完发请求，preview 组完即返回，保证"所见即模型所收"。
+   */
+  buildRequest(ctx: KernelContext): LlmRequest;
   invoke(ctx: KernelContext, round: number): Promise<KernelOutcome>;
   renderObservations(calls: KernelToolCall[], observations: KernelObservation[]): ChatMessage[];
   toModelMessages(messages: ChatMessage[]): ChatMessage[];

@@ -51,7 +51,7 @@ export class XmlProtocol implements Protocol {
   constructor(private readonly deps: XmlProtocolDeps) {}
 
   async invoke(ctx: KernelContext, round: number): Promise<KernelOutcome> {
-    const baseRequest = this.buildRequestShell(ctx);
+    const baseRequest = this.buildRequest(ctx);
     const stream = this.deps.llm.stream;
     if (stream) {
       return this.invokeStreaming(ctx, baseRequest, round, stream.bind(this.deps.llm));
@@ -59,8 +59,12 @@ export class XmlProtocol implements Protocol {
     return this.invokeNonStreaming(ctx, baseRequest, round);
   }
 
-  /** 组请求壳：读 tier 参数 + 注入协议说明/manifest + toModelMessages 语义包装。XML 不下发 native tools。 */
-  private buildRequestShell(ctx: KernelContext): LlmRequest {
+  /**
+   * 组"模型收到的 LLM 请求"（注入协议说明/manifest + toModelMessages 语义包装 + model/provider/参数），
+   * **不调 LLM**。run 的 invoke 与 preview 共用此步——run 组完发请求，preview 组完即返回。
+   * XML 模式不下发 native tools 字段（withoutNativeTools）。
+   */
+  buildRequest(ctx: KernelContext): LlmRequest {
     const session = ctx.session;
     const llmParams = readTierParams(session.profile.llmTiers, "default");
     const messages = this.prepareMessages(ctx.requestMessages);

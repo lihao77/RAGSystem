@@ -8,7 +8,7 @@
  * 特殊分支（selectLlm 替换 default 已在投影层做完）。
  */
 import type { RequestLlmParams } from "@ragsystem/agent-llm";
-import type { ResolvedTier, TierMap } from "../types.js";
+import type { TierMap } from "../types.js";
 
 /**
  * 读 tiers[tier] 的生成参数；tier 缺档时回落 default。
@@ -18,18 +18,13 @@ import type { ResolvedTier, TierMap } from "../types.js";
  */
 export function readTierParams(tiers: TierMap, tier: string): RequestLlmParams {
   const tierEntry = tiers[tier];
-  // 契约：tiers.default 恒在（投影保证，§3 契约约束）。
-  const defaultEntry = tiers.default ?? assertDefault(tiers);
+  // default 档可缺：preview 不调 LLM、不需 tier（run 用 profile 由 createRuntime.run 守卫 default 必填）。
+  const defaultEntry = tiers.default;
   return {
-    temperature: tierEntry?.temperature ?? defaultEntry.temperature,
-    maxCompletionTokens: tierEntry?.maxCompletionTokens ?? defaultEntry.maxCompletionTokens,
-    extraParams: compactRecord(defaultEntry.extraParams, tierEntry?.extraParams),
+    temperature: tierEntry?.temperature ?? defaultEntry?.temperature ?? null,
+    maxCompletionTokens: tierEntry?.maxCompletionTokens ?? defaultEntry?.maxCompletionTokens ?? null,
+    extraParams: compactRecord(defaultEntry?.extraParams, tierEntry?.extraParams),
   };
-}
-
-/** 契约守卫：default 档必填（投影保证）。正确投影时不会触发，仅约束 noUncheckedIndexedAccess。 */
-function assertDefault(_tiers: TierMap): ResolvedTier {
-  throw new Error("AgentProfile.llmTiers.default missing (投影契约违反：default 档必填)");
 }
 
 /** 合并 extraParams 来源（后者覆盖前者同名 key），过滤 null/undefined。 */

@@ -58,7 +58,7 @@ export class RecentMessagesContextSource implements AgentContextSource {
         ttl_seconds: request.microcompactTtlSeconds,
       };
     }
-    return { conversation: messagesToConversation(microcompact.messages), metadata };
+    return { conversation: messagesToConversation(microcompact.messages), rawMessages: microcompact.messages, metadata };
   }
 
   private resolveMicrocompactDecision(
