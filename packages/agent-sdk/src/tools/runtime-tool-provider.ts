@@ -6,10 +6,12 @@
  * permission 经 tool.gate handler 实现（由 createRuntime 在 hooks 上注册），不再经此透传。
  */
 import type {
+  DelegateToolCallInput,
   EventSink,
   KernelContext,
   KernelObservation,
   KernelToolCall,
+  ToolExecutionResult,
   ToolProvider,
   ToolExecContext,
   ToolWaitRequest,
@@ -32,6 +34,8 @@ export interface RuntimeToolProviderOptions {
   hooks?: HookRegistry;
   /** 后台任务等待回调（消费端注入）。 */
   waitForToolResult?: (request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>;
+  /** 委托工具执行回调（消费端注入，命中 delegateToHost 工具时调）。 */
+  delegateToolCall?: (input: DelegateToolCallInput, ctx: ToolExecContext) => Promise<ToolExecutionResult>;
 }
 
 export class RuntimeToolProvider implements ToolProvider {
@@ -41,6 +45,7 @@ export class RuntimeToolProvider implements ToolProvider {
   private readonly events: EventSink;
   private readonly hooks: HookRegistry | undefined;
   private readonly waitForToolResultFn: ((request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>) | undefined;
+  private readonly delegateToolCallFn: ((input: DelegateToolCallInput, ctx: ToolExecContext) => Promise<ToolExecutionResult>) | undefined;
 
   constructor(options: RuntimeToolProviderOptions) {
     this.registry = options.registry;
@@ -49,6 +54,7 @@ export class RuntimeToolProvider implements ToolProvider {
     this.events = options.events;
     this.hooks = options.hooks;
     this.waitForToolResultFn = options.waitForToolResult;
+    this.delegateToolCallFn = options.delegateToolCall;
   }
 
   async executeRound(ctx: KernelContext, round: number, calls: KernelToolCall[]): Promise<KernelObservation[]> {
@@ -64,6 +70,7 @@ export class RuntimeToolProvider implements ToolProvider {
       events: this.events,
       ...(this.hooks ? { hooks: this.hooks } : {}),
       ...(this.waitForToolResultFn ? { waitForToolResult: this.waitForToolResultFn } : {}),
+      ...(this.delegateToolCallFn ? { delegateToolCall: this.delegateToolCallFn } : {}),
     });
   }
 }

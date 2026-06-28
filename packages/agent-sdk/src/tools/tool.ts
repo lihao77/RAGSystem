@@ -49,6 +49,8 @@ export interface Tool<I = Record<string, unknown>, O = unknown> {
   readonly parameters: Record<string, unknown>;
   readonly riskLevel?: RiskLevel;
   readonly allowedCallers: ToolCaller[];
+  /** 委托宿主执行（true=工具不在后端本地 call，由消费端注入的 delegateToolCall 回调执行）。 */
+  readonly delegateToHost?: boolean;
   readonly source?: ToolSource;
   readonly category?: string;
   readonly usageContract?: string[];
@@ -77,6 +79,8 @@ export interface BuildToolInput<I, O> {
   parameters?: Record<string, unknown>;
   riskLevel?: RiskLevel;
   allowedCallers?: ToolCaller[];
+  /** 委托宿主执行。 */
+  delegateToHost?: boolean;
   source?: ToolSource;
   category?: string;
   usageContract?: string[];
@@ -110,6 +114,7 @@ export function buildTool<I extends Record<string, unknown>, O = unknown>(
     call: def.call,
   };
   if (def.riskLevel !== undefined) { (tool as MutableTool<I, O>).riskLevel = def.riskLevel; }
+  if (def.delegateToHost !== undefined) { (tool as MutableTool<I, O>).delegateToHost = def.delegateToHost; }
   if (def.source !== undefined) { (tool as MutableTool<I, O>).source = def.source; }
   if (def.category !== undefined) { (tool as MutableTool<I, O>).category = def.category; }
   if (def.usageContract !== undefined) { (tool as MutableTool<I, O>).usageContract = def.usageContract; }

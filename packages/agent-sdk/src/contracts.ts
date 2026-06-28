@@ -201,6 +201,13 @@ export interface ToolExecutorCall {
   callId: string;
 }
 
+/** 委托工具调用请求（SDK→消费端回调）：命中 delegateToHost 工具时，SDK 不本地 call，调此回调由消费端转发宿主执行。 */
+export interface DelegateToolCallInput {
+  toolName: string;
+  toolCallId: string;
+  arguments: Record<string, unknown>;
+}
+
 /** 工具执行上下文（运行时元数据 + 工具生命周期所需的 caller/workspaceRoot）。 */
 export interface ToolExecContext {
   sessionId: string | null;
