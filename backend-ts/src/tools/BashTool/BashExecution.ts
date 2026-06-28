@@ -55,6 +55,31 @@ export type BashExecutionPlanResult =
   | { ok: true; plan: BashExecutionPlan }
   | { ok: false; result: ToolExecutionResult };
 
+/**
+ * 命令分类（不 resolve workingDir）—— checkAccess 用。
+ * prepareExecution 据此 + resolveWorkingDirectory 建 plan（含 resolved cwd）。
+ * 拆分目的：checkAccess 阶段 workingDir 越界时 pathService.approved 还空（approve 在 gate 后），
+ * 若此时 resolve 会抛错被吞成 deny；故 checkAccess 只分类（不 resolve），call 阶段才 resolve。
+ */
+export interface BashCommandClassification {
+  command: string;
+  description: string;
+  category: CommandCategory;
+  riskLevel: RiskLevel;
+  approvalRequired: boolean;
+  approvalCommands: string[];
+  dangerousCommands: string[];
+  approvalDescription: string;
+  timeoutSeconds: number;
+  runInBackground: boolean;
+  workingDir: string | null;
+  workingDirSpace: string | null;
+}
+
+export type BashClassificationResult =
+  | { ok: true; classification: BashCommandClassification }
+  | { ok: false; result: ToolExecutionResult };
+
 interface ForegroundResult {
   stdout: string;
   stderr: string;
@@ -91,7 +116,11 @@ export class LocalBashToolService {
     this.paths = new BashPathResolver(this.dataRoot);
   }
 
-  prepareExecution(input: BashExecutionInput, context: ToolExecContext, agent: AgentConfig | null, pathService: PathApprovalService): BashExecutionPlanResult {
+  /**
+   * 命令分类（checkAccess 用）：command 校验 + validateCommand + 风险/审批判定。
+   * 不 resolve workingDir——checkAccess 阶段 workingDir 越界尚不能 resolve（pathService 未 approve）。
+   */
+  buildCommandClassification(input: BashExecutionInput, agent: AgentConfig | null): BashClassificationResult {
     const command = normalizeString(input.command);
     if (!command) {
       return { ok: false, result: errorResult("execute_bash 缺少 command", { command: "" }) };
@@ -105,33 +134,16 @@ export class LocalBashToolService {
         }),
       };
     }
-
-    let cwd: string;
-    try {
-      cwd = this.paths.resolveWorkingDirectory(input.workingDir ?? null, input.workingDirSpace ?? null, context, pathService);
-    } catch (error) {
-      return {
-        ok: false,
-        result: errorResult(error instanceof Error ? error.message : String(error), {
-          command,
-          working_dir: input.workingDir ?? ".",
-          working_dir_space: input.workingDirSpace ?? "workspace",
-        }),
-      };
-    }
-
     const validation = validateCommand(command);
     if (validation.status === "blocked") {
       return {
         ok: false,
         result: errorResult(`命令安全检查失败: ${validation.error}`, {
           command,
-          working_dir: cwd,
           classification: "unknown",
         }),
       };
     }
-
     const timeoutSeconds = clampPositiveInt(input.timeout, this.defaultTimeoutSeconds, 1, this.maxTimeoutSeconds);
     const description = normalizeString(input.description) ?? "";
     const riskLevel = categoryRisk(validation.category);
@@ -144,13 +156,10 @@ export class LocalBashToolService {
       category: validation.category,
       dangerousCommands,
     });
-
     return {
       ok: true,
-      plan: {
+      classification: {
         command,
-        cwd,
-        timeoutSeconds,
         description,
         category: validation.category,
         riskLevel,
@@ -158,26 +167,66 @@ export class LocalBashToolService {
         approvalCommands: validation.approvalCommands,
         dangerousCommands,
         approvalDescription,
+        timeoutSeconds,
+        runInBackground: Boolean(input.runInBackground),
+        workingDir: input.workingDir ?? null,
+        workingDirSpace: input.workingDirSpace ?? null,
+      },
+    };
+  }
+
+  prepareExecution(input: BashExecutionInput, context: ToolExecContext, agent: AgentConfig | null, pathService: PathApprovalService): BashExecutionPlanResult {
+    const classified = this.buildCommandClassification(input, agent);
+    if (!classified.ok) {
+      return classified;
+    }
+    const c = classified.classification;
+    let cwd: string;
+    try {
+      cwd = this.paths.resolveWorkingDirectory(c.workingDir, c.workingDirSpace, context, pathService);
+    } catch (error) {
+      return {
+        ok: false,
+        result: errorResult(error instanceof Error ? error.message : String(error), {
+          command: c.command,
+          working_dir: c.workingDir ?? ".",
+          working_dir_space: c.workingDirSpace ?? "workspace",
+        }),
+      };
+    }
+    return {
+      ok: true,
+      plan: {
+        command: c.command,
+        cwd,
+        timeoutSeconds: c.timeoutSeconds,
+        description: c.description,
+        category: c.category,
+        riskLevel: c.riskLevel,
+        approvalRequired: c.approvalRequired,
+        approvalCommands: c.approvalCommands,
+        dangerousCommands: c.dangerousCommands,
+        approvalDescription: c.approvalDescription,
         approvalArguments: {
-          command,
-          working_dir: input.workingDir ?? ".",
-          working_dir_space: input.workingDirSpace ?? "workspace",
+          command: c.command,
+          working_dir: c.workingDir ?? ".",
+          working_dir_space: c.workingDirSpace ?? "workspace",
           resolved_working_dir: cwd,
-          description,
-          classification: validation.category,
-          command_segments: validation.approvalCommands,
-          dangerous_command_segments: dangerousCommands,
+          description: c.description,
+          classification: c.category,
+          command_segments: c.approvalCommands,
+          dangerous_command_segments: c.dangerousCommands,
         },
         metadata: {
-          command,
+          command: c.command,
           working_dir: cwd,
-          working_dir_space: input.workingDirSpace ?? "workspace",
-          classification: validation.category,
-          risk_level: riskLevel,
-          timeout_seconds: timeoutSeconds,
-          ...(validation.approvalCommands.length ? { approval_required_commands: validation.approvalCommands } : {}),
+          working_dir_space: c.workingDirSpace ?? "workspace",
+          classification: c.category,
+          risk_level: c.riskLevel,
+          timeout_seconds: c.timeoutSeconds,
+          ...(c.approvalCommands.length ? { approval_required_commands: c.approvalCommands } : {}),
         },
-        runInBackground: Boolean(input.runInBackground),
+        runInBackground: c.runInBackground,
       },
     };
   }

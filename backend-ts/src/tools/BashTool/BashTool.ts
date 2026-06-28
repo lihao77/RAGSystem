@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { BashExecutionPlan, LocalBashToolService } from "./BashExecution.js";
+import type { LocalBashToolService } from "./BashExecution.js";
 import { readBashArguments } from "../../services/runtime/runtime-tool-bridge/arguments.js";
 import { EXECUTE_BASH_TOOL_NAME } from "../../services/runtime/runtime-tool-bridge/registry.js";
 import { buildTool, type Tool, type ToolExecContext, type ToolAccessDecision } from "@ragsystem/agent-sdk";
@@ -93,47 +93,43 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
       isConcurrencySafe: () => false,
       checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision => {
         const bashInput = readBashArguments(input);
-        const pathCandidates = bashTools.getExternalCandidates(bashInput, ctx, deps.pathService);
-        const prepared = bashTools.prepareExecution(bashInput, ctx, deps.agent, deps.pathService);
-        if (!prepared.ok) {
+        // 只做命令分类（不 resolve workingDir）：workingDir 越界时 pathService 尚未 approve，resolve 会抛错。
+        // 路径越界候选单独算；命令高危/路径越界都 ask。call 阶段（gate 已 approve）才调完整 prepareExecution resolve。
+        const classified = bashTools.buildCommandClassification(bashInput, deps.agent);
+        if (!classified.ok) {
           return {
             action: "deny",
-            reason: prepared.result.summary,
-            result: prepared.result,
-            signals: materializePlanError(prepared.result),
+            reason: classified.result.summary,
+            result: classified.result,
           };
         }
-        const plan = prepared.plan;
-        const baseSignals: Record<string, unknown> = { bash_plan: plan, approval_arguments: plan.approvalArguments, approval_type: "bash_command" };
-        if (plan.approvalRequired) {
+        const c = classified.classification;
+        const pathCandidates = bashTools.getExternalCandidates(bashInput, ctx, deps.pathService);
+        if (c.approvalRequired) {
           return {
             action: "ask",
             reason: "当前策略要求人工审批",
-            riskLevel: plan.riskLevel,
-            description: plan.approvalDescription,
-            signals: { ...baseSignals, ...(pathCandidates.length ? { candidatePaths: pathCandidates } : {}) },
+            riskLevel: c.riskLevel,
+            description: c.approvalDescription,
+            ...(pathCandidates.length ? { signals: { candidatePaths: pathCandidates } } : {}),
           };
         }
         if (pathCandidates.length) {
           return {
             action: "ask",
             reason: "路径越界访问需要审批",
-            riskLevel: plan.riskLevel,
+            riskLevel: c.riskLevel,
             description: `外部路径: ${pathCandidates.join(", ")}`,
-            signals: { ...baseSignals, candidatePaths: pathCandidates },
+            signals: { candidatePaths: pathCandidates },
           };
         }
         return {
           action: "allow",
-          riskLevel: plan.riskLevel,
-          signals: baseSignals,
+          riskLevel: c.riskLevel,
         };
       },
       call: (input, ctx: ToolExecContext) => {
-        const plan = readCachedPlan(input);
-        if (plan) {
-          return bashTools.executePlan(plan, ctx);
-        }
+        // workingDir 越界场景：gate 已审批 → pathService.approve(candidate) → 此处 resolve 放行。
         const prepared = bashTools.prepareExecution(readBashArguments(input), ctx, deps.agent, deps.pathService);
         if (!prepared.ok) {
           return prepared.result;
@@ -142,22 +138,6 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
       },
     }),
   ];
-}
-
-function readCachedPlan(input: Record<string, unknown>): BashExecutionPlan | null {
-  const value = input.__runtime_bash_plan;
-  return isRecord(value) ? value as unknown as BashExecutionPlan : null;
-}
-
-function materializePlanError(result: { summary: string; metadata: Record<string, unknown>; content: unknown }): Record<string, unknown> {
-  return {
-    ...result.metadata,
-    content: result.content,
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 export { EXECUTE_BASH_TOOL_NAME };
