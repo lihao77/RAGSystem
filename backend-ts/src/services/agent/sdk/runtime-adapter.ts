@@ -26,6 +26,7 @@ import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
 import { SdkStoreAdapter } from "./sdk-store-adapter.js";
+import { MemoryIndexContextSource, isMemoryEnabled } from "../memory/index.js";
 import { SdkPermissionPolicyAdapter } from "./permission-adapter.js";
 import { SdkApprovalInteractionAdapter } from "./approval-interaction-adapter.js";
 
@@ -166,12 +167,16 @@ export async function executeRunWithSdk(
       })
     : undefined;
 
+  // memory context source（业务 source，经 extraContextSources 注入；SDK 不再内置 memory）。
+  const extraContextSources = isMemoryEnabled(input.agent.memory)
+    ? [new MemoryIndexContextSource(sessionMetadata, input.agent.memory, input.agent.agent_name, { dataRoot: deps.dataRoot })]
+    : [];
   const runtimeOpts: CreateRuntimeOptions = {
     profile,
     tools: registry,
     dataRoot: deps.dataRoot,
     store: storeAdapter,
-    sessionMetadata,
+    extraContextSources,
     permissionPolicy: new SdkPermissionPolicyAdapter({ service: deps.permissionPolicy }),
     approvalInteraction: new SdkApprovalInteractionAdapter({
       service: deps.pendingInteractions,

@@ -13,7 +13,7 @@
  *   - 删 resolveDefaultSource 特殊分支：selectLlm 替换 default 已在此处做完，
  *     resolved.tiers.default 永远是最终真相，readTierParams 只做两级回落
  */
-import type { AgentProfile, CompressionBudgetConfig, MemoryConfig, ResolvedTier, TierMap } from "@ragsystem/agent-sdk";
+import type { AgentProfile, CompressionBudgetConfig, ResolvedTier, TierMap } from "@ragsystem/agent-sdk";
 import type { ProviderConfig } from "@ragsystem/agent-llm";
 import type { AgentConfig, AgentLlmConfig } from "../../../contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
@@ -43,13 +43,11 @@ export interface ProjectionInput {
 export function projectAgentProfile(input: ProjectionInput): AgentProfile {
   const tiers = resolveTierMap(input);
   const behavior = resolveBehavior(input.agent);
-  const memory = resolveMemory(input.agent);
 
   const profile: AgentProfile = {
     agentName: input.agent.agent_name,
     displayName: input.agent.display_name ?? null,
     llmTiers: tiers,
-    memory,
     behavior,
   };
   // custom_params 其余字段透传（behavior 已单独提取，不重复）。
@@ -209,24 +207,6 @@ function resolveCompressionBudget(behavior: Record<string, unknown> | null): Com
     systemPromptReserve: requireNumber(budget.system_prompt_reserve, 2000),
     minContextBudget: requireNumber(budget.min_context_budget, 4000),
   };
-}
-
-/**
- * 投影 agent.memory → SDK MemoryConfig（snake → camel）。
- * snapshot 路径装配 SDK MemoryIndexContextSource 时用（无需完整 profile/tier 解析）。
- */
-export function projectMemory(agent: AgentConfig): MemoryConfig {
-  const memory = agent.memory;
-  return {
-    autoInject: memory.auto_inject,
-    allowedScopes: memory.allowed_scopes,
-    writeScopes: memory.write_scopes,
-    archiveScopes: memory.archive_scopes,
-  };
-}
-
-function resolveMemory(agent: AgentConfig): MemoryConfig {
-  return projectMemory(agent);
 }
 
 /** 从 custom_params 透传副本中移除 behavior（已单独投影到 profile.behavior）。 */

@@ -164,17 +164,10 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   // agentDelegation 需先实例化（工具依赖它），但其 runEngine/eventPublisher 延迟设置。
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
-  const memoryConfig = systemConfig.getMemoryConfig();
   const microcompactTtlSeconds = systemConfig.getMicrocompactTtlSeconds();
-  // snapshot 与 run（createRuntime）同源：SDK AgentContextBuilder + memory/recent sources，
-  // TTL 经 systemConfig 单一来源注入两条路径。backend 不再组装平行 context-builder。
-  const agentContextService = new AgentContextService(
-    conversationStore,
-    systemConfig,
-    memoryConfig,
-    dataRoot,
-    microcompactTtlSeconds,
-  );
+  // 上下文组装（memory + recent）由 createRuntime 经 extraContextSources 注入，TTL 经 systemConfig
+  // 单一来源注入 run 路径。AgentContextService 仅保留预算估算（snapshot 已随 memory 迁出删除）。
+  const agentContextService = new AgentContextService(systemConfig);
   const agentDelegation = new AgentDelegationService(
     conversationStore,
     runtimeCore,

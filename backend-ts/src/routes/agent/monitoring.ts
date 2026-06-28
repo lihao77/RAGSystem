@@ -7,6 +7,7 @@ import { resolveContextCompressionSettings } from "../../services/agent/context-
 import { createRuntime, createToolRegistry } from "@ragsystem/agent-sdk";
 import { projectAgentProfile } from "../../services/agent/sdk/projection.js";
 import { SdkStoreAdapter } from "../../services/agent/sdk/sdk-store-adapter.js";
+import { MemoryIndexContextSource, isMemoryEnabled } from "../../services/agent/memory/index.js";
 import { createBackendTools } from "../../tools/registry.js";
 import type { ChatMessage, ChatToolCall } from "@ragsystem/agent-llm";
 import { HttpError } from "../../utils/errors.js";
@@ -135,15 +136,21 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
         ...(teamName ? { teamName } : {}),
       }),
     });
+    const sessionMetadataPort = {
+      getSession: (sid: string) => options.container.conversationStore.getSession(sid),
+      updateSessionMetadata: (sid: string, patch: Record<string, unknown>) =>
+        options.container.conversationStore.updateSessionMetadata(sid, patch),
+    };
+    // memory context source（业务 source，经 extraContextSources 注入；SDK 不再内置 memory）。
+    const extraContextSources = isMemoryEnabled(agent.memory)
+      ? [new MemoryIndexContextSource(sessionMetadataPort, agent.memory, agent.agent_name, { dataRoot: options.container.dataRoot })]
+      : [];
     const runtime = createRuntime({
       profile,
       tools: registry,
       store: new SdkStoreAdapter({ conversationStore: options.container.conversationStore }),
       dataRoot: options.container.dataRoot,
-      sessionMetadata: {
-        getSession: (sid) => options.container.conversationStore.getSession(sid),
-        updateSessionMetadata: (sid, patch) => options.container.conversationStore.updateSessionMetadata(sid, patch),
-      },
+      extraContextSources,
       microcompactTtlSeconds: options.container.systemConfig.getMicrocompactTtlSeconds(),
       ...(agent.tasks.background ? { promptContext: { backgroundTasks: true } } : {}),
     });
