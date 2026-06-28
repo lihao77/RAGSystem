@@ -1,6 +1,6 @@
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { SessionInfo } from "../../contracts/session.js";
-import type { ToolExecutionResult } from "@ragsystem/agent-sdk";
+import type { ToolAccessDecision, ToolExecutionResult } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
 import { getWorkspaceMemoryKey } from "../../services/stores/memory-store.js";
 import type { IMemoryStore, MemoryScopeName, MemoryScopeSpec } from "../../contracts/memory-store/index.js";
@@ -57,6 +57,42 @@ export class MemoryToolService {
     private readonly sessions: RuntimeMemorySessionPort,
   ) {}
 
+  /**
+   * memory scope 访问检查（工具 checkAccess 用）：scope 合法性 + allowed/write/archive 白名单。
+   * 越权 → deny（reason 引导换 scope）；通过 → allow。call 内 resolveMemoryScope 只做定位。
+   */
+  checkMemoryScopeAccess(
+    input: ListMemoryIndexInput,
+    context: MemoryToolRuntimeContext,
+    mode: "read" | "write" | "archive",
+  ): ToolAccessDecision {
+    const memoryConfig = context.agent?.memory;
+    if (!memoryConfig || !hasMemoryCapability(memoryConfig)) {
+      return { action: "deny", reason: "当前 Agent 未启用 memory 能力" };
+    }
+    const normalizedScope = normalizeMemoryScope(input.scope);
+    if (!normalizedScope) {
+      return { action: "deny", reason: `不支持的 memory scope: ${input.scope}` };
+    }
+    const allowedScopes = new Set((memoryConfig.allowed_scopes?.length ? memoryConfig.allowed_scopes : ["team", "session"]).map((item) => item.toLowerCase()));
+    if (!allowedScopes.has(normalizedScope)) {
+      return { action: "deny", reason: `当前 Agent 不允许访问 memory scope: ${input.scope}` };
+    }
+    if (mode === "write") {
+      const writeScopes = new Set((memoryConfig.write_scopes ?? []).map((item) => item.toLowerCase()));
+      if (!writeScopes.has(normalizedScope)) {
+        return { action: "deny", reason: `当前 Agent 不允许写入 memory scope: ${input.scope}` };
+      }
+    }
+    if (mode === "archive") {
+      const archiveScopes = new Set((memoryConfig.archive_scopes ?? []).map((item) => item.toLowerCase()));
+      if (!archiveScopes.has(normalizedScope)) {
+        return { action: "deny", reason: `当前 Agent 不允许归档 memory scope: ${input.scope}` };
+      }
+    }
+    return { action: "allow" };
+  }
+
   listMemoryIndex(
     input: ListMemoryIndexInput,
     context: MemoryToolRuntimeContext,
@@ -109,7 +145,7 @@ export class MemoryToolService {
     context: MemoryToolRuntimeContext,
   ): ToolExecutionResult {
     const toolName = "write_memory";
-    const setup = this.resolveMemoryScope(input, context, toolName, "write");
+    const setup = this.resolveMemoryScope(input, context, toolName);
     if ("error" in setup) {
       return toolError(toolName, setup.error);
     }
@@ -152,7 +188,7 @@ export class MemoryToolService {
     context: MemoryToolRuntimeContext,
   ): ToolExecutionResult {
     const toolName = "archive_memory";
-    const setup = this.resolveMemoryScope(input, context, toolName, "archive");
+    const setup = this.resolveMemoryScope(input, context, toolName);
     if ("error" in setup) {
       return toolError(toolName, setup.error);
     }
@@ -191,42 +227,23 @@ export class MemoryToolService {
     context: MemoryToolRuntimeContext,
     toolName: string,
   ): { error: string } | ResolvedMemoryScopeInputs {
-    return this.resolveMemoryScope(input, context, toolName, "read");
+    return this.resolveMemoryScope(input, context, toolName);
   }
 
+  /**
+   * 定位 memory scope（call 用）：normalizeMemoryScope + resolveScopeSpec。
+   * scope 白名单校验（allowed/write/archive）已移 checkMemoryScopeAccess（checkAccess 阶段 deny）。
+   */
   private resolveMemoryScope(
     input: ListMemoryIndexInput,
     context: MemoryToolRuntimeContext,
     toolName: string,
-    mode: "read" | "write" | "archive",
   ): { error: string } | ResolvedMemoryScopeInputs {
-    const memoryConfig = context.agent?.memory;
     const currentAgentName = normalizeString(input.currentAgentName) ?? normalizeString(context.currentAgentName) ?? context.agent?.agent_name ?? null;
-    if (!memoryConfig || !hasMemoryCapability(memoryConfig)) {
-      return { error: `当前 Agent 未启用 memory 能力: ${currentAgentName ?? "unknown"}` };
-    }
-
     const normalizedScope = normalizeMemoryScope(input.scope);
     if (!normalizedScope) {
       return { error: `不支持的 memory scope: ${input.scope}` };
     }
-    const allowedScopes = new Set((memoryConfig.allowed_scopes?.length ? memoryConfig.allowed_scopes : ["team", "session"]).map((item) => item.toLowerCase()));
-    if (!allowedScopes.has(normalizedScope)) {
-      return { error: `当前 Agent 不允许访问 memory scope: ${input.scope}` };
-    }
-    if (mode === "write") {
-      const writeScopes = new Set((memoryConfig.write_scopes ?? []).map((item) => item.toLowerCase()));
-      if (!writeScopes.has(normalizedScope)) {
-        return { error: `当前 Agent 不允许写入 memory scope: ${input.scope}` };
-      }
-    }
-    if (mode === "archive") {
-      const archiveScopes = new Set((memoryConfig.archive_scopes ?? []).map((item) => item.toLowerCase()));
-      if (!archiveScopes.has(normalizedScope)) {
-        return { error: `当前 Agent 不允许归档 memory scope: ${input.scope}` };
-      }
-    }
-
     const scopeSpec = this.resolveScopeSpec(input, context, normalizedScope, currentAgentName);
     if ("error" in scopeSpec) {
       return { error: `${toolName} 缺少 ${scopeSpec.error}` };

@@ -110,22 +110,14 @@ describe("MemoryToolService", () => {
     const service = new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({}));
 
     expect(
-      service.listMemoryIndex(
-        {
-          scope: "team",
-        },
-        {
-          agent: minimalAgent(["session"]),
-          sessionId: "s1",
-        },
+      service.checkMemoryScopeAccess(
+        { scope: "team" },
+        { agent: minimalAgent(["session"]), sessionId: "s1" },
+        "read",
       ),
     ).toMatchObject({
-      success: false,
-      outputType: "error",
-      content: "当前 Agent 不允许访问 memory scope: team",
-      metadata: {
-        source_shape: "error",
-      },
+      action: "deny",
+      reason: "当前 Agent 不允许访问 memory scope: team",
     });
   });
 
@@ -193,39 +185,31 @@ describe("MemoryToolService", () => {
   });
 
   it("rejects write and archive scopes independently from readable scopes", () => {
-    const dataRoot = makeTempDataRoot();
-    const service = new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} }));
+    const service = new MemoryToolService(new MemoryStore({ dataRoot: makeTempDataRoot() }), new InMemorySessions({ s1: {} }));
     const context = {
       agent: minimalAgent(["session"], [], []),
       sessionId: "s1",
     };
 
     expect(
-      service.writeMemory(
-        {
-          scope: "session",
-          name: "Alpha Fact",
-          description: "alpha fact",
-          memoryType: "fact",
-          content: "alpha body",
-        },
+      service.checkMemoryScopeAccess(
+        { scope: "session", name: "Alpha Fact", description: "alpha fact", memoryType: "fact", content: "alpha body" },
         context,
+        "write",
       ),
     ).toMatchObject({
-      success: false,
-      content: "当前 Agent 不允许写入 memory scope: session",
+      action: "deny",
+      reason: "当前 Agent 不允许写入 memory scope: session",
     });
     expect(
-      service.archiveMemory(
-        {
-          scope: "session",
-          fileName: "fact_Alpha-Fact.md",
-        },
+      service.checkMemoryScopeAccess(
+        { scope: "session", fileName: "fact_Alpha-Fact.md" },
         context,
+        "archive",
       ),
     ).toMatchObject({
-      success: false,
-      content: "当前 Agent 不允许归档 memory scope: session",
+      action: "deny",
+      reason: "当前 Agent 不允许归档 memory scope: session",
     });
   });
 });

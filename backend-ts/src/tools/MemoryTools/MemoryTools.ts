@@ -16,6 +16,7 @@ import {
   buildTool,
   type RuntimeToolDefinition,
   type Tool,
+  type ToolAccessDecision,
   type ToolExecContext,
 } from "@ragsystem/agent-sdk";
 import { metadataFrom, optionalString } from "../schema-helpers.js";
@@ -340,6 +341,8 @@ export function createMemoryTools(deps: MemoryToolDeps): Tool[] {
         inputSchema: listMemoryIndexSchema,
         isReadOnly: () => true,
         isConcurrencySafe: () => true,
+        checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision =>
+          memoryTools.checkMemoryScopeAccess(readListMemoryIndexArguments(input), toMemoryRuntimeContext(agent, ctx), "read"),
         call: (input, ctx: ToolExecContext) =>
           memoryTools.listMemoryIndex(readListMemoryIndexArguments(input), toMemoryRuntimeContext(agent, ctx)),
       }),
@@ -348,6 +351,8 @@ export function createMemoryTools(deps: MemoryToolDeps): Tool[] {
         inputSchema: readMemoryEntrySchema,
         isReadOnly: () => true,
         isConcurrencySafe: () => true,
+        checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision =>
+          memoryTools.checkMemoryScopeAccess(readMemoryEntryArguments(input), toMemoryRuntimeContext(agent, ctx), "read"),
         call: (input, ctx: ToolExecContext) =>
           memoryTools.readMemoryEntry(readMemoryEntryArguments(input), toMemoryRuntimeContext(agent, ctx)),
       }),
@@ -359,6 +364,8 @@ export function createMemoryTools(deps: MemoryToolDeps): Tool[] {
       buildTool({
         ...metadataFrom(WRITE_MEMORY_TOOL),
         inputSchema: writeMemorySchema,
+        checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision =>
+          memoryTools.checkMemoryScopeAccess(readWriteMemoryArguments(input), toMemoryRuntimeContext(agent, ctx), "write"),
         call: (input, ctx: ToolExecContext) =>
           memoryTools.writeMemory(readWriteMemoryArguments(input), toMemoryRuntimeContext(agent, ctx)),
       }),
@@ -370,6 +377,8 @@ export function createMemoryTools(deps: MemoryToolDeps): Tool[] {
       buildTool({
         ...metadataFrom(ARCHIVE_MEMORY_TOOL),
         inputSchema: archiveMemorySchema,
+        checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision =>
+          memoryTools.checkMemoryScopeAccess(readArchiveMemoryArguments(input), toMemoryRuntimeContext(agent, ctx), "archive"),
         call: (input, ctx: ToolExecContext) =>
           memoryTools.archiveMemory(readArchiveMemoryArguments(input), toMemoryRuntimeContext(agent, ctx)),
       }),
