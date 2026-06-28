@@ -13,6 +13,8 @@ import { mockLlm } from "../helpers/llm-fetch-mock.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
+import { HostToolRegistry } from "../../src/services/runtime/host-tool-registry.js";
+import { DelegationPendingService } from "../../src/services/runtime/delegation-pending-service.js";
 import type { RuntimeExecutionConfigResolver } from "../../src/services/agent/execution/runtime-core-service.js";
 
 afterEach(() => {
@@ -124,6 +126,8 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
   const realtimeEvents = new RealtimeEventHub();
   const dispatcher = new OutboxDispatcher(store, realtimeEvents);
   const clientEvents = new DurableClientEventPublisher(store, dispatcher);
+  const hostToolRegistry = new HostToolRegistry();
+  const delegationPending = new DelegationPendingService();
   const agent = minimalAgent("orchestrator_agent");
   const errors: Array<Record<string, unknown>> = [];
   const logger: AgentExecutionLogger | null = opts.logger
@@ -148,6 +152,8 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
      },
    ],
    clientEvents,
+   hostToolRegistry,
+   delegationPending,
     logger: logger ?? null,
   });
   return { service, store, errors };

@@ -49,7 +49,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
         ws.send(JSON.stringify(payload));
       };
       const sendAck = (
-        category: "send" | "stop" | "interaction",
+        category: "send" | "stop" | "interaction" | "tool_delegate",
         ok: boolean,
         extra: { ref_call_id?: string; error?: string } = {},
       ): void => {
@@ -140,6 +140,22 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
               container.agentExecution.stopSession(sessionId).catch(() => undefined);
               sendAck("stop", true);
               break;
+            case "tools.register":
+              // 握手期前端推送本连接可委托执行的工具清单（覆盖式）。runtime-adapter per-run 取用。
+              container.hostToolRegistry.register(sessionId, message.payload.tools);
+              break;
+            case "tool_result": {
+              // 委托执行结果回传：按 call_id 唤醒 SDK delegateToolCall 等待器。
+              const payload = message.payload;
+              const resolved = container.delegationPending.resolve(message.call_id, {
+                ok: payload.ok,
+                ...(payload.observation !== undefined ? { observation: payload.observation } : {}),
+                ...(payload.error !== undefined ? { error: payload.error } : {}),
+                ...(payload.elapsed_ms !== undefined ? { elapsedMs: payload.elapsed_ms } : {}),
+              });
+              sendAck("tool_delegate", resolved, { ref_call_id: message.call_id, ...(resolved ? {} : { error: "未找到对应的委托等待，可能已超时或取消" }) });
+              break;
+            }
             case "interaction": {
               const payload = message.payload;
               if (payload.kind === "approval") {
@@ -196,7 +212,7 @@ function buildDurableOutboxReplay(
   const projector = new EnvelopeProjector();
   return {
     runId: rows.find((row) => row.run_id)?.run_id ?? null,
-    events: rows.map((row) => projector.toEnvelope(row)),
+    events: rows.map((row) => projector.toEnvelope(row)).filter((event) => !isDelegationToolEvent(event)),
   };
 }
 
@@ -229,6 +245,9 @@ function buildActiveRunReplay(
     runIds: [...runIdSet],
     limit: 500,
   }).map((row) => projector.toEnvelope(row)).filter((event) => {
+    if (isDelegationToolEvent(event)) {
+      return false;
+    }
     if (!isPendingInteractionReplayEvent(container, sessionId, event)) {
       return false;
     }
@@ -273,6 +292,18 @@ function isPendingInteractionReplayEvent(
   return payload.kind === "approval"
     ? container.pendingInteractions.isApprovalPending(sessionId, callId)
     : container.pendingInteractions.isUserInputPending(sessionId, callId);
+}
+
+/**
+ * 委托工具事件（mode=delegation）不回放：委托是实时双向，重连时 in-flight 委托已失效，
+ * 回放会让前端误以为是新的委托请求。投影 tool_call/tool_result（mode=projection）正常回放。
+ */
+function isDelegationToolEvent(event: Envelope): boolean {
+  if (event.type !== "tool_call" && event.type !== "tool_result") {
+    return false;
+  }
+  const payload = isRecord(event.payload) ? event.payload : {};
+  return payload.mode === "delegation";
 }
 
 function timestampToMilliseconds(value: unknown): number | null {

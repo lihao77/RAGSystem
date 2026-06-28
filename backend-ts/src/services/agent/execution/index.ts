@@ -21,6 +21,8 @@ import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
 import type { PendingInteractionService } from "../../runtime/pending-interaction-service.js";
+import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
+import type { DelegationPendingService } from "../../runtime/delegation-pending-service.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { IFileIndexStore } from "../../../contracts/file-index-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
@@ -77,6 +79,10 @@ export interface AgentExecutionServiceParams {
  permissionPolicy: PermissionPolicyService;
  /** 审批交互服务（SDK 审批编排阻塞等待用）。 */
  pendingInteractions: PendingInteractionService;
+ /** 前端委托工具声明注册表（per-session）。 */
+ hostToolRegistry: HostToolRegistry;
+ /** 委托工具调用等待器（SDK delegateToolCall 回调注册 + 前端 tool_result resolve）。 */
+ delegationPending: DelegationPendingService;
  /** 消费端 hook 注册回调（可选）；透传 SDK，让 backend 注册 tool.before/after、round.before 等 handler。 */
  hooks?: (registry: HookRegistry) => void;
  /** microcompact 缓存 TTL（秒）——透传 createRuntime，与 snapshot 路径同源（systemConfig 单一来源）。 */
@@ -128,6 +134,8 @@ export function createAgentExecutionService(
     params.clientEvents,
     params.permissionPolicy,
     params.pendingInteractions,
+    params.hostToolRegistry,
+    params.delegationPending,
     params.logger ?? null,
     params.hooks ?? null,
     params.microcompactTtlSeconds,

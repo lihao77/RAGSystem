@@ -12,7 +12,7 @@ import type { ObservationPolicy, RuntimeToolDefinition, RuntimeToolReturns } fro
 
 export type RiskLevel = "low" | "medium" | "high";
 export type ToolCaller = "direct" | "code_execution" | string;
-export type ToolSource = "runtime_builtin" | "memory" | "document" | "execution" | "agent_tool" | "knowledge" | "mcp";
+export type ToolSource = "runtime_builtin" | "memory" | "document" | "execution" | "agent_tool" | "knowledge" | "mcp" | "host";
 
 /* ── InputSchema 鸭子类型（兼容 Zod，SDK 不依赖 Zod 包）── */
 

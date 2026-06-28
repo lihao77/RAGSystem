@@ -26,6 +26,8 @@ import { MemoryStore } from "../stores/memory-store.js";
 import { MemoryToolService } from "../../tools/MemoryTools/MemoryExecution.js";
 import { McpService } from "../integrations/mcp-service.js";
 import { ModelAdapterService } from "../integrations/model-adapter-service.js";
+import { DelegationPendingService } from "./delegation-pending-service.js";
+import { HostToolRegistry } from "./host-tool-registry.js";
 import { PendingInteractionService } from "./pending-interaction-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
 import { RuntimeCoreService } from "../agent/execution/runtime-core-service.js";
@@ -63,6 +65,8 @@ export interface RuntimeContainer {
   readonly backgroundTasks: BackgroundTaskService;
   readonly taskTools: TaskToolService;
   readonly pendingInteractions: PendingInteractionService;
+  readonly hostToolRegistry: HostToolRegistry;
+  readonly delegationPending: DelegationPendingService;
   /** per-agent 工具依赖集合（runtime-adapter per-run 构建 Tool[] 用）。 */
   readonly toolsDeps: Omit<import("../../tools/registry.js").BackendToolsDeps, "agent" | "teamName">;
   readonly runtimeCore: RuntimeCoreService;
@@ -161,6 +165,8 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   });
   const taskTools = new TaskToolService(backgroundTasks, { dataRoot: options.dataRoot });
   const pendingInteractions = new PendingInteractionService(clientEvents);
+  const hostToolRegistry = new HostToolRegistry();
+  const delegationPending = new DelegationPendingService();
   // agentDelegation 需先实例化（工具依赖它），但其 runEngine/eventPublisher 延迟设置。
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
@@ -203,6 +209,8 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     clientEvents,
     permissionPolicy,
     pendingInteractions,
+    hostToolRegistry,
+    delegationPending,
     logger: options.logger,
     microcompactTtlSeconds,
     ...(options.hooks ? { hooks: options.hooks } : {}),
@@ -251,6 +259,8 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     backgroundTasks,
     taskTools,
     pendingInteractions,
+    hostToolRegistry,
+    delegationPending,
     toolsDeps,
     runtimeCore,
     agentContextService,

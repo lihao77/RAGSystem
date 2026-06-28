@@ -7,7 +7,7 @@
  * 避免 SDK 与 backend-ts 双写 message/run_step）、terminal 补 run:end/final step + 终态 envelope
  *（final assistant 消息由 SDK Dispatcher.finalize 已写，此处只查库取其 id/seq 供 message_saved）。
  */
-import { createRuntime, createToolRegistry, prepareTool, type CreateRuntimeOptions, type SessionMetadataPort } from "@ragsystem/agent-sdk";
+import { buildTool, createRuntime, createToolRegistry, prepareTool, type CreateRuntimeOptions, type SessionMetadataPort } from "@ragsystem/agent-sdk";
 import type { AgentPromptContext, Tool, ToolExecContext, ToolExecutionResult, ToolRegistry } from "@ragsystem/agent-sdk";
 import { translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
@@ -15,7 +15,7 @@ import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { MessageInfo } from "../../../contracts/session.js";
-import type { Envelope } from "../../../contracts/events.js";
+import type { DelegatedToolDeclarationWire, Envelope } from "../../../contracts/events.js";
 import type { AgentExecutionEventPublisher } from "../execution/event-publisher.js";
 import type { DurableClientEventPublisher, RecordedClientEvent } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
@@ -29,6 +29,8 @@ import { SdkStoreAdapter } from "./sdk-store-adapter.js";
 import { MemoryIndexContextSource, isMemoryEnabled } from "../memory/index.js";
 import { registerGateHook } from "./gate-hook.js";
 import { PathApprovalService } from "../../../services/runtime/path-service.js";
+import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
+import type { DelegationPendingService, DelegationResolution } from "../../runtime/delegation-pending-service.js";
 
 export interface SdkRuntimeAdapterDeps {
   conversationStore: ConversationStore;
@@ -47,6 +49,10 @@ export interface SdkRuntimeAdapterDeps {
   permissionPolicy: PermissionPolicyService;
   /** 审批交互服务（SDK 审批编排阻塞等待端口用）。 */
   pendingInteractions: PendingInteractionService;
+  /** 前端委托工具声明注册表（per-session）；命中前端工具时构造 delegateToHost Tool。 */
+  hostToolRegistry: HostToolRegistry;
+  /** 委托工具调用等待器（SDK delegateToolCall 回调注册 + 前端 tool_result 回传 resolve）。 */
+  delegationPending: DelegationPendingService;
   /** 消费端 hook 注册回调（可选）；透传给 createRuntime，让 backend 注册 tool.before/after、round.before 等 handler。 */
   hooks?: (registry: HookRegistry) => void;
   /** microcompact 缓存 TTL（秒）；透传 createRuntime，与 snapshot 路径同源（systemConfig 单一来源）。 */
@@ -110,14 +116,18 @@ export async function executeRunWithSdk(
     updateSessionMetadata: (sessionId, patch) => deps.conversationStore.updateSessionMetadata(sessionId, patch),
   };
 
-  // per-run 构建工具集合：各工厂闭包绑定 agent，返回 SDK Tool[]
+  // per-run 构建工具集合：后端工具 + 前端委托工具（delegateToHost，命中时 SDK 调 delegateToolCall 回调）。
   const teamName = asString(input.sessionMetadata.team);
   const pathService = new PathApprovalService();
-  const tools: Tool[] = createBackendTools({
-    ...deps.toolsDeps,
-    agent: input.agent,
-    ...(teamName ? { teamName } : {}),
-  }, pathService);
+  const hostTools = buildHostDelegateTools(deps.hostToolRegistry.get(input.sessionId));
+  const tools: Tool[] = [
+    ...createBackendTools({
+      ...deps.toolsDeps,
+      agent: input.agent,
+      ...(teamName ? { teamName } : {}),
+    }, pathService),
+    ...hostTools,
+  ];
   const registry: ToolRegistry = createToolRegistry({ tools });
 
   // 算 promptContext（仅 backgroundTasks）；tools 由 SDK 内核从 registry 自动填充。
@@ -172,6 +182,15 @@ export async function executeRunWithSdk(
   const extraContextSources = isMemoryEnabled(input.agent.memory)
     ? [new MemoryIndexContextSource(sessionMetadata, input.agent.memory, input.agent.agent_name, { dataRoot: deps.dataRoot })]
     : [];
+  // 委托工具执行回调：SDK 命中 delegateToHost 工具时调，经等待器等前端 tool_result 回传。
+  // tool_call(mode=delegation) 已由 SDK event 流自动推前端，此处只注册等待 + 收回传。
+  const delegateToolCall = async (
+    callInput: { toolName: string; toolCallId: string; arguments: Record<string, unknown> },
+    ctx: ToolExecContext,
+  ): Promise<ToolExecutionResult> => {
+    const resolution = await deps.delegationPending.wait(callInput.toolCallId, ctx.signal ? { signal: ctx.signal } : undefined);
+    return toHostToolExecutionResult(callInput.toolName, resolution);
+  };
   const runtimeOpts: CreateRuntimeOptions = {
     profile,
     tools: registry,
@@ -191,6 +210,7 @@ export async function executeRunWithSdk(
       deps.hooks?.(registry);
     },
     ...(waitForToolResult ? { waitForToolResult } : {}),
+    delegateToolCall,
   };
 
   // 翻译上下文（agent-protocol.translateKernelEvent 纯函数用）：root call + lineage。
@@ -350,6 +370,53 @@ function appendEnvelope(
     aggregateType: "run",
     aggregateId: input.runId,
   });
+}
+
+/** 把前端委托工具声明构造为 SDK delegateToHost Tool（不本地执行，归属前端）。 */
+function buildHostDelegateTools(declarations: DelegatedToolDeclarationWire[]): Tool[] {
+  return declarations.map((decl) => buildTool({
+    name: decl.name,
+    description: decl.description,
+    parameters: decl.input_schema,
+    ...(decl.risk_level !== undefined ? { riskLevel: decl.risk_level } : {}),
+    allowedCallers: ["direct"],
+    source: "host",
+    delegateToHost: true,
+    isReadOnly: () => false,
+    isConcurrencySafe: () => false,
+    // 委托工具不本地执行；prepareAndExecute 委托分支不会调 call，此处仅为满足 Tool 接口。
+    call: () => {
+      throw new Error(`委托工具 ${decl.name} 不应在后端本地执行`);
+    },
+  }));
+}
+
+/** 前端委托回传 DelegationResolution → ToolExecutionResult。 */
+function toHostToolExecutionResult(toolName: string, resolution: DelegationResolution): ToolExecutionResult {
+  if (!resolution.ok) {
+    return {
+      success: false,
+      toolName,
+      summary: "前端委托执行失败",
+      answer: null,
+      outputType: "error",
+      content: resolution.error ?? "前端委托执行失败",
+      metadata: {},
+      artifacts: [],
+      llmHint: null,
+    };
+  }
+  return {
+    success: true,
+    toolName,
+    summary: "前端委托执行完成",
+    answer: null,
+    outputType: "text",
+    content: resolution.observation ?? "",
+    metadata: typeof resolution.elapsedMs === "number" ? { elapsed_ms: resolution.elapsedMs } : {},
+    artifacts: [],
+    llmHint: null,
+  };
 }
 
 function asString(value: unknown): string | null {

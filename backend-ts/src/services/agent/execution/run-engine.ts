@@ -14,6 +14,8 @@ import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
 import type { PendingInteractionService } from "../../runtime/pending-interaction-service.js";
+import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
+import type { DelegationPendingService } from "../../runtime/delegation-pending-service.js";
 import type { IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
@@ -50,6 +52,8 @@ export class AgentRunEngine {
     private readonly clientEvents: DurableClientEventPublisher,
     private readonly permissionPolicy: PermissionPolicyService,
     private readonly pendingInteractions: PendingInteractionService,
+    private readonly hostToolRegistry: HostToolRegistry,
+    private readonly delegationPending: DelegationPendingService,
     private readonly logger: AgentExecutionLogger | null,
     private readonly hooks: ((registry: HookRegistry) => void) | null,
     private readonly microcompactTtlSeconds?: number,
@@ -278,6 +282,8 @@ export class AgentRunEngine {
           dataRoot: this.dataRoot,
           permissionPolicy: this.permissionPolicy,
           pendingInteractions: this.pendingInteractions,
+          hostToolRegistry: this.hostToolRegistry,
+          delegationPending: this.delegationPending,
           ...(this.microcompactTtlSeconds !== undefined ? { microcompactTtlSeconds: this.microcompactTtlSeconds } : {}),
           ...(this.hooks ? { hooks: this.hooks } : {}),
         },

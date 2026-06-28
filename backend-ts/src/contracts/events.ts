@@ -142,3 +142,6 @@ export const ClientToServerEnvelopeSchema = z.discriminatedUnion("type", [
 ]);
 
 export type ClientToServerEnvelope = z.infer<typeof ClientToServerEnvelopeSchema>;
+
+/** DelegatedToolDeclaration 的 wire 类型（z.infer，exactOptionalPropertyTypes 下与 schema 一致）。backend 内部存取用。 */
+export type DelegatedToolDeclarationWire = z.infer<typeof DelegatedToolDeclarationSchema>;

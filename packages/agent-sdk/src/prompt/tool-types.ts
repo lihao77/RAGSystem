@@ -26,7 +26,7 @@ export interface RuntimeToolDefinition {
   examples?: RuntimeToolExample[];
   extended_usage?: string;
   category?: string;
-  source?: "runtime_builtin" | "memory" | "document" | "execution" | "agent_tool" | "knowledge" | "mcp";
+  source?: "runtime_builtin" | "memory" | "document" | "execution" | "agent_tool" | "knowledge" | "mcp" | "host";
   riskLevel?: "low" | "medium" | "high";
   observationPolicy?: ObservationPolicy;
 }
