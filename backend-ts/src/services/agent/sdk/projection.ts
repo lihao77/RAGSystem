@@ -37,8 +37,8 @@ export interface ProjectionInput {
 /**
  * 投影 AgentConfig → AgentProfile。
  *
- * @throws 当 default 档无法解析（无 provider 引用且无 selectedLlm）时抛错——
- *         契约约束：llmTiers.default 必填。
+ * default 档可缺（provider 未配时返回无 default 的 profile）—— preview 不调 LLM、不需 tier；
+ * run 用 profile 由 createRuntime.run 守卫 default 必填。调试 snapshot 在 provider 未配时仍可投影。
  */
 export function projectAgentProfile(input: ProjectionInput): AgentProfile {
   const tiers = resolveTierMap(input);
@@ -70,7 +70,7 @@ function resolveTierMap(input: ProjectionInput): TierMap {
   const rawTiers = input.agent.llm_tiers ?? {};
   const defaultEntry = resolveDefaultTier(input);
 
-  const tiers: TierMap = { default: defaultEntry };
+  const tiers: TierMap = defaultEntry ? { default: defaultEntry } : {};
   for (const [tierName, rawTier] of Object.entries(rawTiers)) {
     if (tierName === "default") {
       continue;
@@ -89,20 +89,15 @@ function resolveTierMap(input: ProjectionInput): TierMap {
  * - 否则 → 读 agent.llm_tiers.default，provider 引用解析 + provider 参数 merge。
  * - 都没有 → 抛错（契约：default 必填）。
  */
-function resolveDefaultTier(input: ProjectionInput): ResolvedTier {
+function resolveDefaultTier(input: ProjectionInput): ResolvedTier | null {
   if (input.selectedLlm) {
     return buildTierFromProvider(input.selectedLlm.provider, input.selectedLlm.modelName);
   }
   const rawDefault = input.agent.llm_tiers?.default;
   if (rawDefault) {
-    const resolved = resolveTierWithProviderRef(rawDefault, input.providers);
-    if (resolved) {
-      return resolved;
-    }
+    return resolveTierWithProviderRef(rawDefault, input.providers);
   }
-  throw new Error(
-    `Agent '${input.agent.agent_name}' 缺少 default LLM tier（无 llm_tiers.default 且无 selectedLlm）`,
-  );
+  return null;
 }
 
 /**
@@ -113,19 +108,22 @@ function resolveDefaultTier(input: ProjectionInput): ResolvedTier {
 function resolveScenarioTier(
   rawTier: AgentLlmConfig,
   providers: ModelProviderConfig[],
-  defaultEntry: ResolvedTier,
+  defaultEntry: ResolvedTier | null,
 ): ResolvedTier | null {
   const resolved = resolveTierWithProviderRef(rawTier, providers);
   // 场景 tier 无 provider 引用或解析失败：回落 default（不抛错，场景 tier 可缺）。
- const base = resolved ?? defaultEntry;
- return {
-   provider: base.provider,
-   modelName: base.modelName,
-   temperature: pickNumber(rawTier.temperature, base.temperature),
+  const base = resolved ?? defaultEntry;
+  if (!base) {
+    return null;
+  }
+  return {
+    provider: base.provider,
+    modelName: base.modelName,
+    temperature: pickNumber(rawTier.temperature, base.temperature),
     maxCompletionTokens: pickNumber(rawTier.max_completion_tokens, base.maxCompletionTokens),
-   maxContextTokens: pickNumber(rawTier.max_context_tokens, base.maxContextTokens),
-   extraParams: compactRecord(defaultEntry.extraParams, rawTier.extra_params),
- };
+    maxContextTokens: pickNumber(rawTier.max_context_tokens, base.maxContextTokens),
+    extraParams: compactRecord(defaultEntry?.extraParams, rawTier.extra_params),
+  };
 }
 
 /** tier 配置带 provider 引用：解析引用 → 内联完整 provider，再 merge tier 字段。 */

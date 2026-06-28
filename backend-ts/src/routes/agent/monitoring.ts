@@ -4,13 +4,10 @@ import type { AgentConfig } from "../../contracts/agent-config.js";
 import { ok } from "../../contracts/common.js";
 import type { OutboxStatus } from "../../contracts/conversation-store/index.js";
 import { resolveContextCompressionSettings } from "../../services/agent/context-compression/index.js";
-import { buildAgentPromptContext } from "../../services/agent/prompt-builder/index.js";
-import { previewLlmRequest, resolveHistoryView, messagesToConversation, resolveToolInstructionMode, toolToDefinition } from "@ragsystem/agent-sdk";
-import { projectBehavior } from "../../services/agent/sdk/projection.js";
-import { toSdkMessageInfo } from "../../services/agent/sdk/sdk-store-adapter.js";
+import { createRuntime, createToolRegistry } from "@ragsystem/agent-sdk";
+import { projectAgentProfile } from "../../services/agent/sdk/projection.js";
+import { SdkStoreAdapter } from "../../services/agent/sdk/sdk-store-adapter.js";
 import { createBackendTools } from "../../tools/registry.js";
-import type { ChatMessage as SdkChatMessage, ProviderConfig } from "@ragsystem/agent-llm";
-import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
 import type { ChatMessage, ChatToolCall } from "@ragsystem/agent-llm";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
@@ -19,6 +16,8 @@ import { isRecord } from "../../utils/guards.js";
 interface ContextSnapshotQuery {
   session_id?: string;
   selected_llm?: string;
+  /** 指定会话线程（子智能体 thread，如 "child:<id>"）；不传走 root。前端 UI 预留。 */
+  thread_key?: string;
 }
 
 interface OutboxListQuery {
@@ -118,55 +117,54 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     }
 
     const agent = applySessionAgentOverrides(resolved.agent, sessionMetadata);
-    const toolDefs = createBackendTools({
-      ...options.container.toolsDeps,
+    const teamName = normalizeString(sessionMetadata.team);
+
+    // 装配 createRuntime（轻量，只 preview 不 run）—— preview 内部用 SDK builder + protocol.buildRequest，
+    // 与 run 完全同源（同一套组请求代码），调试快照即真实 run 所见。snapshot 不再 backend 自组装。
+    const profile = projectAgentProfile({
       agent,
-      ...(normalizeString(sessionMetadata.team) ? { teamName: normalizeString(sessionMetadata.team) } : {}),
-    }).map(toolToDefinition);
-    const promptContext = buildAgentPromptContext({
-      agent,
-      tools: toolDefs,
+      providers: options.container.modelAdapter.listProviders(),
+      ...(resolved.provider && resolved.modelName
+        ? { selectedLlm: { provider: resolved.provider, modelName: resolved.modelName } }
+        : {}),
     });
-    const toolInstructionMode = resolved.provider ? resolveToolInstructionMode(resolved.provider as ProviderConfig) : "xml";
-    const context = sessionId
-      ? options.container.agentContextService.snapshotContext({
-          sessionId,
-          agent,
-          provider: resolved.provider,
-          modelName: resolved.modelName,
-        }).context
-      : null;
-    const memorySnapshot = getMemorySnapshot(context?.metadata.sources ?? []);
-    const threadKey = context?.metadata.thread_key ?? "root";
-    const historyRawMessages = sessionId
-      ? resolveHistoryView(
-          options.container.conversationStore
-            .listMessages(sessionId, 500, 0, threadKey)
-            .items.map(toSdkMessageInfo),
-        )
-      : [];
-    // 走 SDK preview：组"模型真实收到的请求"（system prompt + 协议说明 + 历史渲染），与内核 makeContextPort +
-    // protocol.prepareMessages 同源。调试快照即真实 run 所见，不再 backend-ts 自己组装（消除漂移）。
-    // profile 只投影 prompt 所需的 behavior（preview 不调 LLM，不需完整 tier 解析；provider 未加载也能展示）。
-    const preview = previewLlmRequest({
-      profile: { behavior: projectBehavior(agent) },
-      promptContext,
-      conversation: messagesToConversation(historyRawMessages) as unknown as SdkChatMessage[],
-      mode: toolInstructionMode,
+    const registry = createToolRegistry({
+      tools: createBackendTools({
+        ...options.container.toolsDeps,
+        agent,
+        ...(teamName ? { teamName } : {}),
+      }),
     });
-    // preview.requestMessages = [system, ...rendered history]；历史项与 historyRawMessages 逐条对应。
-    const renderedHistory = preview.requestMessages.slice(1);
+    const runtime = createRuntime({
+      profile,
+      tools: registry,
+      store: new SdkStoreAdapter({ conversationStore: options.container.conversationStore }),
+      dataRoot: options.container.dataRoot,
+      sessionMetadata: {
+        getSession: (sid) => options.container.conversationStore.getSession(sid),
+        updateSessionMetadata: (sid, patch) => options.container.conversationStore.updateSessionMetadata(sid, patch),
+      },
+      microcompactTtlSeconds: options.container.systemConfig.getMicrocompactTtlSeconds(),
+      ...(agent.tasks.background ? { promptContext: { backgroundTasks: true } } : {}),
+    });
+    const threadKey = normalizeString(query.thread_key);
+    const preview = sessionId ? runtime.preview({ sessionId, ...(threadKey ? { threadKey } : {}) }) : null;
+    runtime.close();
+
+    const memorySnapshot = getMemorySnapshot(preview?.context.metadata.sources ?? []);
+    const renderedHistory = preview?.renderedHistory ?? [];
+    const rawMessages = preview?.context.rawMessages ?? [];
     const history = renderedHistory.map((message, index) =>
-      toContextHistoryItem(message as ChatMessage, historyRawMessages[index]),
+      toContextHistoryItem(message as ChatMessage, rawMessages[index]),
     );
-    const memoryBlockTokens = estimateTokens(asString(memorySnapshot?.rendered_block) ?? "");
-    const systemPromptTokens = preview.tokenStats.systemPromptTokens + memoryBlockTokens;
-    const historyTokens = preview.tokenStats.historyTokens;
+    // memory block 已作为 system 消息进 request.messages，preview.tokenStats.systemPromptTokens 已含它，不重复加。
+    const systemPromptTokens = preview?.tokenStats.systemPromptTokens ?? 0;
+    const historyTokens = preview?.tokenStats.historyTokens ?? 0;
     const budgetTokens = options.container.agentContextService.resolveContextBudget(agent, resolved.provider, resolved.modelName);
 
     const data = {
-      system_prompt: preview.systemPrompt,
-      available_agent_tools: buildAvailableAgentTools(agent, normalizeString(sessionMetadata.team), options),
+      system_prompt: preview?.systemPrompt ?? "",
+      available_agent_tools: buildAvailableAgentTools(agent, teamName, options),
       conversation_history: history,
       token_stats: {
         system_prompt_tokens: systemPromptTokens,
@@ -181,7 +179,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
         model: resolved.modelName ?? agent.llm_tiers?.default?.model_name ?? "",
         ...(query.selected_llm ? { llm_override: parseSelectedLlmForSnapshot(query.selected_llm) } : {}),
       },
-      available_tools: toolDefs.map((tool) => ({ name: tool.name, description: tool.description })),
+      available_tools: (preview?.toolDefinitions ?? []).map((tool) => ({ name: tool.name, description: tool.description })),
       available_skills: buildAvailableSkills(agent, options),
       ...(memorySnapshot
         ? {

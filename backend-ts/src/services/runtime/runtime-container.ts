@@ -70,6 +70,8 @@ export interface RuntimeContainer {
   readonly agentDelegation: AgentDelegationService;
   readonly outboxDispatcher: OutboxDispatcher;
   readonly clientEvents: DurableClientEventPublisher;
+  /** 数据根目录（memory store / 工具数据用）；snapshot 装配 createRuntime 时透传。 */
+  readonly dataRoot: string;
   close(): void;
 }
 
@@ -262,6 +264,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     agentDelegation,
     outboxDispatcher,
     clientEvents,
+    dataRoot,
     close,
   };
 }
