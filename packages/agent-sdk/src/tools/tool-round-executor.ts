@@ -195,7 +195,7 @@ async function prepareAndExecute(input: {
       arguments: prepared.input,
       ctx: toolContext,
       riskLevel: prepared.permission?.riskLevel ?? prepared.tool.riskLevel ?? "low",
-      forceAsk: prepared.permission?.behavior === "ask",
+      forceAsk: prepared.permission?.action === "ask",
       approvalExempt: prepared.tool.approvalExempt ?? false,
       approvedExternalPaths: prepared.approvedExternalPaths,
     });

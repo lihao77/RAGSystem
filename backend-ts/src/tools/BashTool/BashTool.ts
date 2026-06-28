@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { BashExecutionPlan, LocalBashToolService } from "./BashExecution.js";
 import { readBashArguments } from "../../services/runtime/runtime-tool-bridge/arguments.js";
 import { EXECUTE_BASH_TOOL_NAME } from "../../services/runtime/runtime-tool-bridge/registry.js";
-import { buildTool, type Tool, type ToolExecContext, type ToolPermissionResult } from "@ragsystem/agent-sdk";
+import { buildTool, type Tool, type ToolExecContext, type ToolAccessDecision } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { optionalBoolean, optionalInteger, optionalString } from "../schema-helpers.js";
 
@@ -91,29 +91,33 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
       isConcurrencySafe: () => false,
       getExternalPathApprovalCandidates: (input, ctx: ToolExecContext) =>
         bashTools.getExternalPathApprovalCandidates(readBashArguments(input), ctx),
-      checkPermissions: (input, ctx: ToolExecContext): ToolPermissionResult => {
+      checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision => {
         const bashInput = readBashArguments(input);
         const approvedExternalPaths = bashTools.getExternalPathApprovalCandidates(bashInput, ctx);
         const ctxWithPaths: ToolExecContext = { ...ctx, approvedExternalPaths: mergePaths(ctx.approvedExternalPaths, approvedExternalPaths) };
         const prepared = bashTools.prepareExecution(bashInput, ctxWithPaths, deps.agent);
         if (!prepared.ok) {
           return {
-            behavior: "deny",
+            action: "deny",
             reason: prepared.result.summary,
             result: prepared.result,
-            metadata: materializePlanError(prepared.result),
+            signals: materializePlanError(prepared.result),
           };
         }
         const plan = prepared.plan;
+        if (plan.approvalRequired) {
+          return {
+            action: "ask",
+            reason: "当前策略要求人工审批",
+            riskLevel: plan.riskLevel,
+            description: plan.approvalDescription,
+            signals: { bash_plan: plan, approval_arguments: plan.approvalArguments, approval_type: "bash_command", approved_external_paths: approvedExternalPaths },
+          };
+        }
         return {
-          behavior: plan.approvalRequired ? "ask" : "allow",
-          reason: plan.approvalRequired ? "当前策略要求人工审批" : "命令分类允许直接执行",
+          action: "allow",
           riskLevel: plan.riskLevel,
-          description: plan.approvalDescription,
-          arguments: plan.approvalArguments,
-          approvalType: "bash_command",
-          approvedExternalPaths,
-          metadata: { bash_plan: plan },
+          signals: { bash_plan: plan, approval_arguments: plan.approvalArguments, approval_type: "bash_command", approved_external_paths: approvedExternalPaths },
         };
       },
       call: (input, ctx: ToolExecContext) => {

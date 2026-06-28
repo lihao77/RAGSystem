@@ -5,7 +5,7 @@
  * 供 tool-round-executor 的审批编排和执行阶段使用。
  */
 import type { ToolExecContext, ToolExecutionResult } from "../contracts.js";
-import type { Tool, ToolPermissionResult } from "./tool.js";
+import type { Tool, ToolAccessDecision } from "./tool.js";
 import type { ToolRegistry } from "./registry.js";
 import { validateToolInput } from "./validation.js";
 import { buildToolExecutionErrorResult } from "./tool-references.js";
@@ -13,7 +13,7 @@ import { buildToolExecutionErrorResult } from "./tool-references.js";
 export interface PreparedTool<I = Record<string, unknown>> {
   tool: Tool<I>;
   input: I;
-  permission: ToolPermissionResult | null;
+  permission: ToolAccessDecision | null;
   approvedExternalPaths: string[];
 }
 
@@ -58,19 +58,18 @@ export function prepareTool(
   }
   const input = validation.input;
 
-  // 4. 工具级权限自检
-  let permission: ToolPermissionResult | null = null;
-  if (tool.checkPermissions) {
-    permission = tool.checkPermissions(input, ctx);
-    if (permission.behavior === "deny") {
+  // 4. 工具访问检查（自检 + 审批声明）
+  let permission: ToolAccessDecision | null = null;
+  if (tool.checkAccess) {
+    permission = tool.checkAccess(input, ctx);
+    if (permission.action === "deny") {
       return {
         ok: false,
-        result: permission.result ?? buildToolExecutionErrorResult(toolName, new Error(permission.reason ?? `工具 ${toolName} 权限拒绝`)),
+        result: permission.result ?? buildToolExecutionErrorResult(toolName, new Error(permission.reason)),
       };
     }
-    // 把 checkPermissions 的 runtimeData（如 Bash 的 bash_plan）附到 input——不可枚举，
-    // 供 tool.call 读取但不污染 LLM 可见的参数。
-    attachPermissionRuntimeData(input, permission);
+    // 把 access.signals（如 Bash 的 bash_plan）附到 input——不可枚举，供 tool.call 读取但不污染 LLM 可见参数。
+    attachAccessSignals(input, permission);
   }
 
   // 5. 路径收集
@@ -83,13 +82,13 @@ export function prepareTool(
 }
 
 /**
- * 把 checkPermissions 的 runtimeData 附到 input——不可枚举，供 tool.call 读取但不污染 LLM 可见的参数。
- * 约定：permission.metadata 的顶层键作为 input 上的 `__runtime_<key>` 附加属性。
+ * 把 access.signals 附到 input——不可枚举，供 tool.call 读取但不污染 LLM 可见参数。
+ * 约定：signals 的顶层键作为 input 上的 `__runtime_<key>` 附加属性。
  */
-function attachPermissionRuntimeData(input: Record<string, unknown>, permission: ToolPermissionResult): void {
-  const metadata = permission.metadata;
-  if (!metadata || typeof metadata !== "object") { return; }
-  for (const [key, value] of Object.entries(metadata)) {
+function attachAccessSignals(input: Record<string, unknown>, access: ToolAccessDecision): void {
+  const signals = access.signals;
+  if (!signals || typeof signals !== "object") { return; }
+  for (const [key, value] of Object.entries(signals)) {
     const runtimeKey = `__runtime_${key}`;
     if (!(runtimeKey in input)) {
       Object.defineProperty(input, runtimeKey, {

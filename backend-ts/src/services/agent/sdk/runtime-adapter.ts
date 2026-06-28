@@ -27,8 +27,7 @@ import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js"
 import { projectAgentProfile } from "./projection.js";
 import { SdkStoreAdapter } from "./sdk-store-adapter.js";
 import { MemoryIndexContextSource, isMemoryEnabled } from "../memory/index.js";
-import { SdkPermissionPolicyAdapter } from "./permission-adapter.js";
-import { SdkApprovalInteractionAdapter } from "./approval-interaction-adapter.js";
+import { registerGateHook } from "./gate-hook.js";
 
 export interface SdkRuntimeAdapterDeps {
   conversationStore: ConversationStore;
@@ -177,15 +176,17 @@ export async function executeRunWithSdk(
     dataRoot: deps.dataRoot,
     store: storeAdapter,
     extraContextSources,
-    permissionPolicy: new SdkPermissionPolicyAdapter({ service: deps.permissionPolicy }),
-    approvalInteraction: new SdkApprovalInteractionAdapter({
-      service: deps.pendingInteractions,
-      agentName: input.agent.agent_name,
-    }),
     promptContext,
     execContext: baseExecCtx,
     ...(deps.microcompactTtlSeconds !== undefined ? { microcompactTtlSeconds: deps.microcompactTtlSeconds } : {}),
-    ...(deps.hooks ? { hooks: deps.hooks } : {}),
+    hooks: (registry) => {
+      registerGateHook(registry, {
+        permissionPolicy: deps.permissionPolicy,
+        pendingInteractions: deps.pendingInteractions,
+        agentName: input.agent.agent_name,
+      });
+      deps.hooks?.(registry);
+    },
     ...(waitForToolResult ? { waitForToolResult } : {}),
   };
 

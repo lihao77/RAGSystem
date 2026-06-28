@@ -6,7 +6,7 @@ export { createHookRegistry, EMPTY_HOOK_OUTPUT } from "./hooks/index.js";
 export type { HookEvent, HookHandler, HookInputMap, HookOutputMap, HookRegistry, HookDecision, ToolBeforeOutput, ToolAfterOutput, RoundBeforeOutput, BaseHookOutput, RunBeforeInput, RunAfterInput, RoundBeforeInput, RoundAfterInput, ToolBeforeInput, ToolAfterInput, ToolErrorInput } from "./hooks/index.js";
 export type { AgentProfile, ResolvedTier, TierMap, CompressionBudgetConfig, AgentBehavior, MessageInfo, RunStepRecord, RunRecord, RunStatus, MessageRole, ToolCallRef } from "./types.js";
 export { DEFAULT_COMPRESSION_BUDGET } from "./types.js";
-export type { KernelEvent, FirstTokenEvent, OutputDeltaEvent, IntentCompleteEvent, ToolCallEvent, ToolResultEvent, ObservationCompleteEvent, RuntimeErrorEvent, ContextUsageEvent, EventSink, Context, Protocol, ToolProvider, MessageRefresher, ToolInstructionMode, RuntimeSession, RuntimeStore, RuntimeTx, KernelResult, KernelOutcome, PreparedRoundToolCall, KernelToolCall, KernelObservation, ToolExecutionResult, CreateRunInput, AddMessageInput, AddRunStepInput, InsertCompressionMessageInput, PermissionPolicy, ApprovalInteraction, ToolApprovalInput, ToolApprovalDecision, ApprovalRequest, ApprovalResolution } from "./contracts.js";
+export type { KernelEvent, FirstTokenEvent, OutputDeltaEvent, IntentCompleteEvent, ToolCallEvent, ToolResultEvent, ObservationCompleteEvent, RuntimeErrorEvent, ContextUsageEvent, EventSink, Context, Protocol, ToolProvider, MessageRefresher, ToolInstructionMode, RuntimeSession, RuntimeStore, RuntimeTx, KernelResult, KernelOutcome, PreparedRoundToolCall, KernelToolCall, KernelObservation, ToolExecutionResult, CreateRunInput, AddMessageInput, AddRunStepInput, InsertCompressionMessageInput } from "./contracts.js";
 export { AgentKernel } from "./kernel.js";
 export type { AgentKernelOptions, ContextUsageProvider } from "./kernel.js";
 export { KernelContext } from "./kernel-context.js";
@@ -26,7 +26,7 @@ export { resolveSummaryTierCandidates } from "./llm-params/summary-tier.js";
 export { readTierParams } from "./llm-params/tier-params.js";
 // Tool 富模型（SDK 定义的工具接口）
 export { buildTool, toolToDefinition } from "./tools/tool.js";
-export type { Tool, BuildToolInput, InputSchema, ToolPermissionResult, RiskLevel, ToolCaller, ToolSource } from "./tools/tool.js";
+export type { Tool, BuildToolInput, InputSchema, ToolAccessDecision, RiskLevel, ToolCaller, ToolSource } from "./tools/tool.js";
 // ToolRegistry
 export { createToolRegistry } from "./tools/registry.js";
 export type { ToolRegistry, ToolRegistryOptions } from "./tools/registry.js";

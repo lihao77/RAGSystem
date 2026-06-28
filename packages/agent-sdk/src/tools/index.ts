@@ -1,7 +1,7 @@
 /** 工具执行模块公共导出。 */
 // Tool 富模型
 export { buildTool, toolToDefinition } from "./tool.js";
-export type { Tool, BuildToolInput, InputSchema, ToolPermissionResult, RiskLevel, ToolCaller, ToolSource } from "./tool.js";
+export type { Tool, BuildToolInput, InputSchema, ToolAccessDecision, RiskLevel, ToolCaller, ToolSource } from "./tool.js";
 // Registry
 export { createToolRegistry } from "./registry.js";
 export type { ToolRegistry, ToolRegistryOptions } from "./registry.js";

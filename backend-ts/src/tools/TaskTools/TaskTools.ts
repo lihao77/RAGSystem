@@ -20,7 +20,6 @@ import {
   buildTool,
   type Tool,
   type ToolExecContext,
-  type ToolPermissionResult,
   type RuntimeToolDefinition,
 } from "@ragsystem/agent-sdk";
 import { metadataFrom, nullableStringArray, optionalBoolean, optionalInteger, optionalRecord, optionalString } from "../schema-helpers.js";

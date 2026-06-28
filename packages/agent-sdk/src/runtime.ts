@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import type { ChatMessage, LlmRequest } from "@ragsystem/agent-llm";
 import { isAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
-import type { ApprovalInteraction, Context, EventSink, KernelResult, MessageRefresher, PermissionPolicy, RuntimeSession, ToolExecContext, ToolWaitRequest, ToolWaitResult, RuntimeStore } from "./contracts.js";
+import type { Context, EventSink, KernelResult, MessageRefresher, RuntimeSession, ToolExecContext, ToolWaitRequest, ToolWaitResult, RuntimeStore } from "./contracts.js";
 import type { KernelEvent } from "./contracts.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import type { Tool } from "./tools/tool.js";
@@ -65,10 +65,6 @@ export interface CreateRuntimeOptions {
    * 与 snapshot 路径同源，避免 run/snapshot 分叉。
    */
   microcompactTtlSeconds?: number;
-  /** 审批策略端口（可选；不注入即全部 allow）。 */
-  permissionPolicy?: PermissionPolicy;
-  /** 审批交互端口（可选；permissionPolicy 返回 ask 时阻塞等待）。 */
-  approvalInteraction?: ApprovalInteraction;
   /** 后台任务等待回调（消费端注入；不提供则忽略 suggest_wait 信号）。 */
   waitForToolResult?: (request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>;
   /**
@@ -238,11 +234,6 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
         budgetTokens,
         triggerRatio,
       }));
-      // permission：作为 tool.gate handler 注册（不可移除的安全网）。policy.evaluate → deny/allow/ask；
-      // ask 经 approvalInteraction 阻塞 resolve。无 permissionPolicy 则不注册（放行，由工具自判路径准入）。
-      if (options.permissionPolicy) {
-        registerPermissionGateHandler(hooks, options.permissionPolicy, options.approvalInteraction ?? null);
-      }
       options.hooks?.(hooks);
 
     const session: RuntimeSession = {
@@ -381,68 +372,6 @@ function buildDefaultSources(historyPort: ConversationHistoryPort): AgentContext
   // 仅通用 recent_messages；领域 source（memory 等）由消费端经 extraContextSources 注入（SDK 领域无关）。
   // extraContextSources 在 default 之前装配，保证业务 source 写的 stablePrefixFingerprint 在 recent 读取之前。
   return [new RecentMessagesContextSource(historyPort)];
-}
-
-/**
- * permission tool.gate handler：把 permissionPolicy/approvalInteraction 编排成一个 tool.gate handler。
- * 端口原 runToolApproval 的逻辑（迁出 executor）：policy.evaluate → deny/allow/ask；ask 经 approval 阻塞 resolve。
- * 作为不可移除的安全网注册（deny 在 deny>allow 聚合下永远压过消费方 rogue allow）。
- */
-function registerPermissionGateHandler(
-  hooks: HookRegistry,
-  policy: PermissionPolicy,
-  approval: ApprovalInteraction | null,
-): void {
-  hooks.on("tool.gate", async (input) => {
-    let decision;
-    try {
-      decision = policy.evaluate({
-        toolName: input.toolName,
-        arguments: input.arguments,
-        riskLevel: input.riskLevel,
-        ...(input.forceAsk ? { forceAsk: input.forceAsk } : {}),
-        ...(input.approvalExempt ? { approvalExempt: input.approvalExempt } : {}),
-        ...(input.approvedExternalPaths.length ? { approvedExternalPaths: input.approvedExternalPaths } : {}),
-        ctx: input.ctx,
-      });
-    } catch (error) {
-      if (isAbortError(error) || input.ctx.signal?.aborted) { throw error; }
-      return { decision: "deny" as const, reason: `审批策略异常: ${error instanceof Error ? error.message : String(error)}` };
-    }
-    if (decision.action === "deny") {
-      return { decision: "deny", reason: decision.reason };
-    }
-    if (decision.action === "allow") {
-      return { decision: "allow", ...(decision.approvedExternalPaths?.length ? { approvedPaths: decision.approvedExternalPaths } : {}) };
-    }
-    // ask：阻塞等用户审批
-    if (!approval) {
-      return { decision: "deny", reason: `工具 ${input.toolName} 需要审批，但当前上下文不支持审批` };
-    }
-    throwIfAborted(input.ctx.signal, "Agent run aborted");
-    let resolution;
-    try {
-      resolution = await approval.waitForApproval({
-        toolName: input.toolName,
-        arguments: input.arguments,
-        reason: decision.reason,
-        riskLevel: decision.riskLevel,
-        description: decision.description,
-        ...(decision.approvedExternalPaths?.length ? { approvedExternalPaths: decision.approvedExternalPaths } : {}),
-        ...(decision.permissionMode ? { permissionMode: decision.permissionMode } : {}),
-        ...(decision.reasonCodes?.length ? { reasonCodes: decision.reasonCodes } : {}),
-        ...(decision.secondaryReasons?.length ? { secondaryReasons: decision.secondaryReasons } : {}),
-        ctx: input.ctx,
-      });
-    } catch (error) {
-      if (isAbortError(error) || input.ctx.signal?.aborted) { throw error; }
-      return { decision: "deny", reason: `审批流程异常: ${error instanceof Error ? error.message : String(error)}` };
-    }
-    if (!resolution.approved) {
-      return { decision: "deny", reason: `工具 ${input.toolName} 执行已被拒绝：${resolution.reason}` };
-    }
-    return { decision: "allow", ...(decision.approvedExternalPaths?.length ? { approvedPaths: decision.approvedExternalPaths } : {}) };
-  });
 }
 
 function makeContextPort(builder: AgentContextBuilder, profile: AgentProfile, mode: "xml" | "native", promptContext: AgentPromptContext = {}): Context {

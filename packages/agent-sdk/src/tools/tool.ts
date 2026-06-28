@@ -22,19 +22,19 @@ export interface InputSchema<I> {
     | { success: false; error: { message: string; issues?: ReadonlyArray<{ path: ReadonlyArray<string | number>; code: string; message: string }> } };
 }
 
-/* ── Tool 权限自检结果 ── */
-
-export interface ToolPermissionResult {
-  behavior: "allow" | "deny" | "ask";
-  reason?: string;
-  result?: ToolExecutionResult;
-  metadata?: Record<string, unknown>;
-  riskLevel?: RiskLevel;
-  description?: string;
-  arguments?: Record<string, unknown>;
-  approvalType?: string;
-  approvedExternalPaths?: string[];
-}
+/* ── Tool 访问检查决策（自检 + 审批声明，三态）──
+ * action: allow=自检过可放行 / deny=自检失败（可带 result 自定义拒绝结果）/ ask=声明建议审批
+ * riskLevel: 风险等级（供审批展示，覆盖 Tool.riskLevel）
+ * signals: 自由 shape 业务字段（如 bash_plan/approvalArguments），透传给 handler + 附 input 供 call 读取
+ */
+export type ToolAccessDecision = (
+  | { action: "allow" }
+  | { action: "deny"; reason: string; result?: ToolExecutionResult }
+  | { action: "ask"; reason: string; description?: string }
+) & {
+  riskLevel?: string;
+  signals?: Record<string, unknown>;
+};
 
 /* ── Tool 接口 ── */
 
@@ -62,8 +62,8 @@ export interface Tool<I = Record<string, unknown>, O = unknown> {
   isReadOnly(input: I): boolean;
   /** 输入是否并发安全（需同时 isReadOnly=true 才并发）。 */
   isConcurrencySafe(input: I): boolean;
-  /** 工具级权限自检（可选，返回 deny/allow/ask + 覆盖 riskLevel/arguments）。 */
-  checkPermissions?(input: I, ctx: ToolExecContext): ToolPermissionResult;
+  /** 工具访问检查（自检 + 审批声明，返回 allow/deny/ask）。 */
+  checkAccess?(input: I, ctx: ToolExecContext): ToolAccessDecision;
   /** 实际执行。 */
   call(input: I, ctx: ToolExecContext): ToolExecutionResult | Promise<ToolExecutionResult>;
   /** 收集需审批的外部路径候选（文件访问等）。 */
@@ -90,7 +90,7 @@ export interface BuildToolInput<I, O> {
   observationPolicy?: ObservationPolicy;
   isReadOnly?(input: I): boolean;
   isConcurrencySafe?(input: I): boolean;
-  checkPermissions?(input: I, ctx: ToolExecContext): ToolPermissionResult;
+  checkAccess?(input: I, ctx: ToolExecContext): ToolAccessDecision;
   call(input: I, ctx: ToolExecContext): ToolExecutionResult | Promise<ToolExecutionResult>;
   getExternalPathApprovalCandidates?(input: I, ctx: ToolExecContext): string[];
 }
@@ -123,7 +123,7 @@ export function buildTool<I extends Record<string, unknown>, O = unknown>(
   if (def.extendedUsage !== undefined) { (tool as MutableTool<I, O>).extendedUsage = def.extendedUsage; }
   if (def.returns !== undefined) { (tool as MutableTool<I, O>).returns = def.returns; }
   if (def.observationPolicy !== undefined) { (tool as MutableTool<I, O>).observationPolicy = def.observationPolicy; }
-  if (def.checkPermissions !== undefined) { (tool as MutableTool<I, O>).checkPermissions = def.checkPermissions; }
+  if (def.checkAccess !== undefined) { (tool as MutableTool<I, O>).checkAccess = def.checkAccess; }
   if (def.getExternalPathApprovalCandidates !== undefined) { (tool as MutableTool<I, O>).getExternalPathApprovalCandidates = def.getExternalPathApprovalCandidates; }
   return tool;
 }
