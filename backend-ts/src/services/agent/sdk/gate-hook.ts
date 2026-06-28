@@ -29,7 +29,7 @@ export function registerGateHook(hooks: HookRegistry, deps: GateHookDeps): void 
     const candidatePaths = readCandidatePaths(access?.signals);
     const serviceInput: RuntimeToolApprovalInput = {
       toolName: input.toolName,
-      riskLevel: normalizeRiskLevel(access?.riskLevel ?? input.riskLevel),
+      riskLevel: normalizeRiskLevel(input.riskLevel),
       arguments: input.arguments,
       sessionId: input.ctx.sessionId ?? undefined,
       approvalExempt: Boolean(access?.signals?.approvalExempt),
