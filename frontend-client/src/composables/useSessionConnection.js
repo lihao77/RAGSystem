@@ -7,6 +7,50 @@ import {
   shouldRefreshSessionMessagesAfterResume,
 } from '../utils/sessionSocket.js';
 import { resetActiveRunState } from './useActiveRunState.js';
+import { getHostTool, getHostToolDeclarations } from '../utils/hostTools.js';
+
+const WS_OPEN = 1;
+
+/** 握手期注册前端委托工具清单（后端据此判定工具归属 + 委托回前端执行）。 */
+const sendHostToolsRegister = (ws, sessionId) => {
+  const declarations = getHostToolDeclarations();
+  if (!declarations.length || ws.readyState !== WS_OPEN) return;
+  ws.send(JSON.stringify({ type: 'tools.register', session_id: sessionId, payload: { tools: declarations } }));
+};
+
+/** 回传委托执行结果（mode=delegation, phase=result）。 */
+const sendDelegatedToolResult = (ws, sessionId, callId, payload) => {
+  if (ws.readyState !== WS_OPEN) return;
+  ws.send(JSON.stringify({ type: 'tool_result', session_id: sessionId, call_id: callId, payload: { mode: 'delegation', phase: 'result', ...payload } }));
+};
+
+/** 委托工具执行请求：路由 hostTool.execute + 回传 tool_result（不进投影展示，对用户透明）。 */
+const handleDelegatedToolCall = async (ws, event, sessionId) => {
+  const toolName = event.payload?.tool;
+  const callId = event.call_id;
+  const input = event.payload?.input ?? {};
+  const tool = getHostTool(toolName);
+  const startedAt = Date.now();
+  if (!tool) {
+    sendDelegatedToolResult(ws, sessionId, callId, { ok: false, error: `前端未注册委托工具: ${toolName}`, elapsed_ms: 0 });
+    return;
+  }
+  try {
+    const result = await tool.execute(input, { callId, sessionId, runId: event.run_id ?? null });
+    sendDelegatedToolResult(ws, sessionId, callId, {
+      ok: result.ok !== false,
+      observation: typeof result.observation === 'string' ? result.observation : '',
+      ...(result.error ? { error: result.error } : {}),
+      elapsed_ms: Date.now() - startedAt,
+    });
+  } catch (err) {
+    sendDelegatedToolResult(ws, sessionId, callId, {
+      ok: false,
+      error: err?.message || String(err),
+      elapsed_ms: Date.now() - startedAt,
+    });
+  }
+};
 
 /**
  * 会话 WebSocket 连接管理、重连、定时器、activeRun 状态。
@@ -166,11 +210,18 @@ export function useSessionConnection(deps) {
         clearTimeout(_wsReconnectTimer);
         _wsReconnectTimer = null;
       }
+      // 握手期注册前端委托工具清单（后端据此判定工具归属 + 委托回前端执行）
+      sendHostToolsRegister(ws, sessionId);
     };
     ws.onmessage = (e) => {
       try {
         const event = JSON.parse(e.data);
         if (!shouldDeliverEvent(event, sessionId)) return;
+        // 委托工具执行请求：拦截路由 hostTool.execute + 回传 tool_result（不进投影展示）
+        if (event.type === 'tool_call' && event.payload?.mode === 'delegation' && event.payload?.phase === 'request') {
+          handleDelegatedToolCall(ws, event, sessionId);
+          return;
+        }
         deps.onMessage(event, sessionId);
       } catch (err) {
         console.debug('[WS] parse error:', err);

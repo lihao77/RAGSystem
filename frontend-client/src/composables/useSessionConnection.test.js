@@ -17,7 +17,12 @@ class FakeWebSocket {
     this.onmessage = null;
     this.onclose = null;
     this.onerror = null;
+    this.sent = [];
     FakeWebSocket.instances.push(this);
+  }
+
+  send(data) {
+    this.sent.push(data);
   }
 
   emit(payload) {
