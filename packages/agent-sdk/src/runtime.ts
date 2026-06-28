@@ -7,7 +7,7 @@
  *
  * Context 端口 / MessageRefresher / HookRegistry 内置默认实现（SDK 自带）；
  * Protocol（XML/native 解析）由 SDK 按 provider_type 自动选择（createProtocol）；ToolProvider（工具执行）
- * 的重型件，SDK 通过端口消费。memory/compression 在 createRuntime 时按 profile 装配进 context sources。
+ * 的重型件，SDK 通过端口消费。领域 context source（如 memory）由消费端经 extraContextSources 注入，SDK 不内置。
  */
 import { randomUUID } from "node:crypto";
 import os from "node:os";
@@ -25,9 +25,8 @@ import { AgentKernel } from "./kernel.js";
 import { Dispatcher, type DispatcherRunContext } from "./dispatcher.js";
 import { SqliteRuntimeStore } from "./store/sqlite-store.js";
 import type { AgentProfile, MessageInfo } from "./types.js";
-import { AgentContextBuilder, type AgentContext, type AgentContextSource, type SessionMetadataPort, type ConversationHistoryPort } from "./context/index.js";
-import { RecentMessagesContextSource, EmptyMemoryContextSource, filterHistoryMessages } from "./context/index.js";
-import { MemoryIndexContextSource } from "./memory/index.js";
+import { AgentContextBuilder, type AgentContext, type AgentContextSource, type ConversationHistoryPort } from "./context/index.js";
+import { RecentMessagesContextSource, filterHistoryMessages } from "./context/index.js";
 import { buildFullSystemPrompt } from "./prompt/prompt-builder.js";
 import type { AgentPromptContext } from "./prompt/types.js";
 import type { RuntimeToolDefinition } from "./prompt/tool-types.js";
@@ -52,9 +51,13 @@ export interface CreateRuntimeOptions {
   dataRoot?: string;
   /** 自定义 store（默认 SqliteRuntimeStore）。 */
   store?: RuntimeStore;
-  /** session 元数据读写端口（memory 前缀指纹缓存 + microcompact 缓存用）。 */
-  sessionMetadata?: SessionMetadataPort;
-  /** 自定义 context sources（默认 recent_messages + memory_index）。 */
+  /**
+   * 业务 context sources（在默认 recent_messages 之前追加）。memory 等领域 source 由消费端
+   * 经此注入，SDK 不内置 memory（领域无关）。顺序：extra 在前——它写 stablePrefixFingerprint，
+   * recent 在后读它做 microcompact 缓存判定。
+   */
+  extraContextSources?: AgentContextSource[];
+  /** 自定义 context sources（完全替换默认；高级用法。不传则用 extraContextSources + 默认 recent）。 */
   contextSources?: AgentContextSource[];
   /**
    * microcompact 缓存 TTL（秒）：recent-messages source 据此判断旧 tool 结果的清理视图是否过期。
@@ -172,8 +175,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
   const historyPort: ConversationHistoryPort = {
     getRecentMessages: (sid, _limit, tk) => store.listMessages(sid, tk ?? "root") as unknown as MessageInfo[],
   };
-  const metadataPort = options.sessionMetadata ?? makeNoopSessionMetadata();
-  const sources = options.contextSources ?? buildDefaultSources(historyPort, metadataPort, profile, dataRoot);
+  const sources = options.contextSources ?? [...(options.extraContextSources ?? []), ...buildDefaultSources(historyPort)];
   const contextBuilder = new AgentContextBuilder(sources, options.microcompactTtlSeconds !== undefined ? { microcompactTtlSeconds: options.microcompactTtlSeconds } : {});
   const { protocol: previewProtocol, toolInstructionMode } = createProtocol({
     provider: defaultTier?.provider,
@@ -375,15 +377,10 @@ async function runKernel(kernel: AgentKernel, session: RuntimeSession, dispatche
   }
 }
 
-function buildDefaultSources(historyPort: ConversationHistoryPort, metadataPort: SessionMetadataPort, profile: AgentProfile, dataRoot?: string): AgentContextSource[] {
-  const recent = new RecentMessagesContextSource(historyPort);
-  const memoryEnabled = profile.memory.allowedScopes.length > 0 || profile.memory.writeScopes.length > 0 || profile.memory.archiveScopes.length > 0;
-  const memOpts: import("./memory/memory-index-source.js").MemoryIndexContextSourceOptions = {};
-  if (dataRoot) { memOpts.dataRoot = dataRoot; }
-  const memory = memoryEnabled ? new MemoryIndexContextSource(metadataPort, profile.memory, profile.agentName, memOpts) : new EmptyMemoryContextSource();
-  // 顺序：memory 在前——它写 stablePrefixFingerprint，recent 在后读它做 microcompact 缓存判定。
-  // 输出顺序也正确：memory prefix（system 段）在历史消息之前。
-  return [memory, recent];
+function buildDefaultSources(historyPort: ConversationHistoryPort): AgentContextSource[] {
+  // 仅通用 recent_messages；领域 source（memory 等）由消费端经 extraContextSources 注入（SDK 领域无关）。
+  // extraContextSources 在 default 之前装配，保证业务 source 写的 stablePrefixFingerprint 在 recent 读取之前。
+  return [new RecentMessagesContextSource(historyPort)];
 }
 
 /**
@@ -446,18 +443,6 @@ function registerPermissionGateHandler(
     }
     return { decision: "allow", ...(decision.approvedExternalPaths?.length ? { approvedPaths: decision.approvedExternalPaths } : {}) };
   });
-}
-
-function makeNoopSessionMetadata(): SessionMetadataPort {
-  const meta = new Map<string, Record<string, unknown>>();
-  return {
-    getSession: (sessionId) => ({ metadata: meta.get(sessionId) ?? {} }),
-    updateSessionMetadata: (sessionId, patch) => {
-      const next = { ...(meta.get(sessionId) ?? {}), ...patch };
-      meta.set(sessionId, next);
-      return next;
-    },
-  };
 }
 
 function makeContextPort(builder: AgentContextBuilder, profile: AgentProfile, mode: "xml" | "native", promptContext: AgentPromptContext = {}): Context {

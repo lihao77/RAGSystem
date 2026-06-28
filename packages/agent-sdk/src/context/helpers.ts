@@ -1,53 +1,14 @@
 /**
- * context-builder 辅助函数（迁自 backend-ts context-builder/helpers.ts）。
- * 删 systemConfig 相关（TTL 改构造期注入）+ memory-store 类型依赖（memory 模块落地时补）。
+ * context-builder 辅助函数。
+ * 仅保留 recent source / history-view / context-builder 用的通用工具；memory 专用
+ * （scope 判断、heading 常量、指纹 stringify、字符串数组/记录归一）随 memory 模块迁出 SDK。
  */
 import type { SessionMetadataPort } from "./types.js";
 import { DEFAULT_MICROCOMPACT_TTL_SECONDS } from "./types.js";
 
-/** memory 前缀块标记串——单一信源（memory 模块与 context 共用）。 */
-export const MEMORY_SCOPE_CAPABILITIES_HEADING = "[Memory Scope Capabilities]";
-export const MEMORY_INDEX_HEADING_SUFFIX = "Memory Index]";
-
-export function isStableSystemContextContent(content: string): boolean {
-  return content.includes(MEMORY_SCOPE_CAPABILITIES_HEADING) || content.includes(MEMORY_INDEX_HEADING_SUFFIX);
-}
-
 export function readPipelineCache(sessionMetadata: Record<string, unknown>, threadKey: string): Record<string, unknown> {
   const caches = asRecord(sessionMetadata._pipeline_caches);
   return asRecord(caches?.[threadKey]) ?? {};
-}
-
-export function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-}
-
-export function stringRecord(value: unknown): Record<string, string> {
-  const record = asRecord(value);
-  if (!record) { return {}; }
-  const output: Record<string, string> = {};
-  for (const [key, item] of Object.entries(record)) {
-    if (typeof item === "string") { output[key] = item; }
-  }
-  return output;
-}
-
-export function isMemoryScopeName(value: unknown): value is "team" | "session" | "agent" | "workspace" {
-  return value === "team" || value === "session" || value === "agent" || value === "workspace";
-}
-
-export function pythonStableJsonStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => pythonStableJsonStringify(item)).join(", ")}]`;
-  }
-  if (isRecord(value)) {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}: ${pythonStableJsonStringify(value[key])}`).join(", ")}}`;
-  }
-  return JSON.stringify(value);
-}
-
-export function titleCase(value: string): string {
-  return value ? `${value.slice(0, 1).toUpperCase()}${value.slice(1)}` : value;
 }
 
 export function isSessionMetadataPort(value: unknown): value is SessionMetadataPort {

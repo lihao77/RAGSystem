@@ -54,18 +54,10 @@ export interface AgentBehavior {
   budget?: CompressionBudgetConfig;
 }
 
-/** memory 配置（投影自 AgentConfig.memory）。 */
-export interface MemoryConfig {
-  autoInject: boolean;
-  allowedScopes: readonly string[];
-  writeScopes: readonly string[];
-  archiveScopes: readonly string[];
-}
-
 /**
  * AgentProfile —— AgentConfig 的核心投影（设计稿 §3）。
  *
- * 调用方投影后传入。包含内核所需的 LLM 配置 + 行为 + 记忆。
+ * 调用方投影后传入。包含内核所需的 LLM 配置 + 行为。
  * 工具可见性不在 profile 上——消费端在 per-run 构建 ToolRegistry 时自行筛选。
  */
 export interface AgentProfile {
@@ -73,7 +65,6 @@ export interface AgentProfile {
  displayName: string | null;
  /** 全量已决的扁平 tier 表（投影算死，内核零兜底）。 */
   llmTiers: TierMap;
-  memory: MemoryConfig;
   behavior: AgentBehavior;
   /** custom_params 其余透传。 */
   customParams?: Record<string, unknown>;

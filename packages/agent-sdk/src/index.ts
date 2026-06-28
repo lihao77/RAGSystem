@@ -4,7 +4,7 @@ export type { CreateRuntimeOptions, RunInput, RunHandle } from "./runtime.js";
 // 事件 Hook 系统
 export { createHookRegistry, EMPTY_HOOK_OUTPUT } from "./hooks/index.js";
 export type { HookEvent, HookHandler, HookInputMap, HookOutputMap, HookRegistry, HookDecision, ToolBeforeOutput, ToolAfterOutput, RoundBeforeOutput, BaseHookOutput, RunBeforeInput, RunAfterInput, RoundBeforeInput, RoundAfterInput, ToolBeforeInput, ToolAfterInput, ToolErrorInput } from "./hooks/index.js";
-export type { AgentProfile, ResolvedTier, TierMap, CompressionBudgetConfig, AgentBehavior, MemoryConfig, MessageInfo, RunStepRecord, RunRecord, RunStatus, MessageRole, ToolCallRef } from "./types.js";
+export type { AgentProfile, ResolvedTier, TierMap, CompressionBudgetConfig, AgentBehavior, MessageInfo, RunStepRecord, RunRecord, RunStatus, MessageRole, ToolCallRef } from "./types.js";
 export { DEFAULT_COMPRESSION_BUDGET } from "./types.js";
 export type { KernelEvent, FirstTokenEvent, OutputDeltaEvent, IntentCompleteEvent, ToolCallEvent, ToolResultEvent, ObservationCompleteEvent, RuntimeErrorEvent, ContextUsageEvent, EventSink, Context, Protocol, ToolProvider, MessageRefresher, ToolInstructionMode, RuntimeSession, RuntimeStore, RuntimeTx, KernelResult, KernelOutcome, PreparedRoundToolCall, KernelToolCall, KernelObservation, ToolExecutionResult, CreateRunInput, AddMessageInput, AddRunStepInput, InsertCompressionMessageInput, PermissionPolicy, ApprovalInteraction, ToolApprovalInput, ToolApprovalDecision, ApprovalRequest, ApprovalResolution } from "./contracts.js";
 export { AgentKernel } from "./kernel.js";
@@ -15,10 +15,8 @@ export type { DispatcherRunContext } from "./dispatcher.js";
 export { SqliteRuntimeStore } from "./store/sqlite-store.js";
 export type { SqliteStoreOptions, StoreDb } from "./store/sqlite-store.js";
 // Context 组装原语 + 端口（消费端 snapshot/调试与 createRuntime run 路径同源，单一实现，消除 backend 平行组装）
-export { AgentContextBuilder, RecentMessagesContextSource, EmptyMemoryContextSource, filterHistoryMessages, resolveCompressionView, resolveHistoryView, messagesToConversation } from "./context/index.js";
+export { AgentContextBuilder, RecentMessagesContextSource, filterHistoryMessages, resolveCompressionView, resolveHistoryView, messagesToConversation } from "./context/index.js";
 export type { AgentContextBuilderOptions, AgentContext, AgentContextRequest, AgentContextSource, AgentContextContribution, ResolvedAgentContextRequest, ConversationHistoryPort, SessionMetadataPort } from "./context/types.js";
-export { MemoryStore, getWorkspaceMemoryKey, MemoryIndexContextSource } from "./memory/index.js";
-export type { MemoryIndexContextSourceOptions } from "./memory/index.js";
 export { AgentContextCompressionService } from "./compression/context-compression.js";
 export { compactSession } from "./compression/compact-session.js";
 export type { CompactSessionInput, CompactSessionResult } from "./compression/compact-session.js";

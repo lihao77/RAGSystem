@@ -23,7 +23,6 @@ export interface AgentContextRequest {
   threadKey?: string | null;
   microcompact?: boolean;
   microcompactKeepRecentTools?: number;
-  forceMemoryPrefixRefresh?: boolean;
 }
 
 export interface AgentContext {
@@ -62,7 +61,6 @@ export interface ResolvedAgentContextRequest {
   threadKey: string;
   microcompact: boolean;
   microcompactKeepRecentTools: number;
-  forceMemoryPrefixRefresh: boolean;
   stablePrefixFingerprint: string | null;
   microcompactTtlSeconds: number;
 }

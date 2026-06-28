@@ -70,7 +70,6 @@ function resolveContextRequest(
       request.microcompactKeepRecentTools,
       DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOLS,
     ),
-    forceMemoryPrefixRefresh: request.forceMemoryPrefixRefresh === true,
     stablePrefixFingerprint: null,
     microcompactTtlSeconds,
   };
