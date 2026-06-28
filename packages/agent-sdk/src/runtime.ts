@@ -34,7 +34,7 @@ import type { RuntimeToolDefinition } from "./prompt/tool-types.js";
 import { AgentContextCompressionService } from "./compression/context-compression.js";
 import { createCompactionHook } from "./compression/compaction-hook.js";
 import { createHookRegistry, type HookRegistry } from "./hooks/index.js";
-import { createProtocol } from "./protocol/index.js";
+import { createProtocol } from "./llm-protocol/index.js";
 import { RuntimeToolProvider } from "./tools/index.js";
 import { createToolRegistry } from "./tools/registry.js";
 import { estimateTokens } from "./compression/token-estimate.js";

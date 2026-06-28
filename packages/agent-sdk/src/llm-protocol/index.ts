@@ -1,4 +1,4 @@
-/** 协议模块公共导出（SDK 自带协议解析 + 自动选择）。 */
+/** LLM 协议模块公共导出（工具调用编码：XML/native 协议解析 + 自动选择）。 */
 export { XmlProtocol } from "./xml-protocol.js";
 export type { XmlProtocolDeps } from "./xml-protocol.js";
 export { NativeHybridProtocol } from "./native-hybrid-protocol.js";

@@ -20,7 +20,7 @@ import type { ProviderConfig } from "@ragsystem/agent-llm";
 import type { ToolArtifact, ToolExecutionResult, ToolExecContext } from "../contracts.js";
 import type { AgentProfile } from "../types.js";
 import type { ObservationPolicy } from "../prompt/tool-types.js";
-import { renderSemanticBlock } from "../protocol/xml/rendering.js";
+import { renderSemanticBlock } from "../llm-protocol/xml/rendering.js";
 
 const GEOJSON_TYPES = new Set(["FeatureCollection", "Feature", "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"]);
 
