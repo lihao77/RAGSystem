@@ -33,6 +33,9 @@ import {
   type InteractionKind,
   type RiskLevel,
   type AttachmentRef,
+  type DelegatedToolDeclaration,
+  type ToolsRegisterPayload,
+  DelegatedToolDeclarationSchema,
 } from "@ragsystem/agent-protocol";
 
 export type {
@@ -58,9 +61,11 @@ export type {
   InteractionKind,
   RiskLevel,
   AttachmentRef,
+  DelegatedToolDeclaration,
+  ToolsRegisterPayload,
 };
 
-export { EnvelopeTypeSchema };
+export { EnvelopeTypeSchema, DelegatedToolDeclarationSchema };
 
 /* ============================================================
  * 上行 envelope（host → runtime）校验
@@ -112,6 +117,26 @@ export const ClientToServerEnvelopeSchema = z.discriminatedUnion("type", [
       approved: z.boolean().optional(),
       value: z.string().optional().default(""),
       message: z.string().optional().default(""),
+    }),
+  }),
+  z.object({
+    type: z.literal("tools.register"),
+    session_id: z.string().min(1),
+    payload: z.object({
+      tools: z.array(DelegatedToolDeclarationSchema),
+    }),
+  }),
+  z.object({
+    type: z.literal("tool_result"),
+    session_id: z.string().min(1),
+    call_id: z.string().min(1),
+    payload: z.object({
+      mode: z.literal("delegation"),
+      phase: z.literal("result"),
+      ok: z.boolean(),
+      observation: z.string().optional(),
+      error: z.string().optional(),
+      elapsed_ms: z.number().nonnegative().optional(),
     }),
   }),
 ]);

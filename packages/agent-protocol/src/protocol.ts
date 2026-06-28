@@ -32,6 +32,7 @@ export const EnvelopeTypeSchema = z.enum([
   "state_sync",
   "tool_call",
   "tool_result",
+  "tools.register",
   "interaction",
   "user_driven_change",
   "abort",
@@ -101,6 +102,21 @@ export interface ToolAllowance {
 
 export type InteractionKind = "approval" | "user_input";
 export type RiskLevel = "low" | "medium" | "high";
+
+/**
+ * 委托宿主（前端）执行的工具声明——可序列化。
+ * 握手期 tools.register 的载体 + 后端 HostToolRegistry 存储；不含 execute（执行在前端）。
+ * 宿主侧 TS API（含 execute）见 agent-client.ts DelegatedToolSpec；二者经前端序列化映射。
+ */
+export interface DelegatedToolDeclaration {
+  name: string;
+  description: string;
+  /** JSON Schema 参数描述（与后端 RuntimeTool schema 对齐）。 */
+  input_schema: Record<string, unknown>;
+  risk_level?: RiskLevel;
+  /** 是否可取消（宿主前端支持 abort）。 */
+  cancellable?: boolean;
+}
 
 /** 附件引用，形状对齐 contracts/execution.ts 的 AttachmentRef。 */
 export interface AttachmentRef {
@@ -226,6 +242,11 @@ export interface ToolResultPayload {
   /** raw_result 系列不进协议，由宿主经独立资源通道拉取。 */
 }
 
+/** tools.register 上行 payload：宿主声明本连接可委托执行的工具清单。 */
+export interface ToolsRegisterPayload {
+  tools: DelegatedToolDeclaration[];
+}
+
 /* —— 交互（单一 type，legacy 双发由 adapter 屏蔽） —— */
 export interface InteractionPayload {
   kind: InteractionKind;
@@ -287,6 +308,15 @@ export const CapabilityDescriptorSchema = z.object({
     high: z.enum(["require_approval", "deny"]),
   }),
   delegated_tools: z.array(z.string()).optional(),
+});
+
+/** 委托工具声明 zod（tools.register 上行校验；对齐 DelegatedToolDeclaration）。 */
+export const DelegatedToolDeclarationSchema = z.object({
+  name: z.string().min(1),
+  description: z.string(),
+  input_schema: z.record(z.unknown()),
+  risk_level: z.enum(["low", "medium", "high"]).optional(),
+  cancellable: z.boolean().optional(),
 });
 
 const AttachmentRefSchema = z.object({
@@ -474,7 +504,13 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
       phase: z.enum(["start", "request"]),
       status: z.literal("running").optional(),
       lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
-      delegate: z.unknown().optional(),
+      delegate: z
+        .object({
+          input_schema: z.record(z.unknown()).optional(),
+          risk_level: z.enum(["low", "medium", "high"]).optional(),
+          deadline_ms: z.number().int().positive().optional(),
+        })
+        .optional(),
     }),
   }),
   z.object({
