@@ -14,19 +14,19 @@
   button { cursor: pointer; background: #3a5a8a; border-color: #5a7aaa; }
   button:disabled { opacity: .5; cursor: not-allowed; }
   .status { font-size: 12px; color: #6a6; font-family: monospace; }
-  .main { display: grid; grid-template-columns: 3fr 2fr; gap: 10px; height: calc(100vh - 200px); min-height: 420px; }
-  .left { background: #222; border: 1px solid #333; border-radius: 6px; overflow: hidden; }
+  .main { display: grid; grid-template-columns: 3fr 2fr; grid-template-rows: minmax(0, 1fr); gap: 10px; height: calc(100vh - 200px); min-height: 420px; }
+  .left { background: #222; border: 1px solid #333; border-radius: 6px; overflow: hidden; min-height: 0; display: flex; flex-direction: column; }
   .left h2 { font-size: 12px; margin: 0; padding: 7px 12px; background: #2a2a2a; border-bottom: 1px solid #333; }
-  #map { height: calc(100% - 32px); width: 100%; background: #111; }
-  .right { display: grid; grid-template-rows: 1fr 1fr; gap: 10px; }
-  .panel { background: #222; border: 1px solid #333; border-radius: 6px; display: flex; flex-direction: column; overflow: hidden; }
+  #map { flex: 1; width: 100%; min-height: 0; background: #111; }
+  .right { display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; min-height: 0; }
+  .panel { background: #222; border: 1px solid #333; border-radius: 6px; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
   .panel h2 { font-size: 12px; margin: 0; padding: 7px 12px; background: #2a2a2a; border-bottom: 1px solid #333; }
-  .panel .body { flex: 1; overflow-y: auto; padding: 8px 12px; font-size: 13px; }
+  .panel .body { flex: 1; overflow-y: auto; padding: 8px 12px; font-size: 13px; min-height: 0; }
   .msg { margin-bottom: 8px; padding: 7px 10px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; }
   .msg.user { background: #2d3a5a; }
   .msg.assistant { background: #2a3a2a; }
   .msg .role { font-size: 11px; color: #888; margin-bottom: 3px; }
-  .log-entry { font-family: ui-monospace, monospace; font-size: 12px; margin-bottom: 4px; padding: 4px 8px; border-left: 2px solid #555; white-space: pre-wrap; word-break: break-word; }
+  .log-entry { font-family: ui-monospace, monospace; font-size: 12px; margin-bottom: 4px; padding: 4px 8px; border-left: 2px solid #555; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
   .log-entry.delegate { border-color: #d4a843; background: #3a3220; color: #ffd87a; }
   .log-entry.tool { border-color: #5a8a5a; color: #9dda9d; }
   .log-entry.run { border-color: #6a6; }
