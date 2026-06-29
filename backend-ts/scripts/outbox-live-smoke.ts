@@ -421,7 +421,7 @@ async function verifyLiveAndReplay(
       options.replayTimeoutMs,
     );
     if (!replayStart) {
-      throw new Error(`durable replay did not start from after_event_seq=${replayAfterSeq}`);
+      throw new Error(`durable replay did not start from after_seq=${replayAfterSeq}`);
     }
     const replayed = await replay.waitForEvent(
       (event) => {
@@ -760,7 +760,7 @@ function toWebSocketUrl(options: Options, sessionId: string, afterEventSeq: numb
   const url = new URL(`/api/agent/sessions/${encodeURIComponent(sessionId)}/ws`, options.baseUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   if (afterEventSeq !== null) {
-    url.searchParams.set("after_event_seq", String(afterEventSeq));
+    url.searchParams.set("after_seq", String(afterEventSeq));
   }
   return url.toString();
 }

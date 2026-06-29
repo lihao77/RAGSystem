@@ -97,7 +97,7 @@ test('session connection 重连时使用已观察到的 seq durable cursor', () 
     connection.connectSessionWS('session-1');
     assert.equal(
       FakeWebSocket.instances[1].url,
-      'ws://localhost:5174/api/agent/sessions/session-1/ws?after_event_seq=3',
+      'ws://localhost:5174/api/agent/sessions/session-1/ws?after_seq=3',
     );
 
     FakeWebSocket.instances[1].emit({ type: 'run_started', seq: 3, run_id: 'run-1' });
@@ -133,7 +133,7 @@ test('session connection 使用 heartbeat.last_seq 推进重连 cursor', () => {
     connection.connectSessionWS('session-1');
     assert.equal(
       FakeWebSocket.instances[1].url,
-      'ws://localhost:5174/api/agent/sessions/session-1/ws?after_event_seq=5',
+      'ws://localhost:5174/api/agent/sessions/session-1/ws?after_seq=5',
     );
 
     FakeWebSocket.instances[1].emit({ type: 'stream_output', seq: 5, payload: { phase: 'delta', content: 'duplicate' } });

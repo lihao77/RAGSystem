@@ -87,7 +87,7 @@ export interface ConnectOptions {
    */
   url: string;
   /**
-   * 断线重连游标，对应 ?after_event_seq（ws.ts durable outbox 重放边界）。
+   * 断线重连游标，对应 ?after_seq（ws.ts durable outbox 重放边界）。
    * 不传则首次连接按后端默认重放当前 active run。
    */
   afterEventSeq?: number;

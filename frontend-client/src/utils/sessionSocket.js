@@ -27,7 +27,7 @@ export function buildSessionSocketUrl(sessionId, options = {}) {
   const host = options.host || '';
   const encodedSessionId = encodeURIComponent(sessionId);
   const afterEventSeq = normalizeEventSeq(options.afterEventSeq);
-  const query = afterEventSeq === null ? '' : `?after_event_seq=${afterEventSeq}`;
+  const query = afterEventSeq === null ? '' : `?after_seq=${afterEventSeq}`;
   return `${protocol}//${host}/api/agent/sessions/${encodedSessionId}/ws${query}`;
 }
 

@@ -22,10 +22,10 @@ test('会构造不带 durable cursor 的 session WebSocket URL', () => {
   );
 });
 
-test('已知 event_seq 时会构造 after_event_seq 重连 URL', () => {
+test('已知 event_seq 时会构造 after_seq 重连 URL', () => {
   assert.equal(
     buildSessionSocketUrl('session-1', { protocol: 'https:', host: 'example.test', afterEventSeq: 12 }),
-    'wss://example.test/api/agent/sessions/session-1/ws?after_event_seq=12',
+    'wss://example.test/api/agent/sessions/session-1/ws?after_seq=12',
   );
 });
 

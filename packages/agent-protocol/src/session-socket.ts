@@ -6,8 +6,8 @@
  *   • 仅保留协议/传输四函数；业务判断函数（shouldRefreshSessionMessagesAfterResume /
  *     shouldRunResumeRecoveryWatchdog）留在前端 composable，不进本包。
  *
- * 注意：buildSessionSocketUrl 产出的查询参数 after_event_seq 是后端 WS 路由
- * (routes/agent/ws.ts durable outbox 重放边界) 的参数名；本期后端未改协议，故保留。
+ * 注意：buildSessionSocketUrl 产出的查询参数 after_seq 是后端 WS 路由
+ * (routes/agent/ws.ts durable outbox 重放边界) 的参数名。
  */
 
 const WS_OPEN = 1;
@@ -45,7 +45,7 @@ export interface BuildSessionSocketUrlOptions {
   cursor?: number;
 }
 
-/** 拼接会话 WS URL：ws(s)://host/api/agent/sessions/:id/ws[?after_event_seq=N]。 */
+/** 拼接会话 WS URL：ws(s)://host/api/agent/sessions/:id/ws[?after_seq=N]。 */
 export function buildSessionSocketUrl(
   sessionId: string,
   options: BuildSessionSocketUrlOptions = {},
@@ -54,7 +54,7 @@ export function buildSessionSocketUrl(
   const host = options.host ?? "";
   const encoded = encodeURIComponent(sessionId);
   const cursor = normalizeCursor(options.cursor);
-  const query = cursor === null ? "" : `?after_event_seq=${cursor}`;
+  const query = cursor === null ? "" : `?after_seq=${cursor}`;
   return `${protocol}//${host}/api/agent/sessions/${encoded}/ws${query}`;
 }
 
