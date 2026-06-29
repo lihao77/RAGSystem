@@ -282,14 +282,15 @@ async function handleEnv(env) {
       log(`🔧 工具调用（后端执行）：${p.tool}`, 'tool');
       break;
     case 'interaction':
-      // 委托工具 risk=medium/high → gate 推审批；通过才发 delegate_call。demo 用 confirm 模拟用户决策。
+      // risk=medium/high 工具走 gate 审批（委托工具 + 后端工具都适用）；通过后委托工具发 delegate_call、后端工具本地 call。demo 用 confirm 模拟用户决策。
       if (p.kind === 'approval' && p.phase === 'required') {
-        const approved = window.confirm(`🔧 委托工具审批\n工具: ${p.tool}\nrisk: ${p.risk_level || 'unknown'}\n${p.prompt || ''}\n\n允许前端执行？`);
+        const isHostTool = HOST_TOOLS.some((t) => t.name === p.tool);
+        const approved = window.confirm(`🔧 工具审批\n工具: ${p.tool}（${isHostTool ? '前端委托执行' : '后端执行'}）\nrisk: ${p.risk_level || 'unknown'}\n${p.prompt || ''}\n\n允许执行？`);
         ws.send(JSON.stringify({
           type: 'interaction', session_id: sessionId, call_id: env.call_id,
           payload: { kind: 'approval', phase: 'responded', approved, message: approved ? '用户允许' : '用户拒绝' },
         }));
-        log(`${approved ? '✓ 审批通过' : '✗ 审批拒绝'}：${p.tool}（risk=${p.risk_level || ''}）${approved ? '→ 将发 delegate_call' : '→ 不发 delegate_call'}`, 'delegate');
+        log(`${approved ? '✓ 审批通过' : '✗ 审批拒绝'}：${p.tool}（risk=${p.risk_level || ''}）${approved ? (isHostTool ? '→ 将发 delegate_call' : '→ 后端本地执行') : '→ 不执行'}`, 'delegate');
       }
       break;
     case 'agent_started': log(`🤖 agent_started: ${env.agent_id}${p.display_name ? ` (${p.display_name})` : ''}`); break;
