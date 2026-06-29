@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import os from "node:os";
 import path from "node:path";
@@ -27,7 +28,22 @@ export interface AppEnv {
 }
 
 export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
-  const env = EnvSchema.parse(source);
+  // 读 cwd/.env 补充（Node 不像 vite 自动读 .env；真实 env 优先，不覆盖已存在的）。
+  const merged: Record<string, string> = {};
+  const dotEnvPath = path.resolve(process.cwd(), ".env");
+  if (existsSync(dotEnvPath)) {
+    for (const raw of readFileSync(dotEnvPath, "utf8").split("\n")) {
+      const line = raw.trim();
+      if (!line || line.startsWith("#")) continue;
+      const eq = line.indexOf("=");
+      if (eq < 0) continue;
+      const key = line.slice(0, eq).trim();
+      const value = line.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
+      if (key) merged[key] = value;
+    }
+  }
+  Object.assign(merged, source);
+  const env = EnvSchema.parse(merged);
   const rawPort = env.BACKEND_TS_PORT ?? env.PORT ?? "5002";
   const port = Number.parseInt(rawPort, 10);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {

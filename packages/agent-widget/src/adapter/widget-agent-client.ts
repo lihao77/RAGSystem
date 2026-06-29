@@ -2,7 +2,6 @@ import {
   applyEnvelope,
   createExecutionTreeState,
   getExecutionTree,
-  TypedEnvelopeSchema,
 } from "@ragsystem/agent-protocol";
 import type {
   AgentClient,
@@ -68,7 +67,7 @@ export class WidgetAgentClient implements AgentClient {
   private readonly token: string;
 
   private transport: WidgetWsTransport | null = null;
-  private readonly execState = createExecutionTreeState();
+  private execState = createExecutionTreeState();
   private cursor: number | null = null;
 
   private readonly statusValue: ObservableValue<ConnectionStatus>;
@@ -76,7 +75,6 @@ export class WidgetAgentClient implements AgentClient {
   private readonly treeValue: ObservableValue<ExecutionTree>;
   private readonly runStatusValue: ObservableValue<RunStatus>;
   private readonly pendingValue: ObservableValue<PendingInteraction[]>;
-  private readonly toolPresentations: Map<string, unknown> = new Map();
 
   /** 待决议的 send ack 等待器（widget 单 run 串行，至多一个 pending）。 */
   private pendingSendAck: ((result: { ok: boolean; error?: string }) => void) | null = null;
@@ -158,11 +156,8 @@ export class WidgetAgentClient implements AgentClient {
   }
 
   registerToolPresentation(_spec: unknown): Unsubscribe {
-    const spec = _spec as { toolName: string };
-    this.toolPresentations.set(spec.toolName, spec);
-    return () => {
-      this.toolPresentations.delete(spec.toolName);
-    };
+    void _spec;
+    return () => {};
   }
 
   /* ---- 用户交互与会话控制 ---- */
@@ -295,6 +290,10 @@ export class WidgetAgentClient implements AgentClient {
     if (env.type === "ack") {
       this.handleAck(env);
       return;
+    }
+    if (env.type === "run_started") {
+      // 新 run：重置执行树投影（每 run 独立，避免跨 run 步骤累积）。
+      this.execState = createExecutionTreeState();
     }
     // delegate_call：委托对用户透明，不进投影，直接路由本地执行。
     if (env.type === "delegate_call" && this.handleDelegateCall(env)) {
@@ -435,5 +434,3 @@ function generateRequestId(): string {
   }
   return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
-
-export { TypedEnvelopeSchema };

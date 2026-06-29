@@ -1,0 +1,8 @@
+{
+  "name": "@ragsystem/widget-host-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

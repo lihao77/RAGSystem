@@ -1,0 +1,86 @@
+/* widget 主题变量，注入 Shadow DOM（:host 即 custom element 宿主）。
+ * 暗色默认，data-theme="light" 切亮色。
+ * 仅保留 widget 实际消费的令牌；通用令牌（圆角/阴影/动效/字体）只在 :host 定义一次。 */
+
+:host {
+    /* ── 品牌强调色 ── */
+    --color-brand-accent: #0a84ff;            /* Apple Blue */
+    --color-brand-accent-rgb: 10, 132, 255;
+
+    /* ── 背景层级（Apple System Gray 体系）── */
+    --color-bg-primary: #1c1c1e;              /* System Gray 6 - 卡片 */
+    --color-bg-secondary: #2c2c2e;            /* System Gray 5 - 悬停/次级 */
+    --color-bg-elevated: #1c1c1e;             /* 浮层 */
+    --color-bg-elevated-rgb: 28, 28, 30;
+    --color-bg-message-user: #2c2c2e;         /* 用户消息气泡 */
+
+    /* ── 文本层级 ── */
+    --color-text-primary: #ffffff;
+    --color-text-secondary: #98989d;          /* System Gray */
+    --color-text-muted: #636366;              /* System Gray 2 - 更柔和 */
+    --color-on-color: #ffffff;                /* 强调色背景上的前景 */
+
+    /* ── 边框 ── */
+    --color-border: rgba(255, 255, 255, 0.07);
+    --color-border-hover: rgba(255, 255, 255, 0.12);
+    --color-border-focus: rgba(10, 132, 255, 0.5);
+
+    /* ── 状态色 ── */
+    --color-success: #30d158;    --color-success-rgb: 48, 209, 88;
+    --color-warning: #ffd60a;    --color-warning-rgb: 255, 214, 10;
+    --color-error: #ff453a;      --color-error-rgb: 255, 69, 58;
+
+    /* ── 链接 / 悬停叠加 ── */
+    --color-link: #0a84ff;
+    --color-hover-overlay: rgba(255, 255, 255, 0.06);
+
+    /* ── 圆角 / 阴影 ── */
+    --radius-sm: 8px;
+    --radius-md: 10px;
+    --radius-lg: 12px;
+    --radius-xl: 14px;
+    --radius-full: 9999px;
+    --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.14);
+    --shadow-lg: 0 1px 2px rgba(0, 0, 0, 0.08), 0 6px 16px rgba(0, 0, 0, 0.18), 0 14px 36px rgba(0, 0, 0, 0.22);
+    --shadow-xl: 0 4px 12px rgba(0, 0, 0, 0.20), 0 18px 48px rgba(0, 0, 0, 0.40);
+
+    /* ── 动效（缓动/时长/过渡）── */
+    --ease-default: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    --duration-fast: 160ms;
+    --transition-fast: var(--duration-fast) var(--ease-default);
+
+    /* ── 字体 ── */
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+:host([data-theme="light"]) {
+    --color-brand-accent: #007aff;
+    --color-brand-accent-rgb: 0, 122, 255;
+
+    --color-bg-primary: #f5f5f7;
+    --color-bg-secondary: #ebebef;
+    --color-bg-elevated: #ffffff;
+    --color-bg-elevated-rgb: 255, 255, 255;
+    --color-bg-message-user: #e8e8ed;
+
+    --color-text-primary: #1d1d1f;
+    --color-text-secondary: #86868b;
+    --color-text-muted: #a1a1a6;
+    --color-on-color: #ffffff;
+
+    --color-border: rgba(0, 0, 0, 0.08);
+    --color-border-hover: rgba(0, 0, 0, 0.14);
+    --color-border-focus: rgba(0, 122, 255, 0.5);
+
+    --color-success: #28cd41;    --color-success-rgb: 40, 205, 65;
+    --color-warning: #ffd60a;    --color-warning-rgb: 255, 214, 10;
+    --color-error: #ff3b30;      --color-error-rgb: 255, 59, 48;
+
+    --color-link: #007aff;
+    --color-hover-overlay: rgba(0, 0, 0, 0.04);
+
+    --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 1px 2px rgba(0, 0, 0, 0.04), 0 6px 16px rgba(0, 0, 0, 0.08), 0 14px 36px rgba(0, 0, 0, 0.10);
+    --shadow-xl: 0 4px 12px rgba(0, 0, 0, 0.08), 0 18px 48px rgba(0, 0, 0, 0.16);
+}
