@@ -20,6 +20,7 @@ import { registerVectorRoutes } from "./routes/vector.js";
 import { registerVectorLibraryRoutes } from "./routes/vector-library.js";
 import { registerAgentRoutes } from "./routes/agent/index.js";
 import { registerHealthRoutes } from "./routes/health.js";
+import { registerWidgetRoutes } from "./routes/widget.js";
 import { HttpError, formatError } from "./utils/errors.js";
 import { createRuntimeContainer, type RuntimeContainer } from "./services/runtime/runtime-container.js";
 
@@ -40,6 +41,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       dbPath: options.env.dbPath,
       dataRoot: options.env.dataRoot,
       logger: app.log,
+      ...(options.env.widgetJwtSecret ? { widgetJwtSecret: options.env.widgetJwtSecret } : {}),
     });
   app.addHook("onClose", async () => {
     container.close();
@@ -106,7 +108,17 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   );
 
   await app.register(cors, {
-    origin: options.env.corsOrigins,
+    // widget 鉴权启用时，CORS 白名单 = env CORS_ORIGINS ∪ 各 app 的 allowed_origins；
+    // 未启用时保持原 corsOrigins 行为（true 全开或显式数组），默认部署不受影响。
+    origin: (origin, cb) => {
+      const widgetAuth = container.widgetAuth;
+      const allowed = widgetAuth
+        ? widgetAuth.isOriginAllowed(origin, options.env.corsOrigins)
+        : !origin ||
+          options.env.corsOrigins === true ||
+          (Array.isArray(options.env.corsOrigins) && origin != null && options.env.corsOrigins.includes(origin));
+      cb(null, allowed);
+    },
     credentials: true,
   });
   const maxContentLength = container.systemConfig.getSystemGroupConfig().max_content_length;
@@ -168,6 +180,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
   await app.register(registerAgentRoutes, {
     prefix: "/api/agent",
+    container,
+  });
+  await app.register(registerWidgetRoutes, {
+    prefix: "/api/widget",
     container,
   });
 

@@ -11,6 +11,7 @@ const EnvSchema = z.object({
   NODE_ENV: z.string().optional(),
   PORT: z.string().optional(),
   RAG_DATA_ROOT: z.string().optional(),
+  WIDGET_JWT_SECRET: z.string().optional(),
 });
 
 export interface AppEnv {
@@ -21,6 +22,8 @@ export interface AppEnv {
   corsOrigins: string[] | boolean;
   dataRoot: string;
   dbPath: string;
+  /** widget JWT 签名密钥；未设则 widget 鉴权不启用。 */
+  widgetJwtSecret?: string | undefined;
 }
 
 export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
@@ -42,6 +45,7 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     corsOrigins: parseCorsOrigins(env.CORS_ORIGINS),
     dataRoot,
     dbPath,
+    widgetJwtSecret: env.WIDGET_JWT_SECRET?.trim() || undefined,
   };
 }
 

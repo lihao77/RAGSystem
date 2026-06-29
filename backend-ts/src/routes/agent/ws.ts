@@ -13,6 +13,8 @@ interface SessionWsParams {
 
 interface SessionWsQuery {
   after_seq?: string;
+  /** widget 会话的短时 JWT（query 传，因浏览器 WS 无法设 header）；普通会话不要求。 */
+  token?: string;
 }
 
 type WebSocketLike = {
@@ -33,6 +35,26 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
       const ws = socket as WebSocketLike;
       const container = options.container;
       const sessionId = request.params.sessionId;
+      // widget 会话强制 token 鉴权：仅当本会话由 /api/widget/sessions 签发（metadata.widget.created_via 标记）。
+      // 普通会话（frontend-client 等）保持零鉴权；widgetAuth 未启用时整段跳过，后端维持现状。
+      if (container.widgetAuth) {
+        const widgetMeta = (
+          container.sessionApplication.getSession(sessionId)?.metadata as {
+            widget?: { created_via?: string; app_key?: string };
+          } | undefined
+        )?.widget;
+        if (widgetMeta?.created_via === "widget") {
+          try {
+            const claims = container.widgetAuth.verifyWsToken(request.query.token);
+            if (widgetMeta.app_key && claims.sub !== widgetMeta.app_key) {
+              throw new Error("token 与会话来源不匹配");
+            }
+          } catch {
+            ws.close(4001, "unauthorized");
+            return;
+          }
+        }
+      }
       const afterSeq = parseSeqCursor(request.query.after_seq);
       let lastSeq = 0;
       let boundRunId: string | null = null;

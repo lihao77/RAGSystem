@@ -38,6 +38,8 @@ import { createVectorStoreFromConfig } from "../vector-store/vector-store-factor
 import type { IVectorStore } from "../../contracts/vector-store/index.js";
 import { OutboxDispatcher } from "./event-outbox/dispatcher.js";
 import { DurableClientEventPublisher } from "./event-outbox/client-event-publisher.js";
+import { createWidgetCredentialStore, type WidgetCredentialStore } from "../stores/widget-credential-store/index.js";
+import { createWidgetAuthService, type WidgetAuthService } from "./jwt-service.js";
 
 export interface RuntimeContainer {
   readonly conversationStore: ConversationStore;
@@ -74,6 +76,13 @@ export interface RuntimeContainer {
   readonly agentDelegation: AgentDelegationService;
   readonly outboxDispatcher: OutboxDispatcher;
   readonly clientEvents: DurableClientEventPublisher;
+  /** widget 凭证存储（optional，与 widgetAuth 同生命周期；管理 app 凭证用）。 */
+  readonly widgetCredentialStore?: WidgetCredentialStore;
+  /**
+   * widget 第三方嵌入鉴权（optional）。仅当配了 WIDGET_JWT_SECRET 才实例化；
+   * 未配时为 undefined，widget 路由与 ws 握手鉴权跳过，后端保持现状。
+   */
+  readonly widgetAuth?: WidgetAuthService;
   /** 数据根目录（memory store / 工具数据用）；snapshot 装配 createRuntime 时透传。 */
   readonly dataRoot: string;
   close(): void;
@@ -92,6 +101,8 @@ export interface RuntimeContainerOptions {
   outboxDispatcherIntervalMs?: number | undefined;
   /** 消费端 hook 注册回调（可选）；透传 SDK，让 backend 注册 tool.before/after、round.before 等 handler。 */
   hooks?: ((registry: HookRegistry) => void) | undefined;
+  /** widget JWT 签名密钥（optional）。非空才启用 widget 鉴权与受约束会话签发。 */
+  widgetJwtSecret?: string | undefined;
 }
 
 export function createRuntimeContainer(options: RuntimeContainerOptions): RuntimeContainer {
@@ -104,6 +115,14 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     outboxDispatcher.start(options.outboxDispatcherIntervalMs);
   }
   const clientEvents = new DurableClientEventPublisher(conversationStore, outboxDispatcher);
+  // widget 鉴权（optional）：配了 WIDGET_JWT_SECRET 才装配。复用同一 dbPath，独立句柄，close 时单独释放。
+  const widgetCredentialStore: WidgetCredentialStore | undefined = options.widgetJwtSecret
+    ? createWidgetCredentialStore({ dbPath: options.dbPath })
+    : undefined;
+  const widgetAuth: WidgetAuthService | undefined =
+    widgetCredentialStore && options.widgetJwtSecret
+      ? createWidgetAuthService(options.widgetJwtSecret, widgetCredentialStore.ops)
+      : undefined;
   const permissionPolicy = new PermissionPolicyService();
   const agentConfig = new AgentConfigService({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot });
   const modelAdapter = new ModelAdapterService({
@@ -224,6 +243,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     }
     closed = true;
     outboxDispatcher.stop();
+    widgetCredentialStore?.close();
     mcp.close();
     daemon.close();
     vectorLibrary.close();
@@ -267,6 +287,8 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     agentDelegation,
     outboxDispatcher,
     clientEvents,
+    ...(widgetCredentialStore ? { widgetCredentialStore } : {}),
+    ...(widgetAuth ? { widgetAuth } : {}),
     dataRoot,
     close,
   };

@@ -24,6 +24,7 @@ export async function buildTestHarness(
     startOutboxDispatcher?: boolean;
     logger?: AgentExecutionLogger;
     hooks?: (registry: HookRegistry) => void;
+    widgetJwtSecret?: string;
   } = {},
 ) {
   const container = createRuntimeContainer({
@@ -37,6 +38,7 @@ export async function buildTestHarness(
     startOutboxDispatcher: options.startOutboxDispatcher ?? false,
     logger: options.logger,
     ...(options.hooks ? { hooks: options.hooks } : {}),
+    ...(options.widgetJwtSecret ? { widgetJwtSecret: options.widgetJwtSecret } : {}),
   });
   const app = await buildApp({ env: testEnv, container });
   await app.ready();
