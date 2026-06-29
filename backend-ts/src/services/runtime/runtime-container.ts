@@ -110,12 +110,8 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const fileHistory = new FileHistoryService({ dataRoot: options.dataRoot });
   const sessionApplication = new AgentSessionApplication(conversationStore, fileHistory);
   const realtimeEvents = new RealtimeEventHub();
-  const outboxDispatcher = new OutboxDispatcher(conversationStore, realtimeEvents);
-  if (options.startOutboxDispatcher ?? true) {
-    outboxDispatcher.start(options.outboxDispatcherIntervalMs);
-  }
-  const clientEvents = new DurableClientEventPublisher(conversationStore, outboxDispatcher);
   // widget 鉴权（optional）：配了 WIDGET_JWT_SECRET 才装配。复用同一 dbPath，独立句柄，close 时单独释放。
+  // 声明先于 outboxDispatcher 启停块——token 周期清理需在其生命周期内调 startPruning。
   const widgetCredentialStore: WidgetCredentialStore | undefined = options.widgetJwtSecret
     ? createWidgetCredentialStore({ dbPath: options.dbPath })
     : undefined;
@@ -123,6 +119,13 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     widgetCredentialStore && options.widgetJwtSecret
       ? createWidgetAuthService(options.widgetJwtSecret, widgetCredentialStore.ops)
       : undefined;
+  const outboxDispatcher = new OutboxDispatcher(conversationStore, realtimeEvents);
+  if (options.startOutboxDispatcher ?? true) {
+    outboxDispatcher.start(options.outboxDispatcherIntervalMs);
+    // widget token 周期清理跟随 outboxDispatcher 生命周期（同启用/禁用），避免 widget_tokens 无界增长。
+    widgetCredentialStore?.startPruning();
+  }
+  const clientEvents = new DurableClientEventPublisher(conversationStore, outboxDispatcher);
   const permissionPolicy = new PermissionPolicyService();
   const agentConfig = new AgentConfigService({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot });
   const modelAdapter = new ModelAdapterService({

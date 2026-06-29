@@ -7,15 +7,44 @@ import { WidgetCredentialOps, type CreatedWidgetApp, type WidgetApp } from "./wi
  */
 export interface WidgetCredentialStore {
   readonly ops: WidgetCredentialOps;
+  /** 启动过期 token 周期清理（与 outboxDispatcher 同生命周期，幂等）。首次立即清一次。 */
+  startPruning(intervalMs?: number): void;
+  /** 停止周期清理（不关 db）。 */
+  stop(): void;
   close(): void;
 }
+
+const PRUNE_INTERVAL_MS = 5 * 60 * 1000;
 
 export function createWidgetCredentialStore(options: { dbPath: string }): WidgetCredentialStore {
   const db: WidgetCredentialDb = createWidgetCredentialDb({ dbPath: options.dbPath });
   const ops = new WidgetCredentialOps(db);
+  let pruneTimer: ReturnType<typeof setInterval> | null = null;
+  const prune = (): void => {
+    ops.pruneExpiredTokens(Math.floor(Date.now() / 1000));
+  };
   return {
     ops,
-    close: () => db.close(),
+    startPruning(intervalMs) {
+      if (pruneTimer) {
+        return;
+      }
+      prune();
+      pruneTimer = setInterval(prune, intervalMs ?? PRUNE_INTERVAL_MS);
+    },
+    stop() {
+      if (pruneTimer) {
+        clearInterval(pruneTimer);
+        pruneTimer = null;
+      }
+    },
+    close: () => {
+      if (pruneTimer) {
+        clearInterval(pruneTimer);
+        pruneTimer = null;
+      }
+      db.close();
+    },
   };
 }
 

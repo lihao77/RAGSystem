@@ -16,7 +16,11 @@ export interface WidgetTokenClaims {
   /** 过期时间（秒）。 */
   exp: number;
   scope: "widget";
-  /** 可选：绑定特定 session_id（per-session 强绑定时用）。 */
+  /**
+   * 可选：绑定特定 session_id（per-session 强绑定）。
+   * 当前签发/校验未启用 sess——token 复用窗口 = TTL(15min)：一个 token 可连同一 app 的任一会话。
+   * per-session 强绑定需 /sessions 端点换发带 sess 的 token（签发 + WS 校验比对），本期未做。
+   */
   sess?: string;
 }
 
@@ -124,6 +128,11 @@ export function createWidgetAuthService(secret: string, credentialOps: WidgetCre
       return verify(match[1]);
     },
     isOriginAllowed(origin, fallback) {
+      // 边界说明（勿高估 allowed_origins 的隔离作用）：
+      // 鉴权主链路是嵌入方【服务端】持 secret 调 /auth/token + /sessions——这两步无 Origin 头
+      // （!origin → true），CORS 根本不 gate；浏览器只持 token 开 WS（WS 不受 CORS 约束）。
+      // 故真正的鉴权大门是 server-held secret，allowed_origins 仅在浏览器后续带 Origin 的请求
+      // （如 widget 内部 fetch）时起辅助作用。per-app allowed_origins 非有效隔离边界。
       // 无 Origin（同源 / 非浏览器请求）一律放行，与 CORS 通行行为一致。
       if (!origin) {
         return true;

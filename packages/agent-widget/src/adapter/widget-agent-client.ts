@@ -7,6 +7,7 @@ import {
 import type {
   AgentClient,
   ConnectionStatus,
+  ConnectOptions,
   DelegatedToolDeclaration,
   DelegatedToolSpec,
   Envelope,
@@ -22,7 +23,7 @@ import type {
   Unsubscribe,
 } from "@ragsystem/agent-protocol";
 
-import { ObservableValue } from "./observable.js";
+import { EventStream, ObservableValue } from "./observable.js";
 import { WidgetWsTransport } from "./ws-transport.js";
 import {
   encodeApprovalRespond,
@@ -71,11 +72,14 @@ export class WidgetAgentClient implements AgentClient {
   private cursor: number | null = null;
 
   private readonly statusValue: ObservableValue<ConnectionStatus>;
-  private readonly eventsValue: ObservableValue<Envelope | null>;
+  private readonly eventsValue: EventStream;
   private readonly treeValue: ObservableValue<ExecutionTree>;
   private readonly runStatusValue: ObservableValue<RunStatus>;
   private readonly pendingValue: ObservableValue<PendingInteraction[]>;
   private readonly toolPresentations: Map<string, unknown> = new Map();
+
+  /** 待决议的 send ack 等待器（widget 单 run 串行，至多一个 pending）。 */
+  private pendingSendAck: ((result: { ok: boolean; error?: string }) => void) | null = null;
 
   private delegationEnabled = false;
   private readonly hostTools = new Map<string, HostToolEntry>();
@@ -86,7 +90,7 @@ export class WidgetAgentClient implements AgentClient {
     this.sessionId = options.sessionId;
     this.token = options.token;
     this.statusValue = new ObservableValue<ConnectionStatus>({ state: "idle" });
-    this.eventsValue = new ObservableValue<Envelope | null>(null);
+    this.eventsValue = new EventStream();
     this.treeValue = new ObservableValue<ExecutionTree>({ root: null, steps: [] });
     this.runStatusValue = new ObservableValue<RunStatus>({ runId: null, state: "idle" });
     this.pendingValue = new ObservableValue<PendingInteraction[]>([]);
@@ -100,7 +104,12 @@ export class WidgetAgentClient implements AgentClient {
 
   /* ---- 连接与生命周期 ---- */
 
-  async connect(): Promise<void> {
+  /**
+   * 建立连接。widget 自建 WS URL（backendBase + token + cursor），故忽略契约的 options.url；
+   * 仍保留可选参数以忠实实现 AgentClient 契约，按契约写 connect({...}) 的消费者不会被静默破坏。
+   */
+  async connect(_options?: ConnectOptions): Promise<void> {
+    void _options;
     if (this.transport) {
       return;
     }
@@ -133,7 +142,7 @@ export class WidgetAgentClient implements AgentClient {
   /* ---- 投影 ---- */
 
   get events(): Observable<Envelope> {
-    return this.eventsValue as Observable<Envelope>;
+    return this.eventsValue;
   }
 
   get executionTree(): Observable<ExecutionTree> {
@@ -158,16 +167,35 @@ export class WidgetAgentClient implements AgentClient {
 
   /* ---- 用户交互与会话控制 ---- */
 
+  /**
+   * 发起 run：发 user_driven_change 后等后端 ack(category:"send", ok) 决定 started 终态
+   * （后端 ws.ts 会回 ack，run 启动失败时 ok:false）。5s 未收 ack 则乐观判 started（后端已接收、
+   * ack 丢失或延迟）。runStatus 在 ack ok 时转 running，失败时回 idle。
+   */
   async send(options: SendOptions): Promise<SendResult> {
     const requestId = options.requestId ?? generateRequestId();
+    const ackPromise = new Promise<{ ok: boolean; error?: string }>((resolve) => {
+      this.pendingSendAck = resolve;
+    });
     this.transport?.send(encodeSend(this.sessionId, {
       task: options.task,
       ...(options.selectedLlm ? { selectedLlm: options.selectedLlm } : {}),
       ...(options.attachments ? { attachments: options.attachments } : {}),
       requestId,
     }));
-    this.runStatusValue.set({ runId: null, state: "running" });
-    return { started: true, requestId };
+    const result = await Promise.race([
+      ackPromise,
+      new Promise<{ ok: true }>((resolve) => setTimeout(() => resolve({ ok: true }), 5000)),
+    ]);
+    if (this.pendingSendAck) {
+      this.pendingSendAck = null;
+    }
+    if (result.ok) {
+      this.runStatusValue.set({ runId: null, state: "running" });
+      return { started: true, requestId };
+    }
+    this.runStatusValue.set({ runId: null, state: "idle" });
+    return { started: false, requestId, ...("error" in result && result.error ? { error: result.error } : {}) };
   }
 
   stop(): void {
@@ -263,11 +291,16 @@ export class WidgetAgentClient implements AgentClient {
   }
 
   private handleEnvelope(env: Envelope): void {
+    // ack 控制帧：不进投影；send ack 决议 pending send。
+    if (env.type === "ack") {
+      this.handleAck(env);
+      return;
+    }
     // delegate_call：委托对用户透明，不进投影，直接路由本地执行。
     if (env.type === "delegate_call" && this.handleDelegateCall(env)) {
       return;
     }
-    this.eventsValue.set(env);
+    this.eventsValue.emit(env);
     applyEnvelope(this.execState, env);
     this.treeValue.set(getExecutionTree(this.execState));
     const cursor = extractCursor(env);
@@ -276,6 +309,15 @@ export class WidgetAgentClient implements AgentClient {
     }
     this.updateRunStatus(env);
     this.updatePending(env);
+  }
+
+  private handleAck(env: Envelope): void {
+    const payload = env.payload as { category?: string; ok?: boolean; error?: string } | undefined;
+    if (payload?.category === "send" && this.pendingSendAck) {
+      const resolve = this.pendingSendAck;
+      this.pendingSendAck = null;
+      resolve({ ok: payload.ok ?? false, ...(payload.error ? { error: payload.error } : {}) });
+    }
   }
 
   private handleDelegateCall(env: Envelope): boolean {
@@ -298,10 +340,13 @@ export class WidgetAgentClient implements AgentClient {
     }
     const spec = entry.spec;
     const started = Date.now();
+    // abort 是协作式：宿主工具需主动检查 signal 才会响应超时；忽略则超时无效（JS 协作式中止固有限制）。
+    // cancelToolCall 一期为 no-op，故 signal 当前仅做 60s 超时，不接外部取消。
+    const signal = AbortSignal.timeout(60_000);
     void Promise.resolve()
       .then(() => spec.execute(payload.input, {
         callId,
-        signal: AbortSignal.timeout?.(spec.cancellable === false ? 60_000 : 300_000) ?? new AbortController().signal,
+        signal,
         sessionId: this.sessionId,
         runId: typeof env.run_id === "string" ? env.run_id : null,
       }))

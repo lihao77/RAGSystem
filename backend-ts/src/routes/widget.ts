@@ -16,6 +16,10 @@ import type { RouteOptions } from "./route-options.js";
  *
  * 仅当 RuntimeContainer.widgetAuth 存在（配了 WIDGET_JWT_SECRET）时启用；否则整组端点返回 503，
  * 默认部署完全不受影响。鉴权只挂在本 plugin 内，不污染既有 /api/agent/* 零鉴权路由。
+ *
+ * 鉴权边界说明：真正的大门是 server-held secret（嵌入方服务端持 app-key/secret 换 token）。
+ * CORS / per-app allowed_origins 不构成有效隔离——嵌入方服务端调用无 Origin 头（CORS 不 gate），
+ * 浏览器仅持 token 开 WS（WS 不受 CORS 约束）。token 走 WS query，生产须 HTTPS + 短 TTL(15min)。
  */
 export const registerWidgetRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   const container = options.container;
