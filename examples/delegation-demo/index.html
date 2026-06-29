@@ -2,19 +2,25 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<title>委托模式 Demo · 接入真实后端</title>
+<title>委托模式 Demo · Leaflet 地图</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
   body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #1a1a1a; color: #e0e0e0; margin: 0; padding: 14px; }
-  h1 { font-size: 17px; margin: 0 0 10px; }
+  h1 { font-size: 17px; margin: 0 0 8px; }
   .hint { font-size: 12px; color: #888; margin-bottom: 10px; line-height: 1.5; }
+  .hint code { background: #2a2a2a; padding: 1px 5px; border-radius: 3px; }
   .bar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
   input, button { padding: 6px 10px; border-radius: 4px; border: 1px solid #444; background: #2a2a2a; color: #e0e0e0; font-size: 13px; }
   button { cursor: pointer; background: #3a5a8a; border-color: #5a7aaa; }
   button:disabled { opacity: .5; cursor: not-allowed; }
   .status { font-size: 12px; color: #6a6; font-family: monospace; }
-  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; height: calc(100vh - 200px); min-height: 360px; }
+  .main { display: grid; grid-template-columns: 3fr 2fr; gap: 10px; height: calc(100vh - 200px); min-height: 420px; }
+  .left { background: #222; border: 1px solid #333; border-radius: 6px; overflow: hidden; }
+  .left h2 { font-size: 12px; margin: 0; padding: 7px 12px; background: #2a2a2a; border-bottom: 1px solid #333; }
+  #map { height: calc(100% - 32px); width: 100%; background: #111; }
+  .right { display: grid; grid-template-rows: 1fr 1fr; gap: 10px; }
   .panel { background: #222; border: 1px solid #333; border-radius: 6px; display: flex; flex-direction: column; overflow: hidden; }
-  .panel h2 { font-size: 12px; margin: 0; padding: 7px 12px; background: #2a2a2a; border-bottom: 1px solid #333; letter-spacing: .5px; }
+  .panel h2 { font-size: 12px; margin: 0; padding: 7px 12px; background: #2a2a2a; border-bottom: 1px solid #333; }
   .panel .body { flex: 1; overflow-y: auto; padding: 8px 12px; font-size: 13px; }
   .msg { margin-bottom: 8px; padding: 7px 10px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; }
   .msg.user { background: #2d3a5a; }
@@ -29,10 +35,10 @@
 </style>
 </head>
 <body>
-<h1>🤝 委托模式 Demo — 接入真实后端</h1>
+<h1>🗺️ 委托模式 Demo · Leaflet 地图</h1>
 <div class="hint">
-  连接 → 自动注册前端工具 <code>get_client_env</code> → 提问引导 agent 调用它（如"我的浏览器语言和时区是什么"）。<br>
-  右侧日志高亮 <span style="color:#ffd87a">委托链路</span>：tools.register → tool_call(delegation) → 前端执行 → tool_result 回传。
+  连接后自动注册地图工具（set_view / add_marker / clear_markers / get_view / fit_bounds）。agent 通过委托模式操控前端地图。<br>
+  试试：<code>在地图上标记北京和上海，并把视图适配到这两个点</code> · 右栏 <span style="color:#ffd87a">黄色</span> 为委托链路。
 </div>
 <div class="bar">
   <label>后端地址</label>
@@ -40,37 +46,108 @@
   <button id="connectBtn">连接</button>
   <span class="status" id="status">未连接</span>
 </div>
-<div class="panels">
-  <div class="panel"><h2>对话</h2><div class="body" id="chat"></div></div>
-  <div class="panel"><h2>事件 / 委托日志</h2><div class="body" id="log"></div></div>
+<div class="main">
+  <div class="left"><h2>地图（前端 Leaflet）</h2><div id="map"></div></div>
+  <div class="right">
+    <div class="panel"><h2>对话</h2><div class="body" id="chat"></div></div>
+    <div class="panel"><h2>事件 / 委托日志</h2><div class="body" id="log"></div></div>
+  </div>
 </div>
 <div class="composer">
-  <input id="input" placeholder="问：我的浏览器语言和时区是什么？" disabled>
+  <input id="input" placeholder="问：在地图上标记北京和上海，并适配视图" disabled>
   <button id="sendBtn" disabled>发送</button>
 </div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-// 前端宿主委托工具声明（tools.register 用，wire 格式：input_schema/risk_level，不含 execute）
-const HOST_TOOLS = [{
-  name: 'get_client_env',
-  description: '获取前端客户端环境信息（时区、语言、浏览器 UA、屏幕分辨率等客户端独有数据）。需要用户客户端环境上下文（如本地化、展示适配）时调用。',
-  input_schema: { type: 'object', properties: {}, additionalProperties: false },
-  risk_level: 'low',
-}];
+// ============ 地图委托工具声明（tools.register 用，wire 格式：input_schema/risk_level）============
+const HOST_TOOLS = [
+  {
+    name: 'map_set_view',
+    description: '设置地图的中心点和缩放级别（移动地图到指定位置）。latitude 纬度（-90~90），longitude 经度（-180~180），zoom 0~18（越大越细）。',
+    input_schema: { type: 'object', properties: { latitude: { type: 'number' }, longitude: { type: 'number' }, zoom: { type: 'integer', minimum: 0, maximum: 18 } }, required: ['latitude', 'longitude'] },
+    risk_level: 'low',
+  },
+  {
+    name: 'map_add_marker',
+    description: '在地图上添加一个标记点。label 为可选的弹出标签（如地名）。',
+    input_schema: { type: 'object', properties: { latitude: { type: 'number' }, longitude: { type: 'number' }, label: { type: 'string' } }, required: ['latitude', 'longitude'] },
+    risk_level: 'low',
+  },
+  {
+    name: 'map_clear_markers',
+    description: '清除地图上所有已添加的标记点。',
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
+    risk_level: 'low',
+  },
+  {
+    name: 'map_get_view',
+    description: '获取地图当前视图状态：中心点经纬度、缩放级别、可视边界（north/south/east/west）。用于了解地图当前展示范围。',
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
+    risk_level: 'low',
+  },
+  {
+    name: 'map_fit_bounds',
+    description: '调整地图视图以容纳一组坐标点（让所有点都可见）。常用于标记多点后自适应缩放。',
+    input_schema: { type: 'object', properties: { points: { type: 'array', items: { type: 'object', properties: { latitude: { type: 'number' }, longitude: { type: 'number' } }, required: ['latitude', 'longitude'] } } }, required: ['points'] },
+    risk_level: 'low',
+  },
+];
 
-// 前端工具执行（用浏览器独有能力，后端无法执行——这正是委托的价值）
-async function executeHostTool(name) {
-  if (name === 'get_client_env') {
-    return { ok: true, observation: JSON.stringify({
-      language: navigator.language,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      userAgent: navigator.userAgent,
-      screen: `${screen.width}x${screen.height}`,
-    }, null, 2) };
-  }
-  return { ok: false, error: `前端未注册工具: ${name}` };
+// ============ 地图状态 ============
+let map = null;
+const markers = new Map(); // marker_id -> L.marker
+let markerSeq = 0;
+
+function initMap() {
+  map = L.map('map').setView([35.86, 104.19], 4);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap', maxZoom: 18,
+  }).addTo(map);
 }
 
+// ============ 前端工具执行（操控 Leaflet，后端无法渲染地图——这正是委托的价值）============
+async function executeHostTool(name, input) {
+  if (!map) return { ok: false, error: '地图未初始化' };
+  switch (name) {
+    case 'map_set_view': {
+      const zoom = typeof input.zoom === 'number' ? input.zoom : map.getZoom();
+      map.setView([input.latitude, input.longitude], zoom);
+      return { ok: true, observation: `地图已移至 (${input.latitude}, ${input.longitude})，zoom=${zoom}` };
+    }
+    case 'map_add_marker': {
+      const id = `marker_${++markerSeq}`;
+      const m = L.marker([input.latitude, input.longitude]).addTo(map);
+      if (input.label) m.bindPopup(String(input.label)).openPopup();
+      markers.set(id, m);
+      return { ok: true, observation: `已添加标记 ${id} 于 (${input.latitude}, ${input.longitude})${input.label ? `，标签："${input.label}"` : ''}` };
+    }
+    case 'map_clear_markers': {
+      const n = markers.size;
+      markers.forEach((m) => map.removeLayer(m));
+      markers.clear();
+      return { ok: true, observation: `已清除 ${n} 个标记` };
+    }
+    case 'map_get_view': {
+      const c = map.getBounds();
+      return { ok: true, observation: JSON.stringify({
+        center: { lat: map.getCenter().lat, lng: map.getCenter().lng },
+        zoom: map.getZoom(),
+        bounds: { north: c.getNorth(), south: c.getSouth(), east: c.getEast(), west: c.getWest() },
+      }) };
+    }
+    case 'map_fit_bounds': {
+      const pts = Array.isArray(input.points) ? input.points : [];
+      if (!pts.length) return { ok: false, error: 'points 为空' };
+      map.fitBounds(L.latLngBounds(pts.map((p) => [p.latitude, p.longitude])));
+      return { ok: true, observation: `已适配 ${pts.length} 个点` };
+    }
+    default:
+      return { ok: false, error: `前端未注册工具: ${name}` };
+  }
+}
+
+// ============ WS 委托收发 + 聊天（复用机制）============
 const $ = (id) => document.getElementById(id);
 let ws = null, sessionId = null, host = '', currentAssistantEl = null;
 
@@ -111,7 +188,6 @@ async function connect() {
       setStatus(`已连接 · session ${sessionId.slice(0, 8)}…`);
       $('connectBtn').disabled = true;
       $('input').disabled = false; $('sendBtn').disabled = false; $('input').focus();
-      // 握手期注册前端委托工具清单（后端据此判定工具归属 + 委托回前端执行）
       ws.send(JSON.stringify({ type: 'tools.register', session_id: sessionId, payload: { tools: HOST_TOOLS } }));
       log(`→ tools.register：注册 [${HOST_TOOLS.map((t) => t.name).join(', ')}]`, 'delegate');
     };
@@ -142,8 +218,7 @@ function send() {
 async function handleEnv(env) {
   const p = env.payload || {};
   switch (env.type) {
-    case 'run_started':
-      log(`▶ run_started`, 'run'); break;
+    case 'run_started': log(`▶ run_started`, 'run'); break;
     case 'stream_output':
       if (p.phase === 'first_token') currentAssistantEl = addMsg('assistant', '');
       else if (p.phase === 'delta' || p.phase === 'final') {
@@ -154,31 +229,27 @@ async function handleEnv(env) {
       break;
     case 'tool_call':
       if (p.mode === 'delegation' && p.phase === 'request') {
-        log(`← 委托请求：${p.tool}（后端→前端执行）`, 'delegate');
+        log(`← 委托请求：${p.tool} ${JSON.stringify(p.input ?? {})}`, 'delegate');
         const started = Date.now();
         const result = await executeHostTool(p.tool, p.input);
         ws.send(JSON.stringify({
           type: 'tool_result', session_id: sessionId, call_id: env.call_id,
           payload: { mode: 'delegation', phase: 'result', ...result, elapsed_ms: Date.now() - started },
         }));
-        log(`→ tool_result 回传：${result.ok ? '✓ ' + (result.observation || '').slice(0, 100) : '✗ ' + result.error}`, 'delegate');
+        log(`→ tool_result：${result.ok ? '✓ ' + (result.observation || '').slice(0, 120) : '✗ ' + result.error}`, 'delegate');
       } else {
         log(`🔧 工具调用（后端执行）：${p.tool}`, 'tool');
       }
       break;
-    case 'agent_started':
-      log(`🤖 agent_started: ${env.agent_id}${p.display_name ? ` (${p.display_name})` : ''}`); break;
-    case 'agent_ended':
-      log(`🤖 agent_ended: ${env.agent_id}`); break;
-    case 'run_ended':
-      log(`■ run_ended: ${p.status}`, 'run'); break;
-    case 'error':
-      log(`⚠ error: ${p.code || ''} ${p.message || ''}`); break;
-    default:
-      log(`· ${env.type}`);
+    case 'agent_started': log(`🤖 agent_started: ${env.agent_id}${p.display_name ? ` (${p.display_name})` : ''}`); break;
+    case 'agent_ended': log(`🤖 agent_ended: ${env.agent_id}`); break;
+    case 'run_ended': log(`■ run_ended: ${p.status}`, 'run'); break;
+    case 'error': log(`⚠ error: ${p.code || ''} ${p.message || ''}`); break;
+    default: log(`· ${env.type}`);
   }
 }
 
+initMap();
 $('connectBtn').onclick = connect;
 $('sendBtn').onclick = send;
 $('input').addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
