@@ -1,0 +1,394 @@
+import {
+  applyEnvelope,
+  createExecutionTreeState,
+  getExecutionTree,
+  TypedEnvelopeSchema,
+} from "@ragsystem/agent-protocol";
+import type {
+  AgentClient,
+  ConnectionStatus,
+  DelegatedToolDeclaration,
+  DelegatedToolSpec,
+  Envelope,
+  ExecutionTree,
+  InteractionResponse,
+  Observable,
+  PendingInteraction,
+  RunStatus,
+  SendOptions,
+  SendResult,
+  ToolCallHandler,
+  ToolResult,
+  Unsubscribe,
+} from "@ragsystem/agent-protocol";
+
+import { ObservableValue } from "./observable.js";
+import { WidgetWsTransport } from "./ws-transport.js";
+import {
+  encodeApprovalRespond,
+  encodeDelegateResult,
+  encodeSend,
+  encodeStop,
+  encodeToolsRegister,
+  encodeUserInputRespond,
+} from "./uplink-codec.js";
+import { buildWidgetWsUrl, extractCursor } from "./ws-url.js";
+
+/**
+ * widget 浏览器端 AgentClient 实现。
+ *
+ * 组合 WidgetWsTransport（字节层）+ 协议层投影（execution-tree / runStatus / pendingInteractions
+ * 由 agent-protocol 现成函数算出）+ 上行 codec（uplink-codec，对照 ClientToServerEnvelopeSchema）。
+ * 职责单一——纯协议消费/发送，不含任何 UI。
+ *
+ * 设计要点：
+ * - delegate_call 不进投影（对齐 frontend-client handleDelegateCall：委托对用户透明），由 delegation 路由独立处理。
+ * - hostTools（宿主工具）经 registerTool 注册，握手 connected 时一次性 tools.register 上行。
+ * - 重连游标由 client 持有（最近 seq），transport 重连时回调取最新 URL。
+ */
+
+export interface WidgetAgentClientOptions {
+  /** 后端 origin，如 https://api.host.com。 */
+  backendBase: string;
+  sessionId: string;
+  /** widget 短时 JWT（WS 走 query）。 */
+  token: string;
+  /** 宿主业务工具（hostTools）；握手时 tools.register 上行，delegate_call 时本地执行。 */
+  hostTools?: DelegatedToolSpec[];
+}
+
+interface HostToolEntry {
+  spec: DelegatedToolSpec;
+}
+
+export class WidgetAgentClient implements AgentClient {
+  private readonly backendBase: string;
+  private readonly sessionId: string;
+  private readonly token: string;
+
+  private transport: WidgetWsTransport | null = null;
+  private readonly execState = createExecutionTreeState();
+  private cursor: number | null = null;
+
+  private readonly statusValue: ObservableValue<ConnectionStatus>;
+  private readonly eventsValue: ObservableValue<Envelope | null>;
+  private readonly treeValue: ObservableValue<ExecutionTree>;
+  private readonly runStatusValue: ObservableValue<RunStatus>;
+  private readonly pendingValue: ObservableValue<PendingInteraction[]>;
+  private readonly toolPresentations: Map<string, unknown> = new Map();
+
+  private delegationEnabled = false;
+  private readonly hostTools = new Map<string, HostToolEntry>();
+  private readonly toolCallHandlers = new Set<ToolCallHandler>();
+
+  constructor(options: WidgetAgentClientOptions) {
+    this.backendBase = options.backendBase;
+    this.sessionId = options.sessionId;
+    this.token = options.token;
+    this.statusValue = new ObservableValue<ConnectionStatus>({ state: "idle" });
+    this.eventsValue = new ObservableValue<Envelope | null>(null);
+    this.treeValue = new ObservableValue<ExecutionTree>({ root: null, steps: [] });
+    this.runStatusValue = new ObservableValue<RunStatus>({ runId: null, state: "idle" });
+    this.pendingValue = new ObservableValue<PendingInteraction[]>([]);
+    for (const spec of options.hostTools ?? []) {
+      this.hostTools.set(spec.name, { spec });
+    }
+    if (this.hostTools.size > 0) {
+      this.delegationEnabled = true;
+    }
+  }
+
+  /* ---- 连接与生命周期 ---- */
+
+  async connect(): Promise<void> {
+    if (this.transport) {
+      return;
+    }
+    this.transport = new WidgetWsTransport({
+      initialUrl: this.buildUrl(this.cursor),
+      resolveReconnectUrl: () => this.buildUrl(this.cursor),
+      sessionId: this.sessionId,
+      handlers: {
+        onStatus: (status) => {
+          this.statusValue.set(status);
+          if (status.state === "connected") {
+            this.onConnected();
+          }
+        },
+        onEnvelope: (env) => this.handleEnvelope(env),
+      },
+    });
+    this.transport.connect();
+  }
+
+  disconnect(): void {
+    this.transport?.disconnect();
+    this.transport = null;
+  }
+
+  get status(): Observable<ConnectionStatus> {
+    return this.statusValue;
+  }
+
+  /* ---- 投影 ---- */
+
+  get events(): Observable<Envelope> {
+    return this.eventsValue as Observable<Envelope>;
+  }
+
+  get executionTree(): Observable<ExecutionTree> {
+    return this.treeValue;
+  }
+
+  get runStatus(): Observable<RunStatus> {
+    return this.runStatusValue;
+  }
+
+  get pendingInteractions(): Observable<PendingInteraction[]> {
+    return this.pendingValue;
+  }
+
+  registerToolPresentation(_spec: unknown): Unsubscribe {
+    const spec = _spec as { toolName: string };
+    this.toolPresentations.set(spec.toolName, spec);
+    return () => {
+      this.toolPresentations.delete(spec.toolName);
+    };
+  }
+
+  /* ---- 用户交互与会话控制 ---- */
+
+  async send(options: SendOptions): Promise<SendResult> {
+    const requestId = options.requestId ?? generateRequestId();
+    this.transport?.send(encodeSend(this.sessionId, {
+      task: options.task,
+      ...(options.selectedLlm ? { selectedLlm: options.selectedLlm } : {}),
+      ...(options.attachments ? { attachments: options.attachments } : {}),
+      requestId,
+    }));
+    this.runStatusValue.set({ runId: null, state: "running" });
+    return { started: true, requestId };
+  }
+
+  stop(): void {
+    this.transport?.send(encodeStop(this.sessionId));
+  }
+
+  async respondInteraction(interactionId: string, response: InteractionResponse): Promise<void> {
+    if (response.kind === "user_input") {
+      this.transport?.send(encodeUserInputRespond(this.sessionId, interactionId, response.value ?? ""));
+      return;
+    }
+    this.transport?.send(encodeApprovalRespond(
+      this.sessionId,
+      interactionId,
+      response.approved ?? false,
+      response.message,
+    ));
+    this.dropPending(interactionId);
+  }
+
+  async approve(interactionId: string, approved: boolean, message?: string): Promise<void> {
+    await this.respondInteraction(interactionId, { kind: "approval", approved, ...(message ? { message } : {}) });
+  }
+
+  async respondInput(interactionId: string, value: string): Promise<void> {
+    await this.respondInteraction(interactionId, { kind: "user_input", value });
+  }
+
+  /* ---- 委托模式 ---- */
+
+  enableDelegation(): void {
+    this.delegationEnabled = true;
+  }
+
+  registerTool(spec: DelegatedToolSpec): Unsubscribe {
+    this.hostTools.set(spec.name, { spec });
+    this.delegationEnabled = true;
+    if (this.statusValue.get().state === "connected") {
+      this.registerToolsNow();
+    }
+    return () => {
+      this.hostTools.delete(spec.name);
+      if (this.statusValue.get().state === "connected") {
+        this.registerToolsNow();
+      }
+    };
+  }
+
+  onToolCall(handler: ToolCallHandler): Unsubscribe {
+    this.toolCallHandlers.add(handler);
+    return () => {
+      this.toolCallHandlers.delete(handler);
+    };
+  }
+
+  cancelToolCall(callId: string, _reason?: string): void {
+    // 一期委托执行通常瞬时完成；取消语义留给宿主 AbortSignal 扩展点，此处记录 no-op。
+    void callId;
+  }
+
+  /* ---- 逃生舱 ---- */
+
+  sendRaw(message: Record<string, unknown>): void {
+    this.transport?.send(message);
+  }
+
+  /* ---- 内部 ---- */
+
+  private buildUrl(cursor: number | null): string {
+    return buildWidgetWsUrl({
+      backendBase: this.backendBase,
+      sessionId: this.sessionId,
+      token: this.token,
+      cursor,
+    });
+  }
+
+  private onConnected(): void {
+    if (this.delegationEnabled && this.hostTools.size > 0) {
+      this.registerToolsNow();
+    }
+  }
+
+  private registerToolsNow(): void {
+    const tools: DelegatedToolDeclaration[] = [...this.hostTools.values()].map((entry) => ({
+      name: entry.spec.name,
+      description: entry.spec.description,
+      input_schema: entry.spec.inputSchema,
+      ...(entry.spec.riskLevel ? { risk_level: entry.spec.riskLevel } : {}),
+      ...(entry.spec.cancellable ? { cancellable: entry.spec.cancellable } : {}),
+    }));
+    this.transport?.send(encodeToolsRegister(this.sessionId, tools));
+  }
+
+  private handleEnvelope(env: Envelope): void {
+    // delegate_call：委托对用户透明，不进投影，直接路由本地执行。
+    if (env.type === "delegate_call" && this.handleDelegateCall(env)) {
+      return;
+    }
+    this.eventsValue.set(env);
+    applyEnvelope(this.execState, env);
+    this.treeValue.set(getExecutionTree(this.execState));
+    const cursor = extractCursor(env);
+    if (cursor !== null) {
+      this.cursor = cursor;
+    }
+    this.updateRunStatus(env);
+    this.updatePending(env);
+  }
+
+  private handleDelegateCall(env: Envelope): boolean {
+    const payload = env.payload as { phase?: string; tool?: string; input?: unknown; call_id?: string } | undefined;
+    if (!payload || payload.phase !== "request") {
+      return false;
+    }
+    const callId = payload.call_id ?? (typeof env.call_id === "string" ? env.call_id : "");
+    const toolName = payload.tool;
+    if (!callId || !toolName) {
+      return false;
+    }
+    const entry = this.hostTools.get(toolName);
+    if (!entry) {
+      this.transport?.send(encodeDelegateResult(this.sessionId, callId, {
+        ok: false,
+        error: `未注册的宿主工具：${toolName}`,
+      }));
+      return true;
+    }
+    const spec = entry.spec;
+    const started = Date.now();
+    void Promise.resolve()
+      .then(() => spec.execute(payload.input, {
+        callId,
+        signal: AbortSignal.timeout?.(spec.cancellable === false ? 60_000 : 300_000) ?? new AbortController().signal,
+        sessionId: this.sessionId,
+        runId: typeof env.run_id === "string" ? env.run_id : null,
+      }))
+      .then((result: ToolResult) => {
+        this.transport?.send(encodeDelegateResult(this.sessionId, callId, {
+          ok: result.ok,
+          ...(result.observation !== undefined ? { observation: result.observation } : {}),
+          ...(result.error !== undefined ? { error: result.error } : {}),
+          elapsedMs: result.elapsedMs ?? Date.now() - started,
+        }));
+      })
+      .catch((error: unknown) => {
+        this.transport?.send(encodeDelegateResult(this.sessionId, callId, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          elapsedMs: Date.now() - started,
+        }));
+      });
+    return true;
+  }
+
+  private updateRunStatus(env: Envelope): void {
+    if (env.type === "run_started") {
+      this.runStatusValue.set({
+        runId: typeof env.run_id === "string" ? env.run_id : null,
+        state: "running",
+      });
+    } else if (env.type === "run_ended") {
+      const payload = env.payload as { status?: string } | undefined;
+      const state = payload?.status === "completed" ? "completed" : payload?.status === "failed" ? "failed" : "interrupted";
+      this.runStatusValue.set({
+        runId: typeof env.run_id === "string" ? env.run_id : null,
+        state,
+      });
+    }
+  }
+
+  private updatePending(env: Envelope): void {
+    if (env.type !== "interaction") {
+      return;
+    }
+    const payload = env.payload as {
+      phase?: string;
+      kind?: string;
+      tool?: string;
+      prompt?: string;
+      risk_level?: string;
+      arguments?: unknown;
+    } | undefined;
+    const callId = typeof env.call_id === "string" ? env.call_id : null;
+    if (!callId) {
+      return;
+    }
+    if (payload?.phase === "required") {
+      const current = this.pendingValue.get();
+      if (!current.some((item) => item.interactionId === callId)) {
+        this.pendingValue.set([
+          ...current,
+          {
+            interactionId: callId,
+            kind: (payload.kind === "user_input" ? "user_input" : "approval"),
+            ...(payload.tool ? { toolName: payload.tool } : {}),
+            ...(payload.arguments !== undefined ? { arguments: payload.arguments } : {}),
+            ...(payload.risk_level ? { riskLevel: payload.risk_level } : {}),
+            ...(payload.prompt ? { prompt: payload.prompt } : {}),
+            receivedAt: Date.now(),
+          },
+        ]);
+      }
+    } else if (payload?.phase === "responded") {
+      this.dropPending(callId);
+    }
+  }
+
+  private dropPending(interactionId: string): void {
+    const next = this.pendingValue.get().filter((item) => item.interactionId !== interactionId);
+    if (next.length !== this.pendingValue.get().length) {
+      this.pendingValue.set(next);
+    }
+  }
+}
+
+function generateRequestId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export { TypedEnvelopeSchema };
