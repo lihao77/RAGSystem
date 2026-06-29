@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import type { ChatMessage, LlmRequest } from "@ragsystem/agent-llm";
 import { isAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
-import type { Context, DelegateToolCallInput, EventSink, KernelResult, MessageRefresher, RuntimeSession, ToolExecContext, ToolExecutionResult, ToolWaitRequest, ToolWaitResult, RuntimeStore } from "./contracts.js";
+import type { Context, EventSink, KernelResult, MessageRefresher, RuntimeSession, ToolExecContext, ToolWaitRequest, ToolWaitResult, RuntimeStore } from "./contracts.js";
 import type { KernelEvent } from "./contracts.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import type { Tool } from "./tools/tool.js";
@@ -68,11 +68,10 @@ export interface CreateRuntimeOptions {
   /** 后台任务等待回调（消费端注入；不提供则忽略 suggest_wait 信号）。 */
   waitForToolResult?: (request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>;
   /**
-   * 委托工具执行回调（消费端注入）：命中 delegateToHost=true 的工具时，SDK 不本地 call，
-   * 改调此回调——消费端负责转发到宿主执行并等回传（如 backend 经 WS 委托前端）。
-   * 不提供时命中委托工具返回错误结果。
+   * 委托执行指令发送（消费端注入，可选）：注入 ToolExecContext.emitDelegateCall，供消费端构造的委托壳 Tool.call
+   * 在 gate 通过后发 delegate_call 驱动宿主执行。SDK 内核不调用，仅透传到工具执行上下文。
    */
-  delegateToolCall?: (input: DelegateToolCallInput, ctx: ToolExecContext) => Promise<ToolExecutionResult>;
+  emitDelegateCall?: (input: { toolCallId: string; toolName: string; arguments: Record<string, unknown> }) => void;
   /**
    * prompt 上下文（消费端算好注入）：backgroundTasks。
    * tools 由内核从 registry 自动填充（per-run 工具集），消费端无需传 tools。
@@ -260,6 +259,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
     const toolContext: ToolExecContext = {
       // 消费端切片（workspaceRoot/currentAgentName 等）在前；内核权威字段在后覆盖。
       ...options.execContext,
+      ...(options.emitDelegateCall ? { emitDelegateCall: options.emitDelegateCall } : {}),
       caller: options.execContext?.caller ?? "direct",
       sessionId,
       runId,
@@ -281,7 +281,6 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
         events: dispatcher,
         hooks,
         ...(options.waitForToolResult ? { waitForToolResult: options.waitForToolResult } : {}),
-        ...(options.delegateToolCall ? { delegateToolCall: options.delegateToolCall } : {}),
       });
       // 上下文用量遥测：system（含稳定 system context）与 history 分桶估算 + 预算（零兜底，纯读 profile）。
       const contextUsage: ContextUsageProvider = (requestMessages) => {

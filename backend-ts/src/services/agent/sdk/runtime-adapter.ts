@@ -49,9 +49,9 @@ export interface SdkRuntimeAdapterDeps {
   permissionPolicy: PermissionPolicyService;
   /** 审批交互服务（SDK 审批编排阻塞等待端口用）。 */
   pendingInteractions: PendingInteractionService;
-  /** 前端委托工具声明注册表（per-session）；命中前端工具时构造 delegateToHost Tool。 */
+  /** 前端委托工具声明注册表（per-session）；命中前端工具时构造 source=host 转发壳 Tool。 */
   hostToolRegistry: HostToolRegistry;
-  /** 委托工具调用等待器（SDK delegateToolCall 回调注册 + 前端 tool_result 回传 resolve）。 */
+  /** 委托工具调用等待器（转发壳 Tool.call 注册等待 + 前端 tool_result 回传 resolve）。 */
   delegationPending: DelegationPendingService;
   /** 消费端 hook 注册回调（可选）；透传给 createRuntime，让 backend 注册 tool.before/after、round.before 等 handler。 */
   hooks?: (registry: HookRegistry) => void;
@@ -116,10 +116,10 @@ export async function executeRunWithSdk(
     updateSessionMetadata: (sessionId, patch) => deps.conversationStore.updateSessionMetadata(sessionId, patch),
   };
 
-  // per-run 构建工具集合：后端工具 + 前端委托工具（delegateToHost，命中时 SDK 调 delegateToolCall 回调）。
+  // per-run 构建工具集合：后端工具 + 前端委托工具（source=host，其 Tool.call 转发宿主执行 + 等回传）。
   const teamName = asString(input.sessionMetadata.team);
   const pathService = new PathApprovalService();
-  const hostTools = buildHostDelegateTools(deps.hostToolRegistry.get(input.sessionId));
+  const hostTools = buildHostDelegateTools(deps.hostToolRegistry.get(input.sessionId), deps.delegationPending);
   const tools: Tool[] = [
     ...createBackendTools({
       ...deps.toolsDeps,
@@ -182,15 +182,6 @@ export async function executeRunWithSdk(
   const extraContextSources = isMemoryEnabled(input.agent.memory)
     ? [new MemoryIndexContextSource(sessionMetadata, input.agent.memory, input.agent.agent_name, { dataRoot: deps.dataRoot })]
     : [];
-  // 委托工具执行回调：SDK 命中 delegateToHost 工具时调，经等待器等前端 tool_result 回传。
-  // tool_call(mode=delegation) 已由 SDK event 流自动推前端，此处只注册等待 + 收回传。
-  const delegateToolCall = async (
-    callInput: { toolName: string; toolCallId: string; arguments: Record<string, unknown> },
-    ctx: ToolExecContext,
-  ): Promise<ToolExecutionResult> => {
-    const resolution = await deps.delegationPending.wait(callInput.toolCallId, ctx.signal ? { signal: ctx.signal } : undefined);
-    return toHostToolExecutionResult(callInput.toolName, resolution);
-  };
   const runtimeOpts: CreateRuntimeOptions = {
     profile,
     tools: registry,
@@ -210,7 +201,15 @@ export async function executeRunWithSdk(
       deps.hooks?.(registry);
     },
     ...(waitForToolResult ? { waitForToolResult } : {}),
-    delegateToolCall,
+    emitDelegateCall: (sdkInput) => deps.eventPublisher.publishDelegateCall({
+      sessionId: input.sessionId,
+      runId: input.runId,
+      callId: sdkInput.toolCallId,
+      agentId: input.agent.agent_name,
+      tool: sdkInput.toolName,
+      arguments: sdkInput.arguments,
+      parentCallId: input.rootCallId,
+    }),
   };
 
   // 翻译上下文（agent-protocol.translateKernelEvent 纯函数用）：root call + lineage。
@@ -372,21 +371,33 @@ function appendEnvelope(
   });
 }
 
-/** 把前端委托工具声明构造为 SDK delegateToHost Tool（不本地执行，归属前端）。 */
-function buildHostDelegateTools(declarations: DelegatedToolDeclarationWire[]): Tool[] {
+/**
+ * 把前端委托工具声明构造为 SDK Tool（委托壳）。委托执行下沉到 Tool.call：
+ * gate 通过后 SDK 调此 call——先经 ctx.emitDelegateCall 发 delegate_call 驱动宿主（gate 后才发，审批挡得住），
+ * 再等前端 delegate_result 回传 → 转 ToolExecutionResult。
+ * delegate_call 走 realtime（不落 outbox），与 tool_call（投影通知，SDK 统一 emit）分离。SDK 内核零委托字样。
+ */
+function buildHostDelegateTools(
+  declarations: DelegatedToolDeclarationWire[],
+  delegationPending: DelegationPendingService,
+): Tool[] {
   return declarations.map((decl) => buildTool({
     name: decl.name,
     description: decl.description,
     parameters: decl.input_schema,
     ...(decl.risk_level !== undefined ? { riskLevel: decl.risk_level } : {}),
     allowedCallers: ["direct"],
-    source: "host",
-    delegateToHost: true,
     isReadOnly: () => false,
     isConcurrencySafe: () => false,
-    // 委托工具不本地执行；prepareAndExecute 委托分支不会调 call，此处仅为满足 Tool 接口。
-    call: () => {
-      throw new Error(`委托工具 ${decl.name} 不应在后端本地执行`);
+    call: (input, ctx) => {
+      const callId = ctx.toolCallId ?? "";
+      if (!ctx.emitDelegateCall) {
+        throw new Error(`委托工具 ${decl.name} 缺少 emitDelegateCall 注入，无法驱动宿主执行`);
+      }
+      ctx.emitDelegateCall({ toolCallId: callId, toolName: decl.name, arguments: input });
+      return delegationPending
+        .wait(callId, ctx.signal ? { signal: ctx.signal } : undefined)
+        .then((resolution) => toHostToolExecutionResult(decl.name, resolution));
     },
   }));
 }

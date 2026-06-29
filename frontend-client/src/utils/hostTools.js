@@ -1,8 +1,8 @@
 /**
  * 前端宿主委托工具：声明本连接可委托执行的工具 + execute 实现。
  *
- * WS 握手期 onopen 发 tools.register（getHostToolDeclarations）；收到 tool_call(mode=delegation, phase=request)
- * 时按 tool 名路由 getHostTool(name).execute，执行完回传 tool_result(mode=delegation, phase=result)。
+ * WS 握手期 onopen 发 tools.register（getHostToolDeclarations）；收到 delegate_call(phase=request)
+ * 时按 tool 名路由 getHostTool(name).execute，执行完回传 delegate_result(phase=result)。
  *
  * 工具用客户端独有能力（浏览器环境/本地资源），后端无法执行——这正是委托模式的价值。
  */

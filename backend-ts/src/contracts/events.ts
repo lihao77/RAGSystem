@@ -127,11 +127,10 @@ export const ClientToServerEnvelopeSchema = z.discriminatedUnion("type", [
     }),
   }),
   z.object({
-    type: z.literal("tool_result"),
+    type: z.literal("delegate_result"),
     session_id: z.string().min(1),
     call_id: z.string().min(1),
     payload: z.object({
-      mode: z.literal("delegation"),
       phase: z.literal("result"),
       ok: z.boolean(),
       observation: z.string().optional(),

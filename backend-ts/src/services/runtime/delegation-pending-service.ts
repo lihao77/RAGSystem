@@ -1,8 +1,8 @@
 /**
  * 委托工具调用等待器（per-callId pending promise）。
  *
- * SDK delegateToolCall 回调注册等待 → 前端 tool_result 回传 resolve / 超时 / abort reject。
- * 同一个 run 的 abortSignal 被 SDK 透传到回调 ctx.signal，故每个 wait 自监听 signal；
+ * backend 转发壳 Tool.call 注册等待 → 前端 tool_result 回传 resolve / 超时 / abort reject。
+ * 同一个 run 的 abortSignal 经 ToolExecContext.signal 透传到壳 call，故每个 wait 自监听 signal；
  * run 停止时 signal abort 触发所有 in-flight wait 各自 reject，无需全局 rejectAll。
  */
 

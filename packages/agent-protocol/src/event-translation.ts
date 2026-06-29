@@ -10,7 +10,7 @@
  * 映射分流（对齐旧 backend-ts publishRuntimeEvent 的产 Envelope 分支）：
  *   - first_token / output_delta / intent_delta → stream_output
  *   - intent_complete → stream_output(intent_complete)（不产 message_saved；最终 message_saved 由 run 终态另发）
- *   - tool_call / tool_result → tool_call / tool_result（mode=projection）
+ *   - tool_call / tool_result → tool_call / tool_result（投影通知，固定 phase=start/end；委托执行走独立 delegate_call，不经此翻译）
  *   - error → error envelope
  *   - context_usage → state_sync(context_usage)
  *   - assistant_intermediate / observation_complete → []（纯落库事件，已由 Dispatcher 独占，无实时 Envelope）
@@ -115,7 +115,6 @@ function onIntentComplete(event: IntentCompleteEvent, ctx: WireTranslationContex
 }
 
 function onToolCall(event: ToolCallEvent, ctx: WireTranslationContext): Envelope {
-  const mode = event.mode ?? "projection";
   return {
     type: "tool_call",
     session_id: ctx.sessionId,
@@ -125,23 +124,20 @@ function onToolCall(event: ToolCallEvent, ctx: WireTranslationContext): Envelope
     payload: {
       tool: event.toolName,
       input: event.arguments,
-      mode,
-      phase: mode === "delegation" ? "request" : "start",
-      ...(mode === "projection" ? { status: "running" } : {}),
+      phase: "start",
+      status: "running",
       lineage: toolLineage(ctx),
     } satisfies ToolCallPayload,
   };
 }
 
 function onToolResult(event: ToolResultEvent, ctx: WireTranslationContext): Envelope {
-  const mode = event.mode ?? "projection";
   const approvalMessage = asString(event.metadata.approval_message);
   const approvalMeta = isRecord(event.metadata.approval) ? event.metadata.approval : null;
   const approvalStatus = asString(approvalMeta?.status);
   const base: ToolResultPayload = {
     tool: event.toolName,
-    mode,
-    phase: mode === "delegation" ? "result" : "end",
+    phase: "end",
     ok: event.success,
     status: event.success ? "succeeded" : "failed",
     observation: event.observation,

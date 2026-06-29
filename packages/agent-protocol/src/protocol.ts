@@ -4,7 +4,7 @@
  * 设计基线：
  *   • 顶层仅协议语义词（传输/会话/调用/序号/时间），业务值下沉 payload。
  *   • session.hello 握手锁定 protocol_version + protocol/capabilities 两个独立扩展点。
- *   • 投影与委托共用 tool_call/tool_result 一对 type，以 payload.mode 区分。
+ *   • 投影用 tool_call/tool_result（纯通知，落 outbox 回放）；委托用 delegate_call/delegate_result（执行指令/回传，realtime 不回放）。
  *   • 交互收敛为单一 interaction type；legacy 双发由 adapter 层屏蔽（协议不复制债务）。
  *
  * backend-ts/contracts/events.ts re-export 本包 Envelope（后端零重复定义）；后端 kernel 产 runtime.* 事件经 event-publisher 翻译为 Envelope。
@@ -32,6 +32,8 @@ export const EnvelopeTypeSchema = z.enum([
   "state_sync",
   "tool_call",
   "tool_result",
+  "delegate_call",
+  "delegate_result",
   "tools.register",
   "interaction",
   "user_driven_change",
@@ -209,29 +211,18 @@ export interface StateSyncPayload {
   detail?: unknown;
 }
 
-/* —— 工具帧（投影 + 委托共用） —— */
+/* —— 工具帧（投影通知，后端本地执行） —— */
 export interface ToolCallPayload {
   tool: string;
   input?: unknown;
-  /** 默认 projection（本期后端全权执行）。 */
-  mode?: "projection" | "delegation";
-  /** projection=start / delegation=request。 */
-  phase: "start" | "request";
+  phase: "start";
   status?: "running";
   /** 投影树归属辅助；仅保留 parent_call_id。 */
   lineage?: { parent_call_id?: string };
-  /** 委托模式特有（mode=delegation）。 */
-  delegate?: {
-    input_schema?: Record<string, unknown>;
-    risk_level?: RiskLevel;
-    deadline_ms?: number;
-  };
 }
 export interface ToolResultPayload {
   tool: string;
-  mode?: "projection" | "delegation";
-  /** projection=end / delegation=result。 */
-  phase: "end" | "result";
+  phase: "end";
   ok: boolean;
   status?: "succeeded" | "failed";
   observation?: string;
@@ -240,6 +231,24 @@ export interface ToolResultPayload {
   approval?: { status: "pending" | "granted" | "denied"; message?: string };
   lineage?: { parent_call_id?: string };
   /** raw_result 系列不进协议，由宿主经独立资源通道拉取。 */
+}
+
+/* —— 委托帧（宿主执行，独立语义） —— */
+/** 委托执行指令（后端→前端）：gate 通过后驱动宿主执行。独立于 tool_call（纯通知）。 */
+export interface DelegateCallPayload {
+  tool: string;
+  input?: unknown;
+  phase: "request";
+  lineage?: { parent_call_id?: string };
+}
+/** 委托执行回传（前端→后端）：宿主执行结果，resolve 委托等待器。 */
+export interface DelegateResultPayload {
+  tool: string;
+  phase: "result";
+  ok: boolean;
+  observation?: string;
+  error?: string;
+  elapsed_ms?: number;
 }
 
 /** tools.register 上行 payload：宿主声明本连接可委托执行的工具清单。 */
@@ -500,17 +509,9 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
     payload: z.object({
       tool: z.string().min(1),
       input: z.unknown().optional(),
-      mode: z.enum(["projection", "delegation"]).default("projection"),
-      phase: z.enum(["start", "request"]),
+      phase: z.literal("start"),
       status: z.literal("running").optional(),
       lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
-      delegate: z
-        .object({
-          input_schema: z.record(z.unknown()).optional(),
-          risk_level: z.enum(["low", "medium", "high"]).optional(),
-          deadline_ms: z.number().int().positive().optional(),
-        })
-        .optional(),
     }),
   }),
   z.object({
@@ -519,8 +520,7 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
     call_id: z.string().min(1),
     payload: z.object({
       tool: z.string().min(1),
-      mode: z.enum(["projection", "delegation"]).default("projection"),
-      phase: z.enum(["end", "result"]),
+      phase: z.literal("end"),
       ok: z.boolean(),
       observation: z.string().optional(),
       summary: z.string().optional(),
@@ -532,6 +532,30 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
         })
         .optional(),
       lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
+    }),
+  }),
+  z.object({
+    type: z.literal("delegate_call"),
+    session_id: z.string().min(1),
+    call_id: z.string().min(1),
+    payload: z.object({
+      tool: z.string().min(1),
+      input: z.unknown().optional(),
+      phase: z.literal("request"),
+      lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
+    }),
+  }),
+  z.object({
+    type: z.literal("delegate_result"),
+    session_id: z.string().min(1),
+    call_id: z.string().min(1),
+    payload: z.object({
+      tool: z.string().min(1),
+      phase: z.literal("result"),
+      ok: z.boolean(),
+      observation: z.string().optional(),
+      error: z.string().optional(),
+      elapsed_ms: z.number().nonnegative().optional(),
     }),
   }),
   z.object({

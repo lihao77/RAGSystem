@@ -18,33 +18,33 @@ const sendHostToolsRegister = (ws, sessionId) => {
   ws.send(JSON.stringify({ type: 'tools.register', session_id: sessionId, payload: { tools: declarations } }));
 };
 
-/** 回传委托执行结果（mode=delegation, phase=result）。 */
-const sendDelegatedToolResult = (ws, sessionId, callId, payload) => {
+/** 回传委托执行结果（delegate_result, phase=result）。 */
+const sendDelegateResult = (ws, sessionId, callId, payload) => {
   if (ws.readyState !== WS_OPEN) return;
-  ws.send(JSON.stringify({ type: 'tool_result', session_id: sessionId, call_id: callId, payload: { mode: 'delegation', phase: 'result', ...payload } }));
+  ws.send(JSON.stringify({ type: 'delegate_result', session_id: sessionId, call_id: callId, payload: { phase: 'result', ...payload } }));
 };
 
-/** 委托工具执行请求：路由 hostTool.execute + 回传 tool_result（不进投影展示，对用户透明）。 */
-const handleDelegatedToolCall = async (ws, event, sessionId) => {
+/** 委托执行请求：路由 hostTool.execute + 回传 delegate_result（不进投影展示，对用户透明）。 */
+const handleDelegateCall = async (ws, event, sessionId) => {
   const toolName = event.payload?.tool;
   const callId = event.call_id;
   const input = event.payload?.input ?? {};
   const tool = getHostTool(toolName);
   const startedAt = Date.now();
   if (!tool) {
-    sendDelegatedToolResult(ws, sessionId, callId, { ok: false, error: `前端未注册委托工具: ${toolName}`, elapsed_ms: 0 });
+    sendDelegateResult(ws, sessionId, callId, { ok: false, error: `前端未注册委托工具: ${toolName}`, elapsed_ms: 0 });
     return;
   }
   try {
     const result = await tool.execute(input, { callId, sessionId, runId: event.run_id ?? null });
-    sendDelegatedToolResult(ws, sessionId, callId, {
+    sendDelegateResult(ws, sessionId, callId, {
       ok: result.ok !== false,
       observation: typeof result.observation === 'string' ? result.observation : '',
       ...(result.error ? { error: result.error } : {}),
       elapsed_ms: Date.now() - startedAt,
     });
   } catch (err) {
-    sendDelegatedToolResult(ws, sessionId, callId, {
+    sendDelegateResult(ws, sessionId, callId, {
       ok: false,
       error: err?.message || String(err),
       elapsed_ms: Date.now() - startedAt,
@@ -217,9 +217,9 @@ export function useSessionConnection(deps) {
       try {
         const event = JSON.parse(e.data);
         if (!shouldDeliverEvent(event, sessionId)) return;
-        // 委托工具执行请求：拦截路由 hostTool.execute + 回传 tool_result（不进投影展示）
-        if (event.type === 'tool_call' && event.payload?.mode === 'delegation' && event.payload?.phase === 'request') {
-          handleDelegatedToolCall(ws, event, sessionId);
+        // 委托执行请求：拦截路由 hostTool.execute + 回传 delegate_result（不进投影展示）
+        if (event.type === 'delegate_call' && event.payload?.phase === 'request') {
+          handleDelegateCall(ws, event, sessionId);
           return;
         }
         deps.onMessage(event, sessionId);

@@ -61,8 +61,6 @@ export interface ToolCallEvent {
   toolCallId: string;
   toolName: string;
   arguments: Record<string, unknown>;
-  /** 投影(后端执行)/委托(宿主执行)；默认 projection。翻译为 envelope.mode + phase。 */
-  mode?: "projection" | "delegation";
   round: number;
   order: number;
   roundIndex: number;
@@ -73,8 +71,6 @@ export interface ToolResultEvent {
   agentName: string;
   toolCallId: string;
   toolName: string;
-  /** 投影/委托；默认 projection。 */
-  mode?: "projection" | "delegation";
   success: boolean;
   summary: string;
   observation: string;

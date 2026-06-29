@@ -120,6 +120,35 @@ export class AgentExecutionEventPublisher {
     this.publish(typeof envelope.session_id === "string" ? envelope.session_id : "", envelope);
   }
 
+  /**
+   * 推 delegate_call（委托执行指令）：落 outbox + realtime fanout（经统一投递路径，符合 outbox 架构契约）。
+   * ws.ts 回放过滤 delegate_call（委托实时双向，重连时 in-flight 已失效，不回放）。
+   * 由委托壳 Tool.call 在 gate 通过后调用，驱动宿主执行；与 tool_call（纯投影通知）分离。
+   */
+  publishDelegateCall(input: {
+    sessionId: string;
+    runId: string;
+    callId: string;
+    agentId: string;
+    tool: string;
+    arguments: Record<string, unknown>;
+    parentCallId?: string | null;
+  }): void {
+    this.publishEnvelope({
+      type: "delegate_call",
+      session_id: input.sessionId,
+      run_id: input.runId,
+      call_id: input.callId,
+      agent_id: input.agentId,
+      payload: {
+        tool: input.tool,
+        input: input.arguments,
+        phase: "request",
+        ...(input.parentCallId ? { lineage: { parent_call_id: input.parentCallId } } : {}),
+      },
+    });
+  }
+
 
   private publish(sessionId: string, event: Envelope): void {
     this.clientEvents.publish(sessionId, event, {

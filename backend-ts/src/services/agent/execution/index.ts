@@ -81,7 +81,7 @@ export interface AgentExecutionServiceParams {
  pendingInteractions: PendingInteractionService;
  /** 前端委托工具声明注册表（per-session）。 */
  hostToolRegistry: HostToolRegistry;
- /** 委托工具调用等待器（SDK delegateToolCall 回调注册 + 前端 tool_result resolve）。 */
+ /** 委托工具调用等待器（转发壳 Tool.call 注册等待 + 前端 tool_result resolve）。 */
  delegationPending: DelegationPendingService;
  /** 消费端 hook 注册回调（可选）；透传 SDK，让 backend 注册 tool.before/after、round.before 等 handler。 */
  hooks?: (registry: HookRegistry) => void;

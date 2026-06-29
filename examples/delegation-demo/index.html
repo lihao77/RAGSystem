@@ -37,7 +37,7 @@
 <body>
 <h1>🗺️ 委托模式 Demo · Leaflet 地图</h1>
 <div class="hint">
-  连接后自动注册地图工具（set_view / add_marker / clear_markers / get_view / fit_bounds）。agent 通过委托模式操控前端地图。<br>
+  连接后自动注册地图工具（set_view / fly_to / add_marker / clear_markers / get_view / fit_bounds / add_geojson / clear_geojson）。agent 通过委托模式操控前端地图。<br>
   试试：<code>在地图上标记北京和上海，并把视图适配到这两个点</code> · 右栏 <span style="color:#ffd87a">黄色</span> 为委托链路。
 </div>
 <div class="bar">
@@ -92,12 +92,32 @@ const HOST_TOOLS = [
     input_schema: { type: 'object', properties: { points: { type: 'array', items: { type: 'object', properties: { latitude: { type: 'number' }, longitude: { type: 'number' } }, required: ['latitude', 'longitude'] } } }, required: ['points'] },
     risk_level: 'low',
   },
+  {
+    name: 'map_fly_to',
+    description: '平滑动画飞行到指定位置（带过渡动画，与 set_view 瞬间移动不同，适合聚焦/演示/吸引用户注意）。latitude 纬度，longitude 经度，zoom 目标缩放级别 0-18。',
+    input_schema: { type: 'object', properties: { latitude: { type: 'number' }, longitude: { type: 'number' }, zoom: { type: 'integer', minimum: 0, maximum: 18 } }, required: ['latitude', 'longitude'], additionalProperties: false },
+    risk_level: 'medium',
+  },
+  {
+    name: 'map_add_geojson',
+    description: '在地图上叠加 GeoJSON 图层（可画点/线/面/多边形，如行政区划边界、路径轨迹、区域范围）。geojson 传标准 GeoJSON 对象（FeatureCollection / Feature / Geometry）。style 可选，控制线/面样式。返回 layer_id。',
+    input_schema: { type: 'object', properties: { geojson: { type: 'object', description: '标准 GeoJSON 对象（FeatureCollection / Feature / Geometry）' }, style: { type: 'object', description: '可选样式：color 线色, weight 线宽, fillColor 填充色, fillOpacity 填充透明度 0-1', properties: { color: { type: 'string' }, weight: { type: 'number' }, fillColor: { type: 'string' }, fillOpacity: { type: 'number' } } } }, required: ['geojson'], additionalProperties: false },
+    risk_level: 'low',
+  },
+  {
+    name: 'map_clear_geojson',
+    description: '清除地图上所有 GeoJSON 图层（不影响标记点 marker）。',
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
+    risk_level: 'low',
+  },
 ];
 
 // ============ 地图状态 ============
 let map = null;
 const markers = new Map(); // marker_id -> L.marker
 let markerSeq = 0;
+const geojsonLayers = new Map(); // layer_id -> L.GeoJSON
+let geojsonSeq = 0;
 
 function initMap() {
   map = L.map('map').setView([35.86, 104.19], 4);
@@ -141,6 +161,25 @@ async function executeHostTool(name, input) {
       if (!pts.length) return { ok: false, error: 'points 为空' };
       map.fitBounds(L.latLngBounds(pts.map((p) => [p.latitude, p.longitude])));
       return { ok: true, observation: `已适配 ${pts.length} 个点` };
+    }
+    case 'map_fly_to': {
+      const zoom = typeof input.zoom === 'number' ? input.zoom : map.getZoom();
+      map.flyTo([input.latitude, input.longitude], zoom);
+      return { ok: true, observation: `飞行至 (${input.latitude}, ${input.longitude})，zoom=${zoom}` };
+    }
+    case 'map_add_geojson': {
+      if (!input.geojson || typeof input.geojson !== 'object') return { ok: false, error: 'geojson 必须是对象' };
+      const id = `geojson_${++geojsonSeq}`;
+      const style = (input.style && typeof input.style === 'object') ? input.style : { color: '#3388ff', weight: 2, fillColor: '#3388ff', fillOpacity: 0.2 };
+      const layer = L.geoJSON(input.geojson, { style }).addTo(map);
+      geojsonLayers.set(id, layer);
+      return { ok: true, observation: `已添加 GeoJSON 图层 ${id}（${layer.getLayers().length} 个要素）` };
+    }
+    case 'map_clear_geojson': {
+      const n = geojsonLayers.size;
+      geojsonLayers.forEach((l) => map.removeLayer(l));
+      geojsonLayers.clear();
+      return { ok: true, observation: `已清除 ${n} 个 GeoJSON 图层` };
     }
     default:
       return { ok: false, error: `前端未注册工具: ${name}` };
@@ -227,18 +266,30 @@ async function handleEnv(env) {
         else if (p.content) currentAssistantEl.textContent += p.content;
       }
       break;
-    case 'tool_call':
-      if (p.mode === 'delegation' && p.phase === 'request') {
+    case 'delegate_call':
+      if (p.phase === 'request') {
         log(`← 委托请求：${p.tool} ${JSON.stringify(p.input ?? {})}`, 'delegate');
         const started = Date.now();
         const result = await executeHostTool(p.tool, p.input);
         ws.send(JSON.stringify({
-          type: 'tool_result', session_id: sessionId, call_id: env.call_id,
-          payload: { mode: 'delegation', phase: 'result', ...result, elapsed_ms: Date.now() - started },
+          type: 'delegate_result', session_id: sessionId, call_id: env.call_id,
+          payload: { phase: 'result', ...result, elapsed_ms: Date.now() - started },
         }));
-        log(`→ tool_result：${result.ok ? '✓ ' + (result.observation || '').slice(0, 120) : '✗ ' + result.error}`, 'delegate');
-      } else {
-        log(`🔧 工具调用（后端执行）：${p.tool}`, 'tool');
+        log(`→ delegate_result：${result.ok ? '✓ ' + (result.observation || '').slice(0, 120) : '✗ ' + result.error}`, 'delegate');
+      }
+      break;
+    case 'tool_call':
+      log(`🔧 工具调用（后端执行）：${p.tool}`, 'tool');
+      break;
+    case 'interaction':
+      // 委托工具 risk=medium/high → gate 推审批；通过才发 delegate_call。demo 用 confirm 模拟用户决策。
+      if (p.kind === 'approval' && p.phase === 'required') {
+        const approved = window.confirm(`🔧 委托工具审批\n工具: ${p.tool}\nrisk: ${p.risk_level || 'unknown'}\n${p.prompt || ''}\n\n允许前端执行？`);
+        ws.send(JSON.stringify({
+          type: 'interaction', session_id: sessionId, call_id: env.call_id,
+          payload: { kind: 'approval', phase: 'responded', approved, message: approved ? '用户允许' : '用户拒绝' },
+        }));
+        log(`${approved ? '✓ 审批通过' : '✗ 审批拒绝'}：${p.tool}（risk=${p.risk_level || ''}）${approved ? '→ 将发 delegate_call' : '→ 不发 delegate_call'}`, 'delegate');
       }
       break;
     case 'agent_started': log(`🤖 agent_started: ${env.agent_id}${p.display_name ? ` (${p.display_name})` : ''}`); break;

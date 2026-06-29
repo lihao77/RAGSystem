@@ -144,8 +144,8 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
               // 握手期前端推送本连接可委托执行的工具清单（覆盖式）。runtime-adapter per-run 取用。
               container.hostToolRegistry.register(sessionId, message.payload.tools);
               break;
-            case "tool_result": {
-              // 委托执行结果回传：按 call_id 唤醒 SDK delegateToolCall 等待器。
+            case "delegate_result": {
+              // 委托执行回传：按 call_id 唤醒转发壳 Tool.call 的等待器。
               const payload = message.payload;
               const resolved = container.delegationPending.resolve(message.call_id, {
                 ok: payload.ok,
@@ -212,7 +212,7 @@ function buildDurableOutboxReplay(
   const projector = new EnvelopeProjector();
   return {
     runId: rows.find((row) => row.run_id)?.run_id ?? null,
-    events: rows.map((row) => projector.toEnvelope(row)).filter((event) => !isDelegationToolEvent(event)),
+    events: rows.map((row) => projector.toEnvelope(row)).filter((event) => !isDelegateCallEvent(event)),
   };
 }
 
@@ -245,7 +245,7 @@ function buildActiveRunReplay(
     runIds: [...runIdSet],
     limit: 500,
   }).map((row) => projector.toEnvelope(row)).filter((event) => {
-    if (isDelegationToolEvent(event)) {
+    if (isDelegateCallEvent(event)) {
       return false;
     }
     if (!isPendingInteractionReplayEvent(container, sessionId, event)) {
@@ -295,15 +295,11 @@ function isPendingInteractionReplayEvent(
 }
 
 /**
- * 委托工具事件（mode=delegation）不回放：委托是实时双向，重连时 in-flight 委托已失效，
- * 回放会让前端误以为是新的委托请求。投影 tool_call/tool_result（mode=projection）正常回放。
+ * delegate_call 不回放：委托是实时双向指令，重连时 in-flight 已失效，
+ * 回放会让前端误以为是新的委托请求。投影 tool_call/tool_result 正常回放。
  */
-function isDelegationToolEvent(event: Envelope): boolean {
-  if (event.type !== "tool_call" && event.type !== "tool_result") {
-    return false;
-  }
-  const payload = isRecord(event.payload) ? event.payload : {};
-  return payload.mode === "delegation";
+function isDelegateCallEvent(event: Envelope): boolean {
+  return event.type === "delegate_call";
 }
 
 function timestampToMilliseconds(value: unknown): number | null {

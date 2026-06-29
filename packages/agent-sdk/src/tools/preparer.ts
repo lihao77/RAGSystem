@@ -50,11 +50,6 @@ export function prepareTool(
     };
   }
 
-  // 委托工具：跳过本地 inputSchema 校验 + checkAccess（执行在宿主前端，后端不重复校验）
-  if (tool.delegateToHost) {
-    return { ok: true, prepared: { tool, input: args, permission: null } };
-  }
-
   // 3. 输入校验
   const validation = validateToolInput(tool as Tool<Record<string, unknown>>, args);
   if (!validation.ok) {

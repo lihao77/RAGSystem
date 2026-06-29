@@ -2,7 +2,7 @@
  * 前端委托工具声明注册表（per-session）。
  *
  * WS 握手期前端发 tools.register 推送工具清单 → 本表存储 → runtime-adapter per-run 取用，
- * 把前端工具构造为 delegateToHost Tool 合并进 SDK registry。归属判定：工具名在本表即前端委托。
+ * 把前端工具构造为 source=host 转发壳 Tool 合并进 SDK registry。归属判定：工具名在本表即前端委托。
  *
  * 形状对齐 agent-protocol DelegatedToolDeclaration（name/description/input_schema/risk_level/cancellable）。
  */

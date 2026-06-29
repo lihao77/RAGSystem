@@ -201,13 +201,6 @@ export interface ToolExecutorCall {
   callId: string;
 }
 
-/** 委托工具调用请求（SDK→消费端回调）：命中 delegateToHost 工具时，SDK 不本地 call，调此回调由消费端转发宿主执行。 */
-export interface DelegateToolCallInput {
-  toolName: string;
-  toolCallId: string;
-  arguments: Record<string, unknown>;
-}
-
 /** 工具执行上下文（运行时元数据 + 工具生命周期所需的 caller/workspaceRoot）。 */
 export interface ToolExecContext {
   sessionId: string | null;
@@ -226,6 +219,11 @@ export interface ToolExecContext {
   currentAgentName?: string | null;
   /** 工作空间根路径（文件类工具判断外部路径用）。 */
   workspaceRoot?: string | null;
+  /**
+   * 委托执行指令发送（消费端注入，可选）：委托工具的 call 内部调此发 delegate_call 驱动宿主执行。
+   * 由 createRuntime 从 options.emitDelegateCall 注入；SDK 内核不调用，仅供消费端构造的委托壳 Tool.call 使用。
+   */
+  emitDelegateCall?: (input: { toolCallId: string; toolName: string; arguments: Record<string, unknown> }) => void;
 }
 
 /** 后台任务等待请求。 */

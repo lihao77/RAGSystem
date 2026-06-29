@@ -11,7 +11,6 @@
 import type { ProviderConfig } from "@ragsystem/agent-llm";
 import { isAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
 import type {
-  DelegateToolCallInput,
   ToolExecutionResult,
   ToolExecContext,
   ToolWaitRequest,
@@ -54,8 +53,6 @@ export interface ToolRoundExecutorOptions {
   hooks?: HookRegistry;
   /** 后台任务等待回调（消费端注入；不提供则忽略 suggest_wait 信号）。 */
   waitForToolResult?: (request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>;
-  /** 委托工具执行回调（命中 delegateToHost 工具时调；不提供则命中委托工具返回错误）。 */
-  delegateToolCall?: (input: DelegateToolCallInput, ctx: ToolExecContext) => Promise<ToolExecutionResult>;
 }
 
 export async function executeToolCallRound(calls: KernelToolCall[], opts: ToolRoundExecutorOptions): Promise<KernelObservation[]> {
@@ -93,15 +90,12 @@ async function executeSingleToolCall(input: {
   throwIfAborted(toolContext.signal, "Agent run aborted");
   const order = call.index + 1;
   const toolArguments = resolveToolArgumentReferences(call.arguments, previousResults);
-  const isDelegated = opts.registry.getTool(call.toolName)?.delegateToHost === true;
-  const toolCallMode = isDelegated ? "delegation" : "projection";
   opts.events.emit({
     type: "tool_call",
     agentName: opts.agentName,
     toolCallId: call.callId,
     toolName: call.toolName,
     arguments: toolArguments,
-    mode: toolCallMode,
     round: opts.round,
     order,
     roundIndex: order,
@@ -138,7 +132,6 @@ async function executeSingleToolCall(input: {
     agentName: opts.agentName,
     toolCallId: call.callId,
     toolName: call.toolName,
-    mode: toolCallMode,
     success: observationResult.success,
     summary: observationResult.summary,
     observation: observationResult.observation,
@@ -176,18 +169,6 @@ async function prepareAndExecute(input: {
     return prepareResult.result;
   }
   let prepared = prepareResult.prepared;
-
-  // 委托工具：跳过本地 call + hook + gate，调消费端 delegateToolCall 回调转发宿主执行。
-  // 前端执行，后端 hook/审批拦不住前端行为，故全程不参与本地编排。
-  if (prepared.tool.delegateToHost) {
-    if (!opts.delegateToolCall) {
-      return buildToolExecutionErrorResult(prepared.tool.name, new Error(`工具 ${prepared.tool.name} 标记为委托执行但未提供 delegateToolCall 回调`));
-    }
-    return opts.delegateToolCall(
-      { toolName: prepared.tool.name, toolCallId: toolContext.toolCallId ?? "", arguments: prepared.input },
-      toolContext,
-    );
-  }
 
   // 2. hook.before：可 deny（跳过工具）或 modifiedInput（re-prepare 校验后替换）
   if (opts.hooks) {
