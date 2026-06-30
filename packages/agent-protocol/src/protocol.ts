@@ -463,6 +463,11 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("stream_output"),
     session_id: z.string().min(1),
+    // 顶层路由 marker（run_id/call_id/agent_id）必须声明，否则 z.object 默认 strip，
+    // 消费端 applyIntentStream 的 routeStreamAgent 拿不到 call_id → intent 误落 IMPLICIT_ROOT。
+    run_id: z.string().optional(),
+    call_id: z.string().optional(),
+    agent_id: z.string().optional(),
     payload: z.object({
       phase: z.enum([
         "first_token",
