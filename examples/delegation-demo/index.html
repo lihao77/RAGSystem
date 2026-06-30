@@ -2,309 +2,390 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<title>委托模式 Demo · Leaflet 地图</title>
+<title>委托模式 Demo</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #1a1a1a; color: #e0e0e0; margin: 0; padding: 14px; }
-  h1 { font-size: 17px; margin: 0 0 8px; }
-  .hint { font-size: 12px; color: #888; margin-bottom: 10px; line-height: 1.5; }
-  .hint code { background: #2a2a2a; padding: 1px 5px; border-radius: 3px; }
-  .bar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
-  input, button { padding: 6px 10px; border-radius: 4px; border: 1px solid #444; background: #2a2a2a; color: #e0e0e0; font-size: 13px; }
-  button { cursor: pointer; background: #3a5a8a; border-color: #5a7aaa; }
-  button:disabled { opacity: .5; cursor: not-allowed; }
-  .status { font-size: 12px; color: #6a6; font-family: monospace; }
-  .main { display: grid; grid-template-columns: 3fr 2fr; grid-template-rows: minmax(0, 1fr); gap: 10px; height: calc(100vh - 200px); min-height: 420px; }
-  .left { background: #222; border: 1px solid #333; border-radius: 6px; overflow: hidden; min-height: 0; display: flex; flex-direction: column; }
-  .left h2 { font-size: 12px; margin: 0; padding: 7px 12px; background: #2a2a2a; border-bottom: 1px solid #333; }
-  #map { flex: 1; width: 100%; min-height: 0; background: #111; }
-  .right { display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; min-height: 0; }
-  .panel { background: #222; border: 1px solid #333; border-radius: 6px; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
-  .panel h2 { font-size: 12px; margin: 0; padding: 7px 12px; background: #2a2a2a; border-bottom: 1px solid #333; }
-  .panel .body { flex: 1; overflow-y: auto; padding: 8px 12px; font-size: 13px; min-height: 0; }
-  .msg { margin-bottom: 8px; padding: 7px 10px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; }
-  .msg.user { background: #2d3a5a; }
-  .msg.assistant { background: #2a3a2a; }
-  .msg .role { font-size: 11px; color: #888; margin-bottom: 3px; }
-  .log-entry { font-family: ui-monospace, monospace; font-size: 12px; margin-bottom: 4px; padding: 4px 8px; border-left: 2px solid #555; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
-  .log-entry.delegate { border-color: #d4a843; background: #3a3220; color: #ffd87a; }
-  .log-entry.tool { border-color: #5a8a5a; color: #9dda9d; }
-  .log-entry.run { border-color: #6a6; }
-  .composer { display: flex; gap: 8px; margin-top: 10px; }
-  .composer input { flex: 1; }
+  :root { --bg:#1a1a1a; --panel:#222; --panel2:#2a2a2a; --border:#333; --text:#e0e0e0; --muted:#888; --accent:#3a5a8a; --accent2:#5a7aaa; --ok:#6a6; --warn:#d4a843; --err:#a66; }
+  * { box-sizing:border-box; }
+  body { font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); margin:0; padding:12px; }
+  h1 { font-size:16px; margin:0 0 6px; }
+  .hint { font-size:12px; color:var(--muted); margin-bottom:8px; line-height:1.6; }
+  .hint code { background:var(--panel2); padding:1px 5px; border-radius:3px; }
+  .hint b { color:var(--text); }
+  input,button,select { padding:6px 10px; border-radius:4px; border:1px solid var(--border); background:var(--panel2); color:var(--text); font-size:13px; font-family:inherit; }
+  button { cursor:pointer; background:var(--accent); border-color:var(--accent2); color:#fff; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  button.sub { background:var(--panel2); color:var(--text); }
+  .status { font-size:12px; color:var(--ok); font-family:ui-monospace,monospace; }
+  .bar { display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
+  .quickbar { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; align-items:center; }
+  .quickbar button { background:var(--panel2); color:var(--text); font-size:12px; }
+  .quickbar button:hover { background:var(--accent); color:#fff; }
+  .qlabel { font-size:11px; color:var(--muted); padding:0 3px; }
+  .main { display:grid; grid-template-columns:3fr 2fr; gap:10px; height:calc(100vh - 210px); min-height:420px; }
+  .left { background:var(--panel); border:1px solid var(--border); border-radius:6px; overflow:hidden; min-height:0; display:flex; flex-direction:column; }
+  .tabs { display:flex; background:var(--panel2); border-bottom:1px solid var(--border); }
+  .tabs button { flex:1; background:transparent; color:var(--muted); border:none; border-radius:0; padding:8px; font-size:12px; border-bottom:2px solid transparent; }
+  .tabs button.active { border-bottom-color:var(--accent2); background:var(--panel); color:var(--text); }
+  .canvas { flex:1; min-height:0; position:relative; }
+  .pane { display:none; position:absolute; inset:0; overflow:auto; padding:10px; }
+  .pane.active { display:block; }
+  #pane-map { padding:0; }
+  #map { height:100%; min-height:300px; background:#111; }
+  .empty { color:var(--muted); font-size:12px; }
+  .board { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:8px; }
+  .card { background:var(--panel2); border:1px solid var(--border); border-left:4px solid var(--accent2); border-radius:5px; padding:8px 10px; position:relative; }
+  .card h4 { margin:0 0 4px; font-size:13px; padding-right:14px; }
+  .card p { margin:0; font-size:11px; color:var(--muted); }
+  .card .x { position:absolute; top:2px; right:6px; cursor:pointer; color:var(--muted); background:none; border:none; padding:0 2px; font-size:14px; }
+  .right { display:grid; grid-template-rows:minmax(0,1fr) minmax(0,1fr); gap:10px; min-height:0; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:6px; display:flex; flex-direction:column; overflow:hidden; min-height:0; }
+  .panel h2 { font-size:12px; margin:0; padding:7px 12px; background:var(--panel2); border-bottom:1px solid var(--border); }
+  .panel .body { flex:1; overflow-y:auto; padding:8px 12px; font-size:13px; min-height:0; }
+  .msg { margin-bottom:8px; padding:7px 10px; border-radius:4px; white-space:pre-wrap; word-break:break-word; }
+  .msg.user { background:#2d3a5a; } .msg.assistant { background:#2a3a2a; }
+  .msg .role { font-size:11px; color:var(--muted); margin-bottom:3px; }
+  .log-entry { font-family:ui-monospace,monospace; font-size:12px; margin-bottom:4px; padding:4px 8px; border-left:2px solid var(--border); white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere; }
+  .log-entry.delegate { border-color:var(--warn); color:var(--warn); }
+  .log-entry.tool { border-color:var(--ok); color:var(--ok); }
+  .log-entry.run { border-color:var(--ok); }
+  .log-entry.input { border-color:#9d6add; color:#c79dea; }
+  .composer { display:flex; gap:8px; margin-top:10px; }
+  .composer input { flex:1; }
+  #toasts { position:fixed; top:14px; right:14px; z-index:1000; display:flex; flex-direction:column; gap:8px; max-width:320px; }
+  .toast { background:var(--panel); border:1px solid var(--border); border-left:4px solid var(--accent2); border-radius:5px; padding:10px 12px; font-size:13px; box-shadow:0 4px 14px rgba(0,0,0,.4); }
+  .toast.warn { border-left-color:var(--warn); } .toast.error { border-left-color:var(--err); }
+  .toast b { font-size:11px; } .toast div { margin-top:2px; }
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:1100; display:flex; align-items:center; justify-content:center; }
+  .modal.hidden { display:none; }
+  .modal-card { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:16px; width:360px; max-width:92vw; }
+  .modal-card h3 { margin:0 0 12px; font-size:14px; }
+  .field { margin-bottom:10px; }
+  .field label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  .field input,.field select,.field textarea { width:100%; font-family:inherit; }
+  .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:6px; }
 </style>
 </head>
 <body>
-<h1>🗺️ 委托模式 Demo · Leaflet 地图</h1>
+<h1>🧩 委托模式 Demo</h1>
 <div class="hint">
-  连接后自动注册地图工具（set_view / fly_to / add_marker / clear_markers / get_view / fit_bounds / add_geojson / clear_geojson）。agent 通过委托模式操控前端地图。<br>
-  试试：<code>在地图上标记北京和上海，并把视图适配到这两个点</code> · 右栏 <span style="color:#ffd87a">黄色</span> 为委托链路。
+  ⚠️ 用 <code>node server.mjs</code> 起服务后访问 <code>http://localhost:5174</code>，后端地址填 <code>http://localhost:5002</code>。<br>
+  <b>① 对话</b>：让 agent 自主调地图工具（如「在地图标记北京并适配视图」）。 <b>② 填表单</b>：点按钮用功能（添加标记 / 钉选会话）。 <b>③ 动态值域</b>：钉选会话的 session_id 下拉实时来自后端；agent 要用则靠 <code>list_sessions</code> 工具查。
 </div>
 <div class="bar">
-  <label>后端地址</label>
-  <input id="host" value="http://localhost:5002" style="width:230px">
+  <label>后端</label>
+  <input id="host" value="http://localhost:5002" style="width:220px">
   <button id="connectBtn">连接</button>
   <span class="status" id="status">未连接</span>
 </div>
+<div class="quickbar" id="quickbar">
+  <span class="qlabel">即时</span>
+  <button data-act="clearMarkers">🧹 清空标记</button>
+  <button data-act="notify">🔔 发通知</button>
+  <span class="qlabel">填表单</span>
+  <button data-form="map_add_marker">📍 添加标记</button>
+  <button data-form="pin_session">📌 钉选会话</button>
+</div>
 <div class="main">
-  <div class="left"><h2>地图（前端 Leaflet）</h2><div id="map"></div></div>
+  <div class="left">
+    <div class="tabs">
+      <button data-tab="map" class="active">🗺️ 地图</button>
+      <button data-tab="board">📇 看板</button>
+    </div>
+    <div class="canvas">
+      <div id="pane-map" class="pane active"><div id="map"></div></div>
+      <div id="pane-board" class="pane"><div class="board" id="board"></div><p class="empty" id="board-empty">看板为空（钉选会话后会出现卡片）。</p></div>
+    </div>
+  </div>
   <div class="right">
     <div class="panel"><h2>对话</h2><div class="body" id="chat"></div></div>
     <div class="panel"><h2>事件 / 委托日志</h2><div class="body" id="log"></div></div>
   </div>
 </div>
 <div class="composer">
-  <input id="input" placeholder="问：在地图上标记北京和上海，并适配视图" disabled>
+  <input id="input" placeholder="问：在地图标记北京和上海，并适配视图" disabled>
   <button id="sendBtn" disabled>发送</button>
+</div>
+
+<div id="toasts"></div>
+<div id="modal" class="modal hidden">
+  <div class="modal-card">
+    <h3 id="modal-title">填写参数</h3>
+    <div id="modal-fields"></div>
+    <div class="modal-actions"><button class="sub" id="modal-cancel">取消</button><button id="modal-ok">确认</button></div>
+  </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-// ============ 地图委托工具声明（tools.register 用，wire 格式：input_schema/risk_level）============
+// ============ host 工具声明（tools.register 用，wire：input_schema / risk_level）============
 const HOST_TOOLS = [
-  {
-    name: 'map_set_view',
-    description: '设置地图的中心点和缩放级别（移动地图到指定位置）。latitude 纬度（-90~90），longitude 经度（-180~180），zoom 0~18（越大越细）。',
-    input_schema: { type: 'object', properties: { latitude: { type: 'number' }, longitude: { type: 'number' }, zoom: { type: 'integer', minimum: 0, maximum: 18 } }, required: ['latitude', 'longitude'] },
-    risk_level: 'low',
-  },
-  {
-    name: 'map_add_marker',
-    description: '在地图上添加一个标记点。label 为可选的弹出标签（如地名）。',
-    input_schema: { type: 'object', properties: { latitude: { type: 'number' }, longitude: { type: 'number' }, label: { type: 'string' } }, required: ['latitude', 'longitude'] },
-    risk_level: 'low',
-  },
-  {
-    name: 'map_clear_markers',
-    description: '清除地图上所有已添加的标记点。',
-    input_schema: { type: 'object', properties: {}, additionalProperties: false },
-    risk_level: 'low',
-  },
-  {
-    name: 'map_get_view',
-    description: '获取地图当前视图状态：中心点经纬度、缩放级别、可视边界（north/south/east/west）。用于了解地图当前展示范围。',
-    input_schema: { type: 'object', properties: {}, additionalProperties: false },
-    risk_level: 'low',
-  },
-  {
-    name: 'map_fit_bounds',
-    description: '调整地图视图以容纳一组坐标点（让所有点都可见）。常用于标记多点后自适应缩放。',
-    input_schema: { type: 'object', properties: { points: { type: 'array', items: { type: 'object', properties: { latitude: { type: 'number' }, longitude: { type: 'number' } }, required: ['latitude', 'longitude'] } } }, required: ['points'] },
-    risk_level: 'low',
-  },
-  {
-    name: 'map_fly_to',
-    description: '平滑动画飞行到指定位置（带过渡动画，与 set_view 瞬间移动不同，适合聚焦/演示/吸引用户注意）。latitude 纬度，longitude 经度，zoom 目标缩放级别 0-18。',
-    input_schema: { type: 'object', properties: { latitude: { type: 'number' }, longitude: { type: 'number' }, zoom: { type: 'integer', minimum: 0, maximum: 18 } }, required: ['latitude', 'longitude'], additionalProperties: false },
-    risk_level: 'medium',
-  },
-  {
-    name: 'map_add_geojson',
-    description: '在地图上叠加 GeoJSON 图层（可画点/线/面/多边形，如行政区划边界、路径轨迹、区域范围）。geojson 传标准 GeoJSON 对象（FeatureCollection / Feature / Geometry）。style 可选，控制线/面样式。返回 layer_id。',
-    input_schema: { type: 'object', properties: { geojson: { type: 'object', description: '标准 GeoJSON 对象（FeatureCollection / Feature / Geometry）' }, style: { type: 'object', description: '可选样式：color 线色, weight 线宽, fillColor 填充色, fillOpacity 填充透明度 0-1', properties: { color: { type: 'string' }, weight: { type: 'number' }, fillColor: { type: 'string' }, fillOpacity: { type: 'number' } } } }, required: ['geojson'], additionalProperties: false },
-    risk_level: 'low',
-  },
-  {
-    name: 'map_clear_geojson',
-    description: '清除地图上所有 GeoJSON 图层（不影响标记点 marker）。',
-    input_schema: { type: 'object', properties: {}, additionalProperties: false },
-    risk_level: 'low',
-  },
+  { name:'map_set_view', description:'设置地图中心点和缩放级别。latitude 纬度(-90~90)，longitude 经度(-180~180)，zoom 0~18。', input_schema:{type:'object',properties:{latitude:{type:'number'},longitude:{type:'number'},zoom:{type:'integer',minimum:0,maximum:18}},required:['latitude','longitude']}, risk_level:'low' },
+  { name:'map_add_marker', description:'在地图上添加标记点。label 为可选弹出标签（如地名）。', input_schema:{type:'object',properties:{latitude:{type:'number'},longitude:{type:'number'},label:{type:'string'}},required:['latitude','longitude']}, risk_level:'low' },
+  { name:'map_clear_markers', description:'清除地图上所有标记点。', input_schema:{type:'object',properties:{},additionalProperties:false}, risk_level:'low' },
+  { name:'map_get_view', description:'获取地图当前视图：中心点、缩放、可视边界。', input_schema:{type:'object',properties:{},additionalProperties:false}, risk_level:'low' },
+  { name:'map_fit_bounds', description:'适配视图以容纳一组坐标点（让所有点可见）。', input_schema:{type:'object',properties:{points:{type:'array',items:{type:'object',properties:{latitude:{type:'number'},longitude:{type:'number'}},required:['latitude','longitude']}}},required:['points']}, risk_level:'low' },
+  { name:'map_fly_to', description:'平滑动画飞行到指定位置（带过渡，适合聚焦/演示）。', input_schema:{type:'object',properties:{latitude:{type:'number'},longitude:{type:'number'},zoom:{type:'integer',minimum:0,maximum:18}},required:['latitude','longitude'],additionalProperties:false}, risk_level:'medium' },
+  { name:'map_add_geojson', description:'叠加 GeoJSON 图层（点/线/面，如边界、路径、区域）。style 可选控制样式。', input_schema:{type:'object',properties:{geojson:{type:'object'},style:{type:'object',properties:{color:{type:'string'},weight:{type:'number'},fillColor:{type:'string'},fillOpacity:{type:'number'}}}},required:['geojson'],additionalProperties:false}, risk_level:'low' },
+  { name:'map_clear_geojson', description:'清除所有 GeoJSON 图层（不影响标记）。', input_schema:{type:'object',properties:{},additionalProperties:false}, risk_level:'low' },
+  { name:'notify', description:'向用户右上角发送一条通知浮层（几秒后消失）。level 可选 info/warn/error。', input_schema:{type:'object',properties:{message:{type:'string'},level:{type:'string',enum:['info','warn','error']}},required:['message']}, risk_level:'low' },
+  // —— agent 查询入口：agent 不读 x-options，要“知道有哪些会话”只能靠工具返回值 ——
+  { name:'list_sessions', description:'列出后端当前所有会话（session_id + title），返回 JSON 数组。调 pin_session 前可用它拿到可选的 session_id。', input_schema:{type:'object',properties:{},additionalProperties:false}, risk_level:'low' },
+  // —— 用户侧动态下拉：session_id 的选项实时来自后端 GET /api/agent/sessions（非固定 enum）——
+  { name:'pin_session', description:'选择一个已有会话并钉到看板上。session_id 下拉项实时拉取自后端，演示动态选项。', input_schema:{type:'object',properties:{session_id:{type:'string',description:'选择会话（动态下拉，来自 /api/agent/sessions）','x-options':{url:'/api/agent/sessions',valueKey:'session_id',labelKey:'title'}},note:{type:'string',description:'附注'}},required:['session_id']}, risk_level:'low' },
 ];
 
-// ============ 地图状态 ============
-let map = null;
-const markers = new Map(); // marker_id -> L.marker
-let markerSeq = 0;
-const geojsonLayers = new Map(); // layer_id -> L.GeoJSON
-let geojsonSeq = 0;
+// ============ 载体状态 ============
+let map=null; const markers=new Map(); let markerSeq=0; const geoLayers=new Map(); let geoSeq=0;
+const cards=[]; let cardSeq=0;
 
-function initMap() {
-  map = L.map('map').setView([35.86, 104.19], 4);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap', maxZoom: 18,
-  }).addTo(map);
+function initMap(){
+  map=L.map('map').setView([35.86,104.19],4);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:18}).addTo(map);
 }
 
-// ============ 前端工具执行（操控 Leaflet，后端无法渲染地图——这正是委托的价值）============
-async function executeHostTool(name, input) {
-  if (!map) return { ok: false, error: '地图未初始化' };
-  switch (name) {
-    case 'map_set_view': {
-      const zoom = typeof input.zoom === 'number' ? input.zoom : map.getZoom();
-      map.setView([input.latitude, input.longitude], zoom);
-      return { ok: true, observation: `地图已移至 (${input.latitude}, ${input.longitude})，zoom=${zoom}` };
+// ============ 通知 toast ============
+function notify(level,msg){
+  const t=document.createElement('div'); t.className='toast '+(level||'info');
+  const icon=level==='warn'?'⚠️':level==='error'?'❌':'🔔';
+  t.innerHTML=`<b>${icon} ${(level||'info').toUpperCase()}</b><div></div>`;
+  t.querySelector('div').textContent=msg;
+  $('toasts').appendChild(t);
+  setTimeout(()=>{ t.style.transition='opacity .3s'; t.style.opacity='0'; setTimeout(()=>t.remove(),300); },3500);
+}
+
+// ============ 看板渲染 ============
+function renderBoard(){
+  const b=$('board'); b.innerHTML='';
+  cards.forEach(c=>{
+    const d=document.createElement('div'); d.className='card'; if(c.color) d.style.borderLeftColor=c.color;
+    const x=document.createElement('button'); x.className='x'; x.textContent='×'; x.onclick=()=>{cards.splice(cards.indexOf(c),1);renderBoard();};
+    const h=document.createElement('h4'); h.textContent=c.title;
+    const p=document.createElement('p'); p.textContent=c.note||'';
+    d.appendChild(x); d.appendChild(h); d.appendChild(p); b.appendChild(d);
+  });
+  $('board-empty').style.display=cards.length?'none':'block';
+}
+
+// ============ schema 驱动表单：由 input_schema 自动生成，返回已类型转换的 values 或 null(取消) ============
+function formFromSchema(decl, defaults={}){
+  return new Promise(resolve=>{
+    const schema=decl.input_schema||{}; const props=schema.properties||{}; const req=new Set(schema.required||[]);
+    $('modal-title').textContent=decl.name;
+    const f=$('modal-fields'); f.innerHTML=''; const refs={};
+    if(decl.description){ const d=document.createElement('div'); d.style.cssText='font-size:12px;color:var(--muted);margin-bottom:10px'; d.textContent=decl.description; f.appendChild(d); }
+    if(Object.keys(props).length===0){ const n=document.createElement('p'); n.style.cssText='font-size:13px;color:var(--muted)'; n.textContent='该功能无需参数，确认即执行。'; f.appendChild(n); }
+    for(const [key,prop] of Object.entries(props)){
+      const wrap=document.createElement('div'); wrap.className='field';
+      const lbl=document.createElement('label'); lbl.htmlFor='ff-'+key; lbl.textContent=`${key}${req.has(key)?' *':''}`;
+      let inp;
+      if(prop['x-options']){                                      // 服务器驱动的动态下拉：fetch 后端列表填入 select
+        inp=document.createElement('select'); inp.disabled=true;
+        const ld=document.createElement('option'); ld.textContent='加载中…'; ld.value=''; inp.appendChild(ld);
+        const xo=prop['x-options']; const vk=xo.valueKey; const lk=xo.labelKey||vk;
+        const base=host||'http://localhost:5002';
+        fetch(base+xo.url,{headers:{'Content-Type':'application/json'}})
+          .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+          .then(json=>{
+            const list=Array.isArray(json)?json:(json.data?.items??json.data??json.items??[]);
+            inp.innerHTML='';
+            if(!list.length){ const o=document.createElement('option'); o.textContent='(暂无选项)'; o.value=''; inp.appendChild(o); return; }
+            list.forEach(it=>{ const val=it[vk]; if(val==null) return; let lab=it[lk]; if(lab==null||lab==='') lab=val; lab=String(lab); if(lab.length>24) lab=lab.slice(0,22)+'…'; const o=document.createElement('option'); o.value=val; o.textContent=lab; if(defaults[key]!=null&&String(defaults[key])===String(val)) o.selected=true; inp.appendChild(o); });
+            inp.disabled=false;
+          })
+          .catch(()=>{ inp.innerHTML=''; const o=document.createElement('option'); o.textContent='加载失败'; o.value=''; inp.appendChild(o); inp.disabled=true; });
+      }
+      else if(Array.isArray(prop.enum)){ inp=document.createElement('select'); prop.enum.forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;inp.appendChild(op);}); }
+      else if(prop.type==='boolean'){ inp=document.createElement('input'); inp.type='checkbox'; }
+      else if(prop.type==='array'){ inp=document.createElement('textarea'); inp.rows=3; }
+      else if(prop.type==='number'||prop.type==='integer'){ inp=document.createElement('input'); inp.type='number'; inp.step=prop.type==='integer'?'1':'any'; }
+      else if(prop.type==='string' && (prop.format==='color'||key==='color')){ inp=document.createElement('input'); inp.type='color'; if(defaults[key]==null) defaults[key]='#5a7aaa'; }
+      else { inp=document.createElement('input'); inp.type='text'; }
+      inp.id='ff-'+key;
+      if(defaults[key]!=null){
+        if(prop.type==='boolean') inp.checked=!!defaults[key];
+        else if(prop.type==='array') inp.value=(Array.isArray(defaults[key])?defaults[key]:[]).map(x=>typeof x==='object'?JSON.stringify(x):x).join('\n');
+        else inp.value=defaults[key];
+      }
+      if(prop.description && prop.type!=='array' && !Array.isArray(prop.enum)) inp.placeholder=prop.description;
+      wrap.appendChild(lbl); wrap.appendChild(inp); f.appendChild(wrap); refs[key]={el:inp,prop};
     }
-    case 'map_add_marker': {
-      const id = `marker_${++markerSeq}`;
-      const m = L.marker([input.latitude, input.longitude]).addTo(map);
-      if (input.label) m.bindPopup(String(input.label)).openPopup();
-      markers.set(id, m);
-      return { ok: true, observation: `已添加标记 ${id} 于 (${input.latitude}, ${input.longitude})${input.label ? `，标签："${input.label}"` : ''}` };
+    $('modal').classList.remove('hidden');
+    const first=f.querySelector('input,select,textarea'); if(first) first.focus();
+    const okBtn=$('modal-ok'), cancelBtn=$('modal-cancel');
+    const close=(val)=>{ $('modal').classList.add('hidden'); okBtn.onclick=cancelBtn.onclick=null; resolve(val); };
+    okBtn.onclick=()=>{
+      const out={};
+      for(const [key,{el,prop}] of Object.entries(refs)){
+        if(prop.type==='boolean'){ out[key]=el.checked; }
+        else if(prop.type==='array'){ out[key]=el.value.split('\n').map(s=>s.trim()).filter(Boolean); }
+        else { const v=el.value.trim(); if(req.has(key)&&!v){ el.focus(); return; } out[key]= (prop.type==='number'||prop.type==='integer') ? (v===''?undefined:Number(v)) : v; }
+      }
+      close(out);
+    };
+    cancelBtn.onclick=()=>close(null);
+  });
+}
+// 处理后端 request_user_input 的 user_input 交互（input_type: text/select，回传单个字符串）
+function promptUserInput(payload){
+  const inp=payload.input||{}, promptText=inp.prompt||payload.prompt||'请回答';
+  return new Promise(resolve=>{
+    $('modal-title').textContent='Agent 提问';
+    const f=$('modal-fields'); f.innerHTML='';
+    const lbl=document.createElement('label'); lbl.style.cssText='display:block;font-size:12px;color:var(--muted);margin-bottom:6px'; lbl.textContent=promptText;
+    let el;
+    if(inp.input_type==='select'){ el=document.createElement('select'); (inp.options||[]).forEach(o=>{const op=document.createElement('option');op.value=o;op.textContent=o;el.appendChild(op);}); }
+    else { el=document.createElement('input'); el.type='text'; }
+    el.style.width='100%'; f.appendChild(lbl); f.appendChild(el); el.focus();
+    $('modal').classList.remove('hidden');
+    const okBtn=$('modal-ok'),cancelBtn=$('modal-cancel');
+    const close=(v)=>{ $('modal').classList.add('hidden'); okBtn.onclick=cancelBtn.onclick=null; resolve(v); };
+    okBtn.onclick=()=>close(el.value.trim()||null);
+    cancelBtn.onclick=()=>close(null);
+    el.addEventListener('keydown',e=>{ if(e.key==='Enter') okBtn.click(); });
+  });
+}
+
+// ============ host 工具执行（操控前端载体——这正是委托的价值：后端无法渲染这些 UI）============
+async function executeHostTool(name,input){
+  if(name.startsWith('map_') && !map) return { ok:false, error:'地图未初始化' };
+  switch(name){
+    case 'map_set_view': { const z=typeof input.zoom==='number'?input.zoom:map.getZoom(); map.setView([input.latitude,input.longitude],z); return {ok:true,observation:`地图已移至 (${input.latitude}, ${input.longitude})，zoom=${z}`}; }
+    case 'map_add_marker': { const id=`marker_${++markerSeq}`; const m=L.marker([input.latitude,input.longitude]).addTo(map); if(input.label) m.bindPopup(String(input.label)).openPopup(); markers.set(id,m); return {ok:true,observation:`已添加标记 ${id} 于 (${input.latitude}, ${input.longitude})${input.label?`，标签："${input.label}"`:''}`}; }
+    case 'map_clear_markers': { const n=markers.size; markers.forEach(m=>map.removeLayer(m)); markers.clear(); return {ok:true,observation:`已清除 ${n} 个标记`}; }
+    case 'map_get_view': { const b=map.getBounds(); return {ok:true,observation:JSON.stringify({center:{lat:map.getCenter().lat,lng:map.getCenter().lng},zoom:map.getZoom(),bounds:{north:b.getNorth(),south:b.getSouth(),east:b.getEast(),west:b.getWest()}})}; }
+    case 'map_fit_bounds': { const pts=Array.isArray(input.points)?input.points:[]; if(!pts.length) return {ok:false,error:'points 为空'}; map.fitBounds(L.latLngBounds(pts.map(p=>[p.latitude,p.longitude]))); return {ok:true,observation:`已适配 ${pts.length} 个点`}; }
+    case 'map_fly_to': { const z=typeof input.zoom==='number'?input.zoom:map.getZoom(); map.flyTo([input.latitude,input.longitude],z); return {ok:true,observation:`飞行至 (${input.latitude}, ${input.longitude})，zoom=${z}`}; }
+    case 'map_add_geojson': { if(!input.geojson||typeof input.geojson!=='object') return {ok:false,error:'geojson 必须是对象'}; const id=`geojson_${++geoSeq}`; const style=(input.style&&typeof input.style==='object')?input.style:{color:'#3388ff',weight:2,fillColor:'#3388ff',fillOpacity:0.2}; const layer=L.geoJSON(input.geojson,{style}).addTo(map); geoLayers.set(id,layer); return {ok:true,observation:`已添加 GeoJSON 图层 ${id}（${layer.getLayers().length} 个要素）`}; }
+    case 'map_clear_geojson': { const n=geoLayers.size; geoLayers.forEach(l=>map.removeLayer(l)); geoLayers.clear(); return {ok:true,observation:`已清除 ${n} 个 GeoJSON 图层`}; }
+    case 'notify': { notify(input.level||'info', input.message); return {ok:true,observation:`已发送 ${(input.level||'info').toUpperCase()} 通知：${input.message}`}; }
+    case 'list_sessions': {                                      // 给 agent 用：返回会话列表，agent 据此选 session_id
+      const base=host||'http://localhost:5002';
+      const r=await fetch(base+'/api/agent/sessions',{headers:{'Content-Type':'application/json'}});
+      if(!r.ok) return {ok:false,error:`HTTP ${r.status}`};
+      const json=await r.json(); const list=Array.isArray(json)?json:(json.data?.items??json.data??json.items??[]);
+      const brief=list.map(s=>({session_id:s.session_id, title:s.title||''}));
+      return {ok:true, observation: JSON.stringify(brief)};
     }
-    case 'map_clear_markers': {
-      const n = markers.size;
-      markers.forEach((m) => map.removeLayer(m));
-      markers.clear();
-      return { ok: true, observation: `已清除 ${n} 个标记` };
+    case 'pin_session': {                                        // session_id 来自动态下拉；钉到看板
+      const id=`card_${++cardSeq}`;
+      cards.push({id, title:`会话 ${String(input.session_id).slice(0,8)}…`, note:input.note||'', color:'#7a5aaa'});
+      renderBoard(); notify('info', `已钉选会话到看板`);
+      return {ok:true,observation:`已把会话 ${input.session_id} 钉到看板${input.note?`，附注：${input.note}`:''}`};
     }
-    case 'map_get_view': {
-      const c = map.getBounds();
-      return { ok: true, observation: JSON.stringify({
-        center: { lat: map.getCenter().lat, lng: map.getCenter().lng },
-        zoom: map.getZoom(),
-        bounds: { north: c.getNorth(), south: c.getSouth(), east: c.getEast(), west: c.getWest() },
-      }) };
-    }
-    case 'map_fit_bounds': {
-      const pts = Array.isArray(input.points) ? input.points : [];
-      if (!pts.length) return { ok: false, error: 'points 为空' };
-      map.fitBounds(L.latLngBounds(pts.map((p) => [p.latitude, p.longitude])));
-      return { ok: true, observation: `已适配 ${pts.length} 个点` };
-    }
-    case 'map_fly_to': {
-      const zoom = typeof input.zoom === 'number' ? input.zoom : map.getZoom();
-      map.flyTo([input.latitude, input.longitude], zoom);
-      return { ok: true, observation: `飞行至 (${input.latitude}, ${input.longitude})，zoom=${zoom}` };
-    }
-    case 'map_add_geojson': {
-      if (!input.geojson || typeof input.geojson !== 'object') return { ok: false, error: 'geojson 必须是对象' };
-      const id = `geojson_${++geojsonSeq}`;
-      const style = (input.style && typeof input.style === 'object') ? input.style : { color: '#3388ff', weight: 2, fillColor: '#3388ff', fillOpacity: 0.2 };
-      const layer = L.geoJSON(input.geojson, { style }).addTo(map);
-      geojsonLayers.set(id, layer);
-      return { ok: true, observation: `已添加 GeoJSON 图层 ${id}（${layer.getLayers().length} 个要素）` };
-    }
-    case 'map_clear_geojson': {
-      const n = geojsonLayers.size;
-      geojsonLayers.forEach((l) => map.removeLayer(l));
-      geojsonLayers.clear();
-      return { ok: true, observation: `已清除 ${n} 个 GeoJSON 图层` };
-    }
-    default:
-      return { ok: false, error: `前端未注册工具: ${name}` };
+    default: return {ok:false,error:`前端未注册工具: ${name}`};
   }
 }
 
-// ============ WS 委托收发 + 聊天（复用机制）============
-const $ = (id) => document.getElementById(id);
-let ws = null, sessionId = null, host = '', currentAssistantEl = null;
+// ============ WS 委托收发 + 聊天 ============
+const $=(id)=>document.getElementById(id);
+let ws=null, sessionId=null, host='', currentAssistantEl=null;
+function log(text,kind=''){ const el=$('log'); const div=document.createElement('div'); div.className='log-entry '+kind; div.textContent=text; el.appendChild(div); el.scrollTop=el.scrollHeight; }
+function addMsg(role,content){ const el=$('chat'); const div=document.createElement('div'); div.className='msg '+role; div.innerHTML=`<div class="role">${role==='user'?'你':'Assistant'}</div><div class="content"></div>`; div.querySelector('.content').textContent=content; el.appendChild(div); el.scrollTop=el.scrollHeight; return div.querySelector('.content'); }
+function setStatus(text,ok=true){ $('status').style.color=ok?'var(--ok)':'var(--err)'; $('status').textContent=text; }
+const wsBase=(url)=>url.replace(/^http/,'ws').replace(/\/$/,'');
 
-function log(text, kind = '') {
-  const el = $('log');
-  const div = document.createElement('div');
-  div.className = 'log-entry ' + kind;
-  div.textContent = text;
-  el.appendChild(div);
-  el.scrollTop = el.scrollHeight;
-}
-function addMsg(role, content) {
-  const el = $('chat');
-  const div = document.createElement('div');
-  div.className = 'msg ' + role;
-  div.innerHTML = `<div class="role">${role === 'user' ? '你' : 'Assistant'}</div><div class="content"></div>`;
-  div.querySelector('.content').textContent = content;
-  el.appendChild(div);
-  el.scrollTop = el.scrollHeight;
-  return div.querySelector('.content');
-}
-function setStatus(text, ok = true) { $('status').style.color = ok ? '#6a6' : '#a66'; $('status').textContent = text; }
-const wsBase = (url) => url.replace(/^http/, 'ws').replace(/\/$/, '');
-
-async function connect() {
-  host = $('host').value.trim().replace(/\/$/, '');
+async function connect(){
+  host=$('host').value.trim().replace(/\/$/,'');
   try {
     setStatus('创建会话…');
-    const resp = await fetch(`${host}/api/agent/sessions`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const { data } = await resp.json();
-    sessionId = data.session_id;
+    const resp=await fetch(`${host}/api/agent/sessions`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const {data}=await resp.json(); sessionId=data.session_id;
     setStatus('连接 WS…');
-    ws = new WebSocket(`${wsBase(host)}/api/agent/sessions/${sessionId}/ws`);
-    ws.onopen = () => {
-      setStatus(`已连接 · session ${sessionId.slice(0, 8)}…`);
-      $('connectBtn').disabled = true;
-      $('input').disabled = false; $('sendBtn').disabled = false; $('input').focus();
-      ws.send(JSON.stringify({ type: 'tools.register', session_id: sessionId, payload: { tools: HOST_TOOLS } }));
-      log(`→ tools.register：注册 [${HOST_TOOLS.map((t) => t.name).join(', ')}]`, 'delegate');
+    ws=new WebSocket(`${wsBase(host)}/api/agent/sessions/${sessionId}/ws`);
+    ws.onopen=()=>{
+      setStatus(`已连接 · session ${sessionId.slice(0,8)}…`);
+      $('connectBtn').disabled=true; $('input').disabled=false; $('sendBtn').disabled=false; $('input').focus();
+      ws.send(JSON.stringify({type:'tools.register',session_id:sessionId,payload:{tools:HOST_TOOLS}}));
+      log(`→ tools.register：注册 ${HOST_TOOLS.length} 个 host 工具`,'delegate');
     };
-    ws.onmessage = (e) => { try { handleEnv(JSON.parse(e.data)); } catch (err) { log('解析失败: ' + err.message); } };
-    ws.onclose = () => {
-      setStatus('连接关闭', false);
-      $('connectBtn').disabled = false; $('input').disabled = true; $('sendBtn').disabled = true;
-    };
-    ws.onerror = () => setStatus('WS 错误', false);
-  } catch (err) {
-    setStatus('连接失败: ' + err.message, false);
-    log('连接失败: ' + err.message);
-  }
+    ws.onmessage=(e)=>{ try { handleEnv(JSON.parse(e.data)); } catch(err){ log('解析失败: '+err.message); } };
+    ws.onclose=()=>{ setStatus('连接关闭',false); $('connectBtn').disabled=false; $('input').disabled=true; $('sendBtn').disabled=true; };
+    ws.onerror=()=>setStatus('WS 错误',false);
+  } catch(err){ setStatus('连接失败: '+err.message,false); log('连接失败: '+err.message); }
 }
-
-function send() {
-  const text = $('input').value.trim();
-  if (!text || !ws || ws.readyState !== 1) return;
-  addMsg('user', text);
-  $('input').value = '';
-  currentAssistantEl = null;
-  ws.send(JSON.stringify({
-    type: 'user_driven_change', session_id: sessionId,
-    payload: { category: 'task_submit', task: text, request_id: crypto.randomUUID() },
-  }));
+function sendTask(text){
+  if(!ws||ws.readyState!==1) return;
+  addMsg('user',text);
+  ws.send(JSON.stringify({type:'user_driven_change',session_id:sessionId,payload:{category:'task_submit',task:text,request_id:crypto.randomUUID()}}));
 }
+function send(){ const text=$('input').value.trim(); if(!text||!ws||ws.readyState!==1) return; $('input').value=''; currentAssistantEl=null; sendTask(text); }
 
-async function handleEnv(env) {
-  const p = env.payload || {};
-  switch (env.type) {
-    case 'run_started': log(`▶ run_started`, 'run'); break;
+async function handleEnv(env){
+  const p=env.payload||{};
+  switch(env.type){
+    case 'run_started': log('▶ run_started','run'); break;
     case 'stream_output':
-      if (p.phase === 'first_token') currentAssistantEl = addMsg('assistant', '');
-      else if (p.phase === 'delta' || p.phase === 'final') {
-        if (!currentAssistantEl) currentAssistantEl = addMsg('assistant', '');
-        if (p.phase === 'final' && p.content) currentAssistantEl.textContent = p.content;
-        else if (p.content) currentAssistantEl.textContent += p.content;
-      }
+      if(p.phase==='first_token') currentAssistantEl=addMsg('assistant','');
+      else if(p.phase==='delta'||p.phase==='final'){ if(!currentAssistantEl) currentAssistantEl=addMsg('assistant',''); if(p.phase==='final'&&p.content) currentAssistantEl.textContent=p.content; else if(p.content) currentAssistantEl.textContent+=p.content; }
       break;
     case 'delegate_call':
-      if (p.phase === 'request') {
-        log(`← 委托请求：${p.tool} ${JSON.stringify(p.input ?? {})}`, 'delegate');
-        const started = Date.now();
-        const result = await executeHostTool(p.tool, p.input);
-        ws.send(JSON.stringify({
-          type: 'delegate_result', session_id: sessionId, call_id: env.call_id,
-          payload: { phase: 'result', ...result, elapsed_ms: Date.now() - started },
-        }));
-        log(`→ delegate_result：${result.ok ? '✓ ' + (result.observation || '').slice(0, 120) : '✗ ' + result.error}`, 'delegate');
+      if(p.phase==='request'){
+        log(`← 委托请求：${p.tool} ${JSON.stringify(p.input??{})}`,'delegate');
+        const started=Date.now();
+        const result=await executeHostTool(p.tool,p.input);
+        ws.send(JSON.stringify({type:'delegate_result',session_id:sessionId,call_id:env.call_id,payload:{phase:'result',...result,elapsed_ms:Date.now()-started}}));
+        log(`→ delegate_result：${result.ok?'✓ '+(result.observation||'').slice(0,120):'✗ '+result.error}`,'delegate');
       }
       break;
-    case 'tool_call':
-      log(`🔧 工具调用（后端执行）：${p.tool}`, 'tool');
-      break;
+    case 'tool_call': log(`🔧 后端工具：${p.tool}`,'tool'); break;
     case 'interaction':
-      // risk=medium/high 工具走 gate 审批（委托工具 + 后端工具都适用）；通过后委托工具发 delegate_call、后端工具本地 call。demo 用 confirm 模拟用户决策。
-      if (p.kind === 'approval' && p.phase === 'required') {
-        const isHostTool = HOST_TOOLS.some((t) => t.name === p.tool);
-        const approved = window.confirm(`🔧 工具审批\n工具: ${p.tool}（${isHostTool ? '前端委托执行' : '后端执行'}）\nrisk: ${p.risk_level || 'unknown'}\n${p.prompt || ''}\n\n允许执行？`);
-        ws.send(JSON.stringify({
-          type: 'interaction', session_id: sessionId, call_id: env.call_id,
-          payload: { kind: 'approval', phase: 'responded', approved, message: approved ? '用户允许' : '用户拒绝' },
-        }));
-        log(`${approved ? '✓ 审批通过' : '✗ 审批拒绝'}：${p.tool}（risk=${p.risk_level || ''}）${approved ? (isHostTool ? '→ 将发 delegate_call' : '→ 后端本地执行') : '→ 不执行'}`, 'delegate');
+      if(p.phase!=='required') break;
+      if(p.kind==='approval'){
+        const isHost=HOST_TOOLS.some(t=>t.name===p.tool);
+        const approved=window.confirm(`🔧 工具审批\n工具: ${p.tool}（${isHost?'前端委托执行':'后端执行'}）\nrisk: ${p.risk_level||'unknown'}\n${p.prompt||''}\n\n允许执行？`);
+        ws.send(JSON.stringify({type:'interaction',session_id:sessionId,call_id:env.call_id,payload:{kind:'approval',phase:'responded',approved,message:approved?'用户允许':'用户拒绝'}}));
+        log(`${approved?'✓ 审批通过':'✗ 审批拒绝'}：${p.tool}（risk=${p.risk_level||''}）`,'delegate');
+      } else if(p.kind==='user_input'){
+        const inp=p.input||{};
+        log(`❓ agent 提问：${inp.prompt||p.prompt||''}（${inp.input_type||'text'}）`,'input');
+        const val=await promptUserInput(p);
+        ws.send(JSON.stringify({type:'interaction',session_id:sessionId,call_id:env.call_id,payload:{kind:'user_input',phase:'responded',value:val??''}}));
+        log(`${val==null?'✗ 已取消（空回复）':'→ 已回复：'+val}`,'input');
       }
       break;
-    case 'agent_started': log(`🤖 agent_started: ${env.agent_id}${p.display_name ? ` (${p.display_name})` : ''}`); break;
+    case 'agent_started': log(`🤖 agent_started: ${env.agent_id}${p.display_name?` (${p.display_name})`:''}`); break;
     case 'agent_ended': log(`🤖 agent_ended: ${env.agent_id}`); break;
-    case 'run_ended': log(`■ run_ended: ${p.status}`, 'run'); break;
-    case 'error': log(`⚠ error: ${p.code || ''} ${p.message || ''}`); break;
+    case 'run_ended': log(`■ run_ended: ${p.status}`,'run'); break;
+    case 'error': log(`⚠ error: ${p.code||''} ${p.message||''}`); break;
     default: log(`· ${env.type}`);
   }
 }
 
+// ============ 简单触发（即时按钮，复用同一份工具实现，绕过 agent 决策；执行后告知 agent）============
+function afterQuick(label,r){
+  log(`⚡ 快捷·${label}：${r.ok?'✓ '+(r.observation||'').slice(0,80):'✗ '+r.error}`,'tool');
+  sendTask(`[快捷操作] ${label}：${r.ok?(r.observation||'完成'):(r.error||'失败')}`);
+}
+async function quickAction(act){
+  if(act==='clearMarkers'){ afterQuick('清空地图标记', await executeHostTool('map_clear_markers',{})); return; }
+  if(act==='notify'){ afterQuick('发送通知', await executeHostTool('notify',{message:'这是来自快捷按钮的通知 👋',level:'info'})); return; }
+}
+// 功能表单入口（用户主动：点功能 → 按 schema 弹表单 → 填完执行 → 告知 agent）
+async function openForm(name){
+  const decl=HOST_TOOLS.find(t=>t.name===name); if(!decl) return;
+  const input=await formFromSchema(decl, {});
+  if(input===null) return;
+  const r=await executeHostTool(name, input);
+  afterQuick(`表单·${name}`, r);
+}
+
+// ============ tab 切换 ============
+function switchTab(tab){
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
+  $('pane-'+tab).classList.add('active');
+  if(tab==='map'&&map) setTimeout(()=>map.invalidateSize(),100);
+}
+
 initMap();
-$('connectBtn').onclick = connect;
-$('sendBtn').onclick = send;
-$('input').addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+$('connectBtn').onclick=connect;
+$('sendBtn').onclick=send;
+$('input').addEventListener('keydown',e=>{ if(e.key==='Enter') send(); });
+document.querySelectorAll('.quickbar button[data-act]').forEach(b=>b.onclick=()=>quickAction(b.dataset.act));
+document.querySelectorAll('.quickbar button[data-form]').forEach(b=>b.onclick=()=>openForm(b.dataset.form));
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
 </script>
 </body>
 </html>
