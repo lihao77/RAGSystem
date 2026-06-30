@@ -120,12 +120,15 @@ function buildDirectToolsSection(tools: RuntimeToolDefinition[], mode: ToolInstr
   for (const tool of tools) {
     lines.push("");
     lines.push(`### ${tool.name}`);
-    lines.push(`**描述**: ${tool.description}`);
-    lines.push(`**调用能力**: ${formatAllowedCallers(tool, mode)}`);
-    lines.push(...formatToolParameters(tool.parameters));
     if (isNative) {
+      // native：工具描述与参数由 request.tools（厂商 FC schema）下发，prompt 段只保留
+      // schema 表达不了的富语义——调用能力、使用约束、返回结构、扩展用法。
+      lines.push(`**调用能力**: ${formatAllowedCallers(tool, mode)}`);
       lines.push(...formatToolContract(tool, false));
     } else {
+      lines.push(`**描述**: ${tool.description}`);
+      lines.push(`**调用能力**: ${formatAllowedCallers(tool, mode)}`);
+      lines.push(...formatToolParameters(tool.parameters));
       lines.push(...formatToolContract(tool, includeExamples(tool)));
     }
   }

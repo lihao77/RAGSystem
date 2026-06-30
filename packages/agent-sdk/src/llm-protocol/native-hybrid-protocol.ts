@@ -161,9 +161,15 @@ export class NativeHybridProtocol implements Protocol {
     const sawProtocolTag = Boolean(
       parser.getTagContent("intent").trim() || parser.getTagContent("final_answer").trim(),
     );
-    if (!sawProtocolTag) {
-      for (const content of pendingFallbackDeltas) {
-        this.deps.events.emit({ type: "output_delta", agentName, content });
+    // 裸文本兜底：全程未出现协议标签时，身份由本轮结局决定——
+    // 后续有工具调用 → 动作说明 intent；没有 → 最终答案 final。
+    const fallbackText = pendingFallbackDeltas.join("");
+    if (fallbackText.trim() && !sawProtocolTag) {
+      if (toolCalls.length > 0) {
+        this.deps.events.emit({ type: "intent_delta", agentName, content: fallbackText, round });
+        this.deps.events.emit({ type: "intent_complete", agentName, content: fallbackText, round });
+      } else {
+        this.deps.events.emit({ type: "output_delta", agentName, content: fallbackText });
       }
     }
 
@@ -174,9 +180,10 @@ export class NativeHybridProtocol implements Protocol {
         toolName: tc.function.name,
         arguments: safeParseArguments(tc.function.arguments),
       }));
+      const intentContent = parser.getTagContent("intent") || fallbackText;
       const assistantMessage: ChatMessage = {
         role: "assistant",
-        content: parser.getTagContent("intent"),
+        content: intentContent,
         tool_calls: toolCalls,
       };
       return { kind: "tool_calls", calls, assistantMessage, finishReason: result.finishReason ?? null };
@@ -204,6 +211,10 @@ export class NativeHybridProtocol implements Protocol {
     const parser = new StreamingRuntimeXmlParser();
     parser.feed(result.content || "");
     const finalAnswer = parser.getTagContent("final_answer");
+    const taggedIntent = parser.getTagContent("intent");
+    const sawProtocolTag = Boolean(taggedIntent.trim() || finalAnswer.trim());
+    // 裸文本兜底（与流式一致）：全程无标签时，配工具调用的裸文本归 intent
+    const fallbackText = sawProtocolTag ? "" : (result.content || "").trim();
     const content = finalAnswer.trim() ? finalAnswer : result.content || "";
 
     if (result.toolCalls && result.toolCalls.length > 0) {
@@ -218,7 +229,7 @@ export class NativeHybridProtocol implements Protocol {
         calls,
         assistantMessage: {
           role: "assistant",
-          content: parser.getTagContent("intent"),
+          content: taggedIntent || fallbackText,
           tool_calls: result.toolCalls,
         },
         finishReason: result.finishReason ?? null,
