@@ -8,7 +8,7 @@
  *（final assistant 消息由 SDK Dispatcher.finalize 已写，此处只查库取其 id/seq 供 message_saved）。
  */
 import { buildTool, createRuntime, createToolRegistry, prepareTool, type CreateRuntimeOptions, type SessionMetadataPort, type SqliteRuntimeStore } from "@ragsystem/agent-sdk";
-import type { AgentPromptContext, Tool, ToolExecContext, ToolExecutionResult, ToolRegistry } from "@ragsystem/agent-sdk";
+import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry } from "@ragsystem/agent-sdk";
 import { translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
@@ -130,13 +130,6 @@ export async function executeRunWithSdk(
   ];
   const registry: ToolRegistry = createToolRegistry({ tools });
 
-  // 算 promptContext（仅 backgroundTasks）；tools 由 SDK 内核从 registry 自动填充。
-  // skill / delegation 的可用清单已由对应工具（skill 工具、call_agent）以 enum + extended_usage 自描述，
-  // 统一进 tools 段，不再经 promptContext 注入。
-  const promptContext: Omit<AgentPromptContext, "tools"> = {
-    ...(input.agent.tasks.background ? { backgroundTasks: true } : {}),
-  };
-
   // per-run 工具执行上下文消费端切片：workspaceRoot/currentAgentName 等内核无法自行推导的字段。
   // 经 createRuntime({ execContext }) 注入；内核权威字段（sessionId/runId/...）在 toolContext 构造时后置覆盖。
   // toolCallId/round/order/roundIndex 由 tool-round-executor 在每次调用时覆盖。
@@ -188,7 +181,6 @@ export async function executeRunWithSdk(
     dataRoot: deps.dataRoot,
     store: deps.sdkStore,
     extraContextSources,
-    promptContext,
     execContext: baseExecCtx,
     ...(deps.microcompactTtlSeconds !== undefined ? { microcompactTtlSeconds: deps.microcompactTtlSeconds } : {}),
     hooks: (registry) => {

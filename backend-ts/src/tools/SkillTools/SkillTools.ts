@@ -139,6 +139,8 @@ export function createSkillTools(deps: SkillToolDeps): Tool[] {
   const skillTools = deps.skillTools;
   const agent = deps.agent;
   const workspaceRoot = agentWorkspaceRoot(agent);
+  // run_in_background 仅在 agent 启用 tasks.background 时暴露（与 SkillExecution 守卫同源）。
+  const allowBackground = !!agent?.tasks?.background;
   const visibleSkills = skillTools ? skillTools.listVisibleSkills(agent, workspaceRoot) : [];
   if (!skillTools || !visibleSkills.length) {
     return [];
@@ -168,7 +170,7 @@ export function createSkillTools(deps: SkillToolDeps): Tool[] {
       call: (input: Record<string, unknown>, context: ToolExecContext) => skillTools.loadSkillResource(readSkillToolArguments(input), context, agent),
     }),
     buildTool({
-      ...metadataFrom(definitionByName.get(EXECUTE_SKILL_SCRIPT_TOOL_NAME)!),
+      ...metadataFrom(omitBackgroundParam(definitionByName.get(EXECUTE_SKILL_SCRIPT_TOOL_NAME)!, allowBackground)),
       inputSchema: executeSkillScriptSchema,
       isConcurrencySafe: () => false,
       call: (input: Record<string, unknown>, context: ToolExecContext) => skillTools.executeSkillScript(readSkillToolArguments(input), context, agent),
@@ -187,6 +189,20 @@ function injectSkillNameEnum(parameters: Record<string, unknown>, skillNames: st
     description: `${baseDescription} 当前可见 Skill 见下方 extended_usage。`,
   };
   return { ...parameters, properties };
+}
+
+/** 未启用后台任务时，从工具 parameters 裁掉 run_in_background（可见性与 SkillExecution 守卫同源）。 */
+function omitBackgroundParam(definition: RuntimeToolDefinition, allowBackground: boolean): RuntimeToolDefinition {
+  if (allowBackground) {
+    return definition;
+  }
+  const parameters = definition.parameters;
+  const properties = isRecord(parameters.properties) ? { ...parameters.properties } : {};
+  if (!("run_in_background" in properties)) {
+    return definition;
+  }
+  delete properties.run_in_background;
+  return { ...definition, parameters: { ...parameters, properties } };
 }
 
 /**

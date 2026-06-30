@@ -21,15 +21,12 @@ const EXECUTE_CODE_TOOL: RuntimeToolDefinition = {
 };
 
 /**
- * 用 SDK buildFullSystemPrompt 构造 prompt（profile 仅投影 behavior；backgroundTasks 按 agent.tasks.background 注入）。
+ * 用 SDK buildFullSystemPrompt 构造 prompt（profile 仅投影 behavior）。
  * 验证 SDK prompt 模块产出与 backend-ts 历史 buildFullSystemPrompt 一致。
  */
 function buildPrompt(agent: AgentConfig, context: AgentPromptContext): string {
   const behavior = agent.custom_params.behavior as { system_prompt?: string } | null;
-  const promptContext: AgentPromptContext = agent.tasks.background
-    ? { ...context, backgroundTasks: true }
-    : context;
-  return buildFullSystemPrompt({ behavior: { systemPrompt: behavior?.system_prompt ?? "" } }, promptContext, "xml");
+  return buildFullSystemPrompt({ behavior: { systemPrompt: behavior?.system_prompt ?? "" } }, context, "xml");
 }
 
 describe("agent prompt builder", () => {

@@ -155,7 +155,6 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       dataRoot: options.container.dataRoot,
       extraContextSources,
       microcompactTtlSeconds: options.container.systemConfig.getMicrocompactTtlSeconds(),
-      ...(agent.tasks.background ? { promptContext: { backgroundTasks: true } } : {}),
     });
     const threadKey = normalizeString(query.thread_key);
     const preview = sessionId ? runtime.preview({ sessionId, ...(threadKey ? { threadKey } : {}) }) : null;

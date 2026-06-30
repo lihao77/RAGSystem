@@ -74,13 +74,6 @@ export interface CreateRuntimeOptions {
    */
   emitDelegateCall?: (input: { toolCallId: string; toolName: string; arguments: Record<string, unknown> }) => void;
   /**
-   * prompt 上下文（消费端算好注入）：backgroundTasks。
-   * tools 由内核从 registry 自动填充（per-run 工具集），消费端无需传 tools。
-   * skill / delegation 的可用清单由对应工具自身以 enum + extended_usage 自描述，不再经此注入。
-   * 不注入 backgroundTasks 则 run_in_background 参数不被裁剪（与历史行为一致）。
-   */
-  promptContext?: Omit<AgentPromptContext, "tools">;
-  /**
    * 工具执行上下文的消费端切片：承载 run 内稳定、但内核无法自行推导的字段
    * （workspaceRoot / currentAgentName 等）。
    * 内核权威字段（sessionId/runId/taskId/requestId/parentCallId/toolCallId/round/order/roundIndex）
@@ -187,7 +180,6 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
   });
   const contextPort: Context = makeContextPort(contextBuilder, profile, toolInstructionMode, {
     tools: registry.listDefinitions(),
-    backgroundTasks: options.promptContext?.backgroundTasks,
   });
 
   return {
@@ -309,7 +301,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
     },
     preview: (input: PreviewInput): PreviewResult => {
       const threadKey = input.threadKey ?? "root";
-      const promptContext = { tools: registry.listDefinitions(), backgroundTasks: options.promptContext?.backgroundTasks };
+      const promptContext = { tools: registry.listDefinitions() };
       // buildContext 一次：conversation（memory prefix + 历史）+ rawMessages（历史 MessageInfo，含 seq/metadata）+
       // memory sources。与 run 的 makeContextPort.buildMessages 同源（buildFullSystemPrompt + builder.buildContext），
       // 只是 preview 直调底层以保留 rawMessages 给调试快照展示元数据。

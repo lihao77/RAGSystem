@@ -1,33 +1,9 @@
 /**
  * 工具格式化（迁自 backend-ts tool-format.ts）。
- * prepareToolsForPrompt 接收 backgroundTasks 标志（替代 agent.tasks.background 读取），决定是否裁剪 run_in_background 参数。
  */
 import type { ToolInstructionMode } from "../contracts.js";
 import type { RuntimeToolDefinition } from "./tool-types.js";
 import { isRecord, normalizeString } from "./types.js";
-
-export function prepareToolsForPrompt(tools: RuntimeToolDefinition[], backgroundTasks = false): RuntimeToolDefinition[] {
-  if (backgroundTasks) {
-    return tools;
-  }
-  return tools.map((tool) => omitBackgroundParameters(tool));
-}
-
-function omitBackgroundParameters(tool: RuntimeToolDefinition): RuntimeToolDefinition {
-  const parameters = tool.parameters;
-  if (!isRecord(parameters.properties) || !Object.prototype.hasOwnProperty.call(parameters.properties, "run_in_background")) {
-    return tool;
-  }
-  const properties = { ...parameters.properties };
-  delete properties.run_in_background;
-  return {
-    ...tool,
-    parameters: {
-      ...parameters,
-      properties,
-    },
-  };
-}
 
 export function formatToolParameters(parameters: Record<string, unknown>): string[] {
   if (!isRecord(parameters.properties)) {

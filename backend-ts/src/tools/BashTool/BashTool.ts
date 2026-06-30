@@ -35,6 +35,8 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
   if (!enabled.has(EXECUTE_BASH_TOOL_NAME)) {
     return [];
   }
+  // run_in_background 仅在 agent 启用 tasks.background 时暴露给模型（与 BashExecution 守卫同源）。
+  const allowBackground = !!deps.agent.tasks?.background;
   return [
     buildTool({
       name: EXECUTE_BASH_TOOL_NAME,
@@ -79,10 +81,14 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
             maximum: 600,
             description: "Timeout in seconds. Defaults to 120 and is capped at 600.",
           },
-          run_in_background: {
-            type: "boolean",
-            description: "Run the command in the background and immediately return a background_task_id.",
-          },
+          ...(allowBackground
+            ? {
+                run_in_background: {
+                  type: "boolean",
+                  description: "Run the command in the background and immediately return a background_task_id.",
+                },
+              }
+            : {}),
           description: {
             type: "string",
             description: "Short purpose shown in approval prompts and execution logs.",

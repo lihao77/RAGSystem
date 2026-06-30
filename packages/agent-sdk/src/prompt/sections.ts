@@ -1,6 +1,5 @@
 /**
  * prompt sections（迁自 backend-ts sections.ts，完整版）。
- * agent.tasks.background 读取改为 backgroundTasks 标志参数（profile 不含 tasks）。
  * skill / delegation 不再有独立 section：可用清单由对应工具（skill 工具、call_agent）以
  * enum + extended_usage 自描述，统一进 tools 段；本文件只剩通用规则段。
  */
