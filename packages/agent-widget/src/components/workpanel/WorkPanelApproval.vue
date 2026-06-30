@@ -301,5 +301,4 @@ function submit(approved) {
   border-color: var(--color-error);
   background: rgba(var(--color-error-rgb), 0.08);
   transform: translateY(-1px);
-}
-</style>
+}</style>

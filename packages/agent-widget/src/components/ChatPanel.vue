@@ -1,29 +1,28 @@
 <template>
   <div class="rag-root">
-    <!-- 浮动按钮 -->
-    <button v-if="!open" class="rag-fab" @click="toggleOpen" aria-label="打开 Agent">
-      <svg viewBox="0 0 24 24" fill="none" width="22" height="22">
-        <path d="M12 3a9 9 0 0 0-9 9c0 1.5.4 2.9 1 4.1L3 21l4.9-1c1.2.6 2.6 1 4.1 1a9 9 0 0 0 0-18z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-        <circle cx="8.5" cy="12" r="1" fill="currentColor"/>
-        <circle cx="12" cy="12" r="1" fill="currentColor"/>
-        <circle cx="15.5" cy="12" r="1" fill="currentColor"/>
-      </svg>
-    </button>
-
-    <!-- 对话框 -->
+    <!-- 对话面板（打开时位于触发按钮上方） -->
     <Transition name="rag-panel">
       <section v-if="open" class="rag-panel">
+        <!-- Header -->
         <header class="rag-header">
-          <span class="rag-title">
-            <span class="rag-dot" :class="`dot-${statusTone}`"></span>
-            Agent
-          </span>
-          <span v-if="connBadgeText" class="rag-conn-badge" :class="`conn-${connectionStatus.state}`">{{ connBadgeText }}</span>
-          <button class="rag-close" @click="toggleOpen" aria-label="关闭">×</button>
+          <div class="rag-avatar">
+            <span class="rag-avatar-icon" v-html="sparklesIcon"></span>
+            <span class="rag-status-dot" :class="`tone-${statusTone}`"></span>
+          </div>
+          <div class="rag-header-titles">
+            <span class="rag-title">AI 助手</span>
+            <span v-if="connBadgeText" class="rag-conn-badge">{{ connBadgeText }}</span>
+          </div>
+          <button class="rag-icon-btn rag-icon-btn--reset" @click="reset" title="重置对话" aria-label="重置对话">
+            <span v-html="rotateCcwIcon"></span>
+          </button>
+          <button class="rag-icon-btn rag-icon-btn--close" @click="toggleOpen" aria-label="关闭">
+            <span v-html="xIcon"></span>
+          </button>
         </header>
 
-        <!-- 纯对话面板：消息流（含折叠执行步骤 + 流内审批卡片） -->
-        <div class="rag-messages" ref="messagesEl" @scroll="onMessagesScroll">
+        <!-- 消息流：含折叠工具调用 + 打字三点 + 流内审批/输入卡片 -->
+        <div class="rag-messages" ref="messagesEl" @scroll="onMessagesScroll" @wheel="onMessagesWheel">
           <div v-if="!messages.length && !approvalQueueView.length && !pendingUserInputView" class="rag-empty">
             输入消息开始对话
           </div>
@@ -33,45 +32,112 @@
               <div class="rag-user-text">{{ msg.content }}</div>
             </div>
             <div v-else class="rag-msg rag-msg--assistant">
-              <div class="rag-assistant-text" v-html="renderMarkdown(msg.content || (msg.finished ? '' : '思考中…'))"></div>
-              <!-- 执行步骤折叠在消息内（极简：一行一工具） -->
+              <!-- 工具调用折叠（N 个工具调用）——grid 0fr→1fr 展开动画，padding 下沉到裁剪区内层 -->
               <button
                 v-if="msg.executionTree && msg.executionTree.root"
                 class="rag-exec-toggle"
                 @click="msg.execOpen = !msg.execOpen"
               >
-                <span class="rag-exec-chevron" :class="{ open: msg.execOpen }">›</span>
-                <span class="rag-exec-label">执行步骤</span>
+                <span class="rag-exec-label">{{ toolCallCount(msg.executionTree) }} tool calls</span>
                 <span v-if="!msg.finished" class="rag-exec-running">进行中</span>
+                <span class="rag-exec-chevron" v-html="msg.execOpen ? chevronUpIcon : chevronDownIcon"></span>
               </button>
-              <div v-if="msg.execOpen && msg.executionTree" class="rag-exec-list">
+              <div class="rag-exec-list-outer" :class="{ 'is-open': msg.execOpen }">
+                <div class="rag-exec-list-clip">
+                  <div class="rag-exec-list" v-if="msg.executionTree">
                 <template v-for="(node, idx) in extractNodes(msg.executionTree)" :key="idx">
+                  <!-- 节点行可见 = 祖先容器（intent/agent）全展开 -->
+                  <template v-if="nodeVisible(node)">
+                    <!-- intent：容器，折叠隐藏该轮工具（文本始终显示）-->
+                    <div
+                      v-if="node.type === 'intent'"
+                      class="rag-exec-node rag-exec-intent"
+                      :style="{ paddingLeft: node.depth * 22 + 'px' }"
+                      @click="toggleFold(node.foldId)"
+                    >
+                      <span class="rag-exec-icon" v-html="TOOL_ICONS.lightbulb"></span>
+                      <span class="rag-exec-intent-text">{{ node.text }}</span>
+                      <span class="rag-exec-tail" :class="{ open: isFoldOpen(node.foldId) }" v-html="chevronDownIcon"></span>
+                    </div>
+                    <!-- agent：容器，折叠隐藏 task/子节点树/result -->
+                    <div
+                      v-else-if="node.type === 'agent'"
+                      class="rag-exec-node"
+                      :class="[`st-${node.status}`]"
+                      :style="{ paddingLeft: node.depth * 22 + 'px' }"
+                      @click="toggleFold(node.foldId)"
+                    >
+                      <span class="rag-exec-icon" v-html="getToolIcon(node.name, 'bot')"></span>
+                      <span class="rag-exec-name">{{ node.name }}</span>
+                      <span class="rag-exec-status">{{ agentSummary(node) }}</span>
+                      <span class="rag-exec-tail" :class="{ open: isFoldOpen(node.foldId) }" v-html="chevronDownIcon"></span>
+                    </div>
+                    <!-- tool：叶子，折叠隐藏参数/结果 -->
+                    <div
+                      v-else
+                      class="rag-exec-node"
+                      :class="[`st-${node.tool.status}`]"
+                      :style="{ paddingLeft: node.depth * 22 + 'px' }"
+                      @click="toggleFold(node.tool.callId)"
+                    >
+                      <span class="rag-exec-icon" v-html="getToolIcon(node.tool.toolName)"></span>
+                      <span class="rag-exec-name">{{ node.tool.toolName }}</span>
+                      <span class="rag-exec-status">{{ toolSummary(node.tool) }}</span>
+                      <span class="rag-exec-tail" :class="{ open: isFoldOpen(node.tool.callId) }" v-html="chevronDownIcon"></span>
+                    </div>
+                  </template>
+                  <!-- tool 展开详情：参数 + 结果（grid 0fr→1fr；marginLeft 对齐工具名起始）-->
                   <div
-                    v-if="node.type === 'agent'"
-                    class="rag-exec-agent"
-                    :style="{ paddingLeft: node.depth * 16 + 'px' }"
+                    v-if="node.type === 'tool' && nodeVisible(node)"
+                    class="rag-exec-detail-wrap"
+                    :class="{ 'is-open': isFoldOpen(node.tool.callId) }"
+                    :style="{ marginLeft: (node.depth * 22 + 22) + 'px' }"
                   >
-                    <span class="rag-exec-agent-icon" v-html="agentIconSvg"></span>
-                    <span class="rag-exec-agent-name">{{ node.name }}</span>
-                    <span v-if="agentStatusText(node.status)" class="rag-exec-agent-status">{{ agentStatusText(node.status) }}</span>
+                    <div class="rag-exec-detail">
+                      <div class="rag-exec-detail-block">
+                        <span class="rag-exec-detail-label">参数</span>
+                        <pre class="rag-exec-detail-pre">{{ formatArgs(node.tool.arguments) }}</pre>
+                      </div>
+                      <div class="rag-exec-detail-block">
+                        <span class="rag-exec-detail-label">结果</span>
+                        <div class="rag-exec-detail-text" :class="{ 'is-error': node.tool.status === 'failed' }">{{ formatResult(node.tool) }}</div>
+                      </div>
+                    </div>
                   </div>
+                  <!-- agent 展开详情：任务 + 结果（子节点树由后续节点的 nodeVisible 自然显隐）-->
                   <div
-                    v-else
-                    class="rag-exec-row"
-                    :class="`st-${node.tool.status}`"
-                    :style="{ paddingLeft: node.depth * 16 + 'px' }"
+                    v-if="node.type === 'agent' && nodeVisible(node) && (node.task || node.result)"
+                    class="rag-exec-detail-wrap"
+                    :class="{ 'is-open': isFoldOpen(node.foldId) }"
+                    :style="{ marginLeft: (node.depth * 22 + 22) + 'px' }"
                   >
-                    <span class="rag-exec-icon" v-html="statusIconSvg(node.tool.status)"></span>
-                    <span class="rag-exec-name">{{ node.tool.toolName }}</span>
-                    <span class="rag-exec-status">{{ toolSummary(node.tool) }}</span>
+                    <div class="rag-exec-detail">
+                      <div v-if="node.task" class="rag-exec-detail-block">
+                        <span class="rag-exec-detail-label">任务</span>
+                        <div class="rag-exec-detail-text">{{ node.task }}</div>
+                      </div>
+                      <div v-if="node.result" class="rag-exec-detail-block">
+                        <span class="rag-exec-detail-label">结果</span>
+                        <div class="rag-exec-detail-text" :class="{ 'is-error': node.status === 'failed' }">{{ cleanObservation(node.result) }}</div>
+                      </div>
+                    </div>
                   </div>
                 </template>
                 <div v-if="!extractNodes(msg.executionTree).length" class="rag-exec-empty">
                   {{ msg.finished ? "无工具调用" : "等待中…" }}
                 </div>
+                  </div>
+                </div>
               </div>
+              <!-- 助手正文（结论）置于工具调用之下 -->
+              <div v-if="msg.content" class="rag-assistant-text" v-html="renderMarkdown(msg.content)"></div>
             </div>
           </template>
+
+          <!-- 打字三点：运行中且末尾助手消息尚无内容 -->
+          <div v-if="showTyping" class="rag-typing">
+            <span></span><span></span><span></span>
+          </div>
 
           <!-- 审批 / 用户输入：消息流内卡片 -->
           <WorkPanelUserInput
@@ -95,20 +161,53 @@
           <button class="rag-reconnect" @click="reconnect">重新连接</button>
         </div>
 
+        <!-- 输入栏：胶囊容器 + Plus + 输入框 + Mic + 圆形 Send/Stop -->
         <footer class="rag-input-bar">
-          <textarea
-            v-model="draft"
-            class="rag-input"
-            rows="1"
-            :placeholder="isConnected ? '输入消息，Enter 发送' : '等待连接…'"
-            :disabled="!isConnected"
-            @keydown.enter.exact.prevent="send"
-          ></textarea>
-          <button v-if="isActiveRun" class="rag-send rag-stop" @click="stop">停止</button>
-          <button v-else class="rag-send" :disabled="!draft.trim() || sending" @click="send">发送</button>
+          <div class="rag-input-pill">
+            <button class="rag-input-btn" aria-label="附件" tabindex="-1" disabled>
+              <span v-html="plusIcon"></span>
+            </button>
+            <textarea
+              v-model="draft"
+              class="rag-input"
+              rows="1"
+              :placeholder="isConnected ? 'Send a message...' : '等待连接…'"
+              :disabled="!isConnected"
+              @keydown.enter.exact.prevent="send"
+            ></textarea>
+            <button class="rag-input-btn" aria-label="语音" tabindex="-1" disabled>
+              <span v-html="micIcon"></span>
+            </button>
+            <button
+              v-if="isActiveRun"
+              class="rag-send rag-stop"
+              @click="stop"
+              aria-label="停止"
+            >
+              <span v-html="stopIcon"></span>
+            </button>
+            <button
+              v-else
+              class="rag-send"
+              :disabled="!draft.trim() || sending"
+              @click="send"
+              aria-label="发送"
+            >
+              <span v-html="sendIcon"></span>
+            </button>
+          </div>
         </footer>
       </section>
     </Transition>
+
+    <!-- 触发按钮：始终可见，关闭=Sparkles(+蓝点)，打开=X -->
+    <button class="rag-fab" @click="toggleOpen" :aria-label="open ? '关闭' : '打开助手'">
+      <span class="rag-fab-icon" :class="{ open }">
+        <span class="rag-fab-spark" v-html="sparklesIcon"></span>
+        <span class="rag-fab-x" v-html="xIcon"></span>
+      </span>
+      <span v-if="!open" class="rag-fab-dot"></span>
+    </button>
   </div>
 </template>
 
@@ -120,10 +219,10 @@ import WorkPanelApproval from "./workpanel/WorkPanelApproval.vue";
 import WorkPanelUserInput from "./workpanel/WorkPanelUserInput.vue";
 
 /**
- * widget 主面板：FAB + 对话框（ChatGPT 风格）。
+ * widget 主面板：FAB + 对话框（Figma「Assistance widget design」浅色极简风）。
  *
- * 形态：对话面板纯对话；执行步骤折叠挂在 agent 消息内（极简一行一工具，不用重型 workpanel 组件）；
- * 审批/用户输入作为消息流内卡片。
+ * 形态：对话面板纯对话；工具调用折叠挂在 agent 消息内（N 个工具调用，状态图标一行一工具）；
+ * 审批/用户输入作为消息流内卡片；打字三点指示助手思考中。
  */
 const props = defineProps({
   backendBase: { type: String, required: true },
@@ -145,6 +244,8 @@ const pendingInteractions = ref([]);
 const connectionStatus = ref({ state: "idle" });
 const sending = ref(false);
 const submittingApprovalId = ref("");
+// 单工具展开态：按 callId 记录，展开显示参数 + 完整结果。
+const expanded = ref(new Set());
 
 // 流式渲染节流：delta 累积到 streamBuffer，定时 flush 到当前 assistant message，
 // 限制 markdown-it 全量重渲频率（长回复避免每 token 重算叠加成 O(n²) 卡顿）。
@@ -157,6 +258,19 @@ let streamFlushTimer = null;
 let stickToBottom = true;
 let scrollRafScheduled = false;
 
+import { getToolIcon, TOOL_ICONS } from '../icons/toolIcons';
+
+// ── 内联 SVG 图标（lucide 风格，stroke=currentColor，尺寸由 CSS 控制）──
+const sparklesIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg>`;
+const xIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`;
+const plusIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>`;
+const micIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg>`;
+const sendIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.1 1.1z"/><path d="m21.686 14.536-9.536-9.536"/></svg>`;
+const stopIcon = `<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>`;
+const rotateCcwIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`;
+const chevronDownIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`;
+const chevronUpIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>`;
+
 onMounted(async () => {
   client = new WidgetAgentClient({
     backendBase: props.backendBase,
@@ -166,7 +280,7 @@ onMounted(async () => {
   });
   unsub.push(client.status.subscribe((s) => { connectionStatus.value = s; }));
   unsub.push(client.runStatus.subscribe((s) => { runStatus.value = s; }));
-  // executionTree 挂到当前 run 产生的最新 assistant message（执行步骤属该回复）。
+  // executionTree 挂到当前 run 产生的最新 assistant message（工具调用属该回复）。
   unsub.push(client.executionTree.subscribe((t) => {
     const last = messages.value[messages.value.length - 1];
     if (last && last.role === "assistant") {
@@ -282,7 +396,7 @@ async function send() {
     return;
   }
   // 乐观先入用户消息：保证 user 在 run_started 投影出的 assistant 消息之前。
-  // 若改成 await 后再 push，run_started 事件会在 await 期间先把 assistant（"思考中…"）入列，
+  // 若改成 await 后再 push，run_started 事件会在 await 期间先把 assistant（空内容 + 打字点）入列，
   // 导致 assistant 排到 user 之上，且 stream_output 取末尾消息会错指 user 而丢掉整路流式。
   messages.value.push({ id: `u${Date.now()}`, role: "user", content: text });
   draft.value = "";
@@ -304,6 +418,17 @@ function stop() {
 
 function reconnect() {
   client?.connect();
+}
+
+/** 本地重置：清空消息流回到空状态（会话/client 保持，不重启会话）。 */
+function reset() {
+  flushStream();
+  streamTarget = null;
+  streamBuffer = "";
+  messages.value = [];
+  draft.value = "";
+  stickToBottom = true;
+  scrollToBottom();
 }
 
 async function onApprovalSubmit({ approvalId, approved, message }) {
@@ -367,55 +492,133 @@ const pendingUserInputView = computed(() => {
   return { data: { input_id: ui.interactionId, prompt: ui.prompt, input_type: "text" } };
 });
 
+/** 打字三点：运行中且末尾助手消息尚无内容（首 token 到达后自动隐藏）。 */
+const showTyping = computed(() => {
+  if (!isActiveRun.value) return false;
+  const last = messages.value[messages.value.length - 1];
+  return !!last && last.role === "assistant" && !last.content;
+});
+
 /** 从 executionTree 提取带层级的节点（工具 + 子 agent 分组），子 agent 工具按 depth 缩进。 */
 function extractNodes(tree) {
   const nodes = [];
-  const walk = (agent, depth) => {
+  // ancestors：当前节点的容器祖先 foldId 链（intent/agent）。节点行可见 = 链上全部展开。
+  const walk = (agent, depth, ancestors) => {
     if (!agent) return;
+    const agentKey = agent.callId || agent.agentId || "root";
+    let agentHasIntent = false;
     for (const round of agent.rounds || []) {
+      const hasIntent = !!(round.intent && round.intent.trim());
+      if (hasIntent) agentHasIntent = true;
+      let toolAncestors = ancestors;
+      if (hasIntent) {
+        const intentId = `intent:${agentKey}:r${round.round}`;
+        nodes.push({
+          type: "intent", depth, foldId: intentId, ancestors,
+          text: round.intent, complete: !!round.intentComplete,
+        });
+        toolAncestors = [...ancestors, intentId];
+      }
+      const toolDepth = hasIntent ? depth + 1 : depth;
       for (const tc of round.toolCalls || []) {
         // call_agent/send_message 用子 agent 分组节点代替，避免重复
         if (tc.toolName === "call_agent" || tc.toolName === "send_message") continue;
-        nodes.push({ type: "tool", depth, tool: tc });
+        nodes.push({ type: "tool", depth: toolDepth, tool: tc, foldId: tc.callId, ancestors: toolAncestors });
       }
     }
+    // 子 agent 挂在 parent 的 intent 层下（parent 有 intent 则缩进一层）；其子节点 ancestors 含该 agent。
+    const childDepth = agentHasIntent ? depth + 1 : depth;
     for (const child of agent.children || []) {
-      nodes.push({ type: "agent", depth, name: child.displayName || child.agentId, status: child.status });
-      walk(child, depth + 1);
+      const childId = `agent:${child.callId || child.agentId}`;
+      nodes.push({
+        type: "agent", depth: childDepth, foldId: childId, ancestors,
+        name: child.displayName || child.agentId, status: child.status,
+        task: child.task, result: child.result,
+      });
+      walk(child, childDepth + 1, [...ancestors, childId]);
     }
   };
-  walk(tree?.root, 0);
+  walk(tree?.root, 0, []);
   return nodes;
 }
 
-function agentStatusText(status) {
-  if (status === "running") return "进行中";
-  if (status === "failed") return "失败";
-  return "";
+/** 工具调用计数（仅工具节点，不含子 agent 分组）。 */
+function toolCallCount(tree) {
+  return extractNodes(tree).filter((n) => n.type === "tool").length;
 }
 
-/** 工具状态图标：纯线条（对勾 / 叉 / 旋转弧），无圆底，currentColor 取状态色。 */
-function statusIconSvg(status) {
-  if (status === "succeeded") {
-    return `<svg viewBox="0 0 16 16" width="15" height="15"><path d="M3.2 8.4l3 3 6.6-7.2" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-  }
-  if (status === "failed") {
-    return `<svg viewBox="0 0 16 16" width="15" height="15"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`;
-  }
-  return `<svg viewBox="0 0 16 16" width="15" height="15" class="rag-spin"><path d="M13.5 8A5.5 5.5 0 1 1 8 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+/** 清洗工具观察结果：剥 <tool_result> 信封 + 解 CDATA + 去标签 + 反转义实体，只留可读正文（保留换行）。 */
+function cleanObservation(raw) {
+  if (!raw) return "";
+  let text = String(raw);
+  // 1. 取 <tool_result …>内部</tool_result>
+  const tr = text.match(/<tool_result[^>]*>([\s\S]*?)<\/tool_result>/i);
+  if (tr) text = tr[1];
+  // 2. 解 CDATA：<![CDATA[ … ]]>（真实结果常包在此）
+  const cdata = text.match(/<!\[CDATA\[([\s\S]*?)\]\]>/);
+  if (cdata) text = cdata[1];
+  // 3. 去剩余信封/标签（result/observation/output 等）
+  text = text.replace(/<\/?(?:result|observation|output)[^>]*>/gi, " ");
+  text = text.replace(/<[^>]+>/g, " ");
+  // 4. 反转义常见实体（&amp; 最后解，避免二次解码）
+  text = text
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+  // 5. 折叠水平空白（保留换行）、压多余空行
+  text = text.replace(/[^\S\n]+/g, " ").replace(/\n{3,}/g, "\n\n");
+  return text.trim();
 }
 
-/** 子智能体图标：AI 双火花（sparkle），直观表达"智能体"语义。 */
-const agentIconSvg = `<svg viewBox="0 0 16 16" width="14" height="14"><path d="M6 2L7.1 4.4L9.5 5.5L7.1 6.6L6 9L4.9 6.6L2.5 5.5L4.9 4.4Z" fill="currentColor"/><path d="M11.5 9.2L12.1 10.4L13.3 11L12.1 11.6L11.5 12.8L10.9 11.6L9.7 11L10.9 10.4Z" fill="currentColor" opacity="0.6"/></svg>`;
-
-/** 单工具一行摘要：运行中→运行中；失败→失败；成功→简短结果。 */
+/** 单工具一行摘要：运行中→运行中；失败→失败；成功→清洗后的简短结果（剥协议信封），空则「完成」。 */
 function toolSummary(tool) {
   if (tool.status === "running") return "运行中";
   if (tool.status === "failed") return "失败";
-  const obs = tool.observation || tool.summary || "";
+  const obs = cleanObservation(tool.summary || tool.observation || "").replace(/\s+/g, " ").trim();
   if (!obs) return "完成";
-  const text = String(obs).replace(/\s+/g, " ").trim();
-  return text.length > 36 ? `${text.slice(0, 36)}…` : text;
+  return obs.length > 36 ? `${obs.slice(0, 36)}…` : obs;
+}
+
+/** 切换节点展开（intent/tool/agent 统一按 foldId 折叠）。*/
+function toggleFold(id) {
+  const next = new Set(expanded.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expanded.value = next;
+}
+function isFoldOpen(id) {
+  return expanded.value.has(id);
+}
+/** 节点行可见 = 其所有容器祖先（intent/agent foldId）均展开。*/
+function nodeVisible(node) {
+  return (node.ancestors || []).every((id) => expanded.value.has(id));
+}
+/** agent 摘要：运行中/失败；成功留空（靠状态色，对齐 tool 摘要风格）。*/
+function agentSummary(node) {
+  if (node.status === "running") return "进行中";
+  if (node.status === "failed") return "失败";
+  return "";
+}
+
+/** 展开详情：参数（arguments）格式化为可读文本。 */
+function formatArgs(args) {
+  if (args === undefined || args === null) return "（无）";
+  if (typeof args === "string") return args.trim() || "（无）";
+  try {
+    return JSON.stringify(args, null, 2);
+  } catch {
+    return String(args);
+  }
+}
+
+/** 展开详情：完整结果（剥 <tool_result> 信封，保留全文）。运行中→执行中…；空→（无结果）。 */
+function formatResult(tool) {
+  if (tool.status === "running") return "执行中…";
+  const obs = cleanObservation(tool.observation || tool.summary || "");
+  if (obs) return obs;
+  return tool.status === "failed" ? "失败（无结果）" : "（无结果）";
 }
 
 function onMessagesScroll() {
@@ -437,6 +640,21 @@ function scrollToBottom() {
     }
   });
 }
+
+// 阻止滚动透传：消息区滚到边界时吃掉 wheel，不让手势链式传播到宿主页面。
+// overscroll-behavior:contain 已覆盖绝大多数情况，这里兜底老 Safari 等不支持该属性的浏览器。
+function onMessagesWheel(e) {
+  const el = messagesEl.value;
+  if (!el) return;
+  const maxScroll = el.scrollHeight - el.clientHeight;
+  if (maxScroll <= 0) {
+    e.preventDefault();
+    return;
+  }
+  const atTop = el.scrollTop <= 0 && e.deltaY < 0;
+  const atBottom = el.scrollTop >= maxScroll && e.deltaY > 0;
+  if (atTop || atBottom) e.preventDefault();
+}
 </script>
 
 <style scoped>
@@ -445,144 +663,183 @@ function scrollToBottom() {
   bottom: 24px;
   right: 24px;
   z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
   font-family: var(--font-sans, system-ui, sans-serif);
   font-size: 14px;
-  color: var(--color-text-primary, #fff);
+  color: var(--color-text-primary, #1a1b1e);
 }
 
+/* ── 触发按钮 ── */
 .rag-fab {
-  width: 56px;
-  height: 56px;
-  border-radius: var(--radius-full, 9999px);
+  position: relative;
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-full);
   border: none;
-  background: var(--color-brand-accent, #0a84ff);
-  color: var(--color-on-color, #fff);
+  background: var(--color-accent-strong, #1a1b1e);
+  color: var(--color-on-accent, #fff);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
-  transition: transform 0.16s ease, box-shadow 0.16s ease;
+  box-shadow: var(--shadow-fab);
+  transition: transform 0.16s var(--ease-default), box-shadow 0.16s var(--ease-default);
 }
-.rag-fab:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
+.rag-fab:hover { transform: scale(1.05); }
+.rag-fab:active { transform: scale(0.93); }
+.rag-fab :deep(svg) { width: 22px; height: 22px; }
+
+.rag-fab-icon { position: relative; width: 22px; height: 22px; }
+.rag-fab-spark,
+.rag-fab-x {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s var(--ease-default), transform 0.15s var(--ease-default);
+}
+.rag-fab-spark { opacity: 1; transform: rotate(0); }
+.rag-fab-x { opacity: 0; transform: rotate(-80deg); }
+.rag-fab-icon.open .rag-fab-spark { opacity: 0; transform: rotate(80deg); }
+.rag-fab-icon.open .rag-fab-x { opacity: 1; transform: rotate(0); }
+
+.rag-fab-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--color-running, #3b82f6);
+  border: 2px solid var(--color-accent-strong, #1a1b1e);
 }
 
+/* ── 面板 ── */
 .rag-panel {
-  position: absolute;
-  bottom: 0;
-  right: 0;
-  width: min(400px, 92vw);
-  height: min(600px, 82vh);
-  background: var(--color-bg-primary, #1c1c1e);
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
-  border-radius: var(--radius-xl, 14px);
-  box-shadow: var(--shadow-xl, 0 18px 48px rgba(0, 0, 0, 0.4));
+  width: min(360px, 92vw);
+  max-height: min(560px, calc(100vh - 120px));
+  background: var(--color-bg-panel, #fff);
+  border-radius: var(--radius-xl, 16px);
+  box-shadow: var(--shadow-panel);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
+/* ── Header ── */
 .rag-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
-  background: var(--color-bg-elevated, #1c1c1e);
+  border-bottom: 1px solid var(--color-border, rgba(0, 0, 0, 0.06));
 }
-.rag-title {
+.rag-avatar {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-full);
+  background: var(--color-accent-strong, #1a1b1e);
+  color: var(--color-on-accent, #fff);
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  color: var(--color-text-primary, #fff);
+  justify-content: center;
 }
-.rag-dot {
-  width: 8px;
-  height: 8px;
+.rag-avatar :deep(svg) { width: 14px; height: 14px; }
+.rag-status-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 9px;
+  height: 9px;
   border-radius: var(--radius-full);
-  background: var(--color-text-muted, #636366);
+  background: var(--color-text-faint, #9ea0ab);
+  border: 2px solid var(--color-bg-panel, #fff);
 }
-.dot-running { background: var(--color-brand-accent, #0a84ff); }
-.dot-warning { background: var(--color-warning, #ffd60a); }
-.dot-error { background: var(--color-error, #ff453a); }
-.dot-success { background: var(--color-success, #30d158); }
-.dot-input { background: var(--color-brand-accent, #0a84ff); }
+.tone-running, .tone-input { background: var(--color-running, #3b82f6); }
+.tone-warning { background: var(--color-warning, #d97706); }
+.tone-error { background: var(--color-error, #e05252); }
+.tone-success { background: var(--color-success, #16a34a); }
 
-.rag-close {
-  background: none;
-  border: none;
-  color: var(--color-text-secondary, #98989d);
-  font-size: 22px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 4px;
-}
-
-.rag-conn-badge {
-  margin-left: auto;
-  margin-right: 8px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--color-text-muted, #636366);
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  background: var(--color-bg-secondary, #2c2c2e);
-}
-.rag-conn-badge.conn-connecting,
-.rag-conn-badge.conn-reconnecting { color: var(--color-brand-accent, #0a84ff); }
-.rag-conn-badge.conn-disconnected { color: var(--color-error, #ff453a); }
-
-.rag-conn-bar {
+.rag-header-titles {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  padding: 8px 14px;
-  background: rgba(var(--color-error-rgb, 255, 69, 58), 0.12);
-  border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
-  color: var(--color-error, #ff453a);
-  font-size: 12px;
 }
-.rag-reconnect {
-  background: var(--color-error, #ff453a);
-  color: var(--color-on-color, #fff);
-  border: none;
-  border-radius: var(--radius-md, 10px);
-  padding: 4px 12px;
-  font-size: 12px;
+.rag-title {
+  font-size: 14px;
   font-weight: 600;
-  cursor: pointer;
+  color: var(--color-text-primary, #1a1b1e);
+}
+.rag-conn-badge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-muted, #6e7280);
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-hover, #f4f5f8);
 }
 
+.rag-icon-btn {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-md, 10px);
+  background: transparent;
+  color: var(--color-text-faint, #9ea0ab);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.rag-icon-btn:hover {
+  color: var(--color-text-secondary, #4b4c55);
+  background: var(--color-bg-hover, #f4f5f8);
+}
+.rag-icon-btn--close :deep(svg) { width: 16px; height: 16px; }
+.rag-icon-btn--reset :deep(svg) { width: 14px; height: 14px; }
+
+/* ── 消息区 ── */
 .rag-messages {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
+  scrollbar-width: none;
 }
+.rag-messages::-webkit-scrollbar { display: none; }
 .rag-empty {
-  color: var(--color-text-muted, #636366);
+  color: var(--color-text-placeholder, #b0b3be);
   text-align: center;
   margin-top: 40px;
 }
 
 .rag-msg--user {
   align-self: flex-end;
-  max-width: 85%;
+  max-width: 80%;
 }
 .rag-user-text {
-  background: var(--color-bg-message-user, #2c2c2e);
-  color: var(--color-text-primary, #fff);
-  padding: 9px 13px;
-  border-radius: var(--radius-lg, 12px);
+  background: var(--color-bg-message-user, #f0f1f5);
+  color: var(--color-text-primary, #1a1b1e);
+  padding: 8px 14px;
+  border-radius: var(--radius-xl, 16px);
   white-space: pre-wrap;
   word-break: break-word;
+  line-height: 1.55;
 }
 .rag-msg--assistant {
   align-self: stretch;
@@ -592,15 +849,17 @@ function scrollToBottom() {
   gap: 6px;
 }
 .rag-assistant-text {
-  color: var(--color-text-primary, #fff);
+  color: var(--color-text-primary, #1a1b1e);
+  font-size: 14px;
   line-height: 1.6;
   word-break: break-word;
 }
 .rag-assistant-text pre {
-  background: var(--color-bg-secondary, #2c2c2e);
+  background: var(--color-bg-input, #f4f5f8);
   padding: 10px 12px;
   border-radius: var(--radius-sm, 8px);
   overflow-x: auto;
+  overscroll-behavior: contain;
   font-family: var(--font-mono, monospace);
   font-size: 12.5px;
 }
@@ -611,9 +870,9 @@ function scrollToBottom() {
 .rag-assistant-text p { margin: 0.4em 0; }
 .rag-assistant-text ul,
 .rag-assistant-text ol { padding-left: 1.4em; margin: 0.4em 0; }
-.rag-assistant-text a { color: var(--color-link, #0a84ff); }
+.rag-assistant-text a { color: var(--color-link, #4b4c55); }
 
-/* 消息内折叠执行步骤（极简一行一工具） */
+/* ── 工具调用折叠（N 个工具调用）── */
 .rag-exec-toggle {
   display: inline-flex;
   align-items: center;
@@ -622,150 +881,309 @@ function scrollToBottom() {
   border: none;
   cursor: pointer;
   font-size: 12px;
-  color: var(--color-text-muted, #636366);
+  color: var(--color-text-muted, #6e7280);
   font-family: inherit;
   padding: 2px 0;
   align-self: flex-start;
+  transition: color var(--transition-fast);
 }
-.rag-exec-toggle:hover { color: var(--color-text-secondary, #98989d); }
+.rag-exec-toggle:hover { color: var(--color-text-secondary, #4b4c55); }
 .rag-exec-chevron {
-  display: inline-block;
-  font-size: 14px;
-  transition: transform 0.2s ease;
-}
-.rag-exec-chevron.open { transform: rotate(90deg); }
-.rag-exec-label { font-weight: 500; }
-.rag-exec-running { color: var(--color-brand-accent, #0a84ff); font-size: 11px; }
-
-.rag-exec-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px 0;
-}
-.rag-exec-agent {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--color-brand-accent, #0a84ff);
-  padding: 6px 0 3px;
-  letter-spacing: 0.01em;
-}
-.rag-exec-agent-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  color: var(--color-brand-accent, #0a84ff);
-  opacity: 0.9;
 }
-.rag-exec-agent-name { font-family: var(--font-mono, monospace); }
-.rag-exec-agent-status { color: var(--color-text-muted, #636366); font-weight: 400; }
+.rag-exec-chevron :deep(svg) { width: 12px; height: 12px; }
+.rag-exec-label { font-weight: 500; }
+.rag-exec-running { color: var(--color-running, #3b82f6); font-size: 11px; }
 
-/* running：旋转环加载指示（替代原脉冲点，更清晰现代） */
-.rag-spin { animation: rag-spin 0.7s linear infinite; transform-origin: 50% 50%; }
-@keyframes rag-spin { to { transform: rotate(360deg); } }
-
-.rag-exec-row {
+.rag-exec-list-outer {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.24s var(--ease-spring, ease);
+}
+.rag-exec-list-outer.is-open {
+  grid-template-rows: 1fr;
+}
+.rag-exec-list-clip {
+  overflow: hidden;
+  min-height: 0;
+}
+.rag-exec-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0 0 6px;
+}
+/* 统一节点行（intent/tool/agent 同一骨架：图标 · 主文本 · 摘要 · chevron）。
+   agent 不再特殊加粗/accent——只在图标(bot)与「能展开子树」上区别于 tool。*/
+.rag-exec-node {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 12.5px;
   line-height: 1.5;
-  color: var(--color-text-secondary, #98989d);
+  color: var(--color-text-secondary, #4b4c55);
   padding: 3px 0;
+  cursor: pointer;
+  transition: color var(--transition-fast);
 }
 .rag-exec-icon {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
   flex-shrink: 0;
+  color: var(--color-text-muted, #6e7280);
+  transition: color var(--transition-fast);
 }
+.rag-exec-icon :deep(svg) { width: 14px; height: 14px; }
 .rag-exec-name {
-  font-family: var(--font-mono, monospace);
-  font-size: 12px;
-  color: var(--color-text-secondary, #98989d);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-text-muted, #6e7280);
   flex-shrink: 0;
-  transition: color var(--transition-fast, 160ms);
+  transition: color var(--transition-fast);
 }
 .rag-exec-status {
-  color: var(--color-text-muted, #636366);
+  color: var(--color-text-faint, #9ea0ab);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
-  transition: color var(--transition-fast, 160ms);
+  transition: color var(--transition-fast);
 }
-
-/* 状态分层着色：图标/工具名/摘要随状态变化，运行中·成功·失败一眼可辨 */
-.st-running .rag-exec-icon,
-.st-running .rag-exec-name { color: var(--color-brand-accent, #0a84ff); }
-.st-succeeded .rag-exec-icon { color: var(--color-success, #30d158); }
-.st-succeeded .rag-exec-name { color: var(--color-text-secondary, #98989d); }
-.st-failed .rag-exec-icon,
+.rag-exec-tail {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-line, #c5c6cc);
+  flex-shrink: 0;
+  transition: transform var(--transition-fast);
+}
+.rag-exec-tail.open { transform: rotate(180deg); }
+.rag-exec-tail :deep(svg) { width: 12px; height: 12px; }
+/* intent：文本占主区（取代 name+status），顶部对齐图标 */
+.rag-exec-intent { align-items: flex-start; }
+.rag-exec-intent .rag-exec-icon { color: var(--color-text-faint, #9ea0ab); padding-top: 1px; }
+.rag-exec-intent-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text-muted, #6e7280);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* hover：字体加深（非彩色状态行）*/
+.rag-exec-node:hover .rag-exec-name,
+.rag-exec-node:hover .rag-exec-icon { color: var(--color-text-primary, #1a1b1e); }
+.rag-exec-node:hover .rag-exec-status { color: var(--color-text-secondary, #4b4c55); }
+/* 失败/运行：hover 下保持状态色（优先级高于通用 hover，避免被加深盖掉）*/
+.st-failed.rag-exec-node:hover .rag-exec-name,
+.st-failed.rag-exec-node:hover .rag-exec-icon,
+.st-failed.rag-exec-node:hover .rag-exec-status { color: var(--color-error, #e05252); }
+.st-running.rag-exec-node:hover .rag-exec-name,
+.st-running.rag-exec-node:hover .rag-exec-icon { color: var(--color-running, #3b82f6); }
+/* 状态分层着色：名/图标/摘要随状态变化 */
+.st-running .rag-exec-name,
+.st-running .rag-exec-icon { color: var(--color-running, #3b82f6); }
 .st-failed .rag-exec-name,
-.st-failed .rag-exec-status { color: var(--color-error, #ff453a); }
-.st-failed .rag-exec-status { opacity: 0.85; }
+.st-failed .rag-exec-icon,
+.st-failed .rag-exec-status { color: var(--color-error, #e05252); }
+.st-failed .rag-exec-status { opacity: 0.9; }
 .rag-exec-empty {
   font-size: 12px;
-  color: var(--color-text-muted, #636366);
-  padding: 2px 0 2px 20px;
+  color: var(--color-text-muted, #6e7280);
+  padding: 3px 0;
+}
+
+/* 单工具展开详情：grid 0fr→1fr 高度动画；标签无底，内容加底；失败时结果区红底 */
+.rag-exec-detail-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-bottom: 0;
+  transition: grid-template-rows 0.24s var(--ease-spring, ease), margin-bottom 0.24s var(--ease-spring, ease);
+}
+.rag-exec-detail-wrap.is-open {
+  grid-template-rows: 1fr;
+  /* 展开时与下一个工具行拉开间隔（随高度动画一起渐变；折叠态收回 0 不占位）*/
+  margin-bottom: 10px;
+}
+.rag-exec-detail {
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rag-exec-detail-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.rag-exec-detail-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted, #6e7280);
+}
+.rag-exec-detail-pre {
+  margin: 0;
+  padding: 7px 9px;
+  background: var(--color-bg-input, #f4f5f8);
+  border-radius: var(--radius-sm, 8px);
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+  color: var(--color-text-secondary, #4b4c55);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.rag-exec-detail-text {
+  padding: 7px 9px;
+  background: var(--color-bg-input, #f4f5f8);
+  border-radius: var(--radius-sm, 8px);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-secondary, #4b4c55);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.rag-exec-detail-text.is-error {
+  background: rgba(var(--color-error-rgb, 224, 82, 82), 0.1);
+  color: var(--color-error, #e05252);
+}
+
+/* ── 打字三点 ── */
+.rag-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 2px;
+}
+.rag-typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-line, #c5c6cc);
+  animation: rag-typing-bounce 0.55s ease-in-out infinite;
+}
+.rag-typing span:nth-child(2) { animation-delay: 0.13s; }
+.rag-typing span:nth-child(3) { animation-delay: 0.26s; }
+@keyframes rag-typing-bounce {
+  0%, 100% { transform: translateY(0); opacity: 0.6; }
+  50% { transform: translateY(-4px); opacity: 1; }
 }
 
 .rag-msg--interaction {
   align-self: stretch;
 }
 
-.rag-input-bar {
+/* ── 断连条 ── */
+.rag-conn-bar {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
-  background: var(--color-bg-elevated, #1c1c1e);
+  padding: 8px 14px;
+  background: rgba(var(--color-error-rgb, 224, 82, 82), 0.1);
+  border-top: 1px solid var(--color-border, rgba(0, 0, 0, 0.06));
+  color: var(--color-error, #e05252);
+  font-size: 12px;
 }
-.rag-input {
-  flex: 1;
-  min-height: 40px;
-  max-height: 120px;
-  resize: none;
-  background: var(--color-bg-secondary, #2c2c2e);
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
-  border-radius: var(--radius-md, 10px);
-  color: var(--color-text-primary, #fff);
-  padding: 10px 12px;
-  font-size: 14px;
-  font-family: inherit;
-  outline: none;
-}
-.rag-input:focus { border-color: var(--color-border-focus, rgba(10, 132, 255, 0.5)); }
-.rag-send {
-  align-self: flex-end;
-  padding: 10px 18px;
+.rag-reconnect {
+  background: var(--color-error, #e05252);
+  color: var(--color-on-accent, #fff);
   border: none;
   border-radius: var(--radius-md, 10px);
-  background: var(--color-brand-accent, #0a84ff);
-  color: var(--color-on-color, #fff);
+  padding: 4px 12px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  font-size: 14px;
 }
-.rag-send:disabled { opacity: 0.4; cursor: not-allowed; }
-.rag-send.rag-stop { background: var(--color-error, #ff453a); }
 
+/* ── 输入栏 ── */
+.rag-input-bar {
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--color-border, rgba(0, 0, 0, 0.05));
+}
+.rag-input-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--color-bg-input, #f4f5f8);
+  border-radius: var(--radius-pill, 14px);
+  padding: 6px 10px;
+}
+.rag-input-btn {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-md, 10px);
+  background: transparent;
+  color: var(--color-text-faint, #9ea0ab);
+  cursor: default;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.rag-input-btn :deep(svg) { width: 16px; height: 16px; }
+.rag-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 24px;
+  max-height: 120px;
+  resize: none;
+  background: transparent;
+  border: none;
+  color: var(--color-text-primary, #1a1b1e);
+  padding: 4px 0;
+  font-size: 13.5px;
+  font-family: inherit;
+  outline: none;
+  line-height: 1.5;
+}
+.rag-input::placeholder { color: var(--color-text-placeholder, #b0b3be); }
+.rag-input:disabled { opacity: 0.6; }
+
+.rag-send {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-line, #c5c6cc);
+  color: var(--color-on-accent, #fff);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast), transform 0.12s var(--ease-default);
+}
+.rag-send :deep(svg) { width: 13px; height: 13px; }
+.rag-send:not(:disabled) { background: var(--color-accent, #4b4c55); }
+.rag-send:not(:disabled):hover { transform: scale(1.05); }
+.rag-send:disabled { cursor: not-allowed; opacity: 0.5; }
+.rag-send.rag-stop { background: var(--color-error, #e05252); }
+.rag-send.rag-stop:hover { transform: scale(1.05); }
+
+/* ── 面板开合动画（近似弹簧）── */
 .rag-panel-enter-active,
 .rag-panel-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity 0.22s var(--ease-spring), transform 0.22s var(--ease-spring);
+  transform-origin: bottom right;
 }
 .rag-panel-enter-from,
 .rag-panel-leave-to {
   opacity: 0;
-  transform: translateY(12px) scale(0.98);
+  transform: translateY(16px) scale(0.97);
 }
 </style>
