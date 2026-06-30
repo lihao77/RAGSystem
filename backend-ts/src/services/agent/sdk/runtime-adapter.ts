@@ -1,13 +1,13 @@
 /**
- * Runtime 适配器（方案 A 的集成钥匙）—— 组装投影 + ToolRegistry + store 适配器 +
+ * Runtime 适配器—— 组装投影 + ToolRegistry + 共享 SDK store +
  * createRuntime，跑 SDK 事件循环 + 翻译 + terminal。
  *
- * SDK 内核 + Dispatcher 独占 run/message/run_step 落库（经 SdkStoreAdapter 委托 ConversationStore）；
+ * SDK 内核 + Dispatcher 独占 run/message/run_step 落库（SDK 自带 SqliteRuntimeStore 指向同一 ragsystem.db）；
  * 本适配器只做：组装 createRuntime 入参、消费 KernelEvent 翻译成 Envelope 推 outbox（无 DB 落库，
  * 避免 SDK 与 backend-ts 双写 message/run_step）、terminal 补 run:end/final step + 终态 envelope
  *（final assistant 消息由 SDK Dispatcher.finalize 已写，此处只查库取其 id/seq 供 message_saved）。
  */
-import { buildTool, createRuntime, createToolRegistry, prepareTool, type CreateRuntimeOptions, type SessionMetadataPort } from "@ragsystem/agent-sdk";
+import { buildTool, createRuntime, createToolRegistry, prepareTool, type CreateRuntimeOptions, type SessionMetadataPort, type SqliteRuntimeStore } from "@ragsystem/agent-sdk";
 import type { AgentPromptContext, Tool, ToolExecContext, ToolExecutionResult, ToolRegistry } from "@ragsystem/agent-sdk";
 import { translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
@@ -25,7 +25,6 @@ import { createBackendTools } from "../../../tools/registry.js";
 import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/CodeExecution.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
-import { SdkStoreAdapter } from "./sdk-store-adapter.js";
 import { MemoryIndexContextSource, isMemoryEnabled } from "../memory/index.js";
 import { registerGateHook } from "./gate-hook.js";
 import { PathApprovalService } from "../../../services/runtime/path-service.js";
@@ -34,6 +33,8 @@ import type { DelegationPendingService, DelegationResolution } from "../../runti
 
 export interface SdkRuntimeAdapterDeps {
   conversationStore: ConversationStore;
+  /** SDK 共享 store（指向同一 ragsystem.db；createRuntime 复用，container close 时关）。 */
+  sdkStore: SqliteRuntimeStore;
   /** 工具依赖集合（service + getAgentDelegation；agent/teamName 由 per-run 提供）。 */
   toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName">;
   /** CodeExecution service——per-run 注入 callTool 回调用（execute_code 沙箱内工具互调）。 */
@@ -105,7 +106,6 @@ export async function executeRunWithSdk(
     providers: deps.providers,
     ...(input.selectedLlm !== undefined ? { selectedLlm: input.selectedLlm } : {}),
   });
-  const storeAdapter = new SdkStoreAdapter({ conversationStore: deps.conversationStore });
   // session metadata 端口：委托真实 ConversationStore，让 memory 源能读到 team/workspace_root，
   // 解析出 team/agent/workspace scope（否则只 session scope 存活，其余静默丢弃）。
   const sessionMetadata: SessionMetadataPort = {
@@ -186,7 +186,7 @@ export async function executeRunWithSdk(
     profile,
     tools: registry,
     dataRoot: deps.dataRoot,
-    store: storeAdapter,
+    store: deps.sdkStore,
     extraContextSources,
     promptContext,
     execContext: baseExecCtx,

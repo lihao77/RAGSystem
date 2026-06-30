@@ -67,6 +67,7 @@ export interface ModelProviderConfig {
   retry_delay?: number;
   retry_backoff_factor?: number;
   supports_function_calling?: boolean;
+  supports_vision?: boolean;
   is_loaded?: boolean;
   is_available?: boolean;
   [key: string]: unknown;

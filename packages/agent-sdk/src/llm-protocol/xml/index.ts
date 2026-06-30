@@ -4,7 +4,6 @@ export {
   type RuntimeToolCallParseResult,
 } from "./tool-calls.js";
 export {
-  isSemanticTaggedContent,
   renderNativeXmlProtocolInstruction,
   renderProtocolFeedbackMessage,
   renderRuntimeXmlProtocolInstruction,

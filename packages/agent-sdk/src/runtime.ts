@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import type { ChatMessage, LlmRequest } from "@ragsystem/agent-llm";
+import { extractText } from "@ragsystem/agent-llm";
 import { isAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
 import type { Context, EventSink, KernelResult, MessageRefresher, RuntimeSession, ToolExecContext, ToolWaitRequest, ToolWaitResult, RuntimeStore } from "./contracts.js";
 import type { KernelEvent } from "./contracts.js";
@@ -176,7 +177,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
   const historyPort: ConversationHistoryPort = {
     getRecentMessages: (sid, _limit, tk) => store.listMessages(sid, tk ?? "root") as unknown as MessageInfo[],
   };
-  const sources = options.contextSources ?? [...(options.extraContextSources ?? []), ...buildDefaultSources(historyPort)];
+  const sources = options.contextSources ?? [...(options.extraContextSources ?? []), ...buildDefaultSources(historyPort, defaultTier?.provider.supports_vision === true)];
   const contextBuilder = new AgentContextBuilder(sources, options.microcompactTtlSeconds !== undefined ? { microcompactTtlSeconds: options.microcompactTtlSeconds } : {});
   const { protocol: previewProtocol, toolInstructionMode } = createProtocol({
     provider: defaultTier?.provider,
@@ -287,7 +288,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
         let systemPromptTokens = 0;
         let historyTokens = 0;
         for (const message of requestMessages) {
-          const tokens = estimateTokens(message.content ?? "");
+          const tokens = estimateTokens(extractText(message.content));
           if (message.role === "system") {
             systemPromptTokens += tokens;
           } else {
@@ -337,7 +338,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       let systemPromptTokens = 0;
       let historyTokens = 0;
       for (const message of request.messages) {
-        const tokens = estimateTokens(message.content ?? "");
+        const tokens = estimateTokens(extractText(message.content));
         if (message.role === "system") {
           systemPromptTokens += tokens;
         } else {
@@ -364,7 +365,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
 async function runKernel(kernel: AgentKernel, session: RuntimeSession, dispatcher: Dispatcher): Promise<KernelResult> {
   try {
     const result = await kernel.run(session);
-    const finalMessage: ChatMessage | null = result.content ? { role: "assistant", content: result.content } : null;
+    const finalMessage = result.content ? { role: "assistant", content: result.content } : null;
     dispatcher.finalize("completed", finalMessage);
     return result;
   } catch (error) {
@@ -374,10 +375,10 @@ async function runKernel(kernel: AgentKernel, session: RuntimeSession, dispatche
   }
 }
 
-function buildDefaultSources(historyPort: ConversationHistoryPort): AgentContextSource[] {
+function buildDefaultSources(historyPort: ConversationHistoryPort, supportsVision: boolean): AgentContextSource[] {
   // 仅通用 recent_messages；领域 source（memory 等）由消费端经 extraContextSources 注入（SDK 领域无关）。
   // extraContextSources 在 default 之前装配，保证业务 source 写的 stablePrefixFingerprint 在 recent 读取之前。
-  return [new RecentMessagesContextSource(historyPort)];
+  return [new RecentMessagesContextSource(historyPort, supportsVision)];
 }
 
 function makeContextPort(builder: AgentContextBuilder, profile: AgentProfile, mode: "xml" | "native", promptContext: AgentPromptContext = {}): Context {

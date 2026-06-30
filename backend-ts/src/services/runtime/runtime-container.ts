@@ -22,6 +22,7 @@ import { LocalDocumentToolService } from "../../tools/DocumentTools/DocumentExec
 import { LocalSearchToolService } from "../../tools/LocalSearchTools/SearchExecution.js";
 import { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
+import { SqliteRuntimeStore } from "@ragsystem/agent-sdk";
 import { MemoryStore } from "../stores/memory-store.js";
 import { MemoryToolService } from "../../tools/MemoryTools/MemoryExecution.js";
 import { McpService } from "../integrations/mcp-service.js";
@@ -83,6 +84,8 @@ export interface RuntimeContainer {
    * 未配时为 undefined，widget 路由与 ws 握手鉴权跳过，后端保持现状。
    */
   readonly widgetAuth?: WidgetAuthService;
+  /** SDK 共享 store（指向同一 ragsystem.db；createRuntime 复用，container close 时关）。 */
+  readonly sdkStore: SqliteRuntimeStore;
   /** 数据根目录（memory store / 工具数据用）；snapshot 装配 createRuntime 时透传。 */
   readonly dataRoot: string;
   close(): void;
@@ -107,6 +110,8 @@ export interface RuntimeContainerOptions {
 
 export function createRuntimeContainer(options: RuntimeContainerOptions): RuntimeContainer {
   const conversationStore = createConversationStore({ dbPath: options.dbPath, dataRoot: options.dataRoot });
+  // SDK store 归位：共享 SqliteRuntimeStore 指向同一 ragsystem.db，所有 createRuntime 复用同一连接（避免 per-call 连接泄漏）。
+  const sdkStore = new SqliteRuntimeStore({ dbPath: options.dbPath });
   const fileHistory = new FileHistoryService({ dataRoot: options.dataRoot });
   const sessionApplication = new AgentSessionApplication(conversationStore, fileHistory);
   const realtimeEvents = new RealtimeEventHub();
@@ -219,6 +224,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const agentExecution = createAgentExecutionService({
     sessions: sessionApplication,
     conversationStore,
+    sdkStore,
     runtimeCore,
     dataRoot,
    toolsDeps,
@@ -254,10 +260,12 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     // conversation/file-index/vector 三个 store 各自开 SQLite 句柄（同 dbPath，WAL 允许多连接），
     // 各自需 close 释放文件句柄/WAL。conversationStore 是最底层（被 sessionApplication/outbox 等
     // 依赖），其上层已先关，故最后关。fileHistory/memoryStore 纯文件无句柄，无需 close。
+    sdkStore.close();
     conversationStore.close();
   };
   return {
     conversationStore,
+    sdkStore,
     sessionApplication,
     realtimeEvents,
     agentExecution,

@@ -5,7 +5,7 @@ export { NativeHybridProtocol } from "./native-hybrid-protocol.js";
 export type { NativeHybridProtocolDeps } from "./native-hybrid-protocol.js";
 export { createProtocol, resolveToolInstructionMode } from "./select-protocol.js";
 export type { ProtocolFactoryOptions, SelectedProtocol } from "./select-protocol.js";
-export { renderSemanticChatMessage, renderXmlModelMessage, renderNativeModelMessage } from "./message-rendering.js";
+export { renderXmlModelMessage, renderNativeModelMessage } from "./message-rendering.js";
 export {
   StreamingRuntimeXmlParser,
   parseRuntimeToolCallsXml,
@@ -14,7 +14,6 @@ export {
   renderNativeXmlProtocolInstruction,
   renderProtocolFeedbackMessage,
   renderSemanticBlock,
-  isSemanticTaggedContent,
   escapeXmlAttribute,
 } from "./xml/index.js";
 export type { RuntimeXmlTag, RuntimeXmlParseEvent, ParsedToolCall, RuntimeToolCallParseResult } from "./xml/index.js";

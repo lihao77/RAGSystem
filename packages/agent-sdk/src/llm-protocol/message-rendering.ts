@@ -1,63 +1,33 @@
 /**
  * 消息渲染（迁自 backend-ts message-builder.ts + 两协议的 toModelMessages）。
  *
- * 两个 Protocol 实现共用同一渲染逻辑，避免散落副本：
- * - renderSemanticChatMessage：把结构化 ChatMessage 包进语义 XML 块（<user_input>/<assistant_final> 等）。
- * - renderXmlModelMessage：XML 模型语境——role:tool -> role:user，assistant+tool_calls -> <intent><tool_calls> XML。
- * - renderNativeModelMessage：FC 直传（厂商模型原生消费 content + tool_calls + role:tool）。
+ * 两协议的消息渲染统一为按 role 原样发——XML 协议只约束模型**输出**（<intent>/<tool_calls>/<final_answer>），
+ * 不包装输入/历史。区别仅在工具调用：xml 用 XML 标签重建（模型不支持厂商 FC），native 直传厂商 FC。
+ * 历史语义包装（<user_input>/<assistant_final> 等）已移除：它们多余且 <assistant_final> 与输出协议
+ * <final_answer> 语义撞车。user content（含图片 image part）原样直达模型。
  */
 import type { ChatMessage } from "@ragsystem/agent-llm";
-import { isSemanticTaggedContent, renderSemanticBlock, serializeToolCallsToXml } from "./xml/index.js";
-
-/** 把单条结构化 ChatMessage 包进语义块（已语义标签的直传）。 */
-export function renderSemanticChatMessage(message: ChatMessage): ChatMessage {
-  if (isSemanticTaggedContent(message.content)) {
-    return { ...message };
-  }
-  if (message.role === "user") {
-    return {
-      ...message,
-      content: renderSemanticBlock("user_input", message.content, { source: "conversation" }),
-    };
-  }
-  if (message.role === "assistant") {
-    return {
-      ...message,
-      content: renderSemanticBlock("assistant_final", message.content, { source: "conversation" }),
-    };
-  }
-  if (message.role === "tool") {
-    return {
-      ...message,
-      content: renderSemanticBlock("tool_result", message.content, {
-        source: "native_tool_message",
-        call_id: message.tool_call_id ?? "",
-        name: message.name ?? "",
-      }),
-    };
-  }
-  // system
-  return { ...message, content: renderSemanticBlock("system_instruction", message.content, { source: "agent_config" }) };
-}
+import { extractText } from "@ragsystem/agent-llm";
+import { renderSemanticBlock, serializeToolCallsToXml } from "./xml/index.js";
 
 /**
  * XML 模型语境渲染（XmlProtocol.toModelMessages 的单条实现）：
- * - role:tool -> role:user 透传 observation 文本（XML 模型不认 role:tool）。
- * - assistant 带 tool_calls -> <intent>content</intent><tool_calls>...</tool_calls>（从结构化字段重建）。
- * - 其余沿用 renderSemanticChatMessage 的语义包装。
+ * - role:tool -> role:user 透传 observation（XML 模型不认 role:tool）。
+ * - assistant 带 tool_calls -> <intent>content</intent><tool_calls>...</tool_calls>（工具调用用 XML 标签重建）。
+ * - 其余（user/assistant 纯文本/system）原样透传——XML 协议只约束输出，user content（含图片）直达模型。
  */
 export function renderXmlModelMessage(message: ChatMessage): ChatMessage {
   if (message.role === "tool") {
     return { role: "user", content: message.content };
   }
   if (message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0) {
-    const intent = message.content ? renderSemanticBlock("intent", message.content) : "";
+    const intent = message.content ? renderSemanticBlock("intent", extractText(message.content)) : "";
     return { role: "assistant", content: `${intent}${serializeToolCallsToXml(message.tool_calls)}` };
   }
-  return renderSemanticChatMessage(message);
+  return { ...message };
 }
 
-/** Native FC 模型语境渲染：结构化直传（厂商模型原生消费）。 */
+/** Native FC 模型语境渲染：结构化直传（厂商模型原生消费 content + tool_calls + role:tool）。 */
 export function renderNativeModelMessage(message: ChatMessage): ChatMessage {
   return { ...message };
 }

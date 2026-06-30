@@ -6,11 +6,11 @@ import type { OutboxStatus } from "../../contracts/conversation-store/index.js";
 import { resolveContextCompressionSettings } from "../../services/agent/context-compression/index.js";
 import { createRuntime, createToolRegistry } from "@ragsystem/agent-sdk";
 import { projectAgentProfile } from "../../services/agent/sdk/projection.js";
-import { SdkStoreAdapter } from "../../services/agent/sdk/sdk-store-adapter.js";
 import { MemoryIndexContextSource, isMemoryEnabled } from "../../services/agent/memory/index.js";
 import { createBackendTools } from "../../tools/registry.js";
 import { PathApprovalService } from "../../services/runtime/path-service.js";
 import type { ChatMessage, ChatToolCall } from "@ragsystem/agent-llm";
+import { extractText } from "@ragsystem/agent-llm";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import { isRecord } from "../../utils/guards.js";
@@ -151,7 +151,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const runtime = createRuntime({
       profile,
       tools: registry,
-      store: new SdkStoreAdapter({ conversationStore: options.container.conversationStore }),
+      store: options.container.sdkStore,
       dataRoot: options.container.dataRoot,
       extraContextSources,
       microcompactTtlSeconds: options.container.systemConfig.getMicrocompactTtlSeconds(),
@@ -272,12 +272,13 @@ function toContextHistoryItem(
   tool_call_id: string | null;
   name: string | null;
 } {
+  const text = extractText(message.content);
   return {
     seq: original?.seq ?? null,
     role: message.role,
-    content_preview: message.content,
-    content_length: message.content.length,
-    tokens: estimateTokens(message.content),
+    content_preview: text,
+    content_length: text.length,
+    tokens: estimateTokens(text),
     is_compression_summary: Boolean(original?.metadata.compression),
     react_intermediate: Boolean(original?.metadata.react_intermediate),
     msg_type: normalizeString(original?.metadata.msg_type),

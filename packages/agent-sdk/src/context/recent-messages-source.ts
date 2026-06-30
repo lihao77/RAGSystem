@@ -11,6 +11,7 @@ import type {
 } from "./types.js";
 import { HISTORY_SCAN_LIMIT } from "./types.js";
 import { getString, isSessionMetadataPort, readPipelineCache } from "./helpers.js";
+import fs from "node:fs";
 import {
   countObservationMessages,
   filterHistoryMessages,
@@ -18,12 +19,13 @@ import {
   microcompactHistoryMessages,
   resolveCompressionViewDetailed,
 } from "./history-view.js";
+import { enrichConversationImages } from "./attachment-image.js";
 
 export class RecentMessagesContextSource implements AgentContextSource {
   readonly name = "recent_messages";
   private readonly sessions: SessionMetadataPort | null;
 
-  constructor(private readonly history: ConversationHistoryPort) {
+  constructor(private readonly history: ConversationHistoryPort, private readonly supportsVision: boolean = false) {
     this.sessions = isSessionMetadataPort(history) ? history : null;
   }
 
@@ -58,7 +60,10 @@ export class RecentMessagesContextSource implements AgentContextSource {
         ttl_seconds: request.microcompactTtlSeconds,
       };
     }
-    return { conversation: messagesToConversation(microcompact.messages), rawMessages: microcompact.messages, metadata };
+    const conversation = messagesToConversation(microcompact.messages);
+    // 图片注入（组装层，压缩视图之后）：user 消息的 image 附件读盘转 base64 注入 content。
+    enrichConversationImages(conversation, microcompact.messages, readAttachmentImage, this.supportsVision);
+    return { conversation, rawMessages: microcompact.messages, metadata };
   }
 
   private resolveMicrocompactDecision(
@@ -83,5 +88,25 @@ export class RecentMessagesContextSource implements AgentContextSource {
       reason = "ttl_expired";
     }
     return { requested: true, applied, reason };
+  }
+}
+
+/** 附件图片 base64 缓存（storedPath → dataUrl；空串为读盘失败标记，避免重复读失败）。图片文件内容不变，多轮对话复用。 */
+const attachmentImageCache = new Map<string, string>();
+
+/** 读附件图片为 base64 data URL；读盘失败返回 null（由 enrichConversationImages 降级为文本占位）。结果缓存。 */
+function readAttachmentImage(storedPath: string, mime: string): string | null {
+  if (attachmentImageCache.has(storedPath)) {
+    const cached = attachmentImageCache.get(storedPath);
+    return cached === "" ? null : cached ?? null;
+  }
+  try {
+    const buf = fs.readFileSync(storedPath);
+    const url = `data:${mime || "image/png"};base64,${buf.toString("base64")}`;
+    attachmentImageCache.set(storedPath, url);
+    return url;
+  } catch {
+    attachmentImageCache.set(storedPath, "");
+    return null;
   }
 }

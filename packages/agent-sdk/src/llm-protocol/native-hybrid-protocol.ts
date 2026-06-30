@@ -14,6 +14,7 @@
  * visibleTools 来源从 session.toolExecutor 改为 deps.getTools()（SDK 工具端口尚未接入，默认空）。
  */
 import type { ChatMessage, ChatToolCall, ChatToolDefinition, LlmClient, LlmRequest, LlmStreamHandler, ProviderConfig } from "@ragsystem/agent-llm";
+import { extractText } from "@ragsystem/agent-llm";
 import { RuntimeAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
 import type { EventSink, KernelContext, KernelObservation, KernelOutcome, KernelToolCall, Protocol } from "../contracts.js";
 import { readTierParams } from "../llm-params/index.js";
@@ -76,7 +77,7 @@ export class NativeHybridProtocol implements Protocol {
     let injected = false;
     for (const msg of requestMessages) {
       if (!injected && msg.role === "system") {
-        const parts = [msg.content, instructionBlock];
+        const parts = [extractText(msg.content), instructionBlock];
         enriched.push({ role: "system", content: parts.join("\n\n") });
         injected = true;
       } else {

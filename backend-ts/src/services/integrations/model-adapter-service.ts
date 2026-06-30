@@ -29,6 +29,7 @@ const UPDATE_FIELDS = [
   "retry_delay",
   "retry_backoff_factor",
   "supports_function_calling",
+  "supports_vision",
   "model_map",
   "api_endpoint",
 ] as const;
@@ -593,6 +594,9 @@ function assignProviderField(config: ModelProviderConfig, field: (typeof UPDATE_
       break;
     case "supports_function_calling":
       config.supports_function_calling = Boolean(value);
+      break;
+    case "supports_vision":
+      config.supports_vision = Boolean(value);
       break;
     case "model_map":
       config.model_map = normalizeModelMap(value);

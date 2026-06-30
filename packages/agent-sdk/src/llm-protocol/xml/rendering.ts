@@ -85,11 +85,6 @@ export function renderSemanticBlock(tagName: string, content: string, attributes
   return `<${tagName}${renderedAttributes}>${wrapCdata(content)}</${tagName}>`;
 }
 
-/** 内容是否已被语义标签包裹（避免重复包装）。 */
-export function isSemanticTaggedContent(content: string): boolean {
-  return /^<([A-Za-z_][\w:-]*)(\s[^>]*)?>[\s\S]*<\/\1>\s*$/.test(content.trim());
-}
-
 /** XML 属性转义。 */
 export function escapeXmlAttribute(value: string): string {
   return value

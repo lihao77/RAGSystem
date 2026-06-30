@@ -157,6 +157,8 @@ class SqliteTx implements RuntimeTx {
 export interface SqliteStoreOptions {
   dataRoot?: string;
   dbName?: string;
+  /** 显式 db 文件路径，优先于 dataRoot+dbName（消费端共享既有库时用）。 */
+  dbPath?: string;
 }
 
 export class SqliteRuntimeStore implements RuntimeStore {
@@ -165,12 +167,15 @@ export class SqliteRuntimeStore implements RuntimeStore {
 
   constructor(options: SqliteStoreOptions = {}) {
     this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
-    fs.mkdirSync(this.dataRoot, { recursive: true });
-    const dbPath = path.join(this.dataRoot, options.dbName ?? "conversation.db");
+    const dbPath = options.dbPath ?? path.join(this.dataRoot, options.dbName ?? "conversation.db");
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     this.db = new DatabaseSync(dbPath);
     this.db.exec("PRAGMA foreign_keys = ON");
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA synchronous = NORMAL");
+    // 消费端可能开第二个连接同操作此库（backend ConversationStore）。WAL 下两写事务不能并发，
+    // busy_timeout 让第二方等待而非立即抛 SQLITE_BUSY。
+    this.db.exec("PRAGMA busy_timeout = 5000");
     this.db.exec(STORE_SCHEMA_SQL);
   }
 
@@ -216,6 +221,10 @@ export class SqliteRuntimeStore implements RuntimeStore {
   }
 
   createRun(input: CreateRunInput): void {
+    // 先查后插：委派等场景消费端可能已预创建 run（带血缘），此处幂等跳过不覆盖；SDK 先建时消费端后插也不冲突。
+    if (this.getRun(input.id) !== null) {
+      return;
+    }
     // sessions 是 runs/messages 的外键父表；INSERT OR IGNORE 保证调用顺序无关（createRun 先于
     // addMessage 也能跑），对齐 addMessageInternal 的同名兜底。
    this.db

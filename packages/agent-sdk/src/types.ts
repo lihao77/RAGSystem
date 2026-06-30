@@ -5,7 +5,7 @@
  * 负责把 agent.llm_tiers 解析成全量已决的 ResolvedTier 表、selectLlm 替换 default、字段回落算死。
  * SDK 内核零兜底，只读这些已决值。
  */
-import type { ProviderConfig } from "@ragsystem/agent-llm";
+import type { ContentPart, ProviderConfig } from "@ragsystem/agent-llm";
 
 /**
  * 全量已决的 tier 档：provider 已内联（非引用字符串）、参数已填、缺档已补齐。
@@ -92,7 +92,7 @@ export interface MessageInfo {
   seq: number;
  sessionId: string;
   role: MessageRole;
-  content: string;
+  content: string | ContentPart[];
   metadata: Record<string, unknown>;
   createdAt: string;
   threadKey: string;

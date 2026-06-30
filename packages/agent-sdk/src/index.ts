@@ -48,5 +48,5 @@ export type { RuntimeToolProviderOptions, ToolRoundExecutorOptions, ToolSchedule
 // LLM 协议模块（工具调用编码：XML/native 协议解析 + 自动选择）
 export { XmlProtocol, NativeHybridProtocol, createProtocol, resolveToolInstructionMode } from "./llm-protocol/index.js";
 export type { XmlProtocolDeps, NativeHybridProtocolDeps, ProtocolFactoryOptions, SelectedProtocol } from "./llm-protocol/index.js";
-export { renderSemanticChatMessage, renderXmlModelMessage, renderNativeModelMessage, StreamingRuntimeXmlParser, parseRuntimeToolCallsXml, serializeToolCallsToXml, renderRuntimeXmlProtocolInstruction, renderNativeXmlProtocolInstruction } from "./llm-protocol/index.js";
+export { renderXmlModelMessage, renderNativeModelMessage, StreamingRuntimeXmlParser, parseRuntimeToolCallsXml, serializeToolCallsToXml, renderRuntimeXmlProtocolInstruction, renderNativeXmlProtocolInstruction } from "./llm-protocol/index.js";
 export type { RuntimeXmlTag, RuntimeXmlParseEvent, ParsedToolCall, RuntimeToolCallParseResult } from "./llm-protocol/index.js";

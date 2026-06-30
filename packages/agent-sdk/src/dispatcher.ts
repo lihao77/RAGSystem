@@ -10,6 +10,7 @@
  * 实现 EventSink：注入内核，内核 emit → 本类落库 + 推流。
  */
 import type { ChatMessage } from "@ragsystem/agent-llm";
+import { extractText } from "@ragsystem/agent-llm";
 import type { EventSink, KernelEvent, RuntimeStore, RuntimeTx } from "./contracts.js";
 import { AsyncQueue } from "./async-queue.js";
 
@@ -324,7 +325,7 @@ export class Dispatcher implements EventSink {
      const input: import("./contracts.js").AddMessageInput = {
        sessionId: this.ctx.sessionId,
        role: "assistant",
-       content: message.content,
+       content: extractText(message.content),
         threadKey: this.ctx.threadKey,
           metadata: { ...this.messageMeta(round), msg_type: "intent" },
       };
@@ -341,7 +342,7 @@ export class Dispatcher implements EventSink {
         const input: import("./contracts.js").AddMessageInput = {
           sessionId: this.ctx.sessionId,
        role: "tool",
-       content: message.content,
+       content: extractText(message.content),
         threadKey: this.ctx.threadKey,
           metadata: { ...this.messageMeta(round), msg_type: "observation" },
       };

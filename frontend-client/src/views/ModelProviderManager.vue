@@ -295,7 +295,11 @@
                   <input type="checkbox" v-model="form.supports_function_calling" />
                   <span>启用原生 Function Calling</span>
                 </label>
-                <p class="form-hint adm-form-hint">勾选后 OpenAI 兼容 Provider 走厂商原生 FC（需模型支持）；anthropic 自动走原生 tool_use 无需此项；不勾选则回退 XML 协议（兼容旧行为）。</p>
+                <label class="fc-toggle">
+                  <input type="checkbox" v-model="form.supports_vision" />
+                  <span>支持图片输入（Vision）</span>
+                </label>
+                <p class="form-hint adm-form-hint">勾选后 OpenAI 兼容 Provider 走厂商原生 FC（需模型支持）；anthropic 自动走原生 tool_use 无需此项；不勾选则回退 XML 协议（兼容旧行为）。Vision 项标记模型能否识别图片：未勾选时用户上传的图片会降级为文字占位（模型知晓有图但无法识别），避免厂商 API 报错。</p>
               </div>
             </div>
           </section>
@@ -821,7 +825,8 @@ function buildFormDefaults() {
     name: '', provider_type: '', api_key: '', api_endpoint: '',
     temperature: 0.7, max_completion_tokens: 4096,
     max_context_tokens: 128000, timeout: 60,
-    supports_function_calling: false
+    supports_function_calling: false,
+    supports_vision: false
   }
 }
 
@@ -849,7 +854,8 @@ function openEditDialog(provider) {
     max_completion_tokens: provider.max_completion_tokens || 4096,
     max_context_tokens: provider.max_context_tokens || 128000,
     timeout: provider.timeout || 60,
-    supports_function_calling: provider.supports_function_calling ?? false
+    supports_function_calling: provider.supports_function_calling ?? false,
+    supports_vision: provider.supports_vision ?? false
   }
   for (const field of getProviderConfigFields(nextForm.provider_type)) {
     nextForm[field.key] = provider[field.key] ?? field.default ?? ''

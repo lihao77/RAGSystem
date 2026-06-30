@@ -8,10 +8,25 @@
  * LLM 层不做 agent tier 解析（产品逻辑）。
  */
 
+/** 文本内容片段。 */
+export interface TextPart {
+  type: "text";
+  text: string;
+}
+
+/** 图片内容片段（OpenAI image_url 风格；url 用 data URL 或 http(s) URL）。 */
+export interface ImagePart {
+  type: "image_url";
+  image_url: { url: string; detail?: "auto" | "low" | "high" };
+}
+
+/** 多模态内容片段（OpenAI 标准 content array 元素）。 */
+export type ContentPart = TextPart | ImagePart;
+
 /** 单条聊天消息（LLM 通信核心结构，基金层拥有；agent-sdk 复用）。 */
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
-  content: string;
+  content: string | ContentPart[];
   name?: string;
   tool_call_id?: string;
   tool_calls?: ChatToolCall[];
@@ -50,6 +65,7 @@ export interface ProviderConfig {
   api_endpoint?: string | null;
   api_key?: string | null;
   supports_function_calling?: boolean | null;
+  supports_vision?: boolean | null;
   max_completion_tokens?: number | null;
   max_tokens?: number | null;
   temperature?: number | null;

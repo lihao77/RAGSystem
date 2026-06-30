@@ -23,6 +23,7 @@
  *   XML 模式不下发 native tools 字段（withoutNativeTools）。
  */
 import type { ChatMessage, ChatToolCall, LlmClient, LlmRequest, LlmStreamHandler, ProviderConfig } from "@ragsystem/agent-llm";
+import { extractText } from "@ragsystem/agent-llm";
 import { RuntimeAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
 import type { EventSink, KernelContext, KernelObservation, KernelOutcome, KernelToolCall, Protocol } from "../contracts.js";
 import { readTierParams } from "../llm-params/index.js";
@@ -91,7 +92,7 @@ export class XmlProtocol implements Protocol {
     for (const msg of requestMessages) {
       if (!injected && msg.role === "system") {
         const parts = [
-          renderSemanticBlock("system_instruction", msg.content, { source: "agent_config" }),
+          renderSemanticBlock("system_instruction", extractText(msg.content), { source: "agent_config" }),
           instructionBlock,
         ];
         enriched.push({ role: "system", content: parts.join("\n\n") });

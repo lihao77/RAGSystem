@@ -1,4 +1,7 @@
 /** token 估算（迁自 backend-ts context-compression estimateTokens）。CJK 1 token、其余 1/4 字符。 */
+import type { ContentPart } from "@ragsystem/agent-llm";
+import { extractText } from "@ragsystem/agent-llm";
+
 export function estimateTokens(content: string): number {
   if (!content) {
     return 0;
@@ -8,6 +11,6 @@ export function estimateTokens(content: string): number {
   return Math.max(1, cjkChars + Math.ceil(nonCjk / 4));
 }
 
-export function countMessagesTokens(messages: ReadonlyArray<{ content: string }>): number {
-  return messages.reduce((total, message) => total + estimateTokens(message.content), 0);
+export function countMessagesTokens(messages: ReadonlyArray<{ content: string | ContentPart[] }>): number {
+  return messages.reduce((total, message) => total + estimateTokens(extractText(message.content)), 0);
 }

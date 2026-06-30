@@ -15,6 +15,7 @@ import type {
 } from "./types.js";
 import { DEFAULT_ENDPOINTS, OPENAI_COMPATIBLE_TYPES } from "./provider-registry.js";
 import { compactRecord } from "./record-utils.js";
+import { extractText, toResponsesContent, toAnthropicContent } from "./content-parts.js";
 
 export class OpenAiCompatibleClient implements LlmClient {
   async complete(request: LlmRequest): Promise<LlmResult> {
@@ -230,10 +231,14 @@ function resolveBaseEndpoint(provider: ProviderConfig): string {
 
 function buildResponsesBody(request: LlmRequest): Record<string, unknown> {
   const instructions =
-    request.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n") || undefined;
+    request.messages.filter((m) => m.role === "system").map((m) => extractText(m.content)).join("\n\n") || undefined;
   const input = request.messages
     .filter((m) => m.role !== "system")
-    .map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
+    .map((m) => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      // 图片只在 user 消息；string content 保持 Responses 简化形态，array（带图）转 input part 数组。
+      content: typeof m.content === "string" ? m.content : toResponsesContent(m.content),
+    }));
   return {
     ...compactRecord(request.extraParams),
     model: request.model,
@@ -256,7 +261,7 @@ function buildResponsesBody(request: LlmRequest): Record<string, unknown> {
 function buildAnthropicBody(request: LlmRequest, stream = false): Record<string, unknown> {
   const system = request.messages
     .filter((m) => m.role === "system")
-    .map((m) => ({ type: "text", text: m.content }));
+    .map((m) => ({ type: "text", text: extractText(m.content) }));
   const messages = request.messages
     .filter((m) => m.role !== "system")
     .map((m) => mapAnthropicMessage(m));
@@ -289,7 +294,7 @@ function mapAnthropicMessage(message: ChatMessage): Record<string, unknown> {
         {
           type: "tool_result",
           tool_use_id: message.tool_call_id,
-          content: typeof message.content === "string" ? message.content : JSON.stringify(message.content),
+          content: extractText(message.content),
         },
       ],
     };
@@ -297,7 +302,7 @@ function mapAnthropicMessage(message: ChatMessage): Record<string, unknown> {
   if (message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0) {
     const content: unknown[] = [];
     if (message.content) {
-      content.push({ type: "text", text: message.content });
+      content.push({ type: "text", text: extractText(message.content) });
     }
     for (const toolCall of message.tool_calls) {
       content.push({
@@ -311,7 +316,8 @@ function mapAnthropicMessage(message: ChatMessage): Record<string, unknown> {
   }
   return {
     role: message.role === "assistant" ? "assistant" : "user",
-    content: [{ type: "text", text: message.content }],
+    // user 消息可能带图（ContentPart[]）→ Anthropic text/image blocks；纯文本消息走同一 helper。
+    content: toAnthropicContent(message.content),
   };
 }
 

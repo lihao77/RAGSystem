@@ -7,7 +7,8 @@
  * - summarizeSegment：读 llm-params/summary-tier（fast→default），不查 systemConfig/modelProviders
  * - LLM 摘要直接用 profile.llmTiers 候选 + tier-params 参数，无 provider-lookup
  */
-import type { LlmClient, LlmRequest, ChatMessage } from "@ragsystem/agent-llm";
+import type { LlmClient, LlmRequest, ChatMessage, ContentPart } from "@ragsystem/agent-llm";
+import { extractText } from "@ragsystem/agent-llm";
 import type { RuntimeStore } from "../contracts.js";
 import type { MessageInfo, AgentProfile, CompressionBudgetConfig } from "../types.js";
 import { resolveContextBudget } from "../llm-params/budget.js";
@@ -38,7 +39,7 @@ export interface ContextCompressionSettings {
   minContextBudget: number;
 }
 
-export type SummarizableMessage = { role: string; content: string };
+export type SummarizableMessage = { role: string; content: string | ContentPart[] };
 
 export interface ContextCompressionResult {
   status: "skipped" | "success";
@@ -304,7 +305,7 @@ function buildSummaryMessages(segment: ReadonlyArray<SummarizableMessage>, exist
     ? `\n\n---已有历史摘要（将与新内容合并）---\n${existingSummary.trim()}\n---end---`
     : "";
   const conversationText =
-    segment.map((m) => `${m.role}: ${m.content.trim()}`).filter((line) => line.trim()).join("\n") || "（无内容）";
+    segment.map((m) => `${m.role}: ${extractText(m.content).trim()}`).filter((line) => line.trim()).join("\n") || "（无内容）";
   return [
     { role: "system", content: "你是一名专业的对话摘要助手。你的任务是将对话压缩为结构化摘要，以便后续会话继续进行。不要调用任何工具，只输出文本。" },
     { role: "user", content: `${NO_TOOLS_PREAMBLE}${COMPACT_PROMPT_BODY}${existingSection}\n\n---待压缩对话内容---\n${conversationText}\n---end---${NO_TOOLS_TRAILER}` },
@@ -337,7 +338,7 @@ function selectCompressibleSegment(historyResolved: MessageInfo[], settings: Con
   if (segment.length === 0 || replacesUpToSeq === null) {
     return { ok: false, reason: "missing_segment_seq" };
   }
-  const existingSummary = startIndex === 1 ? historyResolved[0]?.content ?? "" : "";
+  const existingSummary = startIndex === 1 ? extractText(historyResolved[0]?.content ?? "") : "";
   return { ok: true, segment, replacesUpToSeq, existingSummary };
 }
 

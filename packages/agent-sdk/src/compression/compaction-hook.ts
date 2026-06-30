@@ -4,6 +4,7 @@
  */
 import type { RoundBeforeInput } from "../hooks/types.js";
 import { estimateTokens } from "./token-estimate.js";
+import { extractText } from "@ragsystem/agent-llm";
 
 const BACKGROUND_NOTIFICATION_PREFIX = "<task-notification>";
 
@@ -19,7 +20,7 @@ export function createCompactionHook(
   const threshold = Math.floor(deps.budgetTokens * deps.triggerRatio);
   return async (input: RoundBeforeInput): Promise<void> => {
     const ctx = input.ctx;
-    const tokens = ctx.messages.reduce((total, message) => total + estimateTokens(message.content), 0);
+    const tokens = ctx.messages.reduce((total, message) => total + estimateTokens(extractText(message.content)), 0);
     if (tokens < threshold) {
       return;
     }
@@ -29,7 +30,7 @@ export function createCompactionHook(
     }
     // 重建自 store，丢失本轮经 refresher 注入、尚未入库的背景通知，替换后补回。
     const pendingNotifications = ctx.messages.filter((message) =>
-      message.content.startsWith(BACKGROUND_NOTIFICATION_PREFIX),
+      extractText(message.content).startsWith(BACKGROUND_NOTIFICATION_PREFIX),
     );
     ctx.replaceAll(rebuilt);
     if (pendingNotifications.length) {

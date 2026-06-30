@@ -12,7 +12,7 @@ import type {
   StreamExecuteRequest,
 } from "../../../contracts/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
-import type { HookRegistry } from "@ragsystem/agent-sdk";
+import type { HookRegistry, SqliteRuntimeStore } from "@ragsystem/agent-sdk";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
@@ -63,6 +63,8 @@ export type AgentExecutionService = AgentExecutionServiceApi;
 export interface AgentExecutionServiceParams {
   sessions: AgentSessionApplication;
   conversationStore: ConversationStore;
+  /** SDK 共享 store（createRuntime 复用，指向同一 ragsystem.db）。 */
+  sdkStore: SqliteRuntimeStore;
   runtimeCore: RuntimeExecutionConfigResolver;
   dataRoot: string;
   /** per-agent 工具依赖（runtime-adapter per-run 构建 Tool[] 用）。 */
@@ -117,6 +119,7 @@ export function createAgentExecutionService(
     params.runtimeCore,
     params.providersProvider,
     params.conversationStore,
+    params.sdkStore,
     params.clientEvents,
   );
   const runEngine = new AgentRunEngine(
@@ -138,6 +141,7 @@ export function createAgentExecutionService(
     params.delegationPending,
     params.logger ?? null,
     params.hooks ?? null,
+    params.sdkStore,
     params.microcompactTtlSeconds,
   );
   const launchers = createLaunchers({

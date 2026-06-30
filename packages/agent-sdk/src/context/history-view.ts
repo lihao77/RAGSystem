@@ -3,6 +3,7 @@
  * 删 attachment-resolver 依赖（SDK 不处理附件）。核心逻辑零改动。
  */
 import type { ChatMessage } from "@ragsystem/agent-llm";
+import { extractText } from "@ragsystem/agent-llm";
 import type { MessageInfo } from "../types.js";
 import { MICROCOMPACT_CLEARED_LABEL } from "./types.js";
 import { numberOrNull } from "./helpers.js";
@@ -147,7 +148,7 @@ export function microcompactHistoryMessages(messages: MessageInfo[], keepRecentT
       return message;
     }
     const nextContent = microcompactClearedContent(message);
-    if (message.content === nextContent) {
+    if (extractText(message.content) === nextContent) {
       return message;
     }
     clearedCount += 1;
@@ -161,8 +162,9 @@ export function countObservationMessages(messages: MessageInfo[]): number {
 }
 
 function microcompactClearedContent(message: MessageInfo): string {
-  if (message.content === MICROCOMPACT_CLEARED_LABEL || message.content.startsWith("[工具结果已清理")) {
-    return message.content;
+  const text = extractText(message.content);
+  if (text === MICROCOMPACT_CLEARED_LABEL || text.startsWith("[工具结果已清理")) {
+    return text;
   }
   const round = message.metadata.round;
   return typeof round === "number" && Number.isFinite(round) ? `[工具结果已清理，轮次 ${round}]` : MICROCOMPACT_CLEARED_LABEL;
