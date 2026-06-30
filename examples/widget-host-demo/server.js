@@ -74,7 +74,11 @@ const server = http.createServer(async (req, res) => {
   if (url === "/widget.js") {
     try {
       const buf = fs.readFileSync(BUNDLE);
-      res.writeHead(200, { "content-type": "application/javascript; charset=utf-8" });
+      res.writeHead(200, {
+        "content-type": "application/javascript; charset=utf-8",
+        // 开发期禁缓存：widget bundle 频繁重建，避免浏览器持有旧 /widget.js。
+        "cache-control": "no-cache, no-store, must-revalidate",
+      });
       res.end(buf);
     } catch {
       res.writeHead(404, { "content-type": "text/plain" });
@@ -94,7 +98,10 @@ const server = http.createServer(async (req, res) => {
     const html = fs.readFileSync(INDEX_HTML, "utf8")
       .replaceAll("{{BACKEND_BASE}}", BACKEND_BASE)
       .replaceAll("{{TOKEN}}", token);
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-cache, no-store, must-revalidate",
+    });
     res.end(html);
     return;
   }

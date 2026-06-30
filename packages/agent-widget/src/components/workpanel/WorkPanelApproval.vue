@@ -46,10 +46,10 @@
       <!-- Actions -->
       <div class="wpa-actions">
         <button class="wpa-btn wpa-btn--approve" :disabled="submitting" @click="submit(true)">
-          {{ submitting && pendingApproved === true ? '…' : '允许' }}
+          {{ submitting ? '…' : '允许' }}
         </button>
         <button class="wpa-btn wpa-btn--deny" :disabled="submitting" @click="submit(false)">
-          {{ submitting && pendingApproved === false ? '…' : '拒绝' }}
+          {{ submitting ? '…' : '拒绝' }}
         </button>
       </div>
     </div>
@@ -67,8 +67,7 @@ const props = defineProps({
 const emit = defineEmits(['submit'])
 
 const currentApproval = computed(() => props.queue[0] || null)
-const submitting = computed(() => !!props.submittingId)
-const pendingApproved = ref(null)
+const submitting = computed(() => !!props.submittingId && props.submittingId === currentApproval.value?.approval_id)
 const showArgs = ref(false)
 const noteText = ref('')
 
@@ -95,10 +94,8 @@ function riskLabel(level) { return RISK_LABELS[level] || level || '未知' }
 function submit(approved) {
   const approval = currentApproval.value
   if (!approval?.approval_id || submitting.value) return
-  pendingApproved.value = approved
   emit('submit', { approvalId: approval.approval_id, approved, message: noteText.value })
   noteText.value = ''
-  pendingApproved.value = null
 }
 </script>
 

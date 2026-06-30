@@ -109,6 +109,10 @@ export class WidgetAgentClient implements AgentClient {
   async connect(_options?: ConnectOptions): Promise<void> {
     void _options;
     if (this.transport) {
+      // 已有 transport：仅重连耗尽进 disconnected 时手动恢复，其余状态 no-op 避免重复触发。
+      if (this.statusValue.get().state === "disconnected") {
+        this.transport.reconnect();
+      }
       return;
     }
     this.transport = new WidgetWsTransport({
@@ -164,11 +168,16 @@ export class WidgetAgentClient implements AgentClient {
 
   /**
    * 发起 run：发 user_driven_change 后等后端 ack(category:"send", ok) 决定 started 终态
-   * （后端 ws.ts 会回 ack，run 启动失败时 ok:false）。5s 未收 ack 则乐观判 started（后端已接收、
-   * ack 丢失或延迟）。runStatus 在 ack ok 时转 running，失败时回 idle。
+   * （后端 ws.ts 会回 ack，run 启动失败时 ok:false）。未连接直接判失败（避免字节静默丢失却
+   * 乐观置 running）；5s 未收 ack 也判失败（后端未确认启动），不再把超时当成功。
+   * runStatus 仅在 ack ok 时转 running。
    */
   async send(options: SendOptions): Promise<SendResult> {
     const requestId = options.requestId ?? generateRequestId();
+    // 未连接（连接中/重连中/已断开）：字节发不出去，直接判失败，UI 不切 running。
+    if (this.statusValue.get().state !== "connected") {
+      return { started: false, requestId, error: "连接未就绪" };
+    }
     const ackPromise = new Promise<{ ok: boolean; error?: string }>((resolve) => {
       this.pendingSendAck = resolve;
     });
@@ -180,7 +189,9 @@ export class WidgetAgentClient implements AgentClient {
     }));
     const result = await Promise.race([
       ackPromise,
-      new Promise<{ ok: true }>((resolve) => setTimeout(() => resolve({ ok: true }), 5000)),
+      new Promise<{ ok: false; error: string }>((resolve) =>
+        setTimeout(() => resolve({ ok: false, error: "发送超时，未收到确认" }), 5000),
+      ),
     ]);
     if (this.pendingSendAck) {
       this.pendingSendAck = null;

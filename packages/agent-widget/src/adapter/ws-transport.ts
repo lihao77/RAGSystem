@@ -53,6 +53,26 @@ export class WidgetWsTransport {
     this.open(this.options.initialUrl, true);
   }
 
+  /** 手动重连：重置退避计数后发起新连接（自动重连耗尽进 disconnected 后，UI 可调此恢复）。 */
+  reconnect(): void {
+    this.clearTimers();
+    if (this.ws) {
+      // 清掉旧 ws 监听，避免其 onclose 再触发一次 scheduleReconnect 造成双连。
+      this.ws.onclose = null;
+      this.ws.onmessage = null;
+      this.ws.onopen = null;
+      this.ws.onerror = null;
+      try {
+        this.ws.close();
+      } catch {
+        // 忽略重复关闭
+      }
+      this.ws = null;
+    }
+    this.reconnectAttempts = 0;
+    this.open(this.options.resolveReconnectUrl(), false);
+  }
+
   send(message: object): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));

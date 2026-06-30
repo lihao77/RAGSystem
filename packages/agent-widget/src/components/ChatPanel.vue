@@ -18,11 +18,12 @@
             <span class="rag-dot" :class="`dot-${statusTone}`"></span>
             Agent
           </span>
+          <span v-if="connBadgeText" class="rag-conn-badge" :class="`conn-${connectionStatus.state}`">{{ connBadgeText }}</span>
           <button class="rag-close" @click="toggleOpen" aria-label="关闭">×</button>
         </header>
 
         <!-- 纯对话面板：消息流（含折叠执行步骤 + 流内审批卡片） -->
-        <div class="rag-messages" ref="messagesEl">
+        <div class="rag-messages" ref="messagesEl" @scroll="onMessagesScroll">
           <div v-if="!messages.length && !approvalQueueView.length && !pendingUserInputView" class="rag-empty">
             输入消息开始对话
           </div>
@@ -83,10 +84,15 @@
           <WorkPanelApproval
             v-if="approvalQueueView.length"
             :queue="approvalQueueView"
-            :submitting-id="''"
+            :submitting-id="submittingApprovalId"
             class="rag-msg rag-msg--interaction"
             @submit="onApprovalSubmit"
           />
+        </div>
+
+        <div v-if="connectionStatus.state === 'disconnected'" class="rag-conn-bar">
+          <span>连接已断开</span>
+          <button class="rag-reconnect" @click="reconnect">重新连接</button>
         </div>
 
         <footer class="rag-input-bar">
@@ -94,11 +100,12 @@
             v-model="draft"
             class="rag-input"
             rows="1"
-            placeholder="输入消息，Enter 发送"
+            :placeholder="isConnected ? '输入消息，Enter 发送' : '等待连接…'"
+            :disabled="!isConnected"
             @keydown.enter.exact.prevent="send"
           ></textarea>
           <button v-if="isActiveRun" class="rag-send rag-stop" @click="stop">停止</button>
-          <button v-else class="rag-send" :disabled="!draft.trim()" @click="send">发送</button>
+          <button v-else class="rag-send" :disabled="!draft.trim() || sending" @click="send">发送</button>
         </footer>
       </section>
     </Transition>
@@ -106,7 +113,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { WidgetAgentClient } from "../adapter/widget-agent-client.js";
 import { renderMarkdown } from "../utils/markdown.js";
 import WorkPanelApproval from "./workpanel/WorkPanelApproval.vue";
@@ -135,6 +142,20 @@ const messagesEl = ref(null);
 
 const runStatus = ref({ runId: null, state: "idle" });
 const pendingInteractions = ref([]);
+const connectionStatus = ref({ state: "idle" });
+const sending = ref(false);
+const submittingApprovalId = ref("");
+
+// 流式渲染节流：delta 累积到 streamBuffer，定时 flush 到当前 assistant message，
+// 限制 markdown-it 全量重渲频率（长回复避免每 token 重算叠加成 O(n²) 卡顿）。
+const STREAM_FLUSH_MS = 80;
+let streamTarget = null;
+let streamBuffer = "";
+let streamFlushTimer = null;
+
+// 滚动跟随：用户上滑阅读时不强制拉底；scrollToBottom 用 rAF 合并高频调用。
+let stickToBottom = true;
+let scrollRafScheduled = false;
 
 onMounted(async () => {
   client = new WidgetAgentClient({
@@ -143,6 +164,7 @@ onMounted(async () => {
     token: props.token,
     hostTools: props.hostTools,
   });
+  unsub.push(client.status.subscribe((s) => { connectionStatus.value = s; }));
   unsub.push(client.runStatus.subscribe((s) => { runStatus.value = s; }));
   // executionTree 挂到当前 run 产生的最新 assistant message（执行步骤属该回复）。
   unsub.push(client.executionTree.subscribe((t) => {
@@ -158,23 +180,32 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   unsub.forEach((fn) => { try { fn(); } catch {} });
+  if (streamFlushTimer) { clearTimeout(streamFlushTimer); streamFlushTimer = null; }
   client?.disconnect();
 });
 
 function toggleOpen() {
   open.value = !open.value;
+  if (open.value) {
+    stickToBottom = true;
+    scrollToBottom();
+  }
 }
 
 function handleEvent(env) {
   if (env.type === "run_started") {
-    messages.value.push({
+    const msg = {
       id: env.run_id || `a${Date.now()}`,
       role: "assistant",
       content: "",
       finished: false,
       executionTree: null,
       execOpen: false,
-    });
+    };
+    messages.value.push(msg);
+    // 绑定流式节流目标：后续 stream_output delta 累积进 streamBuffer。
+    streamTarget = msg;
+    streamBuffer = "";
     scrollToBottom();
     return;
   }
@@ -182,44 +213,107 @@ function handleEvent(env) {
     const payload = env.payload || {};
     const last = messages.value[messages.value.length - 1];
     if (last && last.role === "assistant") {
-      if (payload.phase === "final") {
-        last.content = payload.content || last.content;
-      } else if (payload.phase === "first_token" || payload.phase === "delta") {
-        last.content += payload.content || "";
+      // 切换/对齐流式目标（last 变化或重连重放时重新绑定）。
+      if (streamTarget !== last) {
+        streamTarget = last;
+        streamBuffer = last.content || "";
       }
-      if (payload.phase === "final") last.finished = true;
-      scrollToBottom();
+      if (payload.phase === "final") {
+        streamBuffer = payload.content || streamBuffer;
+        last.finished = true;
+        flushStream(); // final 立即落盘，确保最终内容与渲染态准确
+        streamTarget = null;
+        streamBuffer = "";
+      } else if (payload.phase === "first_token" || payload.phase === "delta") {
+        streamBuffer += payload.content || "";
+        scheduleStreamFlush();
+      }
     }
     return;
   }
   if (env.type === "run_ended") {
+    flushStream(); // 收尾：刷掉残留 buffer，避免最后一段 delta 丢失
+    streamTarget = null;
+    streamBuffer = "";
     const last = messages.value[messages.value.length - 1];
     if (last && last.role === "assistant") last.finished = true;
     return;
   }
   if (env.type === "error") {
     const payload = env.payload || {};
-    messages.value.push({ id: `e${Date.now()}`, role: "assistant", content: `⚠️ ${payload.message || "错误"}`, finished: true, executionTree: null, execOpen: false });
-    scrollToBottom();
+    pushError(payload.message || "错误");
     return;
   }
 }
 
+function flushStream() {
+  if (streamFlushTimer) {
+    clearTimeout(streamFlushTimer);
+    streamFlushTimer = null;
+  }
+  if (streamTarget) {
+    streamTarget.content = streamBuffer;
+    scrollToBottom();
+  }
+}
+
+function scheduleStreamFlush() {
+  if (streamFlushTimer) return;
+  streamFlushTimer = setTimeout(() => {
+    streamFlushTimer = null;
+    flushStream();
+  }, STREAM_FLUSH_MS);
+}
+
+function pushError(message) {
+  flushStream(); // 先收尾可能进行中的流式，再插入错误卡片
+  streamTarget = null;
+  streamBuffer = "";
+  messages.value.push({ id: `e${Date.now()}`, role: "assistant", content: `⚠️ ${message}`, finished: true, executionTree: null, execOpen: false });
+  scrollToBottom();
+}
+
 async function send() {
   const text = draft.value.trim();
-  if (!text || !client || isActiveRun.value) return;
+  if (!text || !client || isActiveRun.value || sending.value) return;
+  // 未连接直接报错，不污染消息流。
+  if (!isConnected.value) {
+    pushError("发送失败：连接未就绪");
+    return;
+  }
+  // 乐观先入用户消息：保证 user 在 run_started 投影出的 assistant 消息之前。
+  // 若改成 await 后再 push，run_started 事件会在 await 期间先把 assistant（"思考中…"）入列，
+  // 导致 assistant 排到 user 之上，且 stream_output 取末尾消息会错指 user 而丢掉整路流式。
   messages.value.push({ id: `u${Date.now()}`, role: "user", content: text });
   draft.value = "";
+  sending.value = true;
   scrollToBottom();
-  await client.send({ task: text });
+  try {
+    const result = await client.send({ task: text });
+    if (!result.started) {
+      pushError(`发送失败：${result.error || "请稍后重试"}`);
+    }
+  } finally {
+    sending.value = false;
+  }
 }
 
 function stop() {
   client?.stop();
 }
 
-function onApprovalSubmit({ approvalId, approved, message }) {
-  client?.approve(approvalId, approved, message);
+function reconnect() {
+  client?.connect();
+}
+
+async function onApprovalSubmit({ approvalId, approved, message }) {
+  if (!client || submittingApprovalId.value) return;
+  submittingApprovalId.value = approvalId;
+  try {
+    await client.approve(approvalId, approved, message);
+  } finally {
+    submittingApprovalId.value = "";
+  }
 }
 function onUserInputSubmit({ inputId, value }) {
   client?.respondInput(inputId, value);
@@ -230,7 +324,22 @@ function onUserInputCancel() {
 
 const isActiveRun = computed(() => runStatus.value.state === "running");
 
+const isConnected = computed(() => connectionStatus.value.state === "connected");
+
+const connBadgeText = computed(() => {
+  const s = connectionStatus.value.state;
+  if (s === "connecting") return "连接中";
+  if (s === "reconnecting") {
+    const n = connectionStatus.value.replayCount;
+    return n ? `重连中(${n})` : "重连中";
+  }
+  if (s === "disconnected") return "已断开";
+  return "";
+});
+
 const statusTone = computed(() => {
+  if (connectionStatus.value.state === "disconnected") return "error";
+  if (connectionStatus.value.state === "reconnecting" || connectionStatus.value.state === "connecting") return "running";
   if (pendingInteractions.value.some((p) => p.kind === "user_input")) return "input";
   if (pendingInteractions.value.some((p) => p.kind === "approval")) return "warning";
   if (runStatus.value.state === "failed") return "error";
@@ -285,19 +394,19 @@ function agentStatusText(status) {
   return "";
 }
 
-/** 工具状态 SVG 图标：成功=实心圆勾/失败=实心圆叉/运行=脉冲点（currentColor 取色）。 */
+/** 工具状态图标：纯线条（对勾 / 叉 / 旋转弧），无圆底，currentColor 取状态色。 */
 function statusIconSvg(status) {
   if (status === "succeeded") {
-    return `<svg viewBox="0 0 16 16" width="13" height="13"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M5 8.5l2 2 4-4.5" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    return `<svg viewBox="0 0 16 16" width="15" height="15"><path d="M3.2 8.4l3 3 6.6-7.2" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   }
   if (status === "failed") {
-    return `<svg viewBox="0 0 16 16" width="13" height="13"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+    return `<svg viewBox="0 0 16 16" width="15" height="15"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`;
   }
-  return `<svg viewBox="0 0 16 16" width="13" height="13"><circle cx="8" cy="8" r="3" fill="currentColor" class="rag-pulse"/></svg>`;
+  return `<svg viewBox="0 0 16 16" width="15" height="15" class="rag-spin"><path d="M13.5 8A5.5 5.5 0 1 1 8 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
 }
 
-/** 子 agent 分组图标（嵌套分支）。 */
-const agentIconSvg = `<svg viewBox="0 0 16 16" width="11" height="11"><path d="M4 4v5a2 2 0 0 0 2 2h5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/><circle cx="4" cy="3.6" r="1.6" fill="currentColor"/><circle cx="11.5" cy="11" r="1.6" fill="currentColor"/></svg>`;
+/** 子智能体图标：AI 双火花（sparkle），直观表达"智能体"语义。 */
+const agentIconSvg = `<svg viewBox="0 0 16 16" width="14" height="14"><path d="M6 2L7.1 4.4L9.5 5.5L7.1 6.6L6 9L4.9 6.6L2.5 5.5L4.9 4.4Z" fill="currentColor"/><path d="M11.5 9.2L12.1 10.4L13.3 11L12.1 11.6L11.5 12.8L10.9 11.6L9.7 11L10.9 10.4Z" fill="currentColor" opacity="0.6"/></svg>`;
 
 /** 单工具一行摘要：运行中→运行中；失败→失败；成功→简短结果。 */
 function toolSummary(tool) {
@@ -309,9 +418,23 @@ function toolSummary(tool) {
   return text.length > 36 ? `${text.slice(0, 36)}…` : text;
 }
 
+function onMessagesScroll() {
+  const el = messagesEl.value;
+  if (!el) return;
+  // 距底部 > 阈值视为用户主动上滑阅读，停止自动跟随。
+  const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+  stickToBottom = distFromBottom < 48;
+}
+
 function scrollToBottom() {
-  nextTick(() => {
-    if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight;
+  if (scrollRafScheduled) return;
+  scrollRafScheduled = true;
+  requestAnimationFrame(() => {
+    scrollRafScheduled = false;
+    const el = messagesEl.value;
+    if (el && stickToBottom) {
+      el.scrollTop = el.scrollHeight;
+    }
   });
 }
 </script>
@@ -396,6 +519,42 @@ function scrollToBottom() {
   line-height: 1;
   cursor: pointer;
   padding: 0 4px;
+}
+
+.rag-conn-badge {
+  margin-left: auto;
+  margin-right: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-muted, #636366);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-secondary, #2c2c2e);
+}
+.rag-conn-badge.conn-connecting,
+.rag-conn-badge.conn-reconnecting { color: var(--color-brand-accent, #0a84ff); }
+.rag-conn-badge.conn-disconnected { color: var(--color-error, #ff453a); }
+
+.rag-conn-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba(var(--color-error-rgb, 255, 69, 58), 0.12);
+  border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+  color: var(--color-error, #ff453a);
+  font-size: 12px;
+}
+.rag-reconnect {
+  background: var(--color-error, #ff453a);
+  color: var(--color-on-color, #fff);
+  border: none;
+  border-radius: var(--radius-md, 10px);
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .rag-messages {
@@ -487,20 +646,30 @@ function scrollToBottom() {
 .rag-exec-agent {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
+  gap: 7px;
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--color-brand-accent, #0a84ff);
-  padding: 4px 0 2px;
+  padding: 6px 0 3px;
+  letter-spacing: 0.01em;
 }
-.rag-exec-agent-icon { display: inline-flex; opacity: 0.85; }
-.rag-pulse { animation: rag-pulse 1.4s ease-in-out infinite; }
-@keyframes rag-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+.rag-exec-agent-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--color-brand-accent, #0a84ff);
+  opacity: 0.9;
 }
 .rag-exec-agent-name { font-family: var(--font-mono, monospace); }
 .rag-exec-agent-status { color: var(--color-text-muted, #636366); font-weight: 400; }
+
+/* running：旋转环加载指示（替代原脉冲点，更清晰现代） */
+.rag-spin { animation: rag-spin 0.7s linear infinite; transform-origin: 50% 50%; }
+@keyframes rag-spin { to { transform: rotate(360deg); } }
+
 .rag-exec-row {
   display: flex;
   align-items: center;
@@ -508,19 +677,22 @@ function scrollToBottom() {
   font-size: 12px;
   line-height: 1.5;
   color: var(--color-text-secondary, #98989d);
-  padding: 2px 0;
+  padding: 3px 0;
 }
 .rag-exec-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
 }
 .rag-exec-name {
   font-family: var(--font-mono, monospace);
-  color: var(--color-text-primary, #fff);
+  font-size: 12px;
+  color: var(--color-text-secondary, #98989d);
   flex-shrink: 0;
+  transition: color var(--transition-fast, 160ms);
 }
 .rag-exec-status {
   color: var(--color-text-muted, #636366);
@@ -529,10 +701,18 @@ function scrollToBottom() {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+  transition: color var(--transition-fast, 160ms);
 }
-.st-running .rag-exec-icon { color: var(--color-brand-accent, #0a84ff); }
+
+/* 状态分层着色：图标/工具名/摘要随状态变化，运行中·成功·失败一眼可辨 */
+.st-running .rag-exec-icon,
+.st-running .rag-exec-name { color: var(--color-brand-accent, #0a84ff); }
 .st-succeeded .rag-exec-icon { color: var(--color-success, #30d158); }
-.st-failed .rag-exec-icon { color: var(--color-error, #ff453a); }
+.st-succeeded .rag-exec-name { color: var(--color-text-secondary, #98989d); }
+.st-failed .rag-exec-icon,
+.st-failed .rag-exec-name,
+.st-failed .rag-exec-status { color: var(--color-error, #ff453a); }
+.st-failed .rag-exec-status { opacity: 0.85; }
 .rag-exec-empty {
   font-size: 12px;
   color: var(--color-text-muted, #636366);
