@@ -1,0 +1,84 @@
+import type { DelegatedToolDeclarationWire } from "../../contracts/events.js";
+
+/** AG-UI client-defined tool 声明（上行 RunAgentInput.tools 元素）。 */
+export interface AguiClientTool {
+  name: string;
+  description?: string;
+  /** JSON Schema 参数描述。 */
+  parameters?: Record<string, unknown>;
+}
+
+/** AG-UI message（上行 RunAgentInput.messages 元素）。 */
+export interface AguiMessage {
+  id?: string;
+  role: "user" | "assistant" | "system" | "tool" | "developer";
+  content?: string;
+  tool_call_id?: string;
+  tool_calls?: unknown[];
+}
+
+/** AG-UI resume 项（回应上一个 run 的 interrupt）。 */
+export interface AguiResumeItem {
+  interruptId: string;
+  status: "resolved" | "cancelled";
+  payload?: unknown;
+}
+
+/** AG-UI RunAgentInput（POST /api/agui body）。 */
+export interface RunAgentInput {
+  threadId?: string;
+  runId?: string;
+  state?: Record<string, unknown>;
+  messages?: AguiMessage[];
+  tools?: AguiClientTool[];
+  context?: unknown[];
+  forwardedProps?: Record<string, unknown>;
+  resume?: AguiResumeItem[];
+}
+
+/**
+ * AG-UI client tool → 内部 DelegatedToolDeclarationWire（覆盖式注册用）。
+ * AG-UI 无 risk_level/cancellable 字段，给默认值（risk 仅参与内部 gate 决策，不进协议）。
+ */
+export function mapClientTools(tools: AguiClientTool[] | undefined): DelegatedToolDeclarationWire[] {
+  if (!tools?.length) {
+    return [];
+  }
+  return tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description ?? "",
+    input_schema: tool.parameters ?? { type: "object", properties: {} },
+    risk_level: "medium",
+    cancellable: true,
+  }));
+}
+
+/** 取末条 user 消息 content 作为内部 startStream 的 task。 */
+export function lastUserTask(messages: AguiMessage[] | undefined): string {
+  if (!messages?.length) {
+    return "";
+  }
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message && message.role === "user") {
+      return message.content ?? "";
+    }
+  }
+  return "";
+}
+
+/** 宽松解析 POST body 为 RunAgentInput（容忍客户端字段大小写/缺省）。 */
+export function parseRunAgentInput(body: unknown): RunAgentInput {
+  if (body === null || typeof body !== "object") {
+    return {};
+  }
+  const raw = body as Record<string, unknown>;
+  const input: RunAgentInput = {};
+  if (typeof raw.threadId === "string") input.threadId = raw.threadId;
+  if (typeof raw.runId === "string") input.runId = raw.runId;
+  if (Array.isArray(raw.messages)) input.messages = raw.messages as AguiMessage[];
+  if (Array.isArray(raw.tools)) input.tools = raw.tools as AguiClientTool[];
+  if (Array.isArray(raw.resume)) input.resume = raw.resume as AguiResumeItem[];
+  if (raw.state !== null && typeof raw.state === "object") input.state = raw.state as Record<string, unknown>;
+  return input;
+}

@@ -19,6 +19,7 @@ import { registerSystemConfigRoutes } from "./routes/system-config.js";
 import { registerVectorRoutes } from "./routes/vector.js";
 import { registerVectorLibraryRoutes } from "./routes/vector-library.js";
 import { registerAgentRoutes } from "./routes/agent/index.js";
+import { registerAguiRoutes } from "./routes/agent/agui.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerWidgetRoutes } from "./routes/widget.js";
 import { HttpError, formatError } from "./utils/errors.js";
@@ -180,6 +181,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
   await app.register(registerAgentRoutes, {
     prefix: "/api/agent",
+    container,
+  });
+  await app.register(registerAguiRoutes, {
+    prefix: "/api/agui",
     container,
   });
   await app.register(registerWidgetRoutes, {
