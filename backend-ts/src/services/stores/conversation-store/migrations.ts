@@ -24,6 +24,32 @@ export const MIGRATIONS: readonly Migration[] = [
       db.exec(BASELINE_SCHEMA_SQL);
     },
   },
+  {
+    version: 2,
+    name: "agent_call_metrics",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS agent_call_metrics (
+          metric_id TEXT PRIMARY KEY,
+          agent_name TEXT NOT NULL,
+          session_id TEXT,
+          run_id TEXT,
+          task_id TEXT,
+          execution_kind TEXT NOT NULL,
+          status TEXT NOT NULL,
+          duration_ms INTEGER NOT NULL DEFAULT 0,
+          token_in INTEGER NOT NULL DEFAULT 0,
+          token_out INTEGER NOT NULL DEFAULT 0,
+          tool_usage TEXT NOT NULL DEFAULT '{}',
+          error_type TEXT,
+          started_at TEXT NOT NULL,
+          finished_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_call_metrics_agent_started
+          ON agent_call_metrics(agent_name, started_at);
+      `);
+    },
+  },
 ];
 
 function getUserVersion(db: ConversationDb): number {

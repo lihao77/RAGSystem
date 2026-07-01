@@ -15,6 +15,7 @@ import type { MessageInfo, SessionInfo, SessionListItem } from "../session.js";
 import type {
   AddMessageInput,
   AddRunStepInput,
+  AgentMetricSummary,
   AppendOutboxInput,
   ChildAgentInfo,
   ClaimOutboxInput,
@@ -195,6 +196,27 @@ export interface IResourceStore {
   attachResourceToStep(sessionId: string, runId: string, stepId: number, resourceId: string): void;
 }
 
+/** agent_call_metrics 聚合根:每次 agent run 的性能指标明细 + 按 agent 聚合。 */
+export interface IMetricStore {
+  insertMetric(input: {
+    agentName: string;
+    sessionId?: string | null;
+    runId?: string | null;
+    taskId?: string | null;
+    executionKind: string;
+    status: string;
+    durationMs: number;
+    tokenIn?: number;
+    tokenOut?: number;
+    toolUsage?: Record<string, number>;
+    errorType?: string | null;
+    startedAt: string;
+    finishedAt?: string | null;
+  }): void;
+  aggregateMetrics(agentName?: string | null): AgentMetricSummary[];
+  resetMetrics(agentName?: string | null): { deleted: number };
+}
+
 /** 跨域事务运行器（事务原子性独立成契，不可按聚合根拆分）。 */
 export interface IConversationTransactionRunner {
   runInTransaction<T>(operation: (tx: ConversationStoreTransaction) => T): T;
@@ -212,6 +234,7 @@ export interface ConversationStore
     IChildAgentStore,
     IOutboxStore,
     IResourceStore,
+    IMetricStore,
     IConversationTransactionRunner {
   close(): void;
   getRecentMessagesByChildAgent(sessionId: string, childAgentId: string, limit?: number): MessageInfo[];

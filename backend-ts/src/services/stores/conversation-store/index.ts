@@ -6,6 +6,7 @@ import { RunOps } from "./run-ops.js";
 import { ChildAgentOps } from "./child-agent-ops.js";
 import { OutboxOps } from "./outbox-ops.js";
 import { ResourceOps } from "./resource-ops.js";
+import { MetricOps } from "./metric-ops.js";
 import type {
   ConversationStore,
   ConversationStoreOptions,
@@ -29,6 +30,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
   const childAgents = new ChildAgentOps(db);
   const outbox = new OutboxOps(db);
   const resources = new ResourceOps(db, dataRoot, sessions);
+  const metrics = new MetricOps(db);
 
   const createTransactionFacade = (): ConversationStoreTransaction => ({
     addMessage: messages.addMessageInTransaction.bind(messages),
@@ -108,6 +110,11 @@ export function createConversationStore(options: ConversationStoreOptions) {
     registerResource: resources.registerResource.bind(resources),
     listResources: resources.listResources.bind(resources),
     attachResourceToStep: resources.attachResourceToStep.bind(resources),
+
+    // metric(智能体性能监控:每次 agent run 的指标明细 + 按 agent 聚合)
+    insertMetric: metrics.insertMetric.bind(metrics),
+    aggregateMetrics: metrics.aggregateMetrics.bind(metrics),
+    resetMetrics: metrics.resetMetrics.bind(metrics),
 
     // 跨域事务（组合 message/run/outbox ops）
     runInTransaction<T>(operation: (tx: ConversationStoreTransaction) => T): T {

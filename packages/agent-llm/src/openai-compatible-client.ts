@@ -12,6 +12,7 @@ import type {
   ChatMessage,
   ChatToolCall,
   ProviderConfig,
+  TokenUsage,
 } from "./types.js";
 import { DEFAULT_ENDPOINTS, OPENAI_COMPATIBLE_TYPES } from "./provider-registry.js";
 import { compactRecord } from "./record-utils.js";
@@ -46,6 +47,10 @@ export class OpenAiCompatibleClient implements LlmClient {
     }
     if (toolCalls.length > 0) {
       result.toolCalls = toolCalls;
+    }
+    const usage = extractOpenAiUsage(body);
+    if (usage) {
+      result.usage = usage;
     }
     return result;
   }
@@ -113,7 +118,12 @@ async function completeOpenAiResponses(request: LlmRequest): Promise<LlmResult> 
   if (!content) {
     throw new Error("OpenAI Responses output did not include assistant content");
   }
-  return { content, raw: body, finishReason: extractResponsesFinishReason(body) };
+  const result: LlmResult = { content, raw: body, finishReason: extractResponsesFinishReason(body) };
+  const usage = extractOpenAiUsage(body);
+  if (usage) {
+    result.usage = usage;
+  }
+  return result;
 }
 
 // ────────────────────────────── Anthropic Messages（非流式） ──────────────────────────────
@@ -150,6 +160,10 @@ async function completeAnthropicMessages(request: LlmRequest): Promise<LlmResult
   };
   if (toolCalls.length > 0) {
     result.toolCalls = toolCalls;
+  }
+  const usage = extractAnthropicUsage(body);
+  if (usage) {
+    result.usage = usage;
   }
   return result;
 }
@@ -199,6 +213,8 @@ function buildChatCompletionBody(request: LlmRequest, stream: boolean): Record<s
     tools: request.tools && request.tools.length > 0 ? request.tools : undefined,
     tool_choice: request.tools && request.tools.length > 0 ? (request.toolChoice ?? "auto") : undefined,
     stream: stream ? true : undefined,
+    // 流式时要求末尾 chunk 携带累计 usage,否则 token 用量无从获取。
+    stream_options: stream ? { include_usage: true } : undefined,
   };
 }
 
@@ -347,6 +363,7 @@ async function readOpenAiCompatibleStream(
   let done = false;
   let stopRequested = false;
   let finishReason: string | null = null;
+  let usage: TokenUsage | null = null;
   const toolCallAccumulators = new Map<number, StreamToolAccumulator>();
 
   const processLine = async (line: string): Promise<void> => {
@@ -363,6 +380,10 @@ async function readOpenAiCompatibleStream(
       return;
     }
     const parsed = JSON.parse(data) as Record<string, unknown>;
+    const chunkUsage = extractOpenAiUsage(parsed);
+    if (chunkUsage) {
+      usage = chunkUsage;
+    }
     const chunkFinishReason = extractStreamFinishReason(parsed);
     if (chunkFinishReason) {
       finishReason = chunkFinishReason;
@@ -437,6 +458,9 @@ async function readOpenAiCompatibleStream(
   if (toolCalls.length > 0) {
     result.toolCalls = toolCalls;
   }
+  if (usage) {
+    result.usage = usage;
+  }
   return result;
 }
 
@@ -461,6 +485,9 @@ async function readAnthropicStream(
   let done = false;
   let stopRequested = false;
   let finishReason: string | null = null;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let hasUsage = false;
   const blockTools = new Map<number, StreamToolAccumulator>();
 
   const finalizeBlock = (index: number): ChatToolCall | null => {
@@ -484,6 +511,16 @@ async function readAnthropicStream(
       return;
     }
     switch (event.event) {
+      case "message_start": {
+        // message_start 携带 input_tokens(以及起始 output_tokens);output 以 message_delta 的累计值为准。
+        const message = isRecord(parsed) ? parsed.message : undefined;
+        const startUsage = extractAnthropicUsage(message);
+        if (startUsage) {
+          inputTokens = startUsage.inputTokens;
+          hasUsage = true;
+        }
+        break;
+      }
       case "content_block_start": {
         const index = isRecord(parsed) && typeof parsed.index === "number" ? parsed.index : 0;
         const block = isRecord(parsed) ? parsed.content_block : undefined;
@@ -530,6 +567,12 @@ async function readAnthropicStream(
         const inner = isRecord(parsed) ? parsed.delta : undefined;
         if (isRecord(inner) && typeof inner.stop_reason === "string") {
           finishReason = inner.stop_reason;
+        }
+        // message_delta 的 usage.output_tokens 为累计值,直接覆盖。
+        const deltaUsage = extractAnthropicUsage(parsed);
+        if (deltaUsage) {
+          outputTokens = deltaUsage.outputTokens;
+          hasUsage = true;
         }
         break;
       }
@@ -597,6 +640,9 @@ async function readAnthropicStream(
   if (trailingToolCalls.length > 0 && !stopRequested) {
     await onChunk({ content: "", finishReason, toolCalls: trailingToolCalls });
     result.toolCalls = trailingToolCalls;
+  }
+  if (hasUsage) {
+    result.usage = { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens };
   }
   return result;
 }
@@ -864,6 +910,65 @@ function extractErrorMessage(body: unknown): string | null {
     return body.message;
   }
   return null;
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * 从 OpenAI 兼容响应体提取 token 用量,覆盖两套字段命名:
+ * - /chat/completions:usage.prompt_tokens / completion_tokens / total_tokens
+ * - /responses(及部分兼容网关):usage.input_tokens / output_tokens / total_tokens
+ * 流式末尾 chunk(choices 空、仅带 usage)同样命中。
+ */
+function extractOpenAiUsage(body: unknown): TokenUsage | null {
+  if (!isRecord(body)) {
+    return null;
+  }
+  const usage = body.usage;
+  if (!isRecord(usage)) {
+    return null;
+  }
+  const prompt = toFiniteNumber(usage.prompt_tokens);
+  const completion = toFiniteNumber(usage.completion_tokens);
+  const input = toFiniteNumber(usage.input_tokens);
+  const output = toFiniteNumber(usage.output_tokens);
+  const inputTokens = prompt ?? input;
+  const outputTokens = completion ?? output;
+  if (inputTokens === null && outputTokens === null) {
+    return null;
+  }
+  const total = toFiniteNumber(usage.total_tokens);
+  const inT = inputTokens ?? 0;
+  const outT = outputTokens ?? 0;
+  return {
+    inputTokens: inT,
+    outputTokens: outT,
+    totalTokens: total ?? inT + outT,
+  };
+}
+
+/**
+ * 从 Anthropic 响应体提取 token 用量:usage.input_tokens / output_tokens。
+ * message_start 提供 input(及起始 output),message_delta 提供累计 output。
+ */
+function extractAnthropicUsage(body: unknown): TokenUsage | null {
+  if (!isRecord(body)) {
+    return null;
+  }
+  const usage = body.usage;
+  if (!isRecord(usage)) {
+    return null;
+  }
+  const inputTokens = toFiniteNumber(usage.input_tokens);
+  const outputTokens = toFiniteNumber(usage.output_tokens);
+  if (inputTokens === null && outputTokens === null) {
+    return null;
+  }
+  const inT = inputTokens ?? 0;
+  const outT = outputTokens ?? 0;
+  return { inputTokens: inT, outputTokens: outT, totalTokens: inT + outT };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

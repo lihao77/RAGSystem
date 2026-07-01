@@ -42,12 +42,15 @@ import { OutboxDispatcher } from "./event-outbox/dispatcher.js";
 import { DurableClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 import { createWidgetCredentialStore, type WidgetCredentialStore } from "../stores/widget-credential-store/index.js";
 import { createWidgetAuthService, type WidgetAuthService } from "./jwt-service.js";
+import { AgentMetricsCollector } from "../agent/metrics/metrics-collector.js";
 
 export interface RuntimeContainer {
   readonly conversationStore: ConversationStore;
   readonly sessionApplication: AgentSessionApplication;
   readonly realtimeEvents: RealtimeEventHub;
   readonly agentExecution: AgentExecutionService;
+  /** 智能体性能指标采集器（/metrics 端点读其聚合结果）。 */
+  readonly metricsCollector: AgentMetricsCollector;
   readonly permissionPolicy: PermissionPolicyService;
   readonly agentConfig: AgentConfigService;
   readonly modelAdapter: ModelAdapterService;
@@ -224,6 +227,8 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     getAgentDelegation: () => agentDelegation,
     agentConfig,
   };
+  // 性能监控采集器:复用 conversationStore 的 metricOps(IMetricStore),供 AgentRunEngine 终态落库 + /metrics 读取。
+  const metricsCollector = new AgentMetricsCollector(conversationStore);
   const agentExecution = createAgentExecutionService({
     sessions: sessionApplication,
     conversationStore,
@@ -244,6 +249,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     delegationPending,
     logger: options.logger,
     microcompactTtlSeconds,
+    metricsCollector,
     ...(options.hooks ? { hooks: options.hooks } : {}),
   });
   agentDelegation.setRunEngine(() => agentExecution.runEngine);
@@ -272,6 +278,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     sessionApplication,
     realtimeEvents,
     agentExecution,
+    metricsCollector,
     permissionPolicy,
     agentConfig,
     modelAdapter,

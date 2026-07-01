@@ -22,7 +22,7 @@
  * - buildRequestShell 内部注入协议说明 + manifest 进 system message，再 toModelMessages 语义包装。
  *   XML 模式不下发 native tools 字段（withoutNativeTools）。
  */
-import type { ChatMessage, ChatToolCall, LlmClient, LlmRequest, LlmStreamHandler, ProviderConfig } from "@ragsystem/agent-llm";
+import type { ChatMessage, ChatToolCall, LlmClient, LlmRequest, LlmStreamHandler, ProviderConfig, TokenUsage } from "@ragsystem/agent-llm";
 import { extractText } from "@ragsystem/agent-llm";
 import { RuntimeAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
 import type { EventSink, KernelContext, KernelObservation, KernelOutcome, KernelToolCall, Protocol } from "../contracts.js";
@@ -112,7 +112,7 @@ export class XmlProtocol implements Protocol {
     ctx: KernelContext,
     baseRequest: LlmRequest,
     round: number,
-    stream: (request: LlmRequest, onChunk: LlmStreamHandler) => Promise<{ content: string; finishReason?: string | null }>,
+    stream: (request: LlmRequest, onChunk: LlmStreamHandler) => Promise<{ content: string; finishReason?: string | null; usage?: TokenUsage }>,
   ): Promise<KernelOutcome> {
     const signal = ctx.session.signal;
     let messages = [...baseRequest.messages];
@@ -164,7 +164,7 @@ export class XmlProtocol implements Protocol {
           content: roundResult.intent,
           tool_calls: toolCalls,
         };
-        return { kind: "tool_calls", calls, assistantMessage, finishReason: roundResult.finishReason };
+        return { kind: "tool_calls", calls, assistantMessage, finishReason: roundResult.finishReason, usage: roundResult.usage };
       }
 
       const content = roundResult.finalAnswer.trim() ? roundResult.finalAnswer : roundResult.fallbackAnswer;
@@ -174,6 +174,7 @@ export class XmlProtocol implements Protocol {
           finalAnswer: content,
           assistantMessage: { role: "assistant", content },
           finishReason: roundResult.finishReason,
+          usage: roundResult.usage,
         };
       }
 
@@ -221,6 +222,7 @@ export class XmlProtocol implements Protocol {
           calls,
           assistantMessage: { role: "assistant", content: parser.getTagContent("intent"), tool_calls: toolCalls },
           finishReason: result.finishReason ?? null,
+          usage: result.usage,
         };
       }
     }
@@ -231,6 +233,7 @@ export class XmlProtocol implements Protocol {
       finalAnswer: content,
       assistantMessage: { role: "assistant", content },
       finishReason: result.finishReason ?? null,
+      usage: result.usage,
     };
   }
 
@@ -271,7 +274,7 @@ export class XmlProtocol implements Protocol {
     ctx: KernelContext,
     request: LlmRequest,
     round: number,
-    stream: (request: LlmRequest, onChunk: LlmStreamHandler) => Promise<{ content: string; finishReason?: string | null }>,
+    stream: (request: LlmRequest, onChunk: LlmStreamHandler) => Promise<{ content: string; finishReason?: string | null; usage?: TokenUsage }>,
   ): Promise<{
     rawContent: string;
     intent: string;
@@ -280,6 +283,7 @@ export class XmlProtocol implements Protocol {
     toolCalls: ParsedToolCall[];
     finishReason: string | null;
     error: string | null;
+    usage: TokenUsage | undefined;
   }> {
     const session = ctx.session;
     const agentName = session.profile.agentName;
@@ -394,6 +398,7 @@ export class XmlProtocol implements Protocol {
       toolCalls,
       finishReason: result.finishReason ?? null,
       error,
+      usage: result.usage,
     };
   }
 }

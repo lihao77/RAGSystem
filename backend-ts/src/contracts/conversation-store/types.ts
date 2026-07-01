@@ -169,6 +169,21 @@ export interface ResourceInfo {
   source_tool: string | null;
 }
 
+/** 单 agent 的聚合性能指标(对齐前端 AgentMonitor agent 卡片字段)。 */
+export interface AgentMetricSummary {
+  agent_name: string;
+  total_calls: number;
+  success_count: number;
+  failure_count: number;
+  success_rate: number;
+  avg_duration_ms: number;
+  avg_tokens: number;
+  first_call: string | null;
+  last_call: string | null;
+  tool_usage: Record<string, number>;
+  error_distribution: Record<string, number>;
+}
+
 /** addRunStep 返回的精简记录（领域投影，非完整 run_step 物理行）。 */
 export interface RunStepRecord {
   id: number;

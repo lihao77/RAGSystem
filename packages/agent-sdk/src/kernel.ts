@@ -18,6 +18,7 @@
  * runtime.* 方言事件（data 包裹）→ 扁平 KernelEvent。
  */
 import { isAbortError } from "@ragsystem/agent-protocol";
+import type { TokenUsage } from "@ragsystem/agent-llm";
 import type {
   Context,
   EventSink,
@@ -81,6 +82,7 @@ export class AgentKernel {
     const agentName = session.profile.agentName;
     await this.hooks.emit("run.before", { session });
     try {
+      let tokenUsage: TokenUsage | null = null;
       for (let round = 0; ; round++) {
         ctx.throwIfAborted();
         ctx.appendMessages(await this.refresher.refresh(ctx));
@@ -96,6 +98,16 @@ export class AgentKernel {
           this.events.emit({ type: "context_usage", agentName, round, ...usage });
         }
         const outcome = await this.protocol.invoke(ctx, round);
+        // 累计各轮 LLM 调用的 token 用量,run 结束时随 KernelResult 透出。
+        if (outcome.usage) {
+          tokenUsage = tokenUsage
+            ? {
+                inputTokens: tokenUsage.inputTokens + outcome.usage.inputTokens,
+                outputTokens: tokenUsage.outputTokens + outcome.usage.outputTokens,
+                totalTokens: tokenUsage.totalTokens + outcome.usage.totalTokens,
+              }
+            : { ...outcome.usage };
+        }
         await this.hooks.emit("round.after", { ctx, round, outcome });
 
         if (outcome.kind === "tool_calls" && outcome.calls.length > 0) {
@@ -132,6 +144,9 @@ export class AgentKernel {
         break;
       }
       const result = ctx.toResult();
+      if (tokenUsage) {
+        result.usage = tokenUsage;
+      }
       await this.hooks.emit("run.after", { session, result });
       return result;
     } catch (error) {

@@ -89,6 +89,10 @@ export interface SdkExecuteRunInput {
 export interface SdkExecuteRunResult {
   content: string;
   success: boolean;
+  /** 本 run 各轮 LLM 调用累计的 token 用量(provider 未返回则为 0)。 */
+  tokenUsage: { inputTokens: number; outputTokens: number };
+  /** 本 run 的工具调用次数分布(toolName → count)。 */
+  toolCalls: Record<string, number>;
 }
 
 /**
@@ -175,6 +179,9 @@ export async function executeRunWithSdk(
   const extraContextSources = isMemoryEnabled(input.agent.memory)
     ? [new MemoryIndexContextSource(sessionMetadata, input.agent.memory, input.agent.agent_name, { dataRoot: deps.dataRoot })]
     : [];
+  // 性能指标采集:round.after hook 累计各轮 token,事件循环统计工具调用次数(终态随结果返回)。
+  const tokenUsage = { inputTokens: 0, outputTokens: 0 };
+  const toolCalls: Record<string, number> = {};
   const runtimeOpts: CreateRuntimeOptions = {
     profile,
     tools: registry,
@@ -189,6 +196,14 @@ export async function executeRunWithSdk(
         pendingInteractions: deps.pendingInteractions,
         pathService,
         agentName: input.agent.agent_name,
+      });
+      // 累计每轮 LLM 返回的 token 用量(provider 返回 usage 时累加,用于性能监控)。
+      registry.on("round.after", (hookInput) => {
+        const usage = hookInput.outcome.usage;
+        if (usage) {
+          tokenUsage.inputTokens += usage.inputTokens;
+          tokenUsage.outputTokens += usage.outputTokens;
+        }
       });
       deps.hooks?.(registry);
     },
@@ -236,6 +251,9 @@ export async function executeRunWithSdk(
   // 事件循环：翻译 KernelEvent → Envelope[]（agent-protocol 纯函数），逐条推 outbox（SDK Dispatcher 已落库，此处只推流）。
   const consumeEvents = (async () => {
     for await (const event of handle.events) {
+      if (event.type === "tool_call") {
+        toolCalls[event.toolName] = (toolCalls[event.toolName] ?? 0) + 1;
+      }
       for (const envelope of translateKernelEvent(event, wireCtx)) {
         deps.eventPublisher.publishEnvelope(envelope);
       }
@@ -251,7 +269,7 @@ export async function executeRunWithSdk(
     const interrupted = input.signal.aborted;
     recordTerminal(deps, input, interrupted ? "interrupted" : "failed", null, error);
     const message = error instanceof Error ? error.message : String(error);
-    return { content: message, success: false };
+    return { content: message, success: false, tokenUsage, toolCalls };
   }
 
   await consumeEvents;
@@ -261,7 +279,7 @@ export async function executeRunWithSdk(
   // 查库取该消息 id/seq，供 message_saved envelope；补 run:end/final step + 终态 envelope。
   const finalMessage = resolveFinalMessage(deps, input);
   recordTerminal(deps, input, "completed", finalMessage, null);
-  return { content: result.content, success: true };
+  return { content: result.content, success: true, tokenUsage, toolCalls };
 }
 
 /** 查库取 SDK finalize 写入的最终 assistant 消息（runs.final_message_id → messages）。 */

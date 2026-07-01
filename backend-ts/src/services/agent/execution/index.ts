@@ -30,6 +30,7 @@ import { AgentExecutionStatusTracker } from "./status-tracker.js";
 import { AttachmentResolver } from "./attachment-resolver.js";
 import { SlashCommandHandler } from "./slash-command-handler.js";
 import { AgentRunEngine, type AgentExecutionLogger } from "./run-engine.js";
+import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
 import {
   createLaunchers,
   type RollbackRetryInput,
@@ -89,6 +90,8 @@ export interface AgentExecutionServiceParams {
  hooks?: (registry: HookRegistry) => void;
  /** microcompact 缓存 TTL（秒）——透传 createRuntime，与 snapshot 路径同源（systemConfig 单一来源）。 */
  microcompactTtlSeconds?: number;
+ /** 性能指标采集器（透传 AgentRunEngine 终态落库用）。 */
+ metricsCollector?: AgentMetricsCollector | null;
  logger?: AgentExecutionLogger | null | undefined;
 }
 
@@ -143,6 +146,7 @@ export function createAgentExecutionService(
     params.hooks ?? null,
     params.sdkStore,
     params.microcompactTtlSeconds,
+    params.metricsCollector ?? null,
   );
   const launchers = createLaunchers({
     sessions: params.sessions,

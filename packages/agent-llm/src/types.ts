@@ -87,6 +87,13 @@ export interface LlmRequest {
   extraParams?: Record<string, unknown> | null;
 }
 
+/** 一次 LLM 调用的 token 用量（厂商返回的 usage 解析归一化）。 */
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
 /** 一次 LLM 调用的结果。 */
 export interface LlmResult {
   content: string;
@@ -95,6 +102,8 @@ export interface LlmResult {
   raw?: unknown;
   finishReason?: string | null;
   toolCalls?: ChatToolCall[];
+  /** 厂商返回的 token 用量；缺失（部分 provider 不返回）时为 undefined。 */
+  usage?: TokenUsage;
 }
 
 /** 流式增量 chunk。 */

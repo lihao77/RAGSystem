@@ -30,12 +30,6 @@ describe("monitoring compatibility routes", () => {
         total_calls: 0,
         avg_duration_ms: 0,
         overall_success_rate: 0,
-        waiting: {
-          total_waits: 0,
-          total_completed: 0,
-          total_timeouts: 0,
-          total_keepalive_rounds: 0,
-        },
         agents: {},
       },
     });

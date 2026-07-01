@@ -16,6 +16,7 @@ import type { PermissionPolicyService } from "../../runtime/permission-policy-se
 import type { PendingInteractionService } from "../../runtime/pending-interaction-service.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService } from "../../runtime/delegation-pending-service.js";
+import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
 import type { IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
@@ -58,6 +59,7 @@ export class AgentRunEngine {
     private readonly hooks: ((registry: HookRegistry) => void) | null,
     private readonly sdkStore: SqliteRuntimeStore,
     private readonly microcompactTtlSeconds?: number,
+    private readonly metricsCollector: AgentMetricsCollector | null = null,
   ) {}
 
   startRun(input: {
@@ -263,6 +265,34 @@ export class AgentRunEngine {
     // child 不传。executeRun 自己用 startedAt 算 execution_time，不依赖外部 status 对象。
     onTerminal?: (finalStatus: "completed" | "failed" | "interrupted") => void;
   }): Promise<{ content: string; success: boolean }> {
+    // 性能监控落库:统一在此处采集(root/child 都走 executeRun),不挂 onTerminal——
+    // child run 不绑 onTerminal,挂那里会漏采子智能体/委托调用。token/工具用量来自 executeRunWithSdk 返回值。
+    const recordMetric = (
+      finalStatus: string,
+      tokenUsage: { inputTokens: number; outputTokens: number },
+      toolCalls: Record<string, number>,
+      errorType: string | null,
+    ): void => {
+      if (!this.metricsCollector) {
+        return;
+      }
+      const finishedAt = new Date();
+      this.metricsCollector.recordRun({
+        agentName: input.agent.agent_name,
+        sessionId: input.sessionId,
+        runId: input.runId,
+        taskId: input.taskId,
+        executionKind: input.executionKind ?? "agent_stream",
+        status: finalStatus,
+        durationMs: finishedAt.getTime() - input.startedAt.getTime(),
+        tokenIn: tokenUsage.inputTokens,
+        tokenOut: tokenUsage.outputTokens,
+        toolUsage: toolCalls,
+        errorType,
+        startedAt: input.startedAt.toISOString(),
+        finishedAt: finishedAt.toISOString(),
+      });
+    };
     try {
       const sessionMetadata = this.sessions.getSession(input.sessionId)?.metadata ?? {};
       const executionKind = input.executionKind ?? "agent_stream";
@@ -331,9 +361,16 @@ export class AgentRunEngine {
             `agent runtime execution failed: ${result.content}`,
           );
         }
+        recordMetric(
+          interrupted ? "interrupted" : "failed",
+          result.tokenUsage,
+          result.toolCalls,
+          interrupted ? null : result.content || null,
+        );
         input.onTerminal?.(interrupted ? "interrupted" : "failed");
         return result;
       }
+      recordMetric("completed", result.tokenUsage, result.toolCalls, null);
       input.onTerminal?.("completed");
       return result;
    } catch (error) {
@@ -356,6 +393,7 @@ export class AgentRunEngine {
           execution_kind: executionKind,
         }, "agent runtime execution failed");
       }
+      recordMetric(finalStatus, { inputTokens: 0, outputTokens: 0 }, {}, interrupted ? null : errorMessage);
      input.onTerminal?.(finalStatus);
      return { content: errorMessage, success: false };
     }

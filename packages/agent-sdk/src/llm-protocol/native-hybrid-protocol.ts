@@ -13,7 +13,7 @@
  * 与 backend-ts 差异（同 XmlProtocol）：LlmClient/LlmRequest、readTierParams、扁平 KernelEvent。
  * visibleTools 来源从 session.toolExecutor 改为 deps.getTools()（SDK 工具端口尚未接入，默认空）。
  */
-import type { ChatMessage, ChatToolCall, ChatToolDefinition, LlmClient, LlmRequest, LlmStreamHandler, ProviderConfig } from "@ragsystem/agent-llm";
+import type { ChatMessage, ChatToolCall, ChatToolDefinition, LlmClient, LlmRequest, LlmStreamHandler, ProviderConfig, TokenUsage } from "@ragsystem/agent-llm";
 import { extractText } from "@ragsystem/agent-llm";
 import { RuntimeAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
 import type { EventSink, KernelContext, KernelObservation, KernelOutcome, KernelToolCall, Protocol } from "../contracts.js";
@@ -95,7 +95,7 @@ export class NativeHybridProtocol implements Protocol {
     ctx: KernelContext,
     baseRequest: LlmRequest,
     round: number,
-    stream: (request: LlmRequest, onChunk: LlmStreamHandler) => Promise<{ content: string; toolCalls?: ChatToolCall[]; finishReason?: string | null }>,
+    stream: (request: LlmRequest, onChunk: LlmStreamHandler) => Promise<{ content: string; toolCalls?: ChatToolCall[]; finishReason?: string | null; usage?: TokenUsage }>,
   ): Promise<KernelOutcome> {
     const session = ctx.session;
     const agentName = session.profile.agentName;
@@ -186,7 +186,7 @@ export class NativeHybridProtocol implements Protocol {
         content: intentContent,
         tool_calls: toolCalls,
       };
-      return { kind: "tool_calls", calls, assistantMessage, finishReason: result.finishReason ?? null };
+      return { kind: "tool_calls", calls, assistantMessage, finishReason: result.finishReason ?? null, usage: result.usage };
     }
 
     const rawContent = parser.getFullResponse() || result.content || "";
@@ -195,6 +195,7 @@ export class NativeHybridProtocol implements Protocol {
       finalAnswer: finalAnswer.trim() ? finalAnswer : rawContent,
       assistantMessage: { role: "assistant", content: finalAnswer.trim() ? finalAnswer : rawContent },
       finishReason: result.finishReason ?? null,
+      usage: result.usage,
     };
   }
 
@@ -233,6 +234,7 @@ export class NativeHybridProtocol implements Protocol {
           tool_calls: result.toolCalls,
         },
         finishReason: result.finishReason ?? null,
+        usage: result.usage,
       };
     }
 
@@ -241,6 +243,7 @@ export class NativeHybridProtocol implements Protocol {
       finalAnswer: content,
       assistantMessage: { role: "assistant", content },
       finishReason: result.finishReason ?? null,
+      usage: result.usage,
     };
   }
 

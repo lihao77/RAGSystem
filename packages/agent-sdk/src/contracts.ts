@@ -10,7 +10,7 @@
  * - EventSink 透传 KernelEvent，SDK 不翻译成 Envelope（设计稿 §6 原则 1/4：消费端翻译）
  * - 端口词汇去掉 backend-ts 的 runtime-tool-types 依赖，工具执行端口直接收 profile
  */
-import type { ChatMessage, LlmRequest } from "@ragsystem/agent-llm";
+import type { ChatMessage, LlmRequest, TokenUsage } from "@ragsystem/agent-llm";
 // 标量事件壳从协议面 import（供本文件 KernelEvent union 引用）+ re-export（供下游使用）。
 // 3 个携带 ChatMessage 的事件（intent_complete/assistant_intermediate/observation_complete）在下方 extends 壳扩展。
 import type {
@@ -140,12 +140,12 @@ export interface KernelObservation {
   observation: string;
 }
 
-/** 一次 invoke 的产物：最终回答 or 工具调用申请。 */
+/** 一次 invoke 的产物：最终回答 or 工具调用申请。两分支都携带本轮 LLM 返回的 token 用量槽位（provider 未返回时为 undefined）。 */
 export type KernelOutcome =
-  | { kind: "final"; finalAnswer: string; assistantMessage: ChatMessage; finishReason: string | null }
-  | { kind: "tool_calls"; calls: KernelToolCall[]; assistantMessage: ChatMessage; finishReason: string | null };
+  | { kind: "final"; finalAnswer: string; assistantMessage: ChatMessage; finishReason: string | null; usage: TokenUsage | undefined }
+  | { kind: "tool_calls"; calls: KernelToolCall[]; assistantMessage: ChatMessage; finishReason: string | null; usage: TokenUsage | undefined };
 
-/** run 最终结果（metadata 源自 profile/provider，对齐 backend-ts KernelResult 形状）。 */
+/** run 最终结果（metadata 源自 profile/provider，对齐 backend-ts KernelResult 形状）。usage 为本轮循环累计 token 用量。 */
 export interface KernelResult {
   content: string;
   raw?: unknown;
@@ -156,6 +156,8 @@ export interface KernelResult {
     providerType: string;
     modelName: string;
   };
+  /** 整个 run 各轮 LLM 调用的累计 token 用量；无 provider 返回时为 undefined。 */
+  usage?: TokenUsage;
 }
 
 /* ============================================================

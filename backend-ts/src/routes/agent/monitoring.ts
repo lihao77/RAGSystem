@@ -39,16 +39,15 @@ interface OutboxCleanupQuery {
 export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.get("/metrics", async (request) => {
     const query = request.query as { agent_name?: string };
-    if (query.agent_name?.trim()) {
-      throw new HttpError(404, "not_found", `未找到智能体 ${query.agent_name.trim()} 的指标`);
-    }
-    return ok(buildSystemMetrics(options), "获取系统指标成功");
+    const agentName = query.agent_name?.trim() || null;
+    return ok(options.container.metricsCollector.getSystemMetrics(agentName), "获取系统指标成功");
   });
 
   app.post("/metrics/reset", async (request) => {
     const body = isRecord(request.body) ? request.body : {};
-    const agentName = typeof body.agent_name === "string" && body.agent_name.trim() ? body.agent_name.trim() : "";
-    return ok(undefined, `已重置${agentName ? `智能体 ${agentName}` : "所有"}指标`);
+    const agentName = typeof body.agent_name === "string" && body.agent_name.trim() ? body.agent_name.trim() : null;
+    const result = options.container.metricsCollector.reset(agentName);
+    return ok(result, `已重置${agentName ? `智能体 ${agentName}` : "所有"}指标`);
   });
 
   app.get("/event-outbox", async (request) => {
@@ -222,37 +221,6 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     return ok(item, "获取工具调用原始结果成功");
   });
 };
-
-function buildSystemMetrics(options: RouteOptions): {
-  total_agents: number;
-  total_calls: number;
-  avg_duration_ms: number;
-  overall_success_rate: number;
-  waiting: {
-    total_waits: number;
-    total_completed: number;
-    total_timeouts: number;
-    total_keepalive_rounds: number;
-  };
-  agents: Record<string, Record<string, unknown>>;
-} {
-  void options;
-  // TS 后端暂未实现真实 agent 调用指标追踪；返回空映射，避免塞入 Python 时代的占位 agent 名造成前端渲染脏数据。
-  const agents: Record<string, Record<string, unknown>> = {};
-  return {
-    total_agents: Object.keys(agents).length,
-    total_calls: 0,
-    avg_duration_ms: 0,
-    overall_success_rate: 0,
-    waiting: {
-      total_waits: 0,
-      total_completed: 0,
-      total_timeouts: 0,
-      total_keepalive_rounds: 0,
-    },
-    agents,
-  };
-}
 
 function toContextHistoryItem(
   message: ChatMessage,
