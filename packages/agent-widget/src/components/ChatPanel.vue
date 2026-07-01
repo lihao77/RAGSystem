@@ -13,7 +13,7 @@
             <span class="rag-title">AI 助手</span>
             <span v-if="connBadgeText" class="rag-conn-badge">{{ connBadgeText }}</span>
           </div>
-          <button class="rag-icon-btn rag-icon-btn--reset" @click="reset" title="重置对话" aria-label="重置对话">
+          <button class="rag-icon-btn rag-icon-btn--reset" @click="newSession" title="新会话" aria-label="新会话">
             <span v-html="rotateCcwIcon"></span>
           </button>
           <button class="rag-icon-btn rag-icon-btn--close" @click="toggleOpen" aria-label="关闭">
@@ -101,22 +101,25 @@
               :aria-label="tool.title || tool.label"
               @click="onInputToolClick(tool)"
             >
-              <span class="rag-input-tool-icon">{{ tool.label }}</span>
+              <span v-if="tool.icon" class="rag-input-tool-icon" v-html="tool.icon"></span>
+              <span v-else class="rag-input-tool-icon">{{ tool.label }}</span>
               <span v-if="tool.title" class="rag-input-tool-text">{{ tool.title }}</span>
             </button>
           </div>
           <div class="rag-input-pill">
             <!-- contentEditable 富文本：文字 + chip（坐标）混排，chip 嵌在文字流（mention 风格），×整体删。 -->
-            <div
-              ref="inputEl"
-              class="rag-input"
-              :class="{ 'is-empty': isEmpty }"
-              :data-placeholder="isConnected ? 'Send a message...' : '等待连接…'"
-              :contenteditable="isConnected ? 'true' : 'false'"
-              @input="onInput"
-              @focus="onInputFocus"
-              @keydown.enter.exact.prevent="send"
-            ></div>
+            <div class="rag-input-wrap">
+              <!-- placeholder 绝对定位脱离编辑流：避免 contentEditable 内 ::before 与残留 <br> 叠加、光标穿透导致占位删不掉/错乱。 -->
+              <span v-show="isEmpty" class="rag-input-ph">Send a message...</span>
+              <div
+                ref="inputEl"
+                class="rag-input"
+                contenteditable="true"
+                @input="onInput"
+                @focus="onInputFocus"
+                @keydown.enter.exact.prevent="send"
+              ></div>
+            </div>
             <button
               v-if="isActiveRun"
               class="rag-send rag-stop"
@@ -151,7 +154,7 @@
 </template>
 
 <script setup>
-import { ref, computed, provide, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, provide, onBeforeUnmount } from "vue";
 import { WidgetAgentClient } from "../adapter/widget-agent-client.js";
 import { renderMarkdown } from "../utils/markdown.js";
 import WorkPanelApproval from "./workpanel/WorkPanelApproval.vue";
@@ -166,7 +169,7 @@ import ExecutionTreeNode from "./ExecutionTreeNode.vue";
  */
 const props = defineProps({
   backendBase: { type: String, required: true },
-  sessionId: { type: String, required: true },
+  sessionId: { type: String, default: undefined },
   token: { type: String, required: false },
   hostTools: { type: Array, default: () => [] },
   inputTools: { type: Array, default: () => [] },
@@ -174,7 +177,11 @@ const props = defineProps({
 });
 
 let client = null;
-const unsub = [];
+let clientUnsub = [];
+// 当前会话 id：null=未建（懒建，首次发送时 POST 创建）；宿主传入 sessionId 则直接用。
+const sessionId = ref(props.sessionId || null);
+// 并发 send 复用同一连接建立 promise，避免重复建会话/连 WS。
+let connectingPromise = null;
 
 const open = ref(false);
 const messages = ref([]);
@@ -222,29 +229,71 @@ const rotateCcwIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor
 const chevronDownIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`;
 const chevronUpIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>`;
 
-onMounted(async () => {
-  client = new WidgetAgentClient({
-    backendBase: props.backendBase,
-    sessionId: props.sessionId,
-    token: props.token,
-    hostTools: props.hostTools,
-  });
-  unsub.push(client.status.subscribe((s) => { connectionStatus.value = s; }));
-  unsub.push(client.runStatus.subscribe((s) => { runStatus.value = s; }));
+/** 订阅 client 各 observable → 本地响应式状态；返回 cleanup。 */
+function bindClient(c) {
+  const u = [];
+  u.push(c.status.subscribe((s) => { connectionStatus.value = s; }));
+  u.push(c.runStatus.subscribe((s) => { runStatus.value = s; }));
   // executionTree 挂到当前 run 产生的最新 assistant message（工具调用属该回复）。
-  unsub.push(client.executionTree.subscribe((t) => {
+  u.push(c.executionTree.subscribe((t) => {
     const last = messages.value[messages.value.length - 1];
     if (last && last.role === "assistant") {
       last.executionTree = t;
     }
   }));
-  unsub.push(client.pendingInteractions.subscribe((list) => { pendingInteractions.value = list; }));
-  unsub.push(client.events.subscribe((env) => handleEvent(env)));
-  await client.connect();
-});
+  u.push(c.pendingInteractions.subscribe((list) => { pendingInteractions.value = list; }));
+  u.push(c.events.subscribe((env) => handleEvent(env)));
+  return () => u.forEach((fn) => { try { fn(); } catch {} });
+}
+
+/** widget 内部建会话（懒）：有 token→/api/widget/sessions，无 token→/api/agent/sessions 零鉴权。 */
+async function createSession() {
+  const base = props.backendBase.replace(/\/$/, "");
+  const hostToolNames = (props.hostTools ?? []).map((t) => t.name);
+  const res = props.token
+    ? await fetch(`${base}/api/widget/sessions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${props.token}` },
+        body: JSON.stringify({ host_tools: hostToolNames }),
+      })
+    : await fetch(`${base}/api/agent/sessions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+  if (!res.ok) throw new Error(`会话创建失败: ${res.status} ${await res.text().catch(() => "")}`);
+  const json = await res.json();
+  const sid = json.data?.session_id;
+  if (!sid) throw new Error("会话创建失败: 响应缺 session_id");
+  return sid;
+}
+
+/** 懒连接：首次发送时建会话 + new client + connect；并发 send 复用同一 promise。 */
+async function ensureConnected() {
+  if (client && isConnected.value) return;
+  if (connectingPromise) return connectingPromise;
+  connectingPromise = (async () => {
+    if (!sessionId.value) sessionId.value = await createSession();
+    const c = new WidgetAgentClient({
+      backendBase: props.backendBase,
+      sessionId: sessionId.value,
+      token: props.token,
+      hostTools: props.hostTools,
+    });
+    clientUnsub.forEach((fn) => { try { fn(); } catch {} });
+    clientUnsub = [bindClient(c)];
+    client = c;
+    await client.connect();
+  })();
+  try {
+    await connectingPromise;
+  } finally {
+    connectingPromise = null;
+  }
+}
 
 onBeforeUnmount(() => {
-  unsub.forEach((fn) => { try { fn(); } catch {} });
+  clientUnsub.forEach((fn) => { try { fn(); } catch {} });
   if (streamFlushTimer) { clearTimeout(streamFlushTimer); streamFlushTimer = null; }
   client?.disconnect();
 });
@@ -349,25 +398,27 @@ function pushError(message) {
 
 async function send() {
   const text = getInputText();
-  if (!text || !client || isActiveRun.value || sending.value) return;
-  // 未连接直接报错，不污染消息流。
-  if (!isConnected.value) {
-    pushError("发送失败：连接未就绪");
-    return;
-  }
-  // 乐观先入用户消息：保证 user 在 run_started 投影出的 assistant 消息之前。
-  // 若改成 await 后再 push，run_started 事件会在 await 期间先把 assistant（空内容 + 打字点）入列，
-  // 导致 assistant 排到 user 之上，且 stream_output 取末尾消息会错指 user 而丢掉整路流式。
-  messages.value.push({ id: `u${Date.now()}`, role: "user", content: text });
-  if (inputEl.value) inputEl.value.innerHTML = "";
-  isEmpty.value = true;
+  if (!text || isActiveRun.value || sending.value) return;
   sending.value = true;
-  scrollToBottom();
   try {
+    // 懒连接：首次发送时建会话 + 连 WS（未发送不建会话，避免加载即建空会话）。
+    await ensureConnected();
+    if (!isConnected.value) {
+      pushError("发送失败：连接未就绪");
+      return;
+    }
+    // 乐观先入用户消息：保证 user 在 run_started 投影出的 assistant 消息之前。
+    // ensureConnected 先于 push：连接期间无 assistant 消息（尚未 send），connect 完成后再入 user，顺序仍稳。
+    messages.value.push({ id: `u${Date.now()}`, role: "user", content: text });
+    if (inputEl.value) inputEl.value.innerHTML = "";
+    isEmpty.value = true;
+    scrollToBottom();
     const result = await client.send({ task: text });
     if (!result.started) {
       pushError(`发送失败：${result.error || "请稍后重试"}`);
     }
+  } catch (e) {
+    pushError(`发送失败：${e?.message || "请稍后重试"}`);
   } finally {
     sending.value = false;
   }
@@ -385,6 +436,12 @@ function addAttachment(chip) {
   node.className = "rag-chip";
   node.contentEditable = "false";
   node.dataset.text = chip.text;
+  if (chip.icon) {
+    const ic = document.createElement("span");
+    ic.className = "rag-chip-icon";
+    ic.innerHTML = chip.icon;
+    node.appendChild(ic);
+  }
   const label = document.createElement("span");
   label.className = "rag-chip-label";
   label.textContent = chip.label || chip.text;
@@ -392,7 +449,7 @@ function addAttachment(chip) {
   close.className = "rag-chip-close";
   close.type = "button";
   close.setAttribute("aria-label", "删除");
-  close.textContent = "×";
+  close.innerHTML = xIcon;
   close.addEventListener("click", () => { node.remove(); onInput(); });
   node.appendChild(label);
   node.appendChild(close);
@@ -418,12 +475,15 @@ function getInputText() {
   return text.replace(/ /g, " ").replace(/\s+/g, " ").trim();
 }
 
-/** contentEditable input 事件：更新 isEmpty（控制 placeholder + send 可用态）。 */
+/** contentEditable input 事件：更新 isEmpty（控制 placeholder + send 可用态）。
+ *  删空时主动清掉浏览器残留的 <br>/空块，避免占位与空行叠加、光标错乱。 */
 function onInput() {
   const el = inputEl.value;
   if (!el) return;
   const hasChip = !!el.querySelector(".rag-chip");
-  isEmpty.value = !hasChip && !el.textContent.trim();
+  const empty = !hasChip && !el.textContent.trim();
+  if (empty && el.innerHTML !== "") el.innerHTML = "";
+  isEmpty.value = empty;
 }
 
 /** 光标移到 contentEditable 末尾（chip 插入后聚焦）。 */
@@ -480,13 +540,28 @@ function reconnect() {
   client?.connect();
 }
 
-/** 本地重置：清空消息流回到空状态（会话/client 保持，不重启会话）。 */
-function reset() {
+/** 开启新会话：断开当前 client、丢弃 sessionId，清空消息与状态；下次发送时懒建新会话。 */
+function newSession() {
+  if (isActiveRun.value) return; // 运行中禁止
+  connectingPromise = null;
+  clientUnsub.forEach((fn) => { try { fn(); } catch {} });
+  clientUnsub = [];
+  client?.disconnect();
+  client = null;
+  sessionId.value = null;
+  // 重置流式与 UI 状态
   flushStream();
   streamTarget = null;
   streamBuffer = "";
+  rootRunId = null;
+  if (streamFlushTimer) { clearTimeout(streamFlushTimer); streamFlushTimer = null; }
   messages.value = [];
-  draft.value = "";
+  pendingInteractions.value = [];
+  runStatus.value = { runId: null, state: "idle" };
+  connectionStatus.value = { state: "idle" };
+  expanded.value = new Set();
+  isEmpty.value = true;
+  if (inputEl.value) inputEl.value.innerHTML = "";
   stickToBottom = true;
   scrollToBottom();
 }
@@ -1265,7 +1340,8 @@ function scrollToBottom() {
   background: var(--color-bg-hover, #ebedf2);
   color: var(--color-text-primary, #1a1b1e);
 }
-.rag-input-tool-icon { font-size: 14px; line-height: 1; }
+.rag-input-tool-icon { display: inline-flex; align-items: center; font-size: 14px; line-height: 1; }
+.rag-input-tool-icon svg { width: 14px; height: 14px; display: block; }
 .rag-input-tool-text { font-size: 12px; white-space: nowrap; }
 
 /* ── 已选内容 chip（坐标等整体单元）── */
@@ -1279,29 +1355,32 @@ function scrollToBottom() {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 24px;
-  padding: 0 4px 0 10px;
+  height: 18px;
+  padding: 0 4px 0 8px;
   border-radius: var(--radius-pill, 14px);
   background: var(--color-accent-soft, rgba(75, 76, 85, 0.08));
   color: var(--color-text-secondary, #4b4c55);
   font-size: 12px;
   line-height: 1;
+  vertical-align: middle;
 }
+.rag-chip-icon { display: inline-flex; align-items: center; }
+.rag-chip-icon svg { width: 12px; height: 12px; display: block; }
 .rag-chip-close {
   flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border: none;
   border-radius: var(--radius-full);
   background: transparent;
   color: var(--color-text-faint, #9ea0ab);
   cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
+.rag-chip-close svg { width: 11px; height: 11px; display: block; }
 .rag-chip-close:hover {
   background: var(--color-bg-hover, rgba(0, 0, 0, 0.08));
   color: var(--color-text-primary, #1a1b1e);
@@ -1330,6 +1409,7 @@ function scrollToBottom() {
 }
 .rag-input-btn :deep(svg) { width: 16px; height: 16px; }
 .rag-input {
+  box-sizing: border-box;
   flex: 1;
   min-width: 0;
   min-height: 28px;
@@ -1342,12 +1422,24 @@ function scrollToBottom() {
   font-size: 13.5px;
   font-family: inherit;
   outline: none;
-  line-height: 1.5;
+  line-height: 20px;
   word-break: break-word;
   white-space: pre-wrap;
 }
-.rag-input.is-empty::before {
-  content: attr(data-placeholder);
+.rag-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.rag-input-ph {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
   color: var(--color-text-placeholder, #b0b3be);
   pointer-events: none;
 }

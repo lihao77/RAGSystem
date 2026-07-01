@@ -133,6 +133,15 @@ export class WidgetAgentClient implements AgentClient {
       },
     });
     this.transport.connect();
+    // 首次连接等 WS open（status=connected）才 resolve：保证 await connect() 返回即就绪，
+    // 消费者（widget 懒连接）可直接 send；否则 connect 在 transport.connect() 后早 resolve，send 撞“连接未就绪”。
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => { unsub(); reject(new Error("连接超时")); }, 10000);
+      const unsub = this.statusValue.subscribe((s) => {
+        if (s.state === "connected") { clearTimeout(timer); unsub(); resolve(); }
+        else if (s.state === "disconnected") { clearTimeout(timer); unsub(); reject(new Error("连接失败")); }
+      });
+    });
   }
 
   disconnect(): void {

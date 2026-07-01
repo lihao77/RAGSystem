@@ -11,7 +11,7 @@
  *   </script>
  *
  * 主题变量经 defineCustomElement styles 注入 Shadow DOM（:host 即 custom element，shadow 内生效）。
- * sessionId 省略时自动建会话：有 token 走 POST /api/widget/sessions（Bearer），无 token 走 POST /api/agent/sessions（零鉴权）。
+ * sessionId 省略时懒建：首次发送消息时 widget 内部建会话（有 token 走 POST /api/widget/sessions，无 token 走 /api/agent/sessions 零鉴权），避免加载即建空会话。
  */
 import { defineCustomElement } from "vue";
 import type { DelegatedToolSpec } from "@ragsystem/agent-protocol";
@@ -52,7 +52,7 @@ export interface WidgetInputApi {
   /** 预填输入框文本（不发送）。 */
   setDraft: (text: string) => void;
   /** 加一个 chip（坐标等整体单元），显示为不可拆分胶囊，×整体删；发送时 text 和输入文字拼一起。 */
-  addAttachment: (chip: { label: string; text: string }) => void;
+  addAttachment: (chip: { label: string; text: string; icon?: string }) => void;
   /** 直接发送一条消息。 */
   sendMessage: (text: string) => Promise<void>;
 }
@@ -60,8 +60,10 @@ export interface WidgetInputApi {
 /** 宿主注入的自定义输入工具按钮（挂 widget 输入栏，如地图选点/框选/画线）。 */
 export interface InputToolButton {
   id: string;
-  /** 按钮文字/emoji（纯文本渲染，非 v-html）。 */
+  /** 文字/emoji（纯文本渲染，非 v-html）；icon 缺省时的 fallback。 */
   label: string;
+  /** 专业图标：SVG 字符串（stroke=currentColor，viewBox="0 0 24 24"），优先于 label 渲染。 */
+  icon?: string;
   /** tooltip / aria-label。 */
   title?: string;
   /** 点击回调；宿主在此启动地图选点等交互，完成后调 setDraft 预填或 sendMessage 直接发。 */
@@ -95,38 +97,6 @@ export interface RagWidgetMountOptions {
   fabPosition?: FabPosition;
 }
 
-async function ensureSession(options: RagWidgetMountOptions): Promise<string> {
-  if (options.sessionId) {
-    return options.sessionId;
-  }
-  const base = options.backendBase.replace(/\/$/, "");
-  // 有 token：走 widgetAuth 受约束会话（第三方嵌入）；无 token：走普通会话（内部场景，后端零鉴权）。
-  // 两端点返回结构一致（{ data: { session_id } }），仅端点与鉴权头不同。
-  const res = options.token
-    ? await fetch(`${base}/api/widget/sessions`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${options.token}`,
-        },
-        body: JSON.stringify({ host_tools: (options.hostTools ?? []).map((tool) => tool.name) }),
-      })
-    : await fetch(`${base}/api/agent/sessions`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({}),
-      });
-  if (!res.ok) {
-    throw new Error(`widget 会话创建失败: ${res.status} ${await res.text().catch(() => "")}`);
-  }
-  const json = (await res.json()) as { data?: { session_id?: string } };
-  const sessionId = json.data?.session_id;
-  if (!sessionId) {
-    throw new Error("widget 会话创建失败: 响应缺 session_id");
-  }
-  return sessionId;
-}
-
 function resolveHost(options: RagWidgetMountOptions): HTMLElement {
   if (!options.el) {
     return document.body;
@@ -143,13 +113,13 @@ function resolveHost(options: RagWidgetMountOptions): HTMLElement {
 
 /** 挂载 widget；返回创建的 <rag-agent-widget> 元素。 */
 export async function mount(options: RagWidgetMountOptions): Promise<HTMLElement> {
-  const sessionId = await ensureSession(options);
   const host = resolveHost(options);
   const el = document.createElement("rag-agent-widget");
   const props = el as unknown as Record<string, unknown>;
   // customElement 的 props 经 DOM property 注入（defineProps 声明的属性）。
   props.backendBase = options.backendBase;
-  props.sessionId = sessionId;
+  // sessionId 省略=懒建：首次发送时 widget 内部 POST 建会话，避免一加载就建空会话。
+  props.sessionId = options.sessionId;
   props.token = options.token;
   props.hostTools = options.hostTools ?? [];
   props.inputTools = options.inputTools ?? [];
