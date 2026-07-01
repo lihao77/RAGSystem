@@ -22,7 +22,7 @@
         </header>
 
         <!-- 消息流：含折叠工具调用 + 打字三点 + 流内审批/输入卡片 -->
-        <div class="rag-messages" ref="messagesEl" @scroll="onMessagesScroll" @wheel="onMessagesWheel">
+        <div class="rag-messages" ref="messagesEl" @scroll="onMessagesScroll">
           <div v-if="!messages.length && !approvalQueueView.length && !pendingUserInputView" class="rag-empty">
             输入消息开始对话
           </div>
@@ -33,101 +33,28 @@
             </div>
             <div v-else class="rag-msg rag-msg--assistant">
               <!-- 工具调用折叠（N 个工具调用）——grid 0fr→1fr 展开动画，padding 下沉到裁剪区内层 -->
-              <button
-                v-if="msg.executionTree && msg.executionTree.root"
-                class="rag-exec-toggle"
-                @click="msg.execOpen = !msg.execOpen"
-              >
+              <div class="rag-exec-section" v-if="msg.executionTree && msg.executionTree.root">
+                <button
+                  class="rag-exec-toggle"
+                  @click="msg.execOpen = !msg.execOpen"
+                >
                 <span class="rag-exec-label">{{ toolCallCount(msg.executionTree) }} tool calls</span>
-                <span v-if="!msg.finished" class="rag-exec-running">进行中</span>
                 <span class="rag-exec-chevron" v-html="msg.execOpen ? chevronUpIcon : chevronDownIcon"></span>
               </button>
               <div class="rag-exec-list-outer" :class="{ 'is-open': msg.execOpen }">
                 <div class="rag-exec-list-clip">
                   <div class="rag-exec-list" v-if="msg.executionTree">
-                <template v-for="(node, idx) in extractNodes(msg.executionTree)" :key="idx">
-                  <!-- 节点行可见 = 祖先容器（intent/agent）全展开 -->
-                  <template v-if="nodeVisible(node)">
-                    <!-- intent：容器，折叠隐藏该轮工具（文本始终显示）-->
-                    <div
-                      v-if="node.type === 'intent'"
-                      class="rag-exec-node rag-exec-intent"
-                      :style="{ paddingLeft: node.depth * 22 + 'px' }"
-                      @click="toggleFold(node.foldId)"
-                    >
-                      <span class="rag-exec-icon" v-html="TOOL_ICONS.lightbulb"></span>
-                      <span class="rag-exec-intent-text">{{ node.text }}</span>
-                      <span class="rag-exec-tail" :class="{ open: isFoldOpen(node.foldId) }" v-html="chevronDownIcon"></span>
+                    <ExecutionTreeNode
+                      v-for="(child, idx) in buildTree(msg.executionTree)"
+                      :key="child.foldId || (child.tool && child.tool.callId) || idx"
+                      :node="child"
+                    />
+                    <div v-if="!buildTree(msg.executionTree).length" class="rag-exec-empty">
+                      {{ msg.finished ? "无工具调用" : "等待中…" }}
                     </div>
-                    <!-- agent：容器，折叠隐藏 task/子节点树/result -->
-                    <div
-                      v-else-if="node.type === 'agent'"
-                      class="rag-exec-node"
-                      :class="[`st-${node.status}`]"
-                      :style="{ paddingLeft: node.depth * 22 + 'px' }"
-                      @click="toggleFold(node.foldId)"
-                    >
-                      <span class="rag-exec-icon" v-html="getToolIcon(node.name, 'bot')"></span>
-                      <span class="rag-exec-name">{{ node.name }}</span>
-                      <span class="rag-exec-status">{{ agentSummary(node) }}</span>
-                      <span class="rag-exec-tail" :class="{ open: isFoldOpen(node.foldId) }" v-html="chevronDownIcon"></span>
-                    </div>
-                    <!-- tool：叶子，折叠隐藏参数/结果 -->
-                    <div
-                      v-else
-                      class="rag-exec-node"
-                      :class="[`st-${node.tool.status}`]"
-                      :style="{ paddingLeft: node.depth * 22 + 'px' }"
-                      @click="toggleFold(node.tool.callId)"
-                    >
-                      <span class="rag-exec-icon" v-html="getToolIcon(node.tool.toolName)"></span>
-                      <span class="rag-exec-name">{{ node.tool.toolName }}</span>
-                      <span class="rag-exec-status">{{ toolSummary(node.tool) }}</span>
-                      <span class="rag-exec-tail" :class="{ open: isFoldOpen(node.tool.callId) }" v-html="chevronDownIcon"></span>
-                    </div>
-                  </template>
-                  <!-- tool 展开详情：参数 + 结果（grid 0fr→1fr；marginLeft 对齐工具名起始）-->
-                  <div
-                    v-if="node.type === 'tool' && nodeVisible(node)"
-                    class="rag-exec-detail-wrap"
-                    :class="{ 'is-open': isFoldOpen(node.tool.callId) }"
-                    :style="{ marginLeft: (node.depth * 22 + 22) + 'px' }"
-                  >
-                    <div class="rag-exec-detail">
-                      <div class="rag-exec-detail-block">
-                        <span class="rag-exec-detail-label">参数</span>
-                        <pre class="rag-exec-detail-pre">{{ formatArgs(node.tool.arguments) }}</pre>
-                      </div>
-                      <div class="rag-exec-detail-block">
-                        <span class="rag-exec-detail-label">结果</span>
-                        <div class="rag-exec-detail-text" :class="{ 'is-error': node.tool.status === 'failed' }">{{ formatResult(node.tool) }}</div>
-                      </div>
-                    </div>
-                  </div>
-                  <!-- agent 展开详情：任务 + 结果（子节点树由后续节点的 nodeVisible 自然显隐）-->
-                  <div
-                    v-if="node.type === 'agent' && nodeVisible(node) && (node.task || node.result)"
-                    class="rag-exec-detail-wrap"
-                    :class="{ 'is-open': isFoldOpen(node.foldId) }"
-                    :style="{ marginLeft: (node.depth * 22 + 22) + 'px' }"
-                  >
-                    <div class="rag-exec-detail">
-                      <div v-if="node.task" class="rag-exec-detail-block">
-                        <span class="rag-exec-detail-label">任务</span>
-                        <div class="rag-exec-detail-text">{{ node.task }}</div>
-                      </div>
-                      <div v-if="node.result" class="rag-exec-detail-block">
-                        <span class="rag-exec-detail-label">结果</span>
-                        <div class="rag-exec-detail-text" :class="{ 'is-error': node.status === 'failed' }">{{ cleanObservation(node.result) }}</div>
-                      </div>
-                    </div>
-                  </div>
-                </template>
-                <div v-if="!extractNodes(msg.executionTree).length" class="rag-exec-empty">
-                  {{ msg.finished ? "无工具调用" : "等待中…" }}
-                </div>
                   </div>
                 </div>
+              </div>
               </div>
               <!-- 助手正文（结论）置于工具调用之下 -->
               <div v-if="msg.content" class="rag-assistant-text" v-html="renderMarkdown(msg.content)"></div>
@@ -139,11 +66,13 @@
             <span></span><span></span><span></span>
           </div>
 
-          <!-- 审批 / 用户输入：消息流内卡片 -->
+        </div>
+
+        <!-- 审批 / 用户输入：悬浮卡片（独立于消息列表，浮于输入栏上方）-->
+        <div v-if="pendingUserInputView || approvalQueueView.length" class="rag-interaction-overlay">
           <WorkPanelUserInput
             v-if="pendingUserInputView"
             :input-data="pendingUserInputView.data"
-            class="rag-msg rag-msg--interaction"
             @submit="onUserInputSubmit"
             @cancel="onUserInputCancel"
           />
@@ -151,7 +80,6 @@
             v-if="approvalQueueView.length"
             :queue="approvalQueueView"
             :submitting-id="submittingApprovalId"
-            class="rag-msg rag-msg--interaction"
             @submit="onApprovalSubmit"
           />
         </div>
@@ -212,11 +140,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, provide, onMounted, onBeforeUnmount } from "vue";
 import { WidgetAgentClient } from "../adapter/widget-agent-client.js";
 import { renderMarkdown } from "../utils/markdown.js";
 import WorkPanelApproval from "./workpanel/WorkPanelApproval.vue";
 import WorkPanelUserInput from "./workpanel/WorkPanelUserInput.vue";
+import ExecutionTreeNode from "./ExecutionTreeNode.vue";
 
 /**
  * widget 主面板：FAB + 对话框（Figma「Assistance widget design」浅色极简风）。
@@ -246,12 +175,18 @@ const sending = ref(false);
 const submittingApprovalId = ref("");
 // 单工具展开态：按 callId 记录，展开显示参数 + 完整结果。
 const expanded = ref(new Set());
+// 折叠状态 provide 给递归 ExecutionTreeNode（全树共享一个 expanded Set）。
+provide("execExpanded", expanded);
+provide("execToggle", toggleFold);
 
 // 流式渲染节流：delta 累积到 streamBuffer，定时 flush 到当前 assistant message，
 // 限制 markdown-it 全量重渲频率（长回复避免每 token 重算叠加成 O(n²) 卡顿）。
 const STREAM_FLUSH_MS = 80;
 let streamTarget = null;
 let streamBuffer = "";
+// 当前 root run 的 run_id（run_started 登记）。stream_output/run_ended 的 run_id 与之不同
+// 即为子智能体（call_agent/委托）的子 run，其输出不进 root 正文（由 executionTree 投影到 agent.output）。
+let rootRunId = null;
 let streamFlushTimer = null;
 
 // 滚动跟随：用户上滑阅读时不强制拉底；scrollToBottom 用 rAF 合并高频调用。
@@ -308,6 +243,7 @@ function toggleOpen() {
 
 function handleEvent(env) {
   if (env.type === "run_started") {
+    rootRunId = env.run_id || null;
     const msg = {
       id: env.run_id || `a${Date.now()}`,
       role: "assistant",
@@ -325,6 +261,10 @@ function handleEvent(env) {
   }
   if (env.type === "stream_output") {
     const payload = env.payload || {};
+    // 子智能体（子 run）的输出不进 root 正文，由 executionTree 投影到 agent.output。
+    if (env.run_id && rootRunId && env.run_id !== rootRunId) {
+      return;
+    }
     const last = messages.value[messages.value.length - 1];
     if (last && last.role === "assistant") {
       // 切换/对齐流式目标（last 变化或重连重放时重新绑定）。
@@ -346,6 +286,10 @@ function handleEvent(env) {
     return;
   }
   if (env.type === "run_ended") {
+    // 子 run 结束不应 mark root finished。
+    if (env.run_id && rootRunId && env.run_id !== rootRunId) {
+      return;
+    }
     flushStream(); // 收尾：刷掉残留 buffer，避免最后一段 delta 丢失
     streamTarget = null;
     streamBuffer = "";
@@ -500,85 +444,70 @@ const showTyping = computed(() => {
 });
 
 /** 从 executionTree 提取带层级的节点（工具 + 子 agent 分组），子 agent 工具按 depth 缩进。 */
-function extractNodes(tree) {
-  const nodes = [];
-  // ancestors：当前节点的容器祖先 foldId 链（intent/agent）。节点行可见 = 链上全部展开。
-  const walk = (agent, depth, ancestors) => {
-    if (!agent) return;
+/** 读取 call_agent/send_message 工具调用的目标 agent 名（input.agent_name 等）。*/
+function readCallAgentTarget(tc) {
+  const args = tc.arguments || {};
+  return args.agent_name || args.agent || args.agentId || null;
+}
+
+function buildTree(tree) {
+  if (!tree?.root) return [];
+  // intentDepth = 该 agent 子项的缩进基准：root（自身不渲染）从 depth 起；
+  // 子 agent（自身渲染一行）从 depth+1 起，保证 intent 缩进在所属 agent 之下而非与之平级。
+  const build = (agent, depth, isRoot) => {
+    const intentDepth = isRoot ? depth : depth + 1;
     const agentKey = agent.callId || agent.agentId || "root";
-    let agentHasIntent = false;
+    const consumed = new Set();
+    const children = [];
     for (const round of agent.rounds || []) {
-      const hasIntent = !!(round.intent && round.intent.trim());
-      if (hasIntent) agentHasIntent = true;
-      let toolAncestors = ancestors;
-      if (hasIntent) {
-        const intentId = `intent:${agentKey}:r${round.round}`;
-        nodes.push({
-          type: "intent", depth, foldId: intentId, ancestors,
-          text: round.intent, complete: !!round.intentComplete,
-        });
-        toolAncestors = [...ancestors, intentId];
-      }
-      const toolDepth = hasIntent ? depth + 1 : depth;
+      const roundChildren = [];
       for (const tc of round.toolCalls || []) {
-        // call_agent/send_message 用子 agent 分组节点代替，避免重复
-        if (tc.toolName === "call_agent" || tc.toolName === "send_message") continue;
-        nodes.push({ type: "tool", depth: toolDepth, tool: tc, foldId: tc.callId, ancestors: toolAncestors });
+        if (tc.toolName === "call_agent" || tc.toolName === "send_message") {
+          // 委托工具：用对应子 agent 节点代替，挂在该轮 intent 下。
+          const target = readCallAgentTarget(tc);
+          const child = (agent.children || []).find(
+            (c) => !consumed.has(c.callId) && (target == null || c.agentId === target),
+          );
+          if (child) {
+            consumed.add(child.callId);
+            roundChildren.push(build(child, intentDepth + 1, false));
+          }
+          continue;
+        }
+        roundChildren.push({ type: "tool", tool: tc, depth: intentDepth + 1, foldId: tc.callId });
+      }
+      const hasIntent = !!(round.intent && round.intent.trim());
+      if (hasIntent) {
+        children.push({
+          type: "intent", depth: intentDepth, foldId: `intent:${agentKey}:r${round.round}`,
+          text: round.intent, complete: !!round.intentComplete, children: roundChildren,
+        });
+      } else {
+        children.push(...roundChildren);
       }
     }
-    // 子 agent 挂在 parent 的 intent 层下（parent 有 intent 则缩进一层）；其子节点 ancestors 含该 agent。
-    const childDepth = agentHasIntent ? depth + 1 : depth;
     for (const child of agent.children || []) {
-      const childId = `agent:${child.callId || child.agentId}`;
-      nodes.push({
-        type: "agent", depth: childDepth, foldId: childId, ancestors,
-        name: child.displayName || child.agentId, status: child.status,
-        task: child.task, result: child.result,
-      });
-      walk(child, childDepth + 1, [...ancestors, childId]);
+      if (consumed.has(child.callId)) continue;
+      children.push(build(child, intentDepth + 1, false));
     }
+    return {
+      type: "agent", depth, foldId: `agent:${agent.callId || agent.agentId}`,
+      name: agent.displayName || agent.agentId, status: agent.status,
+      task: agent.task, result: agent.result, children,
+    };
   };
-  walk(tree?.root, 0, []);
-  return nodes;
+  // root agent 不显示（它是 orchestrator 容器），渲染其 children。
+  return build(tree.root, 0, true).children;
 }
 
-/** 工具调用计数（仅工具节点，不含子 agent 分组）。 */
+/** 工具调用计数（递归遍历树，仅数 tool 节点）。 */
 function toolCallCount(tree) {
-  return extractNodes(tree).filter((n) => n.type === "tool").length;
-}
-
-/** 清洗工具观察结果：剥 <tool_result> 信封 + 解 CDATA + 去标签 + 反转义实体，只留可读正文（保留换行）。 */
-function cleanObservation(raw) {
-  if (!raw) return "";
-  let text = String(raw);
-  // 1. 取 <tool_result …>内部</tool_result>
-  const tr = text.match(/<tool_result[^>]*>([\s\S]*?)<\/tool_result>/i);
-  if (tr) text = tr[1];
-  // 2. 解 CDATA：<![CDATA[ … ]]>（真实结果常包在此）
-  const cdata = text.match(/<!\[CDATA\[([\s\S]*?)\]\]>/);
-  if (cdata) text = cdata[1];
-  // 3. 去剩余信封/标签（result/observation/output 等）
-  text = text.replace(/<\/?(?:result|observation|output)[^>]*>/gi, " ");
-  text = text.replace(/<[^>]+>/g, " ");
-  // 4. 反转义常见实体（&amp; 最后解，避免二次解码）
-  text = text
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, "&");
-  // 5. 折叠水平空白（保留换行）、压多余空行
-  text = text.replace(/[^\S\n]+/g, " ").replace(/\n{3,}/g, "\n\n");
-  return text.trim();
-}
-
-/** 单工具一行摘要：运行中→运行中；失败→失败；成功→清洗后的简短结果（剥协议信封），空则「完成」。 */
-function toolSummary(tool) {
-  if (tool.status === "running") return "运行中";
-  if (tool.status === "failed") return "失败";
-  const obs = cleanObservation(tool.summary || tool.observation || "").replace(/\s+/g, " ").trim();
-  if (!obs) return "完成";
-  return obs.length > 36 ? `${obs.slice(0, 36)}…` : obs;
+  const count = (nodes) => nodes.reduce((sum, n) => {
+    if (n.type === "tool") return sum + 1;
+    if (n.children) return sum + count(n.children);
+    return sum;
+  }, 0);
+  return count(buildTree(tree));
 }
 
 /** 切换节点展开（intent/tool/agent 统一按 foldId 折叠）。*/
@@ -590,35 +519,6 @@ function toggleFold(id) {
 }
 function isFoldOpen(id) {
   return expanded.value.has(id);
-}
-/** 节点行可见 = 其所有容器祖先（intent/agent foldId）均展开。*/
-function nodeVisible(node) {
-  return (node.ancestors || []).every((id) => expanded.value.has(id));
-}
-/** agent 摘要：运行中/失败；成功留空（靠状态色，对齐 tool 摘要风格）。*/
-function agentSummary(node) {
-  if (node.status === "running") return "进行中";
-  if (node.status === "failed") return "失败";
-  return "";
-}
-
-/** 展开详情：参数（arguments）格式化为可读文本。 */
-function formatArgs(args) {
-  if (args === undefined || args === null) return "（无）";
-  if (typeof args === "string") return args.trim() || "（无）";
-  try {
-    return JSON.stringify(args, null, 2);
-  } catch {
-    return String(args);
-  }
-}
-
-/** 展开详情：完整结果（剥 <tool_result> 信封，保留全文）。运行中→执行中…；空→（无结果）。 */
-function formatResult(tool) {
-  if (tool.status === "running") return "执行中…";
-  const obs = cleanObservation(tool.observation || tool.summary || "");
-  if (obs) return obs;
-  return tool.status === "failed" ? "失败（无结果）" : "（无结果）";
 }
 
 function onMessagesScroll() {
@@ -639,21 +539,6 @@ function scrollToBottom() {
       el.scrollTop = el.scrollHeight;
     }
   });
-}
-
-// 阻止滚动透传：消息区滚到边界时吃掉 wheel，不让手势链式传播到宿主页面。
-// overscroll-behavior:contain 已覆盖绝大多数情况，这里兜底老 Safari 等不支持该属性的浏览器。
-function onMessagesWheel(e) {
-  const el = messagesEl.value;
-  if (!el) return;
-  const maxScroll = el.scrollHeight - el.clientHeight;
-  if (maxScroll <= 0) {
-    e.preventDefault();
-    return;
-  }
-  const atTop = el.scrollTop <= 0 && e.deltaY < 0;
-  const atBottom = el.scrollTop >= maxScroll && e.deltaY > 0;
-  if (atTop || atBottom) e.preventDefault();
 }
 </script>
 
@@ -729,6 +614,7 @@ function onMessagesWheel(e) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
 }
 
 /* ── Header ── */
@@ -846,33 +732,142 @@ function onMessagesWheel(e) {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
 }
 .rag-assistant-text {
   color: var(--color-text-primary, #1a1b1e);
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.7;
   word-break: break-word;
 }
-.rag-assistant-text pre {
-  background: var(--color-bg-input, #f4f5f8);
-  padding: 10px 12px;
-  border-radius: var(--radius-sm, 8px);
-  overflow-x: auto;
-  overscroll-behavior: contain;
-  font-family: var(--font-mono, monospace);
-  font-size: 12.5px;
+.rag-assistant-text > *:first-child { margin-top: 0; }
+.rag-assistant-text > *:last-child { margin-bottom: 0; }
+.rag-assistant-text p { margin: 0.6em 0; }
+.rag-assistant-text h1,
+.rag-assistant-text h2,
+.rag-assistant-text h3,
+.rag-assistant-text h4,
+.rag-assistant-text h5,
+.rag-assistant-text h6 {
+  margin: 1.15em 0 0.5em;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--color-text-primary, #1a1b1e);
 }
+.rag-assistant-text h1 { font-size: 1.3em; }
+.rag-assistant-text h2 { font-size: 1.2em; }
+.rag-assistant-text h3 { font-size: 1.1em; }
+.rag-assistant-text h4,
+.rag-assistant-text h5,
+.rag-assistant-text h6 { font-size: 1em; }
+.rag-assistant-text ul,
+.rag-assistant-text ol { padding-left: 1.5em; margin: 0.6em 0; }
+.rag-assistant-text li { margin: 0.25em 0; }
+.rag-assistant-text li > ul,
+.rag-assistant-text li > ol { margin: 0.25em 0; }
+/* task-list 复选框 */
+.rag-assistant-text input[type="checkbox"] { margin-right: 0.4em; transform: translateY(1px); }
+.rag-assistant-text strong { font-weight: 600; }
+.rag-assistant-text em { font-style: italic; }
+.rag-assistant-text a {
+  color: var(--color-link, #4b4c55);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.rag-assistant-text a:hover { opacity: 0.8; }
+/* 行内 code */
 .rag-assistant-text code {
   font-family: var(--font-mono, monospace);
-  font-size: 12.5px;
+  font-size: 0.88em;
+  padding: 0.15em 0.4em;
+  background: var(--color-bg-input, #f4f5f8);
+  border-radius: 4px;
+  color: var(--color-text-secondary, #4b4c55);
 }
-.rag-assistant-text p { margin: 0.4em 0; }
-.rag-assistant-text ul,
-.rag-assistant-text ol { padding-left: 1.4em; margin: 0.4em 0; }
-.rag-assistant-text a { color: var(--color-link, #4b4c55); }
+/* 代码块 */
+.rag-assistant-text pre {
+  margin: 0.7em 0;
+  padding: 11px 13px;
+  background: var(--color-bg-input, #f4f5f8);
+  border-radius: var(--radius-sm, 8px);
+  overflow-x: auto;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.rag-assistant-text pre code {
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  color: inherit;
+  font-size: inherit;
+}
+/* 引用 */
+.rag-assistant-text blockquote {
+  margin: 0.7em 0;
+  padding: 0.2em 0 0.2em 0.9em;
+  border-left: 3px solid var(--color-border-strong, rgba(0, 0, 0, 0.1));
+  color: var(--color-text-secondary, #4b4c55);
+}
+.rag-assistant-text blockquote > *:first-child { margin-top: 0; }
+.rag-assistant-text blockquote > *:last-child { margin-bottom: 0; }
+/* 分隔线 */
+.rag-assistant-text hr {
+  border: none;
+  border-top: 1px solid var(--color-border, rgba(0, 0, 0, 0.06));
+  margin: 1.1em 0;
+}
+/* 表格 */
+.rag-assistant-text table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.7em 0;
+  font-size: 13px;
+}
+.rag-assistant-text th,
+.rag-assistant-text td {
+  padding: 6px 10px;
+  border: 1px solid var(--color-border, rgba(0, 0, 0, 0.06));
+  text-align: left;
+}
+.rag-assistant-text th {
+  background: var(--color-bg-input, #f4f5f8);
+  font-weight: 600;
+}
+.rag-assistant-text img { max-width: 100%; border-radius: var(--radius-sm, 8px); }
+
+/* highlight.js token 配色（浅色，协调 widget 中性色调）*/
+.rag-assistant-text .hljs-comment,
+.rag-assistant-text .hljs-quote { color: var(--color-text-faint, #9ea0ab); font-style: italic; }
+.rag-assistant-text .hljs-keyword,
+.rag-assistant-text .hljs-selector-tag,
+.rag-assistant-text .hljs-built_in,
+.rag-assistant-text .hljs-name,
+.rag-assistant-text .hljs-tag { color: #6f55d6; }
+.rag-assistant-text .hljs-string,
+.rag-assistant-text .hljs-title,
+.rag-assistant-text .hljs-section,
+.rag-assistant-text .hljs-attribute,
+.rag-assistant-text .hljs-literal,
+.rag-assistant-text .hljs-template-tag,
+.rag-assistant-text .hljs-template-variable,
+.rag-assistant-text .hljs-type,
+.rag-assistant-text .hljs-addition { color: #16a34a; }
+.rag-assistant-text .hljs-number,
+.rag-assistant-text .hljs-symbol,
+.rag-assistant-text .hljs-bullet,
+.rag-assistant-text .hljs-meta { color: #d97706; }
+.rag-assistant-text .hljs-attr,
+.rag-assistant-text .hljs-variable,
+.rag-assistant-text .hljs-link { color: #2563eb; }
+.rag-assistant-text .hljs-deletion { color: var(--color-error, #e05252); }
 
 /* ── 工具调用折叠（N 个工具调用）── */
+/* section：toggle + 列表成一个视觉组（组内紧凑），与正文（结论）由 assistant gap 拉开。*/
+.rag-exec-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .rag-exec-toggle {
   display: inline-flex;
   align-items: center;
@@ -880,7 +875,7 @@ function onMessagesWheel(e) {
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--color-text-muted, #6e7280);
   font-family: inherit;
   padding: 2px 0;
@@ -915,6 +910,10 @@ function onMessagesWheel(e) {
   gap: 0;
   padding: 0 0 6px;
 }
+/* 工具调用列表内的节点字号比正文小一档（辅助信息）*/
+.rag-exec-list .rag-exec-node,
+.rag-exec-list .rag-exec-name,
+.rag-exec-list .rag-exec-intent-text { font-size: 11.5px; }
 /* 统一节点行（intent/tool/agent 同一骨架：图标 · 主文本 · 摘要 · chevron）。
    agent 不再特殊加粗/accent——只在图标(bot)与「能展开子树」上区别于 tool。*/
 .rag-exec-node {
@@ -977,7 +976,8 @@ function onMessagesWheel(e) {
 }
 /* hover：字体加深（非彩色状态行）*/
 .rag-exec-node:hover .rag-exec-name,
-.rag-exec-node:hover .rag-exec-icon { color: var(--color-text-primary, #1a1b1e); }
+.rag-exec-node:hover .rag-exec-icon,
+.rag-exec-node:hover .rag-exec-intent-text { color: var(--color-text-primary, #1a1b1e); }
 .rag-exec-node:hover .rag-exec-status { color: var(--color-text-secondary, #4b4c55); }
 /* 失败/运行：hover 下保持状态色（优先级高于通用 hover，避免被加深盖掉）*/
 .st-failed.rag-exec-node:hover .rag-exec-name,
@@ -1041,7 +1041,6 @@ function onMessagesWheel(e) {
   word-break: break-word;
   max-height: 160px;
   overflow-y: auto;
-  overscroll-behavior: contain;
 }
 .rag-exec-detail-text {
   padding: 7px 9px;
@@ -1054,7 +1053,6 @@ function onMessagesWheel(e) {
   word-break: break-word;
   max-height: 200px;
   overflow-y: auto;
-  overscroll-behavior: contain;
 }
 .rag-exec-detail-text.is-error {
   background: rgba(var(--color-error-rgb, 224, 82, 82), 0.1);
@@ -1082,9 +1080,19 @@ function onMessagesWheel(e) {
   50% { transform: translateY(-4px); opacity: 1; }
 }
 
-.rag-msg--interaction {
-  align-self: stretch;
+/* 审批 / 用户输入：悬浮卡片，绝对定位浮于输入栏上方，不占消息列表 */
+.rag-interaction-overlay {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 76px; /* 输入栏（footer）高度 + 间隙 */
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
 }
+.rag-interaction-overlay > * { pointer-events: auto; }
 
 /* ── 断连条 ── */
 .rag-conn-bar {
