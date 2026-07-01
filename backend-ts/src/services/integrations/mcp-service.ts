@@ -1,8 +1,13 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { Stream } from "node:stream";
 
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import YAML from "yaml";
 
 import type {
@@ -18,7 +23,6 @@ import type { ToolExecutionResult } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "../agent/sdk/tool-results.js";
 
 const MCP_TOOL_PREFIX = "mcp__";
-const MCP_PROTOCOL_VERSION = "2024-11-05";
 const MCP_SERVERS_RELATIVE_PATH = path.join("config", "mcp", "mcp_servers.yaml");
 const REGISTRY_BASE_URL = process.env.MCP_REGISTRY_BASE_URL || "https://registry.modelcontextprotocol.io";
 const REGISTRY_TIMEOUT_MS = Math.max(1000, Number(process.env.MCP_REGISTRY_TIMEOUT ?? 15) * 1000);
@@ -219,10 +223,7 @@ export class McpService {
     this.connections.set(serverName, state);
 
     try {
-      if (server.transport !== "stdio") {
-        throw new McpServiceError(`${server.transport} MCP transport requires a server reachable through the stdio-compatible runtime adapter`, 400);
-      }
-      const client = new StdioMcpClient(server);
+      const client = new SdkMcpClient(server);
       await client.connect();
       if (options.automatic && this.manuallyDisconnectedServers.has(serverName)) {
         client.close();
@@ -415,158 +416,102 @@ export class McpService {
   }
 }
 
-class StdioMcpClient {
-  private process: ChildProcessWithoutNullStreams | null = null;
-  private buffer = "";
-  private requestId = 1;
-  private readonly pending = new Map<number, {
-    resolve: (value: unknown) => void;
-    reject: (error: Error) => void;
-    timeout: NodeJS.Timeout;
-  }>();
-  private stderr = "";
+class SdkMcpClient implements McpClient {
   tools: McpTool[] = [];
+  private readonly client: Client;
+  private readonly transport: Transport;
+  private readonly timeoutMs: number;
+  private stderrText = "";
 
-  constructor(private readonly config: McpServerConfig) {}
+  constructor(config: McpServerConfig) {
+    this.timeoutMs = Math.max(1, config.timeout) * 1000;
+    const { transport, stderr } = createMcpTransport(config);
+    this.transport = transport;
+    if (stderr) {
+      stderr.on("data", (chunk: Uint8Array) => {
+        this.stderrText += Buffer.from(chunk).toString("utf8");
+        if (this.stderrText.length > 4000) {
+          this.stderrText = this.stderrText.slice(-4000);
+        }
+      });
+    }
+    this.client = new Client(
+      { name: "@ragsystem/backend-ts", version: "0.1.0" },
+      { capabilities: {} },
+    );
+  }
 
   async connect(): Promise<void> {
-    const command = this.config.command?.trim();
-    if (!command) {
-      throw new Error("stdio 模式需要 command 配置");
-    }
-    const resolvedCommand = resolveSpawnCommand(command, this.config.args);
-    this.process = spawn(resolvedCommand.command, resolvedCommand.args, {
-      ...resolvedCommand.options,
-      env: { ...process.env, ...this.config.env },
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    this.process.stdout.on("data", (chunk) => this.onStdout(chunk));
-    this.process.stderr.on("data", (chunk) => {
-      this.stderr += String(chunk);
-      if (this.stderr.length > 4000) {
-        this.stderr = this.stderr.slice(-4000);
+    try {
+      await this.client.connect(this.transport, { timeout: this.timeoutMs });
+      const listed = await this.client.listTools(undefined, { timeout: this.timeoutMs });
+      this.tools = normalizeMcpTools(listed);
+    } catch (error) {
+      const detail = this.stderrText.trim();
+      if (detail) {
+        throw new Error(`${formatError(error)}: ${detail}`);
       }
-    });
-    this.process.on("exit", (code, signal) => {
-      const message = `MCP stdio process exited: code=${code ?? "null"} signal=${signal ?? "null"}`;
-      this.rejectAll(new Error(this.stderr.trim() ? `${message}: ${this.stderr.trim()}` : message));
-    });
-    this.process.on("error", (error) => {
-      this.rejectAll(error);
-    });
-
-    await this.request("initialize", {
-      protocolVersion: MCP_PROTOCOL_VERSION,
-      capabilities: {},
-      clientInfo: {
-        name: "@ragsystem/backend-ts",
-        version: "0.1.0",
-      },
-    });
-    this.notify("notifications/initialized", {});
-    const listed = await this.request("tools/list", {});
-    this.tools = normalizeMcpTools(listed);
+      throw error;
+    }
   }
 
   async callTool(toolName: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const result = await this.request("tools/call", {
-      name: toolName,
-      arguments: args,
-    });
+    const result = await this.client.callTool(
+      { name: toolName, arguments: args },
+      undefined,
+      { timeout: this.timeoutMs },
+    );
     return isRecord(result) ? result : {};
   }
 
   close(): void {
-    this.rejectAll(new Error("MCP connection closed"));
-    if (this.process && !this.process.killed) {
-      this.process.kill();
-    }
-    this.process = null;
-  }
-
-  private request(method: string, params: Record<string, unknown>): Promise<unknown> {
-    const proc = this.process;
-    if (!proc?.stdin.writable) {
-      return Promise.reject(new Error("MCP stdio process is not writable"));
-    }
-    const id = this.requestId;
-    this.requestId += 1;
-    const timeoutMs = Math.max(1, this.config.timeout) * 1000;
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`MCP request timed out: ${method}`));
-      }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timeout });
-      proc.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`, (error) => {
-        if (!error) {
-          return;
-        }
-        const pending = this.pending.get(id);
-        if (pending) {
-          clearTimeout(pending.timeout);
-          this.pending.delete(id);
-          pending.reject(error);
-        }
-      });
+    void this.client.close().catch(() => {
+      // Best-effort teardown; errors here are not actionable for callers.
     });
   }
+}
 
-  private notify(method: string, params: Record<string, unknown>): void {
-    const proc = this.process;
-    if (!proc?.stdin.writable) {
-      return;
-    }
-    proc.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
-  }
-
-  private onStdout(chunk: Buffer): void {
-    this.buffer += chunk.toString("utf8");
-    for (;;) {
-      const newline = this.buffer.search(/\r?\n/);
-      if (newline < 0) {
-        break;
+function createMcpTransport(config: McpServerConfig): { transport: Transport; stderr: Stream | null } {
+  if (config.transport === "stdio") {
+    const resolved = resolveSpawnCommand(config.command ?? "", config.args);
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+      if (typeof value === "string") {
+        env[key] = value;
       }
-      const line = this.buffer.slice(0, newline).trim();
-      this.buffer = this.buffer.slice(newline + (this.buffer[newline] === "\r" && this.buffer[newline + 1] === "\n" ? 2 : 1));
-      if (!line) {
-        continue;
-      }
-      this.handleMessageLine(line);
     }
+    Object.assign(env, config.env);
+    const transport = new StdioClientTransport({
+      command: resolved.command,
+      args: resolved.args,
+      env,
+      stderr: "pipe",
+    });
+    return { transport, stderr: transport.stderr };
   }
 
-  private handleMessageLine(line: string): void {
-    let message: unknown;
-    try {
-      message = JSON.parse(line) as unknown;
-    } catch {
-      return;
-    }
-    if (!isRecord(message) || typeof message.id !== "number") {
-      return;
-    }
-    const pending = this.pending.get(message.id);
-    if (!pending) {
-      return;
-    }
-    clearTimeout(pending.timeout);
-    this.pending.delete(message.id);
-    if (isRecord(message.error)) {
-      pending.reject(new Error(String(message.error.message ?? JSON.stringify(message.error))));
-      return;
-    }
-    pending.resolve(message.result);
+  const url = new URL(config.url ?? "");
+  const headers = config.headers;
+  if (config.transport === "streamable_http") {
+    // StreamableHTTPClientTransport exposes `sessionId: string | undefined`, which collides with the
+    // Transport interface under exactOptionalPropertyTypes; the runtime contract is unchanged.
+    return {
+      transport: new StreamableHTTPClientTransport(url, { requestInit: { headers } }) as unknown as Transport,
+      stderr: null,
+    };
   }
+  // SSEClientTransport injects requestInit.headers into both the GET event stream and POSTs.
+  return {
+    transport: new SSEClientTransport(url, { requestInit: { headers } }),
+    stderr: null,
+  };
+}
 
-  private rejectAll(error: Error): void {
-    for (const [id, pending] of this.pending.entries()) {
-      clearTimeout(pending.timeout);
-      pending.reject(error);
-      this.pending.delete(id);
-    }
-  }
+interface McpClient {
+  tools: McpTool[];
+  connect(): Promise<void>;
+  callTool(toolName: string, args: Record<string, unknown>): Promise<Record<string, unknown>>;
+  close(): void;
 }
 
 interface McpConnectionState {
@@ -575,7 +520,7 @@ interface McpConnectionState {
   status: McpServerStatus["status"];
   errorMessage: string | null;
   tools: McpTool[];
-  client: StdioMcpClient | null;
+  client: McpClient | null;
 }
 
 interface McpTool {

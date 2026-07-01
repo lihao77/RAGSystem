@@ -17,13 +17,14 @@
     "smoke:parity": "tsx scripts/parity-smoke.ts",
     "smoke:outbox-live": "tsx scripts/outbox-live-smoke.ts"
   },
- "dependencies": {
-   "@ragsystem/agent-protocol": "*",
-    "@ragsystem/agent-llm": "*",
-    "@ragsystem/agent-sdk": "*",
-   "@fastify/cors": "^10.0.0",
+  "dependencies": {
+    "@fastify/cors": "^10.0.0",
     "@fastify/multipart": "^9.4.0",
     "@fastify/websocket": "^11.0.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@ragsystem/agent-llm": "*",
+    "@ragsystem/agent-protocol": "*",
+    "@ragsystem/agent-sdk": "*",
     "fastify": "^5.0.0",
     "sqlite-vec": "^0.1.9",
     "yaml": "^2.9.0",
