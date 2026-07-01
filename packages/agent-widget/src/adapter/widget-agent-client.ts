@@ -51,8 +51,11 @@ export interface WidgetAgentClientOptions {
   /** 后端 origin，如 https://api.host.com。 */
   backendBase: string;
   sessionId: string;
-  /** widget 短时 JWT（WS 走 query）。 */
-  token: string;
+  /**
+   * widget 短时 JWT（可选，WS 走 query）；省略=内部普通会话，后端零鉴权不校验。
+   * 第三方嵌入时由宿主服务端换取后注入；内部场景可完全不传。
+   */
+  token?: string | undefined;
   /** 宿主业务工具（hostTools）；握手时 tools.register 上行，delegate_call 时本地执行。 */
   hostTools?: DelegatedToolSpec[];
 }
@@ -64,7 +67,7 @@ interface HostToolEntry {
 export class WidgetAgentClient implements AgentClient {
   private readonly backendBase: string;
   private readonly sessionId: string;
-  private readonly token: string;
+  private readonly token: string | undefined;
 
   private transport: WidgetWsTransport | null = null;
   private execState = createExecutionTreeState();
@@ -211,14 +214,15 @@ export class WidgetAgentClient implements AgentClient {
   async respondInteraction(interactionId: string, response: InteractionResponse): Promise<void> {
     if (response.kind === "user_input") {
       this.transport?.send(encodeUserInputRespond(this.sessionId, interactionId, response.value ?? ""));
-      return;
+    } else {
+      this.transport?.send(encodeApprovalRespond(
+        this.sessionId,
+        interactionId,
+        response.approved ?? false,
+        response.message,
+      ));
     }
-    this.transport?.send(encodeApprovalRespond(
-      this.sessionId,
-      interactionId,
-      response.approved ?? false,
-      response.message,
-    ));
+    // 本地立即移除该 interaction（UI 即时消失），不等后端 responded 回环。
     this.dropPending(interactionId);
   }
 

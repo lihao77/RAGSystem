@@ -1,5 +1,5 @@
 <template>
-  <div class="rag-root">
+  <div class="rag-root" :style="rootStyle">
     <!-- 对话面板（打开时位于触发按钮上方） -->
     <Transition name="rag-panel">
       <section v-if="open" class="rag-panel">
@@ -91,21 +91,32 @@
 
         <!-- 输入栏：胶囊容器 + Plus + 输入框 + Mic + 圆形 Send/Stop -->
         <footer class="rag-input-bar">
+          <!-- 宿主自定义工具按钮（输入框上方一行，如地图选点/框选/画线） -->
+          <div v-if="inputTools.length" class="rag-input-tools">
+            <button
+              v-for="tool in inputTools"
+              :key="tool.id"
+              class="rag-input-tool"
+              :title="tool.title || tool.label"
+              :aria-label="tool.title || tool.label"
+              @click="onInputToolClick(tool)"
+            >
+              <span class="rag-input-tool-icon">{{ tool.label }}</span>
+              <span v-if="tool.title" class="rag-input-tool-text">{{ tool.title }}</span>
+            </button>
+          </div>
           <div class="rag-input-pill">
-            <button class="rag-input-btn" aria-label="附件" tabindex="-1" disabled>
-              <span v-html="plusIcon"></span>
-            </button>
-            <textarea
-              v-model="draft"
+            <!-- contentEditable 富文本：文字 + chip（坐标）混排，chip 嵌在文字流（mention 风格），×整体删。 -->
+            <div
+              ref="inputEl"
               class="rag-input"
-              rows="1"
-              :placeholder="isConnected ? 'Send a message...' : '等待连接…'"
-              :disabled="!isConnected"
+              :class="{ 'is-empty': isEmpty }"
+              :data-placeholder="isConnected ? 'Send a message...' : '等待连接…'"
+              :contenteditable="isConnected ? 'true' : 'false'"
+              @input="onInput"
+              @focus="onInputFocus"
               @keydown.enter.exact.prevent="send"
-            ></textarea>
-            <button class="rag-input-btn" aria-label="语音" tabindex="-1" disabled>
-              <span v-html="micIcon"></span>
-            </button>
+            ></div>
             <button
               v-if="isActiveRun"
               class="rag-send rag-stop"
@@ -117,7 +128,7 @@
             <button
               v-else
               class="rag-send"
-              :disabled="!draft.trim() || sending"
+              :disabled="isEmpty || sending"
               @click="send"
               aria-label="发送"
             >
@@ -156,8 +167,10 @@ import ExecutionTreeNode from "./ExecutionTreeNode.vue";
 const props = defineProps({
   backendBase: { type: String, required: true },
   sessionId: { type: String, required: true },
-  token: { type: String, required: true },
+  token: { type: String, required: false },
   hostTools: { type: Array, default: () => [] },
+  inputTools: { type: Array, default: () => [] },
+  fabPosition: { type: Object, default: () => ({ bottom: 24, right: 24 }) },
 });
 
 let client = null;
@@ -165,7 +178,10 @@ const unsub = [];
 
 const open = ref(false);
 const messages = ref([]);
-const draft = ref("");
+// contentEditable 富文本输入：chip（坐标）作为 inline 整体单元嵌在文字流中（mention 风格）。
+// Vue 不响应式管理内容；isEmpty 控制 placeholder（空 = 无文字无 chip）+ send 可用态。
+const inputEl = ref(null);
+const isEmpty = ref(true);
 const messagesEl = ref(null);
 
 const runStatus = ref({ runId: null, state: "idle" });
@@ -332,7 +348,7 @@ function pushError(message) {
 }
 
 async function send() {
-  const text = draft.value.trim();
+  const text = getInputText();
   if (!text || !client || isActiveRun.value || sending.value) return;
   // 未连接直接报错，不污染消息流。
   if (!isConnected.value) {
@@ -343,7 +359,8 @@ async function send() {
   // 若改成 await 后再 push，run_started 事件会在 await 期间先把 assistant（空内容 + 打字点）入列，
   // 导致 assistant 排到 user 之上，且 stream_output 取末尾消息会错指 user 而丢掉整路流式。
   messages.value.push({ id: `u${Date.now()}`, role: "user", content: text });
-  draft.value = "";
+  if (inputEl.value) inputEl.value.innerHTML = "";
+  isEmpty.value = true;
   sending.value = true;
   scrollToBottom();
   try {
@@ -354,6 +371,105 @@ async function send() {
   } finally {
     sending.value = false;
   }
+}
+
+/**
+ * 宿主输入工具按钮（如地图选点）点击入口。
+ * 注入 setDraft/sendMessage，宿主在 onClick 里启动选点交互、完成后预填或直接发送。
+ */
+/** contentEditable：插入 chip（整体单元，×整体删，mention 风格嵌在文字流）。 */
+function addAttachment(chip) {
+  const el = inputEl.value;
+  if (!el || !chip || !chip.text) return;
+  const node = document.createElement("span");
+  node.className = "rag-chip";
+  node.contentEditable = "false";
+  node.dataset.text = chip.text;
+  const label = document.createElement("span");
+  label.className = "rag-chip-label";
+  label.textContent = chip.label || chip.text;
+  const close = document.createElement("button");
+  close.className = "rag-chip-close";
+  close.type = "button";
+  close.setAttribute("aria-label", "删除");
+  close.textContent = "×";
+  close.addEventListener("click", () => { node.remove(); onInput(); });
+  node.appendChild(label);
+  node.appendChild(close);
+  el.appendChild(node);
+  el.appendChild(document.createTextNode(" ")); // 尾随空格，光标可在 chip 后
+  el.focus();
+  placeCaretAtEnd(el);
+  onInput();
+}
+
+/** 提取输入为消息文本：文字节点取 textContent，chip 取 dataset.text，拼一起。 */
+function getInputText() {
+  const el = inputEl.value;
+  if (!el) return "";
+  let text = "";
+  el.childNodes.forEach((node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.textContent || "";
+    } else if (node.nodeType === Node.ELEMENT_NODE && node.classList?.contains("rag-chip")) {
+      text += " " + (node.dataset.text || "") + " ";
+    }
+  });
+  return text.replace(/ /g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** contentEditable input 事件：更新 isEmpty（控制 placeholder + send 可用态）。 */
+function onInput() {
+  const el = inputEl.value;
+  if (!el) return;
+  const hasChip = !!el.querySelector(".rag-chip");
+  isEmpty.value = !hasChip && !el.textContent.trim();
+}
+
+/** 光标移到 contentEditable 末尾（chip 插入后聚焦）。 */
+function placeCaretAtEnd(el) {
+  const sel = window.getSelection?.();
+  if (!sel) return;
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+function onInputToolClick(tool) {
+  const api = {
+    setDraft: (text) => { if (inputEl.value) { inputEl.value.textContent = text; onInput(); } },
+    addAttachment,
+    sendMessage: async (text) => { if (inputEl.value) inputEl.value.textContent = text; await send(); },
+  };
+  Promise.resolve(tool.onClick(api)).catch((e) => console.error("[inputTool]", tool.id, e));
+}
+
+/* FAB 位置：宿主 props.fabPosition 配置（默认右下），生成 .rag-root 内联定位覆盖 CSS。 */
+const rootStyle = computed(() => {
+  const p = props.fabPosition || {};
+  const fmt = (v) => (typeof v === "number" ? v + "px" : v);
+  return [
+    p.top != null ? `top:${fmt(p.top)}` : "top:auto",
+    p.right != null ? `right:${fmt(p.right)}` : "right:auto",
+    p.bottom != null ? `bottom:${fmt(p.bottom)}` : "bottom:auto",
+    p.left != null ? `left:${fmt(p.left)}` : "left:auto",
+  ].join(";");
+});
+
+/* contentEditable 空（placeholder 态）聚焦时强制光标到头部 */
+function placeCaretAtStart(el) {
+  const sel = window.getSelection?.();
+  if (!sel) return;
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+function onInputFocus() {
+  if (isEmpty.value && inputEl.value) placeCaretAtStart(inputEl.value);
 }
 
 function stop() {
@@ -607,6 +723,7 @@ function scrollToBottom() {
 /* ── 面板 ── */
 .rag-panel {
   width: min(360px, 92vw);
+  height: min(560px, calc(100vh - 120px));
   max-height: min(560px, calc(100vh - 120px));
   background: var(--color-bg-panel, #fff);
   border-radius: var(--radius-xl, 16px);
@@ -1122,6 +1239,74 @@ function scrollToBottom() {
   padding: 8px 12px 12px;
   border-top: 1px solid var(--color-border, rgba(0, 0, 0, 0.05));
 }
+.rag-input-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 0 8px;
+}
+.rag-input-tool {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-pill, 14px);
+  background: var(--color-bg-input, #f4f5f8);
+  color: var(--color-text-secondary, #4b4c55);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.rag-input-tool:hover {
+  background: var(--color-bg-hover, #ebedf2);
+  color: var(--color-text-primary, #1a1b1e);
+}
+.rag-input-tool-icon { font-size: 14px; line-height: 1; }
+.rag-input-tool-text { font-size: 12px; white-space: nowrap; }
+
+/* ── 已选内容 chip（坐标等整体单元）── */
+.rag-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 100%;
+}
+.rag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 4px 0 10px;
+  border-radius: var(--radius-pill, 14px);
+  background: var(--color-accent-soft, rgba(75, 76, 85, 0.08));
+  color: var(--color-text-secondary, #4b4c55);
+  font-size: 12px;
+  line-height: 1;
+}
+.rag-chip-close {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-text-faint, #9ea0ab);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.rag-chip-close:hover {
+  background: var(--color-bg-hover, rgba(0, 0, 0, 0.08));
+  color: var(--color-text-primary, #1a1b1e);
+}
+
 .rag-input-pill {
   display: flex;
   align-items: center;
@@ -1147,9 +1332,9 @@ function scrollToBottom() {
 .rag-input {
   flex: 1;
   min-width: 0;
-  min-height: 24px;
-  max-height: 120px;
-  resize: none;
+  min-height: 28px;
+  max-height: 160px;
+  overflow-y: auto;
   background: transparent;
   border: none;
   color: var(--color-text-primary, #1a1b1e);
@@ -1158,9 +1343,15 @@ function scrollToBottom() {
   font-family: inherit;
   outline: none;
   line-height: 1.5;
+  word-break: break-word;
+  white-space: pre-wrap;
 }
-.rag-input::placeholder { color: var(--color-text-placeholder, #b0b3be); }
-.rag-input:disabled { opacity: 0.6; }
+.rag-input.is-empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-placeholder, #b0b3be);
+  pointer-events: none;
+}
+.rag-input[contenteditable="false"] { opacity: 0.6; }
 
 .rag-send {
   flex: 0 0 auto;
