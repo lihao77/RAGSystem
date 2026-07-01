@@ -49,10 +49,7 @@ export async function createTeam(payload) {
 export async function activateTeam(teamName) {
   try {
     const response = await fetch(`${API_BASE}/teams/${encodeURIComponent(teamName)}/activate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      }
+      method: 'POST'
     });
 
     const result = await response.json();
@@ -131,8 +128,7 @@ export async function copyAgentsToTeam(teamName, sourceTeam, agentNames) {
 export async function resetDefaultTeam() {
   try {
     const response = await fetch(`${API_BASE}/teams/default/reset`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      method: 'POST'
     });
     const result = await response.json();
     if (!response.ok) {
