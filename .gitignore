@@ -107,7 +107,8 @@ backend_start.*.log
 /unpacked*/
 /notify.ps1
 graphify-out/
-
+chaoxichaoliu/
+chaoxichaoliu(1).zip
 
 build/
 !desktop-electron/build/
