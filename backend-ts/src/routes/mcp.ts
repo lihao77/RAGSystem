@@ -137,7 +137,6 @@ function normalizeServerListItem(server: Record<string, unknown>): Record<string
     ...normalizeServerStatus(serverName, server),
   } as Record<string, unknown>;
   delete normalized.tools;
-  delete normalized.url;
   return normalized;
 }
 
