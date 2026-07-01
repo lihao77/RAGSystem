@@ -115,6 +115,7 @@ export class AgentConfigService {
   deleteConfig(agentName: string): boolean {
     const deleted = this.getActiveConfigs().delete(agentName);
     if (deleted) {
+      this.purgeAgentReferences(agentName);
       this.saveAll();
     }
     return deleted;
@@ -193,6 +194,7 @@ export class AgentConfigService {
     }
     const deleted = this.getActiveConfigs().delete(normalized);
     if (deleted) {
+      this.purgeAgentReferences(normalized);
       this.saveAll();
     }
     return deleted;
@@ -450,6 +452,23 @@ export class AgentConfigService {
     }
   }
 
+  /** 删除 agent 后，级联清理当前 team 内其余 agent 对它的委派引用，避免悬空 enabled_agents 条目。 */
+  private purgeAgentReferences(agentName: string): void {
+    const configs = this.getActiveConfigs();
+    for (const [name, config] of configs) {
+      if (name === agentName) continue;
+      const enabledAgents = config.delegation?.enabled_agents;
+      if (!enabledAgents?.length || !enabledAgents.includes(agentName)) continue;
+      configs.set(name, {
+        ...config,
+        delegation: {
+          ...config.delegation,
+          enabled_agents: enabledAgents.filter((target) => target !== agentName),
+        },
+      });
+    }
+  }
+
   private loadTeamsFromDisk(): void {
     const loaded = this.teamStore.loadTeams();
     if (!loaded) {
@@ -465,6 +484,30 @@ export class AgentConfigService {
       this.teamFileByName.set(teamName, teamFile);
     }
     this.activeTeam = loaded.activeTeam;
+    // 自愈历史脏数据：剔除 enabled_agents 中指向本 team 不存在 agent 的悬空引用，改动一次性回写磁盘。
+    if (this.normalizeTeamReferences()) {
+      this.saveAll();
+    }
+  }
+
+  /** 规整所有 team 的委派引用：剔除指向本 team 不存在 agent 的 enabled_agents 条目。返回是否有改动。 */
+  private normalizeTeamReferences(): boolean {
+    let changed = false;
+    for (const configs of this.teams.values()) {
+      const members = new Set(configs.keys());
+      for (const [name, config] of configs) {
+        const enabledAgents = config.delegation?.enabled_agents;
+        if (!enabledAgents?.length) continue;
+        const next = enabledAgents.filter((target) => members.has(target));
+        if (next.length === enabledAgents.length) continue;
+        changed = true;
+        configs.set(name, {
+          ...config,
+          delegation: { ...config.delegation, enabled_agents: next },
+        });
+      }
+    }
+    return changed;
   }
 
   private saveAll(): void {

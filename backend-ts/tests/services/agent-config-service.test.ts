@@ -214,6 +214,66 @@ describe("AgentConfigService team file compatibility", () => {
     expect(agents.orchestrator_agent).toBeDefined();
   });
 
+  it("cascades deletion to purge dangling delegation references", () => {
+    const dataRoot = makeTempDataRoot();
+    writeTeamIndex(dataRoot, {
+      active_team: "default",
+      teams: {
+        default: "teams/default.yaml",
+      },
+    });
+    writeTeam(dataRoot, "default", {
+      general_agent: minimalAgent("general_agent", false),
+      research_agent: minimalAgent("research_agent", false),
+      orchestrator_agent: {
+        ...minimalAgent("orchestrator_agent", true),
+        delegation: { enabled_agents: ["general_agent", "research_agent"] },
+      },
+    });
+
+    const service = new AgentConfigService({ dataRoot });
+
+    expect(service.deleteAgent("general_agent")).toBe(true);
+
+    // 内存中：对已删除 agent 的委派引用被清理，对其余 agent 的引用保留
+    const orchestrator = service.getConfig("orchestrator_agent");
+    expect(orchestrator?.delegation.enabled_agents).toEqual(["research_agent"]);
+
+    // 持久化：落盘的 default.yaml 同样不含悬空引用
+    const team = readYaml(path.join(dataRoot, "config", "agents", "teams", "default.yaml"));
+    const persistedOrchestrator = getRecord(team, "agents").orchestrator_agent as Record<string, unknown>;
+    expect(getRecord(persistedOrchestrator, "delegation").enabled_agents).toEqual(["research_agent"]);
+  });
+
+  it("self-heals dangling delegation references on load", () => {
+    const dataRoot = makeTempDataRoot();
+    writeTeamIndex(dataRoot, {
+      active_team: "default",
+      teams: {
+        default: "teams/default.yaml",
+      },
+    });
+    // 磁盘上残留历史脏数据：orchestrator 委派给已被删除的 ghost_agent 和仍存在的 research_agent
+    writeTeam(dataRoot, "default", {
+      research_agent: minimalAgent("research_agent", false),
+      orchestrator_agent: {
+        ...minimalAgent("orchestrator_agent", true),
+        delegation: { enabled_agents: ["ghost_agent", "research_agent"] },
+      },
+    });
+
+    const service = new AgentConfigService({ dataRoot });
+
+    // 内存中：悬空引用被剔除，合法引用保留
+    const orchestrator = service.getConfig("orchestrator_agent");
+    expect(orchestrator?.delegation.enabled_agents).toEqual(["research_agent"]);
+
+    // 一次性回写：磁盘上的脏数据同样被清理
+    const team = readYaml(path.join(dataRoot, "config", "agents", "teams", "default.yaml"));
+    const persistedOrchestrator = getRecord(team, "agents").orchestrator_agent as Record<string, unknown>;
+    expect(getRecord(persistedOrchestrator, "delegation").enabled_agents).toEqual(["research_agent"]);
+  });
+
   it("renames and deletes team files like the Python manager", () => {
     const dataRoot = makeTempDataRoot();
     writeTeamIndex(dataRoot, {
