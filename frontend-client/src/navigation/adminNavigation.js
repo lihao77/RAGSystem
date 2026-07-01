@@ -119,6 +119,19 @@ export const managementNavItems = [
     ]),
   },
   {
+    key: 'skill-library',
+    mainView: 'skill-library',
+    path: '/skill-library',
+    label: 'Skill 库',
+    title: 'Skill 库管理',
+    description: '管理领域技能：查看正文与脚本，新建、编辑、上传与删除用户全局 Skill。',
+    group: 'infrastructure',
+    icon: createAdminIcon([
+      { tag: 'path', attrs: { d: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20' } },
+      { tag: 'path', attrs: { d: 'M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z' } },
+    ]),
+  },
+  {
     key: 'monitor',
     mainView: 'monitor',
     path: '/monitor',

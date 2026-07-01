@@ -333,18 +333,20 @@ function buildAvailableSkills(agent: AgentConfig, options: RouteOptions): Array<
       }
     }
   }
-  return (agent.skills.enabled_skills ?? []).map((name) => {
-    const source = byName.get(name) ?? {};
-    return {
-      name,
-      source_type: normalizeString(source.source_type) ?? "user_global",
-      source_label: normalizeString(source.source_label) ?? "全局",
-      is_auto_inject_candidate: Boolean(source.is_auto_inject_candidate ?? false),
-      content_length: typeof source.content_length === "number" ? source.content_length : 0,
-      metadata: { name },
-      description: normalizeString(source.description) ?? "",
-    };
-  });
+  return (agent.skills.enabled_skills ?? [])
+    .filter((name) => byName.has(name))
+    .map((name) => {
+      const source = byName.get(name) ?? {};
+      return {
+        name,
+        source_type: normalizeString(source.source_type) ?? "user_global",
+        source_label: normalizeString(source.source_label) ?? "全局",
+        is_auto_inject_candidate: Boolean(source.is_auto_inject_candidate ?? false),
+        content_length: typeof source.content_length === "number" ? source.content_length : 0,
+        metadata: { name },
+        description: normalizeString(source.description) ?? "",
+      };
+    });
 }
 
 function getMemorySnapshot(sources: Array<{ name: string; metadata?: Record<string, unknown> }>): Record<string, unknown> | null {

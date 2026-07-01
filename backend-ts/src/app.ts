@@ -15,6 +15,7 @@ import { registerVectorLibraryFileRoutes } from "./routes/vector-library-files.j
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerModelAdapterRoutes } from "./routes/model-adapter.js";
 import { registerPermissionRoutes } from "./routes/permissions.js";
+import { registerSkillRoutes } from "./routes/skills.js";
 import { registerSystemConfigRoutes } from "./routes/system-config.js";
 import { registerVectorRoutes } from "./routes/vector.js";
 import { registerVectorLibraryRoutes } from "./routes/vector-library.js";
@@ -149,6 +150,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
   await app.register(registerAgentConfigRoutes, {
     prefix: "/api/agent-config",
+    container,
+  });
+  await app.register(registerSkillRoutes, {
+    prefix: "/api/skills",
     container,
   });
   await app.register(registerModelAdapterRoutes, {

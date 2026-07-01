@@ -397,6 +397,33 @@ export class AgentConfigService {
     return this.skillToolService?.listAvailableSkills() ?? [];
   }
 
+  /**
+   * 删除 skill 时联动清理所有 team 的 agent 对其的 enabled_skills 引用，
+   * 消除悬空引用（skill 本体已删，配置里不能再留着名字导致 snapshot/可见性误判）。
+   * 返回受影响的 `team/agent` 列表。
+   */
+  purgeSkillReference(skillName: string): string[] {
+    const updated: string[] = [];
+    for (const [teamName, configs] of this.teams) {
+      for (const [agentName, config] of configs) {
+        const enabled = config.skills?.enabled_skills;
+        if (!enabled?.length || !enabled.includes(skillName)) continue;
+        configs.set(agentName, {
+          ...config,
+          skills: {
+            ...config.skills,
+            enabled_skills: enabled.filter((name) => name !== skillName),
+          },
+        });
+        updated.push(`${teamName}/${agentName}`);
+      }
+    }
+    if (updated.length) {
+      this.saveAll();
+    }
+    return updated;
+  }
+
   setSkillToolService(skillToolService: SkillToolService | null): void {
     this.skillToolService = skillToolService;
   }

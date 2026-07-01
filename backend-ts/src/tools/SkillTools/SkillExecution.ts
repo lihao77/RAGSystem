@@ -83,7 +83,7 @@ export class SkillToolService {
     } = {},
   ) {
     this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
-    this.builtinSkillsRoot = path.resolve(options.builtinSkillsRoot ?? path.join(process.cwd(), "..", "backend-fastapi", "agents", "skills"));
+    this.builtinSkillsRoot = path.resolve(options.builtinSkillsRoot ?? path.join(process.cwd(), "skills"));
     this.userGlobalSkillsRoot = path.resolve(options.userGlobalSkillsRoot ?? path.join(this.dataRoot, "skills"));
     this.agentConfig = options.agentConfig ?? null;
     this.artifacts = options.artifacts ?? null;
@@ -99,6 +99,22 @@ export class SkillToolService {
   private readonly skillIsolationMode: SkillIsolationMode;
   private readonly envLocks = new Map<string, Promise<unknown>>();
 
+  /** builtin skill 根目录（代码库内置，只读）。 */
+  getBuiltinSkillsRoot(): string {
+    return this.builtinSkillsRoot;
+  }
+
+  /** 用户全局 skill 根目录（dataRoot/skills，可读写）。 */
+  getUserGlobalSkillsRoot(): string {
+    return this.userGlobalSkillsRoot;
+  }
+
+  /** workspace skill 根：<workspaceRoot>/.ragsystem/skills；无 workspaceRoot 返回 null。 */
+  resolveWorkspaceSkillsRoot(workspaceRoot?: string | null): string | null {
+    const workspace = normalizeString(workspaceRoot);
+    return workspace ? path.join(path.resolve(workspace), ".ragsystem", "skills") : null;
+  }
+
   listAvailableSkills(workspaceRoot?: string | null): SkillListItem[] {
     return this.loadAllSkills(workspaceRoot).map((skill) => ({
       name: skill.name,
@@ -108,6 +124,11 @@ export class SkillToolService {
       source_label: skill.sourceLabel,
       is_auto_inject_candidate: skill.isAutoInjectCandidate,
     }));
+  }
+
+  /** 删除 skill 时联动清理所有 AgentConfig 中的 enabled_skills 引用（委托 AgentConfigService）。 */
+  purgeSkillReference(skillName: string): string[] {
+    return this.agentConfig?.purgeSkillReference(skillName) ?? [];
   }
 
   hasVisibleSkills(agent: AgentConfig | null, workspaceRoot?: string | null): boolean {

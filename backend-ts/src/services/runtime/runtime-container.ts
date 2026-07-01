@@ -21,6 +21,7 @@ import { CodeExecutionToolService } from "../../tools/CodeExecutionTool/CodeExec
 import { LocalDocumentToolService } from "../../tools/DocumentTools/DocumentExecution.js";
 import { LocalSearchToolService } from "../../tools/LocalSearchTools/SearchExecution.js";
 import { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
+import { SkillLibraryService } from "../skills/skill-library-service.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import { SqliteRuntimeStore } from "@ragsystem/agent-sdk";
 import { MemoryStore } from "../stores/memory-store.js";
@@ -63,6 +64,7 @@ export interface RuntimeContainer {
   readonly documentTools: LocalDocumentToolService;
   readonly codeExecutionTools: CodeExecutionToolService;
   readonly skillTools: SkillToolService;
+  readonly skillLibrary: SkillLibraryService;
   readonly searchTools: LocalSearchToolService;
   readonly bashTools: LocalBashToolService;
   readonly backgroundTasks: BackgroundTaskService;
@@ -181,6 +183,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     clientEvents,
   });
   agentConfig.setSkillToolService(skillTools);
+  const skillLibrary = new SkillLibraryService(skillTools);
   const searchTools = new LocalSearchToolService({ dataRoot: options.dataRoot });
   const bashTools = new LocalBashToolService({
     dataRoot: options.dataRoot,
@@ -285,6 +288,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     documentTools,
     codeExecutionTools,
     skillTools,
+    skillLibrary,
     searchTools,
     bashTools,
     backgroundTasks,

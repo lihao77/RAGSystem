@@ -8,6 +8,7 @@ const AgentConfig = () => import('../views/AgentConfig.vue');
 const TeamBuilder = () => import('../views/TeamBuilder.vue');
 const MCPManager = () => import('../views/MCPManager.vue');
 const VectorLibraryManager = () => import('../views/VectorLibraryManager.vue');
+const SkillLibrary = () => import('../views/SkillLibrary.vue');
 const ModelProviderManager = () => import('../views/ModelProviderManager.vue');
 const DaemonManager = () => import('../views/DaemonManager.vue');
 const SystemConfig = () => import('../views/SystemConfig.vue');
@@ -44,6 +45,7 @@ const routes = [
       { path: 'agent-config', component: AgentConfig, meta: adminPageMeta('agent-config', 2, 3) },
       { path: 'mcp', component: MCPManager, meta: adminPageMeta('mcp', 3, 4) },
       { path: 'vector-library', component: VectorLibraryManager, meta: adminPageMeta('vector-library', 4, 5) },
+      { path: 'skill-library', component: SkillLibrary, meta: adminPageMeta('skill-library', 4, 6) },
       { path: 'model-providers', component: ModelProviderManager, meta: adminPageMeta('model-providers', 5, 2) },
       { path: 'daemon', component: DaemonManager, meta: adminPageMeta('daemon', 6, 6) },
       { path: 'system-config', component: SystemConfig, meta: adminPageMeta('system-config', 7, 7) },
