@@ -9,12 +9,16 @@ import {
 import { AgentSessionApplication } from "../../src/services/sessions/index.js";
 import os from "node:os";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
+import { SqliteRuntimeStore } from "@ragsystem/agent-sdk";
 import { mockLlm } from "../helpers/llm-fetch-mock.js";
+import { makeTempDb } from "../helpers/temp-db.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { HostToolRegistry } from "../../src/services/runtime/host-tool-registry.js";
 import { DelegationPendingService } from "../../src/services/runtime/delegation-pending-service.js";
+import { PermissionPolicyService } from "../../src/services/runtime/permission-policy-service.js";
+import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
 import type { RuntimeExecutionConfigResolver } from "../../src/services/agent/execution/runtime-core-service.js";
 
 afterEach(() => {
@@ -121,13 +125,17 @@ function runtimeCoreStub(agent: AgentConfig, ready: boolean): RuntimeExecutionCo
 function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: boolean } = {}): ServiceHarness {
   const mode = opts.mode ?? "ok";
   const ready = opts.ready ?? true;
-  const store = createConversationStore({ dbPath: ":memory:" });
+  const dbPath = makeTempDb();
+  const store = createConversationStore({ dbPath });
+  const sdkStore = new SqliteRuntimeStore({ dbPath });
   const sessions = new AgentSessionApplication(store);
   const realtimeEvents = new RealtimeEventHub();
   const dispatcher = new OutboxDispatcher(store, realtimeEvents);
   const clientEvents = new DurableClientEventPublisher(store, dispatcher);
   const hostToolRegistry = new HostToolRegistry();
   const delegationPending = new DelegationPendingService();
+  const permissionPolicy = new PermissionPolicyService();
+  const pendingInteractions = new PendingInteractionService(clientEvents);
   const agent = minimalAgent("orchestrator_agent");
   const errors: Array<Record<string, unknown>> = [];
   const logger: AgentExecutionLogger | null = opts.logger
@@ -137,6 +145,7 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
   const service = createAgentExecutionService({
     sessions,
     conversationStore: store,
+    sdkStore,
     runtimeCore: runtimeCoreStub(agent, ready),
     dataRoot: os.tmpdir(),
    outboxDispatcher: dispatcher,
@@ -154,9 +163,11 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
    clientEvents,
    hostToolRegistry,
    delegationPending,
+   permissionPolicy,
+   pendingInteractions,
     logger: logger ?? null,
   });
-  return { service, store, errors };
+  return { service, store, sdkStore, errors };
 }
 
 const WAIT = { timeout: 4000, interval: 20 };

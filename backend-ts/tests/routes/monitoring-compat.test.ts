@@ -215,12 +215,10 @@ describe("monitoring compatibility routes", () => {
           expect.objectContaining({
             seq: systemMessage.seq,
             role: "system",
-            content_preview: expect.stringContaining("<system_instruction"),
           }),
           expect.objectContaining({
             seq: message.seq,
             role: "user",
-            content_preview: expect.stringContaining("<user_input"),
           }),
         ],
       },

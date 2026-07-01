@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
-import { buildTestApp } from "../helpers/app.js";
+import { buildTestApp, testDataRoot } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
 
@@ -214,5 +214,5 @@ function appendIndexEntry(sessionId: string, entry: Record<string, unknown>): vo
 }
 
 function visualizationRoot(sessionId: string): string {
-  return path.resolve(".test-data", "sessions", sessionId, "visualizations");
+  return path.resolve(testDataRoot, "sessions", sessionId, "visualizations");
 }

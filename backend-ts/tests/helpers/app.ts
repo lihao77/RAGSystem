@@ -1,8 +1,17 @@
+import path from "node:path";
+
 import { buildApp } from "../../src/app.js";
 import type { AppEnv } from "../../src/config/env.js";
 import { createRuntimeContainer } from "../../src/services/runtime/runtime-container.js";
 import type { AgentExecutionLogger } from "../../src/services/agent/execution/index.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
+import { makeTempRoot } from "./temp-db.js";
+
+/**
+ * 当前测试 dataRoot(buildTestHarness 每次更新)。artifact 等需直接写文件的 fixture
+ * 用它与 container.dataRoot 保持一致(避免 fixture 写固定 .test-data 而 container 读临时目录)。
+ */
+export let testDataRoot = ".test-data";
 
 export const testEnv: AppEnv = {
   host: "127.0.0.1",
@@ -27,9 +36,11 @@ export async function buildTestHarness(
     widgetJwtSecret?: string;
   } = {},
 ) {
+  const tempRoot = makeTempRoot();
+  testDataRoot = tempRoot;
   const container = createRuntimeContainer({
-    dbPath: ":memory:",
-    dataRoot: testEnv.dataRoot,
+    dbPath: path.join(tempRoot, "test.db"),
+    dataRoot: tempRoot,
     modelAdapterProvidersConfigPath: "",
     mcpConfigPath: "",
     daemonConfigPath: "",
