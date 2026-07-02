@@ -21,6 +21,7 @@ import type {
   ReadyPayload,
 } from "./protocol.js";
 import { BUILTIN_TOOLS } from "./builtins.js";
+import { inspectDoc } from "./dom-tools.js";
 
 const REQUEST_TYPE = `${PROTOCOL_PREFIX}_request`;
 const RESPONSE_TYPE = `${PROTOCOL_PREFIX}_response`;
@@ -31,6 +32,12 @@ export interface ServeOptions {
   allowedParentOrigins: string[];
   /** 工具清单（同名时后声明覆盖；内置通过 ...RagFrameBridge.builtins 引入）。 */
   tools: FrameTool[];
+  /**
+   * 深度状态探测（主动）：host 调 inspect_state 工具时经 __inspect__ action 触发。
+   * 缺省走 builtinInspect（扫 DOM 可交互元素清单）；系统 B 可覆盖返回业务详细状态。
+   * 不进 tools 清单、不对 agent 直接可见（经 host 的 inspect_state 工具间接调用）。
+   */
+  inspect?: () => string | Promise<string>;
 }
 
 export interface ServeHandle {
@@ -81,6 +88,21 @@ export function serve(options: ServeOptions): ServeHandle {
 
     if (msgType(data) !== REQUEST_TYPE) return;
     const { call_id, action, input } = data as RagFrameRequest;
+
+    // 内部 action：__inspect__（深度状态探测，不在 tools 清单；经 host 的 inspect_state 工具间接调用）
+    if (action === "__inspect__") {
+      let resp: RagFrameResponse;
+      try {
+        const out = options.inspect ? await options.inspect() : inspectDoc(document);
+        resp = { type: RESPONSE_TYPE, call_id, ok: true, observation: String(out ?? "") };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        resp = { type: RESPONSE_TYPE, call_id, ok: false, error };
+      }
+      (event.source as Window | null)?.postMessage(resp, event.origin);
+      return;
+    }
+
     const tool = tools.get(action);
     const ctx: FrameToolContext = { callId: call_id };
 

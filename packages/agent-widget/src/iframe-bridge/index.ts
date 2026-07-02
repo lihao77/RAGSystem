@@ -9,5 +9,15 @@ export { BUILTIN_TOOLS } from "./builtins.js";
 export { serve } from "./frame-bridge.js";
 export type { ServeOptions, ServeHandle } from "./frame-bridge.js";
 export { builtins } from "./frame-bridge.js";
-export { connect } from "./host-bridge.js";
-export type { ConnectOptions, ConnectHandle } from "./host-bridge.js";
+export { connect, connectFrames, bindDomTools } from "./host-bridge.js";
+export type {
+  ConnectOptions,
+  ConnectHandle,
+  FrameEntry,
+  HostToolRegistrar,
+  ConnectFramesOptions,
+  FrameInfo,
+  FrameManager,
+} from "./host-bridge.js";
+export { DOM_TOOLS, inspectDoc } from "./dom-tools.js";
+export type { DomToolSpec } from "./dom-tools.js";

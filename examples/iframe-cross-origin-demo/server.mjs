@@ -41,6 +41,21 @@ const hostServer = http.createServer((req, res) => {
   const url = req.url ?? "/";
   if (url === "/widget.js") return sendBundle(res, "ragsystem-widget.umd.cjs");
   if (url === "/host-bridge.js") return sendBundle(res, "ragsystem-host-bridge.umd.cjs");
+  if (url === "/host-dom.html") {
+    const html = fs.readFileSync(path.resolve(ROOT, "host-dom.html"), "utf8")
+      .replaceAll("{{BACKEND_BASE}}", BACKEND_BASE);
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" });
+    res.end(html);
+    return;
+  }
+  if (url === "/host-multi.html") {
+    const html = fs.readFileSync(path.resolve(ROOT, "host-multi.html"), "utf8")
+      .replaceAll("{{BACKEND_BASE}}", BACKEND_BASE)
+      .replaceAll("{{FRAME_ORIGIN}}", `http://localhost:${FRAME_PORT}`);
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" });
+    res.end(html);
+    return;
+  }
   if (url === "/" || url === "/index.html") {
     const html = fs.readFileSync(path.resolve(ROOT, "host.html"), "utf8")
       .replaceAll("{{BACKEND_BASE}}", BACKEND_BASE)

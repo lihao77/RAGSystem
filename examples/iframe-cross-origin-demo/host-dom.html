@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>主页面 DOM 控制 demo（无 iframe）</title>
+  <style>
+    body { margin:0; padding:32px; background:#f5f5f7; color:#1d1d1f; font-family:system-ui,sans-serif; }
+    h1 { font-size:20px; margin:0 0 8px; }
+    p { color:#6e6e73; line-height:1.6; }
+    code { background:#e8e8ed; padding:2px 6px; border-radius:4px; font-size:13px; }
+    form { margin-top:16px; background:#fff; padding:20px; border-radius:8px; max-width:480px; }
+    label { display:block; font-size:12px; color:#6e6e73; margin:10px 0 4px; }
+    input { padding:6px 10px; border:1px solid #d2d2d7; border-radius:4px; font-size:13px; width:240px; }
+    button { padding:6px 16px; border:0; border-radius:4px; background:#3a5a8a; color:#fff; font-size:13px; cursor:pointer; margin-top:14px; }
+    #result { margin-top:16px; padding:10px 12px; background:#e8e8ed; border-radius:4px; font-size:13px; min-height:20px; max-width:480px; }
+  </style>
+</head>
+<body>
+  <h1>主页面 DOM 控制 demo（无 iframe）</h1>
+  <p>
+    本页面<b>无 iframe</b>。widget mount 后 <code>bindDomTools({ widgetEl })</code> 注册主页面 DOM 工具集，
+    agent 直接控制本页 DOM（click/get_text/set_value/inspect_state 等）。试着说：
+    「点击提交按钮」「读订单号输入框的值」「inspect 当前页面」。
+  </p>
+
+  <form id="order-form">
+    <label for="order-input">订单号</label>
+    <input id="order-input" type="text" value="ORD-12345" />
+    <label for="name-input">收件人</label>
+    <input id="name-input" type="text" value="张三" />
+    <button type="submit" id="submit-btn">提交订单</button>
+  </form>
+  <div id="result">（结果区域）</div>
+
+  <script>
+    document.getElementById('order-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const oid = document.getElementById('order-input').value;
+      const name = document.getElementById('name-input').value;
+      document.getElementById('result').textContent = `表单已提交（订单 ${oid}，收件人 ${name}）`;
+    });
+  </script>
+
+  <!-- widget bundle + host-bridge bundle -->
+  <script src="/widget.js"></script>
+  <script src="/host-bridge.js"></script>
+  <script>
+    // widget mount（无 token 内部嵌入）+ 注册主页面 DOM 工具集（开箱即用，agent 直接控制本页 DOM）
+    RagWidget.mount({ backendBase: '{{BACKEND_BASE}}' }).then((el) => {
+      RagHostBridge.bindDomTools({ widgetEl: el });
+    }).catch((err) => console.error('widget 挂载失败', err));
+  </script>
+</body>
+</html>

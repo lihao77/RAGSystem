@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>多 iframe 工具切换 demo</title>
+  <style>
+    body { margin:0; padding:32px; background:#f5f5f7; color:#1d1d1f; font-family:system-ui,sans-serif; }
+    h1 { font-size:20px; margin:0 0 8px; }
+    p { color:#6e6e73; line-height:1.6; }
+    code { background:#e8e8ed; padding:2px 6px; border-radius:4px; font-size:13px; }
+    .tabs { display:flex; gap:8px; margin:16px 0 0; }
+    .tab { padding:8px 18px; border:1px solid #d2d2d7; border-bottom:0; border-radius:6px 6px 0 0; background:#fff; cursor:pointer; font-size:14px; user-select:none; }
+    .tab.active { background:#3a5a8a; color:#fff; border-color:#3a5a8a; }
+    .frame-wrap { border:2px dashed #c1c1c8; border-top:0; border-radius:0 0 8px 8px; overflow:hidden; }
+    iframe { width:100%; height:340px; border:0; background:#fff; display:block; }
+    .hidden { display:none; }
+    #status { font-size:13px; color:#060; margin-top:10px; font-family:ui-monospace,monospace; }
+  </style>
+</head>
+<body>
+  <h1>多 iframe 工具切换 demo</h1>
+  <p>
+    主页面嵌入两个跨源 iframe（均 <code>{{FRAME_ORIGIN}}</code>，不同 label）。<b>用户点 tab</b> 或 <b>agent 调
+    <code>switch_frame</code></b> 都会切换激活 iframe，agent 的工具集随之切换。试着说：「列出所有 iframe」「切换到系统 B2 后点击提交按钮」。
+  </p>
+  <div class="tabs">
+    <div class="tab active" data-id="b1">系统 B1</div>
+    <div class="tab" data-id="b2">系统 B2</div>
+  </div>
+  <div class="frame-wrap">
+    <iframe id="frame-b1" src="{{FRAME_ORIGIN}}/frame.html"></iframe>
+    <iframe id="frame-b2" src="{{FRAME_ORIGIN}}/frame.html" class="hidden"></iframe>
+  </div>
+  <div id="status">等待 iframe bridge 就绪…</div>
+
+  <script src="/widget.js"></script>
+  <script src="/host-bridge.js"></script>
+  <script>
+    const FRAME_ORIGIN = '{{FRAME_ORIGIN}}';
+    const tabs = document.querySelectorAll('.tab');
+    const frameB1 = document.getElementById('frame-b1');
+    const frameB2 = document.getElementById('frame-b2');
+
+    let mgr = null;
+    // 用户切换路径：点 tab → setActive
+    tabs.forEach((t) => t.addEventListener('click', () => { if (mgr) mgr.setActive(t.dataset.id); }));
+
+    RagWidget.mount({ backendBase: '{{BACKEND_BASE}}' }).then((el) => {
+      mgr = RagHostBridge.connectFrames({
+        widgetEl: el,
+        activeId: 'b1',
+        frames: [
+          { id: 'b1', frame: frameB1, targetOrigin: FRAME_ORIGIN, label: '系统 B1' },
+          { id: 'b2', frame: frameB2, targetOrigin: FRAME_ORIGIN, label: '系统 B2' },
+        ],
+        // 主页面状态源（agent 调 inspect_state source_id="host" 时返回宿主页详细状态）
+        host: {
+          inspect: () => `主页面：${document.title}；当前激活 iframe = ${mgr ? mgr.getActive() : '?'}；2 个 iframe 均加载 frame.html（跨源 ${FRAME_ORIGIN}）`,
+        },
+        // 用户切换 + agent switch_frame 都触发此回调 → 同步 tab 高亮 + iframe 显隐（双路径合一）
+        onActiveChange: (id) => {
+          tabs.forEach((t) => t.classList.toggle('active', t.dataset.id === id));
+          frameB1.classList.toggle('hidden', id !== 'b1');
+          frameB2.classList.toggle('hidden', id !== 'b2');
+          document.getElementById('status').textContent =
+            `当前激活：${id}（工具集已切换；agent 现在操作的是这个 iframe）`;
+        },
+      });
+    }).catch((err) => console.error('widget 挂载失败', err));
+  </script>
+</body>
+</html>
