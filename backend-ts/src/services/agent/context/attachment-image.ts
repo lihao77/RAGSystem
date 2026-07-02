@@ -1,15 +1,13 @@
 /**
- * 附件图片注入（SDK 组装层用）。
+ * 附件图片注入(context 组装层用,自 SDK context/attachment-image.ts 迁入)。
  *
- * 图片字节不入库——user message content 存纯文本，附件引用在 metadata.attachments。组装 LLM 消息时
- * （RecentMessagesContextSource.build，压缩视图之后），对 user 消息读盘转 base64 data URL，拼成
- * ContentPart[] 注入 content。读盘失败降级为文本占位，不破坏对话。
- *
- * SDK 不依赖 backend-ts，此处自定义等价于 backend ResolvedAttachment 的最小结构。
+ * 图片字节不入库——user message content 存纯文本,附件引用在 metadata.attachments。组装 LLM 消息时
+ * (RecentMessagesContextSource.build,压缩视图之后),对 user 消息读盘转 base64 data URL,拼成
+ * ContentPart[] 注入 content。读盘失败降级为文本占位,不破坏对话。
  */
 import type { ChatMessage, ContentPart } from "@ragsystem/agent-llm";
 
-/** backend ResolvedAttachment 的最小等价结构（SDK 自定义，不依赖 backend-ts）。 */
+/** 存储的图片附件最小结构(对齐 backend attachment 解析产物)。 */
 export interface StoredImageAttachment {
   stored_path: string;
   mime: string;
@@ -17,7 +15,7 @@ export interface StoredImageAttachment {
   original_name?: string;
 }
 
-/** 读图回调：stored_path → data URL；读不到返回 null（消费端实现，含 try/catch + base64 编码）。 */
+/** 读图回调:stored_path → data URL;读不到返回 null(消费端实现,含 try/catch + base64 编码)。 */
 export type ImageReader = (storedPath: string, mime: string) => string | null;
 
 /** 从 metadata.attachments 提取 image 类型的附件。 */
@@ -35,8 +33,8 @@ export function extractImageAttachments(attachments: unknown): StoredImageAttach
 }
 
 /**
- * 把 user 消息的纯文本 content + image attachments → 带 image part 的 ContentPart[]（纯函数）。
- * 读盘经 readImage 回调（IO 与逻辑分离）；失败的图片降级为文本占位 part；无图返回原 content。
+ * 把 user 消息的纯文本 content + image attachments → 带 image part 的 ContentPart[](纯函数)。
+ * 读盘经 readImage 回调(IO 与逻辑分离);失败的图片降级为文本占位 part;无图返回原 content。
  */
 export function enrichUserMessageImages(
   content: string | ContentPart[],
@@ -57,8 +55,8 @@ export function enrichUserMessageImages(
   }
   for (const att of attachments) {
     if (!supportsVision) {
-      // 模型不支持 vision：降级为文本占位，模型知晓用户传了图但当前模型无法识别（避免厂商 API 400）。
-      parts.push({ type: "text", text: `[图片:${att.original_name ?? att.stored_path}（当前模型不支持图片识别）]` });
+      // 模型不支持 vision:降级为文本占位,模型知晓用户传了图但当前模型无法识别(避免厂商 API 400)。
+      parts.push({ type: "text", text: `[图片:${att.original_name ?? att.stored_path}(当前模型不支持图片识别)]` });
       continue;
     }
     const dataUrl = readImage(att.stored_path, att.mime);
@@ -72,8 +70,8 @@ export function enrichUserMessageImages(
 }
 
 /**
- * 按 user 消息序对齐，把 rawMessages 里 user 消息的图片附件注入 conversation 对应的 user ChatMessage。
- * messagesToConversation 对 user 消息 1:1 透传（仅 assistant 因 tool_calls 补占位），故 user 序严格对应。
+ * 按 user 消息序对齐,把 rawMessages 里 user 消息的图片附件注入 conversation 对应的 user ChatMessage。
+ * messagesToConversation 对 user 消息 1:1 透传(仅 assistant 因 tool_calls 补占位),故 user 序严格对应。
  * 原地修改 conversation 的 user 消息 content。
  */
 export function enrichConversationImages(

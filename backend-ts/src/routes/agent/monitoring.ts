@@ -7,6 +7,7 @@ import { resolveContextCompressionSettings } from "../../services/agent/context-
 import { createRuntime, createToolRegistry } from "@ragsystem/agent-sdk";
 import { projectAgentProfile } from "../../services/agent/sdk/projection.js";
 import { MemoryIndexContextSource, isMemoryEnabled } from "../../services/agent/memory/index.js";
+import { AgentContextBuilder, HISTORY_SCAN_LIMIT, RecentMessagesContextSource, type ConversationHistoryPort, type SessionMetadataPort } from "../../services/agent/context/index.js";
 import { createBackendTools } from "../../tools/registry.js";
 import { PathApprovalService } from "../../services/runtime/path-service.js";
 import type { ChatMessage, ChatToolCall } from "@ragsystem/agent-llm";
@@ -138,33 +139,52 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
         ...(teamName ? { teamName } : {}),
       }, new PathApprovalService()),
     });
-    const sessionMetadataPort = {
-      getSession: (sid: string) => options.container.conversationStore.getSession(sid),
-      updateSessionMetadata: (sid: string, patch: Record<string, unknown>) =>
-        options.container.conversationStore.updateSessionMetadata(sid, patch),
+    // backend 组装 context（memory + recent）—— 与 run 路径同源（runtime-adapter 同一套 builder + source）。
+    // conversation 注入 preview（组 LLM request）；rawMessages/sources 由 backend 自组，preview 不再返回 context。
+    const threadKey = normalizeString(query.thread_key);
+    const historyPort: ConversationHistoryPort & SessionMetadataPort = {
+      getRecentMessages: (sid, limit, tk) => options.container.conversationStore.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
+      getSession: (sid) => {
+        const s = options.container.conversationStore.getSession(sid);
+        return s ? { metadata: s.metadata ?? {} } : null;
+      },
+      updateSessionMetadata: (sid, patch) => options.container.conversationStore.updateSessionMetadata(sid, patch),
     };
-    // memory context source（业务 source，经 extraContextSources 注入；SDK 不再内置 memory）。
-    const extraContextSources = isMemoryEnabled(agent.memory)
-      ? [new MemoryIndexContextSource(sessionMetadataPort, agent.memory, agent.agent_name, { dataRoot: options.container.dataRoot })]
+    const memorySources = isMemoryEnabled(agent.memory)
+      ? [new MemoryIndexContextSource(historyPort, agent.memory, agent.agent_name, { dataRoot: options.container.dataRoot })]
       : [];
+    const recentSource = new RecentMessagesContextSource(historyPort, profile.llmTiers.default?.provider.supports_vision === true);
+    const contextBuilder = new AgentContextBuilder([...memorySources, recentSource]);
+    const built = sessionId
+      ? contextBuilder.buildContext({ sessionId, threadKey: threadKey ?? "root", microcompact: true })
+      : null;
     const runtime = createRuntime({
       profile,
       tools: registry,
       store: options.container.sdkStore,
       dataRoot: options.container.dataRoot,
-      extraContextSources,
-      microcompactTtlSeconds: options.container.systemConfig.getMicrocompactTtlSeconds(),
     });
-    const threadKey = normalizeString(query.thread_key);
-    const preview = sessionId ? runtime.preview({ sessionId, ...(threadKey ? { threadKey } : {}) }) : null;
+    const preview = sessionId && built
+      ? runtime.preview({ sessionId, ...(threadKey ? { threadKey } : {}), conversation: built.conversation })
+      : null;
     runtime.close();
 
-    const memorySnapshot = getMemorySnapshot(preview?.context.metadata.sources ?? []);
-    const renderedHistory = preview?.renderedHistory ?? [];
-    const rawMessages = preview?.context.rawMessages ?? [];
-    const history = renderedHistory.map((message, index) =>
-      toContextHistoryItem(message as ChatMessage, rawMessages[index]),
-    );
+    const memorySnapshot = getMemorySnapshot(built?.metadata.sources ?? []);
+    // history 直接从 rawMessages(recent MessageInfo)构造——根治 messagesToConversation 补占位导致的索引错位
+    //（未应答 tool_call 时 conversation 比 rawMessages 长，slice 对齐会张冠李戴）。message 与 original 同源 rm。
+    const history = (built?.rawMessages ?? []).map((rm) => {
+      const msg = { role: rm.role, content: rm.content } as ChatMessage;
+      if (rm.tool_calls && rm.tool_calls.length > 0) {
+        msg.tool_calls = rm.tool_calls as NonNullable<ChatMessage["tool_calls"]>;
+      }
+      if (rm.tool_call_id) {
+        msg.tool_call_id = rm.tool_call_id;
+      }
+      if (rm.name) {
+        msg.name = rm.name;
+      }
+      return toContextHistoryItem(msg, rm);
+    });
     // memory block 已作为 system 消息进 request.messages，preview.tokenStats.systemPromptTokens 已含它，不重复加。
     const systemPromptTokens = preview?.tokenStats.systemPromptTokens ?? 0;
     const historyTokens = preview?.tokenStats.historyTokens ?? 0;

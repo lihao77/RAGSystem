@@ -4,9 +4,7 @@ import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
-import { compactSession } from "@ragsystem/agent-sdk";
-import type { SqliteRuntimeStore } from "@ragsystem/agent-sdk";
-import { projectAgentProfile } from "../sdk/projection.js";
+import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import { asString, normalizeSessionEntryAgent } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
@@ -48,7 +46,7 @@ export class SlashCommandHandler {
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
     private readonly providersProvider: () => ModelProviderConfig[],
     private readonly conversationStore: ConversationStore,
-    private readonly sdkStore: SqliteRuntimeStore,
+    private readonly compressionService: AgentCompressionService | null,
     private readonly clientEvents: DurableClientEventPublisher,
   ) {}
 
@@ -160,16 +158,12 @@ export class SlashCommandHandler {
       };
     }
     try {
-      const profile = projectAgentProfile({
+      if (!this.compressionService) {
+        return { command: "compact", success: false, content: "压缩服务未装配", error: "compression_unavailable" };
+      }
+      const result = await this.compressionService.forceCompact({
         agent: ready.agent,
-        providers: this.providersProvider(),
-        ...(ready.provider && ready.modelName ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } } : {}),
-      });
-      const store = this.sdkStore;
-      const result = await compactSession({
         sessionId: input.sessionId,
-        store,
-        profile,
       });
       if (result.status === "skipped") {
         if (result.reason === "summary_unavailable") {

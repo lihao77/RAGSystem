@@ -14,13 +14,8 @@ export { Dispatcher } from "./dispatcher.js";
 export type { DispatcherRunContext } from "./dispatcher.js";
 export { SqliteRuntimeStore } from "./store/sqlite-store.js";
 export type { SqliteStoreOptions, StoreDb } from "./store/sqlite-store.js";
-// Context 组装原语 + 端口（消费端 snapshot/调试与 createRuntime run 路径同源，单一实现，消除 backend 平行组装）
-export { AgentContextBuilder, RecentMessagesContextSource, filterHistoryMessages, resolveCompressionView, resolveHistoryView, messagesToConversation } from "./context/index.js";
-export type { AgentContextBuilderOptions, AgentContext, AgentContextRequest, AgentContextSource, AgentContextContribution, ResolvedAgentContextRequest, ConversationHistoryPort, SessionMetadataPort } from "./context/types.js";
-export { AgentContextCompressionService } from "./compression/context-compression.js";
-export { compactSession } from "./compression/compact-session.js";
-export type { CompactSessionInput, CompactSessionResult } from "./compression/compact-session.js";
-export { createCompactionHook } from "./compression/compaction-hook.js";
+// Context 组装原语 + 端口 + 历史视图纯函数均已外移 backend（services/agent/context/）；SDK compression 内部用 resolveCompressionView 经相对 import ../context/history-view.js，不经本公共导出。
+export { estimateTokens, countMessagesTokens } from "./compression/token-estimate.js";
 export { resolveContextBudget } from "./llm-params/budget.js";
 export { resolveSummaryTierCandidates } from "./llm-params/summary-tier.js";
 export { readTierParams } from "./llm-params/tier-params.js";

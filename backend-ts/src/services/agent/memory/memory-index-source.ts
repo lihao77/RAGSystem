@@ -1,12 +1,12 @@
 /**
- * MemoryIndexContextSource——memory context source（实现 SDK AgentContextSource）。
+ * MemoryIndexContextSource——memory context source（实现 backend AgentContextSource）。
  * 按 agent.memory 配置加载 scope 前缀 + 指纹缓存（写 session metadata），产出 system 消息注入 prompt。
  * 迿自 SDK memory 模块，归位 backend；字段对齐 AgentConfig.memory（snake）。
- * 经 createRuntime({ extraContextSources: [memorySource] }) 注入，SDK 不再内置 memory。
+ * 由 backend AgentContextBuilder 组装（memory + recent）→ conversation 经 RunInput.conversation 注入 SDK。
  */
 import type { IMemoryStore, MemoryScopeSpec, MemoryStoreOptions } from "../../../contracts/memory-store/index.js";
 import { MemoryStore } from "../../stores/memory-store.js";
-import type { AgentContextContribution, AgentContextSource, ResolvedAgentContextRequest, SessionMetadataPort } from "@ragsystem/agent-sdk";
+import type { AgentContextContribution, AgentContextSource, ResolvedAgentContextRequest, SessionMetadataPort } from "../context/types.js";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import {
   buildMemoryPrefixFingerprint,

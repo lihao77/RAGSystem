@@ -1,9 +1,10 @@
 /**
- * AgentContextBuilder（设计稿 §7，迁自 backend-ts）。
- * 差异：microcompact TTL 从 systemConfig 改为构造期注入；删 agent 字段透传。
+ * AgentContextBuilder(自 SDK context/context-builder.ts 迁入)。
+ * 遍历 sources(memory + recent),拼接 contribution → AgentContext。
+ * microcompact TTL 构造期注入(从 systemConfig 算好)。
  */
 import type { ChatMessage } from "@ragsystem/agent-llm";
-import type { MessageInfo } from "../types.js";
+import type { MessageInfo } from "../../../contracts/session.js";
 import type {
   AgentContext,
   AgentContextBuilderOptions,

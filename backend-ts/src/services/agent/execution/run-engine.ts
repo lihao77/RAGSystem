@@ -17,6 +17,7 @@ import type { PendingInteractionService } from "../../runtime/pending-interactio
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService } from "../../runtime/delegation-pending-service.js";
 import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
+import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import type { IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
@@ -60,6 +61,7 @@ export class AgentRunEngine {
     private readonly sdkStore: SqliteRuntimeStore,
     private readonly microcompactTtlSeconds?: number,
     private readonly metricsCollector: AgentMetricsCollector | null = null,
+    private readonly compressionService: AgentCompressionService | null = null,
   ) {}
 
   startRun(input: {
@@ -318,6 +320,7 @@ export class AgentRunEngine {
           delegationPending: this.delegationPending,
           ...(this.microcompactTtlSeconds !== undefined ? { microcompactTtlSeconds: this.microcompactTtlSeconds } : {}),
           ...(this.hooks ? { hooks: this.hooks } : {}),
+          ...(this.compressionService ? { compressionService: this.compressionService } : {}),
         },
         {
           sessionId: input.sessionId,

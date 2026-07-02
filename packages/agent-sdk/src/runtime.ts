@@ -7,7 +7,7 @@
  *
  * Context 端口 / MessageRefresher / HookRegistry 内置默认实现（SDK 自带）；
  * Protocol（XML/native 解析）由 SDK 按 provider_type 自动选择（createProtocol）；ToolProvider（工具执行）
- * 的重型件，SDK 通过端口消费。领域 context source（如 memory）由消费端经 extraContextSources 注入，SDK 不内置。
+ * 的重型件，SDK 通过端口消费。conversation 由 backend 组装（memory + recent）经 RunInput.conversation 注入，SDK 不内置 context 组装。
  */
 import { randomUUID } from "node:crypto";
 import os from "node:os";
@@ -25,14 +25,11 @@ import type { KernelContext as KernelContextType } from "./kernel-context.js";
 import { AgentKernel } from "./kernel.js";
 import { Dispatcher, type DispatcherRunContext } from "./dispatcher.js";
 import { SqliteRuntimeStore } from "./store/sqlite-store.js";
-import type { AgentProfile, MessageInfo } from "./types.js";
-import { AgentContextBuilder, type AgentContext, type AgentContextSource, type ConversationHistoryPort } from "./context/index.js";
-import { RecentMessagesContextSource, filterHistoryMessages } from "./context/index.js";
+import { DEFAULT_COMPRESSION_BUDGET, type AgentProfile } from "./types.js";
 import { buildFullSystemPrompt } from "./prompt/prompt-builder.js";
 import type { AgentPromptContext } from "./prompt/types.js";
 import type { RuntimeToolDefinition } from "./prompt/tool-types.js";
-import { AgentContextCompressionService } from "./compression/context-compression.js";
-import { createCompactionHook } from "./compression/compaction-hook.js";
+import { resolveContextBudget } from "./llm-params/budget.js";
 import { createHookRegistry, type HookRegistry } from "./hooks/index.js";
 import { createProtocol } from "./llm-protocol/index.js";
 import { RuntimeToolProvider } from "./tools/index.js";
@@ -52,20 +49,6 @@ export interface CreateRuntimeOptions {
   dataRoot?: string;
   /** 自定义 store（默认 SqliteRuntimeStore）。 */
   store?: RuntimeStore;
-  /**
-   * 业务 context sources（在默认 recent_messages 之前追加）。memory 等领域 source 由消费端
-   * 经此注入，SDK 不内置 memory（领域无关）。顺序：extra 在前——它写 stablePrefixFingerprint，
-   * recent 在后读它做 microcompact 缓存判定。
-   */
-  extraContextSources?: AgentContextSource[];
-  /** 自定义 context sources（完全替换默认；高级用法。不传则用 extraContextSources + 默认 recent）。 */
-  contextSources?: AgentContextSource[];
-  /**
-   * microcompact 缓存 TTL（秒）：recent-messages source 据此判断旧 tool 结果的清理视图是否过期。
-   * 不注入则用默认（DEFAULT_MICROCOMPACT_TTL_SECONDS=600）。消费端从 systemConfig 算好传入，
-   * 与 snapshot 路径同源，避免 run/snapshot 分叉。
-   */
-  microcompactTtlSeconds?: number;
   /** 后台任务等待回调（消费端注入；不提供则忽略 suggest_wait 信号）。 */
   waitForToolResult?: (request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>;
   /**
@@ -97,6 +80,8 @@ export interface RunInput {
   threadKey?: string;
  parentCallId?: string;
  signal?: AbortSignal;
+  /** run 起始会话快照（backend 组装：memory + recent + microcompact + 压缩视图 + 图片注入）。SDK 不再读 store，仅靠此快照 + 工作副本推进。 */
+  conversation: ChatMessage[];
   /** run 入口标识（executionKind）；透传 createRun → runs.entrypoint。 */
   entrypoint?: string;
   /** run 发起用户；透传 createRun → runs.user_id。 */
@@ -122,6 +107,8 @@ export interface RunHandle {
 export interface PreviewInput {
   sessionId: string;
   threadKey?: string | null;
+  /** 会话快照（backend 组装：memory + recent + 压缩视图）。preview 用它组 LLM request，不读 store。 */
+  conversation: ChatMessage[];
 }
 
 /** preview 结果：模型真实收到的请求 + system prompt + token 用量 + 可见工具。 */
@@ -137,10 +124,6 @@ export interface PreviewResult {
   };
   /** 本 runtime 可见的工具定义。 */
   toolDefinitions: RuntimeToolDefinition[];
-  /** 协议渲染后的历史（去掉 system + memory prefix），与 context.rawMessages 一一对应。 */
-  renderedHistory: ChatMessage[];
-  /** buildContext 产出：rawMessages（历史 MessageInfo，含 seq/metadata）+ metadata.sources（memory snapshot）。 */
-  context: AgentContext;
 }
 
 /** preview 协议用的空事件槽：buildRequest 不发事件，run 在闭包内另建 events=dispatcher 的 protocol。 */
@@ -164,21 +147,14 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
   // SDK 据 profile.llmTiers.default.provider 自带的 ProviderConfig 自行调用。
   const llm = getDefaultLlmClient();
 
-  // 实例级上下文装配（run/preview 共用）：builder + context 组 requestMessages；protocol 组 LlmRequest。
-  // preview 用 events=noop 的 protocol（buildRequest 不发事件），run 闭包内另建 events=dispatcher 的
-  // protocol——两者 buildRequest 同源（同一 Protocol 类），保证 preview 组出的请求 = run 实际发的。
-  const historyPort: ConversationHistoryPort = {
-    getRecentMessages: (sid, _limit, tk) => store.listMessages(sid, tk ?? "root") as unknown as MessageInfo[],
-  };
-  const sources = options.contextSources ?? [...(options.extraContextSources ?? []), ...buildDefaultSources(historyPort, defaultTier?.provider.supports_vision === true)];
-  const contextBuilder = new AgentContextBuilder(sources, options.microcompactTtlSeconds !== undefined ? { microcompactTtlSeconds: options.microcompactTtlSeconds } : {});
+  // 实例级 protocol 装配（run/preview 共用同一 Protocol 类，buildRequest 同源，保证 preview 组出的请求 = run 实际发的）。
   const { protocol: previewProtocol, toolInstructionMode } = createProtocol({
     provider: defaultTier?.provider,
     llm,
     events: NOOP_EVENT_SINK,
     getTools: () => registry.listDefinitions(),
   });
-  const contextPort: Context = makeContextPort(contextBuilder, profile, toolInstructionMode, {
+  const contextPort: Context = makeContextPort(profile, toolInstructionMode, {
     tools: registry.listDefinitions(),
   });
 
@@ -218,27 +194,17 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       });
       const refresher: MessageRefresher = { refresh: async () => [] };
 
-      const compression = new AgentContextCompressionService({ store, llm, profile });
-      const budgetTokens = compression.resolveContextBudget();
-      const triggerRatio = compression.resolveContextSettings().compressionTriggerRatio;
-      // per-run registry：每 run 新建，挂 compaction 后调消费端回调注册其 handler。
-      // 用回调（而非长驻 registry 实例）避免 compaction 跨 run 重复注册累积。
+      // 上下文预算（纯函数,从 profile 算）用于 contextUsage 遥测;压缩本体已外移 backend（A3）。
+      const budgetTokens = resolveContextBudget(profile.llmTiers, profile.behavior.budget ?? DEFAULT_COMPRESSION_BUDGET);
+      // per-run registry：每 run 新建;round.before 压缩由 backend handler 注册（A3 压缩外移）。
       const hooks = createHookRegistry();
-      hooks.on("round.before", createCompactionHook({
-        recompact: async () => {
-          const result = await compression.compressIfNeeded({ sessionId, runId, taskId: null, requestId: null, threadKey, childAgentId: parentCallId });
-          return result.status === "success" ? [] : null;
-        },
-        budgetTokens,
-        triggerRatio,
-      }));
       options.hooks?.(hooks);
 
     const session: RuntimeSession = {
       profile,
      provider: defaultTier.provider,
      modelName: defaultTier.modelName,
-     conversation: filterHistoryMessages(store.listMessages(sessionId, threadKey)).map(toChatMessage),
+     conversation: input.conversation,
        sessionId,
        runId,
        taskId: input.task ?? null,
@@ -300,33 +266,26 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       return { events: dispatcher.events, result: resultPromise, runId };
     },
     preview: (input: PreviewInput): PreviewResult => {
-      const threadKey = input.threadKey ?? "root";
       const promptContext = { tools: registry.listDefinitions() };
-      // buildContext 一次：conversation（memory prefix + 历史）+ rawMessages（历史 MessageInfo，含 seq/metadata）+
-      // memory sources。与 run 的 makeContextPort.buildMessages 同源（buildFullSystemPrompt + builder.buildContext），
-      // 只是 preview 直调底层以保留 rawMessages 给调试快照展示元数据。
-      const built = contextBuilder.buildContext({ sessionId: input.sessionId, threadKey, microcompact: true });
+      // conversation 由 backend 组装注入（memory + recent + 压缩视图）；preview 仅组 LLM request（与 run 第一轮同源），不读 store、不组 context。
       const systemPrompt = buildFullSystemPrompt(profile, promptContext, toolInstructionMode);
       const prefix: ChatMessage[] = systemPrompt ? [{ role: "system", content: systemPrompt }] : [];
-      const requestMessages: ChatMessage[] = [...prefix, ...built.conversation];
+      const requestMessages: ChatMessage[] = [...prefix, ...input.conversation];
       const session = {
         profile,
         provider: defaultTier?.provider,
         modelName: defaultTier?.modelName,
-        conversation: built.conversation,
+        conversation: input.conversation,
         sessionId: input.sessionId,
         runId: "preview",
         taskId: null,
         requestId: null,
         rootCallId: "preview",
-        threadKey,
+        threadKey: input.threadKey ?? "root",
         parentCallId: null,
       } as RuntimeSession;
       const ctx = { session, requestMessages } as unknown as KernelContextType;
       const request = previewProtocol.buildRequest(ctx);
-      // renderedHistory = request.messages 去掉 systemPrompt + memory prefix，与 context.rawMessages 一一对应。
-      const memoryPrefixCount = built.metadata.sources.find((s) => s.name === "memory")?.message_count ?? 0;
-      const renderedHistory = request.messages.slice(1 + memoryPrefixCount);
       let systemPromptTokens = 0;
       let historyTokens = 0;
       for (const message of request.messages) {
@@ -342,8 +301,6 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
         systemPrompt,
         tokenStats: { systemPromptTokens, historyTokens, totalTokens: systemPromptTokens + historyTokens },
         toolDefinitions: registry.listDefinitions(),
-        renderedHistory,
-        context: built,
       };
     },
     close: () => {
@@ -367,40 +324,14 @@ async function runKernel(kernel: AgentKernel, session: RuntimeSession, dispatche
   }
 }
 
-function buildDefaultSources(historyPort: ConversationHistoryPort, supportsVision: boolean): AgentContextSource[] {
-  // 仅通用 recent_messages；领域 source（memory 等）由消费端经 extraContextSources 注入（SDK 领域无关）。
-  // extraContextSources 在 default 之前装配，保证业务 source 写的 stablePrefixFingerprint 在 recent 读取之前。
-  return [new RecentMessagesContextSource(historyPort, supportsVision)];
-}
-
-function makeContextPort(builder: AgentContextBuilder, profile: AgentProfile, mode: "xml" | "native", promptContext: AgentPromptContext = {}): Context {
+function makeContextPort(profile: AgentProfile, mode: "xml" | "native", promptContext: AgentPromptContext = {}): Context {
   return {
     buildMessages: (ctx: KernelContextType): ChatMessage[] => {
       const systemPrompt = buildFullSystemPrompt(profile, promptContext, mode);
-      // context builder 从 store 读历史（Dispatcher 实时落库 assistant/observation，含当前 run 动态进展；
-      // compression 经 insertCompressionMessage 写 store，recompact 后从 store 重读也正确）。
-      // 产出含 memory prefix（system 段）+ microcompact 后的历史——直接进 LLM，不再降级为 side effect。
-      const built = builder.buildContext({ sessionId: ctx.session.sessionId, threadKey: ctx.session.threadKey, microcompact: true });
+      // conversation 由 backend 组装注入（RuntimeSession.conversation）；循环中工作副本累积 assistant/observation + 后台通知（round.before 推入）+ 压缩替换（replaceAll）。SDK 不再读 store。
       const prefix = systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : [];
-      return [...prefix, ...built.conversation];
+      return [...prefix, ...ctx.messages];
     },
   };
 }
 
-function toChatMessage(m: MessageInfo): ChatMessage {
-  const result: ChatMessage = { role: m.role, content: m.content };
-  if (m.name) {
-    result.name = m.name;
-  }
-  if (m.toolCallId) {
-    result.tool_call_id = m.toolCallId;
-  }
-  if (m.toolCalls && m.toolCalls.length > 0) {
-    result.tool_calls = m.toolCalls.map((call) => ({
-      id: call.id,
-      type: "function" as const,
-      function: { name: call.function.name, arguments: call.function.arguments },
-    }));
-  }
-  return result;
-}

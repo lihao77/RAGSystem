@@ -7,7 +7,7 @@
  * 避免 SDK 与 backend-ts 双写 message/run_step）、terminal 补 run:end/final step + 终态 envelope
  *（final assistant 消息由 SDK Dispatcher.finalize 已写，此处只查库取其 id/seq 供 message_saved）。
  */
-import { buildTool, createRuntime, createToolRegistry, prepareTool, type CreateRuntimeOptions, type SessionMetadataPort, type SqliteRuntimeStore } from "@ragsystem/agent-sdk";
+import { buildTool, createRuntime, createToolRegistry, prepareTool, type CreateRuntimeOptions, type SqliteRuntimeStore } from "@ragsystem/agent-sdk";
 import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry } from "@ragsystem/agent-sdk";
 import { translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
@@ -25,6 +25,8 @@ import { createBackendTools } from "../../../tools/registry.js";
 import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/CodeExecution.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
+import { AgentContextBuilder, HISTORY_SCAN_LIMIT, RecentMessagesContextSource, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
+import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import { MemoryIndexContextSource, isMemoryEnabled } from "../memory/index.js";
 import { registerGateHook } from "./gate-hook.js";
 import { PathApprovalService } from "../../../services/runtime/path-service.js";
@@ -58,6 +60,8 @@ export interface SdkRuntimeAdapterDeps {
   hooks?: (registry: HookRegistry) => void;
   /** microcompact 缓存 TTL（秒）；透传 createRuntime，与 snapshot 路径同源（systemConfig 单一来源）。 */
   microcompactTtlSeconds?: number;
+  /** backend 压缩服务（run 内 round.before 触发 + /compact 共用）；A3 压缩外移。 */
+  compressionService?: AgentCompressionService;
 }
 
 export interface SdkExecuteRunInput {
@@ -113,11 +117,12 @@ export async function executeRunWithSdk(
   // session metadata 端口：委托真实 ConversationStore，让 memory 源能读到 team/workspace_root，
   // 解析出 team/agent/workspace scope（否则只 session scope 存活，其余静默丢弃）。
   const sessionMetadata: SessionMetadataPort = {
-    getSession: (sessionId) => {
+    getSession: (sessionId: string) => {
       const session = deps.conversationStore.getSession(sessionId);
       return session ? { metadata: session.metadata ?? {} } : null;
     },
-    updateSessionMetadata: (sessionId, patch) => deps.conversationStore.updateSessionMetadata(sessionId, patch),
+    updateSessionMetadata: (sessionId: string, patch: Record<string, unknown>) =>
+      deps.conversationStore.updateSessionMetadata(sessionId, patch),
   };
 
   // per-run 构建工具集合：后端工具 + 前端委托工具（source=host，其 Tool.call 转发宿主执行 + 等回传）。
@@ -175,10 +180,23 @@ export async function executeRunWithSdk(
       })
     : undefined;
 
-  // memory context source（业务 source，经 extraContextSources 注入；SDK 不再内置 memory）。
-  const extraContextSources = isMemoryEnabled(input.agent.memory)
-    ? [new MemoryIndexContextSource(sessionMetadata, input.agent.memory, input.agent.agent_name, { dataRoot: deps.dataRoot })]
+  // backend 组装 context（memory + recent），产 conversation 注入 SDK（SDK 不再读 store/自组 context）。
+  // historyPort 组合 ConversationHistoryPort + SessionMetadataPort：recent source 读历史 + microcompact 缓存指纹，
+  // memory source 读 session metadata（team/workspace scope 解析）。
+  const historyPort: ConversationHistoryPort & SessionMetadataPort = {
+    getRecentMessages: (sid: string, limit: number | undefined, tk: string | null | undefined) =>
+      deps.conversationStore.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
+    getSession: (sid: string) => sessionMetadata.getSession(sid),
+    updateSessionMetadata: (sid: string, patch: Record<string, unknown>) =>
+      sessionMetadata.updateSessionMetadata?.(sid, patch) ?? null,
+  };
+  const memorySources = isMemoryEnabled(input.agent.memory)
+    ? [new MemoryIndexContextSource(historyPort, input.agent.memory, input.agent.agent_name, { dataRoot: deps.dataRoot })]
     : [];
+  const recentSource = new RecentMessagesContextSource(historyPort, profile.llmTiers.default?.provider.supports_vision === true);
+  const contextBuilder = new AgentContextBuilder([...memorySources, recentSource]);
+  const built = contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true });
+  const conversation = built.conversation;
   // 性能指标采集:round.after hook 累计各轮 token,事件循环统计工具调用次数(终态随结果返回)。
   const tokenUsage = { inputTokens: 0, outputTokens: 0 };
   const toolCalls: Record<string, number> = {};
@@ -187,9 +205,7 @@ export async function executeRunWithSdk(
     tools: registry,
     dataRoot: deps.dataRoot,
     store: deps.sdkStore,
-    extraContextSources,
     execContext: baseExecCtx,
-    ...(deps.microcompactTtlSeconds !== undefined ? { microcompactTtlSeconds: deps.microcompactTtlSeconds } : {}),
     hooks: (registry) => {
       registerGateHook(registry, {
         permissionPolicy: deps.permissionPolicy,
@@ -197,6 +213,25 @@ export async function executeRunWithSdk(
         pathService,
         agentName: input.agent.agent_name,
       });
+      // run 内压缩（round.before）：判阈值 → compressIfNeeded → 压缩成功则重组 conversation（重读 store 含压缩视图）→ replaceAll 工作副本。
+      // compressIfNeeded 内部判 below_threshold 快速 skipped（未到阈值不调 LLM）；阈值触发才摘要 + 写 compression 消息。
+      if (deps.compressionService) {
+        registry.on("round.before", async (hookInput) => {
+          const result = await deps.compressionService!.compressIfNeeded({
+            agent: input.agent,
+            sessionId: input.sessionId,
+            threadKey: input.threadKey,
+            runId: input.runId,
+            taskId: input.taskId,
+            requestId: input.requestId,
+            ...(input.signal ? { signal: input.signal } : {}),
+          });
+          if (result.status === "success") {
+            const rebuilt = contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true }).conversation;
+            hookInput.ctx.replaceAll(rebuilt);
+          }
+        });
+      }
       // 累计每轮 LLM 返回的 token 用量(provider 返回 usage 时累加,用于性能监控)。
       registry.on("round.after", (hookInput) => {
         const usage = hookInput.outcome.usage;
@@ -239,6 +274,7 @@ export async function executeRunWithSdk(
     runId: input.runId,
     rootCallId: input.rootCallId,
     threadKey: input.threadKey,
+    conversation,
     ...(input.parentCallId !== undefined && input.parentCallId !== null ? { parentCallId: input.parentCallId } : {}),
     signal: input.signal,
     ...(input.executionKind !== undefined ? { entrypoint: input.executionKind } : {}),

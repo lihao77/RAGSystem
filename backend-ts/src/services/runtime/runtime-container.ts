@@ -43,6 +43,7 @@ import { DurableClientEventPublisher } from "./event-outbox/client-event-publish
 import { createWidgetCredentialStore, type WidgetCredentialStore } from "../stores/widget-credential-store/index.js";
 import { createWidgetAuthService, type WidgetAuthService } from "./jwt-service.js";
 import { AgentMetricsCollector } from "../agent/metrics/metrics-collector.js";
+import { AgentCompressionService } from "../agent/context-compression/compression-service.js";
 
 export interface RuntimeContainer {
   readonly conversationStore: ConversationStore;
@@ -250,6 +251,11 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     logger: options.logger,
     microcompactTtlSeconds,
     metricsCollector,
+    compressionService: new AgentCompressionService(
+      conversationStore,
+      () => modelAdapter.listProviders(),
+      systemConfig,
+    ),
     ...(options.hooks ? { hooks: options.hooks } : {}),
   });
   agentDelegation.setRunEngine(() => agentExecution.runEngine);

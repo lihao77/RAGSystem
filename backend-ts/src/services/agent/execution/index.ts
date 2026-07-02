@@ -31,6 +31,7 @@ import { AttachmentResolver } from "./attachment-resolver.js";
 import { SlashCommandHandler } from "./slash-command-handler.js";
 import { AgentRunEngine, type AgentExecutionLogger } from "./run-engine.js";
 import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
+import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import {
   createLaunchers,
   type RollbackRetryInput,
@@ -93,6 +94,8 @@ export interface AgentExecutionServiceParams {
  /** 性能指标采集器（透传 AgentRunEngine 终态落库用）。 */
  metricsCollector?: AgentMetricsCollector | null;
  logger?: AgentExecutionLogger | null | undefined;
+ /** backend 压缩服务（slash /compact + run 内 round.before 共用）；A3 压缩外移。 */
+ compressionService?: AgentCompressionService;
 }
 
 /**
@@ -122,7 +125,7 @@ export function createAgentExecutionService(
     params.runtimeCore,
     params.providersProvider,
     params.conversationStore,
-    params.sdkStore,
+    params.compressionService ?? null,
     params.clientEvents,
   );
   const runEngine = new AgentRunEngine(
@@ -147,6 +150,7 @@ export function createAgentExecutionService(
     params.sdkStore,
     params.microcompactTtlSeconds,
     params.metricsCollector ?? null,
+    params.compressionService ?? null,
   );
   const launchers = createLaunchers({
     sessions: params.sessions,
