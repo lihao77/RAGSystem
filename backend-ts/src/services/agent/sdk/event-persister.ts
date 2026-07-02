@@ -124,6 +124,9 @@ export class KernelEventPersister {
         tx.updateRunStepsMessageId(this.ctx.sessionId, this.ctx.runId, anchor.id);
         finalMessageId = anchor.id;
       } else if (status === "completed" && finalMessage) {
+        // caller（runtime-adapter.executeRunWithSdk）completed 时恒传非空 finalMessage（{ content: result.content }），
+        // 本分支必命中、最终 message 必落。若未来 caller 传 null（未使用边界），将跳过落 message、落空 final step
+        // （message_id/result_preview 空）—— 该边界需 caller 保证不触发。
         const msg = tx.addMessage({
           sessionId: this.ctx.sessionId,
           role: "assistant",
