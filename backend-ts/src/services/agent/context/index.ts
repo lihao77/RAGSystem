@@ -1,5 +1,3 @@
-import type { SystemConfigService } from "../../config/system-config-service.js";
-
 // context 组装原语（自 SDK context/ 迁入）：recent 组装归 backend，端口 + 纯函数 + builder。
 // memory source（services/agent/memory/）亦 implements 这些端口，与 recent source 共用 AgentContextSource。
 export type {
@@ -32,11 +30,3 @@ export {
 export type { MicrocompactResult } from "./history-view.js";
 export { enrichConversationImages, enrichUserMessageImages, extractImageAttachments } from "./attachment-image.js";
 export type { ImageReader, StoredImageAttachment } from "./attachment-image.js";
-
-/**
- * AgentContextService —— 预算门面已退役(budget 改用 SDK resolveContextBudget: window×0.9 − systemPromptTokens,
- * monitoring 直接调)。本空壳类留待 B 阶段连同 sdkStore 一起清。
- */
-export class AgentContextService {
-  constructor(private readonly systemConfig: SystemConfigService) {}
-}

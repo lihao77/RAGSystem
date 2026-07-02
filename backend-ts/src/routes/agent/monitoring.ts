@@ -165,7 +165,6 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const runtime = createRuntime({
       profile,
       tools: registry,
-      store: options.container.sdkStore,
       dataRoot: options.container.dataRoot,
     });
     const preview = sessionId && built

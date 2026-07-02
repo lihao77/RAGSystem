@@ -1,6 +1,5 @@
 import { createAgentExecutionService, type AgentExecutionService } from "../agent/execution/index.js";
 import type { AgentExecutionLogger } from "../agent/execution/index.js";
-import { AgentContextService } from "../agent/context/index.js";
 import { AgentDelegationService } from "../agent/delegation/index.js";
 import os from "node:os";
 import path from "node:path";
@@ -23,7 +22,6 @@ import { LocalSearchToolService } from "../../tools/LocalSearchTools/SearchExecu
 import { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
 import { SkillLibraryService } from "../skills/skill-library-service.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
-import { SqliteRuntimeStore } from "@ragsystem/agent-sdk";
 import { MemoryStore } from "../stores/memory-store.js";
 import { MemoryToolService } from "../../tools/MemoryTools/MemoryExecution.js";
 import { McpService } from "../integrations/mcp-service.js";
@@ -79,7 +77,6 @@ export interface RuntimeContainer {
   /** per-agent 工具依赖集合（runtime-adapter per-run 构建 Tool[] 用）。 */
   readonly toolsDeps: Omit<import("../../tools/registry.js").BackendToolsDeps, "agent" | "teamName">;
   readonly runtimeCore: RuntimeCoreService;
-  readonly agentContextService: AgentContextService;
   readonly agentDelegation: AgentDelegationService;
   readonly outboxDispatcher: OutboxDispatcher;
   readonly clientEvents: DurableClientEventPublisher;
@@ -90,8 +87,6 @@ export interface RuntimeContainer {
    * 未配时为 undefined，widget 路由与 ws 握手鉴权跳过，后端保持现状。
    */
   readonly widgetAuth?: WidgetAuthService;
-  /** SDK 共享 store（指向同一 ragsystem.db；createRuntime 复用，container close 时关）。 */
-  readonly sdkStore: SqliteRuntimeStore;
   /** 数据根目录（memory store / 工具数据用）；snapshot 装配 createRuntime 时透传。 */
   readonly dataRoot: string;
   close(): void;
@@ -116,8 +111,6 @@ export interface RuntimeContainerOptions {
 
 export function createRuntimeContainer(options: RuntimeContainerOptions): RuntimeContainer {
   const conversationStore = createConversationStore({ dbPath: options.dbPath, dataRoot: options.dataRoot });
-  // SDK store 归位：共享 SqliteRuntimeStore 指向同一 ragsystem.db，所有 createRuntime 复用同一连接（避免 per-call 连接泄漏）。
-  const sdkStore = new SqliteRuntimeStore({ dbPath: options.dbPath });
   const fileHistory = new FileHistoryService({ dataRoot: options.dataRoot });
   const sessionApplication = new AgentSessionApplication(conversationStore, fileHistory);
   const realtimeEvents = new RealtimeEventHub();
@@ -205,9 +198,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
   const microcompactTtlSeconds = systemConfig.getMicrocompactTtlSeconds();
-  // 上下文组装（memory + recent）由 createRuntime 经 extraContextSources 注入，TTL 经 systemConfig
-  // 单一来源注入 run 路径。AgentContextService 仅保留预算估算（snapshot 已随 memory 迁出删除）。
-  const agentContextService = new AgentContextService(systemConfig);
   const agentDelegation = new AgentDelegationService(
     conversationStore,
     runtimeCore,
@@ -233,7 +223,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const agentExecution = createAgentExecutionService({
     sessions: sessionApplication,
     conversationStore,
-    sdkStore,
     runtimeCore,
     dataRoot,
    toolsDeps,
@@ -275,12 +264,10 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     // conversation/file-index/vector 三个 store 各自开 SQLite 句柄（同 dbPath，WAL 允许多连接），
     // 各自需 close 释放文件句柄/WAL。conversationStore 是最底层（被 sessionApplication/outbox 等
     // 依赖），其上层已先关，故最后关。fileHistory/memoryStore 纯文件无句柄，无需 close。
-    sdkStore.close();
     conversationStore.close();
   };
   return {
     conversationStore,
-    sdkStore,
     sessionApplication,
     realtimeEvents,
     agentExecution,
@@ -311,7 +298,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     delegationPending,
     toolsDeps,
     runtimeCore,
-    agentContextService,
     agentDelegation,
     outboxDispatcher,
     clientEvents,

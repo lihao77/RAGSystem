@@ -5,7 +5,7 @@
  * run_step 落库（KernelEventPersister：createRun + 增量事件 + 终态合一事务）+ 翻译 KernelEvent 成 Envelope
  * 推 outbox + terminal 补终态 envelope（root run 的 stream_output(final)/message_saved/agent_ended/run_ended）。
  */
-import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, resolveToolInstructionMode, type CreateRuntimeOptions, type SqliteRuntimeStore } from "@ragsystem/agent-sdk";
+import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, resolveToolInstructionMode, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
 import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry } from "@ragsystem/agent-sdk";
 import { translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
@@ -33,8 +33,6 @@ import type { DelegationPendingService, DelegationResolution } from "../../runti
 
 export interface SdkRuntimeAdapterDeps {
   conversationStore: ConversationStore;
-  /** SDK 共享 store（指向同一 ragsystem.db；createRuntime 复用，container close 时关）。 */
-  sdkStore: SqliteRuntimeStore;
   /** 工具依赖集合（service + getAgentDelegation；agent/teamName 由 per-run 提供）。 */
   toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName">;
   /** CodeExecution service——per-run 注入 callTool 回调用（execute_code 沙箱内工具互调）。 */
@@ -208,7 +206,6 @@ export async function executeRunWithSdk(
     profile,
     tools: registry,
     dataRoot: deps.dataRoot,
-    store: deps.sdkStore,
     execContext: baseExecCtx,
     hooks: (hookRegistry) => {
       registerGateHook(hookRegistry, {
@@ -309,11 +306,6 @@ export async function executeRunWithSdk(
     conversation,
     ...(input.parentCallId !== undefined && input.parentCallId !== null ? { parentCallId: input.parentCallId } : {}),
     signal: input.signal,
-    ...(input.executionKind !== undefined ? { entrypoint: input.executionKind } : {}),
-    ...(input.userId !== undefined ? { userId: input.userId } : {}),
-    taskId: input.taskId,
-    requestId: input.requestId,
-    ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
   });
 
   // 事件循环：增量落库（KernelEventPersister）+ 翻译推流（translateKernelEvent → envelope → outbox）。

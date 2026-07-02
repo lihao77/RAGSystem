@@ -4,7 +4,7 @@ import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } from "../../../contracts/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
-import type { HookRegistry, SqliteRuntimeStore } from "@ragsystem/agent-sdk";
+import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
@@ -58,7 +58,6 @@ export class AgentRunEngine {
     private readonly delegationPending: DelegationPendingService,
     private readonly logger: AgentExecutionLogger | null,
     private readonly hooks: ((registry: HookRegistry) => void) | null,
-    private readonly sdkStore: SqliteRuntimeStore,
     private readonly microcompactTtlSeconds?: number,
     private readonly metricsCollector: AgentMetricsCollector | null = null,
     private readonly compressionService: AgentCompressionService | null = null,
@@ -318,7 +317,6 @@ export class AgentRunEngine {
        {
           // run-engine 的 conversationStore 实际是完整 ConversationStore（构造时传入窄类型）。
           conversationStore: this.conversationStore as unknown as ConversationStore,
-          sdkStore: this.sdkStore,
           toolsDeps: this.toolsDeps ?? emptyToolsDeps,
           codeExecutionTools: this.codeExecutionTools,
           taskTools: this.taskTools,

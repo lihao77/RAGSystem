@@ -7,10 +7,8 @@ import { afterEach } from "vitest";
 /**
  * 测试用临时 db 文件辅助。
  *
- * conversationStore 与 sdkStore 是两个独立 SQLite 连接(记忆:sdk-store-realigned,
- * 双连接 WAL)。用各自的 ":memory:" 会得到两个不共享的内存库,导致 sdkStore 落的
- * run/message 在 conversationStore 侧读不到。改用临时文件:两连接经 WAL 共享同一
- * 数据库文件,与生产(文件 db)行为一致。
+ * backend 单连接 ConversationStore 落库（B2:SDK store 已删，落库全归 backend）。
+ * 临时文件 db 与生产（文件 db + WAL）行为一致，逼近真实；test 也可改用 :memory:（单连接自洽）。
  */
 const tempRoots: string[] = [];
 

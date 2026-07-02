@@ -15,7 +15,7 @@ import path from "node:path";
 import type { ChatMessage, LlmRequest } from "@ragsystem/agent-llm";
 import { extractText } from "@ragsystem/agent-llm";
 import { isAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
-import type { Context, EventSink, KernelResult, MessageRefresher, RuntimeSession, ToolExecContext, ToolWaitRequest, ToolWaitResult, RuntimeStore } from "./contracts.js";
+import type { Context, EventSink, KernelResult, MessageRefresher, RuntimeSession, ToolExecContext, ToolWaitRequest, ToolWaitResult } from "./contracts.js";
 import type { KernelEvent } from "./contracts.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import type { Tool } from "./tools/tool.js";
@@ -24,7 +24,6 @@ import { getDefaultLlmClient } from "./llm-client.js";
 import type { KernelContext as KernelContextType } from "./kernel-context.js";
 import { AgentKernel } from "./kernel.js";
 import { Dispatcher } from "./dispatcher.js";
-import { SqliteRuntimeStore } from "./store/sqlite-store.js";
 import type { AgentProfile } from "./types.js";
 import { buildFullSystemPrompt } from "./prompt/prompt-builder.js";
 import type { AgentPromptContext } from "./prompt/types.js";
@@ -47,8 +46,6 @@ export interface CreateRuntimeOptions {
   tools: ToolRegistry | Tool[];
   /** 数据根目录；默认 ~/.ragsystem。 */
   dataRoot?: string;
-  /** 自定义 store（默认 SqliteRuntimeStore）。 */
-  store?: RuntimeStore;
   /** 后台任务等待回调（消费端注入；不提供则忽略 suggest_wait 信号）。 */
   waitForToolResult?: (request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>;
   /**
@@ -80,21 +77,8 @@ export interface RunInput {
   threadKey?: string;
  parentCallId?: string;
  signal?: AbortSignal;
-  /** run 起始会话快照（backend 组装：memory + recent + microcompact + 压缩视图 + 图片注入）。SDK 不再读 store，仅靠此快照 + 工作副本推进。 */
+  /** run 起始会话快照（backend 组装：memory + recent + microcompact + 压缩视图 + 图片注入）。SDK 仅靠此快照 + 工作副本推进，纯计算不落库。 */
   conversation: ChatMessage[];
-  /** run 入口标识（executionKind）；透传 createRun → runs.entrypoint。 */
-  entrypoint?: string;
-  /** run 发起用户；透传 createRun → runs.user_id。 */
-  userId?: string | null;
-  /** run task id；透传给 Dispatcher，落 run_step/message 的 task_id 字段。 */
-  taskId?: string | null;
-  /** run request id；透传给 Dispatcher，落 run_step/message 的 request_id 字段。 */
-  requestId?: string | null;
-  /**
-   * run 级附加消息元数据：透传给 Dispatcher，合并到最终 assistant 消息 metadata。
-   * 消费端用此把 execution_kind / retry_of_seq / retry_of_message_id 打到最终消息上。
-   */
-  messageMetadata?: Record<string, unknown> | null;
 }
 
 export interface RunHandle {
@@ -131,11 +115,6 @@ const NOOP_EVENT_SINK: EventSink = { emit: () => undefined };
 
 export function createRuntime(options: CreateRuntimeOptions): { run: (input: RunInput) => RunHandle; preview: (input: PreviewInput) => PreviewResult; close: () => void } {
   const profile = options.profile;
-  const storeOpts: import("./store/sqlite-store.js").SqliteStoreOptions = {};
-  if (options.dataRoot) { storeOpts.dataRoot = options.dataRoot; }
-  const store = options.store ?? new SqliteRuntimeStore(storeOpts);
-
-  const ownsStore = !options.store;
   const dataRoot = options.dataRoot ?? path.join(os.homedir(), ".ragsystem");
   const registry: ToolRegistry = Array.isArray(options.tools)
     ? createToolRegistry({ tools: options.tools })
@@ -205,7 +184,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       sessionId,
       runId,
       taskId: input.task ?? null,
-      requestId: input.requestId ?? null,
+      requestId: options.execContext?.requestId ?? null,
       // 工具的 parent 是当前 agent 的 root call（委派工具据此把子 agent lineage 挂到本 agent 下）。
       // root run 的 parentCallId 为 null，但工具不属于"父 run"，其父是当前 agent —— 故回退 rootCallId。
       parentCallId: parentCallId ?? rootCallId,
@@ -288,9 +267,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       };
     },
     close: () => {
-      if (ownsStore) {
-        store.close?.();
-      }
+      // SDK 收窄为纯计算内核（B2：删 store），无底层资源需释放；close 留空保持 createRuntime 返回形状。
     },
   };
 }

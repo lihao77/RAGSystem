@@ -9,7 +9,6 @@ import {
 import { AgentSessionApplication } from "../../src/services/sessions/index.js";
 import os from "node:os";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
-import { SqliteRuntimeStore } from "@ragsystem/agent-sdk";
 import { mockLlm } from "../helpers/llm-fetch-mock.js";
 import { makeTempDb } from "../helpers/temp-db.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
@@ -119,7 +118,6 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
   const ready = opts.ready ?? true;
   const dbPath = makeTempDb();
   const store = createConversationStore({ dbPath });
-  const sdkStore = new SqliteRuntimeStore({ dbPath });
   const sessions = new AgentSessionApplication(store);
   const realtimeEvents = new RealtimeEventHub();
   const dispatcher = new OutboxDispatcher(store, realtimeEvents);
@@ -145,7 +143,6 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
   const service = createAgentExecutionService({
     sessions,
     conversationStore: store,
-    sdkStore,
     runtimeCore: runtimeCoreStub(agent, ready, provider),
     dataRoot: os.tmpdir(),
    outboxDispatcher: dispatcher,
@@ -157,7 +154,7 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
    pendingInteractions,
     logger: logger ?? null,
   });
-  return { service, store, sdkStore, errors };
+  return { service, store, errors };
 }
 
 const WAIT = { timeout: 4000, interval: 20 };

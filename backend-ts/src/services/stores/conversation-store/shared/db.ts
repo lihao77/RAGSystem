@@ -31,8 +31,8 @@ export function createConversationDb(options: {
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
-  // SDK store 归位后，backend ConversationStore 与 SDK SqliteRuntimeStore 是两个独立连接同操作
-  // 同一 ragsystem.db。WAL 下两写事务不能并发，busy_timeout 让第二方等待而非立即抛 SQLITE_BUSY。
+  // backend 多个 store 聚合（conversation/widget/vector 各自连接）同操作 ragsystem.db（B2:SDK store 已删）。
+  // WAL 下并发写事务靠 busy_timeout 让后续方等待而非立即抛 SQLITE_BUSY。
   db.exec("PRAGMA busy_timeout = 5000");
   runMigrations(db);
   return { db, dataRoot };

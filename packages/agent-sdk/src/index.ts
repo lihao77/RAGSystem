@@ -6,13 +6,11 @@ export { createHookRegistry, EMPTY_HOOK_OUTPUT } from "./hooks/index.js";
 export type { HookEvent, HookHandler, HookInputMap, HookOutputMap, HookRegistry, HookDecision, ToolBeforeOutput, ToolAfterOutput, RoundBeforeOutput, BaseHookOutput, RunBeforeInput, RunAfterInput, RoundBeforeInput, RoundAfterInput, ToolBeforeInput, ToolAfterInput, ToolErrorInput } from "./hooks/index.js";
 export type { AgentProfile, ResolvedTier, TierMap, CompressionBudgetConfig, AgentBehavior, MessageInfo, RunStepRecord, RunRecord, RunStatus, MessageRole, ToolCallRef } from "./types.js";
 export { DEFAULT_COMPRESSION_BUDGET } from "./types.js";
-export type { KernelEvent, FirstTokenEvent, OutputDeltaEvent, IntentCompleteEvent, ToolCallEvent, ToolResultEvent, ObservationCompleteEvent, RuntimeErrorEvent, ContextUsageEvent, EventSink, Context, Protocol, ToolProvider, MessageRefresher, ToolInstructionMode, RuntimeSession, RuntimeStore, RuntimeTx, KernelResult, KernelOutcome, PreparedRoundToolCall, KernelToolCall, KernelObservation, ToolExecutionResult, CreateRunInput, AddMessageInput, AddRunStepInput, InsertCompressionMessageInput } from "./contracts.js";
+export type { KernelEvent, FirstTokenEvent, OutputDeltaEvent, IntentCompleteEvent, ToolCallEvent, ToolResultEvent, ObservationCompleteEvent, RuntimeErrorEvent, ContextUsageEvent, EventSink, Context, Protocol, ToolProvider, MessageRefresher, ToolInstructionMode, RuntimeSession, KernelResult, KernelOutcome, PreparedRoundToolCall, KernelToolCall, KernelObservation, ToolExecutionResult } from "./contracts.js";
 export { AgentKernel } from "./kernel.js";
 export type { AgentKernelOptions, ContextUsageProvider } from "./kernel.js";
 export { KernelContext } from "./kernel-context.js";
 export { Dispatcher } from "./dispatcher.js";
-export { SqliteRuntimeStore } from "./store/sqlite-store.js";
-export type { SqliteStoreOptions, StoreDb } from "./store/sqlite-store.js";
 // Context 组装原语 + 端口 + 历史视图纯函数均已外移 backend（services/agent/context/）；SDK compression 内部用 resolveCompressionView 经相对 import ../context/history-view.js，不经本公共导出。
 export { estimateTokens, countMessagesTokens } from "./compression/token-estimate.js";
 export { resolveContextBudget } from "./llm-params/budget.js";
