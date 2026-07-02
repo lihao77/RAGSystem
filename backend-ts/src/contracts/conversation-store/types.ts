@@ -241,6 +241,10 @@ export interface ConversationStoreOptions {
  * 深合约——原子性：同一 runInTransaction 内对 message/run/outbox 的多次写入，
  * 全部在同一 SQLite 事务提交，要么全部成功要么全部回滚（见 shared/transaction.ts）。
  * 这是「最终消息 + 步骤归档 + outbox 投递」三者一致的语义前提。
+ *
+ * 读亦走事务内：终态收口存在「先读历史再据之写入」的形态（如 interrupted 补悬空
+ * tool_result），读与写必须同一事务，否则读在事务外有 TOCTOU 窗口——并发 session
+ * 写入可在读后写前插入消息，令扫描结果与实际写入失配。
  */
 export interface ConversationStoreTransaction {
   addMessage(input: AddMessageInput): MessageInfo;
@@ -249,4 +253,6 @@ export interface ConversationStoreTransaction {
   updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null): boolean;
   nextSessionSeq(sessionId: string): number;
   appendOutbox(input: AppendOutboxInput): OutboxRow;
+  /** 读最近消息（对齐 IMessageStore.getRecentMessages：纯 SELECT 不开新事务，事务内读消除 TOCTOU）。 */
+  getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): MessageInfo[];
 }

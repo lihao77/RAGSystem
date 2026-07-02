@@ -39,6 +39,8 @@ export function createConversationStore(options: ConversationStoreOptions) {
     updateRunStatus: runs.updateRunStatus.bind(runs),
     nextSessionSeq: outbox.nextSessionSeqInTransaction.bind(outbox),
     appendOutbox: outbox.appendOutboxInTransaction.bind(outbox),
+    // 纯读、不开新事务（listMessages 仅 SELECT），事务内读消除 TOCTOU，故直接 bind 无需 InTransaction 变体。
+    getRecentMessages: messages.getRecentMessages.bind(messages),
   });
 
   return {

@@ -330,7 +330,7 @@ export class KernelEventPersister {
 
   /** 扫历史补配对 tool_result：本 run 未应答的 assistant tool_use 补 interrupted observation（终态事务内）。 */
   private closeDanglingToolCalls(tx: ConversationStoreTransaction): void {
-    const recent = this.store.getRecentMessages(this.ctx.sessionId, 1000, this.ctx.threadKey);
+    const recent = tx.getRecentMessages(this.ctx.sessionId, 1000, this.ctx.threadKey);
     const answered = new Set<string>();
     for (const message of recent) {
       if (message.role === "tool" && message.tool_call_id) {
