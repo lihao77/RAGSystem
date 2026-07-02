@@ -1,11 +1,9 @@
 /**
- * Runtime 适配器—— 组装投影 + ToolRegistry + 共享 SDK store +
- * createRuntime，跑 SDK 事件循环 + 翻译 + terminal。
+ * Runtime 适配器—— 组装投影 + ToolRegistry + createRuntime，跑 SDK 事件循环 + 落库 + 翻译推流 + terminal。
  *
- * SDK 内核 + Dispatcher 独占 run/message/run_step 落库（SDK 自带 SqliteRuntimeStore 指向同一 ragsystem.db）；
- * 本适配器只做：组装 createRuntime 入参、消费 KernelEvent 翻译成 Envelope 推 outbox（无 DB 落库，
- * 避免 SDK 与 backend-ts 双写 message/run_step）、terminal 补 run:end/final step + 终态 envelope
- *（final assistant 消息由 SDK Dispatcher.finalize 已写，此处只查库取其 id/seq 供 message_saved）。
+ * SDK 收窄为纯计算内核（B1：Dispatcher 不再落库，只推 KernelEvent 事件流）；本适配器独占 run/message/
+ * run_step 落库（KernelEventPersister：createRun + 增量事件 + 终态合一事务）+ 翻译 KernelEvent 成 Envelope
+ * 推 outbox + terminal 补终态 envelope（root run 的 stream_output(final)/message_saved/agent_ended/run_ended）。
  */
 import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, resolveToolInstructionMode, type CreateRuntimeOptions, type SqliteRuntimeStore } from "@ragsystem/agent-sdk";
 import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry } from "@ragsystem/agent-sdk";
@@ -14,7 +12,6 @@ import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
-import type { MessageInfo } from "../../../contracts/session.js";
 import type { DelegatedToolDeclarationWire, Envelope } from "../../../contracts/events.js";
 import type { AgentExecutionEventPublisher } from "../execution/event-publisher.js";
 import type { DurableClientEventPublisher, RecordedClientEvent } from "../../runtime/event-outbox/client-event-publisher.js";
@@ -25,6 +22,7 @@ import { createBackendTools } from "../../../tools/registry.js";
 import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/CodeExecution.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
+import { KernelEventPersister } from "./event-persister.js";
 import { AgentContextBuilder, HISTORY_SCAN_LIMIT, RecentMessagesContextSource, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import { MemoryIndexContextSource, isMemoryEnabled } from "../memory/index.js";
@@ -77,6 +75,8 @@ export interface SdkExecuteRunInput {
   threadKey: string;
   parentCallId?: string | null;
   childAgentId?: string | null;
+  /** 父 run id（child delegation run 用；root run 不传 → null）。createRun 落 runs.parent_run_id。 */
+  parentRunId?: string | null;
   sessionMetadata: Record<string, unknown>;
   userId?: string | null;
   executionKind?: string;
@@ -84,7 +84,7 @@ export interface SdkExecuteRunInput {
   /** selectLlm 解析结果（前端选定的 provider+model，整体替换 default 档）。 */
   selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
   /**
-   * run 级附加消息元数据：透传给 SDK Dispatcher，合并到最终 assistant 消息。
+   * run 级附加消息元数据：透传给 KernelEventPersister，合并到最终 assistant 消息。
    * 投影点把 execution_kind / retry_of_* 等调用点元数据在这里打好（无值不影响默认）。
    */
   messageMetadata?: Record<string, unknown> | null;
@@ -102,8 +102,9 @@ export interface SdkExecuteRunResult {
 /**
  * 用 SDK createRuntime 执行一次 agent run。
  *
- * 生命周期：createRuntime(opts).run(input) → 消费 handle.events（翻译推 outbox）→
- * await handle.result（SDK Dispatcher.finalize 已落最终消息 + updateRunStatus）→ terminal 补步/envelope。
+ * 生命周期：KernelEventPersister.startRun（createRun）→ createRuntime(opts).run(input) →
+ * 消费 handle.events（persister.persist 落库 + 翻译推 outbox）→ await handle.result →
+ * persister.finalize（终态合一落库）→ terminal 推终态 envelope。
  */
 export async function executeRunWithSdk(
   deps: SdkRuntimeAdapterDeps,
@@ -279,6 +280,25 @@ export async function executeRunWithSdk(
     wireCtx.parentCallId = input.parentCallId;
   }
 
+  // KernelEvent 落库（B1：从 SDK Dispatcher 迁回 backend）：createRun + 增量事件落库 + 终态合一全在此。
+  const persister = new KernelEventPersister(deps.conversationStore, {
+    sessionId: input.sessionId,
+    runId: input.runId,
+    threadKey: input.threadKey,
+    agentName: input.agent.agent_name,
+    agentDisplayName: input.agent.display_name ?? input.agent.agent_name,
+    rootCallId: input.rootCallId,
+    parentCallId: input.parentCallId ?? null,
+    ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
+    ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
+    ...(input.executionKind !== undefined ? { executionKind: input.executionKind } : {}),
+    taskSummary: input.task.slice(0, 200),
+    ...(input.userId !== undefined ? { userId: input.userId } : {}),
+    ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
+    ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
+    ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
+  });
+  persister.startRun();
   const runtime = createRuntime(runtimeOpts);
   const handle = runtime.run({
     sessionId: input.sessionId,
@@ -296,12 +316,13 @@ export async function executeRunWithSdk(
     ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
   });
 
-  // 事件循环：翻译 KernelEvent → Envelope[]（agent-protocol 纯函数），逐条推 outbox（SDK Dispatcher 已落库，此处只推流）。
+  // 事件循环：增量落库（KernelEventPersister）+ 翻译推流（translateKernelEvent → envelope → outbox）。
   const consumeEvents = (async () => {
     for await (const event of handle.events) {
       if (event.type === "tool_call") {
         toolCalls[event.toolName] = (toolCalls[event.toolName] ?? 0) + 1;
       }
+      persister.persist(event);
       for (const envelope of translateKernelEvent(event, wireCtx)) {
         deps.eventPublisher.publishEnvelope(envelope);
       }
@@ -315,6 +336,8 @@ export async function executeRunWithSdk(
     await consumeEvents.catch(() => undefined);
     runtime.close();
     const interrupted = input.signal.aborted;
+    // 终态合一落库（B1：failed/interrupted 落终态 run_steps + updateRunStatus；interrupted 补悬空 tool_result）。
+    persister.finalize(interrupted ? "interrupted" : "failed", null);
     recordTerminal(deps, input, interrupted ? "interrupted" : "failed", null, error);
     const message = error instanceof Error ? error.message : String(error);
     return { content: message, success: false, tokenUsage, toolCalls };
@@ -323,40 +346,28 @@ export async function executeRunWithSdk(
   await consumeEvents;
   runtime.close();
 
-  // completed：SDK Dispatcher.finalize 已落最终 assistant 消息 + updateRunStatus。
-  // 查库取该消息 id/seq，供 message_saved envelope；补 run:end/final step + 终态 envelope。
-  const finalMessage = resolveFinalMessage(deps, input);
+  // completed：终态合一落库（B1：最终 assistant message + updateRunStepsMessageId + 终态 run_steps + updateRunStatus）。
+  persister.finalize("completed", { content: result.content });
+  const finalMessage = persister.resolveFinalMessage();
   recordTerminal(deps, input, "completed", finalMessage, null);
   return { content: result.content, success: true, tokenUsage, toolCalls };
 }
 
-/** 查库取 SDK finalize 写入的最终 assistant 消息（runs.final_message_id → messages）。 */
-function resolveFinalMessage(
-  deps: SdkRuntimeAdapterDeps,
-  input: SdkExecuteRunInput,
-): MessageInfo | null {
-  const run = deps.conversationStore.getRun(input.sessionId, input.runId);
-  if (!run || !run.final_message_id) {
-    return null;
-  }
-  return deps.conversationStore.getMessageById(input.sessionId, run.final_message_id);
-}
-
 /**
- * Terminal 落库（方案 A：只写 run:end/final step + outbox envelope，不写最终消息/不改 run 状态——
- * SDK Dispatcher.finalize 已做）。completed 用查到的 finalMessage 的 id/seq；failed/interrupted 无 final。
+ * Terminal 推流（终态 outbox envelope；root run 的 stream_output(final)/message_saved/agent_ended/run_ended）。
+ * 落库（最终 message + run_steps + updateRunStatus）已由 KernelEventPersister.finalize 合一事务完成。
  */
 function recordTerminal(
   deps: SdkRuntimeAdapterDeps,
   input: SdkExecuteRunInput,
   status: "completed" | "failed" | "interrupted",
-  finalMessage: MessageInfo | null,
+  finalMessage: { id: string; seq: number; content: string } | null,
   error: unknown,
 ): void {
   const isRoot = !input.childAgentId;
 
-  // run_step / 最终 message 由 SDK Dispatcher 独占落库（方案 A 单 store）。本函数只推终态 outbox
-  // envelope（root run 的 stream_output(final)/message_saved/agent_ended/run_ended）到实时流。
+  // run_step / 最终 message / run 状态由 KernelEventPersister.finalize 合一事务落库（caller 已调）。
+  // 本函数只推终态 outbox envelope（root run 的 stream_output(final)/message_saved/agent_ended/run_ended）到实时流。
   const records: RecordedClientEvent[] = isRoot
     ? deps.conversationStore.runInTransaction((tx): RecordedClientEvent[] => {
       const collected: RecordedClientEvent[] = [];

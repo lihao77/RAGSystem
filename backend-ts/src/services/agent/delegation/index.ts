@@ -305,18 +305,7 @@ export class AgentDelegationService implements DelegationPort {
 
     const childRunId = randomUUID();
     const targetAgent = applyWorkspaceOverride(resolved.agent, input.workspaceRoot);
-    this.conversationStore.createRun({
-      runId: childRunId,
-      sessionId: input.sessionId,
-      entrypoint: input.entrypoint,
-      status: "running",
-      taskSummary: input.task.slice(0, 200),
-      agentName: targetAgent.agent_name,
-      threadKey: input.childAgent.thread_key,
-      parentRunId: input.parentRunId,
-      parentCallId: input.parentCallId,
-      childAgentId: input.childAgent.child_agent_id,
-    });
+    // createRun 由 executeRun → executeRunWithSdk → KernelEventPersister.startRun 统一落（B1：落库外移，单一落脚点）。
     this.conversationStore.addMessage({
       sessionId: input.sessionId,
       role: "user",

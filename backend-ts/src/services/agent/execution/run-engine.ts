@@ -347,6 +347,7 @@ export class AgentRunEngine {
           threadKey: input.threadKey,
           ...(input.parentCallId !== undefined && input.parentCallId !== null ? { parentCallId: input.parentCallId } : {}),
          ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
+         ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
          sessionMetadata,
          ...(input.executionKind !== undefined ? { executionKind } : {}),
           ...(asString(sessionMetadata.user_id) ? { userId: asString(sessionMetadata.user_id) } : {}),

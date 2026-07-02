@@ -23,7 +23,7 @@ import { KernelContext } from "./kernel-context.js";
 import { getDefaultLlmClient } from "./llm-client.js";
 import type { KernelContext as KernelContextType } from "./kernel-context.js";
 import { AgentKernel } from "./kernel.js";
-import { Dispatcher, type DispatcherRunContext } from "./dispatcher.js";
+import { Dispatcher } from "./dispatcher.js";
 import { SqliteRuntimeStore } from "./store/sqlite-store.js";
 import type { AgentProfile } from "./types.js";
 import { buildFullSystemPrompt } from "./prompt/prompt-builder.js";
@@ -167,23 +167,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       const sessionId = input.sessionId;
       const parentCallId = input.parentCallId ?? null;
 
-    const dispatcherCtx: DispatcherRunContext = {
-      sessionId,
-      runId,
-      threadKey,
-      agentName: profile.agentName,
-      agentDisplayName: profile.displayName ?? profile.agentName,
-      rootCallId,
-      parentCallId,
-      ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
-      ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
-      ...(input.entrypoint !== undefined ? { executionKind: input.entrypoint } : {}),
-      taskSummary: input.task.slice(0, 200),
-      ...(input.userId !== undefined ? { userId: input.userId } : {}),
-      ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
-    };
-    const dispatcher = new Dispatcher(store, dispatcherCtx);
-      dispatcher.startRun();
+    const dispatcher = new Dispatcher();
 
       // run 的 protocol：events=dispatcher（发事件）；buildRequest 与实例级 preview 协议同源。
       const { protocol } = createProtocol({
@@ -314,13 +298,12 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
 async function runKernel(kernel: AgentKernel, session: RuntimeSession, dispatcher: Dispatcher): Promise<KernelResult> {
   try {
     const result = await kernel.run(session);
-    const finalMessage = result.content ? { role: "assistant", content: result.content } : null;
-    dispatcher.finalize("completed", finalMessage);
     return result;
-  } catch (error) {
-    const aborted = session.signal?.aborted;
-    dispatcher.finalize(aborted ? "interrupted" : "failed", null);
-    throw error;
+  } finally {
+    // 落库已外移 backend（event-persister）；SDK 只 close 事件队列，让消费端 for await 退出。
+    // 终态收口（最终 message + run_steps + updateRunStatus）由 backend 在 await handle.result 后
+    // 据 status（content / aborted / error）用 persister.finalize 合一事务完成。
+    dispatcher.close();
   }
 }
 
