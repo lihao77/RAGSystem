@@ -7,7 +7,7 @@
  * 避免 SDK 与 backend-ts 双写 message/run_step）、terminal 补 run:end/final step + 终态 envelope
  *（final assistant 消息由 SDK Dispatcher.finalize 已写，此处只查库取其 id/seq 供 message_saved）。
  */
-import { buildTool, createRuntime, createToolRegistry, prepareTool, type CreateRuntimeOptions, type SqliteRuntimeStore } from "@ragsystem/agent-sdk";
+import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, resolveToolInstructionMode, type CreateRuntimeOptions, type SqliteRuntimeStore } from "@ragsystem/agent-sdk";
 import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry } from "@ragsystem/agent-sdk";
 import { translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
@@ -209,17 +209,25 @@ export async function executeRunWithSdk(
     dataRoot: deps.dataRoot,
     store: deps.sdkStore,
     execContext: baseExecCtx,
-    hooks: (registry) => {
-      registerGateHook(registry, {
+    hooks: (hookRegistry) => {
+      registerGateHook(hookRegistry, {
         permissionPolicy: deps.permissionPolicy,
         pendingInteractions: deps.pendingInteractions,
         pathService,
         agentName: input.agent.agent_name,
       });
       // run 内压缩（round.before）：判阈值 → compressIfNeeded → 压缩成功则重组 conversation（重读 store 含压缩视图）→ replaceAll 工作副本。
-      // compressIfNeeded 内部判 below_threshold 快速 skipped（未到阈值不调 LLM）；阈值触发才摘要 + 写 compression 消息。
       if (deps.compressionService) {
-        registry.on("round.before", async (hookInput) => {
+        hookRegistry.on("round.before", async (hookInput) => {
+          // systemPromptTokens = buildFullSystemPrompt(base+tools) + memory prefix;budget = window×0.9 − 此值。
+          const mode = resolveToolInstructionMode(profile.llmTiers.default?.provider);
+          const systemPromptBase = buildFullSystemPrompt(profile, { tools: registry.listDefinitions() }, mode);
+          const tokenContext = contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true });
+          const memoryPrefix = tokenContext.conversation
+            .filter((m) => m.role === "system")
+            .map((m) => (typeof m.content === "string" ? m.content : ""))
+            .join("\n");
+          const systemPromptTokens = estimateTokens(systemPromptBase) + estimateTokens(memoryPrefix);
           const result = await deps.compressionService!.compressIfNeeded({
             agent: input.agent,
             sessionId: input.sessionId,
@@ -227,6 +235,7 @@ export async function executeRunWithSdk(
             runId: input.runId,
             taskId: input.taskId,
             requestId: input.requestId,
+            systemPromptTokens,
             ...(input.signal ? { signal: input.signal } : {}),
           });
           if (result.status === "success") {
@@ -236,14 +245,14 @@ export async function executeRunWithSdk(
         });
       }
       // 累计每轮 LLM 返回的 token 用量(provider 返回 usage 时累加,用于性能监控)。
-      registry.on("round.after", (hookInput) => {
+      hookRegistry.on("round.after", (hookInput) => {
         const usage = hookInput.outcome.usage;
         if (usage) {
           tokenUsage.inputTokens += usage.inputTokens;
           tokenUsage.outputTokens += usage.outputTokens;
         }
       });
-      deps.hooks?.(registry);
+      deps.hooks?.(hookRegistry);
     },
     ...(waitForToolResult ? { waitForToolResult } : {}),
     emitDelegateCall: (sdkInput) => deps.eventPublisher.publishDelegateCall({

@@ -28,19 +28,13 @@ export interface ResolvedTier {
 /** tier 名 → 已决档。至少含 default（tier 解析的最后一道真相）。 */
 export type TierMap = Record<string, ResolvedTier>;
 
-/** 压缩预算配置（默认参数内置，投影可选覆盖，设计稿 §9）。 */
+/** 压缩预算配置。budget = window×0.9 − systemPromptTokens(0.9 含回复预留+安全余量),clamp 到 minContextBudget。 */
 export interface CompressionBudgetConfig {
-  /** 上下文窗口安全系数，默认 0.9。 */
-  contextWindowSafetyFactor: number;
-  /** system prompt 预留，默认 2000。 */
-  systemPromptReserve: number;
-  /** 最小上下文预算下限，默认 4000。 */
+  /** 最小上下文预算下限（兜底,防 window 缺失或算出负数）,默认 4000。 */
   minContextBudget: number;
 }
 
 export const DEFAULT_COMPRESSION_BUDGET: CompressionBudgetConfig = {
-  contextWindowSafetyFactor: 0.9,
-  systemPromptReserve: 2000,
   minContextBudget: 4000,
 };
 

@@ -13,13 +13,10 @@ export interface ContextCompressionSettings {
   compressionTriggerRatio: number;
   summarizeMaxTokens: number;
   preserveRecentTurns: number;
-  systemPromptReserve: number;
   minContextBudget: number;
 }
 
 const CONTEXT_WINDOW_SAFETY_FACTOR = 0.9;
-const DEFAULT_CONTEXT_FALLBACK_MULTIPLIER = 3;
-const DEFAULT_MAX_COMPLETION_TOKENS = 4096;
 
 export function resolveContextCompressionSettings(agent: AgentConfig, systemConfig: SystemConfigData): ContextCompressionSettings {
   const contextConfig = asRecord(systemConfig.context) ?? {};
@@ -38,43 +35,8 @@ export function resolveContextCompressionSettings(agent: AgentConfig, systemConf
       behaviorConfig.preserve_recent_turns,
       positiveIntOrDefault(contextConfig.preserve_recent_turns, 3),
     ),
-    systemPromptReserve: nonNegativeIntOrDefault(contextConfig.system_prompt_reserve, 2000),
     minContextBudget: positiveIntOrDefault(contextConfig.min_context_budget, 4000),
   };
-}
-
-export function resolveContextBudget(
-  agent: AgentConfig,
-  provider: ModelProviderConfig | null,
-  systemConfig: SystemConfigData,
-  modelName: string | null,
-): number {
-  const settings = resolveContextCompressionSettings(agent, systemConfig);
-  const systemLlmConfig = asRecord(systemConfig.llm) ?? {};
-  const defaultLlm = agent.llm_tiers?.default;
-  // 上下文窗口优先取 agent 默认层——与 resolveRequestLlmParams 同源：agent 为该模型调过的值优先于
-  // provider 的通用默认；provider 次之，系统 LLM 配置兜底。
-  const contextWindow =
-    positiveInt(defaultLlm?.max_context_tokens) ??
-    positiveInt(provider?.max_context_tokens) ??
-    positiveInt(systemLlmConfig.max_context_tokens);
-  // 补全预留按"本次实际运行模型"取：与请求壳同一套真相来源（resolveTierLlmParams），
-  // 三级 fallback（场景 tier → default[selectedLlm 替换] → system）；provider/modelName 缺失
-  // （如 usage 预览/快照）时回落默认层 → 系统 → 兜底常量。
-  const runParams = provider && modelName
-    ? resolveTierLlmParams({ agent, tier: "default", runModel: { provider, modelName }, systemLlm: systemLlmConfig })
-    : null;
-  const maxCompletionTokens =
-    positiveInt(runParams?.maxCompletionTokens) ??
-    positiveInt(defaultLlm?.max_completion_tokens) ??
-    positiveInt(systemLlmConfig.max_completion_tokens) ??
-    DEFAULT_MAX_COMPLETION_TOKENS;
-
-  if (contextWindow !== null) {
-    const budget = Math.floor(contextWindow * CONTEXT_WINDOW_SAFETY_FACTOR) - settings.systemPromptReserve - maxCompletionTokens;
-    return Math.max(budget, settings.minContextBudget);
-  }
-  return Math.max(Math.floor(maxCompletionTokens * DEFAULT_CONTEXT_FALLBACK_MULTIPLIER), settings.minContextBudget);
 }
 
 function numberOrDefault(value: unknown, fallback: number): number {

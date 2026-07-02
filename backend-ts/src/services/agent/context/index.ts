@@ -1,7 +1,4 @@
-import type { AgentConfig } from "../../../contracts/agent-config.js";
-import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { SystemConfigService } from "../../config/system-config-service.js";
-import { resolveContextBudget } from "../context-compression/index.js";
 
 // context 组装原语（自 SDK context/ 迁入）：recent 组装归 backend，端口 + 纯函数 + builder。
 // memory source（services/agent/memory/）亦 implements 这些端口，与 recent source 共用 AgentContextSource。
@@ -37,16 +34,9 @@ export { enrichConversationImages, enrichUserMessageImages, extractImageAttachme
 export type { ImageReader, StoredImageAttachment } from "./attachment-image.js";
 
 /**
- * 上下文预算门面 —— 仅供 monitoring 调试快照的预算估算。
- *
- * 上下文组装（memory + recent）由 backend AgentContextBuilder 承接（memory 归 services/agent/memory/，
- * recent 归本目录），产 conversation 经 RunInput.conversation 注入 SDK；压缩由 SDK 承担（A3 待外移）。本门面不再组装 context——
- * 旧 snapshotContext 是 run/preview 收敛前的平行组装残留，随 memory 迁出一并删除。
+ * AgentContextService —— 预算门面已退役(budget 改用 SDK resolveContextBudget: window×0.9 − systemPromptTokens,
+ * monitoring 直接调)。本空壳类留待 B 阶段连同 sdkStore 一起清。
  */
 export class AgentContextService {
   constructor(private readonly systemConfig: SystemConfigService) {}
-
-  resolveContextBudget(agent: AgentConfig, provider: ModelProviderConfig | null, modelName: string | null): number {
-    return resolveContextBudget(agent, provider, this.systemConfig.getConfig(), modelName);
-  }
 }

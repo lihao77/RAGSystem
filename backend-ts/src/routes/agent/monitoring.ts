@@ -4,7 +4,7 @@ import type { AgentConfig } from "../../contracts/agent-config.js";
 import { ok } from "../../contracts/common.js";
 import type { OutboxStatus } from "../../contracts/conversation-store/index.js";
 import { resolveContextCompressionSettings } from "../../services/agent/context-compression/index.js";
-import { createRuntime, createToolRegistry } from "@ragsystem/agent-sdk";
+import { createRuntime, createToolRegistry, resolveContextBudget } from "@ragsystem/agent-sdk";
 import { projectAgentProfile } from "../../services/agent/sdk/projection.js";
 import { MemoryIndexContextSource, isMemoryEnabled } from "../../services/agent/memory/index.js";
 import { AgentContextBuilder, HISTORY_SCAN_LIMIT, RecentMessagesContextSource, type ConversationHistoryPort, type SessionMetadataPort } from "../../services/agent/context/index.js";
@@ -191,7 +191,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     // memory block 已作为 system 消息进 request.messages，preview.tokenStats.systemPromptTokens 已含它，不重复加。
     const systemPromptTokens = preview?.tokenStats.systemPromptTokens ?? 0;
     const historyTokens = preview?.tokenStats.historyTokens ?? 0;
-    const budgetTokens = options.container.agentContextService.resolveContextBudget(agent, resolved.provider, resolved.modelName);
+    const budgetTokens = resolveContextBudget(profile.llmTiers, preview?.tokenStats.systemPromptTokens ?? 0, profile.behavior.budget);
 
     const data = {
       system_prompt: preview?.systemPrompt ?? "",

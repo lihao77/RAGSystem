@@ -10,7 +10,7 @@
  * run 内压缩（round.before 触发,compressIfNeeded）+ /compact（forceCompact）共用本服务。
  */
 import { OpenAiCompatibleClient, extractText, type ChatMessage, type LlmClient, type LlmRequest } from "@ragsystem/agent-llm";
-import { countMessagesTokens, DEFAULT_COMPRESSION_BUDGET, readTierParams, resolveContextBudget, resolveSummaryTierCandidates } from "@ragsystem/agent-sdk";
+import { countMessagesTokens, readTierParams, resolveContextBudget, resolveSummaryTierCandidates } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
@@ -53,6 +53,8 @@ export interface CompressInput {
   threadKey?: string | null;
   childAgentId?: string | null;
   signal?: AbortSignal;
+  /** 当前 system prompt token 数(含 memory prefix,base+tools)。budget = window×0.9 − 此值。调用方算好传入。 */
+  systemPromptTokens: number;
 }
 
 interface LoadedHistory {
@@ -137,7 +139,7 @@ export class AgentCompressionService {
     const threadKey = input.threadKey?.trim() || "root";
     const profile = projectAgentProfile({ agent: input.agent, providers: this.providersProvider() });
     const settings = resolveContextCompressionSettings(input.agent, this.systemConfig.getConfig());
-    const budgetTokens = resolveContextBudget(profile.llmTiers, profile.behavior.budget ?? DEFAULT_COMPRESSION_BUDGET);
+    const budgetTokens = resolveContextBudget(profile.llmTiers, input.systemPromptTokens, profile.behavior.budget);
     const rawMessages = this.conversationStore
       .getRecentMessages(input.sessionId, HISTORY_SCAN_LIMIT, threadKey)
       .filter(isCompressibleHistoryMessage);

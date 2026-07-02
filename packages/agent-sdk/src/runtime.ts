@@ -25,7 +25,7 @@ import type { KernelContext as KernelContextType } from "./kernel-context.js";
 import { AgentKernel } from "./kernel.js";
 import { Dispatcher, type DispatcherRunContext } from "./dispatcher.js";
 import { SqliteRuntimeStore } from "./store/sqlite-store.js";
-import { DEFAULT_COMPRESSION_BUDGET, type AgentProfile } from "./types.js";
+import type { AgentProfile } from "./types.js";
 import { buildFullSystemPrompt } from "./prompt/prompt-builder.js";
 import type { AgentPromptContext } from "./prompt/types.js";
 import type { RuntimeToolDefinition } from "./prompt/tool-types.js";
@@ -194,8 +194,6 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
       });
       const refresher: MessageRefresher = { refresh: async () => [] };
 
-      // 上下文预算（纯函数,从 profile 算）用于 contextUsage 遥测;压缩本体已外移 backend（A3）。
-      const budgetTokens = resolveContextBudget(profile.llmTiers, profile.behavior.budget ?? DEFAULT_COMPRESSION_BUDGET);
       // per-run registry：每 run 新建;round.before 压缩由 backend handler 注册（A3 压缩外移）。
       const hooks = createHookRegistry();
       options.hooks?.(hooks);
@@ -246,13 +244,15 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
         let systemPromptTokens = 0;
         let historyTokens = 0;
         for (const message of requestMessages) {
-          const tokens = estimateTokens(extractText(message.content));
+          const tokens = estimateTokens(message.content);
           if (message.role === "system") {
             systemPromptTokens += tokens;
           } else {
             historyTokens += tokens;
           }
         }
+        // budget = window×0.9 − 实际 systemPromptTokens（动态,本轮 system prompt 含 memory prefix）。
+        const budgetTokens = resolveContextBudget(profile.llmTiers, systemPromptTokens, profile.behavior.budget);
         return {
           systemPromptTokens,
           historyTokens,

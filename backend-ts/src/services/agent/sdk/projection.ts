@@ -203,8 +203,6 @@ function resolveCompressionBudget(behavior: Record<string, unknown> | null): Com
  }
   // CompressionBudgetConfig 字段非空 number，强制带默认回落（与 SDK DEFAULT_COMPRESSION_BUDGET 对齐）。
   return {
-    contextWindowSafetyFactor: requireNumber(budget.context_window_safety_factor, 0.9),
-    systemPromptReserve: requireNumber(budget.system_prompt_reserve, 2000),
     minContextBudget: requireNumber(budget.min_context_budget, 4000),
   };
 }

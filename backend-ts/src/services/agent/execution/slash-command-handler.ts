@@ -4,6 +4,8 @@ import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
+import { buildFullSystemPrompt, estimateTokens, resolveToolInstructionMode } from "@ragsystem/agent-sdk";
+import { projectAgentProfile } from "../sdk/projection.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import { asString, normalizeSessionEntryAgent } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
@@ -161,9 +163,14 @@ export class SlashCommandHandler {
       if (!this.compressionService) {
         return { command: "compact", success: false, content: "压缩服务未装配", error: "compression_unavailable" };
       }
+      // systemPromptTokens 粗估(buildFullSystemPrompt base,无 tools/memory);forceCompact 不判阈值,仅影响返回 budgetTokens 展示。
+      const compactProfile = projectAgentProfile({ agent: ready.agent, providers: this.providersProvider() });
+      const compactMode = resolveToolInstructionMode(compactProfile.llmTiers.default?.provider);
+      const systemPromptTokens = estimateTokens(buildFullSystemPrompt(compactProfile, {}, compactMode));
       const result = await this.compressionService.forceCompact({
         agent: ready.agent,
         sessionId: input.sessionId,
+        systemPromptTokens,
       });
       if (result.status === "skipped") {
         if (result.reason === "summary_unavailable") {
