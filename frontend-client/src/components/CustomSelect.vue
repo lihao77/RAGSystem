@@ -193,28 +193,28 @@ watch(() => [props.dropdownMaxHeight, props.dropdownPlacement], () => {
 .select-trigger {
   display: flex;
   align-items: center;
-  height: 42px;
-  padding: 0 40px 0 14px;
-  border-radius: var(--radius-md);
+  height: 40px;
+  padding: 0 38px 0 12px;
+  border-radius: var(--control-radius);
   border: 1px solid var(--color-border);
   background: var(--color-bg-elevated);
   color: var(--color-text-primary);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  letter-spacing: 0;
   cursor: pointer;
   user-select: none;
-  transition: all 0.3s;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
   position: relative;
 }
 
 .select-trigger:hover:not(.disabled) {
-  background: var(--color-interactive-hover);
   border-color: var(--color-border-hover);
 }
 
 .select-trigger.open {
-  border-color: var(--color-border-focus);
+  border-color: var(--color-brand-accent);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.12);
 }
 
 .select-trigger.disabled {
@@ -249,10 +249,12 @@ watch(() => [props.dropdownMaxHeight, props.dropdownPlacement], () => {
 }
 
 .dropdown-menu {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: var(--glass-border-width) var(--glass-border-style) var(--glass-border-color);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg), 0 0 0 1px var(--color-hover-overlay);
+  box-shadow: var(--glass-shadow);
   overflow: hidden;
   box-sizing: border-box;
 }
@@ -284,18 +286,19 @@ watch(() => [props.dropdownMaxHeight, props.dropdownPlacement], () => {
   padding: 9px 12px;
   border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--color-text-primary);
-  transition: background 0.2s;
+  transition: background var(--transition-fast);
 }
 
 .option-item:hover {
-  background: var(--color-interactive-hover);
+  background: var(--color-hover-overlay-md);
 }
 
 .option-item.selected {
-  background: rgba(var(--color-brand-accent-rgb), 0.1);
+  background: var(--color-active-bg);
+  color: var(--color-brand-accent);
   font-weight: 600;
 }
 
@@ -308,7 +311,7 @@ watch(() => [props.dropdownMaxHeight, props.dropdownPlacement], () => {
 
 .check-icon {
   flex-shrink: 0;
-  color: var(--color-success);
+  color: var(--color-brand-accent);
 }
 
 .no-options {

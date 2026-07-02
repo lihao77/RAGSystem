@@ -1,41 +1,50 @@
-/* Shared console primitives for infrastructure/admin pages. */
+/* ============================================================
+   admin-console.css — 管理端共享原语
+   极简重构：去边框化 + 留白分隔 + 发丝线 + 悬浮分层阴影
+   玻璃仅用于真正浮动层（modal / dropdown）
+   ============================================================ */
 :root {
-  --adm-surface: rgba(var(--color-bg-elevated-rgb), 0.62);
-  --adm-surface-muted: rgba(var(--color-bg-elevated-rgb), 0.42);
-  --adm-surface-raised: rgba(var(--color-bg-elevated-rgb), 0.72);
-  --adm-surface-hover: rgba(var(--color-bg-elevated-rgb), 0.86);
-  --adm-control-bg: rgba(var(--color-bg-elevated-rgb), 0.5);
-  --adm-control-hover: rgba(var(--color-bg-elevated-rgb), 0.72);
-  --adm-control-active: rgba(var(--color-brand-accent-rgb), 0.12);
-  --adm-input-bg: rgba(var(--color-bg-elevated-rgb), 0.64);
-  --adm-border: rgba(var(--color-border-rgb), 0.10);
-  --adm-border-strong: rgba(var(--color-border-rgb), 0.18);
-  --adm-accent-border: rgba(var(--color-brand-accent-rgb), 0.22);
-  --adm-shadow-inset: inset 0 1px 0 var(--color-soft-inset);
+  /* 面层级 —— 卡片面(白) > 内容区(浅灰) > 嵌套(更浅)，三级不糊 */
+  --adm-surface: var(--color-bg-elevated);
+  --adm-surface-muted: var(--color-bg-secondary);
+  --adm-surface-raised: var(--color-bg-elevated);
+  --adm-surface-hover: var(--color-bg-tertiary);
+  /* 控件底 —— 极浅，无边框优先 */
+  --adm-control-bg: transparent;
+  --adm-control-hover: var(--color-hover-overlay-md);
+  --adm-control-active: var(--color-active-bg);
+  --adm-input-bg: var(--color-bg-secondary);
+  /* 边界 —— 发丝优先于框，极浅 */
+  --adm-border: var(--color-border);
+  --adm-border-strong: var(--color-border-hover);
+  --adm-accent-border: rgba(var(--color-brand-accent-rgb), 0.28);
+  /* inset 高光彻底移除（拟物感来源） */
+  --adm-shadow-inset: none;
 }
 
+/* ===== KPI 卡片组 ===== */
 .adm-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--spacing-md);
 }
 
 .adm-kpi-card {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--spacing-md);
   min-width: 0;
-  padding: 14px;
-  border: 1px solid var(--adm-border);
+  padding: var(--spacing-lg);
+  border: none;
   border-radius: var(--radius-lg);
   background: var(--adm-surface-raised);
-  box-shadow: var(--adm-shadow-inset);
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  box-shadow: none;
+  transition: box-shadow var(--transition-normal), background var(--transition-normal);
 }
 
 .adm-kpi-card:hover {
-  border-color: var(--adm-border-strong);
-  background: var(--adm-surface-hover);
+  background: var(--adm-surface-raised);
+  box-shadow: var(--shadow-elevated);
 }
 
 .adm-kpi-icon {
@@ -45,16 +54,16 @@
   width: 40px;
   height: 40px;
   flex: 0 0 auto;
-  border: 1px solid var(--adm-border);
-  border-radius: 10px;
-  background: var(--adm-control-bg);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-hover-overlay-md);
   color: var(--color-text-secondary);
 }
 
 .adm-kpi-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -63,6 +72,7 @@
   font-size: var(--font-size-xs);
   line-height: 1.2;
   white-space: nowrap;
+  letter-spacing: 0.02em;
 }
 
 .adm-kpi-value {
@@ -73,32 +83,34 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: -0.01em;
 }
 
+/* ===== 面板 —— 纯白卡面浮在浅灰内容区上，无边框，靠底色差区分 ===== */
 .adm-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--spacing-md);
   min-width: 0;
-  padding: 14px;
-  border: 1px solid var(--adm-border);
+  padding: var(--spacing-xl);
+  border: none;
   border-radius: var(--radius-lg);
   background: var(--adm-surface);
-  box-shadow: var(--adm-shadow-inset);
+  box-shadow: none;
 }
 
 .adm-panel__header {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--spacing-md);
   min-width: 0;
 }
 
 .adm-panel__title-block {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -108,14 +120,14 @@
   font-size: var(--font-size-lg);
   font-weight: 600;
   line-height: 1.25;
-  letter-spacing: 0;
+  letter-spacing: -0.01em;
 }
 
 .adm-panel__description {
   margin: 0;
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 .adm-panel__actions {
@@ -127,25 +139,24 @@
   flex-wrap: wrap;
 }
 
+/* ===== 状态面板（空/错误/加载） ===== */
 .adm-state {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: var(--spacing-sm);
-  min-height: 180px;
-  padding: var(--spacing-lg);
-  border: 1px dashed var(--adm-border-strong);
-  border-radius: 10px;
-  background: var(--adm-surface-muted);
+  min-height: 200px;
+  padding: var(--spacing-2xl);
+  border: none;
+  border-radius: var(--radius-lg);
+  background: transparent;
   color: var(--color-text-secondary);
   text-align: center;
   font-size: var(--font-size-sm);
 }
 
 .adm-state--error {
-  border-color: rgba(var(--color-error-rgb), 0.28);
-  background: rgba(var(--color-error-rgb), 0.06);
   color: var(--color-error);
 }
 
@@ -161,8 +172,11 @@
 }
 
 /* Spinner — 复用全局 .g-spinner */
-.adm-spinner { /* alias → .g-spinner */ }
+.adm-spinner {
+  /* alias → .g-spinner */
+}
 
+/* ===== 实体列表 —— 行间留白分隔，去边框 ===== */
 .adm-entity-list {
   display: flex;
   flex-direction: column;
@@ -171,42 +185,41 @@
 
 .adm-entity-row {
   min-width: 0;
-  border: 1px solid var(--adm-border);
-  border-radius: 10px;
+  border: none;
+  border-radius: var(--radius-md);
   background: var(--adm-surface-muted);
-  box-shadow: var(--adm-shadow-inset);
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  box-shadow: none;
+  transition: box-shadow var(--transition-normal), background var(--transition-normal);
 }
 
 .adm-entity-row:hover {
-  border-color: var(--adm-border-strong);
   background: var(--adm-surface);
+  box-shadow: var(--shadow-elevated);
 }
 
+/* ===== 标签 / Chip —— 小圆角，去胶囊 ===== */
 .adm-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--spacing-xs);
   min-width: 0;
-  border: 1px solid var(--adm-border);
-  border-radius: var(--radius-full);
-  background: var(--adm-control-bg);
+  padding: 4px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-hover-overlay-md);
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
   font-weight: 600;
   line-height: 1.2;
 }
 
-.adm-chip {
-  padding: 4px 8px;
-}
-
+/* ===== 行内操作 ===== */
 .adm-action-row {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: var(--spacing-xs);
   flex-wrap: wrap;
 }
 
@@ -216,10 +229,10 @@
   justify-content: center;
   gap: 6px;
   min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--adm-border);
-  border-radius: 8px;
-  background: var(--adm-control-bg);
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--control-radius);
+  background: transparent;
   color: var(--color-text-secondary);
   font: inherit;
   font-size: var(--font-size-xs);
@@ -229,44 +242,112 @@
   cursor: pointer;
   transition:
     background var(--transition-fast),
-    border-color var(--transition-fast),
     color var(--transition-fast);
 }
 
 .adm-action-btn:hover:not(:disabled) {
-  border-color: var(--adm-border-strong);
-  background: var(--adm-control-hover);
+  background: var(--color-hover-overlay-md);
   color: var(--color-text-primary);
 }
 
 .adm-action-btn:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .adm-action-btn--success:hover:not(:disabled) {
   color: var(--color-success);
-  border-color: rgba(var(--color-success-rgb), 0.35);
-  background: rgba(var(--color-success-rgb), 0.08);
+  background: var(--color-success-bg);
 }
 
 .adm-action-btn--warning:hover:not(:disabled) {
   color: var(--color-warning);
-  border-color: rgba(var(--color-warning-rgb), 0.35);
-  background: rgba(var(--color-warning-rgb), 0.08);
+  background: var(--color-warning-bg);
 }
 
 .adm-action-btn--danger {
   color: var(--color-error);
-  border-color: rgba(var(--color-error-rgb), 0.22);
-  background: rgba(var(--color-error-rgb), 0.05);
 }
 
 .adm-action-btn--danger:hover:not(:disabled) {
-  border-color: rgba(var(--color-error-rgb), 0.4);
-  background: rgba(var(--color-error-rgb), 0.1);
+  background: var(--color-error-bg);
 }
 
+/* 按钮内计数徽章(如工具数) */
+.adm-action-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: rgba(var(--color-brand-accent-rgb), 0.2);
+  color: var(--color-brand-accent-light);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* ===== 开关 Toggle —— button + role=switch 无障碍范式 ===== */
+.adm-toggle {
+  position: relative;
+  flex-shrink: 0;
+  width: 40px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-tertiary);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.adm-toggle--on {
+  background: var(--color-brand-accent);
+}
+
+.adm-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.adm-toggle:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.adm-toggle__thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--color-on-accent);
+  transition: transform var(--transition-fast);
+}
+
+.adm-toggle--on .adm-toggle__thumb {
+  transform: translateX(18px);
+}
+
+.adm-toggle--sm {
+  width: 34px;
+  height: 18px;
+}
+
+.adm-toggle--sm .adm-toggle__thumb {
+  width: 12px;
+  height: 12px;
+}
+
+.adm-toggle--sm.adm-toggle--on .adm-toggle__thumb {
+  transform: translateX(16px);
+}
+
+/* ===== 标签页 Tabs —— 滑块指示器，去 inset 高光 ===== */
 .adm-tabs.adm-tabs.adm-tabs {
   position: relative;
   display: flex;
@@ -274,10 +355,10 @@
   width: fit-content;
   min-width: 0;
   padding: var(--spacing-xs);
-  border: 1px solid var(--adm-border);
-  border-radius: 10px;
-  background: var(--adm-control-bg);
-  box-shadow: var(--adm-shadow-inset);
+  border: none;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-secondary);
+  box-shadow: none;
 }
 
 .adm-tabs.adm-tabs.adm-tabs::before {
@@ -287,13 +368,13 @@
   left: var(--slider-left, 4px);
   width: var(--slider-width, 0px);
   height: calc(100% - 8px);
-  border: 1px solid var(--adm-accent-border);
-  border-radius: 8px;
-  background: var(--adm-control-active);
-  box-shadow: inset 0 1px 0 var(--color-soft-inset);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
+  box-shadow: var(--shadow-sm);
   pointer-events: none;
   z-index: 0;
-  transition: left 0.24s ease, width 0.24s ease;
+  transition: left var(--duration-base) var(--ease-default), width var(--duration-base) var(--ease-default);
 }
 
 .adm-tab.adm-tab.adm-tab {
@@ -303,10 +384,10 @@
   align-items: center;
   justify-content: center;
   min-width: 0;
-  min-height: 36px;
-  padding: 0 14px;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  min-height: 34px;
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--color-text-secondary);
   font: inherit;
@@ -314,10 +395,11 @@
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
+  transition: color var(--transition-fast);
 }
 
 .adm-tab.adm-tab.adm-tab:hover {
-  background: var(--color-hover-overlay);
+  background: transparent;
   color: var(--color-text-primary);
 }
 
@@ -353,9 +435,15 @@
   white-space: nowrap;
 }
 
-.adm-tabs--three { --adm-tabs-columns: 3; }
-.adm-tabs--four { --adm-tabs-columns: 4; }
+.adm-tabs--three {
+  --adm-tabs-columns: 3;
+}
 
+.adm-tabs--four {
+  --adm-tabs-columns: 4;
+}
+
+/* ===== 表单 ===== */
 .adm-form,
 .adm-form-section,
 .adm-field {
@@ -364,21 +452,21 @@
 }
 
 .adm-form {
-  gap: 16px;
+  gap: var(--spacing-xl);
 }
 
 .adm-form-section {
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--adm-border);
-  border-radius: 10px;
-  background: var(--adm-surface-muted);
+  gap: var(--spacing-md);
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 
 .adm-form-section__head {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 
 .adm-form-section__head h3 {
@@ -399,7 +487,7 @@
 .adm-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--spacing-md);
 }
 
 .adm-form-grid__full {
@@ -407,7 +495,7 @@
 }
 
 .adm-field {
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -416,6 +504,7 @@
   font-size: var(--font-size-xs);
   font-weight: 600;
   line-height: 1.25;
+  letter-spacing: 0.01em;
 }
 
 .adm-form-control.adm-form-control {
@@ -423,12 +512,13 @@
   min-height: 40px;
   padding: 0 12px;
   border: 1px solid var(--adm-border);
-  border-radius: 8px;
-  background: var(--adm-input-bg);
+  border-radius: var(--control-radius);
+  background: var(--color-bg-elevated);
   color: var(--color-text-primary);
   font: inherit;
   font-size: var(--font-size-sm);
   outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 textarea.adm-form-control.adm-form-control {
@@ -442,12 +532,12 @@ textarea.adm-form-control.adm-form-control {
 }
 
 .adm-form-control.adm-form-control:focus {
-  border-color: var(--color-border-focus);
-  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.14);
+  border-color: var(--color-brand-accent);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.12);
 }
 
 .adm-form-control.adm-form-control:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -455,31 +545,36 @@ textarea.adm-form-control.adm-form-control {
   margin: 0;
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 .adm-form-section-title {
-  padding-bottom: 6px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--color-border);
-  color: var(--color-text-primary);
+  color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
   font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .adm-form-error {
-  padding: 10px 12px;
-  border: 1px solid rgba(var(--color-error-rgb), 0.22);
-  border-radius: 8px;
-  background: rgba(var(--color-error-rgb), 0.08);
+  padding: 12px 14px;
+  border: none;
+  border-radius: var(--control-radius);
+  background: var(--color-error-bg);
   color: var(--color-error);
   font-size: var(--font-size-sm);
 }
 
+/* ===== Modal —— 玻璃浮层（唯一大面积玻璃应用点） ===== */
 .adm-modal {
-  border: 1px solid var(--adm-border-strong);
-  border-radius: var(--radius-lg);
-  background: var(--adm-surface-hover);
-  box-shadow: var(--shadow-xl);
+  border: var(--glass-border-width) var(--glass-border-style) var(--glass-border-color);
+  border-radius: var(--radius-xl);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--glass-shadow);
 }
 
 .adm-modal-header,
@@ -487,24 +582,24 @@ textarea.adm-form-control.adm-form-control {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--spacing-md);
 }
 
 .adm-modal-header {
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--adm-border);
+  padding-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .adm-modal-body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--spacing-md);
 }
 
 .adm-modal-footer {
   justify-content: flex-end;
-  padding-top: 12px;
-  border-top: 1px solid var(--adm-border);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--color-border);
 }
 
 .adm-modal.adm-modal .field {
@@ -515,7 +610,7 @@ textarea.adm-form-control.adm-form-control {
 
 .adm-modal.adm-modal .field > span,
 .adm-modal.adm-modal .field > label {
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
   font-size: var(--font-size-xs);
   font-weight: 600;
   line-height: 1.25;
@@ -527,8 +622,8 @@ textarea.adm-form-control.adm-form-control {
   min-height: 40px;
   padding: 0 12px;
   border: 1px solid var(--adm-border);
-  border-radius: 8px;
-  background: var(--adm-input-bg);
+  border-radius: var(--control-radius);
+  background: var(--color-bg-elevated);
   color: var(--color-text-primary);
   font: inherit;
   font-size: var(--font-size-sm);
@@ -547,16 +642,17 @@ textarea.adm-form-control.adm-form-control {
 
 .adm-modal.adm-modal .field > input:focus,
 .adm-modal.adm-modal .field > textarea:focus {
-  border-color: var(--color-border-focus);
-  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.14);
+  border-color: var(--color-brand-accent);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.12);
 }
 
 .adm-modal.adm-modal .field small {
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
+/* ===== 响应式 ===== */
 @media (max-width: 900px) {
   .adm-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -588,12 +684,12 @@ textarea.adm-form-control.adm-form-control {
   }
 
   .adm-tab.adm-tab.adm-tab {
-    padding: 0 8px;
+    padding: 0 10px;
   }
 
   .adm-tab.adm-tab.adm-tab.adm-tab--active {
-    border-color: var(--adm-accent-border);
-    background: var(--adm-control-active);
+    background: var(--color-bg-elevated);
+    box-shadow: var(--shadow-sm);
   }
 }
 

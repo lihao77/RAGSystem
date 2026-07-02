@@ -1,6 +1,7 @@
 /* ===================================================================
    page-layout.css — 管理页面公共原子样式
-   配合 PageLayout.vue 使用，提供状态面板、移动菜单项等通用 class
+   配合 PageLayout.vue 使用：状态面板、移动菜单项、内容卡片
+   极简重构：去边框 + 留白 + 发丝分隔 + 悬浮分层阴影
 =================================================================== */
 
 /* ===== 状态面板 ===== */
@@ -10,22 +11,22 @@
   align-items: center;
   justify-content: center;
   gap: var(--spacing-sm);
-  padding: var(--spacing-xl);
-  border: 1px solid var(--adm-border, var(--color-border));
+  padding: var(--spacing-2xl);
+  border: none;
   border-radius: var(--radius-lg);
-  background: var(--adm-surface-muted, var(--color-hover-overlay));
+  background: transparent;
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
 }
 
 .pl-state--error {
-  border-color: rgba(var(--color-error-rgb), 0.35);
-  background: rgba(var(--color-error-rgb), 0.08);
   color: var(--color-error);
 }
 
 /* Spinner — 复用全局 .g-spinner--lg */
-.pl-spinner { /* alias → .g-spinner--lg */ }
+.pl-spinner {
+  /* alias → .g-spinner--lg */
+}
 
 .pl-spin {
   animation: g-spin 0.8s linear infinite;
@@ -33,7 +34,7 @@
 
 /* 空状态 */
 .pl-empty {
-  padding: var(--spacing-xl);
+  padding: var(--spacing-2xl);
   text-align: center;
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
@@ -46,7 +47,7 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  padding: 11px 14px;
+  padding: 12px 14px;
   border: none;
   border-radius: var(--radius-md);
   background: transparent;
@@ -71,18 +72,18 @@
 }
 
 .pl-menu-item:hover:not(:disabled) {
-  background: var(--adm-control-bg, var(--color-interactive));
+  background: var(--color-hover-overlay-md);
 }
 
 .pl-menu-item:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .pl-menu-item--active {
-  color: var(--color-brand-accent-light);
+  color: var(--color-brand-accent);
   font-weight: 600;
-  background: var(--adm-control-active, rgba(var(--color-brand-accent-rgb), 0.1));
+  background: var(--color-active-bg);
 }
 
 .pl-menu-item--danger {
@@ -90,11 +91,11 @@
 }
 
 .pl-menu-item--danger:hover:not(:disabled) {
-  background: rgba(var(--color-error-rgb), 0.1);
+  background: var(--color-error-bg);
 }
 
 .pl-menu-label {
-  padding: 6px 14px 4px;
+  padding: 8px 14px 6px;
   font-size: 11px;
   font-weight: 600;
   color: var(--color-text-muted);
@@ -104,22 +105,22 @@
 
 .pl-menu-divider {
   height: 1px;
-  background: var(--adm-border, var(--color-border));
+  background: var(--color-border);
   margin: 4px 8px;
 }
 
-/* ===== 内容卡片 ===== */
+/* ===== 内容卡片 —— 去边框，hover 出分层阴影 ===== */
 .pl-card {
-  border: 1px solid var(--adm-border, var(--color-border));
+  border: none;
   border-radius: var(--radius-lg);
-  background: var(--adm-surface, var(--color-bg-elevated));
+  background: var(--color-bg-elevated);
   box-shadow: none;
   overflow: hidden;
-  transition: border-color var(--transition-fast), background var(--transition-fast);
+  transition: box-shadow var(--transition-normal);
 }
 
 .pl-card:hover {
-  border-color: var(--adm-border-strong, var(--color-border-hover));
+  box-shadow: var(--shadow-elevated);
 }
 
 .pl-card__head {
@@ -127,15 +128,15 @@
   flex-direction: column;
   gap: var(--spacing-xs);
   padding: var(--spacing-lg) var(--spacing-xl);
-  border-bottom: 1px solid var(--adm-border, var(--color-border));
-  background: var(--adm-surface-muted, var(--color-hover-overlay));
+  border-bottom: 1px solid var(--color-border);
+  background: transparent;
 }
 
 .pl-card__head h2 {
   margin: 0;
   font-size: var(--font-size-xl);
   font-weight: 600;
-  letter-spacing: 0;
+  letter-spacing: -0.01em;
   color: var(--color-text-primary);
 }
 

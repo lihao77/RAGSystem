@@ -148,7 +148,6 @@
       @artifact-select="handleArtifactSelect"
     />
     </main>
-    <AppToast ref="toastRef" />
 
     <!-- 上下文快照抽屉 -->
     <ContextSnapshotDrawer
@@ -221,7 +220,7 @@ import SessionFilesDrawer from '../components/SessionFilesDrawer.vue';
 import LiquidGlass from '../components/LiquidGlass.vue';
 import FilePreviewConfirmDialog from '../components/FilePreviewConfirmDialog.vue';
 import ContextSnapshotDrawer from '../components/ContextSnapshotDrawer.vue';
-import AppToast from '../components/AppToast.vue';
+import { useToast } from '../composables/useToast.js';
 import ChatMessageList from '../components/chat/ChatMessageList.vue';
 import ChatEmptyState from '../components/chat/ChatEmptyState.vue';
 import SessionContextBar from '../components/chat/SessionContextBar.vue';
@@ -282,7 +281,7 @@ const sessionFilesDrawerTarget = ref('composer');
 const chatInputRef = ref(null);
 const approvalQueueHostRef = ref(null);
 const filePreviewDialogRef = ref(null);
-const toastRef = ref(null);
+const toast = useToast();
 const isCompressing = ref(false);
 const ctxDrawerVisible = ref(false);
 const ctxDrawerSelectedLlm = ref('');
@@ -718,7 +717,7 @@ const showToast = (message, actionOrType = null, actionLabel = '重试') => {
   } else if (typeof actionOrType === 'function') {
     action = actionOrType;
   }
-  toastRef.value?.show(message, action || type, actionLabel);
+  toast.show(message, action || type, actionLabel);
 };
 
 // 移动端状态

@@ -3,73 +3,54 @@
     :embedded="embedded"
     :chat-return-path="chatReturnPath"
     title="管理中心"
-    subtitle="集中进入模型、Agent、Team、MCP、知识库、监控、守护系统和系统配置。"
+    subtitle="配置模型、Agent、Team、工具、知识库与系统。"
     mobile-title="管理中心"
-    max-width="1180px"
-    content-padding="var(--spacing-lg)"
-    mobile-content-padding="var(--spacing-sm)"
+    max-width="1280px"
+    content-padding="var(--spacing-2xl) var(--spacing-xl)"
+    mobile-content-padding="var(--spacing-lg) var(--spacing-md)"
   >
     <template #header-actions>
-      <UiButton :as="RouterLink" class="admin-header-link" :to="chatReturnPath" title="返回工作台">
+      <UiButton :as="RouterLink" class="admin-header-link" :to="chatReturnPath" title="返回工作台" variant="ghost">
         返回工作台
       </UiButton>
     </template>
 
-    <section class="admin-overview" aria-label="管理概览">
-      <UiPanel as="article" class="admin-overview-item" tone="muted">
-        <span class="admin-overview-item__label">管理入口</span>
-        <strong>{{ managementNavItems.length }}</strong>
-      </UiPanel>
-      <UiPanel as="article" class="admin-overview-item" tone="muted">
-        <span class="admin-overview-item__label">工作区</span>
-        <strong>会话优先</strong>
-      </UiPanel>
-      <UiPanel as="article" class="admin-overview-item" tone="muted">
-        <span class="admin-overview-item__label">旧路径</span>
-        <strong>保留直达</strong>
-      </UiPanel>
-    </section>
+    <nav class="admin-nav" aria-label="管理导航">
+      <section
+        v-for="(group, gi) in visibleGroups"
+        :key="group.key"
+        class="admin-group"
+        :class="{ 'admin-group--first': gi === 0 }"
+        :aria-labelledby="`admin-group-${group.key}`"
+      >
+        <header class="admin-group__head">
+          <div class="admin-group__head-text">
+            <h2 :id="`admin-group-${group.key}`">{{ group.label }}</h2>
+            <p>{{ group.description }}</p>
+          </div>
+          <span class="admin-group__count">{{ group.items.length }}</span>
+        </header>
 
-    <section
-      v-for="group in visibleGroups"
-      :key="group.key"
-      class="admin-section"
-      :aria-labelledby="`admin-section-${group.key}`"
-    >
-      <div class="admin-section__head">
-        <div>
-          <h2 :id="`admin-section-${group.key}`">{{ group.label }}</h2>
-          <p>{{ group.description }}</p>
-        </div>
-        <UiBadge class="admin-section__count">{{ group.items.length }}</UiBadge>
-      </div>
-
-      <div class="admin-card-grid">
-        <UiPanel
-          v-for="item in group.items"
-          :key="item.key"
-          :as="RouterLink"
-          class="admin-card"
-          :to="item.path"
-          tone="shell"
-          padding="none"
-          interactive
-        >
-          <span class="admin-card__icon">
-            <component :is="item.icon" />
-          </span>
-          <span class="admin-card__body">
-            <span class="admin-card__title">{{ item.title }}</span>
-            <span class="admin-card__description">{{ item.description }}</span>
-          </span>
-          <span class="admin-card__arrow" aria-hidden="true">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M9 18l6-6-6-6" />
-            </svg>
-          </span>
-        </UiPanel>
-      </div>
-    </section>
+        <ul class="admin-list" role="list">
+          <li v-for="item in group.items" :key="item.key" class="admin-list__item">
+            <RouterLink :to="item.path" class="admin-entry">
+              <span class="admin-entry__icon" aria-hidden="true">
+                <component :is="item.icon" />
+              </span>
+              <span class="admin-entry__body">
+                <span class="admin-entry__title">{{ item.title }}</span>
+                <span class="admin-entry__desc">{{ item.description }}</span>
+              </span>
+              <span class="admin-entry__arrow" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M5 12h14" /><path d="M13 6l6 6-6 6" />
+                </svg>
+              </span>
+            </RouterLink>
+          </li>
+        </ul>
+      </section>
+    </nav>
   </PageLayout>
 </template>
 
@@ -77,7 +58,7 @@
 import { computed } from 'vue';
 import { RouterLink } from 'vue-router';
 import PageLayout from '../components/PageLayout.vue';
-import { UiBadge, UiButton, UiPanel } from '../components/ui';
+import { UiButton } from '../components/ui';
 import { adminNavGroups, managementNavItems } from '../navigation/adminNavigation';
 
 defineProps({
@@ -98,178 +79,170 @@ const visibleGroups = computed(() => adminNavGroups
   text-decoration: none;
 }
 
-.admin-overview {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.admin-overview-item {
+/* ===== 分组导航 —— 全宽行 + 发丝分隔 + 大留白 ===== */
+.admin-nav {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  padding: 16px;
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  background: var(--color-hover-overlay);
+  gap: var(--spacing-2xl);
 }
 
-.admin-overview-item__label {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
-}
-
-.admin-overview-item strong {
-  min-width: 0;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-lg);
-  font-weight: 650;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.admin-section {
+.admin-group {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-width: 0;
+  gap: var(--spacing-xs);
 }
 
-.admin-section__head {
+/* 分组标题：克制的小标签 + 计数 */
+.admin-group__head {
   display: flex;
-  align-items: flex-end;
+  align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
-  padding-top: 4px;
+  gap: var(--spacing-md);
+  padding: 0 var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
 }
 
-.admin-section__head h2 {
+.admin-group__head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.admin-group__head-text h2 {
   margin: 0;
   color: var(--color-text-primary);
-  font-size: var(--font-size-lg);
-  font-weight: 650;
-  line-height: 1.25;
-  letter-spacing: 0;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.admin-section__head p {
-  margin: 4px 0 0;
+.admin-group__head-text p {
+  margin: 0;
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
-.admin-section__count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: var(--color-interactive);
-  color: var(--color-text-secondary);
+.admin-group__count {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
   font-size: var(--font-size-xs);
-  font-weight: 650;
+  font-variant-numeric: tabular-nums;
 }
 
-.admin-card-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.admin-card {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) 20px;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  min-height: 96px;
-  padding: 14px;
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.38);
-  color: var(--color-text-primary);
-  text-decoration: none;
-  transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
-}
-
-.admin-card:hover {
-  border-color: var(--color-border-hover);
-  background: var(--color-hover-overlay);
-  transform: translateY(-1px);
-}
-
-.admin-card:focus-visible {
-  outline: 2px solid var(--color-border-focus);
-  outline-offset: 2px;
-}
-
-.admin-card__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 42px;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  background: var(--color-interactive);
-  color: var(--color-text-primary);
-}
-
-.admin-card__body {
+/* ===== 入口列表 —— 去卡片化，行间发丝线 ===== */
+.admin-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+}
+
+.admin-list__item {
+  border-top: 1px solid var(--color-border);
+}
+
+.admin-list__item:last-child {
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* 每个入口：全宽、幽灵态、hover 极浅底 */
+.admin-entry {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--spacing-md);
+  width: 100%;
+  padding: var(--spacing-lg) var(--spacing-xs);
+  text-decoration: none;
+  color: var(--color-text-primary);
+  transition: background var(--transition-fast), padding var(--transition-fast);
+}
+
+.admin-entry:hover {
+  background: var(--color-hover-overlay-md);
+  padding-left: var(--spacing-sm);
+  padding-right: var(--spacing-sm);
+}
+
+.admin-entry:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+
+/* 图标：线性、克制，与文本同色 */
+.admin-entry__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary);
+  transition: color var(--transition-fast);
+}
+
+.admin-entry:hover .admin-entry__icon {
+  color: var(--color-text-primary);
+}
+
+.admin-entry__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   min-width: 0;
 }
 
-.admin-card__title {
+.admin-entry__title {
   color: var(--color-text-primary);
   font-size: var(--font-size-base);
-  font-weight: 650;
-  line-height: 1.25;
-  letter-spacing: 0;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
 }
 
-.admin-card__description {
-  display: -webkit-box;
+.admin-entry__desc {
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
-  line-height: 1.45;
+  line-height: 1.5;
   overflow: hidden;
-  -webkit-line-clamp: 2;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
 }
 
-.admin-card__arrow {
+/* 箭头：默认隐去，hover 显现并向右滑动 */
+.admin-entry__arrow {
   display: inline-flex;
+  align-items: center;
   color: var(--color-text-muted);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
 }
 
-@media (max-width: 900px) {
-  .admin-header-link {
+.admin-entry:hover .admin-entry__arrow {
+  opacity: 1;
+  transform: translateX(0);
+  color: var(--color-brand-accent);
+}
+
+/* 移动端：图标列收窄、描述换行放开 */
+@media (max-width: 600px) {
+  .admin-entry {
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md) var(--spacing-xs);
+  }
+
+  .admin-entry__desc {
+    -webkit-line-clamp: 2;
+  }
+
+  .admin-entry__arrow {
     display: none;
-  }
-
-  .admin-overview,
-  .admin-card-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .admin-card {
-    grid-template-columns: 38px minmax(0, 1fr) 18px;
-    min-height: 88px;
-    padding: 12px;
-  }
-
-  .admin-card__icon {
-    width: 38px;
-    height: 38px;
   }
 }
 </style>

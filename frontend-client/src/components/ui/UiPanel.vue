@@ -24,7 +24,7 @@ const panelClasses = computed(() => [
 <style scoped>
 .ui-panel {
   min-width: 0;
-  border: 1px solid var(--color-border);
+  border: none;
   border-radius: var(--radius-lg);
   background: var(--surface-panel);
   color: var(--color-text-primary);
@@ -35,7 +35,7 @@ const panelClasses = computed(() => [
 }
 
 .ui-panel--muted {
-  background: var(--surface-panel-muted);
+  background: var(--color-bg-secondary);
 }
 
 .ui-panel--padding-none {
@@ -56,16 +56,11 @@ const panelClasses = computed(() => [
 
 .ui-panel--interactive {
   text-decoration: none;
-  transition:
-    background var(--transition-fast),
-    border-color var(--transition-fast),
-    transform var(--transition-fast);
+  transition: box-shadow var(--transition-normal);
 }
 
 .ui-panel--interactive:hover {
-  border-color: var(--color-border-hover);
-  background: var(--surface-panel-muted);
-  transform: translateY(-1px);
+  box-shadow: var(--shadow-elevated);
 }
 
 .ui-panel--interactive:focus-visible {

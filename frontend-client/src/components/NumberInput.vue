@@ -91,16 +91,17 @@ function onBlur(e) {
 .number-input {
   display: flex;
   align-items: center;
-  height: 42px;
-  border-radius: var(--radius-md);
+  height: 40px;
+  border-radius: var(--control-radius);
   border: 1px solid var(--color-border);
   background: var(--color-bg-elevated);
   overflow: hidden;
-  transition: border-color 0.2s;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .number-input:focus-within {
-  border-color: var(--color-border-focus);
+  border-color: var(--color-brand-accent);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.12);
 }
 
 .number-input.disabled {
@@ -120,11 +121,11 @@ function onBlur(e) {
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
-  transition: background 0.2s, color 0.2s;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .step-btn:hover:not(:disabled) {
-  background: var(--color-interactive-hover);
+  background: var(--color-hover-overlay-md);
   color: var(--color-text-primary);
 }
 

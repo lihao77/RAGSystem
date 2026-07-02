@@ -1,21 +1,21 @@
 <template>
   <Teleport to="body">
     <Transition name="dialog-fade">
-      <div v-if="visible" class="dialog-overlay">
-        <div ref="dialogRef" class="dialog-container">
+      <div v-if="state.visible" class="dialog-overlay" @click.self="cancel">
+        <div ref="dialogRef" class="dialog-container" role="dialog" aria-modal="true" :aria-label="state.title">
           <div class="dialog-header">
-            <h3 class="dialog-title">{{ title }}</h3>
+            <h3 class="dialog-title">{{ state.title }}</h3>
           </div>
           <div class="dialog-body">
-            <p class="dialog-message">{{ message }}</p>
+            <p class="dialog-message">{{ state.message }}</p>
           </div>
           <div class="dialog-footer">
-            <button class="dialog-btn dialog-btn-cancel" @click="handleCancel">
-              {{ cancelText }}
-            </button>
-            <button class="dialog-btn dialog-btn-confirm" @click="handleConfirm">
-              {{ confirmText }}
-            </button>
+            <button class="dialog-btn dialog-btn-cancel" @click="cancel">{{ state.cancelText }}</button>
+            <button
+              class="dialog-btn dialog-btn-confirm"
+              :class="{ 'dialog-btn-confirm--danger': state.danger }"
+              @click="accept"
+            >{{ state.confirmText }}</button>
           </div>
         </div>
       </div>
@@ -24,60 +24,39 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+/**
+ * 全局确认弹窗宿主。读 useConfirm 单例状态渲染,挂在 App 根(唯一实例)。
+ * 样式移植自旧 ConfirmDialog.vue(已删),补 danger 语义与 Esc/点外关闭。
+ */
+import { ref, watch, onBeforeUnmount } from 'vue';
+import { useConfirm } from '../composables/useConfirm';
 import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 
-const props = defineProps({
-  title: {
-    type: String,
-    default: '确认操作'
-  },
-  message: {
-    type: String,
-    required: true
-  },
-  confirmText: {
-    type: String,
-    default: '确定'
-  },
-  cancelText: {
-    type: String,
-    default: '取消'
-  }
-});
+const { state, accept, cancel } = useConfirm();
 
-const emit = defineEmits(['confirm', 'cancel', 'close']);
-
-const visible = ref(false);
 const dialogRef = ref(null);
-
-const show = () => {
-  visible.value = true;
-};
-
-const hide = () => {
-  visible.value = false;
-};
-
-const handleConfirm = () => {
-  emit('confirm');
-  hide();
-};
-
-const handleCancel = () => {
-  emit('cancel');
-  hide();
-};
 
 usePointerDownOutside({
   inside: [dialogRef],
-  enabled: () => visible.value,
-  onOutside: handleCancel,
+  enabled: () => state.visible,
+  onOutside: cancel,
 });
 
-defineExpose({
-  show,
-  hide
+function onKeydown(e) {
+  if (e.key === 'Escape' && state.visible) cancel();
+}
+
+watch(
+  () => state.visible,
+  (visible) => {
+    if (visible) document.addEventListener('keydown', onKeydown);
+    else document.removeEventListener('keydown', onKeydown);
+  },
+  { immediate: true },
+);
+
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onKeydown);
 });
 </script>
 
@@ -90,6 +69,7 @@ defineExpose({
   bottom: 0;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -163,14 +143,23 @@ defineExpose({
 }
 
 .dialog-btn-confirm {
-  background: var(--color-error);
-  color: var(--color-on-color);
-  box-shadow: 0 2px 8px rgba(var(--color-error-rgb), 0.3);
+  background: var(--color-brand-accent);
+  color: var(--color-on-accent);
+  box-shadow: 0 2px 8px rgba(var(--color-brand-accent-rgb), 0.3);
 }
 
 .dialog-btn-confirm:hover {
   filter: brightness(1.1);
   transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(var(--color-brand-accent-rgb), 0.4);
+}
+
+.dialog-btn-confirm--danger {
+  background: var(--color-error);
+  box-shadow: 0 2px 8px rgba(var(--color-error-rgb), 0.3);
+}
+
+.dialog-btn-confirm--danger:hover {
   box-shadow: 0 4px 16px rgba(var(--color-error-rgb), 0.4);
 }
 

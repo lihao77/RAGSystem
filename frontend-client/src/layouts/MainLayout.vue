@@ -109,25 +109,14 @@
         </RouterView>
       </div>
     </div>
-
-    <ConfirmDialog
-      ref="confirmDialogRef"
-      :title="confirmDialog.title"
-      :message="confirmDialog.message"
-      :confirm-text="confirmDialog.confirmText"
-      :cancel-text="confirmDialog.cancelText"
-      @confirm="confirmDialog.onConfirm"
-      @cancel="confirmDialog.onCancel"
-    />
-    <AppToast ref="toastRef" />
   </div>
 </template>
 
 <script setup>
 import { Transition, TransitionGroup, computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 import { RouterView, useRoute, useRouter } from 'vue-router';
-import ConfirmDialog from '../components/ConfirmDialog.vue';
-import AppToast from '../components/AppToast.vue';
+import { useToast } from '../composables/useToast.js';
+import { useConfirm } from '../composables/useConfirm.js';
 import { getTeams } from '../api/agentConfig';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconNewConversation, IconTrash } from '../components/icons';
 import { sidebarAdminNavItem } from '../navigation/adminNavigation';
@@ -139,7 +128,7 @@ const props = defineProps({
   },
   isDark: {
     type: Boolean,
-    default: true
+    default: false
   }
 });
 
@@ -148,8 +137,8 @@ const emit = defineEmits(['update:selectedLLM', 'toggleTheme']);
 const router = useRouter();
 const route = useRoute();
 const historyListRef = ref(null);
-const confirmDialogRef = ref(null);
-const toastRef = ref(null);
+const toast = useToast();
+const { confirm } = useConfirm();
 const sidebarCollapsed = ref(false);
 const mobileOpen = ref(false);
 const isMobile = ref(false);
@@ -161,14 +150,6 @@ const historyError = ref('');
 const historyOffset = ref(0);
 const historyHasMore = ref(true);
 const lastChatSessionId = ref(null);
-const confirmDialog = ref({
-  title: '确认操作',
-  message: '',
-  confirmText: '确定',
-  cancelText: '取消',
-  onConfirm: () => {},
-  onCancel: () => {}
-});
 
 const isChatRoute = computed(() => (route.meta?.mainView || 'chat') === 'chat');
 const isPageActive = (mainView) => (route.meta?.mainView || 'chat') === mainView;
@@ -198,7 +179,7 @@ const showToast = (message, actionOrType = null, actionLabel = '重试') => {
   } else if (typeof actionOrType === 'function') {
     action = actionOrType;
   }
-  toastRef.value?.show(message, action || type, actionLabel);
+  toast.show(message, action || type, actionLabel);
 };
 
 const getChildProps = (childRoute) => {
@@ -415,17 +396,14 @@ const selectSession = async (item) => {
 };
 
 const confirmDeleteSession = async (item) => {
-  confirmDialog.value = {
+  const ok = await confirm({
     title: '删除会话',
-    message: `确定要删除会话"${item.title || formatTitle(item) || 'New Conversation'}"吗？此操作不可恢复。`,
+    message: `确定要删除会话“${item.title || formatTitle(item) || 'New Conversation'}”吗？此操作不可恢复。`,
     confirmText: '删除',
-    cancelText: '取消',
-    onConfirm: () => {
-      deleteSession(item.session_id);
-    },
-    onCancel: () => {}
-  };
-  confirmDialogRef.value?.show();
+    danger: true,
+  });
+  if (!ok) return;
+  deleteSession(item.session_id);
 };
 
 const deleteSession = async (sessionId) => {
@@ -526,8 +504,8 @@ onUnmounted(() => {
   max-width: 100%;
   background-color: transparent;
   overflow: hidden;
-  padding: 6px;
-  gap: 6px;
+  padding: 0;
+  gap: 0;
 }
 
 .sidebar-backdrop {
@@ -546,16 +524,17 @@ onUnmounted(() => {
 }
 
 .sidebar {
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
   background: var(--surface-sidebar);
-  width: 260px;
-  border-radius: var(--radius-lg);
+  width: 248px;
+  border-radius: 0;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   z-index: var(--z-sidebar);
   transition: width var(--transition-normal), transform var(--transition-normal);
   --icon-center-line: 25px;
+  border-right: 1px solid var(--color-border);
 }
 
 .sidebar.collapsed {
@@ -589,12 +568,12 @@ onUnmounted(() => {
 
 .sidebar-logo-icon {
   flex-shrink: 0;
-  filter: drop-shadow(0 4px 16px rgba(var(--color-brand-accent-rgb), 0.4));
-  transition: opacity var(--transition-normal), filter var(--transition-normal);
+  filter: none;
+  transition: opacity var(--transition-normal);
 }
 
 .sidebar-logo-wrapper:hover .sidebar-logo-icon {
-  filter: drop-shadow(0 6px 24px rgba(var(--color-brand-accent-rgb), 0.6));
+  filter: none;
 }
 
 .sidebar-expand-icon {
@@ -702,14 +681,26 @@ onUnmounted(() => {
 }
 
 .sidebar-btn.active {
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  box-shadow: var(--shadow-sm),
-    inset 0 1px 0 var(--color-soft-inset);
+  background: var(--color-active-bg);
+  color: var(--color-brand-accent);
+  box-shadow: none;
+  position: relative;
+}
+
+.sidebar-btn.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: var(--color-brand-accent);
 }
 
 .sidebar-btn.active .icon {
-  color: var(--color-text-primary);
+  color: var(--color-brand-accent);
 }
 
 .sidebar-btn:hover,
@@ -858,22 +849,21 @@ onUnmounted(() => {
 }
 
 .history-item:hover {
-  background: var(--color-bg-secondary);
+  background: var(--color-hover-overlay-md);
   color: var(--color-text-primary);
-  transform: translateX(2px);
-  box-shadow: var(--shadow-sm);
+  transform: none;
+  box-shadow: none;
 }
 
 .history-item.active {
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  box-shadow: var(--shadow-sm),
-    inset 0 1px 0 var(--color-soft-inset);
+  background: var(--color-active-bg);
+  color: var(--color-brand-accent);
+  box-shadow: none;
 }
 
 .history-item.active .history-icon {
   opacity: 1;
-  color: var(--color-text-primary);
+  color: var(--color-brand-accent);
 }
 
 .history-main {
@@ -1035,8 +1025,8 @@ onUnmounted(() => {
   min-height: 0;
   overflow: hidden;
   background: var(--surface-shell);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .layout-main-host--page {
@@ -1143,14 +1133,14 @@ onUnmounted(() => {
   left: 0;
   top: 0;
   bottom: 0;
-  border-radius: 0 12px 12px 0;
+  border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
   transform: translateX(-100%);
   width: 280px;
-  background: var(--color-bg-elevated);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  border-right: 1px solid var(--color-border);
-  box-shadow: var(--shadow-lg);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-right: var(--glass-border-width) var(--glass-border-style) var(--glass-border-color);
+  box-shadow: var(--glass-shadow);
 }
 
 .chat-layout--sidebar-overlay .sidebar.mobile-open {

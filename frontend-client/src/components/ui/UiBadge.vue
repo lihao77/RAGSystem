@@ -28,11 +28,11 @@ const badgeClasses = computed(() => [
   justify-content: center;
   gap: 4px;
   min-width: 0;
-  border: 1px solid var(--color-border);
-  border-radius: var(--control-radius);
-  background: var(--surface-panel-muted);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-hover-overlay-md);
   color: var(--color-text-secondary);
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
 }
@@ -54,26 +54,22 @@ const badgeClasses = computed(() => [
 }
 
 .ui-badge--success {
-  border-color: rgba(var(--color-success-rgb), 0.28);
-  background: rgba(var(--color-success-rgb), 0.1);
+  background: var(--color-success-bg);
   color: var(--color-success);
 }
 
 .ui-badge--warning {
-  border-color: rgba(var(--color-warning-rgb), 0.28);
-  background: rgba(var(--color-warning-rgb), 0.1);
+  background: var(--color-warning-bg);
   color: var(--color-warning);
 }
 
 .ui-badge--error {
-  border-color: rgba(var(--color-error-rgb), 0.28);
-  background: rgba(var(--color-error-rgb), 0.1);
+  background: var(--color-error-bg);
   color: var(--color-error);
 }
 
 .ui-badge--info {
-  border-color: rgba(var(--color-brand-accent-rgb), 0.28);
-  background: rgba(var(--color-brand-accent-rgb), 0.1);
+  background: var(--color-active-bg);
   color: var(--color-brand-accent);
 }
 </style>

@@ -10,153 +10,60 @@
   >
     <template #header-menu="{ close }">
       <button class="pl-menu-item" :disabled="loadingServers" @click="refreshAll(); close()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-        </svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
         {{ loadingServers ? '刷新中...' : '全局刷新' }}
       </button>
     </template>
 
     <template #mobile-menu="{ close }">
       <button class="pl-menu-item" :disabled="loadingServers" @click="refreshAll(); close()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-        </svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
         {{ loadingServers ? '刷新中...' : '全局刷新' }}
       </button>
     </template>
 
-    <!-- ── 统计卡片 ────────────────────────────────────────── -->
-    <section class="summary-grid adm-kpi-grid">
-      <article class="summary-card adm-kpi-card">
-        <div class="summary-icon adm-kpi-icon summary-icon--total">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-            <line x1="8" y1="21" x2="16" y2="21"/>
-            <line x1="12" y1="17" x2="12" y2="21"/>
-          </svg>
-        </div>
-        <div class="summary-body adm-kpi-body">
-          <span class="summary-label adm-kpi-label">服务总数</span>
-          <strong class="summary-value adm-kpi-value">{{ summary.total }}</strong>
-        </div>
-      </article>
+    <KpiCards :items="kpiItems" />
 
-      <article class="summary-card adm-kpi-card">
-        <div class="summary-icon adm-kpi-icon summary-icon--connected">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
-            <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
-            <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
-            <line x1="12" y1="20" x2="12.01" y2="20"/>
-          </svg>
-        </div>
-        <div class="summary-body adm-kpi-body">
-          <span class="summary-label adm-kpi-label">已连接</span>
-          <strong class="summary-value adm-kpi-value summary-value--connected">{{ summary.connected }}</strong>
-        </div>
-      </article>
-
-      <article class="summary-card adm-kpi-card">
-        <div class="summary-icon adm-kpi-icon summary-icon--enabled">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-            <polyline points="22 4 12 14.01 9 11.01"/>
-          </svg>
-        </div>
-        <div class="summary-body adm-kpi-body">
-          <span class="summary-label adm-kpi-label">已启用</span>
-          <strong class="summary-value adm-kpi-value summary-value--enabled">{{ summary.enabled }}</strong>
-        </div>
-      </article>
-
-      <article class="summary-card adm-kpi-card">
-        <div class="summary-icon adm-kpi-icon summary-icon--tools">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-          </svg>
-        </div>
-        <div class="summary-body adm-kpi-body">
-          <span class="summary-label adm-kpi-label">可用工具</span>
-          <strong class="summary-value adm-kpi-value summary-value--tools">{{ summary.tools }}</strong>
-        </div>
-      </article>
-    </section>
-
-    <!-- ── Tab 导航 ───────────────────────────────────────── -->
-    <nav class="adm-tabs adm-tabs--three tab-nav" ref="tabNavRef">
-      <button
-        v-for="tab in tabs"
-        :key="tab.id"
-        class="adm-tab tab-btn"
-        :class="{ 'adm-tab--active tab-btn--active': activeTab === tab.id }"
-        @click="activeTab = tab.id"
-      >
-        <span class="adm-tab__content tab-btn__content">
-          <span class="adm-tab__icon tab-icon" v-html="tab.icon"></span>
-          <span class="adm-tab__label tab-label">{{ tab.label }}</span>
-        </span>
-      </button>
-    </nav>
-
-    <!-- ── Tab: 已安装服务 ─────────────────────────────────── -->
     <EntityListLayout
-      v-if="activeTab === 'installed'"
-      class="tab-content"
       title="已安装服务"
       description="管理连接状态、查看工具、修改运行参数。"
       :loading="loadingServers"
       loading-text="正在加载 MCP 服务..."
       :empty="!servers.length"
       empty-title="暂无 MCP 服务"
-      empty-hint="前往“手动安装”或“Registry”标签页添加服务"
-      @retry="loadServers"
+      empty-hint="点击右上「添加服务」从 Registry 搜索或手动配置。"
+      @retry="runLoadServers"
     >
       <template #actions>
-        <UiButton :disabled="loadingServers" @click="loadServers">
+        <UiButton variant="primary" @click="openAddService">
           <template #icon>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="23 4 23 10 17 10"/>
-              <polyline points="1 20 1 14 7 14"/>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </template>
+          添加服务
+        </UiButton>
+        <UiButton :disabled="loadingServers" @click="runLoadServers">
+          <template #icon>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           </template>
           刷新
         </UiButton>
       </template>
-
       <template #empty-icon>
-        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24"
-          fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-          <line x1="8" y1="21" x2="16" y2="21"/>
-          <line x1="12" y1="17" x2="12" y2="21"/>
-        </svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
       </template>
 
       <div class="server-grid adm-entity-list">
         <article v-for="server in servers" :key="server.name" class="server-card adm-entity-row">
-          <!-- 卡片顶部：名称 + 状态 -->
-          <div class="server-card-head">
-            <div class="server-card-icon" :class="`server-icon--${server.transport || 'stdio'}`">
-              <svg v-if="(server.transport || 'stdio') === 'stdio'" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
-              </svg>
-              <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/>
-                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-              </svg>
-            </div>
-            <div class="server-card-info">
-              <div class="server-card-name">{{ server.display_name || server.name }}</div>
-              <div class="server-card-id">{{ server.name }}</div>
+          <div class="server-card__main">
+            <div class="server-card-head">
+              <div class="server-card-icon" :class="`server-icon--${server.transport || 'stdio'}`">
+                <svg v-if="(server.transport || 'stdio') === 'stdio'" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              </div>
+              <div class="server-card-info">
+                <div class="server-card-name">{{ server.display_name || server.name }}</div>
+                <div class="server-card-id">{{ server.name }}</div>
+              </div>
             </div>
             <div class="server-card-badges">
               <span class="status-dot" :class="`status-dot--${server.status || 'unknown'}`" :title="server.status || 'unknown'"></span>
@@ -164,676 +71,302 @@
             </div>
           </div>
 
-          <!-- 元数据行 -->
           <div class="server-meta-row">
-            <div class="meta-chip adm-chip">
-              <span class="meta-chip-label">传输</span>
-              <span class="meta-chip-value meta-chip-value--mono">{{ server.transport || 'stdio' }}</span>
-            </div>
-            <div class="meta-chip adm-chip">
-              <span class="meta-chip-label">工具</span>
-              <span class="meta-chip-value">{{ server.tool_count || 0 }}</span>
-            </div>
-            <div class="meta-chip adm-chip">
-              <span class="meta-chip-label">风险</span>
-              <span class="meta-chip-value" :class="`risk--${server.risk_level || 'medium'}`">{{ server.risk_level || 'medium' }}</span>
-            </div>
-            <div class="meta-chip adm-chip">
-              <span class="meta-chip-label">状态</span>
-              <span class="meta-chip-value" :class="server.enabled ? 'text-success' : 'text-muted'">
-                {{ server.enabled ? '已启用' : '已禁用' }}
-              </span>
-            </div>
+            <div class="meta-chip adm-chip"><span class="meta-chip-label">传输</span><span class="meta-chip-value meta-chip-value--mono">{{ server.transport || 'stdio' }}</span></div>
+            <div class="meta-chip adm-chip"><span class="meta-chip-label">工具</span><span class="meta-chip-value">{{ server.tool_count || 0 }}</span></div>
+            <div class="meta-chip adm-chip"><span class="meta-chip-label">风险</span><span class="meta-chip-value" :class="`risk--${server.risk_level || 'medium'}`">{{ server.risk_level || 'medium' }}</span></div>
+            <div class="meta-chip adm-chip"><span class="meta-chip-label">状态</span><span class="meta-chip-value" :class="server.enabled ? 'text-success' : 'text-muted'">{{ server.enabled ? '已启用' : '已禁用' }}</span></div>
           </div>
 
-          <!-- 接入信息 -->
           <div class="server-connection-info">
-            <code class="connection-code">
-              {{ server.transport === 'stdio'
-                ? (server.command ? `${server.command} ${formatArgs(server.args)}` : '无命令')
-                : (server.url || '无地址') }}
-            </code>
+            <code class="connection-code">{{ server.transport === 'stdio' ? (server.command ? `${server.command} ${formatArgs(server.args)}` : '无命令') : (server.url || '无地址') }}</code>
           </div>
 
-          <!-- 错误提示 -->
           <div v-if="server.error_message" class="error-banner">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             {{ server.error_message }}
           </div>
 
-          <!-- 操作按钮组 -->
           <div class="server-actions">
-            <button class="adm-action-btn adm-action-btn--success act-btn act-btn--connect" :disabled="!server.enabled || server.status === 'connected'" @click="handleConnect(server)" title="连接">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/>
-                <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>
-              </svg>
-              连接
+            <button class="adm-action-btn adm-action-btn--success" :disabled="!server.enabled || server.status === 'connected'" @click="handleConnect(server)" title="连接">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>连接
             </button>
-            <button class="adm-action-btn adm-action-btn--warning act-btn act-btn--disconnect" :disabled="server.status !== 'connected'" @click="handleDisconnect(server)" title="断开">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
-                <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.56 9"/>
-                <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
-                <line x1="12" y1="20" x2="12.01" y2="20"/>
-              </svg>
-              断开
+            <button class="adm-action-btn adm-action-btn--warning" :disabled="server.status !== 'connected'" @click="handleDisconnect(server)" title="断开">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.56 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>断开
             </button>
-            <button class="adm-action-btn act-btn" @click="handleTest(server)" title="测试连接">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-              </svg>
-              测试
+            <button class="adm-action-btn" @click="handleTest(server)" title="测试连接">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>测试
             </button>
-            <button class="adm-action-btn act-btn" @click="showTools(server)" title="查看工具">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-              </svg>
-              工具 <span v-if="server.tool_count" class="act-badge">{{ server.tool_count }}</span>
+            <button class="adm-action-btn" @click="showTools(server)" title="查看工具">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>工具 <span v-if="server.tool_count" class="adm-action-badge">{{ server.tool_count }}</span>
             </button>
-            <button class="adm-action-btn act-btn" @click="openEditDialog(server)" title="编辑配置">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-              </svg>
-              编辑
+            <button class="adm-action-btn" @click="openEditDialog(server)" title="编辑配置">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>编辑
             </button>
-            <button class="adm-action-btn adm-action-btn--danger act-btn act-btn--danger" @click="handleDelete(server)" title="删除">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="3 6 5 6 21 6"/>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-              </svg>
-              删除
+            <button class="adm-action-btn adm-action-btn--danger" @click="handleDelete(server)" title="删除">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>删除
             </button>
           </div>
         </article>
       </div>
     </EntityListLayout>
 
-    <!-- ── Tab: 手动安装 ──────────────────────────────────── -->
-    <section v-if="activeTab === 'manual'" class="tab-content">
-      <div class="section-toolbar">
-        <div class="toolbar-left">
-          <h2 class="section-title">手动安装</h2>
-          <p class="section-desc">填写连接参数，手动添加 MCP 服务。</p>
+    <section v-if="addServiceVisible" class="add-service-panel">
+      <div class="add-service-head">
+        <div class="modal-title-block">
+          <h3>添加 MCP 服务</h3>
+          <p>从 Registry 搜索安装，或手动填写连接参数。</p>
         </div>
+        <button type="button" class="add-service-close" @click="addServiceVisible = false" aria-label="收起">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
       </div>
-
-      <div class="manual-install-form glass-card">
+      <div class="add-subnav">
+        <button type="button" class="add-subnav-btn" :class="{ 'add-subnav-btn--active': addMode === 'manual' }" @click="addMode = 'manual'">
+          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          手动配置
+        </button>
+        <button type="button" class="add-subnav-btn" :class="{ 'add-subnav-btn--active': addMode === 'registry' }" @click="addMode = 'registry'">
+          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          从 Registry 搜索
+        </button>
+      </div>
+      <div v-if="addMode === 'manual'" class="add-pane">
+        <div class="manual-install-form">
         <div class="form-grid two-col">
-          <label class="field">
-            <span>服务名称<em>*</em></span>
-            <input v-model.trim="installForm.server_name" type="text" placeholder="唯一标识，如 my_server" />
-          </label>
-          <label class="field">
-            <span>显示名称</span>
-            <input v-model.trim="installForm.display_name" type="text" placeholder="前端展示名称" />
-          </label>
+          <label class="field"><span>服务名称<em>*</em></span><input v-model.trim="installForm.server_name" type="text" placeholder="唯一标识，如 my_server" /></label>
+          <label class="field"><span>显示名称</span><input v-model.trim="installForm.display_name" type="text" placeholder="前端展示名称" /></label>
         </div>
-
-        <div class="field">
-          <span>传输方式</span>
-          <CustomSelect
-            :model-value="installForm.transport"
-            :options="transportOptions"
-            @update:model-value="installForm.transport = $event"
-          />
-        </div>
-
+        <div class="field"><span>传输方式</span><CustomSelect :model-value="installForm.transport" :options="transportOptions" @update:model-value="installForm.transport = $event" /></div>
         <div v-if="installForm.transport === 'stdio'" class="form-grid">
-          <label class="field">
-            <span>命令<em>*</em></span>
-            <input v-model.trim="installForm.command" type="text" placeholder="npx / uvx / python / node" />
-            <small>启动 MCP 服务的可执行命令</small>
-          </label>
-          <label class="field">
-            <span>参数</span>
-            <textarea v-model="installForm.argsJson" rows="4" class="font-mono-input" placeholder='["-y", "@scope/package"]'></textarea>
-            <small>JSON 数组格式</small>
-          </label>
-          <label class="field">
-            <span>环境变量</span>
-            <textarea v-model="installForm.envJson" rows="4" class="font-mono-input" placeholder='{"API_KEY": "..."}'></textarea>
-            <small>JSON 对象，合并到 MCP 进程环境</small>
-          </label>
+          <label class="field"><span>命令<em>*</em></span><input v-model.trim="installForm.command" type="text" placeholder="npx / uvx / python / node" /><small>启动 MCP 服务的可执行命令</small></label>
+          <label class="field"><span>参数</span><textarea v-model="installForm.argsJson" rows="4" class="font-mono-input" placeholder='["-y", "@scope/package"]'></textarea><small>JSON 数组格式</small></label>
+          <label class="field"><span>环境变量</span><textarea v-model="installForm.envJson" rows="4" class="font-mono-input" placeholder='{"API_KEY": "..."}'></textarea><small>JSON 对象，合并到 MCP 进程环境</small></label>
         </div>
-
         <div v-else class="form-grid">
-          <label class="field">
-            <span>URL<em>*</em></span>
-            <input v-model.trim="installForm.url" type="url" placeholder="https://example.com/mcp" />
-            <small>远程 MCP 服务端点</small>
-          </label>
-          <label class="field">
-            <span>Headers</span>
-            <textarea v-model="installForm.headersJson" rows="4" class="font-mono-input" placeholder='{"Authorization": "Bearer ..."}'></textarea>
-            <small>JSON 对象，作为请求头发送</small>
-          </label>
+          <label class="field"><span>URL<em>*</em></span><input v-model.trim="installForm.url" type="url" placeholder="https://example.com/mcp" /><small>远程 MCP 服务端点</small></label>
+          <label class="field"><span>Headers</span><textarea v-model="installForm.headersJson" rows="4" class="font-mono-input" placeholder='{"Authorization": "Bearer ..."}'></textarea><small>JSON 对象，作为请求头发送</small></label>
         </div>
-
         <div class="form-divider"></div>
         <div class="form-section-label">高级设置</div>
-
-        <div class="form-grid four-col">
-          <label class="field">
-            <span>超时秒数</span>
-            <NumberInput :model-value="installForm.timeout" :min="1" :max="300" @update:model-value="installForm.timeout = $event" />
-          </label>
-          <label class="field">
-            <span>风险等级</span>
-            <CustomSelect
-              :model-value="installForm.risk_level"
-              :options="riskOptions"
-              @update:model-value="installForm.risk_level = $event"
-            />
-          </label>
-          <label class="toggle-field">
-            <div class="toggle-wrap">
-              <input v-model="installForm.enabled" type="checkbox" class="toggle-input" id="mi-enabled" />
-              <label for="mi-enabled" class="toggle-track"></label>
-            </div>
-            <span>启用服务</span>
-          </label>
-          <label class="toggle-field">
-            <div class="toggle-wrap">
-              <input v-model="installForm.auto_connect" type="checkbox" class="toggle-input" id="mi-auto" />
-              <label for="mi-auto" class="toggle-track"></label>
-            </div>
-            <span>自动连接</span>
-          </label>
+        <div class="form-grid two-col">
+          <label class="field"><span>超时秒数</span><NumberInput :model-value="installForm.timeout" :min="1" :max="300" @update:model-value="installForm.timeout = $event" /></label>
+          <label class="field"><span>风险等级</span><CustomSelect :model-value="installForm.risk_level" :options="riskOptions" @update:model-value="installForm.risk_level = $event" /></label>
         </div>
-
+        <div class="toggle-row">
+          <label class="toggle-field"><ToggleSwitch v-model="installForm.enabled" /><span>启用服务</span></label>
+          <label class="toggle-field"><ToggleSwitch v-model="installForm.auto_connect" /><span>自动连接</span></label>
+        </div>
         <div class="form-actions">
           <UiButton variant="ghost" size="compact" @click="resetInstallForm">重置</UiButton>
           <UiButton variant="primary" size="compact" :disabled="installing" @click="submitManualInstall">
             <template #icon>
-              <svg v-if="!installing" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-              </svg>
+              <svg v-if="!installing" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               <div v-else class="g-spinner g-spinner--sm"></div>
             </template>
             {{ installing ? '安装中...' : '安装服务' }}
           </UiButton>
         </div>
-      </div>
-    </section>
-
-    <!-- ── Tab: Registry 搜索 ────────────────────────────── -->
-    <section v-if="activeTab === 'registry'" class="tab-content">
-      <div class="section-toolbar">
-        <div class="toolbar-left">
-          <h2 class="section-title">MCP Registry</h2>
-          <p class="section-desc">搜索官方 Registry，按可用安装方式一键导入。</p>
         </div>
       </div>
 
-      <!-- 搜索栏 -->
-      <div class="registry-search-bar glass-card">
+      <div v-else class="add-pane">
+        <div class="registry-search-bar">
         <div class="search-input-wrap">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
-          <input
-            v-model.trim="registrySearch.query"
-            type="text"
-            placeholder="搜索服务名称，如 github / filesystem / mysql ..."
-            class="registry-search-input"
-            @keyup.enter="searchRegistryServers"
-          />
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input v-model.trim="registrySearch.query" type="text" placeholder="搜索服务名称，如 github / filesystem / mysql ..." class="registry-search-input" @keyup.enter="searchRegistryServers" />
         </div>
-        <label class="toggle-field toggle-field--inline">
-          <div class="toggle-wrap">
-            <input v-model="registrySearch.latest_only" type="checkbox" class="toggle-input" id="reg-latest" />
-            <label for="reg-latest" class="toggle-track"></label>
-          </div>
-          <span>仅最新版本</span>
-        </label>
-        <UiButton :disabled="loadingRegistryResults" @click="searchRegistryServers">
-          {{ loadingRegistryResults ? '搜索中...' : '搜索' }}
-        </UiButton>
+        <label class="toggle-field toggle-field--inline"><ToggleSwitch v-model="registrySearch.latest_only" /><span>仅最新版本</span></label>
+        <UiButton :disabled="loadingRegistryResults" @click="searchRegistryServers">{{ loadingRegistryResults ? '搜索中...' : '搜索' }}</UiButton>
       </div>
 
-      <div v-if="loadingRegistryResults" class="state-panel adm-state">
-        <div class="g-spinner"></div>
-        <p>正在搜索 Registry...</p>
-      </div>
-      <div v-else-if="!registryResults.length" class="state-panel state-panel--empty adm-state adm-state--empty">
-        <div class="empty-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
-        </div>
-        <p class="empty-title">暂无搜索结果</p>
-        <p class="empty-hint">尝试输入关键词后点击搜索</p>
-      </div>
+      <EntityListLayout
+        v-if="loadingRegistryResults || !registryResults.length"
+        title="Registry 结果"
+        :loading="loadingRegistryResults"
+        loading-text="正在搜索 Registry..."
+        empty-title="暂无搜索结果"
+        empty-hint="尝试输入关键词后点击搜索"
+      />
       <div v-else class="registry-grid">
-        <article v-for="item in registryResults" :key="`${item.name}-${item.version}`" class="registry-card glass-card">
+        <article v-for="item in registryResults" :key="`${item.name}-${item.version}`" class="registry-card">
           <div class="registry-card-head">
             <div class="registry-card-title">
               <h3>{{ item.display_name || item.name }}</h3>
-              <div class="registry-card-meta">
-                <code>{{ item.name }}</code>
-                <span class="version-tag">v{{ item.version }}</span>
-                <span v-if="item.latest" class="badge badge-success">Latest</span>
-              </div>
+              <div class="registry-card-meta"><code>{{ item.name }}</code><span class="version-tag">v{{ item.version }}</span><span v-if="item.latest" class="badge badge-success">Latest</span></div>
             </div>
           </div>
-
           <p class="registry-desc">{{ item.description || '暂无描述' }}</p>
-
           <div v-if="item.install_options?.length" class="install-options-row">
-            <span
-              v-for="option in item.install_options"
-              :key="option.id"
-              class="option-chip"
-              :class="option.supported ? 'option-chip--ok' : 'option-chip--no'"
-              :title="option.supported ? option.label : option.unsupported_reason"
-            >
-              <svg v-if="option.supported" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
-              <svg v-else xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-              </svg>
+            <span v-for="option in item.install_options" :key="option.id" class="option-chip" :class="option.supported ? 'option-chip--ok' : 'option-chip--no'" :title="option.supported ? option.label : option.unsupported_reason">
+              <svg v-if="option.supported" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              <svg v-else xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               {{ option.label }}
             </span>
           </div>
-
           <div v-if="firstUnsupportedReason(item)" class="inline-warning">
-            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
             {{ firstUnsupportedReason(item) }}
           </div>
-
           <div class="registry-card-actions">
-            <UiButton size="sm" variant="primary" :disabled="!item.installable || installingRegistry" @click="handleRegistryInstall(item)">
-              {{ quickInstallButtonText(item) }}
-            </UiButton>
-            <UiButton size="sm" :disabled="!item.install_options?.length" @click="openRegistryInstallDialog(item)">
-              配置安装
-            </UiButton>
+            <UiButton size="sm" variant="primary" :disabled="!item.installable || installingRegistry" @click="handleRegistryInstall(item)">{{ quickInstallButtonText(item) }}</UiButton>
+            <UiButton size="sm" :disabled="!item.install_options?.length" @click="openRegistryInstallDialog(item)">配置安装</UiButton>
             <div class="registry-links">
-              <a v-if="item.website_url" class="ext-link" @click.prevent="openExternalLink(item.website_url)" href="#">
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
-                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/>
-                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-                </svg>
-                官网
-              </a>
-              <a v-if="item.repository_url" class="ext-link" @click.prevent="openExternalLink(item.repository_url)" href="#">
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
-                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
-                </svg>
-                源码
-              </a>
+              <a v-if="item.website_url" class="ext-link" @click.prevent="openExternalLink(item.website_url)" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>官网</a>
+              <a v-if="item.repository_url" class="ext-link" @click.prevent="openExternalLink(item.repository_url)" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7 3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>源码</a>
             </div>
           </div>
         </article>
       </div>
-
       <div v-if="registryNextCursor" class="load-more-row">
-        <UiButton :disabled="loadingMoreRegistry" @click="loadMoreRegistryServers">
-          {{ loadingMoreRegistry ? '加载中...' : '加载更多结果' }}
-        </UiButton>
+        <UiButton :disabled="loadingMoreRegistry" @click="loadMoreRegistryServers">{{ loadingMoreRegistry ? '加载中...' : '加载更多结果' }}</UiButton>
+      </div>
       </div>
     </section>
 
-    <!-- ════════════════════════════════════════════════════════
-         模态：Registry 配置安装
-         ════════════════════════════════════════════════════════ -->
-    <Teleport to="body">
-      <div v-if="registryInstallDialogVisible" class="modal-backdrop">
-        <div ref="registryInstallDialogRef" class="modal-shell adm-modal glass-card">
-          <div class="modal-header adm-modal-header">
-            <div class="modal-title-block">
-              <h3>配置安装</h3>
-              <p>{{ selectedRegistryServer?.display_name || selectedRegistryServer?.name }}</p>
-            </div>
-            <button class="modal-close-btn" @click="closeRegistryInstallDialog" aria-label="关闭">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-              </svg>
-            </button>
-          </div>
-
-          <div class="modal-body adm-modal-body">
-            <div class="form-grid">
-              <label class="field">
-                <span>安装方式</span>
-                <CustomSelect
-                  :model-value="registryInstallForm.option_id"
-                  :options="[{ value: '', label: '请选择安装方式' }, ...(selectedRegistryServer?.install_options || []).map(o => ({ value: o.id, label: o.supported ? o.label : `${o.label}（暂不支持）`, disabled: !o.supported }))]"
-                  placeholder="请选择安装方式"
-                  @update:model-value="registryInstallForm.option_id = $event; handleRegistryOptionChange($event)"
-                />
-                <small v-if="selectedRegistryOption?.command_preview">命令：{{ selectedRegistryOption.command_preview }}</small>
-                <small v-if="selectedRegistryOption?.url_preview">地址：{{ selectedRegistryOption.url_preview }}</small>
-                <small v-if="selectedRegistryOption?.unsupported_reason" class="text-warning">{{ selectedRegistryOption.unsupported_reason }}</small>
-              </label>
-            </div>
-
-            <div class="form-grid two-col">
-              <label class="field">
-                <span>服务名称</span>
-                <input v-model.trim="registryInstallForm.server_name" type="text" placeholder="本地唯一标识" />
-              </label>
-              <label class="field">
-                <span>显示名称</span>
-                <input v-model.trim="registryInstallForm.display_name" type="text" placeholder="页面展示名称" />
-              </label>
-            </div>
-
-            <div v-if="selectedRegistryFields.length" class="form-grid two-col">
-              <label v-for="field in selectedRegistryFields" :key="field.key" class="field">
-                <span>{{ field.label }}<em v-if="field.required">*</em></span>
-                <CustomSelect
-                  v-if="field.format === 'select'"
-                  :model-value="registryInstallForm.input_values[field.key]"
-                  :options="field.options || []"
-                  :placeholder="field.placeholder || ''"
-                  @update:model-value="registryInstallForm.input_values[field.key] = $event"
-                />
-                <textarea
-                  v-else-if="field.format === 'textarea'"
-                  v-model="registryInstallForm.input_values[field.key]"
-                  rows="4"
-                  class="font-mono-input"
-                  :placeholder="field.placeholder || ''"
-                />
-                <input
-                  v-else-if="field.format !== 'boolean'"
-                  v-model="registryInstallForm.input_values[field.key]"
-                  :type="field.secret ? 'password' : field.format === 'number' ? 'number' : 'text'"
-                  :placeholder="field.placeholder || ''"
-                />
-                <label v-else class="toggle-field toggle-field--inner">
-                  <div class="toggle-wrap">
-                    <input v-model="registryInstallForm.input_values[field.key]" type="checkbox" class="toggle-input" :id="`rf-${field.key}`" />
-                    <label :for="`rf-${field.key}`" class="toggle-track"></label>
-                  </div>
-                  <span>启用</span>
-                </label>
-                <small v-if="field.description">{{ field.description }}</small>
-                <small v-if="field.repeated">多值请用英文逗号分隔</small>
-              </label>
-            </div>
-
-            <div class="form-divider"></div>
-            <div class="form-grid four-col">
-              <label class="field">
-                <span>超时秒数</span>
-                <NumberInput :model-value="registryInstallForm.timeout" :min="1" :max="300" @update:model-value="registryInstallForm.timeout = $event" />
-              </label>
-              <label class="field">
-                <span>风险等级</span>
-                <CustomSelect
-                  :model-value="registryInstallForm.risk_level"
-                  :options="riskOptions"
-                  @update:model-value="registryInstallForm.risk_level = $event"
-                />
-              </label>
-              <label class="toggle-field">
-                <div class="toggle-wrap">
-                  <input v-model="registryInstallForm.enabled" type="checkbox" class="toggle-input" id="ri-enabled" />
-                  <label for="ri-enabled" class="toggle-track"></label>
-                </div>
-                <span>启用服务</span>
-              </label>
-              <label class="toggle-field">
-                <div class="toggle-wrap">
-                  <input v-model="registryInstallForm.auto_connect" type="checkbox" class="toggle-input" id="ri-auto" />
-                  <label for="ri-auto" class="toggle-track"></label>
-                </div>
-                <span>自动连接</span>
-              </label>
-            </div>
-          </div>
-
-          <div class="modal-footer adm-modal-footer">
-            <UiButton size="compact" @click="closeRegistryInstallDialog">取消</UiButton>
-            <UiButton size="compact" variant="primary" :disabled="installingRegistry || !selectedRegistryOption?.supported" @click="submitRegistryInstall()">
-              <template v-if="installingRegistry" #icon>
-                <div class="g-spinner g-spinner--sm"></div>
-              </template>
-              {{ installingRegistry ? '安装中...' : '安装服务' }}
-            </UiButton>
-          </div>
+    <AdmModal :open="registryInstallDialogVisible" width="860px" @close="closeRegistryInstallDialog">
+      <template #header>
+        <div class="modal-title-block">
+          <h3>配置安装</h3>
+          <p>{{ selectedRegistryServer?.display_name || selectedRegistryServer?.name }}</p>
+        </div>
+      </template>
+      <div class="adm-modal-form">
+        <div class="form-grid">
+          <label class="field">
+            <span>安装方式</span>
+            <CustomSelect :model-value="registryInstallForm.option_id" :options="[{ value: '', label: '请选择安装方式' }, ...(selectedRegistryServer?.install_options || []).map(o => ({ value: o.id, label: o.supported ? o.label : `${o.label}（暂不支持）`, disabled: !o.supported }))]" placeholder="请选择安装方式" @update:model-value="registryInstallForm.option_id = $event; handleRegistryOptionChange($event)" />
+            <small v-if="selectedRegistryOption?.command_preview">命令：{{ selectedRegistryOption.command_preview }}</small>
+            <small v-if="selectedRegistryOption?.url_preview">地址：{{ selectedRegistryOption.url_preview }}</small>
+            <small v-if="selectedRegistryOption?.unsupported_reason" class="text-warning">{{ selectedRegistryOption.unsupported_reason }}</small>
+          </label>
+        </div>
+        <div class="form-grid two-col">
+          <label class="field"><span>服务名称</span><input v-model.trim="registryInstallForm.server_name" type="text" placeholder="本地唯一标识" /></label>
+          <label class="field"><span>显示名称</span><input v-model.trim="registryInstallForm.display_name" type="text" placeholder="页面展示名称" /></label>
+        </div>
+        <div v-if="selectedRegistryFields.length" class="form-grid two-col">
+          <label v-for="field in selectedRegistryFields" :key="field.key" class="field">
+            <span>{{ field.label }}<em v-if="field.required">*</em></span>
+            <CustomSelect v-if="field.format === 'select'" :model-value="registryInstallForm.input_values[field.key]" :options="field.options || []" :placeholder="field.placeholder || ''" @update:model-value="registryInstallForm.input_values[field.key] = $event" />
+            <textarea v-else-if="field.format === 'textarea'" v-model="registryInstallForm.input_values[field.key]" rows="4" class="font-mono-input" :placeholder="field.placeholder || ''" />
+            <input v-else-if="field.format !== 'boolean'" v-model="registryInstallForm.input_values[field.key]" :type="field.secret ? 'password' : field.format === 'number' ? 'number' : 'text'" :placeholder="field.placeholder || ''" />
+            <label v-else class="toggle-field toggle-field--inner"><ToggleSwitch v-model="registryInstallForm.input_values[field.key]" /><span>启用</span></label>
+            <small v-if="field.description">{{ field.description }}</small>
+            <small v-if="field.repeated">多值请用英文逗号分隔</small>
+          </label>
+        </div>
+        <div class="form-divider"></div>
+        <div class="form-grid two-col">
+          <label class="field"><span>超时秒数</span><NumberInput :model-value="registryInstallForm.timeout" :min="1" :max="300" @update:model-value="registryInstallForm.timeout = $event" /></label>
+          <label class="field"><span>风险等级</span><CustomSelect :model-value="registryInstallForm.risk_level" :options="riskOptions" @update:model-value="registryInstallForm.risk_level = $event" /></label>
+        </div>
+        <div class="toggle-row">
+          <label class="toggle-field"><ToggleSwitch v-model="registryInstallForm.enabled" /><span>启用服务</span></label>
+          <label class="toggle-field"><ToggleSwitch v-model="registryInstallForm.auto_connect" /><span>自动连接</span></label>
         </div>
       </div>
-    </Teleport>
+      <template #footer>
+        <UiButton size="compact" @click="closeRegistryInstallDialog">取消</UiButton>
+        <UiButton size="compact" variant="primary" :disabled="installingRegistry || !selectedRegistryOption?.supported" @click="submitRegistryInstall()">{{ installingRegistry ? '安装中...' : '安装服务' }}</UiButton>
+      </template>
+    </AdmModal>
 
-    <!-- ════════════════════════════════════════════════════════
-         模态：编辑 MCP 服务
-         ════════════════════════════════════════════════════════ -->
-    <Teleport to="body">
-      <div v-if="editDialogVisible && editForm" class="modal-backdrop">
-        <div ref="editDialogRef" class="modal-shell adm-modal glass-card">
-          <div class="modal-header adm-modal-header">
-            <div class="modal-title-block">
-              <h3>编辑 MCP 服务</h3>
-              <p class="font-mono">{{ editForm.name }}</p>
-            </div>
-            <button class="modal-close-btn" @click="closeEditDialog" aria-label="关闭">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-              </svg>
-            </button>
-          </div>
-
-          <div class="modal-body adm-modal-body">
-            <div class="form-grid two-col">
-              <label class="field">
-                <span>显示名称</span>
-                <input v-model="editForm.display_name" type="text" />
-              </label>
-              <div class="field">
-                <span>传输方式</span>
-                <CustomSelect
-                  :model-value="editForm.transport"
-                  :options="transportOptions"
-                  @update:model-value="editForm.transport = $event"
-                />
-              </div>
-            </div>
-
-            <div v-if="editForm.transport === 'stdio'" class="form-grid">
-              <label class="field">
-                <span>命令</span>
-                <input v-model="editForm.command" type="text" placeholder="如 npx / node / python" />
-              </label>
-              <label class="field">
-                <span>参数列表 (JSON Array)</span>
-                <textarea v-model="editForm.argsJson" rows="4" class="font-mono-input"></textarea>
-              </label>
-              <label class="field">
-                <span>环境变量 (JSON Object)</span>
-                <textarea v-model="editForm.envJson" rows="4" class="font-mono-input"></textarea>
-              </label>
-            </div>
-
-            <div v-else class="form-grid">
-              <label class="field">
-                <span>URL</span>
-                <input v-model="editForm.url" type="url" placeholder="http://localhost:8080/mcp" />
-              </label>
-              <label class="field">
-                <span>Headers (JSON Object)</span>
-                <textarea v-model="editForm.headersJson" rows="4" class="font-mono-input"></textarea>
-              </label>
-            </div>
-
-            <div class="form-divider"></div>
-            <div class="form-grid four-col">
-              <div class="field">
-                <span>超时秒数</span>
-                <NumberInput :model-value="editForm.timeout" :min="1" :max="300" @update:model-value="editForm.timeout = $event" />
-              </div>
-              <div class="field">
-                <span>风险等级</span>
-                <CustomSelect
-                  :model-value="editForm.risk_level"
-                  :options="riskOptions"
-                  @update:model-value="editForm.risk_level = $event"
-                />
-              </div>
-              <label class="toggle-field">
-                <div class="toggle-wrap">
-                  <input v-model="editForm.enabled" type="checkbox" class="toggle-input" id="ed-enabled" />
-                  <label for="ed-enabled" class="toggle-track"></label>
-                </div>
-                <span>启用服务</span>
-              </label>
-              <label class="toggle-field">
-                <div class="toggle-wrap">
-                  <input v-model="editForm.auto_connect" type="checkbox" class="toggle-input" id="ed-auto" />
-                  <label for="ed-auto" class="toggle-track"></label>
-                </div>
-                <span>自动连接</span>
-              </label>
-            </div>
-          </div>
-
-          <div class="modal-footer adm-modal-footer">
-            <UiButton size="compact" @click="closeEditDialog">取消</UiButton>
-            <UiButton size="compact" variant="primary" :disabled="savingEdit" @click="saveEdit">
-              <template v-if="savingEdit" #icon>
-                <div class="g-spinner g-spinner--sm"></div>
-              </template>
-              {{ savingEdit ? '保存中...' : '保存更改' }}
-            </UiButton>
-          </div>
+    <AdmModal v-if="editForm" :open="editDialogVisible" width="860px" @close="closeEditDialog">
+      <template #header>
+        <div class="modal-title-block">
+          <h3>编辑 MCP 服务</h3>
+          <p class="font-mono">{{ editForm.name }}</p>
+        </div>
+      </template>
+      <div class="adm-modal-form">
+        <div class="form-grid two-col">
+          <label class="field"><span>显示名称</span><input v-model="editForm.display_name" type="text" /></label>
+          <div class="field"><span>传输方式</span><CustomSelect :model-value="editForm.transport" :options="transportOptions" @update:model-value="editForm.transport = $event" /></div>
+        </div>
+        <div v-if="editForm.transport === 'stdio'" class="form-grid">
+          <label class="field"><span>命令</span><input v-model="editForm.command" type="text" placeholder="如 npx / node / python" /></label>
+          <label class="field"><span>参数列表 (JSON Array)</span><textarea v-model="editForm.argsJson" rows="4" class="font-mono-input"></textarea></label>
+          <label class="field"><span>环境变量 (JSON Object)</span><textarea v-model="editForm.envJson" rows="4" class="font-mono-input"></textarea></label>
+        </div>
+        <div v-else class="form-grid">
+          <label class="field"><span>URL</span><input v-model="editForm.url" type="url" placeholder="http://localhost:8080/mcp" /></label>
+          <label class="field"><span>Headers (JSON Object)</span><textarea v-model="editForm.headersJson" rows="4" class="font-mono-input"></textarea></label>
+        </div>
+        <div class="form-divider"></div>
+        <div class="form-grid two-col">
+          <div class="field"><span>超时秒数</span><NumberInput :model-value="editForm.timeout" :min="1" :max="300" @update:model-value="editForm.timeout = $event" /></div>
+          <div class="field"><span>风险等级</span><CustomSelect :model-value="editForm.risk_level" :options="riskOptions" @update:model-value="editForm.risk_level = $event" /></div>
+        </div>
+        <div class="toggle-row">
+          <label class="toggle-field"><ToggleSwitch v-model="editForm.enabled" /><span>启用服务</span></label>
+          <label class="toggle-field"><ToggleSwitch v-model="editForm.auto_connect" /><span>自动连接</span></label>
         </div>
       </div>
-    </Teleport>
+      <template #footer>
+        <UiButton size="compact" @click="closeEditDialog">取消</UiButton>
+        <UiButton size="compact" variant="primary" :disabled="savingEdit" @click="saveEdit">{{ savingEdit ? '保存中...' : '保存更改' }}</UiButton>
+      </template>
+    </AdmModal>
 
-    <!-- ════════════════════════════════════════════════════════
-         模态：工具列表
-         ════════════════════════════════════════════════════════ -->
-    <Teleport to="body">
-      <div v-if="toolsDialogVisible" class="modal-backdrop">
-        <div ref="toolsDialogRef" class="modal-shell adm-modal modal-shell--narrow glass-card">
-          <div class="modal-header adm-modal-header">
-            <div class="modal-title-block">
-              <h3>工具列表</h3>
-              <p>{{ activeToolsServerName }}</p>
-            </div>
-            <button class="modal-close-btn" @click="closeToolsDialog" aria-label="关闭">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-              </svg>
-            </button>
-          </div>
-
-          <div class="modal-body adm-modal-body">
-            <div v-if="!serverTools.length" class="state-panel state-panel--empty adm-state adm-state--empty">
-              <p class="empty-title">暂无工具</p>
-              <p class="empty-hint">服务未声明任何工具，或连接未成功</p>
-            </div>
-            <ul v-else class="tool-list">
-              <li v-for="tool in serverTools" :key="tool.function?.name || Math.random()" class="tool-item">
-                <div class="tool-item-head">
-                  <code class="tool-name">{{ tool.function?.name || '-' }}</code>
-                </div>
-                <p class="tool-desc">{{ tool.function?.description || '暂无描述' }}</p>
-              </li>
-            </ul>
-          </div>
+    <AdmModal :open="toolsDialogVisible" :title="undefined" width="560px" @close="closeToolsDialog">
+      <template #header>
+        <div class="modal-title-block">
+          <h3>工具列表</h3>
+          <p>{{ activeToolsServerName }}</p>
         </div>
-      </div>
-    </Teleport>
-
-    <AppToast ref="toastRef" />
+      </template>
+      <EntityListLayout
+        v-if="!serverTools.length"
+        title="工具列表"
+        empty-title="暂无工具"
+        empty-hint="服务未声明任何工具，或连接未成功"
+      />
+      <ul v-else class="tool-list">
+        <li v-for="(tool, idx) in serverTools" :key="tool.function?.name || idx" class="tool-item">
+          <div class="tool-item-head"><code class="tool-name">{{ tool.function?.name || '-' }}</code></div>
+          <p class="tool-desc">{{ tool.function?.description || '暂无描述' }}</p>
+        </li>
+      </ul>
+    </AdmModal>
   </PageLayout>
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
-import AppToast from '../components/AppToast.vue';
+import { computed, nextTick, onMounted, reactive, ref, h } from 'vue';
 import CustomSelect from '../components/CustomSelect.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
+import KpiCards from '../components/admin/KpiCards.vue';
+import AdmModal from '../components/admin/AdmModal.vue';
 import NumberInput from '../components/NumberInput.vue';
+import ToggleSwitch from '../components/ToggleSwitch.vue';
 import PageLayout from '../components/PageLayout.vue';
 import { UiBadge, UiButton } from '../components/ui';
-import { usePointerDownOutside } from '../composables/usePointerDownOutside';
+import { useToast } from '../composables/useToast.js';
+import { useConfirm } from '../composables/useConfirm.js';
+import { useAsyncAction } from '../composables/useAsyncAction.js';
 import {
-  addMCPServer,
-  connectMCPServer,
-  deleteMCPServer,
-  disconnectMCPServer,
-  getMCPServerTools,
-  installMCPRegistryServer,
-  listMCPRegistryServers,
-  listMCPServers,
-  testMCPServer,
-  updateMCPServer,
+  addMCPServer, connectMCPServer, deleteMCPServer, disconnectMCPServer,
+  getMCPServerTools, installMCPRegistryServer, listMCPRegistryServers,
+  listMCPServers, testMCPServer, updateMCPServer,
 } from '../api/mcpService';
 
-const props = defineProps({
+defineProps({
   embedded: { type: Boolean, default: false },
   chatReturnPath: { type: String, default: '/' },
 });
 
-// ── Refs ─────────────────────────────────────────────────
-const toastRef = ref(null);
-const activeTab = ref('installed');
-const tabNavRef = ref(null);
-let sliderRafId = 0;
+const toast = useToast();
+const { confirm } = useConfirm();
 
-const updateTabSlider = () => {
-  nextTick(() => {
-    if (!tabNavRef.value) return;
-    const activeBtn = tabNavRef.value.querySelector('.tab-btn--active');
-    const activeContent = activeBtn?.querySelector('.tab-btn__content');
-    if (activeBtn && activeContent) {
-      const navRect = tabNavRef.value.getBoundingClientRect();
-      const btnRect = activeBtn.getBoundingClientRect();
-      const contentRect = activeContent.getBoundingClientRect();
-      const left = btnRect.left - navRect.left + (btnRect.width - contentRect.width) / 2 - 12;
-      tabNavRef.value.style.setProperty('--slider-left', `${left}px`);
-      tabNavRef.value.style.setProperty('--slider-width', `${contentRect.width + 24}px`);
-    }
-  });
-};
+const SVG = { xmlns: 'http://www.w3.org/2000/svg', width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
+const IconTotal = () => h('svg', SVG, [h('rect', { x: 2, y: 3, width: 20, height: 14, rx: 2 }), h('line', { x1: 8, y1: 21, x2: 16, y2: 21 }), h('line', { x1: 12, y1: 17, x2: 12, y2: 21 })]);
+const IconConnected = () => h('svg', SVG, [h('path', { d: 'M5 12.55a11 11 0 0 1 14.08 0' }), h('path', { d: 'M1.42 9a16 16 0 0 1 21.16 0' }), h('path', { d: 'M8.53 16.11a6 6 0 0 1 6.95 0' }), h('line', { x1: 12, y1: 20, x2: 12.01, y2: 20 })]);
+const IconEnabled = () => h('svg', SVG, [h('path', { d: 'M22 11.08V12a10 10 0 1 1-5.93-9.14' }), h('polyline', { points: '22 4 12 14.01 9 11.01' })]);
+const IconTools = () => h('svg', SVG, [h('path', { d: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z' })]);
 
-const scheduleTabSliderUpdate = () => {
-  if (sliderRafId) cancelAnimationFrame(sliderRafId);
-  sliderRafId = requestAnimationFrame(() => {
-    sliderRafId = 0;
-    updateTabSlider();
-  });
-};
-
-watch(activeTab, updateTabSlider);
-
-const loadingServers = ref(false);
-const loadingRegistryResults = ref(false);
-const loadingMoreRegistry = ref(false);
-const installing = ref(false);
-const installingRegistry = ref(false);
-const savingEdit = ref(false);
+const addServiceVisible = ref(false);
+const addMode = ref('manual');
 
 const servers = ref([]);
 const registryResults = ref([]);
@@ -844,201 +377,68 @@ const selectedRegistryServer = ref(null);
 const registryInstallDialogVisible = ref(false);
 const editDialogVisible = ref(false);
 const toolsDialogVisible = ref(false);
-const registryInstallDialogRef = ref(null);
-const editDialogRef = ref(null);
-const toolsDialogRef = ref(null);
 const editForm = ref(null);
 
-usePointerDownOutside({
-  inside: [registryInstallDialogRef],
-  enabled: () => registryInstallDialogVisible.value,
-  onOutside: closeRegistryInstallDialog,
-});
-
-usePointerDownOutside({
-  inside: [editDialogRef],
-  enabled: () => editDialogVisible.value,
-  onOutside: closeEditDialog,
-});
-
-usePointerDownOutside({
-  inside: [toolsDialogRef],
-  enabled: () => toolsDialogVisible.value,
-  onOutside: closeToolsDialog,
-});
-
-// ── 静态选项 ──────────────────────────────────────────────
-const riskOptions = [
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-];
-
+const riskOptions = [{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }];
 const transportOptions = [
   { value: 'stdio', label: 'stdio（本地进程）' },
   { value: 'sse', label: 'SSE（Server-Sent Events）' },
   { value: 'streamable_http', label: 'Streamable HTTP' },
 ];
 
-// ── Tab 定义 ──────────────────────────────────────────────
-const tabs = [
-  {
-    id: 'installed',
-    label: '已安装服务',
-    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
-      fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-      <line x1="8" y1="21" x2="16" y2="21"/>
-      <line x1="12" y1="17" x2="12" y2="21"/>
-    </svg>`,
-  },
-  {
-    id: 'manual',
-    label: '手动安装',
-    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
-      fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-    </svg>`,
-  },
-  {
-    id: 'registry',
-    label: 'Registry',
-    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
-      fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-    </svg>`,
-  },
-];
+const installForm = reactive({ server_name: '', display_name: '', transport: 'stdio', command: '', argsJson: '[]', envJson: '{}', url: '', headersJson: '{}', enabled: true, auto_connect: true, timeout: 30, risk_level: 'medium' });
+const registrySearch = reactive({ query: '', latest_only: true, limit: 6 });
+const registryInstallForm = reactive({ option_id: '', server_name: '', display_name: '', enabled: true, auto_connect: true, timeout: 30, risk_level: 'medium', input_values: {} });
 
-// ── Forms ─────────────────────────────────────────────────
-const installForm = reactive({
-  server_name: '',
-  display_name: '',
-  transport: 'stdio',
-  command: '',
-  argsJson: '[]',
-  envJson: '{}',
-  url: '',
-  headersJson: '{}',
-  enabled: true,
-  auto_connect: true,
-  timeout: 30,
-  risk_level: 'medium',
-});
-
-const registrySearch = reactive({
-  query: '',
-  latest_only: true,
-  limit: 6,
-});
-
-const registryInstallForm = reactive({
-  option_id: '',
-  server_name: '',
-  display_name: '',
-  enabled: true,
-  auto_connect: true,
-  timeout: 30,
-  risk_level: 'medium',
-  input_values: {},
-});
-
-// ── Computed ──────────────────────────────────────────────
-const selectedRegistryOption = computed(() =>
-  selectedRegistryServer.value?.install_options?.find((o) => o.id === registryInstallForm.option_id) || null
-);
-const selectedRegistryFields = computed(() => selectedRegistryOption.value?.form_fields || []);
 const summary = computed(() => ({
   total: servers.value.length,
   connected: servers.value.filter((s) => s.status === 'connected').length,
   enabled: servers.value.filter((s) => s.enabled).length,
   tools: servers.value.reduce((sum, s) => sum + (s.tool_count || 0), 0),
 }));
+const kpiItems = computed(() => [
+  { key: 'total', label: '服务总数', value: summary.value.total, icon: IconTotal },
+  { key: 'connected', label: '已连接', value: summary.value.connected, icon: IconConnected },
+  { key: 'enabled', label: '已启用', value: summary.value.enabled, icon: IconEnabled },
+  { key: 'tools', label: '可用工具', value: summary.value.tools, icon: IconTools },
+]);
+const selectedRegistryOption = computed(() => selectedRegistryServer.value?.install_options?.find((o) => o.id === registryInstallForm.option_id) || null);
+const selectedRegistryFields = computed(() => selectedRegistryOption.value?.form_fields || []);
 
-// ── Helpers ───────────────────────────────────────────────
-function showToast(message, type = 'error') {
-  toastRef.value?.show(message, type);
-}
-
-function openExternalLink(url) {
-  window.open(url, '_blank', 'noopener,noreferrer');
-}
-
+function openExternalLink(url) { window.open(url, '_blank', 'noopener,noreferrer'); }
 function statusBadgeTone(status) {
   if (status === 'connected') return 'success';
   if (status === 'connecting') return 'warning';
   if (status === 'error') return 'error';
   return 'neutral';
 }
-
-function formatArgs(args) {
-  if (!Array.isArray(args) || args.length === 0) return '';
-  return args.join(' ');
-}
-
-function formatHeaders(headers) {
-  const keys = Object.keys(headers || {});
-  return keys.length ? `Headers: ${keys.join(', ')}` : '远程服务地址';
-}
-
+function formatArgs(args) { return Array.isArray(args) && args.length ? args.join(' ') : ''; }
 function resetInstallForm() {
-  installForm.server_name = '';
-  installForm.display_name = '';
-  installForm.transport = 'stdio';
-  installForm.command = '';
-  installForm.argsJson = '[]';
-  installForm.envJson = '{}';
-  installForm.url = '';
-  installForm.headersJson = '{}';
-  installForm.enabled = true;
-  installForm.auto_connect = true;
-  installForm.timeout = 30;
-  installForm.risk_level = 'medium';
+  Object.assign(installForm, { server_name: '', display_name: '', transport: 'stdio', command: '', argsJson: '[]', envJson: '{}', url: '', headersJson: '{}', enabled: true, auto_connect: true, timeout: 30, risk_level: 'medium' });
 }
-
 function defaultFieldValue(field) {
   if (field.default_value !== null && field.default_value !== undefined) return field.default_value;
   if (field.format === 'select') return field.options?.[0]?.value ?? '';
   if (field.format === 'boolean') return false;
   return '';
 }
-
 function initializeRegistryInputValues(option) {
   const values = {};
   (option?.form_fields || []).forEach((f) => { values[f.key] = defaultFieldValue(f); });
   registryInstallForm.input_values = values;
 }
-
 function getPreferredInstallOption(server) {
-  return server?.install_options?.find((o) => o.id === server.preferred_option_id)
-    || server?.install_options?.find((o) => o.supported)
-    || server?.install_options?.[0]
-    || null;
+  return server?.install_options?.find((o) => o.id === server.preferred_option_id) || server?.install_options?.find((o) => o.supported) || server?.install_options?.[0] || null;
 }
-
-function countSupportedInstallOptions(server) {
-  return (server?.install_options || []).filter((o) => o.supported).length;
-}
-
+function countSupportedInstallOptions(server) { return (server?.install_options || []).filter((o) => o.supported).length; }
 function canQuickInstall(server) {
   const option = getPreferredInstallOption(server);
   if (!option?.supported) return false;
   if (countSupportedInstallOptions(server) !== 1) return false;
-  return !(option.form_fields || []).some((f) => {
-    if (!f.required) return false;
-    const v = f.default_value;
-    return v === null || v === undefined || v === '';
-  });
+  return !(option.form_fields || []).some((f) => f.required && (f.default_value === null || f.default_value === undefined || f.default_value === ''));
 }
-
-function quickInstallButtonText(server) {
-  return canQuickInstall(server) ? '一键安装' : '安装';
-}
-
-function firstUnsupportedReason(server) {
-  return server?.install_options?.find((o) => !o.supported)?.unsupported_reason || '';
-}
-
+function quickInstallButtonText(server) { return canQuickInstall(server) ? '一键安装' : '安装'; }
+function firstUnsupportedReason(server) { return server?.install_options?.find((o) => !o.supported)?.unsupported_reason || ''; }
 function applyRegistryInstallDefaults(server, option) {
   registryInstallForm.option_id = option?.id || '';
   registryInstallForm.server_name = option?.default_server_name || server?.default_server_name || '';
@@ -1049,15 +449,8 @@ function applyRegistryInstallDefaults(server, option) {
   registryInstallForm.risk_level = option?.default_risk_level || 'medium';
   initializeRegistryInputValues(option);
 }
-
-function openRegistryInstallDialog(server) {
-  selectedRegistryServer.value = server;
-  applyRegistryInstallDefaults(server, getPreferredInstallOption(server));
-  registryInstallDialogVisible.value = true;
-}
-
+function openRegistryInstallDialog(server) { selectedRegistryServer.value = server; applyRegistryInstallDefaults(server, getPreferredInstallOption(server)); registryInstallDialogVisible.value = true; }
 function closeRegistryInstallDialog() { registryInstallDialogVisible.value = false; }
-
 function handleRegistryOptionChange(optionId) {
   const option = selectedRegistryServer.value?.install_options?.find((o) => o.id === optionId);
   if (!option) return;
@@ -1065,7 +458,6 @@ function handleRegistryOptionChange(optionId) {
   registryInstallForm.risk_level = option.default_risk_level || registryInstallForm.risk_level;
   initializeRegistryInputValues(option);
 }
-
 function openEditDialog(server) {
   editForm.value = {
     name: server.name,
@@ -1083,902 +475,278 @@ function openEditDialog(server) {
   };
   editDialogVisible.value = true;
 }
-
 function closeEditDialog() { editDialogVisible.value = false; editForm.value = null; }
 function closeToolsDialog() { toolsDialogVisible.value = false; }
-
-// ── API 调用 ──────────────────────────────────────────────
-async function loadServers() {
-  loadingServers.value = true;
-  try {
-    const res = await listMCPServers();
-    servers.value = res.data || [];
-  } catch (error) {
-    showToast(error.message || '加载服务失败');
-  } finally {
-    loadingServers.value = false;
-  }
+function openAddService() {
+  addServiceVisible.value = true;
+  nextTick(() => {
+    document.querySelector('.add-service-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 }
 
-async function refreshAll() {
-  await loadServers();
-}
+const { run: runLoadServers, loading: loadingServers } = useAsyncAction(
+  async () => { const res = await listMCPServers(); servers.value = res.data || []; },
+  { errorPrefix: '加载服务失败' },
+);
+function refreshAll() { runLoadServers(); }
 
-async function searchRegistryServers({ append = false } = {}) {
-  if (append && !registryNextCursor.value) return;
-  const loadingRef = append ? loadingMoreRegistry : loadingRegistryResults;
-  loadingRef.value = true;
-  try {
-    const res = await listMCPRegistryServers({
-      search: registrySearch.query,
-      limit: registrySearch.limit,
-      cursor: append ? registryNextCursor.value : '',
-      latest_only: registrySearch.latest_only,
-    });
+const { run: runSearch, loading: loadingRegistryResults } = useAsyncAction(
+  async (opts = {}) => {
+    const append = opts.append === true;
+    if (append && !registryNextCursor.value) return;
+    const res = await listMCPRegistryServers({ search: registrySearch.query, limit: registrySearch.limit, cursor: append ? registryNextCursor.value : '', latest_only: registrySearch.latest_only });
     const items = res.data?.items || [];
     registryResults.value = append ? [...registryResults.value, ...items] : items;
     registryNextCursor.value = res.data?.next_cursor || '';
-  } catch (error) {
-    showToast(error.message || '搜索 Registry 失败');
-  } finally {
-    loadingRef.value = false;
-  }
-}
+  },
+  { errorPrefix: '搜索 Registry 失败', showErrorToast: false },
+);
+function searchRegistryServers() { runSearch({ append: false }); }
+const { run: runLoadMore, loading: loadingMoreRegistry } = useAsyncAction(
+  () => runSearch({ append: true }),
+  { showErrorToast: false },
+);
+function loadMoreRegistryServers() { runLoadMore(); }
 
-async function loadMoreRegistryServers() { await searchRegistryServers({ append: true }); }
-
-async function submitManualInstall() {
-  if (!installForm.server_name) { showToast('请填写服务名称', 'warning'); return; }
-  if (installForm.transport === 'stdio' && !installForm.command) { showToast('请填写启动命令', 'warning'); return; }
-  if (installForm.transport !== 'stdio' && !installForm.url) { showToast('请填写 URL', 'warning'); return; }
-
-  const isStdio = installForm.transport === 'stdio';
-  let parsedArgs, parsedEnv, parsedHeaders;
-  if (isStdio) {
-    try { parsedArgs = JSON.parse(installForm.argsJson || '[]'); } catch (e) { showToast('参数 JSON 格式错误', 'warning'); return; }
-    try { parsedEnv = JSON.parse(installForm.envJson || '{}'); } catch (e) { showToast('环境变量 JSON 格式错误', 'warning'); return; }
-  } else {
-    try { parsedHeaders = JSON.parse(installForm.headersJson || '{}'); } catch (e) { showToast('Headers JSON 格式错误', 'warning'); return; }
-  }
-
-  installing.value = true;
-  try {
-    const payload = {
-      name: installForm.server_name,
-      display_name: installForm.display_name || installForm.server_name,
-      transport: installForm.transport,
-      enabled: installForm.enabled,
-      auto_connect: installForm.auto_connect,
-      timeout: installForm.timeout,
-      risk_level: installForm.risk_level,
-      ...(isStdio
-        ? { command: installForm.command, args: parsedArgs, env: parsedEnv }
-        : { url: installForm.url, headers: parsedHeaders }),
-    };
-    const res = await addMCPServer(payload);
-    showToast(res.message || '安装成功', 'success');
+const { run: runInstall, loading: installing } = useAsyncAction(
+  async (payload) => {
+    await addMCPServer(payload);
     resetInstallForm();
-    await loadServers();
-    activeTab.value = 'installed';
-  } catch (error) {
-    showToast(error.message || '安装失败');
-  } finally {
-    installing.value = false;
-  }
-}
-
-async function submitRegistryInstall(customPayload = null) {
-  const option = selectedRegistryOption.value || customPayload?.install_option;
-  if (!option) { showToast('请选择一个可用的安装方式', 'warning'); return; }
-  if (!option.supported) { showToast(option.unsupported_reason || '当前安装方式暂不支持', 'warning'); return; }
-  const payload = customPayload || {
-    install_option: option,
-    server_name: registryInstallForm.server_name,
-    display_name: registryInstallForm.display_name,
-    enabled: registryInstallForm.enabled,
-    auto_connect: registryInstallForm.auto_connect,
-    timeout: registryInstallForm.timeout,
-    risk_level: registryInstallForm.risk_level,
-    input_values: registryInstallForm.input_values,
-  };
-  const missingField = (option.form_fields || []).find(
-    (f) => f.required && (payload.input_values?.[f.key] === '' || payload.input_values?.[f.key] == null)
-  );
-  if (missingField) { showToast(`请填写 ${missingField.label}`, 'warning'); return; }
-  installingRegistry.value = true;
+    await runLoadServers();
+    addServiceVisible.value = false;
+  },
+  { successMessage: (r) => r?.message || '安装成功', errorPrefix: '安装失败' },
+);
+function submitManualInstall() {
+  if (!installForm.server_name) return toast.warning('请填写服务名称');
+  const isStdio = installForm.transport === 'stdio';
+  if (isStdio && !installForm.command) return toast.warning('请填写启动命令');
+  if (!isStdio && !installForm.url) return toast.warning('请填写 URL');
+  let parsedArgs, parsedEnv, parsedHeaders;
   try {
-    const res = await installMCPRegistryServer(payload);
-    showToast(res.message || '安装成功', 'success');
-    closeRegistryInstallDialog();
-    await loadServers();
-    activeTab.value = 'installed';
-  } catch (error) {
-    showToast(error.message || 'Registry 安装失败');
-  } finally {
-    installingRegistry.value = false;
-  }
+    if (isStdio) { parsedArgs = JSON.parse(installForm.argsJson || '[]'); parsedEnv = JSON.parse(installForm.envJson || '{}'); }
+    else { parsedHeaders = JSON.parse(installForm.headersJson || '{}'); }
+  } catch (e) { return toast.warning('JSON 格式错误'); }
+  const payload = {
+    name: installForm.server_name, display_name: installForm.display_name || installForm.server_name,
+    transport: installForm.transport, enabled: installForm.enabled, auto_connect: installForm.auto_connect,
+    timeout: installForm.timeout, risk_level: installForm.risk_level,
+    ...(isStdio ? { command: installForm.command, args: parsedArgs, env: parsedEnv } : { url: installForm.url, headers: parsedHeaders }),
+  };
+  runInstall(payload);
 }
 
-async function handleRegistryInstall(server) {
+const { run: runRegistryInstall, loading: installingRegistry } = useAsyncAction(
+  async (payload) => {
+    await installMCPRegistryServer(payload);
+    closeRegistryInstallDialog();
+    await runLoadServers();
+    addServiceVisible.value = false;
+  },
+  { successMessage: (r) => r?.message || '安装成功', errorPrefix: 'Registry 安装失败' },
+);
+function submitRegistryInstall(customPayload = null) {
+  const option = selectedRegistryOption.value || customPayload?.install_option;
+  if (!option) return toast.warning('请选择一个可用的安装方式');
+  if (!option.supported) return toast.warning(option.unsupported_reason || '当前安装方式暂不支持');
+  const payload = customPayload || {
+    install_option: option, server_name: registryInstallForm.server_name, display_name: registryInstallForm.display_name,
+    enabled: registryInstallForm.enabled, auto_connect: registryInstallForm.auto_connect, timeout: registryInstallForm.timeout,
+    risk_level: registryInstallForm.risk_level, input_values: registryInstallForm.input_values,
+  };
+  const missing = (option.form_fields || []).find((f) => f.required && (payload.input_values?.[f.key] === '' || payload.input_values?.[f.key] == null));
+  if (missing) return toast.warning(`请填写 ${missing.label}`);
+  runRegistryInstall(payload);
+}
+function handleRegistryInstall(server) {
   const option = getPreferredInstallOption(server);
-  if (!option?.supported) { showToast(firstUnsupportedReason(server) || '当前没有可用安装方式', 'warning'); return; }
+  if (!option?.supported) return toast.warning(firstUnsupportedReason(server) || '当前没有可用安装方式');
   if (!canQuickInstall(server)) { openRegistryInstallDialog(server); return; }
-  const payload = {
+  submitRegistryInstall({
     install_option: option,
     server_name: option.default_server_name || server.default_server_name,
     display_name: option.default_display_name || server.default_display_name,
-    enabled: true,
-    auto_connect: true,
-    timeout: option.default_timeout || 30,
-    risk_level: option.default_risk_level || 'medium',
+    enabled: true, auto_connect: true, timeout: option.default_timeout || 30, risk_level: option.default_risk_level || 'medium',
     input_values: Object.fromEntries((option.form_fields || []).map((f) => [f.key, defaultFieldValue(f)])),
-  };
-  await submitRegistryInstall(payload);
+  });
 }
 
-async function saveEdit() {
-  if (!editForm.value) return;
-  savingEdit.value = true;
-  try {
+const { run: runSaveEdit, loading: savingEdit } = useAsyncAction(
+  async () => {
+    if (!editForm.value) return;
     let parsedArgs = [], parsedEnv = {}, parsedHeaders = {};
-    if (editForm.value.transport === 'stdio') {
-      parsedArgs = JSON.parse(editForm.value.argsJson || '[]');
-      parsedEnv = JSON.parse(editForm.value.envJson || '{}');
-    } else {
-      parsedHeaders = JSON.parse(editForm.value.headersJson || '{}');
-    }
+    if (editForm.value.transport === 'stdio') { parsedArgs = JSON.parse(editForm.value.argsJson || '[]'); parsedEnv = JSON.parse(editForm.value.envJson || '{}'); }
+    else { parsedHeaders = JSON.parse(editForm.value.headersJson || '{}'); }
+    const isStdio = editForm.value.transport === 'stdio';
     const res = await updateMCPServer(editForm.value.name, {
-      display_name: editForm.value.display_name,
-      transport: editForm.value.transport,
-      enabled: editForm.value.enabled,
-      auto_connect: editForm.value.auto_connect,
-      timeout: editForm.value.timeout,
-      risk_level: editForm.value.risk_level,
-      command: editForm.value.transport === 'stdio' ? editForm.value.command : null,
-      args: editForm.value.transport === 'stdio' ? parsedArgs : [],
-      env: editForm.value.transport === 'stdio' ? parsedEnv : {},
-      headers: editForm.value.transport === 'stdio' ? {} : parsedHeaders,
-      url: editForm.value.transport === 'stdio' ? null : editForm.value.url,
+      display_name: editForm.value.display_name, transport: editForm.value.transport,
+      enabled: editForm.value.enabled, auto_connect: editForm.value.auto_connect, timeout: editForm.value.timeout, risk_level: editForm.value.risk_level,
+      command: isStdio ? editForm.value.command : null, args: isStdio ? parsedArgs : [], env: isStdio ? parsedEnv : {},
+      headers: isStdio ? {} : parsedHeaders, url: isStdio ? null : editForm.value.url,
     });
-    showToast(res.message || '保存成功', 'success');
     closeEditDialog();
-    await loadServers();
-  } catch (error) {
-    showToast(error.message || '保存失败');
-  } finally {
-    savingEdit.value = false;
-  }
-}
+    await runLoadServers();
+    return res;
+  },
+  { successMessage: (r) => r?.message || '保存成功', errorPrefix: '保存失败' },
+);
+function saveEdit() { runSaveEdit(); }
 
-async function handleConnect(server) {
-  try {
-    const res = await connectMCPServer(server.name);
-    showToast(res.message || '连接成功', 'success');
-    await loadServers();
-  } catch (error) {
-    showToast(error.message || '连接失败');
-  }
-}
+const { run: runConnect } = useAsyncAction(
+  async (server) => { const res = await connectMCPServer(server.name); await runLoadServers(); return res; },
+  { successMessage: (r) => r?.message || '连接成功', errorPrefix: '连接失败' },
+);
+function handleConnect(server) { runConnect(server); }
+const { run: runDisconnect } = useAsyncAction(
+  async (server) => { const res = await disconnectMCPServer(server.name); await runLoadServers(); return res; },
+  { successMessage: (r) => r?.message || '断开成功', errorPrefix: '断开失败' },
+);
+function handleDisconnect(server) { runDisconnect(server); }
+const { run: runTest } = useAsyncAction(
+  async (server) => { const res = await testMCPServer(server.name); await runLoadServers(); return res; },
+  { successMessage: (r) => r?.message || '测试成功', errorPrefix: '测试失败' },
+);
+function handleTest(server) { runTest(server); }
 
-async function handleDisconnect(server) {
-  try {
-    const res = await disconnectMCPServer(server.name);
-    showToast(res.message || '断开成功', 'success');
-    await loadServers();
-  } catch (error) {
-    showToast(error.message || '断开失败');
-  }
-}
-
-async function handleTest(server) {
-  try {
-    const res = await testMCPServer(server.name);
-    showToast(res.message || '测试成功', 'success');
-    await loadServers();
-  } catch (error) {
-    showToast(error.message || '测试失败');
-  }
-}
-
-async function showTools(server) {
-  try {
+const { run: runShowTools } = useAsyncAction(
+  async (server) => {
     const res = await getMCPServerTools(server.name);
     serverTools.value = res.data?.tools || [];
     activeToolsServerName.value = server.display_name || server.name;
     toolsDialogVisible.value = true;
-  } catch (error) {
-    showToast(error.message || '加载工具失败');
-  }
-}
+  },
+  { errorPrefix: '加载工具失败' },
+);
+function showTools(server) { runShowTools(server); }
 
+const { run: runDelete } = useAsyncAction(
+  async (server) => { const res = await deleteMCPServer(server.name); await runLoadServers(); return res; },
+  { successMessage: (r) => r?.message || '删除成功', errorPrefix: '删除失败' },
+);
 async function handleDelete(server) {
-  if (!window.confirm(`确定删除 MCP 服务"${server.display_name || server.name}"吗？`)) return;
-  try {
-    const res = await deleteMCPServer(server.name);
-    showToast(res.message || '删除成功', 'success');
-    await loadServers();
-  } catch (error) {
-    showToast(error.message || '删除失败');
-  }
+  const ok = await confirm({ message: `确定删除 MCP 服务“${server.display_name || server.name}”吗？`, confirmText: '删除', danger: true });
+  if (!ok) return;
+  runDelete(server);
 }
 
 onMounted(() => {
-  updateTabSlider();
-  scheduleTabSliderUpdate();
-  loadServers();
-  searchRegistryServers();
-  window.addEventListener('resize', scheduleTabSliderUpdate);
-});
-
-onUnmounted(() => {
-  if (sliderRafId) cancelAnimationFrame(sliderRafId);
-  window.removeEventListener('resize', scheduleTabSliderUpdate);
+  runLoadServers();
+  runSearch({ append: false });
 });
 </script>
 
 <style scoped>
-/* ─── 统计卡片 ──────────────────────────────────────────── */
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--spacing-md);
-}
+.add-service-panel { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-lg); border-radius: var(--radius-xl); border: 1px solid var(--adm-border); background: var(--adm-surface); box-shadow: var(--adm-shadow-inset); scroll-margin-top: var(--spacing-md); }
+.add-service-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--spacing-md); }
+.add-service-close { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex-shrink: 0; border: 1px solid var(--adm-border); border-radius: var(--radius-md); background: var(--adm-control-bg); color: var(--color-text-secondary); cursor: pointer; transition: all var(--transition-fast); }
+.add-service-close:hover { border-color: var(--adm-border-strong); background: var(--adm-control-hover); color: var(--color-text-primary); }
+.add-subnav { display: flex; gap: var(--spacing-xs); padding: var(--spacing-xs); border-radius: var(--radius-md); background: var(--adm-control-bg); border: 1px solid var(--adm-border); width: fit-content; }
+.add-subnav-btn { display: inline-flex; align-items: center; gap: var(--spacing-sm); padding: 8px 14px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); font: inherit; font-size: var(--font-size-sm); font-weight: 500; cursor: pointer; white-space: nowrap; transition: all var(--transition-fast); }
+.add-subnav-btn:hover { color: var(--color-text-primary); }
+.add-subnav-btn--active { background: var(--adm-surface-hover); color: var(--color-text-primary); font-weight: 600; box-shadow: var(--shadow-sm); }
+.add-pane { display: flex; flex-direction: column; gap: var(--spacing-md); }
 
-.summary-card {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-md) var(--spacing-lg);
-  border: 1px solid var(--adm-border);
-  background: var(--adm-surface-raised);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow: var(--adm-shadow-inset);
-  transition: border-color 0.2s, background 0.2s;
-}
-.summary-card:hover { border-color: var(--adm-border-strong); background: var(--adm-surface-hover); }
-
-.summary-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--adm-border);
-  flex-shrink: 0;
-  background: var(--adm-control-bg);
-  color: var(--color-text-secondary);
-}
-.summary-icon--total,
-.summary-icon--connected,
-.summary-icon--enabled,
-.summary-icon--tools { background: var(--adm-control-bg); color: var(--color-text-secondary); border-color: var(--adm-border); }
-
-.summary-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.summary-label { color: var(--color-text-secondary); font-size: var(--font-size-xs); white-space: nowrap; }
-.summary-value { display: block; font-size: var(--font-size-2xl); font-weight: 700; line-height: 1.2; color: var(--color-text-primary); }
-.summary-value--connected { color: var(--color-success); }
-.summary-value--enabled   { color: var(--color-active); }
-.summary-value--tools     { color: var(--color-warning); }
-
-/* ─── Tab 内容区 ────────────────────────────────────────── */
-.tab-content { display: flex; flex-direction: column; gap: var(--spacing-lg); }
-
-.section-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: var(--spacing-md);
-}
-.toolbar-left { display: flex; flex-direction: column; gap: 2px; }
-.section-title { font-size: var(--font-size-lg); font-weight: 600; margin: 0; color: var(--color-text-primary); }
-.section-desc { color: var(--color-text-secondary); font-size: var(--font-size-sm); margin: 0; }
-
-/* ─── 已安装服务行式列表 ────────────────────────────────── */
-.server-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.server-card {
-  display: grid;
-  grid-template-columns: minmax(240px, 1.15fr) minmax(220px, 1fr) minmax(260px, auto);
-  grid-template-areas:
-    "head meta actions"
-    "connection connection actions"
-    "error error error";
-  align-items: center;
-  gap: 10px 14px;
-  padding: 12px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--adm-border);
-  background: var(--adm-surface-muted);
-  box-shadow: inset 0 1px 0 var(--color-soft-inset);
-  transition: border-color 0.2s, background 0.2s;
-}
-.server-card:hover {
-  border-color: var(--adm-border-strong);
-  background: var(--adm-surface);
-}
-
-.server-card-head {
-  grid-area: head;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-
-.server-card-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  flex-shrink: 0;
-  border: 1px solid var(--adm-border);
-  background: var(--adm-control-bg);
-  color: var(--color-text-secondary);
-}
-.server-icon--stdio,
-.server-icon--sse,
-.server-icon--streamable_http { background: var(--adm-control-bg); color: var(--color-text-secondary); }
-
+.server-grid { display: flex; flex-direction: column; gap: 8px; }
+.server-card { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: 12px 14px; border-radius: var(--radius-lg); }
+.server-card__main { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); }
+.server-card-head { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
+.server-card-icon { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--radius-md); flex-shrink: 0; border: 1px solid var(--adm-border); background: var(--adm-control-bg); color: var(--color-text-secondary); }
 .server-card-info { flex: 1; min-width: 0; }
 .server-card-name { font-weight: 600; font-size: var(--font-size-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.server-card-id   { color: var(--color-text-muted); font-size: var(--font-size-xs); font-family: var(--font-mono); margin-top: 2px; }
-
+.server-card-id { color: var(--color-text-muted); font-size: var(--font-size-xs); font-family: var(--font-mono); margin-top: 2px; }
 .server-card-badges { display: flex; align-items: center; gap: var(--spacing-xs); flex-shrink: 0; }
 
-/* 状态点 */
-.status-dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.status-dot--connected  { background: var(--color-success); box-shadow: 0 0 6px rgba(52, 211, 153, 0.6); }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.status-dot--connected { background: var(--color-success); box-shadow: none; }
 .status-dot--connecting { background: var(--color-warning); animation: pulse-dot 1s ease-in-out infinite; }
-.status-dot--error      { background: var(--color-error); }
-.status-dot--unknown    { background: var(--color-text-muted); }
+.status-dot--error { background: var(--color-error); }
+.status-dot--unknown { background: var(--color-text-muted); }
 @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
-/* 元数据行 */
-.server-meta-row {
-  grid-area: meta;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-xs);
-  min-width: 0;
-}
-
-.meta-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  font-size: var(--font-size-xs);
-}
+.server-meta-row { display: flex; flex-wrap: wrap; gap: var(--spacing-xs); min-width: 0; }
 .meta-chip-label { color: var(--color-text-muted); }
 .meta-chip-value { color: var(--color-text-primary); font-weight: 500; }
 .meta-chip-value--mono { font-family: var(--font-mono); }
-
-.risk--low    { color: var(--color-success); }
+.risk--low { color: var(--color-success); }
 .risk--medium { color: var(--color-warning); }
-.risk--high   { color: var(--color-error); }
+.risk--high { color: var(--color-error); }
 .text-success { color: var(--color-success); }
-.text-muted   { color: var(--color-text-muted); }
+.text-muted { color: var(--color-text-muted); }
 
-/* 接入信息 */
-.server-connection-info {
-  grid-area: connection;
-  background: var(--color-bg-secondary);
-  border-radius: 8px;
-  padding: 7px 10px;
-  min-width: 0;
-}
-.connection-code {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  word-break: break-all;
-  display: block;
-}
+.server-connection-info { background: var(--color-bg-secondary); border-radius: var(--radius-sm); padding: 7px 10px; min-width: 0; }
+.connection-code { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-secondary); word-break: break-all; display: block; }
 
-/* 错误横幅 */
-.error-banner {
-  grid-area: error;
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: var(--radius-md);
-  background: rgba(var(--color-error-rgb), 0.08);
-  border: 1px solid rgba(var(--color-error-rgb), 0.2);
-  color: var(--color-error);
-  font-size: var(--font-size-xs);
-}
+.error-banner { display: flex; align-items: flex-start; gap: var(--spacing-xs); padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--radius-md); background: rgba(var(--color-error-rgb), 0.08); border: 1px solid rgba(var(--color-error-rgb), 0.2); color: var(--color-error); font-size: var(--font-size-xs); }
+.server-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; padding-top: var(--spacing-sm); border-top: 1px solid var(--color-border); }
 
-/* 服务操作按钮 */
-.server-actions {
-  grid-area: actions;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: flex-end;
-  padding-top: 0;
-  border-top: none;
-}
+.manual-install-form { display: flex; flex-direction: column; gap: var(--spacing-md); }
+.form-divider { height: 1px; background: var(--color-border); margin: var(--spacing-xs) 0; }
+.form-section-label { font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
+.adm-modal-form { display: flex; flex-direction: column; gap: var(--spacing-md); }
 
-.act-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 11px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text-secondary);
-  font: inherit;
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.act-btn:hover { color: var(--color-text-primary); border-color: var(--color-border-hover); background: var(--color-hover-overlay); }
-.act-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-
-.act-btn--connect:not(:disabled):hover  { color: var(--color-success); border-color: rgba(var(--color-success-rgb), 0.4); background: rgba(var(--color-success-rgb), 0.08); }
-.act-btn--disconnect:not(:disabled):hover { color: var(--color-warning); border-color: rgba(var(--color-warning-rgb), 0.4); background: rgba(var(--color-warning-rgb), 0.08); }
-.act-btn--danger { color: var(--color-error); border-color: rgba(var(--color-error-rgb), 0.2); background: rgba(var(--color-error-rgb), 0.06); }
-.act-btn--danger:hover { border-color: rgba(var(--color-error-rgb), 0.4); background: rgba(var(--color-error-rgb), 0.12); }
-
-.act-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: var(--radius-full);
-  background: rgba(var(--color-brand-accent-rgb), 0.2);
-  color: var(--color-brand-accent-light);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-}
-
-/* ─── 手动安装表单 ──────────────────────────────────────── */
-.manual-install-form {
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--adm-border);
-  background: var(--adm-surface);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow: var(--adm-shadow-inset);
-  padding: var(--spacing-lg);
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-}
-
-.form-divider {
-  height: 1px;
-  background: var(--color-border);
-  margin: var(--spacing-xs) 0;
-}
-
-.form-section-label {
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-text-muted);
-}
-
-/* ─── 表单通用 ──────────────────────────────────────────── */
-.form-grid {
-  display: grid;
-  gap: var(--spacing-md);
-}
-.form-grid.two-col  { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.form-grid.four-col { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-.field > span, .field > label {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  letter-spacing: 0.02em;
-}
+.form-grid { display: grid; gap: var(--spacing-md); }
+.form-grid.two-col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.field { display: flex; flex-direction: column; gap: var(--spacing-xs); }
+.field > span, .field > label { font-size: var(--font-size-xs); color: var(--color-text-secondary); letter-spacing: 0.02em; }
 .field em { color: var(--color-error); font-style: normal; margin-left: 3px; }
 .field small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
-
-.field > input,
-.field > select,
-.field > textarea {
-  width: 100%;
-  height: 42px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  padding: 0 14px;
-  font: inherit;
-  font-size: var(--font-size-sm);
-  transition: border-color 0.2s;
-}
-.field > input:hover,
-.field > select:hover,
-.field > textarea:hover {
-  border-color: var(--color-border-hover);
-}
-.field > input:focus,
-.field > select:focus,
-.field > textarea:focus {
-  outline: none;
-  border-color: var(--color-border-focus);
-  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.16);
-}
+.field > input, .field > select, .field > textarea { width: 100%; height: 42px; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-bg-secondary); color: var(--color-text-primary); padding: 0 14px; font: inherit; font-size: var(--font-size-sm); transition: border-color 0.2s; }
+.field > input:hover, .field > select:hover, .field > textarea:hover { border-color: var(--color-border-hover); }
+.field > input:focus, .field > select:focus, .field > textarea:focus { outline: none; border-color: var(--color-border-focus); box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.16); }
 .field > textarea { resize: vertical; min-height: 80px; height: auto; padding: 10px 14px; }
-
 .font-mono-input { font-family: var(--font-mono); font-size: var(--font-size-xs); }
-
-/* Toggle 开关 */
-.toggle-field {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  cursor: pointer;
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  user-select: none;
-}
-.toggle-field--inline { align-self: flex-end; padding-bottom: 9px; }
-.toggle-field--inner  { padding-top: 6px; }
-
-.toggle-wrap { position: relative; }
-.toggle-input { position: absolute; opacity: 0; width: 0; height: 0; }
-.toggle-track {
-  display: block;
-  width: 36px;
-  height: 20px;
-  border-radius: var(--radius-full);
-  background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
-  transition: all 0.2s;
-  cursor: pointer;
-  position: relative;
-}
-.toggle-track::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--color-text-muted);
-  transition: all 0.2s;
-}
-.toggle-input:checked + .toggle-track {
-  background: rgba(var(--color-brand-accent-rgb), 0.3);
-  border-color: rgba(var(--color-brand-accent-rgb), 0.5);
-}
-.toggle-input:checked + .toggle-track::after {
-  left: 18px;
-  background: var(--color-brand-accent-light);
-}
-
-.form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--spacing-sm);
-  padding-top: var(--spacing-md);
-  border-top: 1px solid var(--color-border);
-  margin-top: auto;
-}
-
-/* ─── Registry 搜索栏 ───────────────────────────────────── */
-.registry-search-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  padding: var(--spacing-md) var(--spacing-lg);
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--adm-border);
-  background: var(--adm-surface);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow: var(--adm-shadow-inset);
-}
-
-.search-input-wrap {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  color: var(--color-text-muted);
-}
-.registry-search-input {
-  flex: 1;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--color-text-primary);
-  font: inherit;
-  font-size: var(--font-size-sm);
-}
-.registry-search-input::placeholder { color: var(--color-text-muted); }
-
-/* Registry 结果卡片网格 */
-.registry-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: var(--spacing-lg);
-}
-
-.registry-card {
-  border-radius: var(--radius-xl);
-  padding: var(--spacing-lg);
-  border: 1px solid var(--adm-border);
-  background: var(--adm-surface);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow: var(--adm-shadow-inset);
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-  transition: border-color 0.2s, background 0.2s;
-}
-.registry-card:hover { border-color: var(--adm-border-strong); background: var(--adm-surface-hover); }
-
-.registry-card-head { display: flex; align-items: flex-start; gap: var(--spacing-md); }
-.registry-card-title { flex: 1; }
-.registry-card-title h3 { font-size: var(--font-size-base); font-weight: 600; margin-bottom: 4px; }
-.registry-card-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--spacing-xs);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-}
-.registry-card-meta code { font-family: var(--font-mono); }
-
-.version-tag {
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  font-family: var(--font-mono);
-  color: var(--color-text-secondary);
-}
-
-.registry-desc {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.install-options-row { display: flex; flex-wrap: wrap; gap: 6px; }
-
-.option-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 9px;
-  border-radius: var(--radius-full);
-  font-size: 11px;
-  border: 1px solid transparent;
-}
-.option-chip--ok {
-  background: rgba(var(--color-success-rgb), 0.1);
-  border-color: rgba(var(--color-success-rgb), 0.25);
-  color: var(--color-success);
-}
-.option-chip--no {
-  background: rgba(var(--color-error-rgb), 0.07);
-  border-color: rgba(var(--color-error-rgb), 0.15);
-  color: var(--color-text-muted);
-}
-
-.inline-warning {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-xs);
-  color: var(--color-warning);
-  font-size: var(--font-size-xs);
-}
-
-.registry-card-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--spacing-xs);
-  padding-top: var(--spacing-xs);
-  border-top: 1px solid var(--color-border);
-  margin-top: auto;
-}
-
-.registry-links { display: flex; gap: var(--spacing-xs); margin-left: auto; }
-.ext-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 10px;
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  text-decoration: none;
-  border: 1px solid transparent;
-  transition: all 0.2s;
-  cursor: pointer;
-}
-.ext-link:hover { color: var(--color-text-primary); border-color: var(--color-border); background: var(--color-hover-overlay); }
-
-.load-more-row { display: flex; justify-content: center; }
-
-/* ─── Badge & Tag ───────────────────────────────────────── */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-full);
-  padding: 3px 9px;
-  font-size: 11px;
-  font-weight: 500;
-  border: 1px solid transparent;
-}
-.badge-success { background: rgba(var(--color-success-rgb), 0.12); color: var(--color-success); border-color: rgba(var(--color-success-rgb), 0.25); }
-.badge-warning { background: rgba(var(--color-warning-rgb), 0.12); color: var(--color-warning); border-color: rgba(var(--color-warning-rgb), 0.25); }
-.badge-error   { background: rgba(var(--color-error-rgb), 0.12);   color: var(--color-error);   border-color: rgba(var(--color-error-rgb), 0.25); }
-.badge-neutral { background: var(--color-hover-overlay); color: var(--color-text-secondary); border-color: var(--color-border); }
-
-.text-warning { color: var(--color-warning); }
-
-/* ─── 模态 ──────────────────────────────────────────────── */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-dialog);
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--spacing-lg);
-}
-
-.modal-shell {
-  width: min(860px, 100%);
-  max-height: 90vh;
-  overflow: auto;
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--adm-border-strong);
-  background: var(--adm-surface-hover);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  box-shadow: var(--shadow-xl), 0 0 0 1px var(--color-soft-inset);
-  display: flex;
-  flex-direction: column;
-}
-.modal-shell--narrow { width: min(560px, 100%); }
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: var(--spacing-md);
-  padding: var(--spacing-lg) var(--spacing-lg) 0;
-  flex-shrink: 0;
-}
-.modal-title-block h3 { font-size: var(--font-size-lg); margin-bottom: 2px; }
-.modal-title-block p  { color: var(--color-text-secondary); font-size: var(--font-size-sm); }
 .font-mono { font-family: var(--font-mono); }
 
-.modal-close-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: all 0.2s;
-  flex-shrink: 0;
-}
-.modal-close-btn:hover { color: var(--color-text-primary); border-color: var(--color-border-hover); background: var(--color-hover-overlay); }
+.toggle-field { display: inline-flex; align-items: center; gap: var(--spacing-sm); cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-secondary); user-select: none; }
+.toggle-field--inline { align-self: flex-end; padding-bottom: 9px; }
+.toggle-field--inner { padding-top: 6px; }
+.toggle-row { display: flex; flex-wrap: wrap; gap: var(--spacing-lg); padding: 2px 0; }
+.form-actions { display: flex; justify-content: flex-end; gap: var(--spacing-sm); padding-top: var(--spacing-md); border-top: 1px solid var(--color-border); margin-top: auto; }
 
-.modal-body {
-  flex: 1;
-  overflow: auto;
-  padding: var(--spacing-lg);
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-}
+.registry-search-bar { display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--adm-border); background: var(--adm-control-bg); }
+.search-input-wrap { flex: 1; display: flex; align-items: center; gap: var(--spacing-sm); color: var(--color-text-muted); }
+.registry-search-input { flex: 1; background: transparent; border: none; outline: none; color: var(--color-text-primary); font: inherit; font-size: var(--font-size-sm); }
+.registry-search-input::placeholder { color: var(--color-text-muted); }
 
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-md) var(--spacing-lg) var(--spacing-lg);
-  border-top: 1px solid var(--color-border);
-  flex-shrink: 0;
-}
+.registry-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--spacing-md); }
+.registry-card { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md); border-radius: var(--radius-lg); border: 1px solid var(--adm-border); background: var(--adm-surface-muted); transition: border-color var(--transition-fast), background var(--transition-fast); }
+.registry-card:hover { border-color: var(--adm-border-strong); background: var(--adm-surface); }
+.registry-card-head { display: flex; align-items: flex-start; gap: var(--spacing-md); }
+.registry-card-title { flex: 1; min-width: 0; }
+.registry-card-title h3 { font-size: var(--font-size-base); font-weight: 600; margin: 0 0 4px; }
+.registry-card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--spacing-xs); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.registry-card-meta code { font-family: var(--font-mono); }
+.version-tag { padding: 2px 6px; border-radius: var(--radius-sm); background: var(--color-bg-secondary); border: 1px solid var(--color-border); font-family: var(--font-mono); color: var(--color-text-secondary); }
+.registry-desc { color: var(--color-text-secondary); font-size: var(--font-size-sm); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.install-options-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.option-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: var(--radius-full); font-size: 11px; border: 1px solid transparent; }
+.option-chip--ok { background: rgba(var(--color-success-rgb), 0.1); border-color: rgba(var(--color-success-rgb), 0.25); color: var(--color-success); }
+.option-chip--no { background: rgba(var(--color-error-rgb), 0.07); border-color: rgba(var(--color-error-rgb), 0.15); color: var(--color-text-muted); }
+.inline-warning { display: flex; align-items: flex-start; gap: var(--spacing-xs); color: var(--color-warning); font-size: var(--font-size-xs); }
+.registry-card-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--spacing-xs); padding-top: var(--spacing-xs); border-top: 1px solid var(--color-border); margin-top: auto; }
+.registry-links { display: flex; gap: var(--spacing-xs); margin-left: auto; }
+.ext-link { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: var(--radius-md); font-size: var(--font-size-xs); color: var(--color-text-muted); text-decoration: none; border: 1px solid transparent; transition: all 0.2s; cursor: pointer; }
+.ext-link:hover { color: var(--color-text-primary); border-color: var(--color-border); background: var(--color-hover-overlay); }
+.load-more-row { display: flex; justify-content: center; }
 
-/* ─── 工具列表 ──────────────────────────────────────────── */
+.badge { display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-full); padding: 3px 9px; font-size: 11px; font-weight: 500; border: 1px solid transparent; }
+.badge-success { background: rgba(var(--color-success-rgb), 0.12); color: var(--color-success); border-color: rgba(var(--color-success-rgb), 0.25); }
+.text-warning { color: var(--color-warning); }
+
+.modal-title-block h3 { font-size: var(--font-size-lg); margin: 0 0 2px; }
+.modal-title-block p { color: var(--color-text-secondary); font-size: var(--font-size-sm); margin: 0; }
+
 .tool-list { display: flex; flex-direction: column; gap: var(--spacing-sm); list-style: none; margin: 0; padding: 0; }
-
-.tool-item {
-  padding: var(--spacing-md);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-}
+.tool-item { padding: var(--spacing-md); border-radius: var(--radius-lg); background: var(--color-bg-secondary); border: 1px solid var(--color-border); }
 .tool-item-head { margin-bottom: 4px; }
-.tool-name {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  color: var(--color-brand-accent-light);
-  background: rgba(var(--color-brand-accent-rgb), 0.1);
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-}
+.tool-name { font-family: var(--font-mono); font-size: var(--font-size-sm); color: var(--color-brand-accent-light); background: rgba(var(--color-brand-accent-rgb), 0.1); padding: 2px 8px; border-radius: var(--radius-sm); }
 .tool-desc { color: var(--color-text-secondary); font-size: var(--font-size-sm); margin: 0; }
 
-/* ─── 响应式 ────────────────────────────────────────────── */
- @media (max-width: 1024px) {
-      .summary-grid { grid-template-columns: repeat(2, 1fr); }
-  .server-card {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      "head"
-      "meta"
-      "connection"
-      "error"
-      "actions";
-    align-items: stretch;
-  }
-  .server-actions {
-    justify-content: flex-start;
-  }
-  .form-grid.four-col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
 @media (max-width: 720px) {
-  .summary-grid { grid-template-columns: 1fr 1fr; }
   .registry-grid { grid-template-columns: 1fr; }
   .form-grid.two-col { grid-template-columns: 1fr; }
-  .form-grid.four-col { grid-template-columns: 1fr 1fr; }
   .registry-search-bar { flex-wrap: wrap; }
-  .section-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .form-actions {
-    flex-wrap: wrap;
-    justify-content: flex-start;
-  }
-}
-
-@media (max-width: 480px) {
-  .summary-grid { grid-template-columns: 1fr 1fr;}
-  .form-grid.four-col { grid-template-columns: 1fr; }
+  .section-toolbar { flex-direction: column; align-items: stretch; }
+  .form-actions { flex-wrap: wrap; justify-content: flex-start; }
 }
 </style>

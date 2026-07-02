@@ -5,7 +5,7 @@
     mobile-title="Agent 配置"
     :embedded="embedded"
     :chat-return-path="chatReturnPath"
-    max-width="1200px"
+    max-width="1400px"
     content-padding="var(--spacing-xl)"
     mobile-content-padding="var(--spacing-md)"
   >
@@ -740,22 +740,8 @@
       </nav>
     </Teleport>
 
-    <AppToast ref="toastRef" />
-
-    <!-- 新建 Agent 对话框 -->
-    <Teleport to="body">
-      <div v-if="createDialog.visible" class="modal-overlay">
-        <div ref="createDialogPanelRef" class="modal-panel adm-modal">
-          <div class="modal-head adm-modal-header">
-            <h3>新建 Agent</h3>
-            <button class="modal-close" @click="closeCreateDialog">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
-          </div>
-          <div class="modal-body adm-modal-body">
+    <AdmModal :open="createDialog.visible" title="新建 Agent" @close="closeCreateDialog">
+      <div class="adm-modal-form">
             <label class="form-item adm-field">
               <span class="field-label-text adm-field-label">Agent 名称 <em class="required-mark">*</em></span>
               <input
@@ -775,42 +761,24 @@
               <span class="field-label-text adm-field-label">描述</span>
               <input v-model.trim="createDialog.description" type="text" class="form-control adm-form-control" placeholder="可选" @keydown.enter="handleCreateAgent" />
             </label>
-          </div>
-          <div class="modal-foot adm-modal-footer">
-            <UiButton size="compact" :disabled="createDialog.loading" @click="closeCreateDialog">取消</UiButton>
-            <UiButton size="compact" variant="primary" :disabled="createDialog.loading || !createDialog.agentName" @click="handleCreateAgent">
-              {{ createDialog.loading ? '创建中...' : '创建' }}
-            </UiButton>
-          </div>
-        </div>
       </div>
-    </Teleport>
+      <template #footer>
+        <UiButton size="compact" :disabled="createDialog.loading" @click="closeCreateDialog">取消</UiButton>
+        <UiButton size="compact" variant="primary" :disabled="createDialog.loading || !createDialog.agentName" @click="handleCreateAgent">
+          {{ createDialog.loading ? '创建中...' : '创建' }}
+        </UiButton>
+      </template>
+    </AdmModal>
 
-    <!-- 删除 Agent 确认对话框 -->
-    <Teleport to="body">
-      <div v-if="deleteDialog.visible" class="modal-overlay">
-        <div ref="deleteDialogPanelRef" class="modal-panel modal-panel--sm adm-modal">
-          <div class="modal-head adm-modal-header">
-            <h3>删除 Agent</h3>
-            <button class="modal-close" @click="closeDeleteDialog">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
-          </div>
-          <div class="modal-body adm-modal-body">
-            <p class="delete-confirm-text">确定要删除 Agent <strong>{{ deleteDialog.agentName }}</strong> 吗？此操作不可撤销。</p>
-          </div>
-          <div class="modal-foot adm-modal-footer">
-            <UiButton size="compact" :disabled="deleteDialog.loading" @click="closeDeleteDialog">取消</UiButton>
-            <UiButton size="compact" variant="danger" :disabled="deleteDialog.loading" @click="handleDeleteAgent">
-              {{ deleteDialog.loading ? '删除中...' : '确认删除' }}
-            </UiButton>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <AdmModal :open="deleteDialog.visible" title="删除 Agent" width="420px" @close="closeDeleteDialog">
+      <p class="delete-confirm-text">确定要删除 Agent <strong>{{ deleteDialog.agentName }}</strong> 吗？此操作不可撤销。</p>
+      <template #footer>
+        <UiButton size="compact" :disabled="deleteDialog.loading" @click="closeDeleteDialog">取消</UiButton>
+        <UiButton size="compact" variant="danger" :disabled="deleteDialog.loading" @click="handleDeleteAgent">
+          {{ deleteDialog.loading ? '删除中...' : '确认删除' }}
+        </UiButton>
+      </template>
+    </AdmModal>
   </div>
 </PageLayout>
 </template>
@@ -819,6 +787,7 @@
 import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
+import AdmModal from '../components/admin/AdmModal.vue';
 import {
   getAllAgentConfigs,
   getAgentConfig,
@@ -834,9 +803,8 @@ import {
 import { getProviders } from '../api/modelAdapter';
 import CustomSelect from '../components/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
-import AppToast from '../components/AppToast.vue';
 import { UiButton, UiIconButton } from '../components/ui';
-import { usePointerDownOutside } from '../composables/usePointerDownOutside';
+import { useToast } from '../composables/useToast.js';
 const props = defineProps({
   embedded: { type: Boolean, default: false },
   chatReturnPath: { type: String, default: '/' },
@@ -1017,10 +985,12 @@ const loading = ref(false);
 const saving = ref(false);
 const agentLoading = ref(false);
 const error = ref('');
-const toastRef = ref(null);
+const toast = useToast();
 
 function showToast(message, type = 'error') {
-  toastRef.value?.show(message, type);
+  if (type === 'success') toast.success(message);
+  else if (type === 'warning') toast.warning(message);
+  else toast.error(message);
 }
 
 const agents = ref([]);
@@ -1627,13 +1597,6 @@ function toggleDelegation(name, checked) {
 
 // 新建 Agent 对话框
 const createDialog = ref({ visible: false, loading: false, agentName: '', displayName: '', description: '' });
-const createDialogPanelRef = ref(null);
-
-usePointerDownOutside({
-  inside: [createDialogPanelRef],
-  enabled: () => createDialog.value.visible,
-  onOutside: closeCreateDialog,
-});
 
 function openCreateDialog() {
   createDialog.value = { visible: true, loading: false, agentName: '', displayName: '', description: '' };
@@ -1674,13 +1637,6 @@ async function handleCreateAgent() {
 
 // 删除 Agent 对话框
 const deleteDialog = ref({ visible: false, loading: false, agentName: '' });
-const deleteDialogPanelRef = ref(null);
-
-usePointerDownOutside({
-  inside: [deleteDialogPanelRef],
-  enabled: () => deleteDialog.value.visible,
-  onOutside: closeDeleteDialog,
-});
 
 function openDeleteDialog() {
   deleteDialog.value = { visible: true, loading: false, agentName: selectedAgent.value };

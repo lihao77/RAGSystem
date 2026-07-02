@@ -42,6 +42,7 @@ const shots = [
     ],
   },
   { name: 'admin-mobile', path: '/admin', width: 390, height: 844 },
+  { name: 'admin-desktop', path: '/admin', width: 1440, height: 900 },
   {
     name: 'desktop-agent-config',
     path: '/agent-config',

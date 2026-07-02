@@ -1,5 +1,7 @@
 <template>
   <div id="app">
+    <GlobalToast />
+    <GlobalConfirmDialog />
     <RouterView v-slot="{ Component, route }">
       <Transition :name="transitionName" mode="out-in">
         <component
@@ -19,12 +21,14 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
+import GlobalToast from './components/GlobalToast.vue';
+import GlobalConfirmDialog from './components/GlobalConfirmDialog.vue';
 import hljsDarkUrl from 'highlight.js/styles/github-dark.css?url';
 import hljsLightUrl from 'highlight.js/styles/github.css?url';
 
 const router = useRouter();
 
-const isDark = ref(true);
+const isDark = ref(false);
 const selectedLLM = ref('');
 const transitionName = ref('slide-forward');
 
@@ -66,7 +70,7 @@ const updateTheme = () => {
 
 onMounted(() => {
   const savedTheme = localStorage.getItem('theme');
-  isDark.value = savedTheme ? savedTheme === 'dark' : true;
+  isDark.value = savedTheme ? savedTheme === 'dark' : false;
   updateTheme();
 
   const savedLLM = localStorage.getItem('selectedLLMModel');

@@ -49,9 +49,9 @@ const buttonClasses = computed(() => [
   justify-content: center;
   gap: var(--spacing-xs);
   min-width: 0;
-  border: 1px solid var(--adm-border, var(--color-border));
+  border: none;
   border-radius: var(--control-radius);
-  background: var(--adm-control-bg, var(--color-interactive));
+  background: transparent;
   color: var(--color-text-primary);
   font: inherit;
   font-size: var(--font-size-sm);
@@ -63,14 +63,12 @@ const buttonClasses = computed(() => [
   user-select: none;
   transition:
     background var(--transition-fast),
-    border-color var(--transition-fast),
     color var(--transition-fast),
     opacity var(--transition-fast);
 }
 
 .ui-button:hover:not(.is-disabled) {
-  background: var(--adm-control-hover, var(--color-interactive-hover));
-  border-color: var(--adm-border-strong, var(--color-border-hover));
+  background: var(--color-hover-overlay-md);
 }
 
 .ui-button:focus-visible {
@@ -108,37 +106,30 @@ const buttonClasses = computed(() => [
 }
 
 .ui-button--primary {
-  border-color: var(--color-brand-accent);
   background: var(--color-brand-accent);
-  color: var(--color-on-color);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  color: var(--color-on-accent);
 }
 
 .ui-button--primary:hover:not(.is-disabled) {
-  border-color: var(--color-brand-accent-light);
   background: var(--color-brand-accent-light);
 }
 
 .ui-button--danger {
-  border-color: rgba(var(--color-error-rgb), 0.35);
-  background: rgba(var(--color-error-rgb), 0.1);
+  background: var(--color-error-bg);
   color: var(--color-error);
 }
 
 .ui-button--danger:hover:not(.is-disabled) {
-  border-color: rgba(var(--color-error-rgb), 0.55);
-  background: rgba(var(--color-error-rgb), 0.16);
+  background: rgba(var(--color-error-rgb), 0.14);
 }
 
 .ui-button--ghost {
-  border-color: transparent;
   background: transparent;
   color: var(--color-text-secondary);
 }
 
 .ui-button--ghost:hover:not(.is-disabled) {
-  border-color: var(--adm-border, var(--color-border));
-  background: var(--adm-control-bg, var(--color-hover-overlay));
+  background: var(--color-hover-overlay-md);
   color: var(--color-text-primary);
 }
 

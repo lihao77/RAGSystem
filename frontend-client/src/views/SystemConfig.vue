@@ -43,7 +43,6 @@
       </div>
     </template>
 
-    <AppToast ref="toastRef" />
   </PageLayout>
 </template>
 
@@ -52,8 +51,8 @@ import { ref, onMounted } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import SchemaForm from '../components/SchemaForm.vue';
-import AppToast from '../components/AppToast.vue';
 import { UiButton } from '../components/ui';
+import { useToast } from '../composables/useToast.js';
 import {
   getSystemConfigSchema,
   getSystemConfig,
@@ -66,10 +65,12 @@ const configData = ref({});
 const loading = ref(true);
 const saving = ref(false);
 const error = ref('');
-const toastRef = ref(null);
+const toast = useToast();
 
 function showToast(message, type = 'error') {
-  toastRef.value?.show(message, type);
+  if (type === 'success') toast.success(message);
+  else if (type === 'warning') toast.warning(message);
+  else toast.error(message);
 }
 
 async function loadData() {

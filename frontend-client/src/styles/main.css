@@ -1,152 +1,162 @@
-/* ===== Ultra-Premium Minimalist Design System ===== */
+/* ============================================================
+   Design System — 黑白灰骨架 × 微光磨砂
+   极简主义 + 瑞士国际主义：留白为尊，发丝代框，玻璃仅浮层
+   强调色：高级苔藓绿 #2B3A35（唯一点缀）
+   ============================================================ */
+
+/* ──────────────────────────────────────────────────────────
+   DARK THEME（:root，开关备选）
+   同款极简风，深色版本——保持与亮色一致的克制
+   ────────────────────────────────────────────────────────── */
 :root {
-    /* Interactive Accent Colors */
-    --color-interactive: #1c1c1e;
-    /* Primary interactive elements (buttons, icons) */
-    --color-interactive-hover: #2c2c2e;
-    /* Hover state */
-    --color-interactive-glow: rgba(71, 71, 71, 0.18);
-    --color-interactive-subtle: rgba(255, 255, 255, 0.2);
-    --color-interactive-rgb: 28, 28, 30;
-    /* RGB triplet for rgba() usage */
+    /* 唯一强调色 —— 高级苔藓绿 */
+    --color-brand-accent: #6FAE94;
+    /* 暗底上的可读苔藓绿（提亮以保证对比度） */
+    --color-brand-accent-rgb: 111, 174, 148;
+    --color-brand-accent-light: #84C0A7;
+    --color-brand-accent-light-rgb: 132, 192, 167;
+    --color-accent-ink: #2B3A35;
+    /* 实体填充用的深苔藓（亮底 CTA），暗底慎用 */
 
-    /* Brand Accent Colors - For decorative glows and highlights */
-    --color-brand-accent: #0a84ff;
-    /* Apple Blue for dark mode */
-    --color-brand-accent-rgb: 10, 132, 255;
-    /* RGB triplet for rgba() usage */
-    --color-brand-accent-light: #409cff;
-    --color-brand-accent-light-rgb: 64, 156, 255;
+    /* 交互主色 —— 近白（暗底主按钮用实体亮面） */
+    --color-interactive: #2a2a2c;
+    --color-interactive-hover: #38383a;
+    --color-interactive-glow: rgba(255, 255, 255, 0.06);
+    --color-interactive-subtle: rgba(255, 255, 255, 0.06);
+    --color-interactive-rgb: 42, 42, 44;
 
-    /* Background Layers - Matte Deep Space */
-    --color-bg-app: #000000;
-    /* Pure black - Apple style */
+    /* 背景层级 —— 磨砂深炭（非纯黑，留呼吸） */
+    --color-bg-app: #161617;
     --color-bg-primary: #1c1c1e;
-    /* System Gray 6 - 卡片背景 */
-    --color-bg-secondary: #2c2c2e;
-    /* System Gray 5 - 悬停/次级背景 */
-    --color-bg-tertiary: #3a3a3c;
-    /* System Gray 4 - 激活状态 */
-    --color-bg-elevated: #1c1c1e;
-    --color-bg-elevated-rgb: 28, 28, 30;
+    /* 卡片/主内容面 */
+    --color-bg-secondary: #262629;
+    /* 悬停/次级 */
+    --color-bg-tertiary: #333336;
+    /* 激活/嵌套 */
+    --color-bg-elevated: #1f1f21;
+    --color-bg-elevated-rgb: 31, 31, 33;
     /* 浮层 */
 
-    /* Text Colors - Crisp Hierarchy */
-    --color-text-primary: #ffffff;
-    --color-text-secondary: #98989d;
-    /* System Gray - Apple style */
-    --color-text-muted: #636366;
-    /* System Gray 2 - 更柔和 */
-    --color-text-inverse: #000000;
+    /* 文字层级 —— 清晰对比 */
+    --color-text-primary: #f5f5f7;
+    /* 近白主文 */
+    --color-text-secondary: #a8a8ad;
+    /* 副文 */
+    --color-text-muted: #6e6e73;
+    /* 占位/辅助 */
+    --color-text-inverse: #111111;
     --color-on-color: #ffffff;
-    --color-on-color-strong: #111111;
+    --color-on-color-strong: #ffffff;
+    --color-on-accent: #ffffff;
+    /* 苔藓绿按钮上的文字 */
 
-    /* Message Backgrounds */
+    /* 消息底 */
     --color-bg-message-user: #2c2c2e;
     --color-bg-message-assistant: transparent;
 
-    /* Borders - Ultra-subtle, transparency-first */
-    --color-border: rgba(255, 255, 255, 0.07);
+    /* 边界 —— 极浅透明，发丝优先于框 */
+    --color-border: rgba(255, 255, 255, 0.08);
     --color-border-rgb: 255, 255, 255;
-    --color-border-hover: rgba(255, 255, 255, 0.12);
-    --color-border-focus: rgba(10, 132, 255, 0.5);
-    /* Apple Blue focus */
-    --color-map-marker-fill: #2a81cb;
-    --color-map-marker-border: #1a6ab5;
+    --color-border-hover: rgba(255, 255, 255, 0.14);
+    --color-border-focus: rgba(132, 192, 167, 0.55);
+    /* 苔藓绿聚焦 */
+
+    /* 地图 / 结果 / 风险（保留功能性着色，收敛饱和度） */
+    --color-map-marker-fill: #6FAE94;
+    --color-map-marker-border: #4f8c72;
     --color-map-marker-glyph: #ffffff;
     --color-map-marker-ring-fill: rgba(255, 255, 255, 0.12);
-    --color-map-overlay-accent: #3388ff;
-    --color-map-overlay-border: rgba(255, 255, 255, 0.5);
+    --color-map-overlay-accent: #6FAE94;
+    --color-map-overlay-border: rgba(255, 255, 255, 0.4);
     --color-map-overlay-point-stroke: #ffffff;
     --color-risk-badge-text: var(--color-on-color);
     --color-risk-badge-ring: rgba(255, 255, 255, 0.8);
-    --color-result-text: #7cc7ff;
-    --color-result-bg: rgba(10, 132, 255, 0.16);
-    --color-result-border: rgba(64, 156, 255, 0.32);
-    --color-soft-inset: rgba(255, 255, 255, 0.08);
+    --color-result-text: #84C0A7;
+    --color-result-bg: rgba(111, 174, 148, 0.14);
+    --color-result-border: rgba(132, 192, 167, 0.3);
+    --color-soft-inset: rgba(255, 255, 255, 0.04);
 
-    /* Status Colors - Muted */
-    --color-success: #30d158;
-    /* Apple Green */
-    --color-success-bg: rgba(48, 209, 88, 0.1);
-    --color-success-rgb: 48, 209, 88;
-    --color-warning: #ffd60a;
-    /* Apple Yellow */
-    --color-warning-bg: rgba(255, 214, 10, 0.1);
-    --color-warning-rgb: 255, 214, 10;
-    --color-error: #ff453a;
-    /* Apple Red */
-    --color-error-bg: rgba(255, 69, 58, 0.1);
-    --color-error-rgb: 255, 69, 58;
+    /* 状态色 —— 沉稳低饱和（暗底提亮以保证对比） */
+    --color-success: #5dbd84;
+    --color-success-bg: rgba(93, 189, 132, 0.14);
+    --color-success-rgb: 93, 189, 132;
+    --color-warning: #e0b341;
+    --color-warning-bg: rgba(224, 179, 65, 0.14);
+    --color-warning-rgb: 224, 179, 65;
+    --color-error: #e8675e;
+    --color-error-bg: rgba(232, 103, 94, 0.14);
+    --color-error-rgb: 232, 103, 94;
     --color-danger: var(--color-error);
     --color-danger-rgb: var(--color-error-rgb);
-    --color-active: #0a84ff;
-    /* Apple Blue */
-    --color-active-bg: rgba(10, 132, 255, 0.1);
-    --color-active-rgb: 10, 132, 255;
+    --color-active: var(--color-brand-accent);
+    --color-active-bg: rgba(111, 174, 148, 0.14);
+    --color-active-rgb: var(--color-brand-accent-rgb);
     --color-primary: var(--color-brand-accent);
     --color-primary-rgb: var(--color-brand-accent-rgb);
     --color-brand-primary: var(--color-brand-accent);
 
-    /* Link Color */
-    --color-link: #0a84ff;
-    /* Apple Blue */
-    --color-link-hover: #409cff;
+    /* 链接 */
+    --color-link: var(--color-brand-accent-light);
+    --color-link-hover: #a3d4bb;
 
-    /* Semantic Agent Colors */
-    --color-agent-violet: #c084fc;
-    --color-agent-violet-bg: rgba(168, 85, 247, 0.15);
-    --color-agent-blue: #60a5fa;
-    --color-agent-blue-bg: rgba(59, 130, 246, 0.15);
-    --color-agent-green: #4ade80;
-    --color-agent-green-bg: rgba(34, 197, 94, 0.15);
-    --color-agent-cyan: #22d3ee;
-    --color-agent-cyan-bg: rgba(34, 211, 238, 0.15);
-    --color-agent-orange: #fb923c;
-    --color-agent-orange-bg: rgba(251, 146, 60, 0.16);
-    --color-agent-pink: #f472b6;
-    --color-agent-pink-bg: rgba(244, 114, 182, 0.15);
+    /* 智能体语义色 —— 收敛为低饱和（仅功能性区分，非装饰） */
+    --color-agent-violet: #b79ce0;
+    --color-agent-violet-bg: rgba(183, 156, 224, 0.14);
+    --color-agent-blue: #7fa8e0;
+    --color-agent-blue-bg: rgba(127, 168, 224, 0.14);
+    --color-agent-green: #6FAE94;
+    --color-agent-green-bg: rgba(111, 174, 148, 0.14);
+    --color-agent-cyan: #6fbfce;
+    --color-agent-cyan-bg: rgba(111, 191, 206, 0.14);
+    --color-agent-orange: #e0a574;
+    --color-agent-orange-bg: rgba(224, 165, 116, 0.14);
+    --color-agent-pink: #e09bc4;
+    --color-agent-pink-bg: rgba(224, 155, 196, 0.14);
     --color-agent-default: #9ca3af;
-    --color-agent-default-bg: rgba(156, 163, 175, 0.15);
-    --color-agent-success-border: rgba(52, 199, 89, 0.2);
+    --color-agent-default-bg: rgba(156, 163, 175, 0.14);
+    --color-agent-success-border: rgba(93, 189, 132, 0.22);
 
-    /* Hover overlay — 主题感知的微交互叠加色 */
-    --color-hover-overlay: rgba(255, 255, 255, 0.06);
+    /* 悬停叠加 —— 主题感知的微交互 */
+    --color-hover-overlay: rgba(255, 255, 255, 0.05);
     --color-hover-overlay-md: rgba(255, 255, 255, 0.08);
     --color-hover-overlay-lg: rgba(255, 255, 255, 0.1);
 
-    /* Dot Grid Background */
-    --dot-color: rgba(255, 255, 255, 0.045);
-    --dot-spacing: 24px;
+    /* 玻璃 —— 浮层专用 */
+    --glass-bg: rgba(38, 38, 41, 0.62);
+    --glass-bg-light: rgba(38, 38, 41, 0.5);
+    --color-glass-border: rgba(255, 255, 255, 0.1);
+    --glass-border-width: 1px;
+    --glass-border-style: solid;
+    --glass-border-color: rgba(255, 255, 255, 0.1);
+    --glass-blur: 20px;
+    --glass-saturate: 160%;
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 
-    /* Low-transparency surface tokens for tool UIs. */
-    --glass-bg: rgba(28, 28, 30, 0.94);
-    --glass-bg-light: rgba(28, 28, 30, 0.88);
-    --color-glass-border: rgba(255, 255, 255, 0.07);
-    --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
-    --glass-blur: 0px;
-
-    /* Semantic Surfaces — 三级深度：shell(主内容) > sidebar(导航) > workpanel(辅助)
-     * 在 #000 上的合成近似值：
-     *   shell     ≈ rgb(23, 23, 26)  — 主焦点，明确高于纯黑
-     *   sidebar   ≈ rgb(10, 10, 12)  — 导航退后，差 13pt
-     *   workpanel ≈ rgb(15, 15, 19)  — 叠在 shell 上，差 8pt
-     */
-    --surface-shell: rgba(36, 36, 40, 0.64);
-    --surface-sidebar: rgba(20, 20, 24, 0.48);
-    --surface-workpanel: rgba(8, 8, 12, 0.48);
-    --surface-workpanel-rgb: 8, 8, 12;
+    /* 语义面 —— 三级深度 */
+    --surface-shell: #1c1c1e;
+    --surface-sidebar: #18181a;
+    --surface-workpanel: #222224;
+    --surface-workpanel-rgb: 34, 34, 36;
     --surface-panel: var(--color-bg-elevated);
     --surface-panel-muted: var(--color-hover-overlay);
     --surface-panel-hover: var(--color-bg-secondary);
 
-    /* Refined Shadows — Apple-style layered shadows */
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);
-    --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.14);
-    --shadow-lg: 0 6px 14px rgba(0, 0, 0, 0.18);
-    --shadow-xl: 0 12px 28px rgba(0, 0, 0, 0.24);
+    /* 环境光背景 —— 单光源径向渐变（暗版：中心略亮向四角渐暗） */
+    --ambient-bg:
+        radial-gradient(120% 120% at 0% 0%, rgba(111, 174, 148, 0.06) 0%, transparent 42%),
+        radial-gradient(140% 140% at 50% 0%, #1d1d1f 0%, #161617 60%, #121214 100%);
+    --ambient-glow-color: rgba(132, 192, 167, 0.10);
 
-    /* Spacing - 8px Grid (Apple-style) */
+    /* 阴影分层 —— 物理环境光遮蔽（暗版加深底色） */
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.18);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.24);
+    --shadow-lg: 0 6px 16px rgba(0, 0, 0, 0.3);
+    --shadow-xl: 0 12px 28px rgba(0, 0, 0, 0.36);
+    /* 悬浮分层阴影（hover/浮层）：紧实线 + 大范围弥散 */
+    --shadow-elevated: 0 1px 2px rgba(0, 0, 0, 0.16), 0 10px 40px -10px rgba(0, 0, 0, 0.42);
+
+    /* 间距 —— 8px 网格 */
     --spacing-xs: 4px;
     --spacing-sm: 8px;
     --spacing-md: 16px;
@@ -155,76 +165,68 @@
     --spacing-2xl: 48px;
     --spacing-3xl: 64px;
 
-    /* Layout — workbench 双栏布局尺寸（JS 端 useWorkbenchLayout 的 WIDE_BREAKPOINT=1200 与此对齐）*/
+    /* 布局 —— workbench 双栏 */
     --workbench-breakpoint: 1200px;
     --work-panel-width: clamp(360px, 30vw, 430px);
 
-    /* Control Dimensions */
+    /* 控件尺寸 */
     --control-height-sm: 32px;
     --control-height-compact: 38px;
-    --control-height-md: 44px;
-    --control-height-lg: 52px;
-    --control-radius: 8px;
-    --icon-button-size-sm: 40px;
+    --control-height-md: 40px;
+    --control-height-lg: 48px;
+    --control-radius: 6px;
+    /* 极小圆角，去胶囊化 */
+    --icon-button-size-sm: 36px;
     --icon-button-size-md: var(--control-height-md);
     --chat-mobile-top-offset: 69.33px;
 
-    /* Border Radius - restrained tool surfaces */
-    --radius-sm: 8px;
-    --radius-md: 10px;
-    --radius-lg: 12px;
-    --radius-xl: 14px;
-    --radius-2xl: 18px;
+    /* 圆角 —— 收敛（去胶囊，保留 full 仅供状态点/小圆） */
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --radius-xl: 10px;
+    --radius-2xl: 12px;
     --radius-full: 9999px;
 
-    /* Easing Curves */
+    /* 缓动 */
     --ease-default: cubic-bezier(0.25, 0.46, 0.45, 0.94);
     --ease-out-expo: cubic-bezier(0.22, 1, 0.36, 1);
     --ease-material: cubic-bezier(0.4, 0, 0.2, 1);
 
-    /* Duration scale — 全前端动画时长统一收敛到这几档 */
+    /* 时长 —— 全局收敛到这几档（光线柔顺 0.25s） */
     --duration-instant: 80ms;
     --duration-fast: 160ms;
-    --duration-base: 200ms;
-    --duration-slow: 280ms;
-    --duration-stage: 360ms;
+    --duration-base: 250ms;
+    /* 光线变化柔顺基准 */
+    --duration-slow: 320ms;
+    --duration-stage: 400ms;
 
-    /* Transitions（基于 duration 档位） */
+    /* 过渡 */
     --transition-fast: var(--duration-fast) var(--ease-default);
     --transition-normal: var(--duration-base) var(--ease-default);
 
-    /* ── Breakpoints (CSS 不支持变量用于 @media，此处仅做文档) ──
-     *  xs   480px   小屏手机（单列堆叠）
-     *  sm   640px   大屏手机 / 横屏
-     *  md   767px   平板竖屏以下（max-width: 767px）
-     *  lg   900px   管理面板紧凑（admin/agent-config 通用）
-     *  xl  1024px   平板横屏 / 小笔记本
-     * 2xl  1200px   桌面端
-     * 特殊: 360px(极小屏)、720px(admin tabs)、1440px(大屏图表)
-     */
-
-    /* Z-Index Layers */
+    /* Z 层级 */
     --z-base: 0;
-    --z-sticky: 10;         /* 顶部控制栏、固定导航 */
-    --z-sidebar: 20;        /* 侧边栏 */
-    --z-floating: 50;       /* 浮动按钮、固定导航 */
-    --z-dropdown: 100;      /* 下拉菜单、选择器弹出层 */
-    --z-overlay: 1000;      /* 侧边栏遮罩 */
-    --z-modal: 2000;        /* 弹窗、抽屉 */
-    --z-toast: 9000;        /* Toast 通知 */
-    --z-dialog: 10000;      /* 最高层级弹窗（审批、输入） */
+    --z-sticky: 10;
+    --z-sidebar: 20;
+    --z-floating: 50;
+    --z-dropdown: 100;
+    --z-overlay: 1000;
+    --z-modal: 2000;
+    --z-toast: 9000;
+    --z-dialog: 10000;
 
-    /* Typography */
-    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
-    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    /* 字体 */
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'PingFang SC', 'DengXian', 'Microsoft YaHei UI', sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
 
-    /* Font Sizes */
+    /* 字号 */
     --font-size-xs: 0.75rem;
     /* 12px */
     --font-size-sm: 0.875rem;
     /* 14px */
     --font-size-base: 1rem;
-    /* 16px - 基础字号 */
+    /* 16px */
     --font-size-md: 1.0625rem;
     /* 17px */
     --font-size-lg: 1.125rem;
@@ -238,184 +240,182 @@
     --font-size-4xl: 2.25rem;
     /* 36px */
 
-    /* Layout - Content Width */
     --content-max-width: 800px;
-    /* 对话内容区域的最大宽度 */
 
-    /* ===== 响应式布局变量（桌面端默认值） ===== */
-    /* 聊天消息区域 */
+    /* 响应式布局变量（桌面默认） */
     --chat-padding-x: var(--spacing-xl);
     --chat-padding-y: var(--spacing-xl);
     --chat-padding-bottom: 200px;
     --chat-message-gap: var(--spacing-xl);
-
-    /* 输入框区域 */
     --input-area-padding-x: var(--spacing-md);
     --input-centered-padding-x: var(--spacing-xl);
-
-    /* 欢迎屏幕 */
     --welcome-title-size: 2.5rem;
     --welcome-subtitle-size: 1.1rem;
     --welcome-logo-size: 80px;
-
-    /* 顶部控制栏 */
     --top-bar-padding-y: var(--spacing-sm);
     --top-bar-padding-x: var(--spacing-md);
     --top-bar-divider-left: var(--spacing-md);
     --top-bar-divider-right: var(--spacing-md);
-
-    /* 汉堡菜单 */
     --hamburger-display: none;
-
-    /* 步骤工具 */
     --step-tools-margin-left: var(--spacing-md);
     --step-tools-padding-left: var(--spacing-md);
-
-    /* Subtasks */
     --subtasks-padding: var(--spacing-md);
     --round-header-font-size: 13px;
-
-    /* 用户消息最大宽度 */
     --user-message-max-width: 85%;
 }
 
+/* ──────────────────────────────────────────────────────────
+   LIGHT THEME（默认，data-theme="light"）
+   暖白底 + 近黑字 + 苔藓绿点缀 —— 指令主色板
+   ────────────────────────────────────────────────────────── */
 :root[data-theme="light"] {
-    /* Interactive Accent Colors */
-    --color-interactive: #f5f5f7;
-    /* Apple Light Gray */
-    --color-interactive-hover: #e8e8ed;
-    --color-interactive-glow: rgba(0, 0, 0, 0.08);
-    --color-interactive-subtle: rgba(0, 0, 0, 0.06);
-    --color-interactive-rgb: 245, 245, 247;
-    /* RGB triplet for rgba() usage */
+    /* 唯一强调色 —— 高级苔藓绿（深色用于 CTA 填充，保证白字对比） */
+    --color-brand-accent: #2B3A35;
+    --color-brand-accent-rgb: 43, 58, 53;
+    --color-brand-accent-light: #3d5249;
+    --color-brand-accent-light-rgb: 61, 82, 73;
+    --color-accent-ink: #2B3A35;
 
-    /* Brand Accent Colors - For decorative glows and highlights */
-    --color-brand-accent: #007aff;
-    /* Apple Blue for light mode */
-    --color-brand-accent-rgb: 0, 122, 255;
-    --color-brand-accent-light: #0a84ff;
-    --color-brand-accent-light-rgb: 10, 132, 255;
+    /* 交互主色 —— 极浅暖灰（幽灵按钮/控件底） */
+    --color-interactive: #ffffff;
+    --color-interactive-hover: #f4f4f2;
+    --color-interactive-glow: rgba(0, 0, 0, 0.04);
+    --color-interactive-subtle: rgba(0, 0, 0, 0.03);
+    --color-interactive-rgb: 255, 255, 255;
 
-    /* Background Layers - Light */
-    --color-bg-app: #ffffff;
-    --color-bg-primary: #f5f5f7;
-    --color-bg-secondary: #ebebef;
-    --color-bg-tertiary: #dedee3;
+    /* 背景层级 —— 暖白/冷白，禁用脏色高饱和 */
+    --color-bg-app: #fafaf8;
+    --color-bg-primary: #ffffff;
+    /* 主内容面：纯白 */
+    --color-bg-secondary: #f6f6f4;
+    /* 悬停/次级 */
+    --color-bg-tertiary: #eeeeec;
+    /* 激活/嵌套 */
     --color-bg-elevated: #ffffff;
     --color-bg-elevated-rgb: 255, 255, 255;
+    /* 浮层 */
 
-    /* Text Colors */
-    --color-text-primary: #1d1d1f;
-    /* Apple Dark Gray */
-    --color-text-secondary: #86868b;
-    /* System Gray */
-    --color-text-muted: #a1a1a6;
-    /* System Gray 2 */
+    /* 文字层级 —— WCAG 对比度优先 */
+    --color-text-primary: #111111;
+    /* 主文/标题：近纯黑 */
+    --color-text-secondary: #555555;
+    /* 正文/副标题：深灰 */
+    --color-text-muted: #999999;
+    /* 占位/辅助：浅灰（仅用于非关键辅助） */
     --color-text-inverse: #ffffff;
     --color-on-color: #ffffff;
-    --color-on-color-strong: #1d1d1f;
+    --color-on-color-strong: #111111;
+    --color-on-accent: #ffffff;
+    /* 苔藓绿 #2B3A35 上白字对比 11.3:1 */
 
-    /* Message Backgrounds */
-    --color-bg-message-user: #e8e8ed;
+    /* 消息底 */
+    --color-bg-message-user: #f0f0ee;
     --color-bg-message-assistant: transparent;
 
-    /* Borders — semi-transparent, consistent with dark mode philosophy */
-    --color-border: rgba(0, 0, 0, 0.08);
+    /* 边界 —— 发丝优先于框，极浅透明 */
+    --color-border: rgba(0, 0, 0, 0.06);
     --color-border-rgb: 0, 0, 0;
-    --color-border-hover: rgba(0, 0, 0, 0.14);
-    --color-border-focus: rgba(0, 122, 255, 0.5);
-    /* Apple Blue focus */
-    --color-map-marker-fill: #007aff;
-    --color-map-marker-border: #005ecb;
+    --color-border-hover: rgba(0, 0, 0, 0.12);
+    --color-border-focus: rgba(43, 58, 53, 0.5);
+    /* 苔藓绿聚焦 */
+
+    /* 地图 / 结果 / 风险 */
+    --color-map-marker-fill: #2B3A35;
+    --color-map-marker-border: #1c2622;
     --color-map-marker-glyph: #ffffff;
     --color-map-marker-ring-fill: rgba(255, 255, 255, 0.82);
-    --color-map-overlay-accent: #3388ff;
-    --color-map-overlay-border: rgba(29, 29, 31, 0.22);
-    --color-map-overlay-point-stroke: #1d1d1f;
+    --color-map-overlay-accent: #3d5249;
+    --color-map-overlay-border: rgba(17, 17, 17, 0.22);
+    --color-map-overlay-point-stroke: #111111;
     --color-risk-badge-text: var(--color-on-color-strong);
-    --color-risk-badge-ring: rgba(29, 29, 31, 0.16);
-    --color-result-text: #005ecb;
-    --color-result-bg: rgba(0, 122, 255, 0.12);
-    --color-result-border: rgba(0, 122, 255, 0.26);
-    --color-soft-inset: rgba(0, 0, 0, 0.06);
+    --color-risk-badge-ring: rgba(17, 17, 17, 0.16);
+    --color-result-text: #2B3A35;
+    --color-result-bg: rgba(43, 58, 53, 0.08);
+    --color-result-border: rgba(43, 58, 53, 0.2);
+    --color-soft-inset: rgba(0, 0, 0, 0.02);
 
-    /* Status Colors - Light Theme */
-    --color-success: #28cd41;
-    /* Apple Green Light */
-    --color-success-bg: rgba(40, 205, 65, 0.1);
-    --color-success-rgb: 40, 205, 65;
-    --color-warning: #ffd60a;
-    /* Apple Yellow */
-    --color-warning-bg: rgba(255, 214, 10, 0.1);
-    --color-warning-rgb: 255, 214, 10;
-    --color-error: #ff3b30;
-    /* Apple Red Light */
-    --color-error-bg: rgba(255, 59, 48, 0.1);
-    --color-error-rgb: 255, 59, 48;
+    /* 状态色 —— 低饱和沉稳（亮底加深保证对比） */
+    --color-success: #2f7d52;
+    --color-success-bg: rgba(47, 125, 82, 0.1);
+    --color-success-rgb: 47, 125, 82;
+    --color-warning: #9a6b00;
+    --color-warning-bg: rgba(154, 107, 0, 0.1);
+    --color-warning-rgb: 154, 107, 0;
+    --color-error: #b42318;
+    --color-error-bg: rgba(180, 35, 24, 0.08);
+    --color-error-rgb: 180, 35, 24;
     --color-danger: var(--color-error);
     --color-danger-rgb: var(--color-error-rgb);
-    --color-active: #007aff;
-    /* Apple Blue */
-    --color-active-bg: rgba(0, 122, 255, 0.1);
-    --color-active-rgb: 0, 122, 255;
+    --color-active: var(--color-brand-accent);
+    --color-active-bg: rgba(43, 58, 53, 0.08);
+    --color-active-rgb: var(--color-brand-accent-rgb);
     --color-primary: var(--color-brand-accent);
     --color-primary-rgb: var(--color-brand-accent-rgb);
     --color-brand-primary: var(--color-brand-accent);
 
-    /* Link Color */
-    --color-link: #007aff;
-    /* Apple Blue */
-    --color-link-hover: #0a84ff;
+    /* 链接 */
+    --color-link: #2B3A35;
+    --color-link-hover: #3d5249;
 
-    /* Semantic Agent Colors */
-    --color-agent-violet: #9333ea;
-    --color-agent-violet-bg: rgba(147, 51, 234, 0.12);
-    --color-agent-blue: #2563eb;
-    --color-agent-blue-bg: rgba(37, 99, 235, 0.1);
-    --color-agent-green: #16a34a;
-    --color-agent-green-bg: rgba(22, 163, 74, 0.1);
-    --color-agent-cyan: #0891b2;
-    --color-agent-cyan-bg: rgba(8, 145, 178, 0.12);
-    --color-agent-orange: #ea580c;
-    --color-agent-orange-bg: rgba(234, 88, 12, 0.12);
-    --color-agent-pink: #db2777;
-    --color-agent-pink-bg: rgba(219, 39, 119, 0.12);
+    /* 智能体语义色 —— 低饱和 */
+    --color-agent-violet: #6b4f9e;
+    --color-agent-violet-bg: rgba(107, 79, 158, 0.1);
+    --color-agent-blue: #2b54a0;
+    --color-agent-blue-bg: rgba(43, 84, 160, 0.1);
+    --color-agent-green: #2f7d52;
+    --color-agent-green-bg: rgba(47, 125, 82, 0.1);
+    --color-agent-cyan: #0e6b7a;
+    --color-agent-cyan-bg: rgba(14, 107, 122, 0.1);
+    --color-agent-orange: #a8531a;
+    --color-agent-orange-bg: rgba(168, 83, 26, 0.1);
+    --color-agent-pink: #a8326b;
+    --color-agent-pink-bg: rgba(168, 50, 107, 0.1);
     --color-agent-default: #6b7280;
     --color-agent-default-bg: rgba(107, 114, 128, 0.1);
-    --color-agent-success-border: rgba(34, 197, 94, 0.18);
+    --color-agent-success-border: rgba(47, 125, 82, 0.2);
 
-    /* Hover overlay — 亮色模式用黑色叠加 */
-    --color-hover-overlay: rgba(0, 0, 0, 0.04);
-    --color-hover-overlay-md: rgba(0, 0, 0, 0.06);
-    --color-hover-overlay-lg: rgba(0, 0, 0, 0.08);
+    /* 悬停叠加 */
+    --color-hover-overlay: rgba(0, 0, 0, 0.03);
+    --color-hover-overlay-md: rgba(0, 0, 0, 0.05);
+    --color-hover-overlay-lg: rgba(0, 0, 0, 0.07);
 
-    /* Dot Grid Background */
-    --dot-color: rgba(0, 0, 0, 0.035);
-    --dot-spacing: 24px;
+    /* 玻璃 —— 浮层专用 */
+    --glass-bg: rgba(255, 255, 255, 0.55);
+    --glass-bg-light: rgba(255, 255, 255, 0.45);
+    --color-glass-border: rgba(255, 255, 255, 0.6);
+    --glass-border-width: 1px;
+    --glass-border-style: solid;
+    --glass-border-color: rgba(255, 255, 255, 0.6);
+    --glass-blur: 20px;
+    --glass-saturate: 160%;
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
 
-    /* Glass - Light：保留 token，但收敛为近似实体表面 */
-    --glass-bg: rgba(255, 255, 255, 0.96);
-    --glass-bg-light: rgba(255, 255, 255, 0.92);
-    --color-glass-border: rgba(0, 0, 0, 0.06);
-    --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-    /* shell≈white / sidebar≈rgb(246,246,250) / workpanel≈rgb(243,244,247) */
-    --surface-shell: rgba(var(--color-bg-elevated-rgb), 0.72);
-    --surface-sidebar: rgba(242, 242, 247, 0.70);
-    --surface-workpanel: rgba(238, 239, 244, 0.76);
-    --surface-workpanel-rgb: 238, 239, 244;
+    /* 语义面 */
+    --surface-shell: #ffffff;
+    --surface-sidebar: #fafaf8;
+    --surface-workpanel: #f6f6f4;
+    --surface-workpanel-rgb: 246, 246, 244;
     --surface-panel: var(--color-bg-elevated);
     --surface-panel-muted: var(--color-hover-overlay);
     --surface-panel-hover: var(--color-bg-secondary);
 
-    /* Refined Shadows — Apple-style layered shadows for light mode */
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
-    --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.08);
-    --shadow-lg: 0 6px 14px rgba(0, 0, 0, 0.1);
-    --shadow-xl: 0 12px 28px rgba(0, 0, 0, 0.14);
+    /* 环境光背景 —— 单光源径向渐变：中心白向四角过渡 */
+    --ambient-bg:
+        radial-gradient(120% 120% at 0% 0%, rgba(132, 192, 167, 0.10) 0%, transparent 42%),
+        radial-gradient(140% 140% at 50% 0%, #ffffff 0%, #fafaf8 55%, #f1f2f3 100%);
+    --ambient-glow-color: rgba(132, 192, 167, 0.16);
 
+    /* 阴影分层 —— 极浅弥散 + 紧实线 */
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.02);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.03);
+    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.04);
+    --shadow-lg: 0 6px 16px rgba(0, 0, 0, 0.06);
+    --shadow-xl: 0 12px 28px rgba(0, 0, 0, 0.08);
+    /* 悬浮分层阴影（hover/浮层）：紧实线 + 大范围弥散 */
+    --shadow-elevated: 0 1px 2px rgba(0, 0, 0, 0.02), 0 10px 40px -10px rgba(0, 0, 0, 0.08);
 }
 
-/* Shared agent badge colors */
+/* ===== 智能体徽章色（共享） ===== */
 .agent-badge.agent-violet {
     background: var(--color-agent-violet-bg);
     color: var(--color-agent-violet);
@@ -455,7 +455,7 @@
     border-color: var(--color-agent-success-border);
 }
 
-/* ===== Global Reset ===== */
+/* ===== 全局重置 ===== */
 * {
     box-sizing: border-box;
     margin: 0;
@@ -469,22 +469,26 @@ body {
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background-color: var(--color-bg-app);
 }
 
-/* 格网背景 — 为背景添加微妙的网格纹理 */
-body::after {
+/* ===== 环境光背景 —— 单光源径向渐变 ===== */
+body {
+    background: var(--ambient-bg);
+    background-attachment: fixed;
+}
+
+/* 左上角柔和光晕 —— 模拟环境漫反射（极低透） */
+body::before {
     content: '';
     position: fixed;
-    inset: 0;
+    top: -20vh;
+    left: -15vw;
+    width: 60vw;
+    height: 60vh;
     pointer-events: none;
     z-index: 0;
-    /* 格网 */
-    background-image:
-        linear-gradient(to right, var(--dot-color) 1px, transparent 1px),
-        linear-gradient(to bottom, var(--dot-color) 1px, transparent 1px);
-    background-size: var(--dot-spacing) var(--dot-spacing);
-    opacity: 0.22;
+    background: radial-gradient(circle at center, var(--ambient-glow-color) 0%, transparent 65%);
+    opacity: 0.3;
 }
 
 body {
@@ -496,7 +500,7 @@ body {
     position: relative;
 }
 
-/* 应用交互默认按桌面软件处理：界面外壳不显示文本光标，也不可被误选中 */
+/* 应用交互按桌面软件处理 */
 :where(img, svg) {
     -webkit-user-drag: none;
     -webkit-user-select: none;
@@ -585,20 +589,19 @@ body {
     user-select: none;
 }
 
-/* 1. 去掉移动端点击高亮 */
+/* 去移动端点击高亮 + 统一柔顺过渡（光线变化 0.25s） */
 button,
 a,
 input,
 textarea,
 [role="button"] {
-  -webkit-tap-highlight-color: transparent;
-  transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast), color var(--transition-fast);
+    -webkit-tap-highlight-color: transparent;
+    transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast), color var(--transition-fast);
 }
 
-/* 2. 去掉鼠标/触摸的 focus 轮廓，保留键盘导航的 focus-visible */
 button:focus:not(:focus-visible),
 a:focus:not(:focus-visible) {
-  outline: none;
+    outline: none;
 }
 
 #app {
@@ -613,6 +616,7 @@ a:focus:not(:focus-visible) {
     z-index: 1;
 }
 
+/* ===== 路由过渡 ===== */
 .slide-forward-enter-active,
 .slide-forward-leave-active,
 .slide-backward-enter-active,
@@ -625,7 +629,7 @@ a:focus:not(:focus-visible) {
 }
 
 .slide-forward-enter-from {
-    transform: translateX(60px) scale(0.98);
+    transform: translateX(40px) scale(0.99);
     opacity: 0;
 }
 
@@ -640,12 +644,12 @@ a:focus:not(:focus-visible) {
 }
 
 .slide-forward-leave-to {
-    transform: translateX(-60px) scale(0.98);
+    transform: translateX(-40px) scale(0.99);
     opacity: 0;
 }
 
 .slide-backward-enter-from {
-    transform: translateX(-60px) scale(0.98);
+    transform: translateX(-40px) scale(0.99);
     opacity: 0;
 }
 
@@ -660,11 +664,11 @@ a:focus:not(:focus-visible) {
 }
 
 .slide-backward-leave-to {
-    transform: translateX(60px) scale(0.98);
+    transform: translateX(40px) scale(0.99);
     opacity: 0;
 }
 
-/* ===== Minimal Scrollbar - Apple style ===== */
+/* ===== 极简滚动条 ===== */
 ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -686,7 +690,7 @@ a:focus:not(:focus-visible) {
     background-clip: padding-box;
 }
 
-/* Reserve scrollbar gutter for scroll containers so content length changes do not shift centered layouts. */
+/* 滚动容器预留 gutter，避免内容长度变化导致布局抖动 */
 :where(
     .chat-messages-wrapper,
     .chat-subview-wrapper,
@@ -703,31 +707,33 @@ a:focus:not(:focus-visible) {
     scrollbar-gutter: stable;
 }
 
-/* ===== Number Input — 隐藏原生上下箭头 ===== */
+/* 隐藏 number 原生上下箭头 */
 input[type='number']::-webkit-outer-spin-button,
 input[type='number']::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
 }
+
 input[type='number'] {
     -moz-appearance: textfield;
     appearance: textfield;
 }
 
-/* ===== Selection Styling ===== */
+/* 选区 */
 ::selection {
-    background: rgba(var(--color-brand-accent-rgb), 0.3);
+    background: rgba(var(--color-brand-accent-rgb), 0.22);
     color: var(--color-text-primary);
 }
 
-/* ===== Focus Outline ===== */
+/* 聚焦轮廓 —— 苔藓绿 */
 :focus-visible {
     outline: 2px solid rgba(var(--color-brand-accent-rgb), 0.6);
     outline-offset: 2px;
 }
 
-/* ===== Reduced Motion ===== */
+/* 降低动效 */
 @media (prefers-reduced-motion: reduce) {
+
     *,
     *::before,
     *::after {
@@ -751,15 +757,23 @@ input[type='number'] {
 }
 
 
-/* ===== Global Loading Primitives ===== */
+/* ===== 全局加载原语 ===== */
 
 @keyframes g-spin {
-    to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 @keyframes g-shimmer {
-    0%   { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
+
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
 }
 
 /* Spinner: sm(14) / md(20, default) / lg(32) */
@@ -775,10 +789,19 @@ input[type='number'] {
     vertical-align: middle;
 }
 
-.g-spinner--sm { width: 14px; height: 14px; border-width: 1.5px; }
-.g-spinner--lg { width: 32px; height: 32px; border-width: 2.5px; }
+.g-spinner--sm {
+    width: 14px;
+    height: 14px;
+    border-width: 1.5px;
+}
 
-/* Shimmer overlay: add class to any block to get sweep animation */
+.g-spinner--lg {
+    width: 32px;
+    height: 32px;
+    border-width: 2.5px;
+}
+
+/* Shimmer 扫光 */
 .g-shimmer {
     position: relative;
     overflow: hidden;
@@ -788,14 +811,14 @@ input[type='number'] {
     content: '';
     position: absolute;
     inset: 0;
-    background: linear-gradient(105deg, transparent 30%, rgba(var(--color-interactive-rgb), 0.035) 45%, rgba(var(--color-interactive-rgb), 0.07) 50%, rgba(var(--color-interactive-rgb), 0.035) 55%, transparent 70%);
+    background: linear-gradient(105deg, transparent 30%, rgba(var(--color-interactive-rgb), 0.04) 45%, rgba(var(--color-interactive-rgb), 0.08) 50%, rgba(var(--color-interactive-rgb), 0.04) 55%, transparent 70%);
     background-size: 250% 100%;
     animation: g-shimmer 2.4s ease-in-out infinite;
     pointer-events: none;
     border-radius: inherit;
 }
 
-/* Centered loading state (vertical) */
+/* 居中加载态 */
 .g-loading-state {
     display: flex;
     flex-direction: column;
@@ -808,7 +831,7 @@ input[type='number'] {
     font-size: var(--font-size-sm);
 }
 
-/* Inline loading (horizontal: spinner + text) */
+/* 行内加载 */
 .g-loading-inline {
     display: flex;
     align-items: center;
@@ -825,9 +848,9 @@ input[type='number'] {
 }
 
 
-/* ===== class ===== */
+/* ===== 通用按钮 —— 扁平克制，去胶囊去高光 ===== */
 .btn {
-    border-radius: var(--radius-full);
+    border-radius: var(--control-radius);
     border: 1px solid var(--color-border);
     background: var(--color-interactive);
     color: var(--color-text-primary);
@@ -842,7 +865,6 @@ input[type='number'] {
 
 .glass-card {
     background: var(--surface-panel);
-    /* border: 1px solid var(--color-glass-border); */
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     transition: all var(--transition-normal);
@@ -889,10 +911,12 @@ input[type='number'] {
 
         --user-message-max-width: 95%;
 
-        /* 移动端字体微调 */
-        --font-size-base: 0.9375rem; /* 15px */
-        --font-size-sm: 0.8125rem; /* 13px */
-        --font-size-xs: 0.6875rem; /* 11px */
+        --font-size-base: 0.9375rem;
+        /* 15px */
+        --font-size-sm: 0.8125rem;
+        /* 13px */
+        --font-size-xs: 0.6875rem;
+        /* 11px */
     }
 }
 
@@ -921,10 +945,12 @@ input[type='number'] {
         --subtasks-padding: var(--spacing-sm);
         --round-header-font-size: 11px;
 
-        /* 小屏手机字体进一步缩小 */
-        --font-size-base: 0.875rem; /* 14px */
-        --font-size-sm: 0.75rem; /* 12px */
-        --font-size-xs: 0.625rem; /* 10px */
+        --font-size-base: 0.875rem;
+        /* 14px */
+        --font-size-sm: 0.75rem;
+        /* 12px */
+        --font-size-xs: 0.625rem;
+        /* 10px */
     }
 }
 
@@ -948,9 +974,11 @@ input[type='number'] {
         --subtasks-padding: var(--spacing-xs);
         --round-header-font-size: 10px;
 
-        /* 超小屏手机字体进一步缩小 */
-        --font-size-base: 0.8125rem; /* 13px */
-        --font-size-sm: 0.6875rem; /* 11px */
-        --font-size-xs: 0.5625rem; /* 9px */
+        --font-size-base: 0.8125rem;
+        /* 13px */
+        --font-size-sm: 0.6875rem;
+        /* 11px */
+        --font-size-xs: 0.5625rem;
+        /* 9px */
     }
 }

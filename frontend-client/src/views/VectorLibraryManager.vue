@@ -26,77 +26,15 @@
         </template>
 
             <!-- ── 统计卡片 ───────────────────────────────────── -->
-            <section class="summary-grid adm-kpi-grid">
-                <article class="summary-card adm-kpi-card">
-                    <div class="summary-icon adm-kpi-icon summary-icon--files">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                            <polyline points="14 2 14 8 20 8" />
-                        </svg>
-                    </div>
-                    <div class="summary-body adm-kpi-body">
-                        <span class="summary-label adm-kpi-label">文件总数</span>
-                        <strong class="summary-value adm-kpi-value">{{ summary.totalFiles }}</strong>
-                    </div>
-                </article>
-
-                <article class="summary-card adm-kpi-card">
-                    <div class="summary-icon adm-kpi-icon summary-icon--indexed">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                            <path d="M2 17l10 5 10-5" />
-                            <path d="M2 12l10 5 10-5" />
-                        </svg>
-                    </div>
-                    <div class="summary-body adm-kpi-body">
-                        <span class="summary-label adm-kpi-label">已索引文件</span>
-                        <strong class="summary-value adm-kpi-value summary-value--indexed">{{ summary.indexedFiles }}</strong>
-                    </div>
-                </article>
-
-                <article class="summary-card adm-kpi-card">
-                    <div class="summary-icon adm-kpi-icon summary-icon--vectorizers">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <ellipse cx="12" cy="5" rx="9" ry="3" />
-                            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
-                            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
-                        </svg>
-                    </div>
-                    <div class="summary-body adm-kpi-body">
-                        <span class="summary-label adm-kpi-label">向量化器</span>
-                        <strong class="summary-value adm-kpi-value summary-value--vectorizers">{{ summary.vectorizers }}</strong>
-                    </div>
-                </article>
-
-                <article class="summary-card adm-kpi-card">
-                    <div class="summary-icon adm-kpi-icon summary-icon--rerankers">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <line x1="4" y1="9" x2="20" y2="9" />
-                            <line x1="4" y1="15" x2="20" y2="15" />
-                            <line x1="10" y1="3" x2="8" y2="21" />
-                            <line x1="16" y1="3" x2="14" y2="21" />
-                        </svg>
-                    </div>
-                    <div class="summary-body adm-kpi-body">
-                        <span class="summary-label adm-kpi-label">重排序器</span>
-                        <strong class="summary-value adm-kpi-value summary-value--rerankers">{{ summary.rerankers }}</strong>
-                    </div>
-                </article>
-
-            </section>
+            <KpiCards :items="kpiItems" />
 
             <!-- ── Tab 导航 ──────────────────────────────────── -->
-            <nav class="adm-tabs adm-tabs--five tab-nav" ref="tabNavRef">
-                <button v-for="tab in tabs" :key="tab.id" class="adm-tab tab-btn"
-                    :class="{ 'adm-tab--active tab-btn--active': activeTab === tab.id }" @click="activeTab = tab.id">
-                    <span class="adm-tab__content tab-btn__content">
-                        <span class="adm-tab__icon tab-icon" v-html="tab.icon"></span>
-                        <span class="adm-tab__label tab-label">{{ tab.label }}</span>
-                    </span>
+            <nav class="tab-nav">
+                <button v-for="tab in tabs" :key="tab.id" class="tab-btn"
+                    :class="{ 'tab-btn--active': activeTab === tab.id }" @click="activeTab = tab.id">
+                    <span class="tab-icon" v-html="tab.icon"></span>
+                    <span class="tab-label">{{ tab.label }}</span>
+                    <span v-if="tab.badge" class="tab-badge">{{ tab.badge }}</span>
                 </button>
             </nav>
 
@@ -120,7 +58,6 @@
 
                     <div class="section-toolbar">
                         <div class="toolbar-left">
-                            <h2 class="section-title">文件 × 向量化器索引矩阵</h2>
                             <p class="section-desc">每行为一个已上传文件，每列为一个向量化器，可逐项建立或查看索引状态。</p>
                         </div>
                         <div class="toolbar-right">
@@ -227,7 +164,7 @@
                                         </td>
                                         <td>
                                             <div class="row-actions adm-action-row">
-                                                <button class="adm-action-btn act-btn act-btn--secondary"
+                                                <button class="adm-action-btn"
                                                     @click="openSearchTest(row.collection)" title="测试检索">
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
                                                         viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -236,7 +173,7 @@
                                                         <line x1="21" y1="21" x2="16.65" y2="16.65" />
                                                     </svg>
                                                 </button>
-                                                <button class="adm-action-btn adm-action-btn--danger act-btn act-btn--danger"
+                                                <button class="adm-action-btn adm-action-btn--danger"
                                                     :disabled="deletingFileId === row.file_id"
                                                     @click="handleDeleteIndexedFile(row)" title="删除">
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
@@ -259,7 +196,7 @@
                     <div v-if="searchCollection" class="search-inline-card glass-card">
                         <div class="search-inline-header">
                             <span class="search-inline-title">检索测试：{{ searchCollection }}</span>
-                            <button class="adm-action-btn act-btn act-btn--secondary"
+                            <button class="adm-action-btn"
                                 @click="searchCollection = ''; searchResults = []">关闭</button>
                         </div>
                         <div class="search-box">
@@ -339,7 +276,6 @@
                 <div v-if="activeTab === 'files'" class="tab-panel">
                     <div class="section-toolbar">
                         <div class="toolbar-left">
-                            <h2 class="section-title">文件管理</h2>
                             <p class="section-desc">上传、查看、删除系统中的文件，上传后可在「向量库管理」中建立索引。</p>
                         </div>
                     </div>
@@ -404,7 +340,7 @@
                                     <td>{{ formatTime(file.uploaded_at) }}</td>
                                     <td>
                                         <div class="row-actions adm-action-row">
-                                            <button class="adm-action-btn act-btn act-btn--secondary" title="下载"
+                                            <button class="adm-action-btn" title="下载"
                                                 @click="downloadFile(file)">
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
                                                     viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -414,7 +350,7 @@
                                                     <line x1="12" y1="15" x2="12" y2="3" />
                                                 </svg>
                                             </button>
-                                            <button class="adm-action-btn adm-action-btn--danger act-btn act-btn--danger" title="删除"
+                                            <button class="adm-action-btn adm-action-btn--danger" title="删除"
                                                 :disabled="deletingUploadedFile === file.id"
                                                 @click="handleDeleteUploadedFile(file)">
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
@@ -437,7 +373,6 @@
                 <div v-if="activeTab === 'vectorizers'" class="tab-panel">
                     <div class="section-toolbar">
                         <div class="toolbar-left">
-                            <h2 class="section-title">向量化器管理</h2>
                             <p class="section-desc">配置多套向量化器，激活后用于新建索引；支持向量化器间的数据迁移。</p>
                         </div>
                         <div class="toolbar-right">
@@ -510,7 +445,7 @@
                                     </td>
                                     <td>
                                         <div class="row-actions adm-action-row">
-                                            <button class="adm-action-btn act-btn act-btn--secondary"
+                                            <button class="adm-action-btn"
                                                 :disabled="vectorizers.length < 2" @click="openMigrateDialog(v)"
                                                 title="迁移数据">
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
@@ -520,7 +455,7 @@
                                                     <path d="M12 5l7 7-7 7" />
                                                 </svg>
                                             </button>
-                                            <button class="adm-action-btn adm-action-btn--danger act-btn act-btn--danger"
+                                            <button class="adm-action-btn adm-action-btn--danger"
                                                 :disabled="deletingVectorizer === v.vectorizer_key"
                                                 @click="handleDeleteVectorizer(v.vectorizer_key)" title="删除">
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
@@ -543,7 +478,6 @@
                 <div v-if="activeTab === 'rerankers'" class="tab-panel">
                     <div class="section-toolbar">
                         <div class="toolbar-left">
-                            <h2 class="section-title">重排序器管理</h2>
                             <p class="section-desc">配置重排序器，激活后搜索时自动使用；支持本地 BM25 和远程模型两种模式。</p>
                         </div>
                         <div class="toolbar-right">
@@ -632,7 +566,7 @@
                                     </td>
                                     <td>
                                         <div class="row-actions adm-action-row">
-                                            <button class="adm-action-btn adm-action-btn--danger act-btn act-btn--danger"
+                                            <button class="adm-action-btn adm-action-btn--danger"
                                                 :disabled="deletingReranker === r.reranker_key"
                                                 @click="handleDeleteReranker(r.reranker_key)" title="删除">
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
@@ -655,7 +589,6 @@
                 <div v-if="activeTab === 'search'" class="tab-panel">
                     <div class="section-toolbar">
                         <div class="toolbar-left">
-                            <h2 class="section-title">向量搜索测试</h2>
                             <p class="section-desc">输入查询文本，测试向量检索效果。</p>
                         </div>
                     </div>
@@ -748,23 +681,14 @@
         <!-- ══════════════ 模态框区域 ══════════════════════════ -->
 
         <!-- 索引新文档对话框 -->
-        <Teleport to="body">
-            <div v-if="showIndexDialog" class="modal-overlay">
-                <div ref="indexDialogRef" class="modal-shell adm-modal">
-                    <div class="modal-header adm-modal-header">
-                        <h3>索引新文档</h3>
-                        <button class="modal-close" @click="showIndexDialog = false">&times;</button>
+        <AdmModal :open="showIndexDialog" title="索引新文档" width="680px" @close="showIndexDialog = false">
+                    <div class="index-mode-tabs">
+                        <button v-for="m in indexModes" :key="m.id" class="mode-tab"
+                            :class="{ 'mode-tab--active': indexMode === m.id }" @click="indexMode = m.id">{{ m.label
+                            }}</button>
                     </div>
-                    <div class="modal-body adm-modal-body">
-                        <!-- 索引方式切换 -->
-                        <div class="index-mode-tabs">
-                            <button v-for="m in indexModes" :key="m.id" class="mode-tab"
-                                :class="{ 'mode-tab--active': indexMode === m.id }" @click="indexMode = m.id">{{ m.label
-                                }}</button>
-                        </div>
 
-                        <div class="form-grid" style="margin-top: var(--spacing-md)">
-                            <!-- 上传文件 模式 -->
+                    <div class="form-grid" style="margin-top: var(--spacing-md)">
                             <template v-if="indexMode === 'upload'">
                                 <div class="field field--full">
                                     <label>选择文件 <em>*</em></label>
@@ -791,8 +715,6 @@
                                     </div>
                                 </div>
                             </template>
-
-                            <!-- 选择已上传文件 模式 -->
                             <template v-if="indexMode === 'select'">
                                 <div class="field field--full">
                                     <label>选择文件 <em>*</em></label>
@@ -800,8 +722,6 @@
                                         placeholder="-- 请选择已上传文件 --" @change="loadUploadedFilesIfEmpty" />
                                 </div>
                             </template>
-
-                            <!-- 直接输入文本 模式 -->
                             <template v-if="indexMode === 'text'">
                                 <div class="field field--full">
                                     <label>文档ID <em>*</em></label>
@@ -816,8 +736,6 @@
                                     <input v-model="indexForm.metadata.source" placeholder="如：技术文档、应急预案" />
                                 </div>
                             </template>
-
-                            <!-- 通用字段 -->
                             <div class="field">
                                 <label>集合名称</label>
                                 <div class="input-with-btn">
@@ -826,53 +744,39 @@
                                         title="根据文档类型自动设置">自动</button>
                                 </div>
                             </div>
-
                             <div v-if="indexMode !== 'text'" class="field">
                                 <label>文档ID</label>
                                 <input v-model="indexForm.document_id"
                                     :placeholder="indexMode === 'upload' ? '留空使用文件名' : '留空使用文件ID'" />
                             </div>
-
                             <div class="field">
                                 <label>文档类型</label>
                                 <CustomSelect v-model="indexForm.metadata.document_type" :options="documentTypeOptions"
                                     @change="autoSetCollectionName" />
                             </div>
-
                             <div class="field">
                                 <label>分块大小（字符）</label>
                                 <input v-model.number="indexForm.chunk_size" type="number" min="100" max="2000"
                                     step="100" />
                                 <small>建议 300–800</small>
                             </div>
-
                             <div class="field">
                                 <label>分块重叠</label>
                                 <input v-model.number="indexForm.overlap" type="number" min="0" max="500" step="10" />
                                 <small>建议为分块大小的 10%</small>
                             </div>
-                        </div>
                     </div>
-                    <div class="modal-footer adm-modal-footer">
+                    <template #footer>
                         <UiButton size="compact" @click="showIndexDialog = false">取消</UiButton>
                         <UiButton size="compact" variant="primary" :disabled="indexing" @click="handleIndexDocument">
                             {{ indexing ? '索引中...' : '开始索引' }}
                         </UiButton>
-                    </div>
-                </div>
-            </div>
-        </Teleport>
+                    </template>
+        </AdmModal>
 
         <!-- 新增向量化器对话框 -->
-        <Teleport to="body">
-            <div v-if="showAddVectorizerDialog" class="modal-overlay">
-                <div ref="addVectorizerDialogRef" class="modal-shell modal-shell--narrow adm-modal">
-                    <div class="modal-header adm-modal-header">
-                        <h3>新增向量化器</h3>
-                        <button class="modal-close" @click="showAddVectorizerDialog = false">&times;</button>
-                    </div>
-                    <div class="modal-body adm-modal-body">
-                        <div class="form-grid">
+        <AdmModal :open="showAddVectorizerDialog" title="新增向量化器" width="480px" @close="showAddVectorizerDialog = false">
+                    <div class="form-grid">
                             <div class="field field--full">
                                 <label>Provider <em>*</em></label>
                                 <CustomSelect v-model="addVectorizerForm.provider_key"
@@ -891,58 +795,38 @@
                                 </datalist>
                                 <small v-if="addFormRecommendedModel">推荐: {{ addFormRecommendedModel }}</small>
                             </div>
-                        </div>
                     </div>
-                    <div class="modal-footer adm-modal-footer">
+                    <template #footer>
                         <UiButton size="compact" @click="showAddVectorizerDialog = false">取消</UiButton>
                         <UiButton size="compact" variant="primary"
                             :disabled="addingVectorizer || !addVectorizerForm.provider_key || !addVectorizerForm.model_name"
                             @click="handleAddVectorizer">
                             {{ addingVectorizer ? '添加中...' : '确定' }}
                         </UiButton>
-                    </div>
-                </div>
-            </div>
-        </Teleport>
+                    </template>
+        </AdmModal>
 
         <!-- 迁移对话框 -->
-        <Teleport to="body">
-            <div v-if="showMigrateDialog" class="modal-overlay">
-                <div ref="migrateDialogRef" class="modal-shell modal-shell--narrow adm-modal">
-                    <div class="modal-header adm-modal-header">
-                        <h3>迁移向量数据</h3>
-                        <button class="modal-close" @click="showMigrateDialog = false">&times;</button>
-                    </div>
-                    <div class="modal-body adm-modal-body">
-                        <p class="migrate-desc">将「{{ migrateFromKey }}」中的向量数据迁移到另一个向量化器。</p>
-                        <div class="form-grid">
+        <AdmModal :open="showMigrateDialog" title="迁移向量数据" width="480px" @close="showMigrateDialog = false">
+                    <p class="migrate-desc">将「{{ migrateFromKey }}」中的向量数据迁移到另一个向量化器。</p>
+                    <div class="form-grid">
                             <div class="field field--full">
                                 <label>迁移目标向量化器 <em>*</em></label>
                                 <CustomSelect v-model="migrateToKey" :options="migrateTargetOptions"
                                     placeholder="-- 选择目标 --" />
                             </div>
-                        </div>
                     </div>
-                    <div class="modal-footer adm-modal-footer">
+                    <template #footer>
                         <UiButton size="compact" @click="showMigrateDialog = false">取消</UiButton>
                         <UiButton size="compact" variant="primary" :disabled="migrating || !migrateToKey" @click="handleMigrate">
                             {{ migrating ? '迁移中...' : '开始迁移' }}
                         </UiButton>
-                    </div>
-                </div>
-            </div>
-        </Teleport>
+                    </template>
+        </AdmModal>
 
         <!-- 新增重排序器对话框 -->
-        <Teleport to="body">
-            <div v-if="showAddRerankerDialog" class="modal-overlay">
-                <div ref="addRerankerDialogRef" class="modal-shell modal-shell--narrow adm-modal">
-                    <div class="modal-header adm-modal-header">
-                        <h3>新增重排序器</h3>
-                        <button class="modal-close" @click="showAddRerankerDialog = false">&times;</button>
-                    </div>
-                    <div class="modal-body adm-modal-body">
-                        <div class="form-grid">
+        <AdmModal :open="showAddRerankerDialog" title="新增重排序器" width="480px" @close="showAddRerankerDialog = false">
+                    <div class="form-grid">
                             <div class="field field--full">
                                 <label>模式 <em>*</em></label>
                                 <CustomSelect v-model="addRerankerForm.mode" :options="rerankerModeSelectOptions" />
@@ -969,29 +853,25 @@
                                     <input v-model="addRerankerForm.api_key" type="password" autocomplete="off" placeholder="可填写明文或 ${RERANK_API_KEY}" />
                                 </div>
                             </template>
-                        </div>
                     </div>
-                    <div class="modal-footer adm-modal-footer">
+                    <template #footer>
                         <UiButton size="compact" @click="showAddRerankerDialog = false">取消</UiButton>
                         <UiButton size="compact" variant="primary"
                             :disabled="addingReranker || !addRerankerFormValid"
                             @click="handleAddReranker">
                             {{ addingReranker ? '添加中...' : '确定' }}
                         </UiButton>
-                    </div>
-                </div>
-            </div>
-        </Teleport>
-
-        <AppToast ref="toastRef" />
+                    </template>
+        </AdmModal>
     </PageLayout>
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { computed, h, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import AppToast from '../components/AppToast.vue';
 import PageLayout from '../components/PageLayout.vue';
+import KpiCards from '../components/admin/KpiCards.vue';
+import AdmModal from '../components/admin/AdmModal.vue';
 import { getProviders } from '../api/modelAdapter';
 import {
     activateVectorizer,
@@ -1014,7 +894,8 @@ import {
 } from '../api/vectorLibrary';
 import CustomSelect from '../components/CustomSelect.vue';
 import { UiBadge, UiButton, UiIconButton } from '../components/ui';
-import { usePointerDownOutside } from '../composables/usePointerDownOutside';
+import { useToast } from '../composables/useToast.js';
+import { useConfirm } from '../composables/useConfirm.js';
 
 const props = defineProps({
     embedded: { type: Boolean, default: false },
@@ -1023,60 +904,23 @@ const props = defineProps({
 
 const router = useRouter();
 
-const toastRef = ref(null);
-const indexDialogRef = ref(null);
-const addVectorizerDialogRef = ref(null);
-const migrateDialogRef = ref(null);
+const toast = useToast();
+const { confirm } = useConfirm();
 
-usePointerDownOutside({
-    inside: [indexDialogRef],
-    enabled: () => showIndexDialog.value,
-    onOutside: () => { showIndexDialog.value = false; },
-});
+const SVG = { xmlns: 'http://www.w3.org/2000/svg', width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
+const IconFiles = () => h('svg', SVG, [h('path', { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' }), h('polyline', { points: '14 2 14 8 20 8' })]);
+const IconIndexed = () => h('svg', SVG, [h('path', { d: 'M12 2L2 7l10 5 10-5-10-5z' }), h('path', { d: 'M2 17l10 5 10-5' }), h('path', { d: 'M2 12l10 5 10-5' })]);
+const IconVectorizers = () => h('svg', SVG, [h('ellipse', { cx: 12, cy: 5, rx: 9, ry: 3 }), h('path', { d: 'M21 12c0 1.66-4 3-9 3s-9-1.34-9-3' }), h('path', { d: 'M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5' })]);
+const IconRerankers = () => h('svg', SVG, [h('line', { x1: 4, y1: 9, x2: 20, y2: 9 }), h('line', { x1: 4, y1: 15, x2: 20, y2: 15 }), h('line', { x1: 10, y1: 3, x2: 8, y2: 21 }), h('line', { x1: 16, y1: 3, x2: 14, y2: 21 })]);
 
-usePointerDownOutside({
-    inside: [addVectorizerDialogRef],
-    enabled: () => showAddVectorizerDialog.value,
-    onOutside: () => { showAddVectorizerDialog.value = false; },
-});
-
-usePointerDownOutside({
-    inside: [migrateDialogRef],
-    enabled: () => showMigrateDialog.value,
-    onOutside: () => { showMigrateDialog.value = false; },
-});
-
-const addRerankerDialogRef = ref(null);
-const showAddRerankerDialog = ref(false);
-usePointerDownOutside({
-    inside: [addRerankerDialogRef],
-    enabled: () => showAddRerankerDialog.value,
-    onOutside: () => { showAddRerankerDialog.value = false; },
-});
-
-function showToast(msg, type = 'error') { toastRef.value?.show(msg, type); }
+function showToast(msg, type = 'error') {
+    if (type === 'success') toast.success(msg);
+    else if (type === 'warning') toast.warning(msg);
+    else toast.error(msg);
+}
 
 // ── Tab ───────────────────────────────────────────────────
 const activeTab = ref('store');
-const tabNavRef = ref(null);
-
-const updateTabSlider = () => {
-  nextTick(() => {
-    if (!tabNavRef.value) return;
-    const activeBtn = tabNavRef.value.querySelector('.tab-btn--active');
-    const activeContent = activeBtn?.querySelector('.tab-btn__content');
-    if (activeBtn && activeContent) {
-      const navRect = tabNavRef.value.getBoundingClientRect();
-      const btnRect = activeBtn.getBoundingClientRect();
-      const contentRect = activeContent.getBoundingClientRect();
-      const left = btnRect.left - navRect.left + (btnRect.width - contentRect.width) / 2 - 12;
-      tabNavRef.value.style.setProperty('--slider-left', `${left}px`);
-      tabNavRef.value.style.setProperty('--slider-width', `${contentRect.width + 24}px`);
-    }
-  });
-};
-
-watch(activeTab, updateTabSlider);
 const globalLoading = ref(false);
 
 const tabs = computed(() => [
@@ -1107,12 +951,12 @@ const tabs = computed(() => [
 ]);
 
 // ── 统计 ──────────────────────────────────────────────────
-const summary = computed(() => ({
-    totalFiles: uploadedFiles.value.length,
-    indexedFiles: fileList.value.length,
-    vectorizers: vectorizers.value.length,
-    rerankers: rerankers.value.length,
-}));
+const kpiItems = computed(() => [
+    { key: 'files', label: '文件总数', value: uploadedFiles.value.length, icon: IconFiles },
+    { key: 'indexed', label: '已索引文件', value: fileList.value.length, icon: IconIndexed },
+    { key: 'vectorizers', label: '向量化器', value: vectorizers.value.length, icon: IconVectorizers },
+    { key: 'rerankers', label: '重排序器', value: rerankers.value.length, icon: IconRerankers },
+]);
 
 const activeVectorizer = computed(() => vectorizers.value.find(v => v.is_active));
 
@@ -1176,7 +1020,8 @@ function downloadFile(file) {
     window.open(`/api/vector-library/files/${encodeURIComponent(file.id)}/download`, '_blank');
 }
 async function handleDeleteUploadedFile(file) {
-    if (!window.confirm(`确定删除文件"${file.original_name || file.filename}"？`)) return;
+    const ok = await confirm({ message: `确定删除文件“${file.original_name || file.filename}”？`, confirmText: '删除', danger: true });
+    if (!ok) return;
     deletingUploadedFile.value = file.id;
     try {
         await deleteFile(file.id);
@@ -1254,7 +1099,8 @@ async function handleIndexFileWithVectorizer(row, vectorizerKey) {
 }
 
 async function handleDeleteIndexedFile(row) {
-    if (!window.confirm(`确定删除"${row.file_name}"在所有向量化器下的分块与向量？此操作不可恢复。`)) return;
+    const ok = await confirm({ message: `确定删除“${row.file_name}”在所有向量化器下的分块与向量？此操作不可恢复。`, confirmText: '删除', danger: true });
+    if (!ok) return;
     deletingFileId.value = row.file_id;
     try {
         const res = await deleteFileIndex({ collection: row.collection, file_id: row.file_id });
@@ -1408,7 +1254,8 @@ async function handleActivateVectorizer(key) {
 }
 
 async function handleDeleteVectorizer(key) {
-    if (!window.confirm(`确定删除向量化器"${key}"？将同时删除其向量数据。`)) return;
+    const ok = await confirm({ message: `确定删除向量化器“${key}”？将同时删除其向量数据。`, confirmText: '删除', danger: true });
+    if (!ok) return;
     deletingVectorizer.value = key;
     try {
         const res = await deleteVectorizer(key);
@@ -1758,98 +1605,21 @@ async function refreshAll() {
 
 onMounted(() => {
     refreshAll();
-    updateTabSlider();
 });
 </script>
 
 <style scoped>
-/* ─── 统计卡片 ──────────────────────────────────────────── */
-.summary-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
-}
-
-.summary-card {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-width: 0;
-    border-radius: 12px;
-    padding: 14px;
-    border: 1px solid var(--adm-border);
-    background: var(--adm-surface-raised);
-    box-shadow: var(--adm-shadow-inset);
-    transition: border-color 0.2s, background 0.2s;
-}
-
-.summary-card:hover {
-    border-color: var(--adm-border-strong);
-    background: var(--adm-surface-hover);
-}
-
-.summary-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    border: 1px solid var(--adm-border);
-    flex-shrink: 0;
-}
-
-.summary-icon--files {
-    background: var(--adm-control-bg);
-    color: var(--color-text-secondary);
-    border-color: var(--adm-border);
-}
-
-.summary-icon--indexed {
-    background: var(--adm-control-bg);
-    color: var(--color-text-secondary);
-    border-color: var(--adm-border);
-}
-
-.summary-icon--vectorizers {
-    background: var(--adm-control-bg);
-    color: var(--color-text-secondary);
-    border-color: var(--adm-border);
-}
-
-.summary-body {
-    display: flex;
-    flex-direction: column;
-    flex: 1 1 0;
-    gap: 2px;
-    min-width: 0;
-    overflow: hidden;
-}
-
-.summary-label {
-    color: var(--color-text-secondary);
-    font-size: var(--font-size-xs);
-    white-space: nowrap;
-}
-
-.summary-value {
-    display: block;
-    font-size: var(--font-size-xl);
-    font-weight: 700;
-    line-height: 1.2;
-    color: var(--color-text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.summary-value--indexed {
-    color: var(--color-success);
-}
-
-.summary-value--vectorizers {
-    color: var(--color-warning);
-}
+/* ─── Tab 导航 ──────────────────────────────────────────── */
+.tab-nav { display: flex; gap: var(--spacing-xs); border-bottom: 1px solid var(--color-border); overflow-x: auto; overflow-y: hidden; }
+.tab-btn { position: relative; display: inline-flex; align-items: center; gap: var(--spacing-sm); padding: 10px 14px; background: transparent; border: none; color: var(--color-text-secondary); font: inherit; font-size: var(--font-size-sm); font-weight: 500; cursor: pointer; white-space: nowrap; transition: color var(--transition-fast); }
+.tab-btn::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: 0; height: 2px; border-radius: 2px; background: transparent; transition: background var(--transition-fast); pointer-events: none; }
+.tab-btn:hover { color: var(--color-text-primary); }
+.tab-btn--active { color: var(--color-text-primary); font-weight: 600; }
+.tab-btn--active::after { background: var(--color-brand-accent); }
+.tab-icon { display: inline-flex; color: inherit; flex-shrink: 0; }
+.tab-label { white-space: nowrap; }
+.tab-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-full); background: var(--adm-control-bg); color: var(--color-text-secondary); font-size: 11px; font-weight: 600; line-height: 1; }
+.tab-btn--active .tab-badge { background: rgba(var(--color-brand-accent-rgb), 0.18); color: var(--color-brand-accent-light); }
 
 /* ─── Tab 内容 ──────────────────────────────────────────── */
 .tab-content {
@@ -1922,13 +1692,6 @@ onMounted(() => {
     flex-shrink: 0;
 }
 
-.section-title {
-    font-size: var(--font-size-lg);
-    font-weight: 600;
-    margin: 0;
-    color: var(--color-text-primary);
-}
-
 .section-desc {
     color: var(--color-text-secondary);
     font-size: var(--font-size-sm);
@@ -1983,42 +1746,8 @@ onMounted(() => {
 /* ─── 行操作按钮 ────────────────────────────────────────── */
 .row-actions {
     display: flex;
+    flex-wrap: nowrap;
     gap: var(--spacing-xs);
-}
-
-.act-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--adm-border);
-    background: var(--adm-control-bg);
-    color: var(--color-text-secondary);
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.act-btn:hover:not(:disabled) {
-    color: var(--color-text-primary);
-    background: var(--adm-control-hover);
-}
-
-.act-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
-
-.act-btn--danger {
-    color: var(--color-error);
-    border-color: rgba(var(--color-error-rgb), 0.3);
-    background: rgba(var(--color-error-rgb), 0.08);
-}
-
-.act-btn--danger:hover:not(:disabled) {
-    border-color: rgba(var(--color-error-rgb), 0.5);
-    background: rgba(var(--color-error-rgb), 0.14);
 }
 
 /* ─── 矩阵表格 ──────────────────────────────────────────── */
@@ -2026,8 +1755,6 @@ onMounted(() => {
     border-radius: var(--radius-xl);
     border: 1px solid var(--adm-border);
     background: var(--adm-surface);
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
     overflow: hidden;
 }
 
@@ -2059,6 +1786,9 @@ onMounted(() => {
     top: 0;
     z-index: 1;
 }
+
+.data-table th.col-chunks { text-align: center; }
+.data-table th:last-child { text-align: right; }
 
 .data-table tr:last-child td {
     border-bottom: none;
@@ -2102,9 +1832,9 @@ onMounted(() => {
 }
 
 .cell-filename {
-    /* display: flex; */
+    display: flex;
     align-items: center;
-    /* gap: var(--spacing-sm); */
+    gap: var(--spacing-sm);
     color: var(--color-text-primary);
 }
 
@@ -2196,7 +1926,6 @@ onMounted(() => {
     border-radius: var(--radius-xl);
     border: 1px solid var(--adm-border);
     background: var(--adm-surface);
-    backdrop-filter: blur(var(--glass-blur));
 }
 
 .search-inline-header {
@@ -2294,7 +2023,8 @@ onMounted(() => {
 
 .search-options-row {
     display: flex;
-    gap: var(--spacing-lg);
+    flex-wrap: wrap;
+    gap: var(--spacing-md);
 }
 
 .search-option {
@@ -2474,82 +2204,6 @@ onMounted(() => {
     opacity: 0.35;
 }
 
-/* ─── 模态框 ────────────────────────────────────────────── */
-.modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(4px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: var(--z-modal);
-    padding: var(--spacing-md);
-}
-
-.modal-shell {
-    background: var(--color-bg-secondary);
-    border-radius: var(--radius-xl);
-    border: 1px solid var(--color-glass-border);
-    box-shadow: var(--shadow-xl);
-    max-height: 90vh;
-    overflow-y: auto;
-    width: min(680px, 100%);
-}
-
-.modal-shell--narrow {
-    width: min(440px, 100%);
-}
-
-.modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: var(--spacing-lg);
-    border-bottom: 1px solid var(--color-border);
-    flex-shrink: 0;
-}
-
-.modal-header h3 {
-    font-size: var(--font-size-lg);
-    font-weight: 600;
-    margin: 0;
-    color: var(--color-text-primary);
-}
-
-.modal-close {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    border-radius: var(--radius-md);
-    border: none;
-    background: transparent;
-    color: var(--color-text-muted);
-    cursor: pointer;
-    font-size: 20px;
-    line-height: 1;
-    transition: all 0.2s;
-}
-
-.modal-close:hover {
-    color: var(--color-text-primary);
-    background: var(--color-hover-overlay);
-}
-
-.modal-body {
-    padding: var(--spacing-lg);
-}
-
-.modal-footer {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--spacing-sm);
-    padding: var(--spacing-md) var(--spacing-lg);
-    border-top: 1px solid var(--color-border);
-}
-
 /* ─── 索引模式选项卡 ────────────────────────────────────── */
 .index-mode-tabs {
     display: flex;
@@ -2702,41 +2356,8 @@ onMounted(() => {
 
 /* ─── 响应式 ────────────────────────────────────────────── */
 
-/* ── 平板（≤900px）── */
-@media (max-width: 900px) {
-    .summary-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-
 /* ── 手机横屏 / 小平板（≤720px）── */
 @media (max-width: 720px) {
-    /* 统计卡片：单列，缩小内边距和图标 */
-    .summary-grid {
-        grid-template-columns: 1fr;
-        gap: var(--spacing-sm);
-    }
-
-    .summary-card {
-        padding: var(--spacing-sm) var(--spacing-md);
-        gap: var(--spacing-sm);
-    }
-
-    .summary-icon {
-        width: 36px;
-        height: 36px;
-        flex-shrink: 0;
-    }
-
-    .summary-icon svg {
-        width: 16px;
-        height: 16px;
-    }
-
-    .summary-value {
-        font-size: var(--font-size-xl);
-    }
-
     .tab-badge {
         display: none;
     }
@@ -2807,55 +2428,10 @@ onMounted(() => {
         width: 36px;
         height: 36px;
     }
-
-    /* 模态框：底部弹出风格 */
-    .modal-overlay {
-        align-items: flex-end;
-        padding: 0;
-    }
-
-    .modal-shell {
-        width: 100%;
-        max-height: 88vh;
-        border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-    }
-
-    .modal-shell--narrow {
-        width: 100%;
-    }
 }
 
 /* ── 手机竖屏（≤480px）── */
 @media (max-width: 480px) {
-    /* 统计卡片：超小屏保持2列但更紧凑 */
-    .summary-grid {
-        gap: var(--spacing-xs);
-    }
-
-    .summary-card {
-        padding: var(--spacing-xs) var(--spacing-sm);
-        width: 100%;
-        max-width: calc(100vw - 16px);
-        min-width: 0;
-        overflow: hidden;
-    }
-
-    .summary-icon {
-        display: none;
-    }
-
-    .summary-value {
-        font-size: var(--font-size-lg);
-        max-width: 100%;
-        min-width: 0;
-    }
-
-    .summary-body {
-        flex: 1 1 0;
-        width: auto;
-        min-width: 0;
-    }
-
     /* 按钮文字缩减 */
     .primary-action-button,
     .toolbar-primary-action,

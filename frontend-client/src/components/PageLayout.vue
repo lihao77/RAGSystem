@@ -1,5 +1,5 @@
 <template>
-  <div class="page-layout" :class="{ 'page-layout--embedded': embedded }">
+  <div class="page-layout" :class="{ 'page-layout--embedded': embedded }" :style="shellStyle">
     <header class="page-header">
       <div class="page-header__group page-header__group--meta">
         <button class="hamburger-menu-btn page-header__menu-btn" @click="openMobileSidebar" title="打开菜单">
@@ -49,7 +49,7 @@
       </div>
     </header>
 
-    <div class="page-shell" :style="shellStyle">
+    <div class="page-shell">
       <div class="page-mobile-nav">
         <button class="hamburger-menu-btn page-mobile-nav__menu" @click="openMobileSidebar" title="打开菜单">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -102,11 +102,11 @@ const props = defineProps({
   title: { type: String, required: true },
   subtitle: { type: String, default: '' },
   mobileTitle: { type: String, default: '' },
-  maxWidth: { type: String, default: '1100px' },
+  maxWidth: { type: String, default: '1480px' },
   embedded: { type: Boolean, default: false },
   chatReturnPath: { type: String, default: '/' },
-  contentPadding: { type: String, default: 'var(--spacing-xl)' },
-  mobileContentPadding: { type: String, default: 'var(--spacing-md)' },
+  contentPadding: { type: String, default: 'var(--spacing-2xl) var(--spacing-xl)' },
+  mobileContentPadding: { type: String, default: 'var(--spacing-xl) var(--spacing-md)' },
 });
 
 const slots = useSlots();
@@ -182,16 +182,18 @@ usePointerDownOutside({
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  /* 浅灰画布：让纯白卡片面板浮起，形成层次，免边框 */
+  background: var(--color-bg-secondary);
 }
 
 .page-content {
   width: 100%;
-  max-width: var(--page-shell-max-width, 1100px);
+  max-width: var(--page-shell-max-width, 1480px);
   min-height: 100%;
   margin: 0 auto;
-  padding: var(--page-content-padding, var(--spacing-lg));
+  padding: var(--page-content-padding, var(--spacing-xl));
   display: flex;
-  gap: var(--spacing-md);
+  gap: var(--spacing-xl);
   flex-direction: column;
 }
 
@@ -199,31 +201,28 @@ usePointerDownOutside({
   margin-top: 0;
 }
 
-/* ===== 桌面端 Header ===== */
+/* ===== 桌面端 Header —— 与内容区同宽同对齐 ===== */
 .page-header {
   position: relative;
   z-index: var(--z-sticky);
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--spacing-lg);
   pointer-events: none;
-  padding: var(--top-bar-padding-y) var(--top-bar-padding-x);
+  /* 与 .page-content 用同一个 max-width + 居中，保证标题列与正文列严丝合缝 */
+  width: 100%;
+  max-width: var(--page-shell-max-width, 1480px);
+  margin: 0 auto;
+  padding: var(--spacing-2xl) var(--spacing-xl) var(--spacing-xl);
+  box-sizing: border-box;
   background: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
 
 .page-header::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: var(--top-bar-divider-left);
-  right: var(--top-bar-divider-right);
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--color-border) 10%, var(--color-border) 90%, transparent);
-  opacity: 1;
-  pointer-events: none;
+  display: none;
 }
 
 .page-header > * {
@@ -233,10 +232,10 @@ usePointerDownOutside({
 .page-header__group {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--spacing-sm);
   min-width: 0;
-  padding: 2px;
-  border-radius: 12px;
+  padding: 0;
+  border-radius: 0;
   background-color: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -251,17 +250,16 @@ usePointerDownOutside({
 
 .page-header__group--meta {
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   justify-content: flex-start;
-  max-width: min(64%, 760px);
 }
 
 .page-header__group--actions {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
   justify-content: flex-end;
-  align-self: center;
-  max-width: min(36%, 520px);
+  align-self: flex-end;
+  padding-bottom: 2px;
 }
 
 .page-header__meta {
@@ -273,8 +271,9 @@ usePointerDownOutside({
 
 .page-header__title-row {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
   min-width: 0;
   width: 100%;
 }
@@ -296,11 +295,11 @@ usePointerDownOutside({
   margin: 0;
   flex: 0 1 auto;
   min-width: 0;
-  font-size: 17px;
+  font-size: 1.5rem;
   font-weight: 600;
   color: var(--color-text-primary);
-  letter-spacing: 0;
-  line-height: 1.2;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -311,8 +310,8 @@ usePointerDownOutside({
   flex: 0 1 auto;
   min-width: 0;
   color: var(--color-text-secondary);
-  font-size: 12px;
-  line-height: 1.35;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -323,7 +322,7 @@ usePointerDownOutside({
   align-items: center;
   justify-content: flex-end;
   align-content: center;
-  gap: 6px;
+  gap: var(--spacing-sm);
   flex-wrap: nowrap;
   flex: 0 1 auto;
   max-width: 100%;
@@ -335,7 +334,7 @@ usePointerDownOutside({
   align-items: center;
   justify-content: flex-end;
   align-content: center;
-  gap: 6px;
+  gap: var(--spacing-sm);
   flex-wrap: nowrap;
   min-width: 0;
 }
@@ -353,8 +352,8 @@ usePointerDownOutside({
 }
 
 .page-header__more-btn.is-open {
-  background: var(--adm-control-active, var(--color-interactive-hover));
-  border-color: var(--adm-accent-border, var(--color-border-hover));
+  background: var(--color-hover-overlay-md);
+  border-color: transparent;
 }
 
 .page-header__menu-dropdown {
@@ -367,10 +366,12 @@ usePointerDownOutside({
 
 .page-header__menu-list {
   padding: 6px;
-  border-radius: 12px;
-  background: var(--adm-surface-hover, var(--color-bg-elevated));
-  border: 1px solid var(--adm-border-strong, var(--color-border));
-  box-shadow: var(--shadow-md);
+  border-radius: var(--radius-lg);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: var(--glass-border-width) var(--glass-border-style) var(--glass-border-color);
+  box-shadow: var(--glass-shadow);
 }
 
 .page-header__actions :deep(.custom-select) {
@@ -412,7 +413,7 @@ usePointerDownOutside({
   left: var(--top-bar-divider-left);
   right: var(--top-bar-divider-right);
   height: 1px;
-  background: var(--color-glass-border);
+  background: var(--color-border);
   opacity: 1;
 }
 
@@ -478,10 +479,12 @@ usePointerDownOutside({
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  background: var(--adm-surface-hover, var(--color-bg-elevated));
-  border: 1px solid var(--adm-border-strong, var(--color-border));
-  border-radius: 12px;
-  box-shadow: var(--shadow-md);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: var(--glass-border-width) var(--glass-border-style) var(--glass-border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
   padding: 6px;
 }
 
@@ -530,26 +533,25 @@ usePointerDownOutside({
 
  @media (max-width: 1200px) {
       .page-header {
-    gap: 10px;
+    gap: var(--spacing-md);
   }
 
   .page-header__group--meta {
-    max-width: 46%;
+    max-width: none;
   }
 
   .page-header__group--actions {
-    max-width: 54%;
+    max-width: none;
     justify-content: flex-end;
-    align-self: center;
+    align-self: flex-end;
   }
 
   .page-header__hint-row {
     display: none;
   }
 
-  .page-header__subtitle {
-    max-width: 180px;
-    font-size: 11px;
+  .page-header__title {
+    font-size: 1.3rem;
   }
 
   .page-header__actions,

@@ -39,28 +39,26 @@
   position: fixed;
   bottom: calc(var(--spacing-2xl) + env(safe-area-inset-bottom, 0px));
   right: var(--spacing-xl);
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--radius-full);
-  border: 1px solid var(--color-glass-border);
+  border: var(--glass-border-width) var(--glass-border-style) var(--glass-border-color);
   background: var(--glass-bg);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   color: var(--color-text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: var(--z-sidebar);
-  transition: all var(--transition-fast);
-  box-shadow: var(--shadow-md), inset 0 1px 0 var(--color-soft-inset);
+  transition: color var(--transition-fast), box-shadow var(--transition-fast);
+  box-shadow: var(--glass-shadow);
 }
 
 .btn-scroll-bottom:hover {
-  background: var(--color-bg-elevated);
   color: var(--color-text-primary);
-  transform: translateY(2px);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-elevated);
 }
 
 /* ===== Header ===== */
@@ -136,9 +134,9 @@
 }
 
 .section-head__toggle {
-  border-radius: var(--radius-full);
-  border: 1px solid var(--color-border);
-  background: var(--color-interactive);
+  border: none;
+  border-radius: var(--control-radius);
+  background: var(--color-hover-overlay-md);
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
   font-weight: 600;
@@ -147,16 +145,12 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: all var(--transition-fast);
-  box-shadow: var(--shadow-sm);
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .section-head__toggle:hover {
-  background: var(--color-interactive-hover);
-  border-color: var(--color-border-hover);
+  background: var(--color-hover-overlay-lg);
   color: var(--color-text-primary);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
 }
 
 .section-head__toggle:active {
@@ -220,22 +214,21 @@
 }
 
 /* ===== Form controls (inputs & selects) ===== */
-/* 优化表单控件 - Apple 风格 */
 .form-control {
   width: 100%;
-  height: 44px;
-  padding: 0 16px;
-  border: 1.5px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-primary);
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--control-radius);
+  background: var(--color-bg-elevated);
   color: var(--color-text-primary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-sm);
   font-family: var(--font-sans);
-  transition: all var(--transition-fast);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
 }
 
 .form-control::placeholder {
@@ -245,21 +238,19 @@
 
 .form-control:hover {
   border-color: var(--color-border-hover);
-  box-shadow: var(--shadow-md);
 }
 
 .form-control:focus {
   outline: none;
   border-color: var(--color-brand-accent);
-  box-shadow: 0 0 0 4px rgba(var(--color-brand-accent-rgb), 0.12), var(--shadow-md);
-  transform: translateY(-1px);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.12);
 }
 
 .form-control:disabled {
   color: var(--color-text-muted);
   background: var(--color-bg-secondary);
   cursor: not-allowed;
-  opacity: 0.6;
+  opacity: 0.5;
 }
 
 input[type='number'].form-control {
@@ -267,14 +258,14 @@ input[type='number'].form-control {
 }
 
 .form-control--textarea {
-  min-height: 180px;
+  min-height: 160px;
   max-height: min(520px, 42vh);
   height: auto;
-  padding: 14px 16px;
+  padding: 12px;
   line-height: 1.7;
   resize: none;
   overflow-y: hidden;
-  background: linear-gradient(180deg, rgba(var(--color-brand-accent-rgb), 0.04), transparent 28%), var(--color-bg-secondary);
+  background: var(--color-bg-elevated);
 }
 
 .form-control--textarea::placeholder {
@@ -343,17 +334,17 @@ input[type='number'].form-control {
 }
 
 .switch-control input:checked + .switch-control__track {
-  background: rgba(var(--color-brand-accent-rgb), 0.18);
-  border-color: rgba(var(--color-brand-accent-rgb), 0.5);
+  background: var(--color-brand-accent);
+  border-color: var(--color-brand-accent);
 }
 
 .switch-control input:checked + .switch-control__track .switch-control__thumb {
   transform: translateX(18px);
-  background: var(--color-brand-accent-light);
+  background: var(--color-on-accent);
 }
 
 .switch-control input:focus-visible + .switch-control__track {
-  box-shadow: 0 0 0 4px rgba(var(--color-brand-accent-rgb), 0.12), var(--shadow-md);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.18);
 }
 
 .skills-body {
@@ -402,9 +393,9 @@ input[type='number'].form-control {
 }
 
 .toggle-card.active {
-  border-color: rgba(var(--color-brand-accent-rgb), 0.55);
-  background: rgba(var(--color-brand-accent-rgb), 0.1);
-  box-shadow: 0 0 0 1px rgba(var(--color-brand-accent-rgb), 0.18);
+  border-color: rgba(var(--color-brand-accent-rgb), 0.4);
+  background: var(--color-active-bg);
+  box-shadow: none;
 }
 
 .toggle-card__indicator {
@@ -625,9 +616,9 @@ input[type='number'].form-control {
   color: var(--color-success);
   font-size: var(--font-size-sm);
   padding: 6px 12px;
-  border: 1px solid rgba(var(--color-success-rgb), 0.3);
-  background: rgba(var(--color-success-rgb), 0.08);
-  border-radius: var(--radius-xl);
+  border: none;
+  background: var(--color-success-bg);
+  border-radius: var(--control-radius);
 }
 
 /* ===== State panels ===== */
@@ -637,16 +628,16 @@ input[type='number'].form-control {
   align-items: center;
   justify-content: center;
   gap: var(--spacing-sm);
-  padding: var(--spacing-xl);
-  border: 1px solid var(--color-border);
+  padding: var(--spacing-2xl);
+  border: none;
   border-radius: var(--radius-lg);
-  background: var(--color-hover-overlay);
+  background: transparent;
   color: var(--color-text-secondary);
 }
 
 .state-panel--error {
-  border-color: rgba(var(--color-error-rgb), 0.35);
-  background: linear-gradient(180deg, rgba(var(--color-error-rgb), 0.08), transparent 65%);
+  background: var(--color-error-bg);
+  color: var(--color-error);
 }
 
 .state-panel--empty {
@@ -726,8 +717,8 @@ input[type='number'].form-control {
 }
 
 .tier-toggle.active {
-  background: rgba(var(--color-brand-accent-rgb), 0.08);
-  box-shadow: inset 0 -1px 0 rgba(var(--color-brand-accent-rgb), 0.12);
+  background: var(--color-active-bg);
+  box-shadow: none;
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 
 }
@@ -814,7 +805,7 @@ input[type='number'].form-control {
   transform: translateY(0);
 }
 
-/* ===== Section Nav — Desktop (right-side fixed with sliding indicator) ===== */
+/* ===== Section Nav — Desktop (right-side fixed floating glass with sliding indicator) ===== */
 .section-nav--desktop {
   --slider-top: 8px;
   --slider-height: 32px;
@@ -828,15 +819,15 @@ input[type='number'].form-control {
   gap: var(--spacing-xs);
   padding: 8px;
   background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--color-glass-border);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: var(--glass-border-width) var(--glass-border-style) var(--glass-border-color);
   border-radius: var(--radius-xl);
   box-shadow: var(--glass-shadow);
   z-index: var(--z-sticky);
 }
 
-/* 桌面端玻璃滑块 */
+/* 桌面端滑块指示器 */
 .section-nav--desktop::before {
   content: '';
   position: absolute;
@@ -846,10 +837,8 @@ input[type='number'].form-control {
   height: var(--slider-height);
   background: var(--color-bg-elevated);
   border-radius: var(--radius-md);
-  border: 1px solid var(--color-border-hover);
-  box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.1),
-    inset 0 1px 0 var(--color-soft-inset);
+  border: none;
+  box-shadow: var(--shadow-sm);
   transition: top 0.35s var(--ease-material),
               height 0.35s var(--ease-material);
   z-index: 1;
@@ -879,7 +868,7 @@ input[type='number'].form-control {
 }
 
 .section-nav--desktop a.active {
-  color: var(--color-brand-accent-light);
+  color: var(--color-brand-accent);
 }
 
 .section-nav__dot {
@@ -907,14 +896,11 @@ input[type='number'].form-control {
   z-index: var(--z-dropdown);
   padding: 6px 12px;
   background: var(--glass-bg);
-  backdrop-filter: blur(32px) saturate(240%);
-  -webkit-backdrop-filter: blur(32px) saturate(240%);
-  border: 1px solid var(--color-glass-border);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: var(--glass-border-width) var(--glass-border-style) var(--glass-border-color);
   border-radius: var(--radius-2xl);
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.25),
-    0 2px 8px rgba(0, 0, 0, 0.15),
-    inset 0 1px 0 var(--color-soft-inset);
+  box-shadow: var(--glass-shadow);
 }
 
 .section-nav--mobile::-webkit-scrollbar { display: none; }
@@ -927,8 +913,8 @@ input[type='number'].form-control {
   align-items: center;
   justify-content: center;
   padding: 8px 6px;
-  border-radius: var(--radius-2xl);
-  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  border: none;
   background: transparent;
   color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
@@ -955,7 +941,7 @@ input[type='number'].form-control {
   white-space: nowrap;
 }
 
-/* 玻璃滑块 - 滑动指示器 */
+/* 滑块指示器 */
 .section-nav--mobile::before {
   content: '';
   position: absolute;
@@ -964,11 +950,9 @@ input[type='number'].form-control {
   width: var(--slider-width);
   height: calc(100% - 12px);
   background: var(--color-bg-elevated);
-  border-radius: var(--radius-2xl);
-  border: 1px solid var(--color-border-hover);
-  box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.1),
-    inset 0 1px 0 var(--color-soft-inset);
+  border-radius: var(--radius-lg);
+  border: none;
+  box-shadow: var(--shadow-sm);
   transition: left 0.35s var(--ease-material),
               width 0.35s var(--ease-material);
   z-index: 1;
@@ -1018,9 +1002,9 @@ input[type='number'].form-control {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(17, 17, 17, 0.32);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1031,10 +1015,12 @@ input[type='number'].form-control {
 .modal-panel {
   width: 100%;
   max-width: 440px;
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: var(--glass-border-width) var(--glass-border-style) var(--glass-border-color);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-xl), var(--shadow-md);
+  box-shadow: var(--glass-shadow);
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -1075,20 +1061,20 @@ input[type='number'].form-control {
 .modal-close {
   width: 32px;
   height: 32px;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--color-border);
-  background: var(--color-interactive);
+  border-radius: var(--control-radius);
+  border: none;
+  background: transparent;
   color: var(--color-text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast);
   flex-shrink: 0;
 }
 
 .modal-close:hover {
-  background: var(--color-interactive-hover);
+  background: var(--color-hover-overlay-md);
   color: var(--color-text-primary);
 }
 
