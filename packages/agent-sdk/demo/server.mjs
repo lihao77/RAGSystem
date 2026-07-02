@@ -12,45 +12,14 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { OpenAiCompatibleClient } from "../../agent-llm/dist/index.js";
-import { createRuntime, SqliteRuntimeStore } from "../dist/index.js";
+import { createRuntime, buildTool } from "../dist/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.DEMO_PORT ?? 4199;
 
 /* ============================================================
- * 内置演示工具（ToolExecutor 实现）
+ * 内置演示工具（buildTool 构造的 Tool[]）
  * ========================================================== */
-
-const TOOLS = [
-  {
-    name: "get_time",
-    description: "获取当前日期时间。无需参数。",
-    parameters: { type: "object", properties: {}, required: [] },
-    returns: { description: "ISO 格式的当前时间", shape: "string" },
-  },
-  {
-    name: "calculate",
-    description: "计算一个数学表达式，支持加减乘除、括号、幂运算。例如 calculate({ expression: '2*(3+4)' }) 返回 14。",
-    parameters: {
-      type: "object",
-      properties: { expression: { type: "string", description: "数学表达式，如 2+3*4 或 (10-2)/4" } },
-      required: ["expression"],
-    },
-    returns: { description: "表达式的计算结果", shape: "number | string" },
-    examples: [{ input: { expression: "2*(3+4)" }, output: 14 }],
-  },
-  {
-    name: "random_choice",
-    description: "从给定列表中随机选择一个元素。",
-    parameters: {
-      type: "object",
-      properties: { items: { type: "array", items: { type: "string" }, description: "候选列表" } },
-      required: ["items"],
-    },
-    returns: { description: "随机选中的元素", shape: "string" },
-  },
-];
 
 function executeBuiltinTool(toolName, args) {
   if (toolName === "get_time") {
@@ -120,16 +89,44 @@ function errResult(toolName, message) {
   return { success: false, toolName, summary: message, answer: null, outputType: "error", content: message, metadata: { source_shape: "error" }, artifacts: [], llmHint: null };
 }
 
-const toolExecutor = {
-  listTools: () => TOOLS,
-  executeTool: (call) => executeBuiltinTool(call.toolName, call.arguments),
-};
+const tools = [
+  buildTool({
+    name: "get_time",
+    description: "获取当前日期时间。无需参数。",
+    parameters: { type: "object", properties: {}, required: [] },
+    isReadOnly: () => true,
+    isConcurrencySafe: () => true,
+    call: () => executeBuiltinTool("get_time", {}),
+  }),
+  buildTool({
+    name: "calculate",
+    description: "计算一个数学表达式，支持加减乘除、括号、幂运算。例如 calculate({ expression: '2*(3+4)' }) 返回 14。",
+    parameters: {
+      type: "object",
+      properties: { expression: { type: "string", description: "数学表达式，如 2+3*4 或 (10-2)/4" } },
+      required: ["expression"],
+    },
+    isReadOnly: () => true,
+    call: (input) => executeBuiltinTool("calculate", input),
+  }),
+  buildTool({
+    name: "random_choice",
+    description: "从给定列表中随机选择一个元素。",
+    parameters: {
+      type: "object",
+      properties: { items: { type: "array", items: { type: "string" }, description: "候选列表" } },
+      required: ["items"],
+    },
+    call: (input) => executeBuiltinTool("random_choice", input),
+  }),
+];
 
 /* ============================================================
  * 构造 createRuntime 所需对象
  * ========================================================== */
 
 function buildProfile(config) {
+  // profile.llmTiers.default.provider 内联完整 ProviderConfig（index.html 已构造，SDK 自建 OpenAiCompatibleClient 据此调用）。
   return {
     agentName: "demo-agent",
     displayName: "Demo Agent",
@@ -143,7 +140,6 @@ function buildProfile(config) {
         extraParams: {},
       },
     },
-    memory: { autoInject: false, allowedScopes: [], writeScopes: [], archiveScopes: [] },
     behavior: {
       systemPrompt: config.systemPrompt || "",
       compressionTriggerRatio: null,
@@ -155,39 +151,26 @@ function buildProfile(config) {
 }
 
 async function runAgent(config, messages, task, sessionId, signal, onEvent) {
-  const llm = new OpenAiCompatibleClient();
   const profile = buildProfile(config);
-  // SDK 从 store 读取对话历史（唯一来源）。standalone demo 自持 store，先把入参 messages 落库，
-  // 再 createRuntime({ store })，run 只传 task（元数据用途）。
-  const store = new SqliteRuntimeStore({ dataRoot: config.dataRoot });
-  const sid = sessionId || `demo-${Date.now()}`;
-  store.runInTransaction((tx) => {
-    for (const m of messages) {
-      tx.addMessage({
-        sessionId: sid,
-        role: m.role,
-        content: typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? ""),
-        threadKey: "root",
-      });
-    }
-  });
+  // SDK 纯计算：注入静态 conversation（messages → ChatMessage[]）+ tools，无 store/落库。
+  const conversation = (messages ?? []).map((m) => ({
+    role: m.role,
+    content: typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? ""),
+  }));
   const runtime = createRuntime({
-    llm,
-    provider: config.provider,
-    modelName: config.modelName,
     profile,
-    toolExecutor,
+    tools,
     dataRoot: config.dataRoot,
-    store,
   });
   try {
     const handle = runtime.run({
-      sessionId: sid,
+      sessionId: sessionId || `demo-${Date.now()}`,
       task,
-      signal,
+      conversation,
       threadKey: "root",
+      ...(signal ? { signal } : {}),
     });
-    // 消费事件流——把每个 KernelEvent 透传给 onEvent
+    // 消费事件流——把每个 KernelEvent 透传给 onEvent（落库归消费端，demo 只推流）。
     for await (const event of handle.events) {
       onEvent(event);
     }
