@@ -194,7 +194,10 @@ export async function executeRunWithSdk(
     ? [new MemoryIndexContextSource(historyPort, input.agent.memory, input.agent.agent_name, { dataRoot: deps.dataRoot })]
     : [];
   const recentSource = new RecentMessagesContextSource(historyPort, profile.llmTiers.default?.provider.supports_vision === true);
-  const contextBuilder = new AgentContextBuilder([...memorySources, recentSource]);
+  const contextBuilder = new AgentContextBuilder(
+    [...memorySources, recentSource],
+    deps.microcompactTtlSeconds !== undefined ? { microcompactTtlSeconds: deps.microcompactTtlSeconds } : {},
+  );
   const built = contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true });
   const conversation = built.conversation;
   // 性能指标采集:round.after hook 累计各轮 token,事件循环统计工具调用次数(终态随结果返回)。

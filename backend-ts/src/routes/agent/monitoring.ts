@@ -154,7 +154,10 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       ? [new MemoryIndexContextSource(historyPort, agent.memory, agent.agent_name, { dataRoot: options.container.dataRoot })]
       : [];
     const recentSource = new RecentMessagesContextSource(historyPort, profile.llmTiers.default?.provider.supports_vision === true);
-    const contextBuilder = new AgentContextBuilder([...memorySources, recentSource]);
+    const contextBuilder = new AgentContextBuilder(
+      [...memorySources, recentSource],
+      { microcompactTtlSeconds: options.container.systemConfig.getMicrocompactTtlSeconds() },
+    );
     const built = sessionId
       ? contextBuilder.buildContext({ sessionId, threadKey: threadKey ?? "root", microcompact: true })
       : null;
