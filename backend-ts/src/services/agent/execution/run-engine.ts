@@ -74,6 +74,12 @@ export class AgentRunEngine {
     agent: AgentConfig;
     provider: ModelProviderConfig;
     modelName: string;
+    /**
+     * selectLlm 解析结果（仅当前端真选了 provider+model 时非 null）：整体替换 default 档，
+     * projection 用所选 provider 的窗口/参数；null/不传 → projection 走 agent.default tier
+     *（保留 tier 的 max_context_tokens 等配置，budget 据此计算）。
+     */
+    selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
     existingUserMessageId?: string | undefined;
     userMessageSavedPayload?: Record<string, unknown> | undefined;
     persistUserMessage?: {
@@ -159,6 +165,7 @@ export class AgentRunEngine {
       agent: input.agent,
       provider: input.provider,
       modelName: input.modelName,
+      ...(input.selectedLlm ? { selectedLlm: input.selectedLlm } : {}),
       threadKey: "root",
       parentRunId: null,
       childAgentId: null,
@@ -253,6 +260,11 @@ export class AgentRunEngine {
     agent: AgentConfig;
     provider: ModelProviderConfig;
     modelName: string;
+    /**
+     * selectLlm 解析结果（仅当前端真选了 provider+model 时非 null）：整体替换 default 档。
+     * 不传（如 child delegation run）→ null → projection 走 agent.default tier。
+     */
+    selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
     // run 自己的归属：root run threadKey="root"、parent=null；child run threadKey="child:<id>"、
     // parent_run_id/child_agent_id 指向父。执行链路据此统一落库，无 root/child 分支。
     threadKey: string;
@@ -339,7 +351,7 @@ export class AgentRunEngine {
          ...(input.executionKind !== undefined ? { executionKind } : {}),
           ...(asString(sessionMetadata.user_id) ? { userId: asString(sessionMetadata.user_id) } : {}),
         signal: input.abortController.signal,
-         selectedLlm: { provider: input.provider, modelName: input.modelName },
+         selectedLlm: input.selectedLlm ?? null,
          // 最终 assistant 消息的调用点元数据：execution_kind + finalMetadataExtra（retry_of_* 等）。
          messageMetadata: { execution_kind: executionKind, ...(input.finalMetadataExtra ?? {}) },
        },

@@ -66,15 +66,7 @@ function minimalAgent(agentName: string): AgentConfig {
   };
 }
 
-function runtimeCoreStub(agent: AgentConfig, ready: boolean): RuntimeExecutionConfigResolver {
-  const provider: ModelProviderConfig = {
-    name: "my",
-    key: "my_deepseek",
-    provider_type: "deepseek",
-    api_key: "sk-test",
-    models: ["deepseek-chat"],
-    model_map: { chat: "deepseek-chat" },
-  };
+function runtimeCoreStub(agent: AgentConfig, ready: boolean, provider: ModelProviderConfig): RuntimeExecutionConfigResolver {
   const readiness = {
     kind: "runtime_core",
     status: ready ? "ready" : "not_ready",
@@ -96,9 +88,9 @@ function runtimeCoreStub(agent: AgentConfig, ready: boolean): RuntimeExecutionCo
     },
     provider: {
       configured: ready,
-      provider_key: "my_deepseek",
-      provider_name: "my",
-      provider_type: "deepseek",
+      provider_key: provider.key ?? null,
+      provider_name: provider.name,
+      provider_type: provider.provider_type,
       model_available: ready,
       api_key_configured: ready,
     },
@@ -137,6 +129,14 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
   const permissionPolicy = new PermissionPolicyService();
   const pendingInteractions = new PendingInteractionService(clientEvents);
   const agent = minimalAgent("orchestrator_agent");
+  const provider: ModelProviderConfig = {
+    name: "my",
+    key: "my_deepseek",
+    provider_type: "deepseek",
+    api_key: "sk-test",
+    models: ["deepseek-chat"],
+    model_map: { chat: "deepseek-chat" },
+  };
   const errors: Array<Record<string, unknown>> = [];
   const logger: AgentExecutionLogger | null = opts.logger
     ? { error: (bindings, message) => errors.push({ ...bindings, message }) }
@@ -146,20 +146,10 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
     sessions,
     conversationStore: store,
     sdkStore,
-    runtimeCore: runtimeCoreStub(agent, ready),
+    runtimeCore: runtimeCoreStub(agent, ready, provider),
     dataRoot: os.tmpdir(),
    outboxDispatcher: dispatcher,
-   providersProvider: () => [
-     {
-       name: "test-provider",
-       provider_type: "openai_compatible",
-       key: "test",
-       models: ["test-model"],
-       model_map: { chat: "test-model" },
-       api_key: "test-key",
-       api_endpoint: "http://localhost:0",
-     },
-   ],
+   providersProvider: () => [provider],
    clientEvents,
    hostToolRegistry,
    delegationPending,

@@ -132,12 +132,13 @@ class AgentLaunchers {
       };
     }
 
+    const requestSelectedLlm = resolveSelectedLlm(request);
     const ready = resolveReadyAgent(
       this.runtimeCore,
       {
         agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
         teamName: asString(sessionMetadata.team),
-        selectedLlm: resolveSelectedLlm(request),
+        selectedLlm: requestSelectedLlm,
       },
       sessionMetadata,
     );
@@ -163,6 +164,7 @@ class AgentLaunchers {
       agent: runtimeAgent,
       provider: ready.provider,
       modelName: ready.modelName,
+      ...(requestSelectedLlm ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } } : {}),
       persistUserMessage: {
         metadata: {
           ...(slashCommand ? { type: "command", command: slashCommand.name, command_mode: slashCommand.mode } : {}),
@@ -211,12 +213,13 @@ class AgentLaunchers {
     }
 
     const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
+    const requestSelectedLlm = resolveSelectedLlm(request);
     const ready = resolveReadyAgent(
       this.runtimeCore,
       {
         agentName: request.agent?.trim() || normalizeSessionEntryAgent(sessionMetadata.entry_agent),
         teamName: asString(sessionMetadata.team),
-        selectedLlm: resolveSelectedLlm(request),
+        selectedLlm: requestSelectedLlm,
       },
       sessionMetadata,
     );
@@ -246,6 +249,7 @@ class AgentLaunchers {
       agent: runtimeAgent,
       provider: ready.provider,
       modelName: ready.modelName,
+      ...(requestSelectedLlm ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } } : {}),
       persistUserMessage: {
         metadata: {
           agent: runtimeAgent.agent_name,
@@ -343,6 +347,7 @@ class AgentLaunchers {
       agent: runtimeAgent,
       provider: ready.provider,
       modelName: ready.modelName,
+      ...(input.selectedLlm ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } } : {}),
       existingUserMessageId: prepared.message.id,
       userMessageSavedPayload: {
         id: prepared.message.id,
