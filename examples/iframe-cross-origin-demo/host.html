@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>跨源 iframe 控制桥 demo（主页面）</title>
+  <style>
+    body { margin:0; padding:32px; background:#f5f5f7; color:#1d1d1f; font-family:system-ui,sans-serif; }
+    h1 { font-size:20px; margin:0 0 8px; }
+    p { color:#6e6e73; line-height:1.6; }
+    code { background:#e8e8ed; padding:2px 6px; border-radius:4px; font-size:13px; }
+    .frame-wrap { margin-top:16px; border:2px dashed #c1c1c8; border-radius:8px; overflow:hidden; }
+    .frame-label { background:#e8e8ed; padding:6px 12px; font-size:12px; color:#6e6e73; }
+    iframe { width:100%; height:360px; border:0; background:#fff; display:block; }
+    #status { font-size:13px; color:#060; margin-top:10px; font-family:ui-monospace,monospace; }
+  </style>
+</head>
+<body>
+  <h1>主页面（chaoxichaoliu）—— widget 在此，控制跨源 iframe</h1>
+  <p>
+    本页面（<code>localhost:4321</code>）嵌入 widget 与一个跨源 iframe（<code id="frame-origin"></code>，系统 B）。
+    iframe 用 <code>frame-bridge</code> 自描述工具并主动接消息；主页面用 <code>host-bridge</code> 收到 ready 后
+    动态注册给 widget。试着对 widget 说：「点击 iframe 里的提交按钮」「读 iframe 订单号输入框的值」「查询订单 12345」。
+  </p>
+  <div class="frame-wrap">
+    <div class="frame-label">↓ 跨源 iframe（系统 B，<code id="frame-origin-2"></code>）</div>
+    <iframe id="sysb-frame" src="{{FRAME_ORIGIN}}/frame.html"></iframe>
+  </div>
+  <div id="status">等待 iframe bridge 就绪…</div>
+
+  <!-- widget bundle + host-bridge bundle -->
+  <script src="/widget.js"></script>
+  <script src="/host-bridge.js"></script>
+  <script>
+    const FRAME_ORIGIN = '{{FRAME_ORIGIN}}';
+    document.getElementById('frame-origin').textContent = FRAME_ORIGIN;
+    document.getElementById('frame-origin-2').textContent = FRAME_ORIGIN;
+
+    // 1) 挂载 widget（无 token 内部嵌入：走普通会话 /api/agent/sessions 零鉴权；不传 hostTools——工具由 iframe 自描述）。
+    RagWidget.mount({ backendBase: '{{BACKEND_BASE}}' })
+      .then((el) => {
+        // 2) 连 iframe 桥：收到 ready（工具元数据清单）→ 逐个动态注册给 widget（execute 转发 bridge.call）。
+        const unsubs = new Map();
+        const bridge = RagHostBridge.connect({
+          frame: document.getElementById('sysb-frame'),
+          targetOrigin: FRAME_ORIGIN,
+          onTools: (tools) => {
+            const names = new Set(tools.map((t) => t.name));
+            // 注销已注册但不在新清单的工具（覆盖幂等）。
+            for (const [name, unsub] of unsubs) {
+              if (!names.has(name)) { try { unsub(); } catch {} unsubs.delete(name); }
+            }
+            tools.forEach((t) => {
+              if (unsubs.has(t.name)) { try { unsubs.get(t.name)(); } catch {} unsubs.delete(t.name); }
+              const unsub = el.registerHostTool({
+                name: t.name,
+                description: t.description,
+                inputSchema: t.inputSchema,
+                ...(t.riskLevel ? { riskLevel: t.riskLevel } : {}),
+                execute: (input) => bridge.call(t.name, input),
+              });
+              unsubs.set(t.name, unsub);
+            });
+            document.getElementById('status').textContent =
+              `iframe bridge 就绪，已注册 ${tools.length} 个工具：${tools.map((t) => t.name).join(', ')}`;
+          },
+        });
+      })
+      .catch((err) => console.error('widget 挂载失败', err));
+  </script>
+</body>
+</html>

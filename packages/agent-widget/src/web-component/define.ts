@@ -78,6 +78,14 @@ export interface FabPosition {
   left?: number | string;
 }
 
+/** mount 返回的元素句柄：HTMLElement + 运行时动态注册宿主工具（透出 client.registerTool）。 */
+export interface RagWidgetHandle extends HTMLElement {
+  /** 运行时动态注册宿主工具；返回注销函数。client 未连接时缓存，握手时一并 tools.register。 */
+  registerHostTool: (spec: DelegatedToolSpec) => () => void;
+  /** 注销已注册的宿主工具。 */
+  unregisterHostTool: (name: string) => void;
+}
+
 export interface RagWidgetMountOptions {
   /** 挂载点（选择器或元素）；省略则挂 body 末尾。 */
   el?: string | HTMLElement;
@@ -112,9 +120,9 @@ function resolveHost(options: RagWidgetMountOptions): HTMLElement {
 }
 
 /** 挂载 widget；返回创建的 <rag-agent-widget> 元素。 */
-export async function mount(options: RagWidgetMountOptions): Promise<HTMLElement> {
+export async function mount(options: RagWidgetMountOptions): Promise<RagWidgetHandle> {
   const host = resolveHost(options);
-  const el = document.createElement("rag-agent-widget");
+  const el = document.createElement("rag-agent-widget") as RagWidgetHandle;
   const props = el as unknown as Record<string, unknown>;
   // customElement 的 props 经 DOM property 注入（defineProps 声明的属性）。
   props.backendBase = options.backendBase;

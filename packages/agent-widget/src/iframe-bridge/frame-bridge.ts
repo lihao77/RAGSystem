@@ -1,0 +1,113 @@
+/**
+ * iframe 侧 SDK（系统 B 引入）。
+ *
+ * 声明完整工具（元数据 + execute），监听 postMessage，校验来源 origin，执行，回传结果。
+ * serve 后向 parent 发 ready 事件，上报工具元数据清单（execute 不上报，留本地按 name 查）。
+ *
+ * 握手：serve 即向首个白名单 origin 主动发 ready（兜底）；收到 parent 的 hello 则重发 ready。
+ *       双向主动 + 幂等，覆盖 connect/serve 先后竞态。
+ *
+ * 安全：发送方 targetOrigin 用明确 origin（禁 "*"）；接收方校验 event.origin ∈ allowedParentOrigins；
+ *       白名单外来源静默忽略（不回传，避免被探测）。
+ */
+import { PROTOCOL_PREFIX } from "./protocol.js";
+import type {
+  DeclaredTool,
+  FrameTool,
+  FrameToolContext,
+  RagFrameEvent,
+  RagFrameRequest,
+  RagFrameResponse,
+  ReadyPayload,
+} from "./protocol.js";
+import { BUILTIN_TOOLS } from "./builtins.js";
+
+const REQUEST_TYPE = `${PROTOCOL_PREFIX}_request`;
+const RESPONSE_TYPE = `${PROTOCOL_PREFIX}_response`;
+const EVENT_TYPE = `${PROTOCOL_PREFIX}_event`;
+
+export interface ServeOptions {
+  /** 允许的父窗口 origin 清单（其余来源静默忽略）。 */
+  allowedParentOrigins: string[];
+  /** 工具清单（同名时后声明覆盖；内置通过 ...RagFrameBridge.builtins 引入）。 */
+  tools: FrameTool[];
+}
+
+export interface ServeHandle {
+  /** 注销：移除 message 监听。 */
+  destroy: () => void;
+  /** 手动重发 ready（工具集变更后调用，主页面侧需幂等处理重复注册）。 */
+  republish: () => void;
+}
+
+function msgType(data: unknown): string | undefined {
+  return typeof data === "object" && data !== null ? (data as { type?: string }).type : undefined;
+}
+
+export function serve(options: ServeOptions): ServeHandle {
+  const tools = new Map<string, FrameTool>();
+  for (const t of options.tools) tools.set(t.name, t);
+  const allowed = new Set(options.allowedParentOrigins);
+  const firstOrigin = options.allowedParentOrigins[0] ?? "";
+
+  const toDeclared = (t: FrameTool): DeclaredTool => ({
+    name: t.name,
+    description: t.description,
+    inputSchema: t.inputSchema,
+    ...(t.riskLevel ? { riskLevel: t.riskLevel } : {}),
+  });
+
+  const sendReady = (targetOrigin: string) => {
+    if (window.parent === window) return; // 无父窗口（非 iframe）
+    if (!targetOrigin) return;
+    const payload: ReadyPayload = { tools: [...tools.values()].map(toDeclared) };
+    const msg: RagFrameEvent = { type: EVENT_TYPE, event: "ready", payload };
+    window.parent.postMessage(msg, targetOrigin);
+  };
+
+  // serve 即主动发 ready 兜底（parent 未监听则被浏览器丢弃，无副作用）。
+  sendReady(firstOrigin);
+
+  const handler = async (event: MessageEvent) => {
+    if (!allowed.has(event.origin)) return; // 白名单外静默忽略
+    if (event.source !== window.parent) return; // 只响应父窗口
+    const data: unknown = event.data;
+
+    // hello：parent 请求重发 ready（connect 晚于 serve 时主动 ready 已丢）。
+    if (msgType(data) === EVENT_TYPE && (data as RagFrameEvent).event === "hello") {
+      sendReady(event.origin);
+      return;
+    }
+
+    if (msgType(data) !== REQUEST_TYPE) return;
+    const { call_id, action, input } = data as RagFrameRequest;
+    const tool = tools.get(action);
+    const ctx: FrameToolContext = { callId: call_id };
+
+    let resp: RagFrameResponse;
+    if (!tool) {
+      resp = { type: RESPONSE_TYPE, call_id, ok: false, error: `未注册的工具: ${action}` };
+    } else {
+      try {
+        const out = await tool.execute(input, ctx);
+        resp = { type: RESPONSE_TYPE, call_id, ok: true, observation: String(out ?? "") };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        resp = { type: RESPONSE_TYPE, call_id, ok: false, error };
+      }
+    }
+    // 回传：targetOrigin 用 event.origin（明确，禁 "*"）。
+    const source = event.source as Window | null;
+    source?.postMessage(resp, event.origin);
+  };
+
+  window.addEventListener("message", handler);
+
+  return {
+    destroy: () => window.removeEventListener("message", handler),
+    republish: () => sendReady(firstOrigin),
+  };
+}
+
+/** 内置 DOM 工具集（便于 `...RagFrameBridge.builtins` 引入）。 */
+export const builtins: FrameTool[] = BUILTIN_TOOLS;

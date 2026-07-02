@@ -178,6 +178,10 @@ const props = defineProps({
 
 let client = null;
 let clientUnsub = [];
+// 懒连接前动态注册的 hostTool（宿主经 el.registerHostTool 提前注册，但 client 尚未创建）。
+let pendingHostTools = [];
+// 已注册 hostTool 的注销句柄（name → unsubscribe）；覆盖/注销时调用。
+const hostToolUnsubs = new Map();
 // 当前会话 id：null=未建（懒建，首次发送时 POST 创建）；宿主传入 sessionId 则直接用。
 const sessionId = ref(props.sessionId || null);
 // 并发 send 复用同一连接建立 promise，避免重复建会话/连 WS。
@@ -283,6 +287,15 @@ async function ensureConnected() {
     clientUnsub.forEach((fn) => { try { fn(); } catch {} });
     clientUnsub = [bindClient(c)];
     client = c;
+    // flush 懒连接前动态注册的 hostTool（构造函数已收 props.hostTools，此处补动态部分）。
+    if (pendingHostTools.length) {
+      const toFlush = pendingHostTools;
+      pendingHostTools = [];
+      for (const { spec } of toFlush) {
+        if (hostToolUnsubs.has(spec.name)) { try { hostToolUnsubs.get(spec.name)(); } catch {} }
+        hostToolUnsubs.set(spec.name, c.registerTool(spec));
+      }
+    }
     await client.connect();
   })();
   try {
@@ -291,6 +304,33 @@ async function ensureConnected() {
     connectingPromise = null;
   }
 }
+
+/**
+ * 运行时动态注册宿主工具（透出给宿主：el.registerHostTool）。
+ * 复用 WidgetAgentClient.registerTool（已支持已连接时立即重发 tools.register）；
+ * client 未创建（懒连接前）则缓存，ensureConnected 时一并 flush。
+ */
+function registerHostTool(spec) {
+  if (client) {
+    if (hostToolUnsubs.has(spec.name)) { try { hostToolUnsubs.get(spec.name)(); } catch {} }
+    hostToolUnsubs.set(spec.name, client.registerTool(spec));
+  } else {
+    pendingHostTools = pendingHostTools.filter((s) => s.spec.name !== spec.name);
+    pendingHostTools.push({ spec });
+  }
+  return () => unregisterHostTool(spec.name);
+}
+
+function unregisterHostTool(name) {
+  if (hostToolUnsubs.has(name)) {
+    try { hostToolUnsubs.get(name)(); } catch {}
+    hostToolUnsubs.delete(name);
+  } else {
+    pendingHostTools = pendingHostTools.filter((s) => s.spec.name !== name);
+  }
+}
+
+defineExpose({ registerHostTool, unregisterHostTool });
 
 onBeforeUnmount(() => {
   clientUnsub.forEach((fn) => { try { fn(); } catch {} });

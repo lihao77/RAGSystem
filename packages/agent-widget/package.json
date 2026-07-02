@@ -7,7 +7,9 @@
   "files": ["dist"],
   "sideEffects": false,
   "scripts": {
-    "build": "vite build",
+    "build": "vite build && npm run build:frame-bridge && npm run build:host-bridge",
+    "build:frame-bridge": "vite build --config vite.bridge.config.ts --mode frame",
+    "build:host-bridge": "vite build --config vite.bridge.config.ts --mode host",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run"

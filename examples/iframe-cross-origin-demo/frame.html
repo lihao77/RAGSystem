@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>系统 B（iframe 内）</title>
+  <style>
+    body { margin:0; padding:24px; background:#fff; color:#1d1d1f; font-family:system-ui,sans-serif; }
+    h2 { font-size:16px; margin:0 0 4px; }
+    .hint { font-size:12px; color:#6e6e73; margin:0 0 16px; }
+    form label { display:block; font-size:12px; color:#6e6e73; margin:10px 0 4px; }
+    form input { padding:6px 10px; border:1px solid #d2d2d7; border-radius:4px; font-size:13px; width:220px; }
+    form button { padding:6px 16px; border:0; border-radius:4px; background:#3a5a8a; color:#fff; font-size:13px; cursor:pointer; margin-top:14px; }
+    #result { margin-top:16px; padding:10px 12px; background:#f5f5f7; border-radius:4px; font-size:13px; min-height:20px; }
+  </style>
+</head>
+<body>
+  <h2>系统 B（跨源 iframe，<code>localhost:5175</code>）</h2>
+  <p class="hint">本页引入 frame-bridge，自描述工具并主动接消息。主页面跨源控制此处 DOM。</p>
+
+  <form id="order-form">
+    <label for="order-input">订单号</label>
+    <input id="order-input" type="text" value="ORD-12345" />
+    <label for="name-input">收件人</label>
+    <input id="name-input" type="text" value="张三" />
+    <button type="submit" id="submit-btn">提交订单</button>
+  </form>
+  <div id="result">（结果区域）</div>
+
+  <script>
+    // 表单提交：更新结果区（演示 click #submit-btn / submit #order-form 触发）。
+    document.getElementById('order-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const oid = document.getElementById('order-input').value;
+      const name = document.getElementById('name-input').value;
+      document.getElementById('result').textContent = `表单已提交（订单 ${oid}，收件人 ${name}）`;
+    });
+  </script>
+
+  <!-- frame-bridge bundle（全局 RagFrameBridge） -->
+  <script src="/frame-bridge.js"></script>
+  <script>
+    // 系统 B 自描述工具：内置 DOM 工具集 + 自定义 search_order。
+    RagFrameBridge.serve({
+      allowedParentOrigins: ['http://localhost:4321'],
+      tools: [
+        ...RagFrameBridge.builtins,
+        {
+          name: 'search_order',
+          description: '查询订单。order_id 可选，缺省读取订单号输入框的当前值。',
+          inputSchema: {
+            type: 'object',
+            properties: { order_id: { type: 'string', description: '订单号（可选）' } },
+            additionalProperties: false,
+          },
+          riskLevel: 'low',
+          execute: (input) => {
+            const id = (input && input.order_id) || document.getElementById('order-input').value;
+            return `订单 ${id}：已发货，预计 2 天后送达`;
+          },
+        },
+      ],
+    });
+  </script>
+</body>
+</html>
