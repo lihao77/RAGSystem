@@ -126,7 +126,8 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const profile = projectAgentProfile({
       agent,
       providers: options.container.modelAdapter.listProviders(),
-      ...(resolved.provider && resolved.modelName
+      // 仅当前端真选了 selected_llm 才整体替换 default;否则用 agent default tier(保留 tier 配的窗口等参数)。
+      ...(normalizeString(query.selected_llm) && resolved.provider && resolved.modelName
         ? { selectedLlm: { provider: resolved.provider, modelName: resolved.modelName } }
         : {}),
     });
