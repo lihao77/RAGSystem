@@ -495,53 +495,33 @@ const {
   finalizeActiveRun: _finalizeActiveRun,
   resetStreamSessionState,
 } = useSessionRunStream({
-  messageStore: {
-    createAssistantMessage,
-    cacheMessages,
-    deleteMessageCache,
-    loadSessionMessages,
-    mergeMessageIdsFromServer,
-  },
-  sessionStatus: {
-    refreshSessionExecutionState,
-    mergeExecutionObservability,
-    updateRecentSession: (...a) => updateRecentSession(...a),
-  },
-  connection: {
-    getWS,
-    clearSessionResumeRecovery,
-    clearCommandFallback,
-    scheduleCommandFallback,
-  },
-  retry: {
-    clearLlmRetryState: (...a) => clearLlmRetryState(...a),
-    setLlmRetryState: (...a) => setLlmRetryState(...a),
-  },
-  execution: {
-    applyEnvelopeToMessage: (...a) => applyEnvelopeToMessage(...a),
-    findRunningExecutionAgentByAgentId: (...a) => findRunningExecutionAgentByAgentId(...a),
-    isRootEvent: (...a) => isRootEvent(...a),
-    isMasterEvent: (...a) => isMasterEvent(...a),
-  },
-  approvals: {
-    enqueueApproval: (...a) => enqueueApproval(...a),
-    handleApprovalResolved: (...a) => handleApprovalResolved(...a),
-    showUserInput,
-    resetApprovalState: () => resetApprovalState(),
-  },
-  notifications: {
-    buildTaskNotificationMessage: (...a) => buildTaskNotificationMessage(...a),
-  },
-  artifacts: {
-    checkSituationScreenTrigger: (...a) => checkSituationScreenTrigger(...a),
-  },
-  ui: {
-    scrollToBottom: (...a) => scrollToBottom(...a),
-    showToast: (...a) => showToast(...a),
-  },
-  sending: {
-    handleStop: (...a) => handleStop(...a),
-  },
+  createAssistantMessage,
+  cacheMessages,
+  deleteMessageCache,
+  loadSessionMessages,
+  mergeMessageIdsFromServer,
+  refreshSessionExecutionState,
+  mergeExecutionObservability,
+  updateRecentSession: (...a) => updateRecentSession(...a),
+  getWS,
+  clearSessionResumeRecovery,
+  clearCommandFallback,
+  scheduleCommandFallback,
+  clearLlmRetryState: (...a) => clearLlmRetryState(...a),
+  setLlmRetryState: (...a) => setLlmRetryState(...a),
+  applyEnvelopeToMessage: (...a) => applyEnvelopeToMessage(...a),
+  findRunningExecutionAgentByAgentId: (...a) => findRunningExecutionAgentByAgentId(...a),
+  isRootEvent: (...a) => isRootEvent(...a),
+  isMasterEvent: (...a) => isMasterEvent(...a),
+  enqueueApproval: (...a) => enqueueApproval(...a),
+  handleApprovalResolved: (...a) => handleApprovalResolved(...a),
+  showUserInput,
+  resetApprovalState: () => resetApprovalState(),
+  buildTaskNotificationMessage: (...a) => buildTaskNotificationMessage(...a),
+  checkSituationScreenTrigger: (...a) => checkSituationScreenTrigger(...a),
+  scrollToBottom: (...a) => scrollToBottom(...a),
+  showToast: (...a) => showToast(...a),
+  handleStop: (...a) => handleStop(...a),
 });
 
 // clearExecutionState 需要额外清理 view 级状态
@@ -568,71 +548,41 @@ const {
   syncSessionFromRoute,
   ensureSession,
 } = useChatSessionController({
-  filesState: {
-    sessionFiles,
-    sessionFilesDrawerVisible,
-    sessionFilesDrawerTarget,
-  },
-  messageStore: {
-    loadSessionMessages,
-  },
-  files: {
-    loadSessionFiles,
-  },
-  connection: {
-    connectSessionWS,
-    disconnectSessionWS,
-    invalidateActiveStream,
-    resetSessionEventCursor,
-  },
-  runtime: {
-    clearExecutionState: (...a) => clearExecutionState(...a),
-    checkSessionTaskStatus: (...a) => checkSessionTaskStatus(...a),
-  },
-  ui: {
-    clearComposerAttachments: () => clearComposerAttachments(),
-    showToast: (...a) => showToast(...a),
-  },
+  sessionFiles,
+  sessionFilesDrawerVisible,
+  sessionFilesDrawerTarget,
+  loadSessionMessages,
+  loadSessionFiles,
+  connectSessionWS,
+  disconnectSessionWS,
+  invalidateActiveStream,
+  resetSessionEventCursor,
+  clearExecutionState: (...a) => clearExecutionState(...a),
+  checkSessionTaskStatus: (...a) => checkSessionTaskStatus(...a),
+  clearComposerAttachments: () => clearComposerAttachments(),
+  showToast: (...a) => showToast(...a),
 });
 
 const {
   handleSend: sendSessionMessage,
   handleStop,
 } = useSessionSend({
-  state: {
-    inputMessage,
-  },
-  composer: {
-    pendingAttachments,
-    getCurrentSelectedLlm: () => getCurrentSelectedLlm(),
-  },
-  session: {
-    ensureSession: (...a) => ensureSession(...a),
-    updateRecentSession,
-  },
-  connection: {
-    getWS: () => getWS(),
-    scheduleCommandFallback,
-  },
-  attachments: {
-    materializeAttachmentsForSend,
-    clearComposerAttachments,
-  },
-  messageStore: {
-    cacheMessages,
-  },
-  editing: {
-    resetEditingState: (...a) => resetEditingState(...a),
-    clearEditingAttachments,
-  },
-  runtime: {
-    beginOptimisticExecutionState,
-    mergeExecutionObservability,
-  },
-  ui: {
-    stickToBottom,
-    showToast: (...a) => showToast(...a),
-  },
+  inputMessage,
+  pendingAttachments,
+  getCurrentSelectedLlm: () => getCurrentSelectedLlm(),
+  ensureSession: (...a) => ensureSession(...a),
+  updateRecentSession,
+  getWS: () => getWS(),
+  scheduleCommandFallback,
+  materializeAttachmentsForSend,
+  clearComposerAttachments,
+  cacheMessages,
+  resetEditingState: (...a) => resetEditingState(...a),
+  clearEditingAttachments,
+  beginOptimisticExecutionState,
+  mergeExecutionObservability,
+  stickToBottom,
+  showToast: (...a) => showToast(...a),
 });
 
 const {

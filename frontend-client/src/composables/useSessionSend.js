@@ -73,38 +73,10 @@ const createFollowupMetadata = (requestId, activeRun, fallbackRunId = null) => (
   ...(activeRun.runId || fallbackRunId ? { run_id: activeRun.runId || fallbackRunId } : {}),
 });
 
-function normalizeSessionSendDeps(deps) {
-  const {
-    state = {},
-    composer = {},
-    session = {},
-    connection = {},
-    attachments = {},
-    messageStore = {},
-    editing = {},
-    runtime = {},
-    ui = {},
-  } = deps || {};
-
-  return {
-    ...deps,
-    ...state,
-    ...composer,
-    ...session,
-    ...connection,
-    ...attachments,
-    ...messageStore,
-    ...editing,
-    ...runtime,
-    ...ui,
-  };
-}
-
 /**
  * 发送、停止和 active run 初始化控制。
  */
 export function useSessionSend(deps) {
-  deps = normalizeSessionSendDeps(deps);
   const sessionRunStore = useSessionRunStore();
   const { currentSessionId, messages, isLoading, sessionTaskInfo, contextUsage } = storeToRefs(sessionRunStore);
   const activeRun = sessionRunStore.activeRun;

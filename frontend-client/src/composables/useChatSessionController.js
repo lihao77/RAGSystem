@@ -20,34 +20,10 @@ const stripWrappedQuotes = (value) => {
 
 export const normalizeWorkspaceRootInput = (value) => stripWrappedQuotes(value);
 
-function normalizeChatSessionControllerDeps(deps) {
-  const {
-    state = {},
-    filesState = {},
-    messageStore = {},
-    files = {},
-    connection = {},
-    runtime = {},
-    ui = {},
-  } = deps || {};
-
-  return {
-    ...deps,
-    ...state,
-    ...filesState,
-    ...messageStore,
-    ...files,
-    ...connection,
-    ...runtime,
-    ...ui,
-  };
-}
-
 /**
  * 聊天页的会话入口、历史、创建与导出控制。
  */
 export function useChatSessionController(deps) {
-  deps = normalizeChatSessionControllerDeps(deps);
   const router = useRouter();
   const dictStore = useDictionariesStore();
   const sessionListStore = useSessionListStore();

@@ -4,37 +4,6 @@ import { useSessionRunStore } from '../stores/session-run.js';
 import { useUserInputSubmission } from './useUserInputSubmission.js';
 import { useRunRuntime } from './useRunRuntime.js';
 
-function normalizeSessionRunStreamDeps(deps) {
-  const {
-    state = {},
-    messageStore = {},
-    sessionStatus = {},
-    connection = {},
-    retry = {},
-    execution = {},
-    approvals = {},
-    notifications = {},
-    artifacts = {},
-    ui = {},
-    sending = {},
-  } = deps || {};
-
-  return {
-    ...deps,
-    ...state,
-    ...messageStore,
-    ...sessionStatus,
-    ...connection,
-    ...retry,
-    ...execution,
-    ...approvals,
-    ...notifications,
-    ...artifacts,
-    ...ui,
-    ...sending,
-  };
-}
-
 /**
  * 会话流式事件路由与 run 生命周期管理。
  *
@@ -44,7 +13,6 @@ function normalizeSessionRunStreamDeps(deps) {
 export function useSessionRunStream(deps) {
   const startupPhases = new Set(['creating_session', 'preparing_attachments', 'starting_agent']);
 
-  deps = normalizeSessionRunStreamDeps(deps);
   const sessionRunStore = useSessionRunStore();
   const {
     messages,
