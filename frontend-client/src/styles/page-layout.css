@@ -127,7 +127,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
-  padding: var(--spacing-lg) var(--spacing-xl);
+  padding: var(--spacing-md) var(--spacing-lg);
   border-bottom: 1px solid var(--color-border);
   background: transparent;
 }
@@ -135,7 +135,7 @@
 .pl-card__head h2 {
   margin: 0;
   font-size: var(--font-size-xl);
-  font-weight: 600;
+  font-weight: 590;
   letter-spacing: -0.01em;
   color: var(--color-text-primary);
 }
@@ -147,5 +147,5 @@
 }
 
 .pl-card__body {
-  padding: var(--spacing-xl);
+  padding: var(--spacing-lg);
 }

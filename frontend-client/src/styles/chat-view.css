@@ -149,27 +149,30 @@
 
 /* #8: LLMSelector 宽度约束，防止长模型名撑破顶部控制栏 */
 .left-controls .llm-selector {
-  max-width: 220px;
+  max-width: 180px;
   flex-shrink: 1;
   min-width: 0;
 }
 
 .theme-btn {
-  width: var(--icon-button-size-md);
+  width: var(--control-height-md);
   height: var(--control-height-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--transition-normal);
+  color: var(--color-text-muted);
+  border-radius: var(--control-radius);
+  transition: background var(--transition-fast), color var(--transition-fast);
   box-shadow: none;
 }
 
 .theme-btn:hover {
-  transform: scale(1.1);
+  background: var(--color-hover-overlay-md);
+  color: var(--color-text-primary);
 }
 
 .theme-btn:active {
-  transform: scale(0.95);
+  background: var(--color-hover-overlay-lg);
 }
 
 .version-btn {
@@ -391,7 +394,7 @@
   display: flex;
   flex-direction: column;
   /* Space out header from input area from suggestions */
-  gap: 120px;
+  gap: var(--spacing-2xl);
 }
 
 .welcome-header {
@@ -404,45 +407,18 @@
   justify-content: center;
   align-items: center;
   position: relative;
-  animation: logoFloat 4s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
-}
-
-.logo-placeholder::after {
-  content: '';
-  position: absolute;
-  width: 120%;
-  height: 120%;
-  background: radial-gradient(circle, rgba(var(--color-brand-accent-rgb), 0.15) 0%, transparent 70%);
-  filter: blur(30px);
-  pointer-events: none;
-  z-index: -1;
 }
 
 .logo-placeholder svg {
-  filter: drop-shadow(0 8px 32px rgba(var(--color-brand-accent-rgb), 0.5));
-  transition: filter var(--transition-normal);
-}
-
-.logo-placeholder:hover svg {
-  filter: drop-shadow(0 12px 48px rgba(var(--color-brand-accent-rgb), 0.7));
-}
-
-@keyframes logoFloat {
-  0%, 100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-12px);
-  }
+  transition: opacity var(--transition-normal);
 }
 
 .welcome-screen h1 {
   font-size: var(--welcome-title-size);
   color: var(--color-text-primary);
   margin-bottom: var(--spacing-sm);
-  font-weight: 700;
-  letter-spacing: 0;
-  text-shadow: 0 4px 32px rgba(var(--color-brand-accent-rgb), 0.4);
+  font-weight: 590;
+  letter-spacing: -0.02em;
   animation: titleFadeIn 0.8s var(--ease-default) backwards;
   animation-delay: 0.2s;
 }
@@ -834,7 +810,7 @@
   color: var(--color-text-primary);
   font-size: var(--font-size-base);
   /* 0.95rem -> 1rem */
-  line-height: 1.7;
+  line-height: 1.6;
 }
 
 /* ===== Markdown 元素样式 ===== */

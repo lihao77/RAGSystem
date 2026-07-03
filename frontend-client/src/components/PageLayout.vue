@@ -105,7 +105,7 @@ const props = defineProps({
   maxWidth: { type: String, default: '1480px' },
   embedded: { type: Boolean, default: false },
   chatReturnPath: { type: String, default: '/' },
-  contentPadding: { type: String, default: 'var(--spacing-2xl) var(--spacing-xl)' },
+  contentPadding: { type: String, default: 'var(--spacing-xl) var(--spacing-lg)' },
   mobileContentPadding: { type: String, default: 'var(--spacing-xl) var(--spacing-md)' },
 });
 
@@ -193,7 +193,7 @@ usePointerDownOutside({
   margin: 0 auto;
   padding: var(--page-content-padding, var(--spacing-xl));
   display: flex;
-  gap: var(--spacing-xl);
+  gap: var(--spacing-lg);
   flex-direction: column;
 }
 

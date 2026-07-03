@@ -94,20 +94,22 @@
     </aside>
 
     <div :class="['layout-main-host', { 'layout-main-host--page': !isChatRoute }]">
-      <div :class="['route-card', isChatRoute ? 'route-card--chat' : 'route-card--page']">
-        <RouterView v-slot="{ Component, route: childRoute }">
-          <Transition :name="pageTransitionName" mode="out-in">
-            <component
-              v-if="Component"
-              :is="Component"
-              :key="getPageRouteKey(childRoute)"
-              v-bind="getChildProps(childRoute)"
-              @update:selectedLLM="emit('update:selectedLLM', $event)"
-              @toggle-theme="emit('toggleTheme')"
-            />
-          </Transition>
-        </RouterView>
-      </div>
+      <component :is="pageShell" :key="isChatRoute ? 'shell-chat' : 'shell-admin'">
+        <div :class="['route-card', isChatRoute ? 'route-card--chat' : 'route-card--page']">
+          <RouterView v-slot="{ Component, route: childRoute }">
+            <Transition :name="pageTransitionName" mode="out-in">
+              <component
+                v-if="Component"
+                :is="Component"
+                :key="getPageRouteKey(childRoute)"
+                v-bind="getChildProps(childRoute)"
+                @update:selectedLLM="emit('update:selectedLLM', $event)"
+                @toggle-theme="emit('toggleTheme')"
+              />
+            </Transition>
+          </RouterView>
+        </div>
+      </component>
     </div>
     <CommandPalette />
   </div>
@@ -123,6 +125,7 @@ import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconNewConve
 import { sidebarAdminNavItem, managementNavItems } from '../navigation/adminNavigation';
 import CommandPalette from '../components/CommandPalette.vue';
 import { useCommandPalette } from '../composables/useCommandPalette.js';
+import AdminLayout from './AdminLayout.vue';
 
 const props = defineProps({
   selectedLLM: {
@@ -155,6 +158,7 @@ const historyHasMore = ref(true);
 const lastChatSessionId = ref(null);
 
 const isChatRoute = computed(() => (route.meta?.mainView || 'chat') === 'chat');
+const pageShell = computed(() => (isChatRoute.value ? 'div' : AdminLayout));
 const isPageActive = (mainView) => (route.meta?.mainView || 'chat') === mainView;
 const isSidebarNavActive = (item) => item.section
   ? route.meta?.section === item.section
@@ -674,7 +678,7 @@ onUnmounted(() => {
 
 .sidebar-btn {
   margin: 0;
-  padding: 12px calc(var(--icon-center-line) - var(--spacing-sm) - 11px);
+  padding: var(--spacing-sm) calc(var(--icon-center-line) - var(--spacing-sm) - 11px);
   background: none;
   color: var(--color-text-primary);
   border: none;
@@ -745,10 +749,10 @@ onUnmounted(() => {
 .sidebar-context {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
   margin-top: var(--spacing-sm);
-  padding: 10px;
+  padding: var(--spacing-sm);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-hover-overlay);
@@ -832,7 +836,7 @@ onUnmounted(() => {
   font-weight: 600;
   text-transform: uppercase;
   color: var(--color-text-muted);
-  margin: var(--spacing-md);
+  margin: var(--spacing-sm) var(--spacing-md);
   letter-spacing: 0.08em;
   padding-left: var(--spacing-xs);
   opacity: 0;
@@ -852,10 +856,10 @@ onUnmounted(() => {
 }
 
 .history-item {
-  padding: 10px var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
   margin: 0 var(--spacing-sm);
   margin-bottom: 2px;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   cursor: pointer;
   display: flex;
   align-items: center;

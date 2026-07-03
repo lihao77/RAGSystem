@@ -25,26 +25,26 @@
     --color-interactive-subtle: rgba(255, 255, 255, 0.06);
     --color-interactive-rgb: 42, 42, 44;
 
-    /* 背景层级 —— Linear 深炭（略冷，非纯黑留呼吸） */
-    --color-bg-app: #0d0e10;
-    --color-bg-primary: #16171a;
-    /* 卡片/主内容面 */
-    --color-bg-secondary: #1f2024;
+    /* 背景层级 —— Linear near-black + surface */
+    --color-bg-app: #08090a;
+    --color-bg-primary: #0f1011;
+    /* 卡片/主内容面（Linear surface） */
+    --color-bg-secondary: #16171a;
     /* 悬停/次级 */
-    --color-bg-tertiary: #2a2b30;
+    --color-bg-tertiary: #1f2024;
     /* 激活/嵌套 */
-    --color-bg-elevated: #1a1b1e;
-    --color-bg-elevated-rgb: 26, 27, 30;
+    --color-bg-elevated: #131415;
+    --color-bg-elevated-rgb: 19, 20, 21;
     /* 浮层 */
 
-    /* 文字层级 —— 清晰对比 */
-    --color-text-primary: #e6e7ea;
-    /* 近白主文 */
-    --color-text-secondary: #9ea2ab;
+    /* 文字层级 —— Linear on-surface 高对比 */
+    --color-text-primary: #f7f8f8;
+    /* 近白主文（Linear on-surface） */
+    --color-text-secondary: #a0a1a3;
     /* 副文 */
     --color-text-muted: #62666d;
     /* 占位/辅助 */
-    --color-text-inverse: #0d0e10;
+    --color-text-inverse: #08090a;
     --color-on-color: #ffffff;
     --color-on-color-strong: #ffffff;
     --color-on-accent: #ffffff;
@@ -133,18 +133,18 @@
     --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 
     /* 语义面 —— 三级深度 */
-    --surface-shell: #16171a;
-    --surface-sidebar: #0f1012;
-    --surface-workpanel: #1c1d20;
-    --surface-workpanel-rgb: 28, 29, 32;
+    --surface-shell: #0f1011;
+    --surface-sidebar: #08090a;
+    --surface-workpanel: #131415;
+    --surface-workpanel-rgb: 19, 20, 21;
     --surface-panel: var(--color-bg-elevated);
     --surface-panel-muted: var(--color-hover-overlay);
     --surface-panel-hover: var(--color-bg-secondary);
 
-    /* 环境光背景 —— 单光源径向渐变（暗版：极淡紫顶光 + 近纯炭） */
+    /* 环境光背景 —— 单光源径向渐变（暗版：极淡紫顶光 + Linear near-black） */
     --ambient-bg:
         radial-gradient(120% 120% at 0% 0%, rgba(122, 134, 224, 0.05) 0%, transparent 42%),
-        radial-gradient(140% 140% at 50% 0%, #14151a 0%, #0d0e10 60%, #0a0b0d 100%);
+        radial-gradient(140% 140% at 50% 0%, #0f1011 0%, #08090a 60%, #050607 100%);
     --ambient-glow-color: rgba(122, 134, 224, 0.07);
 
     /* 阴影分层 —— 物理环境光遮蔽（暗版加深底色） */
@@ -248,16 +248,16 @@
     --content-max-width: 720px;
 
     /* 响应式布局变量（桌面默认） */
-    --chat-padding-x: var(--spacing-xl);
-    --chat-padding-y: var(--spacing-xl);
+    --chat-padding-x: var(--spacing-lg);
+    --chat-padding-y: var(--spacing-lg);
     --chat-padding-bottom: 200px;
-    --chat-message-gap: var(--spacing-xl);
+    --chat-message-gap: var(--spacing-lg);
     --input-area-padding-x: var(--spacing-md);
-    --input-centered-padding-x: var(--spacing-xl);
-    --welcome-title-size: 2.5rem;
-    --welcome-subtitle-size: 1.1rem;
-    --welcome-logo-size: 80px;
-    --top-bar-padding-y: var(--spacing-sm);
+    --input-centered-padding-x: var(--spacing-lg);
+    --welcome-title-size: 2rem;
+    --welcome-subtitle-size: 1rem;
+    --welcome-logo-size: 48px;
+    --top-bar-padding-y: var(--spacing-xs);
     --top-bar-padding-x: var(--spacing-md);
     --top-bar-divider-left: var(--spacing-md);
     --top-bar-divider-right: var(--spacing-md);
