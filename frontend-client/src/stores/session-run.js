@@ -42,6 +42,7 @@ export const useSessionRunStore = defineStore('session-run', () => {
   const sessionExecutionObservability = ref(null);
   const contextUsage = ref({ used: 0, max: 0 });
   const activeRun = reactive(createActiveRunState());
+  const llmRetryState = ref(null);
 
   const resetContextUsage = () => {
     contextUsage.value = { used: 0, max: 0 };
@@ -58,6 +59,7 @@ export const useSessionRunStore = defineStore('session-run', () => {
     sessionExecutionObservability,
     contextUsage,
     activeRun,
+    llmRetryState,
     resetContextUsage,
     resetActiveRun,
   };

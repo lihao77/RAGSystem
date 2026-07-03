@@ -293,10 +293,7 @@ const {
   formatRetryCountdown,
   setLlmRetryState,
   clearLlmRetryState,
-} = useLlmRetryState({
-  messages,
-  activeRun: _activeRun,
-});
+} = useLlmRetryState();
 
 const {
   createAssistantMessage,
@@ -498,9 +495,6 @@ const {
   finalizeActiveRun: _finalizeActiveRun,
   resetStreamSessionState,
 } = useSessionRunStream({
-  state: {
-    llmRetryState,
-  },
   messageStore: {
     createAssistantMessage,
     cacheMessages,

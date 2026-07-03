@@ -1,4 +1,6 @@
 import { ref } from 'vue';
+import { storeToRefs } from 'pinia';
+import { useSessionRunStore } from '../stores/session-run.js';
 
 const formatRetryCountdownText = (state, clockMs) => {
   if (!state?.nextRetryAt) return '';
@@ -16,15 +18,18 @@ const buildLlmRetryStatusText = (state, clockMs) => {
 
 /**
  * LLM 重试状态、倒计时和消息状态同步。
+ * llmRetryState / messages / activeRun 取自 useSessionRunStore 单源。
  */
-export function useLlmRetryState(deps) {
-  const llmRetryState = ref(null);
+export function useLlmRetryState() {
+  const sessionRunStore = useSessionRunStore();
+  const { llmRetryState, messages } = storeToRefs(sessionRunStore);
+  const activeRun = sessionRunStore.activeRun;
   const retryClockMs = ref(Date.now());
   let llmRetryTimer = null;
 
   const syncActiveMessageRetryStatus = () => {
-    const currentMsg = deps.activeRun.assistantMsgIndex >= 0
-      ? deps.messages.value[deps.activeRun.assistantMsgIndex]
+    const currentMsg = activeRun.assistantMsgIndex >= 0
+      ? messages.value[activeRun.assistantMsgIndex]
       : null;
     if (!currentMsg) return;
     if (!Array.isArray(currentMsg.status)) currentMsg.status = [];

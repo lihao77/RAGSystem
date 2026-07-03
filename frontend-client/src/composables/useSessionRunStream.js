@@ -52,6 +52,7 @@ export function useSessionRunStream(deps) {
     isCompressing,
     contextUsage,
     sessionTaskInfo,
+    llmRetryState,
   } = storeToRefs(sessionRunStore);
   const activeRun = sessionRunStore.activeRun;
   const userInput = useUserInputSubmission({ getWS: () => deps.getWS?.() });
@@ -482,7 +483,7 @@ export function useSessionRunStream(deps) {
 
     // LLM 重试清除：流恢复信号（非 retry state_sync）到达即清
     if (
-      deps.llmRetryState.value
+      llmRetryState.value
       && eventType !== 'state_sync'
       && (
         eventType === 'stream_output'

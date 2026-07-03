@@ -31,6 +31,7 @@ function createDeps(overrides = {}) {
     isCompressing,
     contextUsage,
     sessionTaskInfo,
+    llmRetryState,
   } = storeToRefs(sessionRunStore);
   currentSessionId.value = 'session-1';
   contextUsage.value = null;
@@ -58,7 +59,7 @@ function createDeps(overrides = {}) {
     contextUsage,
     sessionTaskInfo,
     activeRun: sessionRunStore.activeRun,
-    llmRetryState: ref(null),
+    llmRetryState,
     userInputDialogRef: ref(null),
     getWS: () => null,
     createAssistantMessage,
