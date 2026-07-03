@@ -163,7 +163,7 @@ onBeforeUnmount(() => {
 
 .adm-modal-enter-active .adm-modal-panel,
 .adm-modal-leave-active .adm-modal-panel {
-  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease;
+  transition: transform 0.24s var(--ease-out-expo), opacity 0.2s ease;
 }
 
 .adm-modal-enter-from,

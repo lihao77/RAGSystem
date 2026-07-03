@@ -197,6 +197,7 @@
     --ease-default: cubic-bezier(0.25, 0.46, 0.45, 0.94);
     --ease-out-expo: cubic-bezier(0.22, 1, 0.36, 1);
     --ease-material: cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
     /* 时长 —— 全局收敛到这几档（光线柔顺 0.25s） */
     --duration-instant: 80ms;
@@ -502,6 +503,10 @@ body {
     font-size: var(--font-size-base);
     line-height: 1.55;
     letter-spacing: -0.01em;
+    /* Inter OpenType：tabular-nums 等宽数字（统计值/计数对齐不抖动）；
+       保留默认 liga/calt，叠加 cv11 + ss01 字符变体对齐 Linear 观感。 */
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'liga' 1, 'calt' 1, 'cv11', 'ss01';
     position: relative;
 }
 
@@ -604,6 +609,19 @@ textarea,
     transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast), color var(--transition-fast);
 }
 
+/* 输入元素 caret 统一可见（#app 默认 transparent，这里显式覆盖继承，深色下不再偏淡） */
+input,
+textarea,
+select {
+    caret-color: var(--color-text-primary);
+}
+
+/* 原生 checkbox/radio 着色跟随品牌紫 */
+input[type='checkbox'],
+input[type='radio'] {
+    accent-color: var(--color-brand-accent);
+}
+
 button:focus:not(:focus-visible),
 a:focus:not(:focus-visible) {
     outline: none;
@@ -674,9 +692,19 @@ a:focus:not(:focus-visible) {
 }
 
 /* ===== 极简滚动条 ===== */
+:root {
+    --scrollbar-width: 8px;
+    --scrollbar-width-sm: 5px;
+}
+
+/* Firefox：滚动条着色（宽度交由浏览器默认，色随主题） */
+html {
+    scrollbar-color: var(--color-bg-tertiary) transparent;
+}
+
 ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: var(--scrollbar-width);
+    height: var(--scrollbar-width);
 }
 
 ::-webkit-scrollbar-track {
@@ -822,6 +850,37 @@ input[type='number'] {
     pointer-events: none;
     border-radius: inherit;
 }
+
+/* 行级骨架（列表初始加载，替代整屏 spinner） */
+.g-skeleton-rows {
+    display: flex;
+    flex-direction: column;
+}
+.g-skeleton-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+}
+.g-skeleton-bar {
+    background: var(--color-hover-overlay);
+    border-radius: var(--radius-sm);
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+.g-skeleton-bar::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(105deg, transparent 30%, rgba(var(--color-interactive-rgb), 0.05) 50%, transparent 70%);
+    background-size: 250% 100%;
+    animation: g-shimmer 2.4s ease-in-out infinite;
+    pointer-events: none;
+}
+.g-skeleton-bar--avatar { width: 28px; height: 28px; border-radius: var(--radius-full); }
+.g-skeleton-bar--title { height: 12px; flex: 1; max-width: 240px; }
+.g-skeleton-bar--sub { height: 10px; width: 100%; max-width: 160px; }
 
 /* 居中加载态 */
 .g-loading-state {

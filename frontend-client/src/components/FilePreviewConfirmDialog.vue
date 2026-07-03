@@ -144,7 +144,7 @@ defineExpose({ show, hide });
   max-height: 85vh;
   display: flex;
   flex-direction: column;
-  animation: fpSlideIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: fpSlideIn 0.3s var(--ease-spring);
 }
 
 @keyframes fpSlideIn {

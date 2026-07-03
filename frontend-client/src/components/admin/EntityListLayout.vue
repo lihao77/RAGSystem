@@ -10,9 +10,12 @@
       </div>
     </header>
 
-    <div v-if="loading" class="adm-state">
-      <div class="g-spinner" aria-hidden="true"></div>
-      <p>{{ loadingText }}</p>
+    <div v-if="loading" class="g-skeleton-rows" aria-busy="true" aria-live="polite">
+      <div v-for="n in 6" :key="n" class="g-skeleton-row">
+        <div class="g-skeleton-bar g-skeleton-bar--avatar" aria-hidden="true"></div>
+        <div class="g-skeleton-bar g-skeleton-bar--title" aria-hidden="true"></div>
+        <div class="g-skeleton-bar g-skeleton-bar--sub" aria-hidden="true"></div>
+      </div>
     </div>
 
     <div v-else-if="error" class="adm-state adm-state--error">

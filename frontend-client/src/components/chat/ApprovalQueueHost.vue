@@ -72,9 +72,9 @@ defineExpose({
 .work-panel-shell-enter-active,
 .work-panel-shell-leave-active {
   transition:
-    width 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    width 420ms var(--ease-out-expo),
     opacity 300ms ease,
-    transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+    transform 420ms var(--ease-out-expo);
   overflow: hidden;
 }
 

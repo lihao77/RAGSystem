@@ -104,8 +104,8 @@
 
                     <!-- 矩阵表格 -->
                     <div class="data-table-wrapper glass-card">
-                        <div v-if="storeLoading" class="loading-state adm-state">
-                            <span class="g-spinner"></span>加载中...
+                        <div v-if="storeLoading" class="g-table-loading">
+                            <div class="g-skeleton-rows" aria-busy="true"><div v-for="n in 5" :key="n" class="g-skeleton-row"><div class="g-skeleton-bar g-skeleton-bar--title"></div><div class="g-skeleton-bar g-skeleton-bar--sub"></div></div></div>
                         </div>
                         <div v-else-if="filteredFileList.length === 0" class="empty-state adm-state adm-state--empty">
                             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24"
@@ -301,8 +301,8 @@
 
                     <!-- 文件列表 -->
                     <div class="data-table-wrapper glass-card">
-                        <div v-if="filesLoading" class="loading-state adm-state">
-                            <span class="g-spinner"></span>加载中...
+                        <div v-if="filesLoading" class="g-table-loading">
+                            <div class="g-skeleton-rows" aria-busy="true"><div v-for="n in 5" :key="n" class="g-skeleton-row"><div class="g-skeleton-bar g-skeleton-bar--title"></div><div class="g-skeleton-bar g-skeleton-bar--sub"></div></div></div>
                         </div>
                         <div v-else-if="uploadedFiles.length === 0" class="empty-state adm-state adm-state--empty">
                             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24"
@@ -400,8 +400,8 @@
                         </div>
                     </div>
 
-                    <div v-if="vectorizersLoading" class="loading-state adm-state">
-                        <span class="g-spinner"></span>加载中...
+                    <div v-if="vectorizersLoading" class="g-table-loading">
+                        <div class="g-skeleton-rows" aria-busy="true"><div v-for="n in 5" :key="n" class="g-skeleton-row"><div class="g-skeleton-bar g-skeleton-bar--title"></div><div class="g-skeleton-bar g-skeleton-bar--sub"></div></div></div>
                     </div>
                     <div v-else-if="vectorizers.length === 0" class="empty-state adm-state adm-state--empty glass-card"
                         style="padding: var(--spacing-xl)">
@@ -516,8 +516,8 @@
                         </template>
                     </div>
 
-                    <div v-if="rerankersLoading" class="loading-state adm-state">
-                        <span class="g-spinner"></span>加载中...
+                    <div v-if="rerankersLoading" class="g-table-loading">
+                        <div class="g-skeleton-rows" aria-busy="true"><div v-for="n in 5" :key="n" class="g-skeleton-row"><div class="g-skeleton-bar g-skeleton-bar--title"></div><div class="g-skeleton-bar g-skeleton-bar--sub"></div></div></div>
                     </div>
                     <div v-else-if="rerankers.length === 0" class="empty-state adm-state adm-state--empty glass-card"
                         style="padding: var(--spacing-xl)">

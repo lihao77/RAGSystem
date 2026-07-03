@@ -310,7 +310,7 @@ const onFileChange = (event) => {
 
 .drawer-fade-enter-active, .drawer-fade-leave-active { transition: opacity .2s; }
 .drawer-fade-enter-active .ctx-drawer, .drawer-fade-leave-active .ctx-drawer {
-  transition: transform .2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform .2s var(--ease-material);
 }
 .drawer-fade-enter-from, .drawer-fade-leave-to { opacity: 0; }
 .drawer-fade-enter-from .ctx-drawer, .drawer-fade-leave-to .ctx-drawer { transform: translateY(16px) scale(0.98); }

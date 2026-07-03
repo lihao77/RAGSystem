@@ -140,7 +140,7 @@ watch(isCollapsed, (val) => {
   height: 100%;
   display: flex;
   transform: translateX(0);
-  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.35s var(--ease-material);
 }
 
 .collapsed .panel-body {

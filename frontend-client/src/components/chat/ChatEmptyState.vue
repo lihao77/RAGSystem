@@ -51,10 +51,10 @@ const suggestions = [
   margin: 0 auto;
   text-align: left;
   transition:
-    opacity 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
-    filter 320ms cubic-bezier(0.22, 1, 0.36, 1);
-  animation: titleFadeIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+    opacity 280ms var(--ease-out-expo),
+    transform 320ms var(--ease-out-expo),
+    filter 320ms var(--ease-out-expo);
+  animation: titleFadeIn 0.45s var(--ease-out-expo) both;
 }
 
 .new-chat-start__eyebrow {

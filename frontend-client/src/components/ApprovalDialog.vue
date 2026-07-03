@@ -310,7 +310,7 @@ defineExpose({ show, hide, toggleCollapsed });
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
-  animation: containerSlideIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: containerSlideIn 0.3s var(--ease-spring);
 }
 
 @keyframes containerSlideIn {

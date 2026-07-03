@@ -104,7 +104,7 @@ defineExpose({ getSelection });
   height: 1px;
   background: var(--color-glass-border);
   opacity: 0;
-  transition: opacity 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: opacity 0.3s var(--ease-default);
 }
 
 .session-context-bar > * {
@@ -123,7 +123,7 @@ defineExpose({ getSelection });
   -webkit-backdrop-filter: blur(var(--glass-blur));
   border: 1px solid var(--color-glass-border);
   box-shadow: var(--shadow-md);
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.3s var(--ease-default);
 }
 
 .left-controls:hover,
@@ -333,7 +333,7 @@ defineExpose({ getSelection });
   justify-content: center;
   padding: 0;
   border-radius: var(--radius-full);
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.3s var(--ease-default);
   box-shadow: none;
 }
 
@@ -388,7 +388,7 @@ defineExpose({ getSelection });
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: all 0.3s var(--ease-default);
   flex-shrink: 0;
   box-shadow: var(--shadow-sm);
 }

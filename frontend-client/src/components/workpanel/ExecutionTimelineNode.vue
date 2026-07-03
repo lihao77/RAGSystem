@@ -119,7 +119,7 @@ const emit = defineEmits(['inspect'])
 
 const expanded = ref(defaultExpanded(props.node))
 const EXPAND_TRANSITION_MS = 230
-const EXPAND_TRANSITION_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+const EXPAND_TRANSITION_EASE = 'var(--ease-out-expo)'
 const DEFAULT_EXPAND_GAP_PX = 5
 
 const normalizedStatus = computed(() => {

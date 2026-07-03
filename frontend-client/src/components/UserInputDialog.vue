@@ -537,7 +537,7 @@ defineExpose({ show, hide, toggleCollapsed });
 
 /* ── 弹窗弹入动画 ── */
 .dialog-pop-enter-active {
-  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease;
+  transition: transform 0.28s var(--ease-spring), opacity 0.2s ease;
 }
 .dialog-pop-leave-active {
   transition: transform 0.18s ease, opacity 0.18s ease;

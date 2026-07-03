@@ -208,11 +208,11 @@ const lastCompletedTask = computed(() => {
   /* margin: var(--spacing-sm) 0; */
   /* box-shadow: var(--shadow-sm); */
   /* 增加 transition-property 和 duration 以匹配展开动画 */
-  transition: border-radius 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+  transition: border-radius 0.35s var(--ease-material),
               background 0.3s,
               border 0.3s,
               box-shadow 0.3s,
-              margin 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important;
+              margin 0.35s var(--ease-material) !important;
   position: relative;
   z-index: 2; /* Ensure it stays on top */
 }
@@ -236,7 +236,7 @@ const lastCompletedTask = computed(() => {
   justify-content: space-between;
   padding: 8px 16px;
   height: 48px;
-  transition: padding 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: padding 0.35s var(--ease-material);
 }
 
 /* 折叠状态：左右 padding 置为 0 */

@@ -880,14 +880,14 @@ onUnmounted(() => {
 }
 .user-text {
   transition:
-    background-color var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    border-color var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    box-shadow var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    min-height var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    max-height var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    opacity var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    transform var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)),
-    filter var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1));
+    background-color var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)),
+    border-color var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)),
+    box-shadow var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)),
+    min-height var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)),
+    max-height var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)),
+    opacity var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)),
+    transform var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)),
+    filter var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo));
   will-change: transform, opacity, min-height, max-height;
 }
 .user-text.is-editing {
@@ -926,7 +926,7 @@ onUnmounted(() => {
   overflow: hidden;
   transform: translateY(-4px);
   pointer-events: none;
-  transition: opacity var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)), max-height var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1)), transform var(--edit-transition-duration, 240ms) var(--edit-transition-ease, cubic-bezier(0.22, 1, 0.36, 1));
+  transition: opacity var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)), max-height var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo)), transform var(--edit-transition-duration, 240ms) var(--edit-transition-ease, var(--ease-out-expo));
 }
 .user-attachments-toolbar.is-visible {
   opacity: 1;
@@ -1407,7 +1407,7 @@ onUnmounted(() => {
 /* 消息查看/编辑模式切换动画 */
 .message-view-mode,
 .message-edit-mode {
-  animation: messageSlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: messageSlideIn 0.3s var(--ease-material);
 }
 
 @keyframes messageSlideIn {

@@ -1410,7 +1410,7 @@ const formatResultContent = (value) => {
 
 .tool-expand-btn {
   color: var(--color-text-muted);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s var(--ease-material);
   display: flex;
   align-items: center;
   will-change: transform;
@@ -1432,7 +1432,7 @@ const formatResultContent = (value) => {
 .tool-details-wrap {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+  transition: grid-template-rows 0.35s var(--ease-material),
               opacity var(--duration-base);
   opacity: 0;
 }

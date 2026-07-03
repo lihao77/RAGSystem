@@ -120,7 +120,7 @@ onBeforeUnmount(() => {
 .situation-map-layer :deep(.map-legend) {
   bottom: 24px;
   right: 410px;
-  transition: right 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: right 0.35s var(--ease-material);
 }
 
 .panel-collapsed .situation-map-layer :deep(.map-legend) {
