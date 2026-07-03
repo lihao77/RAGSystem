@@ -2,13 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ref } from 'vue';
 import MockAdapter from 'axios-mock-adapter';
+import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 
 import { useMessageRevision } from './useMessageRevision.js';
+import { useSessionRunStore } from '../stores/session-run.js';
 import { httpClient } from '../api/http.js';
 
 function createDeps(overrides = {}) {
-  const messages = ref([]);
-  const currentSessionId = ref('session-1');
+  setActivePinia(createPinia());
+  const sessionRunStore = useSessionRunStore();
+  const { messages, currentSessionId } = storeToRefs(sessionRunStore);
+  currentSessionId.value = 'session-1';
   const sessionFilesDrawerVisible = ref(false);
   const sessionFilesDrawerTarget = ref('composer');
   const inputMessage = ref('');

@@ -1,5 +1,7 @@
 import { nextTick } from 'vue';
+import { storeToRefs } from 'pinia';
 import { respondInteraction } from '../api/session.js';
+import { useSessionRunStore } from '../stores/session-run.js';
 
 function normalizeSessionRunStreamDeps(deps) {
   const {
@@ -42,6 +44,14 @@ export function useSessionRunStream(deps) {
   const startupPhases = new Set(['creating_session', 'preparing_attachments', 'starting_agent']);
 
   deps = normalizeSessionRunStreamDeps(deps);
+  const {
+    messages,
+    currentSessionId,
+    isLoading,
+    isCompressing,
+    contextUsage,
+    sessionTaskInfo,
+  } = storeToRefs(useSessionRunStore());
 
   // seq gap 标记：run 期间发生过事件丢失，run 结束后做一次轻量对账
   let _pendingReconciliation = false;
@@ -303,8 +313,8 @@ export function useSessionRunStream(deps) {
 
   const findAssistantMessageIndexByRunId = (runId, predicate = () => true) => {
     if (!runId) return -1;
-    for (let index = deps.messages.value.length - 1; index >= 0; index -= 1) {
-      const msg = deps.messages.value[index];
+    for (let index = messages.value.length - 1; index >= 0; index -= 1) {
+      const msg = messages.value[index];
       if (msg?.role === 'assistant' && messageRunId(msg) === runId && predicate(msg)) {
         return index;
       }
@@ -324,9 +334,9 @@ export function useSessionRunStream(deps) {
 
     let assistantMsgIndex = findAssistantMessageIndexByRunId(runId, msg => msg.finished !== true);
     if (assistantMsgIndex < 0) {
-      const lastMsg = deps.messages.value[deps.messages.value.length - 1];
+      const lastMsg = messages.value[messages.value.length - 1];
       if (lastMsg?.role === 'assistant' && !lastMsg.finished && (!runId || !messageRunId(lastMsg))) {
-        assistantMsgIndex = deps.messages.value.length - 1;
+        assistantMsgIndex = messages.value.length - 1;
         if (runId) {
           lastMsg.run_id = runId;
           lastMsg.metadata = { ...(lastMsg.metadata || {}), run_id: runId };
@@ -334,8 +344,8 @@ export function useSessionRunStream(deps) {
       }
     }
     if (assistantMsgIndex < 0) {
-      deps.messages.value.push(deps.createAssistantMessage(runId ? { run_id: runId, metadata: { run_id: runId } } : undefined));
-      assistantMsgIndex = deps.messages.value.length - 1;
+      messages.value.push(deps.createAssistantMessage(runId ? { run_id: runId, metadata: { run_id: runId } } : undefined));
+      assistantMsgIndex = messages.value.length - 1;
     }
 
     deps.activeRun.active = true;
@@ -346,10 +356,10 @@ export function useSessionRunStream(deps) {
       deps.activeRun.phase = 'llm_waiting_first_token';
       deps.activeRun.runStartedAt = eventTimestampSeconds(event);
     }
-    deps.isLoading.value = true;
+    isLoading.value = true;
     if (runId) {
-      deps.sessionTaskInfo.value = {
-        ...(deps.sessionTaskInfo.value || {}),
+      sessionTaskInfo.value = {
+        ...(sessionTaskInfo.value || {}),
         run_id: runId,
         session_id: sessionId,
         status: 'running',
@@ -375,8 +385,8 @@ export function useSessionRunStream(deps) {
     const runId = getDurableReplayRunId(event);
     if (runId && hasFinishedAssistantForRun(runId)) {
       if (eventType === 'run_ended') {
-        deps.sessionTaskInfo.value = {
-          ...(deps.sessionTaskInfo.value || {}),
+        sessionTaskInfo.value = {
+          ...(sessionTaskInfo.value || {}),
           run_id: runId,
           session_id: sessionId,
           thread_alive: false,
@@ -388,8 +398,8 @@ export function useSessionRunStream(deps) {
     }
 
     if (eventType === 'run_ended') {
-      deps.sessionTaskInfo.value = {
-        ...(deps.sessionTaskInfo.value || {}),
+      sessionTaskInfo.value = {
+        ...(sessionTaskInfo.value || {}),
         ...(runId ? { run_id: runId } : {}),
         session_id: sessionId,
         thread_alive: false,
@@ -480,18 +490,18 @@ export function useSessionRunStream(deps) {
   const findUserMessageSavedTarget = (eventData) => {
     const requestId = eventData.request_id || null;
     if (requestId) {
-      const byRequestId = deps.messages.value.find(
+      const byRequestId = messages.value.find(
         msg => msg?.role === 'user' && msg.metadata?.request_id === requestId
       );
       if (byRequestId) return byRequestId;
     }
-    const pendingFollowup = deps.messages.value.findLast?.(
+    const pendingFollowup = messages.value.findLast?.(
       msg => msg?.role === 'user'
         && msg.metadata?.execution_kind === 'session_followup'
         && msg.metadata?.persistence_status === 'pending'
     );
     if (pendingFollowup) return pendingFollowup;
-    return deps.messages.value[deps.activeRun.assistantMsgIndex - 1] || null;
+    return messages.value[deps.activeRun.assistantMsgIndex - 1] || null;
   };
 
   const applyMessageSaved = (target, eventData, sessionId) => {
@@ -507,7 +517,7 @@ export function useSessionRunStream(deps) {
     if (target.metadata.persistence_status) {
       delete target.metadata.persistence_status;
     }
-    deps.cacheMessages(sessionId, deps.messages.value);
+    deps.cacheMessages(sessionId, messages.value);
   };
 
   const rememberFinalizedRun = (sessionId, currentMsg) => {
@@ -531,14 +541,14 @@ export function useSessionRunStream(deps) {
   const finalizeActiveRun = (sessionId) => {
     let finalizedMsg = null;
     if (deps.activeRun.active) {
-      const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
+      const currentMsg = messages.value[deps.activeRun.assistantMsgIndex];
       finalizedMsg = currentMsg || null;
       if (currentMsg && !currentMsg.finished) {
         currentMsg.finished = true;
         markRecentSessionUpdated(sessionId, currentMsg);
         deps.checkSituationScreenTrigger(currentMsg.content);
       }
-      deps.cacheMessages(sessionId, deps.messages.value);
+      deps.cacheMessages(sessionId, messages.value);
       rememberFinalizedRun(sessionId, currentMsg);
       deps.activeRun.active = false;
       resetActiveRunRuntime();
@@ -547,8 +557,8 @@ export function useSessionRunStream(deps) {
       reconcileAfterGap(sessionId, finalizedMsg);
     }
     deps.clearLlmRetryState();
-    deps.isCompressing.value = false;
-    deps.isLoading.value = false;
+    isCompressing.value = false;
+    isLoading.value = false;
     deps.refreshSessionExecutionState(sessionId, { silent: true });
     deps.scrollToBottom();
   };
@@ -587,7 +597,7 @@ export function useSessionRunStream(deps) {
           model: detail.model || '',
         });
         deps.activeRun.phase = 'retrying';
-        deps.sessionTaskInfo.value = { ...(deps.sessionTaskInfo.value || {}), status: 'running' };
+        sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'running' };
       } else if (category === 'waiting') {
         const detail = payload.detail || {};
         const isStart = detail.phase === 'start' || Boolean(detail.wait_id && !deps.activeRun.waiting);
@@ -599,11 +609,11 @@ export function useSessionRunStream(deps) {
         if (deps.isMasterEvent(event)) deps.activeRun.phase = 'reflecting';
       } else if (category === 'context_usage') {
         const detail = payload.detail || {};
-        if (detail.compressing) deps.isCompressing.value = true;
+        if (detail.compressing) isCompressing.value = true;
         const agentId = event.agent_id;
         const ctx = { used: detail.used_tokens, max: detail.budget_tokens };
         if (deps.isRootEvent(event)) {
-          deps.contextUsage.value = ctx;
+          contextUsage.value = ctx;
         } else {
           const agent = deps.findRunningExecutionAgentByAgentId(currentMsg.executionTree, agentId);
           if (agent) agent.ctx = ctx;
@@ -612,12 +622,12 @@ export function useSessionRunStream(deps) {
         const detail = payload.detail || {};
         const isSummary = detail.type === 'compression_summary' || Boolean(detail.content);
         if (!isSummary) {
-          deps.isCompressing.value = true;
+          isCompressing.value = true;
         } else {
-          deps.isCompressing.value = false;
+          isCompressing.value = false;
           if (isVisibleRootCompressionSummary(detail)) {
             const summaryContent = detail.content || '';
-            const alreadyExists = deps.messages.value.some(
+            const alreadyExists = messages.value.some(
               m => m.metadata?.compression && m.content === summaryContent
             );
             if (!alreadyExists) {
@@ -633,7 +643,7 @@ export function useSessionRunStream(deps) {
                   ...(detail.run_id != null ? { run_id: detail.run_id } : {}),
                 },
               };
-              deps.messages.value.splice(deps.activeRun.assistantMsgIndex, 0, compressionMsg);
+              messages.value.splice(deps.activeRun.assistantMsgIndex, 0, compressionMsg);
               deps.activeRun.assistantMsgIndex++;
             }
           }
@@ -660,7 +670,7 @@ export function useSessionRunStream(deps) {
           }
           currentMsg.finished = true;
           markRecentSessionUpdated(sessionId, currentMsg);
-          deps.cacheMessages(sessionId, deps.messages.value);
+          deps.cacheMessages(sessionId, messages.value);
           deps.checkSituationScreenTrigger(currentMsg.content);
         } else {
           deps.applyEnvelopeToMessage(currentMsg, event);
@@ -699,7 +709,7 @@ export function useSessionRunStream(deps) {
   };
 
   const handleWSMessage = (event, sessionId) => {
-    if (sessionId !== deps.currentSessionId.value) return;
+    if (sessionId !== currentSessionId.value) return;
 
     const eventType = event.type;
     const payload = event.payload || {};
@@ -707,7 +717,7 @@ export function useSessionRunStream(deps) {
     if (eventType === 'heartbeat') return;
 
     // 统一推进投递序号（内部对无效 seq 自动跳过）
-    if (deps.activeRun.active || deps.isLoading.value) {
+    if (deps.activeRun.active || isLoading.value) {
       observeDeliverySeq(event);
     }
 
@@ -721,14 +731,14 @@ export function useSessionRunStream(deps) {
           return;
         }
         _durableReplay = { active: false, runId: null };
-        if (!deps.isLoading.value) {
-          deps.isLoading.value = true;
-          const lastMsg = deps.messages.value[deps.messages.value.length - 1];
+        if (!isLoading.value) {
+          isLoading.value = true;
+          const lastMsg = messages.value[messages.value.length - 1];
           if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.finished) {
-            deps.messages.value.push(deps.createAssistantMessage());
+            messages.value.push(deps.createAssistantMessage());
           }
           deps.activeRun.active = true;
-          deps.activeRun.assistantMsgIndex = deps.messages.value.length - 1;
+          deps.activeRun.assistantMsgIndex = messages.value.length - 1;
           deps.activeRun.runId = event.run_id || null;
           deps.activeRun.lastSeenSeq = 0;
           if (!deps.activeRun.phase || deps.activeRun.phase === 'idle') {
@@ -737,8 +747,8 @@ export function useSessionRunStream(deps) {
           }
         }
         if (event.run_id) {
-          deps.sessionTaskInfo.value = {
-            ...(deps.sessionTaskInfo.value || {}),
+          sessionTaskInfo.value = {
+            ...(sessionTaskInfo.value || {}),
             run_id: event.run_id,
             session_id: sessionId,
             status: 'running',
@@ -761,15 +771,15 @@ export function useSessionRunStream(deps) {
       if (category === 'send') {
         deps.clearCommandFallback();
         if (!payload.ok) {
-          const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
+          const currentMsg = messages.value[deps.activeRun.assistantMsgIndex];
           if (currentMsg) {
             currentMsg.content = `\n\n[System Error: ${payload.error || '启动执行失败'}]`;
             currentMsg.finished = true;
           }
-          deps.sessionTaskInfo.value = { ...(deps.sessionTaskInfo.value || {}), status: 'failed' };
+          sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'failed' };
           deps.activeRun.active = false;
           resetActiveRunRuntime();
-          deps.isLoading.value = false;
+          isLoading.value = false;
           return;
         }
         if (deps.activeRun.active && startupPhases.has(deps.activeRun.phase)) {
@@ -810,7 +820,7 @@ export function useSessionRunStream(deps) {
     }
 
     if (eventType === 'error') {
-      const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
+      const currentMsg = messages.value[deps.activeRun.assistantMsgIndex];
       if (currentMsg) {
         currentMsg.status.push({ type: 'error', content: payload.message || '' });
       }
@@ -837,21 +847,21 @@ export function useSessionRunStream(deps) {
       const nextRunId = event.run_id || null;
       const shouldStartNewMessage = !deps.activeRun.active || (deps.activeRun.runId && nextRunId && deps.activeRun.runId !== nextRunId);
       if (shouldStartNewMessage) {
-        const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
+        const currentMsg = messages.value[deps.activeRun.assistantMsgIndex];
         if (currentMsg && !currentMsg.finished) {
           currentMsg.finished = true;
         }
 
-        const hasNotificationMsg = deps.messages.value.some(
+        const hasNotificationMsg = messages.value.some(
           msg => msg.role === 'user' && msg.metadata?.source === 'system.bg_notification' && msg._bgRunId === nextRunId
         );
         if (!hasNotificationMsg) {
-          deps.messages.value.push(deps.buildTaskNotificationMessage(sessionId, event));
+          messages.value.push(deps.buildTaskNotificationMessage(sessionId, event));
         }
 
-        deps.messages.value.push(deps.createAssistantMessage({ run_id: nextRunId }));
+        messages.value.push(deps.createAssistantMessage({ run_id: nextRunId }));
         deps.activeRun.active = true;
-        deps.activeRun.assistantMsgIndex = deps.messages.value.length - 1;
+        deps.activeRun.assistantMsgIndex = messages.value.length - 1;
         deps.activeRun.lastSeenSeq = 0;
         deps.activeRun.isReplaying = _durableReplay.active;
         startActiveRunRuntime(event);
@@ -860,9 +870,9 @@ export function useSessionRunStream(deps) {
       if (deps.activeRun.phase === 'idle' || !deps.activeRun.runStartedAt || startupPhases.has(deps.activeRun.phase)) {
         startActiveRunRuntime(event);
       }
-      deps.isLoading.value = true;
-      deps.sessionTaskInfo.value = {
-        ...(deps.sessionTaskInfo.value || {}),
+      isLoading.value = true;
+      sessionTaskInfo.value = {
+        ...(sessionTaskInfo.value || {}),
         run_id: nextRunId,
         session_id: sessionId,
         status: 'running',
@@ -876,7 +886,7 @@ export function useSessionRunStream(deps) {
       const category = payload.category;
       if (category === 'message_saved') {
         const ref = payload.ref || {};
-        const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
+        const currentMsg = messages.value[deps.activeRun.assistantMsgIndex];
         const target = ref.role === 'user' ? findUserMessageSavedTarget(ref) : currentMsg;
         applyMessageSaved(target, ref, sessionId);
         return;
@@ -889,7 +899,7 @@ export function useSessionRunStream(deps) {
           deps.refreshSessionExecutionState(sessionId, { silent: true });
           return;
         }
-        if (!deps.isLoading.value && !deps.activeRun.active) {
+        if (!isLoading.value && !deps.activeRun.active) {
           deps.deleteMessageCache(sessionId);
           deps.loadSessionMessages(sessionId, { silent: true });
         }
@@ -902,12 +912,12 @@ export function useSessionRunStream(deps) {
           return;
         }
         deps.clearCommandFallback();
-        let targetIndex = deps.messages.value.length - 1;
-        let targetMsg = deps.messages.value[targetIndex];
+        let targetIndex = messages.value.length - 1;
+        let targetMsg = messages.value[targetIndex];
         if (!targetMsg || targetMsg.role !== 'assistant' || targetMsg.finished) {
-          deps.messages.value.push(deps.createAssistantMessage());
-          targetIndex = deps.messages.value.length - 1;
-          targetMsg = deps.messages.value[targetIndex];
+          messages.value.push(deps.createAssistantMessage());
+          targetIndex = messages.value.length - 1;
+          targetMsg = messages.value[targetIndex];
         }
         targetMsg.content = detail.content || '';
         targetMsg.metadata = {
@@ -919,7 +929,7 @@ export function useSessionRunStream(deps) {
           data: detail.data || null,
         };
         targetMsg.finished = true;
-        deps.isLoading.value = false;
+        isLoading.value = false;
         deps.deleteMessageCache(sessionId);
         deps.loadSessionMessages(sessionId, { silent: true });
         nextTick(() => deps.scrollToBottom(true));
@@ -930,7 +940,7 @@ export function useSessionRunStream(deps) {
 
     if (eventType === 'run_ended') {
       const terminalStatus = terminalStatusFromEvent(event);
-      const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
+      const currentMsg = messages.value[deps.activeRun.assistantMsgIndex];
       if (currentMsg) {
         // 打断确认：run 真正以 interrupted 终止时才显示"已停止生成"tag
         if (terminalStatus === 'interrupted') currentMsg.stopped = true;
@@ -943,8 +953,8 @@ export function useSessionRunStream(deps) {
       if (terminalStatus === 'interrupted' || terminalStatus === 'failed') {
         deps.resetApprovalState?.();
       }
-      deps.sessionTaskInfo.value = {
-        ...(deps.sessionTaskInfo.value || {}),
+      sessionTaskInfo.value = {
+        ...(sessionTaskInfo.value || {}),
         thread_alive: false,
         status: terminalStatus,
       };
@@ -953,7 +963,7 @@ export function useSessionRunStream(deps) {
     }
 
     if (deps.activeRun.active) {
-      const currentMsg = deps.messages.value[deps.activeRun.assistantMsgIndex];
+      const currentMsg = messages.value[deps.activeRun.assistantMsgIndex];
       if (currentMsg) {
         deps.mergeExecutionObservability(event);
         handleRunEvent(event, currentMsg, sessionId);

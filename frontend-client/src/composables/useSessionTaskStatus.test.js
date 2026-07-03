@@ -2,12 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ref } from 'vue';
 import MockAdapter from 'axios-mock-adapter';
+import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 
 import { createActiveRunState } from './useActiveRunState.js';
 import { useSessionTaskStatus } from './useSessionTaskStatus.js';
+import { useSessionRunStore } from '../stores/session-run.js';
 import { httpClient } from '../api/http.js';
 
 function createDeps(overrides = {}) {
+  setActivePinia(createPinia());
+  const sessionRunStore = useSessionRunStore();
+  const { currentSessionId, messages, isLoading, sessionTaskInfo } = storeToRefs(sessionRunStore);
+  currentSessionId.value = 'session-1';
   const activeRun = overrides.activeRun || createActiveRunState();
   const calls = {
     deleteMessageCache: [],
@@ -15,9 +21,10 @@ function createDeps(overrides = {}) {
     scheduleResumeRecovery: [],
   };
   const deps = {
-    currentSessionId: ref('session-1'),
-    messages: ref([]),
-    isLoading: ref(false),
+    currentSessionId,
+    messages,
+    isLoading,
+    sessionTaskInfo,
     shouldRefreshFn: () => false,
     shouldRunWatchdogFn: () => false,
     getActiveRun: () => activeRun,
@@ -63,8 +70,8 @@ test('checkSessionTaskStatus clears stale active run when selected session is id
     });
     const { deps } = createDeps({
       activeRun,
-      isLoading: ref(true),
     });
+    deps.isLoading.value = true;
     const status = useSessionTaskStatus(deps);
 
     await status.checkSessionTaskStatus('session-1');
@@ -77,7 +84,7 @@ test('checkSessionTaskStatus clears stale active run when selected session is id
     assert.equal(activeRun.lastSeenSeq, 0);
     assert.equal(activeRun.outputCharCount, 0);
     assert.equal(deps.isLoading.value, false);
-    assert.equal(status.sessionTaskInfo.value.status, 'completed');
+    assert.equal(deps.sessionTaskInfo.value.status, 'completed');
   });
 });
 
@@ -92,14 +99,14 @@ test('checkSessionTaskStatus ignores stale responses from a previous session', a
     });
   }, async () => {
     const { deps, activeRun, calls } = createDeps({
-      currentSessionId: ref('session-2'),
       shouldRunWatchdogFn: () => true,
     });
+    deps.currentSessionId.value = 'session-2';
     const status = useSessionTaskStatus(deps);
 
     await status.checkSessionTaskStatus('session-1');
 
-    assert.equal(status.sessionTaskInfo.value, null);
+    assert.equal(deps.sessionTaskInfo.value, null);
     assert.deepEqual(activeRun, createActiveRunState());
     assert.deepEqual(calls.scheduleResumeRecovery, []);
   });

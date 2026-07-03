@@ -1,14 +1,16 @@
-import { ref } from 'vue';
+import { storeToRefs } from 'pinia';
 import { resetActiveRunState } from './useActiveRunState.js';
 import { getContextSnapshot, getSessionTaskStatus } from '../api/session.js';
+import { useSessionRunStore } from '../stores/session-run.js';
 
 /**
  * 会话任务状态、可观测性管理。
  *
+ * sessionTaskInfo / sessionExecutionObservability / contextUsage / currentSessionId /
+ * messages / isLoading 取自 useSessionRunStore 单源；本 composable 只承载行为（拉取/合并/清理），
+ * 不持有状态。
+ *
  * @param {Object} deps
- * @param {import('vue').Ref} deps.currentSessionId
- * @param {import('vue').Ref} deps.messages
- * @param {import('vue').Ref} deps.isLoading
  * @param {Function} deps.shouldRefreshFn - shouldRefreshSessionMessagesAfterResume
  * @param {Function} deps.shouldRunWatchdogFn - shouldRunResumeRecoveryWatchdog
  * @param {Function} deps.getActiveRun - () => activeRun reactive
@@ -20,9 +22,15 @@ import { getContextSnapshot, getSessionTaskStatus } from '../api/session.js';
  * @param {Function} deps.clearLlmRetryState
  */
 export function useSessionTaskStatus(deps) {
-  const sessionTaskInfo = ref(null);
-  const sessionExecutionObservability = ref(null);
-  const contextUsage = ref({ used: 0, max: 0 });
+  const sessionRunStore = useSessionRunStore();
+  const {
+    sessionTaskInfo,
+    sessionExecutionObservability,
+    contextUsage,
+    currentSessionId,
+    messages,
+    isLoading,
+  } = storeToRefs(sessionRunStore);
 
   const buildObservabilityFromTaskInfo = (taskInfo) => {
     if (!taskInfo) return null;
@@ -39,7 +47,7 @@ export function useSessionTaskStatus(deps) {
     const current = sessionExecutionObservability.value || {};
     sessionExecutionObservability.value = {
       task_id: payload.task_id ?? current.task_id ?? null,
-      session_id: payload.session_id ?? current.session_id ?? deps.currentSessionId.value ?? null,
+      session_id: payload.session_id ?? current.session_id ?? currentSessionId.value ?? null,
       run_id: payload.run_id ?? current.run_id ?? null,
       execution_kind: payload.execution_kind ?? current.execution_kind ?? null,
       request_id: payload.request_id ?? current.request_id ?? null,
@@ -70,7 +78,7 @@ export function useSessionTaskStatus(deps) {
     if (!sessionId) return;
     try {
       const result = await getSessionTaskStatus(sessionId);
-      if (deps.currentSessionId.value !== sessionId) return;
+      if (currentSessionId.value !== sessionId) return;
       if (result.data?.task_info) {
         sessionTaskInfo.value = result.data.task_info;
       }
@@ -87,14 +95,14 @@ export function useSessionTaskStatus(deps) {
     if (!sessionId) return;
     try {
       const result = await getSessionTaskStatus(sessionId);
-      if (deps.currentSessionId.value !== sessionId) return;
+      if (currentSessionId.value !== sessionId) return;
       const hasRunningTask = Boolean(result.data?.has_running_task);
       const hasActiveSystemCommand = Boolean(result.data?.has_active_system_command);
       const activeRun = deps.getActiveRun();
       const needsMessageRefresh = !hasRunningTask && deps.shouldRefreshFn({
         hasRunningTask,
         activeRun: activeRun.active,
-        messages: deps.messages.value,
+        messages: messages.value,
       });
       if (result.data?.task_info) {
         sessionTaskInfo.value = result.data.task_info;
@@ -109,21 +117,21 @@ export function useSessionTaskStatus(deps) {
       }
       if (!hasRunningTask && !hasActiveSystemCommand) {
         resetActiveRunState(activeRun);
-        deps.isLoading.value = false;
+        isLoading.value = false;
         if (needsMessageRefresh) {
           deps.invalidateActiveStream();
           deps.deleteMessageCache(sessionId);
           await deps.loadSessionMessages(sessionId, { silent: true });
         }
       }
-      if (hasActiveSystemCommand && !deps.isLoading.value) {
-        deps.isLoading.value = true;
-        const lastMsg = deps.messages.value[deps.messages.value.length - 1];
+      if (hasActiveSystemCommand && !isLoading.value) {
+        isLoading.value = true;
+        const lastMsg = messages.value[messages.value.length - 1];
         if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.finished) {
-          deps.messages.value.push(deps.createAssistantMessage());
+          messages.value.push(deps.createAssistantMessage());
         }
         activeRun.active = true;
-        activeRun.assistantMsgIndex = deps.messages.value.length - 1;
+        activeRun.assistantMsgIndex = messages.value.length - 1;
         deps.scheduleCommandFallback(sessionId, activeRun.assistantMsgIndex, 120000);
       }
     } catch (error) {
@@ -164,9 +172,6 @@ export function useSessionTaskStatus(deps) {
   };
 
   return {
-    sessionTaskInfo,
-    sessionExecutionObservability,
-    contextUsage,
     buildObservabilityFromTaskInfo,
     mergeExecutionObservability,
     loadContextSnapshot,

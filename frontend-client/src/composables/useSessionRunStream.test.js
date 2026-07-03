@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { nextTick, ref } from 'vue';
 import MockAdapter from 'axios-mock-adapter';
+import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 
 import { useSessionRunStream } from './useSessionRunStream.js';
+import { useSessionRunStore } from '../stores/session-run.js';
 import { httpClient } from '../api/http.js';
 
 function createAssistantMessage(overrides = {}) {
@@ -20,6 +22,19 @@ function createAssistantMessage(overrides = {}) {
 }
 
 function createDeps(overrides = {}) {
+  setActivePinia(createPinia());
+  const sessionRunStore = useSessionRunStore();
+  const {
+    currentSessionId,
+    messages,
+    isLoading,
+    isCompressing,
+    contextUsage,
+    sessionTaskInfo,
+  } = storeToRefs(sessionRunStore);
+  currentSessionId.value = 'session-1';
+  contextUsage.value = null;
+
   const calls = {
     clearCommandFallback: 0,
     deleteMessageCache: [],
@@ -36,12 +51,12 @@ function createDeps(overrides = {}) {
   };
 
   const deps = {
-    currentSessionId: ref('session-1'),
-    messages: ref([]),
-    isLoading: ref(false),
-    isCompressing: ref(false),
-    contextUsage: ref(null),
-    sessionTaskInfo: ref(null),
+    currentSessionId,
+    messages,
+    isLoading,
+    isCompressing,
+    contextUsage,
+    sessionTaskInfo,
     activeRun: {
       active: false,
       assistantMsgIndex: -1,
@@ -76,9 +91,6 @@ function createDeps(overrides = {}) {
     setLlmRetryState: () => {},
     updateRecentSession: (...args) => { calls.updateRecentSession.push(args); },
     checkSituationScreenTrigger: () => {},
-    ensureExecutionTreeState: () => ({}),
-    syncExecutionProjection: () => {},
-    findExecutionAgentByCallId: () => null,
     findRunningExecutionAgentByAgentId: () => null,
     enqueueApproval: () => {},
     handleApprovalResolved: (...args) => { calls.handleApprovalResolved.push(args); },

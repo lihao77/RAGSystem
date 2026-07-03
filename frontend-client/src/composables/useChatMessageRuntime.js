@@ -1,3 +1,4 @@
+import { storeToRefs } from 'pinia';
 import {
   createAssistantMessage,
   normalizeAssistantExecutionState,
@@ -5,13 +6,13 @@ import {
 } from './useMessageExecution';
 import { useTaskNotifications } from './useTaskNotifications';
 import { useWorkPanelSelection } from './useWorkPanelSelection';
+import { useSessionRunStore } from '../stores/session-run.js';
 
 export function useChatMessageRuntime({
-  currentSessionId,
-  messages,
   activeRun,
   showToast,
 }) {
+  const { currentSessionId, messages } = storeToRefs(useSessionRunStore());
   const execution = useMessageExecution({
     currentSessionId,
     showToast,

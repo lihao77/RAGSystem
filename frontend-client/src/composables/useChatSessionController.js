@@ -1,9 +1,11 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { storeToRefs } from 'pinia';
 import { createSession, exportSession } from '../api/session.js';
 import { useUserStore } from '../stores/user.js';
 import { useDictionariesStore } from '../stores/dictionaries.js';
 import { useSessionListStore } from '../stores/session-list.js';
+import { useSessionRunStore } from '../stores/session-run.js';
 
 const stripWrappedQuotes = (value) => {
   const text = (value || '').trim();
@@ -49,6 +51,7 @@ export function useChatSessionController(deps) {
   const router = useRouter();
   const dictStore = useDictionariesStore();
   const sessionListStore = useSessionListStore();
+  const { currentSessionId, isLoading, messages } = storeToRefs(useSessionRunStore());
   const currentSessionTeam = ref('');
   const pendingWorkspaceRoot = ref('');
   const pendingEntryAgent = ref('');
@@ -95,8 +98,8 @@ export function useChatSessionController(deps) {
     } catch (error) {
       deps.showToast('加载历史列表失败', retryLoadHistory);
     }
-    if (reset && deps.currentSessionId.value) {
-      const matched = sessionListStore.getById(deps.currentSessionId.value);
+    if (reset && currentSessionId.value) {
+      const matched = sessionListStore.getById(currentSessionId.value);
       if (matched) {
         pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(matched.metadata?.workspace_root || pendingWorkspaceRoot.value);
         pendingEntryAgent.value = matched.metadata?.entry_agent || pendingEntryAgent.value;
@@ -115,10 +118,10 @@ export function useChatSessionController(deps) {
     const normalizedContent = (content || '').toString();
     const summary = normalizedContent.slice(0, 30);
     const normalizedWorkspaceRoot = normalizeWorkspaceRootInput(pendingWorkspaceRoot.value);
-    if (deps.currentSessionId.value === sessionId && pendingWorkspaceRoot.value !== normalizedWorkspaceRoot) {
+    if (currentSessionId.value === sessionId && pendingWorkspaceRoot.value !== normalizedWorkspaceRoot) {
       pendingWorkspaceRoot.value = normalizedWorkspaceRoot;
     }
-    const currentMetadata = deps.currentSessionId.value === sessionId
+    const currentMetadata = currentSessionId.value === sessionId
       ? {
           ...(currentSessionTeam.value.trim() ? { team: currentSessionTeam.value.trim() } : {}),
           ...(normalizedWorkspaceRoot ? { workspace_root: normalizedWorkspaceRoot } : {}),
@@ -137,7 +140,7 @@ export function useChatSessionController(deps) {
   };
 
   const exportCurrentSession = async () => {
-    const sessionId = deps.currentSessionId.value;
+    const sessionId = currentSessionId.value;
     if (!sessionId) {
       deps.showToast('当前无会话');
       return;
@@ -171,12 +174,12 @@ export function useChatSessionController(deps) {
   };
 
   const syncSessionFromRoute = async (sessionId) => {
-    if (sessionId && sessionId !== deps.currentSessionId.value) {
+    if (sessionId && sessionId !== currentSessionId.value) {
       deps.disconnectSessionWS();
       deps.invalidateActiveStream();
       deps.clearExecutionState();
-      deps.isLoading.value = false;
-      deps.currentSessionId.value = sessionId;
+      isLoading.value = false;
+      currentSessionId.value = sessionId;
       const matched = sessionListStore.getById(sessionId);
       pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(matched?.metadata?.workspace_root || '');
       pendingEntryAgent.value = matched?.metadata?.entry_agent || '';
@@ -191,27 +194,27 @@ export function useChatSessionController(deps) {
       return;
     }
 
-   if (!sessionId && deps.currentSessionId.value) {
+   if (!sessionId && currentSessionId.value) {
      deps.disconnectSessionWS();
      deps.invalidateActiveStream();
       deps.clearExecutionState({ resetContextUsage: true });
-     deps.isLoading.value = false;
-     deps.currentSessionId.value = null;
+     isLoading.value = false;
+     currentSessionId.value = null;
       deps.sessionFiles.value = [];
       pendingWorkspaceRoot.value = '';
       pendingEntryAgent.value = '';
       loadActiveTeam();
       deps.clearComposerAttachments();
-      deps.messages.value = [];
+      messages.value = [];
       deps.sessionFilesDrawerVisible.value = false;
       deps.sessionFilesDrawerTarget.value = 'composer';
     }
   };
 
   const ensureSession = async ({ replaceRoute = false } = {}) => {
-    if (deps.currentSessionId.value) {
-      deps.connectSessionWS(deps.currentSessionId.value);
-      return deps.currentSessionId.value;
+    if (currentSessionId.value) {
+      deps.connectSessionWS(currentSessionId.value);
+      return currentSessionId.value;
     }
     const userId = useUserStore().userId.value;
     const workspaceRoot = normalizeWorkspaceRootInput(pendingWorkspaceRoot.value);
@@ -255,15 +258,15 @@ export function useChatSessionController(deps) {
       pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(sessionMetadata.workspace_root || '');
       pendingEntryAgent.value = sessionMetadata.entry_agent || '';
       currentSessionTeam.value = sessionMetadata.team || '';
-      if (deps.currentSessionId.value !== sessionId) {
-        deps.currentSessionId.value = sessionId;
+      if (currentSessionId.value !== sessionId) {
+        currentSessionId.value = sessionId;
       }
       const navigate = replaceRoute ? router.replace : router.push;
       await navigate(getChatSessionPath(sessionId));
       deps.connectSessionWS(sessionId);
       await deps.loadSessionFiles(sessionId);
     }
-    return deps.currentSessionId.value;
+    return currentSessionId.value;
   };
 
   return {

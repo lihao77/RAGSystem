@@ -1,5 +1,7 @@
 import { computed, nextTick, ref } from 'vue';
+import { storeToRefs } from 'pinia';
 import { rollbackSession } from '../api/session.js';
+import { useSessionRunStore } from '../stores/session-run.js';
 
 function buildRollbackBody(messages, index) {
   if (index === 0) return { after_seq: -1 };
@@ -14,6 +16,7 @@ function buildRollbackBody(messages, index) {
  * 保持消息模板骨架不变，只抽脚本流程。
  */
 export function useMessageRevision(deps) {
+  const { messages, currentSessionId } = storeToRefs(useSessionRunStore());
   const editingMessageIndex = ref(null);
   const editingDraft = ref('');
   const editingAttachmentsDraft = ref([]);
@@ -22,7 +25,7 @@ export function useMessageRevision(deps) {
   const editingMessage = computed(() => {
     const index = editingMessageIndex.value;
     if (index == null || index < 0) return null;
-    return deps.messages.value[index] || null;
+    return messages.value[index] || null;
   });
 
   const resetEditingState = ({ closeDrawer = true } = {}) => {
@@ -38,7 +41,7 @@ export function useMessageRevision(deps) {
 
   const startEditMessage = (msg, index) => {
     if (!msg || msg.role !== 'user') return;
-    const foundIndex = deps.messages.value.findIndex(item => item === msg);
+    const foundIndex = messages.value.findIndex(item => item === msg);
     editingMessageIndex.value = foundIndex >= 0 ? foundIndex : index;
     editingDraft.value = msg.content || '';
     editingAttachmentsDraft.value = Array.isArray(msg.attachments)
@@ -56,7 +59,7 @@ export function useMessageRevision(deps) {
   const confirmEditAndResend = async () => {
     const index = editingMessageIndex.value;
     if (index == null || editingSubmitting.value) return;
-    const msg = deps.messages.value[index];
+    const msg = messages.value[index];
     if (!msg || msg.role !== 'user') {
       cancelEdit();
       return;
@@ -69,7 +72,7 @@ export function useMessageRevision(deps) {
       return;
     }
 
-    const sessionId = deps.currentSessionId.value;
+    const sessionId = currentSessionId.value;
     if (!sessionId) {
       cancelEdit();
       return;
@@ -77,7 +80,7 @@ export function useMessageRevision(deps) {
 
     editingSubmitting.value = true;
     try {
-      await rollbackSession(sessionId, buildRollbackBody(deps.messages.value, index));
+      await rollbackSession(sessionId, buildRollbackBody(messages.value, index));
       await deps.handleSend({ content, attachments, replaceFromIndex: index, clearEditing: true });
     } catch (error) {
       editingSubmitting.value = false;
@@ -86,7 +89,7 @@ export function useMessageRevision(deps) {
   };
 
   const rollbackAndRetry = async (msg) => {
-    const sessionId = deps.currentSessionId.value;
+    const sessionId = currentSessionId.value;
     if (!sessionId) {
       deps.showToast('当前无会话');
       return;
@@ -96,19 +99,19 @@ export function useMessageRevision(deps) {
       return;
     }
 
-    const index = deps.messages.value.findIndex(item => item === msg || (item.role === 'user' && item.seq === msg.seq));
+    const index = messages.value.findIndex(item => item === msg || (item.role === 'user' && item.seq === msg.seq));
     if (index < 0) return;
 
-    const prevMessages = deps.messages.value.slice();
+    const prevMessages = messages.value.slice();
     try {
-      await rollbackSession(sessionId, buildRollbackBody(deps.messages.value, index));
-      deps.messages.value = deps.messages.value.slice(0, index);
-      deps.cacheMessages(sessionId, deps.messages.value);
+      await rollbackSession(sessionId, buildRollbackBody(messages.value, index));
+      messages.value = messages.value.slice(0, index);
+      deps.cacheMessages(sessionId, messages.value);
       deps.inputMessage.value = (msg.content || '').trim();
       await nextTick();
       deps.handleSend();
     } catch (error) {
-      deps.messages.value = prevMessages;
+      messages.value = prevMessages;
       deps.cacheMessages(sessionId, prevMessages);
       deps.showToast(error.message || '回退失败');
     }

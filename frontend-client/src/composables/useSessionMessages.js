@@ -1,12 +1,14 @@
 import { ref, nextTick } from 'vue';
+import { storeToRefs } from 'pinia';
 import { getSessionMessages } from '../api/session.js';
+import { useSessionRunStore } from '../stores/session-run.js';
 
 /**
  * 会话消息加载、缓存、合并。
  *
+ * messages 取自 useSessionRunStore 单源；本 composable 只承载加载/缓存/合并行为。
+ *
  * @param {Object} deps
- * @param {import('vue').Ref} deps.currentSessionId
- * @param {import('vue').Ref} deps.messages
  * @param {Function} deps.normalizeAssistantExecutionState
  * @param {Function} deps.createAssistantMessageFromHistory
  * @param {Function} deps.normalizeAttachment
@@ -20,6 +22,7 @@ import { getSessionMessages } from '../api/session.js';
  * @param {Function} [deps.endInitialScrollRestore]
  */
 export function useSessionMessages(deps) {
+  const { messages } = storeToRefs(useSessionRunStore());
   const messageCache = ref(new Map());
   const messagesLoading = ref(false);
   const maxCachedSessions = 10;
@@ -67,7 +70,7 @@ export function useSessionMessages(deps) {
       // 非静默加载（路由切换/手动刷新）始终绕过缓存，确保拿到最新数据
       const cached = silent ? messageCache.value.get(sessionId) : null;
       if (cached) {
-        deps.messages.value = cached.map(item => deps.normalizeAssistantExecutionState(item));
+        messages.value = cached.map(item => deps.normalizeAssistantExecutionState(item));
         messagesLoading.value = false;
         await nextTick();
         await deps.scrollToBottom(true, 'auto');
@@ -104,7 +107,7 @@ export function useSessionMessages(deps) {
             : [];
           return { role: 'user', id: item.id, seq: item.seq, content: item.content || '', metadata: item.metadata || {}, attachments };
         });
-      deps.messages.value = mapped;
+      messages.value = mapped;
       cacheMessages(sessionId, mapped);
       messagesLoading.value = false;
       await nextTick();
@@ -126,20 +129,20 @@ export function useSessionMessages(deps) {
 
   /** 仅从服务端拉取并合并 id/seq 到当前列表（不替换整表，避免闪烁） */
   const mergeMessageIdsFromServer = async (sessionId) => {
-    if (!sessionId || deps.messages.value.length === 0) return;
+    if (!sessionId || messages.value.length === 0) return;
     try {
       const result = await getSessionMessages(sessionId);
       const items = result.data?.items || [];
-      if (items.length !== deps.messages.value.length) return;
+      if (items.length !== messages.value.length) return;
       for (let i = 0; i < items.length; i++) {
-        const m = deps.messages.value[i];
+        const m = messages.value[i];
         const it = items[i];
         if (!m || !it) continue;
         if (m.role !== it.role) continue;
         m.id = it.id;
         m.seq = it.seq;
       }
-      cacheMessages(sessionId, deps.messages.value);
+      cacheMessages(sessionId, messages.value);
     } catch (error) {
       console.warn('刷新消息失败:', error.message);
       return;

@@ -224,6 +224,8 @@ import SessionContextInfoButton from '../components/chat/SessionContextInfoButto
 import ApprovalQueueHost from '../components/chat/ApprovalQueueHost.vue';
 import TaskLauncher from '../components/chat/TaskLauncher.vue';
 import { useWorkbenchLayout } from '../composables/useWorkbenchLayout';
+import { storeToRefs } from 'pinia';
+import { useSessionRunStore } from '../stores/session-run.js';
 
 const SituationScreen = defineAsyncComponent(() => import('../components/SituationScreen.vue'));
 
@@ -231,9 +233,17 @@ const SituationScreen = defineAsyncComponent(() => import('../components/Situati
 const route = useRoute();
 const shellSidebarControl = inject('shellSidebarControl', null);
 
-const messages = ref([]);
 const inputMessage = ref('');
-const isLoading = ref(false);
+const sessionRunStore = useSessionRunStore();
+const {
+  messages,
+  currentSessionId,
+  isLoading,
+  isCompressing,
+  sessionTaskInfo,
+  sessionExecutionObservability,
+  contextUsage,
+} = storeToRefs(sessionRunStore);
 const sessionContextBarRef = ref(null);
 const topControlsBarScrolled = ref(false);
 const {
@@ -249,14 +259,12 @@ const {
   onScrollToBottomClick,
 } = useChatScrolling({ messages, topControlsBarScrolled });
 
-const currentSessionId = ref(null);
 const sessionFilesDrawerVisible = ref(false);
 const sessionFilesDrawerTarget = ref('composer');
 const chatInputRef = ref(null);
 const approvalQueueHostRef = ref(null);
 const filePreviewDialogRef = ref(null);
 const toast = useToast();
-const isCompressing = ref(false);
 const ctxDrawerVisible = ref(false);
 const ctxDrawerSelectedLlm = ref('');
 const newChatLaunching = ref(false);
@@ -295,15 +303,12 @@ const {
   createAssistantMessage,
   normalizeAssistantExecutionState,
   hasExecutionContent,
-  ensureExecutionTreeState,
-  syncExecutionProjection,
   applyEnvelopeToMessage,
   ensureExecutionStepsLoaded,
   toggleExecutionView,
   createAssistantMessageFromHistory,
   isRootEvent,
   isMasterEvent,
-  findExecutionAgentByCallId,
   findRunningExecutionAgentByAgentId,
   getMessageExecutionTimeText,
   getMessageExecutionTimeTitle,
@@ -314,8 +319,6 @@ const {
   parseTaskNotifications,
   buildTaskNotificationMessage,
 } = useChatMessageRuntime({
-  currentSessionId,
-  messages,
   activeRun: _activeRun,
   showToast: (...a) => showToast(...a),
 });
@@ -324,7 +327,6 @@ const {
   messagesLoading, cacheMessages, deleteMessageCache,
   loadSessionMessages, mergeMessageIdsFromServer,
 } = useSessionMessages({
-  currentSessionId, messages,
   normalizeAssistantExecutionState,
   createAssistantMessageFromHistory: (...a) => createAssistantMessageFromHistory(...a),
   normalizeAttachment: (...a) => normalizeAttachmentUtil(...a),
@@ -339,12 +341,10 @@ const {
 });
 
 const {
-  sessionTaskInfo, sessionExecutionObservability, contextUsage,
   mergeExecutionObservability,
   loadContextSnapshot, refreshSessionExecutionState,
   checkSessionTaskStatus, clearExecutionState: _clearExecutionStateBase, beginOptimisticExecutionState,
 } = useSessionTaskStatus({
-  currentSessionId, messages, isLoading,
   shouldRefreshFn: shouldRefreshSessionMessagesAfterResume,
   shouldRunWatchdogFn: shouldRunResumeRecoveryWatchdog,
   getActiveRun: () => _activeRun,
@@ -414,7 +414,6 @@ const {
   clearSessionResumeRecovery, scheduleSessionResumeRecovery,
   connectSessionWS, disconnectSessionWS, getWS, resetSessionEventCursor,
 } = useSessionConnection({
-  currentSessionId, messages, isLoading, isCompressing,
   activeRun: _activeRun,
   onMessage: (...a) => handleWSMessage(...a),
   onRunFinalized: (sid) => _finalizeActiveRun(sid),
@@ -469,8 +468,6 @@ const {
   confirmEditAndResend,
   rollbackAndRetry,
 } = useMessageRevision({
-  messages,
-  currentSessionId,
   sessionFilesDrawerVisible,
   sessionFilesDrawerTarget,
   normalizeAttachment,
@@ -505,12 +502,6 @@ const {
   resetStreamSessionState,
 } = useSessionRunStream({
   state: {
-    currentSessionId,
-    messages,
-    isLoading,
-    isCompressing,
-    contextUsage,
-    sessionTaskInfo,
     activeRun: _activeRun,
     llmRetryState,
   },
@@ -537,10 +528,7 @@ const {
     setLlmRetryState: (...a) => setLlmRetryState(...a),
   },
   execution: {
-    ensureExecutionTreeState: (...a) => ensureExecutionTreeState(...a),
-    syncExecutionProjection: (...a) => syncExecutionProjection(...a),
     applyEnvelopeToMessage: (...a) => applyEnvelopeToMessage(...a),
-    findExecutionAgentByCallId: (...a) => findExecutionAgentByCallId(...a),
     findRunningExecutionAgentByAgentId: (...a) => findRunningExecutionAgentByAgentId(...a),
     isRootEvent: (...a) => isRootEvent(...a),
     isMasterEvent: (...a) => isMasterEvent(...a),
@@ -590,11 +578,6 @@ const {
   syncSessionFromRoute,
   ensureSession,
 } = useChatSessionController({
-  state: {
-    currentSessionId,
-    isLoading,
-    messages,
-  },
   filesState: {
     sessionFiles,
     sessionFilesDrawerVisible,
@@ -627,13 +610,8 @@ const {
   handleStop,
 } = useSessionSend({
   state: {
-    currentSessionId,
-    messages,
     inputMessage,
-    isLoading,
     activeRun: _activeRun,
-    sessionTaskInfo,
-    contextUsage,
   },
   composer: {
     pendingAttachments,

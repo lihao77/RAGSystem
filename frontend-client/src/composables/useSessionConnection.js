@@ -1,4 +1,5 @@
 import { ref } from 'vue';
+import { storeToRefs } from 'pinia';
 import {
   buildSessionSocketUrl,
   canReuseSessionSocket,
@@ -9,6 +10,7 @@ import {
 import { resetActiveRunState } from './useActiveRunState.js';
 import { getHostTool, getHostToolDeclarations } from '../utils/hostTools.js';
 import { getSessionTaskStatus } from '../api/session.js';
+import { useSessionRunStore } from '../stores/session-run.js';
 
 const WS_OPEN = 1;
 
@@ -57,10 +59,7 @@ const handleDelegateCall = async (ws, event, sessionId) => {
  * 会话 WebSocket 连接管理、重连、定时器、activeRun 状态。
  *
  * @param {Object} deps
- * @param {import('vue').Ref} deps.currentSessionId
- * @param {import('vue').Ref} deps.messages
- * @param {import('vue').Ref} deps.isLoading
- * @param {import('vue').Ref} deps.isCompressing
+ * currentSessionId / messages / isLoading / isCompressing 取自 useSessionRunStore 单源
  * @param {import('vue').Reactive} deps.activeRun
  * @param {Function} deps.onMessage - (event, sessionId) => void
  * @param {Function} deps.onRunFinalized - (sessionId) => void
@@ -73,6 +72,7 @@ const handleDelegateCall = async (ws, event, sessionId) => {
  * @param {Function} deps.scrollToBottom
  */
 export function useSessionConnection(deps) {
+  const { currentSessionId, messages, isLoading } = storeToRefs(useSessionRunStore());
   let _ws = null;
   let _wsSessionId = null;
   let _wsReconnectTimer = null;
@@ -91,15 +91,15 @@ export function useSessionConnection(deps) {
     clearCommandFallback();
     _commandFallbackTimer = setTimeout(() => {
       _commandFallbackTimer = null;
-      if (!deps.isLoading.value) return;
-      const msg = deps.messages.value[msgIndex];
+      if (!isLoading.value) return;
+      const msg = messages.value[msgIndex];
       if (msg && !msg.finished) {
         msg.content = msg.content || '[命令执行超时或结果未送达]';
         msg.metadata = { ...msg.metadata, type: 'command_result', success: false };
         msg.finished = true;
       }
       resetActiveRunState(deps.activeRun);
-      deps.isLoading.value = false;
+      isLoading.value = false;
       deps.deleteMessageCache(sessionId);
       deps.loadSessionMessages(sessionId, { silent: true });
     }, timeout);
@@ -127,18 +127,18 @@ export function useSessionConnection(deps) {
     clearSessionResumeRecovery();
     _sessionResumeRecoveryTimer = window.setTimeout(async () => {
       _sessionResumeRecoveryTimer = null;
-      if (deps.currentSessionId.value !== sessionId) return;
+      if (currentSessionId.value !== sessionId) return;
       if (deps.activeRun.isReplaying || deps.activeRun.lastSeenSeq > 0) return;
       const abort = new AbortController();
       _sessionResumeRecoveryAbort = abort;
       try {
         const result = await getSessionTaskStatus(sessionId, { signal: abort.signal });
-        if (deps.currentSessionId.value !== sessionId) return;
+        if (currentSessionId.value !== sessionId) return;
         if (result.data?.has_running_task) return;
         if (shouldRefreshSessionMessagesAfterResume({
           hasRunningTask: false,
           activeRun: deps.activeRun.active,
-          messages: deps.messages.value,
+          messages: messages.value,
         })) {
           invalidateActiveStream();
           deps.deleteMessageCache(sessionId);
@@ -239,7 +239,7 @@ export function useSessionConnection(deps) {
       if (!isCurrentSocket) return;
       // 断连时不立即 finalize——先尝试重连，由恢复兜底逻辑决定是否 finalize
       clearCommandFallback();
-      if (deps.currentSessionId.value === sessionId) {
+      if (currentSessionId.value === sessionId) {
         if (_wsReconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
           console.warn(`[WS] 达到最大重连次数 (${MAX_RECONNECT_ATTEMPTS})，放弃重连`);
           if (deps.activeRun.active) {

@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ref } from 'vue';
 import MockAdapter from 'axios-mock-adapter';
+import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 
 import { useSessionSend } from './useSessionSend.js';
+import { useSessionRunStore } from '../stores/session-run.js';
 import { httpClient } from '../api/http.js';
 
 function createAssistantMessage(overrides = {}) {
@@ -35,6 +37,11 @@ function withMock(setup, run) {
 }
 
 function createDeps(overrides = {}) {
+  setActivePinia(createPinia());
+  const sessionRunStore = useSessionRunStore();
+  const { currentSessionId, messages, isLoading, sessionTaskInfo, contextUsage } = storeToRefs(sessionRunStore);
+  currentSessionId.value = 'session-1';
+
   const calls = {
     fetch: [],
     wsSend: [],
@@ -54,13 +61,13 @@ function createDeps(overrides = {}) {
   };
 
   const deps = {
-    currentSessionId: ref('session-1'),
+    currentSessionId,
     inputMessage: ref(''),
     pendingAttachments: ref([]),
-    messages: ref([]),
-    isLoading: ref(false),
-    sessionTaskInfo: ref(null),
-    contextUsage: ref({ used: 0, max: 0 }),
+    messages,
+    isLoading,
+    sessionTaskInfo,
+    contextUsage,
     activeRun: {
       active: false,
       assistantMsgIndex: -1,

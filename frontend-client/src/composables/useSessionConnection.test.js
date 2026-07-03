@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ref } from 'vue';
+import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 
 import { createActiveRunState } from './useActiveRunState.js';
 import { useSessionConnection } from './useSessionConnection.js';
+import { useSessionRunStore } from '../stores/session-run.js';
 
 class FakeWebSocket {
   static instances = [];
@@ -36,11 +38,15 @@ class FakeWebSocket {
 }
 
 function createConnectionDeps(onMessage) {
+  setActivePinia(createPinia());
+  const sessionRunStore = useSessionRunStore();
+  const { currentSessionId, messages, isLoading, isCompressing } = storeToRefs(sessionRunStore);
+  currentSessionId.value = 'session-1';
   return {
-    currentSessionId: ref('session-1'),
-    messages: ref([]),
-    isLoading: ref(false),
-    isCompressing: ref(false),
+    currentSessionId,
+    messages,
+    isLoading,
+    isCompressing,
     activeRun: createActiveRunState(),
     onMessage,
     onRunFinalized: () => {},

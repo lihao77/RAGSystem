@@ -1,6 +1,8 @@
 import { nextTick, ref } from 'vue';
+import { storeToRefs } from 'pinia';
 import { createAssistantMessage } from './useMessageExecution.js';
 import { getSessionTaskStatus, startStream, stopStream } from '../api/session.js';
+import { useSessionRunStore } from '../stores/session-run.js';
 
 const resetActiveRunForSend = (activeRun, assistantMsgIndex) => {
   activeRun.active = true;
@@ -103,17 +105,18 @@ function normalizeSessionSendDeps(deps) {
  */
 export function useSessionSend(deps) {
   deps = normalizeSessionSendDeps(deps);
+  const { currentSessionId, messages, isLoading } = storeToRefs(useSessionRunStore());
   const lastFailedSendContent = ref('');
 
   const handleStop = async () => {
-    if (!deps.currentSessionId.value) return;
+    if (!currentSessionId.value) return;
 
     const ws = deps.getWS?.();
     if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'abort', session_id: deps.currentSessionId.value, payload: { scope: 'run' } }));
+      ws.send(JSON.stringify({ type: 'abort', session_id: currentSessionId.value, payload: { scope: 'run' } }));
     } else {
       try {
-        await stopStream(deps.currentSessionId.value);
+        await stopStream(currentSessionId.value);
       } catch (error) {
         console.warn('停止请求发送失败:', error);
       }
@@ -133,37 +136,37 @@ export function useSessionSend(deps) {
     const replaceFromIndex = Number.isInteger(payload?.replaceFromIndex) ? payload.replaceFromIndex : null;
     const clearEditing = payload?.clearEditing === true;
     let isRunningFollowup = Boolean(
-      deps.currentSessionId.value
+      currentSessionId.value
       && deps.activeRun.active
       && replaceFromIndex == null
     );
-    if ((!content && !draftAttachments.length) || (deps.isLoading.value && !isRunningFollowup)) return;
+    if ((!content && !draftAttachments.length) || (isLoading.value && !isRunningFollowup)) return;
     if (isRunningFollowup && draftAttachments.length) {
       deps.showToast('运行中补充暂不支持附件', 'warning');
       return;
     }
 
-    const startsDraftSession = !deps.currentSessionId.value && replaceFromIndex == null;
+    const startsDraftSession = !currentSessionId.value && replaceFromIndex == null;
     const requestId = createRequestId();
     let userMetadata = isRunningFollowup
       ? createFollowupMetadata(requestId, deps.activeRun)
       : createAgentStreamMetadata(requestId);
-    let sessionId = deps.currentSessionId.value;
+    let sessionId = currentSessionId.value;
     let assistantMsgIndex = -1;
     let userMsgIndex = -1;
     let attachments = draftAttachments;
     let followupMsgIndex = -1;
 
     if (startsDraftSession) {
-      userMsgIndex = deps.messages.value.push(createUserMessage(content, draftAttachments, userMetadata)) - 1;
+      userMsgIndex = messages.value.push(createUserMessage(content, draftAttachments, userMetadata)) - 1;
       deps.inputMessage.value = '';
       deps.clearComposerAttachments();
       deps.stickToBottom();
 
-      assistantMsgIndex = deps.messages.value.push(createAssistantMessage()) - 1;
+      assistantMsgIndex = messages.value.push(createAssistantMessage()) - 1;
       resetActiveRunForSend(deps.activeRun, assistantMsgIndex);
       deps.activeRun.phase = 'creating_session';
-      deps.isLoading.value = true;
+      isLoading.value = true;
       deps.contextUsage.value = { used: 0, max: 0 };
     }
 
@@ -172,13 +175,13 @@ export function useSessionSend(deps) {
     } catch (error) {
       console.error('Error creating session:', error);
       if (startsDraftSession) {
-        const currentMsg = deps.messages.value[assistantMsgIndex];
+        const currentMsg = messages.value[assistantMsgIndex];
         if (currentMsg) {
           currentMsg.content += `\n\n[System Error: ${error.message || '创建会话失败'}]`;
           currentMsg.finished = true;
         }
         resetActiveRunAfterSendError(deps.activeRun);
-        deps.isLoading.value = false;
+        isLoading.value = false;
       }
       deps.showToast('会话创建失败');
       return;
@@ -201,13 +204,13 @@ export function useSessionSend(deps) {
         } else {
           deps.showToast('该会话正在执行任务，请等待完成或先停止', 'warning');
           if (startsDraftSession) {
-            const currentMsg = deps.messages.value[assistantMsgIndex];
+            const currentMsg = messages.value[assistantMsgIndex];
             if (currentMsg) {
               currentMsg.content += '\n\n[System Error: 该会话正在执行任务，请等待完成或先停止]';
               currentMsg.finished = true;
             }
             resetActiveRunAfterSendError(deps.activeRun);
-            deps.isLoading.value = false;
+            isLoading.value = false;
           }
           return;
         }
@@ -222,13 +225,13 @@ export function useSessionSend(deps) {
         : await deps.materializeAttachmentsForSend(draftAttachments, sessionId);
     } catch (error) {
       if (startsDraftSession) {
-        const currentMsg = deps.messages.value[assistantMsgIndex];
+        const currentMsg = messages.value[assistantMsgIndex];
         if (currentMsg) {
           currentMsg.content += `\n\n[System Error: ${error.message || '附件准备失败'}]`;
           currentMsg.finished = true;
         }
         resetActiveRunAfterSendError(deps.activeRun);
-        deps.isLoading.value = false;
+        isLoading.value = false;
       }
       deps.showToast(error.message || '附件准备失败');
       return;
@@ -239,8 +242,8 @@ export function useSessionSend(deps) {
     }
 
     if (replaceFromIndex != null) {
-      deps.messages.value = deps.messages.value.slice(0, replaceFromIndex);
-      deps.cacheMessages(sessionId, deps.messages.value);
+      messages.value = messages.value.slice(0, replaceFromIndex);
+      deps.cacheMessages(sessionId, messages.value);
       if (clearEditing) {
         deps.resetEditingState({ closeDrawer: false });
         deps.clearEditingAttachments();
@@ -248,28 +251,28 @@ export function useSessionSend(deps) {
     }
 
     if (startsDraftSession) {
-      const userMsg = deps.messages.value[userMsgIndex];
+      const userMsg = messages.value[userMsgIndex];
       if (userMsg) {
         userMsg.attachments = attachments;
         userMsg.metadata = buildUserMetadata(attachments, userMetadata);
       }
-      deps.cacheMessages(sessionId, deps.messages.value);
+      deps.cacheMessages(sessionId, messages.value);
     } else if (isRunningFollowup) {
       const followupMsg = createUserMessage(content, [], userMetadata);
       const insertIndex = deps.activeRun.assistantMsgIndex >= 0
-        ? Math.min(deps.activeRun.assistantMsgIndex, deps.messages.value.length)
-        : deps.messages.value.length;
-      deps.messages.value.splice(insertIndex, 0, followupMsg);
+        ? Math.min(deps.activeRun.assistantMsgIndex, messages.value.length)
+        : messages.value.length;
+      messages.value.splice(insertIndex, 0, followupMsg);
       followupMsgIndex = insertIndex;
       if (deps.activeRun.assistantMsgIndex >= insertIndex) {
         deps.activeRun.assistantMsgIndex += 1;
       }
       deps.inputMessage.value = '';
       deps.clearComposerAttachments();
-      deps.cacheMessages(sessionId, deps.messages.value);
+      deps.cacheMessages(sessionId, messages.value);
       deps.stickToBottom();
     } else {
-      deps.messages.value.push(createUserMessage(content, attachments, userMetadata));
+      messages.value.push(createUserMessage(content, attachments, userMetadata));
       deps.inputMessage.value = '';
       deps.clearComposerAttachments();
       deps.stickToBottom();
@@ -277,7 +280,7 @@ export function useSessionSend(deps) {
     deps.updateRecentSession(sessionId, content, new Date().toISOString());
 
     if (!startsDraftSession && !isRunningFollowup) {
-      assistantMsgIndex = deps.messages.value.push(createAssistantMessage()) - 1;
+      assistantMsgIndex = messages.value.push(createAssistantMessage()) - 1;
       resetActiveRunForSend(deps.activeRun, assistantMsgIndex);
     }
 
@@ -285,7 +288,7 @@ export function useSessionSend(deps) {
       deps.beginOptimisticExecutionState(sessionId);
     }
     if (!startsDraftSession && !isRunningFollowup) {
-      deps.isLoading.value = true;
+      isLoading.value = true;
       deps.contextUsage.value = { used: 0, max: 0 };
     }
 
@@ -346,7 +349,7 @@ export function useSessionSend(deps) {
     } catch (error) {
       console.error('Error sending message:', error);
       if (isRunningFollowup) {
-        const followupMsg = deps.messages.value[followupMsgIndex];
+        const followupMsg = messages.value[followupMsgIndex];
         if (followupMsg) {
           followupMsg.status = [
             ...(followupMsg.status || []),
@@ -358,14 +361,14 @@ export function useSessionSend(deps) {
           };
         }
       } else {
-        const currentMsg = deps.messages.value[assistantMsgIndex];
+        const currentMsg = messages.value[assistantMsgIndex];
         if (currentMsg) {
           currentMsg.content += `\n\n[System Error: ${error.message || 'Request failed'}]`;
           currentMsg.finished = true;
         }
         deps.sessionTaskInfo.value = { ...(deps.sessionTaskInfo.value || {}), status: 'failed' };
         resetActiveRunAfterSendError(deps.activeRun);
-        deps.isLoading.value = false;
+        isLoading.value = false;
       }
       deps.showToast('消息发送失败', async () => {
         if (lastFailedSendContent.value) {
