@@ -215,7 +215,8 @@ import KpiCards from '../components/admin/KpiCards.vue';
 import CustomSelect from '../components/CustomSelect.vue';
 import { UiBadge, UiButton } from '../components/ui';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
-import { activateTeam, copyAgentsToTeam, createTeam, deleteTeam, getAllAgentConfigs, getTeams, resetDefaultTeam } from '../api/agentConfig';
+import { activateTeam, copyAgentsToTeam, createTeam, deleteTeam, resetDefaultTeam } from '../api/agentConfig';
+import { useDictionariesStore } from '../stores/dictionaries.js';
 
 defineProps({
   embedded: { type: Boolean, default: false },
@@ -223,6 +224,7 @@ defineProps({
 });
 
 const router = useRouter();
+const dictStore = useDictionariesStore();
 
 const SVG = { xmlns: 'http://www.w3.org/2000/svg', width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
 const IconActive = () => h('svg', SVG, [h('path', { d: 'M22 11.08V12a10 10 0 1 1-5.93-9.14' }), h('polyline', { points: '22 4 12 14.01 9 11.01' })]);
@@ -263,11 +265,11 @@ function normalizeSelections() {
 }
 
 const { run: runLoadTeams } = useAsyncAction(
-  async () => {
-    const result = await getTeams();
+  async (force = false) => {
+    const result = await dictStore.ensureTeams(force);
     activeTeam.value = result.active_team || '';
     teams.value = Array.isArray(result.teams) ? result.teams : [];
-    const configs = await getAllAgentConfigs().catch(() => ({}));
+    const configs = await dictStore.ensureAgents(force).catch(() => ({}));
     agentDisplayMap.value = Object.fromEntries(
       Object.entries(configs || {}).map(([name, cfg]) => [name, cfg?.display_name || name]),
     );
@@ -292,7 +294,7 @@ const { run: runCreateTeam, loading: creating } = useAsyncAction(
     teams.value = Array.isArray(result.teams) ? result.teams : teams.value;
     copyTargetTeam.value = newTeamName.value;
     newTeamName.value = '';
-    await runLoadTeams();
+    await runLoadTeams(true);
   },
   { successMessage: 'Team 创建成功', errorPrefix: '创建 Team 失败' },
 );
@@ -305,7 +307,7 @@ const { run: runActivateTeam, loading: activating } = useAsyncAction(
     activeTeam.value = result.active_team || teamName;
     teams.value = Array.isArray(result.teams) ? result.teams : teams.value;
     copyTargetTeam.value = activeTeam.value;
-    await runLoadTeams();
+    await runLoadTeams(true);
   },
   { successMessage: (r, teamName) => `已切换到 Team：${teamName}`, errorPrefix: '切换 Team 失败' },
 );
@@ -340,7 +342,7 @@ const { run: runCopyAgents, loading: copying } = useAsyncAction(
     if (selectedCopyAgents.value.length === 0) throw new Error('请选择至少一个 Agent');
     await copyAgentsToTeam(copyTargetTeam.value, copySourceTeam.value, selectedCopyAgents.value);
     selectedCopyAgents.value = [];
-    await runLoadTeams();
+    await runLoadTeams(true);
   },
   {
     successMessage: () => {
@@ -361,14 +363,14 @@ const { run: runDeleteTeam, loading: deleting } = useAsyncAction(
       copySourceTeam.value = teams.value[0]?.team_name || '';
       selectedCopyAgents.value = [];
     }
-    await runLoadTeams();
+    await runLoadTeams(true);
   },
   { successMessage: 'Team 删除成功', errorPrefix: '删除 Team 失败' },
 );
 function handleDeleteTeam(teamName) { runDeleteTeam(teamName); }
 
 const { run: runResetDefault, loading: resetting } = useAsyncAction(
-  async () => { await resetDefaultTeam(); await runLoadTeams(); },
+  async () => { await resetDefaultTeam(); await runLoadTeams(true); },
   { successMessage: 'default team 已重置为系统默认配置', errorPrefix: '重置 default team 失败' },
 );
 function handleResetDefaultTeam() { runResetDefault(); }

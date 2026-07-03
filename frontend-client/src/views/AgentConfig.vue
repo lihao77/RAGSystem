@@ -777,7 +777,6 @@ import PageLayout from '../components/PageLayout.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import AdmModal from '../components/admin/AdmModal.vue';
 import {
-  getAllAgentConfigs,
   getAgentConfig,
   updateAgentConfig,
   createAgent,
@@ -786,10 +785,9 @@ import {
   getAvailableSkills,
   getAvailableMCPServers,
   getMemoryConfigMetadata,
-  getTeams,
   exportAgentConfig
 } from '../api/agentConfig';
-import { getProviders } from '../api/modelAdapter';
+import { useDictionariesStore } from '../stores/dictionaries.js';
 import CustomSelect from '../components/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
 import ToggleSwitch from '../components/ToggleSwitch.vue';
@@ -976,6 +974,7 @@ const saving = ref(false);
 const agentLoading = ref(false);
 const error = ref('');
 const toast = useToast();
+const dictStore = useDictionariesStore();
 
 function showToast(message, type = 'error') {
   if (type === 'success') toast.success(message);
@@ -1382,7 +1381,7 @@ async function loadSupplementaryData(workspaceRoot = '') {
     getAvailableTools(),
     getAvailableSkills(workspaceRoot),
     getAvailableMCPServers(),
-    getProviders(),
+    dictStore.ensureProviders(),
     getMemoryConfigMetadata()
   ]);
 
@@ -1403,8 +1402,8 @@ async function loadInitialData() {
 
   try {
     const [configs, teamSummary] = await Promise.all([
-      getAllAgentConfigs(),
-      getTeams()
+      dictStore.ensureAgents(),
+      dictStore.ensureTeams()
     ]);
     const agentNames = Object.keys(configs || {});
     agents.value = agentNames;
@@ -1610,7 +1609,7 @@ async function handleCreateAgent() {
     if (createDialog.value.description) payload.description = createDialog.value.description;
     await createAgent(payload);
     // 刷新 agent 列表并切换到新 agent
-    const configs = await getAllAgentConfigs();
+    const configs = await dictStore.ensureAgents(true);
     agents.value = Object.keys(configs || {});
     agentDisplayMap.value = Object.fromEntries(
       Object.entries(configs || {}).map(([n, cfg]) => [n, cfg?.display_name || n])
@@ -1642,7 +1641,7 @@ async function handleDeleteAgent() {
   deleteDialog.value.loading = true;
   try {
     await deleteAgent(name);
-    const configs = await getAllAgentConfigs();
+    const configs = await dictStore.ensureAgents(true);
     agents.value = Object.keys(configs || {});
     closeDeleteDialog();
     // 切换到第一个可用 agent

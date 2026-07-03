@@ -54,8 +54,7 @@ import { RouterLink } from 'vue-router';
 import PageLayout from '../components/PageLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import { UiButton } from '../components/ui';
-import { getAllAgentConfigs } from '../api/agentConfig';
-import { getProviders } from '../api/modelAdapter';
+import { useDictionariesStore } from '../stores/dictionaries.js';
 import { listMCPServers } from '../api/mcpService';
 import { listSkills } from '../api/skillLibrary';
 import { getStatus as getDaemonStatus } from '../api/daemon';
@@ -66,6 +65,7 @@ defineProps({
   chatReturnPath: { type: String, default: '/' },
 });
 
+const dictStore = useDictionariesStore();
 const counts = ref({ agents: null, providers: null, mcp: null, skills: null });
 const daemonStatus = ref(null);
 const overview = ref(null);
@@ -125,8 +125,8 @@ const connectedPlatforms = computed(() => {
 
 onMounted(async () => {
   const results = await Promise.allSettled([
-    getAllAgentConfigs(),
-    getProviders(),
+    dictStore.ensureAgents(),
+    dictStore.ensureProviders(),
     listMCPServers(),
     listSkills(),
     getDaemonStatus(),

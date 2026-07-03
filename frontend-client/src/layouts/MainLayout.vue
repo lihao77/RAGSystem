@@ -103,8 +103,6 @@
                 :is="Component"
                 :key="getPageRouteKey(childRoute)"
                 v-bind="getChildProps(childRoute)"
-                @update:selectedLLM="emit('update:selectedLLM', $event)"
-                @toggle-theme="emit('toggleTheme')"
               />
             </Transition>
           </RouterView>
@@ -121,7 +119,8 @@ import { Transition, TransitionGroup, computed, onMounted, onUnmounted, provide,
 import { RouterView, useRoute, useRouter } from 'vue-router';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
-import { getTeams } from '../api/agentConfig';
+import { useThemeStore } from '../stores/theme.js';
+import { useDictionariesStore } from '../stores/dictionaries.js';
 import { listSessions, deleteSession as deleteSessionApi } from '../api/session';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconNewConversation, IconTrash } from '../components/icons';
 import { sidebarAdminNavItem, managementNavItems } from '../navigation/adminNavigation';
@@ -131,24 +130,12 @@ import HotkeysHelp from '../components/HotkeysHelp.vue';
 import { useGlobalHotkeys } from '../composables/useGlobalHotkeys.js';
 import AdminLayout from './AdminLayout.vue';
 
-const props = defineProps({
-  selectedLLM: {
-    type: String,
-    default: ''
-  },
-  isDark: {
-    type: Boolean,
-    default: false
-  }
-});
-
-const emit = defineEmits(['update:selectedLLM', 'toggleTheme']);
-
 const router = useRouter();
 const route = useRoute();
 const historyListRef = ref(null);
 const toast = useToast();
 const { confirm } = useConfirm();
+const dictStore = useDictionariesStore();
 const sidebarCollapsed = ref(localStorage.getItem('sidebarCollapsed') === 'true');
 const mobileOpen = ref(false);
 const isMobile = ref(false);
@@ -197,8 +184,6 @@ const getChildProps = (childRoute) => {
   const mainView = childRoute.meta?.mainView || 'chat';
   if (mainView === 'chat') {
     return {
-      selectedLLM: props.selectedLLM,
-      isDark: props.isDark,
       onSessionCreated: upsertHistoryItem,
       onSessionUpdated: upsertHistoryItem,
     };
@@ -372,7 +357,7 @@ const retryLoadHistory = () => {
 
 const loadActiveTeam = async () => {
   try {
-    const result = await getTeams();
+    const result = await dictStore.ensureTeams();
     activeTeam.value = result?.active_team || '';
   } catch (error) {
     console.warn('加载当前 Team 失败:', error);
@@ -489,7 +474,7 @@ watch(
 const { register: registerCommand, installHotkey: installCommandPaletteHotkey, setDynamic: setCommandDynamic } = useCommandPalette();
 registerCommand([
   { id: 'cmd-new-chat', title: '新聊天', section: '操作', action: () => startNewChat() },
-  { id: 'cmd-toggle-theme', title: '切换主题', subtitle: '深色 / 亮色', section: '操作', action: () => emit('toggleTheme') },
+  { id: 'cmd-toggle-theme', title: '切换主题', subtitle: '深色 / 亮色', section: '操作', action: () => useThemeStore().toggle() },
   { id: 'cmd-goto-chat', title: '前往聊天', section: '导航', action: () => navigateTo('/') },
   ...managementNavItems.map((item) => ({
     id: `cmd-nav-${item.key}`,

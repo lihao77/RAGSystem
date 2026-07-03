@@ -160,6 +160,9 @@ import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.heat';
+import { useThemeStore } from '../stores/theme.js';
+
+const themeStore = useThemeStore();
 
 // Props
 const props = defineProps({
@@ -406,7 +409,7 @@ const initMap = (container) => {
   });
 
   // 根据主题选择瓦片源
-  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const isDark = themeStore.isDark;
   const tileUrl = isDark
     ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
     : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
@@ -779,25 +782,17 @@ const formatNumber = (num) => {
   return n.toFixed(2);
 };
 
-// Lifecycle
-let themeObserver = null;
+// 监听主题切换（替代原 MutationObserver）：重新初始化地图以更换瓦片
+watch(() => themeStore.isDark, () => {
+  const container = isFullscreen.value ? fullscreenContainer.value : mapContainer.value;
+  initMap(container);
+});
 
 onMounted(() => {
   initMap(mapContainer.value);
-
-  // 监听主题切换，重新初始化地图以更换瓦片
-  themeObserver = new MutationObserver(() => {
-    const container = isFullscreen.value ? fullscreenContainer.value : mapContainer.value;
-    initMap(container);
-  });
-  themeObserver.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['data-theme']
-  });
 });
 
 onBeforeUnmount(() => {
-  themeObserver?.disconnect();
   if (mapInstance.value) {
     mapInstance.value.remove();
     mapInstance.value = null;

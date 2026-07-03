@@ -8,10 +8,6 @@
           v-if="Component"
           :is="Component"
           :key="getRouteShellKey(route)"
-          :selected-llm="selectedLLM"
-          :is-dark="isDark"
-          @update:selectedLLM="selectedLLM = $event"
-          @toggle-theme="toggleTheme"
         />
       </Transition>
     </RouterView>
@@ -23,11 +19,11 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import GlobalToast from './components/GlobalToast.vue';
 import GlobalConfirmDialog from './components/GlobalConfirmDialog.vue';
+import { useThemeStore } from './stores/theme.js';
 
 const router = useRouter();
+const themeStore = useThemeStore();
 
-const isDark = ref(true);
-const selectedLLM = ref('');
 const transitionName = ref('slide-forward');
 
 const getRouteShellKey = (route) => route.matched[0]?.meta?.shellKey || route.meta?.shellKey || route.path;
@@ -39,28 +35,8 @@ router.beforeEach((to, from) => {
   transitionName.value = toDepth >= fromDepth ? 'slide-forward' : 'slide-backward';
 });
 
-const toggleTheme = () => {
-  isDark.value = !isDark.value;
-  updateTheme();
-};
-
-const updateTheme = () => {
-  const root = document.documentElement;
-  root.setAttribute('data-theme', isDark.value ? 'dark' : 'light');
-  localStorage.setItem('theme', isDark.value ? 'dark' : 'light');
-};
-
 onMounted(() => {
-  const savedTheme = localStorage.getItem('theme');
-  isDark.value = savedTheme ? savedTheme === 'dark' : true;
-  updateTheme();
-
-  const savedLLM = localStorage.getItem('selectedLLMModel');
-  if (savedLLM) {
-    selectedLLM.value = savedLLM;
-  }
-
-  const root = document.documentElement;
+  themeStore.init();
 });
 </script>
 

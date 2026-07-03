@@ -1,7 +1,8 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { getAllAgentConfigs, getTeams } from '../api/agentConfig';
 import { createSession, listSessions, exportSession } from '../api/session.js';
+import { useUserStore } from '../stores/user.js';
+import { useDictionariesStore } from '../stores/dictionaries.js';
 
 const stripWrappedQuotes = (value) => {
   const text = (value || '').trim();
@@ -47,6 +48,7 @@ function normalizeChatSessionControllerDeps(deps) {
 export function useChatSessionController(deps) {
   deps = normalizeChatSessionControllerDeps(deps);
   const router = useRouter();
+  const dictStore = useDictionariesStore();
   const currentSessionTeam = ref('');
   const pendingWorkspaceRoot = ref('');
   const pendingEntryAgent = ref('');
@@ -68,7 +70,7 @@ export function useChatSessionController(deps) {
   const loadEntryAgentOptions = async () => {
     entryAgentLoading.value = true;
     try {
-      const configs = await getAllAgentConfigs();
+      const configs = await dictStore.ensureAgents();
       const items = Object.values(configs || {})
         .filter(config => config && config.enabled)
         .map(config => ({
@@ -87,7 +89,7 @@ export function useChatSessionController(deps) {
 
   const loadActiveTeam = async () => {
     try {
-      const result = await getTeams();
+      const result = await dictStore.ensureTeams();
       currentSessionTeam.value = result?.active_team || '';
     } catch (error) {
       console.warn('加载当前 Team 失败:', error);
@@ -262,7 +264,7 @@ export function useChatSessionController(deps) {
       deps.connectSessionWS(deps.currentSessionId.value);
       return deps.currentSessionId.value;
     }
-    const userId = (localStorage.getItem('userId') || '').trim();
+    const userId = useUserStore().userId.value;
     const workspaceRoot = normalizeWorkspaceRootInput(pendingWorkspaceRoot.value);
     pendingWorkspaceRoot.value = workspaceRoot;
     const entryAgent = pendingEntryAgent.value.trim();

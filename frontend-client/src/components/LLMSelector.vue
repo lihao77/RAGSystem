@@ -132,21 +132,16 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { storeToRefs } from 'pinia';
 import { usePointerDownOutside, usePointerInsideRegistry } from '../composables/usePointerDownOutside';
 import { useDropdownPosition } from '../composables/useDropdownPosition';
 import { getAvailableModels } from '../api/modelAdapter';
+import { useLlmStore } from '../stores/llm.js';
 
-const props = defineProps({
-  modelValue: {
-    type: String,
-    default: ''
-  }
-});
-
-const emit = defineEmits(['update:modelValue', 'change']);
+const llmStore = useLlmStore();
+const { selectedLLM: selectedModel } = storeToRefs(llmStore);
 
 const models = ref([]);
-const selectedModel = ref(props.modelValue || '');
 const loading = ref(false);
 const error = ref('');
 const dropdownOpen = ref(false);
@@ -207,16 +202,10 @@ const loadModels = async () => {
     const availableModels = await getAvailableModels();
     models.value = availableModels;
 
-    // 如果已有保存的选择，恢复它
-    const savedModel = localStorage.getItem('selectedLLMModel');
-    if (savedModel !== null) {
-      if (availableModels.some(m => m.value === savedModel)) {
-        selectedModel.value = savedModel;
-        emit('update:modelValue', savedModel);
-      } else {
-        // 保存的值不在列表中，清除它
-        localStorage.removeItem('selectedLLMModel');
-      }
+    // store 已持有保存的选择（构造时从 localStorage 恢复）；若不在可用列表则清除
+    const savedModel = selectedModel.value;
+    if (savedModel && !availableModels.some(m => m.value === savedModel)) {
+      llmStore.setSelectedLLM('');
     }
     // 不自动选择第一个，保持默认状态由 agent 配置决定
   } catch (err) {
@@ -243,16 +232,7 @@ const toggleDropdown = async () => {
 
 // 选择模型
 const selectModel = (value) => {
-  selectedModel.value = value;
-  emit('update:modelValue', value);
-  emit('change', value);
-
-  // 保存用户选择（空值 = 清除记录，恢复默认行为）
-  if (value) {
-    localStorage.setItem('selectedLLMModel', value);
-  } else {
-    localStorage.removeItem('selectedLLMModel');
-  }
+  llmStore.setSelectedLLM(value);
 
   // 关闭下拉菜单
   dropdownOpen.value = false;
@@ -280,13 +260,6 @@ const handleKeydown = (event) => {
   }
 };
 
-// 监听外部变化
-watch(() => props.modelValue, (newValue) => {
-  if (newValue !== selectedModel.value) {
-    selectedModel.value = newValue;
-  }
-});
-
 watch(() => [filteredModels.value.length, models.value.length], () => {
   if (dropdownOpen.value) {
     nextTick(updatePosition);
@@ -302,8 +275,8 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown);
 });
 
-// 获取当前选择（包含 localStorage 回退）
-const getSelection = () => selectedModel.value || localStorage.getItem('selectedLLMModel') || '';
+// 获取当前选择（store 单源）
+const getSelection = () => selectedModel.value;
 
 defineExpose({ getSelection });
 </script>

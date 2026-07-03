@@ -80,6 +80,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import * as echarts from 'echarts/core';
+import { useThemeStore } from '../stores/theme.js';
 import { BarChart, LineChart, PieChart, ScatterChart } from 'echarts/charts';
 import {
   DatasetComponent,
@@ -130,10 +131,11 @@ const chartContainer = ref(null);
 const fullscreenContainer = ref(null);
 const chartInstance = ref(null);
 const isFullscreen = ref(false);
+const themeStore = useThemeStore();
 
 // 🔧 提取配置合并逻辑为独立函数（避免重复）
 const buildFinalOption = (userConfig) => {
-  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const isDark = themeStore.isDark;
 
   // 基础配置 - 适配模式
   const baseOption = {
@@ -250,7 +252,7 @@ const toggleFullscreen = async () => {
 const downloadChart = () => {
   if (!chartInstance.value) return;
 
-  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const isDark = themeStore.isDark;
   const backgroundColor = isDark ? '#18181b' : '#ffffff';
 
   const url = chartInstance.value.getDataURL({
@@ -273,23 +275,14 @@ watch(() => props.echartsConfig, (newConfig) => {
   }
 }, { deep: true });
 
+// 监听主题变化（替代原 MutationObserver）：主题切换时重新初始化图表以套用新配色
+watch(() => themeStore.isDark, () => {
+  const targetContainer = isFullscreen.value ? fullscreenContainer.value : chartContainer.value;
+  initChart(targetContainer);
+});
+
 onMounted(() => {
   initChart(chartContainer.value);
-
-  // 监听主题变化
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      if (mutation.attributeName === 'data-theme') {
-        const targetContainer = isFullscreen.value ? fullscreenContainer.value : chartContainer.value;
-        initChart(targetContainer);
-      }
-    });
-  });
-
-  observer.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['data-theme']
-  });
 });
 
 onUnmounted(() => {

@@ -272,7 +272,7 @@ import { UiBadge, UiButton, UiIconButton } from '../components/ui';
 import { useToast } from '../composables/useToast.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import * as api from '../api/daemon';
-import { getTeams, getAllAgentConfigs } from '../api/agentConfig';
+import { useDictionariesStore } from '../stores/dictionaries.js';
 import {
   AUTO_ACCEPT_PATTERN_OPTIONS,
   createEmptyAutoAcceptPattern,
@@ -281,6 +281,7 @@ import {
 } from '../utils/permissionPresentation';
 
 const toast = useToast();
+const dictStore = useDictionariesStore();
 
 const SVG = { xmlns: 'http://www.w3.org/2000/svg', width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, 'stroke-linecap': 'round' };
 const IconAdapters = () => h('svg', SVG, [h('rect', { x: 2, y: 3, width: 20, height: 14, rx: 2 }), h('line', { x1: 8, y1: 21, x2: 16, y2: 21 }), h('line', { x1: 12, y1: 17, x2: 12, y2: 21 })]);
@@ -616,8 +617,8 @@ function handleDeleteTask(taskId) { runDeleteTask(taskId); }
 async function loadTeamAgentOptions() {
   try {
     const [teamsData, agentsData] = await Promise.all([
-      getTeams().catch(() => ({ teams: [] })),
-      getAllAgentConfigs().catch(() => ({})),
+      dictStore.ensureTeams().catch(() => ({ teams: [] })),
+      dictStore.ensureAgents().catch(() => ({})),
     ]);
     teamOptions.value = (teamsData.teams || []).map((t) => ({ value: t.team_name || t, label: t.team_name || t }));
     agentOptions.value = Object.entries(agentsData || {}).map(([name, cfg]) => ({

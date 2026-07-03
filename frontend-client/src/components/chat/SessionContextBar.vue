@@ -5,11 +5,7 @@
         <IconMenu :size="20" />
       </button>
 
-      <LLMSelector
-        ref="llmSelectorRef"
-        :model-value="selectedLLM"
-        @update:model-value="emit('update:selectedLLM', $event)"
-      />
+      <LLMSelector ref="llmSelectorRef" />
     </div>
 
     <div class="right-controls glass-card">
@@ -27,8 +23,8 @@
           <path d="M5 21h14"></path>
         </svg>
       </button>
-      <button @click="emit('toggleTheme')" class="theme-btn btn" :title="isDark ? '切换到亮色模式' : '切换到暗色模式'">
-        <svg v-if="isDark" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+      <button @click="themeStore.toggle()" class="theme-btn btn" :title="themeStore.isDark ? '切换到亮色模式' : '切换到暗色模式'">
+        <svg v-if="themeStore.isDark" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="5"></circle>
           <line x1="12" y1="1" x2="12" y2="3"></line>
@@ -54,18 +50,17 @@ import { ref } from 'vue';
 import LLMSelector from '../LLMSelector.vue';
 import PermissionModeSelector from '../PermissionModeSelector.vue';
 import { IconMenu } from '../icons';
+import { useThemeStore } from '../../stores/theme.js';
+
+const themeStore = useThemeStore();
 
 const props = defineProps({
-  selectedLLM: { type: String, default: '' },
-  isDark: { type: Boolean, default: true },
   currentSessionId: { type: String, default: '' },
   isExportingSession: { type: Boolean, default: false },
   scrolled: { type: Boolean, default: false },
 });
 
 const emit = defineEmits([
-  'update:selectedLLM',
-  'toggleTheme',
   'openMobileSidebar',
   'exportSession',
 ]);
@@ -73,7 +68,7 @@ const emit = defineEmits([
 const llmSelectorRef = ref(null);
 
 function getSelection() {
-  return llmSelectorRef.value?.getSelection?.() || props.selectedLLM || '';
+  return llmSelectorRef.value?.getSelection?.() || '';
 }
 
 defineExpose({ getSelection });

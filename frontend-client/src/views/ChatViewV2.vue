@@ -4,13 +4,9 @@
     <div class="chat-conversation-column">
       <SessionContextBar
         ref="sessionContextBarRef"
-        :selected-llm="selectedLLM"
-        :is-dark="isDark"
         :current-session-id="currentSessionId || ''"
         :is-exporting-session="isExportingSession"
         :scrolled="topControlsBarScrolled"
-        @update:selectedLLM="emit('update:selectedLLM', $event)"
-        @toggle-theme="emit('toggleTheme')"
         @open-mobile-sidebar="openMobileSidebar"
         @export-session="exportCurrentSession"
       />
@@ -233,14 +229,6 @@ const SituationScreen = defineAsyncComponent(() => import('../components/Situati
 
 // Props
 const props = defineProps({
-  selectedLLM: {
-    type: String,
-    default: ''
-  },
-  isDark: {
-    type: Boolean,
-    default: true
-  },
   onSessionCreated: {
     type: Function,
     default: null,
@@ -252,8 +240,6 @@ const props = defineProps({
 });
 
 // Emits
-const emit = defineEmits(['update:selectedLLM', 'toggleTheme']);
-
 const route = useRoute();
 const shellSidebarControl = inject('shellSidebarControl', null);
 
@@ -293,7 +279,7 @@ let sessionScrollRestoreTimer = null;
 let pendingSessionScrollRestores = 0;
 
 function getCurrentSelectedLlm() {
-  return sessionContextBarRef.value?.getSelection?.() || props.selectedLLM || localStorage.getItem('selectedLLMModel') || '';
+  return sessionContextBarRef.value?.getSelection?.() || '';
 }
 
 function openCtxDrawer() {
