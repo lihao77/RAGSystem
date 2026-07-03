@@ -1,4 +1,5 @@
 import { ref } from 'vue';
+import { respondInteraction } from '../api/session.js';
 
 function normalizeApprovalEventData(event, eventData) {
   const rawData = eventData && typeof eventData === 'object'
@@ -126,18 +127,7 @@ export function useApprovalQueue(deps) {
   };
 
   const sendApprovalHttp = async (approvalId, approved, message, sessionId) => {
-    const resp = await fetch(
-      `/api/agent/sessions/${encodeURIComponent(sessionId)}/interactions/${encodeURIComponent(approvalId)}/respond`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind: 'approval', approved, message }),
-      }
-    );
-    if (!resp.ok) {
-      const result = await resp.json().catch(() => ({}));
-      throw new Error(result.message || `审批提交失败 (${resp.status})`);
-    }
+    await respondInteraction(sessionId, approvalId, { kind: 'approval', approved, message });
   };
 
   const handleWorkPanelUserInputSubmit = async ({ inputId, value } = {}) => {

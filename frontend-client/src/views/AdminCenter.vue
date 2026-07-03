@@ -3,10 +3,8 @@
     :embedded="embedded"
     :chat-return-path="chatReturnPath"
     title="管理中心"
-    subtitle="配置模型、Agent、Team、工具、知识库与系统。"
+    subtitle="资源存量与运行状态"
     mobile-title="管理中心"
-    max-width="1280px"
-    content-padding="var(--spacing-2xl) var(--spacing-xl)"
     mobile-content-padding="var(--spacing-lg) var(--spacing-md)"
   >
     <template #header-actions>
@@ -15,63 +13,138 @@
       </UiButton>
     </template>
 
-    <nav class="admin-nav" aria-label="管理导航">
-      <section
-        v-for="(group, gi) in visibleGroups"
-        :key="group.key"
-        class="admin-group"
-        :class="{ 'admin-group--first': gi === 0 }"
-        :aria-labelledby="`admin-group-${group.key}`"
-      >
-        <header class="admin-group__head">
-          <div class="admin-group__head-text">
-            <h2 :id="`admin-group-${group.key}`">{{ group.label }}</h2>
-            <p>{{ group.description }}</p>
-          </div>
-          <span class="admin-group__count">{{ group.items.length }}</span>
-        </header>
+    <KpiCards :items="kpiItems" />
 
-        <ul class="admin-list" role="list">
-          <li v-for="item in group.items" :key="item.key" class="admin-list__item">
-            <RouterLink :to="item.path" class="admin-entry">
-              <span class="admin-entry__icon" aria-hidden="true">
-                <component :is="item.icon" />
-              </span>
-              <span class="admin-entry__body">
-                <span class="admin-entry__title">{{ item.title }}</span>
-                <span class="admin-entry__desc">{{ item.description }}</span>
-              </span>
-              <span class="admin-entry__arrow" aria-hidden="true">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M5 12h14" /><path d="M13 6l6 6-6 6" />
-                </svg>
-              </span>
-            </RouterLink>
-          </li>
-        </ul>
+    <div class="admin-overview">
+      <section class="adm-panel">
+        <header class="adm-panel__header">
+          <div class="adm-panel__title-block">
+            <h2 class="adm-panel__title">系统状态</h2>
+            <p class="adm-panel__description">守护进程与执行平面实时状态（从左侧导航进入各模块管理）</p>
+          </div>
+        </header>
+        <div class="status-grid">
+          <div class="status-item">
+            <span class="status-item__label">守护进程</span>
+            <span class="status-item__value" :class="daemonClass">{{ daemonLabel }}</span>
+          </div>
+          <div class="status-item">
+            <span class="status-item__label">活跃会话</span>
+            <span class="status-item__value">{{ activeSessions }}</span>
+          </div>
+          <div class="status-item">
+            <span class="status-item__label">运行中任务</span>
+            <span class="status-item__value">{{ runningTasks }}</span>
+          </div>
+          <div class="status-item">
+            <span class="status-item__label">已连接平台</span>
+            <span class="status-item__value">{{ connectedPlatforms }}</span>
+          </div>
+        </div>
       </section>
-    </nav>
+
+      <p v-if="loadError" class="admin-overview__error">部分指标加载失败：{{ loadError }}</p>
+    </div>
   </PageLayout>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import PageLayout from '../components/PageLayout.vue';
+import KpiCards from '../components/admin/KpiCards.vue';
 import { UiButton } from '../components/ui';
-import { adminNavGroups, managementNavItems } from '../navigation/adminNavigation';
+import { getAllAgentConfigs } from '../api/agentConfig';
+import { getProviders } from '../api/modelAdapter';
+import { listMCPServers } from '../api/mcpService';
+import { listSkills } from '../api/skillLibrary';
+import { getStatus as getDaemonStatus } from '../api/daemon';
+import { getExecutionOverview } from '../api/monitoring';
 
 defineProps({
   embedded: { type: Boolean, default: false },
   chatReturnPath: { type: String, default: '/' },
 });
 
-const visibleGroups = computed(() => adminNavGroups
-  .map((group) => ({
-    ...group,
-    items: managementNavItems.filter((item) => item.group === group.key),
-  }))
-  .filter((group) => group.items.length > 0));
+const counts = ref({ agents: null, providers: null, mcp: null, skills: null });
+const daemonStatus = ref(null);
+const overview = ref(null);
+const loadError = ref('');
+
+const len = (v) => {
+  if (Array.isArray(v)) return v.length;
+  if (v && Array.isArray(v.servers)) return v.servers.length;
+  if (v && Array.isArray(v.data)) return v.data.length;
+  return null;
+};
+
+const kpiItems = computed(() => [
+  { key: 'agents', label: 'Agent', value: counts.value.agents ?? '—' },
+  { key: 'providers', label: '模型 Provider', value: counts.value.providers ?? '—' },
+  { key: 'mcp', label: 'MCP 服务', value: counts.value.mcp ?? '—' },
+  { key: 'skills', label: 'Skill', value: counts.value.skills ?? '—' },
+]);
+
+const daemonLabel = computed(() => {
+  const s = daemonStatus.value;
+  if (!s) return '未知';
+  const running = s.daemon_running ?? s.running ?? s.is_running ?? (s.status === 'running');
+  if (running === true) return '运行中';
+  if (running === false) return '已停止';
+  return s.status ? String(s.status) : '未知';
+});
+const daemonClass = computed(() => {
+  const s = daemonStatus.value;
+  const running = s && (s.daemon_running ?? s.running ?? s.is_running ?? (s.status === 'running'));
+  if (running === true) return 'status-item__value--ok';
+  if (running === false) return 'status-item__value--off';
+  return '';
+});
+
+const activeSessions = computed(() => {
+  const o = overview.value;
+  if (!o) return '—';
+  return o.active_sessions ?? o.activeSessions ?? o.summary?.active_sessions ?? '—';
+});
+const runningTasks = computed(() => {
+  const o = overview.value;
+  if (!o) return '—';
+  const rt = o.running_tasks ?? o.runningTasks;
+  if (typeof rt === 'number') return rt;
+  if (Array.isArray(rt)) return rt.length;
+  return o.summary?.running_tasks ?? '—';
+});
+const connectedPlatforms = computed(() => {
+  const s = daemonStatus.value;
+  if (!s) return '—';
+  const platforms = s.platforms ?? s.connected_platforms;
+  if (Array.isArray(platforms)) return platforms.length;
+  if (typeof s.connected_platforms === 'number') return s.connected_platforms;
+  return '—';
+});
+
+onMounted(async () => {
+  const results = await Promise.allSettled([
+    getAllAgentConfigs(),
+    getProviders(),
+    listMCPServers(),
+    listSkills(),
+    getDaemonStatus(),
+    getExecutionOverview(),
+  ]);
+  const [agents, providers, mcp, skills, status, ov] = results;
+  const failed = results.filter((r) => r.status === 'rejected').map((r) => r.reason?.message).filter(Boolean);
+
+  counts.value = {
+    agents: agents.status === 'fulfilled' ? len(agents.value) : null,
+    providers: providers.status === 'fulfilled' ? len(providers.value) : null,
+    mcp: mcp.status === 'fulfilled' ? len(mcp.value) : null,
+    skills: skills.status === 'fulfilled' ? (skills.value?.data?.length ?? len(skills.value)) : null,
+  };
+  daemonStatus.value = status.status === 'fulfilled' ? status.value : null;
+  overview.value = ov.status === 'fulfilled' ? ov.value : null;
+  loadError.value = failed.length ? failed.join('; ') : '';
+});
 </script>
 
 <style scoped>
@@ -79,170 +152,56 @@ const visibleGroups = computed(() => adminNavGroups
   text-decoration: none;
 }
 
-/* ===== 分组导航 —— 全宽行 + 发丝分隔 + 大留白 ===== */
-.admin-nav {
+.admin-overview {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-2xl);
+  gap: var(--spacing-md);
 }
 
-.admin-group {
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--spacing-sm);
+}
+
+.status-item {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  background: var(--adm-surface-muted);
 }
 
-/* 分组标题：克制的小标签 + 计数 */
-.admin-group__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--spacing-md);
-  padding: 0 var(--spacing-xs);
-  margin-bottom: var(--spacing-sm);
-}
-
-.admin-group__head-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.admin-group__head-text h2 {
-  margin: 0;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.admin-group__head-text p {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  line-height: 1.5;
-}
-
-.admin-group__count {
-  flex-shrink: 0;
+.status-item__label {
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.status-item__value {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
-/* ===== 入口列表 —— 去卡片化，行间发丝线 ===== */
-.admin-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
+.status-item__value--ok {
+  color: var(--color-success);
 }
 
-.admin-list__item {
-  border-top: 1px solid var(--color-border);
-}
-
-.admin-list__item:last-child {
-  border-bottom: 1px solid var(--color-border);
-}
-
-/* 每个入口：全宽、幽灵态、hover 极浅底 */
-.admin-entry {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--spacing-md);
-  width: 100%;
-  padding: var(--spacing-lg) var(--spacing-xs);
-  text-decoration: none;
-  color: var(--color-text-primary);
-  transition: background var(--transition-fast), padding var(--transition-fast);
-}
-
-.admin-entry:hover {
-  background: var(--color-hover-overlay-md);
-  padding-left: var(--spacing-sm);
-  padding-right: var(--spacing-sm);
-}
-
-.admin-entry:focus-visible {
-  outline: 2px solid var(--color-border-focus);
-  outline-offset: -2px;
-  border-radius: var(--radius-sm);
-}
-
-/* 图标：线性、克制，与文本同色 */
-.admin-entry__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-secondary);
-  transition: color var(--transition-fast);
-}
-
-.admin-entry:hover .admin-entry__icon {
-  color: var(--color-text-primary);
-}
-
-.admin-entry__body {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.admin-entry__title {
-  color: var(--color-text-primary);
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  line-height: 1.3;
-  letter-spacing: -0.005em;
-}
-
-.admin-entry__desc {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  line-height: 1.5;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-}
-
-/* 箭头：默认隐去，hover 显现并向右滑动 */
-.admin-entry__arrow {
-  display: inline-flex;
-  align-items: center;
+.status-item__value--off {
   color: var(--color-text-muted);
-  opacity: 0;
-  transform: translateX(-4px);
-  transition: opacity var(--transition-fast), transform var(--transition-fast);
 }
 
-.admin-entry:hover .admin-entry__arrow {
-  opacity: 1;
-  transform: translateX(0);
-  color: var(--color-brand-accent);
-}
-
-/* 移动端：图标列收窄、描述换行放开 */
-@media (max-width: 600px) {
-  .admin-entry {
-    grid-template-columns: 22px minmax(0, 1fr) auto;
-    gap: var(--spacing-sm);
-    padding: var(--spacing-md) var(--spacing-xs);
-  }
-
-  .admin-entry__desc {
-    -webkit-line-clamp: 2;
-  }
-
-  .admin-entry__arrow {
-    display: none;
-  }
+.admin-overview__error {
+  margin: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+  font-size: var(--font-size-sm);
 }
 </style>

@@ -219,23 +219,4 @@ export function renderMarkdown(text) {
   }
 }
 
-/**
- * 渲染单行 Markdown（不添加 <p> 标签）
- *
- * @param {string} text - Markdown 文本
- * @returns {string} - HTML 字符串
- */
-export function renderMarkdownInline(text) {
-  if (!text || typeof text !== 'string') {
-    return ''
-  }
-
-  try {
-    return md.renderInline(text)
-  } catch (err) {
-    console.error('Markdown render error:', err)
-    return md.utils.escapeHtml(text)
-  }
-}
-
 export default md

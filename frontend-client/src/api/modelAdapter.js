@@ -2,33 +2,18 @@
  * Model Adapter API 调用模块。
  */
 
+import { http } from './http.js';
+
 const API_BASE = '/api/model-adapter'
 
 export async function getProviderTypes() {
-  const response = await fetch(`${API_BASE}/provider-types`, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json' }
-  })
-  const data = await response.json()
-  if (!response.ok) throw new Error(data.detail || data.message || '获取失败')
+  const data = await http.get(`${API_BASE}/provider-types`)
   return data.data || []
 }
 
 export async function getProviders() {
   try {
-    const response = await fetch(`${API_BASE}/providers`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      throw new Error(data.message || 'Failed to fetch providers')
-    }
-
+    const data = await http.get(`${API_BASE}/providers`)
     return data.providers || data.data || []
   } catch (error) {
     console.error('Error fetching providers:', error)
@@ -114,78 +99,34 @@ export function findProviderModelByValue(value) {
 }
 
 export async function createProvider(data) {
-  const response = await fetch(`${API_BASE}/providers`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
-  })
-  const json = await response.json()
-  if (!response.ok) throw new Error(json.detail || json.message || '创建失败')
-  return json
+  return http.post(`${API_BASE}/providers`, data)
 }
 
 export async function updateProvider(providerKey, data) {
-  const response = await fetch(`${API_BASE}/providers/${encodeURIComponent(providerKey)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
-  })
-  const json = await response.json()
-  if (!response.ok) throw new Error(json.detail || json.message || '更新失败')
-  return json
+  return http.put(`${API_BASE}/providers/${encodeURIComponent(providerKey)}`, data)
 }
 
 export async function reorderProviders(providerKeys) {
-  const response = await fetch(`${API_BASE}/providers/order`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider_keys: providerKeys })
-  })
-  const json = await response.json()
-  if (!response.ok) throw new Error(json.detail || json.message || '排序保存失败')
-  return json
+  return http.put(`${API_BASE}/providers/order`, { provider_keys: providerKeys })
 }
 
 export async function deleteProvider(providerKey) {
-  const response = await fetch(`${API_BASE}/providers/${encodeURIComponent(providerKey)}`, {
-    method: 'DELETE'
-  })
-  const json = await response.json()
-  if (!response.ok) throw new Error(json.detail || json.message || '删除失败')
-  return json
+  return http.del(`${API_BASE}/providers/${encodeURIComponent(providerKey)}`)
 }
 
 export async function checkProviderAvailability(providerKey) {
-  const response = await fetch(`${API_BASE}/providers/${encodeURIComponent(providerKey)}/check`, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json' }
-  })
-  const json = await response.json()
-  if (!response.ok) throw new Error(json.detail || json.message || '检查失败')
-  return json
+  return http.get(`${API_BASE}/providers/${encodeURIComponent(providerKey)}/check`)
 }
 
 export async function testProvider(provider, model, prompt = 'Hello', providerType = '', task = 'chat') {
   try {
-    const response = await fetch(`${API_BASE}/test`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        provider,
-        provider_type: providerType,
-        model: normalizeModelList(model)[0] || '',
-        prompt,
-        task
-      })
+    const data = await http.post(`${API_BASE}/test`, {
+      provider,
+      provider_type: providerType,
+      model: normalizeModelList(model)[0] || '',
+      prompt,
+      task
     })
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      throw new Error(data.message || 'Test failed')
-    }
 
     return {
       ...data,

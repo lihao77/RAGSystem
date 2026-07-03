@@ -1,7 +1,7 @@
 <template>
   <PageLayout
     title="Agent 配置"
-    subtitle="统一管理智能体基础参数、模型、工具与 Skills"
+    subtitle="基础参数、模型、工具与技能"
     mobile-title="Agent 配置"
     :embedded="embedded"
     :chat-return-path="chatReturnPath"
@@ -162,18 +162,12 @@
 
               <label class="form-item switch-item">
                 <span class="field-label-text">启用该 Agent</span>
-                <span class="switch-control">
-                  <input v-model="configForm.enabled" type="checkbox" />
-                  <span class="switch-control__track"><span class="switch-control__thumb"></span></span>
-                </span>
+                <ToggleSwitch v-model="configForm.enabled" />
               </label>
 
               <label class="form-item switch-item">
                 <span class="field-label-text">设为默认入口 Agent</span>
-                <span class="switch-control">
-                  <input v-model="configForm.default_entry" type="checkbox" />
-                  <span class="switch-control__track"><span class="switch-control__thumb"></span></span>
-                </span>
+                <ToggleSwitch v-model="configForm.default_entry" />
               </label>
             </div>
           </section>
@@ -603,10 +597,7 @@
                   <span class="field-label-text">启用知识库检索</span>
                   <span class="kb-field-hint">启用后会向当前 Agent 暴露 search_knowledge_base 工具。</span>
                 </span>
-                <span class="switch-control">
-                  <input v-model="configForm.knowledge_base.enabled" type="checkbox" />
-                  <span class="switch-control__track"><span class="switch-control__thumb"></span></span>
-                </span>
+                <ToggleSwitch v-model="configForm.knowledge_base.enabled" />
               </label>
 
               <template v-if="configForm.knowledge_base.enabled">
@@ -664,10 +655,7 @@
                     <span class="field-label-text">默认启用重排序</span>
                     <span class="kb-field-hint">对召回结果重新排序，优先保留更贴近问题的片段。</span>
                   </span>
-                  <span class="switch-control">
-                    <input v-model="configForm.knowledge_base.default_rerank" type="checkbox" />
-                    <span class="switch-control__track"><span class="switch-control__thumb"></span></span>
-                  </span>
+                  <ToggleSwitch v-model="configForm.knowledge_base.default_rerank" />
                 </label>
 
                 <label v-if="configForm.knowledge_base.default_rerank" class="form-item">
@@ -742,24 +730,24 @@
 
     <AdmModal :open="createDialog.visible" title="新建 Agent" @close="closeCreateDialog">
       <div class="adm-modal-form">
-            <label class="form-item adm-field">
-              <span class="field-label-text adm-field-label">Agent 名称 <em class="required-mark">*</em></span>
+            <label class="form-item">
+              <span class="field-label-text">Agent 名称 <em class="required-mark">*</em></span>
               <input
                 v-model.trim="createDialog.agentName"
                 type="text"
-                class="form-control adm-form-control"
+                class="form-control"
                 placeholder="仅限英文、数字和下划线，如 my_agent"
                 @keydown.enter="handleCreateAgent"
               />
-              <small class="field-hint adm-form-hint">创建后不可修改，将作为唯一标识符</small>
+              <small class="field-hint">创建后不可修改，将作为唯一标识符</small>
             </label>
-            <label class="form-item adm-field">
-              <span class="field-label-text adm-field-label">显示名称</span>
-              <input v-model.trim="createDialog.displayName" type="text" class="form-control adm-form-control" placeholder="可选，留空则使用 Agent 名称" @keydown.enter="handleCreateAgent" />
+            <label class="form-item">
+              <span class="field-label-text">显示名称</span>
+              <input v-model.trim="createDialog.displayName" type="text" class="form-control" placeholder="可选，留空则使用 Agent 名称" @keydown.enter="handleCreateAgent" />
             </label>
-            <label class="form-item adm-field">
-              <span class="field-label-text adm-field-label">描述</span>
-              <input v-model.trim="createDialog.description" type="text" class="form-control adm-form-control" placeholder="可选" @keydown.enter="handleCreateAgent" />
+            <label class="form-item">
+              <span class="field-label-text">描述</span>
+              <input v-model.trim="createDialog.description" type="text" class="form-control" placeholder="可选" @keydown.enter="handleCreateAgent" />
             </label>
       </div>
       <template #footer>
@@ -798,11 +786,13 @@ import {
   getAvailableSkills,
   getAvailableMCPServers,
   getMemoryConfigMetadata,
-  getTeams
+  getTeams,
+  exportAgentConfig
 } from '../api/agentConfig';
 import { getProviders } from '../api/modelAdapter';
 import CustomSelect from '../components/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
+import ToggleSwitch from '../components/ToggleSwitch.vue';
 import { UiButton, UiIconButton } from '../components/ui';
 import { useToast } from '../composables/useToast.js';
 const props = defineProps({
@@ -1675,13 +1665,7 @@ async function handleDeleteAgent() {
 async function handleExport() {
   if (!selectedAgent.value) return;
   try {
-    const url = `/api/agent-config/configs/${encodeURIComponent(selectedAgent.value)}/export?format=yaml`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      const result = await response.json().catch(() => ({}));
-      throw new Error(result.detail || result.message || '导出失败');
-    }
-    const blob = await response.blob();
+    const { blob } = await exportAgentConfig(selectedAgent.value);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `${selectedAgent.value}.yaml`;

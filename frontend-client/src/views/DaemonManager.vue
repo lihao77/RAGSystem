@@ -1,5 +1,5 @@
 <template>
-  <PageLayout title="守护 Agent" subtitle="常驻守护系统 — 飞书消息网关 · 定时调度 · 心跳监控">
+  <PageLayout title="守护 Agent" subtitle="飞书网关 · 定时调度 · 心跳监控">
     <template #header-actions>
       <div class="hdr-actions">
         <UiButton size="compact" :variant="status.running ? 'danger' : 'primary'" :disabled="loading" @click="toggleDaemon">

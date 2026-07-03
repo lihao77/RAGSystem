@@ -2,10 +2,9 @@
   <PageLayout
     :embedded="embedded"
     :chat-return-path="chatReturnPath"
-    content-padding="var(--spacing-lg)"
     mobile-content-padding="var(--spacing-sm)"
     title="MCP 服务管理"
-    subtitle="手动添加、搜索 Registry、测试连接，统一管理 MCP 工具服务。"
+    subtitle="MCP 工具服务接入与测试"
     mobile-title="MCP 服务管理"
   >
     <template #header-menu="{ close }">
@@ -62,7 +61,10 @@
               </div>
               <div class="server-card-info">
                 <div class="server-card-name">{{ server.display_name || server.name }}</div>
-                <div class="server-card-id">{{ server.name }}</div>
+                <div class="server-card-sub">
+                  <code class="server-card-id">{{ server.name }}</code>
+                  <code class="server-card-conn">{{ server.transport === 'stdio' ? (server.command ? `${server.command} ${formatArgs(server.args)}` : '无命令') : (server.url || '无地址') }}</code>
+                </div>
               </div>
             </div>
             <div class="server-card-badges">
@@ -76,10 +78,6 @@
             <div class="meta-chip adm-chip"><span class="meta-chip-label">工具</span><span class="meta-chip-value">{{ server.tool_count || 0 }}</span></div>
             <div class="meta-chip adm-chip"><span class="meta-chip-label">风险</span><span class="meta-chip-value" :class="`risk--${server.risk_level || 'medium'}`">{{ server.risk_level || 'medium' }}</span></div>
             <div class="meta-chip adm-chip"><span class="meta-chip-label">状态</span><span class="meta-chip-value" :class="server.enabled ? 'text-success' : 'text-muted'">{{ server.enabled ? '已启用' : '已禁用' }}</span></div>
-          </div>
-
-          <div class="server-connection-info">
-            <code class="connection-code">{{ server.transport === 'stdio' ? (server.command ? `${server.command} ${formatArgs(server.args)}` : '无命令') : (server.url || '无地址') }}</code>
           </div>
 
           <div v-if="server.error_message" class="error-banner">
@@ -121,6 +119,8 @@
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
+      <!-- 注：.add-subnav 是「添加服务」面板内的次级方式切换（手动 vs Registry），
+           不是页面级 Tab；用局部 pill 切换更贴合折叠面板语境，故不复用 .adm-tabs。 -->
       <div class="add-subnav">
         <button type="button" class="add-subnav-btn" :class="{ 'add-subnav-btn--active': addMode === 'manual' }" @click="addMode = 'manual'">
           <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -647,13 +647,16 @@ onMounted(() => {
 .add-pane { display: flex; flex-direction: column; gap: var(--spacing-md); }
 
 .server-grid { display: flex; flex-direction: column; gap: 8px; }
-.server-card { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: 12px 14px; border-radius: var(--radius-lg); }
+.server-card { display: flex; flex-direction: column; gap: var(--spacing-xs); padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--radius-lg); }
 .server-card__main { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); }
 .server-card-head { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
-.server-card-icon { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--radius-md); flex-shrink: 0; border: 1px solid var(--adm-border); background: var(--adm-control-bg); color: var(--color-text-secondary); }
+.server-card-icon { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); flex-shrink: 0; border: 1px solid var(--adm-border); background: var(--adm-control-bg); color: var(--color-text-secondary); }
+.server-card-icon svg { width: 14px; height: 14px; }
 .server-card-info { flex: 1; min-width: 0; }
-.server-card-name { font-weight: 600; font-size: var(--font-size-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.server-card-id { color: var(--color-text-muted); font-size: var(--font-size-xs); font-family: var(--font-mono); margin-top: 2px; }
+.server-card-name { font-weight: 600; font-size: var(--font-size-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.server-card-sub { display: flex; align-items: baseline; gap: var(--spacing-sm); margin-top: 2px; min-width: 0; }
+.server-card-id { color: var(--color-text-muted); font-size: var(--font-size-xs); font-family: var(--font-mono); flex-shrink: 0; }
+.server-card-conn { color: var(--color-text-muted); font-size: var(--font-size-xs); font-family: var(--font-mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .server-card-badges { display: flex; align-items: center; gap: var(--spacing-xs); flex-shrink: 0; }
 
 .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }

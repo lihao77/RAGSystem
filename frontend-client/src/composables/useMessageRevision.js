@@ -1,4 +1,5 @@
 import { computed, nextTick, ref } from 'vue';
+import { rollbackSession } from '../api/session.js';
 
 function buildRollbackBody(messages, index) {
   if (index === 0) return { after_seq: -1 };
@@ -76,15 +77,7 @@ export function useMessageRevision(deps) {
 
     editingSubmitting.value = true;
     try {
-      const res = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/rollback`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildRollbackBody(deps.messages.value, index)),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || '回退失败');
-      }
+      await rollbackSession(sessionId, buildRollbackBody(deps.messages.value, index));
       await deps.handleSend({ content, attachments, replaceFromIndex: index, clearEditing: true });
     } catch (error) {
       editingSubmitting.value = false;
@@ -108,15 +101,7 @@ export function useMessageRevision(deps) {
 
     const prevMessages = deps.messages.value.slice();
     try {
-      const res = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/rollback`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildRollbackBody(deps.messages.value, index)),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || '回退失败');
-      }
+      await rollbackSession(sessionId, buildRollbackBody(deps.messages.value, index));
       deps.messages.value = deps.messages.value.slice(0, index);
       deps.cacheMessages(sessionId, deps.messages.value);
       deps.inputMessage.value = (msg.content || '').trim();

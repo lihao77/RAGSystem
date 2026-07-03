@@ -23,15 +23,11 @@
           <!-- boolean → switch -->
           <label v-if="field.type === 'boolean'" class="form-item switch-item">
             <span class="field-label-text">{{ field.label }}</span>
-            <span class="switch-control">
-              <input
-                type="checkbox"
-                :checked="getFieldValue(group.key, field.key)"
-                :disabled="disabled"
-                @change="setFieldValue(group.key, field.key, $event.target.checked)"
-              />
-              <span class="switch-control__track"><span class="switch-control__thumb"></span></span>
-            </span>
+            <ToggleSwitch
+              :model-value="getFieldValue(group.key, field.key)"
+              :disabled="disabled"
+              @update:model-value="setFieldValue(group.key, field.key, $event)"
+            />
           </label>
 
           <!-- select → CustomSelect -->
@@ -97,6 +93,7 @@
 import { reactive } from 'vue'
 import CustomSelect from './CustomSelect.vue'
 import NumberInput from './NumberInput.vue'
+import ToggleSwitch from './ToggleSwitch.vue'
 
 const props = defineProps({
   schema: { type: Object, required: true },      // { groups: [...] }
@@ -150,8 +147,6 @@ function setFieldValue(groupKey, fieldKey, value, field = null) {
 </script>
 
 <style scoped>
-@import '../styles/agent-config.css';
-
 .section-head--clickable {
   cursor: pointer;
   user-select: none;

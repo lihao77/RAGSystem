@@ -2,23 +2,9 @@
  * Agent 监控 API 模块
  */
 
+import { http } from './http.js';
+
 const API_BASE = '/api/agent';
-
-async function requestJson(url, options = {}) {
-  const response = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {})
-    },
-    ...options
-  });
-
-  const result = await response.json();
-  if (!response.ok) {
-    throw new Error(result.message || 'Request failed');
-  }
-  return result.data || result;
-}
 
 /**
  * 获取系统性能指标
@@ -30,7 +16,8 @@ export async function getMetrics(agentName = null) {
     const url = agentName
       ? `${API_BASE}/metrics?agent_name=${encodeURIComponent(agentName)}`
       : `${API_BASE}/metrics`;
-    return await requestJson(url, { method: 'GET' });
+    const result = await http.get(url);
+    return result.data || result;
   } catch (error) {
     console.error('Error fetching metrics:', error);
     throw error;
@@ -45,10 +32,8 @@ export async function getMetrics(agentName = null) {
 export async function resetMetrics(agentName = null) {
   try {
     const body = agentName ? { agent_name: agentName } : {};
-    return await requestJson(`${API_BASE}/metrics/reset`, {
-      method: 'POST',
-      body: JSON.stringify(body)
-    });
+    const result = await http.post(`${API_BASE}/metrics/reset`, body);
+    return result.data || result;
   } catch (error) {
     console.error('Error resetting metrics:', error);
     throw error;
@@ -62,8 +47,9 @@ export async function resetMetrics(agentName = null) {
  */
 export async function getCheckpoints(sessionId) {
   try {
-    const result = await requestJson(`${API_BASE}/sessions/${sessionId}/checkpoints`, { method: 'GET' });
-    return result.checkpoints || result.data?.checkpoints || [];
+    const result = await http.get(`${API_BASE}/sessions/${sessionId}/checkpoints`);
+    const extracted = result.data || result;
+    return extracted.checkpoints || result.data?.checkpoints || [];
   } catch (error) {
     console.error('Error fetching checkpoints:', error);
     throw error;
@@ -87,10 +73,8 @@ export async function recoverFromCheckpoint(sessionId, agentName, checkpointId =
       body.checkpoint_id = checkpointId;
     }
 
-    return await requestJson(`${API_BASE}/sessions/${sessionId}/recover`, {
-      method: 'POST',
-      body: JSON.stringify(body)
-    });
+    const result = await http.post(`${API_BASE}/sessions/${sessionId}/recover`, body);
+    return result.data || result;
   } catch (error) {
     console.error('Error recovering from checkpoint:', error);
     throw error;
@@ -105,12 +89,10 @@ export async function recoverFromCheckpoint(sessionId, agentName, checkpointId =
  */
 export async function respondToApproval(approvalId, approved) {
   try {
-    return await requestJson(`${API_BASE}/approvals/${approvalId}/respond`, {
-      method: 'POST',
-      body: JSON.stringify({
-        approved: approved
-      })
+    const result = await http.post(`${API_BASE}/approvals/${approvalId}/respond`, {
+      approved: approved
     });
+    return result.data || result;
   } catch (error) {
     console.error('Error responding to approval:', error);
     throw error;
@@ -119,9 +101,8 @@ export async function respondToApproval(approvalId, approved) {
 
 export async function getExecutionOverview(activeOnly = true) {
   try {
-    return await requestJson(`${API_BASE}/execution/overview?active_only=${activeOnly ? 'true' : 'false'}`, {
-      method: 'GET'
-    });
+    const result = await http.get(`${API_BASE}/execution/overview?active_only=${activeOnly ? 'true' : 'false'}`);
+    return result.data || result;
   } catch (error) {
     console.error('Error fetching execution overview:', error);
     throw error;
@@ -130,7 +111,8 @@ export async function getExecutionOverview(activeOnly = true) {
 
 export async function getRunningTasks() {
   try {
-    return await requestJson(`${API_BASE}/tasks/running`, { method: 'GET' });
+    const result = await http.get(`${API_BASE}/tasks/running`);
+    return result.data || result;
   } catch (error) {
     console.error('Error fetching running tasks:', error);
     throw error;
@@ -139,7 +121,8 @@ export async function getRunningTasks() {
 
 export async function getTaskStatus(taskId) {
   try {
-    return await requestJson(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/status`, { method: 'GET' });
+    const result = await http.get(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/status`);
+    return result.data || result;
   } catch (error) {
     console.error('Error fetching task status:', error);
     throw error;
@@ -148,7 +131,8 @@ export async function getTaskStatus(taskId) {
 
 export async function getTaskExecutionDiagnostics(taskId) {
   try {
-    return await requestJson(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/execution-diagnostics`, { method: 'GET' });
+    const result = await http.get(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/execution-diagnostics`);
+    return result.data || result;
   } catch (error) {
     console.error('Error fetching task execution diagnostics:', error);
     throw error;
@@ -157,10 +141,10 @@ export async function getTaskExecutionDiagnostics(taskId) {
 
 export async function getToolCallRawResult(sessionId, callId) {
   try {
-    return await requestJson(
-      `${API_BASE}/tool-call/raw-result?session_id=${encodeURIComponent(sessionId)}&call_id=${encodeURIComponent(callId)}`,
-      { method: 'GET' }
+    const result = await http.get(
+      `${API_BASE}/tool-call/raw-result?session_id=${encodeURIComponent(sessionId)}&call_id=${encodeURIComponent(callId)}`
     );
+    return result.data || result;
   } catch (error) {
     console.error('Error fetching tool call raw result:', error);
     throw error;
@@ -169,10 +153,10 @@ export async function getToolCallRawResult(sessionId, callId) {
 
 export async function getMessageRunSteps(sessionId, messageId, { limit = 500, offset = 0 } = {}) {
   try {
-    return await requestJson(
-      `${API_BASE}/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/run-steps?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`,
-      { method: 'GET' }
+    const result = await http.get(
+      `${API_BASE}/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/run-steps?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`
     );
+    return result.data || result;
   } catch (error) {
     console.error('Error fetching message run steps:', error);
     throw error;

@@ -8,6 +8,7 @@ import {
 } from '../utils/sessionSocket.js';
 import { resetActiveRunState } from './useActiveRunState.js';
 import { getHostTool, getHostToolDeclarations } from '../utils/hostTools.js';
+import { getSessionTaskStatus } from '../api/session.js';
 
 const WS_OPEN = 1;
 
@@ -131,9 +132,8 @@ export function useSessionConnection(deps) {
       const abort = new AbortController();
       _sessionResumeRecoveryAbort = abort;
       try {
-        const resp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`, { signal: abort.signal });
-        if (!resp.ok || deps.currentSessionId.value !== sessionId) return;
-        const result = await resp.json();
+        const result = await getSessionTaskStatus(sessionId, { signal: abort.signal });
+        if (deps.currentSessionId.value !== sessionId) return;
         if (result.data?.has_running_task) return;
         if (shouldRefreshSessionMessagesAfterResume({
           hasRunningTask: false,
@@ -146,8 +146,10 @@ export function useSessionConnection(deps) {
           return;
         }
         await deps.refreshSessionExecutionState(sessionId, { silent: true });
-      } catch (_) {
-        // 兜底探测失败（含 abort）不影响主流程
+      } catch (error) {
+        // 兜底探测失败（含 abort）不影响主流程，留痕便于排查
+        console.warn('resume task-status 探测失败:', error.message);
+        return;
       } finally {
         if (_sessionResumeRecoveryAbort === abort) {
           _sessionResumeRecoveryAbort = null;

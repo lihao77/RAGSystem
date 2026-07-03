@@ -17,7 +17,7 @@
           <div v-for="(msg, idx) in messages" :key="idx" class="chat-msg" :class="msg.role">
             <div class="msg-bubble">
               <div v-if="msg.role === 'user'" class="msg-content">{{ msg.content }}</div>
-              <div v-else class="msg-content" v-html="renderContent(msg.content)"></div>
+              <MarkdownContent v-else :content="msg.content" :render-markdown="renderWithViz" />
             </div>
           </div>
           <div v-if="isStreaming" class="streaming-indicator">
@@ -48,7 +48,8 @@
 
 <script setup>
 import { ref, watch, nextTick } from 'vue';
-import { escapeHtml } from '../utils/escapeHtml';
+import { renderMarkdown } from '../utils/markdown';
+import MarkdownContent from './chat/MarkdownContent.vue';
 
 const props = defineProps({
   messages: { type: Array, default: () => [] },
@@ -69,25 +70,12 @@ const toggleCollapse = (val) => {
   emit('collapse-change', val);
 };
 
-const renderContent = (content) => {
-  if (!content) return '';
-  let rendered = escapeHtml(content);
-  const vizRe = /\[viz:(viz_\w+)\]/g;
-  rendered = rendered.replace(vizRe, '<span class="viz-link">[ 地图可视化 ]</span>');
-  rendered = rendered.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre class="chat-code-block"><code>$2</code></pre>');
-  rendered = rendered.replace(/`([^`]+)`/g, '<code class="chat-inline-code">$1</code>');
-  rendered = rendered.replace(/^### (.+)$/gm, '<div class="chat-h3">$1</div>');
-  rendered = rendered.replace(/^## (.+)$/gm, '<div class="chat-h2">$1</div>');
-  rendered = rendered.replace(/^# (.+)$/gm, '<div class="chat-h1">$1</div>');
-  rendered = rendered.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  rendered = rendered.replace(/^[-*] (.+)$/gm, '<div class="chat-list-item">· $1</div>');
-  rendered = rendered.replace(/^(\d+)\. (.+)$/gm, '<div class="chat-list-item">$1. $2</div>');
-  rendered = rendered.replace(/\n{2,}/g, '<br/>');
-  rendered = rendered.replace(/<\/(div|pre)>\n/g, '</$1>');
-  rendered = rendered.replace(/\n<(div|pre)/g, '<$1');
-  rendered = rendered.replace(/\n/g, '<br/>');
-  return rendered;
-};
+// 主渲染器 + viz 标记后处理（[viz:viz_xxx] → 地图可视化入口，悬浮窗特有）
+const renderWithViz = (content) =>
+  renderMarkdown(content || '').replace(
+    /\[viz:(viz_\w+)\]/g,
+    '<span class="viz-link">[ 地图可视化 ]</span>',
+  );
 
 const sendMessage = () => {
   const text = inputText.value.trim();
@@ -274,45 +262,6 @@ watch(isCollapsed, (val) => {
 .msg-content {
   word-break: break-word;
   line-height: 1.6;
-}
-
-:deep(.chat-code-block) {
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  margin: 4px 0;
-  overflow-x: auto;
-  font-size: var(--font-size-xs);
-  line-height: 1.5;
-}
-
-:deep(.chat-code-block code) {
-  font-family: var(--font-mono);
-  color: var(--color-text-primary);
-}
-
-:deep(.chat-inline-code) {
-  background: var(--color-hover-overlay-md);
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-}
-
-:deep(.chat-h1) { font-size: var(--font-size-base); font-weight: 700; margin: 6px 0 4px; }
-:deep(.chat-h2) { font-size: var(--font-size-sm); font-weight: 700; margin: 5px 0 3px; }
-:deep(.chat-h3) { font-size: var(--font-size-sm); font-weight: 600; margin: 4px 0 2px; }
-
-:deep(.chat-list-item) {
-  padding-left: 4px;
-  line-height: 1.6;
-}
-
-:deep(.viz-link) {
-  color: var(--color-link);
-  cursor: default;
-  font-style: italic;
-  font-size: var(--font-size-xs);
 }
 
 .streaming-indicator {

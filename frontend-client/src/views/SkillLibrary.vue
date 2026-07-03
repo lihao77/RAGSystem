@@ -1,8 +1,7 @@
 <template>
   <PageLayout
     title="Skill 库"
-    subtitle="管理领域技能：查看正文与脚本，新建、编辑、上传与删除。用户全局可写，内置/工作区只读。"
-    content-padding="var(--spacing-lg)"
+    subtitle="领域技能的增删改与上下传"
     mobile-content-padding="var(--spacing-sm)"
   >
     <template #header-actions>
@@ -105,27 +104,27 @@
 
           <div class="skill-section">
             <div class="skill-section__title">SKILL.md 正文</div>
-            <div class="skill-prose" v-html="renderedContent"></div>
+            <MarkdownContent :content="selected.content" :render-markdown="renderMarkdown" @notify="onMdNotify" />
           </div>
         </template>
       </section>
     </div>
 
     <AdmModal :open="editor.open" :title="editorTitle" width="680px" @close="closeEditor">
-      <div class="adm-form">
-        <label v-if="editor.mode === 'create'" class="adm-field">
-          <span class="adm-field-label">名称（小写字母 / 数字 / 连字符）</span>
-          <input v-model.trim="editor.form.name" class="adm-form-control" placeholder="如 my-skill" />
+      <div class="form-section">
+        <label v-if="editor.mode === 'create'" class="form-item">
+          <span class="field-label-text">名称（小写字母 / 数字 / 连字符）</span>
+          <input v-model.trim="editor.form.name" class="form-control" placeholder="如 my-skill" />
         </label>
-        <label v-if="editor.mode === 'create'" class="adm-field">
-          <span class="adm-field-label">描述</span>
-          <input v-model="editor.form.description" class="adm-form-control" placeholder="一句话说明适用场景" />
+        <label v-if="editor.mode === 'create'" class="form-item">
+          <span class="field-label-text">描述</span>
+          <input v-model="editor.form.description" class="form-control" placeholder="一句话说明适用场景" />
         </label>
-        <label class="adm-field">
-          <span class="adm-field-label">正文（Markdown）</span>
-          <textarea v-model="editor.form.content" rows="14" class="adm-form-control skill-textarea"></textarea>
+        <label class="form-item">
+          <span class="field-label-text">正文（Markdown）</span>
+          <textarea v-model="editor.form.content" rows="14" class="form-control form-control--textarea skill-textarea"></textarea>
         </label>
-        <p v-if="editor.error" class="adm-form-error">{{ editor.error }}</p>
+        <p v-if="editor.error" class="form-error">{{ editor.error }}</p>
       </div>
       <template #footer>
         <UiButton variant="ghost" @click="closeEditor">取消</UiButton>
@@ -136,19 +135,19 @@
     </AdmModal>
 
     <AdmModal :open="uploader.open" :title="uploadTitle" @close="closeUploader">
-      <div class="adm-form">
-        <label class="adm-field">
-          <span class="adm-field-label">目标目录</span>
-          <select v-model="uploader.dir" class="adm-form-control">
+      <div class="form-section">
+        <label class="form-item">
+          <span class="field-label-text">目标目录</span>
+          <select v-model="uploader.dir" class="form-control">
             <option value="scripts">scripts/（Python 脚本）</option>
             <option value="">Skill 根目录（资源文件）</option>
           </select>
         </label>
-        <label class="adm-field">
-          <span class="adm-field-label">文件</span>
+        <label class="form-item">
+          <span class="field-label-text">文件</span>
           <input type="file" multiple @change="onFileChange" />
         </label>
-        <p v-if="uploader.error" class="adm-form-error">{{ uploader.error }}</p>
+        <p v-if="uploader.error" class="form-error">{{ uploader.error }}</p>
       </div>
       <template #footer>
         <UiButton variant="ghost" @click="closeUploader">取消</UiButton>
@@ -162,12 +161,13 @@
 
 <script setup>
 import { computed, ref } from 'vue';
-import MarkdownIt from 'markdown-it';
 
 import PageLayout from '../components/PageLayout.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import AdmModal from '../components/admin/AdmModal.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
+import MarkdownContent from '../components/chat/MarkdownContent.vue';
+import { renderMarkdown } from '../utils/markdown';
 import { UiButton } from '../components/ui';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
@@ -183,9 +183,13 @@ import {
   uploadSkillFiles,
 } from '../api/skillLibrary.js';
 
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
 const toast = useToast();
 const { confirm } = useConfirm();
+
+const onMdNotify = ({ message, type }) => {
+  if (type === 'success') toast.success(message);
+  else toast.error(message);
+};
 
 const selected = ref(null);
 const detailLoading = ref(false);
@@ -226,8 +230,6 @@ const groups = computed(() =>
     { key: 'builtin', title: '内置', items: skills.value.filter((s) => s.source_type === 'builtin') },
   ].filter((g) => g.items.length),
 );
-
-const renderedContent = computed(() => md.render(selected.value ? selected.value.content : ''));
 
 function isWritable(skill) {
   return skill.source_type === 'user_global';
@@ -524,122 +526,5 @@ async function confirmDelete() {
   font-size: var(--font-size-sm);
   min-height: 240px !important;
   resize: vertical;
-}
-
-.skill-prose {
-  color: var(--color-text-primary);
-  font-size: var(--font-size-base);
-  line-height: 1.75;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-.skill-prose :deep(h1),
-.skill-prose :deep(h2),
-.skill-prose :deep(h3),
-.skill-prose :deep(h4) {
-  margin: 1.4em 0 0.6em;
-  line-height: 1.3;
-  color: var(--color-text-primary);
-}
-.skill-prose :deep(h1) {
-  font-size: 1.5em;
-  font-weight: 700;
-  padding-bottom: 0.3em;
-  border-bottom: 1px solid var(--color-border);
-}
-.skill-prose :deep(h2) {
-  font-size: 1.3em;
-  font-weight: 700;
-  padding-bottom: 0.3em;
-  border-bottom: 1px solid var(--color-border);
-}
-.skill-prose :deep(h3) {
-  font-size: 1.15em;
-  font-weight: 600;
-}
-.skill-prose :deep(h4) {
-  font-size: 1em;
-  font-weight: 600;
-}
-.skill-prose :deep(p) {
-  margin: 0.6em 0;
-}
-.skill-prose :deep(ul),
-.skill-prose :deep(ol) {
-  margin: 0.6em 0;
-  padding-left: 1.6em;
-}
-.skill-prose :deep(li) {
-  margin: 0.2em 0;
-}
-.skill-prose :deep(li)::marker {
-  color: var(--color-text-secondary);
-}
-.skill-prose :deep(a) {
-  color: var(--color-primary);
-  text-decoration: none;
-}
-.skill-prose :deep(a:hover) {
-  text-decoration: underline;
-}
-.skill-prose :deep(code) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.9em;
-  padding: 1px 5px;
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-}
-.skill-prose :deep(pre) {
-  margin: 0.8em 0;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-secondary);
-  overflow-x: auto;
-  max-width: 100%;
-}
-.skill-prose :deep(pre code) {
-  padding: 0;
-  background: transparent;
-  border: none;
-  font-size: 0.875em;
-  line-height: 1.6;
-}
-.skill-prose :deep(blockquote) {
-  margin: 0.8em 0;
-  padding: 0.4em 1em;
-  border-left: 3px solid var(--color-primary);
-  background: var(--adm-surface-muted);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  color: var(--color-text-secondary);
-}
-.skill-prose :deep(blockquote p) {
-  margin: 0.3em 0;
-}
-.skill-prose :deep(table) {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 0.8em 0;
-  font-size: 0.95em;
-}
-.skill-prose :deep(th),
-.skill-prose :deep(td) {
-  padding: 8px 12px;
-  border: 1px solid var(--color-border);
-  text-align: left;
-}
-.skill-prose :deep(th) {
-  background: var(--color-bg-secondary);
-  font-weight: 600;
-}
-.skill-prose :deep(hr) {
-  border: none;
-  border-top: 1px solid var(--color-border);
-  margin: 1.4em 0;
-}
-.skill-prose :deep(img) {
-  max-width: 100%;
-  border-radius: var(--radius-md);
 }
 </style>

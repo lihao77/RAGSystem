@@ -2,10 +2,9 @@
     <PageLayout
         :embedded="embedded"
         :chat-return-path="chatReturnPath"
-        content-padding="var(--spacing-lg)"
         mobile-content-padding="var(--spacing-sm)"
         title="知识库管理"
-        subtitle="管理文件、向量索引、向量化器配置，构建您的专属知识库。"
+        subtitle="文件、向量索引与向量化器"
         mobile-title="知识库管理"
     >
         <template #header-menu="{ close }">
@@ -29,12 +28,14 @@
             <KpiCards :items="kpiItems" />
 
             <!-- ── Tab 导航 ──────────────────────────────────── -->
-            <nav class="tab-nav">
-                <button v-for="tab in tabs" :key="tab.id" class="tab-btn"
-                    :class="{ 'tab-btn--active': activeTab === tab.id }" @click="activeTab = tab.id">
-                    <span class="tab-icon" v-html="tab.icon"></span>
-                    <span class="tab-label">{{ tab.label }}</span>
-                    <span v-if="tab.badge" class="tab-badge">{{ tab.badge }}</span>
+            <nav class="adm-tabs vl-tabs">
+                <button v-for="tab in tabs" :key="tab.id" class="adm-tab"
+                    :class="{ 'adm-tab--active': activeTab === tab.id }" @click="activeTab = tab.id">
+                    <span class="adm-tab__content">
+                        <span class="adm-tab__icon vl-tab-icon" v-html="tab.icon"></span>
+                        <span class="adm-tab__label">{{ tab.label }}</span>
+                        <span v-if="tab.badge" class="adm-tab__badge vl-tab-badge">{{ tab.badge }}</span>
+                    </span>
                 </button>
             </nav>
 
@@ -1609,17 +1610,54 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* ─── Tab 导航 ──────────────────────────────────────────── */
-.tab-nav { display: flex; gap: var(--spacing-xs); border-bottom: 1px solid var(--color-border); overflow-x: auto; overflow-y: hidden; }
-.tab-btn { position: relative; display: inline-flex; align-items: center; gap: var(--spacing-sm); padding: 10px 14px; background: transparent; border: none; color: var(--color-text-secondary); font: inherit; font-size: var(--font-size-sm); font-weight: 500; cursor: pointer; white-space: nowrap; transition: color var(--transition-fast); }
-.tab-btn::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: 0; height: 2px; border-radius: 2px; background: transparent; transition: background var(--transition-fast); pointer-events: none; }
-.tab-btn:hover { color: var(--color-text-primary); }
-.tab-btn--active { color: var(--color-text-primary); font-weight: 600; }
-.tab-btn--active::after { background: var(--color-brand-accent); }
-.tab-icon { display: inline-flex; color: inherit; flex-shrink: 0; }
-.tab-label { white-space: nowrap; }
-.tab-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-full); background: var(--adm-control-bg); color: var(--color-text-secondary); font-size: 11px; font-weight: 600; line-height: 1; }
-.tab-btn--active .tab-badge { background: rgba(var(--color-brand-accent-rgb), 0.18); color: var(--color-brand-accent-light); }
+/* ─── Tab 导航（复用 .adm-tabs/.adm-tab，下划线式特化）──── */
+/* .adm-tabs 默认是 pill/滑块容器；知识库页保留下划线式观感，故覆盖容器背景，并用下划线指示 active。 */
+.vl-tabs.vl-tabs {
+    gap: var(--spacing-xs);
+    padding: 0;
+    background: transparent;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+.vl-tabs.vl-tabs::before { display: none; }
+.vl-tabs :deep(.adm-tab) {
+    min-height: 38px;
+    padding: 0 14px;
+    border-radius: 0;
+}
+.vl-tabs :deep(.adm-tab)::after {
+    content: '';
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 2px;
+    background: transparent;
+    transition: background var(--transition-fast);
+    pointer-events: none;
+}
+.vl-tabs :deep(.adm-tab--active)::after { background: var(--color-brand-accent); }
+.vl-tab-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: var(--radius-full);
+    background: var(--adm-control-bg);
+    color: var(--color-text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+}
+.adm-tab--active .vl-tab-badge {
+    background: rgba(var(--color-brand-accent-rgb), 0.18);
+    color: var(--color-brand-accent-light);
+}
 
 /* ─── Tab 内容 ──────────────────────────────────────────── */
 .tab-content {
@@ -2358,7 +2396,7 @@ onMounted(() => {
 
 /* ── 手机横屏 / 小平板（≤720px）── */
 @media (max-width: 720px) {
-    .tab-badge {
+    .vl-tab-badge {
         display: none;
     }
 

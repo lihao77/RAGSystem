@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ref } from 'vue';
+import MockAdapter from 'axios-mock-adapter';
 
 import { createActiveRunState } from './useActiveRunState.js';
 import { useSessionTaskStatus } from './useSessionTaskStatus.js';
+import { httpClient } from '../api/http.js';
 
 function createDeps(overrides = {}) {
   const activeRun = overrides.activeRun || createActiveRunState();
@@ -31,27 +33,24 @@ function createDeps(overrides = {}) {
   return { deps, activeRun, calls };
 }
 
-function withFetch(handler, run) {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = handler;
+function withMock(setup, run) {
+  const mock = new MockAdapter(httpClient);
+  setup(mock);
   return Promise.resolve()
     .then(run)
-    .finally(() => {
-      globalThis.fetch = originalFetch;
-    });
+    .finally(() => { mock.restore(); });
 }
 
 test('checkSessionTaskStatus clears stale active run when selected session is idle', async () => {
-  await withFetch(async () => ({
-    ok: true,
-    json: async () => ({
+  await withMock((mock) => {
+    mock.onGet(/\/task-status$/).reply(200, {
       data: {
         has_running_task: false,
         has_active_system_command: false,
         task_info: { status: 'completed', run_id: 'run-ended' },
       },
-    }),
-  }), async () => {
+    });
+  }, async () => {
     const activeRun = createActiveRunState();
     Object.assign(activeRun, {
       active: true,
@@ -83,16 +82,15 @@ test('checkSessionTaskStatus clears stale active run when selected session is id
 });
 
 test('checkSessionTaskStatus ignores stale responses from a previous session', async () => {
-  await withFetch(async () => ({
-    ok: true,
-    json: async () => ({
+  await withMock((mock) => {
+    mock.onGet(/\/task-status$/).reply(200, {
       data: {
         has_running_task: true,
         has_active_system_command: false,
         task_info: { status: 'running', run_id: 'run-old' },
       },
-    }),
-  }), async () => {
+    });
+  }, async () => {
     const { deps, activeRun, calls } = createDeps({
       currentSessionId: ref('session-2'),
       shouldRunWatchdogFn: () => true,

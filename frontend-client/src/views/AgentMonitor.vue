@@ -5,17 +5,14 @@
     content-padding="var(--spacing-lg)"
     mobile-content-padding="var(--spacing-sm)"
     title="智能体性能监控"
-    subtitle="实时查看调用次数、耗时、成功率与工具使用统计"
+    subtitle="调用量、耗时与成功率"
     mobile-title="性能监控"
   >
-    <template #header-hint>
-      <p class="page-hint">
-        <span>自动刷新：{{ autoRefreshSeconds }}s</span>
-        <span v-if="lastUpdatedAt">最近更新：{{ formatRefreshTime(lastUpdatedAt) }}</span>
-      </p>
-    </template>
-
     <template #header-actions>
+      <p class="page-hint">
+        <span>自动刷新 {{ autoRefreshSeconds }}s</span>
+        <span v-if="lastUpdatedAt">最近更新 {{ formatRefreshTime(lastUpdatedAt) }}</span>
+      </p>
       <CustomSelect
         class="monitor-agent-select"
         :model-value="selectedAgent"
@@ -398,18 +395,19 @@ onUnmounted(() => { stopAutoRefresh(); });
 <style scoped>
 .execution-overview { display: flex; flex-direction: column; gap: var(--spacing-lg); }
 
-.page-hint { margin: 0; color: var(--color-text-secondary); font-size: 11px; display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
-.page-hint span { display: inline-flex; align-items: center; min-height: 26px; padding: 0 10px; border-radius: var(--radius-sm); background: var(--color-hover-overlay-md); border: none; white-space: nowrap; }
+.page-hint { margin: 0; color: var(--color-text-secondary); font-size: 11px; display: flex; align-items: center; gap: 4px; }
+.page-hint span { display: inline-flex; align-items: center; min-height: 22px; padding: 0 8px; border-radius: var(--radius-sm); background: var(--color-hover-overlay-md); white-space: nowrap; }
+@media (max-width: 1200px) { .page-hint { display: none; } }
 .monitor-agent-select { width: clamp(136px, 15vw, 200px); flex: 0 1 200px; min-width: 0; }
 
-.detail-card { border: 1px solid var(--adm-border); border-radius: var(--radius-xl); background: var(--adm-surface); box-shadow: var(--adm-shadow-inset); overflow: hidden; }
+.detail-card { border: 1px solid var(--adm-border); border-radius: var(--radius-lg); background: var(--adm-surface); box-shadow: var(--adm-shadow-inset); overflow: hidden; }
 .detail-card__head { display: flex; flex-direction: column; gap: 2px; padding: var(--spacing-md) var(--spacing-lg); border-bottom: 1px solid var(--adm-border); background: var(--adm-surface-muted); }
 .detail-card__head h2 { margin: 0; font-size: var(--font-size-lg); font-weight: 600; color: var(--color-text-primary); }
 .detail-card__head span { font-size: var(--font-size-xs); color: var(--color-text-secondary); }
 .detail-card__body { padding: var(--spacing-md) var(--spacing-lg); }
 
 .agents-list { display: flex; flex-direction: column; }
-.agent-card { padding: var(--spacing-lg); border-bottom: 1px solid var(--adm-border); transition: background 0.2s; }
+.agent-card { padding: var(--spacing-md); border-bottom: 1px solid var(--adm-border); transition: background 0.2s; }
 .agent-card:last-child { border-bottom: none; }
 .agent-card:hover { background: var(--adm-surface-muted); }
 .agent-card__head { display: flex; justify-content: space-between; align-items: center; gap: var(--spacing-sm); margin-bottom: var(--spacing-md); flex-wrap: wrap; }
@@ -419,7 +417,7 @@ onUnmounted(() => { stopAutoRefresh(); });
 .badge { padding: 3px 10px; border-radius: 20px; font-size: var(--font-size-xs); font-weight: 500; border: 1px solid var(--adm-border); background: var(--adm-control-bg); color: var(--color-text-secondary); }
 .badge--success { border-color: rgba(var(--color-success-rgb), 0.35); background: rgba(var(--color-success-rgb), 0.1); color: var(--color-success); }
 
-.agent-metrics { display: flex; flex-wrap: wrap; gap: 0; margin-bottom: var(--spacing-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; }
+.agent-metrics { display: flex; flex-wrap: wrap; gap: 0; margin-bottom: var(--spacing-md); border-radius: var(--radius-md); overflow: hidden; background: var(--adm-surface-muted); }
 .metric-item { flex: 1 1 160px; display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-right: 1px solid var(--color-border); }
 .metric-item:last-child { border-right: none; }
 .metric-item__label { font-size: var(--font-size-xs); color: var(--color-text-secondary); }

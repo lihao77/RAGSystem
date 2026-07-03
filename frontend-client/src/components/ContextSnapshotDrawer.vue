@@ -140,6 +140,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import { usePointerDownOutside } from '../composables/usePointerDownOutside';
+import { getContextSnapshot } from '../api/session';
 
 const props = defineProps({
   visible: Boolean,
@@ -190,13 +191,7 @@ async function fetchSnapshot() {
   error.value = '';
   data.value = null;
   try {
-    const params = new URLSearchParams();
-    if (props.sessionId) params.set('session_id', props.sessionId);
-    if (props.selectedLlm) params.set('selected_llm', props.selectedLlm);
-    const url = `/api/agent/context-snapshot${params.size ? '?' + params.toString() : ''}`;
-    const res = await fetch(url);
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.message || json.detail || '请求失败');
+    const json = await getContextSnapshot(props.sessionId, { selectedLlm: props.selectedLlm });
     data.value = json.data;
   } catch (e) {
     error.value = e.message;

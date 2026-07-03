@@ -1,4 +1,5 @@
 import { nextTick } from 'vue';
+import { respondInteraction } from '../api/session.js';
 
 function normalizeSessionRunStreamDeps(deps) {
   const {
@@ -404,14 +405,7 @@ export function useSessionRunStream(deps) {
   };
 
   const submitUserInputHttp = async (sessionId, inputId, value) => {
-    const resp = await fetch(
-      `/api/agent/sessions/${encodeURIComponent(sessionId)}/interactions/${encodeURIComponent(inputId)}/respond`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'user_input', value }) }
-    );
-    if (!resp.ok) {
-      const result = await resp.json().catch(() => ({}));
-      throw new Error(result.message || `用户输入提交失败 (${resp.status})`);
-    }
+    await respondInteraction(sessionId, inputId, { kind: 'user_input', value });
   };
 
   const submitUserInputWs = (ws, sessionId, inputId, value) => new Promise((resolve, reject) => {

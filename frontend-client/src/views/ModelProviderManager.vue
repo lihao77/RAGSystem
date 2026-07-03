@@ -2,10 +2,9 @@
   <PageLayout
     :embedded="embedded"
     :chat-return-path="chatReturnPath"
-    content-padding="var(--spacing-lg)"
     mobile-content-padding="var(--spacing-sm)"
     title="模型 Provider 管理"
-    subtitle="管理 LLM Provider 实例：配置 API Key、模型映射、参数，并测试连通性。"
+    subtitle="Provider 接入与连通性测试"
     mobile-title="Provider 管理"
   >
     <template #header-actions>
@@ -115,68 +114,68 @@
     </EntityListLayout>
 
     <AdmModal :open="dialog.visible" :title="dialog.mode === 'create' ? '添加 Provider' : '编辑 Provider'" width="720px" @close="closeDialog">
-      <div class="dialog-form adm-form">
-        <section class="dialog-form-section adm-form-section">
-          <div class="dialog-form-section__head adm-form-section__head"><h3>基础配置</h3><p>填写 Provider 标识、鉴权信息与基础接入地址。</p></div>
-          <div class="dialog-form-grid adm-form-grid">
-            <div class="form-row adm-field" v-if="dialog.mode === 'create'">
-              <label class="form-label adm-field-label">名称 <span class="required">*</span></label>
-              <input v-model="form.name" class="form-control adm-form-control" placeholder="例如: my_gpt" />
-              <p class="form-hint adm-form-hint">Provider 实例的唯一名称，不可包含空格</p>
+      <div class="dialog-form form-section">
+        <section class="dialog-form-section form-section">
+          <div class="dialog-form-section__head"><h3>基础配置</h3><p>填写 Provider 标识、鉴权信息与基础接入地址。</p></div>
+          <div class="dialog-form-grid form-grid">
+            <div class="form-row form-item" v-if="dialog.mode === 'create'">
+              <label class="form-label field-label-text">名称 <span class="required">*</span></label>
+              <input v-model="form.name" class="form-control" placeholder="例如: my_gpt" />
+              <p class="form-hint">Provider 实例的唯一名称，不可包含空格</p>
             </div>
-            <div class="form-row adm-field" v-if="dialog.mode === 'create'">
-              <label class="form-label adm-field-label">Provider 类型 <span class="required">*</span></label>
+            <div class="form-row form-item" v-if="dialog.mode === 'create'">
+              <label class="form-label field-label-text">Provider 类型 <span class="required">*</span></label>
               <CustomSelect :model-value="form.provider_type" :options="providerTypeOptions" placeholder="-- 请选择 --" @update:model-value="handleProviderTypeChange" />
             </div>
-            <div class="form-row adm-field dialog-form-grid__full adm-form-grid__full">
-              <label class="form-label adm-field-label">API Key <span v-if="dialog.mode === 'create'" class="required">*</span></label>
-              <input v-model="form.api_key" class="form-control adm-form-control" type="password" :placeholder="dialog.mode === 'create' ? 'sk-... 或 ${ENV_VAR}' : '留空则保持当前 API Key'" autocomplete="new-password" />
-              <p class="form-hint adm-form-hint">{{ dialog.mode === 'create' ? '支持 ${ENV_VAR} 形式引用环境变量' : '仅在需要替换密钥时填写；留空表示保持当前值' }}</p>
+            <div class="form-row form-item dialog-form-grid__full form-grid__full">
+              <label class="form-label field-label-text">API Key <span v-if="dialog.mode === 'create'" class="required">*</span></label>
+              <input v-model="form.api_key" class="form-control" type="password" :placeholder="dialog.mode === 'create' ? 'sk-... 或 ${ENV_VAR}' : '留空则保持当前 API Key'" autocomplete="new-password" />
+              <p class="form-hint">{{ dialog.mode === 'create' ? '支持 ${ENV_VAR} 形式引用环境变量' : '仅在需要替换密钥时填写；留空表示保持当前值' }}</p>
             </div>
-            <div class="form-row adm-field dialog-form-grid__full adm-form-grid__full">
-              <label class="form-label adm-field-label">API Endpoint</label>
-              <input v-model="form.api_endpoint" class="form-control adm-form-control" :placeholder="apiEndpointPlaceholder" />
+            <div class="form-row form-item dialog-form-grid__full form-grid__full">
+              <label class="form-label field-label-text">API Endpoint</label>
+              <input v-model="form.api_endpoint" class="form-control" :placeholder="apiEndpointPlaceholder" />
             </div>
           </div>
         </section>
 
-        <section v-if="form.provider_type !== 'rerank_api'" class="dialog-form-section adm-form-section">
-          <div class="dialog-form-section__head adm-form-section__head"><h3>运行参数</h3><p>配置温度、token 上限与超时时间等运行时参数。</p></div>
-          <div class="dialog-form-grid adm-form-grid">
-            <div class="form-row adm-field"><label class="form-label adm-field-label">温度</label><input v-model.number="form.temperature" class="form-control adm-form-control" type="number" step="0.1" min="0" max="2" placeholder="0.7" /></div>
-            <div class="form-row adm-field"><label class="form-label adm-field-label">Max Completion Tokens</label><input v-model.number="form.max_completion_tokens" class="form-control adm-form-control" type="number" step="256" min="256" placeholder="4096" /></div>
-            <div class="form-row adm-field"><label class="form-label adm-field-label">Max Context Tokens</label><input v-model.number="form.max_context_tokens" class="form-control adm-form-control" type="number" step="1024" min="1024" placeholder="128000" /></div>
-            <div class="form-row adm-field"><label class="form-label adm-field-label">Timeout (s)</label><input v-model.number="form.timeout" class="form-control adm-form-control" type="number" step="5" min="5" placeholder="60" /></div>
-            <div class="form-row adm-field dialog-form-grid__full adm-form-grid__full">
-              <label class="form-label adm-field-label">工具调用协议</label>
+        <section v-if="form.provider_type !== 'rerank_api'" class="dialog-form-section form-section">
+          <div class="dialog-form-section__head"><h3>运行参数</h3><p>配置温度、token 上限与超时时间等运行时参数。</p></div>
+          <div class="dialog-form-grid form-grid">
+            <div class="form-row form-item"><label class="form-label field-label-text">温度</label><input v-model.number="form.temperature" class="form-control" type="number" step="0.1" min="0" max="2" placeholder="0.7" /></div>
+            <div class="form-row form-item"><label class="form-label field-label-text">Max Completion Tokens</label><input v-model.number="form.max_completion_tokens" class="form-control" type="number" step="256" min="256" placeholder="4096" /></div>
+            <div class="form-row form-item"><label class="form-label field-label-text">Max Context Tokens</label><input v-model.number="form.max_context_tokens" class="form-control" type="number" step="1024" min="1024" placeholder="128000" /></div>
+            <div class="form-row form-item"><label class="form-label field-label-text">Timeout (s)</label><input v-model.number="form.timeout" class="form-control" type="number" step="5" min="5" placeholder="60" /></div>
+            <div class="form-row form-item dialog-form-grid__full form-grid__full">
+              <label class="form-label field-label-text">工具调用协议</label>
               <label class="fc-toggle"><ToggleSwitch v-model="form.supports_function_calling" /><span>启用原生 Function Calling</span></label>
               <label class="fc-toggle"><ToggleSwitch v-model="form.supports_vision" /><span>支持图片输入（Vision）</span></label>
-              <p class="form-hint adm-form-hint">勾选后 OpenAI 兼容 Provider 走厂商原生 FC（需模型支持）；anthropic 自动走原生 tool_use 无需此项；不勾选则回退 XML 协议。Vision 项标记模型能否识别图片。</p>
+              <p class="form-hint">勾选后 OpenAI 兼容 Provider 走厂商原生 FC（需模型支持）；anthropic 自动走原生 tool_use 无需此项；不勾选则回退 XML 协议。Vision 项标记模型能否识别图片。</p>
             </div>
           </div>
         </section>
 
-        <section class="dialog-form-section adm-form-section">
-          <div class="dialog-form-section__head adm-form-section__head"><h3>模型与扩展</h3><p>管理 Provider 的扩展字段与任务模型映射。</p></div>
+        <section class="dialog-form-section form-section">
+          <div class="dialog-form-section__head"><h3>模型与扩展</h3><p>管理 Provider 的扩展字段与任务模型映射。</p></div>
           <template v-if="activeProviderConfigFields.length > 0">
-            <div class="form-section-title adm-form-section-title">Provider 扩展配置</div>
-            <div class="dialog-form-grid adm-form-grid">
-              <div v-for="field in activeProviderConfigFields" :key="field.key" class="form-row adm-field">
-                <label class="form-label adm-field-label">{{ field.label }}</label>
+            <div class="form-section-title">Provider 扩展配置</div>
+            <div class="dialog-form-grid form-grid">
+              <div v-for="field in activeProviderConfigFields" :key="field.key" class="form-row form-item">
+                <label class="form-label field-label-text">{{ field.label }}</label>
                 <CustomSelect v-if="field.type === 'select'" :model-value="form[field.key] ?? ''" :options="field.options || []" :placeholder="field.placeholder || '-- 请选择 --'" @update:model-value="form[field.key] = $event" />
-                <input v-else-if="field.type === 'number'" v-model.number="form[field.key]" class="form-control adm-form-control" type="number" :step="field.step || 1" :min="field.min" :max="field.max" :placeholder="field.placeholder || ''" />
-                <input v-else v-model="form[field.key]" class="form-control adm-form-control" :type="field.type === 'password' ? 'password' : 'text'" :placeholder="field.placeholder || ''" />
-                <p v-if="field.help" class="form-hint adm-form-hint">{{ field.help }}</p>
+                <input v-else-if="field.type === 'number'" v-model.number="form[field.key]" class="form-control" type="number" :step="field.step || 1" :min="field.min" :max="field.max" :placeholder="field.placeholder || ''" />
+                <input v-else v-model="form[field.key]" class="form-control" :type="field.type === 'password' ? 'password' : 'text'" :placeholder="field.placeholder || ''" />
+                <p v-if="field.help" class="form-hint">{{ field.help }}</p>
               </div>
             </div>
           </template>
-          <div class="form-section-title adm-form-section-title">模型映射 (model_map)</div>
-          <p class="form-hint adm-form-hint form-hint--section">按任务类型指定模型名，如 chat / embedding / rerank</p>
+          <div class="form-section-title">模型映射 (model_map)</div>
+          <p class="form-hint form-hint--section">按任务类型指定模型名，如 chat / embedding / rerank</p>
           <div class="model-map-editor">
             <div v-for="(entry, idx) in modelMapEntries" :key="idx" class="model-map-row">
-              <input v-model="entry.task" class="form-control adm-form-control form-control--sm" placeholder="chat" />
+              <input v-model="entry.task" class="form-control form-control--sm" placeholder="chat" />
               <span class="map-arrow">→</span>
-              <input v-model="entry.model" class="form-control adm-form-control" placeholder="gpt-4o" />
+              <input v-model="entry.model" class="form-control" placeholder="gpt-4o" />
               <button type="button" class="icon-btn icon-btn--delete" @click="removeModelMapEntry(idx)">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
@@ -185,7 +184,7 @@
           </div>
         </section>
 
-        <div v-if="dialog.error" class="form-error adm-form-error">{{ dialog.error }}</div>
+        <div v-if="dialog.error" class="form-error">{{ dialog.error }}</div>
       </div>
       <template #footer>
         <UiButton size="compact" @click="closeDialog">取消</UiButton>
@@ -593,8 +592,8 @@ onMounted(() => { loadProviderTypes(); loadProviders(); });
 .provider-row-list-move, .provider-row-list-enter-active, .provider-row-list-leave-active { transition: transform 0.28s cubic-bezier(.2,.8,.2,1); will-change: transform; }
 .provider-row-list-enter-from, .provider-row-list-leave-to { opacity: 0; transform: translateY(8px); }
 
-.provider-row-main { display: grid; grid-template-columns: 72px minmax(280px, 1fr) auto; gap: 12px; align-items: stretch; min-width: 0; min-height: 62px; }
-.drag-handle { height: 100%; min-height: 62px; display: inline-flex; flex-direction: row; align-items: center; justify-content: center; gap: 6px; width: 72px; border: none; border-radius: 0; background: var(--adm-control-bg); color: var(--color-text-muted); cursor: grab; transition: background 0.16s ease, color 0.16s ease; }
+.provider-row-main { display: grid; grid-template-columns: 48px minmax(240px, 1fr) auto; gap: 10px; align-items: stretch; min-width: 0; min-height: 46px; }
+.drag-handle { height: 100%; min-height: 46px; display: inline-flex; flex-direction: row; align-items: center; justify-content: center; gap: 6px; width: 48px; border: none; border-radius: 0; background: var(--adm-control-bg); color: var(--color-text-muted); cursor: grab; transition: background 0.16s ease, color 0.16s ease; }
 .drag-handle:hover:not(:disabled) { color: var(--color-text-secondary); background: var(--adm-control-hover); }
 .drag-handle:active:not(:disabled) { cursor: grabbing; }
 .drag-handle:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -609,13 +608,13 @@ onMounted(() => { loadProviderTypes(); loadProviders(); });
 .provider-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 7px; flex-wrap: nowrap; }
 .mono { font-family: inherit; }
 
-.provider-test-result { display: flex; align-items: flex-start; gap: 8px; margin-left: 80px; padding: 9px 11px; border-radius: 13px; border: 1px solid transparent; font-size: 12px; line-height: 1.5; word-break: break-word; }
+.provider-test-result { display: flex; align-items: flex-start; gap: 8px; margin-left: 48px; padding: 9px 11px; border-radius: 13px; border: 1px solid transparent; font-size: 12px; line-height: 1.5; word-break: break-word; }
 .result--ok { margin: 0 0 12px 24px; background: rgba(var(--color-success-rgb), 0.08); border-color: rgba(var(--color-success-rgb), 0.18); color: var(--color-success); }
 .result--err { background: rgba(var(--color-error-rgb), 0.08); border-color: rgba(var(--color-error-rgb), 0.18); color: var(--color-error); }
 .result-icon { flex-shrink: 0; font-weight: 700; }
 .result-msg { min-width: 0; }
 
-.icon-btn { width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--color-border); background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s ease, border-color .15s ease, color .15s ease; color: var(--color-text-secondary); }
+.icon-btn { width: 30px; height: 30px; border-radius: var(--control-radius); border: 1px solid var(--color-border); background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s ease, border-color .15s ease, color .15s ease; color: var(--color-text-secondary); }
 .icon-btn:hover { background: var(--color-interactive-hover); }
 .icon-btn--delete:hover { color: var(--color-error); border-color: rgba(var(--color-error-rgb), 0.22); }
 .btn-add-row { background: none; border: 1px dashed var(--color-border); color: var(--color-text-muted); border-radius: 12px; padding: 10px 12px; font-size: 0.82rem; cursor: pointer; transition: border-color .15s ease, color .15s ease, background .15s ease; width: 100%; margin-top: 4px; }
@@ -632,16 +631,9 @@ onMounted(() => { loadProviderTypes(); loadProviders(); });
 .form-row { display: flex; flex-direction: column; gap: 6px; }
 .form-label { font-size: 0.83rem; font-weight: 600; color: var(--color-text-primary); }
 .required { color: var(--color-error, #f87171); }
-.form-control { width: 100%; min-height: 44px; padding: 0 14px; border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-bg-secondary); color: var(--color-text-primary); font-size: var(--font-size-sm); font-family: inherit; transition: all 0.2s; box-sizing: border-box; outline: none; }
-.form-control:hover { border-color: var(--color-border-hover); }
-.form-control:focus { border-color: var(--color-border-focus); box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.16); }
-input[type='number'].form-control { padding-right: 8px; }
-.form-control--sm { max-width: 110px; }
-.form-hint { font-size: 0.75rem; color: var(--color-text-muted); margin: 0; }
 .form-hint--section { margin-bottom: 4px; }
 .fc-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-primary); }
 .form-section-title { font-size: 0.83rem; font-weight: 700; color: var(--color-text-primary); border-bottom: 1px solid var(--color-border); padding-bottom: 6px; }
-.form-error { color: var(--color-error, #f87171); font-size: 0.83rem; padding: 10px 12px; background: rgba(var(--color-error-rgb), .1); border: 1px solid rgba(var(--color-error-rgb), .18); border-radius: 14px; }
 
 .model-map-editor { display: flex; flex-direction: column; gap: 10px; }
 .model-map-row { display: flex; align-items: center; gap: 8px; }

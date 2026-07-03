@@ -13,9 +13,6 @@
           <div class="page-header__title-row">
             <h1 class="page-header__title">{{ title }}</h1>
             <p v-if="subtitle" class="page-header__subtitle">{{ subtitle }}</p>
-            <div v-if="$slots['header-hint']" class="page-header__hint-row">
-              <slot name="header-hint" />
-            </div>
           </div>
         </div>
       </div>
@@ -102,10 +99,10 @@ const props = defineProps({
   title: { type: String, required: true },
   subtitle: { type: String, default: '' },
   mobileTitle: { type: String, default: '' },
-  maxWidth: { type: String, default: '1480px' },
+  maxWidth: { type: String, default: '1400px' },
   embedded: { type: Boolean, default: false },
   chatReturnPath: { type: String, default: '/' },
-  contentPadding: { type: String, default: 'var(--spacing-xl) var(--spacing-lg)' },
+  contentPadding: { type: String, default: 'var(--spacing-xl)' },
   mobileContentPadding: { type: String, default: 'var(--spacing-xl) var(--spacing-md)' },
 });
 
@@ -188,7 +185,7 @@ usePointerDownOutside({
 
 .page-content {
   width: 100%;
-  max-width: var(--page-shell-max-width, 1480px);
+  max-width: var(--page-shell-max-width, 1400px);
   min-height: 100%;
   margin: 0 auto;
   padding: var(--page-content-padding, var(--spacing-xl));
@@ -206,15 +203,15 @@ usePointerDownOutside({
   position: relative;
   z-index: var(--z-sticky);
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: var(--spacing-lg);
   pointer-events: none;
   /* 与 .page-content 用同一个 max-width + 居中，保证标题列与正文列严丝合缝 */
   width: 100%;
-  max-width: var(--page-shell-max-width, 1480px);
+  max-width: var(--page-shell-max-width, 1400px);
   margin: 0 auto;
-  padding: var(--spacing-2xl) var(--spacing-xl) var(--spacing-xl);
+  padding: var(--spacing-md) var(--spacing-xl);
   box-sizing: border-box;
   background: none;
   backdrop-filter: none;
@@ -258,8 +255,6 @@ usePointerDownOutside({
   flex: 1 1 auto;
   min-width: 0;
   justify-content: flex-end;
-  align-self: flex-end;
-  padding-bottom: 2px;
 }
 
 .page-header__meta {
@@ -273,17 +268,9 @@ usePointerDownOutside({
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
+  gap: 2px;
   min-width: 0;
   width: 100%;
-}
-
-.page-header__hint-row {
-  flex: 0 1 auto;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  margin-left: auto;
 }
 
 .page-header__menu-btn {
@@ -295,7 +282,7 @@ usePointerDownOutside({
   margin: 0;
   flex: 0 1 auto;
   min-width: 0;
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   font-weight: 600;
   color: var(--color-text-primary);
   letter-spacing: -0.02em;
@@ -310,8 +297,8 @@ usePointerDownOutside({
   flex: 0 1 auto;
   min-width: 0;
   color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 1.4;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -551,7 +538,7 @@ usePointerDownOutside({
   }
 
   .page-header__title {
-    font-size: 1.3rem;
+    font-size: 1.15rem;
   }
 
   .page-header__actions,

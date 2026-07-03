@@ -1,6 +1,7 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { getAllAgentConfigs, getTeams } from '../api/agentConfig';
+import { createSession, listSessions, exportSession } from '../api/session.js';
 
 const stripWrappedQuotes = (value) => {
   const text = (value || '').trim();
@@ -107,13 +108,7 @@ export function useChatSessionController(deps) {
     }
     historyError.value = '';
     try {
-      const params = new URLSearchParams({
-        limit: String(20),
-        offset: String(historyOffset.value),
-      });
-      const response = await fetch(`/api/agent/sessions?${params.toString()}`);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const result = await response.json();
+      const result = await listSessions({ limit: 20, offset: historyOffset.value });
       const payload = result.data || {};
       const items = payload.items || [];
       if (reset) {
@@ -200,18 +195,8 @@ export function useChatSessionController(deps) {
 
     isExportingSession.value = true;
     try {
-      const response = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/export`);
-      if (!response.ok) {
-        let errorMessage = '导出会话失败';
-        try {
-          const result = await response.json();
-          errorMessage = result.detail || result.message || errorMessage;
-        } catch (_) {}
-        throw new Error(errorMessage);
-      }
-
-      const blob = await response.blob();
-      const contentDisposition = response.headers.get('content-disposition') || '';
+      const { blob, headers } = await exportSession(sessionId);
+      const contentDisposition = headers?.get?.('content-disposition') || '';
       const match = contentDisposition.match(/filename\*?=(?:UTF-8''|")?([^\";]+)/i);
       const filename = match
         ? decodeURIComponent(match[1].replace(/"/g, '').trim())
@@ -297,13 +282,7 @@ export function useChatSessionController(deps) {
     if (Object.keys(metadata).length > 0) {
       body.metadata = metadata;
     }
-    const response = await fetch('/api/agent/sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    const result = await response.json();
+    const result = await createSession(body);
     const sessionId = result.data?.session_id || null;
     if (sessionId) {
       const now = new Date().toISOString();

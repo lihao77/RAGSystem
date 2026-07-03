@@ -1,0 +1,174 @@
+/*
+ * 全局表单基线（single source of truth）
+ *
+ * 统一所有管理页表单控件与布局：AgentConfig / SkillLibrary / ModelProvider /
+ * TeamBuilder / MCP / Daemon / SystemConfig（含 SchemaForm 通用组件）。
+ *
+ * 替代旧散落的四套定义：agent-config.css 的 .form-*（AgentConfig scoped）、
+ * admin-console.css 的 .adm-form-*、ModelProvider/TeamBuilder 各自 scoped 的 .form-control。
+ * 各页模板统一用 .form-*；.adm-form-* / 各页 scoped 表单定义由 A3 后续步骤删除。
+ */
+
+/* ===== 控件 ===== */
+.form-control {
+  width: 100%;
+  min-height: var(--control-height-md);
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--control-radius);
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.form-control::placeholder {
+  color: var(--color-text-muted);
+}
+
+.form-control:hover {
+  border-color: var(--color-border-hover);
+}
+
+.form-control:focus {
+  border-color: var(--color-brand-accent);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.12);
+}
+
+.form-control:disabled {
+  color: var(--color-text-muted);
+  background: var(--color-bg-secondary);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+input[type='number'].form-control {
+  padding-right: 8px;
+}
+
+textarea.form-control,
+.form-control--textarea {
+  min-height: 140px;
+  height: auto;
+  padding: 10px 12px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.form-control--sm {
+  max-width: 140px;
+}
+
+/* ===== 区块 / 标题 ===== */
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-xl) 0;
+  border: none;
+  background: transparent;
+}
+
+.form-section + .form-section {
+  border-top: 1px solid var(--color-border);
+  margin-top: var(--spacing-xl);
+}
+
+.section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+.section-head h2,
+.section-head h3 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.section-head p,
+.section-head span {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.section-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+/* ===== 字段网格 ===== */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-md);
+}
+
+.form-grid__full {
+  grid-column: 1 / -1;
+}
+
+.form-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 开关行：label 左、开关右 */
+.switch-item {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  min-height: 42px;
+}
+
+.field-label-text {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+/* ===== 提示 / 错误 ===== */
+.form-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+
+.form-error {
+  padding: 10px 12px;
+  border-radius: var(--control-radius);
+  background: var(--color-error-bg);
+  color: var(--color-error);
+  font-size: var(--font-size-sm);
+}
+
+/* ===== 响应式 ===== */
+@media (max-width: 900px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}

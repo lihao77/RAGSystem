@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ref } from 'vue';
+import MockAdapter from 'axios-mock-adapter';
 
 import { useMessageRevision } from './useMessageRevision.js';
+import { httpClient } from '../api/http.js';
 
 function createDeps(overrides = {}) {
   const messages = ref([]);
@@ -30,74 +32,67 @@ function createDeps(overrides = {}) {
   return { deps, toasts, cacheCalls, sendCalls };
 }
 
-test('confirmEditAndResend 会用上一条消息生成 rollback body 并透传编辑载荷', async (t) => {
-  const originalFetch = global.fetch;
-  const fetchCalls = [];
-  t.after(() => {
-    global.fetch = originalFetch;
-  });
+function withMock(setup, run) {
+  const mock = new MockAdapter(httpClient);
+  setup(mock);
+  return Promise.resolve()
+    .then(run)
+    .finally(() => { mock.restore(); });
+}
 
-  global.fetch = async (url, options) => {
-    fetchCalls.push({ url, options });
-    return {
-      ok: true,
-      json: async () => ({}),
+test('confirmEditAndResend 会用上一条消息生成 rollback body 并透传编辑载荷', async () => {
+  await withMock((mock) => {
+    mock.onPost(/\/rollback$/).reply((config) => {
+      assert.equal(config.url, '/api/agent/sessions/session-1/rollback');
+      assert.deepEqual(JSON.parse(config.data), { after_message_id: 'msg-1' });
+      return [200, {}];
+    });
+  }, async () => {
+    const attachment = {
+      id: 'file-2',
+      original_name: 'draft.txt',
+      mime: 'text/plain',
+      size: 12,
     };
-  };
+    const { deps, sendCalls } = createDeps();
+    deps.messages.value = [
+      { role: 'user', id: 'msg-1', content: 'before' },
+      { role: 'user', id: 'msg-2', content: 'draft', attachments: [attachment] },
+    ];
 
-  const attachment = {
-    id: 'file-2',
-    original_name: 'draft.txt',
-    mime: 'text/plain',
-    size: 12,
-  };
-  const { deps, sendCalls } = createDeps();
-  deps.messages.value = [
-    { role: 'user', id: 'msg-1', content: 'before' },
-    { role: 'user', id: 'msg-2', content: 'draft', attachments: [attachment] },
-  ];
+    const revision = useMessageRevision(deps);
+    revision.startEditMessage(deps.messages.value[1], 1);
+    revision.editingDraft.value = ' updated ';
 
-  const revision = useMessageRevision(deps);
-  revision.startEditMessage(deps.messages.value[1], 1);
-  revision.editingDraft.value = ' updated ';
+    await revision.confirmEditAndResend();
 
-  await revision.confirmEditAndResend();
-
-  assert.equal(fetchCalls.length, 1);
-  assert.equal(fetchCalls[0].url, '/api/agent/sessions/session-1/rollback');
-  assert.deepEqual(JSON.parse(fetchCalls[0].options.body), { after_message_id: 'msg-1' });
-  assert.deepEqual(sendCalls, [[0]].map(() => ({
-    content: 'updated',
-    attachments: [{ ...attachment, file_id: 'file-2' }],
-    replaceFromIndex: 1,
-    clearEditing: true,
-  })));
+    assert.deepEqual(sendCalls, [[0]].map(() => ({
+      content: 'updated',
+      attachments: [{ ...attachment, file_id: 'file-2' }],
+      replaceFromIndex: 1,
+      clearEditing: true,
+    })));
+  });
 });
 
-test('rollbackAndRetry 回退失败时会恢复消息并提示错误', async (t) => {
-  const originalFetch = global.fetch;
-  t.after(() => {
-    global.fetch = originalFetch;
+test('rollbackAndRetry 回退失败时会恢复消息并提示错误', async () => {
+  await withMock((mock) => {
+    mock.onPost(/\/rollback$/).reply(400, { message: '回退失败啦' });
+  }, async () => {
+    const { deps, toasts, cacheCalls } = createDeps();
+    const originalMessages = [
+      { role: 'user', seq: 1, content: 'question' },
+      { role: 'assistant', seq: 2, content: 'answer', finished: true },
+    ];
+    deps.messages.value = originalMessages;
+
+    const revision = useMessageRevision(deps);
+    await revision.rollbackAndRetry(deps.messages.value[0]);
+
+    assert.deepEqual(deps.messages.value, originalMessages);
+    assert.deepEqual(cacheCalls, [['session-1', originalMessages]]);
+    assert.deepEqual(toasts, ['回退失败啦']);
   });
-
-  global.fetch = async () => ({
-    ok: false,
-    json: async () => ({ message: '回退失败啦' }),
-  });
-
-  const { deps, toasts, cacheCalls } = createDeps();
-  const originalMessages = [
-    { role: 'user', seq: 1, content: 'question' },
-    { role: 'assistant', seq: 2, content: 'answer', finished: true },
-  ];
-  deps.messages.value = originalMessages;
-
-  const revision = useMessageRevision(deps);
-  await revision.rollbackAndRetry(deps.messages.value[0]);
-
-  assert.deepEqual(deps.messages.value, originalMessages);
-  assert.deepEqual(cacheCalls, [['session-1', originalMessages]]);
-  assert.deepEqual(toasts, ['回退失败啦']);
 });
 
 test('resetEditingState 在消息编辑场景会关闭附件抽屉并重置目标', () => {

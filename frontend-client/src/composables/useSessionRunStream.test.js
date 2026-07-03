@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { nextTick, ref } from 'vue';
+import MockAdapter from 'axios-mock-adapter';
 
 import { useSessionRunStream } from './useSessionRunStream.js';
+import { httpClient } from '../api/http.js';
 
 function createAssistantMessage(overrides = {}) {
   return {
@@ -90,6 +92,14 @@ function createDeps(overrides = {}) {
   };
 
   return { deps, calls };
+}
+
+function withMock(setup, run) {
+  const mock = new MockAdapter(httpClient);
+  setup(mock);
+  return Promise.resolve()
+    .then(run)
+    .finally(() => { mock.restore(); });
 }
 
 test('ack(send) 启动失败时会结束当前 assistant 占位并标记失败', () => {
@@ -766,8 +776,6 @@ test('user_input required 收到 ack(interaction) 失败时拒绝提交并提示
 });
 
 test('user.input_required 在 WS 发送失败时降级 HTTP respond 路由', async () => {
-  const originalFetch = globalThis.fetch;
-  const fetchCalls = [];
   let capturedSubmit = null;
   const { deps } = createDeps({
     showUserInput: (_data, submit) => {
@@ -783,12 +791,15 @@ test('user.input_required 在 WS 发送失败时降级 HTTP respond 路由', asy
   deps.messages.value = [createAssistantMessage()];
   deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
-  globalThis.fetch = async (...args) => {
-    fetchCalls.push(args);
-    return { ok: true };
-  };
 
-  try {
+  await withMock((mock) => {
+    mock.onPost(/\/interactions\/[^/]+\/respond$/).reply((config) => {
+      assert.equal(config.url, '/api/agent/sessions/session-1/interactions/input-1/respond');
+      assert.equal(config.method, 'post');
+      assert.deepEqual(JSON.parse(config.data), { kind: 'user_input', value: 'session' });
+      return [200, {}];
+    });
+  }, async () => {
     const stream = useSessionRunStream(deps);
     stream.handleWSMessage({
       type: 'interaction',
@@ -798,13 +809,7 @@ test('user.input_required 在 WS 发送失败时降级 HTTP respond 路由', asy
 
     assert.equal(typeof capturedSubmit, 'function');
     await capturedSubmit('input-1', 'session');
-    assert.equal(fetchCalls.length, 1);
-    assert.equal(fetchCalls[0][0], '/api/agent/sessions/session-1/interactions/input-1/respond');
-    assert.equal(fetchCalls[0][1].method, 'POST');
-    assert.equal(fetchCalls[0][1].body, JSON.stringify({ kind: 'user_input', value: 'session' }));
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  });
 });
 
 test('连续投递 seq 不触发 gap 对账', () => {

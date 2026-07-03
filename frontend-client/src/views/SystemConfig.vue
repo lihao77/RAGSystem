@@ -1,5 +1,5 @@
 <template>
-  <PageLayout title="系统配置" subtitle="管理全局 LLM、向量存储、反思机制等系统级参数">
+  <PageLayout title="系统配置" subtitle="全局 LLM、向量与系统参数">
     <template #header-actions>
       <UiButton variant="ghost" :disabled="loading || saving" @click="handleReload">
         重新加载

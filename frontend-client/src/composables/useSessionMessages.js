@@ -1,4 +1,5 @@
 import { ref, nextTick } from 'vue';
+import { getSessionMessages } from '../api/session.js';
 
 /**
  * 会话消息加载、缓存、合并。
@@ -76,9 +77,7 @@ export function useSessionMessages(deps) {
         deps.focusInput();
         return;
       }
-      const response = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/messages?limit=500&offset=0&expand=none`);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const result = await response.json();
+      const result = await getSessionMessages(sessionId);
       const items = result.data?.items || [];
       const mapped = items
         .filter(item => {
@@ -129,9 +128,7 @@ export function useSessionMessages(deps) {
   const mergeMessageIdsFromServer = async (sessionId) => {
     if (!sessionId || deps.messages.value.length === 0) return;
     try {
-      const res = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/messages?limit=500&offset=0&expand=none`);
-      if (!res.ok) return;
-      const result = await res.json();
+      const result = await getSessionMessages(sessionId);
       const items = result.data?.items || [];
       if (items.length !== deps.messages.value.length) return;
       for (let i = 0; i < items.length; i++) {
@@ -143,7 +140,10 @@ export function useSessionMessages(deps) {
         m.seq = it.seq;
       }
       cacheMessages(sessionId, deps.messages.value);
-    } catch (_) {}
+    } catch (error) {
+      console.warn('刷新消息失败:', error.message);
+      return;
+    }
   };
 
   return {

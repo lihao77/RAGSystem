@@ -67,6 +67,7 @@
 
 <script setup>
 import { ref, computed, defineAsyncComponent, onMounted } from 'vue';
+import { getVisualization } from '../api/artifact.js';
 
 const ChartRenderer = defineAsyncComponent(() => import('./ChartRenderer.vue'));
 const MapRenderer = defineAsyncComponent(() => import('./MapRenderer.vue'));
@@ -103,13 +104,14 @@ async function fetchConfig() {
   error.value = null;
   imageError.value = false;
   try {
-    const resp = await fetch(`/api/artifacts/visualizations/${encodeURIComponent(props.artifactId)}`);
-    if (!resp.ok) {
-      if (resp.status === 404) throw new Error('可视化内容不存在或已过期');
-      if (resp.status >= 500) throw new Error('服务器暂时不可用，请稍后重试');
-      throw new Error(`请求失败 (${resp.status})`);
+    let data;
+    try {
+      data = await getVisualization(props.artifactId);
+    } catch (error) {
+      if (error.status === 404) throw new Error('可视化内容不存在或已过期');
+      if (error.status >= 500) throw new Error('服务器暂时不可用，请稍后重试');
+      throw new Error(error.message || '请求失败');
     }
-    const data = await resp.json();
     if (!data || typeof data !== 'object' || !data.viz_type) {
       throw new Error('可视化数据结构异常：缺少 viz_type 字段');
     }

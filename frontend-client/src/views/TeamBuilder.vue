@@ -1,12 +1,10 @@
 <template>
   <PageLayout
     title="Team 编排"
-    subtitle="用可视化装配的方式组合 Agent 配置方案，切换后再进入配置页继续细调。"
+    subtitle="可视化装配 Agent 配置方案"
     mobile-title="Team 编排"
     :embedded="embedded"
     :chat-return-path="chatReturnPath"
-    max-width="1480px"
-    content-padding="var(--spacing-lg)"
     mobile-content-padding="var(--spacing-sm)"
   >
     <div class="team-builder-page">
@@ -411,9 +409,6 @@ onMounted(() => { loadTeams(); });
 .form-item--wide { width: min(420px, 100%); }
 .field-label-text, .board-caption { font-size: var(--font-size-xs); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-secondary); }
 
-.form-control { width: 100%; min-height: 44px; border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-bg-secondary); color: var(--color-text-primary); padding: 0 14px; transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast); }
-.form-control:focus { outline: none; border-color: var(--color-brand-accent); box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.12); }
-
 .selection-overview { min-height: 44px; padding: 0 14px; border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-hover-overlay); }
 .selection-clear-btn { border: none; background: transparent; padding: 0; color: var(--color-brand-accent-light); font-size: var(--font-size-xs); cursor: pointer; transition: color var(--transition-fast); }
 .selection-clear-btn:hover:not(:disabled) { color: var(--color-text-primary); }
@@ -490,12 +485,10 @@ onMounted(() => { loadTeams(); });
 .team-badge { flex: 0 0 auto; white-space: nowrap; }
 .section-actions--compact { justify-content: flex-end; }
 
-@media (max-width: 1024px) {
+@media (max-width: 900px) {
   .composition-board { grid-template-columns: 1fr; }
   .board-transfer { order: 2; }
   .board-column--target { order: 3; }
-}
-@media (max-width: 900px) {
   .panel-grid, .form-grid, .form-grid--triple { grid-template-columns: 1fr; }
   .glass-card.builder-panel--split { grid-template-columns: 1fr; }
   .split-block + .split-block { border-left: none; border-top: 1px solid var(--color-border); }

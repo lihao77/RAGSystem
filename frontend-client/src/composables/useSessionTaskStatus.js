@@ -1,5 +1,6 @@
 import { ref } from 'vue';
 import { resetActiveRunState } from './useActiveRunState.js';
+import { getContextSnapshot, getSessionTaskStatus } from '../api/session.js';
 
 /**
  * 会话任务状态、可观测性管理。
@@ -48,9 +49,7 @@ export function useSessionTaskStatus(deps) {
   const loadContextSnapshot = async (sessionId) => {
     if (!sessionId) return;
     try {
-      const res = await fetch(`/api/agent/context-snapshot?session_id=${encodeURIComponent(sessionId)}`);
-      if (!res.ok) return;
-      const json = await res.json();
+      const json = await getContextSnapshot(sessionId);
       const tokenStats = json.data?.token_stats;
       if (
         tokenStats &&
@@ -62,15 +61,15 @@ export function useSessionTaskStatus(deps) {
           max: tokenStats.budget_tokens,
         };
       }
-    } catch (_) {}
+    } catch (error) {
+      console.warn('loadContextSnapshot 失败:', error.message);
+    }
   };
 
   const refreshSessionExecutionState = async (sessionId) => {
     if (!sessionId) return;
     try {
-      const resp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`);
-      if (!resp.ok) return;
-      const result = await resp.json();
+      const result = await getSessionTaskStatus(sessionId);
       if (deps.currentSessionId.value !== sessionId) return;
       if (result.data?.task_info) {
         sessionTaskInfo.value = result.data.task_info;
@@ -78,8 +77,8 @@ export function useSessionTaskStatus(deps) {
       if (result.data?.observability) {
         mergeExecutionObservability(result.data.observability);
       }
-    } catch (_) {
-      // 状态同步失败不影响主流程
+    } catch (error) {
+      console.warn('refreshSessionExecutionState 状态同步失败:', error.message);
     }
   };
 
@@ -87,9 +86,7 @@ export function useSessionTaskStatus(deps) {
   const checkSessionTaskStatus = async (sessionId) => {
     if (!sessionId) return;
     try {
-      const resp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`);
-      if (!resp.ok) return;
-      const result = await resp.json();
+      const result = await getSessionTaskStatus(sessionId);
       if (deps.currentSessionId.value !== sessionId) return;
       const hasRunningTask = Boolean(result.data?.has_running_task);
       const hasActiveSystemCommand = Boolean(result.data?.has_active_system_command);
@@ -129,8 +126,8 @@ export function useSessionTaskStatus(deps) {
         activeRun.assistantMsgIndex = deps.messages.value.length - 1;
         deps.scheduleCommandFallback(sessionId, activeRun.assistantMsgIndex, 120000);
       }
-    } catch (e) {
-      // 查询失败不影响主流程
+    } catch (error) {
+      console.warn('checkSessionTaskStatus 查询失败:', error.message);
     }
   };
 

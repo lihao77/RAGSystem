@@ -2,22 +2,14 @@
  * Agent 配置 API 模块
  */
 
+import { http } from './http.js';
+
 const API_BASE = '/api/agent-config';
 
 
 export async function getTeams() {
   try {
-    const response = await fetch(`${API_BASE}/teams`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to fetch teams');
-    }
+    const result = await http.get(`${API_BASE}/teams`);
     return result.data || { active_team: '', teams: [] };
   } catch (error) {
     console.error('Error fetching teams:', error);
@@ -27,18 +19,7 @@ export async function getTeams() {
 
 export async function createTeam(payload) {
   try {
-    const response = await fetch(`${API_BASE}/teams`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to create team');
-    }
+    const result = await http.post(`${API_BASE}/teams`, payload);
     return result.data || result;
   } catch (error) {
     console.error('Error creating team:', error);
@@ -48,14 +29,7 @@ export async function createTeam(payload) {
 
 export async function activateTeam(teamName) {
   try {
-    const response = await fetch(`${API_BASE}/teams/${encodeURIComponent(teamName)}/activate`, {
-      method: 'POST'
-    });
-
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to activate team');
-    }
+    const result = await http.post(`${API_BASE}/teams/${encodeURIComponent(teamName)}/activate`);
     return result.data || result;
   } catch (error) {
     console.error('Error activating team:', error);
@@ -65,14 +39,7 @@ export async function activateTeam(teamName) {
 
 export async function deleteTeam(teamName) {
   try {
-    const response = await fetch(`${API_BASE}/teams/${encodeURIComponent(teamName)}`, {
-      method: 'DELETE'
-    });
-
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to delete team');
-    }
+    const result = await http.del(`${API_BASE}/teams/${encodeURIComponent(teamName)}`);
     return result.data || result;
   } catch (error) {
     console.error('Error deleting team:', error);
@@ -82,18 +49,9 @@ export async function deleteTeam(teamName) {
 
 export async function renameTeam(teamName, newTeamName) {
   try {
-    const response = await fetch(`${API_BASE}/teams/${encodeURIComponent(teamName)}/rename`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ new_team_name: newTeamName })
+    const result = await http.patch(`${API_BASE}/teams/${encodeURIComponent(teamName)}/rename`, {
+      new_team_name: newTeamName
     });
-
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to rename team');
-    }
     return result.data || result;
   } catch (error) {
     console.error('Error renaming team:', error);
@@ -103,21 +61,10 @@ export async function renameTeam(teamName, newTeamName) {
 
 export async function copyAgentsToTeam(teamName, sourceTeam, agentNames) {
   try {
-    const response = await fetch(`${API_BASE}/teams/${encodeURIComponent(teamName)}/copy-agents`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        source_team: sourceTeam,
-        agent_names: agentNames
-      })
+    const result = await http.post(`${API_BASE}/teams/${encodeURIComponent(teamName)}/copy-agents`, {
+      source_team: sourceTeam,
+      agent_names: agentNames
     });
-
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to copy agents to team');
-    }
     return result.data || result;
   } catch (error) {
     console.error('Error copying agents to team:', error);
@@ -127,13 +74,7 @@ export async function copyAgentsToTeam(teamName, sourceTeam, agentNames) {
 
 export async function resetDefaultTeam() {
   try {
-    const response = await fetch(`${API_BASE}/teams/default/reset`, {
-      method: 'POST'
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to reset default team');
-    }
+    const result = await http.post(`${API_BASE}/teams/default/reset`);
     return result.data || result;
   } catch (error) {
     console.error('Error resetting default team:', error);
@@ -147,19 +88,7 @@ export async function resetDefaultTeam() {
  */
 export async function getAllAgentConfigs() {
   try {
-    const response = await fetch(`${API_BASE}/configs`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to fetch agent configs');
-    }
-
+    const result = await http.get(`${API_BASE}/configs`);
     return result.data || result;
   } catch (error) {
     console.error('Error fetching agent configs:', error);
@@ -174,19 +103,7 @@ export async function getAllAgentConfigs() {
  */
 export async function getAgentConfig(agentName) {
   try {
-    const response = await fetch(`${API_BASE}/configs/${encodeURIComponent(agentName)}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to fetch agent config');
-    }
-
+    const result = await http.get(`${API_BASE}/configs/${encodeURIComponent(agentName)}`);
     return result.data || result;
   } catch (error) {
     console.error('Error fetching agent config:', error);
@@ -202,20 +119,7 @@ export async function getAgentConfig(agentName) {
  */
 export async function updateAgentConfig(agentName, payload) {
   try {
-    const response = await fetch(`${API_BASE}/configs/${encodeURIComponent(agentName)}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to update agent config');
-    }
-
+    const result = await http.put(`${API_BASE}/configs/${encodeURIComponent(agentName)}`, payload);
     return result.data || result;
   } catch (error) {
     console.error('Error updating agent config:', error);
@@ -229,13 +133,7 @@ export async function updateAgentConfig(agentName, payload) {
  */
 export async function deleteAgent(agentName) {
   try {
-    const response = await fetch(`/api/agent/agents/delete/${encodeURIComponent(agentName)}`, {
-      method: 'DELETE'
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.detail || result.message || 'Failed to delete agent');
-    }
+    const result = await http.del(`/api/agent/agents/delete/${encodeURIComponent(agentName)}`);
     return result;
   } catch (error) {
     console.error('Error deleting agent:', error);
@@ -249,19 +147,7 @@ export async function deleteAgent(agentName) {
  */
 export async function getAvailableTools() {
   try {
-    const response = await fetch(`${API_BASE}/tools`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to fetch available tools');
-    }
-
+    const result = await http.get(`${API_BASE}/tools`);
     return result.data || [];
   } catch (error) {
     console.error('Error fetching available tools:', error);
@@ -276,24 +162,23 @@ export async function getAvailableTools() {
 export async function getAvailableSkills(workspaceRoot = '') {
   try {
     const query = workspaceRoot ? `?workspace_root=${encodeURIComponent(workspaceRoot)}` : '';
-    const response = await fetch(`${API_BASE}/skills${query}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to fetch available skills');
-    }
-
+    const result = await http.get(`${API_BASE}/skills${query}`);
     return result.data || [];
   } catch (error) {
     console.error('Error fetching available skills:', error);
     throw error;
   }
+}
+
+/**
+ * 导出 agent 配置为 yaml（blob 下载）。返回 { blob, headers }，调用方触发下载。
+ */
+export async function exportAgentConfig(agentName, { format = 'yaml' } = {}) {
+  const resp = await http.getRaw(
+    `${API_BASE}/configs/${encodeURIComponent(agentName)}/export?format=${encodeURIComponent(format)}`,
+    { responseType: 'blob' },
+  );
+  return { blob: resp.data, headers: resp.headers };
 }
 
 /**
@@ -303,15 +188,7 @@ export async function getAvailableSkills(workspaceRoot = '') {
  */
 export async function createAgent(payload) {
   try {
-    const response = await fetch('/api/agent/agents/create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.detail || result.message || 'Failed to create agent');
-    }
+    const result = await http.post('/api/agent/agents/create', payload);
     return result.data || result;
   } catch (error) {
     console.error('Error creating agent:', error);
@@ -325,19 +202,7 @@ export async function createAgent(payload) {
  */
 export async function getMemoryConfigMetadata() {
   try {
-    const response = await fetch(`${API_BASE}/memory-metadata`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to fetch memory config metadata');
-    }
-
+    const result = await http.get(`${API_BASE}/memory-metadata`);
     return result.data || { scopes: [] };
   } catch (error) {
     console.error('Error fetching memory config metadata:', error);
@@ -351,19 +216,7 @@ export async function getMemoryConfigMetadata() {
  */
 export async function getAvailableMCPServers() {
   try {
-    const response = await fetch(`${API_BASE}/mcp-servers`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.message || 'Failed to fetch available MCP servers');
-    }
-
+    const result = await http.get(`${API_BASE}/mcp-servers`);
     return result.data || [];
   } catch (error) {
     console.error('Error fetching available MCP servers:', error);

@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ref } from 'vue';
+import MockAdapter from 'axios-mock-adapter';
 
 import { useSessionFilesAttachments } from './useSessionFilesAttachments.js';
+import { httpClient } from '../api/http.js';
 
 function createDeps(overrides = {}) {
   const sessionFilesDrawerVisible = ref(false);
@@ -53,46 +55,37 @@ test('handleSessionFileSelect 只加入前端待发送附件，不立即创建 s
 test('materializeAttachmentsForSend 会批量上传本地附件并保持顺序', async () => {
   const originalCreateObjectURL = URL.createObjectURL;
   const originalRevokeObjectURL = URL.revokeObjectURL;
-  const originalFetch = global.fetch;
   URL.createObjectURL = (file) => `blob:${file.name}`;
   URL.revokeObjectURL = () => {};
 
-  global.fetch = async (url, options = {}) => {
-    if (String(url).includes('/files/upload')) {
-      const entries = Array.from(options.body.getAll('files'));
-      assert.equal(entries.length, 2);
-      return {
-        ok: true,
-        json: async () => ({
-          files: [
-            { id: 'file-1', original_name: 'a.png', stored_name: 'stored-a.png', mime: 'image/png', size: 1 },
-            { id: 'file-2', original_name: 'b.txt', stored_name: 'stored-b.txt', mime: 'text/plain', size: 1 },
-          ],
-        }),
-      };
-    }
-    if (String(url).match(/\/files$/)) {
-      return {
-        ok: true,
-        json: async () => ({ files: [] }),
-      };
-    }
-    throw new Error(`unexpected fetch ${url}`);
-  };
+  const mock = new MockAdapter(httpClient);
+  mock.onPost(/\/files\/upload$/).reply((config) => {
+    const entries = config.data.getAll('files');
+    assert.equal(entries.length, 2);
+    return [200, {
+      files: [
+        { id: 'file-1', original_name: 'a.png', stored_name: 'stored-a.png', mime: 'image/png', size: 1 },
+        { id: 'file-2', original_name: 'b.txt', stored_name: 'stored-b.txt', mime: 'text/plain', size: 1 },
+      ],
+    }];
+  });
+  mock.onGet(/\/files$/).reply([200, { files: [] }]);
 
-  const { deps } = createDeps();
-  const state = useSessionFilesAttachments(deps);
-  await state.handleSessionFileSelect([
-    new File(['a'], 'a.png', { type: 'image/png' }),
-    new File(['b'], 'b.txt', { type: 'text/plain' }),
-  ]);
+  try {
+    const { deps } = createDeps();
+    const state = useSessionFilesAttachments(deps);
+    await state.handleSessionFileSelect([
+      new File(['a'], 'a.png', { type: 'image/png' }),
+      new File(['b'], 'b.txt', { type: 'text/plain' }),
+    ]);
 
-  const result = await state.materializeAttachmentsForSend(state.pendingAttachments.value.slice(), 'session-1');
+    const result = await state.materializeAttachmentsForSend(state.pendingAttachments.value.slice(), 'session-1');
 
-  assert.deepEqual(result.map(item => item.file_id), ['file-1', 'file-2']);
-  assert.deepEqual(result.map(item => item.source), ['session', 'session']);
-
-  global.fetch = originalFetch;
-  URL.createObjectURL = originalCreateObjectURL;
-  URL.revokeObjectURL = originalRevokeObjectURL;
+    assert.deepEqual(result.map(item => item.file_id), ['file-1', 'file-2']);
+    assert.deepEqual(result.map(item => item.source), ['session', 'session']);
+  } finally {
+    await mock.restore();
+    URL.createObjectURL = originalCreateObjectURL;
+    URL.revokeObjectURL = originalRevokeObjectURL;
+  }
 });

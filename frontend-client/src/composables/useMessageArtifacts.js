@@ -1,4 +1,5 @@
 import { nextTick, onUnmounted, ref } from 'vue';
+import { getVisualization } from '../api/artifact.js';
 
 const VIZ_PLACEHOLDER_RE = /\[viz:(viz_\w+)\]/g;
 
@@ -68,10 +69,14 @@ export function useMessageArtifacts(deps) {
 
     for (let i = matches.length - 1; i >= 0; i -= 1) {
       const artifactId = matches[i][1];
+      let vizData;
       try {
-        const resp = await fetch(`/api/artifacts/visualizations/${encodeURIComponent(artifactId)}`);
-        if (!resp.ok) continue;
-        const vizData = await resp.json();
+        vizData = await getVisualization(artifactId);
+      } catch (error) {
+        console.warn('加载可视化失败:', error.message);
+        continue;
+      }
+      try {
         if (vizData.viz_type !== 'map') continue;
 
         const mapData = vizData.config;

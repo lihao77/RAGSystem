@@ -122,6 +122,7 @@ import { RouterView, useRoute, useRouter } from 'vue-router';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 import { getTeams } from '../api/agentConfig';
+import { listSessions, deleteSession as deleteSessionApi } from '../api/session';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconNewConversation, IconTrash } from '../components/icons';
 import { sidebarAdminNavItem, managementNavItems } from '../navigation/adminNavigation';
 import CommandPalette from '../components/CommandPalette.vue';
@@ -350,13 +351,7 @@ const loadRecentSessions = async (reset = false) => {
   }
   historyError.value = '';
   try {
-    const params = new URLSearchParams({
-      limit: String(20),
-      offset: String(historyOffset.value)
-    });
-    const response = await fetch(`/api/agent/sessions?${params.toString()}`);
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    const result = await response.json();
+    const result = await listSessions({ limit: 20, offset: historyOffset.value });
     const payload = result.data || {};
     const items = payload.items || [];
     history.value = reset ? items : history.value.concat(items);
@@ -442,13 +437,7 @@ const confirmDeleteSession = async (item) => {
 
 const deleteSession = async (sessionId) => {
   try {
-    const response = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}`, {
-      method: 'DELETE'
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.message || '删除失败');
-    }
+    await deleteSessionApi(sessionId);
     history.value = history.value.filter(item => item.session_id !== sessionId);
     if (activeSessionId.value === sessionId) {
       await startNewChat();

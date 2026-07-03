@@ -1,5 +1,6 @@
 import { nextTick, ref } from 'vue';
 import { createAssistantMessage } from './useMessageExecution.js';
+import { getSessionTaskStatus, startStream, stopStream } from '../api/session.js';
 
 const resetActiveRunForSend = (activeRun, assistantMsgIndex) => {
   activeRun.active = true;
@@ -112,11 +113,7 @@ export function useSessionSend(deps) {
       ws.send(JSON.stringify({ type: 'abort', session_id: deps.currentSessionId.value, payload: { scope: 'run' } }));
     } else {
       try {
-        await fetch('/api/agent/stream/stop', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_id: deps.currentSessionId.value }),
-        });
+        await stopStream(deps.currentSessionId.value);
       } catch (error) {
         console.warn('停止请求发送失败:', error);
       }
@@ -192,34 +189,31 @@ export function useSessionSend(deps) {
     }
 
     try {
-      const statusResp = await fetch(`/api/agent/sessions/${encodeURIComponent(sessionId)}/task-status`);
-      if (statusResp.ok) {
-        const result = await statusResp.json();
-        deps.sessionTaskInfo.value = result.data?.task_info || null;
-        if (result.data?.observability) {
-          deps.mergeExecutionObservability(result.data.observability);
-        }
-        if (result.data?.has_running_task && !isRunningFollowup) {
-          if (sessionId && replaceFromIndex == null && !startsDraftSession) {
-            isRunningFollowup = true;
-            userMetadata = createFollowupMetadata(requestId, deps.activeRun, result.data?.task_info?.run_id || null);
-          } else {
-            deps.showToast('该会话正在执行任务，请等待完成或先停止', 'warning');
-            if (startsDraftSession) {
-              const currentMsg = deps.messages.value[assistantMsgIndex];
-              if (currentMsg) {
-                currentMsg.content += '\n\n[System Error: 该会话正在执行任务，请等待完成或先停止]';
-                currentMsg.finished = true;
-              }
-              resetActiveRunAfterSendError(deps.activeRun);
-              deps.isLoading.value = false;
+      const result = await getSessionTaskStatus(sessionId);
+      deps.sessionTaskInfo.value = result.data?.task_info || null;
+      if (result.data?.observability) {
+        deps.mergeExecutionObservability(result.data.observability);
+      }
+      if (result.data?.has_running_task && !isRunningFollowup) {
+        if (sessionId && replaceFromIndex == null && !startsDraftSession) {
+          isRunningFollowup = true;
+          userMetadata = createFollowupMetadata(requestId, deps.activeRun, result.data?.task_info?.run_id || null);
+        } else {
+          deps.showToast('该会话正在执行任务，请等待完成或先停止', 'warning');
+          if (startsDraftSession) {
+            const currentMsg = deps.messages.value[assistantMsgIndex];
+            if (currentMsg) {
+              currentMsg.content += '\n\n[System Error: 该会话正在执行任务，请等待完成或先停止]';
+              currentMsg.finished = true;
             }
-            return;
+            resetActiveRunAfterSendError(deps.activeRun);
+            deps.isLoading.value = false;
           }
+          return;
         }
       }
-    } catch (_) {
-      // 查询失败不阻塞发送
+    } catch (error) {
+      console.warn('发送前查询任务状态失败:', error.message);
     }
 
     try {
@@ -327,15 +321,10 @@ export function useSessionSend(deps) {
         return;
       }
 
-      const response = await fetch('/api/agent/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-request-id': requestId },
-        body: JSON.stringify(body),
-      });
+      const streamResp = await startStream(body, requestId);
+      const result = streamResp.data || {};
 
-      const result = (await response.json()).data || {};
-
-      if (!response.ok || !result.started) {
+      if (!result.started) {
         const errorMsg = result.error || '启动执行失败';
         if (result.kind === 'command') {
           deps.scheduleCommandFallback(sessionId, assistantMsgIndex);
