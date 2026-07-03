@@ -106,7 +106,7 @@ function normalizeSessionSendDeps(deps) {
 export function useSessionSend(deps) {
   deps = normalizeSessionSendDeps(deps);
   const sessionRunStore = useSessionRunStore();
-  const { currentSessionId, messages, isLoading } = storeToRefs(sessionRunStore);
+  const { currentSessionId, messages, isLoading, sessionTaskInfo, contextUsage } = storeToRefs(sessionRunStore);
   const activeRun = sessionRunStore.activeRun;
   const lastFailedSendContent = ref('');
 
@@ -123,8 +123,8 @@ export function useSessionSend(deps) {
         console.warn('停止请求发送失败:', error);
       }
     }
-    deps.sessionTaskInfo.value = {
-      ...(deps.sessionTaskInfo.value || {}),
+    sessionTaskInfo.value = {
+      ...(sessionTaskInfo.value || {}),
       status: 'cancel_requested',
     };
     // 不在此处乐观结束 run / 显示"已停止"tag：等 WS 回传 run.end(interrupted) 确认打断成功后再显示
@@ -169,7 +169,7 @@ export function useSessionSend(deps) {
       resetActiveRunForSend(activeRun, assistantMsgIndex);
       activeRun.phase = 'creating_session';
       isLoading.value = true;
-      deps.contextUsage.value = { used: 0, max: 0 };
+      contextUsage.value = { used: 0, max: 0 };
     }
 
     try {
@@ -195,7 +195,7 @@ export function useSessionSend(deps) {
 
     try {
       const result = await getSessionTaskStatus(sessionId);
-      deps.sessionTaskInfo.value = result.data?.task_info || null;
+      sessionTaskInfo.value = result.data?.task_info || null;
       if (result.data?.observability) {
         deps.mergeExecutionObservability(result.data.observability);
       }
@@ -291,7 +291,7 @@ export function useSessionSend(deps) {
     }
     if (!startsDraftSession && !isRunningFollowup) {
       isLoading.value = true;
-      deps.contextUsage.value = { used: 0, max: 0 };
+      contextUsage.value = { used: 0, max: 0 };
     }
 
     try {
@@ -368,7 +368,7 @@ export function useSessionSend(deps) {
           currentMsg.content += `\n\n[System Error: ${error.message || 'Request failed'}]`;
           currentMsg.finished = true;
         }
-        deps.sessionTaskInfo.value = { ...(deps.sessionTaskInfo.value || {}), status: 'failed' };
+        sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'failed' };
         resetActiveRunAfterSendError(activeRun);
         isLoading.value = false;
       }
