@@ -193,7 +193,6 @@ import { ref, computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, 
 import { useRoute } from 'vue-router';
 import { renderMarkdown } from '../utils/markdown';
 import { shouldRefreshSessionMessagesAfterResume, shouldRunResumeRecoveryWatchdog } from '../utils/sessionSocket';
-import { useActiveRunState } from '../composables/useActiveRunState';
 import { useChatSessionController } from '../composables/useChatSessionController';
 import { useSessionConnection } from '../composables/useSessionConnection';
 import { useSessionTaskStatus } from '../composables/useSessionTaskStatus';
@@ -283,7 +282,7 @@ function openCtxDrawer() {
   ctxDrawerVisible.value = true;
 }
 
-const { activeRun: _activeRun, resetActiveRun } = useActiveRunState();
+const { activeRun: _activeRun, resetActiveRun } = sessionRunStore;
 
 // ── Composables ─────────────────────────────────────────────────────────
 // 注意：deps 中的函数通过闭包引用，在调用时（非初始化时）解析，
@@ -347,7 +346,6 @@ const {
 } = useSessionTaskStatus({
   shouldRefreshFn: shouldRefreshSessionMessagesAfterResume,
   shouldRunWatchdogFn: shouldRunResumeRecoveryWatchdog,
-  getActiveRun: () => _activeRun,
   invalidateActiveStream: () => invalidateActiveStream(),
   loadSessionMessages,
   deleteMessageCache,
@@ -414,7 +412,6 @@ const {
   clearSessionResumeRecovery, scheduleSessionResumeRecovery,
   connectSessionWS, disconnectSessionWS, getWS, resetSessionEventCursor,
 } = useSessionConnection({
-  activeRun: _activeRun,
   onMessage: (...a) => handleWSMessage(...a),
   onRunFinalized: (sid) => _finalizeActiveRun(sid),
   resetApprovalState: () => resetApprovalState(),
@@ -502,7 +499,6 @@ const {
   resetStreamSessionState,
 } = useSessionRunStream({
   state: {
-    activeRun: _activeRun,
     llmRetryState,
   },
   messageStore: {
@@ -611,7 +607,6 @@ const {
 } = useSessionSend({
   state: {
     inputMessage,
-    activeRun: _activeRun,
   },
   composer: {
     pendingAttachments,

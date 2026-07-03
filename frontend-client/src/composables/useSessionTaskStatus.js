@@ -1,5 +1,5 @@
 import { storeToRefs } from 'pinia';
-import { resetActiveRunState } from './useActiveRunState.js';
+import { resetActiveRunState } from '../stores/session-run.js';
 import { getContextSnapshot, getSessionTaskStatus } from '../api/session.js';
 import { useSessionRunStore } from '../stores/session-run.js';
 
@@ -13,7 +13,6 @@ import { useSessionRunStore } from '../stores/session-run.js';
  * @param {Object} deps
  * @param {Function} deps.shouldRefreshFn - shouldRefreshSessionMessagesAfterResume
  * @param {Function} deps.shouldRunWatchdogFn - shouldRunResumeRecoveryWatchdog
- * @param {Function} deps.getActiveRun - () => activeRun reactive
  * @param {Function} deps.invalidateActiveStream
  * @param {Function} deps.loadSessionMessages
  * @param {Function} deps.createAssistantMessage
@@ -31,6 +30,7 @@ export function useSessionTaskStatus(deps) {
     messages,
     isLoading,
   } = storeToRefs(sessionRunStore);
+  const activeRun = sessionRunStore.activeRun;
 
   const buildObservabilityFromTaskInfo = (taskInfo) => {
     if (!taskInfo) return null;
@@ -98,7 +98,6 @@ export function useSessionTaskStatus(deps) {
       if (currentSessionId.value !== sessionId) return;
       const hasRunningTask = Boolean(result.data?.has_running_task);
       const hasActiveSystemCommand = Boolean(result.data?.has_active_system_command);
-      const activeRun = deps.getActiveRun();
       const needsMessageRefresh = !hasRunningTask && deps.shouldRefreshFn({
         hasRunningTask,
         activeRun: activeRun.active,

@@ -7,7 +7,7 @@ import {
   getDurableEventSeq,
   shouldRefreshSessionMessagesAfterResume,
 } from '../utils/sessionSocket.js';
-import { resetActiveRunState } from './useActiveRunState.js';
+import { resetActiveRunState } from '../stores/session-run.js';
 import { getHostTool, getHostToolDeclarations } from '../utils/hostTools.js';
 import { getSessionTaskStatus } from '../api/session.js';
 import { useSessionRunStore } from '../stores/session-run.js';
@@ -60,7 +60,7 @@ const handleDelegateCall = async (ws, event, sessionId) => {
  *
  * @param {Object} deps
  * currentSessionId / messages / isLoading / isCompressing 取自 useSessionRunStore 单源
- * @param {import('vue').Reactive} deps.activeRun
+ * @param {import('vue').Reactive} activeRun
  * @param {Function} deps.onMessage - (event, sessionId) => void
  * @param {Function} deps.onRunFinalized - (sessionId) => void
  * @param {Function} deps.resetApprovalState
@@ -72,7 +72,9 @@ const handleDelegateCall = async (ws, event, sessionId) => {
  * @param {Function} deps.scrollToBottom
  */
 export function useSessionConnection(deps) {
-  const { currentSessionId, messages, isLoading } = storeToRefs(useSessionRunStore());
+  const sessionRunStore = useSessionRunStore();
+  const { currentSessionId, messages, isLoading } = storeToRefs(sessionRunStore);
+  const activeRun = sessionRunStore.activeRun;
   let _ws = null;
   let _wsSessionId = null;
   let _wsReconnectTimer = null;
@@ -84,7 +86,7 @@ export function useSessionConnection(deps) {
   const _lastEventSeqBySession = new Map();
 
   const invalidateActiveStream = () => {
-    resetActiveRunState(deps.activeRun);
+    resetActiveRunState(activeRun);
   };
 
   const scheduleCommandFallback = (sessionId, msgIndex, timeout = 10000) => {
@@ -98,7 +100,7 @@ export function useSessionConnection(deps) {
         msg.metadata = { ...msg.metadata, type: 'command_result', success: false };
         msg.finished = true;
       }
-      resetActiveRunState(deps.activeRun);
+      resetActiveRunState(activeRun);
       isLoading.value = false;
       deps.deleteMessageCache(sessionId);
       deps.loadSessionMessages(sessionId, { silent: true });
@@ -128,7 +130,7 @@ export function useSessionConnection(deps) {
     _sessionResumeRecoveryTimer = window.setTimeout(async () => {
       _sessionResumeRecoveryTimer = null;
       if (currentSessionId.value !== sessionId) return;
-      if (deps.activeRun.isReplaying || deps.activeRun.lastSeenSeq > 0) return;
+      if (activeRun.isReplaying || activeRun.lastSeenSeq > 0) return;
       const abort = new AbortController();
       _sessionResumeRecoveryAbort = abort;
       try {
@@ -137,7 +139,7 @@ export function useSessionConnection(deps) {
         if (result.data?.has_running_task) return;
         if (shouldRefreshSessionMessagesAfterResume({
           hasRunningTask: false,
-          activeRun: deps.activeRun.active,
+          activeRun: activeRun.active,
           messages: messages.value,
         })) {
           invalidateActiveStream();
@@ -242,7 +244,7 @@ export function useSessionConnection(deps) {
       if (currentSessionId.value === sessionId) {
         if (_wsReconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
           console.warn(`[WS] 达到最大重连次数 (${MAX_RECONNECT_ATTEMPTS})，放弃重连`);
-          if (deps.activeRun.active) {
+          if (activeRun.active) {
             finalizeActiveRun(sessionId);
           }
           return;

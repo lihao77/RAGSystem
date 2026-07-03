@@ -105,7 +105,9 @@ function normalizeSessionSendDeps(deps) {
  */
 export function useSessionSend(deps) {
   deps = normalizeSessionSendDeps(deps);
-  const { currentSessionId, messages, isLoading } = storeToRefs(useSessionRunStore());
+  const sessionRunStore = useSessionRunStore();
+  const { currentSessionId, messages, isLoading } = storeToRefs(sessionRunStore);
+  const activeRun = sessionRunStore.activeRun;
   const lastFailedSendContent = ref('');
 
   const handleStop = async () => {
@@ -137,7 +139,7 @@ export function useSessionSend(deps) {
     const clearEditing = payload?.clearEditing === true;
     let isRunningFollowup = Boolean(
       currentSessionId.value
-      && deps.activeRun.active
+      && activeRun.active
       && replaceFromIndex == null
     );
     if ((!content && !draftAttachments.length) || (isLoading.value && !isRunningFollowup)) return;
@@ -149,7 +151,7 @@ export function useSessionSend(deps) {
     const startsDraftSession = !currentSessionId.value && replaceFromIndex == null;
     const requestId = createRequestId();
     let userMetadata = isRunningFollowup
-      ? createFollowupMetadata(requestId, deps.activeRun)
+      ? createFollowupMetadata(requestId, activeRun)
       : createAgentStreamMetadata(requestId);
     let sessionId = currentSessionId.value;
     let assistantMsgIndex = -1;
@@ -164,8 +166,8 @@ export function useSessionSend(deps) {
       deps.stickToBottom();
 
       assistantMsgIndex = messages.value.push(createAssistantMessage()) - 1;
-      resetActiveRunForSend(deps.activeRun, assistantMsgIndex);
-      deps.activeRun.phase = 'creating_session';
+      resetActiveRunForSend(activeRun, assistantMsgIndex);
+      activeRun.phase = 'creating_session';
       isLoading.value = true;
       deps.contextUsage.value = { used: 0, max: 0 };
     }
@@ -180,15 +182,15 @@ export function useSessionSend(deps) {
           currentMsg.content += `\n\n[System Error: ${error.message || '创建会话失败'}]`;
           currentMsg.finished = true;
         }
-        resetActiveRunAfterSendError(deps.activeRun);
+        resetActiveRunAfterSendError(activeRun);
         isLoading.value = false;
       }
       deps.showToast('会话创建失败');
       return;
     }
 
-    if (startsDraftSession && deps.activeRun.active) {
-      deps.activeRun.phase = draftAttachments.length ? 'preparing_attachments' : 'starting_agent';
+    if (startsDraftSession && activeRun.active) {
+      activeRun.phase = draftAttachments.length ? 'preparing_attachments' : 'starting_agent';
     }
 
     try {
@@ -200,7 +202,7 @@ export function useSessionSend(deps) {
       if (result.data?.has_running_task && !isRunningFollowup) {
         if (sessionId && replaceFromIndex == null && !startsDraftSession) {
           isRunningFollowup = true;
-          userMetadata = createFollowupMetadata(requestId, deps.activeRun, result.data?.task_info?.run_id || null);
+          userMetadata = createFollowupMetadata(requestId, activeRun, result.data?.task_info?.run_id || null);
         } else {
           deps.showToast('该会话正在执行任务，请等待完成或先停止', 'warning');
           if (startsDraftSession) {
@@ -209,7 +211,7 @@ export function useSessionSend(deps) {
               currentMsg.content += '\n\n[System Error: 该会话正在执行任务，请等待完成或先停止]';
               currentMsg.finished = true;
             }
-            resetActiveRunAfterSendError(deps.activeRun);
+            resetActiveRunAfterSendError(activeRun);
             isLoading.value = false;
           }
           return;
@@ -230,15 +232,15 @@ export function useSessionSend(deps) {
           currentMsg.content += `\n\n[System Error: ${error.message || '附件准备失败'}]`;
           currentMsg.finished = true;
         }
-        resetActiveRunAfterSendError(deps.activeRun);
+        resetActiveRunAfterSendError(activeRun);
         isLoading.value = false;
       }
       deps.showToast(error.message || '附件准备失败');
       return;
     }
 
-    if (startsDraftSession && deps.activeRun.active) {
-      deps.activeRun.phase = 'starting_agent';
+    if (startsDraftSession && activeRun.active) {
+      activeRun.phase = 'starting_agent';
     }
 
     if (replaceFromIndex != null) {
@@ -259,13 +261,13 @@ export function useSessionSend(deps) {
       deps.cacheMessages(sessionId, messages.value);
     } else if (isRunningFollowup) {
       const followupMsg = createUserMessage(content, [], userMetadata);
-      const insertIndex = deps.activeRun.assistantMsgIndex >= 0
-        ? Math.min(deps.activeRun.assistantMsgIndex, messages.value.length)
+      const insertIndex = activeRun.assistantMsgIndex >= 0
+        ? Math.min(activeRun.assistantMsgIndex, messages.value.length)
         : messages.value.length;
       messages.value.splice(insertIndex, 0, followupMsg);
       followupMsgIndex = insertIndex;
-      if (deps.activeRun.assistantMsgIndex >= insertIndex) {
-        deps.activeRun.assistantMsgIndex += 1;
+      if (activeRun.assistantMsgIndex >= insertIndex) {
+        activeRun.assistantMsgIndex += 1;
       }
       deps.inputMessage.value = '';
       deps.clearComposerAttachments();
@@ -281,7 +283,7 @@ export function useSessionSend(deps) {
 
     if (!startsDraftSession && !isRunningFollowup) {
       assistantMsgIndex = messages.value.push(createAssistantMessage()) - 1;
-      resetActiveRunForSend(deps.activeRun, assistantMsgIndex);
+      resetActiveRunForSend(activeRun, assistantMsgIndex);
     }
 
     if (!isRunningFollowup) {
@@ -337,10 +339,10 @@ export function useSessionSend(deps) {
       }
 
       if (result.run_id) {
-        deps.activeRun.runId = result.run_id;
+        activeRun.runId = result.run_id;
       }
       if (!isRunningFollowup) {
-        deps.activeRun.phase = 'llm_waiting_first_token';
+        activeRun.phase = 'llm_waiting_first_token';
       }
 
       if (result.kind === 'command') {
@@ -367,7 +369,7 @@ export function useSessionSend(deps) {
           currentMsg.finished = true;
         }
         deps.sessionTaskInfo.value = { ...(deps.sessionTaskInfo.value || {}), status: 'failed' };
-        resetActiveRunAfterSendError(deps.activeRun);
+        resetActiveRunAfterSendError(activeRun);
         isLoading.value = false;
       }
       deps.showToast('消息发送失败', async () => {

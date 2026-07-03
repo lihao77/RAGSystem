@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { nextTick, reactive, ref } from 'vue';
 
-import { createActiveRunState } from './useActiveRunState.js';
+import { createActiveRunState } from '../stores/session-run.js';
 import { useWorkPanelSelection } from './useWorkPanelSelection.js';
 
 function createMessage(id, overrides = {}) {

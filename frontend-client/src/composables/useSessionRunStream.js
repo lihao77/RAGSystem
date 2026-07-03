@@ -44,6 +44,7 @@ export function useSessionRunStream(deps) {
   const startupPhases = new Set(['creating_session', 'preparing_attachments', 'starting_agent']);
 
   deps = normalizeSessionRunStreamDeps(deps);
+  const sessionRunStore = useSessionRunStore();
   const {
     messages,
     currentSessionId,
@@ -51,7 +52,8 @@ export function useSessionRunStream(deps) {
     isCompressing,
     contextUsage,
     sessionTaskInfo,
-  } = storeToRefs(useSessionRunStore());
+  } = storeToRefs(sessionRunStore);
+  const activeRun = sessionRunStore.activeRun;
   const userInput = useUserInputSubmission({ getWS: () => deps.getWS?.() });
 
   // seq gap 标记：run 期间发生过事件丢失，run 结束后做一次轻量对账
@@ -111,7 +113,7 @@ export function useSessionRunStream(deps) {
   };
 
   const resetActiveRunRuntime = () => {
-    Object.assign(deps.activeRun, {
+    Object.assign(activeRun, {
       phase: 'idle',
       runStartedAt: null,
       firstTokenAt: null,
@@ -124,7 +126,7 @@ export function useSessionRunStream(deps) {
   };
 
   const startActiveRunRuntime = (event) => {
-    Object.assign(deps.activeRun, {
+    Object.assign(activeRun, {
       phase: 'llm_waiting_first_token',
       runStartedAt: eventTimestampSeconds(event),
       firstTokenAt: null,
@@ -138,32 +140,32 @@ export function useSessionRunStream(deps) {
 
   const markLlmFirstToken = (event, eventData) => {
     const ts = eventTimestampSeconds(event);
-    if (!deps.activeRun.firstTokenAt) {
+    if (!activeRun.firstTokenAt) {
       const elapsedMs = Number(eventData.elapsed_ms);
-      deps.activeRun.firstTokenAt = ts;
-      deps.activeRun.firstTokenLatencyMs = Number.isFinite(elapsedMs)
+      activeRun.firstTokenAt = ts;
+      activeRun.firstTokenLatencyMs = Number.isFinite(elapsedMs)
         ? Math.max(0, Math.round(elapsedMs))
-        : computeLatencyMs(deps.activeRun.runStartedAt, ts);
+        : computeLatencyMs(activeRun.runStartedAt, ts);
     }
-    deps.activeRun.latestLlmFirstTokenAt = ts;
-    deps.activeRun.phase = 'llm_streaming';
-    deps.activeRun.waiting = null;
+    activeRun.latestLlmFirstTokenAt = ts;
+    activeRun.phase = 'llm_streaming';
+    activeRun.waiting = null;
   };
 
   const markOutputChunk = (event, content) => {
     const ts = eventTimestampSeconds(event);
-    deps.activeRun.phase = 'llm_streaming';
-    deps.activeRun.lastChunkAt = ts;
-    deps.activeRun.outputCharCount = (deps.activeRun.outputCharCount || 0) + (content?.length || 0);
-    if (!deps.activeRun.firstTokenAt) {
-      deps.activeRun.firstTokenAt = ts;
-      deps.activeRun.firstTokenLatencyMs = computeLatencyMs(deps.activeRun.runStartedAt, ts);
+    activeRun.phase = 'llm_streaming';
+    activeRun.lastChunkAt = ts;
+    activeRun.outputCharCount = (activeRun.outputCharCount || 0) + (content?.length || 0);
+    if (!activeRun.firstTokenAt) {
+      activeRun.firstTokenAt = ts;
+      activeRun.firstTokenLatencyMs = computeLatencyMs(activeRun.runStartedAt, ts);
     }
   };
 
   const markWaitingStart = (event, eventData) => {
-    deps.activeRun.phase = 'background_waiting';
-    deps.activeRun.waiting = {
+    activeRun.phase = 'background_waiting';
+    activeRun.waiting = {
       waitId: eventData.wait_id || '',
       backgroundTaskIds: Array.isArray(eventData.background_task_ids) ? eventData.background_task_ids : [],
       pendingTaskIds: Array.isArray(eventData.pending_task_ids) ? eventData.pending_task_ids : [],
@@ -174,20 +176,20 @@ export function useSessionRunStream(deps) {
   };
 
   const markWaitingFinished = (eventData) => {
-    const currentWaitId = deps.activeRun.waiting?.waitId;
+    const currentWaitId = activeRun.waiting?.waitId;
     const finishedWaitId = eventData?.wait_id || '';
     if (currentWaitId && finishedWaitId && currentWaitId !== finishedWaitId) return;
-    deps.activeRun.waiting = null;
-    if (deps.activeRun.active) deps.activeRun.phase = 'llm_waiting_first_token';
+    activeRun.waiting = null;
+    if (activeRun.active) activeRun.phase = 'llm_waiting_first_token';
   };
 
   const observeDeliverySeq = (event) => {
     const deliverySeq = Number(event?.seq ?? 0);
     if (!Number.isFinite(deliverySeq) || deliverySeq <= 0) return;
-    if (deps.activeRun.lastSeenSeq > 0 && deliverySeq > deps.activeRun.lastSeenSeq + 1) {
+    if (activeRun.lastSeenSeq > 0 && deliverySeq > activeRun.lastSeenSeq + 1) {
       _pendingReconciliation = true;
     }
-    deps.activeRun.lastSeenSeq = deliverySeq;
+    activeRun.lastSeenSeq = deliverySeq;
   };
 
   const reconcileAfterGap = (sessionId, currentMsg) => {
@@ -304,13 +306,13 @@ export function useSessionRunStream(deps) {
       assistantMsgIndex = messages.value.length - 1;
     }
 
-    deps.activeRun.active = true;
-    deps.activeRun.assistantMsgIndex = assistantMsgIndex;
-    deps.activeRun.runId = runId;
-    deps.activeRun.lastSeenSeq = 0;
-    if (!deps.activeRun.phase || deps.activeRun.phase === 'idle') {
-      deps.activeRun.phase = 'llm_waiting_first_token';
-      deps.activeRun.runStartedAt = eventTimestampSeconds(event);
+    activeRun.active = true;
+    activeRun.assistantMsgIndex = assistantMsgIndex;
+    activeRun.runId = runId;
+    activeRun.lastSeenSeq = 0;
+    if (!activeRun.phase || activeRun.phase === 'idle') {
+      activeRun.phase = 'llm_waiting_first_token';
+      activeRun.runStartedAt = eventTimestampSeconds(event);
     }
     isLoading.value = true;
     if (runId) {
@@ -335,7 +337,7 @@ export function useSessionRunStream(deps) {
   };
 
   const handleInactiveDurableReplayEvent = (event, sessionId) => {
-    if (!_durableReplay.active || deps.activeRun.active) return false;
+    if (!_durableReplay.active || activeRun.active) return false;
 
     const eventType = event.type;
     const runId = getDurableReplayRunId(event);
@@ -373,7 +375,7 @@ export function useSessionRunStream(deps) {
   const handleApprovalRequired = (event, eventData, sessionId) => {
     const approvalData = normalizeApprovalRequiredData(event, eventData);
     if (!rememberRequiredInteraction('approval', approvalData.approval_id)) return;
-    deps.activeRun.phase = 'approval_waiting';
+    activeRun.phase = 'approval_waiting';
     deps.enqueueApproval(event, approvalData, sessionId);
   };
 
@@ -412,7 +414,7 @@ export function useSessionRunStream(deps) {
         && msg.metadata?.persistence_status === 'pending'
     );
     if (pendingFollowup) return pendingFollowup;
-    return messages.value[deps.activeRun.assistantMsgIndex - 1] || null;
+    return messages.value[activeRun.assistantMsgIndex - 1] || null;
   };
 
   const applyMessageSaved = (target, eventData, sessionId) => {
@@ -434,7 +436,7 @@ export function useSessionRunStream(deps) {
   const rememberFinalizedRun = (sessionId, currentMsg) => {
     _lastFinalizedRun = {
       sessionId,
-      runId: deps.activeRun.runId || extractRunId(currentMsg) || null,
+      runId: activeRun.runId || extractRunId(currentMsg) || null,
       at: Date.now(),
     };
   };
@@ -451,8 +453,8 @@ export function useSessionRunStream(deps) {
 
   const finalizeActiveRun = (sessionId) => {
     let finalizedMsg = null;
-    if (deps.activeRun.active) {
-      const currentMsg = messages.value[deps.activeRun.assistantMsgIndex];
+    if (activeRun.active) {
+      const currentMsg = messages.value[activeRun.assistantMsgIndex];
       finalizedMsg = currentMsg || null;
       if (currentMsg && !currentMsg.finished) {
         currentMsg.finished = true;
@@ -461,7 +463,7 @@ export function useSessionRunStream(deps) {
       }
       deps.cacheMessages(sessionId, messages.value);
       rememberFinalizedRun(sessionId, currentMsg);
-      deps.activeRun.active = false;
+      activeRun.active = false;
       resetActiveRunRuntime();
     }
     if (_pendingReconciliation) {
@@ -507,17 +509,17 @@ export function useSessionRunStream(deps) {
           provider: detail.provider || '',
           model: detail.model || '',
         });
-        deps.activeRun.phase = 'retrying';
+        activeRun.phase = 'retrying';
         sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'running' };
       } else if (category === 'waiting') {
         const detail = payload.detail || {};
-        const isStart = detail.phase === 'start' || Boolean(detail.wait_id && !deps.activeRun.waiting);
+        const isStart = detail.phase === 'start' || Boolean(detail.wait_id && !activeRun.waiting);
         if (deps.isMasterEvent(event)) {
           if (isStart) markWaitingStart(event, detail);
           else markWaitingFinished(detail);
         }
       } else if (category === 'reflection') {
-        if (deps.isMasterEvent(event)) deps.activeRun.phase = 'reflecting';
+        if (deps.isMasterEvent(event)) activeRun.phase = 'reflecting';
       } else if (category === 'context_usage') {
         const detail = payload.detail || {};
         if (detail.compressing) isCompressing.value = true;
@@ -554,8 +556,8 @@ export function useSessionRunStream(deps) {
                   ...(detail.run_id != null ? { run_id: detail.run_id } : {}),
                 },
               };
-              messages.value.splice(deps.activeRun.assistantMsgIndex, 0, compressionMsg);
-              deps.activeRun.assistantMsgIndex++;
+              messages.value.splice(activeRun.assistantMsgIndex, 0, compressionMsg);
+              activeRun.assistantMsgIndex++;
             }
           }
         }
@@ -591,11 +593,11 @@ export function useSessionRunStream(deps) {
       }
     } else if (eventType === 'tool_call') {
       deps.applyEnvelopeToMessage(currentMsg, event);
-      if (deps.isMasterEvent(event)) deps.activeRun.phase = 'tool_running';
+      if (deps.isMasterEvent(event)) activeRun.phase = 'tool_running';
     } else if (eventType === 'tool_result') {
       deps.applyEnvelopeToMessage(currentMsg, event);
-      if (deps.isMasterEvent(event) && deps.activeRun.phase !== 'background_waiting') {
-        deps.activeRun.phase = 'llm_waiting_first_token';
+      if (deps.isMasterEvent(event) && activeRun.phase !== 'background_waiting') {
+        activeRun.phase = 'llm_waiting_first_token';
       }
     } else if (eventType === 'agent_started') {
       deps.applyEnvelopeToMessage(currentMsg, event);
@@ -628,14 +630,14 @@ export function useSessionRunStream(deps) {
     if (eventType === 'heartbeat') return;
 
     // 统一推进投递序号（内部对无效 seq 自动跳过）
-    if (deps.activeRun.active || isLoading.value) {
+    if (activeRun.active || isLoading.value) {
       observeDeliverySeq(event);
     }
 
     if (eventType === 'session.reconnect') {
       const phase = payload.phase;
       deps.clearSessionResumeRecovery();
-      deps.activeRun.isReplaying = true;
+      activeRun.isReplaying = true;
       if (phase === 'start') {
         if (isDurableOutboxReplayEnvelope(event)) {
           _durableReplay = { active: true, runId: event.run_id || null };
@@ -648,13 +650,13 @@ export function useSessionRunStream(deps) {
           if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.finished) {
             messages.value.push(deps.createAssistantMessage());
           }
-          deps.activeRun.active = true;
-          deps.activeRun.assistantMsgIndex = messages.value.length - 1;
-          deps.activeRun.runId = event.run_id || null;
-          deps.activeRun.lastSeenSeq = 0;
-          if (!deps.activeRun.phase || deps.activeRun.phase === 'idle') {
-            deps.activeRun.phase = 'llm_waiting_first_token';
-            deps.activeRun.runStartedAt = eventTimestampSeconds(event);
+          activeRun.active = true;
+          activeRun.assistantMsgIndex = messages.value.length - 1;
+          activeRun.runId = event.run_id || null;
+          activeRun.lastSeenSeq = 0;
+          if (!activeRun.phase || activeRun.phase === 'idle') {
+            activeRun.phase = 'llm_waiting_first_token';
+            activeRun.runStartedAt = eventTimestampSeconds(event);
           }
         }
         if (event.run_id) {
@@ -671,7 +673,7 @@ export function useSessionRunStream(deps) {
       if (isDurableOutboxReplayEnvelope(event)) {
         _durableReplay = { active: false, runId: null };
       }
-      deps.activeRun.isReplaying = false;
+      activeRun.isReplaying = false;
       return;
     }
 
@@ -682,19 +684,19 @@ export function useSessionRunStream(deps) {
       if (category === 'send') {
         deps.clearCommandFallback();
         if (!payload.ok) {
-          const currentMsg = messages.value[deps.activeRun.assistantMsgIndex];
+          const currentMsg = messages.value[activeRun.assistantMsgIndex];
           if (currentMsg) {
             currentMsg.content = `\n\n[System Error: ${payload.error || '启动执行失败'}]`;
             currentMsg.finished = true;
           }
           sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'failed' };
-          deps.activeRun.active = false;
+          activeRun.active = false;
           resetActiveRunRuntime();
           isLoading.value = false;
           return;
         }
-        if (deps.activeRun.active && startupPhases.has(deps.activeRun.phase)) {
-          deps.activeRun.phase = 'llm_waiting_first_token';
+        if (activeRun.active && startupPhases.has(activeRun.phase)) {
+          activeRun.phase = 'llm_waiting_first_token';
         }
         return;
       }
@@ -708,8 +710,8 @@ export function useSessionRunStream(deps) {
             userInput.resolveSubmission(refCallId);
             return;
           }
-          if (deps.activeRun.active && deps.activeRun.phase === 'approval_waiting') {
-            deps.activeRun.phase = 'tool_running';
+          if (activeRun.active && activeRun.phase === 'approval_waiting') {
+            activeRun.phase = 'tool_running';
           }
           deps.handleApprovalResolved(refCallId, sessionId);
           return;
@@ -727,7 +729,7 @@ export function useSessionRunStream(deps) {
     }
 
     if (eventType === 'error') {
-      const currentMsg = messages.value[deps.activeRun.assistantMsgIndex];
+      const currentMsg = messages.value[activeRun.assistantMsgIndex];
       if (currentMsg) {
         currentMsg.status.push({ type: 'error', content: payload.message || '' });
       }
@@ -737,8 +739,8 @@ export function useSessionRunStream(deps) {
     if (eventType === 'interaction' && payload.phase === 'responded') {
       const refCallId = event.call_id || '';
       if (payload.kind === 'approval') {
-        if (deps.activeRun.active && deps.activeRun.phase === 'approval_waiting') {
-          deps.activeRun.phase = payload.approved === false ? 'llm_waiting_first_token' : 'tool_running';
+        if (activeRun.active && activeRun.phase === 'approval_waiting') {
+          activeRun.phase = payload.approved === false ? 'llm_waiting_first_token' : 'tool_running';
         }
         deps.handleApprovalResolved(refCallId, sessionId);
       }
@@ -752,9 +754,9 @@ export function useSessionRunStream(deps) {
     if (eventType === 'run_started') {
       _pendingReconciliation = false; // 新 run 重置 gap 标记
       const nextRunId = event.run_id || null;
-      const shouldStartNewMessage = !deps.activeRun.active || (deps.activeRun.runId && nextRunId && deps.activeRun.runId !== nextRunId);
+      const shouldStartNewMessage = !activeRun.active || (activeRun.runId && nextRunId && activeRun.runId !== nextRunId);
       if (shouldStartNewMessage) {
-        const currentMsg = messages.value[deps.activeRun.assistantMsgIndex];
+        const currentMsg = messages.value[activeRun.assistantMsgIndex];
         if (currentMsg && !currentMsg.finished) {
           currentMsg.finished = true;
         }
@@ -767,14 +769,14 @@ export function useSessionRunStream(deps) {
         }
 
         messages.value.push(deps.createAssistantMessage({ run_id: nextRunId }));
-        deps.activeRun.active = true;
-        deps.activeRun.assistantMsgIndex = messages.value.length - 1;
-        deps.activeRun.lastSeenSeq = 0;
-        deps.activeRun.isReplaying = _durableReplay.active;
+        activeRun.active = true;
+        activeRun.assistantMsgIndex = messages.value.length - 1;
+        activeRun.lastSeenSeq = 0;
+        activeRun.isReplaying = _durableReplay.active;
         startActiveRunRuntime(event);
       }
-      deps.activeRun.runId = nextRunId;
-      if (deps.activeRun.phase === 'idle' || !deps.activeRun.runStartedAt || startupPhases.has(deps.activeRun.phase)) {
+      activeRun.runId = nextRunId;
+      if (activeRun.phase === 'idle' || !activeRun.runStartedAt || startupPhases.has(activeRun.phase)) {
         startActiveRunRuntime(event);
       }
       isLoading.value = true;
@@ -793,7 +795,7 @@ export function useSessionRunStream(deps) {
       const category = payload.category;
       if (category === 'message_saved') {
         const ref = payload.ref || {};
-        const currentMsg = messages.value[deps.activeRun.assistantMsgIndex];
+        const currentMsg = messages.value[activeRun.assistantMsgIndex];
         const target = ref.role === 'user' ? findUserMessageSavedTarget(ref) : currentMsg;
         applyMessageSaved(target, ref, sessionId);
         return;
@@ -806,7 +808,7 @@ export function useSessionRunStream(deps) {
           deps.refreshSessionExecutionState(sessionId, { silent: true });
           return;
         }
-        if (!isLoading.value && !deps.activeRun.active) {
+        if (!isLoading.value && !activeRun.active) {
           deps.deleteMessageCache(sessionId);
           deps.loadSessionMessages(sessionId, { silent: true });
         }
@@ -815,7 +817,7 @@ export function useSessionRunStream(deps) {
       if (category === 'command_result') {
         const detail = payload.detail || {};
         if (detail.type === 'command.started') {
-          deps.scheduleCommandFallback(sessionId, deps.activeRun.assistantMsgIndex, 120000);
+          deps.scheduleCommandFallback(sessionId, activeRun.assistantMsgIndex, 120000);
           return;
         }
         deps.clearCommandFallback();
@@ -847,7 +849,7 @@ export function useSessionRunStream(deps) {
 
     if (eventType === 'run_ended') {
       const terminalStatus = terminalStatusFromEvent(event);
-      const currentMsg = messages.value[deps.activeRun.assistantMsgIndex];
+      const currentMsg = messages.value[activeRun.assistantMsgIndex];
       if (currentMsg) {
         // 打断确认：run 真正以 interrupted 终止时才显示"已停止生成"tag
         if (terminalStatus === 'interrupted') currentMsg.stopped = true;
@@ -869,8 +871,8 @@ export function useSessionRunStream(deps) {
       return;
     }
 
-    if (deps.activeRun.active) {
-      const currentMsg = messages.value[deps.activeRun.assistantMsgIndex];
+    if (activeRun.active) {
+      const currentMsg = messages.value[activeRun.assistantMsgIndex];
       if (currentMsg) {
         deps.mergeExecutionObservability(event);
         handleRunEvent(event, currentMsg, sessionId);

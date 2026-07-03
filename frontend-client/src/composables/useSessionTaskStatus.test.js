@@ -4,9 +4,8 @@ import { ref } from 'vue';
 import MockAdapter from 'axios-mock-adapter';
 import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 
-import { createActiveRunState } from './useActiveRunState.js';
 import { useSessionTaskStatus } from './useSessionTaskStatus.js';
-import { useSessionRunStore } from '../stores/session-run.js';
+import { useSessionRunStore, createActiveRunState } from '../stores/session-run.js';
 import { httpClient } from '../api/http.js';
 
 function createDeps(overrides = {}) {
@@ -14,7 +13,7 @@ function createDeps(overrides = {}) {
   const sessionRunStore = useSessionRunStore();
   const { currentSessionId, messages, isLoading, sessionTaskInfo } = storeToRefs(sessionRunStore);
   currentSessionId.value = 'session-1';
-  const activeRun = overrides.activeRun || createActiveRunState();
+  const activeRun = sessionRunStore.activeRun;
   const calls = {
     deleteMessageCache: [],
     loadSessionMessages: [],
@@ -58,7 +57,7 @@ test('checkSessionTaskStatus clears stale active run when selected session is id
       },
     });
   }, async () => {
-    const activeRun = createActiveRunState();
+    const { deps, activeRun } = createDeps();
     Object.assign(activeRun, {
       active: true,
       assistantMsgIndex: 2,
@@ -67,9 +66,6 @@ test('checkSessionTaskStatus clears stale active run when selected session is id
       runStartedAt: 123,
       lastSeenSeq: 9,
       outputCharCount: 42,
-    });
-    const { deps } = createDeps({
-      activeRun,
     });
     deps.isLoading.value = true;
     const status = useSessionTaskStatus(deps);
