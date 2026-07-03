@@ -28,7 +28,7 @@ import hljsLightUrl from 'highlight.js/styles/github.css?url';
 
 const router = useRouter();
 
-const isDark = ref(false);
+const isDark = ref(true);
 const selectedLLM = ref('');
 const transitionName = ref('slide-forward');
 
@@ -70,7 +70,7 @@ const updateTheme = () => {
 
 onMounted(() => {
   const savedTheme = localStorage.getItem('theme');
-  isDark.value = savedTheme ? savedTheme === 'dark' : false;
+  isDark.value = savedTheme ? savedTheme === 'dark' : true;
   updateTheme();
 
   const savedLLM = localStorage.getItem('selectedLLMModel');

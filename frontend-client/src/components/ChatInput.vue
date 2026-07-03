@@ -252,7 +252,7 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
 <style scoped>
 .chat-input-area {
   width: 100%;
-  max-width: 800px;
+  max-width: var(--content-max-width);
   margin: 0 auto;
   position: relative;
 }
@@ -289,14 +289,12 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
 }
 
 .input-container {
-  /* background: var(--glass-bg); */
-  backdrop-filter: blur(40px);
-  border: 1.5px solid var(--color-border);
-  border-radius: 28px;
-  padding: 10px;
-  transition: all 0.3s;
-  transform: translateY(0);
-  box-shadow: var(--shadow-md);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-sm);
+  transition: all var(--transition-normal);
+  box-shadow: none;
 }
 
 .input-container.is-drag-over {
@@ -305,9 +303,8 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
 }
 
 .input-container:focus-within {
-  border-color: var(--color-brand-accent);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), 0 0 0 4px rgba(var(--color-brand-accent-rgb), 0.12);
-  transform: translateY(-2px);
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.12);
 }
 
 .composer-shell {
@@ -382,15 +379,15 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
 
 textarea {
   width: 100%;
-  padding: 8px 10px 0;
+  padding: var(--spacing-sm) var(--spacing-sm) 0;
   border: none;
   background: transparent;
-  font-size: 0.96rem;
+  font-size: var(--font-size-base);
   font-family: inherit;
   resize: none;
   max-height: 200px;
   overflow-y: auto;
-  line-height: 1.6;
+  line-height: 1.55;
   color: var(--color-text-primary);
   min-height: 64px;
 }
@@ -440,17 +437,17 @@ textarea::placeholder {
 }
 
 .attachment-btn {
-  width: 40px;
-  height: 40px;
+  width: var(--control-height-md);
+  height: var(--control-height-md);
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;
   background: var(--color-bg-secondary);
   color: var(--color-text-secondary);
-  border-radius: 14px;
+  border-radius: var(--control-radius);
   cursor: pointer;
-  transition: all 0.3s;
+  transition: all var(--transition-normal);
   flex-shrink: 0;
 }
 
@@ -475,25 +472,24 @@ textarea::placeholder {
 }
 
 .send-btn {
-  width: 42px;
-  height: 42px;
+  width: var(--control-height-md);
+  height: var(--control-height-md);
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
   background: var(--color-brand-accent);
-  color: var(--color-on-color);
-  border-radius: 14px;
+  color: var(--color-on-accent);
+  border-radius: var(--control-radius);
   cursor: pointer;
-  transition: all 0.3s;
+  transition: all var(--transition-normal);
   margin: 0;
-  box-shadow: 0 2px 8px rgba(var(--color-brand-accent-rgb), 0.3);
+  box-shadow: none;
 }
 
 .send-btn:hover:not(:disabled) {
   background: var(--color-brand-accent-light);
-  transform: scale(1.05);
-  box-shadow: 0 4px 16px rgba(var(--color-brand-accent-rgb), 0.4);
+  box-shadow: none;
 }
 
 .send-btn:active:not(:disabled) {

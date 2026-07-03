@@ -60,7 +60,7 @@ const statusClass = computed(() => {
 .command-name {
   font-family: var(--font-mono, monospace);
   font-weight: 600;
-  color: var(--color-brand-accent-light, var(--color-interactive, #6366f1));
+  color: var(--color-brand-accent-light, var(--color-interactive, #5e6ad2));
   flex-shrink: 0;
 }
 
@@ -69,11 +69,11 @@ const statusClass = computed(() => {
 }
 
 .success .command-status {
-  color: #22c55e;
+  color: var(--color-success);
 }
 
 .error .command-status {
-  color: #ef4444;
+  color: var(--color-error);
 }
 
 .command-text {

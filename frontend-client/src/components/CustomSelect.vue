@@ -193,7 +193,7 @@ watch(() => [props.dropdownMaxHeight, props.dropdownPlacement], () => {
 .select-trigger {
   display: flex;
   align-items: center;
-  height: 40px;
+  height: var(--control-height-md);
   padding: 0 38px 0 12px;
   border-radius: var(--control-radius);
   border: 1px solid var(--color-border);

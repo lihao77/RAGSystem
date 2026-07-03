@@ -78,9 +78,9 @@ onBeforeUnmount(() => {
 }
 
 .dialog-container {
-  background: var(--color-bg-primary);
+  background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-2xl);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xl);
   max-width: 420px;
   width: 100%;
@@ -118,15 +118,15 @@ onBeforeUnmount(() => {
 }
 
 .dialog-btn {
-  padding: 12px 24px;
-  border-radius: var(--radius-lg);
-  font-size: 0.875rem;
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--control-radius);
+  font-size: var(--font-size-sm);
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s;
+  transition: all var(--transition-normal);
   border: none;
   outline: none;
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
 }
 
 .dialog-btn-cancel {
@@ -138,33 +138,31 @@ onBeforeUnmount(() => {
 .dialog-btn-cancel:hover {
   background: var(--color-bg-tertiary);
   color: var(--color-text-primary);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
 }
 
 .dialog-btn-confirm {
   background: var(--color-brand-accent);
   color: var(--color-on-accent);
-  box-shadow: 0 2px 8px rgba(var(--color-brand-accent-rgb), 0.3);
+  box-shadow: none;
 }
 
 .dialog-btn-confirm:hover {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(var(--color-brand-accent-rgb), 0.4);
+  background: var(--color-brand-accent-light);
+  box-shadow: none;
 }
 
 .dialog-btn-confirm--danger {
   background: var(--color-error);
-  box-shadow: 0 2px 8px rgba(var(--color-error-rgb), 0.3);
+  box-shadow: none;
 }
 
 .dialog-btn-confirm--danger:hover {
-  box-shadow: 0 4px 16px rgba(var(--color-error-rgb), 0.4);
+  filter: brightness(1.1);
+  box-shadow: none;
 }
 
 .dialog-btn:active {
-  transform: scale(0.98) translateY(0);
+  transform: scale(0.98);
 }
 
 /* 动画 */

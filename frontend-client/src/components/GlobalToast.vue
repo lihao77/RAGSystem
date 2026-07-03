@@ -33,7 +33,7 @@ function runAction() {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  padding: 14px 20px;
+  padding: var(--spacing-sm) var(--spacing-lg);
   max-width: min(90vw, 420px);
   border-radius: var(--radius-lg);
   border: var(--glass-border-width) var(--glass-border-style) var(--glass-border-color);

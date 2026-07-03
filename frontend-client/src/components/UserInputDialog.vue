@@ -203,9 +203,9 @@ defineExpose({ show, hide, toggleCollapsed });
 .input-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(18px) saturate(1.4);
-  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -218,31 +218,16 @@ defineExpose({ show, hide, toggleCollapsed });
   position: relative;
   width: 100%;
   max-width: 480px;
-  background: var(--color-bg-primary);
-  border-radius: 18px;
-  border: 1px solid rgba(var(--color-active-rgb), 0.25);
-  box-shadow:
-    0 0 0 1px rgba(var(--color-active-rgb), 0.08),
-    0 8px 32px rgba(0, 0, 0, 0.18),
-    0 24px 56px rgba(0, 0, 0, 0.12),
-    inset 0 1px 0 var(--color-soft-inset);
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-xl);
   overflow: hidden;
 }
 
-/* 顶部光晕装饰 */
+/* 顶部光晕装饰 —— Linear 风格去除 */
 .container-glow {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg,
-    transparent 0%,
-    rgba(var(--color-active-rgb), 0.6) 30%,
-    rgba(var(--color-active-rgb), 0.8) 50%,
-    rgba(var(--color-active-rgb), 0.6) 70%,
-    transparent 100%);
-  border-radius: 18px 18px 0 0;
+  display: none;
 }
 
 /* ── Header ── */

@@ -91,7 +91,7 @@ function onBlur(e) {
 .number-input {
   display: flex;
   align-items: center;
-  height: 40px;
+  height: var(--control-height-md);
   border-radius: var(--control-radius);
   border: 1px solid var(--color-border);
   background: var(--color-bg-elevated);
@@ -157,7 +157,7 @@ function onBlur(e) {
   background: transparent;
   color: var(--color-text-primary);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   letter-spacing: 0.02em;
   text-align: center;

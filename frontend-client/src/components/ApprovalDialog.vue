@@ -286,8 +286,8 @@ defineExpose({ show, hide, toggleCollapsed });
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(12px);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -302,10 +302,10 @@ defineExpose({ show, hide, toggleCollapsed });
 }
 
 .approval-container {
-  background: var(--color-bg-primary);
-  border: 1.5px solid rgba(var(--color-warning-rgb), 0.6);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(var(--color-warning-rgb), 0.2);
+  box-shadow: var(--shadow-xl);
   max-width: 520px;
   width: 100%;
   max-height: 90vh;
@@ -325,7 +325,7 @@ defineExpose({ show, hide, toggleCollapsed });
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--spacing-md);
-  background: linear-gradient(135deg, rgba(var(--color-warning-rgb), 0.1) 0%, transparent 100%);
+  background: transparent;
   position: sticky;
   top: 0;
   z-index: 1;

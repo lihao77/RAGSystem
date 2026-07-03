@@ -11,6 +11,7 @@
     "screenshot:smoke": "node scripts/screenshot-smoke.mjs"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
     "@ragsystem/agent-protocol": "*",
     "axios": "^1.13.2",
     "echarts": "^6.0.0",

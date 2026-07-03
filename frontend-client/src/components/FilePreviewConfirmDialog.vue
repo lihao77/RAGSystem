@@ -119,8 +119,8 @@ defineExpose({ show, hide });
 .fp-overlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(12px);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -135,10 +135,10 @@ defineExpose({ show, hide });
 }
 
 .fp-container {
-  background: var(--color-bg-primary);
-  border: 1.5px solid var(--color-accent);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-xl);
   max-width: 640px;
   width: 100%;
   max-height: 85vh;

@@ -109,6 +109,7 @@
         </RouterView>
       </div>
     </div>
+    <CommandPalette />
   </div>
 </template>
 
@@ -119,7 +120,9 @@ import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 import { getTeams } from '../api/agentConfig';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconNewConversation, IconTrash } from '../components/icons';
-import { sidebarAdminNavItem } from '../navigation/adminNavigation';
+import { sidebarAdminNavItem, managementNavItems } from '../navigation/adminNavigation';
+import CommandPalette from '../components/CommandPalette.vue';
+import { useCommandPalette } from '../composables/useCommandPalette.js';
 
 const props = defineProps({
   selectedLLM: {
@@ -139,7 +142,7 @@ const route = useRoute();
 const historyListRef = ref(null);
 const toast = useToast();
 const { confirm } = useConfirm();
-const sidebarCollapsed = ref(false);
+const sidebarCollapsed = ref(localStorage.getItem('sidebarCollapsed') === 'true');
 const mobileOpen = ref(false);
 const isMobile = ref(false);
 const history = ref([]);
@@ -227,6 +230,7 @@ const toggleSidebar = () => {
     return;
   }
   sidebarCollapsed.value = !sidebarCollapsed.value;
+  localStorage.setItem('sidebarCollapsed', String(sidebarCollapsed.value));
 };
 
 const formatTitle = (item) => {
@@ -463,11 +467,26 @@ watch(
   { immediate: true }
 );
 
+const { register: registerCommand, installHotkey: installCommandPaletteHotkey } = useCommandPalette();
+registerCommand([
+  { id: 'cmd-new-chat', title: '新聊天', section: '操作', action: () => startNewChat() },
+  { id: 'cmd-toggle-theme', title: '切换主题', subtitle: '深色 / 亮色', section: '操作', action: () => emit('toggleTheme') },
+  { id: 'cmd-goto-chat', title: '前往聊天', section: '导航', action: () => navigateTo('/') },
+  ...managementNavItems.map((item) => ({
+    id: `cmd-nav-${item.key}`,
+    title: item.label,
+    subtitle: item.title,
+    section: '导航',
+    action: () => navigateTo(item.path),
+  })),
+]);
+
 onMounted(() => {
   checkMobile();
   window.addEventListener('resize', checkMobile);
   loadActiveTeam();
   loadRecentSessions(true);
+  installCommandPaletteHotkey();
 });
 
 onUnmounted(() => {
@@ -526,7 +545,7 @@ onUnmounted(() => {
 .sidebar {
   box-shadow: none;
   background: var(--surface-sidebar);
-  width: 248px;
+  width: var(--sidebar-width);
   border-radius: 0;
   display: flex;
   flex-direction: column;
@@ -538,7 +557,7 @@ onUnmounted(() => {
 }
 
 .sidebar.collapsed {
-  width: calc(2 * var(--icon-center-line) + 1px);
+  width: var(--sidebar-collapsed-width);
 }
 
 .sidebar-top-bar {
@@ -693,8 +712,8 @@ onUnmounted(() => {
   left: 0;
   top: 50%;
   transform: translateY(-50%);
-  width: 2px;
-  height: 18px;
+  width: 3px;
+  height: 20px;
   border-radius: var(--radius-full);
   background: var(--color-brand-accent);
 }
@@ -1135,7 +1154,7 @@ onUnmounted(() => {
   bottom: 0;
   border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
   transform: translateX(-100%);
-  width: 280px;
+  width: var(--sidebar-width-mobile);
   background: var(--glass-bg);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
@@ -1148,6 +1167,6 @@ onUnmounted(() => {
 }
 
 .chat-layout--sidebar-overlay .sidebar.collapsed {
-  width: 280px;
+  width: var(--sidebar-width-mobile);
 }
 </style>
