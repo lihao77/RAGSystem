@@ -12,7 +12,7 @@ export interface ConversationHistoryPort {
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): MessageInfo[];
 }
 
-/** 会话元数据读写端口(microcompact 缓存指纹用;conversationStore 装配侧实现)。 */
+/** 会话元数据读写端口(conversationStore 装配侧实现)。 */
 export interface SessionMetadataPort {
   getSession(sessionId: string): { metadata: Record<string, unknown> } | null;
   updateSessionMetadata?(sessionId: string, patch: Record<string, unknown>): Record<string, unknown> | null;
@@ -35,7 +35,6 @@ export interface AgentContext {
   metadata: {
     session_id: string;
     thread_key: string;
-    stable_prefix_fingerprint: string | null;
     sources: Array<{
       name: string;
       message_count: number;
@@ -61,17 +60,13 @@ export interface ResolvedAgentContextRequest {
   threadKey: string;
   microcompact: boolean;
   microcompactKeepRecentTools: number;
-  stablePrefixFingerprint: string | null;
-  microcompactTtlSeconds: number;
+  /** provider KV cache 是否还活(buildContext 据 ProviderCacheTracker 设)。source 据此决定是否更新:cache 活→冻结(命中/保持完整);cache 死→更新(重建/清理)。 */
+  cacheAlive: boolean;
+  /** 本次 build 是否续期 last_used_at(滑动续期)。只在真正发请求的 run 路径 true;只读 build(preview/token 预算)false,不产生写副作用。 */
+  touch: boolean;
 }
 
 export const HISTORY_SCAN_LIMIT = 10_000;
 export const DEFAULT_THREAD_KEY = "root";
 export const DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOLS = 5;
-export const DEFAULT_MICROCOMPACT_TTL_SECONDS = 600;
 export const MICROCOMPACT_CLEARED_LABEL = "[工具结果已清理]";
-
-/** builder 构造期注入(microcompact TTL 从 systemConfig 算好传入)。 */
-export interface AgentContextBuilderOptions {
-  microcompactTtlSeconds?: number;
-}

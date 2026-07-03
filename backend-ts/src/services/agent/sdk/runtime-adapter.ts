@@ -23,9 +23,9 @@ import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
 import { KernelEventPersister } from "./event-persister.js";
-import { AgentContextBuilder, HISTORY_SCAN_LIMIT, RecentMessagesContextSource, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
+import { AgentContextBuilder, DEFAULT_PROVIDER_CACHE_TTL_SECONDS, HISTORY_SCAN_LIMIT, ProviderCacheTracker, RecentMessagesContextSource, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
-import { MemoryIndexContextSource, isMemoryEnabled } from "../memory/index.js";
+import { MemoryIndexContextSource, isMemoryEnabled, memoryBaselineKey } from "../memory/index.js";
 import { registerGateHook } from "./gate-hook.js";
 import { PathApprovalService } from "../../../services/runtime/path-service.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
@@ -54,8 +54,6 @@ export interface SdkRuntimeAdapterDeps {
   delegationPending: DelegationPendingService;
   /** 消费端 hook 注册回调（可选）；透传给 createRuntime，让 backend 注册 tool.before/after、round.before 等 handler。 */
   hooks?: (registry: HookRegistry) => void;
-  /** microcompact 缓存 TTL（秒）；透传 createRuntime，与 snapshot 路径同源（systemConfig 单一来源）。 */
-  microcompactTtlSeconds?: number;
   /** backend 压缩服务（run 内 round.before 触发 + /compact 共用）；A3 压缩外移。 */
   compressionService?: AgentCompressionService;
 }
@@ -193,10 +191,11 @@ export async function executeRunWithSdk(
     ? [new MemoryIndexContextSource(historyPort, input.agent.memory, input.agent.agent_name, { dataRoot: deps.dataRoot })]
     : [];
   const recentSource = new RecentMessagesContextSource(historyPort, profile.llmTiers.default?.provider.supports_vision === true);
-  const contextBuilder = new AgentContextBuilder(
-    [...memorySources, recentSource],
-    deps.microcompactTtlSeconds !== undefined ? { microcompactTtlSeconds: deps.microcompactTtlSeconds } : {},
+  const cacheTracker = new ProviderCacheTracker(
+    historyPort,
+    profile.llmTiers.default?.provider.cache_ttl_seconds ?? DEFAULT_PROVIDER_CACHE_TTL_SECONDS,
   );
+  const contextBuilder = new AgentContextBuilder([...memorySources, recentSource], cacheTracker);
   const built = contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true });
   const conversation = built.conversation;
   // 性能指标采集:round.after hook 累计各轮 token,事件循环统计工具调用次数(终态随结果返回)。
@@ -220,7 +219,7 @@ export async function executeRunWithSdk(
           // systemPromptTokens = buildFullSystemPrompt(base+tools) + memory prefix;budget = window×0.9 − 此值。
           const mode = resolveToolInstructionMode(profile.llmTiers.default?.provider);
           const systemPromptBase = buildFullSystemPrompt(profile, { tools: registry.listDefinitions() }, mode);
-          const tokenContext = contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true });
+          const tokenContext = contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true }, { touch: false });
           const memoryPrefix = tokenContext.conversation
             .filter((m) => m.role === "system")
             .map((m) => (typeof m.content === "string" ? m.content : ""))
@@ -237,6 +236,11 @@ export async function executeRunWithSdk(
             ...(input.signal ? { signal: input.signal } : {}),
           });
           if (result.status === "success") {
+            // 压缩已打断 cache(history 重写):让 memory 前缀快照 + provider cache 活性都失效,
+            // 下次 buildContext 据 cacheAlive=false 走重建/清理(memory 重读最新 store、microcompact 清理)。
+            const baselineKey = memoryBaselineKey(input.threadKey, input.agent.agent_name);
+            historyPort.updateSessionMetadata?.(input.sessionId, { memory_prefix_states: { [baselineKey]: null } });
+            cacheTracker.invalidate(input.sessionId, input.threadKey);
             const rebuilt = contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true }).conversation;
             hookInput.ctx.replaceAll(rebuilt);
           }

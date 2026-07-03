@@ -197,7 +197,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   // agentDelegation 需先实例化（工具依赖它），但其 runEngine/eventPublisher 延迟设置。
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
-  const microcompactTtlSeconds = systemConfig.getMicrocompactTtlSeconds();
   const agentDelegation = new AgentDelegationService(
     conversationStore,
     runtimeCore,
@@ -238,7 +237,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     hostToolRegistry,
     delegationPending,
     logger: options.logger,
-    microcompactTtlSeconds,
     metricsCollector,
     compressionService: new AgentCompressionService(
       conversationStore,

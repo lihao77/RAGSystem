@@ -2,7 +2,6 @@
 // memory source（services/agent/memory/）亦 implements 这些端口，与 recent source 共用 AgentContextSource。
 export type {
   AgentContext,
-  AgentContextBuilderOptions,
   AgentContextContribution,
   AgentContextRequest,
   AgentContextSource,
@@ -14,9 +13,9 @@ export {
   HISTORY_SCAN_LIMIT,
   DEFAULT_THREAD_KEY,
   DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOLS,
-  DEFAULT_MICROCOMPACT_TTL_SECONDS,
 } from "./types.js";
 export { AgentContextBuilder } from "./context-builder.js";
+export { ProviderCacheTracker, DEFAULT_PROVIDER_CACHE_TTL_SECONDS } from "./provider-cache-tracker.js";
 export { RecentMessagesContextSource } from "./recent-messages-source.js";
 export {
   countObservationMessages,

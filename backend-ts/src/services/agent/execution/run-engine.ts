@@ -58,7 +58,6 @@ export class AgentRunEngine {
     private readonly delegationPending: DelegationPendingService,
     private readonly logger: AgentExecutionLogger | null,
     private readonly hooks: ((registry: HookRegistry) => void) | null,
-    private readonly microcompactTtlSeconds?: number,
     private readonly metricsCollector: AgentMetricsCollector | null = null,
     private readonly compressionService: AgentCompressionService | null = null,
   ) {}
@@ -86,7 +85,6 @@ export class AgentRunEngine {
     } | undefined;
     runStartExtra?: Record<string, unknown> | undefined;
     startStepExtra?: Record<string, unknown> | undefined;
-    stablePrefixFingerprint?: string | null | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
   }): AgentRunStartResult & { promise: Promise<{ content: string; success: boolean }> } {
     const runId = randomUUID();
@@ -170,7 +168,6 @@ export class AgentRunEngine {
       childAgentId: null,
       userMessageId: existingUserMessageId,
       executionKind: input.executionKind,
-      stablePrefixFingerprint: input.stablePrefixFingerprint,
       finalMetadataExtra: input.finalMetadataExtra,
       onTerminal: (finalStatus) => this.statusTracker.finishStatus(status, finalStatus, startedAt),
     });
@@ -272,7 +269,6 @@ export class AgentRunEngine {
     childAgentId?: string | null;
     userMessageId?: string | undefined;
     executionKind?: string | undefined;
-    stablePrefixFingerprint?: string | null | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
     // 终态回调（替代直接耦合 statusTracker）：root 由 startRun 壳传绑定 statusTracker 的回调，
     // child 不传。executeRun 自己用 startedAt 算 execution_time，不依赖外部 status 对象。
@@ -328,7 +324,6 @@ export class AgentRunEngine {
           pendingInteractions: this.pendingInteractions,
           hostToolRegistry: this.hostToolRegistry,
           delegationPending: this.delegationPending,
-          ...(this.microcompactTtlSeconds !== undefined ? { microcompactTtlSeconds: this.microcompactTtlSeconds } : {}),
           ...(this.hooks ? { hooks: this.hooks } : {}),
           ...(this.compressionService ? { compressionService: this.compressionService } : {}),
         },

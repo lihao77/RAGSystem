@@ -55,17 +55,6 @@ export class SystemConfigService {
     return normalizeMemoryConfig(this.config.memory);
   }
 
-  /**
-   * microcompact 缓存 TTL（秒）：读 waiting.local_cache_ttl_seconds。
-   * 缺失/非法回落 600（与 buildDefaultConfig 默认一致）。run/snapshot 两条路径均经此读取，
-   * 单一来源避免分叉。
-   */
-  getMicrocompactTtlSeconds(): number {
-    const waiting = isRecord(this.config.waiting) ? this.config.waiting : null;
-    const ttl = waiting?.local_cache_ttl_seconds;
-    return typeof ttl === "number" && Number.isFinite(ttl) && ttl > 0 ? ttl : 600;
-  }
-
   /** 类型化读取 system 组。 */
   getSystemGroupConfig(): SystemGroupConfig {
     return normalizeSystemGroupConfig(this.config.system);
@@ -147,12 +136,6 @@ function buildDefaultConfig(): SystemConfigData {
       default_poll_interval_seconds: 3,
       max_poll_interval_seconds: 15,
       idle_wait_timeout_seconds: 300,
-      local_cache_ttl_seconds: 600,
-      keepalive_interval_seconds: 240,
-      keepalive_grace_seconds: 30,
-      max_keepalive_rounds: 20,
-      allow_provider_keepalive: true,
-      hidden_keepalive_token_budget: 8,
     },
     reflection: {
       enabled: true,
@@ -236,19 +219,13 @@ function buildSystemConfigSchema(): SystemConfigSchema {
       },
       {
         key: "waiting",
-        label: "后台等待与保活",
-        description: "后台任务等待与 KV cache 保活配置",
+        label: "后台等待",
+        description: "后台任务等待配置",
         fields: [
           booleanField("enabled", "Enabled", "是否启用后台等待机制", true),
           numberField("default_poll_interval_seconds", "Default Poll Interval Seconds", "默认轮询间隔（秒）", 3, { min: 0.5, step: 0.1 }),
           numberField("max_poll_interval_seconds", "Max Poll Interval Seconds", "最大轮询间隔（秒）", 15, { min: 1, step: 0.1 }),
           numberField("idle_wait_timeout_seconds", "Idle Wait Timeout Seconds", "空闲等待超时（秒）", 300, { min: 10, step: 0.1 }),
-          numberField("local_cache_ttl_seconds", "Local Cache Ttl Seconds", "本地缓存 TTL（秒）", 600, { min: 60, step: 0.1 }),
-          numberField("keepalive_interval_seconds", "Keepalive Interval Seconds", "KV cache 保活间隔（秒）", 240, { min: 30, step: 0.1 }),
-          numberField("keepalive_grace_seconds", "Keepalive Grace Seconds", "保活宽限期（秒）", 30, { min: 5, step: 0.1 }),
-          numberField("max_keepalive_rounds", "Max Keepalive Rounds", "最大保活轮数", 20, { min: 1, step: 1 }),
-          booleanField("allow_provider_keepalive", "Allow Provider Keepalive", "是否允许 Provider 级别保活", true),
-          numberField("hidden_keepalive_token_budget", "Hidden Keepalive Token Budget", "隐藏保活 token 预算", 8, { min: 1, step: 1 }),
         ],
       },
       {

@@ -58,9 +58,6 @@ describe("ConversationStore", () => {
       memory_prefix_states: {
         "child::agent": { rendered_block: "child" },
       },
-      _pipeline_caches: {
-        root: { fp: "abc", t: 1 },
-      },
     });
 
     expect(updated).toMatchObject({
@@ -68,9 +65,6 @@ describe("ConversationStore", () => {
       memory_prefix_states: {
         "root::agent": { rendered_block: "old" },
         "child::agent": { rendered_block: "child" },
-      },
-      _pipeline_caches: {
-        root: { fp: "abc", t: 1 },
       },
     });
     expect(store.getSession("s1")?.metadata).toEqual(updated);

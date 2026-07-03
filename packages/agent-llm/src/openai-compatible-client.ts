@@ -274,13 +274,41 @@ function buildResponsesBody(request: LlmRequest): Record<string, unknown> {
   };
 }
 
-function buildAnthropicBody(request: LlmRequest, stream = false): Record<string, unknown> {
-  const system = request.messages
+type AnthropicCacheControl = { type: "ephemeral" };
+type AnthropicCacheableTextBlock = { type: "text"; text: string; cache_control?: AnthropicCacheControl };
+type AnthropicCacheableTool = {
+  name: string;
+  description: string | undefined;
+  input_schema: Record<string, unknown>;
+  cache_control?: AnthropicCacheControl;
+};
+
+export function buildAnthropicBody(request: LlmRequest, stream = false): Record<string, unknown> {
+  // prompt cache 总开关:默认开(supports_prompt_caching !== false),仅在 provider 显式关闭时跳过。
+  // 命中:在 system 段末尾 block 与 tools 段末尾 tool 各打一个 cache_control 断点,覆盖完整稳定前缀。
+  const cacheControl = request.provider.supports_prompt_caching !== false;
+  const system: AnthropicCacheableTextBlock[] = request.messages
     .filter((m) => m.role === "system")
     .map((m) => ({ type: "text", text: extractText(m.content) }));
+  const lastSystem = system.length > 0 ? system[system.length - 1] : undefined;
+  if (cacheControl && lastSystem) {
+    lastSystem.cache_control = { type: "ephemeral" };
+  }
   const messages = request.messages
     .filter((m) => m.role !== "system")
     .map((m) => mapAnthropicMessage(m));
+  const tools: AnthropicCacheableTool[] | undefined =
+    request.tools && request.tools.length > 0
+      ? request.tools.map((t) => ({
+          name: t.function.name,
+          description: t.function.description,
+          input_schema: t.function.parameters,
+        }))
+      : undefined;
+  const lastTool = tools && tools.length > 0 ? tools[tools.length - 1] : undefined;
+  if (cacheControl && lastTool) {
+    lastTool.cache_control = { type: "ephemeral" };
+  }
   return {
     ...compactRecord(request.extraParams),
     model: request.model,
@@ -289,14 +317,7 @@ function buildAnthropicBody(request: LlmRequest, stream = false): Record<string,
     temperature: request.temperature ?? undefined,
     max_tokens:
       request.maxCompletionTokens ?? request.provider.max_completion_tokens ?? request.provider.max_tokens ?? 4096,
-    tools:
-      request.tools && request.tools.length > 0
-        ? request.tools.map((t) => ({
-            name: t.function.name,
-            description: t.function.description,
-            input_schema: t.function.parameters,
-          }))
-        : undefined,
+    tools,
     tool_choice: request.tools && request.tools.length > 0 ? mapAnthropicToolChoice(request.toolChoice) : undefined,
     stream: stream ? true : undefined,
   };

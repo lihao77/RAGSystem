@@ -30,6 +30,8 @@ const UPDATE_FIELDS = [
   "retry_backoff_factor",
   "supports_function_calling",
   "supports_vision",
+  "supports_prompt_caching",
+  "cache_ttl_seconds",
   "model_map",
   "api_endpoint",
 ] as const;
@@ -597,6 +599,16 @@ function assignProviderField(config: ModelProviderConfig, field: (typeof UPDATE_
       break;
     case "supports_vision":
       config.supports_vision = Boolean(value);
+      break;
+    case "supports_prompt_caching":
+      config.supports_prompt_caching = Boolean(value);
+      break;
+    case "cache_ttl_seconds":
+      if (typeof value === "number") {
+        config.cache_ttl_seconds = value;
+      } else {
+        delete config.cache_ttl_seconds;
+      }
       break;
     case "model_map":
       config.model_map = normalizeModelMap(value);

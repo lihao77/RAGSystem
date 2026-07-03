@@ -87,8 +87,6 @@ export interface AgentExecutionServiceParams {
  delegationPending: DelegationPendingService;
  /** 消费端 hook 注册回调（可选）；透传 SDK，让 backend 注册 tool.before/after、round.before 等 handler。 */
  hooks?: (registry: HookRegistry) => void;
- /** microcompact 缓存 TTL（秒）——透传 createRuntime，与 snapshot 路径同源（systemConfig 单一来源）。 */
- microcompactTtlSeconds?: number;
  /** 性能指标采集器（透传 AgentRunEngine 终态落库用）。 */
  metricsCollector?: AgentMetricsCollector | null;
  logger?: AgentExecutionLogger | null | undefined;
@@ -145,7 +143,6 @@ export function createAgentExecutionService(
     params.delegationPending,
     params.logger ?? null,
     params.hooks ?? null,
-    params.microcompactTtlSeconds,
     params.metricsCollector ?? null,
     params.compressionService ?? null,
   );

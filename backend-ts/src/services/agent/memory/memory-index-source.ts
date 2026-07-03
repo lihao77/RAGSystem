@@ -1,6 +1,12 @@
 /**
  * MemoryIndexContextSource——memory context source（实现 backend AgentContextSource）。
  * 按 agent.memory 配置加载 scope 前缀 + 指纹缓存（写 session metadata），产出 system 消息注入 prompt。
+ *
+ * 前缀快照的命中/重建由 provider cache 活性驱动（request.cacheAlive，由 buildContext 据
+ * ProviderCacheTracker 统一设）：cache 活 → 复用 rendered_block（前缀字面稳定，命中 KV cache）；
+ * cache 死或指纹变 → 重建读最新 memory store。last_used_at 的存储/续期由 ProviderCacheTracker 统一管，
+ * 本 source 不自管时间戳（失效/续期信号经 request.cacheAlive 接入，与 recent 等子系统共用同一信号）。
+ *
  * 迿自 SDK memory 模块，归位 backend；字段对齐 AgentConfig.memory（snake）。
  * 由 backend AgentContextBuilder 组装（memory + recent）→ conversation 经 RunInput.conversation 注入 SDK。
  */
@@ -74,12 +80,14 @@ export class MemoryIndexContextSource implements AgentContextSource {
     });
     const baselineKey = memoryBaselineKey(request.threadKey, this.agentName);
     const existingSnapshot = readMemoryPrefixSnapshot(sessionMetadata, baselineKey);
+    const fingerprintMatch = existingSnapshot?.fingerprint.fingerprint === fingerprint.fingerprint;
+    // 命中(复用 rendered_block)= 指纹匹配 AND provider cache 活(request.cacheAlive,buildContext 据 Tracker 设)。
+    // cache 活 → 前缀字面稳定有意义,复用;cache 死或指纹变 → 重建读最新 memory store。
     const snapshot =
-      existingSnapshot?.fingerprint.fingerprint === fingerprint.fingerprint
+      existingSnapshot && fingerprintMatch && request.cacheAlive
         ? existingSnapshot
         : this.buildAndPersistSnapshot({ request, baselineKey, fingerprint, scopeCapabilities, scopeSpecs });
     const renderedBlock = snapshot.rendered_block;
-    request.stablePrefixFingerprint = snapshot.fingerprint.fingerprint;
     return {
       conversation: renderedBlock ? [{ role: "system", content: renderedBlock }] : [],
       metadata: { status: "loaded", snapshot },

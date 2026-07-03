@@ -7,4 +7,4 @@ export * from "./types.js";
 export * from "./provider-registry.js";
 export { compactRecord } from "./record-utils.js";
 export * from "./content-parts.js";
-export { OpenAiCompatibleClient } from "./openai-compatible-client.js";
+export { OpenAiCompatibleClient, buildAnthropicBody } from "./openai-compatible-client.js";

@@ -1,43 +1,14 @@
 /**
  * context-builder 辅助函数(自 SDK context/helpers.ts 迁入)。
- * 仅保留 recent source / history-view / context-builder 用的通用工具。
+ * 仅保留 history-view / context-builder 仍在用的通用工具。
  */
-import type { SessionMetadataPort } from "./types.js";
-import { DEFAULT_MICROCOMPACT_TTL_SECONDS } from "./types.js";
 
-export function readPipelineCache(sessionMetadata: Record<string, unknown>, threadKey: string): Record<string, unknown> {
-  const caches = asRecord(sessionMetadata._pipeline_caches);
-  return asRecord(caches?.[threadKey]) ?? {};
-}
-
-export function isSessionMetadataPort(value: unknown): value is SessionMetadataPort {
-  return Boolean(value && typeof value === "object" && "getSession" in value && typeof value.getSession === "function");
-}
-
-export function getString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
+/** 整数归一:非有限整数返回 null(history-view 读 seq 用)。 */
 export function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) ? value : null;
 }
 
+/** 正整数或默认值:非正整数返回默认值(context-builder 读 keepRecentTools 用)。 */
 export function positiveIntegerOrDefault(value: unknown, defaultValue: number): number {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : defaultValue;
-}
-
-export function positiveNumberOrDefault(value: unknown, defaultValue: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : defaultValue;
-}
-
-export function resolveMicrocompactTtlSeconds(injected: number | undefined): number {
-  return positiveNumberOrDefault(injected, DEFAULT_MICROCOMPACT_TTL_SECONDS);
-}
-
-export function asRecord(value: unknown): Record<string, unknown> | null {
-  return isRecord(value) ? value : null;
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

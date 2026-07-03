@@ -66,6 +66,10 @@ export interface ProviderConfig {
   api_key?: string | null;
   supports_function_calling?: boolean | null;
   supports_vision?: boolean | null;
+  /** Anthropic 路径 prompt cache 总开关(默认开,!== false 即在 system/tools 尾部打 cache_control)。 */
+  supports_prompt_caching?: boolean | null;
+  /** provider KV cache 有效期(秒);memory 前缀快照 sliding 失效阈值用。 */
+  cache_ttl_seconds?: number | null;
   max_completion_tokens?: number | null;
   max_tokens?: number | null;
   temperature?: number | null;

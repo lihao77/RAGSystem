@@ -68,6 +68,10 @@ export interface ModelProviderConfig {
   retry_backoff_factor?: number;
   supports_function_calling?: boolean;
   supports_vision?: boolean;
+  /** Anthropic 路径 prompt cache 总开关(默认开,!== false 即在 system/tools 尾部打 cache_control)。 */
+  supports_prompt_caching?: boolean;
+  /** provider KV cache 有效期(秒);memory 前缀快照的 sliding 失效阈值(未配走 memory-index-source 默认 300)。 */
+  cache_ttl_seconds?: number;
   is_loaded?: boolean;
   is_available?: boolean;
   [key: string]: unknown;
