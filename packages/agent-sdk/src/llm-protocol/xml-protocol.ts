@@ -22,6 +22,7 @@
  * - buildRequestShell 内部注入协议说明 + manifest 进 system message，再 toModelMessages 语义包装。
  *   XML 模式不下发 native tools 字段（withoutNativeTools）。
  */
+import { randomUUID } from "node:crypto";
 import type { ChatMessage, ChatToolCall, LlmClient, LlmRequest, LlmStreamHandler, ProviderConfig, TokenUsage } from "@ragsystem/agent-llm";
 import { extractText } from "@ragsystem/agent-llm";
 import { RuntimeAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
@@ -150,7 +151,7 @@ export class XmlProtocol implements Protocol {
       if (roundResult.toolCalls.length > 0) {
         const calls: KernelToolCall[] = roundResult.toolCalls.map((call, index) => ({
           index,
-          callId: call.callId ?? `xml_round_${round}_call_${index + 1}`,
+          callId: call.callId ?? randomUUID(),
           toolName: call.toolName,
           arguments: call.arguments ?? {},
         }));
@@ -208,7 +209,7 @@ export class XmlProtocol implements Protocol {
       if (parsed.calls.length > 0) {
         const calls: KernelToolCall[] = parsed.calls.map((call, index) => ({
           index,
-          callId: call.callId ?? `xml_round_${round}_call_${index + 1}`,
+          callId: call.callId ?? randomUUID(),
           toolName: call.toolName,
           arguments: call.arguments ?? {},
         }));

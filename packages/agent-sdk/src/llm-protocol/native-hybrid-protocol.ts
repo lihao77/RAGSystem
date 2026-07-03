@@ -13,6 +13,7 @@
  * 与 backend-ts 差异（同 XmlProtocol）：LlmClient/LlmRequest、readTierParams、扁平 KernelEvent。
  * visibleTools 来源从 session.toolExecutor 改为 deps.getTools()（SDK 工具端口尚未接入，默认空）。
  */
+import { randomUUID } from "node:crypto";
 import type { ChatMessage, ChatToolCall, ChatToolDefinition, LlmClient, LlmRequest, LlmStreamHandler, ProviderConfig, TokenUsage } from "@ragsystem/agent-llm";
 import { extractText } from "@ragsystem/agent-llm";
 import { RuntimeAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
@@ -176,7 +177,7 @@ export class NativeHybridProtocol implements Protocol {
     if (toolCalls.length > 0) {
       const calls: KernelToolCall[] = toolCalls.map((tc, index) => ({
         index,
-        callId: tc.id ?? `native_round_${round}_call_${index + 1}`,
+        callId: tc.id ?? randomUUID(),
         toolName: tc.function.name,
         arguments: safeParseArguments(tc.function.arguments),
       }));
@@ -221,7 +222,7 @@ export class NativeHybridProtocol implements Protocol {
     if (result.toolCalls && result.toolCalls.length > 0) {
       const calls: KernelToolCall[] = result.toolCalls.map((tc, index) => ({
         index,
-        callId: tc.id ?? `native_round_${round}_call_${index + 1}`,
+        callId: tc.id ?? randomUUID(),
         toolName: tc.function.name,
         arguments: safeParseArguments(tc.function.arguments),
       }));
