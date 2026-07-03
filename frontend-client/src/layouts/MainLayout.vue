@@ -112,6 +112,7 @@
       </component>
     </div>
     <CommandPalette />
+    <HotkeysHelp />
   </div>
 </template>
 
@@ -125,6 +126,8 @@ import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconNewConve
 import { sidebarAdminNavItem, managementNavItems } from '../navigation/adminNavigation';
 import CommandPalette from '../components/CommandPalette.vue';
 import { useCommandPalette } from '../composables/useCommandPalette.js';
+import HotkeysHelp from '../components/HotkeysHelp.vue';
+import { useGlobalHotkeys } from '../composables/useGlobalHotkeys.js';
 import AdminLayout from './AdminLayout.vue';
 
 const props = defineProps({
@@ -312,7 +315,7 @@ const handleHistoryItemBeforeLeave = (el) => {
 
 const handleHistoryItemLeave = (el, done) => {
   void el.offsetHeight;
-  el.style.transition = 'height 200ms cubic-bezier(0.22, 1, 0.36, 1), margin 200ms cubic-bezier(0.22, 1, 0.36, 1), padding 200ms cubic-bezier(0.22, 1, 0.36, 1), opacity 160ms ease';
+  el.style.transition = 'height 200ms var(--ease-out-expo), margin 200ms var(--ease-out-expo), padding 200ms var(--ease-out-expo), opacity 160ms ease';
   el.style.height = '0';
   el.style.marginTop = '0';
   el.style.marginBottom = '0';
@@ -403,6 +406,29 @@ const selectSession = async (item) => {
   closeMobileSidebar();
 };
 
+// 全局快捷键：会话相对切换（-1 上一条 / +1 下一条）
+const switchSession = (delta) => {
+  const items = history.value;
+  if (!items.length) return;
+  const curId = activeSessionId.value;
+  const idx = items.findIndex((i) => i.session_id === curId);
+  let next;
+  if (idx === -1) {
+    next = delta > 0 ? 0 : items.length - 1;
+  } else {
+    next = idx + delta;
+    if (next < 0 || next >= items.length) return;
+  }
+  const target = items[next];
+  if (target) selectSession(target);
+};
+
+// 全局快捷键：聚焦输入框（composer textarea 打了 data-composer 标记，零组件耦合）
+const focusComposer = () => {
+  const el = document.querySelector('[data-composer]');
+  if (el && typeof el.focus === 'function') el.focus();
+};
+
 const confirmDeleteSession = async (item) => {
   const ok = await confirm({
     title: '删除会话',
@@ -485,6 +511,19 @@ registerCommand([
   })),
 ]);
 
+const { register: registerHotkey, install: installGlobalHotkeys } = useGlobalHotkeys();
+registerHotkey([
+  { id: 'hk-focus-input', combo: '/', description: '聚焦输入框', group: '操作', action: () => focusComposer() },
+  { id: 'hk-new-chat', combo: 'c', description: '新建聊天', group: '操作', action: () => startNewChat() },
+  { id: 'hk-goto-chat', combo: 'g c', description: '前往对话', group: '导航', action: () => navigateTo('/') },
+  { id: 'hk-goto-admin', combo: 'g a', description: '管理中心', group: '导航', action: () => navigateTo('/admin') },
+  { id: 'hk-goto-kb', combo: 'g k', description: '知识库', group: '导航', action: () => navigateTo('/vector-library') },
+  { id: 'hk-goto-models', combo: 'g m', description: '模型管理', group: '导航', action: () => navigateTo('/model-providers') },
+  { id: 'hk-goto-monitor', combo: 'g o', description: '监控面板', group: '导航', action: () => navigateTo('/monitor') },
+  { id: 'hk-prev-session', combo: 'alt+arrowup', description: '上一会话', group: '会话', action: () => switchSession(-1) },
+  { id: 'hk-next-session', combo: 'alt+arrowdown', description: '下一会话', group: '会话', action: () => switchSession(1) },
+]);
+
 watch(history, (items) => {
   setCommandDynamic('sessions', (items || []).slice(0, 8).map((item) => ({
     id: `session-${item.session_id}`,
@@ -501,6 +540,7 @@ onMounted(() => {
   loadActiveTeam();
   loadRecentSessions(true);
   installCommandPaletteHotkey();
+  installGlobalHotkeys();
 });
 
 onUnmounted(() => {
@@ -516,7 +556,7 @@ onUnmounted(() => {
 
 .history-list-move,
 .history-list-enter-active {
-  transition: transform var(--duration-base) cubic-bezier(0.22, 1, 0.36, 1), opacity var(--duration-base) ease;
+  transition: transform var(--duration-base) var(--ease-out-expo), opacity var(--duration-base) ease;
 }
 
 .history-list-enter-from {

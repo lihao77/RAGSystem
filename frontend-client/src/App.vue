@@ -23,8 +23,6 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import GlobalToast from './components/GlobalToast.vue';
 import GlobalConfirmDialog from './components/GlobalConfirmDialog.vue';
-import hljsDarkUrl from 'highlight.js/styles/github-dark.css?url';
-import hljsLightUrl from 'highlight.js/styles/github.css?url';
 
 const router = useRouter();
 
@@ -48,24 +46,8 @@ const toggleTheme = () => {
 
 const updateTheme = () => {
   const root = document.documentElement;
-  if (isDark.value) {
-    root.setAttribute('data-theme', 'dark');
-  } else {
-    root.setAttribute('data-theme', 'light');
-  }
+  root.setAttribute('data-theme', isDark.value ? 'dark' : 'light');
   localStorage.setItem('theme', isDark.value ? 'dark' : 'light');
-
-  const existingLink = document.getElementById('hljs-theme');
-  const href = isDark.value ? hljsDarkUrl : hljsLightUrl;
-  if (existingLink) {
-    existingLink.setAttribute('href', href);
-  } else {
-    const link = document.createElement('link');
-    link.id = 'hljs-theme';
-    link.rel = 'stylesheet';
-    link.href = href;
-    document.head.appendChild(link);
-  }
 };
 
 onMounted(() => {

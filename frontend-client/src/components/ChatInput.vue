@@ -31,6 +31,7 @@
             placeholder="描述你想让 Agent 完成的任务..."
             rows="1"
             ref="textareaRef"
+            data-composer
           ></textarea>
         </div>
 

@@ -1028,40 +1028,86 @@
   padding: 10px 12px;
 }
 
-/* 语法高亮颜色统一收敛 */
+/* === highlight.js Linear 冷调 palette（深色默认 / 浅色覆盖，自包含） === */
+:root {
+  --hljs-comment: #62666d;
+  --hljs-keyword: #8b95e6;
+  --hljs-builtin: #6cb6ff;
+  --hljs-string: #8fd0a0;
+  --hljs-number: #e0c074;
+  --hljs-fn: #a5b0ef;
+  --hljs-tag: #c089e8;
+  --hljs-attr: #d6a45c;
+  --hljs-deletion: #e0524c;
+  --hljs-addition: #57ab5a;
+}
+:root[data-theme="light"] {
+  --hljs-comment: #8a8f98;
+  --hljs-keyword: #5e6ad2;
+  --hljs-builtin: #2f6cbf;
+  --hljs-string: #2f8a4d;
+  --hljs-number: #9a6b1a;
+  --hljs-fn: #4a5bc4;
+  --hljs-tag: #8b3fbf;
+  --hljs-attr: #8a5a1a;
+  --hljs-deletion: #c8302a;
+  --hljs-addition: #2f8a4d;
+}
+
 .markdown-body .hljs-comment,
 .markdown-body .hljs-quote {
-  color: var(--color-text-muted);
+  color: var(--hljs-comment);
+  font-style: italic;
 }
 
 .markdown-body .hljs-keyword,
 .markdown-body .hljs-selector-tag,
-.markdown-body .hljs-title,
-.markdown-body .hljs-section,
-.markdown-body .hljs-name,
+.markdown-body .hljs-symbol,
+.markdown-body .hljs-doctag {
+  color: var(--hljs-keyword);
+}
+
 .markdown-body .hljs-built_in,
-.markdown-body .hljs-type {
-  color: var(--color-link);
-  font-weight: 600;
+.markdown-body .hljs-type,
+.markdown-body .hljs-literal,
+.markdown-body .hljs-class .hljs-title {
+  color: var(--hljs-builtin);
+}
+
+.markdown-body .hljs-string,
+.markdown-body .hljs-regexp,
+.markdown-body .hljs-meta .hljs-string {
+  color: var(--hljs-string);
+}
+
+.markdown-body .hljs-number {
+  color: var(--hljs-number);
+}
+
+.markdown-body .hljs-title.function_,
+.markdown-body .hljs-title,
+.markdown-body .hljs-section {
+  color: var(--hljs-fn);
+}
+
+.markdown-body .hljs-name,
+.markdown-body .hljs-tag {
+  color: var(--hljs-tag);
 }
 
 .markdown-body .hljs-attr,
 .markdown-body .hljs-attribute,
-.markdown-body .hljs-literal,
+.markdown-body .hljs-variable,
+.markdown-body .hljs-template-variable,
 .markdown-body .hljs-meta,
 .markdown-body .hljs-operator,
-.markdown-body .hljs-variable,
-.markdown-body .hljs-selector-attr,
-.markdown-body .hljs-selector-class,
-.markdown-body .hljs-selector-id {
-  color: var(--code-attr);
-  font-weight: 600;
+.markdown-body .hljs-property,
+.markdown-body .hljs-params {
+  color: var(--hljs-attr);
 }
 
-.markdown-body .hljs-string,
-.markdown-body .hljs-number {
-  color: var(--code-string);
-}
+.markdown-body .hljs-deletion { color: var(--hljs-deletion); }
+.markdown-body .hljs-addition { color: var(--hljs-addition); }
 
 /* 引用块 */
 .markdown-body .md-quote-block .md-block-body {
