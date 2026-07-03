@@ -2,6 +2,7 @@ import { nextTick } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { useUserInputSubmission } from './useUserInputSubmission.js';
+import { useRunRuntime } from './useRunRuntime.js';
 
 function normalizeSessionRunStreamDeps(deps) {
   const {
@@ -57,43 +58,11 @@ export function useSessionRunStream(deps) {
   const activeRun = sessionRunStore.activeRun;
   const userInput = useUserInputSubmission({ getWS: () => deps.getWS?.() });
 
-  // seq gap 标记：run 期间发生过事件丢失，run 结束后做一次轻量对账
-  let _pendingReconciliation = false;
-  const FINALIZED_RUN_WINDOW_MS = 10_000;
-  let _lastFinalizedRun = {
-    sessionId: null,
-    runId: null,
-    at: 0,
-  };
-  // 去重标记：避免 markRecentSessionUpdated 对同一内容重复调用 updateRecentSession
-  // 用 WeakMap 避免污染消息对象（不会被 cacheMessages 序列化）
-  const _recentSessionUpdatedFor = new WeakMap();
-  const DURABLE_REPLAY_RUN_EVENT_TYPES = new Set([
-    'run_started',
-    'run_ended',
-    'agent_started',
-    'agent_ended',
-    'stream_output',
-    'tool_call',
-    'tool_result',
-    'state_sync',
-    'interaction',
-    'error',
-    'abort',
-  ]);
+  // 交互去重：避免同一 approval/user_input required 事件重复入队
   const _handledRequiredInteractions = new Set();
-  let _durableReplay = {
-    active: false,
-    runId: null,
-  };
 
-  const mergeMessageMetadata = (msg, metadata) => {
-    if (!msg || !metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return;
-    msg.metadata = {
-      ...(msg.metadata || {}),
-      ...metadata,
-    };
-  };
+  // run 运行态机（phase/timing/seq gap/durable replay/finalize），状态读 store 单源
+  const runtime = useRunRuntime(deps);
 
   const isVisibleRootCompressionSummary = (eventData) => {
     if (eventData.visible_to_user === false) return false;
@@ -101,125 +70,6 @@ export function useSessionRunStream(deps) {
     const threadKey = eventData.thread_key;
     if (threadKey != null && threadKey !== '' && threadKey !== 'root') return false;
     return true;
-  };
-
-  const eventTimestampSeconds = (event) => {
-    const ts = Number(event?.timestamp);
-    return Number.isFinite(ts) && ts > 0 ? ts : Date.now() / 1000;
-  };
-
-  const computeLatencyMs = (startSeconds, endSeconds) => {
-    if (!Number.isFinite(startSeconds) || !Number.isFinite(endSeconds)) return null;
-    return Math.max(0, Math.round((endSeconds - startSeconds) * 1000));
-  };
-
-  const resetActiveRunRuntime = () => {
-    Object.assign(activeRun, {
-      phase: 'idle',
-      runStartedAt: null,
-      firstTokenAt: null,
-      firstTokenLatencyMs: null,
-      latestLlmFirstTokenAt: null,
-      lastChunkAt: null,
-      waiting: null,
-      outputCharCount: 0,
-    });
-  };
-
-  const startActiveRunRuntime = (event) => {
-    Object.assign(activeRun, {
-      phase: 'llm_waiting_first_token',
-      runStartedAt: eventTimestampSeconds(event),
-      firstTokenAt: null,
-      firstTokenLatencyMs: null,
-      latestLlmFirstTokenAt: null,
-      lastChunkAt: null,
-      waiting: null,
-      outputCharCount: 0,
-    });
-  };
-
-  const markLlmFirstToken = (event, eventData) => {
-    const ts = eventTimestampSeconds(event);
-    if (!activeRun.firstTokenAt) {
-      const elapsedMs = Number(eventData.elapsed_ms);
-      activeRun.firstTokenAt = ts;
-      activeRun.firstTokenLatencyMs = Number.isFinite(elapsedMs)
-        ? Math.max(0, Math.round(elapsedMs))
-        : computeLatencyMs(activeRun.runStartedAt, ts);
-    }
-    activeRun.latestLlmFirstTokenAt = ts;
-    activeRun.phase = 'llm_streaming';
-    activeRun.waiting = null;
-  };
-
-  const markOutputChunk = (event, content) => {
-    const ts = eventTimestampSeconds(event);
-    activeRun.phase = 'llm_streaming';
-    activeRun.lastChunkAt = ts;
-    activeRun.outputCharCount = (activeRun.outputCharCount || 0) + (content?.length || 0);
-    if (!activeRun.firstTokenAt) {
-      activeRun.firstTokenAt = ts;
-      activeRun.firstTokenLatencyMs = computeLatencyMs(activeRun.runStartedAt, ts);
-    }
-  };
-
-  const markWaitingStart = (event, eventData) => {
-    activeRun.phase = 'background_waiting';
-    activeRun.waiting = {
-      waitId: eventData.wait_id || '',
-      backgroundTaskIds: Array.isArray(eventData.background_task_ids) ? eventData.background_task_ids : [],
-      pendingTaskIds: Array.isArray(eventData.pending_task_ids) ? eventData.pending_task_ids : [],
-      pendingTaskCount: Number.isFinite(eventData.pending_task_count) ? eventData.pending_task_count : 0,
-      timeoutMs: Number.isFinite(eventData.timeout_ms) ? eventData.timeout_ms : null,
-      startedAt: eventTimestampSeconds(event),
-    };
-  };
-
-  const markWaitingFinished = (eventData) => {
-    const currentWaitId = activeRun.waiting?.waitId;
-    const finishedWaitId = eventData?.wait_id || '';
-    if (currentWaitId && finishedWaitId && currentWaitId !== finishedWaitId) return;
-    activeRun.waiting = null;
-    if (activeRun.active) activeRun.phase = 'llm_waiting_first_token';
-  };
-
-  const observeDeliverySeq = (event) => {
-    const deliverySeq = Number(event?.seq ?? 0);
-    if (!Number.isFinite(deliverySeq) || deliverySeq <= 0) return;
-    if (activeRun.lastSeenSeq > 0 && deliverySeq > activeRun.lastSeenSeq + 1) {
-      _pendingReconciliation = true;
-    }
-    activeRun.lastSeenSeq = deliverySeq;
-  };
-
-  const reconcileAfterGap = (sessionId, currentMsg) => {
-    _pendingReconciliation = false;
-    const hasRenderableFinalMessage = Boolean(
-      currentMsg
-      && currentMsg.role === 'assistant'
-      && currentMsg.finished
-      && (currentMsg.content || '').trim()
-    );
-    if (hasRenderableFinalMessage && typeof deps.mergeMessageIdsFromServer === 'function') {
-      // fire-and-forget：此时 run 已结束，无后续代码依赖合并结果
-      deps.mergeMessageIdsFromServer(sessionId);
-      return;
-    }
-    deps.deleteMessageCache(sessionId);
-    deps.loadSessionMessages(sessionId, { silent: true });
-  };
-
-  const markRecentSessionUpdated = (sessionId, msg) => {
-    if (!msg?.content) return;
-    if (_recentSessionUpdatedFor.get(msg) === msg.content) return;
-    deps.updateRecentSession(sessionId, msg.content, new Date().toISOString());
-    _recentSessionUpdatedFor.set(msg, msg.content);
-  };
-
-  const extractRunId = (source) => {
-    if (!source || typeof source !== 'object') return null;
-    return source.run_id || source.payload?.run_id || source.metadata?.run_id || null;
   };
 
   const getEventInteractionId = (event) => {
@@ -259,118 +109,9 @@ export function useSessionRunStream(deps) {
   };
 
   const resetStreamSessionState = () => {
-    _pendingReconciliation = false;
-    _lastFinalizedRun = { sessionId: null, runId: null, at: 0 };
+    runtime.resetInternal();
     _handledRequiredInteractions.clear();
-    _durableReplay = { active: false, runId: null };
     userInput.reset();
-  };
-
-  const isDurableOutboxReplayEnvelope = (event) => event?.payload?.replay_source === 'durable_outbox';
-
-  const messageRunId = (msg) => msg?.run_id || msg?.metadata?.run_id || null;
-
-  const findAssistantMessageIndexByRunId = (runId, predicate = () => true) => {
-    if (!runId) return -1;
-    for (let index = messages.value.length - 1; index >= 0; index -= 1) {
-      const msg = messages.value[index];
-      if (msg?.role === 'assistant' && messageRunId(msg) === runId && predicate(msg)) {
-        return index;
-      }
-    }
-    return -1;
-  };
-
-  const hasFinishedAssistantForRun = (runId) => (
-    findAssistantMessageIndexByRunId(runId, msg => msg.finished === true) >= 0
-  );
-
-  const getDurableReplayRunId = (event) => extractRunId(event) || _durableReplay.runId || null;
-
-  const ensureDurableReplayActiveRun = (event, sessionId) => {
-    const runId = getDurableReplayRunId(event);
-    if (hasFinishedAssistantForRun(runId)) return false;
-
-    let assistantMsgIndex = findAssistantMessageIndexByRunId(runId, msg => msg.finished !== true);
-    if (assistantMsgIndex < 0) {
-      const lastMsg = messages.value[messages.value.length - 1];
-      if (lastMsg?.role === 'assistant' && !lastMsg.finished && (!runId || !messageRunId(lastMsg))) {
-        assistantMsgIndex = messages.value.length - 1;
-        if (runId) {
-          lastMsg.run_id = runId;
-          lastMsg.metadata = { ...(lastMsg.metadata || {}), run_id: runId };
-        }
-      }
-    }
-    if (assistantMsgIndex < 0) {
-      messages.value.push(deps.createAssistantMessage(runId ? { run_id: runId, metadata: { run_id: runId } } : undefined));
-      assistantMsgIndex = messages.value.length - 1;
-    }
-
-    activeRun.active = true;
-    activeRun.assistantMsgIndex = assistantMsgIndex;
-    activeRun.runId = runId;
-    activeRun.lastSeenSeq = 0;
-    if (!activeRun.phase || activeRun.phase === 'idle') {
-      activeRun.phase = 'llm_waiting_first_token';
-      activeRun.runStartedAt = eventTimestampSeconds(event);
-    }
-    isLoading.value = true;
-    if (runId) {
-      sessionTaskInfo.value = {
-        ...(sessionTaskInfo.value || {}),
-        run_id: runId,
-        session_id: sessionId,
-        status: 'running',
-      };
-    }
-    return true;
-  };
-
-  const terminalStatusFromEvent = (event) => {
-    const status = event?.payload?.status;
-    return ['completed', 'failed', 'interrupted'].includes(status) ? status : 'completed';
-  };
-
-  const refreshMessagesAfterInactiveDurableTerminal = (sessionId) => {
-    deps.deleteMessageCache(sessionId);
-    deps.loadSessionMessages(sessionId, { silent: true });
-  };
-
-  const handleInactiveDurableReplayEvent = (event, sessionId) => {
-    if (!_durableReplay.active || activeRun.active) return false;
-
-    const eventType = event.type;
-    const runId = getDurableReplayRunId(event);
-    if (runId && hasFinishedAssistantForRun(runId)) {
-      if (eventType === 'run_ended') {
-        sessionTaskInfo.value = {
-          ...(sessionTaskInfo.value || {}),
-          run_id: runId,
-          session_id: sessionId,
-          thread_alive: false,
-          status: terminalStatusFromEvent(event),
-        };
-        deps.refreshSessionExecutionState(sessionId, { silent: true });
-      }
-      return true;
-    }
-
-    if (eventType === 'run_ended') {
-      sessionTaskInfo.value = {
-        ...(sessionTaskInfo.value || {}),
-        ...(runId ? { run_id: runId } : {}),
-        session_id: sessionId,
-        thread_alive: false,
-        status: terminalStatusFromEvent(event),
-      };
-      refreshMessagesAfterInactiveDurableTerminal(sessionId);
-      deps.refreshSessionExecutionState(sessionId, { silent: true });
-      return true;
-    }
-
-    if (!DURABLE_REPLAY_RUN_EVENT_TYPES.has(eventType)) return false;
-    return !ensureDurableReplayActiveRun(event, sessionId);
   };
 
   const handleApprovalRequired = (event, eventData, sessionId) => {
@@ -434,48 +175,8 @@ export function useSessionRunStream(deps) {
     deps.cacheMessages(sessionId, messages.value);
   };
 
-  const rememberFinalizedRun = (sessionId, currentMsg) => {
-    _lastFinalizedRun = {
-      sessionId,
-      runId: activeRun.runId || extractRunId(currentMsg) || null,
-      at: Date.now(),
-    };
-  };
-
-  const isRecentlyFinalizedUpdate = (event, sessionId) => {
-    const updateRunId = extractRunId(event);
-    if (!updateRunId || !_lastFinalizedRun.runId) return false;
-    return (
-      _lastFinalizedRun.sessionId === sessionId
-      && _lastFinalizedRun.runId === updateRunId
-      && Date.now() - _lastFinalizedRun.at < FINALIZED_RUN_WINDOW_MS
-    );
-  };
-
-  const finalizeActiveRun = (sessionId) => {
-    let finalizedMsg = null;
-    if (activeRun.active) {
-      const currentMsg = messages.value[activeRun.assistantMsgIndex];
-      finalizedMsg = currentMsg || null;
-      if (currentMsg && !currentMsg.finished) {
-        currentMsg.finished = true;
-        markRecentSessionUpdated(sessionId, currentMsg);
-        deps.checkSituationScreenTrigger(currentMsg.content);
-      }
-      deps.cacheMessages(sessionId, messages.value);
-      rememberFinalizedRun(sessionId, currentMsg);
-      activeRun.active = false;
-      resetActiveRunRuntime();
-    }
-    if (_pendingReconciliation) {
-      reconcileAfterGap(sessionId, finalizedMsg);
-    }
-    deps.clearLlmRetryState();
-    isCompressing.value = false;
-    isLoading.value = false;
-    deps.refreshSessionExecutionState(sessionId, { silent: true });
-    deps.scrollToBottom();
-  };
+  // finalize 转发运行态机（run_ended / ack 失败时调用）
+  const finalizeActiveRun = runtime.finalizeActiveRun;
 
   const handleRunEvent = (event, currentMsg, sessionId) => {
     const eventType = event.type;
@@ -516,8 +217,8 @@ export function useSessionRunStream(deps) {
         const detail = payload.detail || {};
         const isStart = detail.phase === 'start' || Boolean(detail.wait_id && !activeRun.waiting);
         if (deps.isMasterEvent(event)) {
-          if (isStart) markWaitingStart(event, detail);
-          else markWaitingFinished(detail);
+          if (isStart) runtime.markWaitingStart(event, detail);
+          else runtime.markWaitingFinished(detail);
         }
       } else if (category === 'reflection') {
         if (deps.isMasterEvent(event)) activeRun.phase = 'reflecting';
@@ -566,11 +267,11 @@ export function useSessionRunStream(deps) {
     } else if (eventType === 'stream_output') {
       const phase = payload.phase;
       if (phase === 'first_token') {
-        if (deps.isMasterEvent(event)) markLlmFirstToken(event, payload);
+        if (deps.isMasterEvent(event)) runtime.markLlmFirstToken(event, payload);
       } else if (phase === 'delta') {
         if (deps.isMasterEvent(event)) {
           currentMsg.content += payload.content;
-          markOutputChunk(event, payload.content || '');
+          runtime.markOutputChunk(event, payload.content || '');
         } else {
           // 子 agent 流式输出 → core applyOutputStream 累加到 agent.output
           deps.applyEnvelopeToMessage(currentMsg, event);
@@ -583,7 +284,7 @@ export function useSessionRunStream(deps) {
             currentMsg.content = serverContent;
           }
           currentMsg.finished = true;
-          markRecentSessionUpdated(sessionId, currentMsg);
+          runtime.markRecentSessionUpdated(sessionId, currentMsg);
           deps.cacheMessages(sessionId, messages.value);
           deps.checkSituationScreenTrigger(currentMsg.content);
         } else {
@@ -632,7 +333,7 @@ export function useSessionRunStream(deps) {
 
     // 统一推进投递序号（内部对无效 seq 自动跳过）
     if (activeRun.active || isLoading.value) {
-      observeDeliverySeq(event);
+      runtime.observeDeliverySeq(event);
     }
 
     if (eventType === 'session.reconnect') {
@@ -640,11 +341,11 @@ export function useSessionRunStream(deps) {
       deps.clearSessionResumeRecovery();
       activeRun.isReplaying = true;
       if (phase === 'start') {
-        if (isDurableOutboxReplayEnvelope(event)) {
-          _durableReplay = { active: true, runId: event.run_id || null };
+        if (runtime.isDurableOutboxReplayEnvelope(event)) {
+          runtime.setDurableReplay({ active: true, runId: event.run_id || null });
           return;
         }
-        _durableReplay = { active: false, runId: null };
+        runtime.setDurableReplay({ active: false });
         if (!isLoading.value) {
           isLoading.value = true;
           const lastMsg = messages.value[messages.value.length - 1];
@@ -657,7 +358,7 @@ export function useSessionRunStream(deps) {
           activeRun.lastSeenSeq = 0;
           if (!activeRun.phase || activeRun.phase === 'idle') {
             activeRun.phase = 'llm_waiting_first_token';
-            activeRun.runStartedAt = eventTimestampSeconds(event);
+            activeRun.runStartedAt = runtime.eventTimestampSeconds(event);
           }
         }
         if (event.run_id) {
@@ -671,14 +372,14 @@ export function useSessionRunStream(deps) {
         return;
       }
       // phase === 'end'
-      if (isDurableOutboxReplayEnvelope(event)) {
-        _durableReplay = { active: false, runId: null };
+      if (runtime.isDurableOutboxReplayEnvelope(event)) {
+        runtime.setDurableReplay({ active: false });
       }
       activeRun.isReplaying = false;
       return;
     }
 
-    if (handleInactiveDurableReplayEvent(event, sessionId)) return;
+    if (runtime.handleInactiveDurableReplayEvent(event, sessionId)) return;
 
     if (eventType === 'ack') {
       const category = payload.category;
@@ -692,7 +393,7 @@ export function useSessionRunStream(deps) {
           }
           sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'failed' };
           activeRun.active = false;
-          resetActiveRunRuntime();
+          runtime.resetActiveRunRuntime();
           isLoading.value = false;
           return;
         }
@@ -753,7 +454,7 @@ export function useSessionRunStream(deps) {
     }
 
     if (eventType === 'run_started') {
-      _pendingReconciliation = false; // 新 run 重置 gap 标记
+      runtime.resetPendingReconciliation(); // 新 run 重置 gap 标记
       const nextRunId = event.run_id || null;
       const shouldStartNewMessage = !activeRun.active || (activeRun.runId && nextRunId && activeRun.runId !== nextRunId);
       if (shouldStartNewMessage) {
@@ -773,12 +474,12 @@ export function useSessionRunStream(deps) {
         activeRun.active = true;
         activeRun.assistantMsgIndex = messages.value.length - 1;
         activeRun.lastSeenSeq = 0;
-        activeRun.isReplaying = _durableReplay.active;
-        startActiveRunRuntime(event);
+        activeRun.isReplaying = runtime.isDurableReplayActive();
+        runtime.startActiveRunRuntime(event);
       }
       activeRun.runId = nextRunId;
       if (activeRun.phase === 'idle' || !activeRun.runStartedAt || startupPhases.has(activeRun.phase)) {
-        startActiveRunRuntime(event);
+        runtime.startActiveRunRuntime(event);
       }
       isLoading.value = true;
       sessionTaskInfo.value = {
@@ -802,7 +503,7 @@ export function useSessionRunStream(deps) {
         return;
       }
       if (category === 'session_updated') {
-        if (isRecentlyFinalizedUpdate(event, sessionId)) {
+        if (runtime.isRecentlyFinalizedUpdate(event, sessionId)) {
           if (typeof deps.mergeMessageIdsFromServer === 'function') {
             deps.mergeMessageIdsFromServer(sessionId);
           }
@@ -849,7 +550,7 @@ export function useSessionRunStream(deps) {
     }
 
     if (eventType === 'run_ended') {
-      const terminalStatus = terminalStatusFromEvent(event);
+      const terminalStatus = runtime.terminalStatusFromEvent(event);
       const currentMsg = messages.value[activeRun.assistantMsgIndex];
       if (currentMsg) {
         // 打断确认：run 真正以 interrupted 终止时才显示"已停止生成"tag
