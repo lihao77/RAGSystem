@@ -1,7 +1,7 @@
 import { nextTick } from 'vue';
 import { storeToRefs } from 'pinia';
-import { respondInteraction } from '../api/session.js';
 import { useSessionRunStore } from '../stores/session-run.js';
+import { useUserInputSubmission } from './useUserInputSubmission.js';
 
 function normalizeSessionRunStreamDeps(deps) {
   const {
@@ -52,6 +52,7 @@ export function useSessionRunStream(deps) {
     contextUsage,
     sessionTaskInfo,
   } = storeToRefs(useSessionRunStore());
+  const userInput = useUserInputSubmission({ getWS: () => deps.getWS?.() });
 
   // seq gap 标记：run 期间发生过事件丢失，run 结束后做一次轻量对账
   let _pendingReconciliation = false;
@@ -64,9 +65,6 @@ export function useSessionRunStream(deps) {
   // 去重标记：避免 markRecentSessionUpdated 对同一内容重复调用 updateRecentSession
   // 用 WeakMap 避免污染消息对象（不会被 cacheMessages 序列化）
   const _recentSessionUpdatedFor = new WeakMap();
-  const USER_INPUT_ACK_TIMEOUT_MS = 8000;
-  const USER_INPUT_ACK_TIMEOUT_CODE = 'USER_INPUT_ACK_TIMEOUT';
-  const USER_INPUT_REJECTED_CODE = 'USER_INPUT_REJECTED';
   const DURABLE_REPLAY_RUN_EVENT_TYPES = new Set([
     'run_started',
     'run_ended',
@@ -80,7 +78,6 @@ export function useSessionRunStream(deps) {
     'error',
     'abort',
   ]);
-  const _pendingUserInputSubmissions = new Map();
   const _handledRequiredInteractions = new Set();
   let _durableReplay = {
     active: false,
@@ -227,11 +224,6 @@ export function useSessionRunStream(deps) {
     return event.call_id || '';
   };
 
-  const getEventInteractionKind = (event, fallback = '') => {
-    if (!event || typeof event !== 'object') return fallback;
-    return event.payload?.kind || fallback;
-  };
-
   const rememberRequiredInteraction = (kind, interactionId) => {
     if (!interactionId) return true;
     const key = `${kind || 'unknown'}:${interactionId}`;
@@ -263,48 +255,12 @@ export function useSessionRunStream(deps) {
     };
   };
 
-  const isOpenWebSocket = (ws) => {
-    if (!ws) return false;
-    const openState = typeof WebSocket !== 'undefined' ? WebSocket.OPEN : 1;
-    return ws.readyState === openState;
-  };
-
-  const clearPendingUserInputSubmission = (inputId) => {
-    const pending = _pendingUserInputSubmissions.get(inputId);
-    if (!pending) return null;
-    clearTimeout(pending.timer);
-    _pendingUserInputSubmissions.delete(inputId);
-    return pending;
-  };
-
   const resetStreamSessionState = () => {
     _pendingReconciliation = false;
     _lastFinalizedRun = { sessionId: null, runId: null, at: 0 };
     _handledRequiredInteractions.clear();
     _durableReplay = { active: false, runId: null };
-    for (const pending of _pendingUserInputSubmissions.values()) {
-      clearTimeout(pending.timer);
-      pending.reject?.(new Error('会话已切换，用户输入提交已取消'));
-    }
-    _pendingUserInputSubmissions.clear();
-  };
-
-  const resolveUserInputSubmission = (event) => {
-    const inputId = getEventInteractionId(event);
-    const pending = clearPendingUserInputSubmission(inputId);
-    if (!pending) return false;
-    pending.resolve(event);
-    return true;
-  };
-
-  const rejectUserInputSubmission = (event) => {
-    const inputId = getEventInteractionId(event);
-    const pending = clearPendingUserInputSubmission(inputId);
-    if (!pending) return false;
-    const error = new Error(event?.error || '用户输入提交失败');
-    error.code = USER_INPUT_REJECTED_CODE;
-    pending.reject(error);
-    return true;
+    userInput.reset();
   };
 
   const isDurableOutboxReplayEnvelope = (event) => event?.payload?.replay_source === 'durable_outbox';
@@ -414,51 +370,6 @@ export function useSessionRunStream(deps) {
     return !ensureDurableReplayActiveRun(event, sessionId);
   };
 
-  const submitUserInputHttp = async (sessionId, inputId, value) => {
-    await respondInteraction(sessionId, inputId, { kind: 'user_input', value });
-  };
-
-  const submitUserInputWs = (ws, sessionId, inputId, value) => new Promise((resolve, reject) => {
-    if (!inputId) {
-      reject(new Error('用户输入请求缺少 call_id'));
-      return;
-    }
-    const existing = clearPendingUserInputSubmission(inputId);
-    if (existing) {
-      existing.reject(new Error('用户输入已重新提交'));
-    }
-    const timer = setTimeout(() => {
-      _pendingUserInputSubmissions.delete(inputId);
-      const error = new Error('用户输入提交确认超时');
-      error.code = USER_INPUT_ACK_TIMEOUT_CODE;
-      reject(error);
-    }, USER_INPUT_ACK_TIMEOUT_MS);
-    _pendingUserInputSubmissions.set(inputId, { resolve, reject, timer });
-    try {
-      ws.send(JSON.stringify({ type: 'interaction', session_id: sessionId, call_id: inputId, payload: { kind: 'user_input', phase: 'responded', value } }));
-    } catch (error) {
-      clearPendingUserInputSubmission(inputId);
-      reject(error);
-    }
-  });
-
-  const submitUserInputForSession = async (sessionId, inputId, value) => {
-    const normalizedValue = String(value ?? '');
-    const ws = deps.getWS?.();
-    if (isOpenWebSocket(ws)) {
-      try {
-        await submitUserInputWs(ws, sessionId, inputId, normalizedValue);
-        return;
-      } catch (error) {
-        if (error?.code === USER_INPUT_ACK_TIMEOUT_CODE || error?.code === USER_INPUT_REJECTED_CODE) {
-          throw error;
-        }
-        console.warn('用户输入 WS 提交失败，降级 HTTP:', error);
-      }
-    }
-    await submitUserInputHttp(sessionId, inputId, normalizedValue);
-  };
-
   const handleApprovalRequired = (event, eventData, sessionId) => {
     const approvalData = normalizeApprovalRequiredData(event, eventData);
     if (!rememberRequiredInteraction('approval', approvalData.approval_id)) return;
@@ -471,7 +382,7 @@ export function useSessionRunStream(deps) {
     if (!rememberRequiredInteraction('user_input', inputData.input_id)) return;
     const submitUserInput = async (inputId, value) => {
       try {
-        await submitUserInputForSession(sessionId, inputId, value);
+        await userInput.submitForSession(sessionId, inputId, value);
       } catch (e) {
         console.warn('用户输入提交失败:', e);
         deps.showToast(e.message || '用户输入提交失败', 'warning');
@@ -793,8 +704,8 @@ export function useSessionRunStream(deps) {
       if (category === 'interaction') {
         const refCallId = payload.ref_call_id || '';
         if (payload.ok) {
-          if (_pendingUserInputSubmissions.has(refCallId)) {
-            resolveUserInputSubmission({ call_id: refCallId });
+          if (userInput.hasPending(refCallId)) {
+            userInput.resolveSubmission(refCallId);
             return;
           }
           if (deps.activeRun.active && deps.activeRun.phase === 'approval_waiting') {
@@ -804,12 +715,8 @@ export function useSessionRunStream(deps) {
           return;
         }
         // ok=false：先查 user_input pending，否则按 approval 失败处理
-        if (_pendingUserInputSubmissions.has(refCallId)) {
-          const error = new Error(payload.error || '用户输入提交失败');
-          error.code = USER_INPUT_REJECTED_CODE;
-          const pending = clearPendingUserInputSubmission(refCallId);
-          if (pending) pending.reject(error);
-          else deps.showToast(payload.error || '交互提交失败', 'warning');
+        if (userInput.hasPending(refCallId)) {
+          userInput.rejectSubmission(refCallId, payload.error || '用户输入提交失败');
           return;
         }
         deps.handleApprovalResolved(refCallId, sessionId);
@@ -836,8 +743,8 @@ export function useSessionRunStream(deps) {
         deps.handleApprovalResolved(refCallId, sessionId);
       }
       // user_input responded：兜底 resolve pending（主路径由 ack(interaction) 确认）
-      if (_pendingUserInputSubmissions.has(refCallId)) {
-        resolveUserInputSubmission({ call_id: refCallId });
+      if (userInput.hasPending(refCallId)) {
+        userInput.resolveSubmission(refCallId);
       }
       return;
     }
