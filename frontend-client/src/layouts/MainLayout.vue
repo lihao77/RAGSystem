@@ -94,7 +94,7 @@
     </aside>
 
     <div :class="['layout-main-host', { 'layout-main-host--page': !isChatRoute }]">
-      <component :is="pageShell" :key="isChatRoute ? 'shell-chat' : 'shell-admin'">
+      <component :is="pageShell" :key="isChatRoute ? 'shell-chat' : 'shell-admin'" class="layout-shell">
         <div :class="['route-card', isChatRoute ? 'route-card--chat' : 'route-card--page']">
           <RouterView v-slot="{ Component, route: childRoute }">
             <Transition :name="pageTransitionName" mode="out-in">
@@ -471,7 +471,7 @@ watch(
   { immediate: true }
 );
 
-const { register: registerCommand, installHotkey: installCommandPaletteHotkey } = useCommandPalette();
+const { register: registerCommand, installHotkey: installCommandPaletteHotkey, setDynamic: setCommandDynamic } = useCommandPalette();
 registerCommand([
   { id: 'cmd-new-chat', title: '新聊天', section: '操作', action: () => startNewChat() },
   { id: 'cmd-toggle-theme', title: '切换主题', subtitle: '深色 / 亮色', section: '操作', action: () => emit('toggleTheme') },
@@ -484,6 +484,16 @@ registerCommand([
     action: () => navigateTo(item.path),
   })),
 ]);
+
+watch(history, (items) => {
+  setCommandDynamic('sessions', (items || []).slice(0, 8).map((item) => ({
+    id: `session-${item.session_id}`,
+    title: item.title || formatTitle(item) || 'New Conversation',
+    subtitle: getSessionTeamLabel(item) || undefined,
+    section: '会话',
+    action: () => selectSession(item),
+  })));
+}, { deep: false });
 
 onMounted(() => {
   checkMobile();
@@ -1050,6 +1060,14 @@ onUnmounted(() => {
   background: var(--surface-shell);
   border-radius: 0;
   box-shadow: none;
+}
+
+/* pageShell 包裹层（chat 用 div，管理页用 AdminLayout）——height:100% 让 route-card 滚动容器有确定高度 */
+.layout-shell {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
 }
 
 .layout-main-host--page {

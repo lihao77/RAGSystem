@@ -473,8 +473,8 @@ const renderSingleLayer = (layerData, map) => {
     markers.forEach(marker => {
       const circle = L.circle([marker.lat, marker.lng], {
         radius: marker.radius || 1000,
-        color: '#ff7800',
-        fillColor: '#ff7800',
+        color: '#c4653e',
+        fillColor: '#c4653e',
         fillOpacity: 0.5,
         weight: 2
       })
@@ -621,7 +621,7 @@ const renderSingleLayerToGroup = (layerData, group) => {
     markers.forEach(marker => {
       if (map_type === 'circle') {
         group.addLayer(L.circle([marker.lat, marker.lng], {
-          radius: marker.radius || 1000, color: '#ff7800', fillColor: '#ff7800', fillOpacity: 0.5, weight: 2
+          radius: marker.radius || 1000, color: '#c4653e', fillColor: '#c4653e', fillOpacity: 0.5, weight: 2
         }).bindPopup(`<div class="marker-popup"><strong>${escapeHtml(marker.name)}</strong><br/>${escapeHtml(value_field || '')}: ${formatNumber(marker.value)}</div>`));
       } else {
         group.addLayer(createStyledMarker(marker, layerData));
@@ -655,7 +655,7 @@ const renderRiskMap = () => {
   const { markers } = props.mapData;
   if (!markers || !markers.length) return;
 
-  const RISK_COLORS = { 'I': '#d32f2f', 'II': '#ff9800', 'III': '#fdd835', 'IV': '#1976d2' };
+  const RISK_COLORS = { 'I': '#c8504a', 'II': '#d18246', 'III': '#c9a445', 'IV': '#4a78b0' };
 
   markers.forEach(marker => {
     const color = marker.risk_color || RISK_COLORS[marker.risk_level] || '#999';
@@ -703,7 +703,7 @@ const renderRiskMap = () => {
 };
 
 const getChoroplethColor = (value, valueRange, colorScale) => {
-  const colors = colorScale?.colors || ['#ffffcc', '#fd8d3c', '#e31a1c', '#800026'];
+  const colors = colorScale?.colors || ['#d4c890', '#c4783c', '#b04040', '#7a3030'];
   const min = valueRange?.min ?? 0;
   const max = valueRange?.max ?? 100;
   if (max <= min) return colors[0];

@@ -4,16 +4,22 @@ import { ref, computed } from 'vue';
 const visible = ref(false);
 const query = ref('');
 const activeIndex = ref(0);
-const commands = ref([]);
+const staticCommands = ref([]);
+const dynamicCommands = ref({});
 
 function normalize(str) {
   return (str == null ? '' : String(str)).toLowerCase();
 }
 
+const allCommands = computed(() => {
+  const dyn = Object.values(dynamicCommands.value).flat();
+  return [...staticCommands.value, ...dyn];
+});
+
 const filtered = computed(() => {
   const q = normalize(query.value).trim();
-  if (!q) return commands.value;
-  return commands.value.filter((cmd) => {
+  if (!q) return allCommands.value;
+  return allCommands.value.filter((cmd) => {
     const hay = `${cmd.title || ''} ${cmd.subtitle || ''} ${cmd.section || ''} ${cmd.keywords || ''}`;
     return normalize(hay).includes(q);
   });
@@ -23,10 +29,21 @@ const existingIds = new Set();
 function register(items) {
   for (const item of items || []) {
     if (item && item.id && !existingIds.has(item.id)) {
-      commands.value.push(item);
+      staticCommands.value.push(item);
       existingIds.add(item.id);
     }
   }
+}
+
+// 动态命令源（如最近会话）：setter 触发 filtered 重算
+function setDynamic(id, items) {
+  dynamicCommands.value = { ...dynamicCommands.value, [id]: items || [] };
+}
+
+function clearDynamic(id) {
+  const next = { ...dynamicCommands.value };
+  delete next[id];
+  dynamicCommands.value = next;
 }
 
 function open() {
@@ -76,6 +93,8 @@ export function useCommandPalette() {
     activeIndex,
     filtered,
     register,
+    setDynamic,
+    clearDynamic,
     open,
     close,
     toggle,

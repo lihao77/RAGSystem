@@ -73,7 +73,7 @@ defineProps({
 });
 defineEmits(['close']);
 
-const riskColors = { I: '#d32f2f', II: '#ff9800', III: '#fdd835', IV: '#1976d2' };
+const riskColors = { I: '#c8504a', II: '#d18246', III: '#c9a445', IV: '#4a78b0' };
 const riskLabels = { I: '特别重大', II: '重大', III: '较大', IV: '一般' };
 
 const mapTypeName = (() => {

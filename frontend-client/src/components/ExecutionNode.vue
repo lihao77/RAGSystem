@@ -470,9 +470,9 @@ const ctxPct = computed(() => {
 
 const ctxColor = computed(() => {
   const p = ctxPct.value;
-  if (p >= 90) return '#ff4d4f';
-  if (p >= 70) return '#faad14';
-  return '#52c41a';
+  if (p >= 90) return '#e0524c';
+  if (p >= 70) return '#d6a45c';
+  return '#57ab5a';
 });
 
 const getStatusText = (status) => {
