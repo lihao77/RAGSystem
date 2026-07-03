@@ -1,8 +1,9 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { createSession, listSessions, exportSession } from '../api/session.js';
+import { createSession, exportSession } from '../api/session.js';
 import { useUserStore } from '../stores/user.js';
 import { useDictionariesStore } from '../stores/dictionaries.js';
+import { useSessionListStore } from '../stores/session-list.js';
 
 const stripWrappedQuotes = (value) => {
   const text = (value || '').trim();
@@ -26,7 +27,6 @@ function normalizeChatSessionControllerDeps(deps) {
     connection = {},
     runtime = {},
     ui = {},
-    callbacks = {},
   } = deps || {};
 
   return {
@@ -38,7 +38,6 @@ function normalizeChatSessionControllerDeps(deps) {
     ...connection,
     ...runtime,
     ...ui,
-    ...callbacks,
   };
 }
 
@@ -49,19 +48,13 @@ export function useChatSessionController(deps) {
   deps = normalizeChatSessionControllerDeps(deps);
   const router = useRouter();
   const dictStore = useDictionariesStore();
+  const sessionListStore = useSessionListStore();
   const currentSessionTeam = ref('');
   const pendingWorkspaceRoot = ref('');
   const pendingEntryAgent = ref('');
   const entryAgentOptions = ref([]);
   const entryAgentLoading = ref(false);
   const isExportingSession = ref(false);
-
-  const sessionHistory = ref([]);
-  const historyLoading = ref(false);
-  const historyLoadingMore = ref(false);
-  const historyError = ref('');
-  const historyOffset = ref(0);
-  const historyHasMore = ref(true);
 
   const getChatSessionPath = (sessionId) => (sessionId
     ? `/chat/${encodeURIComponent(sessionId)}`
@@ -97,43 +90,18 @@ export function useChatSessionController(deps) {
   };
 
   const loadRecentSessions = async (reset = false) => {
-    if (historyLoading.value || historyLoadingMore.value) return;
-    if (!historyHasMore.value && !reset) return;
-    if (reset) {
-      historyOffset.value = 0;
-      historyHasMore.value = true;
-    }
-    if (reset) {
-      historyLoading.value = true;
-    } else {
-      historyLoadingMore.value = true;
-    }
-    historyError.value = '';
     try {
-      const result = await listSessions({ limit: 20, offset: historyOffset.value });
-      const payload = result.data || {};
-      const items = payload.items || [];
-      if (reset) {
-        sessionHistory.value = items;
-        if (deps.currentSessionId.value) {
-          const matched = items.find(item => item.session_id === deps.currentSessionId.value);
-          if (matched) {
-            pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(matched.metadata?.workspace_root || pendingWorkspaceRoot.value);
-            pendingEntryAgent.value = matched.metadata?.entry_agent || pendingEntryAgent.value;
-            currentSessionTeam.value = matched.metadata?.team || currentSessionTeam.value;
-          }
-        }
-      } else {
-        sessionHistory.value = sessionHistory.value.concat(items);
-      }
-      historyOffset.value += items.length;
-      historyHasMore.value = payload.has_more ?? items.length >= 20;
+      await sessionListStore.load({ reset });
     } catch (error) {
-      historyError.value = '加载失败，请重试';
       deps.showToast('加载历史列表失败', retryLoadHistory);
-    } finally {
-      historyLoading.value = false;
-      historyLoadingMore.value = false;
+    }
+    if (reset && deps.currentSessionId.value) {
+      const matched = sessionListStore.getById(deps.currentSessionId.value);
+      if (matched) {
+        pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(matched.metadata?.workspace_root || pendingWorkspaceRoot.value);
+        pendingEntryAgent.value = matched.metadata?.entry_agent || pendingEntryAgent.value;
+        currentSessionTeam.value = matched.metadata?.team || currentSessionTeam.value;
+      }
     }
   };
 
@@ -157,7 +125,7 @@ export function useChatSessionController(deps) {
           ...(pendingEntryAgent.value.trim() ? { entry_agent: pendingEntryAgent.value.trim() } : {}),
         }
       : {};
-    const nextItem = {
+    sessionListStore.upsert({
       session_id: sessionId,
       title: summary,
       first_message: summary,
@@ -165,26 +133,7 @@ export function useChatSessionController(deps) {
       last_message_at: time,
       unread_count: 0,
       metadata: currentMetadata,
-    };
-    const idx = sessionHistory.value.findIndex(h => h.session_id === sessionId);
-    if (idx >= 0) {
-      const item = sessionHistory.value[idx];
-      Object.assign(item, nextItem, {
-        title: summary || item.title || '',
-        first_message: item.first_message || summary,
-        metadata: { ...(item.metadata || {}), ...currentMetadata },
-      });
-      if (idx === 0) {
-        deps.onSessionUpdated?.(item);
-        return;
-      }
-      sessionHistory.value.splice(idx, 1);
-      sessionHistory.value.unshift(item);
-      deps.onSessionUpdated?.(item);
-    } else {
-      sessionHistory.value.unshift(nextItem);
-      deps.onSessionUpdated?.(nextItem);
-    }
+    });
   };
 
   const exportCurrentSession = async () => {
@@ -228,7 +177,7 @@ export function useChatSessionController(deps) {
       deps.clearExecutionState();
       deps.isLoading.value = false;
       deps.currentSessionId.value = sessionId;
-      const matched = sessionHistory.value.find(item => item.session_id === sessionId);
+      const matched = sessionListStore.getById(sessionId);
       pendingWorkspaceRoot.value = normalizeWorkspaceRootInput(matched?.metadata?.workspace_root || '');
       pendingEntryAgent.value = matched?.metadata?.entry_agent || '';
       currentSessionTeam.value = matched?.metadata?.team || '';
@@ -294,7 +243,7 @@ export function useChatSessionController(deps) {
         ...(entryAgent ? { entry_agent: entryAgent } : {}),
         ...(result.data?.metadata || {}),
       };
-      deps.onSessionCreated?.({
+      sessionListStore.upsert({
         session_id: sessionId,
         title: result.data?.title || 'New Conversation',
         first_message: '',

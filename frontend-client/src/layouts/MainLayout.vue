@@ -117,11 +117,13 @@
 <script setup>
 import { Transition, TransitionGroup, computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 import { RouterView, useRoute, useRouter } from 'vue-router';
+import { storeToRefs } from 'pinia';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 import { useThemeStore } from '../stores/theme.js';
 import { useDictionariesStore } from '../stores/dictionaries.js';
-import { listSessions, deleteSession as deleteSessionApi } from '../api/session';
+import { useSessionListStore } from '../stores/session-list.js';
+import { deleteSession as deleteSessionApi } from '../api/session';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconNewConversation, IconTrash } from '../components/icons';
 import { sidebarAdminNavItem, managementNavItems } from '../navigation/adminNavigation';
 import CommandPalette from '../components/CommandPalette.vue';
@@ -136,16 +138,12 @@ const historyListRef = ref(null);
 const toast = useToast();
 const { confirm } = useConfirm();
 const dictStore = useDictionariesStore();
+const sessionListStore = useSessionListStore();
+const { items: history, loading: historyLoading, loadingMore: historyLoadingMore, error: historyError, hasMore: historyHasMore } = storeToRefs(sessionListStore);
 const sidebarCollapsed = ref(localStorage.getItem('sidebarCollapsed') === 'true');
 const mobileOpen = ref(false);
 const isMobile = ref(false);
-const history = ref([]);
 const activeTeam = ref('');
-const historyLoading = ref(false);
-const historyLoadingMore = ref(false);
-const historyError = ref('');
-const historyOffset = ref(0);
-const historyHasMore = ref(true);
 const lastChatSessionId = ref(null);
 
 const isChatRoute = computed(() => (route.meta?.mainView || 'chat') === 'chat');
@@ -183,10 +181,7 @@ const showToast = (message, actionOrType = null, actionLabel = '重试') => {
 const getChildProps = (childRoute) => {
   const mainView = childRoute.meta?.mainView || 'chat';
   if (mainView === 'chat') {
-    return {
-      onSessionCreated: upsertHistoryItem,
-      onSessionUpdated: upsertHistoryItem,
-    };
+    return {};
   }
   return {
     embedded: true,
@@ -269,30 +264,6 @@ const sidebarContextTitle = computed(() => {
   return `${currentTeamLabel.value}\n工作区: ${workspaceRoot || '未绑定'}`;
 });
 
-const upsertHistoryItem = (item) => {
-  if (!item?.session_id) return;
-  const normalizedItem = {
-    unread_count: 0,
-    ...item,
-  };
-  const existingIndex = history.value.findIndex(entry => entry.session_id === normalizedItem.session_id);
-  if (existingIndex >= 0) {
-    const existingItem = history.value[existingIndex];
-    Object.assign(existingItem, normalizedItem, {
-      metadata: { ...(existingItem.metadata || {}), ...(normalizedItem.metadata || {}) },
-    });
-    if (existingIndex === 0) {
-      historyOffset.value = history.value.length;
-      return;
-    }
-    history.value.splice(existingIndex, 1);
-    history.value.unshift(existingItem);
-  } else {
-    history.value.unshift(normalizedItem);
-  }
-  historyOffset.value = history.value.length;
-};
-
 const handleHistoryItemBeforeLeave = (el) => {
   el.style.height = `${el.offsetHeight}px`;
   el.style.opacity = '1';
@@ -323,31 +294,10 @@ const handleHistoryItemAfterLeave = (el) => {
 };
 
 const loadRecentSessions = async (reset = false) => {
-  if (historyLoading.value || historyLoadingMore.value) return;
-  if (!historyHasMore.value && !reset) return;
-  if (reset) {
-    historyOffset.value = 0;
-    historyHasMore.value = true;
-  }
-  if (reset) {
-    historyLoading.value = true;
-  } else {
-    historyLoadingMore.value = true;
-  }
-  historyError.value = '';
   try {
-    const result = await listSessions({ limit: 20, offset: historyOffset.value });
-    const payload = result.data || {};
-    const items = payload.items || [];
-    history.value = reset ? items : history.value.concat(items);
-    historyOffset.value += items.length;
-    historyHasMore.value = payload.has_more ?? items.length >= 20;
+    await sessionListStore.load({ reset });
   } catch (error) {
-    historyError.value = '加载失败，请重试';
     showToast('加载历史列表失败', retryLoadHistory);
-  } finally {
-    historyLoading.value = false;
-    historyLoadingMore.value = false;
   }
 };
 
@@ -423,7 +373,7 @@ const confirmDeleteSession = async (item) => {
 const deleteSession = async (sessionId) => {
   try {
     await deleteSessionApi(sessionId);
-    history.value = history.value.filter(item => item.session_id !== sessionId);
+    sessionListStore.remove(sessionId);
     if (activeSessionId.value === sessionId) {
       await startNewChat();
     }

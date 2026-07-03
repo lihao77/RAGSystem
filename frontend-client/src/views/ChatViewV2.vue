@@ -227,18 +227,6 @@ import { useWorkbenchLayout } from '../composables/useWorkbenchLayout';
 
 const SituationScreen = defineAsyncComponent(() => import('../components/SituationScreen.vue'));
 
-// Props
-const props = defineProps({
-  onSessionCreated: {
-    type: Function,
-    default: null,
-  },
-  onSessionUpdated: {
-    type: Function,
-    default: null,
-  }
-});
-
 // Emits
 const route = useRoute();
 const shellSidebarControl = inject('shellSidebarControl', null);
@@ -631,10 +619,6 @@ const {
   ui: {
     clearComposerAttachments: () => clearComposerAttachments(),
     showToast: (...a) => showToast(...a),
-  },
-  callbacks: {
-    onSessionCreated: (...a) => props.onSessionCreated?.(...a),
-    onSessionUpdated: (...a) => props.onSessionUpdated?.(...a),
   },
 });
 
