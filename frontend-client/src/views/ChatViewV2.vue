@@ -284,9 +284,50 @@ function openCtxDrawer() {
 
 const { activeRun: _activeRun, resetActiveRun } = sessionRunStore;
 
+// 被下方 composable deps 引用的工具函数前置定义，消除延迟闭包。
+// 仅被 view 内部引用的辅助函数（openMobileSidebar/clearNewChatLaunchTimer 等）保留原位置。
+const showToast = (message, actionOrType = null, actionLabel = '重试') => {
+  let type = 'error';
+  let action = null;
+  if (typeof actionOrType === 'string') {
+    type = actionOrType;
+  } else if (typeof actionOrType === 'function') {
+    action = actionOrType;
+  }
+  toast.show(message, action || type, actionLabel);
+};
+
+const focusInput = async () => {
+  if (chatInputRef.value?.focus) {
+    await chatInputRef.value.focus();
+  }
+};
+
+const clearSessionScrollRestoreTimer = () => {
+  if (!sessionScrollRestoreTimer) return;
+  window.clearTimeout(sessionScrollRestoreTimer);
+  sessionScrollRestoreTimer = null;
+};
+
+const beginInitialScrollRestore = () => {
+  clearSessionScrollRestoreTimer();
+  pendingSessionScrollRestores += 1;
+  restoringSessionScroll.value = true;
+};
+
+const endInitialScrollRestore = () => {
+  pendingSessionScrollRestores = Math.max(0, pendingSessionScrollRestores - 1);
+  if (pendingSessionScrollRestores > 0) return;
+  clearSessionScrollRestoreTimer();
+  sessionScrollRestoreTimer = window.setTimeout(() => {
+    restoringSessionScroll.value = false;
+    sessionScrollRestoreTimer = null;
+  }, 0);
+};
+
 // ── Composables ─────────────────────────────────────────────────────────
-// 注意：deps 中的函数通过闭包引用，在调用时（非初始化时）解析，
-// 因此可以安全引用后续定义的函数（scrollToBottom, showToast 等）。
+// 仍存在少量前向循环引用（如 Connection↔RunStream 的 onMessage/finalize、
+// Revision↔Send 的 handleSend/resetEditingState）以闭包延迟解析，其余直接传引用。
 
 const {
   llmRetryState,
@@ -316,7 +357,7 @@ const {
   buildTaskNotificationMessage,
 } = useChatMessageRuntime({
   activeRun: _activeRun,
-  showToast: (...a) => showToast(...a),
+  showToast,
 });
 
 const {
@@ -324,16 +365,16 @@ const {
   loadSessionMessages, mergeMessageIdsFromServer,
 } = useSessionMessages({
   normalizeAssistantExecutionState,
-  createAssistantMessageFromHistory: (...a) => createAssistantMessageFromHistory(...a),
-  normalizeAttachment: (...a) => normalizeAttachmentUtil(...a),
-  scrollToBottom: (...a) => scrollToBottom(...a),
-  waitForScrollLayout: () => waitForScrollLayout(),
-  focusInput: () => focusInput(),
+  createAssistantMessageFromHistory,
+  normalizeAttachment: normalizeAttachmentUtil,
+  scrollToBottom,
+  waitForScrollLayout,
+  focusInput,
   loadContextSnapshot: (...a) => loadContextSnapshot(...a),
-  showToast: (...a) => showToast(...a),
+  showToast,
   invalidateActiveStream: () => invalidateActiveStream(),
-  beginInitialScrollRestore: () => beginInitialScrollRestore(),
-  endInitialScrollRestore: () => endInitialScrollRestore(),
+  beginInitialScrollRestore,
+  endInitialScrollRestore,
 });
 
 const {
@@ -349,7 +390,7 @@ const {
   createAssistantMessage,
   scheduleCommandFallback: (...a) => scheduleCommandFallback(...a),
   scheduleResumeRecovery: (...a) => scheduleSessionResumeRecovery(...a),
-  clearLlmRetryState: () => clearLlmRetryState(),
+  clearLlmRetryState,
 });
 
 const {
@@ -389,7 +430,7 @@ const {
   approvalQueueHostRef,
   filePreviewDialogRef,
   getWS: () => getWS(),
-  showToast: (...a) => showToast(...a),
+  showToast,
 });
 
 const visibleWorkPanel = computed(() => showWorkPanel.value);
@@ -411,13 +452,13 @@ const {
 } = useSessionConnection({
   onMessage: (...a) => handleWSMessage(...a),
   onRunFinalized: (sid) => _finalizeActiveRun(sid),
-  resetApprovalState: () => resetApprovalState(),
+  resetApprovalState,
   loadSessionMessages,
   deleteMessageCache,
-  clearLlmRetryState: () => clearLlmRetryState(),
+  clearLlmRetryState,
   cacheMessages,
   refreshSessionExecutionState,
-  scrollToBottom: (...a) => scrollToBottom(...a),
+  scrollToBottom,
 });
 const {
   sessionFiles,
@@ -448,7 +489,7 @@ const {
   getEditingAttachmentsDraft: () => editingAttachmentsDraft.value,
   setEditingAttachmentsDraft: (value) => { editingAttachmentsDraft.value = value; },
   ensureSession: (...a) => ensureSession(...a),
-  showToast: (...a) => showToast(...a),
+  showToast,
 });
 
 const {
@@ -465,7 +506,7 @@ const {
   sessionFilesDrawerVisible,
   sessionFilesDrawerTarget,
   normalizeAttachment,
-  showToast: (...a) => showToast(...a),
+  showToast,
   cacheMessages,
   inputMessage,
   handleSend: (...a) => handleSend(...a),
@@ -507,20 +548,20 @@ const {
   clearSessionResumeRecovery,
   clearCommandFallback,
   scheduleCommandFallback,
-  clearLlmRetryState: (...a) => clearLlmRetryState(...a),
-  setLlmRetryState: (...a) => setLlmRetryState(...a),
-  applyEnvelopeToMessage: (...a) => applyEnvelopeToMessage(...a),
-  findRunningExecutionAgentByAgentId: (...a) => findRunningExecutionAgentByAgentId(...a),
-  isRootEvent: (...a) => isRootEvent(...a),
-  isMasterEvent: (...a) => isMasterEvent(...a),
-  enqueueApproval: (...a) => enqueueApproval(...a),
-  handleApprovalResolved: (...a) => handleApprovalResolved(...a),
+  clearLlmRetryState,
+  setLlmRetryState,
+  applyEnvelopeToMessage,
+  findRunningExecutionAgentByAgentId,
+  isRootEvent,
+  isMasterEvent,
+  enqueueApproval,
+  handleApprovalResolved,
   showUserInput,
-  resetApprovalState: () => resetApprovalState(),
-  buildTaskNotificationMessage: (...a) => buildTaskNotificationMessage(...a),
-  checkSituationScreenTrigger: (...a) => checkSituationScreenTrigger(...a),
-  scrollToBottom: (...a) => scrollToBottom(...a),
-  showToast: (...a) => showToast(...a),
+  resetApprovalState,
+  buildTaskNotificationMessage,
+  checkSituationScreenTrigger,
+  scrollToBottom,
+  showToast,
   handleStop: (...a) => handleStop(...a),
 });
 
@@ -558,9 +599,9 @@ const {
   invalidateActiveStream,
   resetSessionEventCursor,
   clearExecutionState: (...a) => clearExecutionState(...a),
-  checkSessionTaskStatus: (...a) => checkSessionTaskStatus(...a),
-  clearComposerAttachments: () => clearComposerAttachments(),
-  showToast: (...a) => showToast(...a),
+  checkSessionTaskStatus,
+  clearComposerAttachments,
+  showToast,
 });
 
 const {
@@ -569,20 +610,20 @@ const {
 } = useSessionSend({
   inputMessage,
   pendingAttachments,
-  getCurrentSelectedLlm: () => getCurrentSelectedLlm(),
-  ensureSession: (...a) => ensureSession(...a),
+  getCurrentSelectedLlm,
+  ensureSession,
   updateRecentSession,
-  getWS: () => getWS(),
+  getWS,
   scheduleCommandFallback,
   materializeAttachmentsForSend,
   clearComposerAttachments,
   cacheMessages,
-  resetEditingState: (...a) => resetEditingState(...a),
+  resetEditingState,
   clearEditingAttachments,
   beginOptimisticExecutionState,
   mergeExecutionObservability,
   stickToBottom,
-  showToast: (...a) => showToast(...a),
+  showToast,
 });
 
 const {
@@ -591,21 +632,10 @@ const {
   copyMessage,
 } = useMessageListView({
   messages,
-  showToast: (...a) => showToast(...a),
+  showToast,
 });
 
 // ── end Composables ─────────────────────────────────────────────────────
-
-const showToast = (message, actionOrType = null, actionLabel = '重试') => {
-  let type = 'error';
-  let action = null;
-  if (typeof actionOrType === 'string') {
-    type = actionOrType;
-  } else if (typeof actionOrType === 'function') {
-    action = actionOrType;
-  }
-  toast.show(message, action || type, actionLabel);
-};
 
 // 移动端状态
 
@@ -614,38 +644,10 @@ const openMobileSidebar = () => {
   shellSidebarControl?.openMobileSidebar?.();
 };
 
-const focusInput = async () => {
-  if (chatInputRef.value?.focus) {
-    await chatInputRef.value.focus();
-  }
-};
-
 const clearNewChatLaunchTimer = () => {
   if (!newChatLaunchTimer) return;
   window.clearTimeout(newChatLaunchTimer);
   newChatLaunchTimer = null;
-};
-
-const clearSessionScrollRestoreTimer = () => {
-  if (!sessionScrollRestoreTimer) return;
-  window.clearTimeout(sessionScrollRestoreTimer);
-  sessionScrollRestoreTimer = null;
-};
-
-const beginInitialScrollRestore = () => {
-  clearSessionScrollRestoreTimer();
-  pendingSessionScrollRestores += 1;
-  restoringSessionScroll.value = true;
-};
-
-const endInitialScrollRestore = () => {
-  pendingSessionScrollRestores = Math.max(0, pendingSessionScrollRestores - 1);
-  if (pendingSessionScrollRestores > 0) return;
-  clearSessionScrollRestoreTimer();
-  sessionScrollRestoreTimer = window.setTimeout(() => {
-    restoringSessionScroll.value = false;
-    sessionScrollRestoreTimer = null;
-  }, 0);
 };
 
 const finishNewChatLaunchSoon = (delay = 680) => {
