@@ -10,7 +10,7 @@ function createDeps(overrides = {}) {
     currentSessionId: ref('session-1'),
     approvalQueueHostRef: ref(null),
     filePreviewDialogRef: ref(null),
-    getWS: () => null,
+    respondInteraction: async () => {},
     showToast: () => {},
     ...overrides,
   };

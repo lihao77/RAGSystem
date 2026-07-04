@@ -427,7 +427,7 @@ const {
   currentSessionId,
   approvalQueueHostRef,
   filePreviewDialogRef,
-  getWS: () => getWS(),
+  respondInteraction: (id, response) => respondInteraction(id, response),
   showToast,
 });
 
@@ -446,10 +446,11 @@ const chatMainClasses = computed(() => ({
 const {
   invalidateActiveStream, scheduleCommandFallback, clearCommandFallback,
   clearSessionResumeRecovery, scheduleSessionResumeRecovery,
-  connectSessionWS, disconnectSessionWS, getWS, resetSessionEventCursor,
+  connectSessionWS, disconnectSessionWS, resetSessionEventCursor,
   resetStreamSessionState,
   send: sendSessionMessage,
   stop: handleStop,
+  respondInteraction,
 } = useSessionAgentClient({
   createAssistantMessage,
   cacheMessages,

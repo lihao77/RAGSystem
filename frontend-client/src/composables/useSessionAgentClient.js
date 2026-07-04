@@ -10,12 +10,18 @@ import {
 import { resetActiveRunState } from '../stores/session-run.js';
 import { getHostTool, getHostToolDeclarations } from '../utils/hostTools.js';
 import { createAssistantMessage } from './useMessageExecution.js';
-import { getSessionTaskStatus, startStream, stopStream } from '../api/session.js';
+import { getSessionTaskStatus, startStream, stopStream, respondInteraction as respondInteractionApi } from '../api/session.js';
 import { useSessionRunStore } from '../stores/session-run.js';
-import { useUserInputSubmission } from './useUserInputSubmission.js';
 import { useRunRuntime } from './useRunRuntime.js';
 
 const WS_OPEN = 1;
+
+const isOpenWebSocket = (ws) => !!ws && ws.readyState === WS_OPEN;
+
+/** 交互提交 ack 等待超时（WS 主路径，超时抛错不降级）。 */
+const INTERACTION_ACK_TIMEOUT_MS = 8000;
+const INTERACTION_ACK_TIMEOUT_CODE = 'INTERACTION_ACK_TIMEOUT';
+const INTERACTION_REJECTED_CODE = 'INTERACTION_REJECTED';
 
 /** 握手期注册前端委托工具清单（后端据此判定工具归属 + 委托回前端执行）。 */
 const sendHostToolsRegister = (ws, sessionId) => {
@@ -160,8 +166,87 @@ export function useSessionAgentClient(deps) {
 
   // run 运行态机（phase/timing/seq gap/durable replay/finalize），状态读 store 单源
   const runtime = useRunRuntime(deps);
-  // user_input WS 提交通道（2.5d 进 client.respondInteraction；当前 getWS 兼容 deps 以便测试注入）
-  const userInput = useUserInputSubmission({ getWS: () => deps.getWS?.() || getWS() });
+
+  // 交互提交（统一 approval/user_input 的 WS 主路径 + ack pending + HTTP 降级），对标 widget
+  // WidgetAgentClient.respondInteraction；frontend-client 保留 HTTP 降级（WS 不通兜底）。
+  const _pendingInteractions = new Map(); // callId -> { resolve, reject, timer }
+  const clearInteractionPending = (callId) => {
+    const pending = _pendingInteractions.get(callId);
+    if (!pending) return null;
+    clearTimeout(pending.timer);
+    _pendingInteractions.delete(callId);
+    return pending;
+  };
+  const hasPendingInteraction = (callId) => _pendingInteractions.has(callId);
+  const resolveInteraction = (callId) => {
+    const pending = clearInteractionPending(callId);
+    if (!pending) return false;
+    pending.resolve();
+    return true;
+  };
+  const rejectInteraction = (callId, errMsg) => {
+    const pending = clearInteractionPending(callId);
+    if (!pending) return false;
+    const error = new Error(errMsg || '交互提交失败');
+    error.code = INTERACTION_REJECTED_CODE;
+    pending.reject(error);
+    return true;
+  };
+  const buildInteractionPayload = (response) => {
+    if (response.kind === 'user_input') {
+      return { kind: 'user_input', phase: 'responded', value: String(response.value ?? '') };
+    }
+    return { kind: 'approval', phase: 'responded', approved: !!response.approved, message: response.message };
+  };
+  const submitInteractionWs = (ws, sessionId, callId, payload) => new Promise((resolve, reject) => {
+    if (!callId) {
+      reject(new Error('交互请求缺少 call_id'));
+      return;
+    }
+    const existing = clearInteractionPending(callId);
+    if (existing) existing.reject(new Error('交互已重新提交'));
+    const timer = setTimeout(() => {
+      _pendingInteractions.delete(callId);
+      const error = new Error('交互提交确认超时');
+      error.code = INTERACTION_ACK_TIMEOUT_CODE;
+      reject(error);
+    }, INTERACTION_ACK_TIMEOUT_MS);
+    _pendingInteractions.set(callId, { resolve, reject, timer });
+    try {
+      ws.send(JSON.stringify({ type: 'interaction', session_id: sessionId, call_id: callId, payload }));
+    } catch (error) {
+      clearInteractionPending(callId);
+      reject(error);
+    }
+  });
+  const respondInteractionHttp = async (sessionId, interactionId, response) => {
+    if (response.kind === 'user_input') {
+      await respondInteractionApi(sessionId, interactionId, { kind: 'user_input', value: String(response.value ?? '') });
+      return;
+    }
+    await respondInteractionApi(sessionId, interactionId, { kind: 'approval', approved: !!response.approved, message: response.message });
+  };
+  /**
+   * 响应交互（approval / user_input）：WS 主路径（带 ack 等待），失败降级 HTTP；
+   * ack 超时/被拒不降级（抛错让 UI 反馈）。对标 widget WidgetAgentClient.respondInteraction。
+   */
+  const respondInteraction = async (interactionId, response) => {
+    const sessionId = currentSessionId.value;
+    const payload = buildInteractionPayload(response);
+    const ws = deps.getWS?.() || getWS();
+    if (isOpenWebSocket(ws)) {
+      try {
+        await submitInteractionWs(ws, sessionId, interactionId, payload);
+        return;
+      } catch (error) {
+        if (error?.code === INTERACTION_ACK_TIMEOUT_CODE || error?.code === INTERACTION_REJECTED_CODE) {
+          throw error;
+        }
+        console.warn('交互 WS 提交失败，降级 HTTP:', error);
+      }
+    }
+    await respondInteractionHttp(sessionId, interactionId, response);
+  };
   // 交互去重：避免同一 approval/user_input required 事件重复入队
   const _handledRequiredInteractions = new Set();
 
@@ -411,7 +496,11 @@ export function useSessionAgentClient(deps) {
   const resetStreamSessionState = () => {
     runtime.resetInternal();
     _handledRequiredInteractions.clear();
-    userInput.reset();
+    for (const pending of _pendingInteractions.values()) {
+      clearTimeout(pending.timer);
+      pending.reject?.(new Error('会话已切换，交互提交已取消'));
+    }
+    _pendingInteractions.clear();
   };
 
   const handleApprovalRequired = (event, eventData, sessionId) => {
@@ -426,7 +515,7 @@ export function useSessionAgentClient(deps) {
     if (!rememberRequiredInteraction('user_input', inputData.input_id)) return;
     const submitUserInput = async (inputId, value) => {
       try {
-        await userInput.submitForSession(sessionId, inputId, value);
+        await respondInteraction(inputId, { kind: 'user_input', value });
       } catch (e) {
         console.warn('用户输入提交失败:', e);
         deps.showToast(e.message || '用户输入提交失败', 'warning');
@@ -708,8 +797,8 @@ export function useSessionAgentClient(deps) {
       if (category === 'interaction') {
         const refCallId = payload.ref_call_id || '';
         if (payload.ok) {
-          if (userInput.hasPending(refCallId)) {
-            userInput.resolveSubmission(refCallId);
+          if (hasPendingInteraction(refCallId)) {
+            resolveInteraction(refCallId);
             return;
           }
           if (activeRun.active && activeRun.phase === 'approval_waiting') {
@@ -719,8 +808,8 @@ export function useSessionAgentClient(deps) {
           return;
         }
         // ok=false：先查 user_input pending，否则按 approval 失败处理
-        if (userInput.hasPending(refCallId)) {
-          userInput.rejectSubmission(refCallId, payload.error || '用户输入提交失败');
+        if (hasPendingInteraction(refCallId)) {
+          rejectInteraction(refCallId, payload.error || '用户输入提交失败');
           return;
         }
         deps.handleApprovalResolved(refCallId, sessionId);
@@ -747,8 +836,8 @@ export function useSessionAgentClient(deps) {
         deps.handleApprovalResolved(refCallId, sessionId);
       }
       // user_input responded：兜底 resolve pending（主路径由 ack(interaction) 确认）
-      if (userInput.hasPending(refCallId)) {
-        userInput.resolveSubmission(refCallId);
+      if (hasPendingInteraction(refCallId)) {
+        resolveInteraction(refCallId);
       }
       return;
     }
@@ -1173,5 +1262,6 @@ export function useSessionAgentClient(deps) {
     resetStreamSessionState,
     send,
     stop,
+    respondInteraction,
   };
 }

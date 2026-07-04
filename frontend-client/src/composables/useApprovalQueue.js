@@ -1,5 +1,4 @@
 import { ref } from 'vue';
-import { respondInteraction } from '../api/session.js';
 
 function normalizeApprovalEventData(event, eventData) {
   const rawData = eventData && typeof eventData === 'object'
@@ -26,7 +25,6 @@ export function useApprovalQueue(deps) {
   const approvalQueue = ref([]);
   const approvalSubmittingId = ref('');
   const pendingUserInput = ref(null); // { data, submit, cancel }
-  const ackTimers = new Map();
 
   const hideApprovalDialogs = () => {
     deps.approvalQueueHostRef.value?.hideApproval?.();
@@ -36,12 +34,6 @@ export function useApprovalQueue(deps) {
   const removeApprovalFromQueue = (approvalId) => {
     if (!approvalId) return;
     approvalQueue.value = approvalQueue.value.filter(item => item?.approval_id !== approvalId);
-  };
-
-  const clearAckTimer = (approvalId) => {
-    if (!ackTimers.has(approvalId)) return;
-    clearTimeout(ackTimers.get(approvalId));
-    ackTimers.delete(approvalId);
   };
 
   const showQueuedApproval = (approval, sessionId) => {
@@ -73,7 +65,6 @@ export function useApprovalQueue(deps) {
 
   const handleApprovalResolved = (approvalId, sessionId) => {
     if (!approvalId) return;
-    clearAckTimer(approvalId);
     const currentApprovalId = approvalQueue.value[0]?.approval_id || '';
     removeApprovalFromQueue(approvalId);
     if (approvalSubmittingId.value === approvalId) {
@@ -90,31 +81,8 @@ export function useApprovalQueue(deps) {
     const sid = sessionId || deps.currentSessionId.value;
     if (!sid) return;
     approvalSubmittingId.value = approvalId;
-
-    const ws = deps.getWS?.();
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'interaction', session_id: sid, call_id: approvalId, payload: { kind: 'approval', phase: 'responded', approved, message } }));
-      const ackTimer = setTimeout(async () => {
-        ackTimers.delete(approvalId);
-        if (approvalSubmittingId.value !== approvalId) return;
-        console.warn(`[Approval] WS ack 超时 (${approvalId})，降级 HTTP 重试`);
-        try {
-          await sendApprovalHttp(approvalId, approved, message, sid);
-          handleApprovalResolved(approvalId, sid);
-        } catch (error) {
-          removeApprovalFromQueue(approvalId);
-          approvalSubmittingId.value = '';
-          deps.showToast(error.message || '审批提交超时', 'warning');
-          hideApprovalDialogs();
-          showNextApproval(sid);
-        }
-      }, 5000);
-      ackTimers.set(approvalId, ackTimer);
-      return;
-    }
-
     try {
-      await sendApprovalHttp(approvalId, approved, message, sid);
+      await deps.respondInteraction(approvalId, { kind: 'approval', approved, message });
       handleApprovalResolved(approvalId, sid);
     } catch (error) {
       removeApprovalFromQueue(approvalId);
@@ -124,10 +92,6 @@ export function useApprovalQueue(deps) {
       hideApprovalDialogs();
       showNextApproval(sid);
     }
-  };
-
-  const sendApprovalHttp = async (approvalId, approved, message, sessionId) => {
-    await respondInteraction(sessionId, approvalId, { kind: 'approval', approved, message });
   };
 
   const handleWorkPanelUserInputSubmit = async ({ inputId, value } = {}) => {
@@ -167,10 +131,6 @@ export function useApprovalQueue(deps) {
     approvalQueue.value = [];
     approvalSubmittingId.value = '';
     pendingUserInput.value = null;
-    for (const timer of ackTimers.values()) {
-      clearTimeout(timer);
-    }
-    ackTimers.clear();
     hideApprovalDialogs();
   };
 
