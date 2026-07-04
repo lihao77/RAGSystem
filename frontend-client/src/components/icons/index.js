@@ -8,7 +8,13 @@
 export { default as IconLogo } from './IconLogo.vue';
 export { default as IconChevronLeft } from './IconChevronLeft.vue';
 export { default as IconChevronRight } from './IconChevronRight.vue';
+export { default as IconChevronDown } from './IconChevronDown.vue';
 export { default as IconDocument } from './IconDocument.vue';
 export { default as IconNewConversation } from './IconNewConversation.vue';
 export { default as IconMenu } from './IconMenu.vue';
 export { default as IconTrash } from './IconTrash.vue';
+export { default as IconRefresh } from './IconRefresh.vue';
+export { default as IconCheck } from './IconCheck.vue';
+export { default as IconClose } from './IconClose.vue';
+export { default as IconPlus } from './IconPlus.vue';
+export { default as IconSearch } from './IconSearch.vue';
