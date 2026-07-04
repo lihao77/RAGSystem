@@ -24,7 +24,7 @@ const DURABLE_REPLAY_RUN_EVENT_TYPES = new Set([
  * activeRun/messages 等运行态，不参与事件分发（分发调度归 client.handleEnvelope）。
  * 状态读 session-run store 单源；业务回调（落库/刷新/滚动等）由 client 经 deps 注入。
  */
-export function useRunRuntime(deps) {
+export function useRunRuntime(deps, { refreshSessionExecutionState } = {}) {
   const sessionRunStore = useSessionRunStore();
   const {
     messages,
@@ -258,7 +258,7 @@ export function useRunRuntime(deps) {
           thread_alive: false,
           status: terminalStatusFromEvent(event),
         };
-        deps.refreshSessionExecutionState(sessionId, { silent: true });
+        refreshSessionExecutionState(sessionId, { silent: true });
       }
       return true;
     }
@@ -272,7 +272,7 @@ export function useRunRuntime(deps) {
         status: terminalStatusFromEvent(event),
       };
       refreshMessagesAfterInactiveDurableTerminal(sessionId);
-      deps.refreshSessionExecutionState(sessionId, { silent: true });
+      refreshSessionExecutionState(sessionId, { silent: true });
       return true;
     }
 
@@ -319,7 +319,7 @@ export function useRunRuntime(deps) {
     deps.clearLlmRetryState();
     isCompressing.value = false;
     isLoading.value = false;
-    deps.refreshSessionExecutionState(sessionId, { silent: true });
+    refreshSessionExecutionState(sessionId, { silent: true });
     deps.scrollToBottom();
   };
 

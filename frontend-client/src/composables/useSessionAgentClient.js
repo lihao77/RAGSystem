@@ -219,8 +219,9 @@ export function useSessionAgentClient(deps) {
   };
 
   // run 运行态机（phase/timing/seq gap/durable replay/finalize），状态读 store 单源；
-  // 注入 client 内建 refreshSessionExecutionState，使 finalize/durable terminal 的 task 状态同步走 client 单源。
-  const runtime = useRunRuntime({ ...deps, refreshSessionExecutionState });
+  // 注入 client 内建 refreshSessionExecutionState（第二参数，避免 spread deps 触发 getter TDZ），
+  // 使 finalize/durable terminal 的 task 状态同步走 client 单源。
+  const runtime = useRunRuntime(deps, { refreshSessionExecutionState });
 
   // 交互提交（统一 approval/user_input 的 WS 主路径 + ack pending + HTTP 降级），对标 widget
   // WidgetAgentClient.respondInteraction；frontend-client 保留 HTTP 降级（WS 不通兜底）。
