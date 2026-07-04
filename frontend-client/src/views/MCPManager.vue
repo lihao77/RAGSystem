@@ -9,14 +9,14 @@
   >
     <template #header-menu="{ close }">
       <button class="pl-menu-item" :disabled="loadingServers" @click="refreshAll(); close()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        <IconRefresh :size="16" />
         {{ loadingServers ? '刷新中...' : '全局刷新' }}
       </button>
     </template>
 
     <template #mobile-menu="{ close }">
       <button class="pl-menu-item" :disabled="loadingServers" @click="refreshAll(); close()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        <IconRefresh :size="16" />
         {{ loadingServers ? '刷新中...' : '全局刷新' }}
       </button>
     </template>
@@ -42,7 +42,7 @@
         </UiButton>
         <UiButton :disabled="loadingServers" @click="runLoadServers">
           <template #icon>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            <IconRefresh :size="14" />
           </template>
           刷新
         </UiButton>
@@ -341,6 +341,7 @@ import AdmModal from '../components/admin/AdmModal.vue';
 import NumberInput from '../components/NumberInput.vue';
 import ToggleSwitch from '../components/ToggleSwitch.vue';
 import PageLayout from '../components/PageLayout.vue';
+import IconRefresh from '../components/icons/IconRefresh.vue';
 import { UiBadge, UiButton } from '../components/ui';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';

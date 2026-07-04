@@ -9,17 +9,13 @@
     >
         <template #header-menu="{ close }">
             <button class="pl-menu-item" :disabled="globalLoading" @click="refreshAll(); close()">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-                </svg>
+                <IconRefresh :size="16" />
                 全局刷新
             </button>
         </template>
         <template #mobile-menu="{ close }">
             <button class="pl-menu-item" :disabled="globalLoading" @click="refreshAll(); close()">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-                </svg>
+                <IconRefresh :size="16" />
                 全局刷新
             </button>
         </template>
@@ -63,13 +59,7 @@
                         </div>
                         <div class="toolbar-right">
                             <UiIconButton label="刷新索引状态" :disabled="storeLoading" @click="refreshFileStatus">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                    stroke-linejoin="round" :class="{ 'spin': storeLoading }">
-                                    <polyline points="23 4 23 10 17 10" />
-                                    <polyline points="1 20 1 14 7 14" />
-                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-                                </svg>
+                                <IconRefresh :size="14" :class="{ 'spin': storeLoading }" />
                             </UiIconButton>
                             <div class="filter-select-wrap">
                                 <CustomSelect v-model="filterCollection" :options="collectionSelectOptions"
@@ -379,13 +369,7 @@
                         <div class="toolbar-right">
                             <UiIconButton label="刷新向量化器" :disabled="vectorizersLoading"
                                 @click="refreshVectorizers">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                    stroke-linejoin="round" :class="{ 'spin': vectorizersLoading }">
-                                    <polyline points="23 4 23 10 17 10" />
-                                    <polyline points="1 20 1 14 7 14" />
-                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-                                </svg>
+                                <IconRefresh :size="14" :class="{ 'spin': vectorizersLoading }" />
                             </UiIconButton>
                             <UiButton class="toolbar-primary-action" variant="primary" size="compact" @click="openAddVectorizerDialog">
                                 <template #icon>
@@ -484,13 +468,7 @@
                         <div class="toolbar-right">
                             <UiIconButton label="刷新重排序器" :disabled="rerankersLoading"
                                 @click="refreshRerankers">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                    stroke-linejoin="round" :class="{ 'spin': rerankersLoading }">
-                                    <polyline points="23 4 23 10 17 10" />
-                                    <polyline points="1 20 1 14 7 14" />
-                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-                                </svg>
+                                <IconRefresh :size="14" :class="{ 'spin': rerankersLoading }" />
                             </UiIconButton>
                             <UiButton class="toolbar-primary-action" variant="primary" size="compact" @click="openAddRerankerDialog">
                                 <template #icon>
@@ -871,6 +849,7 @@
 import { computed, h, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import PageLayout from '../components/PageLayout.vue';
+import IconRefresh from '../components/icons/IconRefresh.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import AdmModal from '../components/admin/AdmModal.vue';
 import { useDictionariesStore } from '../stores/dictionaries.js';

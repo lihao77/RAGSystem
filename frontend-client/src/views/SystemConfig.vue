@@ -11,10 +11,7 @@
 
     <template #mobile-menu="{ close }">
       <button class="pl-menu-item" :disabled="loading || saving" @click="handleReload(); close()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
-          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-        </svg>
+        <IconRefresh :size="16" />
         重新加载
       </button>
       <button class="pl-menu-item" :disabled="loading || saving" @click="handleSave(); close()">
@@ -49,6 +46,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
+import IconRefresh from '../components/icons/IconRefresh.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import SchemaForm from '../components/SchemaForm.vue';
 import { UiButton } from '../components/ui';

@@ -11,7 +11,7 @@
           {{ loading ? '...' : (status.running ? '停止' : '启动') }}
         </UiButton>
         <UiIconButton variant="ghost" label="刷新" :disabled="loading" @click="refresh">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          <IconRefresh :size="16" />
         </UiIconButton>
       </div>
     </template>
@@ -24,7 +24,7 @@
         {{ loading ? '处理中...' : (status.running ? '停止守护系统' : '启动守护系统') }}
       </button>
       <button class="pl-menu-item" :disabled="loading" @click="refresh(); close()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        <IconRefresh :size="16" />
         刷新
       </button>
     </template>
@@ -264,6 +264,7 @@
 <script setup>
 import { ref, computed, h, onMounted } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
+import IconRefresh from '../components/icons/IconRefresh.vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import ToggleSwitch from '../components/ToggleSwitch.vue';
 import AdmModal from '../components/admin/AdmModal.vue';
