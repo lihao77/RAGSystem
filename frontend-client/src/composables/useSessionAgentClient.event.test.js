@@ -4,7 +4,7 @@ import { nextTick, ref } from 'vue';
 import MockAdapter from 'axios-mock-adapter';
 import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 
-import { useSessionRunStream } from './useSessionRunStream.js';
+import { useSessionAgentClient } from './useSessionAgentClient.js';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { httpClient } from '../api/http.js';
 
@@ -108,15 +108,14 @@ test('ack(send) 启动失败时会结束当前 assistant 占位并标记失败',
   deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({ type: 'ack', payload: { category: 'send', ok: false, error: 'boom' } }, 'session-1');
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({ type: 'ack', payload: { category: 'send', ok: false, error: 'boom' } }, 'session-1');
 
   assert.match(deps.messages.value[0].content, /boom/);
   assert.equal(deps.messages.value[0].finished, true);
   assert.equal(deps.sessionTaskInfo.value.status, 'failed');
   assert.equal(deps.activeRun.active, false);
   assert.equal(deps.isLoading.value, false);
-  assert.equal(calls.clearCommandFallback, 1);
 });
 
 test('state_sync(command_result) 会补建 assistant 消息并触发静默刷新', async () => {
@@ -124,8 +123,8 @@ test('state_sync(command_result) 会补建 assistant 消息并触发静默刷新
   deps.messages.value = [{ role: 'user', content: '/foo' }];
   deps.isLoading.value = true;
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'state_sync',
     payload: {
       category: 'command_result',
@@ -149,8 +148,8 @@ test('state_sync(command_result) 会补建 assistant 消息并触发静默刷新
 test('state_sync(session_updated) 在非执行态会触发消息刷新', () => {
   const { deps, calls } = createDeps();
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({ type: 'state_sync', payload: { category: 'session_updated' } }, 'session-1');
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({ type: 'state_sync', payload: { category: 'session_updated' } }, 'session-1');
 
   assert.deepEqual(calls.deleteMessageCache, [['session-1']]);
   assert.deepEqual(calls.loadSessionMessages, [['session-1', { silent: true }]]);
@@ -161,8 +160,8 @@ test('state_sync(session_updated) 在 active run 期间不重拉消息', () => {
   deps.activeRun.active = true;
   deps.isLoading.value = false;
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({ type: 'state_sync', payload: { category: 'session_updated' } }, 'session-1');
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({ type: 'state_sync', payload: { category: 'session_updated' } }, 'session-1');
 
   assert.deepEqual(calls.deleteMessageCache, []);
   assert.deepEqual(calls.loadSessionMessages, []);
@@ -176,10 +175,10 @@ test('已送达但由顶层处理的事件会推进 seq，避免后续输出误�
   deps.activeRun.assistantMsgIndex = 0;
   deps.activeRun.lastSeenSeq = 1;
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({ type: 'ack', payload: { category: 'send', ok: true }, run_id: 'run-1', seq: 2 }, 'session-1');
-  stream.handleWSMessage({ type: 'stream_output', payload: { phase: 'delta', content: 'hello' }, seq: 3 }, 'session-1');
-  stream.handleWSMessage({ type: 'run_ended', payload: { status: 'completed' }, seq: 4 }, 'session-1');
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({ type: 'ack', payload: { category: 'send', ok: true }, run_id: 'run-1', seq: 2 }, 'session-1');
+  stream.handleEnvelope({ type: 'stream_output', payload: { phase: 'delta', content: 'hello' }, seq: 3 }, 'session-1');
+  stream.handleEnvelope({ type: 'run_ended', payload: { status: 'completed' }, seq: 4 }, 'session-1');
 
   assert.equal(deps.messages.value[0].content, 'hello');
   assert.deepEqual(calls.mergeMessageIdsFromServer, []);
@@ -195,9 +194,9 @@ test('刚完成的同一 run 收到 state_sync(session_updated) 不重拉整条�
   deps.activeRun.assistantMsgIndex = 0;
   deps.activeRun.runId = 'run-1';
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({ type: 'run_ended', payload: { status: 'completed' } }, 'session-1');
-  stream.handleWSMessage({ type: 'state_sync', payload: { category: 'session_updated', run_id: 'run-1' } }, 'session-1');
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({ type: 'run_ended', payload: { status: 'completed' } }, 'session-1');
+  stream.handleEnvelope({ type: 'state_sync', payload: { category: 'session_updated', run_id: 'run-1' } }, 'session-1');
 
   assert.deepEqual(calls.mergeMessageIdsFromServer, [['session-1']]);
   assert.deepEqual(calls.deleteMessageCache, []);
@@ -217,8 +216,8 @@ test('stream_output(final) 会用完整内容补偿并保留已有 metadata', ()
   deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'stream_output',
     payload: { phase: 'final', content: 'final answer' },
   }, 'session-1');
@@ -249,8 +248,8 @@ test('state_sync(message_saved) 会按 request_id 合并运行中 followup 的 i
   deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 2;
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'state_sync',
     payload: {
       category: 'message_saved',
@@ -282,8 +281,8 @@ test('run_ended 会收尾 active run 并标记完成状态', () => {
   deps.activeRun.assistantMsgIndex = 0;
   deps.sessionTaskInfo.value = { status: 'running' };
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'run_ended',
     payload: { status: 'completed' },
   }, 'session-1');
@@ -304,18 +303,18 @@ test('durable outbox 纯终态 replay 不创建空 assistant 占位', () => {
     }),
   ];
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'session.reconnect',
     run_id: 'run-1',
     payload: { phase: 'start', replay_source: 'durable_outbox' },
   }, 'session-1');
-  stream.handleWSMessage({
+  stream.handleEnvelope({
     type: 'run_ended',
     run_id: 'run-1',
     payload: { status: 'completed', replay_source: 'durable_outbox' },
   }, 'session-1');
-  stream.handleWSMessage({
+  stream.handleEnvelope({
     type: 'session.reconnect',
     payload: { phase: 'end', replay_source: 'durable_outbox' },
   }, 'session-1');
@@ -333,8 +332,8 @@ test('durable outbox replay 只有真实 run 事件才懒恢复 activeRun 并收
   const { deps, calls } = createDeps();
   deps.messages.value = [{ role: 'user', content: 'hello', metadata: { request_id: 'req-1' } }];
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'session.reconnect',
     run_id: 'run-1',
     payload: { phase: 'start', replay_source: 'durable_outbox' },
@@ -343,22 +342,22 @@ test('durable outbox replay 只有真实 run 事件才懒恢复 activeRun 并收
   assert.equal(deps.messages.value.length, 1);
   assert.equal(deps.activeRun.active, false);
 
-  stream.handleWSMessage({
+  stream.handleEnvelope({
     type: 'run_started',
     run_id: 'run-1',
     payload: { replay_source: 'durable_outbox' },
   }, 'session-1');
-  stream.handleWSMessage({
+  stream.handleEnvelope({
     type: 'stream_output',
     run_id: 'run-1',
     payload: { phase: 'delta', content: 'hello ', replay_source: 'durable_outbox' },
   }, 'session-1');
-  stream.handleWSMessage({
+  stream.handleEnvelope({
     type: 'stream_output',
     run_id: 'run-1',
     payload: { phase: 'final', content: 'hello world', replay_source: 'durable_outbox' },
   }, 'session-1');
-  stream.handleWSMessage({
+  stream.handleEnvelope({
     type: 'state_sync',
     run_id: 'run-1',
     payload: {
@@ -367,12 +366,12 @@ test('durable outbox replay 只有真实 run 事件才懒恢复 activeRun 并收
       ref: { id: 'msg-1', seq: 2, role: 'assistant', run_id: 'run-1' },
     },
   }, 'session-1');
-  stream.handleWSMessage({
+  stream.handleEnvelope({
     type: 'run_ended',
     run_id: 'run-1',
     payload: { status: 'completed', replay_source: 'durable_outbox' },
   }, 'session-1');
-  stream.handleWSMessage({
+  stream.handleEnvelope({
     type: 'session.reconnect',
     payload: { phase: 'end', replay_source: 'durable_outbox' },
   }, 'session-1');
@@ -394,8 +393,8 @@ test('run_started 初始化运行态为等待模型首 token', () => {
   deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'run_started',
     timestamp: 100,
     run_id: 'run-1',
@@ -417,8 +416,8 @@ test('stream_output(first_token) 设置首 token 时间并切换为模型输出�
   deps.activeRun.runStartedAt = 100;
   deps.llmRetryState.value = { nextAttempt: 2 };
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'stream_output',
     timestamp: 101.2,
     payload: { phase: 'first_token', elapsed_ms: 350 },
@@ -442,8 +441,8 @@ test('后续 stream_output(first_token) 不覆盖 run 首 token', () => {
   deps.activeRun.firstTokenAt = 101;
   deps.activeRun.firstTokenLatencyMs = 1000;
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'stream_output',
     timestamp: 110,
     payload: { phase: 'first_token', elapsed_ms: 200 },
@@ -461,8 +460,8 @@ test('stream_output(delta) 追加内容并在缺少 first token 事件时兜底 
   deps.activeRun.assistantMsgIndex = 0;
   deps.activeRun.runStartedAt = 10;
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'stream_output',
     timestamp: 10.5,
     payload: { phase: 'delta', content: 'hello' },
@@ -483,8 +482,8 @@ test('root compression_summary 会插入主消息流并保留元数据', () => {
   deps.activeRun.assistantMsgIndex = 0;
   deps.isCompressing.value = true;
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'state_sync',
     payload: {
       category: 'compression',
@@ -516,8 +515,8 @@ test('child compression_summary 不进入主消息流', () => {
   deps.activeRun.assistantMsgIndex = 0;
   deps.isCompressing.value = true;
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'state_sync',
     payload: {
       category: 'compression',
@@ -545,8 +544,8 @@ test('waiting 事件切换后台等待状态并在结束后回到等待模型响
   deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'state_sync',
     timestamp: 20,
     payload: {
@@ -566,7 +565,7 @@ test('waiting 事件切换后台等待状态并在结束后回到等待模型响
   assert.equal(deps.activeRun.waiting.waitId, 'wait-1');
   assert.deepEqual(deps.activeRun.waiting.backgroundTaskIds, ['bg-1']);
 
-  stream.handleWSMessage({
+  stream.handleEnvelope({
     type: 'state_sync',
     timestamp: 21,
     payload: { category: 'waiting', detail: { phase: 'end', wait_id: 'old-wait' } },
@@ -575,7 +574,7 @@ test('waiting 事件切换后台等待状态并在结束后回到等待模型响
   assert.equal(deps.activeRun.phase, 'background_waiting');
   assert.equal(deps.activeRun.waiting.waitId, 'wait-1');
 
-  stream.handleWSMessage({
+  stream.handleEnvelope({
     type: 'state_sync',
     timestamp: 22,
     payload: { category: 'waiting', detail: { phase: 'end', wait_id: 'wait-1' } },
@@ -592,8 +591,8 @@ test('权限审批期间切换为等待权限审批并在确认后进入工具�
   deps.activeRun.assistantMsgIndex = 0;
   deps.activeRun.phase = 'llm_streaming';
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'interaction',
     call_id: 'approval-1',
     payload: { kind: 'approval', phase: 'required' },
@@ -601,7 +600,7 @@ test('权限审批期间切换为等待权限审批并在确认后进入工具�
 
   assert.equal(deps.activeRun.phase, 'approval_waiting');
 
-  stream.handleWSMessage({
+  stream.handleEnvelope({
     type: 'interaction',
     call_id: 'approval-1',
     payload: { kind: 'approval', phase: 'responded', approved: true },
@@ -629,8 +628,8 @@ test('user_input required 通过 WS 提交并等待 ack 后完成', async () => 
   deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'interaction',
     call_id: 'input-1',
     payload: { kind: 'user_input', phase: 'required', prompt: 'scope?' },
@@ -644,7 +643,7 @@ test('user_input required 通过 WS 提交并等待 ack 后完成', async () => 
     payload: { kind: 'user_input', phase: 'responded', value: 'session' },
   }]);
 
-  stream.handleWSMessage({
+  stream.handleEnvelope({
     type: 'ack',
     call_id: 'input-1',
     payload: { category: 'interaction', ok: true, ref_call_id: 'input-1' },
@@ -664,13 +663,13 @@ test('interaction(user_input, required) 重复事件不重复展示', () => {
   deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'interaction',
     call_id: 'input-1',
     payload: { kind: 'user_input', phase: 'required', prompt: 'scope?' },
   }, 'session-1');
-  stream.handleWSMessage({
+  stream.handleEnvelope({
     type: 'interaction',
     call_id: 'input-1',
     payload: { kind: 'user_input', phase: 'required', prompt: 'scope?' },
@@ -693,13 +692,13 @@ test('interaction(approval, required) 重复事件不重复入队', () => {
   deps.activeRun.assistantMsgIndex = 0;
   deps.activeRun.phase = 'llm_streaming';
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'interaction',
     call_id: 'approval-1',
     payload: { kind: 'approval', phase: 'required', tool_name: 'write_file' },
   }, 'session-1');
-  stream.handleWSMessage({
+  stream.handleEnvelope({
     type: 'interaction',
     call_id: 'approval-1',
     payload: { kind: 'approval', phase: 'required', tool_name: 'write_file' },
@@ -723,18 +722,18 @@ test('resetStreamSessionState 会清理交互去重，侧边栏切回时 pending
   deps.activeRun.assistantMsgIndex = 0;
   deps.activeRun.phase = 'llm_streaming';
 
-  const stream = useSessionRunStream(deps);
+  const stream = useSessionAgentClient(deps);
   const event = {
     type: 'interaction',
     call_id: 'approval-1',
     payload: { kind: 'approval', phase: 'required', tool_name: 'write_file' },
   };
-  stream.handleWSMessage(event, 'session-1');
-  stream.handleWSMessage(event, 'session-1');
+  stream.handleEnvelope(event, 'session-1');
+  stream.handleEnvelope(event, 'session-1');
   assert.equal(approvals.length, 1);
 
   stream.resetStreamSessionState();
-  stream.handleWSMessage(event, 'session-1');
+  stream.handleEnvelope(event, 'session-1');
 
   assert.equal(approvals.length, 2);
   assert.equal(approvals[1].approval_id, 'approval-1');
@@ -755,15 +754,15 @@ test('user_input required 收到 ack(interaction) 失败时拒绝提交并提示
   deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'interaction',
     call_id: 'input-1',
     payload: { kind: 'user_input', phase: 'required', prompt: 'scope?' },
   }, 'session-1');
 
   const submitPromise = capturedSubmit('input-1', 'session');
-  stream.handleWSMessage({
+  stream.handleEnvelope({
     type: 'ack',
     call_id: 'input-1',
     payload: { category: 'interaction', ok: false, error: 'not found', ref_call_id: 'input-1' },
@@ -799,8 +798,8 @@ test('user.input_required 在 WS 发送失败时降级 HTTP respond 路由', asy
       return [200, {}];
     });
   }, async () => {
-    const stream = useSessionRunStream(deps);
-    stream.handleWSMessage({
+    const stream = useSessionAgentClient(deps);
+    stream.handleEnvelope({
       type: 'interaction',
       call_id: 'input-1',
       payload: { kind: 'user_input', phase: 'required', prompt: 'scope?' },
@@ -821,8 +820,8 @@ test('连续投递 seq 不触发 gap 对账', () => {
   deps.activeRun.phase = 'llm_streaming';
   deps.sessionTaskInfo.value = { status: 'running' };
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'interaction',
     call_id: 'approval-gap',
     seq: 2,
@@ -833,7 +832,7 @@ test('连续投递 seq 不触发 gap 对账', () => {
   assert.deepEqual(calls.deleteMessageCache, []);
   assert.deepEqual(calls.loadSessionMessages, []);
 
-  stream.handleWSMessage({ type: 'run_ended', payload: { status: 'completed' } }, 'session-1');
+  stream.handleEnvelope({ type: 'run_ended', payload: { status: 'completed' } }, 'session-1');
 
   assert.deepEqual(calls.deleteMessageCache, []);
   assert.deepEqual(calls.loadSessionMessages, []);
@@ -849,8 +848,8 @@ test('真正的投递序号 gap 在已有最终答案时只做轻量对账', () 
   deps.activeRun.phase = 'llm_streaming';
   deps.sessionTaskInfo.value = { status: 'running' };
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'interaction',
     call_id: 'approval-gap',
     seq: 8,
@@ -861,7 +860,7 @@ test('真正的投递序号 gap 在已有最终答案时只做轻量对账', () 
   assert.deepEqual(calls.deleteMessageCache, []);
   assert.deepEqual(calls.loadSessionMessages, []);
 
-  stream.handleWSMessage({ type: 'run_ended', payload: { status: 'completed' } }, 'session-1');
+  stream.handleEnvelope({ type: 'run_ended', payload: { status: 'completed' } }, 'session-1');
 
   assert.deepEqual(calls.mergeMessageIdsFromServer, [['session-1']]);
   assert.deepEqual(calls.deleteMessageCache, []);
@@ -877,14 +876,14 @@ test('mergeMessageIdsFromServer 不可用时 gap 对账回退到全量刷新', (
   deps.activeRun.lastSeenSeq = 1;
   deps.activeRun.phase = 'llm_streaming';
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'interaction',
     call_id: 'approval-gap',
     seq: 8,
     payload: { kind: 'approval', phase: 'required' },
   }, 'session-1');
-  stream.handleWSMessage({ type: 'run_ended', payload: { status: 'completed' } }, 'session-1');
+  stream.handleEnvelope({ type: 'run_ended', payload: { status: 'completed' } }, 'session-1');
 
   assert.deepEqual(calls.deleteMessageCache, [['session-1']]);
   assert.deepEqual(calls.loadSessionMessages, [['session-1', { silent: true }]]);
@@ -899,14 +898,14 @@ test('投递序号 gap 且没有可展示答案时仍回退到全量刷新', () 
   deps.activeRun.lastSeenSeq = 1;
   deps.activeRun.phase = 'llm_streaming';
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'interaction',
     call_id: 'approval-gap',
     seq: 8,
     payload: { kind: 'approval', phase: 'required' },
   }, 'session-1');
-  stream.handleWSMessage({ type: 'run_ended', payload: { status: 'completed' } }, 'session-1');
+  stream.handleEnvelope({ type: 'run_ended', payload: { status: 'completed' } }, 'session-1');
 
   assert.deepEqual(calls.mergeMessageIdsFromServer, []);
   assert.deepEqual(calls.deleteMessageCache, [['session-1']]);
@@ -921,8 +920,8 @@ test('拒绝权限审批后回到等待模型响应', () => {
   deps.activeRun.assistantMsgIndex = 0;
   deps.activeRun.phase = 'approval_waiting';
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
     type: 'interaction',
     call_id: 'approval-1',
     payload: { kind: 'approval', phase: 'responded', approved: false },
@@ -940,8 +939,8 @@ test('run_ended 事件会收尾 active run 并刷新执行态', () => {
   deps.activeRun.assistantMsgIndex = 0;
   deps.sessionTaskInfo.value = { status: 'running' };
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({ type: 'run_ended', payload: { status: 'completed' } }, 'session-1');
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({ type: 'run_ended', payload: { status: 'completed' } }, 'session-1');
 
   assert.equal(deps.sessionTaskInfo.value.status, 'completed');
   assert.equal(deps.sessionTaskInfo.value.thread_alive, false);
@@ -962,14 +961,14 @@ test('run_ended 以 interrupted/failed 终止时清空残留 approval/input 弹�
   deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
 
-  const stream = useSessionRunStream(deps);
+  const stream = useSessionAgentClient(deps);
 
   // interrupted：后端 abort 只 reject waitForApproval 不发取消事件，前端据终态清弹窗
-  stream.handleWSMessage({ type: 'run_ended', payload: { status: 'interrupted' } }, 'session-1');
+  stream.handleEnvelope({ type: 'run_ended', payload: { status: 'interrupted' } }, 'session-1');
   assert.equal(calls.resetApprovalState.length, 1);
 
   calls.resetApprovalState.length = 0;
-  stream.handleWSMessage({ type: 'run_ended', payload: { status: 'failed' } }, 'session-1');
+  stream.handleEnvelope({ type: 'run_ended', payload: { status: 'failed' } }, 'session-1');
   assert.equal(calls.resetApprovalState.length, 1);
 });
 
@@ -979,7 +978,7 @@ test('run_ended 正常完成时不清 approval（应已 resolved）', () => {
   deps.activeRun.active = true;
   deps.activeRun.assistantMsgIndex = 0;
 
-  const stream = useSessionRunStream(deps);
-  stream.handleWSMessage({ type: 'run_ended', payload: { status: 'completed' } }, 'session-1');
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({ type: 'run_ended', payload: { status: 'completed' } }, 'session-1');
   assert.equal(calls.resetApprovalState.length, 0);
 });

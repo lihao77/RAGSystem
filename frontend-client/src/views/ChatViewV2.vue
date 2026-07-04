@@ -197,7 +197,6 @@ import { useChatSessionController } from '../composables/useChatSessionControlle
 import { useSessionAgentClient } from '../composables/useSessionAgentClient';
 import { useSessionTaskStatus } from '../composables/useSessionTaskStatus';
 import { useSessionMessages } from '../composables/useSessionMessages';
-import { useSessionRunStream } from '../composables/useSessionRunStream';
 import { useMessageRevision } from '../composables/useMessageRevision';
 import { useSessionFilesAttachments } from '../composables/useSessionFilesAttachments';
 import { useApprovalQueue } from '../composables/useApprovalQueue';
@@ -449,16 +448,31 @@ const {
   invalidateActiveStream, scheduleCommandFallback, clearCommandFallback,
   clearSessionResumeRecovery, scheduleSessionResumeRecovery,
   connectSessionWS, disconnectSessionWS, getWS, resetSessionEventCursor,
+  resetStreamSessionState,
 } = useSessionAgentClient({
-  onMessage: (...a) => handleWSMessage(...a),
-  onRunFinalized: (sid) => _finalizeActiveRun(sid),
-  resetApprovalState,
-  loadSessionMessages,
-  deleteMessageCache,
-  clearLlmRetryState,
+  createAssistantMessage,
   cacheMessages,
+  deleteMessageCache,
+  loadSessionMessages,
+  mergeMessageIdsFromServer,
   refreshSessionExecutionState,
+  mergeExecutionObservability,
+  updateRecentSession: (...a) => updateRecentSession(...a),
+  applyEnvelopeToMessage,
+  findRunningExecutionAgentByAgentId,
+  isRootEvent,
+  isMasterEvent,
+  enqueueApproval,
+  handleApprovalResolved,
+  showUserInput,
+  resetApprovalState,
+  clearLlmRetryState,
+  setLlmRetryState,
+  buildTaskNotificationMessage,
+  checkSituationScreenTrigger: (...a) => checkSituationScreenTrigger(...a),
+  handleStop: (...a) => handleStop(...a),
   scrollToBottom,
+  showToast,
 });
 const {
   sessionFiles,
@@ -529,40 +543,6 @@ const {
   situationArtifactId,
   situationMapData,
   situationInfo,
-});
-
-const {
-  handleWSMessage,
-  finalizeActiveRun: _finalizeActiveRun,
-  resetStreamSessionState,
-} = useSessionRunStream({
-  createAssistantMessage,
-  cacheMessages,
-  deleteMessageCache,
-  loadSessionMessages,
-  mergeMessageIdsFromServer,
-  refreshSessionExecutionState,
-  mergeExecutionObservability,
-  updateRecentSession: (...a) => updateRecentSession(...a),
-  getWS,
-  clearSessionResumeRecovery,
-  clearCommandFallback,
-  scheduleCommandFallback,
-  clearLlmRetryState,
-  setLlmRetryState,
-  applyEnvelopeToMessage,
-  findRunningExecutionAgentByAgentId,
-  isRootEvent,
-  isMasterEvent,
-  enqueueApproval,
-  handleApprovalResolved,
-  showUserInput,
-  resetApprovalState,
-  buildTaskNotificationMessage,
-  checkSituationScreenTrigger,
-  scrollToBottom,
-  showToast,
-  handleStop: (...a) => handleStop(...a),
 });
 
 // clearExecutionState 需要额外清理 view 级状态
