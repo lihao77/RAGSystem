@@ -200,7 +200,6 @@ import { useSessionMessages } from '../composables/useSessionMessages';
 import { useMessageRevision } from '../composables/useMessageRevision';
 import { useSessionFilesAttachments } from '../composables/useSessionFilesAttachments';
 import { useApprovalQueue } from '../composables/useApprovalQueue';
-import { useSessionSend } from '../composables/useSessionSend';
 import { useChatScrolling } from '../composables/useChatScrolling';
 import { useMessageArtifacts } from '../composables/useMessageArtifacts';
 import { useLlmRetryState } from '../composables/useLlmRetryState';
@@ -449,6 +448,8 @@ const {
   clearSessionResumeRecovery, scheduleSessionResumeRecovery,
   connectSessionWS, disconnectSessionWS, getWS, resetSessionEventCursor,
   resetStreamSessionState,
+  send: sendSessionMessage,
+  stop: handleStop,
 } = useSessionAgentClient({
   createAssistantMessage,
   cacheMessages,
@@ -470,7 +471,16 @@ const {
   setLlmRetryState,
   buildTaskNotificationMessage,
   checkSituationScreenTrigger: (...a) => checkSituationScreenTrigger(...a),
-  handleStop: (...a) => handleStop(...a),
+  inputMessage,
+  get pendingAttachments() { return pendingAttachments; },
+  getCurrentSelectedLlm,
+  ensureSession: (...a) => ensureSession(...a),
+  materializeAttachmentsForSend: (...a) => materializeAttachmentsForSend(...a),
+  clearComposerAttachments: () => clearComposerAttachments(),
+  resetEditingState: (...a) => resetEditingState(...a),
+  clearEditingAttachments: () => clearEditingAttachments(),
+  beginOptimisticExecutionState,
+  stickToBottom,
   scrollToBottom,
   showToast,
 });
@@ -523,7 +533,7 @@ const {
   showToast,
   cacheMessages,
   inputMessage,
-  handleSend: (...a) => handleSend(...a),
+  handleSend: sendSessionMessage,
 });
 
 // ── 态势大屏与消息产物 ──────────────────────────────────────────
@@ -581,28 +591,6 @@ const {
   clearExecutionState: (...a) => clearExecutionState(...a),
   checkSessionTaskStatus,
   clearComposerAttachments,
-  showToast,
-});
-
-const {
-  handleSend: sendSessionMessage,
-  handleStop,
-} = useSessionSend({
-  inputMessage,
-  pendingAttachments,
-  getCurrentSelectedLlm,
-  ensureSession,
-  updateRecentSession,
-  getWS,
-  scheduleCommandFallback,
-  materializeAttachmentsForSend,
-  clearComposerAttachments,
-  cacheMessages,
-  resetEditingState,
-  clearEditingAttachments,
-  beginOptimisticExecutionState,
-  mergeExecutionObservability,
-  stickToBottom,
   showToast,
 });
 

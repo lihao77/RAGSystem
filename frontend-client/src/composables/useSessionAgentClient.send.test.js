@@ -4,7 +4,7 @@ import { ref } from 'vue';
 import MockAdapter from 'axios-mock-adapter';
 import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 
-import { useSessionSend } from './useSessionSend.js';
+import { useSessionAgentClient } from './useSessionAgentClient.js';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { httpClient } from '../api/http.js';
 
@@ -79,6 +79,8 @@ function createDeps(overrides = {}) {
     clearComposerAttachments: () => { calls.clearComposerAttachments += 1; },
     stickToBottom: () => { calls.stickToBottom += 1; },
     cacheMessages: (...args) => { calls.cacheMessages.push(args); },
+    deleteMessageCache: () => {},
+    loadSessionMessages: () => {},
     updateRecentSession: (...args) => { calls.updateRecentSession.push(args); },
     scheduleCommandFallback: (...args) => { calls.scheduleCommandFallback.push(args); },
     beginOptimisticExecutionState: (...args) => { calls.beginOptimisticExecutionState.push(args); },
@@ -112,8 +114,8 @@ test('运行中发送会作为 session followup 插入当前 assistant 前并复
     });
     deps.isLoading.value = true;
 
-    const sender = useSessionSend(deps);
-    await sender.handleSend({ content: '补充：优先处理 A', attachments: [] });
+    const sender = useSessionAgentClient(deps);
+    await sender.send({ content: '补充：优先处理 A', attachments: [] });
 
     assert.equal(deps.messages.value.length, 3);
     assert.equal(deps.messages.value[1].role, 'user');
@@ -158,8 +160,8 @@ test('本地 activeRun 丢失但服务端仍 running 时发送会升级为 sessi
     deps.activeRun.assistantMsgIndex = -1;
     deps.isLoading.value = false;
 
-    const sender = useSessionSend(deps);
-    await sender.handleSend({ content: '后台仍在跑时补充', attachments: [] });
+    const sender = useSessionAgentClient(deps);
+    await sender.send({ content: '后台仍在跑时补充', attachments: [] });
 
     assert.equal(deps.messages.value.length, 3);
     assert.equal(deps.messages.value[2].role, 'user');
@@ -181,8 +183,9 @@ test('普通发送仍会创建 assistant 占位并启动新的 active run', asyn
     mock.onGet(/\/task-status$/).reply(200, { data: { has_running_task: false, task_info: null } });
   }, async () => {
     const { deps, calls } = createDeps();
-    const sender = useSessionSend(deps);
-    await sender.handleSend({ content: '执行新任务', attachments: [] });
+    const sender = useSessionAgentClient(deps);
+    await sender.send({ content: '执行新任务', attachments: [] });
+    sender.clearCommandFallback();
 
     assert.equal(deps.messages.value.length, 2);
     assert.equal(deps.messages.value[0].role, 'user');
@@ -194,7 +197,6 @@ test('普通发送仍会创建 assistant 占位并启动新的 active run', asyn
     assert.equal(deps.isLoading.value, true);
     assert.equal(calls.materializeAttachmentsForSend.length, 1);
     assert.equal(calls.beginOptimisticExecutionState.length, 1);
-    assert.equal(calls.scheduleCommandFallback.length, 1);
     assert.equal(calls.wsSend[0].payload.request_id, deps.messages.value[0].metadata.request_id);
   });
 });
