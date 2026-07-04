@@ -191,7 +191,7 @@ import { ref, onMounted, onUnmounted, computed, h } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
-import CustomSelect from '../components/CustomSelect.vue';
+import CustomSelect from '../components/ui/CustomSelect.vue';
 import { UiButton } from '../components/ui';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';

@@ -788,7 +788,7 @@ import {
   exportAgentConfig
 } from '../api/agentConfig';
 import { useDictionariesStore } from '../stores/dictionaries.js';
-import CustomSelect from '../components/CustomSelect.vue';
+import CustomSelect from '../components/ui/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
 import ToggleSwitch from '../components/ToggleSwitch.vue';
 import { UiButton, UiIconButton } from '../components/ui';

@@ -204,7 +204,7 @@
 
 <script setup>
 import { ref, computed, onMounted, h } from 'vue';
-import CustomSelect from '../components/CustomSelect.vue';
+import CustomSelect from '../components/ui/CustomSelect.vue';
 import ToggleSwitch from '../components/ToggleSwitch.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';

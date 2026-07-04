@@ -70,8 +70,8 @@
 
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue';
-import { usePointerDownOutside, usePointerInsideRegistry } from '../composables/usePointerDownOutside';
-import { useDropdownPosition } from '../composables/useDropdownPosition';
+import { usePointerDownOutside, usePointerInsideRegistry } from '../../composables/usePointerDownOutside';
+import { useDropdownPosition } from '../../composables/useDropdownPosition';
 
 const DEFAULT_DROPDOWN_MAX_HEIGHT = 260;
 

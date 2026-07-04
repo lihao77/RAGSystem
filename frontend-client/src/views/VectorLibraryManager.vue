@@ -893,7 +893,7 @@ import {
     searchVectors,
     uploadFiles,
 } from '../api/vectorLibrary';
-import CustomSelect from '../components/CustomSelect.vue';
+import CustomSelect from '../components/ui/CustomSelect.vue';
 import { UiBadge, UiButton, UiIconButton } from '../components/ui';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';

@@ -212,7 +212,7 @@ import { useRouter } from 'vue-router';
 import PageLayout from '../components/PageLayout.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
-import CustomSelect from '../components/CustomSelect.vue';
+import CustomSelect from '../components/ui/CustomSelect.vue';
 import { UiBadge, UiButton } from '../components/ui';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import { activateTeam, copyAgentsToTeam, createTeam, deleteTeam, resetDefaultTeam } from '../api/agentConfig';

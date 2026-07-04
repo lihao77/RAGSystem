@@ -334,7 +334,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, h } from 'vue';
-import CustomSelect from '../components/CustomSelect.vue';
+import CustomSelect from '../components/ui/CustomSelect.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import AdmModal from '../components/admin/AdmModal.vue';

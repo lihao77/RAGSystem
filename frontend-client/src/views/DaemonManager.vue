@@ -264,7 +264,7 @@
 <script setup>
 import { ref, computed, h, onMounted } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
-import CustomSelect from '../components/CustomSelect.vue';
+import CustomSelect from '../components/ui/CustomSelect.vue';
 import ToggleSwitch from '../components/ToggleSwitch.vue';
 import AdmModal from '../components/admin/AdmModal.vue';
 import KpiCards from '../components/admin/KpiCards.vue';

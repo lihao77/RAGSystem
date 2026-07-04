@@ -91,7 +91,7 @@
 
 <script setup>
 import { reactive } from 'vue'
-import CustomSelect from './CustomSelect.vue'
+import CustomSelect from './ui/CustomSelect.vue'
 import NumberInput from './NumberInput.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 
