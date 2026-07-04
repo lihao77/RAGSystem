@@ -194,7 +194,7 @@ import { useRoute } from 'vue-router';
 import { renderMarkdown } from '../utils/markdown';
 import { shouldRefreshSessionMessagesAfterResume, shouldRunResumeRecoveryWatchdog } from '../utils/sessionSocket';
 import { useChatSessionController } from '../composables/useChatSessionController';
-import { useSessionConnection } from '../composables/useSessionConnection';
+import { useSessionAgentClient } from '../composables/useSessionAgentClient';
 import { useSessionTaskStatus } from '../composables/useSessionTaskStatus';
 import { useSessionMessages } from '../composables/useSessionMessages';
 import { useSessionRunStream } from '../composables/useSessionRunStream';
@@ -449,7 +449,7 @@ const {
   invalidateActiveStream, scheduleCommandFallback, clearCommandFallback,
   clearSessionResumeRecovery, scheduleSessionResumeRecovery,
   connectSessionWS, disconnectSessionWS, getWS, resetSessionEventCursor,
-} = useSessionConnection({
+} = useSessionAgentClient({
   onMessage: (...a) => handleWSMessage(...a),
   onRunFinalized: (sid) => _finalizeActiveRun(sid),
   resetApprovalState,

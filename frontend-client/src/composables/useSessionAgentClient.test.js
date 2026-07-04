@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { ref } from 'vue';
 import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 
-import { useSessionConnection } from './useSessionConnection.js';
+import { useSessionAgentClient } from './useSessionAgentClient.js';
 import { useSessionRunStore, createActiveRunState } from '../stores/session-run.js';
 
 class FakeWebSocket {
@@ -87,7 +87,7 @@ test('session connection 重连时使用已观察到的 seq durable cursor', () 
   const received = [];
 
   try {
-    const connection = useSessionConnection(createConnectionDeps((event, sessionId) => {
+    const connection = useSessionAgentClient(createConnectionDeps((event, sessionId) => {
       received.push([event.type, sessionId, event.seq || null]);
     }));
 
@@ -123,7 +123,7 @@ test('session connection 使用 heartbeat.last_seq 推进重连 cursor', () => {
   const received = [];
 
   try {
-    const connection = useSessionConnection(createConnectionDeps((event, sessionId) => {
+    const connection = useSessionAgentClient(createConnectionDeps((event, sessionId) => {
       received.push([event.type, sessionId, event.seq || null]);
     }));
 
@@ -161,7 +161,7 @@ test('session connection 可重置 session durable cursor 以支持快照加载�
   const restore = installFakeSessionSocketEnv();
 
   try {
-    const connection = useSessionConnection(createConnectionDeps(() => {}));
+    const connection = useSessionAgentClient(createConnectionDeps(() => {}));
 
     connection.connectSessionWS('session-1');
     FakeWebSocket.instances[0].emit({ type: 'stream_output', seq: 9, payload: { phase: 'delta', content: 'x' } });

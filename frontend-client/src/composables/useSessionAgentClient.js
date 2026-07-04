@@ -56,22 +56,28 @@ const handleDelegateCall = async (ws, event, sessionId) => {
 };
 
 /**
- * 会话 WebSocket 连接管理、重连、定时器、activeRun 状态。
+ * 会话 AgentClient（对标 packages/agent-widget/src/adapter/widget-agent-client.ts 的 WidgetAgentClient）。
+ *
+ * 合并 socket transport + 事件分发（handleEnvelope）+ 运行态 + send/stop + respondInteraction，
+ * 单向数据流（WS → handleEnvelope → store/投影），消除 composable 互相依赖；
+ * 状态读 session-run store 单源（替代 widget 的 Observable）。
+ *
+ * 本阶段（2.5a）仅含 WS transport 层（连接/重连/cursor/delegate 拦截/定时器/getWS），
+ * ws.onmessage 暂经 deps.onMessage 回调过渡到 useSessionRunStream；handleEnvelope /
+ * send / stop / respondInteraction 将在 2.5b-d 逐步迁入。
  *
  * @param {Object} deps
- * currentSessionId / messages / isLoading / isCompressing 取自 useSessionRunStore 单源
- * @param {import('vue').Reactive} activeRun
- * @param {Function} deps.onMessage - (event, sessionId) => void
- * @param {Function} deps.onRunFinalized - (sessionId) => void
+ * currentSessionId / messages / isLoading 取自 useSessionRunStore 单源
+ * @param {Function} deps.onMessage - (event, sessionId) => void（过渡，2.5b 删）
+ * @param {Function} deps.onRunFinalized - (sessionId) => void（过渡，2.5b 删）
  * @param {Function} deps.resetApprovalState
  * @param {Function} deps.loadSessionMessages
  * @param {Function} deps.deleteMessageCache - (sessionId) => void
- * @param {Function} deps.clearLlmRetryState
  * @param {Function} deps.cacheMessages
  * @param {Function} deps.refreshSessionExecutionState
  * @param {Function} deps.scrollToBottom
  */
-export function useSessionConnection(deps) {
+export function useSessionAgentClient(deps) {
   const sessionRunStore = useSessionRunStore();
   const { currentSessionId, messages, isLoading } = storeToRefs(sessionRunStore);
   const activeRun = sessionRunStore.activeRun;
