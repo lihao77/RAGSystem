@@ -376,9 +376,8 @@ const {
 });
 
 const {
-  mergeExecutionObservability,
-  loadContextSnapshot, refreshSessionExecutionState,
-  checkSessionTaskStatus, clearExecutionState: _clearExecutionStateBase, beginOptimisticExecutionState,
+  loadContextSnapshot,
+  checkSessionTaskStatus, clearExecutionState: _clearExecutionStateBase,
 } = useSessionTaskStatus({
   shouldRefreshFn: shouldRefreshSessionMessagesAfterResume,
   shouldRunWatchdogFn: shouldRunResumeRecoveryWatchdog,
@@ -389,6 +388,7 @@ const {
   scheduleCommandFallback: (...a) => scheduleCommandFallback(...a),
   scheduleResumeRecovery: (...a) => scheduleSessionResumeRecovery(...a),
   clearLlmRetryState,
+  mergeExecutionObservability: (payload) => mergeExecutionObservability(payload),
 });
 
 const {
@@ -451,14 +451,13 @@ const {
   send: sendSessionMessage,
   stop: handleStop,
   respondInteraction,
+  mergeExecutionObservability, refreshSessionExecutionState, beginOptimisticExecutionState,
 } = useSessionAgentClient({
   createAssistantMessage,
   cacheMessages,
   deleteMessageCache,
   loadSessionMessages,
   mergeMessageIdsFromServer,
-  refreshSessionExecutionState,
-  mergeExecutionObservability,
   updateRecentSession: (...a) => updateRecentSession(...a),
   applyEnvelopeToMessage,
   findRunningExecutionAgentByAgentId,
@@ -480,7 +479,6 @@ const {
   clearComposerAttachments: () => clearComposerAttachments(),
   resetEditingState: (...a) => resetEditingState(...a),
   clearEditingAttachments: () => clearEditingAttachments(),
-  beginOptimisticExecutionState,
   stickToBottom,
   scrollToBottom,
   showToast,

@@ -160,12 +160,64 @@ export function useSessionAgentClient(deps) {
     isCompressing,
     contextUsage,
     sessionTaskInfo,
+    sessionExecutionObservability,
     llmRetryState,
   } = storeToRefs(sessionRunStore);
   const activeRun = sessionRunStore.activeRun;
 
-  // run 运行态机（phase/timing/seq gap/durable replay/finalize），状态读 store 单源
-  const runtime = useRunRuntime(deps);
+  // task 状态运行期写入（sessionTaskInfo / sessionExecutionObservability 写 store 单源）；
+  // 会话切换的拉取/清理仍留 useSessionTaskStatus，单向调 client.mergeExecutionObservability。
+  const mergeExecutionObservability = (payload = {}) => {
+    const current = sessionExecutionObservability.value || {};
+    sessionExecutionObservability.value = {
+      task_id: payload.task_id ?? current.task_id ?? null,
+      session_id: payload.session_id ?? current.session_id ?? currentSessionId.value ?? null,
+      run_id: payload.run_id ?? current.run_id ?? null,
+      execution_kind: payload.execution_kind ?? current.execution_kind ?? null,
+      request_id: payload.request_id ?? current.request_id ?? null,
+    };
+  };
+  const refreshSessionExecutionState = async (sessionId) => {
+    if (!sessionId) return;
+    try {
+      const result = await getSessionTaskStatus(sessionId);
+      if (currentSessionId.value !== sessionId) return;
+      if (result.data?.task_info) {
+        sessionTaskInfo.value = result.data.task_info;
+      }
+      if (result.data?.observability) {
+        mergeExecutionObservability(result.data.observability);
+      }
+    } catch (error) {
+      console.warn('refreshSessionExecutionState 状态同步失败:', error.message);
+    }
+  };
+  const beginOptimisticExecutionState = (sessionId) => {
+    sessionTaskInfo.value = {
+      ...(sessionTaskInfo.value || {}),
+      task_id: null,
+      session_id: sessionId,
+      run_id: null,
+      execution_kind: 'agent_stream',
+      request_id: null,
+      elapsed_seconds: null,
+      started_at: null,
+      finished_at: null,
+      thread_alive: true,
+      status: 'running',
+    };
+    mergeExecutionObservability({
+      task_id: null,
+      session_id: sessionId,
+      run_id: null,
+      execution_kind: 'agent_stream',
+      request_id: null,
+    });
+  };
+
+  // run 运行态机（phase/timing/seq gap/durable replay/finalize），状态读 store 单源；
+  // 注入 client 内建 refreshSessionExecutionState，使 finalize/durable terminal 的 task 状态同步走 client 单源。
+  const runtime = useRunRuntime({ ...deps, refreshSessionExecutionState });
 
   // 交互提交（统一 approval/user_input 的 WS 主路径 + ack pending + HTTP 降级），对标 widget
   // WidgetAgentClient.respondInteraction；frontend-client 保留 HTTP 降级（WS 不通兜底）。
@@ -322,7 +374,7 @@ export function useSessionAgentClient(deps) {
           await deps.loadSessionMessages(sessionId, { silent: true });
           return;
         }
-        await deps.refreshSessionExecutionState(sessionId, { silent: true });
+        await refreshSessionExecutionState(sessionId, { silent: true });
       } catch (error) {
         // 兜底探测失败（含 abort）不影响主流程，留痕便于排查
         console.warn('resume task-status 探测失败:', error.message);
@@ -877,7 +929,7 @@ export function useSessionAgentClient(deps) {
         session_id: sessionId,
         status: 'running',
       };
-      deps.refreshSessionExecutionState(sessionId, { silent: true });
+      refreshSessionExecutionState(sessionId, { silent: true });
       nextTick(() => deps.scrollToBottom(true));
       return;
     }
@@ -896,7 +948,7 @@ export function useSessionAgentClient(deps) {
           if (typeof deps.mergeMessageIdsFromServer === 'function') {
             deps.mergeMessageIdsFromServer(sessionId);
           }
-          deps.refreshSessionExecutionState(sessionId, { silent: true });
+          refreshSessionExecutionState(sessionId, { silent: true });
           return;
         }
         if (!isLoading.value && !activeRun.active) {
@@ -965,7 +1017,7 @@ export function useSessionAgentClient(deps) {
     if (activeRun.active) {
       const currentMsg = messages.value[activeRun.assistantMsgIndex];
       if (currentMsg) {
-        deps.mergeExecutionObservability(event);
+        mergeExecutionObservability(event);
         handleRunEvent(event, currentMsg, sessionId);
       }
     }
@@ -1060,7 +1112,7 @@ export function useSessionAgentClient(deps) {
       const result = await getSessionTaskStatus(sessionId);
       sessionTaskInfo.value = result.data?.task_info || null;
       if (result.data?.observability) {
-        deps.mergeExecutionObservability(result.data.observability);
+        mergeExecutionObservability(result.data.observability);
       }
       if (result.data?.has_running_task && !isRunningFollowup) {
         if (sessionId && replaceFromIndex == null && !startsDraftSession) {
@@ -1150,7 +1202,7 @@ export function useSessionAgentClient(deps) {
     }
 
     if (!isRunningFollowup) {
-      deps.beginOptimisticExecutionState(sessionId);
+      beginOptimisticExecutionState(sessionId);
     }
     if (!startsDraftSession && !isRunningFollowup) {
       isLoading.value = true;
@@ -1263,5 +1315,8 @@ export function useSessionAgentClient(deps) {
     send,
     stop,
     respondInteraction,
+    mergeExecutionObservability,
+    refreshSessionExecutionState,
+    beginOptimisticExecutionState,
   };
 }

@@ -50,8 +50,6 @@ function createDeps(overrides = {}) {
     stickToBottom: 0,
     cacheMessages: [],
     updateRecentSession: [],
-    scheduleCommandFallback: [],
-    beginOptimisticExecutionState: [],
     showToast: [],
   };
 
@@ -82,9 +80,6 @@ function createDeps(overrides = {}) {
     deleteMessageCache: () => {},
     loadSessionMessages: () => {},
     updateRecentSession: (...args) => { calls.updateRecentSession.push(args); },
-    scheduleCommandFallback: (...args) => { calls.scheduleCommandFallback.push(args); },
-    beginOptimisticExecutionState: (...args) => { calls.beginOptimisticExecutionState.push(args); },
-    mergeExecutionObservability: () => {},
     resetEditingState: () => {},
     clearEditingAttachments: () => {},
     showToast: (...args) => { calls.showToast.push(args); },
@@ -130,8 +125,6 @@ test('运行中发送会作为 session followup 插入当前 assistant 前并复
     assert.equal(deps.activeRun.runId, 'run-1');
     assert.equal(deps.isLoading.value, true);
     assert.deepEqual(calls.materializeAttachmentsForSend, []);
-    assert.deepEqual(calls.scheduleCommandFallback, []);
-    assert.equal(calls.beginOptimisticExecutionState.length, 0);
     assert.equal(calls.wsSend.length, 1);
     assert.equal(calls.wsSend[0].type, 'user_driven_change');
     assert.equal(calls.wsSend[0].payload.category, 'task_submit');
@@ -169,8 +162,6 @@ test('本地 activeRun 丢失但服务端仍 running 时发送会升级为 sessi
     assert.equal(deps.messages.value[2].metadata.source, 'running_session');
     assert.equal(deps.messages.value[2].metadata.run_id, 'run-from-status');
     assert.equal(deps.isLoading.value, false);
-    assert.equal(calls.beginOptimisticExecutionState.length, 0);
-    assert.equal(calls.scheduleCommandFallback.length, 0);
     assert.equal(calls.wsSend.length, 1);
     assert.equal(calls.wsSend[0].payload.request_id, deps.messages.value[2].metadata.request_id);
   });
@@ -196,7 +187,8 @@ test('普通发送仍会创建 assistant 占位并启动新的 active run', asyn
     assert.equal(deps.activeRun.assistantMsgIndex, 1);
     assert.equal(deps.isLoading.value, true);
     assert.equal(calls.materializeAttachmentsForSend.length, 1);
-    assert.equal(calls.beginOptimisticExecutionState.length, 1);
+    assert.equal(deps.sessionTaskInfo.value.status, 'running');
+    assert.equal(deps.sessionTaskInfo.value.execution_kind, 'agent_stream');
     assert.equal(calls.wsSend[0].payload.request_id, deps.messages.value[0].metadata.request_id);
   });
 });

@@ -34,6 +34,7 @@ function createDeps(overrides = {}) {
     scheduleCommandFallback: () => {},
     scheduleResumeRecovery: (...args) => { calls.scheduleResumeRecovery.push(args); },
     clearLlmRetryState: () => {},
+    mergeExecutionObservability: () => {},
     ...overrides,
   };
   return { deps, activeRun, calls };

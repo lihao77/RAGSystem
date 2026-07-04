@@ -19,6 +19,7 @@ import { useSessionRunStore } from '../stores/session-run.js';
  * @param {Function} deps.scheduleCommandFallback
  * @param {Function} deps.scheduleResumeRecovery
  * @param {Function} deps.clearLlmRetryState
+ * @param {Function} deps.mergeExecutionObservability - 运行期 observability 写入（client 提供）
  */
 export function useSessionTaskStatus(deps) {
   const sessionRunStore = useSessionRunStore();
@@ -43,17 +44,6 @@ export function useSessionTaskStatus(deps) {
     };
   };
 
-  const mergeExecutionObservability = (payload = {}) => {
-    const current = sessionExecutionObservability.value || {};
-    sessionExecutionObservability.value = {
-      task_id: payload.task_id ?? current.task_id ?? null,
-      session_id: payload.session_id ?? current.session_id ?? currentSessionId.value ?? null,
-      run_id: payload.run_id ?? current.run_id ?? null,
-      execution_kind: payload.execution_kind ?? current.execution_kind ?? null,
-      request_id: payload.request_id ?? current.request_id ?? null,
-    };
-  };
-
   const loadContextSnapshot = async (sessionId) => {
     if (!sessionId) return;
     try {
@@ -74,22 +64,6 @@ export function useSessionTaskStatus(deps) {
     }
   };
 
-  const refreshSessionExecutionState = async (sessionId) => {
-    if (!sessionId) return;
-    try {
-      const result = await getSessionTaskStatus(sessionId);
-      if (currentSessionId.value !== sessionId) return;
-      if (result.data?.task_info) {
-        sessionTaskInfo.value = result.data.task_info;
-      }
-      if (result.data?.observability) {
-        mergeExecutionObservability(result.data.observability);
-      }
-    } catch (error) {
-      console.warn('refreshSessionExecutionState 状态同步失败:', error.message);
-    }
-  };
-
   /** 检查会话是否有正在执行的任务，若有则恢复 loading 状态 */
   const checkSessionTaskStatus = async (sessionId) => {
     if (!sessionId) return;
@@ -107,9 +81,9 @@ export function useSessionTaskStatus(deps) {
         sessionTaskInfo.value = result.data.task_info;
       }
       if (result.data?.observability) {
-        mergeExecutionObservability(result.data.observability);
+        deps.mergeExecutionObservability(result.data.observability);
       } else if (result.data?.task_info) {
-        mergeExecutionObservability(buildObservabilityFromTaskInfo(result.data.task_info));
+        deps.mergeExecutionObservability(buildObservabilityFromTaskInfo(result.data.task_info));
       }
       if (deps.shouldRunWatchdogFn({ hasRunningTask, hasActiveSystemCommand })) {
         deps.scheduleResumeRecovery(sessionId);
@@ -147,36 +121,10 @@ export function useSessionTaskStatus(deps) {
     if (resetContextUsage) contextUsage.value = { used: 0, max: 0 };
   };
 
-  const beginOptimisticExecutionState = (sessionId) => {
-    sessionTaskInfo.value = {
-      ...(sessionTaskInfo.value || {}),
-      task_id: null,
-      session_id: sessionId,
-      run_id: null,
-      execution_kind: 'agent_stream',
-      request_id: null,
-      elapsed_seconds: null,
-      started_at: null,
-      finished_at: null,
-      thread_alive: true,
-      status: 'running',
-    };
-    mergeExecutionObservability({
-      task_id: null,
-      session_id: sessionId,
-      run_id: null,
-      execution_kind: 'agent_stream',
-      request_id: null,
-    });
-  };
-
   return {
     buildObservabilityFromTaskInfo,
-    mergeExecutionObservability,
     loadContextSnapshot,
-    refreshSessionExecutionState,
     checkSessionTaskStatus,
     clearExecutionState,
-    beginOptimisticExecutionState,
   };
 }

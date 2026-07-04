@@ -41,7 +41,6 @@ function createDeps(overrides = {}) {
     deleteMessageCache: [],
     loadSessionMessages: [],
     mergeMessageIdsFromServer: [],
-    refreshSessionExecutionState: [],
     cacheMessages: [],
     updateRecentSession: [],
     scrollToBottom: [],
@@ -69,8 +68,6 @@ function createDeps(overrides = {}) {
     deleteMessageCache: (...args) => { calls.deleteMessageCache.push(args); },
     loadSessionMessages: (...args) => { calls.loadSessionMessages.push(args); },
     mergeMessageIdsFromServer: (...args) => { calls.mergeMessageIdsFromServer.push(args); },
-    refreshSessionExecutionState: (...args) => { calls.refreshSessionExecutionState.push(args); },
-    mergeExecutionObservability: () => {},
     cacheMessages: (...args) => { calls.cacheMessages.push(args); },
     clearLlmRetryState: () => { calls.clearLlmRetryState += 1; },
     scrollToBottom: (...args) => { calls.scrollToBottom.push(args); },
@@ -201,10 +198,6 @@ test('刚完成的同一 run 收到 state_sync(session_updated) 不重拉整条�
   assert.deepEqual(calls.mergeMessageIdsFromServer, [['session-1']]);
   assert.deepEqual(calls.deleteMessageCache, []);
   assert.deepEqual(calls.loadSessionMessages, []);
-  assert.deepEqual(calls.refreshSessionExecutionState, [
-    ['session-1', { silent: true }],
-    ['session-1', { silent: true }],
-  ]);
 });
 
 test('stream_output(final) 会用完整内容补偿并保留已有 metadata', () => {
@@ -950,7 +943,6 @@ test('run_ended 事件会收尾 active run 并刷新执行态', () => {
   assert.equal(calls.clearLlmRetryState, 1);
   assert.deepEqual(calls.cacheMessages, [['session-1', deps.messages.value]]);
   assert.equal(calls.updateRecentSession.length, 1);
-  assert.deepEqual(calls.refreshSessionExecutionState, [['session-1', { silent: true }]]);
   assert.deepEqual(calls.scrollToBottom, [[]]);
 });
 
