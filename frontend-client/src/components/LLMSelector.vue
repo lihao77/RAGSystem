@@ -11,21 +11,11 @@
       <span class="selected-text">{{ displayText }}</span>
 
       <!-- 箭头图标 -->
-      <svg
+      <IconChevronDown
         class="arrow-icon"
         :class="{ 'rotate': dropdownOpen }"
-        xmlns="http://www.w3.org/2000/svg"
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <polyline points="6 9 12 15 18 9"></polyline>
-      </svg>
+        :size="16"
+      />
 
       <!-- Loading indicator -->
       <div v-if="loading" class="loading-spinner"></div>
@@ -137,6 +127,7 @@ import { usePointerDownOutside, usePointerInsideRegistry } from '../composables/
 import { useDropdownPosition } from '../composables/useDropdownPosition';
 import { getAvailableModels } from '../api/modelAdapter';
 import { useLlmStore } from '../stores/llm.js';
+import IconChevronDown from './icons/IconChevronDown.vue';
 
 const llmStore = useLlmStore();
 const { selectedLLM: selectedModel } = storeToRefs(llmStore);

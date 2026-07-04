@@ -9,21 +9,12 @@
       <span class="trigger-text" :class="{ placeholder: !hasValue }">
         {{ displayLabel }}
       </span>
-      <svg
+      <IconChevronDown
         class="arrow-icon"
         :class="{ rotate: isOpen }"
-        xmlns="http://www.w3.org/2000/svg"
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2.5"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <polyline points="6 9 12 15 18 9"></polyline>
-      </svg>
+        :size="16"
+        :stroke-width="2.5"
+      />
     </div>
 
     <Teleport to="body">
@@ -72,6 +63,7 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { usePointerDownOutside, usePointerInsideRegistry } from '../../composables/usePointerDownOutside';
 import { useDropdownPosition } from '../../composables/useDropdownPosition';
+import IconChevronDown from '../icons/IconChevronDown.vue';
 
 const DEFAULT_DROPDOWN_MAX_HEIGHT = 260;
 

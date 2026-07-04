@@ -57,10 +57,7 @@
             <LiquidGlass v-if="showScrollToBottomButton" :width="40" :height="40" :radius="999"
               extra-filter="blur(2px) contrast(1.15) brightness(1.06) saturate(1.1)"
               class="scroll-to-bottom-btn" @click="onScrollToBottomClick" title="滚动到底部">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="6 9 12 15 18 9"></polyline>
-              </svg>
+              <IconChevronDown :size="18" />
             </LiquidGlass>
           </transition>
           <div class="input-area-wrapper">
@@ -213,6 +210,7 @@ import SessionFilesDrawer from '../components/SessionFilesDrawer.vue';
 import LiquidGlass from '../components/LiquidGlass.vue';
 import FilePreviewConfirmDialog from '../components/FilePreviewConfirmDialog.vue';
 import ContextSnapshotDrawer from '../components/ContextSnapshotDrawer.vue';
+import IconChevronDown from '../components/icons/IconChevronDown.vue';
 import { useToast } from '../composables/useToast.js';
 import ChatMessageList from '../components/chat/ChatMessageList.vue';
 import ChatEmptyState from '../components/chat/ChatEmptyState.vue';

@@ -160,9 +160,7 @@
             {{ node.elapsed_time.toFixed(2) }}s
           </span>
           <span class="tool-expand-btn" :class="{ rotated: localExpanded }">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
+            <IconChevronDown :size="14" />
           </span>
         </div>
       </div>
@@ -252,6 +250,7 @@
 import { ref, computed, defineProps, nextTick, onMounted, watch } from 'vue';
 import { getToolCallRawResult } from '../api/monitoring';
 import { getAgentBadgeClass } from '../utils/agentBadge';
+import IconChevronDown from './icons/IconChevronDown.vue';
 
 const props = defineProps({
   node: {

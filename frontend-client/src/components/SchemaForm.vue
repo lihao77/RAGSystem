@@ -9,11 +9,12 @@
       <div class="section-head" :class="{ 'section-head--clickable': collapsibleGroups }" @click="collapsibleGroups && toggleGroup(group.key)">
         <h2>
           {{ group.label }}
-          <svg v-if="collapsibleGroups" class="collapse-icon" :class="{ 'collapse-icon--open': !collapsed[group.key] }"
-               xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="6 9 12 15 18 9"/>
-          </svg>
+          <IconChevronDown
+            v-if="collapsibleGroups"
+            class="collapse-icon"
+            :class="{ 'collapse-icon--open': !collapsed[group.key] }"
+            :size="14"
+          />
         </h2>
         <span v-if="group.description">{{ group.description }}</span>
       </div>
@@ -94,6 +95,7 @@ import { reactive } from 'vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import NumberInput from './NumberInput.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
+import IconChevronDown from './icons/IconChevronDown.vue'
 
 const props = defineProps({
   schema: { type: Object, required: true },      // { groups: [...] }

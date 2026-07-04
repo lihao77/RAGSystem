@@ -714,9 +714,7 @@
 
     <Teleport to="body">
       <button class="btn-scroll-bottom" title="滚动到底部" @click="scrollToBottom">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 12 15 18 9"></polyline>
-        </svg>
+        <IconChevronDown :size="18" :stroke-width="2.5" />
       </button>
     </Teleport>
 
@@ -791,6 +789,7 @@ import { useDictionariesStore } from '../stores/dictionaries.js';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
 import ToggleSwitch from '../components/ToggleSwitch.vue';
+import IconChevronDown from '../components/icons/IconChevronDown.vue';
 import { UiButton, UiIconButton } from '../components/ui';
 import { useToast } from '../composables/useToast.js';
 const props = defineProps({
