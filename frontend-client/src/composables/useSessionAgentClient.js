@@ -138,16 +138,19 @@ const createFollowupMetadata = (requestId, activeRun, fallbackRunId = null) => (
 /**
  * 会话 AgentClient（对标 packages/agent-widget/src/adapter/widget-agent-client.ts 的 WidgetAgentClient）。
  *
- * 合并 socket transport + 事件分发（handleEnvelope）+ 运行态 + send/stop + respondInteraction，
- * 单向数据流（WS → handleEnvelope → store/投影），消除 composable 互相依赖；
- * 状态读 session-run store 单源（替代 widget 的 Observable）。
+ * 单一 client 合并 socket transport + 事件分发 + 运行态 + send/stop + 交互提交 + task 状态写入，
+ * 单向数据流（WS → handleEnvelope → store/投影），消除原 composable 互相依赖（widget 架构）。
+ * 状态读 session-run store 单源（替代 widget 的 Observable——Vue 场景下 store 已是推模式）。
  *
- * 进度：
- * - 2.5a WS transport（连接/重连/cursor/delegate 拦截/定时器/getWS）
- * - 2.5b 事件分发 handleEnvelope（原 useSessionRunStream.handleWSMessage）+ 运行态（useRunRuntime）迁入
- * - 2.5c send/stop、2.5d respondInteraction、2.5e task 状态写入 待迁
+ * 组成：
+ * - WS transport：连接/重连/cursor 去重/delegate 拦截/commandFallback/resumeRecovery 定时器（2.5a）
+ * - handleEnvelope：事件分发（原 useSessionRunStream.handleWSMessage），写 store + 调投影（2.5b）
+ * - useRunRuntime 组合子：phase/timing/seq gap/durable replay/finalize（client 单向组合）
+ * - send/stop：HTTP 降级/followup/附件/task 预查（2.5c）
+ * - respondInteraction：统一 approval/user_input WS 提交 + ack + HTTP 降级（2.5d）
+ * - task 状态写入：mergeExecutionObservability/refreshSessionExecutionState/beginOptimisticExecutionState（2.5e）
  *
- * @param {Object} deps 业务回调（投影/UI/消息缓存/task 状态/send/stop 等单向依赖）
+ * @param {Object} deps 业务回调（投影/UI/消息缓存/会话切换/send 单向依赖）
  */
 export function useSessionAgentClient(deps) {
   const startupPhases = new Set(['creating_session', 'preparing_attachments', 'starting_agent']);

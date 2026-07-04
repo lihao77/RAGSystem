@@ -20,9 +20,9 @@ const DURABLE_REPLAY_RUN_EVENT_TYPES = new Set([
 /**
  * run 运行态机：phase/timing/waiting/seq gap/durable outbox replay/finalize。
  *
- * 从 useSessionRunStream 抽出的内聚单元，只推进 activeRun/messages 等运行态，
- * 不参与事件分发（分发调度仍归 useSessionRunStream）。
- * 状态读 session-run store 单源；业务回调（落库/刷新/滚动等）由 deps 注入。
+ * useSessionAgentClient 的运行态组合子（client 单向组合，无循环依赖）：只推进
+ * activeRun/messages 等运行态，不参与事件分发（分发调度归 client.handleEnvelope）。
+ * 状态读 session-run store 单源；业务回调（落库/刷新/滚动等）由 client 经 deps 注入。
  */
 export function useRunRuntime(deps) {
   const sessionRunStore = useSessionRunStore();
