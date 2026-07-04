@@ -36,7 +36,7 @@
       <template #actions>
         <UiButton variant="primary" @click="openAddService">
           <template #icon>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <IconPlus :size="14" />
           </template>
           添加服务
         </UiButton>
@@ -116,18 +116,18 @@
           <p>从 Registry 搜索安装，或手动填写连接参数。</p>
         </div>
         <button type="button" class="add-service-close" @click="addServiceVisible = false" aria-label="收起">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <IconClose :size="16" />
         </button>
       </div>
       <!-- 注：.add-subnav 是「添加服务」面板内的次级方式切换（手动 vs Registry），
            不是页面级 Tab；用局部 pill 切换更贴合折叠面板语境，故不复用 .adm-tabs。 -->
       <div class="add-subnav">
         <button type="button" class="add-subnav-btn" :class="{ 'add-subnav-btn--active': addMode === 'manual' }" @click="addMode = 'manual'">
-          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <IconPlus :size="15" />
           手动配置
         </button>
         <button type="button" class="add-subnav-btn" :class="{ 'add-subnav-btn--active': addMode === 'registry' }" @click="addMode = 'registry'">
-          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <IconSearch :size="15" />
           从 Registry 搜索
         </button>
       </div>
@@ -173,7 +173,7 @@
       <div v-else class="add-pane">
         <div class="registry-search-bar">
         <div class="search-input-wrap">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <IconSearch :size="16" />
           <input v-model.trim="registrySearch.query" type="text" placeholder="搜索服务名称，如 github / filesystem / mysql ..." class="registry-search-input" @keyup.enter="searchRegistryServers" />
         </div>
         <label class="toggle-field toggle-field--inline"><ToggleSwitch v-model="registrySearch.latest_only" /><span>仅最新版本</span></label>
@@ -199,8 +199,8 @@
           <p class="registry-desc">{{ item.description || '暂无描述' }}</p>
           <div v-if="item.install_options?.length" class="install-options-row">
             <span v-for="option in item.install_options" :key="option.id" class="option-chip" :class="option.supported ? 'option-chip--ok' : 'option-chip--no'" :title="option.supported ? option.label : option.unsupported_reason">
-              <svg v-if="option.supported" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              <svg v-else xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              <IconCheck v-if="option.supported" :size="11" :stroke-width="2.5" />
+              <IconClose v-else :size="11" :stroke-width="2.5" />
               {{ option.label }}
             </span>
           </div>
@@ -342,6 +342,10 @@ import NumberInput from '../components/NumberInput.vue';
 import ToggleSwitch from '../components/ToggleSwitch.vue';
 import PageLayout from '../components/PageLayout.vue';
 import IconRefresh from '../components/icons/IconRefresh.vue';
+import IconCheck from '../components/icons/IconCheck.vue';
+import IconClose from '../components/icons/IconClose.vue';
+import IconPlus from '../components/icons/IconPlus.vue';
+import IconSearch from '../components/icons/IconSearch.vue';
 import { UiBadge, UiButton } from '../components/ui';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';

@@ -19,10 +19,7 @@
         @update:model-value="selectedAgent = $event; handleAgentChange()"
       />
       <UiIconButton label="新建 Agent" :disabled="saving || agentLoading" @click="openCreateDialog">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" y1="5" x2="12" y2="19"></line>
-          <line x1="5" y1="12" x2="19" y2="12"></line>
-        </svg>
+        <IconPlus :size="16" :stroke-width="2.5" />
       </UiIconButton>
       <UiButton v-if="selectedAgent" variant="primary" :disabled="saving || agentLoading" @click="handleSave" :title="saving ? '保存中' : '保存配置'">
         <template #icon>
@@ -38,10 +35,7 @@
 
     <template #header-menu="{ close }">
       <button class="pl-menu-item" :disabled="saving || agentLoading" @click="openCreateDialog(); close()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" y1="5" x2="12" y2="19"></line>
-          <line x1="5" y1="12" x2="19" y2="12"></line>
-        </svg>
+        <IconPlus :size="16" :stroke-width="2.5" />
         新建 Agent
       </button>
       <button v-if="selectedAgent" class="pl-menu-item" :disabled="agentLoading" @click="handleExport(); close()">
@@ -74,17 +68,12 @@
         :class="{ 'pl-menu-item--active': a === selectedAgent }"
         @click="selectedAgent = a; handleAgentChange(); close()"
       >
-        <svg v-if="a === selectedAgent" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="20 6 9 17 4 12"></polyline>
-        </svg>
+        <IconCheck v-if="a === selectedAgent" :size="14" />
         <span>{{ a }}</span>
       </button>
       <div class="pl-menu-divider"></div>
       <button class="pl-menu-item" :disabled="saving || agentLoading" @click="openCreateDialog(); close()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" y1="5" x2="12" y2="19"></line>
-          <line x1="5" y1="12" x2="19" y2="12"></line>
-        </svg>
+        <IconPlus :size="16" :stroke-width="2.5" />
         新建 Agent
       </button>
       <button v-if="selectedAgent" class="pl-menu-item" :disabled="saving || agentLoading" @click="handleSave(); close()">
@@ -196,11 +185,7 @@
                       </span>
                       <span class="tier-toggle__indicator active">
                         <span class="tier-toggle__indicator-icon">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                            viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="20 6 9 17 4 12"></polyline>
-                          </svg>
+                          <IconCheck :size="13" />
                         </span>
                       </span>
                     </div>
@@ -277,12 +262,7 @@
                       </span>
                       <span class="tier-toggle__indicator" :class="{ active: !!configForm.llm_tiers[tier] }">
                         <span class="tier-toggle__indicator-icon">
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                            viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="20 6 9 17 4 12"></polyline>
-                          </svg>
+                          <IconCheck :size="13" />
                         </span>
                       </span>
                     </button>
@@ -395,12 +375,7 @@
                 @click="isToolImplemented(tool) && toggleTool(tool.name, !isToolConfigured(tool))"
               >
                 <div class="toggle-card__indicator">
-                  <svg v-if="isToolRuntimeActive(tool)"
-                    xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="20 6 9 17 4 12"></polyline>
-                  </svg>
+                  <IconCheck v-if="isToolRuntimeActive(tool)" :size="13" />
                 </div>
                 <div class="toggle-card__name">{{ tool.display_name || tool.name }}</div>
                 <div class="toggle-card__desc">{{ tool.description || tool.name }}</div>
@@ -425,12 +400,7 @@
                 @click="configForm.tasks.workflow = !configForm.tasks.workflow"
               >
                 <div class="toggle-card__indicator">
-                  <svg v-if="configForm.tasks.workflow"
-                    xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="20 6 9 17 4 12"></polyline>
-                  </svg>
+                  <IconCheck v-if="configForm.tasks.workflow" :size="13" />
                 </div>
                 <div class="toggle-card__name">workflow</div>
                 <div class="toggle-card__desc">暴露 task_create / task_get / task_update / task_list，用于任务编排与状态追踪</div>
@@ -442,12 +412,7 @@
                 @click="configForm.tasks.background = !configForm.tasks.background"
               >
                 <div class="toggle-card__indicator">
-                  <svg v-if="configForm.tasks.background"
-                    xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="20 6 9 17 4 12"></polyline>
-                  </svg>
+                  <IconCheck v-if="configForm.tasks.background" :size="13" />
                 </div>
                 <div class="toggle-card__name">background</div>
                 <div class="toggle-card__desc">暴露 task_output / task_stop，用于后台任务查询、显式等待与停止</div>
@@ -478,12 +443,7 @@
                     @click="toggleSkill(skill.name, !configForm.skills.enabled_skills.includes(skill.name))"
                   >
                     <div class="toggle-card__indicator">
-                      <svg v-if="configForm.skills.enabled_skills.includes(skill.name)"
-                        xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                        viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="20 6 9 17 4 12"></polyline>
-                      </svg>
+                      <IconCheck v-if="configForm.skills.enabled_skills.includes(skill.name)" :size="13" />
                     </div>
                     <div class="toggle-card__name">{{ skill.display_name || skill.name }}</div>
                     <div class="toggle-card__desc">{{ skill.description || skill.name }}</div>
@@ -568,12 +528,7 @@
                   @click="toggleMcpServer(server.name, !configForm.mcp.enabled_servers.includes(server.name))"
                 >
                   <div class="toggle-card__indicator">
-                    <svg v-if="configForm.mcp.enabled_servers.includes(server.name)"
-                      xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                      viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                      stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                      <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
+                    <IconCheck v-if="configForm.mcp.enabled_servers.includes(server.name)" :size="13" />
                   </div>
                   <div class="toggle-card__name">{{ server.display_name || server.name }}</div>
                   <div class="toggle-card__desc">{{ server.transport || 'stdio' }} · {{ server.status || 'unknown' }} · {{ server.tool_count || 0 }} tools</div>
@@ -637,12 +592,7 @@
                       @click="configForm.knowledge_base.default_search_mode = mode.value"
                     >
                       <div class="toggle-card__indicator">
-                        <svg v-if="configForm.knowledge_base.default_search_mode === mode.value"
-                          xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                          viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                          stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                          <polyline points="20 6 9 17 4 12"></polyline>
-                        </svg>
+                        <IconCheck v-if="configForm.knowledge_base.default_search_mode === mode.value" :size="13" />
                       </div>
                       <div class="toggle-card__name">{{ mode.label }}</div>
                       <div class="toggle-card__desc">{{ mode.description }}</div>
@@ -687,9 +637,7 @@
                   @click="toggleDelegation(agent, !configForm.delegation.enabled_agents.includes(agent))"
                 >
                   <div class="toggle-card__indicator">
-                    <svg v-if="configForm.delegation.enabled_agents.includes(agent)" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                      <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
+                    <IconCheck v-if="configForm.delegation.enabled_agents.includes(agent)" :size="13" />
                   </div>
                   <div class="toggle-card__name">{{ agent }}</div>
                 </div>
@@ -790,6 +738,8 @@ import CustomSelect from '../components/ui/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
 import ToggleSwitch from '../components/ToggleSwitch.vue';
 import IconChevronDown from '../components/icons/IconChevronDown.vue';
+import IconCheck from '../components/icons/IconCheck.vue';
+import IconPlus from '../components/icons/IconPlus.vue';
 import { UiButton, UiIconButton } from '../components/ui';
 import { useToast } from '../composables/useToast.js';
 const props = defineProps({

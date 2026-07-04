@@ -42,7 +42,7 @@
         :class="{ 'pl-menu-item--active': selectedAgent === opt.value }"
         @click="selectedAgent = opt.value; loadMetrics(); close()"
       >
-        <svg v-if="selectedAgent === opt.value" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        <IconCheck v-if="selectedAgent === opt.value" :size="14" />
         <span :style="selectedAgent !== opt.value ? 'padding-left: 22px' : ''">{{ opt.label }}</span>
       </button>
       <div class="pl-menu-divider"></div>
@@ -190,6 +190,7 @@
 import { ref, onMounted, onUnmounted, computed, h } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
 import IconRefresh from '../components/icons/IconRefresh.vue';
+import IconCheck from '../components/icons/IconCheck.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';

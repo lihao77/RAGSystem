@@ -35,21 +35,12 @@
               @click="select(opt)"
             >
               <span class="option-label">{{ opt.label }}</span>
-              <svg
+              <IconCheck
                 v-if="opt.value === modelValue"
                 class="check-icon"
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
+                :size="14"
+                :stroke-width="2.5"
+              />
             </div>
             <div v-if="options.length === 0" class="no-options">暂无选项</div>
           </div>
@@ -64,6 +55,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { usePointerDownOutside, usePointerInsideRegistry } from '../../composables/usePointerDownOutside';
 import { useDropdownPosition } from '../../composables/useDropdownPosition';
 import IconChevronDown from '../icons/IconChevronDown.vue';
+import IconCheck from '../icons/IconCheck.vue';
 
 const DEFAULT_DROPDOWN_MAX_HEIGHT = 260;
 

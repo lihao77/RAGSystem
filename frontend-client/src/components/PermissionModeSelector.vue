@@ -83,11 +83,7 @@
           >
             <div class="mode-option-main">
               <span class="mode-name">{{ m.label }}</span>
-              <svg v-if="currentMode === m.value" class="check-icon" xmlns="http://www.w3.org/2000/svg"
-                width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
+              <IconCheck v-if="currentMode === m.value" class="check-icon" :size="14" :stroke-width="2.5" />
             </div>
             <span class="mode-desc">{{ m.desc }}</span>
           </div>
@@ -98,11 +94,7 @@
         <div class="section-label">
           自动接受规则
           <button class="add-rule-btn" @click.stop="showAddRule = !showAddRule" title="添加规则">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
+            <IconPlus :size="14" />
           </button>
         </div>
 
@@ -128,11 +120,7 @@
             <span class="rule-type-badge">{{ ruleTypeLabel(p.pattern_type) }}</span>
             <span class="rule-value">{{ p.pattern_value }}</span>
             <button class="rule-delete-btn" @click.stop="removeRule(p)" title="删除">
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
+              <IconClose :size="12" />
             </button>
           </div>
         </div>
@@ -154,6 +142,9 @@ import {
 } from '../api/permissions';
 import { PERMISSION_MODE_OPTIONS, SKIP_ALL_APPROVALS_META, getPermissionModeLabel } from '../utils/permissionPresentation';
 import IconChevronDown from './icons/IconChevronDown.vue';
+import IconCheck from './icons/IconCheck.vue';
+import IconClose from './icons/IconClose.vue';
+import IconPlus from './icons/IconPlus.vue';
 
 const selectorRef = ref(null);
 const dropdownOpen = ref(false);

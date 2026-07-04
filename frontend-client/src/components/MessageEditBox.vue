@@ -43,10 +43,7 @@
           title="移除附件"
           @click="$emit('removeAttachment', att)"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
+          <IconClose :size="14" />
         </button>
       </div>
     </div>
@@ -61,16 +58,11 @@
         <span class="hint-text">{{ isFocused ? 'Ctrl+Enter 提交 · Esc 取消' : '' }}</span>
       </div>
       <button type="button" class="msg-edit-btn msg-edit-btn-cancel" :disabled="submitting" @click="$emit('cancel')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <line x1="18" y1="6" x2="6" y2="18"></line>
-          <line x1="6" y1="6" x2="18" y2="18"></line>
-        </svg>
+        <IconClose :size="14" />
         取消
       </button>
       <button type="button" class="msg-edit-btn msg-edit-btn-confirm" :disabled="submitting" @click="$emit('confirm')">
-        <svg v-if="!submitting" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-          <polyline points="20 6 9 17 4 12"></polyline>
-        </svg>
+        <IconCheck v-if="!submitting" :size="14" :stroke-width="2.5" />
         <svg v-else class="spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
           <circle cx="12" cy="12" r="10" opacity="0.25"></circle>
           <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
@@ -85,6 +77,8 @@
 import { ref, onMounted, nextTick, watch } from 'vue';
 import { getSessionFileDownloadUrl } from '../api/sessionFiles';
 import { isImageAttachment, isLocalAttachment } from '../utils/sessionAttachments';
+import IconCheck from './icons/IconCheck.vue';
+import IconClose from './icons/IconClose.vue';
 
 const props = defineProps({
   modelValue: { type: String, default: '' },

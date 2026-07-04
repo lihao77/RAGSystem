@@ -145,7 +145,7 @@
                 <code class="permission-rule-value">{{ pattern.pattern_value }}</code>
                 <span v-if="pattern.description" class="permission-rule-desc">{{ pattern.description }}</span>
               </div>
-              <UiIconButton variant="danger" label="删除规则" @click="removeAutoAcceptPattern(index)"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></UiIconButton>
+              <UiIconButton variant="danger" label="删除规则" @click="removeAutoAcceptPattern(index)"><IconClose :size="13" :stroke-width="2.5" /></UiIconButton>
             </div>
           </div>
           <div v-else class="empty-panel empty-panel--compact adm-state adm-state--empty"><p>暂无自动接受规则</p></div>
@@ -178,7 +178,7 @@
                 <svg v-if="task.enabled" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
                 <svg v-else xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
               </UiIconButton>
-              <UiIconButton variant="danger" label="删除" @click="handleDeleteTask(task.task_id)"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></UiIconButton>
+              <UiIconButton variant="danger" label="删除" @click="handleDeleteTask(task.task_id)"><IconClose :size="13" :stroke-width="2.5" /></UiIconButton>
             </div>
           </div>
         </div>
@@ -265,6 +265,7 @@
 import { ref, computed, h, onMounted } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
 import IconRefresh from '../components/icons/IconRefresh.vue';
+import IconClose from '../components/icons/IconClose.vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import ToggleSwitch from '../components/ToggleSwitch.vue';
 import AdmModal from '../components/admin/AdmModal.vue';

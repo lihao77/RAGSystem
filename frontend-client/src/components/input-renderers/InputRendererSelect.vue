@@ -11,13 +11,10 @@
         <span v-if="modelValue === opt" class="r-radio-dot" />
       </span>
       <span class="r-label">{{ opt }}</span>
-      <svg v-if="modelValue === opt"
-        xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
-        fill="none" stroke="currentColor" stroke-width="2.5"
-        stroke-linecap="round" stroke-linejoin="round"
-        class="r-check">
-        <polyline points="20 6 9 17 4 12"/>
-      </svg>
+      <IconCheck v-if="modelValue === opt"
+        :size="13"
+        :stroke-width="2.5"
+        class="r-check" />
     </button>
 
     <div v-if="!options.length" class="r-empty">（无可选项）</div>
@@ -26,6 +23,7 @@
 
 <script setup>
 import { nextTick } from 'vue';
+import IconCheck from '../icons/IconCheck.vue';
 
 const props = defineProps({
   modelValue: { type: String, default: '' },

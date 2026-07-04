@@ -67,12 +67,7 @@
                             </div>
                             <UiButton class="toolbar-primary-action" variant="primary" size="compact" @click="showIndexDialog = true">
                                 <template #icon>
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                        stroke-linejoin="round">
-                                        <line x1="12" y1="5" x2="12" y2="19" />
-                                        <line x1="5" y1="12" x2="19" y2="12" />
-                                    </svg>
+                                    <IconPlus :size="14" />
                                 </template>
                                 索引新文档
                             </UiButton>
@@ -157,12 +152,7 @@
                                             <div class="row-actions adm-action-row">
                                                 <button class="adm-action-btn"
                                                     @click="openSearchTest(row.collection)" title="测试检索">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                                                        viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                        <circle cx="11" cy="11" r="8" />
-                                                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                                                    </svg>
+                                                    <IconSearch :size="13" />
                                                 </button>
                                                 <button class="adm-action-btn adm-action-btn--danger"
                                                     :disabled="deletingFileId === row.file_id"
@@ -195,12 +185,7 @@
                                 @keyup.enter="handleSearch" />
                             <UiButton class="search-submit-button" variant="primary" size="compact" :disabled="searchLoading" @click="handleSearch">
                                 <template #icon>
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                        stroke-linejoin="round">
-                                        <circle cx="11" cy="11" r="8" />
-                                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                                    </svg>
+                                    <IconSearch :size="14" />
                                 </template>
                                 {{ searchLoading ? '搜索中...' : '搜索' }}
                             </UiButton>
@@ -373,12 +358,7 @@
                             </UiIconButton>
                             <UiButton class="toolbar-primary-action" variant="primary" size="compact" @click="openAddVectorizerDialog">
                                 <template #icon>
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                        stroke-linejoin="round">
-                                        <line x1="12" y1="5" x2="12" y2="19" />
-                                        <line x1="5" y1="12" x2="19" y2="12" />
-                                    </svg>
+                                    <IconPlus :size="14" />
                                 </template>
                                 新增向量化器
                             </UiButton>
@@ -472,12 +452,7 @@
                             </UiIconButton>
                             <UiButton class="toolbar-primary-action" variant="primary" size="compact" @click="openAddRerankerDialog">
                                 <template #icon>
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                        stroke-linejoin="round">
-                                        <line x1="12" y1="5" x2="12" y2="19" />
-                                        <line x1="5" y1="12" x2="19" y2="12" />
-                                    </svg>
+                                    <IconPlus :size="14" />
                                 </template>
                                 新增重排序器
                             </UiButton>
@@ -578,12 +553,7 @@
                                 @keyup.enter="handleSearch" />
                             <UiButton class="search-submit-button" variant="primary" size="compact" :disabled="searchLoading" @click="handleSearch">
                                 <template #icon>
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
-                                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                        stroke-linejoin="round">
-                                        <circle cx="11" cy="11" r="8" />
-                                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                                    </svg>
+                                    <IconSearch :size="15" />
                                 </template>
                                 {{ searchLoading ? '搜索中...' : '搜索' }}
                             </UiButton>
@@ -850,6 +820,8 @@ import { computed, h, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import PageLayout from '../components/PageLayout.vue';
 import IconRefresh from '../components/icons/IconRefresh.vue';
+import IconPlus from '../components/icons/IconPlus.vue';
+import IconSearch from '../components/icons/IconSearch.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import AdmModal from '../components/admin/AdmModal.vue';
 import { useDictionariesStore } from '../stores/dictionaries.js';

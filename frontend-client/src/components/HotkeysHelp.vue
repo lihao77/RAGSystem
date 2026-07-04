@@ -6,7 +6,7 @@
           <div class="hk-header">
             <span class="hk-title">键盘快捷键</span>
             <button class="hk-close" @click="close" aria-label="关闭">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              <IconClose :size="14" />
             </button>
           </div>
           <div class="hk-body">
@@ -34,6 +34,7 @@
 <script setup>
 import { computed } from 'vue';
 import { useGlobalHotkeys } from '../composables/useGlobalHotkeys.js';
+import IconClose from './icons/IconClose.vue';
 
 const { helpVisible, bindings } = useGlobalHotkeys();
 const visible = helpVisible;

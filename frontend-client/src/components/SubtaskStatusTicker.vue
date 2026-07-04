@@ -37,7 +37,7 @@
            <!-- 最近完成的任务（仅 running=false 时显示，即任务真正结束后） -->
            <div v-else-if="lastCompletedTask" key="last" class="ticker-item completed">
              <span class="agent-badge success" :class="getAgentBadgeClass(lastCompletedTask.agent_display_name)">
-               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+               <IconCheck :size="12" />
                {{ lastCompletedTask.agent_display_name }}
              </span>
              <span class="action-text">任务已完成</span>
@@ -76,6 +76,7 @@
 <script setup>
 import { computed } from 'vue';
 import { getAgentBadgeClass } from '../utils/agentBadge';
+import IconCheck from './icons/IconCheck.vue';
 
 const props = defineProps({
   executionTree: {

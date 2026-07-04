@@ -53,21 +53,12 @@
                 @click="selectModel('')"
               >
                 <span class="option-label">默认<span class="option-sub">使用智能体配置</span></span>
-                <svg
+                <IconCheck
                   v-if="selectedModel === ''"
                   class="check-icon"
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
+                  :size="16"
+                  :stroke-width="2.5"
+                />
               </div>
 
               <!-- 分隔线 -->
@@ -82,21 +73,12 @@
                 @click="selectModel(model.value)"
               >
                 <span class="option-label">{{ model.label }}</span>
-                <svg
+                <IconCheck
                   v-if="model.value === selectedModel"
                   class="check-icon"
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
+                  :size="16"
+                  :stroke-width="2.5"
+                />
               </div>
 
               <!-- 无结果提示 -->
@@ -128,6 +110,7 @@ import { useDropdownPosition } from '../composables/useDropdownPosition';
 import { getAvailableModels } from '../api/modelAdapter';
 import { useLlmStore } from '../stores/llm.js';
 import IconChevronDown from './icons/IconChevronDown.vue';
+import IconCheck from './icons/IconCheck.vue';
 
 const llmStore = useLlmStore();
 const { selectedLLM: selectedModel } = storeToRefs(llmStore);
