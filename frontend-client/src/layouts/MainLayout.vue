@@ -836,6 +836,7 @@ onUnmounted(() => {
   overflow-y: auto;
   opacity: 1;
   max-height: 100%;
+  padding: 0 var(--spacing-sm);
   transition: opacity var(--transition-normal), max-height var(--transition-normal);
 }
 
@@ -873,7 +874,7 @@ onUnmounted(() => {
 
 .history-item {
   padding: var(--spacing-xs) var(--spacing-sm);
-  margin: 0 var(--spacing-sm);
+  margin: 0;
   margin-bottom: 2px;
   border-radius: var(--radius-md);
   cursor: pointer;
@@ -1046,8 +1047,9 @@ onUnmounted(() => {
 .admin-nav-list {
   flex: 1;
   min-height: 0;
+  padding: 0 var(--spacing-sm);
   overflow-y: auto;
-  padding: var(--spacing-xs) 0;
+  /* padding: var(--spacing-xs) 0; */
 }
 .admin-nav-group { padding: var(--spacing-xs) 0; }
 .admin-nav-group + .admin-nav-group {
@@ -1055,8 +1057,9 @@ onUnmounted(() => {
   margin-top: var(--spacing-xs);
   padding-top: var(--spacing-sm);
 }
+.sidebar.collapsed .admin-nav-group-label { display: none; }
 .admin-nav-group-label {
-  padding: var(--spacing-xs) var(--spacing-md);
+  padding: var(--spacing-xs);
   font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--color-text-muted);
