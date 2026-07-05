@@ -306,11 +306,11 @@
                 <textarea
                   ref="systemPromptTextareaRef"
                   v-model="configForm.custom_params.behavior.system_prompt"
-                  class="form-control--textarea"
+                  class="form-control form-control--textarea"
                   rows="8"
                   placeholder="请输入该 Agent 的 system prompt"
                   @input="autoResizeSystemPrompt"
-                ></Textarea>
+                ></textarea>
               </label>
             </div>
           </section>
