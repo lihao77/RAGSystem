@@ -94,7 +94,7 @@
             <button
               v-for="item in adminItemsByGroup(group.key)"
               :key="item.key"
-              class="admin-nav-item"
+              class="sidebar-btn admin-nav-item"
               :class="{ active: isPageActive(item.mainView) }"
               :title="item.title"
               @click="navigateTo(item.path)"
@@ -1063,26 +1063,7 @@ onUnmounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.admin-nav-item {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  margin: 0 var(--spacing-sm) 2px;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-  background: none;
-  border: none;
-  cursor: pointer;
-  transition: all var(--transition-normal);
-  white-space: nowrap;
-  overflow: hidden;
-}
-.admin-nav-item:hover { background: var(--color-hover-overlay); color: var(--color-text-primary); }
 .admin-nav-item.active { background: var(--color-active-bg); color: var(--color-text-primary); }
-.admin-nav-item .icon { width: 22px; height: 22px; flex-shrink: 0; }
 
 .sidebar-footer {
   padding: var(--spacing-md) var(--spacing-sm);
