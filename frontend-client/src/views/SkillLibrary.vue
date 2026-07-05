@@ -110,8 +110,12 @@
       </section>
     </div>
 
-    <AdmModal :open="editor.open" :title="editorTitle" width="680px" @close="closeEditor">
-      <div class="form-section">
+    <Dialog :open="editor.open" @update:open="(v) => { if (!v) closeEditor() }">
+      <DialogContent class="max-w-[680px]">
+        <DialogHeader>
+          <DialogTitle>{{ editorTitle }}</DialogTitle>
+        </DialogHeader>
+        <div class="form-section">
         <label v-if="editor.mode === 'create'" class="form-item">
           <span class="field-label-text">名称（小写字母 / 数字 / 连字符）</span>
           <input v-model.trim="editor.form.name" class="form-control" placeholder="如 my-skill" />
@@ -126,16 +130,21 @@
         </label>
         <p v-if="editor.error" class="form-error">{{ editor.error }}</p>
       </div>
-      <template #footer>
+      <DialogFooter>
         <UiButton variant="ghost" @click="closeEditor">取消</UiButton>
         <UiButton variant="primary" :disabled="editorBusy" @click="saveEditor">
           {{ editorBusy ? '保存中…' : '保存' }}
         </UiButton>
-      </template>
-    </AdmModal>
+      </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
-    <AdmModal :open="uploader.open" :title="uploadTitle" @close="closeUploader">
-      <div class="form-section">
+    <Dialog :open="uploader.open" @update:open="(v) => { if (!v) closeUploader() }">
+      <DialogContent class="max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>{{ uploadTitle }}</DialogTitle>
+        </DialogHeader>
+        <div class="form-section">
         <label class="form-item">
           <span class="field-label-text">目标目录</span>
           <select v-model="uploader.dir" class="form-control">
@@ -149,13 +158,14 @@
         </label>
         <p v-if="uploader.error" class="form-error">{{ uploader.error }}</p>
       </div>
-      <template #footer>
+      <DialogFooter>
         <UiButton variant="ghost" @click="closeUploader">取消</UiButton>
         <UiButton variant="primary" :disabled="uploaderBusy || !uploader.files.length" @click="doUpload">
           {{ uploaderBusy ? '上传中…' : '上传' }}
         </UiButton>
-      </template>
-    </AdmModal>
+      </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </PageLayout>
 </template>
 
@@ -165,7 +175,7 @@ import { computed, ref } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
 import IconPlus from '../components/icons/IconPlus.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
-import AdmModal from '../components/admin/AdmModal.vue';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import KpiCards from '../components/admin/KpiCards.vue';
 import MarkdownContent from '../components/chat/MarkdownContent.vue';
 import { renderMarkdown } from '../utils/markdown';

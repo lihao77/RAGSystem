@@ -86,24 +86,24 @@
           </div>
 
           <div class="server-actions">
-            <button class="adm-action-btn adm-action-btn--success" :disabled="!server.enabled || server.status === 'connected'" @click="handleConnect(server)" title="连接">
+            <UiActionButton variant="success" :disabled="!server.enabled || server.status === 'connected'" @click="handleConnect(server)" title="连接">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>连接
-            </button>
-            <button class="adm-action-btn adm-action-btn--warning" :disabled="server.status !== 'connected'" @click="handleDisconnect(server)" title="断开">
+            </UiActionButton>
+            <UiActionButton variant="warning" :disabled="server.status !== 'connected'" @click="handleDisconnect(server)" title="断开">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.56 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>断开
-            </button>
-            <button class="adm-action-btn" @click="handleTest(server)" title="测试连接">
+            </UiActionButton>
+            <UiActionButton @click="handleTest(server)" title="测试连接">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>测试
-            </button>
-            <button class="adm-action-btn" @click="showTools(server)" title="查看工具">
+            </UiActionButton>
+            <UiActionButton @click="showTools(server)" title="查看工具">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>工具 <span v-if="server.tool_count" class="adm-action-badge">{{ server.tool_count }}</span>
-            </button>
-            <button class="adm-action-btn" @click="openEditDialog(server)" title="编辑配置">
+            </UiActionButton>
+            <UiActionButton @click="openEditDialog(server)" title="编辑配置">
               <IconEdit :size="14" />编辑
-            </button>
-            <button class="adm-action-btn adm-action-btn--danger" @click="handleDelete(server)" title="删除">
+            </UiActionButton>
+            <UiActionButton variant="danger" @click="handleDelete(server)" title="删除">
               <IconTrash :size="14" />删除
-            </button>
+            </UiActionButton>
           </div>
         </article>
       </div>
@@ -115,9 +115,9 @@
           <h3>添加 MCP 服务</h3>
           <p>从 Registry 搜索安装，或手动填写连接参数。</p>
         </div>
-        <button type="button" class="add-service-close" @click="addServiceVisible = false" aria-label="收起">
+        <UiIconButton class="add-service-close" variant="ghost" label="收起" @click="addServiceVisible = false">
           <IconClose :size="16" />
-        </button>
+        </UiIconButton>
       </div>
       <!-- 注：.add-subnav 是「添加服务」面板内的次级方式切换（手动 vs Registry），
            不是页面级 Tab；用局部 pill 切换更贴合折叠面板语境，故不复用 .adm-tabs。 -->
@@ -224,13 +224,15 @@
       </div>
     </section>
 
-    <AdmModal :open="registryInstallDialogVisible" width="860px" @close="closeRegistryInstallDialog">
-      <template #header>
-        <div class="modal-title-block">
+    <Dialog :open="registryInstallDialogVisible" @update:open="(v) => { if (!v) closeRegistryInstallDialog() }">
+      <DialogContent class="max-w-[860px]">
+        <DialogHeader>
+          <DialogTitle class="sr-only">配置安装</DialogTitle>
+          <div class="modal-title-block">
           <h3>配置安装</h3>
           <p>{{ selectedRegistryServer?.display_name || selectedRegistryServer?.name }}</p>
         </div>
-      </template>
+        </DialogHeader>
       <div class="adm-modal-form">
         <div class="form-grid">
           <label class="field">
@@ -266,19 +268,22 @@
           <label class="toggle-field"><ToggleSwitch v-model="registryInstallForm.auto_connect" /><span>自动连接</span></label>
         </div>
       </div>
-      <template #footer>
+      <DialogFooter>
         <UiButton size="compact" @click="closeRegistryInstallDialog">取消</UiButton>
         <UiButton size="compact" variant="primary" :disabled="installingRegistry || !selectedRegistryOption?.supported" @click="submitRegistryInstall()">{{ installingRegistry ? '安装中...' : '安装服务' }}</UiButton>
-      </template>
-    </AdmModal>
+      </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
-    <AdmModal v-if="editForm" :open="editDialogVisible" width="860px" @close="closeEditDialog">
-      <template #header>
-        <div class="modal-title-block">
+    <Dialog v-if="editForm" :open="editDialogVisible" @update:open="(v) => { if (!v) closeEditDialog() }">
+      <DialogContent class="max-w-[860px]">
+        <DialogHeader>
+          <DialogTitle class="sr-only">编辑 MCP 服务</DialogTitle>
+          <div class="modal-title-block">
           <h3>编辑 MCP 服务</h3>
           <p class="font-mono">{{ editForm.name }}</p>
         </div>
-      </template>
+        </DialogHeader>
       <div class="adm-modal-form">
         <div class="form-grid two-col">
           <label class="field"><span>显示名称</span><input v-model="editForm.display_name" type="text" /></label>
@@ -303,19 +308,22 @@
           <label class="toggle-field"><ToggleSwitch v-model="editForm.auto_connect" /><span>自动连接</span></label>
         </div>
       </div>
-      <template #footer>
+      <DialogFooter>
         <UiButton size="compact" @click="closeEditDialog">取消</UiButton>
         <UiButton size="compact" variant="primary" :disabled="savingEdit" @click="saveEdit">{{ savingEdit ? '保存中...' : '保存更改' }}</UiButton>
-      </template>
-    </AdmModal>
+      </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
-    <AdmModal :open="toolsDialogVisible" :title="undefined" width="560px" @close="closeToolsDialog">
-      <template #header>
-        <div class="modal-title-block">
+    <Dialog :open="toolsDialogVisible" @update:open="(v) => { if (!v) closeToolsDialog() }">
+      <DialogContent class="max-w-[560px]">
+        <DialogHeader>
+          <DialogTitle class="sr-only">工具列表</DialogTitle>
+          <div class="modal-title-block">
           <h3>工具列表</h3>
           <p>{{ activeToolsServerName }}</p>
         </div>
-      </template>
+        </DialogHeader>
       <EntityListLayout
         v-if="!serverTools.length"
         title="工具列表"
@@ -328,7 +336,8 @@
           <p class="tool-desc">{{ tool.function?.description || '暂无描述' }}</p>
         </li>
       </ul>
-    </AdmModal>
+      </DialogContent>
+    </Dialog>
   </PageLayout>
 </template>
 
@@ -337,7 +346,7 @@ import { computed, nextTick, onMounted, reactive, ref, h } from 'vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
-import AdmModal from '../components/admin/AdmModal.vue';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import NumberInput from '../components/NumberInput.vue';
 import ToggleSwitch from '../components/ToggleSwitch.vue';
 import PageLayout from '../components/PageLayout.vue';
@@ -351,7 +360,7 @@ import IconSearch from '../components/icons/IconSearch.vue';
 import IconTrash from '../components/icons/IconTrash.vue';
 import IconWarning from '../components/icons/IconWarning.vue';
 import IconInfo from '../components/icons/IconInfo.vue';
-import { UiBadge, UiButton } from '../components/ui';
+import { UiBadge, UiButton, UiActionButton, UiIconButton } from '../components/ui';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';

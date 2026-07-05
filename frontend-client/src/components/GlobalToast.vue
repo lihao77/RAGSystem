@@ -3,9 +3,9 @@
     <Transition name="toast">
       <div v-if="state.visible" class="app-toast" :class="state.type">
         <span>{{ state.message }}</span>
-        <button v-if="state.action" class="app-toast__action" @click="runAction">
+        <UiButton v-if="state.action" variant="link" @click="runAction">
           {{ state.actionLabel }}
-        </button>
+        </UiButton>
       </div>
     </Transition>
   </Teleport>
@@ -13,6 +13,7 @@
 
 <script setup>
 import { useToast } from '../composables/useToast';
+import { UiButton } from './ui';
 
 const { state, hide } = useToast();
 

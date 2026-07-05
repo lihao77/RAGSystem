@@ -1,20 +1,21 @@
 <template>
   <div class="session-context-bar top-controls-bar glass-card" :class="{ scrolled }">
     <div class="left-controls glass-card">
-      <button class="hamburger-menu-btn" @click="emit('openMobileSidebar')" title="Open menu">
+      <UiIconButton variant="ghost" label="打开菜单" title="Open menu" @click="emit('openMobileSidebar')">
         <IconMenu :size="20" />
-      </button>
+      </UiIconButton>
 
       <LLMSelector ref="llmSelectorRef" />
     </div>
 
     <div class="right-controls glass-card">
       <PermissionModeSelector />
-      <button
-        @click="emit('exportSession')"
-        class="session-export-btn version-btn top-action-btn"
+      <UiIconButton
+        variant="ghost"
+        label="导出当前会话"
         :disabled="!currentSessionId || isExportingSession"
         :title="currentSessionId ? '导出当前会话' : '当前无会话可导出'"
+        @click="emit('exportSession')"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -22,8 +23,13 @@
           <path d="m7 10 5 5 5-5"></path>
           <path d="M5 21h14"></path>
         </svg>
-      </button>
-      <button @click="themeStore.toggle()" class="theme-btn btn" :title="themeStore.isDark ? '切换到亮色模式' : '切换到暗色模式'">
+      </UiIconButton>
+      <UiIconButton
+        variant="ghost"
+        label="切换主题"
+        :title="themeStore.isDark ? '切换到亮色模式' : '切换到暗色模式'"
+        @click="themeStore.toggle()"
+      >
         <svg v-if="themeStore.isDark" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="5"></circle>
@@ -40,7 +46,7 @@
           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
         </svg>
-      </button>
+      </UiIconButton>
     </div>
   </div>
 </template>
@@ -50,6 +56,7 @@ import { ref } from 'vue';
 import LLMSelector from '../LLMSelector.vue';
 import PermissionModeSelector from '../PermissionModeSelector.vue';
 import { IconMenu } from '../icons';
+import { UiIconButton } from '../ui';
 import { useThemeStore } from '../../stores/theme.js';
 
 const themeStore = useThemeStore();

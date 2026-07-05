@@ -4,11 +4,50 @@
    强调色：Linear 紫 #5E6AD2（唯一点缀）
    ============================================================ */
 
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* shadcn 默认 border 颜色 —— 所有 `border` class（只设 width）的元素默认用 var(--color-border)，
+   避免 Tailwind v3 默认 currentColor 在 dark 模式下显示成白色文字色边框。
+   @layer base 优先级最低，scoped 样式或其他显式 border-color 都会覆盖它。 */
+@layer base {
+  * {
+    @apply border-border;
+  }
+}
+
 /* ──────────────────────────────────────────────────────────
    DARK THEME（:root，开关备选）
    同款极简风，深色版本——保持与亮色一致的克制
    ────────────────────────────────────────────────────────── */
 :root {
+    /* shadcn 语义别名 —— 指向现有 Linear token
+       shadcn 组件用 bg-primary / text-foreground / border-border 等 utility，
+       这些 utility 在 tailwind.config.js 里映射到 var(--color-*)，
+       此处别名层是为了兼容直接引用 var(--primary) 等的组件源码。
+       dark/light 切换由下方 --color-* 的值控制（[data-theme="light"] 覆盖）。 */
+    --background: var(--color-bg-primary);
+    --foreground: var(--color-text-primary);
+    --card: var(--color-bg-secondary);
+    --card-foreground: var(--color-text-primary);
+    --popover: var(--color-bg-elevated);
+    --popover-foreground: var(--color-text-primary);
+    --primary: var(--color-brand-accent);
+    --primary-foreground: var(--color-on-accent);
+    --secondary: var(--color-bg-tertiary);
+    --secondary-foreground: var(--color-text-primary);
+    --muted: var(--color-bg-tertiary);
+    --muted-foreground: var(--color-text-muted);
+    --accent: var(--color-hover-overlay-md);
+    --accent-foreground: var(--color-text-primary);
+    --destructive: var(--color-error);
+    --destructive-foreground: var(--color-on-color);
+    --border: var(--color-border);
+    --input: var(--color-border);
+    --ring: var(--color-brand-accent);
+    --radius: var(--radius-md);
+
     /* 唯一强调色 —— Linear 紫 */
     --color-brand-accent: #5e6ad2;
     /* 暗底上的可读紫（提亮以保证对比度） */

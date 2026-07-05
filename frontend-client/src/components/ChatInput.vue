@@ -37,18 +37,17 @@
 
         <div class="input-footer">
           <div class="input-footer-left">
-            <button
-              type="button"
-              class="attachment-btn"
+            <UiIconButton
+              variant="ghost"
+              label="添加图片或文件"
+              title="添加图片或文件"
               :disabled="isLoading"
               @click="emit('openAttachments')"
-              aria-label="打开附件面板"
-              title="添加图片或文件"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="attachment-icon">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.82l8.49-8.48" />
               </svg>
-            </button>
+            </UiIconButton>
 
             <div v-if="$slots.footerMeta" class="input-footer-meta">
               <slot name="footerMeta" />
@@ -57,25 +56,25 @@
 
           <div class="input-footer-right">
             <slot name="rightActions" />
-           <button
+            <UiIconButton
               v-if="isLoading && sendDisabled"
-             class="send-btn stop-btn"
-              @click="handleStop"
-             aria-label="停止生成"
+              variant="danger"
+              label="停止生成"
               title="停止生成"
+              @click="handleStop"
             >
-              <IconStop class="send-icon" aria-hidden="true" :size="18" />
-            </button>
-            <button
+              <IconStop aria-hidden="true" :size="18" />
+            </UiIconButton>
+            <UiIconButton
               v-else
-              class="send-btn"
+              variant="primary"
+              label="发送消息"
+              title="发送消息"
               :disabled="sendDisabled"
               @click="handleSend"
-              aria-label="发送消息"
-              title="发送消息"
             >
-              <IconSend class="send-icon" :size="18" />
-            </button>
+              <IconSend :size="18" />
+            </UiIconButton>
           </div>
         </div>
       </div>
@@ -87,6 +86,7 @@
 import { ref, defineProps, defineEmits, watch, nextTick, computed, onMounted, onUnmounted } from 'vue';
 import IconStop from './icons/IconStop.vue';
 import IconSend from './icons/IconSend.vue';
+import { UiIconButton } from './ui';
 
 const props = defineProps({
   modelValue: {

@@ -2,13 +2,19 @@
   <div class="page-layout" :class="{ 'page-layout--embedded': embedded }" :style="shellStyle">
     <header class="page-header">
       <div class="page-header__group page-header__group--meta">
-        <button class="hamburger-menu-btn page-header__menu-btn" @click="openMobileSidebar" title="打开菜单">
+        <UiIconButton
+          class="page-header__menu-btn"
+          variant="ghost"
+          label="打开菜单"
+          title="打开菜单"
+          @click="openMobileSidebar"
+        >
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="3" y1="12" x2="21" y2="12" />
             <line x1="3" y1="6" x2="21" y2="6" />
             <line x1="3" y1="18" x2="21" y2="18" />
           </svg>
-        </button>
+        </UiIconButton>
         <div class="page-header__meta">
           <div class="page-header__title-row">
             <h1 class="page-header__title">{{ title }}</h1>
@@ -48,21 +54,30 @@
 
     <div class="page-shell">
       <div class="page-mobile-nav">
-        <button class="hamburger-menu-btn page-mobile-nav__menu" @click="openMobileSidebar" title="打开菜单">
+        <UiIconButton
+          class="page-mobile-nav__menu"
+          variant="ghost"
+          label="打开菜单"
+          title="打开菜单"
+          @click="openMobileSidebar"
+        >
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="3" y1="12" x2="21" y2="12" />
             <line x1="3" y1="6" x2="21" y2="6" />
             <line x1="3" y1="18" x2="21" y2="18" />
           </svg>
-        </button>
+        </UiIconButton>
         <div class="page-mobile-nav__copy">
           <span class="page-mobile-nav__title">{{ mobileTitle || title }}</span>
         </div>
-        <button
+        <UiIconButton
           v-if="hasMobileMenu"
           ref="mobileMenuTriggerRef"
           class="page-mobile-nav__more"
           :class="{ 'is-open': mobileMenuOpen }"
+          variant="ghost"
+          label="更多操作"
+          title="更多操作"
           @click="mobileMenuOpen = !mobileMenuOpen"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
@@ -71,7 +86,7 @@
             <circle cx="12" cy="12" r="1" fill="currentColor" />
             <circle cx="12" cy="19" r="1" fill="currentColor" />
           </svg>
-        </button>
+        </UiIconButton>
         <div v-else class="page-mobile-nav__spacer" />
 
         <div v-if="hasMobileMenu && mobileMenuOpen" class="page-mobile-menu">

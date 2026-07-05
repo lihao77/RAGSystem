@@ -5,9 +5,9 @@
         <div class="hk-panel" role="dialog" aria-modal="true" aria-label="快捷键帮助">
           <div class="hk-header">
             <span class="hk-title">键盘快捷键</span>
-            <button class="hk-close" @click="close" aria-label="关闭">
+            <UiIconButton class="hk-close" variant="ghost" label="关闭" @click="close">
               <IconClose :size="14" />
-            </button>
+            </UiIconButton>
           </div>
           <div class="hk-body">
             <div v-for="[group, items] in groups" :key="group" class="hk-group">
@@ -35,6 +35,7 @@
 import { computed } from 'vue';
 import { useGlobalHotkeys } from '../composables/useGlobalHotkeys.js';
 import IconClose from './icons/IconClose.vue';
+import { UiIconButton } from './ui';
 
 const { helpVisible, bindings } = useGlobalHotkeys();
 const visible = helpVisible;

@@ -140,9 +140,9 @@
                   <h2>LLM 分层配置</h2>
                   <span>default 为必配主模型，fast/powerful 为可选层级</span>
                 </div>
-                <button type="button" class="section-head__toggle" @click="tiersCollapsed = !tiersCollapsed">
+                <Button variant="ghost" size="sm" @click="tiersCollapsed = !tiersCollapsed">
                   {{ tiersCollapsed ? '展开配置' : '收起配置' }}
-                </button>
+                </Button>
               </div>
             </div>
             <Transition name="tier-expand">
@@ -633,9 +633,9 @@
     </div>
 
     <Teleport to="body">
-      <button class="btn-scroll-bottom" title="滚动到底部" @click="scrollToBottom">
+      <UiIconButton variant="ghost" label="滚动到底部" title="滚动到底部" @click="scrollToBottom">
         <IconChevronDown :size="18" :stroke-width="2.5" />
-      </button>
+      </UiIconButton>
     </Teleport>
 
     <Teleport to="body">
@@ -646,8 +646,12 @@
       </nav>
     </Teleport>
 
-    <AdmModal :open="createDialog.visible" title="新建 Agent" @close="closeCreateDialog">
-      <div class="adm-modal-form">
+    <Dialog :open="createDialog.visible" @update:open="(v) => { if (!v) closeCreateDialog() }">
+      <DialogContent class="max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>新建 Agent</DialogTitle>
+        </DialogHeader>
+        <div class="adm-modal-form">
             <label class="form-item">
               <span class="field-label-text">Agent 名称 <em class="required-mark">*</em></span>
               <input
@@ -668,23 +672,29 @@
               <input v-model.trim="createDialog.description" type="text" class="form-control" placeholder="可选" @keydown.enter="handleCreateAgent" />
             </label>
       </div>
-      <template #footer>
+        <DialogFooter>
         <UiButton size="compact" :disabled="createDialog.loading" @click="closeCreateDialog">取消</UiButton>
         <UiButton size="compact" variant="primary" :disabled="createDialog.loading || !createDialog.agentName" @click="handleCreateAgent">
           {{ createDialog.loading ? '创建中...' : '创建' }}
         </UiButton>
-      </template>
-    </AdmModal>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
-    <AdmModal :open="deleteDialog.visible" title="删除 Agent" width="420px" @close="closeDeleteDialog">
-      <p class="delete-confirm-text">确定要删除 Agent <strong>{{ deleteDialog.agentName }}</strong> 吗？此操作不可撤销。</p>
-      <template #footer>
+    <Dialog :open="deleteDialog.visible" @update:open="(v) => { if (!v) closeDeleteDialog() }">
+      <DialogContent class="max-w-[420px]">
+        <DialogHeader>
+          <DialogTitle>删除 Agent</DialogTitle>
+        </DialogHeader>
+        <p class="delete-confirm-text">确定要删除 Agent <strong>{{ deleteDialog.agentName }}</strong> 吗？此操作不可撤销。</p>
+        <DialogFooter>
         <UiButton size="compact" :disabled="deleteDialog.loading" @click="closeDeleteDialog">取消</UiButton>
         <UiButton size="compact" variant="danger" :disabled="deleteDialog.loading" @click="handleDeleteAgent">
           {{ deleteDialog.loading ? '删除中...' : '确认删除' }}
         </UiButton>
-      </template>
-    </AdmModal>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </PageLayout>
 </template>
@@ -693,7 +703,7 @@
 import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
-import AdmModal from '../components/admin/AdmModal.vue';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import {
   getAgentConfig,
   updateAgentConfig,
@@ -716,6 +726,7 @@ import IconTrash from '../components/icons/IconTrash.vue';
 import IconSave from '../components/icons/IconSave.vue';
 import IconDownload from '../components/icons/IconDownload.vue';
 import { UiButton, UiIconButton } from '../components/ui';
+import { Button } from '@/components/ui/button';
 import { useToast } from '../composables/useToast.js';
 const props = defineProps({
   embedded: { type: Boolean, default: false },

@@ -48,8 +48,11 @@ pnpm-debug.log*
 .claude/
 .ragsystem/
 .agent/
+.agents/
 .trae/
 .cursor/
+.mcp.json
+skills-lock.json
 
 # Local backend runtime files
 backend-fastapi/.env

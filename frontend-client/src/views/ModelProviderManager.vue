@@ -89,19 +89,19 @@
             </div>
 
             <div class="provider-row-actions">
-              <button class="adm-action-btn adm-action-btn--success" :disabled="testingKey === getProviderKey(provider)" @click="quickTest(provider)">
+              <UiActionButton variant="success" :disabled="testingKey === getProviderKey(provider)" @click="quickTest(provider)">
                 <div v-if="testingKey === getProviderKey(provider)" class="g-spinner g-spinner--sm"></div>
                 <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                 {{ testingKey === getProviderKey(provider) ? '测试中' : '测试' }}
-              </button>
-              <button class="adm-action-btn" @click="openEditDialog(provider)">
+              </UiActionButton>
+              <UiActionButton @click="openEditDialog(provider)">
                 <IconEdit :size="14" />
                 编辑
-              </button>
-              <button class="adm-action-btn adm-action-btn--danger" @click="confirmDelete(provider)">
+              </UiActionButton>
+              <UiActionButton variant="danger" @click="confirmDelete(provider)">
                 <IconTrash :size="14" />
                 删除
-              </button>
+              </UiActionButton>
             </div>
           </div>
 
@@ -113,8 +113,12 @@
       </TransitionGroup>
     </EntityListLayout>
 
-    <AdmModal :open="dialog.visible" :title="dialog.mode === 'create' ? '添加 Provider' : '编辑 Provider'" width="720px" @close="closeDialog">
-      <div class="dialog-form form-section">
+    <Dialog :open="dialog.visible" @update:open="(v) => { if (!v) closeDialog() }">
+      <DialogContent class="max-w-[720px]">
+        <DialogHeader>
+          <DialogTitle>{{ dialog.mode === 'create' ? '添加 Provider' : '编辑 Provider' }}</DialogTitle>
+        </DialogHeader>
+        <div class="dialog-form form-section">
         <section class="dialog-form-section form-section">
           <div class="dialog-form-section__head"><h3>基础配置</h3><p>填写 Provider 标识、鉴权信息与基础接入地址。</p></div>
           <div class="dialog-form-grid form-grid">
@@ -176,29 +180,35 @@
               <input v-model="entry.task" class="form-control form-control--sm" placeholder="chat" />
               <span class="map-arrow">→</span>
               <input v-model="entry.model" class="form-control" placeholder="gpt-4o" />
-              <button type="button" class="icon-btn icon-btn--delete" @click="removeModelMapEntry(idx)">
+              <UiIconButton variant="danger" label="删除映射" title="删除映射" @click="removeModelMapEntry(idx)">
                 <IconClose :size="14" />
-              </button>
+              </UiIconButton>
             </div>
-            <button type="button" class="btn-add-row" @click="addModelMapEntry">+ 添加映射</button>
+            <UiButton variant="ghost" block @click="addModelMapEntry">+ 添加映射</UiButton>
           </div>
         </section>
 
         <div v-if="dialog.error" class="form-error">{{ dialog.error }}</div>
       </div>
-      <template #footer>
+      <DialogFooter>
         <UiButton size="compact" @click="closeDialog">取消</UiButton>
         <UiButton size="compact" variant="primary" :disabled="saving" @click="handleSubmit">{{ saving ? '保存中...' : '保存' }}</UiButton>
-      </template>
-    </AdmModal>
+      </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
-    <AdmModal :open="!!deleteTarget" title="确认删除" width="420px" @close="deleteTarget = null">
-      <p class="delete-confirm-msg">确定要删除 Provider <strong>{{ deleteTarget ? getProviderKey(deleteTarget) : '' }}</strong> 吗？此操作不可撤销。</p>
-      <template #footer>
+    <Dialog :open="!!deleteTarget" @update:open="(v) => { if (!v) deleteTarget = null }">
+      <DialogContent class="max-w-[420px]">
+        <DialogHeader>
+          <DialogTitle>确认删除</DialogTitle>
+        </DialogHeader>
+        <p class="delete-confirm-msg">确定要删除 Provider <strong>{{ deleteTarget ? getProviderKey(deleteTarget) : '' }}</strong> 吗？此操作不可撤销。</p>
+        <DialogFooter>
         <UiButton size="compact" @click="deleteTarget = null">取消</UiButton>
         <UiButton size="compact" variant="danger" :disabled="deleting" @click="doDelete">{{ deleting ? '删除中...' : '确认删除' }}</UiButton>
-      </template>
-    </AdmModal>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </PageLayout>
 </template>
 
@@ -208,14 +218,14 @@ import CustomSelect from '../components/ui/CustomSelect.vue';
 import ToggleSwitch from '../components/ToggleSwitch.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
-import AdmModal from '../components/admin/AdmModal.vue';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import PageLayout from '../components/PageLayout.vue';
 import IconRefresh from '../components/icons/IconRefresh.vue';
 import IconClose from '../components/icons/IconClose.vue';
 import IconPlus from '../components/icons/IconPlus.vue';
 import IconTrash from '../components/icons/IconTrash.vue';
 import IconEdit from '../components/icons/IconEdit.vue';
-import { UiButton, UiIconButton } from '../components/ui';
+import { UiButton, UiIconButton, UiActionButton } from '../components/ui';
 import { useToast } from '../composables/useToast.js';
 import { useEntityList } from '../composables/useEntityList.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';

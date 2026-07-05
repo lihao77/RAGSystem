@@ -7,6 +7,7 @@
     :variant="variant"
     size="icon"
     :disabled="disabled"
+    :active="active"
     :aria-label="label"
     :title="title || label"
   >
@@ -26,6 +27,7 @@ defineProps({
   type: { type: String, default: 'button' },
   variant: { type: String, default: 'neutral' },
   disabled: { type: Boolean, default: false },
+  active: { type: Boolean, default: false },
   label: { type: String, required: true },
   title: { type: String, default: '' },
 });

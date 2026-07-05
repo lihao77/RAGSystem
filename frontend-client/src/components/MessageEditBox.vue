@@ -33,39 +33,39 @@
         <div class="msg-edit-att-info">
           <span class="msg-edit-att-name">{{ att.original_name || att.stored_name }}</span>
         </div>
-        <button
-          type="button"
-          class="msg-edit-att-remove"
-          :disabled="submitting"
-          title="移除附件"
-          @click="$emit('removeAttachment', att)"
-        >
+        <UiIconButton variant="ghost" label="移除附件" title="移除附件" :disabled="submitting" @click="$emit('removeAttachment', att)">
           <IconClose :size="14" />
-        </button>
+        </UiIconButton>
       </div>
     </div>
     <div class="msg-edit-action-bar">
-      <button type="button" class="msg-edit-btn msg-edit-btn-attach" :disabled="submitting" @click="$emit('openAttachments')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-        </svg>
+      <UiButton variant="ghost" size="compact" :disabled="submitting" @click="$emit('openAttachments')">
+        <template #icon>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+          </svg>
+        </template>
         附件
-      </button>
+      </UiButton>
       <div class="msg-edit-hint">
         <span class="hint-text">{{ isFocused ? 'Ctrl+Enter 提交 · Esc 取消' : '' }}</span>
       </div>
-      <button type="button" class="msg-edit-btn msg-edit-btn-cancel" :disabled="submitting" @click="$emit('cancel')">
-        <IconClose :size="14" />
+      <UiButton variant="ghost" size="compact" :disabled="submitting" @click="$emit('cancel')">
+        <template #icon>
+          <IconClose :size="14" />
+        </template>
         取消
-      </button>
-      <button type="button" class="msg-edit-btn msg-edit-btn-confirm" :disabled="submitting" @click="$emit('confirm')">
-        <IconCheck v-if="!submitting" :size="14" :stroke-width="2.5" />
-        <svg v-else class="spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <circle cx="12" cy="12" r="10" opacity="0.25"></circle>
-          <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
-        </svg>
+      </UiButton>
+      <UiButton variant="primary" size="compact" :disabled="submitting" @click="$emit('confirm')">
+        <template #icon>
+          <IconCheck v-if="!submitting" :size="14" :stroke-width="2.5" />
+          <svg v-else class="spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <circle cx="12" cy="12" r="10" opacity="0.25"></circle>
+            <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
+          </svg>
+        </template>
         {{ submitting ? '提交中' : '确定' }}
-      </button>
+      </UiButton>
     </div>
   </div>
 </template>
@@ -77,6 +77,7 @@ import { isImageAttachment, isLocalAttachment } from '../utils/sessionAttachment
 import IconCheck from './icons/IconCheck.vue';
 import IconClose from './icons/IconClose.vue';
 import IconFile from './icons/IconFile.vue';
+import { UiButton, UiIconButton } from './ui';
 
 const props = defineProps({
   modelValue: { type: String, default: '' },

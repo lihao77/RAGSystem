@@ -80,8 +80,8 @@
               <div v-for="ef in pc.extra_fields" :key="ef.key" class="platform-field"><span class="pf-lbl">{{ ef.label }}</span><span class="pf-val">{{ ef.value || '—' }}</span></div>
             </div>
             <div class="platform-card-foot">
-              <button class="adm-action-btn" @click="openEditPlatform(pc.key)">编辑</button>
-              <button class="adm-action-btn adm-action-btn--danger" @click="removePlatform(pc.key)">移除</button>
+              <UiActionButton @click="openEditPlatform(pc.key)">编辑</UiActionButton>
+              <UiActionButton variant="danger" @click="removePlatform(pc.key)">移除</UiActionButton>
             </div>
           </div>
         </div>
@@ -101,7 +101,7 @@
                 <span class="adp-dot"/>
                 <span class="adp-name">{{ platformLabel(platform) }}</span>
                 <span class="adp-status">{{ statusLabel(info.status) }}</span>
-                <button v-if="info.enabled && info.status === 'connected'" class="adm-action-btn" @click="openTestDialog(agent.team_name, platform)">测试</button>
+                <UiActionButton v-if="info.enabled && info.status === 'connected'" @click="openTestDialog(agent.team_name, platform)">测试</UiActionButton>
               </div>
             </div>
           </div>
@@ -203,8 +203,12 @@
       </section>
     </div>
 
-    <AdmModal :open="showConfigModal" :title="configModalTitle" width="560px" @close="showConfigModal = false">
-      <div class="adm-modal-form">
+    <Dialog v-model:open="showConfigModal">
+      <DialogContent class="max-w-[560px]">
+        <DialogHeader>
+          <DialogTitle>{{ configModalTitle }}</DialogTitle>
+        </DialogHeader>
+        <div class="adm-modal-form">
         <div v-if="isNewPlatform" class="form-item"><label class="form-label">平台</label><CustomSelect v-model="platformForm.key" :options="PLATFORM_OPTIONS" /></div>
         <div class="form-two-col">
           <div class="form-item"><label class="form-label">App ID</label><input v-model="platformForm.app_id" class="form-ctrl" placeholder="cli_xxxxxxxxxxxx" /></div>
@@ -220,14 +224,19 @@
           <div class="form-item"><label class="form-label">平台级 Session ID（可选）</label><input v-model="platformForm.session_id" class="form-ctrl" placeholder="留空则使用 agent 级配置" /></div>
         </div>
       </div>
-      <template #footer>
+        <DialogFooter>
         <UiButton size="compact" @click="showConfigModal = false">取消</UiButton>
         <UiButton size="compact" variant="primary" @click="savePlatformConfig" :disabled="configSaving">{{ configSaving ? '保存中...' : '保存' }}</UiButton>
-      </template>
-    </AdmModal>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
-    <AdmModal :open="showAddTask" title="新增定时任务" width="560px" @close="showAddTask = false">
-      <div class="adm-modal-form">
+    <Dialog v-model:open="showAddTask">
+      <DialogContent class="max-w-[560px]">
+        <DialogHeader>
+          <DialogTitle>新增定时任务</DialogTitle>
+        </DialogHeader>
+        <div class="adm-modal-form">
         <div class="form-two-col">
           <div class="form-item"><label class="form-label">任务名称</label><input v-model="newTask.name" class="form-ctrl" placeholder="如：早间简报" /></div>
           <div class="form-item"><label class="form-label">Cron 表达式</label><input v-model="newTask.cron" class="form-ctrl" placeholder="0 9 * * 1-5" /><p class="section-tip">分 时 日 月 周，如 <code>0 9 * * 1-5</code> = 工作日早 9 点</p></div>
@@ -242,22 +251,28 @@
           <div class="form-item"><label class="form-label">推送 chat_id</label><input v-model="newTask.push_chat_id" class="form-ctrl" placeholder="可选" /></div>
         </div>
       </div>
-      <template #footer>
+        <DialogFooter>
         <UiButton size="compact" @click="showAddTask = false">取消</UiButton>
         <UiButton size="compact" variant="primary" @click="handleAddTask" :disabled="addTaskSaving">{{ addTaskSaving ? '创建中...' : '创建' }}</UiButton>
-      </template>
-    </AdmModal>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
-    <AdmModal :open="showTestDialog" :title="testDialogTitle" width="420px" @close="showTestDialog = false">
-      <div class="adm-modal-form">
+    <Dialog v-model:open="showTestDialog">
+      <DialogContent class="max-w-[420px]">
+        <DialogHeader>
+          <DialogTitle>{{ testDialogTitle }}</DialogTitle>
+        </DialogHeader>
+        <div class="adm-modal-form">
         <div class="form-item"><label class="form-label">Chat ID</label><input v-model="testForm.chat_id" class="form-ctrl" placeholder="真实 chat_id" /></div>
         <div class="form-item"><label class="form-label">消息内容</label><input v-model="testForm.content" class="form-ctrl" placeholder="测试消息" /></div>
       </div>
-      <template #footer>
+        <DialogFooter>
         <UiButton size="compact" @click="showTestDialog = false">取消</UiButton>
         <UiButton size="compact" variant="primary" @click="handleTest" :disabled="testSending">{{ testSending ? '发送中...' : '发送' }}</UiButton>
-      </template>
-    </AdmModal>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </PageLayout>
 </template>
 
@@ -270,9 +285,9 @@ import IconPlay from '../components/icons/IconPlay.vue';
 import IconPause from '../components/icons/IconPause.vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import ToggleSwitch from '../components/ToggleSwitch.vue';
-import AdmModal from '../components/admin/AdmModal.vue';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import KpiCards from '../components/admin/KpiCards.vue';
-import { UiBadge, UiButton, UiIconButton } from '../components/ui';
+import { UiBadge, UiButton, UiIconButton, UiActionButton } from '../components/ui';
 import { useToast } from '../composables/useToast.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import * as api from '../api/daemon';

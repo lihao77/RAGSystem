@@ -29,9 +29,12 @@
 
       <!-- Args (collapsible) -->
       <div v-if="hasArgs">
-        <button class="wpa-toggle" @click="showArgs = !showArgs">
-          参数 <span class="wpa-chevron" :class="{ open: showArgs }">›</span>
-        </button>
+        <UiButton class="wpa-toggle" variant="ghost" size="compact" @click="showArgs = !showArgs">
+          <template #icon>
+            <span class="wpa-chevron" :class="{ open: showArgs }">›</span>
+          </template>
+          参数
+        </UiButton>
         <pre v-if="showArgs" class="wpa-pre">{{ formattedArgs }}</pre>
       </div>
 
@@ -45,12 +48,12 @@
 
       <!-- Actions -->
       <div class="wpa-actions">
-        <button class="wpa-btn wpa-btn--approve" :disabled="submitting" @click="submit(true)">
+        <UiButton class="wpa-btn" variant="primary" block :disabled="submitting" @click="submit(true)">
           {{ submitting && pendingApproved === true ? '…' : '允许' }}
-        </button>
-        <button class="wpa-btn wpa-btn--deny" :disabled="submitting" @click="submit(false)">
+        </UiButton>
+        <UiButton class="wpa-btn" variant="danger" block :disabled="submitting" @click="submit(false)">
           {{ submitting && pendingApproved === false ? '…' : '拒绝' }}
-        </button>
+        </UiButton>
       </div>
     </div>
   </div>
@@ -59,6 +62,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import WorkPanelStateIcon from './WorkPanelStateIcon.vue'
+import { UiButton } from '../ui'
 
 const props = defineProps({
   queue: { type: Array, default: () => [] },

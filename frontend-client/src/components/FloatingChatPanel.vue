@@ -8,9 +8,9 @@
             <span class="status-dot" :class="isStreaming ? 'streaming' : 'connected'"></span>
             <span class="panel-title">智能对话</span>
           </div>
-          <button class="panel-collapse-btn" @click.stop="toggleCollapse(true)" title="收起">
+          <UiIconButton variant="ghost" label="收起" title="收起" @click.stop="toggleCollapse(true)">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-          </button>
+          </UiIconButton>
         </div>
 
         <div class="panel-messages" ref="messagesContainer">
@@ -34,9 +34,9 @@
               placeholder="Ask anything..."
               rows="1"
             ></textarea>
-            <button class="send-btn" @click="sendMessage" :disabled="!inputText.trim() || isStreaming">
+            <UiIconButton variant="primary" label="发送" title="发送" :disabled="!inputText.trim() || isStreaming" @click="sendMessage">
               <IconSend :size="16" />
-            </button>
+            </UiIconButton>
           </div>
         </div>
       </div>
@@ -49,6 +49,7 @@ import { ref, watch, nextTick } from 'vue';
 import { renderMarkdown } from '../utils/markdown';
 import MarkdownContent from './chat/MarkdownContent.vue';
 import IconSend from './icons/IconSend.vue';
+import { UiIconButton } from './ui';
 
 const props = defineProps({
   messages: { type: Array, default: () => [] },

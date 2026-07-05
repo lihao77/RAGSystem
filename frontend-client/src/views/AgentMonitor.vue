@@ -100,7 +100,7 @@
             <div v-if="selectedTaskId" class="sub-section">
               <div class="detail-inline-head">
                 <h4 class="sub-section__title">任务详情</h4>
-                <button type="button" class="btn-inline" @click="clearSelectedTask">关闭</button>
+                <UiButton variant="ghost" size="compact" @click="clearSelectedTask">关闭</UiButton>
               </div>
 
               <div v-if="taskDetailLoading" class="inline-state g-loading-inline"><span class="g-spinner g-spinner--sm"></span>加载任务详情中...</div>

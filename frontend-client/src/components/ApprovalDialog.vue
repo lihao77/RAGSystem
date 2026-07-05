@@ -13,12 +13,14 @@
                 <p class="approval-subtitle">可先折叠窗口，继续查看 AI 实时进展</p>
               </div>
             </div>
-            <button class="approval-header-action" type="button" @click="toggleCollapsed" title="折叠审批窗口">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M20 12H4"></path>
-              </svg>
-              <span>折叠</span>
-            </button>
+            <UiButton class="approval-header-action" variant="ghost" size="compact" @click="toggleCollapsed" title="折叠审批窗口">
+              <template #icon>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 12H4"></path>
+                </svg>
+              </template>
+              折叠
+            </UiButton>
           </div>
 
           <div class="approval-body">
@@ -124,16 +126,20 @@
           </div>
 
           <div class="approval-footer">
-            <button
+            <UiButton
               v-if="activeMode === 'approve'"
-              class="approval-btn approval-btn-approve"
+              class="approval-btn"
+              variant="primary"
+              block
               @click="handleApprove"
-            >确认允许执行</button>
-            <button
+            >确认允许执行</UiButton>
+            <UiButton
               v-if="activeMode === 'deny'"
-              class="approval-btn approval-btn-deny"
+              class="approval-btn"
+              variant="danger"
+              block
               @click="handleDeny"
-            >确认拒绝</button>
+            >确认拒绝</UiButton>
           </div>
         </div>
       </div>
@@ -161,6 +167,7 @@ import { ref, computed } from 'vue';
 import { getApprovalReasonLabels, getApprovalReasonText, getPermissionModeLabel } from '../utils/permissionPresentation';
 import IconWarning from './icons/IconWarning.vue';
 import IconInfo from './icons/IconInfo.vue';
+import { UiButton } from './ui';
 
 const emit = defineEmits(['approve', 'deny']);
 

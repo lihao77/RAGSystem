@@ -49,7 +49,7 @@
                         </template>
                         <template v-else>
                             <span class="active-bar__tag active-bar__tag--off">未设置</span>
-                            <button class="btn-link" @click="activeTab = 'vectorizers'">前往「向量化器」添加并激活 →</button>
+                            <UiButton variant="link" @click="activeTab = 'vectorizers'">前往「向量化器」添加并激活 →</UiButton>
                         </template>
                     </div>
 
@@ -79,7 +79,7 @@
                         class="warn-banner">
                         <IconWarning :size="16" />
                         <span>尚未配置向量化器，请先在「向量化器」Tab 中添加并激活。</span>
-                        <button class="btn-link" @click="activeTab = 'vectorizers'">前往配置 →</button>
+                        <UiButton variant="link" @click="activeTab = 'vectorizers'">前往配置 →</UiButton>
                     </div>
 
                     <!-- 矩阵表格 -->
@@ -134,15 +134,15 @@
                                         </td>
                                         <td>
                                             <div class="row-actions adm-action-row">
-                                                <button class="adm-action-btn"
+                                                <UiActionButton
                                                     @click="openSearchTest(row.collection)" title="测试检索">
                                                     <IconSearch :size="13" />
-                                                </button>
-                                                <button class="adm-action-btn adm-action-btn--danger"
+                                                </UiActionButton>
+                                                <UiActionButton variant="danger"
                                                     :disabled="deletingFileId === row.file_id"
                                                     @click="handleDeleteIndexedFile(row)" title="删除">
                                                     <IconTrash :size="13" />
-                                                </button>
+                                                </UiActionButton>
                                             </div>
                                         </td>
                                     </tr>
@@ -155,8 +155,8 @@
                     <div v-if="searchCollection" class="search-inline-card glass-card">
                         <div class="search-inline-header">
                             <span class="search-inline-title">检索测试：{{ searchCollection }}</span>
-                            <button class="adm-action-btn"
-                                @click="searchCollection = ''; searchResults = []">关闭</button>
+                            <UiActionButton
+                                @click="searchCollection = ''; searchResults = []">关闭</UiActionButton>
                         </div>
                         <div class="search-box">
                             <input v-model="searchQuery" class="search-input" placeholder="输入查询文本..."
@@ -284,15 +284,15 @@
                                     <td>{{ formatTime(file.uploaded_at) }}</td>
                                     <td>
                                         <div class="row-actions adm-action-row">
-                                            <button class="adm-action-btn" title="下载"
+                                            <UiActionButton title="下载"
                                                 @click="downloadFile(file)">
                                                 <IconDownload :size="13" />
-                                            </button>
-                                            <button class="adm-action-btn adm-action-btn--danger" title="删除"
+                                            </UiActionButton>
+                                            <UiActionButton variant="danger" title="删除"
                                                 :disabled="deletingUploadedFile === file.id"
                                                 @click="handleDeleteUploadedFile(file)">
                                                 <IconTrash :size="13" />
-                                            </button>
+                                            </UiActionButton>
                                         </div>
                                     </td>
                                 </tr>
@@ -358,15 +358,15 @@
                                     <td class="text-center">{{ v.vector_count ?? '-' }}</td>
                                     <td class="text-center">
                                         <UiBadge v-if="v.is_active" class="status-badge" size="sm" tone="success">当前</UiBadge>
-                                        <button v-else class="btn-link"
+                                        <UiButton v-else variant="link"
                                             :disabled="activatingVectorizer === v.vectorizer_key"
                                             @click="handleActivateVectorizer(v.vectorizer_key)">
                                             {{ activatingVectorizer === v.vectorizer_key ? '激活中...' : '激活' }}
-                                        </button>
+                                        </UiButton>
                                     </td>
                                     <td>
                                         <div class="row-actions adm-action-row">
-                                            <button class="adm-action-btn"
+                                            <UiActionButton
                                                 :disabled="vectorizers.length < 2" @click="openMigrateDialog(v)"
                                                 title="迁移数据">
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
@@ -375,12 +375,12 @@
                                                     <path d="M5 12h14" />
                                                     <path d="M12 5l7 7-7 7" />
                                                 </svg>
-                                            </button>
-                                            <button class="adm-action-btn adm-action-btn--danger"
+                                            </UiActionButton>
+                                            <UiActionButton variant="danger"
                                                 :disabled="deletingVectorizer === v.vectorizer_key"
                                                 @click="handleDeleteVectorizer(v.vectorizer_key)" title="删除">
                                                 <IconTrash :size="13" />
-                                            </button>
+                                            </UiActionButton>
                                         </div>
                                     </td>
                                 </tr>
@@ -462,19 +462,19 @@
                                     <td class="font-mono" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis">{{ r.api_endpoint || '-' }}</td>
                                     <td class="text-center">
                                         <UiBadge v-if="r.is_active" class="status-badge" size="sm" tone="success">当前</UiBadge>
-                                        <button v-else class="btn-link"
+                                        <UiButton v-else variant="link"
                                             :disabled="activatingReranker === r.reranker_key"
                                             @click="handleActivateReranker(r.reranker_key)">
                                             {{ activatingReranker === r.reranker_key ? '激活中...' : '激活' }}
-                                        </button>
+                                        </UiButton>
                                     </td>
                                     <td>
                                         <div class="row-actions adm-action-row">
-                                            <button class="adm-action-btn adm-action-btn--danger"
+                                            <UiActionButton variant="danger"
                                                 :disabled="deletingReranker === r.reranker_key"
                                                 @click="handleDeleteReranker(r.reranker_key)" title="删除">
                                                 <IconTrash :size="13" />
-                                            </button>
+                                            </UiActionButton>
                                         </div>
                                     </td>
                                 </tr>
@@ -574,7 +574,11 @@
         <!-- ══════════════ 模态框区域 ══════════════════════════ -->
 
         <!-- 索引新文档对话框 -->
-        <AdmModal :open="showIndexDialog" title="索引新文档" width="680px" @close="showIndexDialog = false">
+        <Dialog v-model:open="showIndexDialog">
+          <DialogContent class="max-w-[680px]">
+            <DialogHeader>
+              <DialogTitle>索引新文档</DialogTitle>
+            </DialogHeader>
                     <div class="index-mode-tabs">
                         <button v-for="m in indexModes" :key="m.id" class="mode-tab"
                             :class="{ 'mode-tab--active': indexMode === m.id }" @click="indexMode = m.id">{{ m.label
@@ -594,8 +598,8 @@
                                         <template v-if="indexUploadFile">
                                             <IconFile :size="20" />
                                             <span>{{ indexUploadFile.name }}</span>
-                                            <button class="btn-link" style="margin-left:auto"
-                                                @click.stop="indexUploadFile = null">移除</button>
+                                            <UiActionButton variant="danger" style="margin-left:auto"
+                                                @click.stop="indexUploadFile = null">移除</UiActionButton>
                                         </template>
                                         <template v-else>
                                             <span>拖拽或点击选择文件</span>
@@ -628,8 +632,8 @@
                                 <label>集合名称</label>
                                 <div class="input-with-btn">
                                     <input v-model="indexForm.collection_name" placeholder="documents" />
-                                    <button class="btn-link" @click="autoSetCollectionName"
-                                        title="根据文档类型自动设置">自动</button>
+                                    <UiButton variant="link" @click="autoSetCollectionName"
+                                        title="根据文档类型自动设置">自动</UiButton>
                                 </div>
                             </div>
                             <div v-if="indexMode !== 'text'" class="field">
@@ -654,16 +658,21 @@
                                 <small>建议为分块大小的 10%</small>
                             </div>
                     </div>
-                    <template #footer>
+                    <DialogFooter>
                         <UiButton size="compact" @click="showIndexDialog = false">取消</UiButton>
                         <UiButton size="compact" variant="primary" :disabled="indexing" @click="handleIndexDocument">
                             {{ indexing ? '索引中...' : '开始索引' }}
                         </UiButton>
-                    </template>
-        </AdmModal>
+                    </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <!-- 新增向量化器对话框 -->
-        <AdmModal :open="showAddVectorizerDialog" title="新增向量化器" width="480px" @close="showAddVectorizerDialog = false">
+        <Dialog v-model:open="showAddVectorizerDialog">
+          <DialogContent class="max-w-[480px]">
+            <DialogHeader>
+              <DialogTitle>新增向量化器</DialogTitle>
+            </DialogHeader>
                     <div class="form-grid">
                             <div class="field field--full">
                                 <label>Provider <em>*</em></label>
@@ -684,18 +693,23 @@
                                 <small v-if="addFormRecommendedModel">推荐: {{ addFormRecommendedModel }}</small>
                             </div>
                     </div>
-                    <template #footer>
+                    <DialogFooter>
                         <UiButton size="compact" @click="showAddVectorizerDialog = false">取消</UiButton>
                         <UiButton size="compact" variant="primary"
                             :disabled="addingVectorizer || !addVectorizerForm.provider_key || !addVectorizerForm.model_name"
                             @click="handleAddVectorizer">
                             {{ addingVectorizer ? '添加中...' : '确定' }}
                         </UiButton>
-                    </template>
-        </AdmModal>
+                    </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <!-- 迁移对话框 -->
-        <AdmModal :open="showMigrateDialog" title="迁移向量数据" width="480px" @close="showMigrateDialog = false">
+        <Dialog v-model:open="showMigrateDialog">
+          <DialogContent class="max-w-[480px]">
+            <DialogHeader>
+              <DialogTitle>迁移向量数据</DialogTitle>
+            </DialogHeader>
                     <p class="migrate-desc">将「{{ migrateFromKey }}」中的向量数据迁移到另一个向量化器。</p>
                     <div class="form-grid">
                             <div class="field field--full">
@@ -704,16 +718,21 @@
                                     placeholder="-- 选择目标 --" />
                             </div>
                     </div>
-                    <template #footer>
+                    <DialogFooter>
                         <UiButton size="compact" @click="showMigrateDialog = false">取消</UiButton>
                         <UiButton size="compact" variant="primary" :disabled="migrating || !migrateToKey" @click="handleMigrate">
                             {{ migrating ? '迁移中...' : '开始迁移' }}
                         </UiButton>
-                    </template>
-        </AdmModal>
+                    </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <!-- 新增重排序器对话框 -->
-        <AdmModal :open="showAddRerankerDialog" title="新增重排序器" width="480px" @close="showAddRerankerDialog = false">
+        <Dialog v-model:open="showAddRerankerDialog">
+          <DialogContent class="max-w-[480px]">
+            <DialogHeader>
+              <DialogTitle>新增重排序器</DialogTitle>
+            </DialogHeader>
                     <div class="form-grid">
                             <div class="field field--full">
                                 <label>模式 <em>*</em></label>
@@ -742,15 +761,16 @@
                                 </div>
                             </template>
                     </div>
-                    <template #footer>
+                    <DialogFooter>
                         <UiButton size="compact" @click="showAddRerankerDialog = false">取消</UiButton>
                         <UiButton size="compact" variant="primary"
                             :disabled="addingReranker || !addRerankerFormValid"
                             @click="handleAddReranker">
                             {{ addingReranker ? '添加中...' : '确定' }}
                         </UiButton>
-                    </template>
-        </AdmModal>
+                    </DialogFooter>
+          </DialogContent>
+        </Dialog>
     </PageLayout>
 </template>
 
@@ -766,7 +786,7 @@ import IconWarning from '../components/icons/IconWarning.vue';
 import IconFile from '../components/icons/IconFile.vue';
 import IconDownload from '../components/icons/IconDownload.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
-import AdmModal from '../components/admin/AdmModal.vue';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { useDictionariesStore } from '../stores/dictionaries.js';
 import {
     activateVectorizer,
@@ -788,7 +808,7 @@ import {
     uploadFiles,
 } from '../api/vectorLibrary';
 import CustomSelect from '../components/ui/CustomSelect.vue';
-import { UiBadge, UiButton, UiIconButton } from '../components/ui';
+import { UiBadge, UiButton, UiIconButton, UiActionButton } from '../components/ui';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 

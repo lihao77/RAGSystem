@@ -5,11 +5,11 @@
         <span class="wpe-inspector-kicker">{{ inspectorTypeLabel }}</span>
         <span class="wpe-inspector-name">{{ inspectorTitle }}</span>
       </div>
-      <button type="button" class="wpe-inspector-close" title="关闭详情" @click="emit('close')">
+      <UiIconButton class="wpe-inspector-close" variant="ghost" label="关闭详情" @click="emit('close')">
         <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true">
           <path d="M5 5l10 10M15 5L5 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
         </svg>
-      </button>
+      </UiIconButton>
     </div>
 
     <div class="wpe-inspector-body">
@@ -66,9 +66,10 @@
         <div v-for="section in selectedInputSections" :key="section.id" class="wpe-detail-block">
           <div class="wpe-detail-label">{{ section.label }}</div>
           <div v-if="section.kind === 'code'" class="wpe-code-wrap">
-            <button
-              type="button"
+            <UiIconButton
               class="wpe-copy-btn"
+              variant="ghost"
+              :label="copiedSectionId === section.id ? '已复制' : '复制'"
               :title="copiedSectionId === section.id ? '已复制' : '复制'"
               @click="copySectionText(section)"
             >
@@ -79,7 +80,7 @@
                 <rect x="7" y="7" width="9" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" />
                 <path d="M4 12V5.8C4 4.8 4.8 4 5.8 4H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
               </svg>
-            </button>
+            </UiIconButton>
             <pre class="wpe-code">{{ section.text }}</pre>
           </div>
           <div v-else class="wpe-detail-text">{{ section.text }}</div>
@@ -104,9 +105,10 @@
         <div v-for="section in selectedOutputSections" :key="section.id" class="wpe-detail-block">
           <div class="wpe-detail-label">{{ section.label }}</div>
           <div v-if="section.kind === 'code'" class="wpe-code-wrap">
-            <button
-              type="button"
+            <UiIconButton
               class="wpe-copy-btn"
+              variant="ghost"
+              :label="copiedSectionId === section.id ? '已复制' : '复制'"
               :title="copiedSectionId === section.id ? '已复制' : '复制'"
               @click="copySectionText(section)"
             >
@@ -117,7 +119,7 @@
                 <rect x="7" y="7" width="9" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" />
                 <path d="M4 12V5.8C4 4.8 4.8 4 5.8 4H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
               </svg>
-            </button>
+            </UiIconButton>
             <pre class="wpe-code result">{{ section.text }}</pre>
           </div>
           <div v-else class="wpe-detail-text" :class="{ muted: section.muted }">{{ section.text }}</div>
@@ -140,6 +142,7 @@ import {
   hasToolArguments,
   parseToolPayload,
 } from '../../utils/toolPresentation'
+import { UiIconButton } from '../ui'
 
 const props = defineProps({
   node: { type: Object, required: true },

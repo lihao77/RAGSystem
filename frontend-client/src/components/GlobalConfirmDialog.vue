@@ -10,12 +10,12 @@
             <p class="dialog-message">{{ state.message }}</p>
           </div>
           <div class="dialog-footer">
-            <button class="dialog-btn dialog-btn-cancel" @click="cancel">{{ state.cancelText }}</button>
-            <button
-              class="dialog-btn dialog-btn-confirm"
-              :class="{ 'dialog-btn-confirm--danger': state.danger }"
+            <UiButton class="dialog-btn" variant="ghost" @click="cancel">{{ state.cancelText }}</UiButton>
+            <UiButton
+              class="dialog-btn"
+              :variant="state.danger ? 'danger' : 'primary'"
               @click="accept"
-            >{{ state.confirmText }}</button>
+            >{{ state.confirmText }}</UiButton>
           </div>
         </div>
       </div>
@@ -31,6 +31,7 @@
 import { ref, watch, onBeforeUnmount } from 'vue';
 import { useConfirm } from '../composables/useConfirm';
 import { usePointerDownOutside } from '../composables/usePointerDownOutside';
+import { UiButton } from './ui';
 
 const { state, accept, cancel } = useConfirm();
 

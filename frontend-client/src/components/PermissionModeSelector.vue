@@ -1,39 +1,39 @@
 <template>
-  <div class="permission-selector" ref="selectorRef">
-    <div
-      class="permission-trigger"
-      :class="{ open: dropdownOpen, danger: currentMode === 'dangerously_skip_permissions', skipAll: skipAllApprovals }"
-      @click="toggleDropdown"
-      :title="triggerTitle"
-    >
-      <svg v-if="currentModeMeta?.icon === 'strict'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-        class="mode-icon strict-icon">
-        <rect x="5" y="11" width="14" height="10" rx="2"></rect>
-        <path d="M8 11V8a4 4 0 0 1 8 0v3"></path>
-      </svg>
-      <svg v-else-if="currentModeMeta?.icon === 'standard'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-        class="mode-icon standard-icon">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-      </svg>
-      <svg v-else-if="currentModeMeta?.icon === 'relaxed'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-        class="mode-icon relaxed-icon">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-        <path d="m9 12 2 2 4-4"></path>
-      </svg>
-      <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-        class="mode-icon danger-icon">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-        <path d="M4 4l16 16"></path>
-      </svg>
-      <IconChevronDown class="arrow-icon" :class="{ rotate: dropdownOpen }" :size="14" />
-    </div>
-
-    <transition name="dropdown">
-      <div v-if="dropdownOpen" class="dropdown-panel">
+  <div class="permission-selector">
+    <Popover v-model:open="dropdownOpen">
+      <PopoverTrigger as-child>
+        <div
+          class="permission-trigger"
+          :class="{ open: dropdownOpen, danger: currentMode === 'dangerously_skip_permissions', skipAll: skipAllApprovals }"
+          :title="triggerTitle"
+        >
+          <svg v-if="currentModeMeta?.icon === 'strict'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+            class="mode-icon strict-icon">
+            <rect x="5" y="11" width="14" height="10" rx="2"></rect>
+            <path d="M8 11V8a4 4 0 0 1 8 0v3"></path>
+          </svg>
+          <svg v-else-if="currentModeMeta?.icon === 'standard'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+            class="mode-icon standard-icon">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+          </svg>
+          <svg v-else-if="currentModeMeta?.icon === 'relaxed'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+            class="mode-icon relaxed-icon">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            <path d="m9 12 2 2 4-4"></path>
+          </svg>
+          <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+            class="mode-icon danger-icon">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            <path d="M4 4l16 16"></path>
+          </svg>
+          <IconChevronDown class="arrow-icon" :class="{ rotate: dropdownOpen }" :size="14" />
+        </div>
+      </PopoverTrigger>
+      <PopoverContent class="dropdown-panel" align="start" side="bottom" :side-offset="8">
         <div class="section-label">审批总开关</div>
         <div class="skip-all-row">
           <button
@@ -93,9 +93,9 @@
         <div class="section-divider"></div>
         <div class="section-label">
           自动接受规则
-          <button class="add-rule-btn" @click.stop="showAddRule = !showAddRule" title="添加规则">
+          <UiIconButton variant="ghost" label="添加规则" title="添加规则" @click.stop="showAddRule = !showAddRule">
             <IconPlus :size="14" />
-          </button>
+          </UiIconButton>
         </div>
 
         <!-- 添加规则表单 -->
@@ -111,7 +111,7 @@
             :placeholder="rulePlaceholder"
             @keydown.enter="addRule"
           />
-          <button class="rule-confirm-btn" @click="addRule" :disabled="!newRule.value.trim()">添加</button>
+          <UiButton variant="primary" size="compact" :disabled="!newRule.value.trim()" @click="addRule">添加</UiButton>
         </div>
 
         <!-- 已有规则列表 -->
@@ -119,20 +119,20 @@
           <div v-for="(p, i) in patterns" :key="i" class="rule-item">
             <span class="rule-type-badge">{{ ruleTypeLabel(p.pattern_type) }}</span>
             <span class="rule-value">{{ p.pattern_value }}</span>
-            <button class="rule-delete-btn" @click.stop="removeRule(p)" title="删除">
+            <UiIconButton variant="danger" label="删除规则" title="删除" @click.stop="removeRule(p)">
               <IconClose :size="12" />
-            </button>
+            </UiIconButton>
           </div>
         </div>
         <div v-else class="rules-empty">暂无规则</div>
-      </div>
-    </transition>
+      </PopoverContent>
+    </Popover>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import { usePointerDownOutside } from '../composables/usePointerDownOutside';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import {
   getPermissionPolicy,
   updatePermissionMode,
@@ -145,8 +145,8 @@ import IconChevronDown from './icons/IconChevronDown.vue';
 import IconCheck from './icons/IconCheck.vue';
 import IconClose from './icons/IconClose.vue';
 import IconPlus from './icons/IconPlus.vue';
+import { UiButton, UiIconButton } from './ui';
 
-const selectorRef = ref(null);
 const dropdownOpen = ref(false);
 const currentMode = ref('standard');
 const patterns = ref([]);
@@ -177,18 +177,6 @@ function ruleTypeLabel(type) {
   const map = { tool_name: '工具', file_pattern: '路径', risk_level: '等级' };
   return map[type] || type;
 }
-
-function toggleDropdown() {
-  dropdownOpen.value = !dropdownOpen.value;
-}
-
-usePointerDownOutside({
-  inside: [selectorRef],
-  enabled: () => dropdownOpen.value,
-  onOutside: () => {
-    dropdownOpen.value = false;
-  },
-});
 
 async function loadPolicy() {
   try {
@@ -268,11 +256,10 @@ onMounted(() => {
 .permission-trigger:hover {
   background: var(--color-interactive-hover);
   box-shadow: var(--shadow-glow);
-  transform: scale(1.1);
 }
 
 .permission-trigger:active {
-  transform: scale(0.95);
+  box-shadow: var(--shadow-glow);
 }
 
 .permission-trigger.open {
@@ -325,16 +312,12 @@ onMounted(() => {
 
 /* 下拉面板 */
 .dropdown-panel {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
   min-width: 280px;
   max-width: 340px;
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md, 12px);
   box-shadow: var(--shadow-xl);
-  z-index: var(--z-dropdown, 100);
   padding: 8px 0;
 }
 
@@ -685,18 +668,6 @@ onMounted(() => {
   text-align: center;
 }
 
-/* 动画 */
-.dropdown-enter-active,
-.dropdown-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
-}
-
-.dropdown-enter-from,
-.dropdown-leave-to {
-  opacity: 0;
-  transform: translateY(-6px);
-}
-
 /* 移动端 */
 @media (max-width: 767px) {
   .mode-text {
@@ -713,7 +684,6 @@ onMounted(() => {
   }
   .dropdown-panel {
     min-width: 260px;
-    right: -8px;
   }
 }
 </style>

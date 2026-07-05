@@ -9,9 +9,9 @@
           <IconChevronRight :size="20" class="sidebar-expand-icon" />
         </div>
 
-        <button class="toggle-sidebar-btn" @click="toggleSidebar" title="Collapse sidebar">
+        <UiIconButton class="toggle-sidebar-btn" variant="ghost" label="折叠侧栏" title="Collapse sidebar" @click="toggleSidebar">
           <IconChevronLeft :size="20" />
-        </button>
+        </UiIconButton>
       </div>
 
       <div class="sidebar-header">
@@ -65,7 +65,7 @@
                   <span v-if="item.unread_count > 0" class="history-unread">{{ item.unread_count }}</span>
                 </div>
               </div>
-              <button class="history-delete-btn" @click.stop="confirmDeleteSession(item)" title="删除会话">
+              <button class="history-delete-btn" title="删除会话" @click.stop="confirmDeleteSession(item)">
                 <IconTrash :size="16" />
               </button>
             </div>
@@ -73,7 +73,7 @@
           <div v-if="historyLoadingMore" class="history-loading-more g-loading-inline"><span class="g-spinner g-spinner--sm"></span>加载中...</div>
           <div v-if="historyError" class="history-error">
             <span>{{ historyError }}</span>
-            <button class="retry-btn" @click="retryLoadHistory">重试</button>
+            <Button variant="ghost" size="sm" @click="retryLoadHistory">重试</Button>
           </div>
         </div>
       </div>
@@ -125,6 +125,8 @@ import { useDictionariesStore } from '../stores/dictionaries.js';
 import { useSessionListStore } from '../stores/session-list.js';
 import { deleteSession as deleteSessionApi } from '../api/session';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconNewConversation, IconTrash } from '../components/icons';
+import { UiButton, UiIconButton } from '../components/ui';
+import { Button } from '@/components/ui/button';
 import { sidebarAdminNavItem, managementNavItems } from '../navigation/adminNavigation';
 import CommandPalette from '../components/CommandPalette.vue';
 import { useCommandPalette } from '../composables/useCommandPalette.js';

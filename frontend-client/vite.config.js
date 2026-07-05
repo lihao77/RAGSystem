@@ -12,6 +12,10 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),
+        // axios 被 npm workspace 提升到 root node_modules，
+        // vite 7 dep optimizer 用 fs.readFile 扫 frontend-client/node_modules 找不到，
+        // 显式指向 root 实际位置（修复 504 Outdated Optimize Dep）
+        'axios': path.resolve(__dirname, '..', 'node_modules', 'axios'),
       },
     },
     server: {

@@ -17,5 +17,8 @@
   },
   "engines": {
     "node": ">=24.0.0"
+  },
+  "devDependencies": {
+    "shadcn-vue": "^2.7.4"
   }
 }

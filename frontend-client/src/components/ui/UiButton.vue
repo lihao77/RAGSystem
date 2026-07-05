@@ -26,6 +26,7 @@ const props = defineProps({
   size: { type: String, default: 'md' },
   block: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
+  active: { type: Boolean, default: false },
 });
 
 const isNativeButton = computed(() => props.as === 'button');
@@ -38,6 +39,7 @@ const buttonClasses = computed(() => [
   {
     'ui-button--block': props.block,
     'is-disabled': props.disabled,
+    'is-active': props.active,
   },
 ]);
 </script>
@@ -80,6 +82,11 @@ const buttonClasses = computed(() => [
   opacity: 0.5;
   cursor: not-allowed;
   pointer-events: none;
+}
+
+.ui-button.is-active {
+  background: var(--color-active-bg);
+  color: var(--color-brand-accent);
 }
 
 .ui-button--sm {
@@ -131,6 +138,18 @@ const buttonClasses = computed(() => [
 .ui-button--ghost:hover:not(.is-disabled) {
   background: var(--color-hover-overlay-md);
   color: var(--color-text-primary);
+}
+
+.ui-button--link {
+  background: transparent;
+  color: var(--color-brand-accent);
+  padding: 0;
+  min-height: 0;
+}
+
+.ui-button--link:hover:not(.is-disabled) {
+  background: transparent;
+  opacity: 0.8;
 }
 
 .ui-button--block {

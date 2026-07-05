@@ -13,10 +13,10 @@
         <span>{{ title }}</span>
       </div>
       <div class="chart-actions">
-        <button @click="downloadChart" class="action-btn" title="下载图表">
+        <UiIconButton variant="ghost" label="下载图表" title="下载图表" @click="downloadChart">
           <IconDownload :size="16" />
-        </button>
-        <button @click="toggleFullscreen" class="action-btn" title="全屏">
+        </UiIconButton>
+        <UiIconButton variant="ghost" label="全屏" title="全屏" @click="toggleFullscreen">
           <span v-if="!isFullscreen">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -29,7 +29,7 @@
               <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
             </svg>
           </span>
-        </button>
+        </UiIconButton>
       </div>
     </div>
     <Teleport to="body" :disabled="!isFullscreen">
@@ -47,16 +47,16 @@
             <span>{{ title }}</span>
           </div>
           <div class="chart-actions">
-            <button @click="downloadChart" class="action-btn" title="下载图表">
+            <UiIconButton variant="ghost" label="下载图表" title="下载图表" @click="downloadChart">
               <IconDownload :size="16" />
-            </button>
-            <button @click="toggleFullscreen" class="action-btn close-btn" title="退出全屏">
+            </UiIconButton>
+            <UiIconButton variant="danger" label="退出全屏" title="退出全屏" @click="toggleFullscreen">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path
                   d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
               </svg>
-            </button>
+            </UiIconButton>
           </div>
         </div>
         <div ref="fullscreenContainer" class="chart-fullscreen-content"></div>
@@ -70,6 +70,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import IconDownload from './icons/IconDownload.vue';
+import { UiIconButton } from './ui';
 import * as echarts from 'echarts/core';
 import { useThemeStore } from '../stores/theme.js';
 import { BarChart, LineChart, PieChart, ScatterChart } from 'echarts/charts';
