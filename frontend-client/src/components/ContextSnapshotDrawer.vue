@@ -1,150 +1,141 @@
 <template>
-  <Teleport to="body">
-    <Transition name="drawer-fade">
-      <div v-if="visible" class="ctx-drawer-overlay">
-        <div ref="drawerRef" class="ctx-drawer">
-          <div class="ctx-drawer-header">
-            <h3>上下文快照</h3>
-            <Button class="ctx-close-btn" variant="ghost" size="icon" aria-label="关闭" @click="$emit('close')">
-              <IconClose :size="14" />
-            </Button>
+  <Sheet :open="visible" @update:open="onOpenChange">
+    <SheetContent side="right" class="flex w-[520px] max-w-[90vw] flex-col gap-0 p-0 sm:max-w-[520px]">
+      <div class="ctx-drawer-header">
+        <h3>上下文快照</h3>
+      </div>
+
+      <div v-if="loading" class="ctx-loading"><span class="g-spinner"></span>加载中...</div>
+      <div v-else-if="error" class="ctx-error">{{ error }}</div>
+      <div v-else class="ctx-drawer-body">
+
+        <!-- Token 统计 -->
+        <section class="ctx-section">
+          <h4>Token 用量</h4>
+          <div class="ctx-token-bar-wrap">
+            <div class="ctx-token-bar">
+              <div class="ctx-token-fill" :style="{ width: tokenPct + '%' }"
+                :class="tokenPct >= 90 ? 'danger' : tokenPct >= 70 ? 'warning' : ''"></div>
+            </div>
+            <span class="ctx-token-text">{{ data.token_stats.total_tokens.toLocaleString() }} / {{ data.token_stats.budget_tokens.toLocaleString() }} tokens</span>
           </div>
+          <div class="ctx-token-detail">
+            <span>System Prompt: {{ data.token_stats.system_prompt_tokens.toLocaleString() }}</span>
+            <span>对话历史: {{ data.token_stats.history_tokens.toLocaleString() }}</span>
+          </div>
+        </section>
 
-          <div v-if="loading" class="ctx-loading"><span class="g-spinner"></span>加载中...</div>
-          <div v-else-if="error" class="ctx-error">{{ error }}</div>
-          <div v-else class="ctx-drawer-body">
-
-            <!-- Token 统计 -->
-            <section class="ctx-section">
-              <h4>Token 用量</h4>
-              <div class="ctx-token-bar-wrap">
-                <div class="ctx-token-bar">
-                  <div class="ctx-token-fill" :style="{ width: tokenPct + '%' }"
-                    :class="tokenPct >= 90 ? 'danger' : tokenPct >= 70 ? 'warning' : ''"></div>
+        <!-- 配置 -->
+        <section class="ctx-section">
+          <h4>配置</h4>
+          <div class="ctx-kv-list">
+            <template v-for="(v, k) in data.config" :key="k">
+              <div v-if="typeof v !== 'object' || v === null" class="ctx-kv">
+                <span class="ctx-k">{{ k }}</span><span class="ctx-v">{{ v }}</span>
+              </div>
+              <div v-else class="ctx-kv ctx-kv-group">
+                <span class="ctx-k">{{ k }}</span>
+                <div class="ctx-kv-nested">
+                  <div v-for="(sv, sk) in v" :key="sk" class="ctx-kv-sub">
+                    <span class="ctx-k">{{ sk }}</span><span class="ctx-v">{{ sv }}</span>
+                  </div>
                 </div>
-                <span class="ctx-token-text">{{ data.token_stats.total_tokens.toLocaleString() }} / {{ data.token_stats.budget_tokens.toLocaleString() }} tokens</span>
               </div>
-              <div class="ctx-token-detail">
-                <span>System Prompt: {{ data.token_stats.system_prompt_tokens.toLocaleString() }}</span>
-                <span>对话历史: {{ data.token_stats.history_tokens.toLocaleString() }}</span>
-              </div>
-            </section>
+            </template>
+          </div>
+        </section>
 
-            <!-- 配置 -->
-            <section class="ctx-section">
-              <h4>配置</h4>
-              <div class="ctx-kv-list">
-                <template v-for="(v, k) in data.config" :key="k">
-                  <div v-if="typeof v !== 'object' || v === null" class="ctx-kv">
+        <!-- Agent 工具 -->
+        <section class="ctx-section">
+          <h4>可用 Agent 工具 ({{ data.available_agent_tools.length }})</h4>
+          <div v-for="tool in data.available_agent_tools" :key="tool.name" class="ctx-tool-item">
+            <span class="ctx-tool-name">{{ tool.name }}</span>
+          </div>
+        </section>
+
+        <!-- Master 直接工具 -->
+        <section v-if="data.available_tools && data.available_tools.length" class="ctx-section">
+          <h4>可直接调用的工具 ({{ data.available_tools.length }})</h4>
+          <div v-for="tool in data.available_tools" :key="tool.name" class="ctx-tool-item">
+            <span class="ctx-tool-name">{{ tool.name }}</span>
+          </div>
+        </section>
+
+        <!-- Skills -->
+        <section v-if="data.available_skills && data.available_skills.length" class="ctx-section">
+          <h4>Skills ({{ data.available_skills.length }})</h4>
+          <div v-for="skill in data.available_skills" :key="skill.name" class="ctx-tool-item">
+            <span class="ctx-tool-name">{{ skill.name }}</span>
+            <span class="ctx-v" style="margin-left: 6px;">{{ skill.description }}</span>
+          </div>
+        </section>
+
+        <!-- System Prompt -->
+        <section class="ctx-section">
+          <h4 class="ctx-collapsible" @click="spExpanded = !spExpanded">
+            System Prompt <span class="ctx-arrow">{{ spExpanded ? '▼' : '▶' }}</span>
+          </h4>
+          <pre v-if="spExpanded" class="ctx-code-block">{{ data.system_prompt }}</pre>
+        </section>
+
+        <!-- Memory -->
+        <section v-if="data.memory" class="ctx-section">
+          <h4 class="ctx-collapsible" @click="memExpanded = !memExpanded">
+            Memory (Stable Prefix) <span class="ctx-arrow">{{ memExpanded ? '▼' : '▶' }}</span>
+          </h4>
+          <template v-if="memExpanded">
+            <div v-if="data.memory.scope_capabilities && Object.keys(data.memory.scope_capabilities).length" class="ctx-kv-list" style="margin-bottom: 8px;">
+              <div v-for="(caps, scope) in data.memory.scope_capabilities" :key="scope" class="ctx-kv ctx-kv-group">
+                <span class="ctx-k">{{ scope }}</span>
+                <div class="ctx-kv-nested">
+                  <div v-for="(v, k) in caps" :key="k" class="ctx-kv-sub">
                     <span class="ctx-k">{{ k }}</span><span class="ctx-v">{{ v }}</span>
                   </div>
-                  <div v-else class="ctx-kv ctx-kv-group">
-                    <span class="ctx-k">{{ k }}</span>
-                    <div class="ctx-kv-nested">
-                      <div v-for="(sv, sk) in v" :key="sk" class="ctx-kv-sub">
-                        <span class="ctx-k">{{ sk }}</span><span class="ctx-v">{{ sv }}</span>
-                      </div>
-                    </div>
-                  </div>
-                </template>
-              </div>
-            </section>
-
-            <!-- Agent 工具 -->
-            <section class="ctx-section">
-              <h4>可用 Agent 工具 ({{ data.available_agent_tools.length }})</h4>
-              <div v-for="tool in data.available_agent_tools" :key="tool.name" class="ctx-tool-item">
-                <span class="ctx-tool-name">{{ tool.name }}</span>
-              </div>
-            </section>
-
-            <!-- Master 直接工具 -->
-            <section v-if="data.available_tools && data.available_tools.length" class="ctx-section">
-              <h4>可直接调用的工具 ({{ data.available_tools.length }})</h4>
-              <div v-for="tool in data.available_tools" :key="tool.name" class="ctx-tool-item">
-                <span class="ctx-tool-name">{{ tool.name }}</span>
-              </div>
-            </section>
-
-            <!-- Skills -->
-            <section v-if="data.available_skills && data.available_skills.length" class="ctx-section">
-              <h4>Skills ({{ data.available_skills.length }})</h4>
-              <div v-for="skill in data.available_skills" :key="skill.name" class="ctx-tool-item">
-                <span class="ctx-tool-name">{{ skill.name }}</span>
-                <span class="ctx-v" style="margin-left: 6px;">{{ skill.description }}</span>
-              </div>
-            </section>
-
-            <!-- System Prompt -->
-            <section class="ctx-section">
-              <h4 class="ctx-collapsible" @click="spExpanded = !spExpanded">
-                System Prompt <span class="ctx-arrow">{{ spExpanded ? '▼' : '▶' }}</span>
-              </h4>
-              <pre v-if="spExpanded" class="ctx-code-block">{{ data.system_prompt }}</pre>
-            </section>
-
-            <!-- Memory -->
-            <section v-if="data.memory" class="ctx-section">
-              <h4 class="ctx-collapsible" @click="memExpanded = !memExpanded">
-                Memory (Stable Prefix) <span class="ctx-arrow">{{ memExpanded ? '▼' : '▶' }}</span>
-              </h4>
-              <template v-if="memExpanded">
-                <div v-if="data.memory.scope_capabilities && Object.keys(data.memory.scope_capabilities).length" class="ctx-kv-list" style="margin-bottom: 8px;">
-                  <div v-for="(caps, scope) in data.memory.scope_capabilities" :key="scope" class="ctx-kv ctx-kv-group">
-                    <span class="ctx-k">{{ scope }}</span>
-                    <div class="ctx-kv-nested">
-                      <div v-for="(v, k) in caps" :key="k" class="ctx-kv-sub">
-                        <span class="ctx-k">{{ k }}</span><span class="ctx-v">{{ v }}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div v-for="(content, scope) in data.memory.indices" :key="scope" class="ctx-mem-scope">
-                  <div class="ctx-mem-scope-title">{{ scope }} Memory Index</div>
-                  <pre class="ctx-code-block ctx-mem-content">{{ content }}</pre>
-                </div>
-                <div v-if="!data.memory.indices || !Object.keys(data.memory.indices).length" class="ctx-v" style="font-size: 12px; color: var(--color-text-muted, #999);">
-                  无已加载的记忆索引
-                </div>
-              </template>
-            </section>
-
-            <!-- 对话历史 -->
-            <section class="ctx-section">
-              <h4>对话历史 ({{ data.conversation_history.length }})</h4>
-              <div class="ctx-history-list">
-                <div v-for="(msg, i) in data.conversation_history" :key="i"
-                  class="ctx-history-item"
-                  :class="msgClass(msg)">
-                  <span class="ctx-role">{{ msgLabel(msg) }}</span>
-                  <span v-if="msg.react_intermediate" class="ctx-msg-type">R{{ msg.round || '' }}</span>
-                  <span class="ctx-tokens">{{ msg.tokens }} tokens</span>
-                  <div class="ctx-content-preview">
-                    {{ msg.content_preview || '' }}
-                  </div>
-                  <div v-if="msg.tool_calls && msg.tool_calls.length" class="ctx-tool-calls">
-                    <div v-for="tc in msg.tool_calls" :key="tc.id || tc.function.name" class="ctx-tool-call">
-                      <span class="ctx-tool-name">→ {{ tc.function.name }}</span>
-                      <code class="ctx-tool-args">{{ tc.function.arguments }}</code>
-                    </div>
-                  </div>
                 </div>
               </div>
-            </section>
+            </div>
+            <div v-for="(content, scope) in data.memory.indices" :key="scope" class="ctx-mem-scope">
+              <div class="ctx-mem-scope-title">{{ scope }} Memory Index</div>
+              <pre class="ctx-code-block ctx-mem-content">{{ content }}</pre>
+            </div>
+            <div v-if="!data.memory.indices || !Object.keys(data.memory.indices).length" class="ctx-v" style="font-size: 12px; color: var(--color-text-muted, #999);">
+              无已加载的记忆索引
+            </div>
+          </template>
+        </section>
 
+        <!-- 对话历史 -->
+        <section class="ctx-section">
+          <h4>对话历史 ({{ data.conversation_history.length }})</h4>
+          <div class="ctx-history-list">
+            <div v-for="(msg, i) in data.conversation_history" :key="i"
+              class="ctx-history-item"
+              :class="msgClass(msg)">
+              <span class="ctx-role">{{ msgLabel(msg) }}</span>
+              <span v-if="msg.react_intermediate" class="ctx-msg-type">R{{ msg.round || '' }}</span>
+              <span class="ctx-tokens">{{ msg.tokens }} tokens</span>
+              <div class="ctx-content-preview">
+                {{ msg.content_preview || '' }}
+              </div>
+              <div v-if="msg.tool_calls && msg.tool_calls.length" class="ctx-tool-calls">
+                <div v-for="tc in msg.tool_calls" :key="tc.id || tc.function.name" class="ctx-tool-call">
+                  <span class="ctx-tool-name">→ {{ tc.function.name }}</span>
+                  <code class="ctx-tool-args">{{ tc.function.arguments }}</code>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
+        </section>
+
       </div>
-    </Transition>
-  </Teleport>
+    </SheetContent>
+  </Sheet>
 </template>
 
 <script setup>
 import { ref, computed, watch } from 'vue';
-import { usePointerDownOutside } from '../composables/usePointerDownOutside';
+import { Sheet, SheetContent } from './ui/sheet';
 import { getContextSnapshot } from '../api/session';
-import IconClose from './icons/IconClose.vue';
-import { Button } from './ui/button';
 
 const props = defineProps({
   visible: Boolean,
@@ -159,19 +150,16 @@ const emit = defineEmits(['close']);
 const loading = ref(false);
 const error = ref('');
 const data = ref(null);
-const drawerRef = ref(null);
-const spExpanded = ref(false)
+const spExpanded = ref(false);
 const memExpanded = ref(false);
+
+function onOpenChange(open) {
+  if (!open) emit('close');
+}
 
 const tokenPct = computed(() => {
   if (!data.value?.token_stats?.budget_tokens) return 0;
   return Math.min(100, Math.round(data.value.token_stats.total_tokens / data.value.token_stats.budget_tokens * 100));
-});
-
-usePointerDownOutside({
-  inside: [drawerRef],
-  enabled: () => props.visible,
-  onOutside: () => emit('close'),
 });
 
 function msgLabel(msg) {
@@ -208,11 +196,8 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 </script>
 
 <style scoped>
-.ctx-drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: var(--z-modal); display: flex; justify-content: flex-end; }
-.ctx-drawer { width: min(520px, 90vw); height: 100%; background: var(--color-bg-primary, #fff); display: flex; flex-direction: column; box-shadow: -2px 0 12px rgba(0,0,0,.15); }
-.ctx-drawer-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--color-border, #e4e7ed); }
+.ctx-drawer-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--color-border, #e4e7ed); flex-shrink: 0; }
 .ctx-drawer-header h3 { margin: 0; font-size: 15px; }
-.ctx-close-btn { background: none; border: none; font-size: 22px; cursor: pointer; color: var(--color-text-secondary, #666); line-height: 1; }
 .ctx-drawer-body { flex: 1; overflow-y: auto; padding: 14px 18px; }
 .ctx-loading, .ctx-error { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 40px; color: var(--color-text-muted, #999); }
 .ctx-error { color: var(--color-error); }
@@ -256,9 +241,4 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 .ctx-mem-scope-title { font-size: 12px; font-weight: 600; color: var(--color-text-secondary, #666); margin-bottom: 4px; }
 .ctx-mem-content { max-height: 200px; font-size: 11px; }
 .ctx-code-block { background: var(--color-bg-tertiary, #f5f5f5); padding: 12px; border-radius: 6px; font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap; word-break: break-all; max-height: 400px; overflow-y: auto; margin: 0; }
-.drawer-fade-enter-active, .drawer-fade-leave-active { transition: opacity .25s; }
-.drawer-fade-enter-active .ctx-drawer, .drawer-fade-leave-active .ctx-drawer { transition: transform .25s; }
-.drawer-fade-enter-from, .drawer-fade-leave-to { opacity: 0; }
-.drawer-fade-enter-from .ctx-drawer { transform: translateX(100%); }
-.drawer-fade-leave-to .ctx-drawer { transform: translateX(100%); }
 </style>

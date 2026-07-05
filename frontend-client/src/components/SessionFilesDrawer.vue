@@ -1,98 +1,90 @@
 <template>
-  <Teleport to="body">
-    <Transition name="drawer-fade">
-      <div v-if="visible" class="ctx-drawer-overlay">
-        <div ref="drawerRef" class="ctx-drawer ctx-drawer--dialog glass-card">
-          <div class="ctx-drawer-header">
-            <div>
-              <h3>{{ mode === 'message-edit' ? '编辑消息附件' : '添加附件' }}</h3>
-              <div class="ctx-subtitle">{{ subtitleText }}</div>
-            </div>
-            <Button class="ctx-close-btn" variant="ghost" size="icon" aria-label="关闭" @click="$emit('close')">
-              <IconClose :size="14" />
-            </Button>
-          </div>
-
-          <div class="ctx-drawer-body">
-            <section class="ctx-section">
-              <div class="ctx-actions-row">
-                <input ref="fileInputRef" type="file" multiple style="display:none" @change="onFileChange" />
-                <Button class="ctx-action-btn" variant="default" :disabled="uploading" @click="fileInputRef?.click()">
-                  <IconPlus :size="15" />
-                  <span>{{ uploading ? '处理中...' : '选择图片或文件' }}</span>
-                </Button>
-                <Button v-if="sessionId" class="ctx-action-btn" variant="ghost" :disabled="loading" @click="$emit('refresh')">
-                  <span class="ctx-refresh-icon">↻</span>
-                  <span>刷新会话文件</span>
-                </Button>
-              </div>
-              <div class="ctx-dropzone-hint">
-                文件拖入当前窗口任意位置后，可直接松手加入待发送附件
-              </div>
-            </section>
-
-            <div v-if="uploading" class="ctx-loading"><span class="g-spinner g-spinner--sm"></span>正在准备发送附件...</div>
-            <section v-if="pendingFiles.length" class="ctx-section">
-              <div class="ctx-section-title">{{ pendingTitle }}</div>
-              <div class="ctx-file-list">
-                <div v-for="file in pendingFiles" :key="file.local_id || file.file_id || file.id" class="ctx-file-item ctx-file-item--pending">
-                  <div class="ctx-file-main">
-                    <div class="ctx-file-name" :title="file.original_name || file.stored_name">{{ file.original_name || file.stored_name }}</div>
-                    <div class="ctx-file-meta">
-                      <span>{{ formatAttachmentSize(file.size) }}</span>
-                      <span v-if="file.mime">{{ file.mime }}</span>
-                      <span>{{ isImageAttachment(file) ? '图片' : '文件' }}</span>
-                    </div>
-                  </div>
-                  <div class="ctx-file-actions ctx-file-actions--visible">
-                    <Button class="ctx-inline-btn" variant="action-danger" size="action" @click="$emit('removePending', file)">移除</Button>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <div v-if="loading" class="ctx-loading"><span class="g-spinner g-spinner--sm"></span>加载文件中...</div>
-            <section v-else-if="files.length" class="ctx-section">
-              <div class="ctx-section-title">当前会话文件</div>
-              <div class="ctx-file-list">
-                <div v-for="file in files" :key="file.id" class="ctx-file-item">
-                  <div class="ctx-file-main">
-                    <div class="ctx-file-name" :title="file.original_name || file.stored_name">{{ file.original_name || file.stored_name }}</div>
-                    <div class="ctx-file-meta">
-                      <span>{{ formatAttachmentSize(file.size) }}</span>
-                      <span v-if="file.mime">{{ file.mime }}</span>
-                    </div>
-                  </div>
-                  <div class="ctx-file-actions">
-                    <Button class="ctx-inline-btn" variant="action-neutral" size="action" @click="$emit('download', file)">下载</Button>
-                    <Button class="ctx-inline-btn" variant="action-neutral" size="action" @click="$emit('reuse', file)">{{ reuseButtonText }}</Button>
-                    <Button class="ctx-inline-btn" variant="action-danger" size="action" :disabled="deletingFileId === file.id" @click="$emit('delete', file)">
-                      {{ deletingFileId === file.id ? '删除中...' : '删除' }}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </section>
-            <div v-else class="ctx-empty-state">
-              <div class="ctx-empty-title">还没有附件</div>
-              <div class="ctx-empty-desc">{{ emptyDesc }}</div>
-            </div>
-          </div>
-
-          <div class="ctx-dialog-footer">
-            <Button class="ctx-action-btn" variant="ghost" @click="$emit('close')">关闭</Button>
-          </div>
+  <Dialog :open="visible" @update:open="onOpenChange">
+    <DialogContent class="flex w-full max-w-[720px] max-h-[88vh] flex-col gap-0 overflow-hidden rounded-[20px] p-0 shadow-[0_24px_80px_rgba(0,0,0,0.28)]">
+      <div class="ctx-drawer-header">
+        <div>
+          <h3>{{ mode === 'message-edit' ? '编辑消息附件' : '添加附件' }}</h3>
+          <div class="ctx-subtitle">{{ subtitleText }}</div>
         </div>
       </div>
-    </Transition>
-  </Teleport>
+
+      <div class="ctx-drawer-body">
+        <section class="ctx-section">
+          <div class="ctx-actions-row">
+            <input ref="fileInputRef" type="file" multiple style="display:none" @change="onFileChange" />
+            <Button variant="default" :disabled="uploading" @click="fileInputRef?.click()">
+              <IconPlus :size="15" />
+              <span>{{ uploading ? '处理中...' : '选择图片或文件' }}</span>
+            </Button>
+            <Button v-if="sessionId" variant="ghost" :disabled="loading" @click="emit('refresh')">
+              <span class="ctx-refresh-icon">↻</span>
+              <span>刷新会话文件</span>
+            </Button>
+          </div>
+          <div class="ctx-dropzone-hint">
+            文件拖入当前窗口任意位置后，可直接松手加入待发送附件
+          </div>
+        </section>
+
+        <div v-if="uploading" class="ctx-loading"><span class="g-spinner g-spinner--sm"></span>正在准备发送附件...</div>
+        <section v-if="pendingFiles.length" class="ctx-section">
+          <div class="ctx-section-title">{{ pendingTitle }}</div>
+          <div class="ctx-file-list">
+            <div v-for="file in pendingFiles" :key="file.local_id || file.file_id || file.id" class="ctx-file-item ctx-file-item--pending">
+              <div class="ctx-file-main">
+                <div class="ctx-file-name" :title="file.original_name || file.stored_name">{{ file.original_name || file.stored_name }}</div>
+                <div class="ctx-file-meta">
+                  <span>{{ formatAttachmentSize(file.size) }}</span>
+                  <span v-if="file.mime">{{ file.mime }}</span>
+                  <span>{{ isImageAttachment(file) ? '图片' : '文件' }}</span>
+                </div>
+              </div>
+              <div class="ctx-file-actions ctx-file-actions--visible">
+                <Button variant="action-danger" size="action" @click="emit('removePending', file)">移除</Button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div v-if="loading" class="ctx-loading"><span class="g-spinner g-spinner--sm"></span>加载文件中...</div>
+        <section v-else-if="files.length" class="ctx-section">
+          <div class="ctx-section-title">当前会话文件</div>
+          <div class="ctx-file-list">
+            <div v-for="file in files" :key="file.id" class="ctx-file-item">
+              <div class="ctx-file-main">
+                <div class="ctx-file-name" :title="file.original_name || file.stored_name">{{ file.original_name || file.stored_name }}</div>
+                <div class="ctx-file-meta">
+                  <span>{{ formatAttachmentSize(file.size) }}</span>
+                  <span v-if="file.mime">{{ file.mime }}</span>
+                </div>
+              </div>
+              <div class="ctx-file-actions">
+                <Button variant="action-neutral" size="action" @click="emit('download', file)">下载</Button>
+                <Button variant="action-neutral" size="action" @click="emit('reuse', file)">{{ reuseButtonText }}</Button>
+                <Button variant="action-danger" size="action" :disabled="deletingFileId === file.id" @click="emit('delete', file)">
+                  {{ deletingFileId === file.id ? '删除中...' : '删除' }}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
+        <div v-else class="ctx-empty-state">
+          <div class="ctx-empty-title">还没有附件</div>
+          <div class="ctx-empty-desc">{{ emptyDesc }}</div>
+        </div>
+      </div>
+
+      <div class="ctx-dialog-footer">
+        <Button variant="ghost" @click="emit('close')">关闭</Button>
+      </div>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue';
-import { usePointerDownOutside } from '../composables/usePointerDownOutside';
+import { Dialog, DialogContent } from './ui/dialog';
 import { formatAttachmentSize, isImageAttachment } from '../utils/sessionAttachments';
-import IconClose from './icons/IconClose.vue';
 import IconPlus from './icons/IconPlus.vue';
 import { Button } from './ui/button';
 
@@ -109,13 +101,10 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'upload', 'delete', 'download', 'refresh', 'reuse', 'removePending']);
 const fileInputRef = ref(null);
-const drawerRef = ref(null);
 
-usePointerDownOutside({
-  inside: [drawerRef],
-  enabled: () => props.visible,
-  onOutside: () => emit('close'),
-});
+function onOpenChange(open) {
+  if (!open) emit('close');
+}
 
 const subtitleText = computed(() => {
   if (!props.sessionId) return '附件会先保存在前端，发送时再自动创建会话并上传';
@@ -146,27 +135,6 @@ const onFileChange = (event) => {
 </script>
 
 <style scoped>
-.ctx-drawer-overlay {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,.55);
-  z-index: var(--z-modal);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-
-.ctx-drawer {
-  width: min(720px, 96vw);
-  max-height: 88vh;
-  /* background: var(--glass-bg);
-  backdrop-filter: blur(10px); */
-  display: flex; flex-direction: column;
-  border: 1px solid var(--color-border);
-  border-radius: 20px;
-  box-shadow: 0 24px 80px rgba(0,0,0,.28);
-}
-
 .ctx-drawer-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 16px 20px;
@@ -175,15 +143,6 @@ const onFileChange = (event) => {
 }
 .ctx-drawer-header h3 { margin: 0; font-size: 16px; font-weight: 600; color: var(--color-text-primary); }
 .ctx-subtitle { margin-top: 3px; font-size: 12px; color: var(--color-text-muted); }
-.ctx-close-btn {
-  width: 28px; height: 28px;
-  display: flex; align-items: center; justify-content: center;
-  background: transparent; border: none; border-radius: var(--radius-sm);
-  font-size: 18px; line-height: 1; cursor: pointer;
-  color: var(--color-text-secondary);
-  transition: all 0.2s;
-}
-.ctx-close-btn:hover { background: var(--color-bg-secondary); color: var(--color-text-primary); }
 
 .ctx-drawer-body {
   flex: 1;
@@ -210,39 +169,6 @@ const onFileChange = (event) => {
   text-align: center;
   transition: all 0.2s ease;
 }
-.ctx-action-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  height: 36px; padding: 0 14px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  background: var(--color-interactive);
-  color: var(--color-text-secondary);
-  font-size: 13px; font-weight: 500;
-  cursor: pointer; white-space: nowrap;
-  transition: all 0.2s;
-}
-.ctx-action-btn:hover:not(:disabled) {
-  background: var(--color-interactive-hover);
-  border-color: var(--color-border-hover);
-  color: var(--color-text-primary);
-}
-.ctx-action-btn--primary {
-  background: var(--color-brand-accent);
-  border-color: var(--color-brand-accent);
-  color: var(--color-on-color);
-}
-.ctx-action-btn--primary:hover:not(:disabled) { opacity: 0.88; }
-.ctx-action-btn--ghost {
-  background: transparent;
-  border-color: var(--color-border);
-  color: var(--color-text-secondary);
-}
-.ctx-action-btn--ghost:hover:not(:disabled) {
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-}
-.ctx-action-btn__icon { font-size: 14px; line-height: 1; }
-.ctx-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .ctx-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 36px 20px; font-size: 13px; color: var(--color-text-muted); }
 .ctx-empty-state { padding: 36px 20px; text-align: center; }
@@ -283,28 +209,6 @@ const onFileChange = (event) => {
 }
 .ctx-file-item:hover .ctx-file-actions { opacity: 1; }
 .ctx-file-actions--visible { opacity: 1; }
-.ctx-inline-btn {
-  height: 28px; padding: 0 8px;
-  display: flex; align-items: center;
-  border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 12px; font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.ctx-inline-btn:hover {
-  background: var(--color-bg-tertiary);
-  border-color: var(--color-border);
-  color: var(--color-text-primary);
-}
-.ctx-inline-btn--danger:hover {
-  background: rgba(var(--color-error-rgb), 0.08);
-  border-color: transparent;
-  color: var(--color-error);
-}
-.ctx-inline-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .ctx-dialog-footer {
   display: flex;
@@ -312,11 +216,4 @@ const onFileChange = (event) => {
   padding: 16px 20px;
   border-top: 1px solid var(--color-border);
 }
-
-.drawer-fade-enter-active, .drawer-fade-leave-active { transition: opacity .2s; }
-.drawer-fade-enter-active .ctx-drawer, .drawer-fade-leave-active .ctx-drawer {
-  transition: transform .2s var(--ease-material);
-}
-.drawer-fade-enter-from, .drawer-fade-leave-to { opacity: 0; }
-.drawer-fade-enter-from .ctx-drawer, .drawer-fade-leave-to .ctx-drawer { transform: translateY(16px) scale(0.98); }
 </style>

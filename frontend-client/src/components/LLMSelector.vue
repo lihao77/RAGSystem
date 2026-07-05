@@ -1,112 +1,58 @@
 <template>
-  <div class="llm-selector" ref="selectorRef">
-    <!-- 选择器按钮 -->
-    <div
-      ref="triggerRef"
-      class="llm-select-trigger"
-      :class="{ 'open': dropdownOpen, 'disabled': loading || models.length === 0 }"
-      @click="toggleDropdown"
-      :title="selectedModel || 'Select LLM Model'"
-    >
-      <span class="selected-text">{{ displayText }}</span>
-
-      <!-- 箭头图标 -->
-      <IconChevronDown
-        class="arrow-icon"
-        :class="{ 'rotate': dropdownOpen }"
-        :size="16"
-      />
-
-      <!-- Loading indicator -->
-      <div v-if="loading" class="loading-spinner"></div>
-    </div>
-
-    <!-- 下拉列表 -->
-    <Teleport to="body">
-      <transition :name="dropdownTransitionName">
-        <div
-          v-if="dropdownOpen"
-          ref="dropdownRef"
-          class="dropdown-menu dropdown-menu--teleported"
-          :class="`dropdown-menu--${resolvedPlacement}`"
-          :style="dropdownStyle"
+  <div class="llm-selector">
+    <Popover v-model:open="open">
+      <PopoverTrigger as-child>
+        <button
+          type="button"
+          class="llm-select-trigger"
+          :class="{ open, disabled: loading || models.length === 0 }"
+          :disabled="loading || models.length === 0"
+          :title="selectedModel || 'Select LLM Model'"
+          role="combobox"
+          :aria-expanded="open"
         >
-          <div ref="dropdownContentRef" class="dropdown-content">
-            <!-- 搜索框（可选） -->
-            <div v-if="models.length > 5" class="search-box">
-              <input
-                ref="searchInputRef"
-                v-model="searchQuery"
-                type="text"
-                placeholder="Search models..."
-                class="search-input"
-                @click.stop
-              />
-            </div>
-
-            <!-- 选项列表 -->
-            <div class="options-list">
-              <!-- 默认选项：使用智能体配置 -->
-              <div
-                class="option-item"
-                :class="{ 'selected': selectedModel === '' }"
-                @click="selectModel('')"
-              >
+          <span class="selected-text">{{ displayText }}</span>
+          <IconChevronDown class="arrow-icon" :class="{ rotate: open }" :size="16" />
+          <div v-if="loading" class="loading-spinner"></div>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent class="llm-popover" align="start" :side-offset="8">
+        <Command>
+          <CommandInput v-if="models.length > 5" placeholder="Search models..." />
+          <CommandList>
+            <CommandEmpty>No models found</CommandEmpty>
+            <CommandGroup>
+              <CommandItem class="llm-option" value="__default__" @select="() => selectModel('')">
                 <span class="option-label">默认<span class="option-sub">使用智能体配置</span></span>
-                <IconCheck
-                  v-if="selectedModel === ''"
-                  class="check-icon"
-                  :size="16"
-                  :stroke-width="2.5"
-                />
-              </div>
-
-              <!-- 分隔线 -->
-              <div class="options-divider"></div>
-
-              <!-- 模型选项 -->
-              <div
-                v-for="model in filteredModels"
-                :key="model.value"
-                class="option-item"
-                :class="{ 'selected': model.value === selectedModel }"
-                @click="selectModel(model.value)"
+                <IconCheck v-if="!selectedModel" class="check-icon" :size="16" :stroke-width="2.5" />
+              </CommandItem>
+              <CommandSeparator />
+              <CommandItem
+                v-for="m in models"
+                :key="m.value"
+                class="llm-option"
+                :value="m.value"
+                @select="() => selectModel(m.value)"
               >
-                <span class="option-label">{{ model.label }}</span>
-                <IconCheck
-                  v-if="model.value === selectedModel"
-                  class="check-icon"
-                  :size="16"
-                  :stroke-width="2.5"
-                />
-              </div>
+                <span class="option-label">{{ m.label }}</span>
+                <span class="sr-only">{{ m.provider }} {{ m.model }}</span>
+                <IconCheck v-if="m.value === selectedModel" class="check-icon" :size="16" :stroke-width="2.5" />
+              </CommandItem>
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
 
-              <!-- 无结果提示 -->
-              <div v-if="filteredModels.length === 0" class="no-results">
-                No models found
-              </div>
-            </div>
-          </div>
-        </div>
-      </transition>
-    </Teleport>
-
-    <!-- Error indicator -->
-    <div
-      v-if="error"
-      class="error-indicator"
-      :title="error"
-    >
-      ⚠️
-    </div>
+    <div v-if="error" class="error-indicator" :title="error">⚠️</div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
-import { usePointerDownOutside, usePointerInsideRegistry } from '../composables/usePointerDownOutside';
-import { useDropdownPosition } from '../composables/useDropdownPosition';
+import { Popover, PopoverTrigger, PopoverContent } from './ui/popover';
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandSeparator } from './ui/command';
 import { getAvailableModels } from '../api/modelAdapter';
 import { useLlmStore } from '../stores/llm.js';
 import IconChevronDown from './icons/IconChevronDown.vue';
@@ -118,15 +64,8 @@ const { selectedLLM: selectedModel } = storeToRefs(llmStore);
 const models = ref([]);
 const loading = ref(false);
 const error = ref('');
-const dropdownOpen = ref(false);
-const searchQuery = ref('');
-const selectorRef = ref(null);
-const triggerRef = ref(null);
-const dropdownRef = ref(null);
-const dropdownContentRef = ref(null);
-const searchInputRef = ref(null);
+const open = ref(false);
 
-// 显示文本
 const displayText = computed(() => {
   if (loading.value) return 'Loading...';
   if (models.value.length === 0) return 'No models available';
@@ -135,47 +74,17 @@ const displayText = computed(() => {
   return model ? model.label : selectedModel.value;
 });
 
-// 过滤后的模型列表
-const filteredModels = computed(() => {
-  if (!searchQuery.value) return models.value;
-  const query = searchQuery.value.toLowerCase();
-  return models.value.filter(m =>
-    m.label.toLowerCase().includes(query) ||
-    m.provider.toLowerCase().includes(query) ||
-    m.model.toLowerCase().includes(query)
-  );
-});
+const selectModel = (value) => {
+  llmStore.setSelectedLLM(value);
+  open.value = false;
+};
 
-const {
-  resolvedPlacement,
-  dropdownStyle,
-  dropdownTransitionName,
-  updatePosition,
-} = useDropdownPosition({
-  triggerRef,
-  dropdownRef,
-  contentRef: dropdownContentRef,
-  isOpen: dropdownOpen,
-  maxHeight: 360,
-  minWidth: 220,
-  // padding(8*2) + gap(12) + check-icon(16) + sub-text-margin(6) + scrollbar(6) + item-padding(14*2) ≈ 78
-  widthChrome: 78,
-  getLabels: () => [
-    '默认 使用智能体配置',
-    ...filteredModels.value.map(m => m.label ?? m.value ?? ''),
-  ],
-  fallbackFont: '500 14px sans-serif',
-});
-
-// 加载可用模型列表
 const loadModels = async () => {
   loading.value = true;
   error.value = '';
-
   try {
     const availableModels = await getAvailableModels();
     models.value = availableModels;
-
     // store 已持有保存的选择（构造时从 localStorage 恢复）；若不在可用列表则清除
     const savedModel = selectedModel.value;
     if (savedModel && !availableModels.some(m => m.value === savedModel)) {
@@ -190,63 +99,8 @@ const loadModels = async () => {
   }
 };
 
-const toggleDropdown = async () => {
-  if (loading.value || models.value.length === 0) return;
-  dropdownOpen.value = !dropdownOpen.value;
-
-  if (dropdownOpen.value) {
-    await nextTick();
-    updatePosition();
-    await nextTick();
-    searchInputRef.value?.focus();
-  } else {
-    searchQuery.value = '';
-  }
-};
-
-// 选择模型
-const selectModel = (value) => {
-  llmStore.setSelectedLLM(value);
-
-  // 关闭下拉菜单
-  dropdownOpen.value = false;
-  searchQuery.value = '';
-};
-
-usePointerDownOutside({
-  inside: [selectorRef, dropdownRef],
-  enabled: () => dropdownOpen.value,
-  onOutside: () => {
-    dropdownOpen.value = false;
-    searchQuery.value = '';
-  },
-});
-
-usePointerInsideRegistry([dropdownRef], () => dropdownOpen.value);
-
-// 键盘导航支持
-const handleKeydown = (event) => {
-  if (!dropdownOpen.value) return;
-
-  if (event.key === 'Escape') {
-    dropdownOpen.value = false;
-    searchQuery.value = '';
-  }
-};
-
-watch(() => [filteredModels.value.length, models.value.length], () => {
-  if (dropdownOpen.value) {
-    nextTick(updatePosition);
-  }
-});
-
 onMounted(() => {
   loadModels();
-  document.addEventListener('keydown', handleKeydown);
-});
-
-onUnmounted(() => {
-  document.removeEventListener('keydown', handleKeydown);
 });
 
 // 获取当前选择（store 单源）
@@ -263,7 +117,7 @@ defineExpose({ getSelection });
   gap: 8px;
 }
 
-/* 触发按钮 */
+/* 触发按钮（pill） */
 .llm-select-trigger {
   height: var(--control-height-md);
   min-width: 180px;
@@ -284,36 +138,28 @@ defineExpose({ getSelection });
   user-select: none;
   box-shadow: var(--shadow-sm);
 }
-
 .llm-select-trigger:hover:not(.disabled) {
   background-color: var(--color-interactive-hover);
   border-color: var(--color-border-hover);
   box-shadow: var(--shadow-md);
 }
-
-.llm-select-trigger:active:not(.disabled) {
-  box-shadow: var(--shadow-sm);
-}
-
 .llm-select-trigger.open {
   border-color: var(--color-border-focus);
   box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.1);
 }
-
 .llm-select-trigger.disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-/* 选中文本 */
 .selected-text {
   flex: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: left;
 }
 
-/* 箭头图标 */
 .arrow-icon {
   position: absolute;
   right: 12px;
@@ -322,136 +168,53 @@ defineExpose({ getSelection });
   transition: transform 0.3s;
   flex-shrink: 0;
   pointer-events: none;
+  color: var(--color-text-secondary);
 }
-
 .arrow-icon.rotate {
   transform: translateY(-50%) rotate(180deg);
 }
 
-/* Loading spinner */
 .loading-spinner {
   width: 16px;
   height: 16px;
   border: 2px solid var(--color-border);
   border-top-color: var(--color-text-primary);
   border-radius: 50%;
-  animation: spin 1s linear infinite;
+  animation: llm-spin 1s linear infinite;
   position: absolute;
   right: 12px;
   top: 50%;
   transform: translateY(-50%);
   pointer-events: none;
 }
-
-@keyframes spin {
-  to {
-    transform: translateY(-50%) rotate(360deg);
-  }
+@keyframes llm-spin {
+  to { transform: translateY(-50%) rotate(360deg); }
 }
 
-/* 下拉菜单 */
-.dropdown-menu {
+/* Popover 内容 */
+.llm-popover {
+  width: 280px;
+  padding: 0;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
   background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
-  overflow: hidden;
-  box-sizing: border-box;
 }
 
-.dropdown-menu--teleported {
-  position: fixed;
-  z-index: 9999;
-}
-
-.dropdown-menu--up {
-  transform-origin: bottom center;
-}
-
-.dropdown-menu--down {
-  transform-origin: top center;
-}
-
-.dropdown-content {
-  display: flex;
-  flex-direction: column;
-  max-height: inherit;
-  overflow: hidden;
-}
-
-/* 搜索框 */
-.search-box {
-  padding: 12px;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.search-input {
-  width: 100%;
-  height: 40px;
-  padding: 0 14px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
-  font-size: 13px;
-  transition: all 0.3s;
-  outline: none;
-}
-
-.search-input:focus {
-  border-color: var(--color-border-focus);
-  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.1);
-}
-
-.search-input::placeholder {
-  color: var(--color-text-muted);
-}
-
-/* 选项列表 */
-.options-list {
-  min-height: 0;
-  overflow-y: auto;
-  padding: 8px;
-  box-sizing: border-box;
-}
-
-.option-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  transition: all 0.3s;
+/* Command 选项 */
+.llm-option {
+  padding: 10px 14px !important;
+  border-radius: var(--radius-md) !important;
   color: var(--color-text-primary);
   font-size: 14px;
   font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
 }
-
-.option-item:hover {
-  background: var(--color-interactive-hover);
-  transform: translateX(2px);
-}
-
-.option-item.selected {
-  background: rgba(var(--color-brand-accent-rgb), 0.12);
-  color: var(--color-text-primary);
-  font-weight: 600;
-  box-shadow: var(--shadow-sm);
-}
-
-.option-sub {
-  font-size: 11px;
-  color: var(--color-text-muted);
-  font-weight: 400;
-  margin-left: 6px;
-}
-
-.options-divider {
-  height: 1px;
-  background: var(--color-border);
-  margin: 4px 8px;
+.llm-option[data-highlighted] {
+  background: var(--color-interactive-hover) !important;
 }
 
 .option-label {
@@ -460,53 +223,28 @@ defineExpose({ getSelection });
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
+.option-sub {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-weight: 400;
+  margin-left: 6px;
+}
 .check-icon {
   flex-shrink: 0;
   color: var(--color-success);
 }
-
-/* 无结果 */
-.no-results {
-  padding: 20px;
-  text-align: center;
-  color: var(--color-text-muted);
-  font-size: 13px;
-  font-style: italic;
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
-/* 下拉动画（方向感知） */
-.dropdown-down-enter-active {
-  animation: dropdownDownIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.dropdown-down-leave-active {
-  animation: dropdownDownOut 0.15s cubic-bezier(0.4, 0, 1, 1);
-}
-.dropdown-up-enter-active {
-  animation: dropdownUpIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.dropdown-up-leave-active {
-  animation: dropdownUpOut 0.15s cubic-bezier(0.4, 0, 1, 1);
-}
-
-@keyframes dropdownDownIn {
-  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-@keyframes dropdownDownOut {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to   { opacity: 0; transform: translateY(-8px) scale(0.96); }
-}
-@keyframes dropdownUpIn {
-  from { opacity: 0; transform: translateY(8px) scale(0.96); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-@keyframes dropdownUpOut {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to   { opacity: 0; transform: translateY(8px) scale(0.96); }
-}
-
-/* Error indicator */
 .error-indicator {
   font-size: 18px;
   cursor: help;
@@ -516,45 +254,14 @@ defineExpose({ getSelection });
   transform: translateY(-50%);
 }
 
-/* 移动端优化 */
 @media (max-width: 767px) {
   .llm-select-trigger {
-    height: var(--control-height-md);
     min-width: 140px;
     font-size: 12px;
     padding: 0 36px 0 12px;
   }
-
   .arrow-icon {
     right: 10px;
   }
-
-  .option-item {
-    padding: 12px 10px;
-    font-size: 13px;
-  }
-
-  .search-input {
-    font-size: 12px;
-    height: 32px;
-  }
-}
-
-/* 滚动条样式 */
-.options-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.options-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.options-list::-webkit-scrollbar-thumb {
-  background: var(--color-bg-tertiary);
-  border-radius: var(--radius-full);
-}
-
-.options-list::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-muted);
 }
 </style>

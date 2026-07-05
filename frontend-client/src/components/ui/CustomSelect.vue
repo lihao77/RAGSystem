@@ -1,70 +1,34 @@
 <template>
-  <div class="custom-select" ref="rootRef">
-    <div
-      ref="triggerRef"
-      class="select-trigger"
-      :class="{ open: isOpen, disabled: disabled }"
-      @click="toggle"
-    >
-      <span class="trigger-text" :class="{ placeholder: !hasValue }">
-        {{ displayLabel }}
-      </span>
-      <IconChevronDown
-        class="arrow-icon"
-        :class="{ rotate: isOpen }"
-        :size="16"
-        :stroke-width="2.5"
-      />
-    </div>
-
-    <Teleport to="body">
-      <transition :name="dropdownTransitionName">
-        <div
-          v-if="isOpen"
-          ref="dropdownRef"
-          class="dropdown-menu dropdown-menu--teleported"
-          :class="`dropdown-menu--${resolvedPlacement}`"
-          :style="dropdownStyle"
-        >
-          <div ref="optionsListRef" class="options-list" :style="optionsListStyle">
-            <div
-              v-for="opt in options"
-              :key="opt.value"
-              class="option-item"
-              :class="{ selected: opt.value === modelValue }"
-              @click="select(opt)"
-            >
-              <span class="option-label">{{ opt.label }}</span>
-              <IconCheck
-                v-if="opt.value === modelValue"
-                class="check-icon"
-                :size="14"
-                :stroke-width="2.5"
-              />
-            </div>
-            <div v-if="options.length === 0" class="no-options">暂无选项</div>
-          </div>
-        </div>
-      </transition>
-    </Teleport>
+  <div ref="wrapperRef" class="custom-select">
+    <Select :model-value="selectValue" :disabled="disabled" @update:model-value="onChange">
+      <SelectTrigger class="select-trigger" :class="{ disabled }">
+        <SelectValue :placeholder="placeholder" />
+      </SelectTrigger>
+      <SelectContent :side="side" :style="contentStyle" class="dropdown-menu">
+        <SelectItem v-for="opt in options" :key="opt.value" :value="itemValue(opt.value)" class="option-item">
+          {{ opt.label }}
+        </SelectItem>
+        <div v-if="options.length === 0" class="no-options">暂无选项</div>
+      </SelectContent>
+    </Select>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue';
-import { usePointerDownOutside, usePointerInsideRegistry } from '../../composables/usePointerDownOutside';
-import { useDropdownPosition } from '../../composables/useDropdownPosition';
-import IconChevronDown from '../icons/IconChevronDown.vue';
-import IconCheck from '../icons/IconCheck.vue';
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './select';
 
-const DEFAULT_DROPDOWN_MAX_HEIGHT = 260;
+// reka SelectItem 禁 value=''（会抛错），用 sentinel 在组件边界做 '' <-> NONE 映射。
+const NONE = '__custom_select_none__';
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
   options: { type: Array, default: () => [] },
   placeholder: { type: String, default: '请选择' },
   disabled: { type: Boolean, default: false },
-  dropdownMaxHeight: { type: [Number, String], default: DEFAULT_DROPDOWN_MAX_HEIGHT },
+  dropdownMaxHeight: { type: [Number, String], default: 260 },
+  dropdownMinWidth: { type: [Number, String], default: '' },
+  dropdownMaxWidth: { type: [Number, String], default: '' },
   dropdownPlacement: {
     type: String,
     default: 'auto',
@@ -74,98 +38,62 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'change']);
 
-const rootRef = ref(null);
-const triggerRef = ref(null);
-const dropdownRef = ref(null);
-const optionsListRef = ref(null);
-const isOpen = ref(false);
+// reka SelectItem value 禁 ''，映射 '' -> NONE。
+function itemValue(v) {
+  return v === '' || v == null ? NONE : v;
+}
 
-const normalizedDropdownMaxHeight = computed(() => {
-  const numericValue = Number(props.dropdownMaxHeight);
-  return Number.isFinite(numericValue) && numericValue > 0
-    ? numericValue
-    : DEFAULT_DROPDOWN_MAX_HEIGHT;
+// modelValue='' 视为未选 -> undefined 让 SelectValue 显示 placeholder。
+const selectValue = computed(() => {
+  const v = props.modelValue;
+  if (v === '' || v == null) return undefined;
+  return v;
 });
 
-const hasValue = computed(() => props.modelValue !== '' && props.modelValue != null);
+// dropdownPlacement(up/down/auto) -> reka SelectContent side(top/bottom/undefined)。
+const sideMap = { up: 'top', down: 'bottom' };
+const side = computed(() => sideMap[props.dropdownPlacement]);
 
-const displayLabel = computed(() => {
-  if (!hasValue.value) return props.placeholder;
-  const found = props.options.find(o => o.value === props.modelValue);
-  return found ? found.label : props.modelValue;
+// 尺寸 prop -> CSS 值。数字当 px，非数字字符串（'220px'/'14rem'）原样透传。
+function toSize(val, fallback = '') {
+  if (val === '' || val == null) return fallback;
+  const n = Number(val);
+  return Number.isFinite(n) && n > 0 ? `${n}px` : String(val);
+}
+
+// 测量 wrapper 宽度（= trigger 宽，SelectTrigger w-full 撑满 wrapper）。
+const wrapperRef = ref(null);
+const triggerWidth = ref(0);
+let resizeObserver = null;
+onMounted(() => {
+  if (!wrapperRef.value) return;
+  const measure = () => { triggerWidth.value = wrapperRef.value?.offsetWidth || 0; };
+  measure();
+  resizeObserver = new ResizeObserver(measure);
+  resizeObserver.observe(wrapperRef.value);
+});
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect();
+  resizeObserver = null;
 });
 
-const {
-  resolvedPlacement,
-  dropdownPosition,
-  dropdownStyle,
-  dropdownTransitionName,
-  updatePosition,
-} = useDropdownPosition({
-  triggerRef,
-  dropdownRef,
-  contentRef: optionsListRef,
-  isOpen,
-  maxHeight: normalizedDropdownMaxHeight,
-  placement: computed(() => props.dropdownPlacement),
-  // padding(6*2) + gap(10) + check-icon(14) + scrollbar(5) + item-padding(12*2) ≈ 64
-  widthChrome: 64,
-  getLabels: () => (
-    props.options.length
-      ? props.options.map(o => o.label ?? o.value ?? '')
-      : ['暂无选项']
-  ),
-  fallbackFont: '500 13px sans-serif',
+// 面板宽度：默认严格跟随 trigger；dropdownMin/Max 显式覆盖其一侧时，另一侧放开。
+const contentStyle = computed(() => {
+  const tw = triggerWidth.value ? `${triggerWidth.value}px` : undefined;
+  const minW = toSize(props.dropdownMinWidth);
+  const maxW = toSize(props.dropdownMaxWidth);
+  const style = { maxHeight: toSize(props.dropdownMaxHeight, '260px') };
+  if (tw) style.width = tw;
+  style.minWidth = minW || (maxW ? undefined : tw);
+  style.maxWidth = maxW || (minW ? undefined : tw);
+  return style;
 });
 
-const optionsListStyle = computed(() => ({
-  maxHeight: `${dropdownPosition.value.maxHeight}px`,
-}));
-
-const openDropdown = async () => {
-  isOpen.value = true;
-  await nextTick();
-  updatePosition();
-};
-
-const closeDropdown = () => {
-  isOpen.value = false;
-};
-
-const toggle = async () => {
-  if (props.disabled) return;
-  if (isOpen.value) {
-    closeDropdown();
-    return;
-  }
-  await openDropdown();
-};
-
-const select = (opt) => {
-  emit('update:modelValue', opt.value);
-  emit('change', opt.value);
-  closeDropdown();
-};
-
-usePointerDownOutside({
-  inside: [rootRef, dropdownRef],
-  enabled: () => isOpen.value,
-  onOutside: closeDropdown,
-});
-
-usePointerInsideRegistry([dropdownRef], () => isOpen.value);
-
-watch(() => props.options, () => {
-  if (isOpen.value) {
-    nextTick(updatePosition);
-  }
-}, { deep: true });
-
-watch(() => [props.dropdownMaxHeight, props.dropdownPlacement], () => {
-  if (isOpen.value) {
-    nextTick(updatePosition);
-  }
-});
+function onChange(value) {
+  const real = value === NONE ? '' : value;
+  emit('update:modelValue', real);
+  emit('change', real);
+}
 </script>
 
 <style scoped>
@@ -174,128 +102,72 @@ watch(() => [props.dropdownMaxHeight, props.dropdownPlacement], () => {
   width: 100%;
 }
 
+/* trigger：对齐项目 token，覆盖 shadcn SelectTrigger 默认 */
 .select-trigger {
-  display: flex;
-  align-items: center;
   height: var(--control-height-md);
-  padding: 0 38px 0 12px;
   border-radius: var(--control-radius);
-  border: 1px solid var(--color-border);
+  border-color: var(--color-border);
   background: var(--color-bg-elevated);
   color: var(--color-text-primary);
   font-size: var(--font-size-sm);
   font-weight: 500;
-  letter-spacing: 0;
-  cursor: pointer;
-  user-select: none;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-  position: relative;
 }
-
 .select-trigger:hover:not(.disabled) {
   border-color: var(--color-border-hover);
 }
-
-.select-trigger.open {
+.select-trigger[data-state=open] {
   border-color: var(--color-brand-accent);
   box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.12);
 }
-
 .select-trigger.disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
-
-.trigger-text {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.trigger-text.placeholder {
+.select-trigger[data-placeholder] {
   color: var(--color-text-muted);
 }
-
-.arrow-icon {
-  position: absolute;
-  right: 14px;
-  top: 50%;
-  transform: translateY(-50%);
+/* 内置 chevron：open 时旋转 */
+.select-trigger :deep(svg) {
   transition: transform 0.3s;
-  pointer-events: none;
   color: var(--color-text-secondary);
-  flex-shrink: 0;
+  opacity: 1;
+}
+.select-trigger[data-state=open] :deep(svg) {
+  transform: rotate(180deg);
 }
 
-.arrow-icon.rotate {
-  transform: translateY(-50%) rotate(180deg);
-}
-
+/* 内容面板：glass；宽度由 inline style 跟随 trigger（见 contentStyle） */
 .dropdown-menu {
+  border-radius: var(--radius-lg);
+  border: var(--glass-border-width) var(--glass-border-style) var(--glass-border-color);
   background: var(--glass-bg);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  border: var(--glass-border-width) var(--glass-border-style) var(--glass-border-color);
-  border-radius: var(--radius-lg);
   box-shadow: var(--glass-shadow);
-  overflow: hidden;
-  box-sizing: border-box;
 }
 
-.dropdown-menu--teleported {
-  position: fixed;
-  z-index: calc(var(--z-dialog, 10000) + 1);
-}
-
-.dropdown-menu--up {
-  transform-origin: bottom center;
-}
-
-.dropdown-menu--down {
-  transform-origin: top center;
-}
-
-.options-list {
-  overflow-y: auto;
-  padding: 6px;
-  box-sizing: border-box;
-}
-
+/* 选项 */
 .option-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 9px 12px;
+  padding: 9px 32px 9px 12px;
   border-radius: var(--radius-md);
-  cursor: pointer;
   font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--color-text-primary);
-  transition: background var(--transition-fast);
 }
-
-.option-item:hover {
+.option-item[data-highlighted] {
   background: var(--color-hover-overlay-md);
 }
-
-.option-item.selected {
+.option-item[data-state=checked] {
   background: var(--color-active-bg);
   color: var(--color-brand-accent);
   font-weight: 600;
 }
-
-.option-label {
-  flex: 1;
-  white-space: nowrap;
+/* SelectItemText（最后一个 span）：truncate，避免长 label 和右侧 check 重叠 */
+.option-item :deep(span:last-child) {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.check-icon {
-  flex-shrink: 0;
-  color: var(--color-brand-accent);
+  white-space: nowrap;
 }
 
 .no-options {
@@ -303,44 +175,5 @@ watch(() => [props.dropdownMaxHeight, props.dropdownPlacement], () => {
   text-align: center;
   color: var(--color-text-muted);
   font-size: 13px;
-}
-
-.options-list::-webkit-scrollbar { width: 5px; }
-.options-list::-webkit-scrollbar-track { background: transparent; }
-.options-list::-webkit-scrollbar-thumb {
-  background: var(--color-bg-tertiary);
-  border-radius: var(--radius-full);
-}
-.options-list::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
-
-.dropdown-down-enter-active {
-  animation: dropdownDownIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.dropdown-down-leave-active {
-  animation: dropdownDownOut 0.15s cubic-bezier(0.4, 0, 1, 1);
-}
-.dropdown-up-enter-active {
-  animation: dropdownUpIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.dropdown-up-leave-active {
-  animation: dropdownUpOut 0.15s cubic-bezier(0.4, 0, 1, 1);
-}
-
-@keyframes dropdownDownIn {
-  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-@keyframes dropdownDownOut {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to   { opacity: 0; transform: translateY(-8px) scale(0.96); }
-}
-
-@keyframes dropdownUpIn {
-  from { opacity: 0; transform: translateY(8px) scale(0.96); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-@keyframes dropdownUpOut {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to   { opacity: 0; transform: translateY(8px) scale(0.96); }
 }
 </style>
