@@ -60,10 +60,10 @@
       </div>
 
       <!-- 切换详情按钮 -->
-      <UiButton class="toggle-details-btn" variant="ghost" size="compact" @click="$emit('toggle-view')" :title="expanded ? '收起详情' : '显示详细执行过程'">
+      <Button class="toggle-details-btn" variant="ghost" size="sm" @click="$emit('toggle-view')" :title="expanded ? '收起详情' : '显示详细执行过程'">
         <!-- <span class="icon">{{ expanded ? '🔼' : '👁️' }}</span> -->
         <span class="label">{{ expanded ? '收起' : '展开' }}</span>
-      </UiButton>
+      </Button>
     </div>
 
     <!-- 进度条 -->
@@ -77,7 +77,7 @@
 import { computed } from 'vue';
 import { getAgentBadgeClass } from '../utils/agentBadge';
 import IconCheck from './icons/IconCheck.vue';
-import { UiButton } from './ui';
+import { Button } from './ui/button';
 
 const props = defineProps({
   executionTree: {

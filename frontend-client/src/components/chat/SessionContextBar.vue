@@ -1,18 +1,20 @@
 <template>
   <div class="session-context-bar top-controls-bar glass-card" :class="{ scrolled }">
     <div class="left-controls glass-card">
-      <UiIconButton variant="ghost" label="打开菜单" title="Open menu" @click="emit('openMobileSidebar')">
+      <Button variant="ghost" size="icon" class="rounded-full" aria-label="打开菜单" title="Open menu" @click="emit('openMobileSidebar')">
         <IconMenu :size="20" />
-      </UiIconButton>
+      </Button>
 
       <LLMSelector ref="llmSelectorRef" />
     </div>
 
     <div class="right-controls glass-card">
       <PermissionModeSelector />
-      <UiIconButton
+      <Button
         variant="ghost"
-        label="导出当前会话"
+        size="icon"
+        class="rounded-full"
+        aria-label="导出当前会话"
         :disabled="!currentSessionId || isExportingSession"
         :title="currentSessionId ? '导出当前会话' : '当前无会话可导出'"
         @click="emit('exportSession')"
@@ -23,10 +25,12 @@
           <path d="m7 10 5 5 5-5"></path>
           <path d="M5 21h14"></path>
         </svg>
-      </UiIconButton>
-      <UiIconButton
+      </Button>
+      <Button
         variant="ghost"
-        label="切换主题"
+        size="icon"
+        class="rounded-full"
+        aria-label="切换主题"
         :title="themeStore.isDark ? '切换到亮色模式' : '切换到暗色模式'"
         @click="themeStore.toggle()"
       >
@@ -46,7 +50,7 @@
           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
         </svg>
-      </UiIconButton>
+      </Button>
     </div>
   </div>
 </template>
@@ -56,7 +60,7 @@ import { ref } from 'vue';
 import LLMSelector from '../LLMSelector.vue';
 import PermissionModeSelector from '../PermissionModeSelector.vue';
 import { IconMenu } from '../icons';
-import { UiIconButton } from '../ui';
+import { Button } from '../ui/button';
 import { useThemeStore } from '../../stores/theme.js';
 
 const themeStore = useThemeStore();

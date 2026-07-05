@@ -9,23 +9,23 @@
         <span class="map-type-badge">{{ mapTypeName }}</span>
       </div>
       <div class="map-actions">
-        <UiIconButton v-if="!situationMode" variant="ghost" label="进入态势大屏" title="进入态势大屏" @click="emit('enter-situation')">
+        <Button v-if="!situationMode" variant="ghost" size="icon" aria-label="进入态势大屏" title="进入态势大屏" @click="emit('enter-situation')">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-        </UiIconButton>
-        <UiIconButton variant="ghost" label="下载地图截图" title="下载地图截图" @click="downloadMap">
+        </Button>
+        <Button variant="ghost" size="icon" aria-label="下载地图截图" title="下载地图截图" @click="downloadMap">
           <IconDownload :size="16" />
-        </UiIconButton>
-        <UiIconButton variant="ghost" label="重置视图" title="重置视图" @click="resetView">
+        </Button>
+        <Button variant="ghost" size="icon" aria-label="重置视图" title="重置视图" @click="resetView">
           <IconRefresh :size="16" />
-        </UiIconButton>
-        <UiIconButton variant="ghost" label="全屏" title="全屏" @click="toggleFullscreen">
+        </Button>
+        <Button variant="ghost" size="icon" aria-label="全屏" title="全屏" @click="toggleFullscreen">
           <span v-if="!isFullscreen">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
           </span>
           <span v-else>
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
           </span>
-        </UiIconButton>
+        </Button>
       </div>
     </div>
     <Teleport to="body" :disabled="!isFullscreen">
@@ -42,15 +42,15 @@
             <span class="map-type-badge">{{ mapTypeName }}</span>
           </div>
           <div class="map-actions">
-            <UiIconButton variant="ghost" label="下载地图截图" title="下载地图截图" @click="downloadMap">
+            <Button variant="ghost" size="icon" aria-label="下载地图截图" title="下载地图截图" @click="downloadMap">
               <IconDownload :size="16" />
-            </UiIconButton>
-            <UiIconButton variant="ghost" label="重置视图" title="重置视图" @click="resetView">
+            </Button>
+            <Button variant="ghost" size="icon" aria-label="重置视图" title="重置视图" @click="resetView">
               <IconRefresh :size="16" />
-            </UiIconButton>
-            <UiIconButton variant="danger" label="退出全屏" title="退出全屏" @click="toggleFullscreen">
+            </Button>
+            <Button variant="destructive" size="icon" aria-label="退出全屏" title="退出全屏" @click="toggleFullscreen">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
-            </UiIconButton>
+            </Button>
           </div>
         </div>
         <div class="map-fullscreen-content">
@@ -163,7 +163,7 @@ import 'leaflet.heat';
 import { useThemeStore } from '../stores/theme.js';
 import IconRefresh from './icons/IconRefresh.vue';
 import IconDownload from './icons/IconDownload.vue';
-import { UiIconButton } from './ui';
+import { Button } from './ui/button';
 
 const themeStore = useThemeStore();
 
@@ -889,44 +889,6 @@ watch(() => props.mapData, () => {
   gap: var(--spacing-sm);
 }
 
-.action-btn {
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  padding: 6px 10px;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-size: 0.9rem;
-  transition: all 0.2s;
-  color: var(--color-text-secondary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 32px;
-  height: 32px;
-}
-
-.action-btn:hover {
-  background: var(--color-bg-tertiary);
-  border-color: var(--color-border-hover);
-  color: var(--color-text-primary);
-  /* transform: translateY(-1px); */
-}
-
-.action-btn:active {
-  transform: translateY(0);
-}
-
-.situation-btn {
-  background: rgba(33, 150, 243, 0.1);
-  border-color: rgba(33, 150, 243, 0.3);
-  color: var(--color-brand-accent-light, #64b5f6);
-}
-
-.situation-btn:hover {
-  background: rgba(33, 150, 243, 0.2);
-  border-color: rgba(33, 150, 243, 0.5);
-}
-
 .map-body {
   position: relative;
 }
@@ -1110,17 +1072,6 @@ watch(() => props.mapData, () => {
   width: 100%;
   position: relative;
   overflow: hidden;
-}
-
-.close-btn {
-    background: transparent;
-    border: 1px solid var(--color-border);
-    color: var(--color-text-secondary);
-}
-.close-btn:hover {
-    background: var(--color-error-bg);
-    color: var(--color-error);
-    border-color: var(--color-error);
 }
 
 /* Leaflet 弹出窗口样式 */

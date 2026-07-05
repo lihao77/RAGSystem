@@ -17,14 +17,12 @@
                   <span class="header-badge">{{ inputTypeLabel }}</span>
                 </div>
               </div>
-              <UiButton class="input-header-action" variant="ghost" size="compact" @click="toggleCollapsed" title="折叠输入窗口">
-                <template #icon>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <Button class="input-header-action" variant="ghost" size="sm" @click="toggleCollapsed" title="折叠输入窗口">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M20 12H4"/>
                   </svg>
-                </template>
-                折叠
-              </UiButton>
+                <span>折叠</span>
+              </Button>
             </div>
 
             <!-- Body -->
@@ -70,25 +68,21 @@
 
             <!-- Footer -->
             <div class="input-footer">
-              <UiButton class="btn-stop" variant="ghost" @click="handleCancel">
-                <template #icon>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
+              <Button class="btn-stop" variant="ghost" @click="handleCancel">
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <rect x="3" y="3" width="18" height="18" rx="2"/>
                   </svg>
-                </template>
-                停止任务
-              </UiButton>
-              <UiButton class="btn-send" variant="primary" :disabled="!canSubmit || submitting" @click="handleSubmit">
-                <template #icon>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                <span>停止任务</span>
+              </Button>
+              <Button class="btn-send" variant="default" :disabled="!canSubmit || submitting" @click="handleSubmit">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                     fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="22" y1="2" x2="11" y2="13"/>
                     <polygon points="22 2 15 22 11 13 2 9 22 2"/>
                   </svg>
-                </template>
-                {{ submitting ? '发送中' : '发送' }}
-              </UiButton>
+                <span>{{ submitting ? '发送中' : '发送' }}</span>
+              </Button>
             </div>
 
           </div>
@@ -118,7 +112,7 @@ import { ref, computed, nextTick } from 'vue';
 import InputRendererText from './input-renderers/InputRendererText.vue';
 import InputRendererSelect from './input-renderers/InputRendererSelect.vue';
 import IconInfo from './icons/IconInfo.vue';
-import { UiButton } from './ui';
+import { Button } from './ui/button';
 
 // ── 渲染器注册表（新增 input_type 只需在此注册一行）──────────────────────
 const RENDERER_REGISTRY = {

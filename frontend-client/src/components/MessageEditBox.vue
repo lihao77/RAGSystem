@@ -33,39 +33,33 @@
         <div class="msg-edit-att-info">
           <span class="msg-edit-att-name">{{ att.original_name || att.stored_name }}</span>
         </div>
-        <UiIconButton variant="ghost" label="移除附件" title="移除附件" :disabled="submitting" @click="$emit('removeAttachment', att)">
+        <Button variant="ghost" size="icon" aria-label="移除附件" title="移除附件" :disabled="submitting" @click="$emit('removeAttachment', att)">
           <IconClose :size="14" />
-        </UiIconButton>
+        </Button>
       </div>
     </div>
     <div class="msg-edit-action-bar">
-      <UiButton variant="ghost" size="compact" :disabled="submitting" @click="$emit('openAttachments')">
-        <template #icon>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <Button variant="ghost" size="sm" :disabled="submitting" @click="$emit('openAttachments')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
           </svg>
-        </template>
-        附件
-      </UiButton>
+        <span>附件</span>
+      </Button>
       <div class="msg-edit-hint">
         <span class="hint-text">{{ isFocused ? 'Ctrl+Enter 提交 · Esc 取消' : '' }}</span>
       </div>
-      <UiButton variant="ghost" size="compact" :disabled="submitting" @click="$emit('cancel')">
-        <template #icon>
-          <IconClose :size="14" />
-        </template>
-        取消
-      </UiButton>
-      <UiButton variant="primary" size="compact" :disabled="submitting" @click="$emit('confirm')">
-        <template #icon>
-          <IconCheck v-if="!submitting" :size="14" :stroke-width="2.5" />
-          <svg v-else class="spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+      <Button variant="ghost" size="sm" :disabled="submitting" @click="$emit('cancel')">
+        <IconClose :size="14" />
+        <span>取消</span>
+      </Button>
+      <Button variant="default" size="sm" :disabled="submitting" @click="$emit('confirm')">
+        <IconCheck v-if="!submitting" :size="14" :stroke-width="2.5" />
+        <svg v-else class="spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <circle cx="12" cy="12" r="10" opacity="0.25"></circle>
             <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
           </svg>
-        </template>
-        {{ submitting ? '提交中' : '确定' }}
-      </UiButton>
+        <span>{{ submitting ? '提交中' : '确定' }}</span>
+      </Button>
     </div>
   </div>
 </template>
@@ -77,7 +71,7 @@ import { isImageAttachment, isLocalAttachment } from '../utils/sessionAttachment
 import IconCheck from './icons/IconCheck.vue';
 import IconClose from './icons/IconClose.vue';
 import IconFile from './icons/IconFile.vue';
-import { UiButton, UiIconButton } from './ui';
+import { Button } from './ui/button';
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -297,89 +291,6 @@ onMounted(async () => {
   opacity: 0.8;
   white-space: nowrap;
   transition: opacity 0.2s ease;
-}
-
-.msg-edit-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 18px;
-  border-radius: var(--radius-full);
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  border: 1px solid transparent;
-  transition: all 0.3s;
-  outline: none;
-  white-space: nowrap;
-  box-shadow: var(--shadow-sm);
-}
-
-.msg-edit-btn svg {
-  flex-shrink: 0;
-}
-
-.msg-edit-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.msg-edit-btn-attach {
-  background: transparent;
-  color: var(--color-text-secondary);
-  border-color: var(--color-border);
-  box-shadow: none;
-}
-
-.msg-edit-btn-attach:hover:not(:disabled) {
-  background: var(--color-hover-overlay);
-  border-color: var(--color-border-hover);
-  color: var(--color-text-primary);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
-}
-
-.msg-edit-btn-attach:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: none;
-}
-
-.msg-edit-btn-cancel {
-  background: transparent;
-  color: var(--color-text-secondary);
-  border-color: var(--color-border);
-  box-shadow: none;
-}
-
-.msg-edit-btn-cancel:hover:not(:disabled) {
-  background: var(--color-hover-overlay);
-  border-color: var(--color-border-hover);
-  color: var(--color-text-primary);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
-}
-
-.msg-edit-btn-cancel:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: none;
-}
-
-.msg-edit-btn-confirm {
-  background: var(--color-brand-accent);
-  color: var(--color-on-color);
-  border-color: var(--color-brand-accent);
-  box-shadow: 0 2px 8px rgba(var(--color-brand-accent-rgb), 0.25);
-}
-
-.msg-edit-btn-confirm:hover:not(:disabled) {
-  opacity: 0.92;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(var(--color-brand-accent-rgb), 0.4);
-}
-
-.msg-edit-btn-confirm:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: 0 2px 8px rgba(var(--color-brand-accent-rgb), 0.25);
 }
 
 @keyframes spin {

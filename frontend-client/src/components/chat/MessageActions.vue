@@ -1,23 +1,24 @@
 <template>
   <div class="message-actions" :class="{ visible }">
     <template v-if="msg.role === 'user' && editingMessage !== msg">
-      <UiIconButton variant="ghost" :disabled="isLoading" label="编辑" title="编辑" @click="startEditMessage(msg)">
+      <Button variant="ghost" size="icon-xs" :disabled="isLoading" aria-label="编辑" title="编辑" @click="startEditMessage(msg)">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
           <path d="m15 5 4 4" />
         </svg>
-      </UiIconButton>
-      <UiIconButton variant="ghost" label="复制" title="复制" @click="copyMessage(msg)">
+      </Button>
+      <Button variant="ghost" size="icon-xs" aria-label="复制" title="复制" @click="copyMessage(msg)">
         <IconCopy :size="14" />
-      </UiIconButton>
+      </Button>
     </template>
 
     <template v-if="msg.role === 'assistant' && msg.finished">
-      <UiIconButton
+      <Button
         v-if="showWorkPanel && hasExecutionContent(msg)"
         variant="ghost"
+        size="icon-xs"
         :active="selectedWorkPanelMessageKey === getWorkPanelMessageKey(msg)"
-        label="在工作栏查看执行树"
+        aria-label="在工作栏查看执行树"
         title="在工作栏查看执行树"
         @click="selectWorkPanelMessage(msg)"
       >
@@ -27,15 +28,16 @@
           <path d="M6 9h8" />
           <circle cx="17" cy="9" r="3" />
         </svg>
-      </UiIconButton>
-      <UiIconButton variant="ghost" label="复制" title="复制" @click="copyMessage(msg)">
+      </Button>
+      <Button variant="ghost" size="icon-xs" aria-label="复制" title="复制" @click="copyMessage(msg)">
         <IconCopy :size="14" />
-      </UiIconButton>
-      <UiIconButton
+      </Button>
+      <Button
         v-if="retryMessage"
         variant="ghost"
+        size="icon-xs"
         :disabled="isLoading"
-        label="重试"
+        aria-label="重试"
         title="重试"
         @click="rollbackAndRetry(retryMessage)"
       >
@@ -45,7 +47,7 @@
           <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
           <path d="M16 16h5v5" />
         </svg>
-      </UiIconButton>
+      </Button>
       <span
         v-if="getMessageExecutionTimeText(msg)"
         class="message-execution-time"
@@ -59,7 +61,7 @@
 
 <script setup>
 import IconCopy from '../icons/IconCopy.vue';
-import { UiIconButton } from '../ui';
+import { Button } from '../ui/button';
 defineProps({
   msg: { type: Object, required: true },
   visible: { type: Boolean, default: false },

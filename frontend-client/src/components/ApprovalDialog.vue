@@ -13,14 +13,12 @@
                 <p class="approval-subtitle">可先折叠窗口，继续查看 AI 实时进展</p>
               </div>
             </div>
-            <UiButton class="approval-header-action" variant="ghost" size="compact" @click="toggleCollapsed" title="折叠审批窗口">
-              <template #icon>
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <Button class="approval-header-action" variant="ghost" size="sm" @click="toggleCollapsed" title="折叠审批窗口">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M20 12H4"></path>
                 </svg>
-              </template>
-              折叠
-            </UiButton>
+              <span>折叠</span>
+            </Button>
           </div>
 
           <div class="approval-body">
@@ -126,20 +124,18 @@
           </div>
 
           <div class="approval-footer">
-            <UiButton
+            <Button
               v-if="activeMode === 'approve'"
-              class="approval-btn"
-              variant="primary"
-              block
+              class="approval-btn w-full"
+              variant="default"
               @click="handleApprove"
-            >确认允许执行</UiButton>
-            <UiButton
+            >确认允许执行</Button>
+            <Button
               v-if="activeMode === 'deny'"
-              class="approval-btn"
-              variant="danger"
-              block
+              class="approval-btn w-full"
+              variant="destructive"
               @click="handleDeny"
-            >确认拒绝</UiButton>
+            >确认拒绝</Button>
           </div>
         </div>
       </div>
@@ -167,7 +163,7 @@ import { ref, computed } from 'vue';
 import { getApprovalReasonLabels, getApprovalReasonText, getPermissionModeLabel } from '../utils/permissionPresentation';
 import IconWarning from './icons/IconWarning.vue';
 import IconInfo from './icons/IconInfo.vue';
-import { UiButton } from './ui';
+import { Button } from './ui/button';
 
 const emit = defineEmits(['approve', 'deny']);
 
@@ -683,29 +679,6 @@ defineExpose({ show, hide, toggleCollapsed });
   border: none;
   outline: none;
   width: 100%;
-}
-
-.approval-btn-approve {
-  background: var(--color-warning);
-  color: var(--color-bg-primary);
-}
-
-.approval-btn-approve:hover {
-  background: var(--color-warning);
-  box-shadow: 0 0 16px rgba(var(--color-warning-rgb), 0.5);
-  transform: translateY(-1px);
-}
-
-.approval-btn-deny {
-  background: rgba(var(--color-error-rgb), 0.12);
-  color: var(--color-error);
-  border: 1px solid rgba(var(--color-error-rgb), 0.35);
-}
-
-.approval-btn-deny:hover {
-  background: rgba(var(--color-error-rgb), 0.2);
-  box-shadow: 0 0 12px rgba(var(--color-error-rgb), 0.3);
-  transform: translateY(-1px);
 }
 
 .approval-btn:active {

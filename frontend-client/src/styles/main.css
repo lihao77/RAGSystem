@@ -627,8 +627,6 @@ body {
     .markdown-body [role="button"] *,
     .markdown-body .md-block-copy-btn,
     .markdown-body .md-block-copy-btn *,
-    .msg-action-btn,
-    .msg-action-btn *,
     .btn-editor,
     .btn-editor *
 ) {

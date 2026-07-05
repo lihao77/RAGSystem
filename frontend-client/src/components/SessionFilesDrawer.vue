@@ -8,27 +8,23 @@
               <h3>{{ mode === 'message-edit' ? '编辑消息附件' : '添加附件' }}</h3>
               <div class="ctx-subtitle">{{ subtitleText }}</div>
             </div>
-            <UiIconButton class="ctx-close-btn" variant="ghost" label="关闭" @click="$emit('close')">
+            <Button class="ctx-close-btn" variant="ghost" size="icon" aria-label="关闭" @click="$emit('close')">
               <IconClose :size="14" />
-            </UiIconButton>
+            </Button>
           </div>
 
           <div class="ctx-drawer-body">
             <section class="ctx-section">
               <div class="ctx-actions-row">
                 <input ref="fileInputRef" type="file" multiple style="display:none" @change="onFileChange" />
-                <UiButton class="ctx-action-btn" variant="primary" :disabled="uploading" @click="fileInputRef?.click()">
-                  <template #icon>
-                    <IconPlus :size="15" />
-                  </template>
-                  {{ uploading ? '处理中...' : '选择图片或文件' }}
-                </UiButton>
-                <UiButton v-if="sessionId" class="ctx-action-btn" variant="ghost" :disabled="loading" @click="$emit('refresh')">
-                  <template #icon>
-                    <span class="ctx-refresh-icon">↻</span>
-                  </template>
-                  刷新会话文件
-                </UiButton>
+                <Button class="ctx-action-btn" variant="default" :disabled="uploading" @click="fileInputRef?.click()">
+                  <IconPlus :size="15" />
+                  <span>{{ uploading ? '处理中...' : '选择图片或文件' }}</span>
+                </Button>
+                <Button v-if="sessionId" class="ctx-action-btn" variant="ghost" :disabled="loading" @click="$emit('refresh')">
+                  <span class="ctx-refresh-icon">↻</span>
+                  <span>刷新会话文件</span>
+                </Button>
               </div>
               <div class="ctx-dropzone-hint">
                 文件拖入当前窗口任意位置后，可直接松手加入待发送附件
@@ -49,7 +45,7 @@
                     </div>
                   </div>
                   <div class="ctx-file-actions ctx-file-actions--visible">
-                    <UiActionButton class="ctx-inline-btn" variant="danger" @click="$emit('removePending', file)">移除</UiActionButton>
+                    <Button class="ctx-inline-btn" variant="action-danger" size="action" @click="$emit('removePending', file)">移除</Button>
                   </div>
                 </div>
               </div>
@@ -68,11 +64,11 @@
                     </div>
                   </div>
                   <div class="ctx-file-actions">
-                    <UiActionButton class="ctx-inline-btn" @click="$emit('download', file)">下载</UiActionButton>
-                    <UiActionButton class="ctx-inline-btn" @click="$emit('reuse', file)">{{ reuseButtonText }}</UiActionButton>
-                    <UiActionButton class="ctx-inline-btn" variant="danger" :disabled="deletingFileId === file.id" @click="$emit('delete', file)">
+                    <Button class="ctx-inline-btn" variant="action-neutral" size="action" @click="$emit('download', file)">下载</Button>
+                    <Button class="ctx-inline-btn" variant="action-neutral" size="action" @click="$emit('reuse', file)">{{ reuseButtonText }}</Button>
+                    <Button class="ctx-inline-btn" variant="action-danger" size="action" :disabled="deletingFileId === file.id" @click="$emit('delete', file)">
                       {{ deletingFileId === file.id ? '删除中...' : '删除' }}
-                    </UiActionButton>
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -84,7 +80,7 @@
           </div>
 
           <div class="ctx-dialog-footer">
-            <UiButton class="ctx-action-btn" variant="ghost" @click="$emit('close')">关闭</UiButton>
+            <Button class="ctx-action-btn" variant="ghost" @click="$emit('close')">关闭</Button>
           </div>
         </div>
       </div>
@@ -98,7 +94,7 @@ import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 import { formatAttachmentSize, isImageAttachment } from '../utils/sessionAttachments';
 import IconClose from './icons/IconClose.vue';
 import IconPlus from './icons/IconPlus.vue';
-import { UiButton, UiIconButton, UiActionButton } from './ui';
+import { Button } from './ui/button';
 
 const props = defineProps({
   visible: Boolean,

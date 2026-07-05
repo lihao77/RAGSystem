@@ -5,12 +5,10 @@
     mobile-content-padding="var(--spacing-sm)"
   >
     <template #header-actions>
-      <UiButton variant="primary" :disabled="loading || editorBusy" @click="openCreate">
-        <template #icon>
-          <IconPlus :size="14" :stroke-width="2.5" />
-        </template>
-        新建 Skill
-      </UiButton>
+      <Button variant="default" :disabled="loading || editorBusy" @click="openCreate">
+        <IconPlus :size="14" :stroke-width="2.5" />
+        <span>新建 Skill</span>
+      </Button>
     </template>
 
     <KpiCards :items="kpiItems" />
@@ -78,11 +76,11 @@
               </div>
             </div>
             <div v-if="selected.writable" class="adm-panel__actions">
-              <UiButton variant="ghost" @click="openEdit">编辑正文</UiButton>
-              <UiButton variant="ghost" @click="openUpload">上传脚本</UiButton>
-              <UiButton variant="danger" :disabled="deleting" @click="confirmDelete">
+              <Button variant="ghost" @click="openEdit">编辑正文</Button>
+              <Button variant="ghost" @click="openUpload">上传脚本</Button>
+              <Button variant="destructive" :disabled="deleting" @click="confirmDelete">
                 {{ deleting ? '删除中…' : '删除' }}
-              </UiButton>
+              </Button>
             </div>
           </header>
 
@@ -131,10 +129,10 @@
         <p v-if="editor.error" class="form-error">{{ editor.error }}</p>
       </div>
       <DialogFooter>
-        <UiButton variant="ghost" @click="closeEditor">取消</UiButton>
-        <UiButton variant="primary" :disabled="editorBusy" @click="saveEditor">
+        <Button variant="ghost" @click="closeEditor">取消</Button>
+        <Button variant="default" :disabled="editorBusy" @click="saveEditor">
           {{ editorBusy ? '保存中…' : '保存' }}
-        </UiButton>
+        </Button>
       </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -159,10 +157,10 @@
         <p v-if="uploader.error" class="form-error">{{ uploader.error }}</p>
       </div>
       <DialogFooter>
-        <UiButton variant="ghost" @click="closeUploader">取消</UiButton>
-        <UiButton variant="primary" :disabled="uploaderBusy || !uploader.files.length" @click="doUpload">
+        <Button variant="ghost" @click="closeUploader">取消</Button>
+        <Button variant="default" :disabled="uploaderBusy || !uploader.files.length" @click="doUpload">
           {{ uploaderBusy ? '上传中…' : '上传' }}
-        </UiButton>
+        </Button>
       </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -179,7 +177,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import KpiCards from '../components/admin/KpiCards.vue';
 import MarkdownContent from '../components/chat/MarkdownContent.vue';
 import { renderMarkdown } from '../utils/markdown';
-import { UiButton } from '../components/ui';
+import { Button } from '../components/ui/button';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';

@@ -40,12 +40,12 @@
           </div>
 
           <div class="fp-footer">
-            <UiButton class="fp-btn" variant="ghost" block @click="handleDeny">
+            <Button class="fp-btn w-full" variant="ghost" @click="handleDeny">
               仅使用预览
-            </UiButton>
-            <UiButton class="fp-btn" variant="primary" block @click="handleApprove">
+            </Button>
+            <Button class="fp-btn w-full" variant="default" @click="handleApprove">
               读取完整内容
-            </UiButton>
+            </Button>
           </div>
         </div>
       </div>
@@ -56,7 +56,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import IconFile from './icons/IconFile.vue';
-import { UiButton } from './ui';
+import { Button } from './ui/button';
 
 const visible = ref(false);
 const filePath = ref('');

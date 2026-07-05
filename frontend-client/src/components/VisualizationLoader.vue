@@ -20,7 +20,7 @@
         <IconInfo :size="18" />
       </span>
       <span class="error-text">{{ error }}</span>
-      <UiButton class="retry-btn" variant="ghost" size="compact" @click="fetchConfig">重试</UiButton>
+      <Button class="retry-btn" variant="ghost" size="sm" @click="fetchConfig">重试</Button>
     </div>
 
     <template v-else>
@@ -64,7 +64,7 @@
 import { ref, computed, defineAsyncComponent, onMounted } from 'vue';
 import { getVisualization } from '../api/artifact.js';
 import IconInfo from './icons/IconInfo.vue';
-import { UiButton } from './ui';
+import { Button } from './ui/button';
 
 const ChartRenderer = defineAsyncComponent(() => import('./ChartRenderer.vue'));
 const MapRenderer = defineAsyncComponent(() => import('./MapRenderer.vue'));

@@ -2,17 +2,15 @@
   <PageLayout title="守护 Agent" subtitle="飞书网关 · 定时调度 · 心跳监控">
     <template #header-actions>
       <div class="hdr-actions">
-        <UiButton size="compact" :variant="status.running ? 'danger' : 'primary'" :disabled="loading" @click="toggleDaemon">
-          <template #icon>
+        <Button size="sm" :variant="status.running ? 'destructive' : 'default'" :disabled="loading" @click="toggleDaemon">
             <IconPause v-if="!loading && status.running" :size="14" />
             <IconPlay v-else-if="!loading" :size="14" />
             <span v-if="loading" class="btn-spin"/>
-          </template>
-          {{ loading ? '...' : (status.running ? '停止' : '启动') }}
-        </UiButton>
-        <UiIconButton variant="ghost" label="刷新" :disabled="loading" @click="refresh">
+            <span>{{ loading ? '...' : (status.running ? '停止' : '启动') }}</span>
+        </Button>
+        <Button variant="ghost" size="icon" aria-label="刷新" :disabled="loading" @click="refresh">
           <IconRefresh :size="16" />
-        </UiIconButton>
+        </Button>
       </div>
     </template>
 
@@ -41,7 +39,7 @@
       <section class="dmgr-section adm-panel">
         <div class="dmgr-section-head">
           <span class="dmgr-section-title">基础配置</span>
-          <UiButton variant="primary" size="sm" :disabled="baseSaving" @click="saveBaseConfig">{{ baseSaving ? '保存中...' : '保存' }}</UiButton>
+          <Button variant="default" size="sm" :disabled="baseSaving" @click="saveBaseConfig">{{ baseSaving ? '保存中...' : '保存' }}</Button>
         </div>
         <div class="config-card">
           <div class="config-grid">
@@ -65,7 +63,7 @@
       <section class="dmgr-section adm-panel">
         <div class="dmgr-section-head">
           <span class="dmgr-section-title">平台配置</span>
-          <UiButton variant="primary" size="sm" @click="openAddPlatform">+ 添加</UiButton>
+          <Button variant="default" size="sm" @click="openAddPlatform">+ 添加</Button>
         </div>
         <div v-if="platformConfigs.length" class="platform-grid">
           <div v-for="pc in platformConfigs" :key="pc.key" class="platform-card" :class="{ 'platform-card--active': pc.enabled }">
@@ -80,8 +78,8 @@
               <div v-for="ef in pc.extra_fields" :key="ef.key" class="platform-field"><span class="pf-lbl">{{ ef.label }}</span><span class="pf-val">{{ ef.value || '—' }}</span></div>
             </div>
             <div class="platform-card-foot">
-              <UiActionButton @click="openEditPlatform(pc.key)">编辑</UiActionButton>
-              <UiActionButton variant="danger" @click="removePlatform(pc.key)">移除</UiActionButton>
+              <Button variant="action-neutral" size="action" @click="openEditPlatform(pc.key)">编辑</Button>
+              <Button variant="action-danger" size="action" @click="removePlatform(pc.key)">移除</Button>
             </div>
           </div>
         </div>
@@ -101,7 +99,7 @@
                 <span class="adp-dot"/>
                 <span class="adp-name">{{ platformLabel(platform) }}</span>
                 <span class="adp-status">{{ statusLabel(info.status) }}</span>
-                <UiActionButton v-if="info.enabled && info.status === 'connected'" @click="openTestDialog(agent.team_name, platform)">测试</UiActionButton>
+                <Button v-if="info.enabled && info.status === 'connected'" variant="action-neutral" size="action" @click="openTestDialog(agent.team_name, platform)">测试</Button>
               </div>
             </div>
           </div>
@@ -115,7 +113,7 @@
       <section class="dmgr-section adm-panel">
         <div class="dmgr-section-head">
           <span class="dmgr-section-title">权限配置</span>
-          <UiButton variant="primary" size="sm" :disabled="permSaving" @click="savePermissions">{{ permSaving ? '保存中...' : '保存' }}</UiButton>
+          <Button variant="default" size="sm" :disabled="permSaving" @click="savePermissions">{{ permSaving ? '保存中...' : '保存' }}</Button>
         </div>
         <div class="config-card">
           <div class="config-grid">
@@ -136,7 +134,7 @@
             <CustomSelect v-model="newPatternForm.pattern_type" :options="autoAcceptPatternOptions" />
             <input v-model="newPatternForm.pattern_value" class="form-ctrl" placeholder="如: read_file / *.md / high" />
             <input v-model="newPatternForm.description" class="form-ctrl" placeholder="描述（可选）" />
-            <UiButton variant="primary" size="sm" :disabled="!newPatternForm.pattern_value.trim()" @click="addAutoAcceptPattern">添加</UiButton>
+            <Button variant="default" size="sm" :disabled="!newPatternForm.pattern_value.trim()" @click="addAutoAcceptPattern">添加</Button>
           </div>
           <div v-if="permForm.auto_accept_patterns.length" class="permission-rule-list">
             <div v-for="(pattern, index) in permForm.auto_accept_patterns" :key="`${pattern.pattern_type}-${pattern.pattern_value}-${index}`" class="permission-rule-item">
@@ -145,7 +143,7 @@
                 <code class="permission-rule-value">{{ pattern.pattern_value }}</code>
                 <span v-if="pattern.description" class="permission-rule-desc">{{ pattern.description }}</span>
               </div>
-              <UiIconButton variant="danger" label="删除规则" @click="removeAutoAcceptPattern(index)"><IconClose :size="13" :stroke-width="2.5" /></UiIconButton>
+              <Button variant="destructive" size="icon" aria-label="删除规则" @click="removeAutoAcceptPattern(index)"><IconClose :size="13" :stroke-width="2.5" /></Button>
             </div>
           </div>
           <div v-else class="empty-panel empty-panel--compact adm-state adm-state--empty"><p>暂无自动接受规则</p></div>
@@ -155,7 +153,7 @@
       <section class="dmgr-section adm-panel">
         <div class="dmgr-section-head">
           <span class="dmgr-section-title">定时任务</span>
-          <UiButton variant="primary" size="sm" @click="openAddTask">+ 新增</UiButton>
+          <Button variant="default" size="sm" @click="openAddTask">+ 新增</Button>
         </div>
         <div v-if="cronTasks.length" class="cron-list">
           <div v-for="task in cronTasks" :key="task.task_id" class="cron-row">
@@ -173,12 +171,12 @@
               </div>
             </div>
             <div class="cron-row-actions">
-              <UiIconButton label="手动触发" @click="handleTriggerTask(task.task_id)"><IconPlay :size="13" /></UiIconButton>
-              <UiIconButton :label="task.enabled ? '禁用' : '启用'" @click="handleToggleTask(task)">
+              <Button variant="secondary" size="icon" aria-label="手动触发" @click="handleTriggerTask(task.task_id)"><IconPlay :size="13" /></Button>
+              <Button variant="secondary" size="icon" :aria-label="task.enabled ? '禁用' : '启用'" @click="handleToggleTask(task)">
                 <IconPause v-if="task.enabled" :size="13" />
                 <IconPlay v-else :size="13" />
-              </UiIconButton>
-              <UiIconButton variant="danger" label="删除" @click="handleDeleteTask(task.task_id)"><IconClose :size="13" :stroke-width="2.5" /></UiIconButton>
+              </Button>
+              <Button variant="destructive" size="icon" aria-label="删除" @click="handleDeleteTask(task.task_id)"><IconClose :size="13" :stroke-width="2.5" /></Button>
             </div>
           </div>
         </div>
@@ -197,7 +195,7 @@
           </div>
           <textarea v-model="pushForm.content" class="form-ctrl" placeholder="推送内容" rows="2"/>
           <div class="push-foot">
-            <UiButton size="compact" variant="primary" @click="handlePush" :disabled="pushSending || !pushForm.chat_id || !pushForm.content">{{ pushSending ? '发送中...' : '发送' }}</UiButton>
+            <Button size="sm" variant="default" @click="handlePush" :disabled="pushSending || !pushForm.chat_id || !pushForm.content">{{ pushSending ? '发送中...' : '发送' }}</Button>
           </div>
         </div>
       </section>
@@ -225,8 +223,8 @@
         </div>
       </div>
         <DialogFooter>
-        <UiButton size="compact" @click="showConfigModal = false">取消</UiButton>
-        <UiButton size="compact" variant="primary" @click="savePlatformConfig" :disabled="configSaving">{{ configSaving ? '保存中...' : '保存' }}</UiButton>
+        <Button size="sm" @click="showConfigModal = false">取消</Button>
+        <Button size="sm" variant="default" @click="savePlatformConfig" :disabled="configSaving">{{ configSaving ? '保存中...' : '保存' }}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -252,8 +250,8 @@
         </div>
       </div>
         <DialogFooter>
-        <UiButton size="compact" @click="showAddTask = false">取消</UiButton>
-        <UiButton size="compact" variant="primary" @click="handleAddTask" :disabled="addTaskSaving">{{ addTaskSaving ? '创建中...' : '创建' }}</UiButton>
+        <Button size="sm" @click="showAddTask = false">取消</Button>
+        <Button size="sm" variant="default" @click="handleAddTask" :disabled="addTaskSaving">{{ addTaskSaving ? '创建中...' : '创建' }}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -268,8 +266,8 @@
         <div class="form-item"><label class="form-label">消息内容</label><input v-model="testForm.content" class="form-ctrl" placeholder="测试消息" /></div>
       </div>
         <DialogFooter>
-        <UiButton size="compact" @click="showTestDialog = false">取消</UiButton>
-        <UiButton size="compact" variant="primary" @click="handleTest" :disabled="testSending">{{ testSending ? '发送中...' : '发送' }}</UiButton>
+        <Button size="sm" @click="showTestDialog = false">取消</Button>
+        <Button size="sm" variant="default" @click="handleTest" :disabled="testSending">{{ testSending ? '发送中...' : '发送' }}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -287,7 +285,8 @@ import CustomSelect from '../components/ui/CustomSelect.vue';
 import ToggleSwitch from '../components/ToggleSwitch.vue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import KpiCards from '../components/admin/KpiCards.vue';
-import { UiBadge, UiButton, UiIconButton, UiActionButton } from '../components/ui';
+import { UiBadge } from '../components/ui';
+import { Button } from '../components/ui/button';
 import { useToast } from '../composables/useToast.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import * as api from '../api/daemon';

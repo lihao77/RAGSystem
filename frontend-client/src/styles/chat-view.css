@@ -633,61 +633,6 @@
   min-height: 28px;
 }
 
-.msg-action-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  margin-left: 6px;
-  border-radius: var(--radius-sm);
-  border: none;
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: color 0.2s ease;
-  outline: none;
-}
-
-.msg-action-btn:first-child {
-  margin-left: 0;
-}
-
-.msg-action-btn:hover {
-  background: transparent;
-  color: var(--color-text-secondary);
-}
-
-.msg-action-btn:active {
-  transform: scale(0.92);
-}
-
-/* 重试 - 品牌蓝 */
-.msg-action-btn.btn-retry:hover {
-  color: var(--color-brand-accent);
-}
-
-/* 编辑 - 中性 */
-.msg-action-btn.btn-edit:hover {
-  color: var(--color-text-primary);
-}
-
-/* 复制 - 成功绿 */
-.msg-action-btn.btn-copy:hover {
-  color: var(--color-success);
-}
-
-.msg-action-btn:focus-visible {
-  outline: 1.5px solid rgba(var(--color-brand-accent-light-rgb), 0.5);
-  outline-offset: 2px;
-}
-.msg-action-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-
 .message-execution-time {
   display: inline-flex;
   align-items: center;

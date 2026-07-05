@@ -8,9 +8,9 @@
     mobile-title="Provider 管理"
   >
     <template #header-actions>
-      <UiIconButton variant="primary" label="添加 Provider" @click="openCreateDialog">
+      <Button variant="default" size="icon" aria-label="添加 Provider" @click="openCreateDialog">
         <IconPlus :size="15" />
-      </UiIconButton>
+      </Button>
     </template>
 
     <template #header-menu="{ close }">
@@ -53,12 +53,10 @@
         <div class="inline-actions">
           <span v-if="reordering" class="reorder-status">正在保存排序...</span>
           <span v-else-if="reorderError" class="reorder-status reorder-status--error">{{ reorderError }}</span>
-          <UiButton :disabled="loading || reordering" @click="loadProviders">
-            <template #icon>
-              <IconRefresh :size="14" :class="{ spin: loading }" />
-            </template>
-            {{ loading ? '刷新中...' : '刷新列表' }}
-          </UiButton>
+          <Button variant="secondary" :disabled="loading || reordering" @click="loadProviders">
+            <IconRefresh :size="14" :class="{ spin: loading }" />
+            <span>{{ loading ? '刷新中...' : '刷新列表' }}</span>
+          </Button>
         </div>
       </template>
       <template #empty-icon>
@@ -89,19 +87,19 @@
             </div>
 
             <div class="provider-row-actions">
-              <UiActionButton variant="success" :disabled="testingKey === getProviderKey(provider)" @click="quickTest(provider)">
+              <Button variant="action-success" size="action" :disabled="testingKey === getProviderKey(provider)" @click="quickTest(provider)">
                 <div v-if="testingKey === getProviderKey(provider)" class="g-spinner g-spinner--sm"></div>
                 <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                 {{ testingKey === getProviderKey(provider) ? '测试中' : '测试' }}
-              </UiActionButton>
-              <UiActionButton @click="openEditDialog(provider)">
+              </Button>
+              <Button variant="action-neutral" size="action" @click="openEditDialog(provider)">
                 <IconEdit :size="14" />
                 编辑
-              </UiActionButton>
-              <UiActionButton variant="danger" @click="confirmDelete(provider)">
+              </Button>
+              <Button variant="action-danger" size="action" @click="confirmDelete(provider)">
                 <IconTrash :size="14" />
                 删除
-              </UiActionButton>
+              </Button>
             </div>
           </div>
 
@@ -180,19 +178,19 @@
               <input v-model="entry.task" class="form-control form-control--sm" placeholder="chat" />
               <span class="map-arrow">→</span>
               <input v-model="entry.model" class="form-control" placeholder="gpt-4o" />
-              <UiIconButton variant="danger" label="删除映射" title="删除映射" @click="removeModelMapEntry(idx)">
+              <Button variant="destructive" size="icon" aria-label="删除映射" title="删除映射" @click="removeModelMapEntry(idx)">
                 <IconClose :size="14" />
-              </UiIconButton>
+              </Button>
             </div>
-            <UiButton variant="ghost" block @click="addModelMapEntry">+ 添加映射</UiButton>
+            <Button variant="ghost" class="w-full" @click="addModelMapEntry">+ 添加映射</Button>
           </div>
         </section>
 
         <div v-if="dialog.error" class="form-error">{{ dialog.error }}</div>
       </div>
       <DialogFooter>
-        <UiButton size="compact" @click="closeDialog">取消</UiButton>
-        <UiButton size="compact" variant="primary" :disabled="saving" @click="handleSubmit">{{ saving ? '保存中...' : '保存' }}</UiButton>
+        <Button size="sm" @click="closeDialog">取消</Button>
+        <Button size="sm" variant="default" :disabled="saving" @click="handleSubmit">{{ saving ? '保存中...' : '保存' }}</Button>
       </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -204,8 +202,8 @@
         </DialogHeader>
         <p class="delete-confirm-msg">确定要删除 Provider <strong>{{ deleteTarget ? getProviderKey(deleteTarget) : '' }}</strong> 吗？此操作不可撤销。</p>
         <DialogFooter>
-        <UiButton size="compact" @click="deleteTarget = null">取消</UiButton>
-        <UiButton size="compact" variant="danger" :disabled="deleting" @click="doDelete">{{ deleting ? '删除中...' : '确认删除' }}</UiButton>
+        <Button size="sm" @click="deleteTarget = null">取消</Button>
+        <Button size="sm" variant="destructive" :disabled="deleting" @click="doDelete">{{ deleting ? '删除中...' : '确认删除' }}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -225,7 +223,7 @@ import IconClose from '../components/icons/IconClose.vue';
 import IconPlus from '../components/icons/IconPlus.vue';
 import IconTrash from '../components/icons/IconTrash.vue';
 import IconEdit from '../components/icons/IconEdit.vue';
-import { UiButton, UiIconButton, UiActionButton } from '../components/ui';
+import { Button } from '../components/ui/button';
 import { useToast } from '../composables/useToast.js';
 import { useEntityList } from '../composables/useEntityList.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';

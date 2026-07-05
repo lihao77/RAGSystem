@@ -9,9 +9,9 @@
           <IconChevronRight :size="20" class="sidebar-expand-icon" />
         </div>
 
-        <UiIconButton class="toggle-sidebar-btn" variant="ghost" label="折叠侧栏" title="Collapse sidebar" @click="toggleSidebar">
+        <Button class="toggle-sidebar-btn" variant="ghost" size="icon" aria-label="折叠侧栏" title="Collapse sidebar" @click="toggleSidebar">
           <IconChevronLeft :size="20" />
-        </UiIconButton>
+        </Button>
       </div>
 
       <div class="sidebar-header">
@@ -125,8 +125,7 @@ import { useDictionariesStore } from '../stores/dictionaries.js';
 import { useSessionListStore } from '../stores/session-list.js';
 import { deleteSession as deleteSessionApi } from '../api/session';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconNewConversation, IconTrash } from '../components/icons';
-import { UiButton, UiIconButton } from '../components/ui';
-import { Button } from '@/components/ui/button';
+import { Button } from '../components/ui/button';
 import { sidebarAdminNavItem, managementNavItems } from '../navigation/adminNavigation';
 import CommandPalette from '../components/CommandPalette.vue';
 import { useCommandPalette } from '../composables/useCommandPalette.js';
@@ -982,14 +981,6 @@ onUnmounted(() => {
   padding: 12px 16px;
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
-}
-
-.retry-btn {
-  margin-left: 8px;
-  border: none;
-  background: transparent;
-  color: var(--color-brand-accent);
-  cursor: pointer;
 }
 
 .sidebar-footer {

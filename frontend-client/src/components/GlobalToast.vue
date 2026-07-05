@@ -3,9 +3,9 @@
     <Transition name="toast">
       <div v-if="state.visible" class="app-toast" :class="state.type">
         <span>{{ state.message }}</span>
-        <UiButton v-if="state.action" variant="link" @click="runAction">
+        <Button v-if="state.action" variant="link" @click="runAction">
           {{ state.actionLabel }}
-        </UiButton>
+        </Button>
       </div>
     </Transition>
   </Teleport>
@@ -13,7 +13,7 @@
 
 <script setup>
 import { useToast } from '../composables/useToast';
-import { UiButton } from './ui';
+import { Button } from './ui/button';
 
 const { state, hide } = useToast();
 
@@ -62,22 +62,6 @@ function runAction() {
 
 .app-toast span {
   flex: 1;
-}
-
-.app-toast__action {
-  padding: 6px 12px;
-  border-radius: var(--control-radius);
-  border: none;
-  background: transparent;
-  color: var(--color-brand-accent);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.app-toast__action:hover {
-  background: var(--color-hover-overlay-md);
 }
 
 .toast-enter-active,

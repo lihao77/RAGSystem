@@ -10,10 +10,12 @@ interface Props extends PrimitiveProps {
   variant?: ButtonVariants["variant"]
   size?: ButtonVariants["size"]
   class?: HTMLAttributes["class"]
+  active?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   as: "button",
+  active: false,
 })
 </script>
 
@@ -21,6 +23,7 @@ const props = withDefaults(defineProps<Props>(), {
   <Primitive
     :as="as"
     :as-child="asChild"
+    :data-active="active ? '' : undefined"
     :class="cn(buttonVariants({ variant, size }), props.class)"
   >
     <slot />

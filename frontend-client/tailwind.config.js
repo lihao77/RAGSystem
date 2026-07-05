@@ -68,10 +68,12 @@ export default {
         'hover-overlay-md': 'var(--color-hover-overlay-md)',
         success: {
           DEFAULT: 'var(--color-success)',
+          foreground: 'var(--color-on-color)',
           bg: 'var(--color-success-bg)',
         },
         warning: {
           DEFAULT: 'var(--color-warning)',
+          foreground: 'var(--color-on-color)',
           bg: 'var(--color-warning-bg)',
         },
         error: {

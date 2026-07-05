@@ -59,19 +59,17 @@
       </template>
     </div>
     <div class="bar-right">
-      <UiButton variant="ghost" title="退出态势大屏 (ESC)" @click="$emit('close')">
-        <template #icon>
-          <IconClose :size="15" />
-        </template>
-        退出
-      </UiButton>
+      <Button variant="ghost" title="退出态势大屏 (ESC)" @click="$emit('close')">
+        <IconClose :size="15" />
+        <span>退出</span>
+      </Button>
     </div>
   </div>
 </template>
 
 <script setup>
 import IconClose from './icons/IconClose.vue';
-import { UiButton } from './ui';
+import { Button } from './ui/button';
 defineProps({
   mapData: { type: Object, default: () => ({}) },
 });

@@ -34,18 +34,14 @@
       @retry="runLoadServers"
     >
       <template #actions>
-        <UiButton variant="primary" @click="openAddService">
-          <template #icon>
-            <IconPlus :size="14" />
-          </template>
-          添加服务
-        </UiButton>
-        <UiButton :disabled="loadingServers" @click="runLoadServers">
-          <template #icon>
-            <IconRefresh :size="14" />
-          </template>
-          刷新
-        </UiButton>
+        <Button variant="default" @click="openAddService">
+          <IconPlus :size="14" />
+          <span>添加服务</span>
+        </Button>
+        <Button variant="secondary" :disabled="loadingServers" @click="runLoadServers">
+          <IconRefresh :size="14" />
+          <span>刷新</span>
+        </Button>
       </template>
       <template #empty-icon>
         <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
@@ -86,24 +82,24 @@
           </div>
 
           <div class="server-actions">
-            <UiActionButton variant="success" :disabled="!server.enabled || server.status === 'connected'" @click="handleConnect(server)" title="连接">
+            <Button variant="action-success" size="action" :disabled="!server.enabled || server.status === 'connected'" @click="handleConnect(server)" title="连接">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>连接
-            </UiActionButton>
-            <UiActionButton variant="warning" :disabled="server.status !== 'connected'" @click="handleDisconnect(server)" title="断开">
+            </Button>
+            <Button variant="action-warning" size="action" :disabled="server.status !== 'connected'" @click="handleDisconnect(server)" title="断开">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.56 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>断开
-            </UiActionButton>
-            <UiActionButton @click="handleTest(server)" title="测试连接">
+            </Button>
+            <Button variant="action-neutral" size="action" @click="handleTest(server)" title="测试连接">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>测试
-            </UiActionButton>
-            <UiActionButton @click="showTools(server)" title="查看工具">
+            </Button>
+            <Button variant="action-neutral" size="action" @click="showTools(server)" title="查看工具">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>工具 <span v-if="server.tool_count" class="adm-action-badge">{{ server.tool_count }}</span>
-            </UiActionButton>
-            <UiActionButton @click="openEditDialog(server)" title="编辑配置">
+            </Button>
+            <Button variant="action-neutral" size="action" @click="openEditDialog(server)" title="编辑配置">
               <IconEdit :size="14" />编辑
-            </UiActionButton>
-            <UiActionButton variant="danger" @click="handleDelete(server)" title="删除">
+            </Button>
+            <Button variant="action-danger" size="action" @click="handleDelete(server)" title="删除">
               <IconTrash :size="14" />删除
-            </UiActionButton>
+            </Button>
           </div>
         </article>
       </div>
@@ -115,9 +111,9 @@
           <h3>添加 MCP 服务</h3>
           <p>从 Registry 搜索安装，或手动填写连接参数。</p>
         </div>
-        <UiIconButton class="add-service-close" variant="ghost" label="收起" @click="addServiceVisible = false">
+        <Button class="add-service-close" variant="ghost" size="icon" aria-label="收起" @click="addServiceVisible = false">
           <IconClose :size="16" />
-        </UiIconButton>
+        </Button>
       </div>
       <!-- 注：.add-subnav 是「添加服务」面板内的次级方式切换（手动 vs Registry），
            不是页面级 Tab；用局部 pill 切换更贴合折叠面板语境，故不复用 .adm-tabs。 -->
@@ -158,14 +154,12 @@
           <label class="toggle-field"><ToggleSwitch v-model="installForm.auto_connect" /><span>自动连接</span></label>
         </div>
         <div class="form-actions">
-          <UiButton variant="ghost" size="compact" @click="resetInstallForm">重置</UiButton>
-          <UiButton variant="primary" size="compact" :disabled="installing" @click="submitManualInstall">
-            <template #icon>
-              <IconDownload v-if="!installing" :size="15" />
-              <div v-else class="g-spinner g-spinner--sm"></div>
-            </template>
-            {{ installing ? '安装中...' : '安装服务' }}
-          </UiButton>
+          <Button variant="ghost" size="sm" @click="resetInstallForm">重置</Button>
+          <Button variant="default" size="sm" :disabled="installing" @click="submitManualInstall">
+            <IconDownload v-if="!installing" :size="15" />
+            <div v-else class="g-spinner g-spinner--sm"></div>
+            <span>{{ installing ? '安装中...' : '安装服务' }}</span>
+          </Button>
         </div>
         </div>
       </div>
@@ -177,7 +171,7 @@
           <input v-model.trim="registrySearch.query" type="text" placeholder="搜索服务名称，如 github / filesystem / mysql ..." class="registry-search-input" @keyup.enter="searchRegistryServers" />
         </div>
         <label class="toggle-field toggle-field--inline"><ToggleSwitch v-model="registrySearch.latest_only" /><span>仅最新版本</span></label>
-        <UiButton :disabled="loadingRegistryResults" @click="searchRegistryServers">{{ loadingRegistryResults ? '搜索中...' : '搜索' }}</UiButton>
+        <Button variant="secondary" :disabled="loadingRegistryResults" @click="searchRegistryServers">{{ loadingRegistryResults ? '搜索中...' : '搜索' }}</Button>
       </div>
 
       <EntityListLayout
@@ -209,8 +203,8 @@
             {{ firstUnsupportedReason(item) }}
           </div>
           <div class="registry-card-actions">
-            <UiButton size="sm" variant="primary" :disabled="!item.installable || installingRegistry" @click="handleRegistryInstall(item)">{{ quickInstallButtonText(item) }}</UiButton>
-            <UiButton size="sm" :disabled="!item.install_options?.length" @click="openRegistryInstallDialog(item)">配置安装</UiButton>
+            <Button size="sm" variant="default" :disabled="!item.installable || installingRegistry" @click="handleRegistryInstall(item)">{{ quickInstallButtonText(item) }}</Button>
+            <Button size="sm" variant="secondary" :disabled="!item.install_options?.length" @click="openRegistryInstallDialog(item)">配置安装</Button>
             <div class="registry-links">
               <a v-if="item.website_url" class="ext-link" @click.prevent="openExternalLink(item.website_url)" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>官网</a>
               <a v-if="item.repository_url" class="ext-link" @click.prevent="openExternalLink(item.repository_url)" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7 3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>源码</a>
@@ -219,7 +213,7 @@
         </article>
       </div>
       <div v-if="registryNextCursor" class="load-more-row">
-        <UiButton :disabled="loadingMoreRegistry" @click="loadMoreRegistryServers">{{ loadingMoreRegistry ? '加载中...' : '加载更多结果' }}</UiButton>
+        <Button variant="secondary" :disabled="loadingMoreRegistry" @click="loadMoreRegistryServers">{{ loadingMoreRegistry ? '加载中...' : '加载更多结果' }}</Button>
       </div>
       </div>
     </section>
@@ -269,8 +263,8 @@
         </div>
       </div>
       <DialogFooter>
-        <UiButton size="compact" @click="closeRegistryInstallDialog">取消</UiButton>
-        <UiButton size="compact" variant="primary" :disabled="installingRegistry || !selectedRegistryOption?.supported" @click="submitRegistryInstall()">{{ installingRegistry ? '安装中...' : '安装服务' }}</UiButton>
+        <Button size="sm" @click="closeRegistryInstallDialog">取消</Button>
+        <Button size="sm" variant="default" :disabled="installingRegistry || !selectedRegistryOption?.supported" @click="submitRegistryInstall()">{{ installingRegistry ? '安装中...' : '安装服务' }}</Button>
       </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -309,8 +303,8 @@
         </div>
       </div>
       <DialogFooter>
-        <UiButton size="compact" @click="closeEditDialog">取消</UiButton>
-        <UiButton size="compact" variant="primary" :disabled="savingEdit" @click="saveEdit">{{ savingEdit ? '保存中...' : '保存更改' }}</UiButton>
+        <Button size="sm" @click="closeEditDialog">取消</Button>
+        <Button size="sm" variant="default" :disabled="savingEdit" @click="saveEdit">{{ savingEdit ? '保存中...' : '保存更改' }}</Button>
       </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -360,7 +354,8 @@ import IconSearch from '../components/icons/IconSearch.vue';
 import IconTrash from '../components/icons/IconTrash.vue';
 import IconWarning from '../components/icons/IconWarning.vue';
 import IconInfo from '../components/icons/IconInfo.vue';
-import { UiBadge, UiButton, UiActionButton, UiIconButton } from '../components/ui';
+import { UiBadge } from '../components/ui';
+import { Button } from '../components/ui/button';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';

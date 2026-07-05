@@ -93,9 +93,9 @@
         <div class="section-divider"></div>
         <div class="section-label">
           自动接受规则
-          <UiIconButton variant="ghost" label="添加规则" title="添加规则" @click.stop="showAddRule = !showAddRule">
+          <Button variant="ghost" size="icon" aria-label="添加规则" title="添加规则" @click.stop="showAddRule = !showAddRule">
             <IconPlus :size="14" />
-          </UiIconButton>
+          </Button>
         </div>
 
         <!-- 添加规则表单 -->
@@ -111,7 +111,7 @@
             :placeholder="rulePlaceholder"
             @keydown.enter="addRule"
           />
-          <UiButton variant="primary" size="compact" :disabled="!newRule.value.trim()" @click="addRule">添加</UiButton>
+          <Button variant="default" size="sm" :disabled="!newRule.value.trim()" @click="addRule">添加</Button>
         </div>
 
         <!-- 已有规则列表 -->
@@ -119,9 +119,9 @@
           <div v-for="(p, i) in patterns" :key="i" class="rule-item">
             <span class="rule-type-badge">{{ ruleTypeLabel(p.pattern_type) }}</span>
             <span class="rule-value">{{ p.pattern_value }}</span>
-            <UiIconButton variant="danger" label="删除规则" title="删除" @click.stop="removeRule(p)">
+            <Button variant="destructive" size="icon" aria-label="删除规则" title="删除" @click.stop="removeRule(p)">
               <IconClose :size="12" />
-            </UiIconButton>
+            </Button>
           </div>
         </div>
         <div v-else class="rules-empty">暂无规则</div>
@@ -145,7 +145,7 @@ import IconChevronDown from './icons/IconChevronDown.vue';
 import IconCheck from './icons/IconCheck.vue';
 import IconClose from './icons/IconClose.vue';
 import IconPlus from './icons/IconPlus.vue';
-import { UiButton, UiIconButton } from './ui';
+import { Button } from './ui/button';
 
 const dropdownOpen = ref(false);
 const currentMode = ref('standard');
@@ -298,10 +298,6 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-.mode-text {
-  display: none;
-}
-
 .arrow-icon {
   display: none;
 }
@@ -408,11 +404,6 @@ onMounted(() => {
 .skip-all-title-badge.active {
   background: rgba(var(--color-error-rgb, 239, 68, 68), 0.14);
   color: var(--color-error);
-}
-
-.skip-all-toggle-state {
-  font-size: 0.75rem;
-  color: var(--color-text-secondary);
 }
 
 .skip-all-switch.active .skip-all-toggle-title {
@@ -537,23 +528,6 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-/* 添加规则 */
-.add-rule-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--color-text-secondary);
-  padding: 2px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  transition: color 0.15s;
-}
-
-.add-rule-btn:hover {
-  color: var(--color-text-primary);
-}
-
 .add-rule-form {
   display: flex;
   gap: 4px;
@@ -586,24 +560,6 @@ onMounted(() => {
 
 .rule-input:focus {
   border-color: var(--color-brand-accent);
-}
-
-.rule-confirm-btn {
-  padding: 4px 10px;
-  border: none;
-  border-radius: 6px;
-  background: var(--color-brand-accent);
-  color: var(--color-on-color);
-  font-size: 0.75rem;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: opacity 0.15s;
-}
-
-.rule-confirm-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
 }
 
 /* 规则列表 */
@@ -644,23 +600,6 @@ onMounted(() => {
   font-family: 'Courier New', monospace;
 }
 
-.rule-delete-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--color-text-secondary);
-  padding: 2px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  transition: color 0.15s;
-}
-
-.rule-delete-btn:hover {
-  color: var(--color-error);
-}
-
 .rules-empty {
   padding: 8px 14px;
   font-size: 0.75rem;
@@ -670,9 +609,6 @@ onMounted(() => {
 
 /* 移动端 */
 @media (max-width: 767px) {
-  .mode-text {
-    display: none;
-  }
   .arrow-icon {
     display: none;
   }

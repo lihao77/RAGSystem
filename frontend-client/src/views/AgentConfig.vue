@@ -18,15 +18,13 @@
         placeholder="请选择 Agent"
         @update:model-value="selectedAgent = $event; handleAgentChange()"
       />
-      <UiIconButton label="新建 Agent" :disabled="saving || agentLoading" @click="openCreateDialog">
+      <Button variant="secondary" size="icon" aria-label="新建 Agent" :disabled="saving || agentLoading" @click="openCreateDialog">
         <IconPlus :size="16" :stroke-width="2.5" />
-      </UiIconButton>
-      <UiButton v-if="selectedAgent" variant="primary" :disabled="saving || agentLoading" @click="handleSave" :title="saving ? '保存中' : '保存配置'">
-        <template #icon>
-          <IconSave :size="16" />
-        </template>
+      </Button>
+      <Button v-if="selectedAgent" variant="default" :disabled="saving || agentLoading" @click="handleSave" :title="saving ? '保存中' : '保存配置'">
+        <IconSave :size="16" />
         <span>{{ saving ? '保存中...' : '保存配置' }}</span>
-      </UiButton>
+      </Button>
     </template>
 
     <template #header-menu="{ close }">
@@ -202,14 +200,14 @@
                     <div class="extra-param-editor">
                       <div class="field-label-row">
                         <span class="field-label-text">额外参数</span>
-                        <UiButton size="compact" @click="addExtraParam(configForm.llm_tiers.default)">新增参数</UiButton>
+                        <Button size="sm" @click="addExtraParam(configForm.llm_tiers.default)">新增参数</Button>
                       </div>
                       <div v-if="configForm.llm_tiers.default?.extra_params_entries?.length" class="extra-param-list">
                         <div v-for="(entry, index) in configForm.llm_tiers.default.extra_params_entries" :key="`default-${index}`" class="extra-param-row">
                           <input v-model.trim="entry.key" type="text" class="form-control" placeholder="key" />
                           <CustomSelect :model-value="entry.type" :options="extraParamTypeOptions" placeholder="type" @update:model-value="entry.type = $event" />
                           <input v-model="entry.value" type="text" class="form-control" placeholder="value" />
-                          <UiButton size="compact" variant="danger" class="extra-param-delete-button" @click="removeExtraParam(configForm.llm_tiers.default, index)">删除</UiButton>
+                          <Button size="sm" variant="destructive" class="extra-param-delete-button" @click="removeExtraParam(configForm.llm_tiers.default, index)">删除</Button>
                         </div>
                       </div>
                       <div v-else class="state-panel state-panel--empty state-panel--compact adm-state adm-state--empty">
@@ -281,7 +279,7 @@
                       <div class="extra-param-editor">
                         <div class="field-label-row">
                           <span class="field-label-text">额外参数</span>
-                          <UiButton size="compact" @click="addExtraParam(configForm.llm_tiers[tier])">新增参数</UiButton>
+                          <Button size="sm" @click="addExtraParam(configForm.llm_tiers[tier])">新增参数</Button>
                         </div>
                         <div v-if="configForm.llm_tiers[tier].extra_params_entries.length" class="extra-param-list">
                           <div v-for="(entry, index) in configForm.llm_tiers[tier].extra_params_entries" :key="`${tier}-${index}`" class="extra-param-row">
@@ -293,7 +291,7 @@
                               @update:model-value="entry.type = $event"
                             />
                             <input v-model="entry.value" type="text" class="form-control" placeholder="value" />
-                            <UiButton size="compact" variant="danger" class="extra-param-delete-button" @click="removeExtraParam(configForm.llm_tiers[tier], index)">删除</UiButton>
+                            <Button size="sm" variant="destructive" class="extra-param-delete-button" @click="removeExtraParam(configForm.llm_tiers[tier], index)">删除</Button>
                           </div>
                         </div>
                         <div v-else class="state-panel state-panel--empty state-panel--compact adm-state adm-state--empty">
@@ -633,9 +631,9 @@
     </div>
 
     <Teleport to="body">
-      <UiIconButton variant="ghost" label="滚动到底部" title="滚动到底部" @click="scrollToBottom">
+      <Button variant="ghost" size="icon" aria-label="滚动到底部" title="滚动到底部" @click="scrollToBottom">
         <IconChevronDown :size="18" :stroke-width="2.5" />
-      </UiIconButton>
+      </Button>
     </Teleport>
 
     <Teleport to="body">
@@ -673,10 +671,10 @@
             </label>
       </div>
         <DialogFooter>
-        <UiButton size="compact" :disabled="createDialog.loading" @click="closeCreateDialog">取消</UiButton>
-        <UiButton size="compact" variant="primary" :disabled="createDialog.loading || !createDialog.agentName" @click="handleCreateAgent">
+        <Button size="sm" :disabled="createDialog.loading" @click="closeCreateDialog">取消</Button>
+        <Button size="sm" variant="default" :disabled="createDialog.loading || !createDialog.agentName" @click="handleCreateAgent">
           {{ createDialog.loading ? '创建中...' : '创建' }}
-        </UiButton>
+        </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -688,10 +686,10 @@
         </DialogHeader>
         <p class="delete-confirm-text">确定要删除 Agent <strong>{{ deleteDialog.agentName }}</strong> 吗？此操作不可撤销。</p>
         <DialogFooter>
-        <UiButton size="compact" :disabled="deleteDialog.loading" @click="closeDeleteDialog">取消</UiButton>
-        <UiButton size="compact" variant="danger" :disabled="deleteDialog.loading" @click="handleDeleteAgent">
+        <Button size="sm" :disabled="deleteDialog.loading" @click="closeDeleteDialog">取消</Button>
+        <Button size="sm" variant="destructive" :disabled="deleteDialog.loading" @click="handleDeleteAgent">
           {{ deleteDialog.loading ? '删除中...' : '确认删除' }}
-        </UiButton>
+        </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -725,8 +723,7 @@ import IconPlus from '../components/icons/IconPlus.vue';
 import IconTrash from '../components/icons/IconTrash.vue';
 import IconSave from '../components/icons/IconSave.vue';
 import IconDownload from '../components/icons/IconDownload.vue';
-import { UiButton, UiIconButton } from '../components/ui';
-import { Button } from '@/components/ui/button';
+import { Button } from '../components/ui/button';
 import { useToast } from '../composables/useToast.js';
 const props = defineProps({
   embedded: { type: Boolean, default: false },

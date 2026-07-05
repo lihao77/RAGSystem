@@ -8,9 +8,9 @@
     mobile-content-padding="var(--spacing-lg) var(--spacing-md)"
   >
     <template #header-actions>
-      <UiButton :as="RouterLink" class="admin-header-link" :to="chatReturnPath" title="返回工作台" variant="ghost">
-        返回工作台
-      </UiButton>
+      <Button as-child variant="ghost" class="admin-header-link" title="返回工作台">
+        <RouterLink :to="chatReturnPath">返回工作台</RouterLink>
+      </Button>
     </template>
 
     <KpiCards :items="kpiItems" />
@@ -53,7 +53,7 @@ import { computed, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import PageLayout from '../components/PageLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
-import { UiButton } from '../components/ui';
+import { Button } from '../components/ui/button';
 import { useDictionariesStore } from '../stores/dictionaries.js';
 import { listMCPServers } from '../api/mcpService';
 import { listSkills } from '../api/skillLibrary';

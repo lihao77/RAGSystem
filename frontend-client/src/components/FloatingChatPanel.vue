@@ -8,9 +8,9 @@
             <span class="status-dot" :class="isStreaming ? 'streaming' : 'connected'"></span>
             <span class="panel-title">智能对话</span>
           </div>
-          <UiIconButton variant="ghost" label="收起" title="收起" @click.stop="toggleCollapse(true)">
+          <Button variant="ghost" size="icon" aria-label="收起" title="收起" @click.stop="toggleCollapse(true)">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-          </UiIconButton>
+          </Button>
         </div>
 
         <div class="panel-messages" ref="messagesContainer">
@@ -34,9 +34,9 @@
               placeholder="Ask anything..."
               rows="1"
             ></textarea>
-            <UiIconButton variant="primary" label="发送" title="发送" :disabled="!inputText.trim() || isStreaming" @click="sendMessage">
+            <Button variant="default" size="icon" aria-label="发送" title="发送" :disabled="!inputText.trim() || isStreaming" @click="sendMessage">
               <IconSend :size="16" />
-            </UiIconButton>
+            </Button>
           </div>
         </div>
       </div>
@@ -49,7 +49,7 @@ import { ref, watch, nextTick } from 'vue';
 import { renderMarkdown } from '../utils/markdown';
 import MarkdownContent from './chat/MarkdownContent.vue';
 import IconSend from './icons/IconSend.vue';
-import { UiIconButton } from './ui';
+import { Button } from './ui/button';
 
 const props = defineProps({
   messages: { type: Array, default: () => [] },
@@ -195,25 +195,6 @@ watch(isCollapsed, (val) => {
   color: var(--color-text-primary);
 }
 
-.panel-collapse-btn {
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.panel-collapse-btn:hover {
-  background: var(--color-hover-overlay);
-  color: var(--color-text-secondary);
-}
-
 .panel-messages {
   flex: 1;
   overflow-y: auto;
@@ -325,37 +306,6 @@ watch(isCollapsed, (val) => {
 
 .panel-input textarea::placeholder {
   color: var(--color-text-muted);
-}
-
-.send-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-md);
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-primary);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: all 0.2s;
-  margin-bottom: 2px;
-  margin-right: 2px;
-}
-
-.send-btn:hover:not(:disabled) {
-  background: var(--color-interactive);
-  border-color: var(--color-interactive);
-  color: var(--color-on-color);
-}
-
-.send-btn:disabled {
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: not-allowed;
-  border-color: transparent;
-  opacity: 0.5;
 }
 
 .panel-messages::-webkit-scrollbar {

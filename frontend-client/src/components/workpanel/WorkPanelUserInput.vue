@@ -36,8 +36,8 @@
       </template>
 
       <div class="wpui-actions">
-        <UiButton class="wpui-btn wpui-btn--submit" variant="primary" block @click="submit">发送</UiButton>
-        <UiButton class="wpui-btn wpui-btn--cancel" variant="ghost" block @click="emit('cancel')">停止</UiButton>
+        <Button class="wpui-btn wpui-btn--submit w-full" variant="default" @click="submit">发送</Button>
+        <Button class="wpui-btn wpui-btn--cancel w-full" variant="ghost" @click="emit('cancel')">停止</Button>
       </div>
     </div>
   </div>
@@ -46,7 +46,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import WorkPanelStateIcon from './WorkPanelStateIcon.vue'
-import { UiButton } from '../ui'
+import { Button } from '../ui/button'
 
 const props = defineProps({
   inputData: { type: Object, default: null },

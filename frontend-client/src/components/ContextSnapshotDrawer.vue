@@ -5,9 +5,9 @@
         <div ref="drawerRef" class="ctx-drawer">
           <div class="ctx-drawer-header">
             <h3>上下文快照</h3>
-            <UiIconButton class="ctx-close-btn" variant="ghost" label="关闭" @click="$emit('close')">
+            <Button class="ctx-close-btn" variant="ghost" size="icon" aria-label="关闭" @click="$emit('close')">
               <IconClose :size="14" />
-            </UiIconButton>
+            </Button>
           </div>
 
           <div v-if="loading" class="ctx-loading"><span class="g-spinner"></span>加载中...</div>
@@ -144,7 +144,7 @@ import { ref, computed, watch } from 'vue';
 import { usePointerDownOutside } from '../composables/usePointerDownOutside';
 import { getContextSnapshot } from '../api/session';
 import IconClose from './icons/IconClose.vue';
-import { UiIconButton } from './ui';
+import { Button } from './ui/button';
 
 const props = defineProps({
   visible: Boolean,

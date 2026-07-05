@@ -49,7 +49,7 @@
                         </template>
                         <template v-else>
                             <span class="active-bar__tag active-bar__tag--off">未设置</span>
-                            <UiButton variant="link" @click="activeTab = 'vectorizers'">前往「向量化器」添加并激活 →</UiButton>
+                            <Button variant="link" @click="activeTab = 'vectorizers'">前往「向量化器」添加并激活 →</Button>
                         </template>
                     </div>
 
@@ -58,19 +58,17 @@
                             <p class="section-desc">每行为一个已上传文件，每列为一个向量化器，可逐项建立或查看索引状态。</p>
                         </div>
                         <div class="toolbar-right">
-                            <UiIconButton label="刷新索引状态" :disabled="storeLoading" @click="refreshFileStatus">
+                            <Button variant="secondary" size="icon" aria-label="刷新索引状态" :disabled="storeLoading" @click="refreshFileStatus">
                                 <IconRefresh :size="14" :class="{ 'spin': storeLoading }" />
-                            </UiIconButton>
+                            </Button>
                             <div class="filter-select-wrap">
                                 <CustomSelect v-model="filterCollection" :options="collectionSelectOptions"
                                     placeholder="全部集合" />
                             </div>
-                            <UiButton class="toolbar-primary-action" variant="primary" size="compact" @click="showIndexDialog = true">
-                                <template #icon>
-                                    <IconPlus :size="14" />
-                                </template>
-                                索引新文档
-                            </UiButton>
+                            <Button class="toolbar-primary-action" variant="default" size="sm" @click="showIndexDialog = true">
+                                <IconPlus :size="14" />
+                                <span>索引新文档</span>
+                            </Button>
                         </div>
                     </div>
 
@@ -79,7 +77,7 @@
                         class="warn-banner">
                         <IconWarning :size="16" />
                         <span>尚未配置向量化器，请先在「向量化器」Tab 中添加并激活。</span>
-                        <UiButton variant="link" @click="activeTab = 'vectorizers'">前往配置 →</UiButton>
+                        <Button variant="link" @click="activeTab = 'vectorizers'">前往配置 →</Button>
                     </div>
 
                     <!-- 矩阵表格 -->
@@ -90,8 +88,8 @@
                         <div v-else-if="filteredFileList.length === 0" class="empty-state adm-state adm-state--empty">
                             <IconFile :size="48" :stroke-width="1.5" />
                             <p>{{ fileList.length === 0 ? '暂无已索引文件，点击「索引新文档」开始' : '当前集合下无文件，尝试清空筛选' }}</p>
-                            <UiButton v-if="fileList.length === 0" class="primary-action-button" variant="primary" size="compact"
-                                @click="showIndexDialog = true">索引新文档</UiButton>
+                            <Button v-if="fileList.length === 0" class="primary-action-button" variant="default" size="sm"
+                                @click="showIndexDialog = true">索引新文档</Button>
                         </div>
                         <div v-else class="table-scroll">
                             <table class="data-table matrix-table">
@@ -134,15 +132,15 @@
                                         </td>
                                         <td>
                                             <div class="row-actions adm-action-row">
-                                                <UiActionButton
+                                                <Button variant="action-neutral" size="action"
                                                     @click="openSearchTest(row.collection)" title="测试检索">
                                                     <IconSearch :size="13" />
-                                                </UiActionButton>
-                                                <UiActionButton variant="danger"
+                                                </Button>
+                                                <Button variant="action-danger" size="action"
                                                     :disabled="deletingFileId === row.file_id"
                                                     @click="handleDeleteIndexedFile(row)" title="删除">
                                                     <IconTrash :size="13" />
-                                                </UiActionButton>
+                                                </Button>
                                             </div>
                                         </td>
                                     </tr>
@@ -155,18 +153,16 @@
                     <div v-if="searchCollection" class="search-inline-card glass-card">
                         <div class="search-inline-header">
                             <span class="search-inline-title">检索测试：{{ searchCollection }}</span>
-                            <UiActionButton
-                                @click="searchCollection = ''; searchResults = []">关闭</UiActionButton>
+                            <Button variant="action-neutral" size="action"
+                                @click="searchCollection = ''; searchResults = []">关闭</Button>
                         </div>
                         <div class="search-box">
                             <input v-model="searchQuery" class="search-input" placeholder="输入查询文本..."
                                 @keyup.enter="handleSearch" />
-                            <UiButton class="search-submit-button" variant="primary" size="compact" :disabled="searchLoading" @click="handleSearch">
-                                <template #icon>
-                                    <IconSearch :size="14" />
-                                </template>
-                                {{ searchLoading ? '搜索中...' : '搜索' }}
-                            </UiButton>
+                            <Button class="search-submit-button" variant="default" size="sm" :disabled="searchLoading" @click="handleSearch">
+                                <IconSearch :size="14" />
+                                <span>{{ searchLoading ? '搜索中...' : '搜索' }}</span>
+                            </Button>
                             <div class="search-option">
                                 <label>Top K</label>
                                 <input v-model.number="searchTopK" type="number" min="1" max="20"
@@ -261,7 +257,7 @@
                         <div v-else-if="uploadedFiles.length === 0" class="empty-state adm-state adm-state--empty">
                             <IconFile :size="48" :stroke-width="1.5" />
                             <p>暂无文件，上传文档后在「矩阵」中建立索引</p>
-                            <UiButton class="primary-action-button" variant="primary" size="compact" @click="triggerFileInput">上传文件</UiButton>
+                            <Button class="primary-action-button" variant="default" size="sm" @click="triggerFileInput">上传文件</Button>
                         </div>
                         <table v-else class="data-table">
                             <thead>
@@ -284,15 +280,15 @@
                                     <td>{{ formatTime(file.uploaded_at) }}</td>
                                     <td>
                                         <div class="row-actions adm-action-row">
-                                            <UiActionButton title="下载"
+                                            <Button variant="action-neutral" size="action" title="下载"
                                                 @click="downloadFile(file)">
                                                 <IconDownload :size="13" />
-                                            </UiActionButton>
-                                            <UiActionButton variant="danger" title="删除"
+                                            </Button>
+                                            <Button variant="action-danger" size="action" title="删除"
                                                 :disabled="deletingUploadedFile === file.id"
                                                 @click="handleDeleteUploadedFile(file)">
                                                 <IconTrash :size="13" />
-                                            </UiActionButton>
+                                            </Button>
                                         </div>
                                     </td>
                                 </tr>
@@ -308,16 +304,14 @@
                             <p class="section-desc">配置多套向量化器，激活后用于新建索引；支持向量化器间的数据迁移。</p>
                         </div>
                         <div class="toolbar-right">
-                            <UiIconButton label="刷新向量化器" :disabled="vectorizersLoading"
+                            <Button variant="secondary" size="icon" aria-label="刷新向量化器" :disabled="vectorizersLoading"
                                 @click="refreshVectorizers">
                                 <IconRefresh :size="14" :class="{ 'spin': vectorizersLoading }" />
-                            </UiIconButton>
-                            <UiButton class="toolbar-primary-action" variant="primary" size="compact" @click="openAddVectorizerDialog">
-                                <template #icon>
-                                    <IconPlus :size="14" />
-                                </template>
-                                新增向量化器
-                            </UiButton>
+                            </Button>
+                            <Button class="toolbar-primary-action" variant="default" size="sm" @click="openAddVectorizerDialog">
+                                <IconPlus :size="14" />
+                                <span>新增向量化器</span>
+                            </Button>
                         </div>
                     </div>
 
@@ -333,7 +327,7 @@
                             <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
                         </svg>
                         <p>暂无向量化器，添加后即可在「向量库管理」中建立索引。</p>
-                        <UiButton class="primary-action-button" variant="primary" size="compact" @click="openAddVectorizerDialog">新增向量化器</UiButton>
+                        <Button class="primary-action-button" variant="default" size="sm" @click="openAddVectorizerDialog">新增向量化器</Button>
                     </div>
                     <div v-else class="data-table-wrapper glass-card">
                         <table class="data-table">
@@ -358,15 +352,15 @@
                                     <td class="text-center">{{ v.vector_count ?? '-' }}</td>
                                     <td class="text-center">
                                         <UiBadge v-if="v.is_active" class="status-badge" size="sm" tone="success">当前</UiBadge>
-                                        <UiButton v-else variant="link"
+                                        <Button v-else variant="link"
                                             :disabled="activatingVectorizer === v.vectorizer_key"
                                             @click="handleActivateVectorizer(v.vectorizer_key)">
                                             {{ activatingVectorizer === v.vectorizer_key ? '激活中...' : '激活' }}
-                                        </UiButton>
+                                        </Button>
                                     </td>
                                     <td>
                                         <div class="row-actions adm-action-row">
-                                            <UiActionButton
+                                            <Button variant="action-neutral" size="action"
                                                 :disabled="vectorizers.length < 2" @click="openMigrateDialog(v)"
                                                 title="迁移数据">
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
@@ -375,12 +369,12 @@
                                                     <path d="M5 12h14" />
                                                     <path d="M12 5l7 7-7 7" />
                                                 </svg>
-                                            </UiActionButton>
-                                            <UiActionButton variant="danger"
+                                            </Button>
+                                            <Button variant="action-danger" size="action"
                                                 :disabled="deletingVectorizer === v.vectorizer_key"
                                                 @click="handleDeleteVectorizer(v.vectorizer_key)" title="删除">
                                                 <IconTrash :size="13" />
-                                            </UiActionButton>
+                                            </Button>
                                         </div>
                                     </td>
                                 </tr>
@@ -396,16 +390,14 @@
                             <p class="section-desc">配置重排序器，激活后搜索时自动使用；支持本地 BM25 和远程模型两种模式。</p>
                         </div>
                         <div class="toolbar-right">
-                            <UiIconButton label="刷新重排序器" :disabled="rerankersLoading"
+                            <Button variant="secondary" size="icon" aria-label="刷新重排序器" :disabled="rerankersLoading"
                                 @click="refreshRerankers">
                                 <IconRefresh :size="14" :class="{ 'spin': rerankersLoading }" />
-                            </UiIconButton>
-                            <UiButton class="toolbar-primary-action" variant="primary" size="compact" @click="openAddRerankerDialog">
-                                <template #icon>
-                                    <IconPlus :size="14" />
-                                </template>
-                                新增重排序器
-                            </UiButton>
+                            </Button>
+                            <Button class="toolbar-primary-action" variant="default" size="sm" @click="openAddRerankerDialog">
+                                <IconPlus :size="14" />
+                                <span>新增重排序器</span>
+                            </Button>
                         </div>
                     </div>
 
@@ -433,7 +425,7 @@
                             <line x1="16" y1="3" x2="14" y2="21" />
                         </svg>
                         <p>暂无重排序器，添加后即可在搜索时自动使用。</p>
-                        <UiButton class="primary-action-button" variant="primary" size="compact" @click="openAddRerankerDialog">新增重排序器</UiButton>
+                        <Button class="primary-action-button" variant="default" size="sm" @click="openAddRerankerDialog">新增重排序器</Button>
                     </div>
                     <div v-else class="data-table-wrapper glass-card">
                         <table class="data-table">
@@ -462,19 +454,19 @@
                                     <td class="font-mono" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis">{{ r.api_endpoint || '-' }}</td>
                                     <td class="text-center">
                                         <UiBadge v-if="r.is_active" class="status-badge" size="sm" tone="success">当前</UiBadge>
-                                        <UiButton v-else variant="link"
+                                        <Button v-else variant="link"
                                             :disabled="activatingReranker === r.reranker_key"
                                             @click="handleActivateReranker(r.reranker_key)">
                                             {{ activatingReranker === r.reranker_key ? '激活中...' : '激活' }}
-                                        </UiButton>
+                                        </Button>
                                     </td>
                                     <td>
                                         <div class="row-actions adm-action-row">
-                                            <UiActionButton variant="danger"
+                                            <Button variant="action-danger" size="action"
                                                 :disabled="deletingReranker === r.reranker_key"
                                                 @click="handleDeleteReranker(r.reranker_key)" title="删除">
                                                 <IconTrash :size="13" />
-                                            </UiActionButton>
+                                            </Button>
                                         </div>
                                     </td>
                                 </tr>
@@ -495,12 +487,10 @@
                         <div class="search-box">
                             <input v-model="searchQuery" class="search-input" placeholder="输入搜索关键词..."
                                 @keyup.enter="handleSearch" />
-                            <UiButton class="search-submit-button" variant="primary" size="compact" :disabled="searchLoading" @click="handleSearch">
-                                <template #icon>
-                                    <IconSearch :size="15" />
-                                </template>
-                                {{ searchLoading ? '搜索中...' : '搜索' }}
-                            </UiButton>
+                            <Button class="search-submit-button" variant="default" size="sm" :disabled="searchLoading" @click="handleSearch">
+                                <IconSearch :size="15" />
+                                <span>{{ searchLoading ? '搜索中...' : '搜索' }}</span>
+                            </Button>
                         </div>
                         <div class="search-options-row">
                             <div class="search-option">
@@ -598,8 +588,8 @@
                                         <template v-if="indexUploadFile">
                                             <IconFile :size="20" />
                                             <span>{{ indexUploadFile.name }}</span>
-                                            <UiActionButton variant="danger" style="margin-left:auto"
-                                                @click.stop="indexUploadFile = null">移除</UiActionButton>
+                                            <Button variant="action-danger" size="action" style="margin-left:auto"
+                                                @click.stop="indexUploadFile = null">移除</Button>
                                         </template>
                                         <template v-else>
                                             <span>拖拽或点击选择文件</span>
@@ -632,8 +622,8 @@
                                 <label>集合名称</label>
                                 <div class="input-with-btn">
                                     <input v-model="indexForm.collection_name" placeholder="documents" />
-                                    <UiButton variant="link" @click="autoSetCollectionName"
-                                        title="根据文档类型自动设置">自动</UiButton>
+                                    <Button variant="link" @click="autoSetCollectionName"
+                                        title="根据文档类型自动设置">自动</Button>
                                 </div>
                             </div>
                             <div v-if="indexMode !== 'text'" class="field">
@@ -659,10 +649,10 @@
                             </div>
                     </div>
                     <DialogFooter>
-                        <UiButton size="compact" @click="showIndexDialog = false">取消</UiButton>
-                        <UiButton size="compact" variant="primary" :disabled="indexing" @click="handleIndexDocument">
+                        <Button size="sm" @click="showIndexDialog = false">取消</Button>
+                        <Button size="sm" variant="default" :disabled="indexing" @click="handleIndexDocument">
                             {{ indexing ? '索引中...' : '开始索引' }}
-                        </UiButton>
+                        </Button>
                     </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -694,12 +684,12 @@
                             </div>
                     </div>
                     <DialogFooter>
-                        <UiButton size="compact" @click="showAddVectorizerDialog = false">取消</UiButton>
-                        <UiButton size="compact" variant="primary"
+                        <Button size="sm" @click="showAddVectorizerDialog = false">取消</Button>
+                        <Button size="sm" variant="default"
                             :disabled="addingVectorizer || !addVectorizerForm.provider_key || !addVectorizerForm.model_name"
                             @click="handleAddVectorizer">
                             {{ addingVectorizer ? '添加中...' : '确定' }}
-                        </UiButton>
+                        </Button>
                     </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -719,10 +709,10 @@
                             </div>
                     </div>
                     <DialogFooter>
-                        <UiButton size="compact" @click="showMigrateDialog = false">取消</UiButton>
-                        <UiButton size="compact" variant="primary" :disabled="migrating || !migrateToKey" @click="handleMigrate">
+                        <Button size="sm" @click="showMigrateDialog = false">取消</Button>
+                        <Button size="sm" variant="default" :disabled="migrating || !migrateToKey" @click="handleMigrate">
                             {{ migrating ? '迁移中...' : '开始迁移' }}
-                        </UiButton>
+                        </Button>
                     </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -762,12 +752,12 @@
                             </template>
                     </div>
                     <DialogFooter>
-                        <UiButton size="compact" @click="showAddRerankerDialog = false">取消</UiButton>
-                        <UiButton size="compact" variant="primary"
+                        <Button size="sm" @click="showAddRerankerDialog = false">取消</Button>
+                        <Button size="sm" variant="default"
                             :disabled="addingReranker || !addRerankerFormValid"
                             @click="handleAddReranker">
                             {{ addingReranker ? '添加中...' : '确定' }}
-                        </UiButton>
+                        </Button>
                     </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -808,7 +798,8 @@ import {
     uploadFiles,
 } from '../api/vectorLibrary';
 import CustomSelect from '../components/ui/CustomSelect.vue';
-import { UiBadge, UiButton, UiIconButton, UiActionButton } from '../components/ui';
+import { UiBadge } from '../components/ui';
+import { Button } from '../components/ui/button';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 

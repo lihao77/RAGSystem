@@ -1,12 +1,12 @@
 <template>
   <PageLayout title="系统配置" subtitle="全局 LLM、向量与系统参数">
     <template #header-actions>
-      <UiButton variant="ghost" :disabled="loading || saving" @click="handleReload">
+      <Button variant="ghost" :disabled="loading || saving" @click="handleReload">
         重新加载
-      </UiButton>
-      <UiButton variant="primary" :disabled="loading || saving" @click="handleSave">
+      </Button>
+      <Button variant="default" :disabled="loading || saving" @click="handleSave">
         {{ saving ? '保存中...' : '保存配置' }}
-      </UiButton>
+      </Button>
     </template>
 
     <template #mobile-menu="{ close }">
@@ -46,7 +46,7 @@ import IconRefresh from '../components/icons/IconRefresh.vue';
 import IconSave from '../components/icons/IconSave.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import SchemaForm from '../components/SchemaForm.vue';
-import { UiButton } from '../components/ui';
+import { Button } from '../components/ui/button';
 import { useToast } from '../composables/useToast.js';
 import {
   getSystemConfigSchema,

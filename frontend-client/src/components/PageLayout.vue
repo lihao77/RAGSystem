@@ -2,10 +2,11 @@
   <div class="page-layout" :class="{ 'page-layout--embedded': embedded }" :style="shellStyle">
     <header class="page-header">
       <div class="page-header__group page-header__group--meta">
-        <UiIconButton
+        <Button
           class="page-header__menu-btn"
           variant="ghost"
-          label="打开菜单"
+          size="icon"
+          aria-label="打开菜单"
           title="打开菜单"
           @click="openMobileSidebar"
         >
@@ -14,7 +15,7 @@
             <line x1="3" y1="6" x2="21" y2="6" />
             <line x1="3" y1="18" x2="21" y2="18" />
           </svg>
-        </UiIconButton>
+        </Button>
         <div class="page-header__meta">
           <div class="page-header__title-row">
             <h1 class="page-header__title">{{ title }}</h1>
@@ -29,10 +30,12 @@
             <slot name="header-actions" />
           </div>
           <div v-if="hasHeaderMenu" ref="desktopMenuRef" class="page-header__menu-wrap">
-            <UiIconButton
+            <Button
               class="page-header__more-btn"
               :class="{ 'is-open': desktopMenuOpen }"
-              label="更多操作"
+              variant="ghost"
+              size="icon"
+              aria-label="更多操作"
               title="更多操作"
               @click="desktopMenuOpen = !desktopMenuOpen"
             >
@@ -41,7 +44,7 @@
                 <circle cx="12" cy="12" r="1" fill="currentColor" />
                 <circle cx="12" cy="19" r="1" fill="currentColor" />
               </svg>
-            </UiIconButton>
+            </Button>
             <div v-if="desktopMenuOpen" class="page-header__menu-dropdown">
               <div class="page-header__menu-list">
                 <slot name="header-menu" :close="() => { desktopMenuOpen = false }" />
@@ -54,10 +57,11 @@
 
     <div class="page-shell">
       <div class="page-mobile-nav">
-        <UiIconButton
+        <Button
           class="page-mobile-nav__menu"
           variant="ghost"
-          label="打开菜单"
+          size="icon"
+          aria-label="打开菜单"
           title="打开菜单"
           @click="openMobileSidebar"
         >
@@ -66,17 +70,18 @@
             <line x1="3" y1="6" x2="21" y2="6" />
             <line x1="3" y1="18" x2="21" y2="18" />
           </svg>
-        </UiIconButton>
+        </Button>
         <div class="page-mobile-nav__copy">
           <span class="page-mobile-nav__title">{{ mobileTitle || title }}</span>
         </div>
-        <UiIconButton
+        <Button
           v-if="hasMobileMenu"
           ref="mobileMenuTriggerRef"
           class="page-mobile-nav__more"
           :class="{ 'is-open': mobileMenuOpen }"
           variant="ghost"
-          label="更多操作"
+          size="icon"
+          aria-label="更多操作"
           title="更多操作"
           @click="mobileMenuOpen = !mobileMenuOpen"
         >
@@ -86,7 +91,7 @@
             <circle cx="12" cy="12" r="1" fill="currentColor" />
             <circle cx="12" cy="19" r="1" fill="currentColor" />
           </svg>
-        </UiIconButton>
+        </Button>
         <div v-else class="page-mobile-nav__spacer" />
 
         <div v-if="hasMobileMenu && mobileMenuOpen" class="page-mobile-menu">
@@ -108,7 +113,7 @@
 <script setup>
 import { computed, inject, ref, useSlots } from 'vue';
 import { usePointerDownOutside } from '../composables/usePointerDownOutside';
-import { UiIconButton } from './ui';
+import { Button } from './ui/button';
 
 const props = defineProps({
   title: { type: String, required: true },

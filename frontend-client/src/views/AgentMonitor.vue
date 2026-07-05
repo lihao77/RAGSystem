@@ -100,7 +100,7 @@
             <div v-if="selectedTaskId" class="sub-section">
               <div class="detail-inline-head">
                 <h4 class="sub-section__title">任务详情</h4>
-                <UiButton variant="ghost" size="compact" @click="clearSelectedTask">关闭</UiButton>
+                <Button variant="ghost" size="sm" @click="clearSelectedTask">关闭</Button>
               </div>
 
               <div v-if="taskDetailLoading" class="inline-state g-loading-inline"><span class="g-spinner g-spinner--sm"></span>加载任务详情中...</div>
@@ -195,7 +195,7 @@ import IconTrash from '../components/icons/IconTrash.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';
-import { UiButton } from '../components/ui';
+import { Button } from '../components/ui/button';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';

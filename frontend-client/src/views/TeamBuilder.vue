@@ -33,7 +33,7 @@
                 <CustomSelect :model-value="activeTeam" :options="teamOptions" placeholder="选择 Team" @update:model-value="handleActivateTeam" />
               </label>
               <div class="section-actions">
-                <UiButton variant="primary" :disabled="working || !activeTeam" @click="goToAgentConfig">前往当前 Team 配置页</UiButton>
+                <Button variant="default" :disabled="working || !activeTeam" @click="goToAgentConfig">前往当前 Team 配置页</Button>
               </div>
             </div>
           </div>
@@ -55,7 +55,7 @@
                 </label>
               </div>
               <div class="section-actions">
-                <UiButton variant="primary" :disabled="working" @click="handleCreateTeam">创建 Team</UiButton>
+                <Button variant="default" :disabled="working" @click="handleCreateTeam">创建 Team</Button>
               </div>
             </div>
           </div>
@@ -83,11 +83,11 @@
             <div class="composition-meta">
               <div class="selection-overview">
                 <span class="selection-stat">已选 <strong>{{ selectedCopyAgents.length }}</strong> 个</span>
-                <UiButton variant="ghost" size="compact" :disabled="selectedCopyAgents.length === 0" @click="clearSelectedAgents">清空</UiButton>
+                <Button variant="ghost" size="sm" :disabled="selectedCopyAgents.length === 0" @click="clearSelectedAgents">清空</Button>
               </div>
               <div class="composition-bulk">
-                <UiButton variant="ghost" :disabled="availableSourceAgents.length === 0" @click="selectAllAvailableAgents">全选可新增</UiButton>
-                <UiButton variant="ghost" :disabled="copySourceAgents.length === 0" @click="selectAllSourceAgents">全选来源</UiButton>
+                <Button variant="ghost" :disabled="availableSourceAgents.length === 0" @click="selectAllAvailableAgents">全选可新增</Button>
+                <Button variant="ghost" :disabled="copySourceAgents.length === 0" @click="selectAllSourceAgents">全选来源</Button>
               </div>
               <span class="selection-hint">可新增 {{ availableSourceAgents.length }} · 已存在 {{ conflictingSelectedAgents.length }}</span>
             </div>
@@ -126,7 +126,7 @@
                   <line x1="5" y1="12" x2="19" y2="12"/>
                   <polyline points="12 5 19 12 12 19"/>
                 </svg>
-                <UiButton class="transfer-button" variant="primary" :disabled="working" @click="handleCopyAgents">复制到目标</UiButton>
+                <Button class="transfer-button" variant="default" :disabled="working" @click="handleCopyAgents">复制到目标</Button>
                 <p class="transfer-hint">增量复制 · 不覆盖目标已有 Agent</p>
               </div>
             </article>
@@ -189,10 +189,10 @@
                   <p>{{ team.file_path }}</p>
                 </div>
                 <div class="section-actions section-actions--compact adm-action-row">
-                  <UiActionButton variant="success" :disabled="working || team.is_active" @click="handleActivateTeam(team.team_name)">激活</UiActionButton>
-                  <UiActionButton @click="openTeamConfig(team.team_name)">细调配置</UiActionButton>
-                  <UiActionButton v-if="team.team_name === 'default'" variant="warning" :disabled="working" @click="handleResetDefaultTeam">恢复默认</UiActionButton>
-                  <UiActionButton variant="danger" :disabled="working || team.is_active || teams.length <= 1" @click="handleDeleteTeam(team.team_name)">删除</UiActionButton>
+                  <Button variant="action-success" size="action" :disabled="working || team.is_active" @click="handleActivateTeam(team.team_name)">激活</Button>
+                  <Button variant="action-neutral" size="action" @click="openTeamConfig(team.team_name)">细调配置</Button>
+                  <Button v-if="team.team_name === 'default'" variant="action-warning" size="action" :disabled="working" @click="handleResetDefaultTeam">恢复默认</Button>
+                  <Button variant="action-danger" size="action" :disabled="working || team.is_active || teams.length <= 1" @click="handleDeleteTeam(team.team_name)">删除</Button>
                 </div>
               </div>
               <div v-if="team.agents && team.agents.length" class="team-card__agents">
@@ -213,7 +213,8 @@ import PageLayout from '../components/PageLayout.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';
-import { UiBadge, UiButton, UiActionButton } from '../components/ui';
+import { UiBadge } from '../components/ui';
+import { Button } from '../components/ui/button';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import { activateTeam, copyAgentsToTeam, createTeam, deleteTeam, resetDefaultTeam } from '../api/agentConfig';
 import { useDictionariesStore } from '../stores/dictionaries.js';

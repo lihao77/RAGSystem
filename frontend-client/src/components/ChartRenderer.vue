@@ -13,10 +13,10 @@
         <span>{{ title }}</span>
       </div>
       <div class="chart-actions">
-        <UiIconButton variant="ghost" label="下载图表" title="下载图表" @click="downloadChart">
+        <Button variant="ghost" size="icon" aria-label="下载图表" title="下载图表" @click="downloadChart">
           <IconDownload :size="16" />
-        </UiIconButton>
-        <UiIconButton variant="ghost" label="全屏" title="全屏" @click="toggleFullscreen">
+        </Button>
+        <Button variant="ghost" size="icon" aria-label="全屏" title="全屏" @click="toggleFullscreen">
           <span v-if="!isFullscreen">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -29,7 +29,7 @@
               <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
             </svg>
           </span>
-        </UiIconButton>
+        </Button>
       </div>
     </div>
     <Teleport to="body" :disabled="!isFullscreen">
@@ -47,16 +47,16 @@
             <span>{{ title }}</span>
           </div>
           <div class="chart-actions">
-            <UiIconButton variant="ghost" label="下载图表" title="下载图表" @click="downloadChart">
+            <Button variant="ghost" size="icon" aria-label="下载图表" title="下载图表" @click="downloadChart">
               <IconDownload :size="16" />
-            </UiIconButton>
-            <UiIconButton variant="danger" label="退出全屏" title="退出全屏" @click="toggleFullscreen">
+            </Button>
+            <Button variant="destructive" size="icon" aria-label="退出全屏" title="退出全屏" @click="toggleFullscreen">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path
                   d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
               </svg>
-            </UiIconButton>
+            </Button>
           </div>
         </div>
         <div ref="fullscreenContainer" class="chart-fullscreen-content"></div>
@@ -70,7 +70,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import IconDownload from './icons/IconDownload.vue';
-import { UiIconButton } from './ui';
+import { Button } from './ui/button';
 import * as echarts from 'echarts/core';
 import { useThemeStore } from '../stores/theme.js';
 import { BarChart, LineChart, PieChart, ScatterChart } from 'echarts/charts';
@@ -344,34 +344,6 @@ onUnmounted(() => {
   gap: var(--spacing-sm);
 }
 
-.action-btn {
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  padding: 6px 10px;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-size: 0.9rem;
-  transition: all 0.2s;
-  color: var(--color-text-secondary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 32px;
-  height: 32px;
-  cursor: pointer;
-}
-
-.action-btn:hover {
-  background: var(--color-bg-tertiary);
-  border-color: var(--color-border-hover);
-  color: var(--color-text-primary);
-  /* transform: translateY(-1px);/ */
-}
-
-.action-btn:active {
-  transform: translateY(0);
-}
-
 .chart-container {
   width: 100%;
   /* 使用 aspect-ratio 维护 16:9 的黄金比例 */
@@ -459,17 +431,5 @@ onUnmounted(() => {
   .chart-fullscreen-content {
     padding: var(--spacing-sm);
   }
-}
-
-.close-btn {
-  background: transparent;
-  border: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
-}
-
-.close-btn:hover {
-  background: var(--color-error-bg);
-  color: var(--color-error);
-  border-color: var(--color-error);
 }
 </style>

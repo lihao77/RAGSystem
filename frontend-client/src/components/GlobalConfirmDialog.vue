@@ -10,12 +10,12 @@
             <p class="dialog-message">{{ state.message }}</p>
           </div>
           <div class="dialog-footer">
-            <UiButton class="dialog-btn" variant="ghost" @click="cancel">{{ state.cancelText }}</UiButton>
-            <UiButton
+            <Button class="dialog-btn" variant="ghost" @click="cancel">{{ state.cancelText }}</Button>
+            <Button
               class="dialog-btn"
-              :variant="state.danger ? 'danger' : 'primary'"
+              :variant="state.danger ? 'destructive' : 'default'"
               @click="accept"
-            >{{ state.confirmText }}</UiButton>
+            >{{ state.confirmText }}</Button>
           </div>
         </div>
       </div>
@@ -31,7 +31,7 @@
 import { ref, watch, onBeforeUnmount } from 'vue';
 import { useConfirm } from '../composables/useConfirm';
 import { usePointerDownOutside } from '../composables/usePointerDownOutside';
-import { UiButton } from './ui';
+import { Button } from './ui/button';
 
 const { state, accept, cancel } = useConfirm();
 
@@ -127,38 +127,6 @@ onBeforeUnmount(() => {
   transition: all var(--transition-normal);
   border: none;
   outline: none;
-  box-shadow: none;
-}
-
-.dialog-btn-cancel {
-  background: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
-  border: 1px solid var(--color-border);
-}
-
-.dialog-btn-cancel:hover {
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
-}
-
-.dialog-btn-confirm {
-  background: var(--color-brand-accent);
-  color: var(--color-on-accent);
-  box-shadow: none;
-}
-
-.dialog-btn-confirm:hover {
-  background: var(--color-brand-accent-light);
-  box-shadow: none;
-}
-
-.dialog-btn-confirm--danger {
-  background: var(--color-error);
-  box-shadow: none;
-}
-
-.dialog-btn-confirm--danger:hover {
-  filter: brightness(1.1);
   box-shadow: none;
 }
 

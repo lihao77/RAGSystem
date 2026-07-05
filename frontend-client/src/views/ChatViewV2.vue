@@ -1238,26 +1238,6 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-.msg-action-btn.btn-execution-tree.active {
-  color: var(--color-brand-accent);
-  background: rgba(var(--color-brand-accent-rgb), 0.12);
-  box-shadow: inset 0 0 0 1px rgba(var(--color-brand-accent-rgb), 0.28);
-}
-
-.msg-action-btn.btn-execution-tree:not(.active):hover {
-  color: var(--color-brand-accent);
-  background: rgba(var(--color-brand-accent-rgb), 0.06);
-}
-
-.msg-action-btn.btn-execution-tree.active:hover {
-  color: var(--color-brand-accent);
-  background: rgba(var(--color-brand-accent-rgb), 0.16);
-}
-
-.msg-action-btn.btn-execution-tree:active {
-  transform: none;
-}
-
 /* 消息查看/编辑模式切换动画 */
 .message-view-mode,
 .message-edit-mode {

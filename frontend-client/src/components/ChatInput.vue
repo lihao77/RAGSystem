@@ -37,9 +37,10 @@
 
         <div class="input-footer">
           <div class="input-footer-left">
-            <UiIconButton
+            <Button
               variant="ghost"
-              label="添加图片或文件"
+              size="icon"
+              aria-label="添加图片或文件"
               title="添加图片或文件"
               :disabled="isLoading"
               @click="emit('openAttachments')"
@@ -47,7 +48,7 @@
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="attachment-icon">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.82l8.49-8.48" />
               </svg>
-            </UiIconButton>
+            </Button>
 
             <div v-if="$slots.footerMeta" class="input-footer-meta">
               <slot name="footerMeta" />
@@ -56,25 +57,27 @@
 
           <div class="input-footer-right">
             <slot name="rightActions" />
-            <UiIconButton
+            <Button
               v-if="isLoading && sendDisabled"
-              variant="danger"
-              label="停止生成"
+              variant="destructive"
+              size="icon"
+              aria-label="停止生成"
               title="停止生成"
               @click="handleStop"
             >
               <IconStop aria-hidden="true" :size="18" />
-            </UiIconButton>
-            <UiIconButton
+            </Button>
+            <Button
               v-else
-              variant="primary"
-              label="发送消息"
+              variant="default"
+              size="icon"
+              aria-label="发送消息"
               title="发送消息"
               :disabled="sendDisabled"
               @click="handleSend"
             >
               <IconSend :size="18" />
-            </UiIconButton>
+            </Button>
           </div>
         </div>
       </div>
@@ -86,7 +89,7 @@
 import { ref, defineProps, defineEmits, watch, nextTick, computed, onMounted, onUnmounted } from 'vue';
 import IconStop from './icons/IconStop.vue';
 import IconSend from './icons/IconSend.vue';
-import { UiIconButton } from './ui';
+import { Button } from './ui/button';
 
 const props = defineProps({
   modelValue: {
@@ -435,102 +438,9 @@ textarea::placeholder {
   flex: 0 0 auto;
 }
 
-.attachment-btn {
-  width: var(--control-height-md);
-  height: var(--control-height-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid transparent;
-  background: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
-  border-radius: var(--control-radius);
-  cursor: pointer;
-  transition: all var(--transition-normal);
-  flex-shrink: 0;
-}
-
-.attachment-btn:hover:not(:disabled) {
-  color: var(--color-text-primary);
-  background: var(--color-hover-overlay);
-  border-color: var(--color-border);
-}
-
-.attachment-btn:active:not(:disabled) {
-  transform: scale(0.95);
-}
-
-.attachment-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .attachment-icon {
   width: 18px;
   height: 18px;
-}
-
-.send-btn {
-  width: var(--control-height-md);
-  height: var(--control-height-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: var(--color-brand-accent);
-  color: var(--color-on-accent);
-  border-radius: var(--control-radius);
-  cursor: pointer;
-  transition: all var(--transition-normal);
-  margin: 0;
-  box-shadow: none;
-}
-
-.send-btn:hover:not(:disabled) {
-  background: var(--color-brand-accent-light);
-  box-shadow: none;
-}
-
-.send-btn:active:not(:disabled) {
-  transform: scale(0.95);
-}
-
-.send-btn:disabled {
-  background: var(--color-bg-secondary);
-  color: var(--color-text-muted);
-  cursor: not-allowed;
-  border: 1px solid var(--color-border);
-  opacity: 0.5;
-  box-shadow: none;
-}
-
-.send-icon {
-  width: 18px;
-  height: 18px;
-}
-
-.stop-btn {
-  background: var(--color-error) !important;
-  border: none !important;
-  color: var(--color-on-color) !important;
-  opacity: 1 !important;
-  cursor: pointer !important;
-  box-shadow: 0 2px 8px rgba(var(--color-error-rgb), 0.3) !important;
-}
-
-.stop-btn:hover {
-  opacity: 0.9 !important;
-  transform: scale(1.05) !important;
-  box-shadow: 0 4px 16px rgba(var(--color-error-rgb), 0.4) !important;
-}
-
-.stop-btn:active {
-  transform: scale(0.95) !important;
-}
-
-.stop-icon {
-  font-size: 14px;
-  line-height: 1;
 }
 
 .spinner {
