@@ -14,6 +14,7 @@
         </Button>
       </div>
 
+      <template v-if="isChatRoute">
       <div class="sidebar-header">
         <button class="sidebar-btn" :class="{ active: isPageActive('chat') && !activeSessionId }" @click="startNewChat">
           <IconNewConversation :size="22" class="icon" />
@@ -77,18 +78,55 @@
           </div>
         </div>
       </div>
+      </template>
+
+      <template v-else>
+        <div class="sidebar-header">
+          <div class="sidebar-context">
+            <div class="sidebar-context__label">管理中心</div>
+            <div class="sidebar-context__team">Agent · 基础设施 · 运维</div>
+          </div>
+        </div>
+        <div class="admin-nav-list">
+          <div v-for="group in adminNavGroups" :key="group.key" class="admin-nav-group">
+            <div class="admin-nav-group-label">{{ group.label }}</div>
+            <button
+              v-for="item in adminItemsByGroup(group.key)"
+              :key="item.key"
+              class="sidebar-btn admin-nav-item"
+              :class="{ active: isPageActive(item.mainView) }"
+              :title="item.title"
+              @click="navigateTo(item.path)"
+            >
+              <component :is="item.icon" class="icon" />
+              <span class="btn-text">{{ item.label }}</span>
+            </button>
+          </div>
+        </div>
+      </template>
 
       <div class="sidebar-footer">
+        <template v-if="isChatRoute">
+          <button
+            v-for="item in sidebarNavItems"
+            :key="item.key"
+            :class="['sidebar-btn', 'sidebar-footer-btn', item.buttonClass, { active: isSidebarNavActive(item) }]"
+            :title="item.title"
+            @click="navigateTo(item.path)"
+          >
+            <component :is="item.icon" class="icon" />
+            <span class="btn-text">{{ item.label }}</span>
+            <span class="sidebar-status__dot"></span>
+          </button>
+        </template>
         <button
-          v-for="item in sidebarNavItems"
-          :key="item.key"
-          :class="['sidebar-btn', 'sidebar-footer-btn', item.buttonClass, { active: isSidebarNavActive(item) }]"
-          :title="item.title"
-          @click="navigateTo(item.path)"
+          v-else
+          class="sidebar-btn sidebar-footer-btn"
+          title="返回聊天"
+          @click="navigateTo('/')"
         >
-          <component :is="item.icon" class="icon" />
-          <span class="btn-text">{{ item.label }}</span>
-          <span class="sidebar-status__dot"></span>
+          <IconChevronLeft :size="22" class="icon" />
+          <span class="btn-text">返回聊天</span>
         </button>
       </div>
     </aside>
@@ -126,7 +164,7 @@ import { useSessionListStore } from '../stores/session-list.js';
 import { deleteSession as deleteSessionApi } from '../api/session';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconNewConversation, IconTrash } from '../components/icons';
 import { Button } from '../components/ui/button';
-import { sidebarAdminNavItem, managementNavItems } from '../navigation/adminNavigation';
+import { sidebarAdminNavItem, managementNavItems, adminNavGroups } from '../navigation/adminNavigation';
 import CommandPalette from '../components/CommandPalette.vue';
 import { useCommandPalette } from '../composables/useCommandPalette.js';
 import HotkeysHelp from '../components/HotkeysHelp.vue';
@@ -150,6 +188,7 @@ const lastChatSessionId = ref(null);
 const isChatRoute = computed(() => (route.meta?.mainView || 'chat') === 'chat');
 const pageShell = computed(() => (isChatRoute.value ? 'div' : AdminLayout));
 const isPageActive = (mainView) => (route.meta?.mainView || 'chat') === mainView;
+const adminItemsByGroup = (groupKey) => managementNavItems.filter((i) => i.group === groupKey);
 const isSidebarNavActive = (item) => item.section
   ? route.meta?.section === item.section
   : isPageActive(item.mainView);
@@ -982,6 +1021,28 @@ onUnmounted(() => {
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
 }
+
+.admin-nav-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--spacing-xs) 0;
+}
+.admin-nav-group { padding: var(--spacing-xs) 0; }
+.admin-nav-group + .admin-nav-group {
+  border-top: 1px solid var(--color-border);
+  margin-top: var(--spacing-xs);
+  padding-top: var(--spacing-sm);
+}
+.admin-nav-group-label {
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.admin-nav-item { width: 100%; justify-content: flex-start; }
 
 .sidebar-footer {
   padding: var(--spacing-md) var(--spacing-sm);
