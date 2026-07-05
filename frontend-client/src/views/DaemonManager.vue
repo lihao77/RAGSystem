@@ -4,8 +4,8 @@
       <div class="hdr-actions">
         <UiButton size="compact" :variant="status.running ? 'danger' : 'primary'" :disabled="loading" @click="toggleDaemon">
           <template #icon>
-            <svg v-if="!loading && status.running" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-            <svg v-else-if="!loading" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <IconPause v-if="!loading && status.running" :size="14" />
+            <IconPlay v-else-if="!loading" :size="14" />
             <span v-if="loading" class="btn-spin"/>
           </template>
           {{ loading ? '...' : (status.running ? '停止' : '启动') }}
@@ -18,8 +18,8 @@
 
     <template #mobile-menu="{ close }">
       <button class="pl-menu-item" :disabled="loading" @click="toggleDaemon(); close()">
-        <svg v-if="!loading && status.running" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-        <svg v-else-if="!loading" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <IconPause v-if="!loading && status.running" :size="16" />
+        <IconPlay v-else-if="!loading" :size="16" />
         <span v-else class="btn-spin"></span>
         {{ loading ? '处理中...' : (status.running ? '停止守护系统' : '启动守护系统') }}
       </button>
@@ -173,10 +173,10 @@
               </div>
             </div>
             <div class="cron-row-actions">
-              <UiIconButton label="手动触发" @click="handleTriggerTask(task.task_id)"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg></UiIconButton>
+              <UiIconButton label="手动触发" @click="handleTriggerTask(task.task_id)"><IconPlay :size="13" /></UiIconButton>
               <UiIconButton :label="task.enabled ? '禁用' : '启用'" @click="handleToggleTask(task)">
-                <svg v-if="task.enabled" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-                <svg v-else xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                <IconPause v-if="task.enabled" :size="13" />
+                <IconPlay v-else :size="13" />
               </UiIconButton>
               <UiIconButton variant="danger" label="删除" @click="handleDeleteTask(task.task_id)"><IconClose :size="13" :stroke-width="2.5" /></UiIconButton>
             </div>
@@ -266,6 +266,8 @@ import { ref, computed, h, onMounted } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
 import IconRefresh from '../components/icons/IconRefresh.vue';
 import IconClose from '../components/icons/IconClose.vue';
+import IconPlay from '../components/icons/IconPlay.vue';
+import IconPause from '../components/icons/IconPause.vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import ToggleSwitch from '../components/ToggleSwitch.vue';
 import AdmModal from '../components/admin/AdmModal.vue';

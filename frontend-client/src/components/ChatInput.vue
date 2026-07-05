@@ -64,9 +64,7 @@
              aria-label="停止生成"
               title="停止生成"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="send-icon" aria-hidden="true">
-                <rect x="6" y="6" width="12" height="12" rx="2"></rect>
-              </svg>
+              <IconStop class="send-icon" aria-hidden="true" :size="18" />
             </button>
             <button
               v-else
@@ -76,9 +74,7 @@
               aria-label="发送消息"
               title="发送消息"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="send-icon">
-                <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
-              </svg>
+              <IconSend class="send-icon" :size="18" />
             </button>
           </div>
         </div>
@@ -89,6 +85,8 @@
 
 <script setup>
 import { ref, defineProps, defineEmits, watch, nextTick, computed, onMounted, onUnmounted } from 'vue';
+import IconStop from './icons/IconStop.vue';
+import IconSend from './icons/IconSend.vue';
 
 const props = defineProps({
   modelValue: {

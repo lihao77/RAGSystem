@@ -25,3 +25,7 @@ export { default as IconEdit } from './IconEdit.vue';
 export { default as IconSave } from './IconSave.vue';
 export { default as IconCopy } from './IconCopy.vue';
 export { default as IconFile } from './IconFile.vue';
+export { default as IconPlay } from './IconPlay.vue';
+export { default as IconPause } from './IconPause.vue';
+export { default as IconStop } from './IconStop.vue';
+export { default as IconSend } from './IconSend.vue';
