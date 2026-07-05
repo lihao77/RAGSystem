@@ -92,6 +92,7 @@ export function useCommandPalette() {
     query,
     activeIndex,
     filtered,
+    allCommands,
     register,
     setDynamic,
     clearDynamic,

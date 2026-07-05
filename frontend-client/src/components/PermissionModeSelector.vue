@@ -36,13 +36,7 @@
       <PopoverContent class="dropdown-panel" align="start" side="bottom" :side-offset="8">
         <div class="section-label">审批总开关</div>
         <div class="skip-all-row">
-          <button
-            type="button"
-            class="skip-all-switch"
-            :class="{ active: skipAllApprovals }"
-            :aria-pressed="skipAllApprovals"
-            @click="toggleSkipAllApprovals"
-          >
+          <div class="skip-all-switch" :class="{ active: skipAllApprovals }">
             <span class="skip-all-switch-copy">
               <span class="skip-all-title-row">
                 <span class="skip-all-toggle-title" :class="{ active: skipAllApprovals }">
@@ -62,10 +56,12 @@
                 </button>
               </span>
             </span>
-            <span class="skip-all-switch-track" aria-hidden="true">
-              <span class="skip-all-switch-thumb"></span>
-            </span>
-          </button>
+            <Switch
+              :checked="skipAllApprovals"
+              class="data-[state=checked]:bg-error"
+              @update:checked="toggleSkipAllApprovals"
+            />
+          </div>
         </div>
         <p v-if="skipAllDetailsOpen" class="skip-all-desc">{{ skipAllApprovalsMeta.desc }}</p>
 
@@ -100,14 +96,9 @@
 
         <!-- 添加规则表单 -->
         <div v-if="showAddRule" class="add-rule-form" @click.stop>
-          <select v-model="newRule.type" class="rule-select">
-            <option value="tool_name">工具名</option>
-            <option value="file_pattern">文件路径</option>
-            <option value="risk_level">风险等级</option>
-          </select>
-          <input
+          <CustomSelect v-model="newRule.type" :options="ruleTypeOptions" />
+          <Input
             v-model="newRule.value"
-            class="rule-input"
             :placeholder="rulePlaceholder"
             @keydown.enter="addRule"
           />
@@ -146,6 +137,9 @@ import IconCheck from './icons/IconCheck.vue';
 import IconClose from './icons/IconClose.vue';
 import IconPlus from './icons/IconPlus.vue';
 import { Button } from './ui/button';
+import { Switch } from './ui/switch';
+import { Input } from './ui/input';
+import CustomSelect from './ui/CustomSelect.vue';
 
 const dropdownOpen = ref(false);
 const currentMode = ref('standard');
@@ -154,6 +148,11 @@ const skipAllApprovals = ref(false);
 const skipAllDetailsOpen = ref(false);
 const showAddRule = ref(false);
 const newRule = ref({ type: 'tool_name', value: '' });
+const ruleTypeOptions = [
+  { label: '工具名', value: 'tool_name' },
+  { label: '文件路径', value: 'file_pattern' },
+  { label: '风险等级', value: 'risk_level' },
+];
 
 const modes = PERMISSION_MODE_OPTIONS;
 const skipAllApprovalsMeta = SKIP_ALL_APPROVALS_META;
