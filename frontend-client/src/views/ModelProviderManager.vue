@@ -8,20 +8,12 @@
     mobile-title="Provider 管理"
   >
     <template #header-actions>
-      <Button variant="default" size="icon" aria-label="添加 Provider" @click="openCreateDialog">
+      <Button variant="ghost" size="icon-sm" aria-label="添加 Provider" title="添加 Provider" @click="openCreateDialog">
         <IconPlus :size="15" />
       </Button>
-    </template>
-
-    <template #header-menu="{ close }">
-      <button class="pl-menu-item" @click="openCreateDialog(); close()">
-        <IconPlus :size="16" />
-        添加 Provider
-      </button>
-      <button class="pl-menu-item" :disabled="loading" @click="loadProviders(); close()">
-        <IconRefresh :size="16" :class="{ spin: loading }" />
-        {{ loading ? '刷新中...' : '刷新' }}
-      </button>
+      <Button variant="ghost" size="icon-sm" :disabled="loading" :aria-label="loading ? '刷新中' : '刷新'" :title="loading ? '刷新中' : '刷新'" @click="loadProviders">
+        <IconRefresh :size="15" :class="{ spin: loading }" />
+      </Button>
     </template>
 
     <template #mobile-menu="{ close }">
@@ -606,8 +598,8 @@ onMounted(() => { loadProviderTypes(); loadProviders(); });
 .provider-row-list-enter-from, .provider-row-list-leave-to { opacity: 0; transform: translateY(8px); }
 
 .provider-row-main { display: grid; grid-template-columns: 48px minmax(240px, 1fr) auto; gap: 10px; align-items: stretch; min-width: 0; min-height: 46px; }
-.drag-handle { height: 100%; min-height: 46px; display: inline-flex; flex-direction: row; align-items: center; justify-content: center; gap: 6px; width: 48px; border: none; border-radius: 0; background: var(--adm-control-bg); color: var(--color-text-muted); cursor: grab; transition: background 0.16s ease, color 0.16s ease; }
-.drag-handle:hover:not(:disabled) { color: var(--color-text-secondary); background: var(--adm-control-hover); }
+.drag-handle { height: 100%; min-height: 46px; display: inline-flex; flex-direction: row; align-items: center; justify-content: center; gap: 6px; width: 48px; border: none; border-radius: 0; background: transparent; color: var(--color-text-muted); cursor: grab; transition: background 0.16s ease, color 0.16s ease; }
+.drag-handle:hover:not(:disabled) { color: var(--color-text-secondary); background: var(--color-hover-overlay-md); }
 .drag-handle:active:not(:disabled) { cursor: grabbing; }
 .drag-handle:disabled { opacity: 0.55; cursor: not-allowed; }
 .order-index { min-width: 18px; font-size: 11px; font-weight: 800; letter-spacing: 0.04em; color: inherit; text-align: right; }

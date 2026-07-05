@@ -20,17 +20,12 @@
         placeholder="全部智能体"
         @update:model-value="selectedAgent = $event; loadMetrics()"
       />
-    </template>
-
-    <template #header-menu="{ close }">
-      <button class="pl-menu-item" :disabled="loading" @click="loadMetrics(); close()">
+      <Button variant="ghost" size="icon-sm" :disabled="loading" aria-label="刷新" title="刷新" @click="loadMetrics">
         <IconRefresh :size="16" />
-        刷新
-      </button>
-      <button class="pl-menu-item pl-menu-item--danger" @click="confirmReset(); close()">
+      </Button>
+      <Button variant="ghost" size="icon-sm" aria-label="重置指标" title="重置指标" @click="confirmReset">
         <IconTrash :size="16" />
-        重置指标
-      </button>
+      </Button>
     </template>
 
     <template #mobile-menu="{ close }">
@@ -403,24 +398,24 @@ onUnmounted(() => { stopAutoRefresh(); });
 @media (max-width: 1200px) { .page-hint { display: none; } }
 .monitor-agent-select { width: clamp(136px, 15vw, 200px); flex: 0 1 200px; min-width: 0; }
 
-.detail-card { border: 1px solid var(--adm-border); border-radius: var(--radius-lg); background: var(--adm-surface); box-shadow: var(--adm-shadow-inset); overflow: hidden; }
-.detail-card__head { display: flex; flex-direction: column; gap: 2px; padding: var(--spacing-md) var(--spacing-lg); border-bottom: 1px solid var(--adm-border); background: var(--adm-surface-muted); }
+.detail-card { border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-elevated); box-shadow: none; overflow: hidden; }
+.detail-card__head { display: flex; flex-direction: column; gap: 2px; padding: var(--spacing-md) var(--spacing-lg); border-bottom: 1px solid var(--color-border); background: var(--color-bg-elevated); }
 .detail-card__head h2 { margin: 0; font-size: var(--font-size-lg); font-weight: 600; color: var(--color-text-primary); }
 .detail-card__head span { font-size: var(--font-size-xs); color: var(--color-text-secondary); }
 .detail-card__body { padding: var(--spacing-md) var(--spacing-lg); }
 
 .agents-list { display: flex; flex-direction: column; }
-.agent-card { padding: var(--spacing-md); border-bottom: 1px solid var(--adm-border); transition: background 0.2s; }
+.agent-card { padding: var(--spacing-md); border-bottom: 1px solid var(--color-border); transition: background 0.2s; }
 .agent-card:last-child { border-bottom: none; }
-.agent-card:hover { background: var(--adm-surface-muted); }
+.agent-card:hover { background: var(--color-bg-elevated); }
 .agent-card__head { display: flex; justify-content: space-between; align-items: center; gap: var(--spacing-sm); margin-bottom: var(--spacing-md); flex-wrap: wrap; }
 .agent-name { font-size: var(--font-size-base); font-weight: 600; color: var(--color-text-primary); font-family: var(--font-mono); }
 
 .badge-group { display: flex; gap: var(--spacing-xs); flex-wrap: wrap; }
-.badge { padding: 3px 10px; border-radius: 20px; font-size: var(--font-size-xs); font-weight: 500; border: 1px solid var(--adm-border); background: var(--adm-control-bg); color: var(--color-text-secondary); }
+.badge { padding: 3px 10px; border-radius: 20px; font-size: var(--font-size-xs); font-weight: 500; border: 1px solid var(--color-border); background: transparent; color: var(--color-text-secondary); }
 .badge--success { border-color: rgba(var(--color-success-rgb), 0.35); background: rgba(var(--color-success-rgb), 0.1); color: var(--color-success); }
 
-.agent-metrics { display: flex; flex-wrap: wrap; gap: 0; margin-bottom: var(--spacing-md); border-radius: var(--radius-md); overflow: hidden; background: var(--adm-surface-muted); }
+.agent-metrics { display: flex; flex-wrap: wrap; gap: 0; margin-bottom: var(--spacing-md); border-radius: var(--radius-md); overflow: hidden; background: var(--color-bg-elevated); }
 .metric-item { flex: 1 1 160px; display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-right: 1px solid var(--color-border); }
 .metric-item:last-child { border-right: none; }
 .metric-item__label { font-size: var(--font-size-xs); color: var(--color-text-secondary); }

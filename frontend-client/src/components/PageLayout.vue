@@ -17,40 +17,7 @@
           </svg>
         </Button>
         <div class="page-header__meta">
-          <div class="page-header__title-row">
-            <h1 class="page-header__title">{{ title }}</h1>
-            <p v-if="subtitle" class="page-header__subtitle">{{ subtitle }}</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="page-header__group page-header__group--actions">
-        <div class="page-header__actions">
-          <div class="page-header__actions-main">
-            <slot name="header-actions" />
-          </div>
-          <div v-if="hasHeaderMenu" ref="desktopMenuRef" class="page-header__menu-wrap">
-            <Button
-              class="page-header__more-btn"
-              :class="{ 'is-open': desktopMenuOpen }"
-              variant="ghost"
-              size="icon"
-              aria-label="更多操作"
-              title="更多操作"
-              @click="desktopMenuOpen = !desktopMenuOpen"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="5" r="1" fill="currentColor" />
-                <circle cx="12" cy="12" r="1" fill="currentColor" />
-                <circle cx="12" cy="19" r="1" fill="currentColor" />
-              </svg>
-            </Button>
-            <div v-if="desktopMenuOpen" class="page-header__menu-dropdown">
-              <div class="page-header__menu-list">
-                <slot name="header-menu" :close="() => { desktopMenuOpen = false }" />
-              </div>
-            </div>
-          </div>
+          <h1 class="page-header__title">{{ title }}</h1>
         </div>
       </div>
     </header>
@@ -74,35 +41,62 @@
         <div class="page-mobile-nav__copy">
           <span class="page-mobile-nav__title">{{ mobileTitle || title }}</span>
         </div>
-        <Button
-          v-if="hasMobileMenu"
-          ref="mobileMenuTriggerRef"
-          class="page-mobile-nav__more"
-          :class="{ 'is-open': mobileMenuOpen }"
-          variant="ghost"
-          size="icon"
-          aria-label="更多操作"
-          title="更多操作"
-          @click="mobileMenuOpen = !mobileMenuOpen"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="5" r="1" fill="currentColor" />
-            <circle cx="12" cy="12" r="1" fill="currentColor" />
-            <circle cx="12" cy="19" r="1" fill="currentColor" />
-          </svg>
-        </Button>
-        <div v-else class="page-mobile-nav__spacer" />
-
-        <div v-if="hasMobileMenu && mobileMenuOpen" class="page-mobile-menu">
-          <div ref="mobileMenuRef" class="page-mobile-menu__list">
+        <DropdownMenu v-if="hasMobileMenu" v-model:open="mobileMenuOpen">
+          <DropdownMenuTrigger as-child>
+            <Button
+              class="page-mobile-nav__more"
+              :class="{ 'is-open': mobileMenuOpen }"
+              variant="ghost"
+              size="icon"
+              aria-label="更多操作"
+              title="更多操作"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="5" r="1" fill="currentColor" />
+                <circle cx="12" cy="12" r="1" fill="currentColor" />
+                <circle cx="12" cy="19" r="1" fill="currentColor" />
+              </svg>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent class="page-mobile-menu__list min-w-[220px]" align="end" :side-offset="4">
             <slot name="mobile-menu" :close="() => { mobileMenuOpen = false }" />
-          </div>
-        </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <div v-else class="page-mobile-nav__spacer" />
       </div>
 
       <div class="page-content-scroll">
         <div class="page-content">
+          <div v-if="subtitle || hasHeaderActions || hasHeaderMenu" class="page-content__topbar">
+            <p v-if="subtitle" class="page-content__subtitle">{{ subtitle }}</p>
+            <div v-if="hasHeaderActions || hasHeaderMenu" class="page-content__actions" :class="{ 'has-mobile-menu': hasMobileMenu }">
+              <slot name="header-actions" />
+              <div v-if="hasHeaderMenu" class="page-content__menu-wrap">
+                <DropdownMenu v-model:open="desktopMenuOpen">
+                  <DropdownMenuTrigger as-child>
+                    <Button
+                      class="page-content__more-btn"
+                      :class="{ 'is-open': desktopMenuOpen }"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="更多操作"
+                      title="更多操作"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="5" r="1" fill="currentColor" />
+                        <circle cx="12" cy="12" r="1" fill="currentColor" />
+                        <circle cx="12" cy="19" r="1" fill="currentColor" />
+                      </svg>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent class="page-header__menu-list min-w-[220px]" align="end" :side-offset="8">
+                    <slot name="header-menu" :close="() => { desktopMenuOpen = false }" />
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          </div>
           <slot />
         </div>
       </div>
@@ -112,7 +106,7 @@
 
 <script setup>
 import { computed, inject, ref, useSlots } from 'vue';
-import { usePointerDownOutside } from '../composables/usePointerDownOutside';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from './ui/dropdown-menu';
 import { Button } from './ui/button';
 
 const props = defineProps({
@@ -130,11 +124,9 @@ const slots = useSlots();
 const shellSidebarControl = inject('shellSidebarControl', null);
 const hasMobileMenu = computed(() => !!slots['mobile-menu']);
 const hasHeaderMenu = computed(() => !!slots['header-menu']);
+const hasHeaderActions = computed(() => !!slots['header-actions']);
 const mobileMenuOpen = ref(false);
 const desktopMenuOpen = ref(false);
-const desktopMenuRef = ref(null);
-const mobileMenuRef = ref(null);
-const mobileMenuTriggerRef = ref(null);
 
 const shellStyle = computed(() => ({
   '--page-shell-max-width': props.maxWidth,
@@ -145,22 +137,6 @@ const shellStyle = computed(() => ({
 const openMobileSidebar = () => {
   shellSidebarControl?.openMobileSidebar?.();
 };
-
-usePointerDownOutside({
-  inside: [desktopMenuRef],
-  enabled: () => desktopMenuOpen.value,
-  onOutside: () => {
-    desktopMenuOpen.value = false;
-  },
-});
-
-usePointerDownOutside({
-  inside: [mobileMenuRef, mobileMenuTriggerRef],
-  enabled: () => mobileMenuOpen.value,
-  onOutside: () => {
-    mobileMenuOpen.value = false;
-  },
-});
 </script>
 
 <style scoped>
@@ -199,8 +175,9 @@ usePointerDownOutside({
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  /* 浅灰画布：让纯白卡片面板浮起，形成层次，免边框 */
-  background: var(--color-bg-secondary);
+  /* 画布 = 最深背景层(primary)：让 Card(elevated) 明显浮起。
+     页面最多三层次：背景(primary) → Card(elevated) → 子项(tertiary)，背景与第二层必须区分 */
+  background: var(--color-bg-primary);
 }
 
 .page-content {
@@ -212,6 +189,33 @@ usePointerDownOutside({
   display: flex;
   gap: var(--spacing-lg);
   flex-direction: column;
+}
+
+/* 顶部条：subtitle + actions 一行（从 page-header 下移到 page-content） */
+.page-content__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+.page-content__subtitle {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.page-content__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+.page-content__menu-wrap { position: relative; }
+.page-content__more-btn.is-open {
+  background: var(--color-hover-overlay-md);
 }
 
 .page-content:deep(> :first-child) {
@@ -271,26 +275,11 @@ usePointerDownOutside({
   justify-content: flex-start;
 }
 
-.page-header__group--actions {
-  flex: 1 1 auto;
-  min-width: 0;
-  justify-content: flex-end;
-}
-
 .page-header__meta {
   min-width: 0;
   flex: 1 1 auto;
   display: flex;
   align-items: center;
-}
-
-.page-header__title-row {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  min-width: 0;
-  width: 100%;
 }
 
 .page-header__menu-btn {
@@ -312,65 +301,6 @@ usePointerDownOutside({
   text-overflow: ellipsis;
 }
 
-.page-header__subtitle {
-  margin: 0;
-  flex: 0 1 auto;
-  min-width: 0;
-  color: var(--color-text-secondary);
-  font-size: 13px;
-  line-height: 1.4;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.page-header__actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  align-content: center;
-  gap: var(--spacing-sm);
-  flex-wrap: nowrap;
-  flex: 0 1 auto;
-  max-width: 100%;
-  min-width: 0;
-}
-
-.page-header__actions-main {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  align-content: center;
-  gap: var(--spacing-sm);
-  flex-wrap: nowrap;
-  min-width: 0;
-}
-
-.page-header__menu-wrap {
-  position: relative;
-  flex: 0 0 auto;
-  margin-left: 2px;
-}
-
-.page-header__more-btn {
-  width: var(--icon-button-size-md);
-  min-width: var(--icon-button-size-md);
-  padding: 0;
-}
-
-.page-header__more-btn.is-open {
-  background: var(--color-hover-overlay-md);
-  border-color: transparent;
-}
-
-.page-header__menu-dropdown {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: var(--z-dropdown);
-  min-width: 220px;
-}
-
 .page-header__menu-list {
   padding: 6px;
   border-radius: var(--radius-lg);
@@ -379,22 +309,6 @@ usePointerDownOutside({
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   border: var(--glass-border-width) var(--glass-border-style) var(--glass-border-color);
   box-shadow: var(--glass-shadow);
-}
-
-.page-header__actions :deep(.custom-select) {
-  width: clamp(136px, 15vw, 200px);
-  flex: 0 1 200px;
-  min-width: 0;
-}
-
-.page-header__actions :deep(.select-trigger) {
-  height: var(--control-height-md);
-  min-height: var(--control-height-md);
-  padding: 0 34px 0 12px;
-  border-radius: 8px;
-  background: var(--color-hover-overlay);
-  font-size: 12px;
-  box-sizing: border-box;
 }
 
 /* ===== 移动端导航栏 ===== */
@@ -442,7 +356,7 @@ usePointerDownOutside({
 
 .page-mobile-nav__menu:hover,
 .page-mobile-nav__more:hover {
-  background: var(--adm-control-bg, var(--color-interactive));
+  background: var(--color-hover-overlay-md);
 }
 
 .page-mobile-nav__copy {
@@ -472,15 +386,6 @@ usePointerDownOutside({
 }
 
 /* ===== 移动端下拉菜单 ===== */
-.page-mobile-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: var(--top-bar-padding-x);
-  z-index: var(--z-dropdown);
-  min-width: 220px;
-  max-width: calc(100vw - var(--top-bar-padding-x) - var(--top-bar-padding-x));
-}
-
 .page-mobile-menu__list {
   max-height: min(70vh, 520px);
   overflow-x: hidden;
@@ -511,6 +416,11 @@ usePointerDownOutside({
 
   .page-mobile-nav {
     display: flex;
+  }
+
+  /* 移动端有 mobile-menu 时隐藏顶栏 actions（操作走三点菜单） */
+  .page-content__actions.has-mobile-menu {
+    display: none;
   }
 
   .page-shell {
@@ -547,28 +457,8 @@ usePointerDownOutside({
     max-width: none;
   }
 
-  .page-header__group--actions {
-    max-width: none;
-    justify-content: flex-end;
-    align-self: flex-end;
-  }
-
-  .page-header__hint-row {
-    display: none;
-  }
-
   .page-header__title {
     font-size: 1.15rem;
-  }
-
-  .page-header__actions,
-  .page-header__actions-main {
-    justify-content: flex-end;
-  }
-
-  .page-header__actions :deep(.custom-select) {
-    width: 144px;
-    flex-basis: 144px;
   }
 }
 </style>

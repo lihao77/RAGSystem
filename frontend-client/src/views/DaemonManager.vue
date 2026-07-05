@@ -1,17 +1,14 @@
 <template>
   <PageLayout title="守护 Agent" subtitle="飞书网关 · 定时调度 · 心跳监控">
     <template #header-actions>
-      <div class="hdr-actions">
-        <Button size="sm" :variant="status.running ? 'destructive' : 'default'" :disabled="loading" @click="toggleDaemon">
-            <IconPause v-if="!loading && status.running" :size="14" />
-            <IconPlay v-else-if="!loading" :size="14" />
-            <span v-if="loading" class="btn-spin"/>
-            <span>{{ loading ? '...' : (status.running ? '停止' : '启动') }}</span>
-        </Button>
-        <Button variant="ghost" size="icon" aria-label="刷新" :disabled="loading" @click="refresh">
-          <IconRefresh :size="16" />
-        </Button>
-      </div>
+      <Button variant="ghost" size="icon-sm" :disabled="loading" :aria-label="loading ? '处理中' : (status.running ? '停止' : '启动')" :title="loading ? '处理中' : (status.running ? '停止' : '启动')" @click="toggleDaemon">
+        <IconPause v-if="!loading && status.running" :size="14" />
+        <IconPlay v-else-if="!loading" :size="14" />
+        <span v-if="loading" class="btn-spin"/>
+      </Button>
+      <Button variant="ghost" size="icon-sm" aria-label="刷新" title="刷新" :disabled="loading" @click="refresh">
+        <IconRefresh :size="16" />
+      </Button>
     </template>
 
     <template #mobile-menu="{ close }">
@@ -28,19 +25,22 @@
     </template>
 
     <div class="dmgr">
-      <section class="dmgr-section adm-panel">
-        <div class="dmgr-section-head">
-          <span class="dmgr-section-title">状态概览</span>
+      <Card>
+        <CardHeader class="dmgr-card-head">
+          <CardTitle>状态概览</CardTitle>
           <UiBadge class="status-badge" size="sm" :tone="statusBadgeTone">{{ statusBadgeText }}</UiBadge>
-        </div>
-        <KpiCards :items="statusKpis" />
-      </section>
+        </CardHeader>
+        <CardContent>
+          <KpiCards :items="statusKpis" />
+      </CardContent>
+      </Card>
 
-      <section class="dmgr-section adm-panel">
-        <div class="dmgr-section-head">
-          <span class="dmgr-section-title">基础配置</span>
+      <Card>
+        <CardHeader class="dmgr-card-head">
+          <CardTitle>基础配置</CardTitle>
           <Button variant="default" size="sm" :disabled="baseSaving" @click="saveBaseConfig">{{ baseSaving ? '保存中...' : '保存' }}</Button>
-        </div>
+        </CardHeader>
+        <CardContent>
         <div class="config-card">
           <div class="config-grid">
             <div class="form-item">
@@ -58,13 +58,15 @@
           </div>
           <p class="section-tip">保存后若守护系统正在运行，会自动重载并应用新配置。</p>
         </div>
-      </section>
+      </CardContent>
+      </Card>
 
-      <section class="dmgr-section adm-panel">
-        <div class="dmgr-section-head">
-          <span class="dmgr-section-title">平台配置</span>
+      <Card>
+        <CardHeader class="dmgr-card-head">
+          <CardTitle>平台配置</CardTitle>
           <Button variant="default" size="sm" @click="openAddPlatform">+ 添加</Button>
-        </div>
+        </CardHeader>
+        <CardContent>
         <div v-if="platformConfigs.length" class="platform-grid">
           <div v-for="pc in platformConfigs" :key="pc.key" class="platform-card" :class="{ 'platform-card--active': pc.enabled }">
             <div class="platform-card-head">
@@ -87,10 +89,12 @@
           <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.35"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
           <p>暂无平台配置，点击「添加」开始</p>
         </div>
-      </section>
+      </CardContent>
+      </Card>
 
-      <section class="dmgr-section adm-panel">
-        <div class="dmgr-section-head"><span class="dmgr-section-title">适配器状态</span></div>
+      <Card>
+        <CardHeader class="dmgr-card-head"><CardTitle>适配器状态</CardTitle></CardHeader>
+        <CardContent>
         <div v-if="agents.length">
           <div v-for="agent in agents" :key="agent.team_name" class="adapter-group">
             <div class="adapter-group-lbl">{{ agent.team_name }}</div>
@@ -108,13 +112,15 @@
           <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.35"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
           <p>守护系统未运行或无已连接适配器</p>
         </div>
-      </section>
+      </CardContent>
+      </Card>
 
-      <section class="dmgr-section adm-panel">
-        <div class="dmgr-section-head">
-          <span class="dmgr-section-title">权限配置</span>
+      <Card>
+        <CardHeader class="dmgr-card-head">
+          <CardTitle>权限配置</CardTitle>
           <Button variant="default" size="sm" :disabled="permSaving" @click="savePermissions">{{ permSaving ? '保存中...' : '保存' }}</Button>
-        </div>
+        </CardHeader>
+        <CardContent>
         <div class="config-card">
           <div class="config-grid">
             <div class="form-item">
@@ -148,13 +154,15 @@
           </div>
           <div v-else class="empty-panel empty-panel--compact adm-state adm-state--empty"><p>暂无自动接受规则</p></div>
         </div>
-      </section>
+      </CardContent>
+      </Card>
 
-      <section class="dmgr-section adm-panel">
-        <div class="dmgr-section-head">
-          <span class="dmgr-section-title">定时任务</span>
+      <Card>
+        <CardHeader class="dmgr-card-head">
+          <CardTitle>定时任务</CardTitle>
           <Button variant="default" size="sm" @click="openAddTask">+ 新增</Button>
-        </div>
+        </CardHeader>
+        <CardContent>
         <div v-if="cronTasks.length" class="cron-list">
           <div v-for="task in cronTasks" :key="task.task_id" class="cron-row">
             <div class="cron-row-main">
@@ -184,10 +192,12 @@
           <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.35"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           <p>暂无定时任务</p>
         </div>
-      </section>
+      </CardContent>
+      </Card>
 
-      <section class="dmgr-section adm-panel">
-        <div class="dmgr-section-head"><span class="dmgr-section-title">主动推送</span></div>
+      <Card>
+        <CardHeader class="dmgr-card-head"><CardTitle>主动推送</CardTitle></CardHeader>
+        <CardContent>
         <div class="config-card">
           <div class="push-row">
             <div class="push-platform-select"><CustomSelect v-model="pushForm.platform" :options="PLATFORM_OPTIONS" /></div>
@@ -198,7 +208,8 @@
             <Button size="sm" variant="default" @click="handlePush" :disabled="pushSending || !pushForm.chat_id || !pushForm.content">{{ pushSending ? '发送中...' : '发送' }}</Button>
           </div>
         </div>
-      </section>
+      </CardContent>
+      </Card>
     </div>
 
     <Dialog v-model:open="showConfigModal">
@@ -287,6 +298,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import KpiCards from '../components/admin/KpiCards.vue';
 import { UiBadge } from '../components/ui';
 import { Button } from '../components/ui/button';
+import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
 import { useToast } from '../composables/useToast.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import * as api from '../api/daemon';
@@ -657,16 +669,14 @@ onMounted(() => { refresh(); loadTeamAgentOptions(); });
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .dmgr { display: flex; flex-direction: column; gap: var(--spacing-xl); }
-.dmgr-section { background: var(--color-bg-elevated); border: none; border-radius: var(--radius-lg); padding: var(--spacing-xl); display: flex; flex-direction: column; gap: var(--spacing-lg); box-shadow: none; }
-.dmgr-section-head { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); }
-.dmgr-section-title { font-size: var(--font-size-lg); font-weight: 600; color: var(--color-text-primary); letter-spacing: -0.01em; }
+.dmgr-card-head { flex-direction: row; align-items: center; justify-content: space-between; gap: var(--spacing-md); }
 .section-tip { font-size: var(--font-size-xs); color: var(--color-text-muted); margin: 0; line-height: 1.5; }
 .section-tip code { font-family: var(--font-mono); background: var(--color-active-bg); color: var(--color-brand-accent); padding: 1px 6px; border-radius: var(--radius-sm); }
 .status-badge { line-height: 1.4; }
 
 .toggle-row { display: flex; align-items: center; gap: var(--spacing-sm); min-height: 40px; }
 
-.config-card { background: var(--color-bg-secondary); border: none; border-radius: var(--radius-lg); padding: var(--spacing-lg); display: flex; flex-direction: column; gap: var(--spacing-lg); }
+.config-card { display: flex; flex-direction: column; gap: var(--spacing-lg); }
 .config-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--spacing-lg); }
 
 .form-item { display: flex; flex-direction: column; gap: 8px; }
@@ -692,7 +702,7 @@ select.form-ctrl { cursor: pointer; }
 .empty-panel--compact { padding: var(--spacing-lg) var(--spacing-md); }
 
 .platform-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--spacing-md); }
-.platform-card { border-radius: var(--radius-lg); border: none; background: var(--color-bg-secondary); padding: var(--spacing-lg); display: flex; flex-direction: column; gap: var(--spacing-sm); transition: box-shadow var(--transition-fast); }
+.platform-card { border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-bg-tertiary); padding: var(--spacing-lg); display: flex; flex-direction: column; gap: var(--spacing-sm); box-shadow: var(--shadow-sm); transition: box-shadow var(--transition-fast); }
 .platform-card:hover { box-shadow: var(--shadow-elevated); }
 .platform-card--active { box-shadow: inset 0 0 0 1px rgba(var(--color-success-rgb), 0.3); }
 .platform-card-head { display: flex; align-items: center; gap: var(--spacing-sm); }

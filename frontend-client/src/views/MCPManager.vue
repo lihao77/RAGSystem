@@ -7,11 +7,10 @@
     subtitle="MCP 工具服务接入与测试"
     mobile-title="MCP 服务管理"
   >
-    <template #header-menu="{ close }">
-      <button class="pl-menu-item" :disabled="loadingServers" @click="refreshAll(); close()">
+    <template #header-actions>
+      <Button variant="ghost" size="icon-sm" :disabled="loadingServers" :aria-label="loadingServers ? '刷新中' : '全局刷新'" :title="loadingServers ? '刷新中' : '全局刷新'" @click="refreshAll">
         <IconRefresh :size="16" />
-        {{ loadingServers ? '刷新中...' : '全局刷新' }}
-      </button>
+      </Button>
     </template>
 
     <template #mobile-menu="{ close }">
@@ -650,21 +649,21 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.add-service-panel { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-lg); border-radius: var(--radius-xl); border: 1px solid var(--adm-border); background: var(--adm-surface); box-shadow: var(--adm-shadow-inset); scroll-margin-top: var(--spacing-md); }
+.add-service-panel { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-lg); border-radius: var(--radius-xl); border: 1px solid var(--color-border); background: var(--color-bg-elevated); box-shadow: none; scroll-margin-top: var(--spacing-md); }
 .add-service-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--spacing-md); }
-.add-service-close { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex-shrink: 0; border: 1px solid var(--adm-border); border-radius: var(--radius-md); background: var(--adm-control-bg); color: var(--color-text-secondary); cursor: pointer; transition: all var(--transition-fast); }
-.add-service-close:hover { border-color: var(--adm-border-strong); background: var(--adm-control-hover); color: var(--color-text-primary); }
-.add-subnav { display: flex; gap: var(--spacing-xs); padding: var(--spacing-xs); border-radius: var(--radius-md); background: var(--adm-control-bg); border: 1px solid var(--adm-border); width: fit-content; }
+.add-service-close { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex-shrink: 0; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: transparent; color: var(--color-text-secondary); cursor: pointer; transition: all var(--transition-fast); }
+.add-service-close:hover { border-color: var(--color-border-hover); background: var(--color-hover-overlay-md); color: var(--color-text-primary); }
+.add-subnav { display: flex; gap: var(--spacing-xs); padding: var(--spacing-xs); border-radius: var(--radius-md); background: transparent; border: 1px solid var(--color-border); width: fit-content; }
 .add-subnav-btn { display: inline-flex; align-items: center; gap: var(--spacing-sm); padding: 8px 14px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); font: inherit; font-size: var(--font-size-sm); font-weight: 500; cursor: pointer; white-space: nowrap; transition: all var(--transition-fast); }
 .add-subnav-btn:hover { color: var(--color-text-primary); }
-.add-subnav-btn--active { background: var(--adm-surface-hover); color: var(--color-text-primary); font-weight: 600; box-shadow: var(--shadow-sm); }
+.add-subnav-btn--active { background: var(--color-bg-tertiary); color: var(--color-text-primary); font-weight: 600; box-shadow: var(--shadow-sm); }
 .add-pane { display: flex; flex-direction: column; gap: var(--spacing-md); }
 
 .server-grid { display: flex; flex-direction: column; gap: 8px; }
 .server-card { display: flex; flex-direction: column; gap: var(--spacing-xs); padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--radius-lg); }
 .server-card__main { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); }
 .server-card-head { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
-.server-card-icon { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); flex-shrink: 0; border: 1px solid var(--adm-border); background: var(--adm-control-bg); color: var(--color-text-secondary); }
+.server-card-icon { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--radius-sm); flex-shrink: 0; border: 1px solid var(--color-border); background: transparent; color: var(--color-text-secondary); }
 .server-card-icon svg { width: 14px; height: 14px; }
 .server-card-info { flex: 1; min-width: 0; }
 .server-card-name { font-weight: 600; font-size: var(--font-size-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -720,14 +719,14 @@ onMounted(() => {
 .toggle-row { display: flex; flex-wrap: wrap; gap: var(--spacing-lg); padding: 2px 0; }
 .form-actions { display: flex; justify-content: flex-end; gap: var(--spacing-sm); padding-top: var(--spacing-md); border-top: 1px solid var(--color-border); margin-top: auto; }
 
-.registry-search-bar { display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--adm-border); background: var(--adm-control-bg); }
+.registry-search-bar { display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--color-border); background: transparent; }
 .search-input-wrap { flex: 1; display: flex; align-items: center; gap: var(--spacing-sm); color: var(--color-text-muted); }
 .registry-search-input { flex: 1; background: transparent; border: none; outline: none; color: var(--color-text-primary); font: inherit; font-size: var(--font-size-sm); }
 .registry-search-input::placeholder { color: var(--color-text-muted); }
 
 .registry-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--spacing-md); }
-.registry-card { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md); border-radius: var(--radius-lg); border: 1px solid var(--adm-border); background: var(--adm-surface-muted); transition: border-color var(--transition-fast), background var(--transition-fast); }
-.registry-card:hover { border-color: var(--adm-border-strong); background: var(--adm-surface); }
+.registry-card { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md); border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-bg-elevated); transition: border-color var(--transition-fast), background var(--transition-fast); }
+.registry-card:hover { border-color: var(--color-border-hover); background: var(--color-bg-elevated); }
 .registry-card-head { display: flex; align-items: flex-start; gap: var(--spacing-md); }
 .registry-card-title { flex: 1; min-width: 0; }
 .registry-card-title h3 { font-size: var(--font-size-base); font-weight: 600; margin: 0 0 4px; }

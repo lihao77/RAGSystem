@@ -18,29 +18,18 @@
         placeholder="请选择 Agent"
         @update:model-value="selectedAgent = $event; handleAgentChange()"
       />
-      <Button variant="secondary" size="icon" aria-label="新建 Agent" :disabled="saving || agentLoading" @click="openCreateDialog">
+      <Button variant="ghost" size="icon-sm" aria-label="新建 Agent" title="新建 Agent" :disabled="saving || agentLoading" @click="openCreateDialog">
         <IconPlus :size="16" :stroke-width="2.5" />
       </Button>
-      <Button v-if="selectedAgent" variant="default" :disabled="saving || agentLoading" @click="handleSave" :title="saving ? '保存中' : '保存配置'">
+      <Button v-if="selectedAgent" variant="ghost" size="icon-sm" :disabled="saving || agentLoading" :aria-label="saving ? '保存中' : '保存配置'" :title="saving ? '保存中' : '保存配置'" @click="handleSave">
         <IconSave :size="16" />
-        <span>{{ saving ? '保存中...' : '保存配置' }}</span>
       </Button>
-    </template>
-
-    <template #header-menu="{ close }">
-      <button class="pl-menu-item" :disabled="saving || agentLoading" @click="openCreateDialog(); close()">
-        <IconPlus :size="16" :stroke-width="2.5" />
-        新建 Agent
-      </button>
-      <button v-if="selectedAgent" class="pl-menu-item" :disabled="agentLoading" @click="handleExport(); close()">
+      <Button v-if="selectedAgent" variant="ghost" size="icon-sm" :disabled="agentLoading" aria-label="导出配置" title="导出配置" @click="handleExport">
         <IconDownload :size="16" />
-        导出配置
-      </button>
-      <div v-if="selectedAgent" class="pl-menu-divider"></div>
-      <button v-if="selectedAgent" class="pl-menu-item pl-menu-item--danger" :disabled="saving || agentLoading" @click="openDeleteDialog(); close()">
+      </Button>
+      <Button v-if="selectedAgent" variant="ghost" size="icon-sm" :disabled="saving || agentLoading" aria-label="删除 Agent" title="删除 Agent" @click="openDeleteDialog">
         <IconTrash :size="16" />
-        删除 Agent
-      </button>
+      </Button>
     </template>
 
     <template #mobile-menu="{ close }">

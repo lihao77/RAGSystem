@@ -1,11 +1,11 @@
 <template>
   <PageLayout title="系统配置" subtitle="全局 LLM、向量与系统参数">
     <template #header-actions>
-      <Button variant="ghost" :disabled="loading || saving" @click="handleReload">
-        重新加载
+      <Button variant="ghost" size="icon-sm" :disabled="loading || saving" aria-label="重新加载" title="重新加载" @click="handleReload">
+        <IconRefresh :size="16" />
       </Button>
-      <Button variant="default" :disabled="loading || saving" @click="handleSave">
-        {{ saving ? '保存中...' : '保存配置' }}
+      <Button variant="ghost" size="icon-sm" :disabled="loading || saving" :aria-label="saving ? '保存中' : '保存配置'" :title="saving ? '保存中' : '保存配置'" @click="handleSave">
+        <IconSave :size="16" />
       </Button>
     </template>
 

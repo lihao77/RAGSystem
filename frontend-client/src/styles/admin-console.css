@@ -2,25 +2,8 @@
    admin-console.css — 管理端共享原语
    极简重构：去边框化 + 留白分隔 + 发丝线 + 悬浮分层阴影
    玻璃仅用于真正浮动层（modal / dropdown）
+   直接用统一 --color-* / shadcn 语义 token，不再走 --adm-* 别名中间层
    ============================================================ */
-:root {
-  /* 面层级 —— 卡片面(白) > 内容区(浅灰) > 嵌套(更浅)，三级不糊 */
-  --adm-surface: var(--color-bg-elevated);
-  --adm-surface-muted: var(--color-bg-secondary);
-  --adm-surface-raised: var(--color-bg-elevated);
-  --adm-surface-hover: var(--color-bg-tertiary);
-  /* 控件底 —— 极浅，无边框优先 */
-  --adm-control-bg: transparent;
-  --adm-control-hover: var(--color-hover-overlay-md);
-  --adm-control-active: var(--color-active-bg);
-  --adm-input-bg: var(--color-bg-secondary);
-  /* 边界 —— 发丝优先于框，极浅 */
-  --adm-border: var(--color-border);
-  --adm-border-strong: var(--color-border-hover);
-  --adm-accent-border: rgba(var(--color-brand-accent-rgb), 0.28);
-  /* inset 高光彻底移除（拟物感来源） */
-  --adm-shadow-inset: none;
-}
 
 /* ===== KPI 卡片组 ===== */
 .adm-kpi-grid {
@@ -37,13 +20,13 @@
   padding: var(--spacing-md);
   border: none;
   border-radius: var(--radius-lg);
-  background: var(--adm-surface-raised);
+  background: var(--color-bg-elevated);
   box-shadow: none;
   transition: box-shadow var(--transition-normal), background var(--transition-normal);
 }
 
 .adm-kpi-card:hover {
-  background: var(--adm-surface-raised);
+  background: var(--color-bg-elevated);
   box-shadow: var(--shadow-elevated);
 }
 
@@ -95,7 +78,7 @@
   padding: var(--spacing-md);
   border: none;
   border-radius: var(--radius-lg);
-  background: var(--adm-surface);
+  background: var(--color-bg-elevated);
   box-shadow: none;
 }
 
@@ -189,13 +172,13 @@
   padding: var(--spacing-sm) var(--spacing-md);
   border: none;
   border-radius: var(--radius-md);
-  background: var(--adm-surface-muted);
+  background: var(--color-bg-elevated);
   box-shadow: none;
   transition: box-shadow var(--transition-normal), background var(--transition-normal);
 }
 
 .adm-entity-row:hover {
-  background: var(--adm-surface);
+  background: var(--color-bg-tertiary);
   box-shadow: var(--shadow-elevated);
 }
 
@@ -468,7 +451,7 @@
   width: 100%;
   min-height: 40px;
   padding: 0 12px;
-  border: 1px solid var(--adm-border);
+  border: 1px solid var(--color-border);
   border-radius: var(--control-radius);
   background: var(--color-bg-elevated);
   color: var(--color-text-primary);
@@ -484,7 +467,7 @@
 
 .adm-modal.adm-modal .field > input:hover,
 .adm-modal.adm-modal .field > textarea:hover {
-  border-color: var(--adm-border-strong);
+  border-color: var(--color-border-hover);
 }
 
 .adm-modal.adm-modal .field > input:focus,

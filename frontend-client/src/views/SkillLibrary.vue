@@ -5,9 +5,8 @@
     mobile-content-padding="var(--spacing-sm)"
   >
     <template #header-actions>
-      <Button variant="default" :disabled="loading || editorBusy" @click="openCreate">
+      <Button variant="ghost" size="icon-sm" :disabled="loading || editorBusy" aria-label="新建 Skill" title="新建 Skill" @click="openCreate">
         <IconPlus :size="14" :stroke-width="2.5" />
-        <span>新建 Skill</span>
       </Button>
     </template>
 

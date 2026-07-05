@@ -8,8 +8,8 @@
     mobile-content-padding="var(--spacing-lg) var(--spacing-md)"
   >
     <template #header-actions>
-      <Button as-child variant="ghost" class="admin-header-link" title="返回工作台">
-        <RouterLink :to="chatReturnPath">返回工作台</RouterLink>
+      <Button as-child variant="ghost" size="icon-sm" class="admin-header-link" aria-label="返回工作台" title="返回工作台">
+        <RouterLink :to="chatReturnPath"><IconChevronLeft :size="16" /></RouterLink>
       </Button>
     </template>
 
@@ -53,6 +53,7 @@ import { computed, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import PageLayout from '../components/PageLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
+import IconChevronLeft from '../components/icons/IconChevronLeft.vue';
 import { Button } from '../components/ui/button';
 import { useDictionariesStore } from '../stores/dictionaries.js';
 import { listMCPServers } from '../api/mcpService';
@@ -170,7 +171,7 @@ onMounted(async () => {
   gap: var(--spacing-xs);
   padding: var(--spacing-sm) var(--spacing-md);
   border-radius: var(--radius-md);
-  background: var(--adm-surface-muted);
+  background: var(--color-bg-elevated);
 }
 
 .status-item__label {

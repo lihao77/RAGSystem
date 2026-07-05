@@ -29,7 +29,7 @@
        dark/light 切换由下方 --color-* 的值控制（[data-theme="light"] 覆盖）。 */
     --background: var(--color-bg-primary);
     --foreground: var(--color-text-primary);
-    --card: var(--color-bg-secondary);
+    --card: var(--color-bg-elevated);
     --card-foreground: var(--color-text-primary);
     --popover: var(--color-bg-elevated);
     --popover-foreground: var(--color-text-primary);
@@ -48,71 +48,73 @@
     --ring: var(--color-brand-accent);
     --radius: var(--radius-md);
 
-    /* 唯一强调色 —— Linear 紫 */
-    --color-brand-accent: #5e6ad2;
-    /* 暗底上的可读紫（提亮以保证对比度） */
-    --color-brand-accent-rgb: 94, 106, 210;
-    --color-brand-accent-light: #7a86e0;
-    --color-brand-accent-light-rgb: 122, 134, 224;
-    --color-accent-ink: #4f5abf;
-    /* 实体填充用的深紫（亮底 CTA） */
+    /* === 风格色 accent 组 —— 换主题改这里 ===
+       单变量 + color-mix 自动衍生。换风格只改 --color-accent / -rgb 两行，
+       所有 accent/primary/ring/active/result/link/地图标记自动跟随。 */
+    --color-accent: #5e6ad2;
+    --color-accent-rgb: 94, 106, 210;
+    --color-accent-hover: color-mix(in srgb, var(--color-accent) 14%, #ffffff);
+    --color-accent-active: color-mix(in srgb, var(--color-accent) 14%, #000000);
+    --color-accent-fg: #ffffff;
+    --color-accent-bg: color-mix(in srgb, var(--color-accent) 14%, transparent);
+    --color-accent-border: color-mix(in srgb, var(--color-accent) 30%, transparent);
+    /* 派生语义（向后兼容旧名） */
+    --color-brand-accent: var(--color-accent);
+    --color-brand-accent-rgb: var(--color-accent-rgb);
+    --color-brand-accent-light: var(--color-accent-hover);
+    --color-brand-accent-light-rgb: var(--color-accent-rgb);
+    --color-accent-ink: var(--color-accent-active);
 
-    /* 交互主色 —— 近白（暗底主按钮用实体亮面） */
-    --color-interactive: #2a2a2c;
-    --color-interactive-hover: #38383a;
+    /* 交互主色 —— neutral 灰（次级按钮/输入 hover 面，= elevated） */
+    --color-interactive: #2a2a2a;
+    --color-interactive-hover: #383838;
     --color-interactive-glow: rgba(255, 255, 255, 0.06);
     --color-interactive-subtle: rgba(255, 255, 255, 0.06);
-    --color-interactive-rgb: 42, 42, 44;
+    --color-interactive-rgb: 42, 42, 42;
 
-    /* 背景层级 —— Linear near-black + surface */
-    --color-bg-app: #08090a;
-    --color-bg-primary: #0f1011;
-    /* 卡片/主内容面（Linear surface） */
-    --color-bg-secondary: #16171a;
-    /* 悬停/次级 */
-    --color-bg-tertiary: #1f2024;
-    /* 激活/嵌套 */
-    --color-bg-elevated: #131415;
-    --color-bg-elevated-rgb: 19, 20, 21;
-    /* 浮层 */
+    /* 背景层级 —— neutral 纯灰，由深到浅每级差~16，区分明显不糊 */
+    --color-bg-app: #060606;
+    --color-bg-primary: #0a0a0a;
+    /* 卡片/主内容面/画布 */
+    --color-bg-secondary: #1a1a1a;
+    /* hover/分区（最浅） */
+    --color-bg-tertiary: #383838;
+    /* 浮层/输入框/code block（浅于卡片，浮起） */
+    --color-bg-elevated: #2a2a2a;
+    --color-bg-elevated-rgb: 42, 42, 42;
 
-    /* 文字层级 —— Linear on-surface 高对比 */
-    --color-text-primary: #f7f8f8;
-    /* 近白主文（Linear on-surface） */
-    --color-text-secondary: #a0a1a3;
-    /* 副文 */
-    --color-text-muted: #62666d;
-    /* 占位/辅助 */
-    --color-text-inverse: #08090a;
+    /* 文字层级 —— neutral 灰阶 */
+    --color-text-primary: #fafafa;
+    --color-text-secondary: #b3b3b3;
+    --color-text-muted: #737373;
+    --color-text-inverse: #0a0a0a;
     --color-on-color: #ffffff;
     --color-on-color-strong: #ffffff;
-    --color-on-accent: #ffffff;
-    /* 紫色按钮上的文字 */
+    --color-on-accent: var(--color-accent-fg);
 
     /* 消息底 */
-    --color-bg-message-user: #1f2024;
+    --color-bg-message-user: var(--color-bg-tertiary);
     --color-bg-message-assistant: transparent;
 
-    /* 边界 —— 极浅透明，发丝优先于框 */
-    --color-border: rgba(255, 255, 255, 0.07);
+    /* 边界 —— neutral 半透明发丝 */
+    --color-border: rgba(255, 255, 255, 0.10);
     --color-border-rgb: 255, 255, 255;
-    --color-border-hover: rgba(255, 255, 255, 0.13);
-    --color-border-focus: rgba(122, 134, 224, 0.55);
-    /* 紫色聚焦 */
+    --color-border-hover: rgba(255, 255, 255, 0.16);
+    --color-border-focus: color-mix(in srgb, var(--color-accent) 55%, transparent);
 
-    /* 地图 / 结果 / 风险（保留功能性着色，收敛饱和度） */
-    --color-map-marker-fill: #5e6ad2;
-    --color-map-marker-border: #4f5abf;
+    /* 地图 / 结果 / 风险 —— 功能性着色，accent 由风格色派生 */
+    --color-map-marker-fill: var(--color-accent);
+    --color-map-marker-border: var(--color-accent-active);
     --color-map-marker-glyph: #ffffff;
     --color-map-marker-ring-fill: rgba(255, 255, 255, 0.12);
-    --color-map-overlay-accent: #5e6ad2;
+    --color-map-overlay-accent: var(--color-accent);
     --color-map-overlay-border: rgba(255, 255, 255, 0.4);
     --color-map-overlay-point-stroke: #ffffff;
     --color-risk-badge-text: var(--color-on-color);
     --color-risk-badge-ring: rgba(255, 255, 255, 0.8);
-    --color-result-text: #7a86e0;
-    --color-result-bg: rgba(94, 106, 210, 0.14);
-    --color-result-border: rgba(122, 134, 224, 0.3);
+    --color-result-text: var(--color-accent-hover);
+    --color-result-bg: var(--color-accent-bg);
+    --color-result-border: var(--color-accent-border);
     --color-soft-inset: rgba(255, 255, 255, 0.04);
 
     /* 状态色 —— 沉稳低饱和（暗底提亮以保证对比） */
@@ -127,16 +129,16 @@
     --color-error-rgb: 224, 82, 76;
     --color-danger: var(--color-error);
     --color-danger-rgb: var(--color-error-rgb);
-    --color-active: var(--color-brand-accent);
-    --color-active-bg: rgba(94, 106, 210, 0.14);
-    --color-active-rgb: var(--color-brand-accent-rgb);
-    --color-primary: var(--color-brand-accent);
-    --color-primary-rgb: var(--color-brand-accent-rgb);
-    --color-brand-primary: var(--color-brand-accent);
+    --color-active: var(--color-accent);
+    --color-active-bg: var(--color-accent-bg);
+    --color-active-rgb: var(--color-accent-rgb);
+    --color-primary: var(--color-accent);
+    --color-primary-rgb: var(--color-accent-rgb);
+    --color-brand-primary: var(--color-accent);
 
-    /* 链接 */
-    --color-link: var(--color-brand-accent-light);
-    --color-link-hover: #9ba5e8;
+    /* 链接 —— 风格色派生 */
+    --color-link: var(--color-accent-hover);
+    --color-link-hover: color-mix(in srgb, var(--color-accent) 30%, #ffffff);
 
     /* 智能体语义色 —— 收敛为低饱和（仅功能性区分，非装饰） */
     --color-agent-violet: #b79ce0;
@@ -160,9 +162,9 @@
     --color-hover-overlay-md: rgba(255, 255, 255, 0.08);
     --color-hover-overlay-lg: rgba(255, 255, 255, 0.1);
 
-    /* 玻璃 —— 浮层专用 */
-    --glass-bg: rgba(26, 27, 30, 0.72);
-    --glass-bg-light: rgba(26, 27, 30, 0.55);
+    /* 玻璃 —— 浮层专用（neutral 灰） */
+    --glass-bg: rgba(28, 28, 28, 0.72);
+    --glass-bg-light: rgba(28, 28, 28, 0.55);
     --color-glass-border: rgba(255, 255, 255, 0.1);
     --glass-border-width: 1px;
     --glass-border-style: solid;
@@ -171,20 +173,20 @@
     --glass-saturate: 160%;
     --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 
-    /* 语义面 —— 三级深度 */
-    --surface-shell: #0f1011;
-    --surface-sidebar: #08090a;
-    --surface-workpanel: #131415;
-    --surface-workpanel-rgb: 19, 20, 21;
+    /* 语义面 —— neutral 灰 */
+    --surface-shell: #0a0a0a;
+    --surface-sidebar: #080808;
+    --surface-workpanel: #1a1a1a;
+    --surface-workpanel-rgb: 26, 26, 26;
     --surface-panel: var(--color-bg-elevated);
     --surface-panel-muted: var(--color-hover-overlay);
     --surface-panel-hover: var(--color-bg-secondary);
 
-    /* 环境光背景 —— 单光源径向渐变（暗版：极淡紫顶光 + Linear near-black） */
+    /* 环境光背景 —— neutral 灰径向 + 极淡 accent glow（accent 可换风格） */
     --ambient-bg:
-        radial-gradient(120% 120% at 0% 0%, rgba(122, 134, 224, 0.05) 0%, transparent 42%),
-        radial-gradient(140% 140% at 50% 0%, #0f1011 0%, #08090a 60%, #050607 100%);
-    --ambient-glow-color: rgba(122, 134, 224, 0.07);
+        radial-gradient(120% 120% at 0% 0%, rgba(var(--color-accent-rgb), 0.05) 0%, transparent 42%),
+        radial-gradient(140% 140% at 50% 0%, #0a0a0a 0%, #080808 60%, #050505 100%);
+    --ambient-glow-color: rgba(var(--color-accent-rgb), 0.07);
 
     /* 阴影分层 —— 物理环境光遮蔽（暗版加深底色） */
     --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.18);
@@ -314,69 +316,66 @@
    暖白底 + 近黑字 + 苔藓绿点缀 —— 指令主色板
    ────────────────────────────────────────────────────────── */
 :root[data-theme="light"] {
-    /* 唯一强调色 —— Linear 紫（亮底用同紫，白字对比充足） */
-    --color-brand-accent: #5e6ad2;
-    --color-brand-accent-rgb: 94, 106, 210;
-    --color-brand-accent-light: #4f5abf;
-    --color-brand-accent-light-rgb: 79, 90, 191;
-    --color-accent-ink: #5e6ad2;
+    /* 风格色 accent —— 亮底 hover/active 加深（与暗底提亮相反，保证对比） */
+    --color-accent-hover: color-mix(in srgb, var(--color-accent) 14%, #000000);
+    --color-accent-active: color-mix(in srgb, var(--color-accent) 22%, #000000);
+    /* 派生（向后兼容） */
+    --color-brand-accent: var(--color-accent);
+    --color-brand-accent-rgb: var(--color-accent-rgb);
+    --color-brand-accent-light: var(--color-accent-active);
+    --color-brand-accent-light-rgb: var(--color-accent-rgb);
+    --color-accent-ink: var(--color-accent-active);
 
-    /* 交互主色 —— 极浅冷灰（幽灵按钮/控件底） */
+    /* 交互主色 —— neutral 灰（幽灵按钮/控件底） */
     --color-interactive: #ffffff;
-    --color-interactive-hover: #f4f5f7;
+    --color-interactive-hover: #f5f5f5;
     --color-interactive-glow: rgba(0, 0, 0, 0.04);
     --color-interactive-subtle: rgba(0, 0, 0, 0.03);
     --color-interactive-rgb: 255, 255, 255;
 
-    /* 背景层级 —— Linear 冷白（替换暖白），禁用脏色高饱和 */
-    --color-bg-app: #f7f8fa;
+    /* 背景层级 —— neutral 纯灰，由浅到深 */
+    --color-bg-app: #fafafa;
     --color-bg-primary: #ffffff;
-    /* 主内容面：纯白 */
-    --color-bg-secondary: #f1f2f4;
-    /* 悬停/次级 */
-    --color-bg-tertiary: #e7e8ec;
-    /* 激活/嵌套 */
+    /* 卡片/主内容面 */
+    --color-bg-secondary: #f5f5f5;
+    /* hover/分区 */
+    --color-bg-tertiary: #ededed;
+    /* 浮层/输入框（白，浅于卡片） */
     --color-bg-elevated: #ffffff;
     --color-bg-elevated-rgb: 255, 255, 255;
-    /* 浮层 */
 
-    /* 文字层级 —— WCAG 对比度优先 */
-    --color-text-primary: #1c1d1f;
-    /* 主文/标题：近纯黑 */
-    --color-text-secondary: #5a5e66;
-    /* 正文/副标题：深灰 */
-    --color-text-muted: #8a8f98;
-    /* 占位/辅助：浅灰（仅用于非关键辅助） */
+    /* 文字层级 —— neutral 灰阶 */
+    --color-text-primary: #171717;
+    --color-text-secondary: #595959;
+    --color-text-muted: #8c8c8c;
     --color-text-inverse: #ffffff;
     --color-on-color: #ffffff;
-    --color-on-color-strong: #1c1d1f;
-    --color-on-accent: #ffffff;
-    /* 紫 #5e6ad2 上白字对比充足 */
+    --color-on-color-strong: #171717;
+    --color-on-accent: var(--color-accent-fg);
 
     /* 消息底 */
-    --color-bg-message-user: #f1f2f4;
+    --color-bg-message-user: var(--color-bg-secondary);
     --color-bg-message-assistant: transparent;
 
-    /* 边界 —— 发丝优先于框，极浅透明 */
-    --color-border: rgba(0, 0, 0, 0.08);
+    /* 边界 —— neutral 半透明发丝 */
+    --color-border: rgba(0, 0, 0, 0.10);
     --color-border-rgb: 0, 0, 0;
-    --color-border-hover: rgba(0, 0, 0, 0.14);
-    --color-border-focus: rgba(94, 106, 210, 0.5);
-    /* 紫色聚焦 */
+    --color-border-hover: rgba(0, 0, 0, 0.16);
+    --color-border-focus: color-mix(in srgb, var(--color-accent) 55%, transparent);
 
-    /* 地图 / 结果 / 风险 */
-    --color-map-marker-fill: #5e6ad2;
-    --color-map-marker-border: #4f5abf;
+    /* 地图 / 结果 / 风险 —— accent 由风格色派生 */
+    --color-map-marker-fill: var(--color-accent);
+    --color-map-marker-border: var(--color-accent-active);
     --color-map-marker-glyph: #ffffff;
     --color-map-marker-ring-fill: rgba(255, 255, 255, 0.82);
-    --color-map-overlay-accent: #5e6ad2;
+    --color-map-overlay-accent: var(--color-accent);
     --color-map-overlay-border: rgba(17, 17, 17, 0.22);
     --color-map-overlay-point-stroke: #111111;
     --color-risk-badge-text: var(--color-on-color-strong);
     --color-risk-badge-ring: rgba(17, 17, 17, 0.16);
-    --color-result-text: #5e6ad2;
-    --color-result-bg: rgba(94, 106, 210, 0.08);
-    --color-result-border: rgba(94, 106, 210, 0.2);
+    --color-result-text: var(--color-accent);
+    --color-result-bg: var(--color-accent-bg);
+    --color-result-border: var(--color-accent-border);
     --color-soft-inset: rgba(0, 0, 0, 0.02);
 
     /* 状态色 —— 低饱和沉稳（亮底加深保证对比） */
@@ -391,16 +390,16 @@
     --color-error-rgb: 200, 48, 42;
     --color-danger: var(--color-error);
     --color-danger-rgb: var(--color-error-rgb);
-    --color-active: var(--color-brand-accent);
-    --color-active-bg: rgba(94, 106, 210, 0.08);
-    --color-active-rgb: var(--color-brand-accent-rgb);
-    --color-primary: var(--color-brand-accent);
-    --color-primary-rgb: var(--color-brand-accent-rgb);
-    --color-brand-primary: var(--color-brand-accent);
+    --color-active: var(--color-accent);
+    --color-active-bg: var(--color-accent-bg);
+    --color-active-rgb: var(--color-accent-rgb);
+    --color-primary: var(--color-accent);
+    --color-primary-rgb: var(--color-accent-rgb);
+    --color-brand-primary: var(--color-accent);
 
-    /* 链接 */
-    --color-link: #5e6ad2;
-    --color-link-hover: #4f5abf;
+    /* 链接 —— 风格色派生（亮色用 accent，hover 加深） */
+    --color-link: var(--color-accent);
+    --color-link-hover: var(--color-accent-active);
 
     /* 智能体语义色 —— 低饱和 */
     --color-agent-violet: #6b4f9e;
@@ -435,20 +434,20 @@
     --glass-saturate: 160%;
     --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
 
-    /* 语义面 */
+    /* 语义面 —— neutral 灰 */
     --surface-shell: #ffffff;
-    --surface-sidebar: #fafbfc;
-    --surface-workpanel: #f1f2f4;
-    --surface-workpanel-rgb: 241, 242, 244;
+    --surface-sidebar: #fafafa;
+    --surface-workpanel: #f5f5f5;
+    --surface-workpanel-rgb: 245, 245, 245;
     --surface-panel: var(--color-bg-elevated);
     --surface-panel-muted: var(--color-hover-overlay);
     --surface-panel-hover: var(--color-bg-secondary);
 
-    /* 环境光背景 —— 单光源径向渐变：中心白向四角过渡（极淡紫顶光） */
+    /* 环境光背景 —— neutral 灰径向 + 极淡 accent glow */
     --ambient-bg:
-        radial-gradient(120% 120% at 0% 0%, rgba(94, 106, 210, 0.06) 0%, transparent 42%),
-        radial-gradient(140% 140% at 50% 0%, #ffffff 0%, #f7f8fa 55%, #eef0f3 100%);
-    --ambient-glow-color: rgba(94, 106, 210, 0.09);
+        radial-gradient(120% 120% at 0% 0%, rgba(var(--color-accent-rgb), 0.06) 0%, transparent 42%),
+        radial-gradient(140% 140% at 50% 0%, #ffffff 0%, #fafafa 55%, #f0f0f0 100%);
+    --ambient-glow-color: rgba(var(--color-accent-rgb), 0.09);
 
     /* 阴影分层 —— 极浅弥散 + 紧实线 */
     --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.02);

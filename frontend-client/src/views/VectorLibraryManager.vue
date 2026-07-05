@@ -7,11 +7,10 @@
         subtitle="文件、向量索引与向量化器"
         mobile-title="知识库管理"
     >
-        <template #header-menu="{ close }">
-            <button class="pl-menu-item" :disabled="globalLoading" @click="refreshAll(); close()">
+        <template #header-actions>
+            <Button variant="ghost" size="icon-sm" :disabled="globalLoading" aria-label="全局刷新" title="全局刷新" @click="refreshAll">
                 <IconRefresh :size="16" />
-                全局刷新
-            </button>
+            </Button>
         </template>
         <template #mobile-menu="{ close }">
             <button class="pl-menu-item" :disabled="globalLoading" @click="refreshAll(); close()">
@@ -1554,7 +1553,7 @@ onMounted(() => {
     height: 18px;
     padding: 0 5px;
     border-radius: var(--radius-full);
-    background: var(--adm-control-bg);
+    background: transparent;
     color: var(--color-text-secondary);
     font-size: 11px;
     font-weight: 600;
@@ -1585,8 +1584,8 @@ onMounted(() => {
     gap: var(--spacing-sm);
     padding: 10px 16px;
     border-radius: var(--radius-lg);
-    border: 1px solid var(--adm-border);
-    background: var(--adm-surface);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
     font-size: var(--font-size-sm);
 }
 
@@ -1697,8 +1696,8 @@ onMounted(() => {
 /* ─── 矩阵表格 ──────────────────────────────────────────── */
 .data-table-wrapper {
     border-radius: var(--radius-xl);
-    border: 1px solid var(--adm-border);
-    background: var(--adm-surface);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
     overflow: hidden;
 }
 
@@ -1868,8 +1867,8 @@ onMounted(() => {
 .search-inline-card {
     padding: var(--spacing-md);
     border-radius: var(--radius-xl);
-    border: 1px solid var(--adm-border);
-    background: var(--adm-surface);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
 }
 
 .search-inline-header {
