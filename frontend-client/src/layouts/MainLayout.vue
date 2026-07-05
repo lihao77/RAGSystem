@@ -1042,7 +1042,17 @@ onUnmounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.admin-nav-item { width: 100%; justify-content: flex-start; }
+.admin-nav-item {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  margin: 0 var(--spacing-sm) 2px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+}
+.admin-nav-item:hover { background: var(--color-hover-overlay); color: var(--color-text-primary); }
+.admin-nav-item.active { background: var(--color-active-bg); color: var(--color-text-primary); }
+.admin-nav-item .icon { width: 16px; height: 16px; flex-shrink: 0; }
 
 .sidebar-footer {
   padding: var(--spacing-md) var(--spacing-sm);
