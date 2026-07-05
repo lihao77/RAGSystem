@@ -229,7 +229,6 @@ const router = useRouter();
 const dictStore = useDictionariesStore();
 
 const SVG = { xmlns: 'http://www.w3.org/2000/svg', width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
-const IconActive = () => h('svg', SVG, [h('path', { d: 'M22 11.08V12a10 10 0 1 1-5.93-9.14' }), h('polyline', { points: '22 4 12 14.01 9 11.01' })]);
 const IconTotal = () => h('svg', SVG, [h('rect', { x: 3, y: 4, width: 7, height: 7, rx: 1 }), h('rect', { x: 14, y: 4, width: 7, height: 7, rx: 1 }), h('rect', { x: 14, y: 15, width: 7, height: 7, rx: 1 })]);
 const IconAgents = () => h('svg', SVG, [h('path', { d: 'M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2' }), h('circle', { cx: 8.5, cy: 7, r: 4 }), h('path', { d: 'M20 8v6' }), h('path', { d: 'M23 11h-6' })]);
 
@@ -257,9 +256,8 @@ const availableSourceAgents = computed(() => copySourceAgents.value.filter((agen
 const projectedTargetAgentCount = computed(() => copyTargetAgents.value.length + incomingSelectedAgents.value.filter((agent) => !copyTargetAgents.value.includes(agent)).length);
 
 const kpiItems = computed(() => [
-  { key: 'active', label: '当前 Team', value: activeTeam.value || '未选择', icon: IconActive },
   { key: 'total', label: 'Team 总数', value: teams.value.length, icon: IconTotal },
-  { key: 'agents', label: '当前 Agent 数', value: activeTeamInfo.value?.agent_count || 0, icon: IconAgents },
+  { key: 'agents', label: '当前 Team Agent 数', value: activeTeamInfo.value?.agent_count || 0, icon: IconAgents },
 ]);
 
 function normalizeSelections() {

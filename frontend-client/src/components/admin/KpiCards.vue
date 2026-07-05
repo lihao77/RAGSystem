@@ -10,7 +10,7 @@
       </span>
       <div class="min-w-0 space-y-1">
         <span class="block text-xs text-muted-foreground">{{ item.label }}</span>
-        <strong class="block text-2xl font-semibold tabular-nums text-foreground">{{ item.value }}</strong>
+        <strong class="block truncate text-2xl font-semibold tabular-nums text-foreground">{{ item.value }}</strong>
       </div>
     </Card>
   </div>
