@@ -73,10 +73,6 @@
           <div class="ctx-empty-desc">{{ emptyDesc }}</div>
         </div>
       </div>
-
-      <div class="ctx-dialog-footer">
-        <Button variant="ghost" @click="emit('close')">关闭</Button>
-      </div>
     </DialogContent>
   </Dialog>
 </template>
@@ -210,10 +206,4 @@ const onFileChange = (event) => {
 .ctx-file-item:hover .ctx-file-actions { opacity: 1; }
 .ctx-file-actions--visible { opacity: 1; }
 
-.ctx-dialog-footer {
-  display: flex;
-  justify-content: flex-end;
-  padding: 16px 20px;
-  border-top: 1px solid var(--color-border);
-}
 </style>

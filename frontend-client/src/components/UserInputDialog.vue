@@ -1,6 +1,6 @@
 <template>
   <Dialog :open="visible && !collapsed" @update:open="(v) => { if (!v) collapsed = true }">
-    <DialogContent class="max-w-[560px] gap-0 p-0 overflow-hidden" @pointer-down-outside.prevent @escape-key-down.prevent>
+    <DialogContent class="max-w-[560px] gap-0 p-0" @pointer-down-outside.prevent @escape-key-down.prevent>
 
       <!-- 顶部装饰光带 -->
       <div class="container-glow" />
