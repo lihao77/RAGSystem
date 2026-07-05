@@ -52,7 +52,7 @@
               :class="{ active: isChatRoute && item.session_id === activeSessionId }"
               @click="selectSession(item)"
             >
-              <IconDocument :size="18" class="history-icon" />
+              <IconDocument :size="22" class="history-icon" />
               <div class="history-main">
                 <div class="history-title-row">
                   <span class="history-title">{{ item.title || formatTitle(item) || 'New Conversation' }}</span>
@@ -1082,7 +1082,7 @@ onUnmounted(() => {
 }
 .admin-nav-item:hover { background: var(--color-hover-overlay); color: var(--color-text-primary); }
 .admin-nav-item.active { background: var(--color-active-bg); color: var(--color-text-primary); }
-.admin-nav-item .icon { width: 18px; height: 18px; flex-shrink: 0; }
+.admin-nav-item .icon { width: 22px; height: 22px; flex-shrink: 0; }
 
 .sidebar-footer {
   padding: var(--spacing-md) var(--spacing-sm);
