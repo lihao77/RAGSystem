@@ -8,6 +8,7 @@
 defineProps({
   size: { type: [Number, String], default: 18 },
   color: { type: String, default: 'currentColor' },
+  strokeWidth: { type: [Number, String], default: 2 },
 });
 </script>
 <style scoped>
