@@ -1,11 +1,13 @@
 <template>
   <Dialog :open="visible" @update:open="onOpenChange">
-    <DialogContent class="flex w-full max-w-[720px] max-h-[88vh] flex-col gap-0 overflow-hidden rounded-[20px] p-0 shadow-[0_24px_80px_rgba(0,0,0,0.28)]">
+    <DialogContent class="flex w-full max-w-[720px] max-h-[88vh] flex-col gap-0 overflow-hidden rounded-[20px] p-0 shadow-[0_24px_80px_rgba(0,0,0,0.28)]" :hide-close="true">
       <div class="ctx-drawer-header">
         <div>
           <h3>{{ mode === 'message-edit' ? '编辑消息附件' : '添加附件' }}</h3>
-          <div class="ctx-subtitle">{{ subtitleText }}</div>
         </div>
+        <Button variant="ghost" size="icon-sm" aria-label="关闭" @click="emit('close')">
+          <IconClose :size="16" />
+        </Button>
       </div>
 
       <div class="ctx-drawer-body">
@@ -22,7 +24,7 @@
             </Button>
           </div>
           <div class="ctx-dropzone-hint">
-            文件拖入当前窗口任意位置后，可直接松手加入待发送附件
+            也可拖拽文件到窗口添加
           </div>
         </section>
 
@@ -68,7 +70,7 @@
             </div>
           </div>
         </section>
-        <div v-else class="ctx-empty-state">
+        <div v-else-if="!pendingFiles.length" class="ctx-empty-state">
           <div class="ctx-empty-title">还没有附件</div>
           <div class="ctx-empty-desc">{{ emptyDesc }}</div>
         </div>
@@ -82,6 +84,7 @@ import { computed, ref } from 'vue';
 import { Dialog, DialogContent } from './ui/dialog';
 import { formatAttachmentSize, isImageAttachment } from '../utils/sessionAttachments';
 import IconPlus from './icons/IconPlus.vue';
+import IconClose from './icons/IconClose.vue';
 import { Button } from './ui/button';
 
 const props = defineProps({
@@ -101,13 +104,6 @@ const fileInputRef = ref(null);
 function onOpenChange(open) {
   if (!open) emit('close');
 }
-
-const subtitleText = computed(() => {
-  if (!props.sessionId) return '附件会先保存在前端，发送时再自动创建会话并上传';
-  return props.mode === 'message-edit'
-    ? '选择附件先加入当前编辑草稿，确认重发时再上传'
-    : '选择后先加入待发送附件，点击发送时再上传';
-});
 
 const pendingTitle = computed(() => (
   props.mode === 'message-edit' ? '当前编辑草稿附件' : '本轮待发送附件'
