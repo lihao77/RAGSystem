@@ -48,13 +48,7 @@
       </button>
       <div v-if="selectedAgent" class="pl-menu-divider"></div>
       <button v-if="selectedAgent" class="pl-menu-item pl-menu-item--danger" :disabled="saving || agentLoading" @click="openDeleteDialog(); close()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="3 6 5 6 21 6"></polyline>
-          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
-          <path d="M10 11v6"></path>
-          <path d="M14 11v6"></path>
-          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
-        </svg>
+        <IconTrash :size="16" />
         删除 Agent
       </button>
     </template>
@@ -94,13 +88,7 @@
       </button>
       <div v-if="selectedAgent" class="pl-menu-divider"></div>
       <button v-if="selectedAgent" class="pl-menu-item pl-menu-item--danger" :disabled="saving || agentLoading" @click="openDeleteDialog(); close()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="3 6 5 6 21 6"></polyline>
-          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
-          <path d="M10 11v6"></path>
-          <path d="M14 11v6"></path>
-          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
-        </svg>
+        <IconTrash :size="16" />
         删除 Agent
       </button>
     </template>
@@ -740,6 +728,7 @@ import ToggleSwitch from '../components/ToggleSwitch.vue';
 import IconChevronDown from '../components/icons/IconChevronDown.vue';
 import IconCheck from '../components/icons/IconCheck.vue';
 import IconPlus from '../components/icons/IconPlus.vue';
+import IconTrash from '../components/icons/IconTrash.vue';
 import { UiButton, UiIconButton } from '../components/ui';
 import { useToast } from '../composables/useToast.js';
 const props = defineProps({

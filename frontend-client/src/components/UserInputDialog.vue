@@ -99,11 +99,7 @@
         @click="toggleCollapsed"
       >
         <div class="input-dock-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/>
-            <path d="M12 16v-4"/>
-            <path d="M12 8h.01"/>
-          </svg>
+          <IconInfo :size="16" />
         </div>
         <span class="input-dock-badge">1</span>
       </button>
@@ -115,6 +111,7 @@
 import { ref, computed, nextTick } from 'vue';
 import InputRendererText from './input-renderers/InputRendererText.vue';
 import InputRendererSelect from './input-renderers/InputRendererSelect.vue';
+import IconInfo from './icons/IconInfo.vue';
 
 // ── 渲染器注册表（新增 input_type 只需在此注册一行）──────────────────────
 const RENDERER_REGISTRY = {

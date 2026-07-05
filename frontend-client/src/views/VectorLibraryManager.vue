@@ -77,13 +77,7 @@
                     <!-- 无向量化器警告 -->
                     <div v-if="!storeLoading && fileStatusVectorizers.length === 0 && fileList.length > 0"
                         class="warn-banner">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path
-                                d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                            <line x1="12" y1="9" x2="12" y2="13" />
-                            <line x1="12" y1="17" x2="12.01" y2="17" />
-                        </svg>
+                        <IconWarning :size="16" />
                         <span>尚未配置向量化器，请先在「向量化器」Tab 中添加并激活。</span>
                         <button class="btn-link" @click="activeTab = 'vectorizers'">前往配置 →</button>
                     </div>
@@ -157,13 +151,7 @@
                                                 <button class="adm-action-btn adm-action-btn--danger"
                                                     :disabled="deletingFileId === row.file_id"
                                                     @click="handleDeleteIndexedFile(row)" title="删除">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                                                        viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                        <polyline points="3 6 5 6 21 6" />
-                                                        <path
-                                                            d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                                    </svg>
+                                                    <IconTrash :size="13" />
                                                 </button>
                                             </div>
                                         </td>
@@ -329,13 +317,7 @@
                                             <button class="adm-action-btn adm-action-btn--danger" title="删除"
                                                 :disabled="deletingUploadedFile === file.id"
                                                 @click="handleDeleteUploadedFile(file)">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                                                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                    <polyline points="3 6 5 6 21 6" />
-                                                    <path
-                                                        d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                                </svg>
+                                                <IconTrash :size="13" />
                                             </button>
                                         </div>
                                     </td>
@@ -423,13 +405,7 @@
                                             <button class="adm-action-btn adm-action-btn--danger"
                                                 :disabled="deletingVectorizer === v.vectorizer_key"
                                                 @click="handleDeleteVectorizer(v.vectorizer_key)" title="删除">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                                                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                    <polyline points="3 6 5 6 21 6" />
-                                                    <path
-                                                        d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                                </svg>
+                                                <IconTrash :size="13" />
                                             </button>
                                         </div>
                                     </td>
@@ -523,13 +499,7 @@
                                             <button class="adm-action-btn adm-action-btn--danger"
                                                 :disabled="deletingReranker === r.reranker_key"
                                                 @click="handleDeleteReranker(r.reranker_key)" title="删除">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                                                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                    <polyline points="3 6 5 6 21 6" />
-                                                    <path
-                                                        d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                                </svg>
+                                                <IconTrash :size="13" />
                                             </button>
                                         </div>
                                     </td>
@@ -822,6 +792,8 @@ import PageLayout from '../components/PageLayout.vue';
 import IconRefresh from '../components/icons/IconRefresh.vue';
 import IconPlus from '../components/icons/IconPlus.vue';
 import IconSearch from '../components/icons/IconSearch.vue';
+import IconTrash from '../components/icons/IconTrash.vue';
+import IconWarning from '../components/icons/IconWarning.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import AdmModal from '../components/admin/AdmModal.vue';
 import { useDictionariesStore } from '../stores/dictionaries.js';

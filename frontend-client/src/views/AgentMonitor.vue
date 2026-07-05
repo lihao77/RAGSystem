@@ -28,7 +28,7 @@
         刷新
       </button>
       <button class="pl-menu-item pl-menu-item--danger" @click="confirmReset(); close()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        <IconTrash :size="16" />
         重置指标
       </button>
     </template>
@@ -51,7 +51,7 @@
         刷新
       </button>
       <button class="pl-menu-item pl-menu-item--danger" @click="confirmReset(); close()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        <IconTrash :size="16" />
         重置指标
       </button>
     </template>
@@ -191,6 +191,7 @@ import { ref, onMounted, onUnmounted, computed, h } from 'vue';
 import PageLayout from '../components/PageLayout.vue';
 import IconRefresh from '../components/icons/IconRefresh.vue';
 import IconCheck from '../components/icons/IconCheck.vue';
+import IconTrash from '../components/icons/IconTrash.vue';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';

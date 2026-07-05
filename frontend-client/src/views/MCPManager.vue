@@ -81,7 +81,7 @@
           </div>
 
           <div v-if="server.error_message" class="error-banner">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <IconInfo :size="14" />
             {{ server.error_message }}
           </div>
 
@@ -102,7 +102,7 @@
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>编辑
             </button>
             <button class="adm-action-btn adm-action-btn--danger" @click="handleDelete(server)" title="删除">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>删除
+              <IconTrash :size="14" />删除
             </button>
           </div>
         </article>
@@ -205,7 +205,7 @@
             </span>
           </div>
           <div v-if="firstUnsupportedReason(item)" class="inline-warning">
-            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <IconWarning :size="13" />
             {{ firstUnsupportedReason(item) }}
           </div>
           <div class="registry-card-actions">
@@ -346,6 +346,9 @@ import IconCheck from '../components/icons/IconCheck.vue';
 import IconClose from '../components/icons/IconClose.vue';
 import IconPlus from '../components/icons/IconPlus.vue';
 import IconSearch from '../components/icons/IconSearch.vue';
+import IconTrash from '../components/icons/IconTrash.vue';
+import IconWarning from '../components/icons/IconWarning.vue';
+import IconInfo from '../components/icons/IconInfo.vue';
 import { UiBadge, UiButton } from '../components/ui';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
