@@ -772,6 +772,7 @@ onUnmounted(() => {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-hover-overlay);
+  max-height: 120px;
   transition: opacity var(--transition-fast), max-height var(--transition-fast), padding var(--transition-fast), margin var(--transition-fast);
 }
 
@@ -1057,7 +1058,13 @@ onUnmounted(() => {
   margin-top: var(--spacing-xs);
   padding-top: var(--spacing-sm);
 }
-.sidebar.collapsed .admin-nav-group-label { display: none; }
+.sidebar.collapsed .admin-nav-group-label {
+  opacity: 0;
+  max-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
 .admin-nav-group-label {
   padding: var(--spacing-xs) var(--spacing-sm);
   font-size: var(--font-size-xs);
@@ -1068,6 +1075,9 @@ onUnmounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  opacity: 1;
+  max-height: 24px;
+  transition: opacity var(--transition-fast), max-height var(--transition-fast), padding var(--transition-fast), margin var(--transition-fast);
 }
 .admin-nav-item.active { background: var(--color-active-bg); color: var(--color-text-primary); }
 
