@@ -47,14 +47,14 @@
               <label class="form-label">守护系统开关</label>
               <div class="toggle-row">
                 <UiBadge class="status-badge" size="sm" :tone="baseForm.enabled ? 'success' : 'neutral'">{{ baseForm.enabled ? '已启用' : '未启用' }}</UiBadge>
-                <ToggleSwitch v-model="baseForm.enabled" />
+                <Switch v-model:checked="baseForm.enabled" />
               </div>
             </div>
-            <div class="form-item"><label class="form-label">默认会话 TTL（秒）</label><input v-model.number="baseForm.default_session_ttl" type="number" min="60" class="form-ctrl" /></div>
+            <div class="form-item"><label class="form-label">默认会话 TTL（秒）</label><Input v-model.number="baseForm.default_session_ttl" type="number" min="60" /></div>
             <div class="form-item"><label class="form-label">Team 名称</label><CustomSelect v-model="baseForm.team_name" :options="teamOptions" placeholder="default" /></div>
             <div class="form-item"><label class="form-label">入口 Agent</label><CustomSelect v-model="baseForm.entry_agent" :options="agentOptions" placeholder="留空则用 team 的 default_entry" /></div>
-            <div class="form-item"><label class="form-label">心跳间隔（秒）</label><input v-model.number="baseForm.heartbeat_interval" type="number" min="5" class="form-ctrl" /></div>
-            <div class="form-item"><label class="form-label">Agent 级 Session ID（可选）</label><input v-model="baseForm.agent_session_id" class="form-ctrl" placeholder="留空则按 team_name + chat_id 自动派生" /><span class="section-tip">相同 ID 将复用历史上下文</span></div>
+            <div class="form-item"><label class="form-label">心跳间隔（秒）</label><Input v-model.number="baseForm.heartbeat_interval" type="number" min="5" /></div>
+            <div class="form-item"><label class="form-label">Agent 级 Session ID（可选）</label><Input v-model="baseForm.agent_session_id" placeholder="留空则按 team_name + chat_id 自动派生" /><span class="section-tip">相同 ID 将复用历史上下文</span></div>
           </div>
           <p class="section-tip">保存后若守护系统正在运行，会自动重载并应用新配置。</p>
         </div>
@@ -72,7 +72,7 @@
             <div class="platform-card-head">
               <div class="platform-icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
               <span class="platform-name">{{ platformLabel(pc.key) }}</span>
-              <ToggleSwitch :model-value="pc.enabled" @update:model-value="togglePlatformEnabled(pc.key)" size="sm" />
+              <Switch :checked="pc.enabled" @update:checked="togglePlatformEnabled(pc.key)" />
             </div>
             <div class="platform-fields">
               <div class="platform-field"><span class="pf-lbl">App ID</span><span class="pf-val mono">{{ mask(pc.app_id) || '—' }}</span></div>
@@ -128,18 +128,18 @@
               <CustomSelect v-model="permForm.mode" :options="PERM_MODE_OPTIONS" :disabled="isSkipAllApprovals" />
               <p class="section-tip">strict: 所有风险工具须审批 | standard: medium+high | relaxed: 仅 high | dangerously_skip_permissions: 跳过常规风险审批</p>
             </div>
-            <div class="form-item"><label class="form-label">审批超时（秒）</label><input v-model.number="permForm.approval_timeout" type="number" min="1" class="form-ctrl" /><p class="section-tip">仅控制 daemon 桥接审批消息的等待时长；超时后自动拒绝。</p></div>
+            <div class="form-item"><label class="form-label">审批超时（秒）</label><Input v-model.number="permForm.approval_timeout" type="number" min="1" /><p class="section-tip">仅控制 daemon 桥接审批消息的等待时长；超时后自动拒绝。</p></div>
           </div>
           <div class="toggle-row permission-toggle-row">
-            <ToggleSwitch :model-value="permForm.skip_all_approvals" @update:model-value="toggleSkipAllApprovals" size="sm" />
+            <Switch :checked="permForm.skip_all_approvals" @update:checked="toggleSkipAllApprovals" />
             <span>跳过所有审批</span>
           </div>
           <p class="section-tip">开启后跳过所有 ask 流程，但仍保留工具执行权限 deny。</p>
           <div class="permission-rule-head"><label class="form-label">自动接受规则</label><span class="permission-rule-count">{{ autoAcceptPatternCount }} 条</span></div>
           <div class="permission-rule-form">
             <CustomSelect v-model="newPatternForm.pattern_type" :options="autoAcceptPatternOptions" />
-            <input v-model="newPatternForm.pattern_value" class="form-ctrl" placeholder="如: read_file / *.md / high" />
-            <input v-model="newPatternForm.description" class="form-ctrl" placeholder="描述（可选）" />
+            <Input v-model="newPatternForm.pattern_value" placeholder="如: read_file / *.md / high" />
+            <Input v-model="newPatternForm.description" placeholder="描述（可选）" />
             <Button variant="default" size="sm" :disabled="!newPatternForm.pattern_value.trim()" @click="addAutoAcceptPattern">添加</Button>
           </div>
           <div v-if="permForm.auto_accept_patterns.length" class="permission-rule-list">
@@ -201,9 +201,9 @@
         <div class="config-card">
           <div class="push-row">
             <div class="push-platform-select"><CustomSelect v-model="pushForm.platform" :options="PLATFORM_OPTIONS" /></div>
-            <input v-model="pushForm.chat_id" class="form-ctrl" placeholder="目标 chat_id" />
+            <Input v-model="pushForm.chat_id" placeholder="目标 chat_id" />
           </div>
-          <textarea v-model="pushForm.content" class="form-ctrl" placeholder="推送内容" rows="2"/>
+          <Textarea v-model="pushForm.content" placeholder="推送内容" rows="2"/>
           <div class="push-foot">
             <Button size="sm" variant="default" @click="handlePush" :disabled="pushSending || !pushForm.chat_id || !pushForm.content">{{ pushSending ? '发送中...' : '发送' }}</Button>
           </div>
@@ -220,17 +220,17 @@
         <div class="adm-modal-form">
         <div v-if="isNewPlatform" class="form-item"><label class="form-label">平台</label><CustomSelect v-model="platformForm.key" :options="PLATFORM_OPTIONS" /></div>
         <div class="form-two-col">
-          <div class="form-item"><label class="form-label">App ID</label><input v-model="platformForm.app_id" class="form-ctrl" placeholder="cli_xxxxxxxxxxxx" /></div>
-          <div class="form-item"><label class="form-label">App Secret</label><input v-model="platformForm.app_secret" class="form-ctrl" type="password" placeholder="粘贴你的应用密钥" /></div>
+          <div class="form-item"><label class="form-label">App ID</label><Input v-model="platformForm.app_id" placeholder="cli_xxxxxxxxxxxx" /></div>
+          <div class="form-item"><label class="form-label">App Secret</label><Input v-model="platformForm.app_secret" type="password" placeholder="粘贴你的应用密钥" /></div>
         </div>
         <div class="form-item"><label class="form-label">接收方式</label><CustomSelect v-model="platformForm.receive_mode" :options="RECEIVE_MODE_OPTIONS" /><p class="section-tip">长连接无需公网地址；Webhook 需配置公网 HTTPS 回调。</p></div>
         <div class="form-two-col">
-          <div class="form-item"><label class="form-label">事件订阅 Token</label><input v-model="platformForm.token" class="form-ctrl" placeholder="飞书事件订阅 Token" /></div>
-          <div class="form-item"><label class="form-label">Encrypt Key（可选）</label><input v-model="platformForm.encoding_aes_key" class="form-ctrl" placeholder="未开启消息加密可留空" /></div>
+          <div class="form-item"><label class="form-label">事件订阅 Token</label><Input v-model="platformForm.token" placeholder="飞书事件订阅 Token" /></div>
+          <div class="form-item"><label class="form-label">Encrypt Key（可选）</label><Input v-model="platformForm.encoding_aes_key" placeholder="未开启消息加密可留空" /></div>
         </div>
         <div class="form-two-col">
-          <div class="form-item"><label class="form-label">Webhook URL（可选）</label><input v-model="platformForm.webhook_url" class="form-ctrl" placeholder="入站 Webhook 回调地址" /></div>
-          <div class="form-item"><label class="form-label">平台级 Session ID（可选）</label><input v-model="platformForm.session_id" class="form-ctrl" placeholder="留空则使用 agent 级配置" /></div>
+          <div class="form-item"><label class="form-label">Webhook URL（可选）</label><Input v-model="platformForm.webhook_url" placeholder="入站 Webhook 回调地址" /></div>
+          <div class="form-item"><label class="form-label">平台级 Session ID（可选）</label><Input v-model="platformForm.session_id" placeholder="留空则使用 agent 级配置" /></div>
         </div>
       </div>
         <DialogFooter>
@@ -247,17 +247,17 @@
         </DialogHeader>
         <div class="adm-modal-form">
         <div class="form-two-col">
-          <div class="form-item"><label class="form-label">任务名称</label><input v-model="newTask.name" class="form-ctrl" placeholder="如：早间简报" /></div>
-          <div class="form-item"><label class="form-label">Cron 表达式</label><input v-model="newTask.cron" class="form-ctrl" placeholder="0 9 * * 1-5" /><p class="section-tip">分 时 日 月 周，如 <code>0 9 * * 1-5</code> = 工作日早 9 点</p></div>
+          <div class="form-item"><label class="form-label">任务名称</label><Input v-model="newTask.name" placeholder="如：早间简报" /></div>
+          <div class="form-item"><label class="form-label">Cron 表达式</label><Input v-model="newTask.cron" placeholder="0 9 * * 1-5" /><p class="section-tip">分 时 日 月 周，如 <code>0 9 * * 1-5</code> = 工作日早 9 点</p></div>
         </div>
-        <div class="form-item"><label class="form-label">任务描述（传给 Agent）</label><textarea v-model="newTask.task" class="form-ctrl" placeholder="请生成今日简报..." rows="2"/></div>
+        <div class="form-item"><label class="form-label">任务描述（传给 Agent）</label><Textarea v-model="newTask.task" placeholder="请生成今日简报..." rows="2"/></div>
         <div class="form-two-col">
           <div class="form-item"><label class="form-label">Team</label><CustomSelect v-model="newTask.team_name" :options="teamOptions" placeholder="default" /></div>
           <div class="form-item"><label class="form-label">入口 Agent（可选）</label><CustomSelect v-model="newTask.entry_agent" :options="agentOptions" placeholder="留空用 team 默认" /></div>
         </div>
         <div class="form-two-col">
           <div class="form-item"><label class="form-label">推送平台</label><CustomSelect v-model="newTask.push_platform" :options="PLATFORM_OPTIONS_WITH_NONE" placeholder="不推送" /></div>
-          <div class="form-item"><label class="form-label">推送 chat_id</label><input v-model="newTask.push_chat_id" class="form-ctrl" placeholder="可选" /></div>
+          <div class="form-item"><label class="form-label">推送 chat_id</label><Input v-model="newTask.push_chat_id" placeholder="可选" /></div>
         </div>
       </div>
         <DialogFooter>
@@ -273,8 +273,8 @@
           <DialogTitle>{{ testDialogTitle }}</DialogTitle>
         </DialogHeader>
         <div class="adm-modal-form">
-        <div class="form-item"><label class="form-label">Chat ID</label><input v-model="testForm.chat_id" class="form-ctrl" placeholder="真实 chat_id" /></div>
-        <div class="form-item"><label class="form-label">消息内容</label><input v-model="testForm.content" class="form-ctrl" placeholder="测试消息" /></div>
+        <div class="form-item"><label class="form-label">Chat ID</label><Input v-model="testForm.chat_id" placeholder="真实 chat_id" /></div>
+        <div class="form-item"><label class="form-label">消息内容</label><Input v-model="testForm.content" placeholder="测试消息" /></div>
       </div>
         <DialogFooter>
         <Button size="sm" @click="showTestDialog = false">取消</Button>
@@ -293,12 +293,14 @@ import IconClose from '../components/icons/IconClose.vue';
 import IconPlay from '../components/icons/IconPlay.vue';
 import IconPause from '../components/icons/IconPause.vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';
-import ToggleSwitch from '../components/ToggleSwitch.vue';
+import { Switch } from '../components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import KpiCards from '../components/admin/KpiCards.vue';
 import { UiBadge } from '../components/ui';
 import { Button } from '../components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
+import { Input } from '../components/ui/input';
+import { Textarea } from '../components/ui/textarea';
 import { useToast } from '../composables/useToast.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import * as api from '../api/daemon';
@@ -681,11 +683,6 @@ onMounted(() => { refresh(); loadTeamAgentOptions(); });
 
 .form-item { display: flex; flex-direction: column; gap: 8px; }
 .form-label { font-size: var(--font-size-xs); font-weight: 600; color: var(--color-text-secondary); letter-spacing: 0.01em; }
-.form-ctrl { width: 100%; min-height: 40px; padding: 0 12px; border-radius: var(--control-radius); border: 1px solid var(--color-border); background: var(--color-bg-elevated); color: var(--color-text-primary); font-size: var(--font-size-sm); outline: none; box-sizing: border-box; transition: border-color var(--transition-fast), box-shadow var(--transition-fast); }
-.form-ctrl:hover { border-color: var(--color-border-hover); }
-.form-ctrl:focus { border-color: var(--color-brand-accent); box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.12); }
-textarea.form-ctrl { padding: 10px 12px; resize: vertical; min-height: 80px; font-family: inherit; }
-select.form-ctrl { cursor: pointer; }
 .form-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-lg); }
 .adm-modal-form { display: flex; flex-direction: column; gap: var(--spacing-lg); }
 

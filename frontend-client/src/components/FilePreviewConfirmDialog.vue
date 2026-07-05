@@ -1,62 +1,59 @@
 <template>
-  <Teleport to="body">
-    <Transition name="dialog-fade">
-      <div v-if="visible" class="fp-overlay" @click.stop>
-        <div class="fp-container">
-          <div class="fp-header">
-            <div class="fp-icon">
-              <IconFile :size="22" />
-            </div>
-            <div class="fp-header-text">
-              <h3 class="fp-title">文件预览确认</h3>
-              <span class="fp-subtitle">{{ filePath }}</span>
-            </div>
-          </div>
-
-          <div class="fp-body">
-            <div class="fp-meta-row">
-              <div class="fp-meta-item">
-                <span class="fp-meta-label">文件大小</span>
-                <span class="fp-meta-value">{{ formattedSize }}</span>
-              </div>
-              <div class="fp-meta-item">
-                <span class="fp-meta-label">状态</span>
-                <span class="fp-meta-value fp-meta-warn">超出预览阈值 ({{ formattedThreshold }})</span>
-              </div>
-            </div>
-
-            <div class="fp-preview-box">
-              <div class="fp-preview-label">
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
-                     fill="none" stroke="currentColor" stroke-width="2"
-                     stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="16 18 22 12 16 6"/>
-                  <polyline points="8 6 2 12 8 18"/>
-                </svg>
-                前 {{ formattedThreshold }} 预览
-              </div>
-              <pre class="fp-preview-content">{{ preview }}</pre>
-            </div>
-          </div>
-
-          <div class="fp-footer">
-            <Button class="fp-btn w-full" variant="ghost" @click="handleDeny">
-              仅使用预览
-            </Button>
-            <Button class="fp-btn w-full" variant="default" @click="handleApprove">
-              读取完整内容
-            </Button>
-          </div>
+  <Dialog :open="visible" @update:open="(v) => { if (!v) handleDeny() }">
+    <DialogContent class="max-w-[640px] gap-0 p-0 overflow-hidden">
+      <div class="fp-header">
+        <div class="fp-icon">
+          <IconFile :size="22" />
+        </div>
+        <div class="fp-header-text">
+          <DialogTitle>文件预览确认</DialogTitle>
+          <DialogDescription class="fp-subtitle">{{ filePath }}</DialogDescription>
         </div>
       </div>
-    </Transition>
-  </Teleport>
+
+      <div class="fp-body">
+        <div class="fp-meta-row">
+          <div class="fp-meta-item">
+            <span class="fp-meta-label">文件大小</span>
+            <span class="fp-meta-value">{{ formattedSize }}</span>
+          </div>
+          <div class="fp-meta-item">
+            <span class="fp-meta-label">状态</span>
+            <span class="fp-meta-value fp-meta-warn">超出预览阈值 ({{ formattedThreshold }})</span>
+          </div>
+        </div>
+
+        <div class="fp-preview-box">
+          <div class="fp-preview-label">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="16 18 22 12 16 6"/>
+              <polyline points="8 6 2 12 8 18"/>
+            </svg>
+            前 {{ formattedThreshold }} 预览
+          </div>
+          <pre class="fp-preview-content">{{ preview }}</pre>
+        </div>
+      </div>
+
+      <DialogFooter class="fp-footer">
+        <Button class="w-full" variant="ghost" @click="handleDeny">
+          仅使用预览
+        </Button>
+        <Button class="w-full" variant="default" @click="handleApprove">
+          读取完整内容
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue';
 import IconFile from './icons/IconFile.vue';
 import { Button } from './ui/button';
+import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 
 const visible = ref(false);
 const filePath = ref('');
@@ -110,42 +107,6 @@ defineExpose({ show, hide });
 </script>
 
 <style scoped>
-.fp-overlay {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-dialog);
-  padding: var(--spacing-md);
-  animation: fpOverlayIn 0.2s ease;
-}
-
-@keyframes fpOverlayIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-.fp-container {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xl);
-  max-width: 640px;
-  width: 100%;
-  max-height: 85vh;
-  display: flex;
-  flex-direction: column;
-  animation: fpSlideIn 0.3s var(--ease-spring);
-}
-
-@keyframes fpSlideIn {
-  from { transform: scale(0.9) translateY(-20px); opacity: 0; }
-  to   { transform: scale(1) translateY(0); opacity: 1; }
-}
-
 .fp-header {
   padding: var(--spacing-lg);
   border-bottom: 1px solid var(--color-border);
@@ -169,13 +130,6 @@ defineExpose({ show, hide });
 
 .fp-header-text {
   min-width: 0;
-}
-
-.fp-title {
-  margin: 0;
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: var(--color-text-primary);
 }
 
 .fp-subtitle {
@@ -272,61 +226,10 @@ defineExpose({ show, hide });
 
 .fp-footer {
   padding: var(--spacing-md) var(--spacing-lg) var(--spacing-lg);
-  display: flex;
-  gap: var(--spacing-sm);
   flex-shrink: 0;
 }
 
-.fp-btn {
-  flex: 1;
-  padding: 12px 20px;
-  border-radius: var(--radius-sm);
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  border: none;
-  outline: none;
-}
-
-.fp-btn-preview {
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  border: 1px solid var(--color-border);
-}
-
-.fp-btn-preview:hover {
-  background: var(--color-bg-tertiary, var(--color-bg-secondary));
-  /* transform: translateY(-1px); */
-}
-
-.fp-btn-full {
-  background: var(--color-brand-accent); 
-  color: var(--color-on-color);
-}
-
-.fp-btn-full:hover {
-  box-shadow: 0 0 16px rgba(var(--color-brand-accent-rgb, 99, 102, 241), 0.5);
-  /* transform: translateY(-1px); */
-}
-
-.fp-btn:active {
-  transform: scale(0.98);
-}
-
-.dialog-fade-enter-active,
-.dialog-fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-.dialog-fade-enter-from,
-.dialog-fade-leave-to {
-  opacity: 0;
-}
-
 @media (max-width: 767px) {
-  .fp-container {
-    max-width: calc(100vw - 32px);
-  }
   .fp-header, .fp-body {
     padding: var(--spacing-md);
   }

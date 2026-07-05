@@ -16,14 +16,13 @@
     <KpiCards :items="kpiItems" />
 
     <div class="admin-overview">
-      <section class="adm-panel">
-        <header class="adm-panel__header">
-          <div class="adm-panel__title-block">
-            <h2 class="adm-panel__title">系统状态</h2>
-            <p class="adm-panel__description">守护进程与执行平面实时状态（从左侧导航进入各模块管理）</p>
-          </div>
-        </header>
-        <div class="status-grid">
+      <Card>
+        <CardHeader>
+          <CardTitle>系统状态</CardTitle>
+          <CardDescription>守护进程与执行平面实时状态（从左侧导航进入各模块管理）</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div class="status-grid">
           <div class="status-item">
             <span class="status-item__label">守护进程</span>
             <span class="status-item__value" :class="daemonClass">{{ daemonLabel }}</span>
@@ -40,8 +39,9 @@
             <span class="status-item__label">已连接平台</span>
             <span class="status-item__value">{{ connectedPlatforms }}</span>
           </div>
-        </div>
-      </section>
+          </div>
+        </CardContent>
+      </Card>
 
       <p v-if="loadError" class="admin-overview__error">部分指标加载失败：{{ loadError }}</p>
     </div>
@@ -55,6 +55,7 @@ import PageLayout from '../components/PageLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import IconChevronLeft from '../components/icons/IconChevronLeft.vue';
 import { Button } from '../components/ui/button';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/card';
 import { useDictionariesStore } from '../stores/dictionaries.js';
 import { listMCPServers } from '../api/mcpService';
 import { listSkills } from '../api/skillLibrary';

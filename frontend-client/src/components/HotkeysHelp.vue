@@ -1,41 +1,33 @@
 <template>
-  <Teleport to="body">
-    <Transition name="hk-fade">
-      <div v-if="visible" class="hk-overlay" @click.self="close">
-        <div class="hk-panel" role="dialog" aria-modal="true" aria-label="快捷键帮助">
-          <div class="hk-header">
-            <span class="hk-title">键盘快捷键</span>
-            <Button class="hk-close" variant="ghost" size="icon" aria-label="关闭" @click="close">
-              <IconClose :size="14" />
-            </Button>
-          </div>
-          <div class="hk-body">
-            <div v-for="[group, items] in groups" :key="group" class="hk-group">
-              <div class="hk-group-title">{{ group }}</div>
-              <div v-for="b in items" :key="b.id" class="hk-row">
-                <span class="hk-desc">{{ b.description }}</span>
-                <span class="hk-keys">
-                  <kbd v-for="(tok, i) in comboTokens(b.combo)" :key="i" class="hk-kbd">{{ tok }}</kbd>
-                </span>
-              </div>
-            </div>
-            <div class="hk-footer">
-              <span>更多操作用</span>
-              <kbd class="hk-kbd">⌘</kbd><kbd class="hk-kbd">K</kbd>
-              <span>命令面板搜索</span>
-            </div>
+  <Dialog :open="visible" @update:open="(v) => { if (!v) close() }">
+    <DialogContent class="max-w-[520px] gap-0 p-0 overflow-hidden">
+      <DialogHeader class="px-4 py-3 space-y-0 border-b border-border">
+        <DialogTitle>键盘快捷键</DialogTitle>
+      </DialogHeader>
+      <div class="hk-body">
+        <div v-for="[group, items] in groups" :key="group" class="hk-group">
+          <div class="hk-group-title">{{ group }}</div>
+          <div v-for="b in items" :key="b.id" class="hk-row">
+            <span class="hk-desc">{{ b.description }}</span>
+            <span class="hk-keys">
+              <kbd v-for="(tok, i) in comboTokens(b.combo)" :key="i" class="hk-kbd">{{ tok }}</kbd>
+            </span>
           </div>
         </div>
+        <div class="hk-footer">
+          <span>更多操作用</span>
+          <kbd class="hk-kbd">⌘</kbd><kbd class="hk-kbd">K</kbd>
+          <span>命令面板搜索</span>
+        </div>
       </div>
-    </Transition>
-  </Teleport>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <script setup>
 import { computed } from 'vue';
 import { useGlobalHotkeys } from '../composables/useGlobalHotkeys.js';
-import IconClose from './icons/IconClose.vue';
-import { Button } from './ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 
 const { helpVisible, bindings } = useGlobalHotkeys();
 const visible = helpVisible;
@@ -75,62 +67,6 @@ function comboTokens(combo) {
 </script>
 
 <style scoped>
-.hk-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 12vh var(--spacing-md) 0;
-  z-index: var(--z-dialog);
-}
-
-.hk-panel {
-  width: 100%;
-  max-width: 520px;
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xl);
-  overflow: hidden;
-}
-
-.hk-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.hk-title {
-  font-size: var(--font-size-sm);
-  font-weight: 590;
-  color: var(--color-text-primary);
-  letter-spacing: 0.01em;
-}
-
-.hk-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: transparent;
-  color: var(--color-text-muted);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-.hk-close:hover {
-  background: var(--color-hover-overlay);
-  color: var(--color-text-primary);
-}
-
 .hk-body {
   padding: var(--spacing-sm) var(--spacing-md) var(--spacing-md);
   max-height: 60vh;
@@ -196,14 +132,5 @@ function comboTokens(combo) {
   border-top: 1px solid var(--color-border);
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
-}
-
-.hk-fade-enter-active,
-.hk-fade-leave-active {
-  transition: opacity var(--transition-fast);
-}
-.hk-fade-enter-from,
-.hk-fade-leave-to {
-  opacity: 0;
 }
 </style>

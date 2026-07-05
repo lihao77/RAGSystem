@@ -114,7 +114,7 @@
           <div class="dialog-form-grid form-grid">
             <div class="form-row form-item" v-if="dialog.mode === 'create'">
               <label class="form-label field-label-text">名称 <span class="required">*</span></label>
-              <input v-model="form.name" class="form-control" placeholder="例如: my_gpt" />
+              <Input v-model="form.name" placeholder="例如: my_gpt" />
               <p class="form-hint">Provider 实例的唯一名称，不可包含空格</p>
             </div>
             <div class="form-row form-item" v-if="dialog.mode === 'create'">
@@ -123,12 +123,12 @@
             </div>
             <div class="form-row form-item dialog-form-grid__full form-grid__full">
               <label class="form-label field-label-text">API Key <span v-if="dialog.mode === 'create'" class="required">*</span></label>
-              <input v-model="form.api_key" class="form-control" type="password" :placeholder="dialog.mode === 'create' ? 'sk-... 或 ${ENV_VAR}' : '留空则保持当前 API Key'" autocomplete="new-password" />
+              <Input v-model="form.api_key" type="password" :placeholder="dialog.mode === 'create' ? 'sk-... 或 ${ENV_VAR}' : '留空则保持当前 API Key'" autocomplete="new-password" />
               <p class="form-hint">{{ dialog.mode === 'create' ? '支持 ${ENV_VAR} 形式引用环境变量' : '仅在需要替换密钥时填写；留空表示保持当前值' }}</p>
             </div>
             <div class="form-row form-item dialog-form-grid__full form-grid__full">
               <label class="form-label field-label-text">API Endpoint</label>
-              <input v-model="form.api_endpoint" class="form-control" :placeholder="apiEndpointPlaceholder" />
+              <Input v-model="form.api_endpoint" :placeholder="apiEndpointPlaceholder" />
             </div>
           </div>
         </section>
@@ -136,14 +136,14 @@
         <section v-if="form.provider_type !== 'rerank_api'" class="dialog-form-section form-section">
           <div class="dialog-form-section__head"><h3>运行参数</h3><p>配置温度、token 上限与超时时间等运行时参数。</p></div>
           <div class="dialog-form-grid form-grid">
-            <div class="form-row form-item"><label class="form-label field-label-text">温度</label><input v-model.number="form.temperature" class="form-control" type="number" step="0.1" min="0" max="2" placeholder="0.7" /></div>
-            <div class="form-row form-item"><label class="form-label field-label-text">Max Completion Tokens</label><input v-model.number="form.max_completion_tokens" class="form-control" type="number" step="256" min="256" placeholder="4096" /></div>
-            <div class="form-row form-item"><label class="form-label field-label-text">Max Context Tokens</label><input v-model.number="form.max_context_tokens" class="form-control" type="number" step="1024" min="1024" placeholder="128000" /></div>
-            <div class="form-row form-item"><label class="form-label field-label-text">Timeout (s)</label><input v-model.number="form.timeout" class="form-control" type="number" step="5" min="5" placeholder="60" /></div>
+            <div class="form-row form-item"><label class="form-label field-label-text">温度</label><Input v-model.number="form.temperature" type="number" step="0.1" min="0" max="2" placeholder="0.7" /></div>
+            <div class="form-row form-item"><label class="form-label field-label-text">Max Completion Tokens</label><Input v-model.number="form.max_completion_tokens" type="number" step="256" min="256" placeholder="4096" /></div>
+            <div class="form-row form-item"><label class="form-label field-label-text">Max Context Tokens</label><Input v-model.number="form.max_context_tokens" type="number" step="1024" min="1024" placeholder="128000" /></div>
+            <div class="form-row form-item"><label class="form-label field-label-text">Timeout (s)</label><Input v-model.number="form.timeout" type="number" step="5" min="5" placeholder="60" /></div>
             <div class="form-row form-item dialog-form-grid__full form-grid__full">
               <label class="form-label field-label-text">工具调用协议</label>
-              <label class="fc-toggle"><ToggleSwitch v-model="form.supports_function_calling" /><span>启用原生 Function Calling</span></label>
-              <label class="fc-toggle"><ToggleSwitch v-model="form.supports_vision" /><span>支持图片输入（Vision）</span></label>
+              <label class="fc-toggle"><Switch v-model:checked="form.supports_function_calling" /><span>启用原生 Function Calling</span></label>
+              <label class="fc-toggle"><Switch v-model:checked="form.supports_vision" /><span>支持图片输入（Vision）</span></label>
               <p class="form-hint">勾选后 OpenAI 兼容 Provider 走厂商原生 FC（需模型支持）；anthropic 自动走原生 tool_use 无需此项；不勾选则回退 XML 协议。Vision 项标记模型能否识别图片。</p>
             </div>
           </div>
@@ -157,8 +157,8 @@
               <div v-for="field in activeProviderConfigFields" :key="field.key" class="form-row form-item">
                 <label class="form-label field-label-text">{{ field.label }}</label>
                 <CustomSelect v-if="field.type === 'select'" :model-value="form[field.key] ?? ''" :options="field.options || []" :placeholder="field.placeholder || '-- 请选择 --'" @update:model-value="form[field.key] = $event" />
-                <input v-else-if="field.type === 'number'" v-model.number="form[field.key]" class="form-control" type="number" :step="field.step || 1" :min="field.min" :max="field.max" :placeholder="field.placeholder || ''" />
-                <input v-else v-model="form[field.key]" class="form-control" :type="field.type === 'password' ? 'password' : 'text'" :placeholder="field.placeholder || ''" />
+                <Input v-else-if="field.type === 'number'" v-model.number="form[field.key]" type="number" :step="field.step || 1" :min="field.min" :max="field.max" :placeholder="field.placeholder || ''" />
+                <Input v-else v-model="form[field.key]" :type="field.type === 'password' ? 'password' : 'text'" :placeholder="field.placeholder || ''" />
                 <p v-if="field.help" class="form-hint">{{ field.help }}</p>
               </div>
             </div>
@@ -167,9 +167,9 @@
           <p class="form-hint form-hint--section">按任务类型指定模型名，如 chat / embedding / rerank</p>
           <div class="model-map-editor">
             <div v-for="(entry, idx) in modelMapEntries" :key="idx" class="model-map-row">
-              <input v-model="entry.task" class="form-control form-control--sm" placeholder="chat" />
+              <Input v-model="entry.task" class="form-control--sm" placeholder="chat" />
               <span class="map-arrow">→</span>
-              <input v-model="entry.model" class="form-control" placeholder="gpt-4o" />
+              <Input v-model="entry.model" placeholder="gpt-4o" />
               <Button variant="destructive" size="icon" aria-label="删除映射" title="删除映射" @click="removeModelMapEntry(idx)">
                 <IconClose :size="14" />
               </Button>
@@ -205,7 +205,7 @@
 <script setup>
 import { ref, computed, onMounted, h } from 'vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';
-import ToggleSwitch from '../components/ToggleSwitch.vue';
+import { Switch } from '../components/ui/switch';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
@@ -216,6 +216,7 @@ import IconPlus from '../components/icons/IconPlus.vue';
 import IconTrash from '../components/icons/IconTrash.vue';
 import IconEdit from '../components/icons/IconEdit.vue';
 import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
 import { useToast } from '../composables/useToast.js';
 import { useEntityList } from '../composables/useEntityList.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';

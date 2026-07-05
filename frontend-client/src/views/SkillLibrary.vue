@@ -29,7 +29,7 @@
           <div v-for="group in groups" :key="group.key" class="skill-list-group">
             <div class="skill-list-group__head">
               <span>{{ group.title }}</span>
-              <span class="adm-chip skill-list-group__count">{{ group.items.length }}</span>
+              <UiBadge size="sm">{{ group.items.length }}</UiBadge>
             </div>
             <button
               v-for="skill in group.items"
@@ -51,7 +51,7 @@
         </div>
       </EntityListLayout>
 
-      <section class="adm-panel skill-detail-panel">
+      <Card class="skill-detail-panel">
         <div v-if="detailLoading" class="adm-state">
           <div class="g-spinner" aria-hidden="true"></div>
           <p>加载详情中…</p>
@@ -64,24 +64,25 @@
           <p class="adm-state__hint">从左侧选择查看正文与脚本</p>
         </div>
         <template v-else>
-          <header class="adm-panel__header">
-            <div class="adm-panel__title-block">
-              <h2 class="adm-panel__title">{{ selected.display_name || selected.name }}</h2>
-              <p class="adm-panel__description">{{ selected.description }}</p>
+          <CardHeader class="flex flex-row items-start justify-between gap-4 space-y-0">
+            <div class="space-y-1">
+              <CardTitle>{{ selected.display_name || selected.name }}</CardTitle>
+              <CardDescription>{{ selected.description }}</CardDescription>
               <div class="skill-detail__chips">
-                <span class="adm-chip">{{ selected.source_label }}</span>
-                <span v-if="!selected.writable" class="adm-chip skill-chip--readonly">只读</span>
-                <span v-else class="adm-chip skill-chip--editable">可编辑</span>
+                <UiBadge size="sm">{{ selected.source_label }}</UiBadge>
+                <UiBadge v-if="!selected.writable" size="sm">只读</UiBadge>
+                <UiBadge v-else size="sm" tone="success">可编辑</UiBadge>
               </div>
             </div>
-            <div v-if="selected.writable" class="adm-panel__actions">
+            <div v-if="selected.writable">
               <Button variant="ghost" @click="openEdit">编辑正文</Button>
               <Button variant="ghost" @click="openUpload">上传脚本</Button>
               <Button variant="destructive" :disabled="deleting" @click="confirmDelete">
                 {{ deleting ? '删除中…' : '删除' }}
               </Button>
             </div>
-          </header>
+          </CardHeader>
+          <CardContent>
 
           <div v-if="selected.files.length" class="skill-section">
             <div class="skill-section__title">文件</div>
@@ -103,8 +104,9 @@
             <div class="skill-section__title">SKILL.md 正文</div>
             <MarkdownContent :content="selected.content" :render-markdown="renderMarkdown" @notify="onMdNotify" />
           </div>
+          </CardContent>
         </template>
-      </section>
+      </Card>
     </div>
 
     <Dialog :open="editor.open" @update:open="(v) => { if (!v) closeEditor() }">
@@ -115,15 +117,15 @@
         <div class="form-section">
         <label v-if="editor.mode === 'create'" class="form-item">
           <span class="field-label-text">名称（小写字母 / 数字 / 连字符）</span>
-          <input v-model.trim="editor.form.name" class="form-control" placeholder="如 my-skill" />
+          <Input v-model.trim="editor.form.name" placeholder="如 my-skill" />
         </label>
         <label v-if="editor.mode === 'create'" class="form-item">
           <span class="field-label-text">描述</span>
-          <input v-model="editor.form.description" class="form-control" placeholder="一句话说明适用场景" />
+          <Input v-model="editor.form.description" placeholder="一句话说明适用场景" />
         </label>
         <label class="form-item">
           <span class="field-label-text">正文（Markdown）</span>
-          <textarea v-model="editor.form.content" rows="14" class="form-control form-control--textarea skill-textarea"></textarea>
+          <Textarea v-model="editor.form.content" rows="14" class="form-control--textarea skill-textarea"></Textarea>
         </label>
         <p v-if="editor.error" class="form-error">{{ editor.error }}</p>
       </div>
@@ -144,7 +146,7 @@
         <div class="form-section">
         <label class="form-item">
           <span class="field-label-text">目标目录</span>
-          <select v-model="uploader.dir" class="form-control">
+          <select v-model="uploader.dir">
             <option value="scripts">scripts/（Python 脚本）</option>
             <option value="">Skill 根目录（资源文件）</option>
           </select>
@@ -177,6 +179,10 @@ import KpiCards from '../components/admin/KpiCards.vue';
 import MarkdownContent from '../components/chat/MarkdownContent.vue';
 import { renderMarkdown } from '../utils/markdown';
 import { Button } from '../components/ui/button';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/card';
+import { UiBadge } from '../components/ui';
+import { Input } from '../components/ui/input';
+import { Textarea } from '../components/ui/textarea';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';

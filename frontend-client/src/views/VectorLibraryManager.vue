@@ -606,28 +606,28 @@
                             <template v-if="indexMode === 'text'">
                                 <div class="field field--full">
                                     <label>文档ID <em>*</em></label>
-                                    <input v-model="indexForm.document_id" placeholder="如: my_doc_001" />
+                                    <Input v-model="indexForm.document_id" placeholder="如: my_doc_001" />
                                 </div>
                                 <div class="field field--full">
                                     <label>文档内容 <em>*</em></label>
-                                    <textarea v-model="indexForm.text" rows="6" placeholder="输入要索引的文档内容..."></textarea>
+                                    <Textarea v-model="indexForm.text" rows="6" placeholder="输入要索引的文档内容..."></Textarea>
                                 </div>
                                 <div class="field field--full">
                                     <label>来源</label>
-                                    <input v-model="indexForm.metadata.source" placeholder="如：技术文档、应急预案" />
+                                    <Input v-model="indexForm.metadata.source" placeholder="如：技术文档、应急预案" />
                                 </div>
                             </template>
                             <div class="field">
                                 <label>集合名称</label>
                                 <div class="input-with-btn">
-                                    <input v-model="indexForm.collection_name" placeholder="documents" />
+                                    <Input v-model="indexForm.collection_name" placeholder="documents" />
                                     <Button variant="link" @click="autoSetCollectionName"
                                         title="根据文档类型自动设置">自动</Button>
                                 </div>
                             </div>
                             <div v-if="indexMode !== 'text'" class="field">
                                 <label>文档ID</label>
-                                <input v-model="indexForm.document_id"
+                                <Input v-model="indexForm.document_id"
                                     :placeholder="indexMode === 'upload' ? '留空使用文件名' : '留空使用文件ID'" />
                             </div>
                             <div class="field">
@@ -637,13 +637,13 @@
                             </div>
                             <div class="field">
                                 <label>分块大小（字符）</label>
-                                <input v-model.number="indexForm.chunk_size" type="number" min="100" max="2000"
+                                <Input v-model.number="indexForm.chunk_size" type="number" min="100" max="2000"
                                     step="100" />
                                 <small>建议 300–800</small>
                             </div>
                             <div class="field">
                                 <label>分块重叠</label>
-                                <input v-model.number="indexForm.overlap" type="number" min="0" max="500" step="10" />
+                                <Input v-model.number="indexForm.overlap" type="number" min="0" max="500" step="10" />
                                 <small>建议为分块大小的 10%</small>
                             </div>
                     </div>
@@ -671,7 +671,7 @@
                             </div>
                             <div class="field field--full">
                                 <label>模型名称 <em>*</em></label>
-                                <input v-model="addVectorizerForm.model_name" list="add-model-list"
+                                <Input v-model="addVectorizerForm.model_name" list="add-model-list"
                                     placeholder="选择或输入模型名" />
                                 <datalist id="add-model-list">
                                     <option v-if="addFormRecommendedModel" :value="addFormRecommendedModel">
@@ -730,23 +730,23 @@
                             <template v-if="addRerankerForm.mode === 'model'">
                                 <div class="field field--full">
                                     <label>Provider Key <em>*</em></label>
-                                    <input v-model="addRerankerForm.provider_key" placeholder="如 jina" />
+                                    <Input v-model="addRerankerForm.provider_key" placeholder="如 jina" />
                                 </div>
                                 <div class="field field--full">
                                     <label>Provider Type</label>
-                                    <input v-model="addRerankerForm.provider_type" placeholder="如 jina（可选）" />
+                                    <Input v-model="addRerankerForm.provider_type" placeholder="如 jina（可选）" />
                                 </div>
                                 <div class="field field--full">
                                     <label>模型名称 <em>*</em></label>
-                                    <input v-model="addRerankerForm.model_name" placeholder="如 jina-reranker-v2-base-multilingual" />
+                                    <Input v-model="addRerankerForm.model_name" placeholder="如 jina-reranker-v2-base-multilingual" />
                                 </div>
                                 <div class="field field--full">
                                     <label>API Endpoint <em>*</em></label>
-                                    <input v-model="addRerankerForm.api_endpoint" placeholder="如 https://api.jina.ai/v1/rerank" />
+                                    <Input v-model="addRerankerForm.api_endpoint" placeholder="如 https://api.jina.ai/v1/rerank" />
                                 </div>
                                 <div class="field field--full">
                                     <label>API Key <em>*</em></label>
-                                    <input v-model="addRerankerForm.api_key" type="password" autocomplete="off" placeholder="可填写明文或 ${RERANK_API_KEY}" />
+                                    <Input v-model="addRerankerForm.api_key" type="password" autocomplete="off" placeholder="可填写明文或 ${RERANK_API_KEY}" />
                                 </div>
                             </template>
                     </div>
@@ -799,6 +799,8 @@ import {
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import { UiBadge } from '../components/ui';
 import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Textarea } from '../components/ui/textarea';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 

@@ -1,19 +1,16 @@
 <template>
-  <Teleport to="body">
-    <Transition name="overlay-fade">
-      <div v-if="visible && !collapsed" class="input-overlay">
-        <Transition name="dialog-pop" appear>
-          <div v-if="visible && !collapsed" class="input-container">
+  <Dialog :open="visible && !collapsed" @update:open="(v) => { if (!v) collapsed = true }">
+    <DialogContent class="max-w-[560px] gap-0 p-0 overflow-hidden" @pointer-down-outside.prevent @escape-key-down.prevent>
 
-            <!-- 顶部装饰光带 -->
-            <div class="container-glow" />
+      <!-- 顶部装饰光带 -->
+      <div class="container-glow" />
 
             <!-- Header -->
             <div class="input-header">
               <div class="header-left">
                 <div class="pulse-dot" />
                 <div class="header-label">
-                  <span class="header-title">需要你的输入</span>
+                  <DialogTitle class="header-title">需要你的输入</DialogTitle>
                   <span class="header-badge">{{ inputTypeLabel }}</span>
                 </div>
               </div>
@@ -67,7 +64,7 @@
             </div>
 
             <!-- Footer -->
-            <div class="input-footer">
+            <DialogFooter class="input-footer">
               <Button class="btn-stop" variant="ghost" @click="handleCancel">
                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -83,13 +80,11 @@
                   </svg>
                 <span>{{ submitting ? '发送中' : '发送' }}</span>
               </Button>
-            </div>
+            </DialogFooter>
+    </DialogContent>
+  </Dialog>
 
-          </div>
-        </Transition>
-      </div>
-    </Transition>
-
+  <Teleport to="body">
     <Transition name="input-dock-fade">
       <button
         v-if="visible && collapsed"
@@ -113,6 +108,7 @@ import InputRendererText from './input-renderers/InputRendererText.vue';
 import InputRendererSelect from './input-renderers/InputRendererSelect.vue';
 import IconInfo from './icons/IconInfo.vue';
 import { Button } from './ui/button';
+import { Dialog, DialogContent, DialogTitle, DialogFooter } from './ui/dialog';
 
 // ── 渲染器注册表（新增 input_type 只需在此注册一行）──────────────────────
 const RENDERER_REGISTRY = {
@@ -198,31 +194,6 @@ defineExpose({ show, hide, toggleCollapsed });
 
 <style scoped>
 /* ── 遮罩 ── */
-.input-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-dialog);
-  padding: 20px;
-}
-
-/* ── 弹窗主体 ── */
-.input-container {
-  position: relative;
-  width: 100%;
-  max-width: 480px;
-  background: var(--color-bg-elevated);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-xl);
-  overflow: hidden;
-}
-
 /* 顶部光晕装饰 —— Linear 风格去除 */
 .container-glow {
   display: none;
@@ -523,35 +494,8 @@ defineExpose({ show, hide, toggleCollapsed });
   transform: translateY(8px);
 }
 
-/* ── 遮罩动画 ── */
-.overlay-fade-enter-active,
-.overlay-fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-.overlay-fade-enter-from,
-.overlay-fade-leave-to {
-  opacity: 0;
-}
-
-/* ── 弹窗弹入动画 ── */
-.dialog-pop-enter-active {
-  transition: transform 0.28s var(--ease-spring), opacity 0.2s ease;
-}
-.dialog-pop-leave-active {
-  transition: transform 0.18s ease, opacity 0.18s ease;
-}
-.dialog-pop-enter-from {
-  transform: scale(0.88) translateY(-12px);
-  opacity: 0;
-}
-.dialog-pop-leave-to {
-  transform: scale(0.94) translateY(6px);
-  opacity: 0;
-}
-
 /* ── 响应式 ── */
  @media (max-width: 480px) {
-      .input-container { border-radius: 14px; max-width: 100%; }
   .input-header, .input-body { padding-inline: 16px; }
   .input-header { align-items: stretch; flex-direction: column; }
   .input-header-action { width: 100%; justify-content: center; }

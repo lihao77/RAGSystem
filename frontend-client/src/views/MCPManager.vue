@@ -129,18 +129,18 @@
       <div v-if="addMode === 'manual'" class="add-pane">
         <div class="manual-install-form">
         <div class="form-grid two-col">
-          <label class="field"><span>服务名称<em>*</em></span><input v-model.trim="installForm.server_name" type="text" placeholder="唯一标识，如 my_server" /></label>
-          <label class="field"><span>显示名称</span><input v-model.trim="installForm.display_name" type="text" placeholder="前端展示名称" /></label>
+          <label class="field"><span>服务名称<em>*</em></span><Input v-model.trim="installForm.server_name" type="text" placeholder="唯一标识，如 my_server" /></label>
+          <label class="field"><span>显示名称</span><Input v-model.trim="installForm.display_name" type="text" placeholder="前端展示名称" /></label>
         </div>
         <div class="field"><span>传输方式</span><CustomSelect :model-value="installForm.transport" :options="transportOptions" @update:model-value="installForm.transport = $event" /></div>
         <div v-if="installForm.transport === 'stdio'" class="form-grid">
-          <label class="field"><span>命令<em>*</em></span><input v-model.trim="installForm.command" type="text" placeholder="npx / uvx / python / node" /><small>启动 MCP 服务的可执行命令</small></label>
-          <label class="field"><span>参数</span><textarea v-model="installForm.argsJson" rows="4" class="font-mono-input" placeholder='["-y", "@scope/package"]'></textarea><small>JSON 数组格式</small></label>
-          <label class="field"><span>环境变量</span><textarea v-model="installForm.envJson" rows="4" class="font-mono-input" placeholder='{"API_KEY": "..."}'></textarea><small>JSON 对象，合并到 MCP 进程环境</small></label>
+          <label class="field"><span>命令<em>*</em></span><Input v-model.trim="installForm.command" type="text" placeholder="npx / uvx / python / node" /><small>启动 MCP 服务的可执行命令</small></label>
+          <label class="field"><span>参数</span><Textarea v-model="installForm.argsJson" rows="4" class="font-mono-input" placeholder='["-y", "@scope/package"]'></Textarea><small>JSON 数组格式</small></label>
+          <label class="field"><span>环境变量</span><Textarea v-model="installForm.envJson" rows="4" class="font-mono-input" placeholder='{"API_KEY": "..."}'></Textarea><small>JSON 对象，合并到 MCP 进程环境</small></label>
         </div>
         <div v-else class="form-grid">
-          <label class="field"><span>URL<em>*</em></span><input v-model.trim="installForm.url" type="url" placeholder="https://example.com/mcp" /><small>远程 MCP 服务端点</small></label>
-          <label class="field"><span>Headers</span><textarea v-model="installForm.headersJson" rows="4" class="font-mono-input" placeholder='{"Authorization": "Bearer ..."}'></textarea><small>JSON 对象，作为请求头发送</small></label>
+          <label class="field"><span>URL<em>*</em></span><Input v-model.trim="installForm.url" type="url" placeholder="https://example.com/mcp" /><small>远程 MCP 服务端点</small></label>
+          <label class="field"><span>Headers</span><Textarea v-model="installForm.headersJson" rows="4" class="font-mono-input" placeholder='{"Authorization": "Bearer ..."}'></Textarea><small>JSON 对象，作为请求头发送</small></label>
         </div>
         <div class="form-divider"></div>
         <div class="form-section-label">高级设置</div>
@@ -149,8 +149,8 @@
           <label class="field"><span>风险等级</span><CustomSelect :model-value="installForm.risk_level" :options="riskOptions" @update:model-value="installForm.risk_level = $event" /></label>
         </div>
         <div class="toggle-row">
-          <label class="toggle-field"><ToggleSwitch v-model="installForm.enabled" /><span>启用服务</span></label>
-          <label class="toggle-field"><ToggleSwitch v-model="installForm.auto_connect" /><span>自动连接</span></label>
+          <label class="toggle-field"><Switch v-model:checked="installForm.enabled" /><span>启用服务</span></label>
+          <label class="toggle-field"><Switch v-model:checked="installForm.auto_connect" /><span>自动连接</span></label>
         </div>
         <div class="form-actions">
           <Button variant="ghost" size="sm" @click="resetInstallForm">重置</Button>
@@ -169,7 +169,7 @@
           <IconSearch :size="16" />
           <input v-model.trim="registrySearch.query" type="text" placeholder="搜索服务名称，如 github / filesystem / mysql ..." class="registry-search-input" @keyup.enter="searchRegistryServers" />
         </div>
-        <label class="toggle-field toggle-field--inline"><ToggleSwitch v-model="registrySearch.latest_only" /><span>仅最新版本</span></label>
+        <label class="toggle-field toggle-field--inline"><Switch v-model:checked="registrySearch.latest_only" /><span>仅最新版本</span></label>
         <Button variant="secondary" :disabled="loadingRegistryResults" @click="searchRegistryServers">{{ loadingRegistryResults ? '搜索中...' : '搜索' }}</Button>
       </div>
 
@@ -237,16 +237,16 @@
           </label>
         </div>
         <div class="form-grid two-col">
-          <label class="field"><span>服务名称</span><input v-model.trim="registryInstallForm.server_name" type="text" placeholder="本地唯一标识" /></label>
-          <label class="field"><span>显示名称</span><input v-model.trim="registryInstallForm.display_name" type="text" placeholder="页面展示名称" /></label>
+          <label class="field"><span>服务名称</span><Input v-model.trim="registryInstallForm.server_name" type="text" placeholder="本地唯一标识" /></label>
+          <label class="field"><span>显示名称</span><Input v-model.trim="registryInstallForm.display_name" type="text" placeholder="页面展示名称" /></label>
         </div>
         <div v-if="selectedRegistryFields.length" class="form-grid two-col">
           <label v-for="field in selectedRegistryFields" :key="field.key" class="field">
             <span>{{ field.label }}<em v-if="field.required">*</em></span>
             <CustomSelect v-if="field.format === 'select'" :model-value="registryInstallForm.input_values[field.key]" :options="field.options || []" :placeholder="field.placeholder || ''" @update:model-value="registryInstallForm.input_values[field.key] = $event" />
-            <textarea v-else-if="field.format === 'textarea'" v-model="registryInstallForm.input_values[field.key]" rows="4" class="font-mono-input" :placeholder="field.placeholder || ''" />
-            <input v-else-if="field.format !== 'boolean'" v-model="registryInstallForm.input_values[field.key]" :type="field.secret ? 'password' : field.format === 'number' ? 'number' : 'text'" :placeholder="field.placeholder || ''" />
-            <label v-else class="toggle-field toggle-field--inner"><ToggleSwitch v-model="registryInstallForm.input_values[field.key]" /><span>启用</span></label>
+            <Textarea v-else-if="field.format === 'textarea'" v-model="registryInstallForm.input_values[field.key]" rows="4" class="font-mono-input" :placeholder="field.placeholder || ''" />
+            <Input v-else-if="field.format !== 'boolean'" v-model="registryInstallForm.input_values[field.key]" :type="field.secret ? 'password' : field.format === 'number' ? 'number' : 'text'" :placeholder="field.placeholder || ''" />
+            <label v-else class="toggle-field toggle-field--inner"><Switch v-model:checked="registryInstallForm.input_values[field.key]" /><span>启用</span></label>
             <small v-if="field.description">{{ field.description }}</small>
             <small v-if="field.repeated">多值请用英文逗号分隔</small>
           </label>
@@ -257,8 +257,8 @@
           <label class="field"><span>风险等级</span><CustomSelect :model-value="registryInstallForm.risk_level" :options="riskOptions" @update:model-value="registryInstallForm.risk_level = $event" /></label>
         </div>
         <div class="toggle-row">
-          <label class="toggle-field"><ToggleSwitch v-model="registryInstallForm.enabled" /><span>启用服务</span></label>
-          <label class="toggle-field"><ToggleSwitch v-model="registryInstallForm.auto_connect" /><span>自动连接</span></label>
+          <label class="toggle-field"><Switch v-model:checked="registryInstallForm.enabled" /><span>启用服务</span></label>
+          <label class="toggle-field"><Switch v-model:checked="registryInstallForm.auto_connect" /><span>自动连接</span></label>
         </div>
       </div>
       <DialogFooter>
@@ -279,17 +279,17 @@
         </DialogHeader>
       <div class="adm-modal-form">
         <div class="form-grid two-col">
-          <label class="field"><span>显示名称</span><input v-model="editForm.display_name" type="text" /></label>
+          <label class="field"><span>显示名称</span><Input v-model="editForm.display_name" type="text" /></label>
           <div class="field"><span>传输方式</span><CustomSelect :model-value="editForm.transport" :options="transportOptions" @update:model-value="editForm.transport = $event" /></div>
         </div>
         <div v-if="editForm.transport === 'stdio'" class="form-grid">
-          <label class="field"><span>命令</span><input v-model="editForm.command" type="text" placeholder="如 npx / node / python" /></label>
-          <label class="field"><span>参数列表 (JSON Array)</span><textarea v-model="editForm.argsJson" rows="4" class="font-mono-input"></textarea></label>
-          <label class="field"><span>环境变量 (JSON Object)</span><textarea v-model="editForm.envJson" rows="4" class="font-mono-input"></textarea></label>
+          <label class="field"><span>命令</span><Input v-model="editForm.command" type="text" placeholder="如 npx / node / python" /></label>
+          <label class="field"><span>参数列表 (JSON Array)</span><Textarea v-model="editForm.argsJson" rows="4" class="font-mono-input"></Textarea></label>
+          <label class="field"><span>环境变量 (JSON Object)</span><Textarea v-model="editForm.envJson" rows="4" class="font-mono-input"></Textarea></label>
         </div>
         <div v-else class="form-grid">
-          <label class="field"><span>URL</span><input v-model="editForm.url" type="url" placeholder="http://localhost:8080/mcp" /></label>
-          <label class="field"><span>Headers (JSON Object)</span><textarea v-model="editForm.headersJson" rows="4" class="font-mono-input"></textarea></label>
+          <label class="field"><span>URL</span><Input v-model="editForm.url" type="url" placeholder="http://localhost:8080/mcp" /></label>
+          <label class="field"><span>Headers (JSON Object)</span><Textarea v-model="editForm.headersJson" rows="4" class="font-mono-input"></Textarea></label>
         </div>
         <div class="form-divider"></div>
         <div class="form-grid two-col">
@@ -297,8 +297,8 @@
           <div class="field"><span>风险等级</span><CustomSelect :model-value="editForm.risk_level" :options="riskOptions" @update:model-value="editForm.risk_level = $event" /></div>
         </div>
         <div class="toggle-row">
-          <label class="toggle-field"><ToggleSwitch v-model="editForm.enabled" /><span>启用服务</span></label>
-          <label class="toggle-field"><ToggleSwitch v-model="editForm.auto_connect" /><span>自动连接</span></label>
+          <label class="toggle-field"><Switch v-model:checked="editForm.enabled" /><span>启用服务</span></label>
+          <label class="toggle-field"><Switch v-model:checked="editForm.auto_connect" /><span>自动连接</span></label>
         </div>
       </div>
       <DialogFooter>
@@ -341,7 +341,7 @@ import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import NumberInput from '../components/NumberInput.vue';
-import ToggleSwitch from '../components/ToggleSwitch.vue';
+import { Switch } from '../components/ui/switch';
 import PageLayout from '../components/PageLayout.vue';
 import IconRefresh from '../components/icons/IconRefresh.vue';
 import IconCheck from '../components/icons/IconCheck.vue';
@@ -355,6 +355,8 @@ import IconWarning from '../components/icons/IconWarning.vue';
 import IconInfo from '../components/icons/IconInfo.vue';
 import { UiBadge } from '../components/ui';
 import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Textarea } from '../components/ui/textarea';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
@@ -649,7 +651,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.add-service-panel { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-lg); border-radius: var(--radius-xl); border: 1px solid var(--color-border); background: var(--color-bg-elevated); box-shadow: none; scroll-margin-top: var(--spacing-md); }
+.add-service-panel { display: flex; flex-direction: column; gap: var(--spacing-md); padding: var(--spacing-lg); border-radius: var(--radius-xl); border: 1px solid var(--color-border); background: var(--color-bg-secondary); box-shadow: none; scroll-margin-top: var(--spacing-md); }
 .add-service-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--spacing-md); }
 .add-service-close { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex-shrink: 0; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: transparent; color: var(--color-text-secondary); cursor: pointer; transition: all var(--transition-fast); }
 .add-service-close:hover { border-color: var(--color-border-hover); background: var(--color-hover-overlay-md); color: var(--color-text-primary); }
@@ -706,10 +708,6 @@ onMounted(() => {
 .field > span, .field > label { font-size: var(--font-size-xs); color: var(--color-text-secondary); letter-spacing: 0.02em; }
 .field em { color: var(--color-error); font-style: normal; margin-left: 3px; }
 .field small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
-.field > input, .field > select, .field > textarea { width: 100%; height: 42px; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-bg-secondary); color: var(--color-text-primary); padding: 0 14px; font: inherit; font-size: var(--font-size-sm); transition: border-color 0.2s; }
-.field > input:hover, .field > select:hover, .field > textarea:hover { border-color: var(--color-border-hover); }
-.field > input:focus, .field > select:focus, .field > textarea:focus { outline: none; border-color: var(--color-border-focus); box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.16); }
-.field > textarea { resize: vertical; min-height: 80px; height: auto; padding: 10px 14px; }
 .font-mono-input { font-family: var(--font-mono); font-size: var(--font-size-xs); }
 .font-mono { font-family: var(--font-mono); }
 
@@ -725,8 +723,8 @@ onMounted(() => {
 .registry-search-input::placeholder { color: var(--color-text-muted); }
 
 .registry-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--spacing-md); }
-.registry-card { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md); border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-bg-elevated); transition: border-color var(--transition-fast), background var(--transition-fast); }
-.registry-card:hover { border-color: var(--color-border-hover); background: var(--color-bg-elevated); }
+.registry-card { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: var(--spacing-md); border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-bg-secondary); transition: border-color var(--transition-fast), background var(--transition-fast); }
+.registry-card:hover { border-color: var(--color-border-hover); background: var(--color-bg-secondary); }
 .registry-card-head { display: flex; align-items: flex-start; gap: var(--spacing-md); }
 .registry-card-title { flex: 1; min-width: 0; }
 .registry-card-title h3 { font-size: var(--font-size-base); font-weight: 600; margin: 0 0 4px; }

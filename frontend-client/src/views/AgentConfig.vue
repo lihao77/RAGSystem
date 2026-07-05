@@ -100,22 +100,22 @@
             <div class="section-body form-grid">
               <label class="form-item">
                 <span class="field-label-text">显示名称</span>
-                <input v-model="configForm.display_name" type="text" class="form-control" />
+                <Input v-model="configForm.display_name" type="text" />
               </label>
 
               <label class="form-item">
                 <span class="field-label-text">描述</span>
-                <input v-model="configForm.description" type="text" class="form-control" />
+                <Input v-model="configForm.description" type="text" />
               </label>
 
               <label class="form-item switch-item">
                 <span class="field-label-text">启用该 Agent</span>
-                <ToggleSwitch v-model="configForm.enabled" />
+                <Switch v-model:checked="configForm.enabled" />
               </label>
 
               <label class="form-item switch-item">
                 <span class="field-label-text">设为默认入口 Agent</span>
-                <ToggleSwitch v-model="configForm.default_entry" />
+                <Switch v-model:checked="configForm.default_entry" />
               </label>
             </div>
           </section>
@@ -162,7 +162,7 @@
                       </label>
                       <label class="form-item">
                         <span class="field-label-text">Provider Type</span>
-                        <input :value="configForm.llm_tiers.default?.provider_type || '未设置'" type="text" class="form-control" disabled />
+                        <Input :value="configForm.llm_tiers.default?.provider_type || '未设置'" type="text" disabled />
                       </label>
                       <label class="form-item">
                         <span class="field-label-text">Model Name</span>
@@ -193,9 +193,9 @@
                       </div>
                       <div v-if="configForm.llm_tiers.default?.extra_params_entries?.length" class="extra-param-list">
                         <div v-for="(entry, index) in configForm.llm_tiers.default.extra_params_entries" :key="`default-${index}`" class="extra-param-row">
-                          <input v-model.trim="entry.key" type="text" class="form-control" placeholder="key" />
+                          <Input v-model.trim="entry.key" type="text" placeholder="key" />
                           <CustomSelect :model-value="entry.type" :options="extraParamTypeOptions" placeholder="type" @update:model-value="entry.type = $event" />
-                          <input v-model="entry.value" type="text" class="form-control" placeholder="value" />
+                          <Input v-model="entry.value" type="text" placeholder="value" />
                           <Button size="sm" variant="destructive" class="extra-param-delete-button" @click="removeExtraParam(configForm.llm_tiers.default, index)">删除</Button>
                         </div>
                       </div>
@@ -240,7 +240,7 @@
                         </label>
                         <label class="form-item">
                           <span class="field-label-text">Provider Type</span>
-                          <input :value="configForm.llm_tiers[tier].provider_type || '未设置'" type="text" class="form-control" disabled />
+                          <Input :value="configForm.llm_tiers[tier].provider_type || '未设置'" type="text" disabled />
                         </label>
                         <label class="form-item">
                           <span class="field-label-text">Model Name</span>
@@ -272,14 +272,14 @@
                         </div>
                         <div v-if="configForm.llm_tiers[tier].extra_params_entries.length" class="extra-param-list">
                           <div v-for="(entry, index) in configForm.llm_tiers[tier].extra_params_entries" :key="`${tier}-${index}`" class="extra-param-row">
-                            <input v-model.trim="entry.key" type="text" class="form-control" placeholder="key" />
+                            <Input v-model.trim="entry.key" type="text" placeholder="key" />
                             <CustomSelect
                               :model-value="entry.type"
                               :options="extraParamTypeOptions"
                               placeholder="type"
                               @update:model-value="entry.type = $event"
                             />
-                            <input v-model="entry.value" type="text" class="form-control" placeholder="value" />
+                            <Input v-model="entry.value" type="text" placeholder="value" />
                             <Button size="sm" variant="destructive" class="extra-param-delete-button" @click="removeExtraParam(configForm.llm_tiers[tier], index)">删除</Button>
                           </div>
                         </div>
@@ -306,11 +306,11 @@
                 <textarea
                   ref="systemPromptTextareaRef"
                   v-model="configForm.custom_params.behavior.system_prompt"
-                  class="form-control form-control--textarea"
+                  class="form-control--textarea"
                   rows="8"
                   placeholder="请输入该 Agent 的 system prompt"
                   @input="autoResizeSystemPrompt"
-                ></textarea>
+                ></Textarea>
               </label>
             </div>
           </section>
@@ -511,7 +511,7 @@
                   <span class="field-label-text">启用知识库检索</span>
                   <span class="kb-field-hint">启用后会向当前 Agent 暴露 search_knowledge_base 工具。</span>
                 </span>
-                <ToggleSwitch v-model="configForm.knowledge_base.enabled" />
+                <Switch v-model:checked="configForm.knowledge_base.enabled" />
               </label>
 
               <template v-if="configForm.knowledge_base.enabled">
@@ -521,7 +521,7 @@
                     <input
                       v-model.trim="configForm.knowledge_base.default_collection"
                       type="text"
-                      class="form-control"
+                     
                       placeholder="documents"
                     />
                     <small class="kb-field-hint">留空保存为 documents。</small>
@@ -564,7 +564,7 @@
                     <span class="field-label-text">默认启用重排序</span>
                     <span class="kb-field-hint">对召回结果重新排序，优先保留更贴近问题的片段。</span>
                   </span>
-                  <ToggleSwitch v-model="configForm.knowledge_base.default_rerank" />
+                  <Switch v-model:checked="configForm.knowledge_base.default_rerank" />
                 </label>
 
                 <label v-if="configForm.knowledge_base.default_rerank" class="form-item">
@@ -572,7 +572,7 @@
                   <input
                     v-model.trim="configForm.knowledge_base.default_reranker_key"
                     type="text"
-                    class="form-control"
+                   
                     placeholder="留空使用系统 active reranker"
                   />
                   <small class="kb-field-hint">指定后将覆盖系统当前激活的 reranker。</small>
@@ -644,7 +644,7 @@
               <input
                 v-model.trim="createDialog.agentName"
                 type="text"
-                class="form-control"
+               
                 placeholder="仅限英文、数字和下划线，如 my_agent"
                 @keydown.enter="handleCreateAgent"
               />
@@ -652,11 +652,11 @@
             </label>
             <label class="form-item">
               <span class="field-label-text">显示名称</span>
-              <input v-model.trim="createDialog.displayName" type="text" class="form-control" placeholder="可选，留空则使用 Agent 名称" @keydown.enter="handleCreateAgent" />
+              <Input v-model.trim="createDialog.displayName" type="text" placeholder="可选，留空则使用 Agent 名称" @keydown.enter="handleCreateAgent" />
             </label>
             <label class="form-item">
               <span class="field-label-text">描述</span>
-              <input v-model.trim="createDialog.description" type="text" class="form-control" placeholder="可选" @keydown.enter="handleCreateAgent" />
+              <Input v-model.trim="createDialog.description" type="text" placeholder="可选" @keydown.enter="handleCreateAgent" />
             </label>
       </div>
         <DialogFooter>
@@ -705,7 +705,7 @@ import {
 import { useDictionariesStore } from '../stores/dictionaries.js';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
-import ToggleSwitch from '../components/ToggleSwitch.vue';
+import { Switch } from '../components/ui/switch';
 import IconChevronDown from '../components/icons/IconChevronDown.vue';
 import IconCheck from '../components/icons/IconCheck.vue';
 import IconPlus from '../components/icons/IconPlus.vue';
@@ -713,6 +713,7 @@ import IconTrash from '../components/icons/IconTrash.vue';
 import IconSave from '../components/icons/IconSave.vue';
 import IconDownload from '../components/icons/IconDownload.vue';
 import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
 import { useToast } from '../composables/useToast.js';
 const props = defineProps({
   embedded: { type: Boolean, default: false },

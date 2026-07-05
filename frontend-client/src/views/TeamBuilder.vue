@@ -47,7 +47,7 @@
               <div class="form-grid">
                 <label class="form-item">
                   <span class="field-label-text">新 Team 名称</span>
-                  <input v-model.trim="newTeamName" type="text" class="form-control" placeholder="例如 research_v2" />
+                  <Input v-model.trim="newTeamName" type="text" placeholder="例如 research_v2" />
                 </label>
                 <label class="form-item">
                   <span class="field-label-text">复制来源</span>
@@ -196,7 +196,7 @@
                 </div>
               </div>
               <div v-if="team.agents && team.agents.length" class="team-card__agents">
-                <span v-for="agent in team.agents" :key="`${team.team_name}-${agent}`" class="team-agent-tag adm-chip" :title="agent">{{ agentDisplayMap[agent] || agent }}</span>
+                <UiBadge v-for="agent in team.agents" :key="`${team.team_name}-${agent}`" :title="agent">{{ agentDisplayMap[agent] || agent }}</UiBadge>
               </div>
             </article>
           </div>
@@ -215,6 +215,7 @@ import KpiCards from '../components/admin/KpiCards.vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import { UiBadge } from '../components/ui';
 import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import { activateTeam, copyAgentsToTeam, createTeam, deleteTeam, resetDefaultTeam } from '../api/agentConfig';
 import { useDictionariesStore } from '../stores/dictionaries.js';

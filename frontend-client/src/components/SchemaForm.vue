@@ -24,10 +24,10 @@
           <!-- boolean → switch -->
           <label v-if="field.type === 'boolean'" class="form-item switch-item">
             <span class="field-label-text">{{ field.label }}</span>
-            <ToggleSwitch
-              :model-value="getFieldValue(group.key, field.key)"
+            <Switch
+              :checked="getFieldValue(group.key, field.key)"
               :disabled="disabled"
-              @update:model-value="setFieldValue(group.key, field.key, $event)"
+              @update:checked="setFieldValue(group.key, field.key, $event)"
             />
           </label>
 
@@ -60,13 +60,13 @@
           <!-- textarea -->
           <label v-else-if="field.type === 'textarea'" class="form-item" style="grid-column: 1 / -1">
             <span class="field-label-text">{{ field.label }}</span>
-            <textarea
-              class="form-control form-control--textarea"
+            <Textarea
+              class="form-control--textarea"
               rows="4"
-              :value="getFieldValue(group.key, field.key) ?? ''"
+              :model-value="getFieldValue(group.key, field.key) ?? ''"
               :disabled="disabled"
               :placeholder="field.placeholder || ''"
-              @input="setFieldValue(group.key, field.key, $event.target.value)"
+              @update:model-value="setFieldValue(group.key, field.key, $event)"
             />
             <small v-if="field.help" class="field-hint">{{ field.help }}</small>
           </label>
@@ -74,13 +74,12 @@
           <!-- text / password (default) -->
           <label v-else class="form-item">
             <span class="field-label-text">{{ field.label }}</span>
-            <input
-              class="form-control"
+            <Input
               :type="field.type === 'password' ? 'password' : 'text'"
-              :value="getFieldValue(group.key, field.key) ?? ''"
+              :model-value="getFieldValue(group.key, field.key) ?? ''"
               :disabled="disabled"
               :placeholder="field.placeholder || ''"
-              @input="setFieldValue(group.key, field.key, $event.target.value)"
+              @update:model-value="setFieldValue(group.key, field.key, $event)"
             />
             <small v-if="field.help" class="field-hint">{{ field.help }}</small>
           </label>
@@ -94,7 +93,9 @@
 import { reactive } from 'vue'
 import CustomSelect from './ui/CustomSelect.vue'
 import NumberInput from './NumberInput.vue'
-import ToggleSwitch from './ToggleSwitch.vue'
+import { Switch } from './ui/switch'
+import { Input } from './ui/input'
+import { Textarea } from './ui/textarea'
 import IconChevronDown from './icons/IconChevronDown.vue'
 
 const props = defineProps({

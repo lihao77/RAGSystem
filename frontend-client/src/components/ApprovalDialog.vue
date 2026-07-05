@@ -1,15 +1,13 @@
 <template>
-  <Teleport to="body">
-    <Transition name="dialog-fade">
-      <div v-if="visible && !collapsed" class="approval-overlay" @click="handleOverlayClick">
-        <div class="approval-container" @click.stop>
-          <div class="approval-header">
+  <Dialog :open="visible && !collapsed" @update:open="(v) => { if (!v) collapsed = true }">
+    <DialogContent class="max-w-[560px] gap-0 p-0 overflow-hidden" @pointer-down-outside.prevent @escape-key-down.prevent>
+      <div class="approval-header">
             <div class="approval-header-main">
               <div class="approval-icon">
                 <IconWarning :size="24" />
               </div>
               <div class="approval-title-wrap">
-                <h3 class="approval-title">权限确认</h3>
+                <DialogTitle class="approval-title">权限确认</DialogTitle>
                 <p class="approval-subtitle">可先折叠窗口，继续查看 AI 实时进展</p>
               </div>
             </div>
@@ -123,7 +121,7 @@
             </div>
           </div>
 
-          <div class="approval-footer">
+          <DialogFooter class="approval-footer">
             <Button
               v-if="activeMode === 'approve'"
               class="approval-btn w-full"
@@ -136,11 +134,11 @@
               variant="destructive"
               @click="handleDeny"
             >确认拒绝</Button>
-          </div>
-        </div>
-      </div>
-    </Transition>
+          </DialogFooter>
+    </DialogContent>
+  </Dialog>
 
+  <Teleport to="body">
     <Transition name="approval-dock-fade">
       <button
         v-if="visible && collapsed"
@@ -164,6 +162,7 @@ import { getApprovalReasonLabels, getApprovalReasonText, getPermissionModeLabel 
 import IconWarning from './icons/IconWarning.vue';
 import IconInfo from './icons/IconInfo.vue';
 import { Button } from './ui/button';
+import { Dialog, DialogContent, DialogTitle, DialogFooter } from './ui/dialog';
 
 const emit = defineEmits(['approve', 'deny']);
 
@@ -273,44 +272,6 @@ defineExpose({ show, hide, toggleCollapsed });
 </script>
 
 <style scoped>
-.approval-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-dialog);
-  padding: var(--spacing-md);
-  animation: overlayFadeIn 0.2s ease;
-}
-
-@keyframes overlayFadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-.approval-container {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xl);
-  max-width: 520px;
-  width: 100%;
-  max-height: 90vh;
-  overflow-y: auto;
-  animation: containerSlideIn 0.3s var(--ease-spring);
-}
-
-@keyframes containerSlideIn {
-  from { transform: scale(0.9) translateY(-20px); opacity: 0; }
-  to   { transform: scale(1) translateY(0); opacity: 1; }
-}
-
 .approval-header {
   padding: var(--spacing-lg);
   border-bottom: 1px solid var(--color-border);
@@ -739,21 +700,8 @@ defineExpose({ show, hide, toggleCollapsed });
   transform: translateY(8px);
 }
 
-/* 动画 */
-.dialog-fade-enter-active,
-.dialog-fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-.dialog-fade-enter-from,
-.dialog-fade-leave-to {
-  opacity: 0;
-}
-
 /* 移动端适配 */
 @media (max-width: 767px) {
-  .approval-container {
-    max-width: calc(100vw - 32px);
-  }
   .approval-header,
   .approval-body {
     padding: var(--spacing-md);

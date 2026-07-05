@@ -69,59 +69,6 @@
   letter-spacing: -0.01em;
 }
 
-/* ===== 面板 —— 纯白卡面浮在浅灰内容区上，无边框，靠底色差区分 ===== */
-.adm-panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  min-width: 0;
-  padding: var(--spacing-md);
-  border: none;
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-elevated);
-  box-shadow: none;
-}
-
-.adm-panel__header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--spacing-md);
-  min-width: 0;
-}
-
-.adm-panel__title-block {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.adm-panel__title {
-  margin: 0;
-  color: var(--color-text-primary);
-  font-size: var(--font-size-lg);
-  font-weight: 590;
-  line-height: 1.25;
-  letter-spacing: -0.01em;
-}
-
-.adm-panel__description {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  line-height: 1.5;
-}
-
-.adm-panel__actions {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--spacing-sm);
-  flex: 0 0 auto;
-  flex-wrap: wrap;
-}
-
 /* ===== 状态面板（空/错误/加载） ===== */
 .adm-state {
   display: flex;
@@ -272,64 +219,6 @@
   font-size: 10px;
   font-weight: 600;
   line-height: 1;
-}
-
-/* ===== 开关 Toggle —— button + role=switch 无障碍范式 ===== */
-.adm-toggle {
-  position: relative;
-  flex-shrink: 0;
-  width: 36px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-full);
-  background: var(--color-bg-tertiary);
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.adm-toggle--on {
-  background: var(--color-brand-accent);
-}
-
-.adm-toggle:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.adm-toggle:focus-visible {
-  outline: 2px solid var(--color-border-focus);
-  outline-offset: 2px;
-}
-
-.adm-toggle__thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  display: block;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--color-on-accent);
-  transition: transform var(--transition-fast);
-}
-
-.adm-toggle--on .adm-toggle__thumb {
-  transform: translateX(16px);
-}
-
-.adm-toggle--sm {
-  width: 30px;
-  height: 16px;
-}
-
-.adm-toggle--sm .adm-toggle__thumb {
-  width: 12px;
-  height: 12px;
-}
-
-.adm-toggle--sm.adm-toggle--on .adm-toggle__thumb {
-  transform: translateX(14px);
 }
 
 /* ===== 标签页 Tabs —— 滑块指示器，去 inset 高光 ===== */
@@ -486,15 +375,6 @@
 @media (max-width: 900px) {
   .adm-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .adm-panel__header {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .adm-panel__actions {
-    justify-content: flex-start;
   }
 
 }

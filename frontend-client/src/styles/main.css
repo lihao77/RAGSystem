@@ -29,7 +29,7 @@
        dark/light 切换由下方 --color-* 的值控制（[data-theme="light"] 覆盖）。 */
     --background: var(--color-bg-primary);
     --foreground: var(--color-text-primary);
-    --card: var(--color-bg-elevated);
+    --card: var(--color-bg-secondary);
     --card-foreground: var(--color-text-primary);
     --popover: var(--color-bg-elevated);
     --popover-foreground: var(--color-text-primary);
