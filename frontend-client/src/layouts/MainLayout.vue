@@ -1059,12 +1059,15 @@ onUnmounted(() => {
 }
 .sidebar.collapsed .admin-nav-group-label { display: none; }
 .admin-nav-group-label {
-  padding: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
   font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .admin-nav-item.active { background: var(--color-active-bg); color: var(--color-text-primary); }
 
