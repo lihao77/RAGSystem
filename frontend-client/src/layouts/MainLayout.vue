@@ -691,6 +691,7 @@ onUnmounted(() => {
   margin-bottom: var(--spacing-lg);
   padding: 0 var(--spacing-sm);
 }
+.sidebar.collapsed .sidebar-header { margin-bottom: 0; }
 
 .sidebar-btn {
   margin: 0;
