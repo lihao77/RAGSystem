@@ -14,7 +14,8 @@
         </Button>
       </div>
 
-      <template v-if="isChatRoute">
+      <Transition name="sidebar-mode" mode="out-in">
+        <div v-if="isChatRoute" key="chat" class="sidebar-mode">
       <div class="sidebar-header">
         <button class="sidebar-btn" :class="{ active: isPageActive('chat') && !activeSessionId }" @click="startNewChat">
           <IconNewConversation :size="22" class="icon" />
@@ -78,9 +79,9 @@
           </div>
         </div>
       </div>
-      </template>
+        </div>
 
-      <template v-else>
+        <div v-else key="admin" class="sidebar-mode">
         <div class="sidebar-header">
           <div class="sidebar-context">
             <div class="sidebar-context__label">管理中心</div>
@@ -103,7 +104,8 @@
             </button>
           </div>
         </div>
-      </template>
+        </div>
+      </Transition>
 
       <div class="sidebar-footer">
         <template v-if="isChatRoute">
@@ -1022,6 +1024,25 @@ onUnmounted(() => {
   font-size: var(--font-size-sm);
 }
 
+.sidebar-mode {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.sidebar-mode-enter-active,
+.sidebar-mode-leave-active {
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+.sidebar-mode-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+.sidebar-mode-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
 .admin-nav-list {
   flex: 1;
   min-height: 0;
@@ -1052,7 +1073,7 @@ onUnmounted(() => {
 }
 .admin-nav-item:hover { background: var(--color-hover-overlay); color: var(--color-text-primary); }
 .admin-nav-item.active { background: var(--color-active-bg); color: var(--color-text-primary); }
-.admin-nav-item .icon { width: 16px; height: 16px; flex-shrink: 0; }
+.admin-nav-item .icon { width: 18px; height: 18px; flex-shrink: 0; }
 
 .sidebar-footer {
   padding: var(--spacing-md) var(--spacing-sm);
