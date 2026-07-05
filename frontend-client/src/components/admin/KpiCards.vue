@@ -3,7 +3,7 @@
     <Card
       v-for="(item, index) in items"
       :key="item.key ?? item.label ?? index"
-      class="flex flex-row items-center gap-3"
+      class="flex flex-row items-center gap-4 p-4"
     >
       <span v-if="item.icon" class="flex shrink-0 text-muted-foreground">
         <component :is="item.icon" />

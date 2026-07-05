@@ -1,6 +1,6 @@
 <template>
   <CommandDialog :open="visible" @update:open="(v) => { if (!v) close() }">
-    <CommandInput placeholder="输入命令或搜索…" />
+    <CommandInput class="border-b border-border px-3" placeholder="输入命令或搜索…" />
     <CommandList>
       <CommandEmpty>无匹配命令</CommandEmpty>
       <CommandGroup>
