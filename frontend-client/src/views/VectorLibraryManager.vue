@@ -88,12 +88,7 @@
                             <div class="g-skeleton-rows" aria-busy="true"><div v-for="n in 5" :key="n" class="g-skeleton-row"><div class="g-skeleton-bar g-skeleton-bar--title"></div><div class="g-skeleton-bar g-skeleton-bar--sub"></div></div></div>
                         </div>
                         <div v-else-if="filteredFileList.length === 0" class="empty-state adm-state adm-state--empty">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24"
-                                fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-                                stroke-linejoin="round">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                                <polyline points="14 2 14 8 20 8" />
-                            </svg>
+                            <IconFile :size="48" :stroke-width="1.5" />
                             <p>{{ fileList.length === 0 ? '暂无已索引文件，点击「索引新文档」开始' : '当前集合下无文件，尝试清空筛选' }}</p>
                             <UiButton v-if="fileList.length === 0" class="primary-action-button" variant="primary" size="compact"
                                 @click="showIndexDialog = true">索引新文档</UiButton>
@@ -120,12 +115,7 @@
                                 <tbody>
                                     <tr v-for="row in filteredFileList" :key="row.file_id">
                                         <td class="cell-filename">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14"
-                                                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                                                stroke-linecap="round" stroke-linejoin="round">
-                                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                                                <polyline points="14 2 14 8 20 8" />
-                                            </svg>
+                                            <IconFile :size="14" />
                                             {{ row.file_name }}
                                         </td>
                                         <td><span class="collection-tag">{{ row.collection }}</span></td>
@@ -269,12 +259,7 @@
                             <div class="g-skeleton-rows" aria-busy="true"><div v-for="n in 5" :key="n" class="g-skeleton-row"><div class="g-skeleton-bar g-skeleton-bar--title"></div><div class="g-skeleton-bar g-skeleton-bar--sub"></div></div></div>
                         </div>
                         <div v-else-if="uploadedFiles.length === 0" class="empty-state adm-state adm-state--empty">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24"
-                                fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-                                stroke-linejoin="round">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                                <polyline points="14 2 14 8 20 8" />
-                            </svg>
+                            <IconFile :size="48" :stroke-width="1.5" />
                             <p>暂无文件，上传文档后在「矩阵」中建立索引</p>
                             <UiButton class="primary-action-button" variant="primary" size="compact" @click="triggerFileInput">上传文件</UiButton>
                         </div>
@@ -291,12 +276,7 @@
                             <tbody>
                                 <tr v-for="file in uploadedFiles" :key="file.id">
                                     <td class="cell-filename">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14"
-                                            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                                            stroke-linecap="round" stroke-linejoin="round">
-                                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                                            <polyline points="14 2 14 8 20 8" />
-                                        </svg>
+                                        <IconFile :size="14" />
                                         {{ file.original_name || file.filename }}
                                     </td>
                                     <td>{{ formatFileSize(file.size) }}</td>
@@ -306,13 +286,7 @@
                                         <div class="row-actions adm-action-row">
                                             <button class="adm-action-btn" title="下载"
                                                 @click="downloadFile(file)">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                                                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                                    <polyline points="7 10 12 15 17 10" />
-                                                    <line x1="12" y1="15" x2="12" y2="3" />
-                                                </svg>
+                                                <IconDownload :size="13" />
                                             </button>
                                             <button class="adm-action-btn adm-action-btn--danger" title="删除"
                                                 :disabled="deletingUploadedFile === file.id"
@@ -618,12 +592,7 @@
                                             accept=".txt,.md,.json,.pdf,.doc,.docx" style="display:none"
                                             @change="handleIndexFileSelect" />
                                         <template v-if="indexUploadFile">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"
-                                                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                                                stroke-linecap="round" stroke-linejoin="round">
-                                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                                                <polyline points="14 2 14 8 20 8" />
-                                            </svg>
+                                            <IconFile :size="20" />
                                             <span>{{ indexUploadFile.name }}</span>
                                             <button class="btn-link" style="margin-left:auto"
                                                 @click.stop="indexUploadFile = null">移除</button>
@@ -794,6 +763,8 @@ import IconPlus from '../components/icons/IconPlus.vue';
 import IconSearch from '../components/icons/IconSearch.vue';
 import IconTrash from '../components/icons/IconTrash.vue';
 import IconWarning from '../components/icons/IconWarning.vue';
+import IconFile from '../components/icons/IconFile.vue';
+import IconDownload from '../components/icons/IconDownload.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import AdmModal from '../components/admin/AdmModal.vue';
 import { useDictionariesStore } from '../stores/dictionaries.js';

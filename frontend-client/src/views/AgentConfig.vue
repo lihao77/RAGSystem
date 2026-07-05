@@ -23,11 +23,7 @@
       </UiIconButton>
       <UiButton v-if="selectedAgent" variant="primary" :disabled="saving || agentLoading" @click="handleSave" :title="saving ? '保存中' : '保存配置'">
         <template #icon>
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-            <polyline points="17 21 17 13 7 13 7 21"></polyline>
-            <polyline points="7 3 7 8 15 8"></polyline>
-          </svg>
+          <IconSave :size="16" />
         </template>
         <span>{{ saving ? '保存中...' : '保存配置' }}</span>
       </UiButton>
@@ -39,11 +35,7 @@
         新建 Agent
       </button>
       <button v-if="selectedAgent" class="pl-menu-item" :disabled="agentLoading" @click="handleExport(); close()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="7 10 12 15 17 10"></polyline>
-          <line x1="12" y1="15" x2="12" y2="3"></line>
-        </svg>
+        <IconDownload :size="16" />
         导出配置
       </button>
       <div v-if="selectedAgent" class="pl-menu-divider"></div>
@@ -71,19 +63,11 @@
         新建 Agent
       </button>
       <button v-if="selectedAgent" class="pl-menu-item" :disabled="saving || agentLoading" @click="handleSave(); close()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-          <polyline points="17 21 17 13 7 13 7 21"></polyline>
-          <polyline points="7 3 7 8 15 8"></polyline>
-        </svg>
+        <IconSave :size="16" />
         {{ saving ? '保存中...' : '保存配置' }}
       </button>
       <button v-if="selectedAgent" class="pl-menu-item" :disabled="agentLoading" @click="handleExport(); close()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="7 10 12 15 17 10"></polyline>
-          <line x1="12" y1="15" x2="12" y2="3"></line>
-        </svg>
+        <IconDownload :size="16" />
         导出配置
       </button>
       <div v-if="selectedAgent" class="pl-menu-divider"></div>
@@ -729,6 +713,8 @@ import IconChevronDown from '../components/icons/IconChevronDown.vue';
 import IconCheck from '../components/icons/IconCheck.vue';
 import IconPlus from '../components/icons/IconPlus.vue';
 import IconTrash from '../components/icons/IconTrash.vue';
+import IconSave from '../components/icons/IconSave.vue';
+import IconDownload from '../components/icons/IconDownload.vue';
 import { UiButton, UiIconButton } from '../components/ui';
 import { useToast } from '../composables/useToast.js';
 const props = defineProps({

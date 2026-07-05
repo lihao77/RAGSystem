@@ -99,7 +99,7 @@
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>工具 <span v-if="server.tool_count" class="adm-action-badge">{{ server.tool_count }}</span>
             </button>
             <button class="adm-action-btn" @click="openEditDialog(server)" title="编辑配置">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>编辑
+              <IconEdit :size="14" />编辑
             </button>
             <button class="adm-action-btn adm-action-btn--danger" @click="handleDelete(server)" title="删除">
               <IconTrash :size="14" />删除
@@ -161,7 +161,7 @@
           <UiButton variant="ghost" size="compact" @click="resetInstallForm">重置</UiButton>
           <UiButton variant="primary" size="compact" :disabled="installing" @click="submitManualInstall">
             <template #icon>
-              <svg v-if="!installing" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <IconDownload v-if="!installing" :size="15" />
               <div v-else class="g-spinner g-spinner--sm"></div>
             </template>
             {{ installing ? '安装中...' : '安装服务' }}
@@ -345,6 +345,8 @@ import IconRefresh from '../components/icons/IconRefresh.vue';
 import IconCheck from '../components/icons/IconCheck.vue';
 import IconClose from '../components/icons/IconClose.vue';
 import IconPlus from '../components/icons/IconPlus.vue';
+import IconDownload from '../components/icons/IconDownload.vue';
+import IconEdit from '../components/icons/IconEdit.vue';
 import IconSearch from '../components/icons/IconSearch.vue';
 import IconTrash from '../components/icons/IconTrash.vue';
 import IconWarning from '../components/icons/IconWarning.vue';

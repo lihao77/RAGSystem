@@ -20,3 +20,8 @@ export { default as IconPlus } from './IconPlus.vue';
 export { default as IconSearch } from './IconSearch.vue';
 export { default as IconInfo } from './IconInfo.vue';
 export { default as IconWarning } from './IconWarning.vue';
+export { default as IconDownload } from './IconDownload.vue';
+export { default as IconEdit } from './IconEdit.vue';
+export { default as IconSave } from './IconSave.vue';
+export { default as IconCopy } from './IconCopy.vue';
+export { default as IconFile } from './IconFile.vue';

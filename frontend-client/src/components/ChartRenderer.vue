@@ -14,12 +14,7 @@
       </div>
       <div class="chart-actions">
         <button @click="downloadChart" class="action-btn" title="下载图表">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
+          <IconDownload :size="16" />
         </button>
         <button @click="toggleFullscreen" class="action-btn" title="全屏">
           <span v-if="!isFullscreen">
@@ -53,12 +48,7 @@
           </div>
           <div class="chart-actions">
             <button @click="downloadChart" class="action-btn" title="下载图表">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
+              <IconDownload :size="16" />
             </button>
             <button @click="toggleFullscreen" class="action-btn close-btn" title="退出全屏">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -79,6 +69,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import IconDownload from './icons/IconDownload.vue';
 import * as echarts from 'echarts/core';
 import { useThemeStore } from '../stores/theme.js';
 import { BarChart, LineChart, PieChart, ScatterChart } from 'echarts/charts';
