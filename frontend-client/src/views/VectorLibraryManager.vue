@@ -23,14 +23,14 @@
             <KpiCards :items="kpiItems" />
 
             <!-- ── Tab 导航 ──────────────────────────────────── -->
-            <nav class="adm-tabs vl-tabs">
-                <button v-for="tab in tabs" :key="tab.id" class="adm-tab"
-                    :class="{ 'adm-tab--active': activeTab === tab.id }" @click="activeTab = tab.id">
-                    <span class="adm-tab__content">
-                        <span class="adm-tab__icon vl-tab-icon" v-html="tab.icon"></span>
-                        <span class="adm-tab__label">{{ tab.label }}</span>
-                        <span v-if="tab.badge" class="adm-tab__badge vl-tab-badge">{{ tab.badge }}</span>
-                    </span>
+            <nav class="flex flex-wrap items-center gap-1 border-b border-border">
+                <button v-for="tab in tabs" :key="tab.id"
+                    class="inline-flex items-center gap-2 border-b-2 -mb-px px-3 py-2 text-sm font-medium transition-colors"
+                    :class="activeTab === tab.id ? 'border-brand-accent text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'"
+                    @click="activeTab = tab.id">
+                    <span v-html="tab.icon" />
+                    <span>{{ tab.label }}</span>
+                    <span v-if="tab.badge">{{ tab.badge }}</span>
                 </button>
             </nav>
 
@@ -122,15 +122,15 @@
                                             class="text-center">
                                             <UiBadge v-if="row.vectorizer_status?.[v.vectorizer_key] === '已索引'"
                                                 class="status-badge" size="sm" tone="success">已索引</UiBadge>
-                                            <button v-else class="adm-action-btn btn-index-cell"
+                                            <Button v-else variant="action-neutral" size="action"
                                                 :disabled="indexingFileKey === row.file_id + ':' + v.vectorizer_key"
                                                 @click="handleIndexFileWithVectorizer(row, v.vectorizer_key)">
                                                 {{ indexingFileKey === row.file_id + ':' + v.vectorizer_key ? '索引中...' :
                                                     '索引' }}
-                                            </button>
+                                            </Button>
                                         </td>
                                         <td>
-                                            <div class="row-actions adm-action-row">
+                                            <div class="row-actions">
                                                 <Button variant="action-neutral" size="action"
                                                     @click="openSearchTest(row.collection)" title="测试检索">
                                                     <IconSearch :size="13" />

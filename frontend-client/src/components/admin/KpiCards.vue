@@ -1,28 +1,26 @@
 <template>
-  <section class="adm-kpi-grid">
-    <article
+  <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
+    <Card
       v-for="(item, index) in items"
       :key="item.key ?? item.label ?? index"
-      class="adm-kpi-card"
+      class="flex flex-row items-center gap-3"
     >
-      <span v-if="item.icon" class="adm-kpi-icon">
-        <component :is="item.icon"></component>
+      <span v-if="item.icon" class="flex shrink-0 text-muted-foreground">
+        <component :is="item.icon" />
       </span>
-      <div class="adm-kpi-body">
-        <span class="adm-kpi-label">{{ item.label }}</span>
-        <strong class="adm-kpi-value">{{ item.value }}</strong>
+      <div class="min-w-0 space-y-1">
+        <span class="block text-xs text-muted-foreground">{{ item.label }}</span>
+        <strong class="block text-2xl font-semibold tabular-nums text-foreground">{{ item.value }}</strong>
       </div>
-    </article>
-  </section>
+    </Card>
+  </div>
 </template>
 
 <script setup>
+import { Card } from '../ui/card';
 /**
- * 管理端 KPI 统计卡片组。消费全局 .adm-kpi-* 类(admin-console.css),
- * 取代各页手写的 summary-grid + 四张卡 + 双轨 summary-* 类名。
- *
- * items 每项:{ key?, label, value, icon? }
- *  - icon 为组件(渲染到 .adm-kpi-icon 内);不传则不显示图标列
+ * 管理端 KPI 统计卡片组。每张卡片用 shadcn Card。
+ * items 每项: { key?, label, value, icon? }
  */
 defineProps({
   items: { type: Array, required: true },

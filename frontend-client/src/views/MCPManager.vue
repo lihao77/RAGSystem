@@ -69,10 +69,10 @@
           </div>
 
           <div class="server-meta-row">
-            <div class="meta-chip adm-chip"><span class="meta-chip-label">传输</span><span class="meta-chip-value meta-chip-value--mono">{{ server.transport || 'stdio' }}</span></div>
-            <div class="meta-chip adm-chip"><span class="meta-chip-label">工具</span><span class="meta-chip-value">{{ server.tool_count || 0 }}</span></div>
-            <div class="meta-chip adm-chip"><span class="meta-chip-label">风险</span><span class="meta-chip-value" :class="`risk--${server.risk_level || 'medium'}`">{{ server.risk_level || 'medium' }}</span></div>
-            <div class="meta-chip adm-chip"><span class="meta-chip-label">状态</span><span class="meta-chip-value" :class="server.enabled ? 'text-success' : 'text-muted'">{{ server.enabled ? '已启用' : '已禁用' }}</span></div>
+            <div class="meta-chip"><span class="meta-chip-label">传输</span><span class="meta-chip-value meta-chip-value--mono">{{ server.transport || 'stdio' }}</span></div>
+            <div class="meta-chip"><span class="meta-chip-label">工具</span><span class="meta-chip-value">{{ server.tool_count || 0 }}</span></div>
+            <div class="meta-chip"><span class="meta-chip-label">风险</span><span class="meta-chip-value" :class="`risk--${server.risk_level || 'medium'}`">{{ server.risk_level || 'medium' }}</span></div>
+            <div class="meta-chip"><span class="meta-chip-label">状态</span><span class="meta-chip-value" :class="server.enabled ? 'text-success' : 'text-muted'">{{ server.enabled ? '已启用' : '已禁用' }}</span></div>
           </div>
 
           <div v-if="server.error_message" class="error-banner">
@@ -682,6 +682,7 @@ onMounted(() => {
 @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
 .server-meta-row { display: flex; flex-wrap: wrap; gap: var(--spacing-xs); min-width: 0; }
+.meta-chip { display: inline-flex; align-items: center; gap: var(--spacing-xs); padding: 4px 10px; border-radius: var(--radius-sm); background: var(--color-hover-overlay-md); color: var(--color-text-secondary); font-size: var(--font-size-xs); font-weight: 600; line-height: 1.2; }
 .meta-chip-label { color: var(--color-text-muted); }
 .meta-chip-value { color: var(--color-text-primary); font-weight: 500; }
 .meta-chip-value--mono { font-family: var(--font-mono); }
