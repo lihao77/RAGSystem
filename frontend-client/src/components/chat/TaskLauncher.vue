@@ -1,27 +1,24 @@
 <template>
   <section class="session-setup-bar" aria-label="启动参数">
     <label class="setup-field setup-field--agent" title="入口 Agent">
-      <span class="setup-field__label">Agent</span>
       <CustomSelect
         :model-value="entryAgent"
         :options="entryAgentOptions"
         :disabled="entryAgentLoading"
         :dropdown-max-height="320"
         dropdown-placement="auto"
-        placeholder="默认入口"
+        placeholder="默认 agent"
         @update:modelValue="emit('update:entryAgent', $event)"
       />
     </label>
 
     <label class="setup-field setup-field--path" title="工作区">
-      <span class="setup-field__label">工作区</span>
-      <input
-        :value="workspaceRoot"
-        type="text"
-        placeholder="当前目录"
+      <Input
+        :model-value="workspaceRoot"
+        placeholder="工作目录"
         autocomplete="off"
         spellcheck="false"
-        @input="emit('update:workspaceRoot', $event.target.value)"
+        @update:model-value="emit('update:workspaceRoot', $event)"
         @blur="emit('update:workspaceRoot', normalizeWorkspaceRootInput($event.target.value))"
       />
     </label>
@@ -30,6 +27,7 @@
 
 <script setup>
 import CustomSelect from '../ui/CustomSelect.vue';
+import { Input } from '../ui/input';
 
 defineProps({
   entryAgent: { type: String, default: '' },
@@ -65,13 +63,16 @@ const emit = defineEmits([
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--surface-shell);
-  transition: border-color 180ms ease, background-color 180ms ease;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
 }
 
-.setup-field:hover,
-.setup-field:focus-within {
+.setup-field:hover {
   border-color: var(--color-border-hover);
-  background: rgba(var(--color-bg-elevated-rgb), 0.62);
+}
+
+.setup-field:focus-within {
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(var(--color-accent-rgb), 0.12);
 }
 
 .setup-field--agent {
@@ -84,17 +85,10 @@ const emit = defineEmits([
   flex: 1 1 170px;
 }
 
-.setup-field__label {
-  flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 650;
-  color: var(--color-text-muted);
-  letter-spacing: 0;
-}
-
 .setup-field input {
   width: 100%;
   height: 30px;
+  min-height: 0;
   min-width: 0;
   padding: 0;
   border: 0;
@@ -116,6 +110,7 @@ const emit = defineEmits([
 .setup-field input:focus {
   outline: none;
   background: transparent;
+  box-shadow: none;
 }
 
 .setup-field :deep(.select-trigger) {
@@ -129,7 +124,7 @@ const emit = defineEmits([
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0;
-  padding: 0 18px 0 0;
+  padding: 0;
 }
 
 .setup-field :deep(.arrow-icon) {
@@ -138,6 +133,13 @@ const emit = defineEmits([
 
 .setup-field :deep(.select-trigger:hover) {
   background: transparent;
+}
+
+.setup-field :deep(.select-trigger:focus),
+.setup-field :deep(.select-trigger:focus-visible),
+.setup-field :deep(.select-trigger[data-state='open']) {
+  outline: none;
+  box-shadow: none;
 }
 
 @media (max-width: 767px) {
