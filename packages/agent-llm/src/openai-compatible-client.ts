@@ -294,9 +294,9 @@ export function buildAnthropicBody(request: LlmRequest, stream = false): Record<
   if (cacheControl && lastSystem) {
     lastSystem.cache_control = { type: "ephemeral" };
   }
-  const messages = request.messages
-    .filter((m) => m.role !== "system")
-    .map((m) => mapAnthropicMessage(m));
+  const messages = coalesceConsecutiveUserMessages(
+    request.messages.filter((m) => m.role !== "system").map((m) => mapAnthropicMessage(m)),
+  );
   const tools: AnthropicCacheableTool[] | undefined =
     request.tools && request.tools.length > 0
       ? request.tools.map((t) => ({
@@ -356,6 +356,25 @@ function mapAnthropicMessage(message: ChatMessage): Record<string, unknown> {
     // user 消息可能带图（ContentPart[]）→ Anthropic text/image blocks；纯文本消息走同一 helper。
     content: toAnthropicContent(message.content),
   };
+}
+
+/**
+ * Anthropic 强制 user/assistant 交替：把映射后相邻的 user 消息合并（后条 content 数组并入前条）。
+ * 服务 round.before 注入的 additionalContext（user role）：它与末尾 tool_result/提问 user 相邻时,
+ * 合并进同一条 user 消息（Anthropic 允许 text + tool_result 混排）,避免连续 user 被协议拒绝。
+ * mapAnthropicMessage 已产新对象 + 新 content 数组,直接拼接不影响 request.messages 原始。
+ */
+function coalesceConsecutiveUserMessages(messages: Record<string, unknown>[]): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const msg of messages) {
+    const last = out[out.length - 1];
+    if (last && last.role === "user" && msg.role === "user") {
+      last.content = [...(last.content as unknown[]), ...(msg.content as unknown[])];
+    } else {
+      out.push(msg);
+    }
+  }
+  return out;
 }
 
 function mapAnthropicToolChoice(toolChoice: "auto" | "none" | undefined): Record<string, unknown> {

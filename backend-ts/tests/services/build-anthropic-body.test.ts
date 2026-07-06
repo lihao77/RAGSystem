@@ -73,3 +73,49 @@ describe("buildAnthropicBody — cache_control 打标", () => {
     expect(lastCacheControl(body.system)).toEqual({ type: "ephemeral" });
   });
 });
+
+describe("buildAnthropicBody — 连续 user 合并", () => {
+  it("相邻两条 user → 合并为一条,content 数组含两段 text", () => {
+    const body = buildAnthropicBody(makeRequest({
+      tools: [],
+      messages: [
+        { role: "user", content: "first" },
+        { role: "user", content: "second" },
+      ],
+    }));
+    const msgs = body.messages as Array<{ role: string; content: Array<{ type: string; text?: string }> }>;
+    expect(msgs.length).toBe(1);
+    expect(msgs[0]!.role).toBe("user");
+    expect(msgs[0]!.content.map((b) => b.text)).toEqual(["first", "second"]);
+  });
+
+  it("user + assistant + user → 不相邻不合并,各保留", () => {
+    const body = buildAnthropicBody(makeRequest({
+      tools: [],
+      messages: [
+        { role: "user", content: "a" },
+        { role: "assistant", content: "b" },
+        { role: "user", content: "c" },
+      ],
+    }));
+    const msgs = body.messages as Array<{ role: string }>;
+    expect(msgs.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+  });
+
+  it("tool_result(user) + user(附加上下文) → 合并进同一条 user(混排 tool_result + text)", () => {
+    const body = buildAnthropicBody(makeRequest({
+      tools: [],
+      messages: [
+        { role: "assistant", content: "", tool_calls: [{ id: "t1", type: "function", function: { name: "f", arguments: "{}" } }] },
+        { role: "tool", tool_call_id: "t1", content: "result" },
+        { role: "user", content: "ctx" },
+      ],
+    }));
+    const msgs = body.messages as Array<{ role: string; content: Array<{ type: string }> }>;
+    // assistant(tool_use) 不合并;末尾 tool→user(tool_result) 与 user(ctx) 合并
+    expect(msgs.map((m) => m.role)).toEqual(["assistant", "user"]);
+    const merged = msgs[1]!.content;
+    expect(merged.some((b) => b.type === "tool_result")).toBe(true);
+    expect(merged.some((b) => b.type === "text")).toBe(true);
+  });
+});

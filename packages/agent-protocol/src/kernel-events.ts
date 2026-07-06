@@ -6,8 +6,8 @@
  * 与 Envelope 同居协议面（合约不变则模块可替换）。
  *
  * 零下层依赖约束：本文件禁 import @ragsystem/agent-llm。为此把携带 ChatMessage 的
- * 3 个事件（assistant_intermediate / observation_complete / intent_complete）**剥成标量壳**——
- * 翻译成 Envelope 时本就用不到 message 字段（前两者翻译为空，intent_complete 只读 content/round）。
+ * 2 个事件（assistant_intermediate / intent_complete）**剥成标量壳**——
+ * 翻译成 Envelope 时本就用不到 message 字段（assistant_intermediate 翻译为空，intent_complete 只读 content/round）。
  * ChatMessage 持久化由 SDK Dispatcher 用内核内部完整事件（agent-sdk 的 KernelEvent extends 本壳 + 补 message）完成。
  *
  * 命名：成员类型仍以 ...Event 结尾、字段 camelCase（与 agent-sdk KernelEvent 同构，便于 extends 复用）。
@@ -15,7 +15,7 @@
  */
 
 /* ============================================================
- * 一、标量事件壳（10 种，ChatMessage-free）
+ * 一、标量事件壳（9 种，ChatMessage-free）
  * ========================================================== */
 
 export interface FirstTokenEvent {
@@ -81,13 +81,6 @@ export interface ToolResultEvent {
   roundIndex: number;
 }
 
-/** observation 完成壳（标量）。完整事件在 agent-sdk 补 messages；翻译为空，壳留作穷尽 switch 不塌。 */
-export interface ObservationCompleteEvent {
-  type: "observation_complete";
-  agentName: string;
-  round: number;
-}
-
 export interface RuntimeErrorEvent {
   type: "error";
   agentName: string;
@@ -118,7 +111,6 @@ export type KernelWireEvent =
   | AssistantIntermediateEvent
   | ToolCallEvent
   | ToolResultEvent
-  | ObservationCompleteEvent
   | RuntimeErrorEvent
   | ContextUsageEvent;
 

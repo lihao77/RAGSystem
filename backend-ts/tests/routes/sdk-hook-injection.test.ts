@@ -58,8 +58,12 @@ describe("hook 透传到 backend（round.before 注入）", () => {
     );
 
     expect(llm.requests.length).toBeGreaterThanOrEqual(1);
-    const requestMessages = (llm.requests[0]!.body?.messages ?? []) as Array<{ content?: string }>;
-    const injected = requestMessages.some((message) => typeof message.content === "string" && message.content.includes(INJECT_MARKER));
-    expect(injected).toBe(true);
+    const requestMessages = (llm.requests[0]!.body?.messages ?? []) as Array<{ role?: string; content?: string }>;
+    // additionalContext 以 user role + <additional_context> 标签注入(deepseek 走 chat completions 透传)。
+    const injected = requestMessages.find(
+      (message) => typeof message.content === "string" && message.content.includes(INJECT_MARKER),
+    );
+    expect(injected).toBeDefined();
+    expect(injected!.role).toBe("user");
   });
 });

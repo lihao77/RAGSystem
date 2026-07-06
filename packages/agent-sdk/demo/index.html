@@ -289,7 +289,6 @@ function summarizeEvent(ev) {
     case 'intent_complete': return `[round ${ev.round}] ${ev.content}`;
     case 'tool_call': return `${ev.toolName}(${JSON.stringify(ev.arguments)}) [round ${ev.round} #${ev.order}]`;
     case 'tool_result': return `${ev.toolName} → ${ev.success?'ok':'fail'} (${ev.elapsedTime.toFixed(2)}s) ${ev.summary}`;
-    case 'observation_complete': return `[round ${ev.round}] ${ev.messages.length} 条 observation`;
     case 'assistant_intermediate': return `[round ${ev.round}] assistant 中间态`;
     case 'error': return ev.message;
     case '_done': return `完成: finishReason=${ev.finishReason}`;
@@ -461,7 +460,6 @@ function handleEvent(ev, streamEl) {
     case 'intent_complete': renderIntent(ev, area); break;
     case 'tool_call': updateRound(ev.round); renderToolCall(ev, area); break;
     case 'tool_result': renderToolResult(ev); break;
-    case 'observation_complete': updateRound(ev.round); break;
     case 'assistant_intermediate': break;
     case 'error': renderError(ev.message, area); break;
     case '_done': break;

@@ -3,7 +3,7 @@
  *
  * SDK 收窄为纯计算内核后，KernelEvent 的持久化（message/run_step/run 状态）由 backend 独占。
  * 本模块搬运原 SDK Dispatcher 的 event→落库分流逻辑，改用 backend ConversationStore：
- *   - 增量（persist）：intent_complete/tool_call/tool_result/assistant_intermediate/observation_complete
+ *   - 增量（persist）：intent_complete/tool_call/tool_result/assistant_intermediate（tool_result 兼落 observation message）
  *     → addRunStep / addMessage；其余事件（first_token/output_delta/intent_delta/error/context_usage）纯遥测不落库。
  *   - 终态（finalize）：一个事务合一落 最终 assistant message + updateRunStepsMessageId + 终态 run_steps
  *     （final + run:end）+ updateRunStatus。interrupted 先 closeDanglingToolCalls 补悬空 tool_result。
@@ -94,9 +94,6 @@ export class KernelEventPersister {
         break;
       case "assistant_intermediate":
         this.persistAssistantMessage(event.message, event.round);
-        break;
-      case "observation_complete":
-        this.persistObservations(event.messages, event.round);
         break;
       default:
         break;
@@ -196,6 +193,19 @@ export class KernelEventPersister {
         stepType: "execution.step",
         payload: this.buildToolStepPayload(event, phase),
       });
+      // tool_result（end）逐工具落 observation message：与 run_step 同粒度，
+      // abort 时已完成的工具两表都有、未完成的两表都无（finalize 时 closeDanglingToolCalls 给悬空 tool_call 补占位）。
+      if (event.type === "tool_result") {
+        tx.addMessage({
+          sessionId: this.ctx.sessionId,
+          role: "tool",
+          content: event.observation,
+          threadKey: this.ctx.threadKey,
+          metadata: { ...this.messageMeta(event.round), msg_type: "observation" },
+          toolCallId: event.toolCallId,
+          name: event.toolName,
+        });
+      }
     });
   }
 
@@ -243,27 +253,6 @@ export class KernelEventPersister {
         input.toolCalls = message.tool_calls as AddMessageInput["toolCalls"];
       }
       tx.addMessage(input);
-    });
-  }
-
-  private persistObservations(messages: readonly ChatMessage[], round: number): void {
-    this.store.runInTransaction((tx) => {
-      for (const message of messages) {
-        const input: AddMessageInput = {
-          sessionId: this.ctx.sessionId,
-          role: "tool",
-          content: extractText(message.content),
-          threadKey: this.ctx.threadKey,
-          metadata: { ...this.messageMeta(round), msg_type: "observation" },
-        };
-        if (message.tool_call_id) {
-          input.toolCallId = message.tool_call_id;
-        }
-        if (message.name) {
-          input.name = message.name;
-        }
-        tx.addMessage(input);
-      }
     });
   }
 

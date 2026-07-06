@@ -88,9 +88,14 @@ export class AgentKernel {
         ctx.appendMessages(await this.refresher.refresh(ctx));
         const roundBeforeOut = await this.hooks.emit("round.before", { ctx, round });
         ctx.setRequestMessages(this.context.buildMessages(ctx));
-        // round.before hook 可注入 additionalContext：追加为 system 消息（本轮请求的附加上下文）。
+        // round.before hook 可注入 additionalContext：以 user role + 语义标签追加。
+        // 不进 system 段（避免进 system 缓存段、内容变化连带击穿 prompt+memory 的 KV cache）；
+        // Anthropic 路径由 buildAnthropicBody 合并进相邻 user 消息，规避 user/assistant 交替硬约束。
         if (roundBeforeOut.additionalContext) {
-          ctx.requestMessages.push({ role: "system", content: roundBeforeOut.additionalContext });
+          ctx.requestMessages.push({
+            role: "user",
+            content: `<additional_context>\n${roundBeforeOut.additionalContext}\n</additional_context>`,
+          });
         }
         // 请求消息组好后报上下文用量（消费端推 context_usage 遥测）。无 provider 时不报。
         if (this.contextUsage) {
@@ -123,17 +128,8 @@ export class AgentKernel {
           // 执行工具（内部 emit tool_call/tool_result，经注入的 EventSink）。
           const observations = await this.tools.executeRound(ctx, round, outcome.calls);
           ctx.throwIfAborted();
-          // observation 回填：renderObservations 产物 append 进工作副本 + 透传落库。
-          const observationMessages = this.protocol.renderObservations(outcome.calls, observations);
-          ctx.appendMessages(observationMessages);
-          if (observationMessages.length > 0) {
-            this.events.emit({
-              type: "observation_complete",
-              agentName,
-              round,
-              messages: observationMessages,
-            });
-          }
+          // observation 回填：renderObservations 产物 append 进工作副本；结果消息由 tool_result 事件逐工具落库（与 run_step 同粒度）。
+          ctx.appendMessages(this.protocol.renderObservations(outcome.calls, observations));
           continue;
         }
 

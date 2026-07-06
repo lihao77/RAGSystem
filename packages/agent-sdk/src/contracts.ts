@@ -12,7 +12,7 @@
  */
 import type { ChatMessage, LlmRequest, TokenUsage } from "@ragsystem/agent-llm";
 // 标量事件壳从协议面 import（供本文件 KernelEvent union 引用）+ re-export（供下游使用）。
-// 3 个携带 ChatMessage 的事件（intent_complete/assistant_intermediate/observation_complete）在下方 extends 壳扩展。
+// 2 个携带 ChatMessage 的事件（intent_complete/assistant_intermediate）在下方 extends 壳扩展。
 import type {
   FirstTokenEvent,
   OutputDeltaEvent,
@@ -23,7 +23,6 @@ import type {
   ContextUsageEvent,
   IntentCompleteEvent as IntentCompleteWire,
   AssistantIntermediateEvent as AssistantIntermediateWire,
-  ObservationCompleteEvent as ObservationCompleteWire,
 } from "@ragsystem/agent-protocol";
 export type {
   FirstTokenEvent,
@@ -53,7 +52,7 @@ import type { KernelContext } from "./kernel-context.js";
  *
  * 事件契约下沉协议面：标量壳定义在 @ragsystem/agent-protocol（packages/core/src/kernel-events.ts），
  * 本文件 re-export 7 个纯标量事件（first_token/output_delta/intent_delta/tool_call/tool_result/error/context_usage）。
- * 3 个携带 ChatMessage 的事件（intent_complete/assistant_intermediate/observation_complete）在此 extends 标量壳
+ * 2 个携带 ChatMessage 的事件（intent_complete/assistant_intermediate）在此 extends 标量壳
  * + 补 message 字段——ChatMessage 持久化由 Dispatcher 用本 union 落库，翻译成 Envelope 由协议面纯函数完成
  *（translateKernelEvent 只读壳的标量字段，不读 message）。内核仍 emit 单一 KernelEvent union，Dispatcher 零改。
  *
@@ -72,11 +71,6 @@ export interface AssistantIntermediateEvent extends AssistantIntermediateWire {
   message: ChatMessage;
 }
 
-/** observation 完成（完整事件）：壳上扩展 messages——Dispatcher.persistObservations 据此落库。 */
-export interface ObservationCompleteEvent extends ObservationCompleteWire {
-  messages: ChatMessage[];
-}
-
 /** 内核事件 union（含 ChatMessage 字段的完整版，内核 emit / Dispatcher 落库用）。 */
 export type KernelEvent =
   | FirstTokenEvent
@@ -86,7 +80,6 @@ export type KernelEvent =
   | AssistantIntermediateEvent
   | ToolCallEvent
   | ToolResultEvent
-  | ObservationCompleteEvent
   | RuntimeErrorEvent
   | ContextUsageEvent;
 

@@ -13,7 +13,7 @@
  *   - tool_call / tool_result → tool_call / tool_result（投影通知，固定 phase=start/end；委托执行走独立 delegate_call，不经此翻译）
  *   - error → error envelope
  *   - context_usage → state_sync(context_usage)
- *   - assistant_intermediate / observation_complete → []（纯落库事件，已由 Dispatcher 独占，无实时 Envelope）
+ *   - assistant_intermediate → []（纯落库事件，已由 Dispatcher 独占，无实时 Envelope）
  */
 import type {
   ContextUsageEvent,
@@ -55,7 +55,6 @@ export function translateKernelEvent(event: KernelWireEvent, ctx: WireTranslatio
     case "context_usage":
       return [onContextUsage(event, ctx)];
     case "assistant_intermediate":
-    case "observation_complete":
       // 纯落库事件：SDK Dispatcher 已独占写 message，翻译层不产实时 Envelope。
       return [];
     default: {
