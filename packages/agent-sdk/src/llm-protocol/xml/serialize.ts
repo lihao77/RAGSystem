@@ -6,7 +6,8 @@ import { escapeXmlAttribute } from "./rendering.js";
  *
  * XML 协议的工具调用以结构化 ChatMessage.tool_calls 存储（与 FC 同形态）。
  * toModelMessages 回填给模型时用它把结构化字段重建为
- * <tool_calls><tool name=".."><param>value</param></tool></tool_calls> XML 文本。
+ * <tool_calls><tool name=".." id=".."><param>value</param></tool></tool_calls> XML 文本。
+ * id 与 observation 的 <tool_result id=".."> 配对——多工具并发完成顺序与声明顺序不一致时，模型按 id 对应（不靠顺序）。
  */
 export function serializeToolCallsToXml(toolCalls: ChatToolCall[]): string {
   if (toolCalls.length === 0) {
@@ -21,7 +22,7 @@ function serializeToolCallToXml(call: ChatToolCall): string {
   const params = Object.entries(args)
     .map(([key, value]) => serializeParam(key, value))
     .join("");
-  return `<tool name="${escapeXmlAttribute(call.function.name)}">${params}</tool>`;
+  return `<tool name="${escapeXmlAttribute(call.function.name)}" id="${escapeXmlAttribute(call.id)}">${params}</tool>`;
 }
 
 function serializeParam(key: string, value: unknown): string {
