@@ -94,7 +94,7 @@ onMounted(() => {
   border: 1px solid var(--color-border);
   border-bottom-width: 2px;
   border-radius: 4px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 0.6875rem;
   line-height: 1.5;
 }

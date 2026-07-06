@@ -18,7 +18,7 @@
         <div v-if="isChatRoute" key="chat" class="sidebar-mode">
       <div class="sidebar-header">
         <button class="sidebar-btn" :class="{ active: isPageActive('chat') && !activeSessionId }" @click="startNewChat">
-          <IconNewConversation :size="22" class="icon" />
+          <IconNewConversation class="icon" />
           <span class="btn-text">新聊天</span>
         </button>
         <div class="sidebar-context" :title="sidebarContextTitle">
@@ -52,7 +52,7 @@
               :class="{ active: isChatRoute && item.session_id === activeSessionId }"
               @click="selectSession(item)"
             >
-              <IconDocument :size="22" class="history-icon" />
+              <IconDocument class="history-icon" />
               <div class="history-main">
                 <div class="history-title-row">
                   <span class="history-title">{{ item.title || formatTitle(item) || 'New Conversation' }}</span>
@@ -573,6 +573,7 @@ onUnmounted(() => {
   z-index: var(--z-sidebar);
   transition: width var(--transition-normal), transform var(--transition-normal);
   --icon-center-line: 25px;
+  --sidebar-icon-size: 18px;
   border-right: 1px solid var(--color-border);
 }
 
@@ -695,13 +696,13 @@ onUnmounted(() => {
 
 .sidebar-btn {
   margin: 0;
-  padding: var(--spacing-sm) calc(var(--icon-center-line) - var(--spacing-sm) - 11px);
+  padding: var(--spacing-sm) var(--spacing-sm);
   background: none;
   color: var(--color-text-primary);
   border: none;
   border-radius: var(--radius-lg);
   font-weight: 500;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-sm);
   display: flex;
   align-items: center;
   justify-content: left;
@@ -716,6 +717,8 @@ onUnmounted(() => {
 
 .sidebar-btn .icon {
   flex-shrink: 0;
+  width: var(--sidebar-icon-size);
+  height: var(--sidebar-icon-size);
   color: var(--color-text-primary);
   transition: all var(--transition-normal);
 }
@@ -723,20 +726,6 @@ onUnmounted(() => {
 .sidebar-btn.active {
   background: var(--color-active-bg);
   color: var(--color-brand-accent);
-  box-shadow: none;
-  position: relative;
-}
-
-.sidebar-btn.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 20px;
-  border-radius: var(--radius-full);
-  background: var(--color-brand-accent);
 }
 
 .sidebar-btn.active .icon {
@@ -918,8 +907,8 @@ onUnmounted(() => {
 }
 
 .history-icon {
-  width: 18px;
-  height: 18px;
+  width: var(--sidebar-icon-size);
+  height: var(--sidebar-icon-size);
   flex-shrink: 0;
   opacity: 0.7;
   color: var(--color-text-secondary);
@@ -943,6 +932,7 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1;
+  font-size: var(--font-size-sm);
 }
 
 .history-time {
@@ -1087,9 +1077,9 @@ onUnmounted(() => {
 .admin-nav-item.active { background: var(--color-active-bg); color: var(--color-text-primary); }
 
 .sidebar-footer {
-  padding: var(--spacing-md) var(--spacing-sm);
+  padding: var(--spacing-sm);
   margin-top: auto;
-  border-top: 1px solid var(--color-border);
+  /* border-top: 1px solid var(--color-border); */
 }
 
 .sidebar-footer-btn {

@@ -596,7 +596,7 @@ onMounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--color-text-primary);
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
 }
 
 .rules-empty {

@@ -269,7 +269,7 @@ function onAfterLeave(el) {
   color: var(--color-text-muted);
   font-size: 11px;
   line-height: 1.2;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

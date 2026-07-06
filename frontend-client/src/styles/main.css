@@ -22,31 +22,6 @@
    同款极简风，深色版本——保持与亮色一致的克制
    ────────────────────────────────────────────────────────── */
 :root {
-    /* shadcn 语义别名 —— 指向现有 Linear token
-       shadcn 组件用 bg-primary / text-foreground / border-border 等 utility，
-       这些 utility 在 tailwind.config.js 里映射到 var(--color-*)，
-       此处别名层是为了兼容直接引用 var(--primary) 等的组件源码。
-       dark/light 切换由下方 --color-* 的值控制（[data-theme="light"] 覆盖）。 */
-    --background: var(--color-bg-primary);
-    --foreground: var(--color-text-primary);
-    --card: var(--color-bg-secondary);
-    --card-foreground: var(--color-text-primary);
-    --popover: var(--color-bg-elevated);
-    --popover-foreground: var(--color-text-primary);
-    --primary: var(--color-brand-accent);
-    --primary-foreground: var(--color-on-accent);
-    --secondary: var(--color-bg-tertiary);
-    --secondary-foreground: var(--color-text-primary);
-    --muted: var(--color-bg-tertiary);
-    --muted-foreground: var(--color-text-muted);
-    --accent: var(--color-hover-overlay-md);
-    --accent-foreground: var(--color-text-primary);
-    --destructive: var(--color-error);
-    --destructive-foreground: var(--color-on-color);
-    --border: var(--color-border);
-    --input: var(--color-border);
-    --ring: var(--color-brand-accent);
-    --radius: var(--radius-md);
 
     /* === 风格色 accent 组 —— 换主题改这里 ===
        单变量 + color-mix 自动衍生。换风格只改 --color-accent / -rgb 两行，
@@ -459,46 +434,6 @@
     --shadow-elevated: 0 1px 2px rgba(0, 0, 0, 0.02), 0 10px 40px -10px rgba(0, 0, 0, 0.08);
 }
 
-/* ===== 智能体徽章色（共享） ===== */
-.agent-badge.agent-violet {
-    background: var(--color-agent-violet-bg);
-    color: var(--color-agent-violet);
-}
-
-.agent-badge.agent-blue {
-    background: var(--color-agent-blue-bg);
-    color: var(--color-agent-blue);
-}
-
-.agent-badge.agent-green {
-    background: var(--color-agent-green-bg);
-    color: var(--color-agent-green);
-}
-
-.agent-badge.agent-cyan {
-    background: var(--color-agent-cyan-bg);
-    color: var(--color-agent-cyan);
-}
-
-.agent-badge.agent-orange {
-    background: var(--color-agent-orange-bg);
-    color: var(--color-agent-orange);
-}
-
-.agent-badge.agent-pink {
-    background: var(--color-agent-pink-bg);
-    color: var(--color-agent-pink);
-}
-
-.agent-badge.default {
-    background: var(--color-agent-default-bg);
-    color: var(--color-agent-default);
-}
-
-.agent-badge.success {
-    border-color: var(--color-agent-success-border);
-}
-
 /* ===== 全局重置 ===== */
 * {
     box-sizing: border-box;
@@ -794,8 +729,8 @@ input[type='number'] {
     color: var(--color-text-primary);
 }
 
-/* 聚焦轮廓 —— 苔藓绿 */
-:focus-visible {
+/* 聚焦轮廓 —— 交互元素键盘焦点（input/textarea 自有 caret，不套 outline） */
+:where(button, a, [role="button"], summary, [tabindex]):focus-visible {
     outline: 2px solid rgba(var(--color-brand-accent-rgb), 0.6);
     outline-offset: 2px;
 }
@@ -918,19 +853,6 @@ input[type='number'] {
 .g-skeleton-bar--title { height: 12px; flex: 1; max-width: 240px; }
 .g-skeleton-bar--sub { height: 10px; width: 100%; max-width: 160px; }
 
-/* 居中加载态 */
-.g-loading-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    padding: 40px 20px;
-    min-height: 120px;
-    color: var(--color-text-muted);
-    font-size: var(--font-size-sm);
-}
-
 /* 行内加载 */
 .g-loading-inline {
     display: flex;
@@ -939,28 +861,6 @@ input[type='number'] {
     padding: 12px 16px;
     color: var(--color-text-muted);
     font-size: var(--font-size-sm);
-}
-
-.flex-center {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-}
-
-
-/* ===== 通用按钮 —— 扁平克制，去胶囊去高光 ===== */
-.btn {
-    border-radius: var(--control-radius);
-    border: 1px solid var(--color-border);
-    background: var(--color-interactive);
-    color: var(--color-text-primary);
-    cursor: pointer;
-    transition: all var(--transition-normal);
-}
-
-.btn:hover {
-    background: var(--color-interactive-hover);
-    box-shadow: none;
 }
 
 .glass-card {

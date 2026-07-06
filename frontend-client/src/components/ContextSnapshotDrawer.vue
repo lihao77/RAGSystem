@@ -219,7 +219,7 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 .ctx-k::after { content: ':'; }
 .ctx-v { color: var(--color-text-primary, #333); }
 .ctx-tool-item { padding: 4px 0; font-size: 12px; }
-.ctx-tool-name { font-family: monospace; color: var(--color-text-primary, #333); }
+.ctx-tool-name { font-family: var(--font-mono); color: var(--color-text-primary, #333); }
 .ctx-history-list { max-height: 300px; overflow-y: auto; }
 .ctx-history-item { padding: 6px 8px; margin-bottom: 4px; border-radius: 4px; background: var(--color-bg-secondary, #f9f9f9); font-size: 12px; }
 .ctx-history-item.role-user { border-left: 2px solid var(--color-active); }

@@ -518,7 +518,7 @@
                 <div class="form-grid kb-form-grid">
                   <label class="form-item">
                     <span class="field-label-text">默认集合</span>
-                    <input
+                    <Input
                       v-model.trim="configForm.knowledge_base.default_collection"
                       type="text"
                      

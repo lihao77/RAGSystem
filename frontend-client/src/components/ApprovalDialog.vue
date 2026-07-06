@@ -389,7 +389,7 @@ defineExpose({ show, hide, toggleCollapsed });
 }
 
 .meta-value.mono {
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 0.8125rem;
 }
 
@@ -516,7 +516,7 @@ defineExpose({ show, hide, toggleCollapsed });
 .args-content {
   margin: 0;
   padding: 10px 12px;
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 0.8125rem;
   line-height: 1.6;
   color: var(--color-text-primary);
