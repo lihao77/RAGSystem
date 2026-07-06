@@ -76,13 +76,32 @@ export function renderProtocolFeedbackMessage(error: string, attempt: number, ma
   };
 }
 
-/** 语义块：把内容包进带属性的 XML 标签，内容用 CDATA 安全包裹。 */
-export function renderSemanticBlock(tagName: string, content: string, attributes: Record<string, string> = {}): string {
+/**
+ * 语义块：把内容包进带属性的 XML 标签。
+ * 默认内容无条件 CDATA（服务工具产出等不可控内容）；conditionalCdata:true 时仅含 XML 特殊字符才包，
+ * 供模型生成的短文本（如 intent）与 instruction 教导形态对齐，避免历史冒出无条件 CDATA 误导模型输出。
+ */
+export function renderSemanticBlock(
+  tagName: string,
+  content: string,
+  attributes: Record<string, string> = {},
+  options: { conditionalCdata?: boolean } = {},
+): string {
   const renderedAttributes = Object.entries(attributes)
     .filter(([, value]) => value.trim())
     .map(([key, value]) => ` ${key}="${escapeXmlAttribute(value)}"`)
     .join("");
-  return `<${tagName}${renderedAttributes}>${wrapCdata(content)}</${tagName}>`;
+  const body = options.conditionalCdata ? wrapCdataIfNeeded(content) : wrapCdata(content);
+  return `<${tagName}${renderedAttributes}>${body}</${tagName}>`;
+}
+
+/** 含 XML 特殊字符（< > &）才 CDATA 包裹，否则原样；CDATA 自身的 ]]> 由 wrapCdata 内部拆分处理。 */
+function wrapCdataIfNeeded(content: string): string {
+  return needsXmlEscape(content) ? wrapCdata(content) : content;
+}
+
+function needsXmlEscape(text: string): boolean {
+  return /[<>&]/.test(text);
 }
 
 /** XML 属性转义。 */

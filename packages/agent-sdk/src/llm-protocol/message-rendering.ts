@@ -21,7 +21,9 @@ export function renderXmlModelMessage(message: ChatMessage): ChatMessage {
     return { role: "user", content: message.content };
   }
   if (message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0) {
-    const intent = message.content ? renderSemanticBlock("intent", extractText(message.content)) : "";
+    // intent 按需 CDATA：短句通常无 XML 特殊字符，与 instruction 教模型输出 `<intent>note</intent>` 形态一致，
+    // 避免历史回填冒出无条件 CDATA 让模型困惑/模仿（tool_calls 参数本就按需 CDATA，intent 对齐之）。
+    const intent = message.content ? renderSemanticBlock("intent", extractText(message.content), {}, { conditionalCdata: true }) : "";
     return { role: "assistant", content: `${intent}${serializeToolCallsToXml(message.tool_calls)}` };
   }
   return { ...message };
