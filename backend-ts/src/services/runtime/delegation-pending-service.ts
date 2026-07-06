@@ -5,6 +5,7 @@
  * 同一个 run 的 abortSignal 经 ToolExecContext.signal 透传到壳 call，故每个 wait 自监听 signal；
  * run 停止时 signal abort 触发所有 in-flight wait 各自 reject，无需全局 rejectAll。
  */
+import { RuntimeAbortError } from "@ragsystem/agent-protocol";
 
 export interface DelegationResolution {
   ok: boolean;
@@ -50,7 +51,7 @@ export class DelegationPendingService {
       if (signal) {
         if (signal.aborted) {
           this.cleanup(callId);
-          reject(new Error("工具委托执行已取消"));
+          reject(new RuntimeAbortError("工具委托执行已取消"));
           return;
         }
         signal.addEventListener(
@@ -58,7 +59,7 @@ export class DelegationPendingService {
           () => {
             if (this.pending.get(callId) === entry) {
               this.cleanup(callId);
-              reject(new Error("工具委托执行已取消"));
+              reject(new RuntimeAbortError("工具委托执行已取消"));
             }
           },
           { once: true },

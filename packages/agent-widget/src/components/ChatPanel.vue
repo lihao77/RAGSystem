@@ -214,6 +214,10 @@ let streamBuffer = "";
 // 当前 root run 的 run_id（run_started 登记）。stream_output/run_ended 的 run_id 与之不同
 // 即为子智能体（call_agent/委托）的子 run，其输出不进 root 正文（由 executionTree 投影到 agent.output）。
 let rootRunId = null;
+// 当前 run 产生的 assistant message 引用（run_started 绑定）。
+// executionTree 挂它而非 messages 末尾：abort 期间后端可能补 error envelope → pushError 推一条
+// assistant 错误卡到末尾，若挂末尾会把同一棵工具树再挂到错误卡上，导致同一 tool call 渲染两次。
+let currentRunMsg = null;
 let streamFlushTimer = null;
 
 // 滚动跟随：用户上滑阅读时不强制拉底；scrollToBottom 用 rAF 合并高频调用。
@@ -238,12 +242,10 @@ function bindClient(c) {
   const u = [];
   u.push(c.status.subscribe((s) => { connectionStatus.value = s; }));
   u.push(c.runStatus.subscribe((s) => { runStatus.value = s; }));
-  // executionTree 挂到当前 run 产生的最新 assistant message（工具调用属该回复）。
+  // executionTree 挂到当前 run 的 assistant message（run_started 绑定 currentRunMsg）。
+  // 工具调用属该回复；error 等后续消息不承载工具树，避免同一 tool call 在原消息与错误卡上各渲染一次。
   u.push(c.executionTree.subscribe((t) => {
-    const last = messages.value[messages.value.length - 1];
-    if (last && last.role === "assistant") {
-      last.executionTree = t;
-    }
+    if (currentRunMsg) currentRunMsg.executionTree = t;
   }));
   u.push(c.pendingInteractions.subscribe((list) => { pendingInteractions.value = list; }));
   u.push(c.events.subscribe((env) => handleEvent(env)));
@@ -360,6 +362,8 @@ function handleEvent(env) {
     messages.value.push(msg);
     // 绑定流式节流目标：后续 stream_output delta 累积进 streamBuffer。
     streamTarget = msg;
+    // 绑定执行树挂载目标：整个 run 的 executionTree 都挂到这条消息。
+    currentRunMsg = msg;
     streamBuffer = "";
     scrollToBottom();
     return;
@@ -505,13 +509,22 @@ function getInputText() {
   const el = inputEl.value;
   if (!el) return "";
   let text = "";
-  el.childNodes.forEach((node) => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      text += node.textContent || "";
-    } else if (node.nodeType === Node.ELEMENT_NODE && node.classList?.contains("rag-chip")) {
-      text += " " + (node.dataset.text || "") + " ";
-    }
-  });
+  // 递归遍历后代：TEXT_NODE 取文本，rag-chip 取 dataset.text（值与显示 label 可能不同），
+  // 其他元素（粘贴的 div/span 等）继续下钻——原仅遍历直接子节点会漏掉粘贴内容导致发不出。
+  const walk = (node) => {
+    node.childNodes.forEach((child) => {
+      if (child.nodeType === Node.TEXT_NODE) {
+        text += child.textContent || "";
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        if (child.classList?.contains("rag-chip")) {
+          text += " " + (child.dataset.text || "") + " ";
+        } else {
+          walk(child);
+        }
+      }
+    });
+  };
+  walk(el);
   return text.replace(/ /g, " ").replace(/\s+/g, " ").trim();
 }
 
@@ -594,6 +607,7 @@ function newSession() {
   streamTarget = null;
   streamBuffer = "";
   rootRunId = null;
+  currentRunMsg = null;
   if (streamFlushTimer) { clearTimeout(streamFlushTimer); streamFlushTimer = null; }
   messages.value = [];
   pendingInteractions.value = [];

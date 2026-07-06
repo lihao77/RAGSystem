@@ -22,6 +22,7 @@
   <h1>这是一个模拟的第三方宿主页</h1>
   <p>本页面模拟任意第三方网站（Vue/React/纯 HTML 均可）。widget 已嵌入，右下角可见浮动按钮。</p>
   <p>试着对 widget 说「获取页面标题」——agent 会委托调用宿主页注册的 <code>get_page_title</code> 工具。</p>
+  <p>或说「执行长任务」触发 <code>long_running_task</code>（10 秒后返回），在返回前点红色停止按钮，可验证取消时工具树不会被重复渲染。</p>
 
   <!-- widget bundle（单文件 umd，宿主只需这一个 script） -->
   <script src="/widget.js"></script>
@@ -37,6 +38,17 @@
           inputSchema: { type: "object", properties: {}, additionalProperties: false },
           riskLevel: "low",
           execute: async () => ({ ok: true, observation: document.title }),
+        },
+        {
+          name: "long_running_task",
+          description: "长时间运行的任务，约 10 秒后返回结果。用于测试运行中取消的行为。",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          riskLevel: "low",
+          execute: async () => {
+            return new Promise((resolve) => {
+              setTimeout(() => resolve({ ok: true, observation: "任务完成：已处理 1024 条记录" }), 10000);
+            });
+          },
         },
       ],
     }).then((el) => {
