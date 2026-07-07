@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { ConversationDb } from "./shared/db.js";
 import { parseJsonObject, stringifyJson } from "./helpers.js";
-import type { AgentMetricSummary } from "../../../contracts/conversation-store/index.js";
+import type { AgentMetricSummary, DailyActivityPoint, HeatmapPoint, ModelUsagePoint, TokenTrendPoint } from "../../../contracts/conversation-store/index.js";
 
 /** agent_call_metrics 表行。 */
 export interface AgentCallMetricRow {
   metric_id: string;
   agent_name: string;
+  model: string | null;
   session_id: string | null;
   run_id: string | null;
   task_id: string | null;
@@ -30,6 +31,7 @@ export class MetricOps {
 
   insertMetric(input: {
     agentName: string;
+    model?: string;
     sessionId?: string | null;
     runId?: string | null;
     taskId?: string | null;
@@ -47,14 +49,15 @@ export class MetricOps {
       .prepare(
         `
           INSERT INTO agent_call_metrics
-          (metric_id, agent_name, session_id, run_id, task_id, execution_kind, status,
+          (metric_id, agent_name, model, session_id, run_id, task_id, execution_kind, status,
            duration_ms, token_in, token_out, tool_usage, error_type, started_at, finished_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
       .run(
         randomUUID(),
         input.agentName,
+        input.model ?? null,
         input.sessionId ?? null,
         input.runId ?? null,
         input.taskId ?? null,
@@ -114,6 +117,54 @@ export class MetricOps {
       ? this.db.prepare("DELETE FROM agent_call_metrics WHERE agent_name=?").run(agentName)
       : this.db.prepare("DELETE FROM agent_call_metrics").run();
     return { deleted: Number(result.changes) };
+  }
+
+  aggregateTokenTrend(opts: { since?: string | null; bucket: "day" | "hour" }): TokenTrendPoint[] {
+    const fmt = opts.bucket === "hour" ? "%Y-%m-%dT%H:00" : "%Y-%m-%d";
+    const since = opts.since ?? "1970-01-01T00:00:00.000Z";
+    return this.db
+      .prepare(
+        `SELECT strftime(?, started_at) AS ts,
+                COALESCE(SUM(token_in), 0) AS token_in,
+                COALESCE(SUM(token_out), 0) AS token_out,
+                COUNT(*) AS calls
+         FROM agent_call_metrics WHERE started_at >= ? GROUP BY ts ORDER BY ts ASC`,
+      )
+      .all(fmt, since) as unknown as TokenTrendPoint[];
+  }
+
+  aggregateModelUsage(opts: { since?: string | null }): ModelUsagePoint[] {
+    const since = opts.since ?? "1970-01-01T00:00:00.000Z";
+    return this.db
+      .prepare(
+        `SELECT COALESCE(model, '未知') AS model,
+                COALESCE(SUM(token_in + token_out), 0) AS tokens,
+                COUNT(*) AS calls
+         FROM agent_call_metrics WHERE started_at >= ? GROUP BY model ORDER BY tokens DESC`,
+      )
+      .all(since) as unknown as ModelUsagePoint[];
+  }
+
+  aggregateActivityHeatmap(opts: { since?: string | null }): HeatmapPoint[] {
+    const since = opts.since ?? "1970-01-01T00:00:00.000Z";
+    return this.db
+      .prepare(
+        `SELECT CAST(strftime('%w', started_at) AS INTEGER) AS weekday,
+                CAST(strftime('%H', started_at) AS INTEGER) AS hour,
+                COUNT(*) AS calls
+         FROM agent_call_metrics WHERE started_at >= ? GROUP BY weekday, hour`,
+      )
+      .all(since) as unknown as HeatmapPoint[];
+  }
+
+  aggregateDailyActivity(opts: { since?: string | null }): DailyActivityPoint[] {
+    const since = opts.since ?? "1970-01-01T00:00:00.000Z";
+    return this.db
+      .prepare(
+        `SELECT strftime('%Y-%m-%d', started_at) AS date, COUNT(*) AS calls
+         FROM agent_call_metrics WHERE started_at >= ? GROUP BY date ORDER BY date ASC`,
+      )
+      .all(since) as unknown as DailyActivityPoint[];
   }
 }
 

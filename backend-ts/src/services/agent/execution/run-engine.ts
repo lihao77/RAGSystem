@@ -288,6 +288,7 @@ export class AgentRunEngine {
       const finishedAt = new Date();
       this.metricsCollector.recordRun({
         agentName: input.agent.agent_name,
+        model: input.modelName,
         sessionId: input.sessionId,
         runId: input.runId,
         taskId: input.taskId,

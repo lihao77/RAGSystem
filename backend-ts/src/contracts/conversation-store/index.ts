@@ -16,6 +16,10 @@ import type {
   AddMessageInput,
   AddRunStepInput,
   AgentMetricSummary,
+  DailyActivityPoint,
+  HeatmapPoint,
+  ModelUsagePoint,
+  TokenTrendPoint,
   AppendOutboxInput,
   ChildAgentInfo,
   ClaimOutboxInput,
@@ -200,6 +204,7 @@ export interface IResourceStore {
 export interface IMetricStore {
   insertMetric(input: {
     agentName: string;
+    model?: string;
     sessionId?: string | null;
     runId?: string | null;
     taskId?: string | null;
@@ -215,6 +220,10 @@ export interface IMetricStore {
   }): void;
   aggregateMetrics(agentName?: string | null): AgentMetricSummary[];
   resetMetrics(agentName?: string | null): { deleted: number };
+  aggregateTokenTrend(opts: { since?: string | null; bucket: "day" | "hour" }): TokenTrendPoint[];
+  aggregateModelUsage(opts: { since?: string | null }): ModelUsagePoint[];
+  aggregateActivityHeatmap(opts: { since?: string | null }): HeatmapPoint[];
+  aggregateDailyActivity(opts: { since?: string | null }): DailyActivityPoint[];
 }
 
 /** 跨域事务运行器（事务原子性独立成契，不可按聚合根拆分）。 */

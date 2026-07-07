@@ -50,6 +50,15 @@ export const MIGRATIONS: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 3,
+    name: "agent_call_metrics_model",
+    up: (db) => {
+      // 补 model 列供"模型用量"维度聚合。历史行 model 为 NULL,聚合 COALESCE 归"未知"桶。
+      // 新库经 v2 建表后亦经此 ALTER 补列,新老库收敛一致。
+      db.exec(`ALTER TABLE agent_call_metrics ADD COLUMN model TEXT;`);
+    },
+  },
 ];
 
 function getUserVersion(db: ConversationDb): number {

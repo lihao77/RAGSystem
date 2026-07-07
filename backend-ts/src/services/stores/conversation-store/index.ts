@@ -117,6 +117,10 @@ export function createConversationStore(options: ConversationStoreOptions) {
     insertMetric: metrics.insertMetric.bind(metrics),
     aggregateMetrics: metrics.aggregateMetrics.bind(metrics),
     resetMetrics: metrics.resetMetrics.bind(metrics),
+    aggregateTokenTrend: metrics.aggregateTokenTrend.bind(metrics),
+    aggregateModelUsage: metrics.aggregateModelUsage.bind(metrics),
+    aggregateActivityHeatmap: metrics.aggregateActivityHeatmap.bind(metrics),
+    aggregateDailyActivity: metrics.aggregateDailyActivity.bind(metrics),
 
     // 跨域事务（组合 message/run/outbox ops）
     runInTransaction<T>(operation: (tx: ConversationStoreTransaction) => T): T {

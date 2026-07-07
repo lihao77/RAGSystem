@@ -184,6 +184,34 @@ export interface AgentMetricSummary {
   error_distribution: Record<string, number>;
 }
 
+/** token 用量时间序列点(按天或按小时聚合)。 */
+export interface TokenTrendPoint {
+  ts: string;
+  token_in: number;
+  token_out: number;
+  calls: number;
+}
+
+/** 按模型聚合的用量点(model 为 NULL 的历史行归 "未知")。 */
+export interface ModelUsagePoint {
+  model: string;
+  tokens: number;
+  calls: number;
+}
+
+/** 活跃度热力图点:weekday 0-6(0=周日)、hour 0-23。稀疏,前端补全 7×24 网格。 */
+export interface HeatmapPoint {
+  weekday: number;
+  hour: number;
+  calls: number;
+}
+
+/** 每日活跃度点(GitHub 式日历热力图:date=YYYY-MM-DD)。稀疏,前端按 range 补全。 */
+export interface DailyActivityPoint {
+  date: string;
+  calls: number;
+}
+
 /** addRunStep 返回的精简记录（领域投影，非完整 run_step 物理行）。 */
 export interface RunStepRecord {
   id: number;

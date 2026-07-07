@@ -4,6 +4,7 @@ import type { AgentMetricSummary } from "../../../contracts/conversation-store/i
 interface MetricStorePort {
   insertMetric(input: {
     agentName: string;
+    model?: string;
     sessionId?: string | null;
     runId?: string | null;
     taskId?: string | null;
@@ -24,6 +25,7 @@ interface MetricStorePort {
 /** 单次 agent run 的指标采集载荷(由 executeRun 在终态填充后落库)。 */
 export interface AgentRunMetricPayload {
   agentName: string;
+  model?: string;
   sessionId: string | null;
   runId: string | null;
   taskId: string | null;
