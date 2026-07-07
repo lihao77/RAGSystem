@@ -89,6 +89,15 @@
           </div>
         </div>
         <div class="admin-nav-list">
+          <button
+            class="sidebar-btn admin-nav-item admin-nav-overview"
+            :class="{ active: isPageActive(sidebarAdminNavItem.mainView) }"
+            :title="sidebarAdminNavItem.title"
+            @click="navigateTo(sidebarAdminNavItem.path)"
+          >
+            <component :is="sidebarAdminNavItem.icon" class="icon" />
+            <span class="btn-text">{{ sidebarAdminNavItem.label }}</span>
+          </button>
           <div v-for="group in adminNavGroups" :key="group.key" class="admin-nav-group">
             <div class="admin-nav-group-label">{{ group.label }}</div>
             <button
@@ -541,7 +550,7 @@ onUnmounted(() => {
   height: 100vh;
   width: 100%;
   max-width: 100%;
-  background-color: transparent;
+  background-color: var(--surface-sidebar);
   overflow: hidden;
   padding: 0;
   gap: 0;
@@ -574,7 +583,7 @@ onUnmounted(() => {
   transition: width var(--transition-normal), transform var(--transition-normal);
   --icon-center-line: 25px;
   --sidebar-icon-size: 18px;
-  border-right: 1px solid var(--color-border);
+  /* border-right: 1px solid var(--color-border); */
 }
 
 .sidebar.collapsed {
@@ -735,7 +744,7 @@ onUnmounted(() => {
 .sidebar-btn:hover,
 .toggle-sidebar-btn:hover,
 .history-item:hover {
-  background: var(--color-bg-secondary);
+  background: var(--color-hover-overlay-md);
 }
 
 .sidebar-btn-secondary,
@@ -1047,6 +1056,10 @@ onUnmounted(() => {
   overflow-y: auto;
   /* padding: var(--spacing-xs) 0; */
 }
+.admin-nav-overview {
+  margin: 0 0 var(--spacing-xs);
+  padding-bottom: var(--spacing-sm);
+}
 .admin-nav-group { padding: var(--spacing-xs) 0; }
 .admin-nav-group + .admin-nav-group {
   border-top: 1px solid var(--color-border);
@@ -1108,7 +1121,7 @@ onUnmounted(() => {
   min-height: 0;
   overflow: hidden;
   background: var(--surface-shell);
-  border-radius: 0;
+  border-radius: 20px 0 0 20px;
   box-shadow: none;
 }
 

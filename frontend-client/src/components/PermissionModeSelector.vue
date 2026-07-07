@@ -292,8 +292,8 @@ onMounted(() => {
 }
 
 .mode-icon {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
 }
 
@@ -348,7 +348,7 @@ onMounted(() => {
   padding: 8px 10px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: var(--color-bg-secondary);
+  background: var(--color-bg-tertiary);
   color: var(--color-text-primary);
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;

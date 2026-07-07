@@ -177,7 +177,7 @@ const openMobileSidebar = () => {
   overflow-x: hidden;
   /* 画布 = 最深背景层(primary)：让 Card(elevated) 明显浮起。
      页面最多三层次：背景(primary) → Card(elevated) → 子项(tertiary)，背景与第二层必须区分 */
-  background: var(--color-bg-primary);
+  /* background: var(--color-bg-primary); */
 }
 
 .page-content {
@@ -210,7 +210,7 @@ const openMobileSidebar = () => {
 .page-content__actions {
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-xs);
   flex-shrink: 0;
 }
 .page-content__menu-wrap { position: relative; }
