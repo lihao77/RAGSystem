@@ -59,6 +59,24 @@ export const MIGRATIONS: readonly Migration[] = [
       db.exec(`ALTER TABLE agent_call_metrics ADD COLUMN model TEXT;`);
     },
   },
+  {
+    version: 4,
+    name: "message_record_kind_unify",
+    up: (db) => {
+      // 收敛 message 记录语义类型到 metadata.msg_type:把散落的 metadata.type(command/
+      // command_result)与 metadata.compression 回填进 msg_type 并清除老字段,新老库同走此迁移。
+      db.exec(`
+        UPDATE messages SET metadata = json_remove(json_set(metadata, '$.msg_type', 'command_result'), '$.type')
+          WHERE json_extract(metadata, '$.type') = 'command_result';
+        UPDATE messages SET metadata = json_remove(json_set(metadata, '$.msg_type', 'command'), '$.type')
+          WHERE json_extract(metadata, '$.type') = 'command';
+        UPDATE messages SET metadata = json_remove(json_set(metadata, '$.msg_type', 'context_compression_summary'), '$.compression')
+          WHERE json_extract(metadata, '$.compression') = 1 AND json_extract(metadata, '$.msg_type') IS NULL;
+        UPDATE messages SET metadata = json_remove(metadata, '$.compression')
+          WHERE json_extract(metadata, '$.msg_type') = 'context_compression_summary';
+      `);
+    },
+  },
 ];
 
 function getUserVersion(db: ConversationDb): number {

@@ -58,14 +58,14 @@ export class RecentMessagesContextSource implements AgentContextSource {
         cleared_count: microcompact.clearedCount,
       };
     }
-    const conversation = messagesToConversation(microcompact.messages);
+    const { conversation, originals } = messagesToConversation(microcompact.messages);
     // extensions 投影(组装层,压缩视图之后):user 消息内容扩展(ui_context/image_attachment)
     // 经 registry 投影进 content;image_attachment 复用 readAttachmentImage 读盘转 base64。
     projectConversationExtensions(conversation, microcompact.messages, this.extensionRegistry, {
       supportsVision: this.supportsVision,
       readImage: readAttachmentImage,
     });
-    return { conversation, rawMessages: microcompact.messages, metadata };
+    return { conversation, rawMessages: originals, metadata };
   }
 }
 

@@ -31,7 +31,7 @@ export class AgentContextBuilder {
     const cacheAlive = this.cacheTracker?.isAlive(request.sessionId, threadKey, now) ?? false;
     const resolved = resolveContextRequest(request, threadKey, touch, cacheAlive);
     const conversation: ChatMessage[] = [];
-    const rawMessages: MessageInfo[] = [];
+    const rawMessages: (MessageInfo | null)[] = [];
     const sourceMetadata: AgentContext["metadata"]["sources"] = [];
     for (const source of this.sources) {
       const contribution = source.build(resolved);

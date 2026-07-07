@@ -11,7 +11,6 @@ export { AgentKernel } from "./kernel.js";
 export type { AgentKernelOptions, ContextUsageProvider } from "./kernel.js";
 export { KernelContext } from "./kernel-context.js";
 export { Dispatcher } from "./dispatcher.js";
-// Context 组装原语 + 端口 + 历史视图纯函数均已外移 backend（services/agent/context/）；SDK compression 内部用 resolveCompressionView 经相对 import ../context/history-view.js，不经本公共导出。
 export { estimateTokens, countMessagesTokens } from "./compression/token-estimate.js";
 export { resolveContextBudget } from "./llm-params/budget.js";
 export { resolveSummaryTierCandidates } from "./llm-params/summary-tier.js";

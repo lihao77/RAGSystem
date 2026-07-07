@@ -263,7 +263,7 @@ describe("monitoring compatibility routes", () => {
       role: "system",
       content: "[历史摘要]\nold user / old assistant",
       metadata: {
-        compression: true,
+        msg_type: "context_compression_summary",
         replaces_up_to_seq: 2,
       },
     });

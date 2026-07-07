@@ -15,7 +15,7 @@ export function useMessageListView({ messages, showToast }) {
 
     const withSeq = list.filter((message) => message.seq != null);
     const summaryMsg = withSeq
-      .filter((message) => message.metadata?.compression === true)
+      .filter((message) => message.metadata?.msg_type === 'context_compression_summary')
       .sort((a, b) => b.seq - a.seq)[0];
 
     if (!summaryMsg) return list;
@@ -24,7 +24,7 @@ export function useMessageListView({ messages, showToast }) {
     const cutoff = replacesUpTo != null ? replacesUpTo : summaryMsg.seq;
     const rest = list.filter((message) => (
       message.seq == null
-      || (message.metadata?.compression !== true && message.seq > cutoff)
+      || (message.metadata?.msg_type !== 'context_compression_summary' && message.seq > cutoff)
     ));
 
     return [summaryMsg, ...rest];

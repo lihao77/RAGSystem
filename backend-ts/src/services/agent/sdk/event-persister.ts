@@ -21,6 +21,7 @@ import type {
   ConversationStoreTransaction,
 } from "../../../contracts/conversation-store/index.js";
 import type { AddMessageInput } from "../../../contracts/conversation-store/types.js";
+import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 
 /** run 级上下文（persister 构造时注入，所有落库动作都挂这上面）。 */
 export interface PersisterRunContext {
@@ -116,7 +117,7 @@ export class KernelEventPersister {
           role: "assistant",
           content: "",
           threadKey: this.ctx.threadKey,
-          metadata: { ...this.finalMessageMeta(), msg_type: "assistant_final", interrupted: true },
+          metadata: { ...this.finalMessageMeta(), msg_type: MSG_TYPE.ASSISTANT_FINAL, interrupted: true },
         });
         tx.updateRunStepsMessageId(this.ctx.sessionId, this.ctx.runId, anchor.id);
         finalMessageId = anchor.id;
@@ -132,7 +133,7 @@ export class KernelEventPersister {
           // finalMessageMeta（agent/team/scope/execution_kind）打底，调用点 messageMetadata（retry_of_*）盖之，finalMessage 自带 metadata 优先。
           metadata: {
             ...this.finalMessageMeta(),
-            msg_type: "assistant_final",
+            msg_type: MSG_TYPE.ASSISTANT_FINAL,
             ...(this.ctx.messageMetadata ?? {}),
             ...(finalMessage.metadata ?? {}),
           },
@@ -201,7 +202,7 @@ export class KernelEventPersister {
           role: "tool",
           content: event.observation,
           threadKey: this.ctx.threadKey,
-          metadata: { ...this.messageMeta(event.round), msg_type: "observation" },
+          metadata: { ...this.messageMeta(event.round), msg_type: MSG_TYPE.OBSERVATION },
           toolCallId: event.toolCallId,
           name: event.toolName,
         });
@@ -247,7 +248,7 @@ export class KernelEventPersister {
         role: "assistant",
         content: extractText(message.content),
         threadKey: this.ctx.threadKey,
-        metadata: { ...this.messageMeta(round), msg_type: "intent" },
+        metadata: { ...this.messageMeta(round), msg_type: MSG_TYPE.INTENT },
       };
       if (message.tool_calls) {
         input.toolCalls = message.tool_calls as AddMessageInput["toolCalls"];
@@ -347,7 +348,7 @@ export class KernelEventPersister {
           toolCallId: toolCall.id,
           name: toolCall.function.name,
           threadKey: this.ctx.threadKey,
-          metadata: { interrupted: true, agent_name: this.ctx.agentName, run_id: this.ctx.runId, round: round + 1, msg_type: "observation" },
+          metadata: { interrupted: true, agent_name: this.ctx.agentName, run_id: this.ctx.runId, round: round + 1, msg_type: MSG_TYPE.OBSERVATION },
         });
         tx.addRunStep({
           sessionId: this.ctx.sessionId,

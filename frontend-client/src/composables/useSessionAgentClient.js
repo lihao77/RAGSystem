@@ -339,7 +339,7 @@ export function useSessionAgentClient(deps) {
       const msg = messages.value[msgIndex];
       if (msg && !msg.finished) {
         msg.content = msg.content || '[命令执行超时或结果未送达]';
-        msg.metadata = { ...msg.metadata, type: 'command_result', success: false };
+        msg.metadata = { ...msg.metadata, msg_type: 'command_result', success: false };
         msg.finished = true;
       }
       resetActiveRunState(activeRun);
@@ -699,14 +699,14 @@ export function useSessionAgentClient(deps) {
           if (isVisibleRootCompressionSummary(detail)) {
             const summaryContent = detail.content || '';
             const alreadyExists = messages.value.some(
-              m => m.metadata?.compression && m.content === summaryContent
+              m => m.metadata?.msg_type === 'context_compression_summary' && m.content === summaryContent
             );
             if (!alreadyExists) {
               const compressionMsg = {
                 role: 'system',
                 content: summaryContent,
                 metadata: {
-                  compression: true,
+                  msg_type: 'context_compression_summary',
                   ...(detail.thread_key != null ? { thread_key: detail.thread_key } : {}),
                   ...(detail.conversation_scope != null ? { conversation_scope: detail.conversation_scope } : {}),
                   ...(detail.visible_to_user != null ? { visible_to_user: detail.visible_to_user } : {}),
@@ -989,7 +989,7 @@ export function useSessionAgentClient(deps) {
         targetMsg.content = detail.content || '';
         targetMsg.metadata = {
           ...targetMsg.metadata,
-          type: 'command_result',
+          msg_type: 'command_result',
           command: detail.command || 'unknown',
           success: detail.success !== false,
           error: detail.error || null,

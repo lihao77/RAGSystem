@@ -3,6 +3,7 @@ import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
+import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import { buildFullSystemPrompt, estimateTokens, resolveToolInstructionMode } from "@ragsystem/agent-sdk";
 import { projectAgentProfile } from "../sdk/projection.js";
@@ -82,7 +83,7 @@ export class SlashCommandHandler {
       role: "user",
       content: input.originalTask,
       metadata: {
-        type: "command",
+        msg_type: MSG_TYPE.COMMAND,
         command: input.command.name,
         command_mode: input.command.mode,
       },
@@ -93,7 +94,7 @@ export class SlashCommandHandler {
       role: "system",
       content: result.content,
       metadata: {
-        type: "command_result",
+        msg_type: MSG_TYPE.COMMAND_RESULT,
         command: result.command,
         success: result.success,
         ...(result.error ? { error: result.error } : {}),

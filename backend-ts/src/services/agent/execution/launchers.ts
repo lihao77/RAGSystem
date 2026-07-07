@@ -22,6 +22,7 @@ import type { AgentRunEngine } from "./run-engine.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { AgentExecutionEventPublisher } from "./event-publisher.js";
 import type { MessageExtension } from "../context/extensions/kinds.js";
+import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 
 export interface RollbackRetryInput {
   sessionId: string;
@@ -68,8 +69,10 @@ class AgentLaunchers {
 
   async startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult> {
     const sessionId = request.session_id?.trim() || randomUUID();
-    let task = request.task.trim();
+    const task = request.task.trim();
     const slashCommand = parseSlashCommand(task);
+    // prompt 模式斜杠命令(/review 等):user 消息持久化原始命令(前端显示),展开后的完整 prompt 进 metadata.expanded_task,
+    // 由 recent-messages-source 组装 LLM conversation 时投影替换 content(见 history-view messagesToConversation)。
     if (slashCommand) {
       const commandResult = await this.slashCommandHandler.handle({
         sessionId,
@@ -82,7 +85,6 @@ class AgentLaunchers {
       if (commandResult) {
         return commandResult;
       }
-      task = slashCommand.expandedTask;
     }
     if (!task && request.attachments.length === 0) {
       return {
@@ -157,7 +159,7 @@ class AgentLaunchers {
     const runtimeAgent = ready.agent;
 
     // 写入侧拆分:image 进 metadata.extensions(image_attachment),file 留 metadata.attachments。
-    // 内容扩展(image/ui_context)统一落 extensions[];消息类型/追溯字段(type/command)留 metadata 顶层。
+    // 内容扩展(image/ui_context)统一落 extensions[];消息类型/追溯字段(msg_type/command)留 metadata 顶层。
     const imageAttachments = attachmentResolution.attachments.filter((a) => a.kind === "image");
     const fileAttachments = attachmentResolution.attachments.filter((a) => a.kind !== "image");
     const extensions: MessageExtension[] = [];
@@ -176,7 +178,14 @@ class AgentLaunchers {
       ...(requestSelectedLlm ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } } : {}),
       persistUserMessage: {
         metadata: {
-          ...(slashCommand ? { type: "command", command: slashCommand.name, command_mode: slashCommand.mode } : {}),
+          ...(slashCommand
+            ? {
+                msg_type: MSG_TYPE.COMMAND,
+                command: slashCommand.name,
+                command_mode: slashCommand.mode,
+                ...(slashCommand.mode === "prompt" ? { expanded_task: slashCommand.expandedTask } : {}),
+              }
+            : {}),
           ...(fileAttachments.length ? { attachments: fileAttachments } : {}),
           ...(extensions.length ? { extensions } : {}),
         },

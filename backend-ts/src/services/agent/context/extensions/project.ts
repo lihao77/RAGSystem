@@ -1,7 +1,9 @@
 /**
  * projectConversationExtensions——把 rawMessages 里 user 消息的 extensions 投影进 conversation。
  *
- * messagesToConversation 对 user 消息 1:1 透传(仅 assistant 因 tool_calls 补占位),故按 user 序对齐可靠。
+ * messagesToConversation 对 user 消息保持 1:1 数量对应(占位只补在 assistant tool_call 后),故按 user 序对齐可靠。
+ * 注:user 的 content 可能已被 expanded_task 投影改写(messagesToConversation 内),但本函数消费 rawMessages
+ * (原始 user.metadata.extensions)、追加投影进 conversation user content,不读 conversation 原始 content,故不受影响。
  * 本期只处理 user(extensions 主要挂在 user:ui_context/image_attachment);其余 kind projector 返回 null
  * 不投影。投影文本/parts 追加到 content 末尾。
  *

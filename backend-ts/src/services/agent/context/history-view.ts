@@ -9,6 +9,7 @@ import { extractText } from "@ragsystem/agent-llm";
 import type { MessageInfo } from "../../../contracts/session.js";
 import { MICROCOMPACT_CLEARED_LABEL } from "./types.js";
 import { numberOrNull } from "./helpers.js";
+import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 
 interface CompressionViewResolution {
   messages: MessageInfo[];
@@ -32,11 +33,11 @@ export function filterHistoryMessages(messages: MessageInfo[]): MessageInfo[] {
       return false;
     }
     const metadata = message.metadata ?? {};
-    const metadataType = metadata.type;
-    if (metadataType === "command_result") {
+    const metadataMsgType = metadata.msg_type;
+    if (metadataMsgType === MSG_TYPE.COMMAND_RESULT) {
       return false;
     }
-    if (metadataType === "command" && metadata.command_mode !== "prompt") {
+    if (metadataMsgType === MSG_TYPE.COMMAND && metadata.command_mode !== "prompt") {
       return false;
     }
     if (metadata.display_only) {
@@ -59,7 +60,7 @@ export function resolveCompressionViewDetailed(messages: MessageInfo[]): Compres
   let compressionMessage: MessageInfo | null = null;
   let compressionIndex = -1;
   for (const [index, message] of messages.entries()) {
-    if (!message.metadata.compression) {
+    if (message.metadata.msg_type !== MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY) {
       continue;
     }
     if (!compressionMessage || message.seq > compressionMessage.seq) {
@@ -72,9 +73,9 @@ export function resolveCompressionViewDetailed(messages: MessageInfo[]): Compres
   }
   const replacesUpToSeq = numberOrNull(compressionMessage.metadata.replaces_up_to_seq);
   const cutoff = replacesUpToSeq ?? compressionMessage.seq;
-  const output: MessageInfo[] = [{ ...compressionMessage, role: "assistant", metadata: { compression: true } }];
+  const output: MessageInfo[] = [{ ...compressionMessage, role: "assistant", metadata: { msg_type: MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY } }];
   for (const [index, message] of messages.entries()) {
-    if (index === compressionIndex || message.metadata.compression) {
+    if (index === compressionIndex || message.metadata.msg_type === MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY) {
       continue;
     }
     if (message.seq > cutoff) {
@@ -86,7 +87,7 @@ export function resolveCompressionViewDetailed(messages: MessageInfo[]): Compres
 
 const UNANSWERED_TOOL_PLACEHOLDER = "工具未返回结果";
 
-export function messagesToConversation(messages: MessageInfo[]): ChatMessage[] {
+export function messagesToConversation(messages: MessageInfo[]): { conversation: ChatMessage[]; originals: (MessageInfo | null)[] } {
   const answeredToolCallIds = new Set<string>();
   for (const message of messages) {
     if (message.role === "tool" && message.tool_call_id) {
@@ -94,11 +95,15 @@ export function messagesToConversation(messages: MessageInfo[]): ChatMessage[] {
     }
   }
   const conversation: ChatMessage[] = [];
+  // 与 conversation 逐条对齐的 rawMessage 来源(补占位 tool message 无 rawMessage → null);供调试快照按 index 回绑元数据。
+  const originals: (MessageInfo | null)[] = [];
   for (const message of messages) {
     if (message.role !== "user" && message.role !== "assistant" && message.role !== "system" && message.role !== "tool") {
       continue;
     }
-    const entry: ChatMessage = { role: message.role, content: message.content };
+    // prompt 模式斜杠命令(/review 等):user 消息持久化原始命令,组装 LLM conversation 时投影成展开后的完整 prompt。
+    const expandedTask = message.role === "user" ? message.metadata?.expanded_task : undefined;
+    const entry: ChatMessage = { role: message.role, content: typeof expandedTask === "string" ? expandedTask : message.content };
     if (message.role === "tool" && message.tool_call_id) {
       entry.tool_call_id = message.tool_call_id;
       if (message.name) {
@@ -113,6 +118,7 @@ export function messagesToConversation(messages: MessageInfo[]): ChatMessage[] {
       }));
     }
     conversation.push(entry);
+    originals.push(message);
     if (message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0) {
       for (const toolCall of message.tool_calls) {
         if (toolCall.id && !answeredToolCallIds.has(toolCall.id)) {
@@ -122,12 +128,13 @@ export function messagesToConversation(messages: MessageInfo[]): ChatMessage[] {
             name: toolCall.function?.name ?? "",
             content: UNANSWERED_TOOL_PLACEHOLDER,
           });
+          originals.push(null);
           answeredToolCallIds.add(toolCall.id);
         }
       }
     }
   }
-  return conversation;
+  return { conversation, originals };
 }
 
 export interface MicrocompactResult {
@@ -138,7 +145,7 @@ export interface MicrocompactResult {
 
 export function microcompactHistoryMessages(messages: MessageInfo[], keepRecentTools: number): MicrocompactResult {
   const observationIndices = messages
-    .map((message, index) => (message.metadata.msg_type === "observation" ? index : -1))
+    .map((message, index) => (message.metadata.msg_type === MSG_TYPE.OBSERVATION ? index : -1))
     .filter((index) => index >= 0);
   if (observationIndices.length === 0 || observationIndices.length <= keepRecentTools) {
     return { messages, observationCount: observationIndices.length, clearedCount: 0 };
@@ -160,7 +167,7 @@ export function microcompactHistoryMessages(messages: MessageInfo[], keepRecentT
 }
 
 export function countObservationMessages(messages: MessageInfo[]): number {
-  return messages.filter((message) => message.metadata.msg_type === "observation").length;
+  return messages.filter((message) => message.metadata.msg_type === MSG_TYPE.OBSERVATION).length;
 }
 
 function microcompactClearedContent(message: MessageInfo): string {

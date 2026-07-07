@@ -19,6 +19,7 @@ import type { SystemConfigService } from "../../config/system-config-service.js"
 import { HISTORY_SCAN_LIMIT, resolveCompressionView } from "../context/index.js";
 import { projectAgentProfile } from "../sdk/projection.js";
 import { resolveContextCompressionSettings, type ContextCompressionSettings } from "./index.js";
+import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 
 const COMPACT_SUMMARY_PREFIX = "本次会话从之前的对话继续，以下是该对话早期内容的摘要。\n\n";
 const NO_TOOLS_PREAMBLE = "你正在生成上下文压缩摘要。不要调用工具，不要输出工具调用协议，只输出摘要文本。\n\n";
@@ -206,7 +207,7 @@ type SegmentSelection =
   | { ok: false; reason: "insufficient_candidates" | "missing_segment_seq" };
 
 function selectCompressibleSegment(historyResolved: MessageInfo[], settings: ContextCompressionSettings): SegmentSelection {
-  const startIndex = historyResolved[0]?.metadata.compression ? 1 : 0;
+  const startIndex = historyResolved[0]?.metadata.msg_type === MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY ? 1 : 0;
   const candidates = historyResolved.slice(startIndex);
   const preserveCount = settings.preserveRecentTurns * 2;
   if (candidates.length <= preserveCount) {
@@ -226,7 +227,7 @@ function isCompressibleHistoryMessage(message: MessageInfo): boolean {
     message.role === "user" ||
     message.role === "assistant" ||
     message.role === "tool" ||
-    Boolean(message.metadata.compression)
+    Boolean(message.metadata.msg_type === MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY)
   );
 }
 
@@ -253,7 +254,7 @@ function compressionMetadata(
     run_id: input.runId,
     request_id: input.requestId,
     task_id: input.taskId,
-    msg_type: "context_compression_summary",
+    msg_type: MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY,
     compression_strategy: "llm_summarize",
     replaced_message_count: replacedCount,
     history_tokens_before: historyTokens,

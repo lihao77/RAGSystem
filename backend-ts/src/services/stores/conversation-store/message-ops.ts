@@ -87,7 +87,6 @@ export class MessageOps implements IMessageStore {
   }): MessageInfo {
     const metadata: Record<string, unknown> = {
       ...(input.metadata ?? {}),
-      compression: true,
     };
     if (input.replacesUpToSeq !== undefined && input.replacesUpToSeq !== null) {
       metadata.replaces_up_to_seq = input.replacesUpToSeq;

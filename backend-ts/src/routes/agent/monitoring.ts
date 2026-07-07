@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { ok } from "../../contracts/common.js";
 import type { OutboxStatus } from "../../contracts/conversation-store/index.js";
+import { MSG_TYPE } from "../../contracts/message-kinds.js";
 import { resolveContextCompressionSettings } from "../../services/agent/context-compression/index.js";
 import { createRuntime, createToolRegistry, resolveContextBudget } from "@ragsystem/agent-sdk";
 import { projectAgentProfile } from "../../services/agent/sdk/projection.js";
@@ -175,20 +176,17 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     runtime.close();
 
     const memorySnapshot = getMemorySnapshot(built?.metadata.sources ?? []);
-    // history 直接从 rawMessages(recent MessageInfo)构造——根治 messagesToConversation 补占位导致的索引错位
-    //（未应答 tool_call 时 conversation 比 rawMessages 长，slice 对齐会张冠李戴）。message 与 original 同源 rm。
-    const history = (built?.rawMessages ?? []).map((rm) => {
-      const msg = { role: rm.role, content: rm.content } as ChatMessage;
-      if (rm.tool_calls && rm.tool_calls.length > 0) {
-        msg.tool_calls = rm.tool_calls as NonNullable<ChatMessage["tool_calls"]>;
-      }
-      if (rm.tool_call_id) {
-        msg.tool_call_id = rm.tool_call_id;
-      }
-      if (rm.name) {
-        msg.name = rm.name;
-      }
-      return toContextHistoryItem(msg, rm);
+    // conversation_history 走 LLM 实际收到的 conversation 投影后 content(prompt 命令展开 / 图片 ContentPart)。
+    // conversation = memory 段 + recent 段;rawMessages 只覆盖 recent 段(recent-messages-source 的 rawMessages 即
+    // messagesToConversation 的 originals,与 recent conversation 1:1)。约定:仅 recent source 贡献 rawMessages,
+    // memory 等其他 source 不贡献;未来若新增贡献 rawMessages 的 source,此 recentOffset 对齐需重审。
+    // conversation_history 只展示 recent 对话历史段(memory system prefix 属注入上下文,不混入对话历史),按 index 对齐回绑 seq/msg_type。
+    const convMessages = built?.conversation ?? [];
+    const rawOriginals = built?.rawMessages ?? [];
+    const recentOffset = Math.max(0, convMessages.length - rawOriginals.length);
+    const history = convMessages.slice(recentOffset).map((msg, i) => {
+      const rm = rawOriginals[i] ?? null;
+      return toContextHistoryItem(msg, rm ? { seq: rm.seq, metadata: rm.metadata } : undefined);
     });
     // memory block 已作为 system 消息进 request.messages，preview.tokenStats.systemPromptTokens 已含它，不重复加。
     const systemPromptTokens = preview?.tokenStats.systemPromptTokens ?? 0;
@@ -271,7 +269,7 @@ function toContextHistoryItem(
     content_preview: text,
     content_length: text.length,
     tokens: estimateTokens(text),
-    is_compression_summary: Boolean(original?.metadata.compression),
+    is_compression_summary: original?.metadata.msg_type === MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY,
     react_intermediate: Boolean(original?.metadata.react_intermediate),
     msg_type: normalizeString(original?.metadata.msg_type),
     round: typeof original?.metadata.round === "number" ? original.metadata.round : null,

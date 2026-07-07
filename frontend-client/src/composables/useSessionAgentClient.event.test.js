@@ -133,7 +133,7 @@ test('state_sync(command_result) 会补建 assistant 消息并触发静默刷新
   assert.equal(deps.messages.value.length, 2);
   assert.equal(deps.messages.value[1].role, 'assistant');
   assert.equal(deps.messages.value[1].content, '命令完成');
-  assert.equal(deps.messages.value[1].metadata.type, 'command_result');
+  assert.equal(deps.messages.value[1].metadata.msg_type, 'command_result');
   assert.equal(deps.messages.value[1].metadata.command, '/foo');
   assert.equal(deps.messages.value[1].finished, true);
   assert.equal(deps.isLoading.value, false);
@@ -495,7 +495,7 @@ test('root compression_summary 会插入主消息流并保留元数据', () => {
   assert.equal(deps.messages.value.length, 2);
   assert.equal(deps.messages.value[0].role, 'system');
   assert.equal(deps.messages.value[0].content, '[历史摘要]\nroot summary');
-  assert.equal(deps.messages.value[0].metadata.compression, true);
+  assert.equal(deps.messages.value[0].metadata.msg_type, 'context_compression_summary');
   assert.equal(deps.messages.value[0].metadata.thread_key, 'root');
   assert.equal(deps.messages.value[0].metadata.run_id, 'run-root');
   assert.equal(deps.activeRun.assistantMsgIndex, 1);

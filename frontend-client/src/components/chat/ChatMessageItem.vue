@@ -9,7 +9,7 @@
     @mouseenter="emit('hover', index)"
     @mouseleave="emit('hover', null)"
   >
-    <div v-if="msg.role === 'system' && msg.metadata?.type === 'command_result'" class="message-content-wrapper">
+    <div v-if="msg.metadata?.msg_type === 'command_result'" class="message-content-wrapper">
       <CommandResultMessage :message="msg" />
     </div>
 

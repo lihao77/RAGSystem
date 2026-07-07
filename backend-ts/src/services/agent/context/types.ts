@@ -28,10 +28,10 @@ export interface AgentContextRequest {
 export interface AgentContext {
   conversation: ChatMessage[];
   /**
-   * 原始历史消息(含 seq/metadata),与 conversation 的历史段一一对应。
-   * 只 recent 类 source 贡献;调试快照(monitoring preview)据此展示消息元数据。
+   * 与 conversation 逐条对齐的 rawMessage(补占位 tool message 无 rawMessage → null)。
+   * 只 recent 类 source 贡献;调试快照(monitoring)据此按 index 回绑 seq/msg_type 等元数据。
    */
-  rawMessages: MessageInfo[];
+  rawMessages: (MessageInfo | null)[];
   metadata: {
     session_id: string;
     thread_key: string;
@@ -45,8 +45,8 @@ export interface AgentContext {
 
 export interface AgentContextContribution {
   conversation?: ChatMessage[];
-  /** 原始历史消息(含 seq/metadata),与 conversation 一一对应;供调试快照展示元数据。 */
-  rawMessages?: MessageInfo[];
+  /** 与 conversation 逐条对齐的 rawMessage(补占位处为 null);供调试快照按 index 回绑元数据。 */
+  rawMessages?: (MessageInfo | null)[];
   metadata?: Record<string, unknown>;
 }
 
