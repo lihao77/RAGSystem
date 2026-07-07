@@ -285,7 +285,8 @@ type AnthropicCacheableTool = {
 
 export function buildAnthropicBody(request: LlmRequest, stream = false): Record<string, unknown> {
   // prompt cache 总开关:默认开(supports_prompt_caching !== false),仅在 provider 显式关闭时跳过。
-  // 命中:在 system 段末尾 block 与 tools 段末尾 tool 各打一个 cache_control 断点,覆盖完整稳定前缀。
+  // 三个断点:system 段末尾 block + tools 段末尾 tool 覆盖稳定前缀地基;最后一条 assistant 末尾 block
+  // 作历史滚动断点(= 上一轮结尾),使多轮稳定历史命中(跳过其后本轮新输入/临场 additionalContext)。
   const cacheControl = request.provider.supports_prompt_caching !== false;
   const system: AnthropicCacheableTextBlock[] = request.messages
     .filter((m) => m.role === "system")
@@ -297,6 +298,30 @@ export function buildAnthropicBody(request: LlmRequest, stream = false): Record<
   const messages = coalesceConsecutiveUserMessages(
     request.messages.filter((m) => m.role !== "system").map((m) => mapAnthropicMessage(m)),
   );
+  // 第 3 断点：历史滚动——从后往前找最后一条有可缓存内容的 assistant,在其末尾可缓存 block 打标(= 上一轮结尾)。
+  // 按 role 定位而非位置(length-2):buildAnthropicBody 是纯函数,不依赖"调用方 messages 末尾恒为 user"
+  // 这个它无法保证的契约(compact 摘要落成 assistant 放视图首位、conversation 末尾 assistant 等形态会让
+  // 倒数二非 assistant)。其后内容(本轮新 user/临场 additionalContext,不入库下轮不复现)天然被跳过。
+  // 跳过空 text block:模型空响应/异常中间态产 content:"" 纯文本 assistant(toAnthropicContent 给 [{text:""}]),
+  // 在其空 block 上打标会被 Anthropic 400;空 assistant 无可缓存 block 时回溯更早的实质 assistant,不让
+  // 空 assistant 阻断稳定历史 cache。无 assistant(第一轮)/全历史无实质 assistant 则不打。
+  if (cacheControl) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i] as { role?: string; content?: unknown[] };
+      if (msg.role !== "assistant") continue;
+      const blocks = Array.isArray(msg.content) ? msg.content : [];
+      let marked = false;
+      for (let j = blocks.length - 1; j >= 0; j--) {
+        const block = blocks[j] as { type?: string; text?: string };
+        if (block.type === "tool_use" || (block.type === "text" && block.text !== "")) {
+          (block as AnthropicCacheableTextBlock).cache_control = { type: "ephemeral" };
+          marked = true;
+          break;
+        }
+      }
+      if (marked) break;
+    }
+  }
   const tools: AnthropicCacheableTool[] | undefined =
     request.tools && request.tools.length > 0
       ? request.tools.map((t) => ({
