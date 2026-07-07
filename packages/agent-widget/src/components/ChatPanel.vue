@@ -29,6 +29,12 @@
 
           <template v-for="msg in messages" :key="msg.id">
             <div v-if="msg.role === 'user'" class="rag-msg rag-msg--user">
+              <div v-if="msg.uiContext?.entries?.length" class="rag-ui-context" style="display:flex;flex-direction:column;gap:2px;padding:6px 8px;margin-bottom:4px;border-radius:8px;background:rgba(125,125,125,0.08);border:1px solid rgba(125,125,125,0.18);font-size:13px;line-height:1.5">
+                <div v-for="e in msg.uiContext.entries" :key="e.key" class="rag-ui-entry" style="display:flex;gap:6px;align-items:baseline">
+                  <span class="rag-ui-label" style="opacity:0.6;flex-shrink:0">{{ e.label }}</span>
+                  <span class="rag-ui-value" style="opacity:0.85;word-break:break-word">{{ e.value }}<span v-if="e.detail" class="rag-ui-detail" style="opacity:0.6"> · {{ e.detail }}</span></span>
+                </div>
+              </div>
               <div class="rag-user-text">{{ msg.content }}</div>
             </div>
             <div v-else class="rag-msg rag-msg--assistant">
@@ -174,6 +180,8 @@ const props = defineProps({
   hostTools: { type: Array, default: () => [] },
   inputTools: { type: Array, default: () => [] },
   fabPosition: { type: Object, default: () => ({ bottom: 24, right: 24 }) },
+  /** 宿主组件状态采集函数（发消息时调，返回 entries 随消息进上下文）。 */
+  uiState: { type: Function, required: false },
 });
 
 let client = null;
@@ -453,11 +461,23 @@ async function send() {
     }
     // 乐观先入用户消息：保证 user 在 run_started 投影出的 assistant 消息之前。
     // ensureConnected 先于 push：连接期间无 assistant 消息（尚未 send），connect 完成后再入 user，顺序仍稳。
-    messages.value.push({ id: `u${Date.now()}`, role: "user", content: text });
+    // 采集宿主组件状态（同源 custom element，直接调宿主注入的 uiState；失败静默不阻断发送）
+    let uiContext = null;
+    if (typeof props.uiState === "function") {
+      try {
+        const entries = await props.uiState();
+        if (Array.isArray(entries) && entries.length) {
+          uiContext = { captured_at: new Date().toISOString(), entries };
+        }
+      } catch (e) {
+        console.warn("[widget] uiState 采集失败:", e?.message || e);
+      }
+    }
+    messages.value.push({ id: `u${Date.now()}`, role: "user", content: text, uiContext });
     if (inputEl.value) inputEl.value.innerHTML = "";
     isEmpty.value = true;
     scrollToBottom();
-    const result = await client.send({ task: text });
+    const result = await client.send({ task: text, ...(uiContext ? { uiContext } : {}) });
     if (!result.started) {
       pushError(`发送失败：${result.error || "请稍后重试"}`);
     }

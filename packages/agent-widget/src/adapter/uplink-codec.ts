@@ -16,6 +16,8 @@ export interface SendUplink {
     selected_llm?: string;
     attachments: unknown[];
     request_id?: string;
+    /** 前端组件状态快照(对齐后端 events.ts task_submit 的 ui_context)。 */
+    ui_context?: Record<string, unknown>;
   };
 }
 
@@ -80,6 +82,7 @@ export function encodeSend(sessionId: string, input: {
   selectedLlm?: string;
   attachments?: unknown[];
   requestId?: string;
+  uiContext?: Record<string, unknown>;
 }): SendUplink {
   const payload: SendUplink["payload"] = {
     category: "task_submit",
@@ -91,6 +94,9 @@ export function encodeSend(sessionId: string, input: {
   }
   if (input.requestId) {
     payload.request_id = input.requestId;
+  }
+  if (input.uiContext) {
+    payload.ui_context = input.uiContext;
   }
   return { type: "user_driven_change", session_id: sessionId, payload };
 }

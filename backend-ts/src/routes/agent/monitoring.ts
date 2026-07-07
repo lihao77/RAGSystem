@@ -7,7 +7,7 @@ import { resolveContextCompressionSettings } from "../../services/agent/context-
 import { createRuntime, createToolRegistry, resolveContextBudget } from "@ragsystem/agent-sdk";
 import { projectAgentProfile } from "../../services/agent/sdk/projection.js";
 import { MemoryIndexContextSource, isMemoryEnabled } from "../../services/agent/memory/index.js";
-import { AgentContextBuilder, DEFAULT_PROVIDER_CACHE_TTL_SECONDS, HISTORY_SCAN_LIMIT, ProviderCacheTracker, RecentMessagesContextSource, type ConversationHistoryPort, type SessionMetadataPort } from "../../services/agent/context/index.js";
+import { AgentContextBuilder, createDefaultProjectionRegistry, DEFAULT_PROVIDER_CACHE_TTL_SECONDS, HISTORY_SCAN_LIMIT, ProviderCacheTracker, RecentMessagesContextSource, type ConversationHistoryPort, type SessionMetadataPort } from "../../services/agent/context/index.js";
 import { createBackendTools } from "../../tools/registry.js";
 import { PathApprovalService } from "../../services/runtime/path-service.js";
 import type { ChatMessage, ChatToolCall } from "@ragsystem/agent-llm";
@@ -154,7 +154,8 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const memorySources = isMemoryEnabled(agent.memory)
       ? [new MemoryIndexContextSource(historyPort, agent.memory, agent.agent_name, { dataRoot: options.container.dataRoot })]
       : [];
-    const recentSource = new RecentMessagesContextSource(historyPort, profile.llmTiers.default?.provider.supports_vision === true);
+    const extensionRegistry = createDefaultProjectionRegistry();
+    const recentSource = new RecentMessagesContextSource(historyPort, profile.llmTiers.default?.provider.supports_vision === true, extensionRegistry);
     const cacheTracker = new ProviderCacheTracker(
       historyPort,
       profile.llmTiers.default?.provider.cache_ttl_seconds ?? DEFAULT_PROVIDER_CACHE_TTL_SECONDS,

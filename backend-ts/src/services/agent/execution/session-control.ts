@@ -41,7 +41,6 @@ export function createSessionControl(deps: SessionControlDeps): SessionControlAp
           task: taskItem.task,
           session_id: sessionId,
           user_id: request.user_id ?? null,
-          attachments: [],
         };
         if (taskItem.agent !== undefined) {
           executeRequest.agent = taskItem.agent;

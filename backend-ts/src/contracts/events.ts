@@ -95,6 +95,7 @@ export const ClientToServerEnvelopeSchema = z.discriminatedUnion("type", [
       selected_llm: z.string().optional(),
       attachments: z.array(UplinkAttachmentRefSchema).optional().default([]),
       request_id: z.string().optional(),
+      ui_context: z.record(z.string(), z.unknown()).nullish(),
     }),
   }),
   z.object({

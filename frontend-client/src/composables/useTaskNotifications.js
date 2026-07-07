@@ -48,7 +48,7 @@ export function buildTaskNotificationMessage(sessionId, event) {
     role: 'user',
     content,
     metadata: {
-      source: 'system.bg_notification',
+      source: 'background_notification',
       run_id: runId,
     },
     _notifications: notifications.map((item) => ({

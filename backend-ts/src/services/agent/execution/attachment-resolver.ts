@@ -49,32 +49,3 @@ export class AttachmentResolver {
     return { attachments: resolved };
   }
 }
-
-function escapeXmlAttr(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-/**
- * 生成发给 LLM 的附件清单（属性式 XML），作为 user message content 的运行时上下文注入，
- * 仅 LLM 可见、不落库。无附件返回空串。
- */
-export function formatAttachmentContext(attachments: ResolvedAttachment[]): string {
-  if (!attachments.length) {
-    return "";
-  }
-  const items = attachments.map((attachment) => {
-    const attrs = [
-      `file_id="${escapeXmlAttr(attachment.file_id)}"`,
-      `name="${escapeXmlAttr(attachment.original_name || attachment.stored_name || "attachment")}"`,
-      `mime="${escapeXmlAttr(attachment.mime || "unknown")}"`,
-      `size="${escapeXmlAttr(String(attachment.size))}"`,
-      `file_path="${escapeXmlAttr(attachment.stored_path)}"`,
-    ];
-    return `<attachment ${attrs.join(" ")}/>`;
-  });
-  return `<attachments>\n${items.join("\n")}\n</attachments>`;
-}

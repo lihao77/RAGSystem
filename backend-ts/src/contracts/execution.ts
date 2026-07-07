@@ -19,10 +19,17 @@ export const StreamExecuteRequestSchema = z.object({
   selected_llm: z.string().nullable().optional(),
   selectedLLM: z.string().nullable().optional(),
   attachments: z.array(AttachmentRefSchema).optional().default([]),
+  // 前端组件状态快照(ui_context extension 的 data):backend 透传 + 投影,结构由前端定义。
+  ui_context: z.record(z.string(), z.unknown()).nullish(),
 });
 
+// /execute(同步执行)不支持附件/ui_context:executeSynchronously 不解析附件也不投影 ui_context。
+// 显式声明为 never——客户端误传该字段 → ZodError(全局 handler 返回 400),而非静默 strip。
+// (omit 仅从类型移除字段,运行时 zod 默认仍 strip 多余 key 不报错;never 才是真拒绝。)
 export const ExecuteRequestSchema = StreamExecuteRequestSchema.extend({
   agent: z.string().nullable().optional(),
+  attachments: z.never().optional(),
+  ui_context: z.never().optional(),
 });
 
 export const CollaborateTaskSchema = z.object({
@@ -162,6 +169,8 @@ export interface ExecutionOverview {
   items: ExecutionTaskStatus[];
 }
 
-export function getSelectedLlm(request: StreamExecuteRequest): string {
+// 结构类型签名:只读 selected_llm/selectedLLM,兼容 StreamExecuteRequest / ExecuteRequest(omit 后无 attachments)。
+// 显式 undefined 适配 exactOptionalPropertyTypes(zod optional nullable 推断为 string | null | undefined)。
+export function getSelectedLlm(request: { selected_llm?: string | null | undefined; selectedLLM?: string | null | undefined }): string {
   return request.selected_llm ?? request.selectedLLM ?? "";
 }

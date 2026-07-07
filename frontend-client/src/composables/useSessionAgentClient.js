@@ -110,10 +110,21 @@ const createRequestId = () => {
   return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
-const buildUserMetadata = (attachments, metadata = {}) => ({
-  ...(attachments.length ? { attachments } : {}),
-  ...metadata,
-});
+// 写入侧拆分(对齐 backend launchers):image 进 metadata.extensions[image_attachment],file 留 metadata.attachments。
+// 乐观消息 metadata 须一次成型为新格式——applyMessageSaved 只补 id/seq/run_id,不重写结构,
+// 要等下次 loadSessionMessages 全量重建才自愈,期间若有逻辑读 msg.metadata.extensions 找 image 会扑空。
+const buildUserMetadata = (attachments, metadata = {}) => {
+  const images = attachments.filter((a) => a && a.kind === 'image');
+  const files = attachments.filter((a) => !a || a.kind !== 'image');
+  const base = { ...metadata };
+  if (files.length) base.attachments = files;
+  const existingExts = Array.isArray(base.extensions) ? base.extensions : [];
+  const exts = images.length
+    ? [...existingExts, { kind: 'image_attachment', data: { attachments: images } }]
+    : existingExts;
+  if (exts.length) base.extensions = exts;
+  return base;
+};
 
 const createUserMessage = (content, attachments, metadata = {}) => ({
   role: 'user',
@@ -909,7 +920,7 @@ export function useSessionAgentClient(deps) {
         }
 
         const hasNotificationMsg = messages.value.some(
-          msg => msg.role === 'user' && msg.metadata?.source === 'system.bg_notification' && msg._bgRunId === nextRunId
+          msg => msg.role === 'user' && msg.metadata?.source === 'background_notification' && msg._bgRunId === nextRunId
         );
         if (!hasNotificationMsg) {
           messages.value.push(deps.buildTaskNotificationMessage(sessionId, event));

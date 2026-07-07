@@ -19,12 +19,16 @@ import {
   microcompactHistoryMessages,
   resolveCompressionViewDetailed,
 } from "./history-view.js";
-import { enrichConversationImages } from "./attachment-image.js";
+import { projectConversationExtensions, type ProjectionRegistry } from "./extensions/index.js";
 
 export class RecentMessagesContextSource implements AgentContextSource {
   readonly name = "recent_messages";
 
-  constructor(private readonly history: ConversationHistoryPort, private readonly supportsVision: boolean = false) {}
+  constructor(
+    private readonly history: ConversationHistoryPort,
+    private readonly supportsVision: boolean = false,
+    private readonly extensionRegistry: ProjectionRegistry,
+  ) {}
 
   build(request: ResolvedAgentContextRequest): AgentContextContribution {
     const messages = this.history.getRecentMessages(request.sessionId, HISTORY_SCAN_LIMIT, request.threadKey);
@@ -55,8 +59,12 @@ export class RecentMessagesContextSource implements AgentContextSource {
       };
     }
     const conversation = messagesToConversation(microcompact.messages);
-    // 图片注入(组装层,压缩视图之后):user 消息的 image 附件读盘转 base64 注入 content。
-    enrichConversationImages(conversation, microcompact.messages, readAttachmentImage, this.supportsVision);
+    // extensions 投影(组装层,压缩视图之后):user 消息内容扩展(ui_context/image_attachment)
+    // 经 registry 投影进 content;image_attachment 复用 readAttachmentImage 读盘转 base64。
+    projectConversationExtensions(conversation, microcompact.messages, this.extensionRegistry, {
+      supportsVision: this.supportsVision,
+      readImage: readAttachmentImage,
+    });
     return { conversation, rawMessages: microcompact.messages, metadata };
   }
 }
@@ -64,7 +72,7 @@ export class RecentMessagesContextSource implements AgentContextSource {
 /** 附件图片 base64 缓存(storedPath → dataUrl;空串为读盘失败标记,避免重复读失败)。图片文件内容不变,多轮对话复用。 */
 const attachmentImageCache = new Map<string, string>();
 
-/** 读附件图片为 base64 data URL;读盘失败返回 null(由 enrichConversationImages 降级为文本占位)。结果缓存。 */
+/** 读附件图片为 base64 data URL;读盘失败返回 null(由 image_attachment projector 降级为文本占位)。结果缓存。 */
 function readAttachmentImage(storedPath: string, mime: string): string | null {
   if (attachmentImageCache.has(storedPath)) {
     const cached = attachmentImageCache.get(storedPath);

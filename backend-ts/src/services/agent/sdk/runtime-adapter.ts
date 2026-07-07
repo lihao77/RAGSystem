@@ -23,7 +23,7 @@ import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
 import { KernelEventPersister } from "./event-persister.js";
-import { AgentContextBuilder, DEFAULT_PROVIDER_CACHE_TTL_SECONDS, HISTORY_SCAN_LIMIT, ProviderCacheTracker, RecentMessagesContextSource, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
+import { AgentContextBuilder, createDefaultProjectionRegistry, DEFAULT_PROVIDER_CACHE_TTL_SECONDS, HISTORY_SCAN_LIMIT, ProviderCacheTracker, RecentMessagesContextSource, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import { MemoryIndexContextSource, isMemoryEnabled, memoryBaselineKey } from "../memory/index.js";
 import { registerGateHook } from "./gate-hook.js";
@@ -190,7 +190,8 @@ export async function executeRunWithSdk(
   const memorySources = isMemoryEnabled(input.agent.memory)
     ? [new MemoryIndexContextSource(historyPort, input.agent.memory, input.agent.agent_name, { dataRoot: deps.dataRoot })]
     : [];
-  const recentSource = new RecentMessagesContextSource(historyPort, profile.llmTiers.default?.provider.supports_vision === true);
+  const extensionRegistry = createDefaultProjectionRegistry();
+  const recentSource = new RecentMessagesContextSource(historyPort, profile.llmTiers.default?.provider.supports_vision === true, extensionRegistry);
   const cacheTracker = new ProviderCacheTracker(
     historyPort,
     profile.llmTiers.default?.provider.cache_ttl_seconds ?? DEFAULT_PROVIDER_CACHE_TTL_SECONDS,

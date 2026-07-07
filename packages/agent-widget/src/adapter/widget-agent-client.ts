@@ -198,6 +198,7 @@ export class WidgetAgentClient implements AgentClient {
       ...(options.selectedLlm ? { selectedLlm: options.selectedLlm } : {}),
       ...(options.attachments ? { attachments: options.attachments } : {}),
       requestId,
+      ...(options.uiContext ? { uiContext: options.uiContext } : {}),
     }));
     const result = await Promise.race([
       ackPromise,

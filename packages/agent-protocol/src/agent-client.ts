@@ -205,6 +205,8 @@ export interface SendOptions {
   attachments?: AttachmentRef[];
   /** 幂等键，对齐 send.request_id。 */
   requestId?: string;
+  /** 前端组件状态快照(对齐 events.ts task_submit 的 ui_context);widget 采集宿主状态用。 */
+  uiContext?: Record<string, unknown>;
 }
 
 /** send 结果，对齐 AgentRunStartResult（contracts/execution.ts）。 */

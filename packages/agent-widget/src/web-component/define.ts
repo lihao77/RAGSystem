@@ -78,6 +78,17 @@ export interface FabPosition {
   left?: number | string;
 }
 
+/** UI 状态快照条目(随 user 消息进上下文;对齐 backend ui_context extension 的 entry 形态)。 */
+export interface UiContextEntry {
+  key: string;
+  label?: string;
+  value: string;
+  detail?: string;
+}
+
+/** 宿主组件状态采集函数(发消息时调)。同步或异步;返回空数组=本条不带 ui_context。 */
+export type UiStateProvider = () => UiContextEntry[] | Promise<UiContextEntry[]>;
+
 /** mount 返回的元素句柄：HTMLElement + 运行时动态注册宿主工具（透出 client.registerTool）。 */
 export interface RagWidgetHandle extends HTMLElement {
   /** 运行时动态注册宿主工具；返回注销函数。client 未连接时缓存，握手时一并 tools.register。 */
@@ -103,6 +114,11 @@ export interface RagWidgetMountOptions {
   inputTools?: InputToolButton[];
   /** FAB 触发按钮位置（默认 {bottom:24,right:24} 右下）。 */
   fabPosition?: FabPosition;
+  /**
+   * 宿主组件状态采集函数（发消息时调，entries 随消息进上下文，agent 看得见宿主当前视图/选中/过滤）。
+   * widget 是同源 custom element，直接调宿主函数；返回空数组则本条不带 ui_context。
+   */
+  uiState?: UiStateProvider;
 }
 
 function resolveHost(options: RagWidgetMountOptions): HTMLElement {
@@ -132,6 +148,7 @@ export async function mount(options: RagWidgetMountOptions): Promise<RagWidgetHa
   props.hostTools = options.hostTools ?? [];
   props.inputTools = options.inputTools ?? [];
   props.fabPosition = options.fabPosition ?? { bottom: 24, right: 24 };
+  props.uiState = options.uiState;
   host.appendChild(el);
   return el;
 }

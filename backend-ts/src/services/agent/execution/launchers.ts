@@ -21,6 +21,7 @@ import { parseSlashCommand, type SlashCommandHandler } from "./slash-command-han
 import type { AgentRunEngine } from "./run-engine.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { AgentExecutionEventPublisher } from "./event-publisher.js";
+import type { MessageExtension } from "../context/extensions/kinds.js";
 
 export interface RollbackRetryInput {
   sessionId: string;
@@ -155,6 +156,14 @@ class AgentLaunchers {
     }
     const runtimeAgent = ready.agent;
 
+    // 写入侧拆分:image 进 metadata.extensions(image_attachment),file 留 metadata.attachments。
+    // 内容扩展(image/ui_context)统一落 extensions[];消息类型/追溯字段(type/command)留 metadata 顶层。
+    const imageAttachments = attachmentResolution.attachments.filter((a) => a.kind === "image");
+    const fileAttachments = attachmentResolution.attachments.filter((a) => a.kind !== "image");
+    const extensions: MessageExtension[] = [];
+    if (request.ui_context) extensions.push({ kind: "ui_context", data: request.ui_context });
+    if (imageAttachments.length) extensions.push({ kind: "image_attachment", data: { attachments: imageAttachments } });
+
     const started = this.runEngine.startRun({
       sessionId,
       userId: request.user_id ?? null,
@@ -168,7 +177,8 @@ class AgentLaunchers {
       persistUserMessage: {
         metadata: {
           ...(slashCommand ? { type: "command", command: slashCommand.name, command_mode: slashCommand.mode } : {}),
-          ...(attachmentResolution.attachments.length ? { attachments: attachmentResolution.attachments } : {}),
+          ...(fileAttachments.length ? { attachments: fileAttachments } : {}),
+          ...(extensions.length ? { extensions } : {}),
         },
       },
     });

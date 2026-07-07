@@ -147,6 +147,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
                     user_id: container.sessionApplication.getSession(sessionId)?.user_id ?? null,
                     selected_llm: payload.selected_llm,
                     attachments: payload.attachments,
+                    ui_context: payload.ui_context,
                   },
                   payload.request_id ?? randomUUID(),
                 )
