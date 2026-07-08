@@ -16,6 +16,7 @@ export const McpServerPayloadSchema = z
     auto_connect: z.boolean().optional().default(true),
     timeout: z.number().int().min(1).max(300).optional().default(30),
     risk_level: z.string().optional().default("medium"),
+    tool_risk_overrides: z.record(z.string()).optional().default({}),
   })
   .catchall(z.unknown());
 
@@ -54,6 +55,7 @@ export interface McpServerConfig {
   auto_connect: boolean;
   timeout: number;
   risk_level: string;
+  tool_risk_overrides: Record<string, string>;
   created_at?: string;
   updated_at?: string;
   [key: string]: unknown;
@@ -64,6 +66,52 @@ export interface McpServerStatus {
   tool_count: number;
   tools: unknown[];
   error_message: string | null;
+  resource_count: number;
+  prompt_count: number;
+  capability_faces?: McpCapabilityFaces;
+}
+
+/** MCP server 声明的能力面(getServerCapabilities 探测)。 */
+export interface McpCapabilityFaces {
+  tools?: boolean;
+  resources?: boolean;
+  prompts?: boolean;
+  logging?: boolean;
+}
+
+/** MCP resource(只读资源,如文件/数据)。 */
+export interface McpResource {
+  uri: string;
+  name: string;
+  description?: string;
+  mimeType?: string;
+  size?: number;
+}
+
+/** MCP resource 读取内容(text 或 base64 blob)。 */
+export interface McpResourceContent {
+  uri: string;
+  text?: string;
+  blob?: string;
+}
+
+/** MCP prompt(参数化提示模板)。 */
+export interface McpPrompt {
+  name: string;
+  description?: string;
+  arguments?: McpPromptArgument[];
+}
+
+export interface McpPromptArgument {
+  name: string;
+  description?: string;
+  required?: boolean;
+}
+
+/** MCP prompt 解析后的消息序列。 */
+export interface McpPromptMessage {
+  role: string;
+  content: unknown;
 }
 
 export type McpServerListItem = McpServerConfig & McpServerStatus;

@@ -33,9 +33,21 @@ export function parseToolPayload(node) {
   }
 }
 
+/** 解析 mcp__server__tool 工具名(对标后端 mcp-service.parseMcpToolName)。 */
+function parseMcpToolName(name) {
+  const n = String(name || '')
+  if (!n.startsWith('mcp__')) return null
+  const rest = n.slice(5)
+  const sep = rest.indexOf('__')
+  if (sep <= 0 || sep >= rest.length - 2) return null
+  return { server: rest.slice(0, sep), tool: rest.slice(sep + 2) }
+}
+
 export function getToolDisplayName(nodeOrName, maybeArgs = null) {
   const name = typeof nodeOrName === 'string' ? nodeOrName : (nodeOrName?.tool_name || '')
   const args = maybeArgs || (typeof nodeOrName === 'string' ? {} : parseToolPayload(nodeOrName).args)
+  const mcp = parseMcpToolName(name)
+  if (mcp) return `${mcp.tool} (${mcp.server})`
   if (TOOL_DISPLAY_NAMES[name]) return TOOL_DISPLAY_NAMES[name]
   const tpl = SKILL_TOOL_TEMPLATES[name]
   if (tpl) return tpl(args)
@@ -44,6 +56,7 @@ export function getToolDisplayName(nodeOrName, maybeArgs = null) {
 
 export function getToolInspectorLabel(toolName = '') {
   const name = String(toolName || '')
+  if (parseMcpToolName(name)) return 'MCP 工具详情'
   if (name === 'execute_bash') return '命令详情'
   if (name === 'execute_code') return '代码详情'
   if (FILE_TOOLS.includes(name)) return '文件详情'
@@ -59,6 +72,7 @@ export function getToolInspectorLabel(toolName = '') {
 
 export function getToolIconKind(toolName = '') {
   const name = String(toolName || '').toLowerCase()
+  if (parseMcpToolName(name)) return 'mcp'
   if (name === 'request_user_input') return 'input'
   if (name === 'call_agent') return 'agentCall'
   if (name.includes('skill')) return 'skill'
@@ -81,6 +95,12 @@ export function getToolSubtitle(node, options = {}) {
   const errorText = normalizeStatus(node.status) === 'error' ? getErrorText(payload, preview) : ''
 
   if (errorText) return truncateText(`失败: ${errorText}`, 58)
+  const mcpName = parseMcpToolName(name)
+  if (mcpName) {
+    if (running) return `调用 ${mcpName.server}/${mcpName.tool}`
+    const mcpSummary = pickString(payload?.summary, content?.summary, content?.message, payload?.message)
+    return mcpSummary ? truncateText(mcpSummary, 42) : `${mcpName.server}/${mcpName.tool}`
+  }
   if (name === 'call_agent') return previewCallAgent(node, args, content, running)
   if (name === 'request_user_input') return previewUserInput(args, metadata, running)
   if (name === 'execute_bash') return previewBash(args, content, metadata, running)
@@ -145,6 +165,13 @@ function buildToolMeta(node, args, content, metadata, payload) {
   const name = node?.tool_name || ''
   const meta = []
   const add = (label, value) => pushMeta(meta, label, value)
+
+  const mcpName = parseMcpToolName(name)
+  if (mcpName) {
+    add('MCP Server', mcpName.server)
+    add('工具', mcpName.tool)
+    return meta
+  }
 
   if (name === 'execute_bash') {
     add('工作目录', compactPath(pickString(metadata.working_dir, args.working_dir)))
@@ -280,6 +307,13 @@ function buildToolSummarySections(node, args, content, metadata, payload) {
 function buildToolInputSections(node, args) {
   const name = node?.tool_name || ''
   const sections = []
+
+  if (parseMcpToolName(name)) {
+    if (args && Object.keys(args).length > 0) {
+      sections.push(section('input-mcp-args', '参数', formatContent(args, 1600), 'code'))
+    }
+    return compactSections(sections)
+  }
 
   if (name === 'request_user_input') {
     sections.push({
@@ -424,6 +458,21 @@ function buildToolOutputSections(node, args, content, metadata, payload) {
   const name = node?.tool_name || ''
   const sections = []
   const summary = pickString(payload?.summary, content?.summary, content?.message, payload?.message)
+
+  if (parseMcpToolName(name)) {
+    if (typeof content === 'string' && content) {
+      sections.push(section('output-mcp-text', '结果', content, 'code'))
+    } else if (content && typeof content === 'object') {
+      if (content.text) sections.push(section('output-mcp-text', '文本', content.text, 'code'))
+      if (Array.isArray(content.content)) {
+        sections.push(section('output-mcp-content', '内容', formatContent(content.content, 1800), 'code'))
+      } else {
+        sections.push(section('output-mcp-json', '结构化结果', formatContent(content, 1800), 'code'))
+      }
+    }
+    sections.push(section('output-mcp-summary', '结果摘要', summary))
+    return compactSections(sections)
+  }
 
   if (name === 'request_user_input') {
     const answer = pickString(content, node.result_preview, node.result)

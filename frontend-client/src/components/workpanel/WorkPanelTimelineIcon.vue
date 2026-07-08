@@ -87,6 +87,14 @@
       <path d="M10 13l4 3" />
     </template>
 
+    <template v-else-if="kind === 'mcp'">
+      <path d="M9 3v4" />
+      <path d="M15 3v4" />
+      <path d="M5 7h14" />
+      <path d="M5 7v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7" />
+      <path d="M12 19v2" />
+    </template>
+
     <template v-else>
       <circle cx="12" cy="12" r="7" />
       <path d="M12 8v4l3 2" />

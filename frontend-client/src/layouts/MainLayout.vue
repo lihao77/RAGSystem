@@ -160,6 +160,25 @@
     </div>
     <CommandPalette />
     <HotkeysHelp />
+
+    <Dialog :open="promptDialogVisible" @update:open="(v) => { if (!v) promptDialogVisible = false }">
+      <DialogContent class="max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>{{ activePrompt?.name }}</DialogTitle>
+          <p class="text-sm text-muted-foreground">{{ activePrompt?.description }}</p>
+        </DialogHeader>
+        <div v-if="activePrompt" class="mcp-prompt-args">
+          <label v-for="arg in activePrompt.arguments" :key="arg.name" class="field">
+            <span>{{ arg.name }}<em v-if="arg.required">*</em></span>
+            <Input v-model="promptArgs[arg.name]" :placeholder="arg.description || ''" />
+          </label>
+        </div>
+        <DialogFooter>
+          <Button size="sm" @click="promptDialogVisible = false">取消</Button>
+          <Button size="sm" variant="default" @click="submitPromptArgs">生成内容</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
 
@@ -181,6 +200,10 @@ import { useCommandPalette } from '../composables/useCommandPalette.js';
 import HotkeysHelp from '../components/HotkeysHelp.vue';
 import { useGlobalHotkeys } from '../composables/useGlobalHotkeys.js';
 import AdminLayout from './AdminLayout.vue';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
+import { Input } from '../components/ui/input';
+import { getMCPServerPrompt } from '../api/mcpService';
+import { useMcpStore } from '../stores/mcp.js';
 
 const router = useRouter();
 const route = useRoute();
@@ -509,11 +532,57 @@ watch(history, (items) => {
   })));
 }, { deep: false });
 
+const promptDialogVisible = ref(false);
+const activePrompt = ref(null);
+const promptArgs = ref({});
+
+const mcpStore = useMcpStore();
+// MCP prompts 走 store:MCPManager 的 server 变更触发 store.reloadPrompts,这里 watch 自动重注册命令面板。
+watch(() => mcpStore.prompts, (prompts) => {
+  setCommandDynamic('mcp-prompts', (prompts || []).map((p) => ({
+    id: `mcp-prompt-${p.server_name}-${p.name}`,
+    title: p.name,
+    subtitle: `MCP · ${p.server_name}`,
+    section: '提示词',
+    keywords: p.description || '',
+    action: () => useMcpPrompt(p),
+  })));
+}, { immediate: true });
+
+function useMcpPrompt(prompt) {
+  if (!prompt.arguments?.length) {
+    fetchAndCopyPrompt(prompt.server_name, prompt.name, {});
+    return;
+  }
+  activePrompt.value = prompt;
+  promptArgs.value = Object.fromEntries((prompt.arguments || []).map((a) => [a.name, '']));
+  promptDialogVisible.value = true;
+}
+
+async function fetchAndCopyPrompt(serverName, name, args) {
+  try {
+    const res = await getMCPServerPrompt(serverName, name, args);
+    const messages = res.data?.messages || [];
+    const text = messages.map((m) => typeof m.content === 'string' ? m.content : JSON.stringify(m.content)).join('\n\n').trim();
+    if (!text) { toast.warning('该提示词未返回内容'); return; }
+    await navigator.clipboard.writeText(text);
+    toast.success(`提示词 "${name}" 内容已复制,粘贴到对话框发送`);
+  } catch { /* toast 已由 http 层处理 */ }
+}
+
+async function submitPromptArgs() {
+  const prompt = activePrompt.value;
+  if (!prompt) return;
+  promptDialogVisible.value = false;
+  await fetchAndCopyPrompt(prompt.server_name, prompt.name, { ...promptArgs.value });
+}
+
 onMounted(() => {
   checkMobile();
   window.addEventListener('resize', checkMobile);
   loadActiveTeam();
   loadRecentSessions(true);
+  mcpStore.reloadPrompts();
   installCommandPaletteHotkey();
   installGlobalHotkeys();
 });
@@ -525,6 +594,10 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.mcp-prompt-args { display: flex; flex-direction: column; gap: var(--spacing-sm); }
+.mcp-prompt-args .field { display: flex; flex-direction: column; gap: 4px; font-size: var(--font-size-sm); }
+.mcp-prompt-args .field span { color: var(--color-text-secondary); }
+.mcp-prompt-args .field em { color: #dc2626; font-style: normal; margin-left: 2px; }
 .history-list-group {
   position: relative;
 }

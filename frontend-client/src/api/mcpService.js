@@ -52,6 +52,26 @@ export async function getMCPServerTools(serverName) {
   return http.get(`${API_BASE}/servers/${encodeURIComponent(serverName)}/tools`);
 }
 
+export async function listMCPServerResources(serverName) {
+  return http.get(`${API_BASE}/servers/${encodeURIComponent(serverName)}/resources`);
+}
+
+export async function readMCPServerResource(serverName, uri) {
+  return http.post(`${API_BASE}/servers/${encodeURIComponent(serverName)}/resources/read`, { uri });
+}
+
+export async function listMCPServerPrompts(serverName) {
+  return http.get(`${API_BASE}/servers/${encodeURIComponent(serverName)}/prompts`);
+}
+
+export async function getMCPServerPrompt(serverName, name, args) {
+  return http.post(`${API_BASE}/servers/${encodeURIComponent(serverName)}/prompts/get`, { name, ...(args ? { arguments: args } : {}) });
+}
+
+export async function listAllMCPPrompts() {
+  return http.get(`${API_BASE}/prompts`);
+}
+
 export default {
   listMCPServers,
   addMCPServer,
@@ -63,4 +83,9 @@ export default {
   disconnectMCPServer,
   testMCPServer,
   getMCPServerTools,
+  listMCPServerResources,
+  readMCPServerResource,
+  listMCPServerPrompts,
+  getMCPServerPrompt,
+  listAllMCPPrompts,
 };

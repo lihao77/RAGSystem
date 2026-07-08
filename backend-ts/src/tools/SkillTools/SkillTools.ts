@@ -209,11 +209,14 @@ function omitBackgroundParam(definition: RuntimeToolDefinition, allowBackground:
  * 渲染可见 Skill 清单（activate_skill 的 extended_usage）。
  * 原本由 SDK 内核 formatSkillsDescription 产出，现下沉为 skill 工具自描述。
  */
-function formatSkillsSelfDescription(skills: { name: string; description: string }[]): string {
+function formatSkillsSelfDescription(skills: { name: string; description: string; requires?: { mcp_servers?: string[] } }[]): string {
   const lines = ["可用 Skills：", ""];
   for (const skill of skills) {
     lines.push(`### Skill: ${skill.name}`);
     lines.push(`**适用场景**: ${skill.description}`);
+    if (skill.requires?.mcp_servers?.length) {
+      lines.push(`**需要 MCP**: ${skill.requires.mcp_servers.join(", ")}`);
+    }
     lines.push("");
   }
   return lines.join("\n").trimEnd();

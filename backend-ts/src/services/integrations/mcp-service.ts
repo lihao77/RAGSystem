@@ -11,7 +11,13 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import YAML from "yaml";
 
 import type {
+  McpCapabilityFaces,
+  McpPrompt,
+  McpPromptArgument,
+  McpPromptMessage,
   McpRegistryInstall,
+  McpResource,
+  McpResourceContent,
   McpServerConfig,
   McpServerCreate,
   McpServerListItem,
@@ -165,7 +171,6 @@ export class McpService {
     if (!existing) {
       throw new McpServiceError(`MCP Server not found: ${serverName}`, 404);
     }
-    this.disconnectServer(serverName);
     const merged = normalizeServerConfig({
       ...existing,
       ...payload,
@@ -175,9 +180,30 @@ export class McpService {
       merged.created_at = existing.created_at;
     }
     merged.updated_at = new Date().toISOString();
+    // 连接相关字段(transport/command/args/env/url/headers)变更才断开重连;
+    // 仅改 risk_level/tool_risk_overrides/display_name 等非连接字段时保留现有连接(避免无谓重连)。
+    const connectionChanged = isConnectionChanged(existing, merged);
     this.servers.set(serverName, merged);
     this.saveServersToDisk();
-    await this.connectIfAutoEnabled(serverName);
+    if (connectionChanged) {
+      this.disconnectServer(serverName);
+      await this.connectIfAutoEnabled(serverName);
+    } else {
+      // 非连接字段变更:刷新已连接 state 的 config,让 risk_level/tool_risk_overrides 等立即生效
+      // (state.config 是连接时的快照,不刷新则 getServerStatus/listServerTools/createMcpTools 仍读旧值)。
+      const state = this.connections.get(serverName);
+      if (state) {
+        state.config = cloneServer(merged);
+      }
+      if (!merged.enabled && existing.enabled) {
+        this.disconnectServer(serverName);
+      } else if (merged.enabled && merged.auto_connect) {
+        const status = this.getServerStatus(serverName).status;
+        if (status !== "connected" && status !== "connecting") {
+          await this.connectIfAutoEnabled(serverName);
+        }
+      }
+    }
     return this.getServerStatus(serverName);
   }
 
@@ -219,6 +245,9 @@ export class McpService {
       errorMessage: null,
       tools: [],
       client: null,
+      capabilities: undefined,
+      resources: [],
+      prompts: [],
     };
     this.connections.set(serverName, state);
 
@@ -235,6 +264,9 @@ export class McpService {
       }
       state.client = client;
       state.tools = client.tools;
+      state.capabilities = client.getServerCapabilities();
+      state.resources = await client.listResources();
+      state.prompts = await client.listPrompts();
       state.status = "connected";
       state.errorMessage = null;
       return this.getServerStatus(serverName);
@@ -242,6 +274,9 @@ export class McpService {
       state.status = "error";
       state.errorMessage = formatError(error);
       state.tools = [];
+      state.resources = [];
+      state.prompts = [];
+      state.capabilities = undefined;
       state.client?.close();
       state.client = null;
       if (error instanceof McpServiceError) {
@@ -287,12 +322,54 @@ export class McpService {
     };
   }
 
+  listServerResources(serverName: string): { server_name: string; resource_count: number; resources: McpResource[] } {
+    this.ensureServer(serverName);
+    const state = this.connections.get(serverName);
+    const resources = state?.resources ?? [];
+    return { server_name: serverName, resource_count: resources.length, resources };
+  }
+
+  async readResource(serverName: string, uri: string): Promise<McpResourceContent[]> {
+    const state = this.connections.get(serverName);
+    if (!state?.client || state.status !== "connected") {
+      throw new McpServiceError(`MCP Server '${serverName}' 未连接`, 400);
+    }
+    return state.client.readResource(uri);
+  }
+
+  listServerPrompts(serverName: string): { server_name: string; prompt_count: number; prompts: McpPrompt[] } {
+    this.ensureServer(serverName);
+    const state = this.connections.get(serverName);
+    const prompts = state?.prompts ?? [];
+    return { server_name: serverName, prompt_count: prompts.length, prompts };
+  }
+
+  async getPrompt(serverName: string, name: string, args?: Record<string, unknown>): Promise<McpPromptMessage[]> {
+    const state = this.connections.get(serverName);
+    if (!state?.client || state.status !== "connected") {
+      throw new McpServiceError(`MCP Server '${serverName}' 未连接`, 400);
+    }
+    return state.client.getPrompt(name, args);
+  }
+
   listAllTools(): { tool_count: number; tools: RuntimeMcpToolDefinition[] } {
     const tools = Array.from(this.connections.keys()).flatMap((serverName) => this.getRuntimeToolsForServer(serverName));
     return {
       tool_count: tools.length,
       tools,
     };
+  }
+
+  /** 聚合所有已连接 server 的 prompts(供命令面板注册动态命令)。 */
+  listAllPrompts(): { prompt_count: number; prompts: Array<McpPrompt & { server_name: string }> } {
+    const prompts: Array<McpPrompt & { server_name: string }> = [];
+    for (const [serverName, state] of this.connections) {
+      if (state.status !== "connected") continue;
+      for (const prompt of state.prompts ?? []) {
+        prompts.push({ ...prompt, server_name: serverName });
+      }
+    }
+    return { prompt_count: prompts.length, prompts };
   }
 
   listRuntimeTools(enabledServers: string[] = []): RuntimeMcpToolDefinition[] {
@@ -338,8 +415,11 @@ export class McpService {
     return {
       status: state.status,
       tool_count: state.tools.length,
-      tools: state.tools.map((tool) => toRuntimeMcpTool(serverName, tool, state.config.risk_level)),
+      tools: state.tools.map((tool) => toRuntimeMcpTool(serverName, tool, state.config.risk_level, state.config.tool_risk_overrides)),
       error_message: state.errorMessage,
+      resource_count: state.resources.length,
+      prompt_count: state.prompts.length,
+      ...(state.capabilities ? { capability_faces: state.capabilities } : {}),
     };
   }
 
@@ -370,7 +450,7 @@ export class McpService {
     if (!state || state.status !== "connected") {
       return [];
     }
-    return state.tools.map((tool) => toRuntimeMcpTool(serverName, tool, state.config.risk_level));
+    return state.tools.map((tool) => toRuntimeMcpTool(serverName, tool, state.config.risk_level, state.config.tool_risk_overrides));
   }
 
   private loadServersFromDisk(): void {
@@ -469,6 +549,80 @@ class SdkMcpClient implements McpClient {
       // Best-effort teardown; errors here are not actionable for callers.
     });
   }
+
+  getServerCapabilities(): McpCapabilityFaces | undefined {
+    const caps = this.client.getServerCapabilities();
+    if (!caps) return undefined;
+    return {
+      tools: Boolean(caps.tools),
+      resources: Boolean(caps.resources),
+      prompts: Boolean(caps.prompts),
+      logging: Boolean(caps.logging),
+    };
+  }
+
+  async listResources(): Promise<McpResource[]> {
+    const caps = this.client.getServerCapabilities();
+    if (!caps?.resources) return [];
+    try {
+      const result = await this.client.listResources(undefined, { timeout: this.timeoutMs });
+      const resources = isRecord(result) && Array.isArray(result.resources) ? result.resources : [];
+      return resources.flatMap((r): McpResource[] => {
+        if (!isRecord(r) || typeof r.uri !== "string" || typeof r.name !== "string") return [];
+        const item: McpResource = { uri: r.uri, name: r.name };
+        if (typeof r.description === "string") item.description = r.description;
+        if (typeof r.mimeType === "string") item.mimeType = r.mimeType;
+        if (typeof r.size === "number") item.size = r.size;
+        return [item];
+      });
+    } catch (error) {
+      console.warn("[MCP] listResources failed:", error);
+      return [];
+    }
+  }
+
+  async readResource(uri: string): Promise<McpResourceContent[]> {
+    const result = await this.client.readResource({ uri }, { timeout: this.timeoutMs }) as unknown;
+    const contents = isRecord(result) && Array.isArray(result.contents) ? result.contents : [];
+    return contents.flatMap((c): McpResourceContent[] => {
+      if (!isRecord(c) || typeof c.uri !== "string") return [];
+      const item: McpResourceContent = { uri: c.uri };
+      if (typeof c.text === "string") item.text = c.text;
+      if (typeof c.blob === "string") item.blob = c.blob;
+      return [item];
+    });
+  }
+
+  async listPrompts(): Promise<McpPrompt[]> {
+    const caps = this.client.getServerCapabilities();
+    if (!caps?.prompts) return [];
+    try {
+      const result = await this.client.listPrompts(undefined, { timeout: this.timeoutMs });
+      const prompts = isRecord(result) && Array.isArray(result.prompts) ? result.prompts : [];
+      return prompts.flatMap((p): McpPrompt[] => {
+        if (!isRecord(p) || typeof p.name !== "string") return [];
+        const item: McpPrompt = { name: p.name };
+        if (typeof p.description === "string") item.description = p.description;
+        if (Array.isArray(p.arguments)) item.arguments = p.arguments.map(normalizePromptArgument);
+        return [item];
+      });
+    } catch (error) {
+      console.warn("[MCP] listPrompts failed:", error);
+      return [];
+    }
+  }
+
+  async getPrompt(name: string, args?: Record<string, unknown>): Promise<McpPromptMessage[]> {
+    const result = await this.client.getPrompt(
+      { name, ...(args ? { arguments: args as Record<string, string> } : {}) },
+      { timeout: this.timeoutMs },
+    ) as unknown;
+    const messages = isRecord(result) && Array.isArray(result.messages) ? result.messages : [];
+    return messages.flatMap((m): McpPromptMessage[] => {
+      if (!isRecord(m) || typeof m.role !== "string") return [];
+      return [{ role: m.role, content: m.content }];
+    });
+  }
 }
 
 function createMcpTransport(config: McpServerConfig): { transport: Transport; stderr: Stream | null } {
@@ -511,6 +665,11 @@ interface McpClient {
   tools: McpTool[];
   connect(): Promise<void>;
   callTool(toolName: string, args: Record<string, unknown>): Promise<Record<string, unknown>>;
+  getServerCapabilities(): McpCapabilityFaces | undefined;
+  listResources(): Promise<McpResource[]>;
+  readResource(uri: string): Promise<McpResourceContent[]>;
+  listPrompts(): Promise<McpPrompt[]>;
+  getPrompt(name: string, args?: Record<string, unknown>): Promise<McpPromptMessage[]>;
   close(): void;
 }
 
@@ -521,12 +680,25 @@ interface McpConnectionState {
   errorMessage: string | null;
   tools: McpTool[];
   client: McpClient | null;
+  capabilities: McpCapabilityFaces | undefined;
+  resources: McpResource[];
+  prompts: McpPrompt[];
 }
 
 interface McpTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  annotations?: McpToolAnnotations;
+}
+
+/** MCP 2025 规范的 tool.annotations——server 自声明的行为 hint(SDK 规范明示 hint 不可信源)。 */
+interface McpToolAnnotations {
+  title?: string;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
 }
 
 export interface RuntimeMcpToolDefinition {
@@ -538,6 +710,9 @@ export interface RuntimeMcpToolDefinition {
   riskLevel: RiskLevel;
   server_name: string;
   original_tool_name: string;
+  annotations?: McpToolAnnotations;
+  usage_contract?: string[];
+  returns?: { description: string; shape: Record<string, unknown> };
 }
 
 function normalizeServerConfig(payload: Record<string, unknown>): McpServerConfig {
@@ -559,6 +734,7 @@ function normalizeServerConfig(payload: Record<string, unknown>): McpServerConfi
     auto_connect: typeof payload.auto_connect === "boolean" ? payload.auto_connect : true,
     timeout: readPositiveInt(payload.timeout, 30),
     risk_level: String(payload.risk_level ?? "medium"),
+    tool_risk_overrides: stringRecord(payload.tool_risk_overrides),
   };
 
   if (transport === "stdio" && !config.command?.trim()) {
@@ -571,12 +747,24 @@ function normalizeServerConfig(payload: Record<string, unknown>): McpServerConfi
   return config;
 }
 
+/** 判断两次配置的连接相关字段是否变更(决定是否需要断开重连)。 */
+function isConnectionChanged(a: McpServerConfig, b: McpServerConfig): boolean {
+  return a.transport !== b.transport
+    || a.command !== b.command
+    || a.url !== b.url
+    || JSON.stringify(a.args) !== JSON.stringify(b.args)
+    || JSON.stringify(a.env) !== JSON.stringify(b.env)
+    || JSON.stringify(a.headers) !== JSON.stringify(b.headers);
+}
+
 function defaultStatus(): McpServerStatus {
   return {
     status: "not_loaded",
     tool_count: 0,
     tools: [],
     error_message: "",
+    resource_count: 0,
+    prompt_count: 0,
   };
 }
 
@@ -608,6 +796,7 @@ function copyExtraFields(config: McpServerConfig, payload: Record<string, unknow
     "auto_connect",
     "timeout",
     "risk_level",
+    "tool_risk_overrides",
   ]);
   for (const [key, value] of Object.entries(payload)) {
     if (!known.has(key)) {
@@ -628,73 +817,12 @@ function resolveConfigPath(options: { dataRoot?: string | undefined; configPath?
   return path.join(path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem")), MCP_SERVERS_RELATIVE_PATH);
 }
 
-function resolveSpawnCommand(command: string, args: string[]): { command: string; args: string[]; options: { shell?: boolean } } {
-  if (process.platform !== "win32" || path.isAbsolute(command)) {
-    return { command, args, options: {} };
-  }
-  const found = findWindowsCommand(command);
-  if (found) {
-    const npmShim = resolveNpmCmdShim(found);
-    if (npmShim) {
-      return { command: npmShim.command, args: [...npmShim.args, ...args], options: {} };
-    }
-    const extension = path.extname(found).toLowerCase();
-    if (extension === ".cmd" || extension === ".bat") {
-      return { command: process.env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", `"${found}" ${args.map(quoteCmdArg).join(" ")}`], options: {} };
-    }
-    return { command: found, args, options: {} };
-  }
-  return { command, args, options: { shell: true } };
-}
-
-function findWindowsCommand(command: string): string | null {
-  const pathEntries = String(process.env.PATH ?? "")
-    .split(path.delimiter)
-    .map((item) => item.trim())
-    .filter(Boolean);
-  const extensions = String(process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD")
-    .split(";")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  const preferredExtensions = [".CMD", ".EXE", ".BAT", ".COM"];
-  const candidates = path.extname(command)
-    ? [command]
-    : [
-        ...preferredExtensions.map((extension) => `${command}${extension.toLowerCase()}`),
-        ...preferredExtensions.map((extension) => `${command}${extension.toUpperCase()}`),
-        ...extensions.map((extension) => `${command}${extension.toLowerCase()}`),
-        ...extensions.map((extension) => `${command}${extension.toUpperCase()}`),
-        command,
-      ];
-  for (const entry of pathEntries) {
-    for (const candidate of candidates) {
-      const fullPath = path.join(entry, candidate);
-      if (fs.existsSync(fullPath)) {
-        return fullPath;
-      }
-    }
-  }
-  return null;
-}
-
-function resolveNpmCmdShim(commandPath: string): { command: string; args: string[] } | null {
-  if (path.extname(commandPath).toLowerCase() !== ".cmd") {
-    return null;
-  }
-  const baseDir = path.dirname(commandPath);
-  const packageMatch = fs.readFileSync(commandPath, "utf8").match(/node_modules\\([^"\r\n]+?\\bin\\[^"\r\n]+?\.js)/i);
-  if (!packageMatch?.[1]) {
-    return null;
-  }
-  const nodePath = path.join(baseDir, "node.exe");
-  return {
-    command: fs.existsSync(nodePath) ? nodePath : "node",
-    args: [path.join(baseDir, "node_modules", packageMatch[1])],
-  };
-}
-
-function quoteCmdArg(value: string): string {
-  return `"${value.replace(/"/g, '\\"')}"`;
+function resolveSpawnCommand(command: string, args: string[]): { command: string; args: string[] } {
+  // SDK 的 StdioClientTransport 用 cross-spawn(shell:false),能处理 Windows .cmd + 含空格路径,
+  // 直接透传 command/args 即可。早期手写 StdioMcpClient 需预解析(把 npx.cmd 拆成 node+npx-cli.js),
+  // 但预解析产生的含空格完整路径(如 D:\Program Files\nodejs\node.exe)反被 cross-spawn 按空格分割失败;
+  // cross-spawn 接管后预解析多余且有害,直接传 command 让它自行解析 .cmd/PATH。
+  return { command, args };
 }
 
 function normalizeMcpTools(value: unknown): McpTool[] {
@@ -707,25 +835,89 @@ function normalizeMcpTools(value: unknown): McpTool[] {
     if (!name) {
       return [];
     }
-    return [{
+    const result: McpTool = {
       name,
       description: typeof tool.description === "string" ? tool.description : "",
       inputSchema: isRecord(tool.inputSchema) ? tool.inputSchema : { type: "object", properties: {} },
-    }];
+    };
+    const annotations = readMcpToolAnnotations(tool.annotations);
+    if (annotations) {
+      result.annotations = annotations;
+    }
+    return [result];
   });
 }
 
-function toRuntimeMcpTool(serverName: string, tool: McpTool, riskLevel: string): RuntimeMcpToolDefinition {
-  return {
+/** 提取 MCP tool.annotations(只保留已知 hint 字段,忽略其他)。 */
+function readMcpToolAnnotations(value: unknown): McpToolAnnotations | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const annotations: McpToolAnnotations = {};
+  if (typeof value.title === "string" && value.title.trim()) {
+    annotations.title = value.title.trim();
+  }
+  if (typeof value.readOnlyHint === "boolean") {
+    annotations.readOnlyHint = value.readOnlyHint;
+  }
+  if (typeof value.destructiveHint === "boolean") {
+    annotations.destructiveHint = value.destructiveHint;
+  }
+  if (typeof value.idempotentHint === "boolean") {
+    annotations.idempotentHint = value.idempotentHint;
+  }
+  if (typeof value.openWorldHint === "boolean") {
+    annotations.openWorldHint = value.openWorldHint;
+  }
+  return Object.keys(annotations).length ? annotations : undefined;
+}
+
+function normalizePromptArgument(value: unknown): McpPromptArgument {
+  const item = isRecord(value) ? value : {};
+  const arg: McpPromptArgument = { name: typeof item.name === "string" ? item.name : "" };
+  if (typeof item.description === "string") arg.description = item.description;
+  if (typeof item.required === "boolean") arg.required = item.required;
+  return arg;
+}
+
+/** MCP 工具通用自描述(下沉到数据源,SDK Tool 与 HTTP /tools 共用,消除 routes 层重复)。 */
+const MCP_TOOL_USAGE_CONTRACT = [
+  "先根据 description 和 parameters 判断该 MCP 工具适用场景",
+  "返回结构可能不固定,链式传递时优先使用工具返回的 content",
+  "若结果是大对象,先读取关键信息再决定是否继续传递给下游工具",
+];
+
+const MCP_TOOL_RETURNS = {
+  description: "返回结构由 MCP Server 定义,可能因工具而异",
+  shape: {
+    content: "server_defined",
+    metadata: "server_defined",
+  },
+};
+
+function toRuntimeMcpTool(serverName: string, tool: McpTool, riskLevel: string, toolRiskOverrides?: Record<string, string>): RuntimeMcpToolDefinition {
+  const annotations = tool.annotations;
+  // 风险优先级:per-tool 覆盖 > server 级 risk_level;annotations 是 hint(SDK 明示不可信),
+  // 只往保守方向修正:destructiveHint=true 提升到 high;false 不降级(避免不可信 server 谎报)。
+  const overrideRisk = toolRiskOverrides?.[tool.name];
+  const baseRisk = overrideRisk ? normalizeRiskLevel(overrideRisk) : normalizeRiskLevel(riskLevel);
+  const effectiveRisk: RiskLevel = annotations?.destructiveHint === true && baseRisk !== "high" ? "high" : baseRisk;
+  const result: RuntimeMcpToolDefinition = {
     name: buildMcpToolName(serverName, tool.name),
     description: `[MCP:${serverName}] ${tool.description}`.trim(),
     parameters: tool.inputSchema,
     source: "mcp",
     category: "mcp",
-    riskLevel: normalizeRiskLevel(riskLevel),
+    riskLevel: effectiveRisk,
     server_name: serverName,
     original_tool_name: tool.name,
+    usage_contract: MCP_TOOL_USAGE_CONTRACT,
+    returns: MCP_TOOL_RETURNS,
   };
+  if (annotations) {
+    result.annotations = annotations;
+  }
+  return result;
 }
 
 function buildMcpToolName(serverName: string, toolName: string): string {

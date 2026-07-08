@@ -33,6 +33,13 @@ export interface SkillInfo {
   sourceLabel: string;
   isAutoInjectCandidate: boolean;
   originRoot: string;
+  requires?: SkillRequires;
+}
+
+/** Skill 声明的能力依赖(走官方 Agent Skills 规范的 metadata 扩展字段,逗号分隔字符串)。 */
+export interface SkillRequires {
+  mcp_servers?: string[];
+  tools?: string[];
 }
 
 export interface SkillListItem {
@@ -153,11 +160,19 @@ export class SkillToolService {
         toolName,
       );
     }
+    // 校验 Skill 声明的 MCP 依赖是否在当前 Agent 启用清单内(缺失不阻断,但在结果里提示 agent)。
+    const missingMcpServers = resolveMissingMcpServers(skill.requires, agent);
     return successResult(
       {
         skill_name: skill.name,
         description: skill.description,
         main_content: skill.content,
+        ...(missingMcpServers.length
+          ? {
+              missing_mcp_servers: missingMcpServers,
+              warning: `本 Skill 声明需要 MCP server: ${missingMcpServers.join(", ")},但当前 Agent 未启用,依赖该 server 的步骤可能失败。`,
+            }
+          : {}),
       },
       {
         summary: `Skill '${skill.name}' 已激活，加载主文件 ${skill.content.length} 字符`,
@@ -168,6 +183,7 @@ export class SkillToolService {
           status: "activated",
           source_type: skill.sourceType,
           source_label: skill.sourceLabel,
+          ...(missingMcpServers.length ? { missing_mcp_servers: missingMcpServers } : {}),
         },
         toolName,
       },
@@ -683,7 +699,7 @@ function parseSkill(skillDir: string, spec: SkillSourceSpec): SkillInfo | null {
   if (!name || !description) {
     return null;
   }
-  return {
+  const info: SkillInfo = {
     name,
     description,
     content: (match[2] ?? "").trim(),
@@ -694,6 +710,37 @@ function parseSkill(skillDir: string, spec: SkillSourceSpec): SkillInfo | null {
     isAutoInjectCandidate: spec.isAutoInjectCandidate,
     originRoot: spec.root,
   };
+  const requires = readSkillRequires(metadata);
+  if (requires) {
+    info.requires = requires;
+  }
+  return info;
+}
+
+/** 从官方 metadata 扩展字段读 Skill 依赖(ragsystem_requires_mcp_servers/ragsystem_requires_tools,逗号分隔)。 */
+function readSkillRequires(metadata: Record<string, unknown>): SkillRequires | undefined {
+  const metaField = isRecord(metadata.metadata) ? metadata.metadata : null;
+  if (!metaField) return undefined;
+  const mcpServers = parseCsvString(metaField.ragsystem_requires_mcp_servers);
+  const tools = parseCsvString(metaField.ragsystem_requires_tools);
+  if (!mcpServers.length && !tools.length) return undefined;
+  const requires: SkillRequires = {};
+  if (mcpServers.length) requires.mcp_servers = mcpServers;
+  if (tools.length) requires.tools = tools;
+  return requires;
+}
+
+function parseCsvString(value: unknown): string[] {
+  if (typeof value !== "string") return [];
+  return value.split(",").map((part) => part.trim()).filter(Boolean);
+}
+
+/** Skill 声明依赖的 MCP server 中,当前 Agent 未启用的(缺失不阻断,仅提示)。 */
+function resolveMissingMcpServers(requires: SkillRequires | undefined, agent: AgentConfig | null): string[] {
+  const required = requires?.mcp_servers;
+  if (!required?.length) return [];
+  const enabled = new Set((agent?.mcp?.enabled_servers ?? []).map((server) => server.trim()).filter(Boolean));
+  return required.filter((server) => !enabled.has(server));
 }
 
 function parseSkillMetadata(raw: string): Record<string, unknown> {

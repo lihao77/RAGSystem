@@ -250,6 +250,7 @@
 import { ref, computed, defineProps, nextTick, onMounted, watch } from 'vue';
 import { getToolCallRawResult } from '../api/monitoring';
 import { getAgentBadgeClass } from '../utils/agentBadge';
+import { getToolDisplayName, getToolSubtitle } from '../utils/toolPresentation';
 import IconChevronDown from './icons/IconChevronDown.vue';
 
 const props = defineProps({
@@ -349,26 +350,8 @@ const rawResultLoading = ref(false);
 const rawResultError = ref('');
 const resultViewMode = ref('preview');
 
-// 工具名展示映射
-const TOOL_DISPLAY_NAMES = {
-  'request_user_input': '请求用户输入',
-};
-
-// Skill 工具动态名称：从 arguments 中提取 skill_name
-const SKILL_TOOL_TEMPLATES = {
-  'activate_skill': (args) => `激活 ${args?.skill_name || 'Skill'}`,
-  'load_skill_resource': (args) => `加载 ${args?.skill_name || 'Skill'} 资源`,
-  'execute_skill_script': (args) => `执行 ${args?.skill_name || 'Skill'} 脚本`,
-  'get_skill_info': (args) => `查询 ${args?.skill_name || 'Skill'} 信息`,
-};
-
-const toolDisplayName = computed(() => {
-  const name = props.node.tool_name || '';
-  if (TOOL_DISPLAY_NAMES[name]) return TOOL_DISPLAY_NAMES[name];
-  const tpl = SKILL_TOOL_TEMPLATES[name];
-  if (tpl) return tpl(props.node.arguments);
-  return name;
-});
+// 工具展示名复用 toolPresentation(消除内联映射重复,与 WorkPanel 链路统一)。
+const toolDisplayName = computed(() => getToolDisplayName(props.node));
 
 const isRunning = computed(() => {
   if (props.node.type === 'thought') {
@@ -413,6 +396,11 @@ const smartPreview = computed(() => {
     const agentName = props.node.linkedAgentCall?.agent_display_name
       || props.node.arguments?.agent_name || '';
     return agentName ? `→ ${agentName}` : '';
+  }
+  // MCP 工具:复用 toolPresentation 的 subtitle(消除重复解析,与 toolDisplayName 复用一致)
+  if (name.startsWith('mcp__')) {
+    const subtitle = getToolSubtitle(props.node);
+    return subtitle ? `→ ${subtitle}` : '';
   }
   const preview = props.node.result_preview || props.node.result || '';
 

@@ -127,6 +127,66 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
   app.get("/tools", async () => {
     return ok(normalizeToolsResponse(options.container.mcp.listAllTools()));
   });
+
+  app.get("/prompts", async () => {
+    return ok(options.container.mcp.listAllPrompts());
+  });
+
+  app.get<{ Params: ServerParams }>("/servers/:serverName/resources", async (request) => {
+    try {
+      return ok(options.container.mcp.listServerResources(request.params.serverName));
+    } catch (error) {
+      if (error instanceof McpServiceError && error.statusCode === 404) {
+        return ok({ server_name: request.params.serverName, resource_count: 0, resources: [] });
+      }
+      throw toHttpError(error);
+    }
+  });
+
+  app.post<{ Params: ServerParams }>("/servers/:serverName/resources/read", async (request) => {
+    try {
+      const uri = String((isRecord(request.body) ? request.body.uri : "") ?? "");
+      if (!uri) {
+        throw new HttpError(400, "invalid_request", "uri is required");
+      }
+      return ok({
+        server_name: request.params.serverName,
+        uri,
+        contents: await options.container.mcp.readResource(request.params.serverName, uri),
+      });
+    } catch (error) {
+      throw toHttpError(error);
+    }
+  });
+
+  app.get<{ Params: ServerParams }>("/servers/:serverName/prompts", async (request) => {
+    try {
+      return ok(options.container.mcp.listServerPrompts(request.params.serverName));
+    } catch (error) {
+      if (error instanceof McpServiceError && error.statusCode === 404) {
+        return ok({ server_name: request.params.serverName, prompt_count: 0, prompts: [] });
+      }
+      throw toHttpError(error);
+    }
+  });
+
+  app.post<{ Params: ServerParams }>("/servers/:serverName/prompts/get", async (request) => {
+    try {
+      const body = isRecord(request.body) ? request.body : {};
+      const name = String(body.name ?? "");
+      if (!name) {
+        throw new HttpError(400, "invalid_request", "name is required");
+      }
+      const args = isRecord(body.arguments) ? body.arguments : undefined;
+      return ok({
+        server_name: request.params.serverName,
+        name,
+        messages: await options.container.mcp.getPrompt(request.params.serverName, name, args),
+      });
+    } catch (error) {
+      throw toHttpError(error);
+    }
+  });
 };
 
 function normalizeServerListItem(server: Record<string, unknown>): Record<string, unknown> {
@@ -163,48 +223,38 @@ function normalizeToolsResponse(response: Record<string, unknown>): Record<strin
 }
 
 function normalizeMcpToolDefinition(tool: unknown): Record<string, unknown> {
+  // 兼容已是 function 格式的输入(透传);否则从 RuntimeMcpToolDefinition 映射。
+  // 自描述(usage_contract/returns/annotations)已在 mcp-service.toRuntimeMcpTool 数据源产出,此处只透传。
   if (isRecord(tool) && tool.type === "function" && isRecord(tool.function)) {
-    return withPythonMcpToolMetadata(tool);
+    return tool;
   }
   const item = isRecord(tool) ? tool : {};
-  return withPythonMcpToolMetadata({
-    type: "function",
-    function: {
-      name: item.name ?? "",
-      description: item.description ?? "",
-      parameters: isRecord(item.parameters) ? item.parameters : { type: "object", properties: {} },
-      allowed_callers: ["direct"],
-    },
-  });
-}
-
-const PYTHON_MCP_USAGE_CONTRACT = [
-  "先根据 description 和 parameters 判断该 MCP 工具适用场景",
-  "返回结构可能不固定，链式传递时优先使用工具返回的 content",
-  "若结果是大对象，先读取关键信息再决定是否继续传递给下游工具",
-];
-
-const PYTHON_MCP_RETURNS = {
-  type: "object",
-  description: "返回结构由 MCP Server 定义，可能因工具而异",
-  shape: {
-    content: "server_defined",
-    metadata: "server_defined",
-  },
-};
-
-function withPythonMcpToolMetadata(tool: Record<string, unknown>): Record<string, unknown> {
-  const fn = isRecord(tool.function) ? tool.function : {};
-  return {
-    type: "function",
-    function: {
-      ...fn,
-      allowed_callers: Array.isArray(fn.allowed_callers) ? fn.allowed_callers : ["direct"],
-      source: fn.source ?? "mcp",
-      usage_contract: PYTHON_MCP_USAGE_CONTRACT,
-      returns: PYTHON_MCP_RETURNS,
-    },
+  const fn: Record<string, unknown> = {
+    name: item.name ?? "",
+    description: item.description ?? "",
+    parameters: isRecord(item.parameters) ? item.parameters : { type: "object", properties: {} },
+    allowed_callers: ["direct"],
+    source: typeof item.source === "string" ? item.source : "mcp",
   };
+  if (Array.isArray(item.usage_contract)) {
+    fn.usage_contract = item.usage_contract;
+  }
+  if (isRecord(item.returns)) {
+    fn.returns = item.returns;
+  }
+  if (isRecord(item.annotations)) {
+    fn.annotations = item.annotations;
+  }
+  if (typeof item.riskLevel === "string") {
+    fn.risk_level = item.riskLevel;
+  }
+  if (typeof item.original_tool_name === "string") {
+    fn.original_tool_name = item.original_tool_name;
+  }
+  if (typeof item.server_name === "string") {
+    fn.server_name = item.server_name;
+  }
+  return { type: "function", function: fn };
 }
 
 function toHttpError(error: unknown): HttpError {
