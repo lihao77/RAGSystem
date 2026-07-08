@@ -8,6 +8,7 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { LoggingMessageNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import YAML from "yaml";
 
 import type {
@@ -263,7 +264,15 @@ export class McpService {
     this.connections.set(serverName, state);
 
     try {
-      const client = new SdkMcpClient(server, () => this.handleDisconnect(serverName));
+      const client = new SdkMcpClient(server, () => this.handleDisconnect(serverName), (params) => {
+        const prefix = `[MCP:${serverName}]${params.logger ? ` (${params.logger})` : ""} ${params.level}`;
+        // error 及以上进 stderr,其余 stdout;data 直接交 console 序列化(util.inspect 能处理循环引用)。
+        if (params.level === "error" || params.level === "critical" || params.level === "alert" || params.level === "emergency") {
+          console.error(prefix, params.data);
+        } else {
+          console.log(prefix, params.data);
+        }
+      });
       await client.connect();
       if (options.automatic && this.manuallyDisconnectedServers.has(serverName)) {
         client.close();
@@ -330,6 +339,7 @@ export class McpService {
     const state = this.connections.get(serverName);
     if (!state || state.status === "disconnected") return;
     state.status = "disconnected";
+    state.client?.close(); // 显式卸载 notification handler + 关 transport,避免重连后旧 handler 残留(幽灵日志)
     state.client = null;
     state.tools = [];
     state.resources = [];
@@ -346,7 +356,10 @@ export class McpService {
   private scheduleReconnect(serverName: string): void {
     const state = this.connections.get(serverName);
     if (!state) return;
-    if (state.reconnectAttempts >= 5) return;
+    if (state.reconnectAttempts >= 5) {
+      state.errorMessage = "重连失败(已重试 5 次),请手动重连";
+      return;
+    }
     state.reconnectAttempts += 1;
     const attempts = state.reconnectAttempts;
     const delay = Math.min(1000 * 2 ** (attempts - 1), 30000);
@@ -588,8 +601,9 @@ class SdkMcpClient implements McpClient {
   private readonly transport: Transport;
   private readonly timeoutMs: number;
   private stderrText = "";
+  private readonly onLog?: (params: McpLogParams) => void;
 
-  constructor(config: McpServerConfig, onDisconnect?: () => void) {
+  constructor(config: McpServerConfig, onDisconnect?: () => void, onLog?: (params: McpLogParams) => void) {
     this.timeoutMs = Math.max(1, config.timeout) * 1000;
     const { transport, stderr } = createMcpTransport(config);
     this.transport = transport;
@@ -601,6 +615,7 @@ class SdkMcpClient implements McpClient {
         }
       });
     }
+    if (onLog) this.onLog = onLog;
     this.client = new Client(
       { name: "@ragsystem/backend-ts", version: "0.1.0" },
       { capabilities: {} },
@@ -614,6 +629,15 @@ class SdkMcpClient implements McpClient {
       await this.client.connect(this.transport, { timeout: this.timeoutMs });
       const listed = await this.client.listTools(undefined, { timeout: this.timeoutMs });
       this.tools = normalizeMcpTools(listed);
+      // 订阅 server logging(server 声明 logging capability 时),转发到 McpService 后端日志。
+      if (this.onLog && this.client.getServerCapabilities()?.logging) {
+        this.client.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
+          this.onLog?.(notification.params as McpLogParams);
+        });
+        await this.client.setLoggingLevel(normalizeLogLevel(process.env.MCP_LOG_LEVEL), { timeout: this.timeoutMs }).catch((err) => {
+          console.warn(`[MCP] setLoggingLevel failed: ${formatError(err)}`);
+        });
+      }
     } catch (error) {
       const detail = this.stderrText.trim();
       if (detail) {
@@ -633,6 +657,7 @@ class SdkMcpClient implements McpClient {
   }
 
   close(): void {
+    this.client.removeNotificationHandler("notifications/message");
     void this.client.close().catch(() => {
       // Best-effort teardown; errors here are not actionable for callers.
     });
@@ -788,6 +813,21 @@ interface McpToolAnnotations {
   destructiveHint?: boolean;
   idempotentHint?: boolean;
   openWorldHint?: boolean;
+}
+
+/** MCP logging notification 参数(server → client 的日志消息)。 */
+interface McpLogParams {
+  level: McpLogLevel;
+  logger?: string;
+  data: unknown;
+}
+
+const MCP_LOG_LEVELS = ["debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"] as const;
+type McpLogLevel = typeof MCP_LOG_LEVELS[number];
+
+/** 从 env MCP_LOG_LEVEL 读 logging level(默认 info),非法值回退 info。 */
+function normalizeLogLevel(value: string | undefined): McpLogLevel {
+  return MCP_LOG_LEVELS.includes(value as McpLogLevel) ? (value as McpLogLevel) : "info";
 }
 
 export interface RuntimeMcpToolDefinition {
