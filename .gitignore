@@ -119,3 +119,9 @@ desktop-electron/build/*
 !desktop-electron/build/icon.ico
 !desktop-electron/build/icon.svg
 dist/
+
+# VitePress documentation site (local only)
+/docs-site/
+
+# Tool-generated plans (local only)
+/.zcode/
