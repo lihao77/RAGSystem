@@ -132,6 +132,17 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
     return ok(options.container.mcp.listAllPrompts());
   });
 
+  app.get<{ Params: ServerParams }>("/servers/:serverName/metrics", async (request) => {
+    try {
+      return ok(options.container.mcp.getServerMetrics(request.params.serverName));
+    } catch (error) {
+      if (error instanceof McpServiceError && error.statusCode === 404) {
+        return ok({ server_name: request.params.serverName, tools: [] });
+      }
+      throw toHttpError(error);
+    }
+  });
+
   app.get<{ Params: ServerParams }>("/servers/:serverName/resources", async (request) => {
     try {
       return ok(options.container.mcp.listServerResources(request.params.serverName));

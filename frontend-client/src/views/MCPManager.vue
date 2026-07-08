@@ -65,6 +65,7 @@
             <div class="server-card-badges">
               <span class="status-dot" :class="`status-dot--${server.status || 'unknown'}`" :title="server.status || 'unknown'"></span>
               <UiBadge class="badge" size="sm" :tone="statusBadgeTone(server.status)">{{ server.status || 'unknown' }}</UiBadge>
+              <UiBadge v-if="server.trusted === false" class="badge" size="sm" tone="warning" title="未受信任:annotations 不驱动并发,工具保守串行">未信任</UiBadge>
             </div>
           </div>
 
@@ -160,6 +161,7 @@
         <div class="toggle-row">
           <label class="toggle-field"><Switch v-model:checked="installForm.enabled" /><span>启用服务</span></label>
           <label class="toggle-field"><Switch v-model:checked="installForm.auto_connect" /><span>自动连接</span></label>
+          <label class="toggle-field"><Switch v-model:checked="installForm.trusted" /><span>受信任</span></label>
         </div>
         <div class="form-actions">
           <Button variant="ghost" size="sm" @click="resetInstallForm">重置</Button>
@@ -309,6 +311,7 @@
         <div class="toggle-row">
           <label class="toggle-field"><Switch v-model:checked="editForm.enabled" /><span>启用服务</span></label>
           <label class="toggle-field"><Switch v-model:checked="editForm.auto_connect" /><span>自动连接</span></label>
+          <label class="toggle-field"><Switch v-model:checked="editForm.trusted" /><span>受信任</span></label>
         </div>
       </div>
       <DialogFooter>
@@ -346,6 +349,9 @@
             <span v-if="tool.function.annotations.readOnlyHint" class="anno-chip">只读</span>
             <span v-if="tool.function.annotations.destructiveHint" class="anno-chip anno-chip--warn">破坏性</span>
             <span v-if="tool.function.annotations.idempotentHint" class="anno-chip">幂等</span>
+          </div>
+          <div v-if="getToolMetrics(tool)" class="tool-metrics">
+            调用 {{ getToolMetrics(tool).calls }} 次<span v-if="getToolMetrics(tool).failures"> · 失败 {{ getToolMetrics(tool).failures }}</span> · 平均 {{ Math.round(getToolMetrics(tool).total_duration_ms / getToolMetrics(tool).calls) }}ms
           </div>
           <div v-if="toolParameters(tool).length" class="tool-params">
             <div class="tool-params-label">参数</div>
@@ -447,7 +453,7 @@ import { useConfirm } from '../composables/useConfirm.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import {
   addMCPServer, connectMCPServer, deleteMCPServer, disconnectMCPServer,
-  getMCPServerTools, installMCPRegistryServer, listMCPRegistryServers,
+  getMCPServerTools, getMCPServerMetrics, installMCPRegistryServer, listMCPRegistryServers,
   listMCPServers, listMCPServerResources, listMCPServerPrompts,
   readMCPServerResource, testMCPServer, updateMCPServer,
 } from '../api/mcpService';
@@ -476,6 +482,7 @@ const registryNextCursor = ref('');
 const serverTools = ref([]);
 const activeToolsServerName = ref('');
 const activeToolsServer = ref(null);
+const serverMetrics = ref({});
 const serverResources = ref([]);
 const resourcesDialogVisible = ref(false);
 const activeResourcesServer = ref(null);
@@ -495,7 +502,7 @@ const transportOptions = [
   { value: 'streamable_http', label: 'Streamable HTTP' },
 ];
 
-const installForm = reactive({ server_name: '', display_name: '', transport: 'stdio', command: '', argsJson: '[]', envJson: '{}', url: '', headersJson: '{}', enabled: true, auto_connect: true, timeout: 30, risk_level: 'medium', toolRiskOverridesJson: '{}' });
+const installForm = reactive({ server_name: '', display_name: '', transport: 'stdio', command: '', argsJson: '[]', envJson: '{}', url: '', headersJson: '{}', enabled: true, auto_connect: true, timeout: 30, risk_level: 'medium', toolRiskOverridesJson: '{}', trusted: true });
 const registrySearch = reactive({ query: '', latest_only: true, limit: 6 });
 const registryInstallForm = reactive({ option_id: '', server_name: '', display_name: '', enabled: true, auto_connect: true, timeout: 30, risk_level: 'medium', input_values: {} });
 
@@ -523,7 +530,7 @@ function statusBadgeTone(status) {
 }
 function formatArgs(args) { return Array.isArray(args) && args.length ? args.join(' ') : ''; }
 function resetInstallForm() {
-  Object.assign(installForm, { server_name: '', display_name: '', transport: 'stdio', command: '', argsJson: '[]', envJson: '{}', url: '', headersJson: '{}', enabled: true, auto_connect: true, timeout: 30, risk_level: 'medium', toolRiskOverridesJson: '{}' });
+  Object.assign(installForm, { server_name: '', display_name: '', transport: 'stdio', command: '', argsJson: '[]', envJson: '{}', url: '', headersJson: '{}', enabled: true, auto_connect: true, timeout: 30, risk_level: 'medium', toolRiskOverridesJson: '{}', trusted: true });
 }
 function defaultFieldValue(field) {
   if (field.default_value !== null && field.default_value !== undefined) return field.default_value;
@@ -582,6 +589,7 @@ function openEditDialog(server) {
     timeout: server.timeout || 30,
     risk_level: server.risk_level || 'medium',
     toolRiskOverridesJson: JSON.stringify(server.tool_risk_overrides || {}, null, 2),
+    trusted: server.trusted ?? true,
   };
   editDialogVisible.value = true;
 }
@@ -645,7 +653,7 @@ function submitManualInstall() {
   const payload = {
     name: installForm.server_name, display_name: installForm.display_name || installForm.server_name,
     transport: installForm.transport, enabled: installForm.enabled, auto_connect: installForm.auto_connect,
-    timeout: installForm.timeout, risk_level: installForm.risk_level, tool_risk_overrides: parsedToolRiskOverrides,
+    timeout: installForm.timeout, risk_level: installForm.risk_level, tool_risk_overrides: parsedToolRiskOverrides, trusted: installForm.trusted,
     ...(isStdio ? { command: installForm.command, args: parsedArgs, env: parsedEnv } : { url: installForm.url, headers: parsedHeaders }),
   };
   runInstall(payload);
@@ -697,7 +705,7 @@ const { run: runSaveEdit, loading: savingEdit } = useAsyncAction(
     const isStdio = editForm.value.transport === 'stdio';
     const res = await updateMCPServer(editForm.value.name, {
       display_name: editForm.value.display_name, transport: editForm.value.transport,
-      enabled: editForm.value.enabled, auto_connect: editForm.value.auto_connect, timeout: editForm.value.timeout, risk_level: editForm.value.risk_level, tool_risk_overrides: parsedToolRiskOverrides,
+      enabled: editForm.value.enabled, auto_connect: editForm.value.auto_connect, timeout: editForm.value.timeout, risk_level: editForm.value.risk_level, tool_risk_overrides: parsedToolRiskOverrides, trusted: editForm.value.trusted,
       command: isStdio ? editForm.value.command : null, args: isStdio ? parsedArgs : [], env: isStdio ? parsedEnv : {},
       headers: isStdio ? {} : parsedHeaders, url: isStdio ? null : editForm.value.url,
     });
@@ -727,8 +735,16 @@ function handleTest(server) { runTest(server); }
 
 const { run: runShowTools } = useAsyncAction(
   async (server) => {
-    const res = await getMCPServerTools(server.name);
-    serverTools.value = res.data?.tools || [];
+    const [toolsRes, metricsRes] = await Promise.all([
+      getMCPServerTools(server.name),
+      getMCPServerMetrics(server.name).catch(() => null),
+    ]);
+    serverTools.value = toolsRes.data?.tools || [];
+    const metricsMap = {};
+    for (const m of (metricsRes?.data?.tools || [])) {
+      metricsMap[m.tool_name] = m;
+    }
+    serverMetrics.value = metricsMap;
     activeToolsServer.value = server;
     activeToolsServerName.value = server.display_name || server.name;
     toolsDialogVisible.value = true;
@@ -750,6 +766,11 @@ function toolParameters(tool) {
   }));
 }
 
+function getToolMetrics(tool) {
+  const name = tool?.function?.original_tool_name || tool?.function?.name;
+  return name ? serverMetrics.value[name] : null;
+}
+
 async function updateToolRisk(tool, newRisk) {
   const server = activeToolsServer.value;
   const toolName = tool?.function?.original_tool_name || tool?.function?.name;
@@ -766,6 +787,7 @@ async function updateToolRisk(tool, newRisk) {
     timeout: server.timeout || 30,
     risk_level: server.risk_level || 'medium',
     tool_risk_overrides: overrides,
+    trusted: server.trusted ?? true,
     ...(isStdio ? { command: server.command || '', args: server.args || [], env: server.env || {} } : { url: server.url || '', headers: server.headers || {} }),
   };
   try {
@@ -931,6 +953,7 @@ onMounted(() => {
 .tool-risk-select :deep(.custom-select) { flex: 1; min-width: 0; }
 .tool-risk-select :deep(.select-trigger:hover:not(.disabled)) { border-color: var(--color-border); }
 .tool-annotations { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tool-metrics { margin-top: 4px; font-size: var(--font-size-xs); color: var(--color-text-secondary); }
 .anno-chip { font-size: var(--font-size-sm); padding: 1px 6px; border-radius: var(--radius-sm); background: var(--color-bg-secondary); color: var(--color-text-secondary); border: 1px solid var(--color-border); }
 .anno-chip--warn { color: #d97706; border-color: #d97706; }
 .tool-params { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--color-border); }

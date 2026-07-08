@@ -72,6 +72,10 @@ export async function listAllMCPPrompts() {
   return http.get(`${API_BASE}/prompts`);
 }
 
+export async function getMCPServerMetrics(serverName) {
+  return http.get(`${API_BASE}/servers/${encodeURIComponent(serverName)}/metrics`);
+}
+
 export default {
   listMCPServers,
   addMCPServer,
@@ -88,4 +92,5 @@ export default {
   listMCPServerPrompts,
   getMCPServerPrompt,
   listAllMCPPrompts,
+  getMCPServerMetrics,
 };

@@ -23,6 +23,7 @@ import type {
   McpServerListItem,
   McpServerPayload,
   McpServerStatus,
+  McpToolMetrics,
 } from "../../contracts/mcp.js";
 import type { RiskLevel } from "../../contracts/permissions.js";
 import type { ToolExecutionResult } from "@ragsystem/agent-sdk";
@@ -48,6 +49,10 @@ export class McpService {
   private readonly servers = new Map<string, McpServerConfig>();
   private readonly connections = new Map<string, McpConnectionState>();
   private readonly manuallyDisconnectedServers = new Set<string>();
+  /** 主动断开(disconnectServer)时临时抑制 onclose 触发的自动重连。 */
+  private readonly suppressReconnect = new Set<string>();
+  /** per-server/per-tool 调用 metrics(运行时累积,不持久化)。 */
+  private readonly metrics = new Map<string, Map<string, McpToolMetrics>>();
   private readonly configPath: string | null;
 
   constructor(options: { dataRoot?: string | undefined; configPath?: string | undefined } = {}) {
@@ -212,6 +217,11 @@ export class McpService {
     if (!this.servers.delete(serverName)) {
       throw new McpServiceError(`MCP Server 不存在: ${serverName}`, 404);
     }
+    // 清理运行时状态(避免同名 server 重建后 metrics 串台 + 内存泄漏)。
+    this.connections.delete(serverName);
+    this.metrics.delete(serverName);
+    this.manuallyDisconnectedServers.delete(serverName);
+    this.suppressReconnect.delete(serverName);
     this.saveServersToDisk();
   }
 
@@ -248,11 +258,12 @@ export class McpService {
       capabilities: undefined,
       resources: [],
       prompts: [],
+      reconnectAttempts: existing?.reconnectAttempts ?? 0,
     };
     this.connections.set(serverName, state);
 
     try {
-      const client = new SdkMcpClient(server);
+      const client = new SdkMcpClient(server, () => this.handleDisconnect(serverName));
       await client.connect();
       if (options.automatic && this.manuallyDisconnectedServers.has(serverName)) {
         client.close();
@@ -269,6 +280,7 @@ export class McpService {
       state.prompts = await client.listPrompts();
       state.status = "connected";
       state.errorMessage = null;
+      state.reconnectAttempts = 0;
       return this.getServerStatus(serverName);
     } catch (error) {
       state.status = "error";
@@ -290,6 +302,8 @@ export class McpService {
     if (options.manual) {
       this.manuallyDisconnectedServers.add(serverName);
     }
+    // 主动断开:抑制 onclose 触发的自动重连(onclose 可能同步/异步触发,都检查 suppressReconnect)。
+    this.suppressReconnect.add(serverName);
     const state = this.connections.get(serverName);
     if (state?.client) {
       state.client.close();
@@ -298,8 +312,53 @@ export class McpService {
       state.status = "disconnected";
       state.errorMessage = null;
       state.tools = [];
+      state.resources = [];
+      state.prompts = [];
+      state.capabilities = undefined;
       state.client = null;
     }
+    // 兜底清 suppress(onclose 可能不触发,1s 后强制清)。
+    setTimeout(() => this.suppressReconnect.delete(serverName), 1000);
+  }
+
+  /** transport 意外断开(client.onclose)时触发:标记 disconnected + auto_connect 时退避重连。 */
+  private handleDisconnect(serverName: string): void {
+    if (this.suppressReconnect.has(serverName)) {
+      this.suppressReconnect.delete(serverName);
+      return; // 主动断开(disconnectServer 触发的 onclose),不重连
+    }
+    const state = this.connections.get(serverName);
+    if (!state || state.status === "disconnected") return;
+    state.status = "disconnected";
+    state.client = null;
+    state.tools = [];
+    state.resources = [];
+    state.prompts = [];
+    state.capabilities = undefined;
+    state.errorMessage = "连接意外断开";
+    if (this.manuallyDisconnectedServers.has(serverName)) return;
+    const server = this.servers.get(serverName);
+    if (!server?.enabled || !server.auto_connect) return;
+    this.scheduleReconnect(serverName);
+  }
+
+  /** 退避重连:指数退避(1s/2s/4s...),上限 5 次/30s。 */
+  private scheduleReconnect(serverName: string): void {
+    const state = this.connections.get(serverName);
+    if (!state) return;
+    if (state.reconnectAttempts >= 5) return;
+    state.reconnectAttempts += 1;
+    const attempts = state.reconnectAttempts;
+    const delay = Math.min(1000 * 2 ** (attempts - 1), 30000);
+    setTimeout(() => {
+      if (this.manuallyDisconnectedServers.has(serverName)) return;
+      const current = this.connections.get(serverName);
+      if (current?.status === "connected" || current?.status === "connecting") return;
+      this.connectServer(serverName, { automatic: true })
+        .catch(() => {
+          this.scheduleReconnect(serverName);
+        });
+    }, delay);
   }
 
   async testServer(serverName: string): Promise<{ success: boolean; message: string; tool_count: number }> {
@@ -386,7 +445,34 @@ export class McpService {
       return toolError(`无效的 MCP 工具名: ${fullToolName}`, fullToolName);
     }
     const [serverName, toolName] = parsed;
-    return this.callTool(serverName, toolName, args ?? {});
+    const start = Date.now();
+    const result = await this.callTool(serverName, toolName, args ?? {});
+    this.recordMetrics(serverName, toolName, result.success, Date.now() - start);
+    return result;
+  }
+
+  /** 采集 per-server/per-tool 调用 metrics(次数/成功/失败/延迟)。 */
+  private recordMetrics(serverName: string, toolName: string, success: boolean, durationMs: number): void {
+    let serverMetrics = this.metrics.get(serverName);
+    if (!serverMetrics) {
+      serverMetrics = new Map();
+      this.metrics.set(serverName, serverMetrics);
+    }
+    let m = serverMetrics.get(toolName);
+    if (!m) {
+      m = { tool_name: toolName, calls: 0, successes: 0, failures: 0, total_duration_ms: 0 };
+      serverMetrics.set(toolName, m);
+    }
+    m.calls += 1;
+    if (success) m.successes += 1;
+    else m.failures += 1;
+    m.total_duration_ms += durationMs;
+  }
+
+  getServerMetrics(serverName: string): { server_name: string; tools: McpToolMetrics[] } {
+    this.ensureServer(serverName);
+    const serverMetrics = this.metrics.get(serverName);
+    return { server_name: serverName, tools: serverMetrics ? [...serverMetrics.values()] : [] };
   }
 
   async callTool(
@@ -415,7 +501,7 @@ export class McpService {
     return {
       status: state.status,
       tool_count: state.tools.length,
-      tools: state.tools.map((tool) => toRuntimeMcpTool(serverName, tool, state.config.risk_level, state.config.tool_risk_overrides)),
+      tools: state.tools.map((tool) => toRuntimeMcpTool(serverName, tool, state.config.risk_level, state.config.tool_risk_overrides, state.config.trusted)),
       error_message: state.errorMessage,
       resource_count: state.resources.length,
       prompt_count: state.prompts.length,
@@ -450,7 +536,7 @@ export class McpService {
     if (!state || state.status !== "connected") {
       return [];
     }
-    return state.tools.map((tool) => toRuntimeMcpTool(serverName, tool, state.config.risk_level, state.config.tool_risk_overrides));
+    return state.tools.map((tool) => toRuntimeMcpTool(serverName, tool, state.config.risk_level, state.config.tool_risk_overrides, state.config.trusted));
   }
 
   private loadServersFromDisk(): void {
@@ -503,7 +589,7 @@ class SdkMcpClient implements McpClient {
   private readonly timeoutMs: number;
   private stderrText = "";
 
-  constructor(config: McpServerConfig) {
+  constructor(config: McpServerConfig, onDisconnect?: () => void) {
     this.timeoutMs = Math.max(1, config.timeout) * 1000;
     const { transport, stderr } = createMcpTransport(config);
     this.transport = transport;
@@ -519,6 +605,8 @@ class SdkMcpClient implements McpClient {
       { name: "@ragsystem/backend-ts", version: "0.1.0" },
       { capabilities: {} },
     );
+    // transport 意外断开(进程 exit / 远程断开)时通知 McpService 触发自动重连。
+    this.client.onclose = () => onDisconnect?.();
   }
 
   async connect(): Promise<void> {
@@ -683,6 +771,7 @@ interface McpConnectionState {
   capabilities: McpCapabilityFaces | undefined;
   resources: McpResource[];
   prompts: McpPrompt[];
+  reconnectAttempts: number;
 }
 
 interface McpTool {
@@ -735,6 +824,7 @@ function normalizeServerConfig(payload: Record<string, unknown>): McpServerConfi
     timeout: readPositiveInt(payload.timeout, 30),
     risk_level: String(payload.risk_level ?? "medium"),
     tool_risk_overrides: stringRecord(payload.tool_risk_overrides),
+    trusted: typeof payload.trusted === "boolean" ? payload.trusted : true,
   };
 
   if (transport === "stdio" && !config.command?.trim()) {
@@ -797,6 +887,7 @@ function copyExtraFields(config: McpServerConfig, payload: Record<string, unknow
     "timeout",
     "risk_level",
     "tool_risk_overrides",
+    "trusted",
   ]);
   for (const [key, value] of Object.entries(payload)) {
     if (!known.has(key)) {
@@ -895,7 +986,7 @@ const MCP_TOOL_RETURNS = {
   },
 };
 
-function toRuntimeMcpTool(serverName: string, tool: McpTool, riskLevel: string, toolRiskOverrides?: Record<string, string>): RuntimeMcpToolDefinition {
+function toRuntimeMcpTool(serverName: string, tool: McpTool, riskLevel: string, toolRiskOverrides?: Record<string, string>, trusted = true): RuntimeMcpToolDefinition {
   const annotations = tool.annotations;
   // 风险优先级:per-tool 覆盖 > server 级 risk_level;annotations 是 hint(SDK 明示不可信),
   // 只往保守方向修正:destructiveHint=true 提升到 high;false 不降级(避免不可信 server 谎报)。
@@ -914,7 +1005,9 @@ function toRuntimeMcpTool(serverName: string, tool: McpTool, riskLevel: string, 
     usage_contract: MCP_TOOL_USAGE_CONTRACT,
     returns: MCP_TOOL_RETURNS,
   };
-  if (annotations) {
+  // untrusted server 不透传 annotations 给 buildTool(不信 readOnlyHint 驱动并发,保守串行);
+  // destructiveHint 提升已在 effectiveRisk 体现(保守方向,untrusted 仍生效)。
+  if (trusted && annotations) {
     result.annotations = annotations;
   }
   return result;

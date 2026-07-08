@@ -17,6 +17,7 @@ export const McpServerPayloadSchema = z
     timeout: z.number().int().min(1).max(300).optional().default(30),
     risk_level: z.string().optional().default("medium"),
     tool_risk_overrides: z.record(z.string()).optional().default({}),
+    trusted: z.boolean().optional().default(true),
   })
   .catchall(z.unknown());
 
@@ -56,6 +57,7 @@ export interface McpServerConfig {
   timeout: number;
   risk_level: string;
   tool_risk_overrides: Record<string, string>;
+  trusted: boolean;
   created_at?: string;
   updated_at?: string;
   [key: string]: unknown;
@@ -112,6 +114,15 @@ export interface McpPromptArgument {
 export interface McpPromptMessage {
   role: string;
   content: unknown;
+}
+
+/** per-tool 调用 metrics(运行时累积,不持久化)。 */
+export interface McpToolMetrics {
+  tool_name: string;
+  calls: number;
+  successes: number;
+  failures: number;
+  total_duration_ms: number;
 }
 
 export type McpServerListItem = McpServerConfig & McpServerStatus;
