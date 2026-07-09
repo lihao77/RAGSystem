@@ -129,6 +129,7 @@ export class AgentRunEngine {
     this.eventPublisher.publishRunStarted(input.sessionId, runId, {
       request_id: input.requestId,
       task: input.task,
+      source: input.executionKind,
     });
     if (userMessageSavedPayload) {
       this.eventPublisher.publishOutputMessageSaved(input.sessionId, runId, {

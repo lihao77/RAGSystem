@@ -168,6 +168,7 @@ export interface AckPayload {
 export interface RunStartedPayload {
   request_id?: string;
   task?: string;
+  source?: string;
 }
 export interface RunEndedPayload {
   status: "completed" | "failed" | "interrupted";
@@ -419,7 +420,7 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
     session_id: z.string().min(1),
     run_id: z.string().min(1),
     payload: z
-      .object({ request_id: z.string().optional(), task: z.string().optional() })
+      .object({ request_id: z.string().optional(), task: z.string().optional(), source: z.string().optional() })
       .optional(),
   }),
   z.object({

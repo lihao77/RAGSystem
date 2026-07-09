@@ -919,8 +919,17 @@ export function useSessionAgentClient(deps) {
           currentMsg.finished = true;
         }
 
-        // 后台通知经统一消息路径落库（source:background_notification 的 user 消息），
-        // 由 message_saved 落位 + UserMessage.vue 渲染，run_started 不再 push notification。
+        // 后台通知 system run：前端没乐观 push 这条 user 消息，run_started.task 即其内容
+        // （<task-notification>XML）。主动 push 一条（与乐观发送同构），message_saved 再按
+        // request_id 落位 id/seq——这样前端实时渲染 background_notification 消息块，不必等刷新。
+        if (event.payload?.source === 'system.bg_notification' && event.payload?.task) {
+          messages.value.push(createUserMessage(event.payload.task, [], {
+            source: 'background_notification',
+            request_id: event.payload?.request_id || null,
+            run_id: nextRunId,
+          }));
+        }
+
         messages.value.push(deps.createAssistantMessage({ run_id: nextRunId }));
         activeRun.active = true;
         activeRun.assistantMsgIndex = messages.value.length - 1;

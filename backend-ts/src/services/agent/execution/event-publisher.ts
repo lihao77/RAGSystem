@@ -49,12 +49,12 @@ export class AgentExecutionEventPublisher {
     private readonly conversationStore: IConversationTransactionRunner,
   ) {}
 
-  publishRunStarted(sessionId: string, runId: string, payload: { request_id?: string; task?: string }): void {
+  publishRunStarted(sessionId: string, runId: string, payload: { request_id?: string; task?: string; source?: string }): void {
     this.publish(sessionId, {
       type: "run_started",
       session_id: sessionId,
       run_id: runId,
-      payload: { request_id: payload.request_id, task: payload.task },
+      payload: { request_id: payload.request_id, task: payload.task, ...(payload.source ? { source: payload.source } : {}) },
     });
   }
 
