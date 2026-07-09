@@ -5,19 +5,15 @@
  * host-bridge 入口暴露 { connect }（全局 RagHostBridge）。此 index 仅供包内聚合引用，非 UMD 入口。
  */
 export * from "./protocol.js";
-export { BUILTIN_TOOLS } from "./builtins.js";
 export { serve } from "./frame-bridge.js";
 export type { ServeOptions, ServeHandle } from "./frame-bridge.js";
 export { builtins } from "./frame-bridge.js";
-export { connect, connectFrames, bindDomTools } from "./host-bridge.js";
+export { connect, connectFrames } from "./host-bridge.js";
 export type {
   ConnectOptions,
   ConnectHandle,
   FrameEntry,
-  HostToolRegistrar,
   ConnectFramesOptions,
   FrameInfo,
   FrameManager,
 } from "./host-bridge.js";
-export { DOM_TOOLS, inspectDoc } from "./dom-tools.js";
-export type { DomToolSpec } from "./dom-tools.js";

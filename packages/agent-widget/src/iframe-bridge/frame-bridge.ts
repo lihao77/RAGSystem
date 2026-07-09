@@ -4,6 +4,10 @@
  * 声明完整工具（元数据 + execute），监听 postMessage，校验来源 origin，执行，回传结果。
  * serve 后向 parent 发 ready 事件，上报工具元数据清单（execute 不上报，留本地按 name 查）。
  *
+ * 工具类型统一为 HostToolDeclaration（与主网页 host-tools 同源）——serve 声明的工具既可来自
+ * ...RagFrameBridge.builtins（DOM 工具），也可自定义；execute 返回 ToolResult，bridge 回传 observation。
+ * 不另造 FrameTool 接口：同一份工具定义，主网页直接注册 / 嵌入网页经 bridge 传递，两用。
+ *
  * 握手：serve 即向首个白名单 origin 主动发 ready（兜底）；收到 parent 的 hello 则重发 ready。
  *       双向主动 + 幂等，覆盖 connect/serve 先后竞态。
  *
@@ -13,15 +17,14 @@
 import { PROTOCOL_PREFIX } from "./protocol.js";
 import type {
   DeclaredTool,
-  FrameTool,
-  FrameToolContext,
   RagFrameEvent,
   RagFrameRequest,
   RagFrameResponse,
   ReadyPayload,
 } from "./protocol.js";
-import { BUILTIN_TOOLS } from "./builtins.js";
-import { inspectDoc } from "./dom-tools.js";
+import type { HostToolDeclaration } from "../host-tools/types.js";
+import { BUILTIN_TOOLS } from "../host-tools/dom/builtins.js";
+import { inspectDoc } from "../host-tools/dom/dom-tools.js";
 
 const REQUEST_TYPE = `${PROTOCOL_PREFIX}_request`;
 const RESPONSE_TYPE = `${PROTOCOL_PREFIX}_response`;
@@ -31,7 +34,7 @@ export interface ServeOptions {
   /** 允许的父窗口 origin 清单（其余来源静默忽略）。 */
   allowedParentOrigins: string[];
   /** 工具清单（同名时后声明覆盖；内置通过 ...RagFrameBridge.builtins 引入）。 */
-  tools: FrameTool[];
+  tools: HostToolDeclaration[];
   /**
    * 深度状态探测（主动）：host 调 inspect_state 工具时经 __inspect__ action 触发。
    * 缺省走 builtinInspect（扫 DOM 可交互元素清单）；系统 B 可覆盖返回业务详细状态。
@@ -52,12 +55,12 @@ function msgType(data: unknown): string | undefined {
 }
 
 export function serve(options: ServeOptions): ServeHandle {
-  const tools = new Map<string, FrameTool>();
+  const tools = new Map<string, HostToolDeclaration>();
   for (const t of options.tools) tools.set(t.name, t);
   const allowed = new Set(options.allowedParentOrigins);
   const firstOrigin = options.allowedParentOrigins[0] ?? "";
 
-  const toDeclared = (t: FrameTool): DeclaredTool => ({
+  const toDeclared = (t: HostToolDeclaration): DeclaredTool => ({
     name: t.name,
     description: t.description,
     inputSchema: t.inputSchema,
@@ -104,15 +107,20 @@ export function serve(options: ServeOptions): ServeHandle {
     }
 
     const tool = tools.get(action);
-    const ctx: FrameToolContext = { callId: call_id };
 
     let resp: RagFrameResponse;
     if (!tool) {
       resp = { type: RESPONSE_TYPE, call_id, ok: false, error: `未注册的工具: ${action}` };
     } else {
       try {
-        const out = await tool.execute(input, ctx);
-        resp = { type: RESPONSE_TYPE, call_id, ok: true, observation: String(out ?? "") };
+        const result = await tool.execute(input);
+        resp = {
+          type: RESPONSE_TYPE,
+          call_id,
+          ok: result.ok,
+          observation: result.observation ?? "",
+          ...(result.error ? { error: result.error } : {}),
+        };
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         resp = { type: RESPONSE_TYPE, call_id, ok: false, error };
@@ -132,4 +140,4 @@ export function serve(options: ServeOptions): ServeHandle {
 }
 
 /** 内置 DOM 工具集（便于 `...RagFrameBridge.builtins` 引入）。 */
-export const builtins: FrameTool[] = BUILTIN_TOOLS;
+export const builtins: HostToolDeclaration[] = BUILTIN_TOOLS;

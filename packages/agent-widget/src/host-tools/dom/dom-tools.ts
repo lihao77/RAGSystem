@@ -1,13 +1,16 @@
 /**
  * DOM 工具共享纯函数（document-agnostic）：跨"主页面 / 同源 iframe / 跨源 iframe"复用。
  *
- * - host-bridge.bindDomTools 闭包主页面或同源 iframe 的 document（直接操作，零侵入 iframe）
- * - frame-bridge builtins 闭包 iframe 自己的 document（经 postMessage 触发，跨源唯一解）
- * inspectDoc 同理三处复用（bindDomTools inspect_state / frame-bridge __inspect__ / connectFrames host.inspect）。
+ * - host-tools/dom/bind.bindDomTools 闭包主页面或同源 iframe 的 document（直接操作，零侵入 iframe）
+ * - host-tools/dom/builtins 闭包 iframe 自己的 document（经 frame-bridge postMessage 触发，跨源唯一解）
+ * - inspectDoc 同理三处复用（bind 的 inspect_state / frame-bridge __inspect__ / connectFrames host.inspect）
  *
  * 工具声明（name/description/inputSchema/riskLevel）+ run(doc, input) 纯函数；不持有 document。
  * 不含任意 JS 执行（eval）——受限于安全模型。
  */
+
+import type { ToolResult } from "@ragsystem/agent-protocol";
+import type { HostToolDeclaration } from "../types.js";
 
 /** DOM 工具声明 + document-agnostic 执行函数。 */
 export interface DomToolSpec {
@@ -223,4 +226,26 @@ export function inspectDoc(doc: Document): string {
   }
   const suffix = els.length > MAX ? `\n…（共 ${els.length} 项，截断 ${MAX}）` : "";
   return lines.join("\n") + suffix;
+}
+
+/**
+ * 把 DOM_TOOLS 转成 HostToolDeclaration[]，闭包指定 document。
+ * 主网页 bind 与 iframe builtins 共用此转换——同一份工具定义两用（直接注册 / 经 bridge 传递）。
+ */
+export function domToolsToHostSpecs(doc: Document): HostToolDeclaration[] {
+  return DOM_TOOLS.map((t) => ({
+    name: t.name,
+    description: t.description,
+    inputSchema: t.inputSchema,
+    riskLevel: t.riskLevel,
+    execute: async (input): Promise<ToolResult> => {
+      try {
+        const obs = await t.run(doc, input);
+        return { ok: true, observation: String(obs ?? "") };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        return { ok: false, observation: error, error };
+      }
+    },
+  }));
 }

@@ -49,20 +49,3 @@ export interface DeclaredTool {
 export interface ReadyPayload {
   tools: DeclaredTool[];
 }
-
-/** iframe 侧工具执行上下文（frame-bridge 注入）。 */
-export interface FrameToolContext {
-  callId: string;
-}
-
-/**
- * iframe 侧完整工具声明（含 execute；serve 注册用，execute 不上报）。
- * execute 返回 observation 字符串；抛错则框架捕获转 {ok:false,error}。
- */
-export interface FrameTool {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-  riskLevel?: "low" | "medium" | "high";
-  execute(input: unknown, ctx: FrameToolContext): string | Promise<string>;
-}

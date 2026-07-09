@@ -42,13 +42,12 @@
     });
   </script>
 
-  <!-- widget bundle + host-bridge bundle -->
+  <!-- widget bundle（hostTools 命名空间内置于主包，无需 host-bridge） -->
   <script src="/widget.js"></script>
-  <script src="/host-bridge.js"></script>
   <script>
     // widget mount（无 token 内部嵌入）+ 注册主页面 DOM 工具集（开箱即用，agent 直接控制本页 DOM）
     RagWidget.mount({ backendBase: '{{BACKEND_BASE}}' }).then((el) => {
-      RagHostBridge.bindDomTools({ widgetEl: el });
+      RagWidget.hostTools.dom.bind(el);
     }).catch((err) => console.error('widget 挂载失败', err));
   </script>
 </body>

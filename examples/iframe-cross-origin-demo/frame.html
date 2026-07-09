@@ -54,9 +54,9 @@
             additionalProperties: false,
           },
           riskLevel: 'low',
-          execute: (input) => {
+          execute: async (input) => {
             const id = (input && input.order_id) || document.getElementById('order-input').value;
-            return `订单 ${id}：已发货，预计 2 天后送达`;
+            return { ok: true, observation: `订单 ${id}：已发货，预计 2 天后送达` };
           },
         },
       ],

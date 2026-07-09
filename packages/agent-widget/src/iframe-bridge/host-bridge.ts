@@ -11,7 +11,8 @@
  *       event.source === frame.contentWindow。
  */
 import { PROTOCOL_PREFIX, DEFAULT_TIMEOUT_MS } from "./protocol.js";
-import { DOM_TOOLS, inspectDoc } from "./dom-tools.js";
+import { inspectDoc } from "../host-tools/dom/dom-tools.js";
+import type { HostToolRegistrar } from "../host-tools/types.js";
 import type {
   DeclaredTool,
   RagFrameEvent,
@@ -167,18 +168,6 @@ export interface FrameEntry {
   targetOrigin: string;
   /** 展示名（list_frames 返回；缺省用 id）。 */
   label?: string;
-}
-
-/** widget 元素的最小注册接口（结构兼容 RagWidgetHandle，避免 bridge 反向依赖 widget 包）。 */
-export interface HostToolRegistrar {
-  registerHostTool: (spec: {
-    name: string;
-    description: string;
-    inputSchema: Record<string, unknown>;
-    riskLevel?: "low" | "medium" | "high";
-    execute: (input: unknown) => Promise<{ ok: boolean; observation: string; error?: string }>;
-  }) => () => void;
-  unregisterHostTool?: (name: string) => void;
 }
 
 export interface ConnectFramesOptions {
@@ -357,53 +346,3 @@ export function connectFrames(options: ConnectFramesOptions): FrameManager {
   };
 }
 
-/**
- * 注册主页面（或同源 iframe）的 DOM 工具集给 agent——无 iframe 主场景开箱即用。
- *
- * - 注册 DOM_TOOLS（click/get_text/get_value/set_value/scroll_to/focus/submit，execute 绑定 doc）
- * - 注册 inspect_state（execute = inspectDoc(doc)，扫可交互元素清单）
- *
- * document 缺省=主页面 document；传同源 iframe 的 contentDocument 即控制该 iframe
- * （零侵入，不需 frame-bridge）。跨源 iframe 必须走 frame-bridge（同源策略）。
- *
- * 注意：与 connectFrames 的 inspect_state 同名，宿主按场景二选一（无 iframe 用本函数 / 多 iframe 用 connectFrames）。
- * 返回 unbind：注销全部。
- */
-export function bindDomTools(options: { widgetEl: HostToolRegistrar; document?: Document }): () => void {
-  const doc = options.document ?? (typeof document !== "undefined" ? document : null);
-  if (!doc) throw new Error("bindDomTools: document 不可用（显式传 document 参数）");
-  const unsubs: Array<() => void> = [];
-  for (const t of DOM_TOOLS) {
-    unsubs.push(
-      options.widgetEl.registerHostTool({
-        name: t.name,
-        description: t.description,
-        inputSchema: t.inputSchema,
-        ...(t.riskLevel ? { riskLevel: t.riskLevel } : {}),
-        execute: async (input) => {
-          try {
-            const obs = await t.run(doc, input);
-            return { ok: true, observation: String(obs ?? "") };
-          } catch (err) {
-            const error = err instanceof Error ? err.message : String(err);
-            return { ok: false, observation: error, error };
-          }
-        },
-      }),
-    );
-  }
-  unsubs.push(
-    options.widgetEl.registerHostTool({
-      name: "inspect_state",
-      description: "深度探测当前页面的可交互元素清单（selector + 类型 + 当前值/标签）。操作前调此工具看页面有什么可操作元素、selector 是什么。",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      riskLevel: "low",
-      execute: async () => ({ ok: true, observation: inspectDoc(doc) }),
-    }),
-  );
-  return () => {
-    for (const u of unsubs) {
-      try { u(); } catch {}
-    }
-  };
-}
