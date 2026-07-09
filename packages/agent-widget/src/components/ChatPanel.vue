@@ -371,7 +371,9 @@ function handleEvent(env) {
     // 绑定流式节流目标：后续 stream_output delta 累积进 streamBuffer。
     streamTarget = msg;
     // 绑定执行树挂载目标：整个 run 的 executionTree 都挂到这条消息。
-    currentRunMsg = msg;
+    // 取 reactive proxy（messages.value[length-1]）而非原始 msg——直接改原始对象属性不触发 Vue 响应式
+    //（executionTree 赋值不 trigger，工具节点不实时显示；纯工具调用无文本流时尤为明显）。
+    currentRunMsg = messages.value[messages.value.length - 1];
     streamBuffer = "";
     scrollToBottom();
     return;
