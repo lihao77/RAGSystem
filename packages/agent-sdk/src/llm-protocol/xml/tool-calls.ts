@@ -13,7 +13,6 @@ export interface RuntimeToolCallParseResult {
 const TOOL_PATTERN = /<tool\b([^>]*)>([\s\S]*?)<\/tool>/gi;
 const TOOL_PATTERN_UNCLOSED = /<tool\b([^>]*)>([\s\S]*?)(?=<tool\b|<\/(?:tool_calls|tools)>|$)/gi;
 const XML_ATTRIBUTE_PATTERN = /([A-Za-z_][\w:-]*)\s*=\s*"([^"]*)"/g;
-const OPEN_TAG_PATTERN = /<([^/>\s!][^>\s]*)([^>]*)>/g;
 const CDATA_PATTERN = /^\s*<!\[CDATA\[([\s\S]*)\]\]>\s*$/;
 const BARE_PLACEHOLDER_PATTERN = /([:\[,]\s*)\{(result_?\d+(?:\.[A-Za-z0-9_.]+)?)\}/gi;
 
@@ -76,14 +75,16 @@ function collectToolMatches(content: string, pattern: RegExp): Array<{ attrs: st
   return matches;
 }
 
+/**
+ * 解析工具参数：整体 JSON 对象（CDATA 已由 unwrapCdata 剥）。
+ *
+ * 协议教学要求模型把参数作为一个 JSON 对象放进 <tool> 标签内（不按参数名拆成 <param> 标签），
+ * 数组/对象/数字类型由 JSON.parse 原生还原（无损）。
+ * 多个候选（原样 / 占位符修复 / 反斜杠路径修复 / 提取首层 {}）逐个尝试解析。
+ */
 function parseToolArguments(content: string): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
   if (!content.trim()) {
     return { ok: true, value: {} };
-  }
-
-  const xmlArguments = tryParseXmlArguments(content);
-  if (xmlArguments) {
-    return { ok: true, value: xmlArguments };
   }
 
   const jsonCandidates = [
@@ -100,150 +101,6 @@ function parseToolArguments(content: string): { ok: true; value: Record<string, 
   }
 
   return { ok: false, error: content.slice(0, 120) };
-}
-
-function tryParseXmlArguments(content: string): Record<string, unknown> | null {
-  const fields = extractTopLevelXmlFields(content);
-  if (fields.length === 0) {
-    return null;
-  }
-
-  const result: Record<string, unknown> = {};
-  for (const field of fields) {
-    if (field.name === "arguments") {
-      result[field.name] = parseListValue(field.value);
-      continue;
-    }
-    result[field.name] = field.cdata ? field.value : coerceXmlValue(field.value.trim());
-    if ((field.name === "file_path" || field.name === "working_dir") && field.attributes.space) {
-      result[`${field.name}_space`] = field.attributes.space;
-    }
-  }
-  return Object.keys(result).length > 0 ? result : null;
-}
-
-function extractTopLevelXmlFields(content: string): Array<{
-  name: string;
-  value: string;
-  attributes: Record<string, string>;
-  cdata: boolean;
-}> {
-  const results: Array<{ name: string; value: string; attributes: Record<string, string>; cdata: boolean }> = [];
-  OPEN_TAG_PATTERN.lastIndex = 0;
-  let position = 0;
-
-  while (position < content.length) {
-    OPEN_TAG_PATTERN.lastIndex = position;
-    const match = OPEN_TAG_PATTERN.exec(content);
-    if (!match) {
-      break;
-    }
-
-    const name = (match[1] ?? "").trim();
-    const attributes = extractAttributes(match[2] ?? "");
-    const contentStart = match.index + match[0].length;
-    const closeTag = `</${name}>`;
-    const openTagForDepth = new RegExp(`<${escapeRegExp(name)}(?:\\s[^>]*)?>`, "g");
-    let searchPosition = contentStart;
-    let depth = 1;
-    let found = false;
-
-    while (depth > 0 && searchPosition < content.length) {
-      const closePosition = content.indexOf(closeTag, searchPosition);
-      if (closePosition === -1) {
-        break;
-      }
-
-      openTagForDepth.lastIndex = searchPosition;
-      let nested: RegExpExecArray | null;
-      while ((nested = openTagForDepth.exec(content)) !== null && nested.index < closePosition) {
-        depth += 1;
-      }
-
-      depth -= 1;
-      if (depth === 0) {
-        const value = content.slice(contentStart, closePosition);
-        const cdata = CDATA_PATTERN.exec(value);
-        results.push({
-          name,
-          attributes,
-          value: cdata?.[1] ?? value,
-          cdata: Boolean(cdata),
-        });
-        position = closePosition + closeTag.length;
-        found = true;
-        break;
-      }
-
-      searchPosition = closePosition + closeTag.length;
-    }
-
-    if (!found) {
-      position = contentStart;
-    }
-  }
-
-  return results;
-}
-
-function parseListValue(value: string): string[] {
-  const itemPattern = /<item>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/item>|<item>([\s\S]*?)<\/item>/g;
-  const items: string[] = [];
-  let itemMatch: RegExpExecArray | null;
-  while ((itemMatch = itemPattern.exec(value)) !== null) {
-    const raw = itemMatch[1] ?? itemMatch[2] ?? "";
-    const normalized = stripWrappingQuotes(raw.trim());
-    if (normalized) {
-      items.push(normalized);
-    }
-  }
-  if (items.length > 0) {
-    return items;
-  }
-
-  const trimmed = value.trim();
-  if (trimmed.startsWith("[")) {
-    try {
-      const parsed = JSON.parse(trimmed) as unknown;
-      if (Array.isArray(parsed)) {
-        return parsed.map((item) => String(item));
-      }
-    } catch {
-      // fall through
-    }
-  }
-
-  return value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
-function coerceXmlValue(value: string): unknown {
-  const lower = value.toLowerCase();
-  if (lower === "true") {
-    return true;
-  }
-  if (lower === "false") {
-    return false;
-  }
-  if (lower === "null" || lower === "none") {
-    return null;
-  }
-  if (/^-?\d+$/.test(value)) {
-    return Number.parseInt(value, 10);
-  }
-  if (/^-?\d+\.\d+$/.test(value)) {
-    return Number.parseFloat(value);
-  }
-  if (value.startsWith("{") || value.startsWith("[")) {
-    try {
-      return JSON.parse(value) as unknown;
-    } catch {
-      return value;
-    }
-  }
-  return value;
 }
 
 function tryParseJsonObject(value: string): Record<string, unknown> | null {
@@ -333,17 +190,6 @@ function extractAttributes(rawAttributes: string): Record<string, string> {
 function unwrapCdata(value: string): string {
   const match = CDATA_PATTERN.exec(value);
   return match?.[1]?.trim() ?? value;
-}
-
-function stripWrappingQuotes(value: string): string {
-  if (value.length >= 2 && value[0] === '"' && value[value.length - 1] === '"') {
-    return value.slice(1, -1);
-  }
-  return value;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

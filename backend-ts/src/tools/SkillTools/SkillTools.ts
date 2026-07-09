@@ -111,9 +111,7 @@ const SKILL_TOOLS: RuntimeToolDefinition[] = [
     description:
       "Execute a Skill utility script. The arguments field is argv-style: each command-line token must be one array item.",
     usage_contract: [
-      "arguments 是 argv token 数组，不要合并成单个字符串。",
-      "XML 调用时 arguments 必须用 <item> 表示每个 token。",
-      "不要使用 <arg>，不要把多个参数合并成一个字符串或 JSON 对象。",
+      "arguments 是 argv token 数组，每个 token 一个数组项，不要合并成单个字符串或 JSON 对象。",
     ],
     parameters: {
       type: "object",
@@ -126,7 +124,7 @@ const SKILL_TOOLS: RuntimeToolDefinition[] = [
           type: "array",
           items: { type: "string" },
           description:
-            "Command line argv tokens. XML calls must use <item> children, one token per item, such as <item>--data</item><item>data.json</item>. Do not use <arg>, do not join tokens with spaces/semicolons, and do not pass an object like {\"--data\":\"...\"}.",
+            "Command line argv tokens, one token per array item (e.g. [\"--data\", \"data.json\"]). Do not join tokens with spaces/semicolons, and do not pass an object like {\"--data\":\"...\"}.",
         },
         run_in_background: { type: "boolean", description: "Reserved for background execution." },
         workspace_root: { type: "string", description: "Optional workspace root for workspace Skills." },

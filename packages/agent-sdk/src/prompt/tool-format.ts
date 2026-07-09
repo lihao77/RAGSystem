@@ -92,66 +92,39 @@ function renderToolExample(tool: RuntimeToolDefinition): string {
   const properties = isRecord(tool.parameters.properties) ? tool.parameters.properties : {};
   const required = Array.isArray(tool.parameters.required) ? tool.parameters.required.map(String) : [];
   const paramNames = required.length ? required : Object.keys(properties).slice(0, 2);
-  const renderedParams = paramNames.length
-    ? paramNames.map((name) => `  <${name}>${exampleValueForParam(name, properties[name])}</${name}>`).join("\n")
-    : "  <param_name>value</param_name>";
-  return `  \`\`\`xml\n  <tool name="${tool.name}">\n${renderedParams}\n  </tool>\n  \`\`\``;
+  const exampleObj: Record<string, unknown> = {};
+  if (paramNames.length) {
+    for (const name of paramNames) exampleObj[name] = exampleValueForParam(name, properties[name]);
+  } else {
+    exampleObj.param_name = "value";
+  }
+  return `  \`\`\`xml\n  <tool name="${tool.name}"><![CDATA[${stringifyJsonForPrompt(exampleObj, 2)}]]></tool>\n  \`\`\``;
 }
 
 function renderToolExampleFromContract(example: Record<string, unknown>, toolName: string): string {
   const rawParams = isRecord(example.input) ? example.input : example;
   const extraEntries = Object.entries(example).filter(([key]) => key !== "input" && key !== "xml_attrs");
-  const xmlAttrs = isRecord(example.xml_attrs) ? example.xml_attrs : {};
-  const renderedParams = Object.entries(rawParams)
-    .map(([key, value]) => renderToolExampleParam(key, value, isRecord(xmlAttrs[key]) ? xmlAttrs[key] : {}))
-    .join("\n");
-  let block = `  \`\`\`xml\n  <tool name="${toolName}">\n${renderedParams}\n  </tool>\n  \`\`\``;
+  let block = `  \`\`\`xml\n  <tool name="${toolName}"><![CDATA[${stringifyJsonForPrompt(rawParams, 2)}]]></tool>\n  \`\`\``;
   if (extraEntries.length) {
     block += `\n${extraEntries.map(([key, value]) => `  <!-- ${key}: ${stringifyJsonForPrompt(value)} -->`).join("\n")}`;
   }
   return block;
 }
 
-function renderToolExampleParam(key: string, value: unknown, attrs: Record<string, unknown>): string {
-  const attrText = Object.entries(attrs).map(([attr, attrValue]) => `${attr}="${String(attrValue)}"`).join(" ");
-  const opening = attrText ? `<${key} ${attrText}>` : `<${key}>`;
-  if (Array.isArray(value)) {
-    const items = value.map((item) => `    <item>${renderExampleScalar(item)}</item>`).join("\n");
-    return `  ${opening}\n${items}\n  </${key}>`;
-  }
-  return `  ${opening}${renderExampleScalar(value)}</${key}>`;
-}
-
-function renderExampleScalar(value: unknown): string {
-  if (typeof value === "string") {
-    return needsCdata(value) ? `<![CDATA[${value}]]>` : value;
-  }
-  return stringifyJsonForPrompt(value);
-}
-
-function needsCdata(value: string): boolean {
-  return value.includes("\n") || value.includes("<") || value.includes(">") || value.includes("&");
-}
-
-function stringifyJsonForPrompt(value: unknown, indent = 0): string {
-  try {
-    return JSON.stringify(value, null, indent);
-  } catch {
-    return String(value);
-  }
-}
-
-function exampleValueForParam(paramName: string, rawInfo: unknown): string {
+function exampleValueForParam(paramName: string, rawInfo: unknown): unknown {
   const info = isRecord(rawInfo) ? rawInfo : {};
   const type = normalizeString(info.type);
   if (type === "boolean") {
-    return "true";
+    return true;
   }
   if (type === "integer" || type === "number") {
-    return "1";
+    return 1;
   }
   if (type === "array") {
-    return "value";
+    return ["value"];
+  }
+  if (type === "object") {
+    return { key: "value" };
   }
   if (paramName.includes("path")) {
     return "path/to/file";
@@ -160,4 +133,12 @@ function exampleValueForParam(paramName: string, rawInfo: unknown): string {
     return "python script.py";
   }
   return "value";
+}
+
+function stringifyJsonForPrompt(value: unknown, indent = 0): string {
+  try {
+    return JSON.stringify(value, null, indent);
+  } catch {
+    return String(value);
+  }
 }

@@ -14,7 +14,6 @@ import {
   buildPromptActionsSection,
   buildPromptDoingTasksSection,
   buildPromptGoalSection,
-  buildPromptOutputFormatSection,
   buildPromptPrinciplesSection,
   buildPromptRulesSection,
   buildPromptSystemSection,
@@ -40,7 +39,6 @@ export function getAgentBaseSystemPrompt(profile: PromptProfile): string {
 
 function buildDynamicSystemPrompt(profile: PromptProfile, context: AgentPromptContext, mode: ToolInstructionMode): string {
   const tools = context.tools ?? [];
-  const toolNames = new Set(tools.map((tool) => tool.name));
   return collectSections([
     buildPromptGoalSection(),
     buildPromptDoingTasksSection(),
@@ -48,7 +46,6 @@ function buildDynamicSystemPrompt(profile: PromptProfile, context: AgentPromptCo
     buildPromptActionsSection(mode),
     getAgentBaseSystemPrompt(profile),
     buildPromptToolsSection(tools, mode),
-    buildPromptOutputFormatSection(toolNames, mode),
     buildPromptRulesSection(mode),
     buildDataFileRulesSection(),
   ]).join("\n\n");

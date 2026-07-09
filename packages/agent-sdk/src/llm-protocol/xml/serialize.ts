@@ -19,38 +19,8 @@ export function serializeToolCallsToXml(toolCalls: ChatToolCall[]): string {
 
 function serializeToolCallToXml(call: ChatToolCall): string {
   const args = parseArgumentsObject(call.function.arguments);
-  const params = Object.entries(args)
-    .map(([key, value]) => serializeParam(key, value))
-    .join("");
-  return `<tool name="${escapeXmlAttribute(call.function.name)}" id="${escapeXmlAttribute(call.id)}">${params}</tool>`;
-}
-
-function serializeParam(key: string, value: unknown): string {
-  if (Array.isArray(value)) {
-    const items = value
-      .map((item) => `<item>${toXmlText(item)}</item>`)
-      .join("");
-    return `<${key}>${items}</${key}>`;
-  }
-  return `<${key}>${toXmlText(value)}</${key}>`;
-}
-
-function toXmlText(value: unknown): string {
-  let text: string;
-  if (typeof value === "string") {
-    text = value;
-  } else if (value === null || value === undefined) {
-    return "";
-  } else if (typeof value === "object") {
-    text = JSON.stringify(value);
-  } else {
-    text = String(value);
-  }
-  return needsCdata(text) ? wrapCdata(text) : text;
-}
-
-function needsCdata(text: string): boolean {
-  return /[<>&]/.test(text);
+  const json = JSON.stringify(args);
+  return `<tool name="${escapeXmlAttribute(call.function.name)}" id="${escapeXmlAttribute(call.id)}">${wrapCdata(json)}</tool>`;
 }
 
 function wrapCdata(text: string): string {

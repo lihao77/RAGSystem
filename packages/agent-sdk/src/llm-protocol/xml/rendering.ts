@@ -20,9 +20,12 @@ export function renderRuntimeXmlProtocolInstruction(tools: RuntimeToolDefinition
     "Use <tool_calls> when a tool is needed. Tool calls are hidden from the user and parsed by the runtime.",
     "Use <final_answer> only when the task is complete. The final answer is the only assistant message persisted as the final response.",
     "Do not mix <final_answer> with <tool_calls> in the same round.",
-    "Preferred tool call format:",
-    '<tool_calls><tool name="tool_name"><param_name>value</param_name></tool></tool_calls>',
-    "Use CDATA for multiline text or content containing XML-sensitive characters.",
+    "Preferred tool call format (arguments as a single JSON object inside the tool tag):",
+    '<tool_calls><tool name="tool_name"><![CDATA[{ "param1": value1, "param2": value2 }]]></tool></tool_calls>',
+    "The JSON object must conform to the tool's parameter schema. Array/object/number types are preserved as-is by JSON parsing.",
+    "Use CDATA when the JSON contains XML-sensitive characters (<, >, &) to avoid breaking the tool tag.",
+    "Multiple independent tool calls can be placed in the same <tool_calls> block.",
+    "Within a single round, reference the Nth tool's result with {result_N} (1-based) to chain calls.",
     "Legacy aliases <tools> and <answer> are accepted, but prefer <tool_calls> and <final_answer>.",
   ].join("\n");
 
