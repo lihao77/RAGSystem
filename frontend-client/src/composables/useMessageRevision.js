@@ -1,14 +1,22 @@
-import { computed, nextTick, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { storeToRefs } from 'pinia';
-import { rollbackSession } from '../api/session.js';
+import { rollbackAndRetrySession } from '../api/session.js';
 import { useSessionRunStore } from '../stores/session-run.js';
+import { createAssistantMessage } from './useMessageExecution.js';
+import { resetActiveRunForSend, serializeAttachmentForSend } from './useSessionAgentClient.js';
 
-function buildRollbackBody(messages, index) {
-  if (index === 0) return { after_seq: -1 };
-  const prev = messages[index - 1];
-  if (prev?.id) return { after_message_id: prev.id };
-  if (prev?.seq != null) return { after_seq: prev.seq };
-  return { after_seq: -1 };
+/**
+ * 构造 rollback-and-retry 的锚点：指向被编辑/重试的用户消息本身（messages[index]）。
+ * 后端 prepareRetry 用 after 定位被改写的 user 消息，故锚点必须指向自身，而不是前一条
+ * （旧的指向前一条的语义是为"裸 rollback 删 index 及之后 + 重发新消息"两步走服务的，与原子端点不符）。
+ * 返回 null 表示该消息尚未持久化（无 id/seq），调用方应拦截。
+ */
+function buildRetryAnchorBody(messages, index) {
+  const target = messages[index];
+  if (!target) return null;
+  if (target.id) return { after_message_id: target.id };
+  if (target.seq != null) return { after_seq: target.seq };
+  return null;
 }
 
 /**
@@ -66,8 +74,8 @@ export function useMessageRevision(deps) {
     }
 
     const content = (editingDraft.value || '').trim();
-    const attachments = editingAttachmentsDraft.value.slice();
-    if (!content && !attachments.length) {
+    const draftAttachments = editingAttachmentsDraft.value.slice();
+    if (!content && !draftAttachments.length) {
       deps.showToast('内容和附件不能同时为空');
       return;
     }
@@ -77,11 +85,47 @@ export function useMessageRevision(deps) {
       cancelEdit();
       return;
     }
+    if (deps.isLoading.value) {
+      deps.showToast('请先停止当前任务', 'warning');
+      return;
+    }
+    const anchor = buildRetryAnchorBody(messages.value, index);
+    if (!anchor) {
+      deps.showToast('消息尚未持久化，无法重试');
+      return;
+    }
 
     editingSubmitting.value = true;
     try {
-      await rollbackSession(sessionId, buildRollbackBody(messages.value, index));
-      await deps.handleSend({ content, attachments, replaceFromIndex: index, clearEditing: true });
+      // 物化附件（上传本地文件拿 file_id）后整体随原子端点提交
+      const materialized = await deps.materializeAttachmentsForSend(draftAttachments, sessionId);
+      const selectedLlm = deps.getCurrentSelectedLlm?.();
+      const resp = await rollbackAndRetrySession(sessionId, {
+        ...anchor,
+        modify_user_message: content,
+        attachments: materialized.map(serializeAttachmentForSend),
+        ...(selectedLlm ? { selected_llm: selectedLlm } : {}),
+      });
+      const result = resp.data || {};
+      if (!result.started) {
+        throw new Error(result.error || '操作失败');
+      }
+
+      // 本地同步：保留被编辑消息（更新内容/附件，id/seq 不变），删其后回复，push 新 assistant 占位。
+      // HTTP 成功才动本地；失败时后端 prepareRetry/startRun 同事务，要么全成要么全不成，本地无须回滚。
+      messages.value = messages.value.slice(0, index + 1);
+      const userMsg = messages.value[index];
+      if (userMsg) {
+        userMsg.content = content;
+        userMsg.attachments = materialized;
+      }
+      const assistantMsgIndex = messages.value.push(createAssistantMessage({ run_id: result.run_id })) - 1;
+      resetActiveRunForSend(deps.activeRun, assistantMsgIndex);
+      deps.activeRun.runId = result.run_id;
+      deps.isLoading.value = true;
+      deps.cacheMessages(sessionId, messages.value);
+      deps.stickToBottom?.();
+      resetEditingState();
     } catch (error) {
       editingSubmitting.value = false;
       deps.showToast(error.message || '操作失败');
@@ -94,26 +138,40 @@ export function useMessageRevision(deps) {
       deps.showToast('当前无会话');
       return;
     }
-    if (msg.role !== 'user' || msg.seq == null) {
-      deps.showToast('仅支持从用户消息重试，且需已加载序号');
+    if (msg.role !== 'user') {
+      deps.showToast('仅支持从用户消息重试');
+      return;
+    }
+    if (deps.isLoading.value) {
+      deps.showToast('请先停止当前任务', 'warning');
       return;
     }
 
     const index = messages.value.findIndex(item => item === msg || (item.role === 'user' && item.seq === msg.seq));
     if (index < 0) return;
+    const anchor = buildRetryAnchorBody(messages.value, index);
+    if (!anchor) {
+      deps.showToast('消息尚未持久化，无法重试');
+      return;
+    }
 
-    const prevMessages = messages.value.slice();
     try {
-      await rollbackSession(sessionId, buildRollbackBody(messages.value, index));
-      messages.value = messages.value.slice(0, index);
+      // 原样重试：不传 modify_user_message/attachments，后端用原消息内容与原附件
+      const resp = await rollbackAndRetrySession(sessionId, anchor);
+      const result = resp.data || {};
+      if (!result.started) {
+        throw new Error(result.error || '重试失败');
+      }
+      // 保留原 user 消息对象（id/seq 不变），删其后回复，push 新 assistant 占位
+      messages.value = messages.value.slice(0, index + 1);
+      const assistantMsgIndex = messages.value.push(createAssistantMessage({ run_id: result.run_id })) - 1;
+      resetActiveRunForSend(deps.activeRun, assistantMsgIndex);
+      deps.activeRun.runId = result.run_id;
+      deps.isLoading.value = true;
       deps.cacheMessages(sessionId, messages.value);
-      deps.inputMessage.value = (msg.content || '').trim();
-      await nextTick();
-      deps.handleSend();
+      deps.stickToBottom?.();
     } catch (error) {
-      messages.value = prevMessages;
-      deps.cacheMessages(sessionId, prevMessages);
-      deps.showToast(error.message || '回退失败');
+      deps.showToast(error.message || '重试失败');
     }
   };
 

@@ -15,10 +15,11 @@ function createDeps(overrides = {}) {
   currentSessionId.value = 'session-1';
   const sessionFilesDrawerVisible = ref(false);
   const sessionFilesDrawerTarget = ref('composer');
-  const inputMessage = ref('');
   const toasts = [];
   const cacheCalls = [];
-  const sendCalls = [];
+  const materializeCalls = [];
+  const activeRun = { active: false, assistantMsgIndex: -1, runId: null, phase: 'idle' };
+  const isLoading = ref(false);
 
   const deps = {
     messages,
@@ -28,12 +29,15 @@ function createDeps(overrides = {}) {
     normalizeAttachment: (file) => (file ? { ...file, file_id: file.file_id || file.id } : null),
     showToast: (message) => toasts.push(message),
     cacheMessages: (...args) => cacheCalls.push(args),
-    inputMessage,
-    handleSend: async (payload) => { sendCalls.push(payload); },
+    activeRun,
+    isLoading,
+    materializeAttachmentsForSend: async (attachments) => { materializeCalls.push(attachments); return attachments; },
+    getCurrentSelectedLlm: () => null,
+    stickToBottom: () => {},
     ...overrides,
   };
 
-  return { deps, toasts, cacheCalls, sendCalls };
+  return { deps, toasts, cacheCalls, materializeCalls, activeRun, isLoading };
 }
 
 function withMock(setup, run) {
@@ -44,24 +48,21 @@ function withMock(setup, run) {
     .finally(() => { mock.restore(); });
 }
 
-test('confirmEditAndResend 会用上一条消息生成 rollback body 并透传编辑载荷', async () => {
+test('confirmEditAndResend 走原子端点，锚点指向被编辑消息本身并透传 modify_user_message 与附件', async () => {
+  let capturedBody = null;
   await withMock((mock) => {
-    mock.onPost(/\/rollback$/).reply((config) => {
-      assert.equal(config.url, '/api/agent/sessions/session-1/rollback');
-      assert.deepEqual(JSON.parse(config.data), { after_message_id: 'msg-1' });
-      return [200, {}];
+    mock.onPost(/\/rollback-and-retry$/).reply((config) => {
+      assert.equal(config.url, '/api/agent/sessions/session-1/rollback-and-retry');
+      capturedBody = JSON.parse(config.data);
+      return [200, { data: { started: true, run_id: 'run-new', task_id: 'task-new', deleted: 1 } }];
     });
   }, async () => {
-    const attachment = {
-      id: 'file-2',
-      original_name: 'draft.txt',
-      mime: 'text/plain',
-      size: 12,
-    };
-    const { deps, sendCalls } = createDeps();
+    const attachment = { id: 'file-2', original_name: 'draft.txt', mime: 'text/plain', size: 12 };
+    const { deps, activeRun, isLoading } = createDeps();
     deps.messages.value = [
-      { role: 'user', id: 'msg-1', content: 'before' },
+      { role: 'user', id: 'msg-1', content: 'first' },
       { role: 'user', id: 'msg-2', content: 'draft', attachments: [attachment] },
+      { role: 'assistant', id: 'msg-3', content: 'old reply', finished: true },
     ];
 
     const revision = useMessageRevision(deps);
@@ -70,23 +71,32 @@ test('confirmEditAndResend 会用上一条消息生成 rollback body 并透传�
 
     await revision.confirmEditAndResend();
 
-    assert.deepEqual(sendCalls, [[0]].map(() => ({
-      content: 'updated',
-      attachments: [{ ...attachment, file_id: 'file-2' }],
-      replaceFromIndex: 1,
-      clearEditing: true,
-    })));
+    // 锚点指向被编辑消息本身（msg-2），不是前一条；透传 modify_user_message 与附件
+    assert.equal(capturedBody.after_message_id, 'msg-2');
+    assert.equal(capturedBody.modify_user_message, 'updated');
+    assert.equal(capturedBody.attachments[0].file_id, 'file-2');
+
+    // 本地：保留被编辑消息（内容更新、id 不变），删其后回复，push 新 assistant 占位
+    assert.equal(deps.messages.value.length, 3);
+    assert.equal(deps.messages.value[1].role, 'user');
+    assert.equal(deps.messages.value[1].id, 'msg-2');
+    assert.equal(deps.messages.value[1].content, 'updated');
+    assert.equal(deps.messages.value[2].role, 'assistant');
+    assert.equal(activeRun.active, true);
+    assert.equal(activeRun.runId, 'run-new');
+    assert.equal(isLoading.value, true);
+    assert.equal(revision.editingMessage.value, null);
   });
 });
 
-test('rollbackAndRetry 回退失败时会恢复消息并提示错误', async () => {
+test('rollbackAndRetry 失败时本地保持不动并提示错误', async () => {
   await withMock((mock) => {
-    mock.onPost(/\/rollback$/).reply(400, { message: '回退失败啦' });
+    mock.onPost(/\/rollback-and-retry$/).reply(400, { message: '重试失败啦' });
   }, async () => {
-    const { deps, toasts, cacheCalls } = createDeps();
+    const { deps, toasts } = createDeps();
     const originalMessages = [
-      { role: 'user', seq: 1, content: 'question' },
-      { role: 'assistant', seq: 2, content: 'answer', finished: true },
+      { role: 'user', seq: 1, id: 'msg-1', content: 'question' },
+      { role: 'assistant', seq: 2, id: 'msg-2', content: 'answer', finished: true },
     ];
     deps.messages.value = originalMessages;
 
@@ -94,8 +104,29 @@ test('rollbackAndRetry 回退失败时会恢复消息并提示错误', async () 
     await revision.rollbackAndRetry(deps.messages.value[0]);
 
     assert.deepEqual(deps.messages.value, originalMessages);
-    assert.deepEqual(cacheCalls, [['session-1', originalMessages]]);
-    assert.deepEqual(toasts, ['回退失败啦']);
+    assert.deepEqual(toasts, ['重试失败啦']);
+  });
+});
+
+test('confirmEditAndResend 在运行中会被拦截，不发起请求', async () => {
+  let posted = false;
+  await withMock((mock) => {
+    mock.onPost(/\/rollback-and-retry$/).reply(() => { posted = true; return [200, { data: { started: true } }]; });
+  }, async () => {
+    const { deps, toasts } = createDeps();
+    deps.isLoading.value = true;
+    deps.messages.value = [
+      { role: 'user', id: 'msg-1', content: 'first' },
+      { role: 'assistant', id: 'msg-2', content: 'reply', finished: true },
+    ];
+
+    const revision = useMessageRevision(deps);
+    revision.startEditMessage(deps.messages.value[0], 0);
+    revision.editingDraft.value = 'edited';
+    await revision.confirmEditAndResend();
+
+    assert.equal(posted, false);
+    assert.deepEqual(toasts, ['请先停止当前任务']);
   });
 });
 

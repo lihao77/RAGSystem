@@ -37,9 +37,13 @@ export async function getSessionMessages(
   return http.get(`${BASE}/sessions/${encodeURIComponent(sessionId)}/messages?${params.toString()}`);
 }
 
-/** 回滚会话到指定消息。body 由调用方按 buildRollbackBody 构造。 */
-export async function rollbackSession(sessionId, body) {
-  return http.post(`${BASE}/sessions/${encodeURIComponent(sessionId)}/rollback`, body);
+/**
+ * 编辑重发/原样重试的原子端点（回滚到锚点用户消息 + 改内容/附件 + 启动新 run，单次请求完成）。
+ * body: { after_seq?, after_message_id?, modify_user_message?, attachments?, ui_context?, selected_llm? }。
+ * 返回 JSON 整体（data.started / data.run_id / data.task_id / data.deleted / data.error）。
+ */
+export async function rollbackAndRetrySession(sessionId, body) {
+  return http.post(`${BASE}/sessions/${encodeURIComponent(sessionId)}/rollback-and-retry`, body);
 }
 
 /** 响应会话交互（用户输入等）。body 形如 { kind, value }。 */

@@ -529,8 +529,11 @@ const {
   normalizeAttachment,
   showToast,
   cacheMessages,
-  inputMessage,
-  handleSend: sendSessionMessage,
+  activeRun: _activeRun,
+  isLoading,
+  materializeAttachmentsForSend,
+  getCurrentSelectedLlm,
+  stickToBottom,
 });
 
 // ── 态势大屏与消息产物 ──────────────────────────────────────────

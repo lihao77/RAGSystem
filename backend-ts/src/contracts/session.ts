@@ -2,6 +2,8 @@ import path from "node:path";
 
 import { z } from "zod";
 
+import { AttachmentRefSchema } from "./execution.js";
+
 export const SessionMetadataSchema = z.unknown().optional().transform((value, context) => {
   try {
     return normalizeSessionMetadata(value);
@@ -34,6 +36,8 @@ export const RollbackAndRetryRequestSchema = RollbackRequestSchema.extend({
   user_id: z.string().nullable().optional(),
   selected_llm: z.string().nullable().optional(),
   selectedLLM: z.string().nullable().optional(),
+  attachments: z.array(AttachmentRefSchema).optional().default([]),
+  ui_context: z.record(z.string(), z.unknown()).nullish(),
 });
 
 export type CreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>;

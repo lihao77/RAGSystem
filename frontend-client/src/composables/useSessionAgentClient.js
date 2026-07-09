@@ -66,7 +66,7 @@ const handleDelegateCall = async (ws, event, sessionId) => {
 
 // ===== send/stop 工具（原 useSessionSend，2.5c 迁入） =====
 
-const resetActiveRunForSend = (activeRun, assistantMsgIndex) => {
+export const resetActiveRunForSend = (activeRun, assistantMsgIndex) => {
   activeRun.active = true;
   activeRun.assistantMsgIndex = assistantMsgIndex;
   activeRun.runId = null;
@@ -94,7 +94,7 @@ const resetActiveRunAfterSendError = (activeRun) => {
   activeRun.outputCharCount = 0;
 };
 
-const serializeAttachmentForSend = ({ file_id, original_name, stored_name, mime, size, kind }) => ({
+export const serializeAttachmentForSend = ({ file_id, original_name, stored_name, mime, size, kind }) => ({
   file_id,
   original_name,
   stored_name,
@@ -919,11 +919,16 @@ export function useSessionAgentClient(deps) {
           currentMsg.finished = true;
         }
 
-        const hasNotificationMsg = messages.value.some(
-          msg => msg.role === 'user' && msg.metadata?.source === 'background_notification' && msg._bgRunId === nextRunId
-        );
-        if (!hasNotificationMsg) {
-          messages.value.push(deps.buildTaskNotificationMessage(sessionId, event));
+        // 仅当 run_started 携带后台任务通知时才渲染 notification 消息；普通 run/编辑重发无通知，
+        // 不 push 空消息（避免与后续 HTTP 本地更新交叠时出现瞬时空消息抖动）。
+        const runNotifications = Array.isArray(event?.data?.notifications) ? event.data.notifications : [];
+        if (runNotifications.length > 0) {
+          const hasNotificationMsg = messages.value.some(
+            msg => msg.role === 'user' && msg.metadata?.source === 'background_notification' && msg._bgRunId === nextRunId
+          );
+          if (!hasNotificationMsg) {
+            messages.value.push(deps.buildTaskNotificationMessage(sessionId, event));
+          }
         }
 
         messages.value.push(deps.createAssistantMessage({ run_id: nextRunId }));
@@ -1065,20 +1070,14 @@ export function useSessionAgentClient(deps) {
     const draftAttachments = Array.isArray(payload?.attachments)
       ? payload.attachments.slice()
       : deps.pendingAttachments.value.slice();
-    const replaceFromIndex = Number.isInteger(payload?.replaceFromIndex) ? payload.replaceFromIndex : null;
-    const clearEditing = payload?.clearEditing === true;
-    let isRunningFollowup = Boolean(
-      currentSessionId.value
-      && activeRun.active
-      && replaceFromIndex == null
-    );
+    let isRunningFollowup = Boolean(currentSessionId.value && activeRun.active);
     if ((!content && !draftAttachments.length) || (isLoading.value && !isRunningFollowup)) return;
     if (isRunningFollowup && draftAttachments.length) {
       deps.showToast('运行中补充暂不支持附件', 'warning');
       return;
     }
 
-    const startsDraftSession = !currentSessionId.value && replaceFromIndex == null;
+    const startsDraftSession = !currentSessionId.value;
     const requestId = createRequestId();
     let userMetadata = isRunningFollowup
       ? createFollowupMetadata(requestId, activeRun)
@@ -1130,7 +1129,7 @@ export function useSessionAgentClient(deps) {
         mergeExecutionObservability(result.data.observability);
       }
       if (result.data?.has_running_task && !isRunningFollowup) {
-        if (sessionId && replaceFromIndex == null && !startsDraftSession) {
+        if (sessionId && !startsDraftSession) {
           isRunningFollowup = true;
           userMetadata = createFollowupMetadata(requestId, activeRun, result.data?.task_info?.run_id || null);
         } else {
@@ -1171,15 +1170,6 @@ export function useSessionAgentClient(deps) {
 
     if (startsDraftSession && activeRun.active) {
       activeRun.phase = 'starting_agent';
-    }
-
-    if (replaceFromIndex != null) {
-      messages.value = messages.value.slice(0, replaceFromIndex);
-      deps.cacheMessages(sessionId, messages.value);
-      if (clearEditing) {
-        deps.resetEditingState({ closeDrawer: false });
-        deps.clearEditingAttachments();
-      }
     }
 
     if (startsDraftSession) {

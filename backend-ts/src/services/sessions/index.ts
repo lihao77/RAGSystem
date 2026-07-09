@@ -2,6 +2,7 @@ import type { PaginatedResult } from "../../contracts/common.js";
 import { normalizeSessionMetadata, type MessageInfo, type SessionInfo, type SessionListItem } from "../../contracts/session.js";
 import type { IMessageStore, IRunStore, ISessionStore, RunInfo } from "../../contracts/conversation-store/index.js";
 import type { IFileHistoryStore } from "../../contracts/file-history-store/index.js";
+import type { MessageExtension } from "../agent/context/extensions/kinds.js";
 
 export class AgentSessionApplication {
   constructor(
@@ -204,6 +205,7 @@ export class AgentSessionApplication {
     afterSeq?: number | null;
     afterMessageId?: string | null;
     modifyUserMessage?: string | null;
+    metadataPatch?: { attachments?: unknown[]; extensions?: MessageExtension[] };
   }): { deleted: number; task: string; message: MessageInfo } {
     const originalMessage = this.resolveRetryAnchor(input.sessionId, input.afterSeq, input.afterMessageId);
     if (!originalMessage) {
@@ -229,6 +231,7 @@ export class AgentSessionApplication {
           content: task,
           metadata: {
             ...originalMessage.metadata,
+            ...(input.metadataPatch ?? {}),
             retry_modified_at: new Date().toISOString(),
           },
         }

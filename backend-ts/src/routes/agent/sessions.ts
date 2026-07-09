@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 
 import { ok } from "../../contracts/common.js";
+import type { AttachmentRef } from "../../contracts/execution.js";
 import {
   CreateSessionRequestSchema,
   RollbackAndRetryRequestSchema,
@@ -153,6 +154,8 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
         afterMessageId?: string | null;
         modifyUserMessage?: string | null;
         selectedLlm?: string | null;
+        attachments?: AttachmentRef[] | null;
+        uiContext?: Record<string, unknown> | null;
       } = {
         sessionId: request.params.sessionId,
         userId: payload.user_id ?? null,
@@ -167,6 +170,12 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
       }
       if (payload.modify_user_message !== undefined) {
         retryInput.modifyUserMessage = payload.modify_user_message;
+      }
+      if (payload.attachments && payload.attachments.length) {
+        retryInput.attachments = payload.attachments;
+      }
+      if (payload.ui_context) {
+        retryInput.uiContext = payload.ui_context;
       }
       const result = await options.container.agentExecution.startRollbackRetry(retryInput);
       if (!result.started) {

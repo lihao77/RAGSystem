@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type {
   AgentExecuteResult,
   AgentRunStartResult,
+  AttachmentRef,
   ExecuteRequest,
   RollbackRetryStartResult,
   StreamExecuteRequest,
@@ -32,6 +33,8 @@ export interface RollbackRetryInput {
   afterMessageId?: string | null;
   modifyUserMessage?: string | null;
   selectedLlm?: string | null;
+  attachments?: AttachmentRef[] | null;
+  uiContext?: Record<string, unknown> | null;
 }
 
 export interface LauncherApi {
@@ -93,14 +96,6 @@ class AgentLaunchers {
         error: "Task and attachments cannot both be empty",
       };
     }
-    const attachmentResolution = this.attachmentResolver.resolve(sessionId, request.attachments);
-    if (attachmentResolution.error) {
-      return {
-        started: false,
-        session_id: sessionId,
-        error: attachmentResolution.error,
-      };
-    }
     const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
     const runningStatus = this.statusTracker.getStatusBySession(sessionId);
     if (runningStatus?.status === "running") {
@@ -132,6 +127,15 @@ class AgentLaunchers {
         ...(runningTaskId ? { task_id: runningTaskId } : {}),
         request_id: requestId,
         kind: "agent_run",
+      };
+    }
+
+    const attachmentResolution = this.attachmentResolver.resolve(sessionId, request.attachments);
+    if (attachmentResolution.error) {
+      return {
+        started: false,
+        session_id: sessionId,
+        error: attachmentResolution.error,
       };
     }
 
@@ -314,22 +318,8 @@ class AgentLaunchers {
       };
     }
 
-    const prepareInput: {
-      sessionId: string;
-      afterSeq?: number | null;
-      afterMessageId?: string | null;
-      modifyUserMessage?: string | null;
-    } = { sessionId };
-    if (input.afterSeq !== undefined) {
-      prepareInput.afterSeq = input.afterSeq;
-    }
-    if (input.afterMessageId !== undefined) {
-      prepareInput.afterMessageId = input.afterMessageId;
-    }
-    if (input.modifyUserMessage !== undefined) {
-      prepareInput.modifyUserMessage = input.modifyUserMessage;
-    }
-    const prepared = this.sessions.prepareRetry(prepareInput);
+    // 先解析 ready 与确保会话存在——这两步不依赖消息内容，失败时直接返回不触碰消息 DB，
+    // 避免 prepareRetry 已改写内容/删除回复、却因 ready 失败留下“内容改了、回复没了、新 run 没起”的中间态。
     const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
     const resolveInput: {
       agentName?: string | null;
@@ -347,13 +337,55 @@ class AgentLaunchers {
       return {
         started: false,
         session_id: sessionId,
-        deleted: prepared.deleted,
+        deleted: 0,
         error: ready.reason,
       };
     }
     if (!this.sessions.getSession(sessionId)) {
       this.sessions.createSession({ sessionId, userId: input.userId ?? null });
     }
+
+    const prepareInput: {
+      sessionId: string;
+      afterSeq?: number | null;
+      afterMessageId?: string | null;
+      modifyUserMessage?: string | null;
+      metadataPatch?: { attachments?: unknown[]; extensions?: MessageExtension[] };
+    } = { sessionId };
+    if (input.afterSeq !== undefined) {
+      prepareInput.afterSeq = input.afterSeq;
+    }
+    if (input.afterMessageId !== undefined) {
+      prepareInput.afterMessageId = input.afterMessageId;
+    }
+    if (input.modifyUserMessage !== undefined) {
+      prepareInput.modifyUserMessage = input.modifyUserMessage;
+    }
+    // 编辑重发可能带新附件：解析后按 image/file 拆分（复用 startStream 的拆分逻辑），
+    // 打包成 metadataPatch 交给 prepareRetry 合并进用户消息 metadata。
+    if (input.attachments && input.attachments.length) {
+      const attachmentResolution = this.attachmentResolver.resolve(sessionId, input.attachments);
+      if (attachmentResolution.error) {
+        return {
+          started: false,
+          session_id: sessionId,
+          deleted: 0,
+          error: attachmentResolution.error,
+        };
+      }
+      const imageAttachments = attachmentResolution.attachments.filter((a) => a.kind === "image");
+      const fileAttachments = attachmentResolution.attachments.filter((a) => a.kind !== "image");
+      const extensions: MessageExtension[] = [];
+      if (input.uiContext) extensions.push({ kind: "ui_context", data: input.uiContext });
+      if (imageAttachments.length) extensions.push({ kind: "image_attachment", data: { attachments: imageAttachments } });
+      prepareInput.metadataPatch = {
+        ...(fileAttachments.length ? { attachments: fileAttachments } : {}),
+        ...(extensions.length ? { extensions } : {}),
+      };
+    } else if (input.uiContext) {
+      prepareInput.metadataPatch = { extensions: [{ kind: "ui_context", data: input.uiContext }] };
+    }
+    const prepared = this.sessions.prepareRetry(prepareInput);
 
     const runtimeAgent = ready.agent;
     const started = this.runEngine.startRun({
