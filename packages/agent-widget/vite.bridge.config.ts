@@ -8,6 +8,7 @@ import { defineConfig } from "vite";
  * - mode=frame：src/iframe-bridge/frame-bridge.ts → dist/ragsystem-frame-bridge.umd.cjs（全局 RagFrameBridge）
  * - mode=host： src/iframe-bridge/host-bridge.ts  → dist/ragsystem-host-bridge.umd.cjs （全局 RagHostBridge）
  * - mode=tools：src/host-tools/index.ts           → dist/ragsystem-host-tools.umd.cjs  （全局 RagHostTools，dom/map 工具集）
+ * - mode=mcp-client：src/mcp-client/index.ts      → dist/ragsystem-mcp-client.umd.cjs （全局 RagMcpClient，前端工具 MCP 执行端）
  *
  * 三个入口都是纯 TS（无 .vue），不需 vue 插件；单文件 inlineDynamicImports；emptyOutDir:false 避免互删/删主产物。
  */
@@ -26,6 +27,11 @@ const MODE_CONFIG = {
     entry: "src/host-tools/index.ts",
     name: "RagHostTools",
     fileName: "ragsystem-host-tools",
+  },
+  "mcp-client": {
+    entry: "src/mcp-client/index.ts",
+    name: "RagMcpClient",
+    fileName: "ragsystem-mcp-client",
   },
 } as const;
 

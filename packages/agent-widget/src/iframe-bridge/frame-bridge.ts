@@ -22,7 +22,7 @@ import type {
   RagFrameResponse,
   ReadyPayload,
 } from "./protocol.js";
-import type { HostToolDeclaration } from "../host-tools/types.js";
+import type { HostToolDeclaration } from "@ragsystem/agent-protocol";
 import { BUILTIN_TOOLS } from "../host-tools/dom/builtins.js";
 import { inspectDoc } from "../host-tools/dom/dom-tools.js";
 

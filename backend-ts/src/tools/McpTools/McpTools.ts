@@ -29,7 +29,8 @@ export function createMcpTools(deps: McpToolDeps): Tool[] {
       isReadOnly: () => definition.annotations?.readOnlyHint === true,
       isConcurrencySafe: () =>
         definition.annotations?.readOnlyHint === true && definition.annotations?.idempotentHint !== false,
-      call: (input, _ctx: ToolExecContext) => deps.mcp!.callRuntimeTool(definition.name, input),
+      call: (input, ctx: ToolExecContext) =>
+        deps.mcp!.callRuntimeTool(definition.name, input, ctx.sessionId ? { session_id: ctx.sessionId } : undefined),
     }),
   );
   if (!enabledServers.length) {

@@ -452,6 +452,7 @@ export class McpService {
   async callRuntimeTool(
     fullToolName: string,
     args: Record<string, unknown> | undefined,
+    meta?: Record<string, unknown>,
   ): Promise<ToolExecutionResult> {
     const parsed = parseMcpToolName(fullToolName);
     if (!parsed) {
@@ -459,7 +460,7 @@ export class McpService {
     }
     const [serverName, toolName] = parsed;
     const start = Date.now();
-    const result = await this.callTool(serverName, toolName, args ?? {});
+    const result = await this.callTool(serverName, toolName, args ?? {}, meta);
     this.recordMetrics(serverName, toolName, result.success, Date.now() - start);
     return result;
   }
@@ -492,6 +493,7 @@ export class McpService {
     serverName: string,
     toolName: string,
     args: Record<string, unknown>,
+    meta?: Record<string, unknown>,
   ): Promise<ToolExecutionResult> {
     const state = this.connections.get(serverName);
     const fullToolName = buildMcpToolName(serverName, toolName);
@@ -499,7 +501,7 @@ export class McpService {
       return toolError(`MCP Server '${serverName}' 未连接`, fullToolName, { server_name: serverName });
     }
     try {
-      const result = await state.client.callTool(toolName, args);
+      const result = await state.client.callTool(toolName, args, meta);
       return normalizeToolResult(fullToolName, serverName, toolName, result);
     } catch (error) {
       return toolError(`MCP 工具调用失败: ${formatError(error)}`, fullToolName, { server_name: serverName });
@@ -647,9 +649,13 @@ class SdkMcpClient implements McpClient {
     }
   }
 
-  async callTool(toolName: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  async callTool(
+    toolName: string,
+    args: Record<string, unknown>,
+    meta?: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
     const result = await this.client.callTool(
-      { name: toolName, arguments: args },
+      { name: toolName, arguments: args, ...(meta ? { _meta: meta } : {}) },
       undefined,
       { timeout: this.timeoutMs },
     );
@@ -777,7 +783,7 @@ function createMcpTransport(config: McpServerConfig): { transport: Transport; st
 interface McpClient {
   tools: McpTool[];
   connect(): Promise<void>;
-  callTool(toolName: string, args: Record<string, unknown>): Promise<Record<string, unknown>>;
+  callTool(toolName: string, args: Record<string, unknown>, meta?: Record<string, unknown>): Promise<Record<string, unknown>>;
   getServerCapabilities(): McpCapabilityFaces | undefined;
   listResources(): Promise<McpResource[]>;
   readResource(uri: string): Promise<McpResourceContent[]>;

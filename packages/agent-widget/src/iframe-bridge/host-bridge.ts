@@ -12,7 +12,7 @@
  */
 import { PROTOCOL_PREFIX, DEFAULT_TIMEOUT_MS } from "./protocol.js";
 import { inspectDoc } from "../host-tools/dom/dom-tools.js";
-import type { HostToolRegistrar } from "../host-tools/types.js";
+import type { HostToolRegistrar } from "@ragsystem/agent-protocol";
 import type {
   DeclaredTool,
   RagFrameEvent,

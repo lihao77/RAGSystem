@@ -14,4 +14,4 @@
  */
 export * as dom from "./dom/index.js";
 export * as map from "./map/index.js";
-export type { HostToolDeclaration, HostToolRegistrar } from "./types.js";
+export type { HostToolDeclaration, HostToolRegistrar } from "@ragsystem/agent-protocol";

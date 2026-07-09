@@ -10,7 +10,7 @@
  * 注意：与 connectFrames 的 inspect_state 同名，宿主按场景二选一（无 iframe 用本函数 / 多 iframe 用 connectFrames）。
  * 返回 unbind：注销全部。
  */
-import type { HostToolRegistrar } from "../types.js";
+import type { HostToolRegistrar } from "@ragsystem/agent-protocol";
 import { domToolsToHostSpecs, inspectDoc } from "./dom-tools.js";
 
 export function bindDomTools(widgetEl: HostToolRegistrar, doc?: Document): () => void {

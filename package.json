@@ -6,7 +6,8 @@
     "packages/*",
     "examples/*",
     "backend-ts",
-    "frontend-client"
+    "frontend-client",
+    "host-tool-mcp-server"
   ],
   "scripts": {
     "build:protocol": "npm -w @ragsystem/agent-protocol run build",

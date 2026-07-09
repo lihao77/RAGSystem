@@ -9,8 +9,7 @@
  * 不含任意 JS 执行（eval）——受限于安全模型。
  */
 
-import type { ToolResult } from "@ragsystem/agent-protocol";
-import type { HostToolDeclaration } from "../types.js";
+import type { HostToolDeclaration, ToolResult } from "@ragsystem/agent-protocol";
 
 /** DOM 工具声明 + document-agnostic 执行函数。 */
 export interface DomToolSpec {

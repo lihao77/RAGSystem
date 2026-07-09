@@ -268,6 +268,29 @@ export interface DelegatedToolSpec {
   cancellable?: boolean;
 }
 
+/**
+ * 宿主工具声明（bridge 中立子集）：DelegatedToolSpec 去掉 execute 的 ctx。
+ * - execute 无 DelegationContext（iframe bridge 转发场景传不了完整 ctx），返回 ToolResult。
+ * - 同一份定义两用：主网页直接注册给 widget / 嵌入网页经 iframe bridge 传递（serve 声明）。
+ * - 前端工具 MCP 执行端（widget RagMcpClient）上报工具元数据也复用此形态。
+ */
+export interface HostToolDeclaration {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  riskLevel?: "low" | "medium" | "high";
+  execute: (input: unknown) => Promise<ToolResult>;
+}
+
+/**
+ * widget 元素的最小注册接口（结构兼容 RagWidgetHandle，避免 bridge 反向依赖 widget 包）。
+ * bridge 转发场景：execute = (input) => bridge.call(name, input)。
+ */
+export interface HostToolRegistrar {
+  registerHostTool: (spec: HostToolDeclaration) => () => void;
+  unregisterHostTool?: (name: string) => void;
+}
+
 /** 后端委托的工具调用请求（reserved）。 */
 export interface ToolCallRequest {
   callId: string;

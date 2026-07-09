@@ -10,8 +10,7 @@
  *
  * observation 同源：查询类工具的摘要来自 adapter 返回值（地图组件那份数据），不双调、答=画。
  */
-import type { ToolResult } from "@ragsystem/agent-protocol";
-import type { HostToolDeclaration } from "../types.js";
+import type { HostToolDeclaration, ToolResult } from "@ragsystem/agent-protocol";
 import type {
   BBox,
   LngLat,

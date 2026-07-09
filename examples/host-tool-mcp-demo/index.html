@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>前端工具 MCP 桥接 demo</title>
+  <style>
+    body { margin: 0; padding: 32px; background: #f5f5f7; color: #1d1d1f; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    h3 { font-size: 14px; margin: 0 0 12px; color: #6e6e73; }
+    p { line-height: 1.7; margin: 8px 0; }
+    .panel { background: #fff; border-radius: 12px; padding: 18px 20px; margin: 14px 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); max-width: 680px; }
+    input, button { font: inherit; padding: 7px 12px; border-radius: 8px; border: 1px solid #d2d2d7; }
+    button { cursor: pointer; }
+    .btn { background: #0071e3; color: #fff; border: none; }
+    #log { white-space: pre-wrap; font-family: ui-monospace, "SF Mono", monospace; font-size: 12px; color: #515154; max-height: 160px; overflow: auto; background: #f5f5f7; padding: 8px 10px; border-radius: 8px; }
+    code { background: #e8e8ed; padding: 1px 6px; border-radius: 4px; font-size: 13px; }
+    #status { font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h1>前端工具 MCP 桥接 demo</h1>
+  <p>widget 是消息入口（右下角浮动按钮）；DOM 工具经独立 MCP server 路由——agent 调 <code>mcp__frontend-tools__click</code> 等会操作本页元素。</p>
+
+  <div class="panel">
+    <h3>可交互元素（供 agent 经 MCP 操作演示）</h3>
+    <p>按钮：<button id="demo-btn" class="btn" onclick="btnClick()">点我</button> <span id="btn-result">未点击</span></p>
+    <p>输入框：<input id="demo-input" value="hello" /> （让 agent 读/改这个值）</p>
+    <p>文本：<span id="demo-text">这是一段示例文本 ABC</span> （让 agent get_text）</p>
+    <form id="demo-form" onsubmit="event.preventDefault(); log('表单已提交')">
+      <p>表单：<input id="form-input" placeholder="表单字段" /> <button type="submit" class="btn">提交</button></p>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h3>桥接状态</h3>
+    <div id="status">初始化…</div>
+    <div id="log"></div>
+  </div>
+
+  <!-- 三个 UMD：host-tools（DOM 工具集）→ mcp-client（执行端）→ widget（消息入口）-->
+  <script src="/host-tools.js"></script>
+  <script src="/mcp-client.js"></script>
+  <script src="/widget.js"></script>
+  <script>
+    const BACKEND = "{{BACKEND}}";
+    const MCP_WS = "{{MCP_WS}}";
+    const logEl = document.getElementById("log");
+    const statusEl = document.getElementById("status");
+    const log = (m) => { logEl.textContent += m + "\n"; logEl.scrollTop = logEl.scrollHeight; };
+    const setStatus = (h) => { statusEl.innerHTML = h; };
+    function btnClick() {
+      document.getElementById("btn-result").textContent = "已点击 @ " + new Date().toLocaleTimeString();
+    }
+
+    async function main() {
+      if (!window.RagWidget || !window.RagMcpClient || !window.RagHostTools) {
+        setStatus("❌ UMD 未全部加载（widget/mcp-client/host-tools），请确认已 build 并刷新");
+        return;
+      }
+      try {
+        // 1. 预建普通 session（零鉴权），session_id 同时喂给 widget + RagMcpClient（路由绑定）
+        setStatus("创建会话…");
+        const resp = await fetch(`${BACKEND}/api/agent/sessions`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        const json = await resp.json();
+        const sessionId = json.data?.session_id;
+        if (!sessionId) throw new Error("建会话失败: " + JSON.stringify(json));
+        log("session: " + sessionId);
+
+        // 2. widget 作为消息入口（复用 session，不传 token=普通会话零鉴权）
+        await window.RagWidget.mount({ backendBase: BACKEND, sessionId });
+        log("widget 已挂载（消息入口）");
+
+        // 3. RagMcpClient 连 MCP server /ws，注册主页面 DOM 工具（经 MCP 路径，非 delegate）
+        const mc = new RagMcpClient.RagMcpClient({ url: MCP_WS, sessionId });
+        mc.registerTools(RagHostTools.dom.BUILTIN_TOOLS);
+        mc.connect();
+        log(`RagMcpClient 已连 MCP server，注册 ${RagHostTools.dom.BUILTIN_TOOLS.length} 个 DOM 工具`);
+
+        setStatus(
+          `✅ 就绪 — session <code>${sessionId.slice(0, 8)}</code>。打开右下角 widget，对它说：` +
+          `<br>·「点击页面按钮」<br>·「读取输入框的值」<br>·「把输入框的值改成 MCP」` +
+          `<br>agent 会经 <code>mcp__frontend-tools__*</code> → MCP server → 本页执行。`
+        );
+      } catch (e) {
+        setStatus("❌ " + (e.message || e));
+        console.error(e);
+      }
+    }
+    main();
+  </script>
+</body>
+</html>
