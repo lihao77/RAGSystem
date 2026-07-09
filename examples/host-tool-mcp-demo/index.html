@@ -53,39 +53,40 @@
       document.getElementById("btn-result").textContent = "已点击 @ " + new Date().toLocaleTimeString();
     }
 
+    // widget 懒建 session：onSessionChange 回调把 session_id 传给页面，据此（重）注册 MCP 执行端。
+    // newSession 时回调收 null → 断开旧执行端；下次发消息建新会话 → 回调再触发注册。
+    let mcpClient = null;
+    let mcpSession = null;
+    function handleSession(sid) {
+      if (sid === mcpSession) return; // 去重：同 session 不重连
+      if (mcpClient) { mcpClient.disconnect(); mcpClient = null; }
+      mcpSession = sid;
+      if (!sid) {
+        log("session 已丢弃（新对话），MCP 执行端已断开");
+        setStatus("widget 已开新对话 — 发首条消息后自动建新会话并重新注册 MCP 执行端");
+        return;
+      }
+      mcpClient = new RagMcpClient.RagMcpClient({ url: MCP_WS, sessionId: sid });
+      mcpClient.registerTools(RagHostTools.dom.BUILTIN_TOOLS);
+      mcpClient.connect();
+      log(`session ${sid.slice(0, 8)} 已向 MCP server 注册 ${RagHostTools.dom.BUILTIN_TOOLS.length} 个 DOM 工具`);
+      setStatus(
+        `✅ 就绪 — session <code>${sid.slice(0, 8)}</code>。对 widget 说：` +
+        `<br>·「点击页面按钮」<br>·「读取输入框的值」<br>·「把输入框的值改成 MCP」` +
+        `<br>agent 经 <code>mcp__frontend-tools__*</code> → MCP server → 本页执行。`
+      );
+    }
+
     async function main() {
       if (!window.RagWidget || !window.RagMcpClient || !window.RagHostTools) {
         setStatus("❌ UMD 未全部加载（widget/mcp-client/host-tools），请确认已 build 并刷新");
         return;
       }
       try {
-        // 1. 预建普通 session（零鉴权），session_id 同时喂给 widget + RagMcpClient（路由绑定）
-        setStatus("创建会话…");
-        const resp = await fetch(`${BACKEND}/api/agent/sessions`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({}),
-        });
-        const json = await resp.json();
-        const sessionId = json.data?.session_id;
-        if (!sessionId) throw new Error("建会话失败: " + JSON.stringify(json));
-        log("session: " + sessionId);
-
-        // 2. widget 作为消息入口（复用 session，不传 token=普通会话零鉴权）
-        await window.RagWidget.mount({ backendBase: BACKEND, sessionId });
-        log("widget 已挂载（消息入口）");
-
-        // 3. RagMcpClient 连 MCP server /ws，注册主页面 DOM 工具（经 MCP 路径，非 delegate）
-        const mc = new RagMcpClient.RagMcpClient({ url: MCP_WS, sessionId });
-        mc.registerTools(RagHostTools.dom.BUILTIN_TOOLS);
-        mc.connect();
-        log(`RagMcpClient 已连 MCP server，注册 ${RagHostTools.dom.BUILTIN_TOOLS.length} 个 DOM 工具`);
-
-        setStatus(
-          `✅ 就绪 — session <code>${sessionId.slice(0, 8)}</code>。打开右下角 widget，对它说：` +
-          `<br>·「点击页面按钮」<br>·「读取输入框的值」<br>·「把输入框的值改成 MCP」` +
-          `<br>agent 会经 <code>mcp__frontend-tools__*</code> → MCP server → 本页执行。`
-        );
+        // widget 懒建 session：首次发消息时建会话，经 onSessionChange 把 session_id 回调给页面注册 MCP
+        await window.RagWidget.mount({ backendBase: BACKEND, onSessionChange: handleSession });
+        log("widget 已挂载（消息入口，懒建 session）");
+        setStatus("widget 已挂载 — 首次发消息后自动建会话并注册 MCP 执行端");
       } catch (e) {
         setStatus("❌ " + (e.message || e));
         console.error(e);

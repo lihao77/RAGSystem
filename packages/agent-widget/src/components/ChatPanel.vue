@@ -160,7 +160,7 @@
 </template>
 
 <script setup>
-import { ref, computed, provide, onBeforeUnmount } from "vue";
+import { ref, computed, provide, onBeforeUnmount, watch } from "vue";
 import { WidgetAgentClient } from "../adapter/widget-agent-client.js";
 import { renderMarkdown } from "../utils/markdown.js";
 import WorkPanelApproval from "./workpanel/WorkPanelApproval.vue";
@@ -182,6 +182,8 @@ const props = defineProps({
   fabPosition: { type: Object, default: () => ({ bottom: 24, right: 24 }) },
   /** 宿主组件状态采集函数（发消息时调，返回 entries 随消息进上下文）。 */
   uiState: { type: Function, required: false },
+  /** 会话生命周期回调：session 创建/切换时通知宿主（懒建首次发送触发 sid、newSession 触发 null）。 */
+  onSessionChange: { type: Function, required: false },
 });
 
 let client = null;
@@ -192,6 +194,8 @@ let pendingHostTools = [];
 const hostToolUnsubs = new Map();
 // 当前会话 id：null=未建（懒建，首次发送时 POST 创建）；宿主传入 sessionId 则直接用。
 const sessionId = ref(props.sessionId || null);
+// session 创建/切换时通知宿主（宿主据此联动按 session 绑定的外部资源，如 MCP 执行端注册）。
+watch(sessionId, (sid) => { props.onSessionChange?.(sid ?? null); });
 // 并发 send 复用同一连接建立 promise，避免重复建会话/连 WS。
 let connectingPromise = null;
 

@@ -119,6 +119,11 @@ export interface RagWidgetMountOptions {
    * widget 是同源 custom element，直接调宿主函数；返回空数组则本条不带 ui_context。
    */
   uiState?: UiStateProvider;
+  /**
+   * 会话生命周期回调：session 创建（懒建首次发送）/ 切换（newSession）时通知宿主。
+   * sid 非 null=新会话生效；null=旧会话已丢弃（宿主据此断开按 session 绑定的外部资源，如 MCP 执行端）。
+   */
+  onSessionChange?: (sessionId: string | null) => void;
 }
 
 function resolveHost(options: RagWidgetMountOptions): HTMLElement {
@@ -149,6 +154,7 @@ export async function mount(options: RagWidgetMountOptions): Promise<RagWidgetHa
   props.inputTools = options.inputTools ?? [];
   props.fabPosition = options.fabPosition ?? { bottom: 24, right: 24 };
   props.uiState = options.uiState;
+  props.onSessionChange = options.onSessionChange;
   host.appendChild(el);
   return el;
 }

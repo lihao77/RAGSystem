@@ -1,7 +1,8 @@
 // host-tool-mcp 网页 demo 静态服务器（无 token 普通会话路径）。
 //
 // 伺服 widget/host-tools/mcp-client 三个 UMD + index.html，端口 5173（在 backend CORS_ORIGINS 默认白名单内）。
-// 页面预建普通 session，同时喂给 widget（消息入口）和 RagMcpClient（连 MCP server /ws 注册 DOM 工具）。
+// widget 懒建 session（首次发消息时建），经 onSessionChange 回调把 session_id 传给页面注册 MCP 执行端；
+// newSession 切换时回调收 null → 断开旧执行端，新会话建立后重新注册。
 //
 // 前置（用户自备）：
 //   1. host-tool-mcp-server 已 build 并启动（默认 :8787）：npm -w host-tool-mcp-server run build && npm -w host-tool-mcp-server start
