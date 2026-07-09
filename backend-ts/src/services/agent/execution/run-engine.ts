@@ -172,7 +172,13 @@ export class AgentRunEngine {
       onTerminal: (finalStatus) => this.statusTracker.finishStatus(status, finalStatus, startedAt),
     });
     this.statusTracker.register(taskId, input.sessionId, { abortController, status, promise });
-    promise.finally(() => this.statusTracker.unregister(taskId, input.sessionId));
+    promise.finally(() => {
+      this.statusTracker.unregister(taskId, input.sessionId);
+      // run 结束后若仍有待投递的后台通知（active run 期间完成的），再编排一轮自动触发
+      if (this.backgroundTasks?.hasPendingNotifications(input.sessionId)) {
+        this.backgroundTasks.scheduleAutoTrigger(input.sessionId);
+      }
+    });
 
     return {
       started: true,

@@ -4,6 +4,7 @@ import { AgentDelegationService } from "../agent/delegation/index.js";
 import os from "node:os";
 import path from "node:path";
 import { BackgroundTaskService } from "./background-task-service.js";
+import { SessionNotificationQueue } from "./session-notification-queue.js";
 import { AgentConfigService } from "../agent/config/index.js";
 import { AgentSessionApplication } from "../sessions/index.js";
 import { ArtifactService } from "../artifacts/artifact-service.js";
@@ -165,7 +166,10 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
   const memoryTools = new MemoryToolService(memoryStore, conversationStore);
   const documentTools = new LocalDocumentToolService({ dataRoot: options.dataRoot, fileHistory });
-  const backgroundTasks = new BackgroundTaskService();
+  // 后台通知暂存队列（单一数据来源）：backgroundTasks 生产（完成入队）+ launchers.triggerBgNotificationRun
+  // 消费（drain 起 system run）共用同一实例；run-engine 经 backgroundTasks 代理访问。
+  const notificationQueue = new SessionNotificationQueue();
+  const backgroundTasks = new BackgroundTaskService({ notificationQueue });
   const toolsConfig = systemConfig.getToolsConfig();
   const codeExecutionTools = new CodeExecutionToolService({
     dataRoot: options.dataRoot,
@@ -229,6 +233,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
    taskTools,
    providersProvider: () => modelAdapter.listProviders(),
    backgroundTasks,
+   notificationQueue,
     fileIndex,
     outboxDispatcher,
     clientEvents,
@@ -247,12 +252,15 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   });
   agentDelegation.setRunEngine(() => agentExecution.runEngine);
   agentDelegation.setEventPublisher(() => agentExecution.eventPublisher);
+  // 后台任务完成 → 自动拉起 system run（通道 A）。lazy 绑定打破 backgroundTasks ↔ agentExecution 循环。
+  backgroundTasks.setOnTaskCompleted((sessionId) => agentExecution.triggerBgNotificationRun(sessionId));
   let closed = false;
   const close = (): void => {
     if (closed) {
       return;
     }
     closed = true;
+    backgroundTasks.dispose();
     outboxDispatcher.stop();
     widgetCredentialStore?.close();
     mcp.close();

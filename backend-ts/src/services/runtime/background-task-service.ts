@@ -4,6 +4,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
+import { SessionNotificationQueue } from "./session-notification-queue.js";
 
 type BackgroundTaskStatus = "running" | "completed" | "failed" | "cancelled";
 
@@ -56,12 +57,55 @@ export interface RunCallableInput {
 export class BackgroundTaskService {
   private readonly tasks = new Map<string, BackgroundTask>();
   private readonly processes = new Map<string, ChildProcess>();
-  private readonly pendingNotificationsBySession = new Map<string, BackgroundTaskNotificationPayload[]>();
-  private readonly consumedNotificationTaskIdsBySession = new Map<string, Set<string>>();
   private readonly retentionSeconds: number;
+  private readonly notificationQueue: SessionNotificationQueue;
+  private readonly triggeringSessions = new Set<string>();
+  private readonly pendingTriggers = new Set<ReturnType<typeof setTimeout>>();
+  private onTaskCompleted: ((sessionId: string) => void) | null = null;
 
-  constructor(options: { retentionSeconds?: number | undefined } = {}) {
+  constructor(options: {
+    retentionSeconds?: number | undefined;
+    notificationQueue?: SessionNotificationQueue | undefined;
+  } = {}) {
     this.retentionSeconds = positiveInt(options.retentionSeconds, 2 * 60 * 60);
+    this.notificationQueue = options.notificationQueue ?? new SessionNotificationQueue();
+  }
+
+  /** 注入"后台完成 → 自动触发 system run"回调（runtime-container lazy 绑定 triggerBgNotificationRun）。 */
+  setOnTaskCompleted(handler: ((sessionId: string) => void) | null): void {
+    this.onTaskCompleted = handler;
+  }
+
+  /** 供 run-engine 询问队列是否有待投递通知（run 结束时判定是否再触发一轮）。 */
+  hasPendingNotifications(sessionId: string): boolean {
+    return this.notificationQueue.peek(sessionId);
+  }
+
+  /**
+   * 编排自动触发：triggeringSessions 去重 + setTimeout 1s 后调 onTaskCompleted（给当前 run 收尾
+   * 留窗口，对齐 Python notification_trigger.time.sleep(1.0)）。由后台完成（publishCompleted）与
+   * run 结束（run-engine promise.finally）两处调用。
+   */
+  scheduleAutoTrigger(sessionId: string): void {
+    if (!sessionId || this.triggeringSessions.has(sessionId)) {
+      return;
+    }
+    this.triggeringSessions.add(sessionId);
+    const timer = setTimeout(() => {
+      this.pendingTriggers.delete(timer);
+      this.triggeringSessions.delete(sessionId);
+      this.onTaskCompleted?.(sessionId);
+    }, 1000);
+    this.pendingTriggers.add(timer);
+  }
+
+  /** 取消所有 pending 自动触发定时器（容器关闭时调用，避免回调写已 close 的 store）。 */
+  dispose(): void {
+    for (const timer of this.pendingTriggers) {
+      clearTimeout(timer);
+    }
+    this.pendingTriggers.clear();
+    this.triggeringSessions.clear();
   }
 
   spawnBash(input: SpawnBashInput): BackgroundTask {
@@ -146,7 +190,7 @@ export class BackgroundTaskService {
         output.end(() => {
           const snapshot = this.getTask(taskId);
           if (snapshot) {
-            this.publishCompleted(snapshot, input.clientEvents ?? null);
+            this.publishCompleted(snapshot);
           }
         });
       });
@@ -184,7 +228,7 @@ export class BackgroundTaskService {
     };
     this.tasks.set(taskId, task);
 
-    void this.executeCallableTask(taskId, outputPath, input.run, input.clientEvents ?? null);
+    void this.executeCallableTask(taskId, outputPath, input.run);
     return { ...task };
   }
 
@@ -230,51 +274,18 @@ export class BackgroundTaskService {
     return output.slice(0, limit);
   }
 
+  /** @deprecated 代理到 SessionNotificationQueue.drain（保留供 TaskExecution/测试过渡）。 */
   drainPendingNotifications(sessionId: string, excludeBackgroundTaskIds: string[] = []): BackgroundTaskNotificationPayload[] {
-    const pending = this.pendingNotificationsBySession.get(sessionId);
-    if (!pending?.length) {
-      return [];
-    }
-    const excluded = new Set(excludeBackgroundTaskIds.map(String));
-    const drained: BackgroundTaskNotificationPayload[] = [];
-    const retained: BackgroundTaskNotificationPayload[] = [];
-    for (const payload of pending) {
-      const taskId = asString(payload.background_task_id) ?? asString(payload.task_id);
-      if (taskId && excluded.has(taskId)) {
-        retained.push(payload);
-      } else {
-        drained.push(payload);
-      }
-    }
-    if (retained.length) {
-      this.pendingNotificationsBySession.set(sessionId, retained);
-    } else {
-      this.pendingNotificationsBySession.delete(sessionId);
-    }
-    return drained;
+    return this.notificationQueue.drain(sessionId, new Set(excludeBackgroundTaskIds.map(String)));
   }
 
+  /** @deprecated 代理到 SessionNotificationQueue.markConsumed（保留供 TaskExecution 过渡）。 */
   clearPendingNotification(sessionId: string | null | undefined, taskId: string): void {
     const normalizedSessionId = normalizeString(sessionId);
     if (!normalizedSessionId) {
       return;
     }
-    const consumed = this.consumedNotificationTaskIdsBySession.get(normalizedSessionId) ?? new Set<string>();
-    consumed.add(taskId);
-    this.consumedNotificationTaskIdsBySession.set(normalizedSessionId, consumed);
-    const pending = this.pendingNotificationsBySession.get(normalizedSessionId);
-    if (!pending?.length) {
-      return;
-    }
-    const retained = pending.filter((payload) => {
-      const payloadTaskId = asString(payload.background_task_id) ?? asString(payload.task_id);
-      return payloadTaskId !== taskId;
-    });
-    if (retained.length) {
-      this.pendingNotificationsBySession.set(normalizedSessionId, retained);
-    } else {
-      this.pendingNotificationsBySession.delete(normalizedSessionId);
-    }
+    this.notificationQueue.markConsumed(normalizedSessionId, taskId);
   }
 
   cancel(taskId: string): boolean {
@@ -306,7 +317,6 @@ export class BackgroundTaskService {
     taskId: string,
     outputPath: string,
     run: () => unknown | Promise<unknown>,
-    clientEvents: ClientEventPublisher | null,
   ): Promise<void> {
     const task = this.tasks.get(taskId);
     if (!task || isDone(task.status)) {
@@ -345,11 +355,11 @@ export class BackgroundTaskService {
     }
     const snapshot = this.getTask(taskId);
     if (snapshot) {
-      this.publishCompleted(snapshot, clientEvents);
+      this.publishCompleted(snapshot);
     }
   }
 
-  private publishCompleted(task: BackgroundTask, clientEvents: ClientEventPublisher | null): void {
+  private publishCompleted(task: BackgroundTask): void {
     const payload = {
       task_id: task.task_id,
       background_task_id: task.task_id,
@@ -364,41 +374,10 @@ export class BackgroundTaskService {
       session_id: task.session_id,
     };
     if (task.session_id) {
-      const consumed = this.consumedNotificationTaskIdsBySession.get(task.session_id);
-      if (consumed?.has(task.task_id)) {
-        consumed.delete(task.task_id);
-        if (consumed.size === 0) {
-          this.consumedNotificationTaskIdsBySession.delete(task.session_id);
-        }
-      } else {
-        const pending = this.pendingNotificationsBySession.get(task.session_id) ?? [];
-        pending.push(payload);
-        this.pendingNotificationsBySession.set(task.session_id, pending);
-      }
+      // 入暂存队列（consumed 去重由 queue.add 承接）+ 编排自动触发（idle/run结束时拉起 system run）
+      this.notificationQueue.add(task.session_id, payload);
+      this.scheduleAutoTrigger(task.session_id);
     }
-    if (!clientEvents || !task.session_id) {
-      return;
-    }
-    clientEvents.publish(
-      task.session_id,
-      {
-        type: "state_sync",
-        session_id: task.session_id,
-        ...(task.run_id ? { run_id: task.run_id } : {}),
-        payload: {
-          category: "command_result",
-          detail: {
-            kind: "background_task",
-            ...payload,
-          },
-        },
-      },
-      {
-        runId: task.run_id,
-        aggregateType: task.run_id ? "run" : "session",
-        aggregateId: task.run_id ?? task.session_id,
-      },
-    );
   }
 }
 

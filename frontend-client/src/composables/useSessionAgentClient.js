@@ -919,18 +919,8 @@ export function useSessionAgentClient(deps) {
           currentMsg.finished = true;
         }
 
-        // 仅当 run_started 携带后台任务通知时才渲染 notification 消息；普通 run/编辑重发无通知，
-        // 不 push 空消息（避免与后续 HTTP 本地更新交叠时出现瞬时空消息抖动）。
-        const runNotifications = Array.isArray(event?.data?.notifications) ? event.data.notifications : [];
-        if (runNotifications.length > 0) {
-          const hasNotificationMsg = messages.value.some(
-            msg => msg.role === 'user' && msg.metadata?.source === 'background_notification' && msg._bgRunId === nextRunId
-          );
-          if (!hasNotificationMsg) {
-            messages.value.push(deps.buildTaskNotificationMessage(sessionId, event));
-          }
-        }
-
+        // 后台通知经统一消息路径落库（source:background_notification 的 user 消息），
+        // 由 message_saved 落位 + UserMessage.vue 渲染，run_started 不再 push notification。
         messages.value.push(deps.createAssistantMessage({ run_id: nextRunId }));
         activeRun.active = true;
         activeRun.assistantMsgIndex = messages.value.length - 1;

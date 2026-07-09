@@ -68,7 +68,6 @@ function createConnectionDeps() {
     resetApprovalState: noop,
     clearLlmRetryState: noop,
     setLlmRetryState: noop,
-    buildTaskNotificationMessage: () => ({ role: 'user', metadata: { source: 'background_notification' } }),
     checkSituationScreenTrigger: noop,
     handleStop: noop,
     scrollToBottom: noop,

@@ -15,6 +15,7 @@ import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import {
   asString,
   normalizeSessionEntryAgent,
+  renderBackgroundNotification,
 } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
 import type { AttachmentResolver } from "./attachment-resolver.js";
@@ -23,6 +24,7 @@ import type { AgentRunEngine } from "./run-engine.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { AgentExecutionEventPublisher } from "./event-publisher.js";
 import type { MessageExtension } from "../context/extensions/kinds.js";
+import type { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 
 export interface RollbackRetryInput {
@@ -41,6 +43,8 @@ export interface LauncherApi {
   startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult>;
   executeSynchronously(request: ExecuteRequest, requestId: string): Promise<AgentExecuteResult>;
   startRollbackRetry(input: RollbackRetryInput): Promise<RollbackRetryStartResult>;
+  /** 后台任务完成通知拉起的 system run（通道 A 消费者，由 BackgroundTaskService.scheduleAutoTrigger 触发）。 */
+  triggerBgNotificationRun(sessionId: string): void;
 }
 
 export interface LauncherDeps {
@@ -52,6 +56,7 @@ export interface LauncherDeps {
   statusTracker: AgentExecutionStatusTracker;
   eventPublisher: AgentExecutionEventPublisher;
   runEngine: AgentRunEngine;
+  notificationQueue: SessionNotificationQueue;
 }
 
 /**
@@ -68,6 +73,7 @@ class AgentLaunchers {
     private readonly statusTracker: AgentExecutionStatusTracker,
     private readonly eventPublisher: AgentExecutionEventPublisher,
     private readonly runEngine: AgentRunEngine,
+    private readonly notificationQueue: SessionNotificationQueue,
   ) {}
 
   async startStream(request: StreamExecuteRequest, requestId: string): Promise<AgentRunStartResult> {
@@ -97,6 +103,7 @@ class AgentLaunchers {
       };
     }
     const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
+    // 不变量：runningStatus 检查 → startRun(register) 必须同步无 await，否则与 triggerBgNotificationRun 竞态。
     const runningStatus = this.statusTracker.getStatusBySession(sessionId);
     if (runningStatus?.status === "running") {
       const runningRunId = runningStatus.run_id ?? null;
@@ -429,6 +436,72 @@ class AgentLaunchers {
     };
   }
 
+  /**
+   * 通道 A 消费者：后台任务完成通知拉起的 system run。由 BackgroundTaskService.scheduleAutoTrigger
+   * （后台完成 + run 结束两处）延迟 1s 触发。idle 才执行（不抢用户的 run），drain 队列渲染成
+   * <task-notification>XML 作为 task，经 persistUserMessage 落库为 user 消息（source:background_notification），
+   * 与前端发送同构——SDK 读历史看到、message_saved 推前端、UserMessage.vue 渲染。
+   *
+   * 不变量：本方法的「idle 判定 → runEngine.startRun(register)」整段必须同步、不可插入 await——
+   * Node 单线程据此保证不与 startStream 的 idle 检查交错（否则会双 register、statusTracker 状态错乱）。
+   * 若将来要把 ready 解析/drain 改成异步，须先改用 statusTracker 的原子 registerIfIdle。
+   */
+  triggerBgNotificationRun(sessionId: string): void {
+    if (!sessionId) {
+      return;
+    }
+    if (this.statusTracker.getStatusBySession(sessionId)?.status === "running") {
+      return;
+    }
+    if (!this.notificationQueue.peek(sessionId)) {
+      return;
+    }
+    const payloads = this.notificationQueue.drain(sessionId);
+    if (!payloads.length) {
+      return;
+    }
+    const task = payloads.map(renderBackgroundNotification).join("\n\n");
+    const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
+    const ready = resolveReadyAgent(
+      this.runtimeCore,
+      {
+        agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
+        teamName: asString(sessionMetadata.team),
+        selectedLlm: null,
+      },
+      sessionMetadata,
+    );
+    if (!ready.ok) {
+      // ready 失败：回填队列，下次触发或下次 run drain 再消费（对齐 Python notification_trigger.py:79-85）
+      for (const payload of payloads) {
+        this.notificationQueue.add(sessionId, payload);
+      }
+      return;
+    }
+    if (!this.sessions.getSession(sessionId)) {
+      this.sessions.createSession({ sessionId });
+    }
+    try {
+      this.runEngine.startRun({
+        sessionId,
+        requestId: `bg_notify_${randomUUID()}`,
+        task,
+        executionKind: "system.bg_notification",
+        agent: ready.agent,
+        provider: ready.provider,
+        modelName: ready.modelName,
+        persistUserMessage: {
+          metadata: { source: "background_notification" },
+        },
+      });
+    } catch (error) {
+      for (const payload of payloads) {
+        this.notificationQueue.add(sessionId, payload);
+      }
+      throw error;
+    }
+  }
+
 }
 
 export function createLaunchers(deps: LauncherDeps): LauncherApi {
@@ -441,10 +514,12 @@ export function createLaunchers(deps: LauncherDeps): LauncherApi {
     deps.statusTracker,
     deps.eventPublisher,
     deps.runEngine,
+    deps.notificationQueue,
   );
   return {
     startStream: impl.startStream.bind(impl),
     executeSynchronously: impl.executeSynchronously.bind(impl),
     startRollbackRetry: impl.startRollbackRetry.bind(impl),
+    triggerBgNotificationRun: impl.triggerBgNotificationRun.bind(impl),
   };
 }

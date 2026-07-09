@@ -23,47 +23,8 @@ export function parseTaskNotifications(msg) {
   return items.length ? items : [{ taskId: 'unknown', status: 'completed', resultType: '' }];
 }
 
-export function buildTaskNotificationMessage(sessionId, event) {
-  const notifications = Array.isArray(event?.data?.notifications) ? event.data.notifications : [];
-  const runId = event?.run_id || event?.data?.run_id || null;
-  const content = notifications.map((item) => {
-    const taskId = item.background_task_id || item.task_id || 'unknown';
-    const outputPath = item.output_path || '';
-    const status = item.status || 'completed';
-    const returnCode = item.return_code;
-    const resultType = item.result_type || '';
-    const parts = ['<task-notification>'];
-
-    parts.push(`<task-id>${taskId}</task-id>`);
-    if (outputPath) parts.push(`<output-file>${outputPath}</output-file>`);
-    parts.push(`<status>${status}</status>`);
-    if (returnCode != null) parts.push(`<return-code>${returnCode}</return-code>`);
-    if (resultType) parts.push(`<result-type>${resultType}</result-type>`);
-    parts.push('</task-notification>');
-
-    return parts.join('\n');
-  }).join('\n\n');
-
-  return {
-    role: 'user',
-    content,
-    metadata: {
-      source: 'background_notification',
-      run_id: runId,
-    },
-    _notifications: notifications.map((item) => ({
-      taskId: item.background_task_id || item.task_id || 'unknown',
-      status: item.status || 'completed',
-      resultType: item.result_type || '',
-    })),
-    _bgRunId: runId,
-    _bgSessionId: sessionId,
-  };
-}
-
 export function useTaskNotifications() {
   return {
     parseTaskNotifications,
-    buildTaskNotificationMessage,
   };
 }

@@ -15,6 +15,7 @@ import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
+import { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
@@ -50,6 +51,8 @@ export interface AgentExecutionServiceApi {
     requestId: string,
   ): Promise<{ results: AgentExecuteResult[]; session_id: string; total_tasks: number }>;
   startRollbackRetry(input: RollbackRetryInput): Promise<RollbackRetryStartResult>;
+  /** 后台任务完成通知拉起的 system run（通道 A，由 BackgroundTaskService.scheduleAutoTrigger 触发）。 */
+  triggerBgNotificationRun(sessionId: string): void;
   stopSession(sessionId: string): Promise<boolean>;
   getSessionTaskStatus(sessionId: string): SessionTaskStatus;
   getSessionExecutionDiagnostics(sessionId: string): ScopedExecutionDiagnostics;
@@ -72,6 +75,8 @@ export interface AgentExecutionServiceParams {
   codeExecutionTools?: import("../../../tools/CodeExecutionTool/CodeExecution.js").CodeExecutionToolService | null;
   taskTools?: TaskToolService | null;
   backgroundTasks?: BackgroundTaskService | null;
+  /** 后台通知暂存队列（单例，注入 launchers.triggerBgNotificationRun；与 backgroundTasks 共用同一实例）。 */
+  notificationQueue?: SessionNotificationQueue | null;
   fileIndex?: IFileIndexStore | null;
   outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">;
  clientEvents: DurableClientEventPublisher;
@@ -155,6 +160,7 @@ export function createAgentExecutionService(
     statusTracker,
     eventPublisher,
     runEngine,
+    notificationQueue: params.notificationQueue ?? new SessionNotificationQueue(),
   });
   const sessionControl = createSessionControl({
     statusTracker,

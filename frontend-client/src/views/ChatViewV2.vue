@@ -350,7 +350,6 @@ const {
   currentRunMessage,
   selectWorkPanelMessage,
   parseTaskNotifications,
-  buildTaskNotificationMessage,
 } = useChatMessageRuntime({
   activeRun: _activeRun,
   showToast,
@@ -467,7 +466,6 @@ const {
   resetApprovalState,
   clearLlmRetryState,
   setLlmRetryState,
-  buildTaskNotificationMessage,
   checkSituationScreenTrigger: (...a) => checkSituationScreenTrigger(...a),
   inputMessage,
   get pendingAttachments() { return pendingAttachments; },

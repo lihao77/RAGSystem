@@ -79,7 +79,6 @@ function createDeps(overrides = {}) {
     enqueueApproval: () => {},
     handleApprovalResolved: (...args) => { calls.handleApprovalResolved.push(args); },
     resetApprovalState: (...args) => { calls.resetApprovalState.push(args); },
-    buildTaskNotificationMessage: () => ({ role: 'user', metadata: { source: 'background_notification' } }),
     isRootEvent: () => true,
     isMasterEvent: () => true,
     applyEnvelopeToMessage: () => {},
