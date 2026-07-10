@@ -56,7 +56,7 @@ frontend-client/src/
 ```
 
 
-前端 API 请求统一使用相对路径 `/api/*`。开发环境通过 `vite.config.js` 中的 dev server proxy 转发到 `VITE_API_PROXY_TARGET`（默认 TypeScript 后端 `http://localhost:5002`）；生产环境由同源网关或 `backend-ts` 的静态文件托管处理。桌面安装包目前仍由 Electron 启动遗留 Python 后端并加载 `http://127.0.0.1:5001`，这是尚未迁移的独立发布路径。前端业务代码不得写死后端绝对地址，以免开发、桌面与部署环境分叉。
+前端 API 请求统一使用相对路径 `/api/*`。开发环境通过 `vite.config.js` 中的 dev server proxy 转发到 `VITE_API_PROXY_TARGET`（默认 TypeScript 后端 `http://localhost:5002`）；生产环境由同源网关或 `backend-ts` 的静态文件托管处理。桌面安装包由 Electron Node 模式启动同一套 TypeScript 后端并加载 `http://127.0.0.1:5002`。前端业务代码不得写死后端绝对地址，以免开发、桌面与部署环境分叉。
 
 ## 路由
 

@@ -64,17 +64,15 @@ npm run check:widget
 
 ## 桌面安装包 / Desktop Installer
 
-`desktop-electron` 当前仍启动并打包遗留的 `backend-fastapi`。该发布路径尚未迁移到 TypeScript 后端，因此仍需要 Python 3.12、Python 依赖与 PyInstaller：
+`desktop-electron` 与开发环境共用 TypeScript 后端，不需要 Python 或 PyInstaller。构建会先生成 backend bundle，并使用 Electron Node 模式实际启动它，验证 `node:sqlite`、`sqlite-vec` 和健康接口：
 
 ```bash
-cd backend-fastapi
-pip install -r requirements.txt pyinstaller
-cd ../desktop-electron
+cd desktop-electron
 npm install
 npm run build:installer
 ```
 
-迁移完成前，桌面安装包默认使用 `http://127.0.0.1:5001`；这不改变浏览器开发主链路使用 `backend-ts:5002` 的事实。
+桌面安装包默认使用 `http://127.0.0.1:5002`，运行时数据继续写入 `~/.ragsystem`。
 
 ## 常用接口 / Common Endpoints
 

@@ -43,7 +43,7 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 ```text
 .
 ├── backend-ts/               # 当前主后端与 Agent 运行时（Fastify/TypeScript）
-├── backend-fastapi/          # 遗留 Python 后端，仅桌面打包路径尚在使用
+├── backend-fastapi/          # 已退出主运行链路的遗留 Python 实现
 ├── frontend-client/          # Vue 3 前端与执行可视化
 ├── docs/                     # 仓库正式文档中心
 └── .github/                  # GitHub 模板与工作流
@@ -110,20 +110,13 @@ npm run dev
 
 ### 5. 构建 Windows 安装包
 
-当前 Electron 安装包仍打包遗留的 `backend-fastapi`，尚未迁移到 TypeScript 后端。该路径与日常开发主链路分离，迁移完成前需要 Python 3.12 与 PyInstaller。
+Electron 安装包与浏览器开发使用同一套 TypeScript 后端。构建过程会生成独立 backend bundle，并用 Electron 自身的 Node 运行时验证 `node:sqlite` 与 `sqlite-vec` 后再打包。
 
 先安装桌面壳依赖：
 
 ```bash
 cd desktop-electron
 npm install
-```
-
-再在后端 Python 环境中安装 PyInstaller：
-
-```bash
-cd ../backend-fastapi
-pip install -r requirements.txt pyinstaller
 ```
 
 然后执行安装包构建：
@@ -135,12 +128,12 @@ npm run build:installer
 
 构建链路会依次：
 - 构建 `frontend-client/dist`
-- 使用 `backend-fastapi/ragsystem_backend.spec` 生成后端 exe 目录版产物（自动排除 skill 子目录中的 `.venv` 等本地虚拟环境）
+- 构建并探测 `backend-ts` 的桌面 bundle
 - 通过 `electron-builder` 输出 NSIS 安装包到 `desktop-electron/release/`
 
 安装后的桌面端会：
-- 启动本地 FastAPI 后端
-- 使用内置窗口访问 `http://127.0.0.1:5001`
+- 使用 Electron Node 模式启动本地 TypeScript 后端
+- 使用内置窗口访问 `http://127.0.0.1:5002`
 - 将运行时数据写入用户主目录下的 `~/.ragsystem/`
 - 以后端进程工作目录固定到该 `~/.ragsystem`，避免安装在 `Program Files` 时向只读安装目录写入运行时文件
 
