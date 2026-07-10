@@ -1,6 +1,5 @@
 import { createExecutionTreeState, applyEnvelope, getExecutionTree } from '@ragsystem/agent-protocol';
 import { getMessageRunSteps } from '../api/monitoring.js';
-import { legacyStepToEnvelope } from '../utils/legacyStepToEnvelope.js';
 
 export const createAssistantMessage = (overrides = {}) => ({
   role: 'assistant',
@@ -81,12 +80,6 @@ export function useMessageExecution(deps) {
     return msg._execState;
   };
 
-  const syncExecutionProjection = (msg) => {
-    const state = ensureExecutionTreeState(msg);
-    msg.executionTree = getExecutionTree(state);
-    if (executionTreeHasContent(msg.executionTree)) msg.has_execution = true;
-  };
-
   // 实时投影：把一条 Envelope 喂进 core 状态机，刷新 msg.executionTree。
   const applyEnvelopeToMessage = (msg, envelope) => {
     const state = ensureExecutionTreeState(msg);
@@ -103,8 +96,7 @@ export function useMessageExecution(deps) {
     msg.executionStepsLoadError = '';
     try {
       const payload = await getMessageRunSteps(deps.currentSessionId.value, msg.id, { limit: 500, offset: 0 });
-      const executionSteps = Array.isArray(payload?.items) ? payload.items : [];
-      const envelopes = legacyStepToEnvelope(executionSteps);
+      const envelopes = Array.isArray(payload?.items) ? payload.items : [];
       const state = ensureExecutionTreeState(msg);
       for (const env of envelopes) applyEnvelope(state, env);
       msg.executionTree = getExecutionTree(state);
@@ -158,21 +150,6 @@ export function useMessageExecution(deps) {
   const isRootEvent = (event) => !(event?.payload?.lineage?.parent_call_id);
   const isMasterEvent = (event) => isRootEvent(event);
 
-  // 遍历 core ExecutionAgent 树（root + 递归 children）按 callId 找 agent。
-  const findExecutionAgentByCallId = (executionTree, callId) => {
-    if (!callId || !executionTree?.root) return null;
-    const stack = [executionTree.root];
-    while (stack.length > 0) {
-      const agent = stack.shift();
-      if (!agent) continue;
-      if (agent.callId === callId) return agent;
-      if (Array.isArray(agent.children) && agent.children.length > 0) {
-        stack.unshift(...agent.children);
-      }
-    }
-    return null;
-  };
-
   // 按 agentId 找 status=running 的 agent（context_usage 挂 ctx 用）。
   const findRunningExecutionAgentByAgentId = (executionTree, agentId) => {
     if (!agentId || !executionTree?.root) return null;
@@ -210,13 +187,11 @@ export function useMessageExecution(deps) {
     hasExecutionContent,
     ensureExecutionTreeState,
     applyEnvelopeToMessage,
-    syncExecutionProjection,
     ensureExecutionStepsLoaded,
     toggleExecutionView,
     createAssistantMessageFromHistory,
     isRootEvent,
     isMasterEvent,
-    findExecutionAgentByCallId,
     findRunningExecutionAgentByAgentId,
     getMessageExecutionTimeText,
     getMessageExecutionTimeTitle,

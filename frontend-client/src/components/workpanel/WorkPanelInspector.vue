@@ -145,6 +145,10 @@ import {
   parseToolPayload,
 } from '../../utils/toolPresentation'
 import { Button } from '../ui/button'
+import {
+  formatExecutionElapsed as formatElapsed,
+  normalizeExecutionStatus as normalizeStatus,
+} from '../../utils/executionTreePresentation'
 
 const props = defineProps({
   node: { type: Object, required: true },
@@ -205,6 +209,9 @@ const selectedSummarySections = computed(() => {
     const text = node.intent || node.thought || node.thinking || node.description || inspectorTitle.value
     return text ? [{ id: 'summary-thought', label: '内容', text }] : []
   }
+  if (node.type === 'injection') {
+    return node.content ? [{ id: 'summary-injection', label: '内容', text: node.content }] : []
+  }
   if (node.type !== 'tool_call') {
     const text = node.description || inspectorTitle.value
     return text ? [{ id: 'summary-content', label: '内容', text }] : []
@@ -257,25 +264,6 @@ watch(
 onUnmounted(() => {
   if (copiedResetTimer) clearTimeout(copiedResetTimer)
 })
-
-function normalizeStatus(status) {
-  if (status === 'completed' || status === 'success') return 'success'
-  if (status === 'failed' || status === 'error') return 'error'
-  if (status === 'cancelled' || status === 'stopped') return 'stopped'
-  if (status === 'running') return 'running'
-  return status || 'pending'
-}
-
-function formatElapsed(value) {
-  if (value === null || value === undefined || value === '') return ''
-  const seconds = Number(value)
-  if (!Number.isFinite(seconds)) return ''
-  if (seconds < 1) return `${Math.max(1, Math.round(seconds * 1000))}ms`
-  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`
-  const minutes = Math.floor(seconds / 60)
-  const rest = Math.round(seconds % 60)
-  return `${minutes}m${rest}s`
-}
 
 async function copyToClipboard(text) {
   const value = String(text || '')

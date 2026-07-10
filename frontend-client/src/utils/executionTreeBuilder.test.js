@@ -1,0 +1,73 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { buildExecutionTree } from './executionTreeBuilder.js';
+
+const tool = (callId, toolName, argumentsValue = {}) => ({
+  callId,
+  toolName,
+  arguments: argumentsValue,
+  status: 'succeeded',
+});
+
+const child = (callId, invocationCallId, task, agentId = 'worker') => ({
+  callId,
+  invocationCallId,
+  agentId,
+  task,
+  status: 'succeeded',
+  rounds: [],
+  children: [],
+});
+
+const treeWith = (toolCalls, children) => ({
+  root: {
+    callId: 'root-call',
+    agentId: 'root',
+    status: 'succeeded',
+    rounds: [{ round: 0, intent: 'delegate', toolCalls }],
+    children,
+  },
+  steps: [],
+});
+
+test('matches repeated same-name agent calls by invocation call id', () => {
+  const tree = treeWith(
+    [
+      tool('tool-first', 'call_agent', { agent_name: 'worker' }),
+      tool('tool-second', 'call_agent', { agent_name: 'worker' }),
+    ],
+    [
+      child('agent-second', 'tool-second', 'second task'),
+      child('agent-first', 'tool-first', 'first task'),
+    ],
+  );
+
+  const [thought] = buildExecutionTree(tree);
+  assert.deepEqual(thought.children.map((node) => node.task_id), ['agent-first', 'agent-second']);
+  assert.deepEqual(thought.children.map((node) => node.description), ['first task', 'second task']);
+});
+
+test('matches send_message without relying on agent_name arguments', () => {
+  const tree = treeWith(
+    [tool('tool-resume', 'send_message', { child_agent_id: 'child-1' })],
+    [child('agent-resume', 'tool-resume', 'continue task')],
+  );
+
+  const [thought] = buildExecutionTree(tree);
+  assert.equal(thought.children[0].type, 'agent_call');
+  assert.equal(thought.children[0].task_id, 'agent-resume');
+});
+
+test('keeps ambiguous legacy child separate instead of guessing by name', () => {
+  const tree = treeWith(
+    [tool('tool-delegate', 'call_agent', { agent_name: 'worker' })],
+    [child('unrelated-agent-call', null, 'unlinked task')],
+  );
+
+  const nodes = buildExecutionTree(tree);
+  assert.equal(nodes[0].children[0].type, 'tool_call');
+  assert.equal(nodes[0].children[0].call_id, 'tool-delegate');
+  assert.equal(nodes[1].type, 'agent_call');
+  assert.equal(nodes[1].task_id, 'unrelated-agent-call');
+});

@@ -59,11 +59,17 @@
 <script setup>
 import { computed, ref, watch, nextTick, onUnmounted } from 'vue'
 import { buildExecutionTree } from '../../utils/executionTreeBuilder'
+import {
+  flattenExecutionNodes as flattenNodes,
+  getExecutionNodeKey as getNodeKey,
+  normalizeExecutionStatus as normalizeStatus,
+} from '../../utils/executionTreePresentation'
 import ExecutionTimelineNode from './ExecutionTimelineNode.vue'
 import WorkPanelInspector from './WorkPanelInspector.vue'
 
 const props = defineProps({
   executionTree: { type: Object, default: () => ({ root: null, steps: [] }) },
+  injections: { type: Array, default: () => [] },
   running: { type: Boolean, default: false },
   sessionId: { type: String, default: '' },
   messageKey: { type: String, default: '' },
@@ -72,7 +78,7 @@ const props = defineProps({
 const listRef = ref(null)
 const selectedNodeKey = ref('')
 let selectionScrollTimer = null
-const nodes = computed(() => buildExecutionTree(props.executionTree))
+const nodes = computed(() => buildExecutionTree(props.executionTree, props.injections))
 
 const flatNodes = computed(() => flattenNodes(nodes.value))
 const focusNode = computed(() => findFocusNode(flatNodes.value))
@@ -169,31 +175,9 @@ watch(() => props.messageKey, () => {
   clearSelectedNode()
 })
 
-function flattenNodes(items = []) {
-  const result = []
-  const walk = (children) => {
-    children.forEach(child => {
-      result.push(child)
-      if (Array.isArray(child.children) && child.children.length > 0) {
-        walk(child.children)
-      }
-    })
-  }
-  walk(items)
-  return result
-}
-
 function findNodeByKey(items, key) {
   if (!key) return null
   return items.find(node => getNodeKey(node) === key) || null
-}
-
-function normalizeStatus(status) {
-  if (status === 'completed' || status === 'success') return 'success'
-  if (status === 'failed' || status === 'error') return 'error'
-  if (status === 'cancelled' || status === 'stopped') return 'stopped'
-  if (status === 'running') return 'running'
-  return status || 'pending'
 }
 
 function nodeKey(node, index) {
@@ -202,14 +186,6 @@ function nodeKey(node, index) {
 
 function timelineNodeKey(node, index) {
   return nodeKey(node, index)
-}
-
-function getNodeKey(node) {
-  if (!node) return ''
-  if (node.call_id) return `call:${node.call_id}`
-  if (node.task_id) return `task:${node.task_id}`
-  const identity = node.tool_name || node.agent_name || node.agent || node.agent_display_name || node.intent || node.description || ''
-  return `${node.type || 'node'}:${node.round || ''}:${String(identity).slice(0, 80)}`
 }
 
 async function selectNode(node) {

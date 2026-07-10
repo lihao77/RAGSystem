@@ -20,6 +20,7 @@
      <Transition name="wp-content" mode="out-in">
         <WorkPanelExecution
           :execution-tree="executionTree"
+          :injections="currentInjections"
           :running="activeRun.active"
           :session-id="sessionId"
           :message-key="messageKey"
@@ -57,6 +58,7 @@ import ArtifactPanel from '../chat/ArtifactPanel.vue'
 const props = defineProps({
  activeRun: { type: Object, required: true },
  currentMessage: { type: Object, default: null },
+  injectionsByRunId: { type: Object, default: () => ({}) },
   messageKey: { type: String, default: '' },
  approvalQueue: { type: Array, default: () => [] },
   approvalSubmittingId: { type: String, default: '' },
@@ -82,6 +84,10 @@ const messageCompleted = computed(() => {
 })
 
 const executionTree = computed(() => props.currentMessage?.executionTree || { root: null, steps: [] })
+const currentInjections = computed(() => {
+  const runId = props.currentMessage?.run_id || props.currentMessage?.metadata?.run_id
+  return runId ? (props.injectionsByRunId[runId] || []) : []
+})
 
 function isErrorStatusItem(item) {
   if (!item) return false

@@ -6,9 +6,11 @@
  *
  * core 模型：call_agent 是父 agent 某 round 的 toolCall，child agent 是父 agent 的 children（分开）。
  * 为保留旧 UI 的"合并 agent_call 节点"视觉，遇到 call_agent/send_message toolCall 时，
- * 按 toolCall.input.agent_name 在父 agent.children 匹配未消费的 child，合并为 agent_call 节点；
- * 匹配不到则作为普通 tool_call，未匹配的 child 退化为顶层 agent_call。
+ * 只按 invocationCallId 精确匹配 child，合并为 agent_call 节点；
+ * 匹配不到则保留普通 tool_call，未匹配的 child 作为独立 agent_call 追加，不按名称猜测。
  */
+
+import { parseTaskNotificationContent } from '../composables/useTaskNotifications.js';
 
 const mapStatus = (status) => {
   if (status === 'running') return 'running';
@@ -25,14 +27,30 @@ const createToolNode = (toolCall) => ({
   status: mapStatus(toolCall.status),
   result: toolCall.observation || toolCall.summary || '',
   result_preview: toolCall.observation || toolCall.summary || '',
-  raw_result: null,
-  raw_result_ref: toolCall.rawResultRef || null,
-  raw_result_available: Boolean(toolCall.rawResultRef),
   approval_message: toolCall.approval?.message || '',
   elapsed_time: typeof toolCall.elapsedMs === 'number' ? toolCall.elapsedMs / 1000 : null,
   expanded: false,
-  linked_task_id: null,
 });
+
+// 注入节点：run 进行中到达的 followup(用户插话)。
+// 非协议事件,不进 core execution-tree；仅前端 TreeNode 层呈现,挂 root agent children 末尾(final answer 之前)。
+// background_notification 的 notifications 字段为通道 B 预留:当前 INJECTION_SOURCES 只 running_session
+// (通知走通道 A 顶层 UserMessage 渲染);待后端 refresh 激活通道 B(通知注入当前 run)后扩展启用。
+const createInjectionNode = (msg) => {
+  const source = msg.metadata?.source || '';
+  return {
+    type: 'injection',
+    injection_kind: source,
+    message_id: msg.id || null,
+    seq: typeof msg.seq === 'number' ? msg.seq : null,
+    content: msg.content || '',
+    status: 'success',
+    // 通道 B 预留(当前 INJECTION_SOURCES 未含 background_notification,不触发)。
+    notifications: source === 'background_notification'
+      ? parseTaskNotificationContent(msg.content)
+      : null,
+  };
+};
 
 const createAgentCallNode = (agent) => ({
   type: 'agent_call',
@@ -49,27 +67,26 @@ const createAgentCallNode = (agent) => ({
 
 const isDelegateTool = (toolName) => toolName === 'call_agent' || toolName === 'send_message';
 
-const readInputAgentName = (toolCall) => {
-  const input = toolCall.arguments && typeof toolCall.arguments === 'object' ? toolCall.arguments : {};
-  const agentName = input.agent_name;
-  return typeof agentName === 'string' && agentName.length > 0 ? agentName : null;
-};
-
 /**
  * 构建一个 agent 的子节点：rounds → thought(intent) + tool_call/agent_call；未消费 children → agent_call。
  * consumedChildIds 追踪当前 agent.children 的消费（避免 call_agent 合并后重复出现）。
  */
-function buildAgentChildren(agent, consumedChildIds) {
+function buildAgentChildren(agent, consumedChildIds, injections = []) {
   const children = [];
+  const pendingInjections = injections ? [...injections] : [];
+  const childByInvocationCallId = new Map();
+  for (const child of agent.children || []) {
+    const invocationCallId = child.invocationCallId;
+    if (invocationCallId && !childByInvocationCallId.has(invocationCallId)) {
+      childByInvocationCallId.set(invocationCallId, child);
+    }
+  }
   for (const round of agent.rounds || []) {
     const roundChildren = [];
     for (const toolCall of round.toolCalls || []) {
       if (isDelegateTool(toolCall.toolName)) {
-        const targetAgentName = readInputAgentName(toolCall);
-        const child = (agent.children || []).find(
-          c => !consumedChildIds.has(c.callId) && (targetAgentName == null || c.agentId === targetAgentName),
-        );
-        if (child) {
+        const child = childByInvocationCallId.get(toolCall.callId);
+        if (child && !consumedChildIds.has(child.callId)) {
           consumedChildIds.add(child.callId);
           roundChildren.push(createAgentCallNode(child));
         } else {
@@ -80,6 +97,8 @@ function buildAgentChildren(agent, consumedChildIds) {
       }
     }
 
+    // 有 intent 的 round 包 thought(显示思考内容,每个思考自然标识一个 round 的开始);无 intent 的工具直接平级,
+    // 不为无 intent 的 round 造空 thought 节点。不显示"轮次 N"号(round 归属靠思考节点 + injection 位置体现)。
     const hasIntent = Boolean(round.intent);
     if (hasIntent) {
       children.push({
@@ -94,6 +113,13 @@ function buildAgentChildren(agent, consumedChildIds) {
     } else {
       children.push(...roundChildren);
     }
+    // 该 round 之后:插入 round_index 匹配的 injection(followup 到达于此 round,agent 后续 round 才响应)。
+    for (let i = pendingInjections.length - 1; i >= 0; i--) {
+      if (pendingInjections[i].metadata?.round_index === round.round) {
+        children.push(createInjectionNode(pendingInjections[i]));
+        pendingInjections.splice(i, 1);
+      }
+    }
   }
 
   // 未被 call_agent 合并消费的 child agent：作为独立 agent_call 追加
@@ -103,6 +129,10 @@ function buildAgentChildren(agent, consumedChildIds) {
       children.push(createAgentCallNode(child));
     }
   }
+  // 剩余 injection(无 round_index 或 round 未匹配,如历史回放老数据):挂末尾(final answer 前)。
+  for (const msg of pendingInjections) {
+    children.push(createInjectionNode(msg));
+  }
   return children;
 }
 
@@ -110,7 +140,10 @@ function buildAgentChildren(agent, consumedChildIds) {
  * @param {Object} executionTree - core ExecutionTree { root: ExecutionAgent|null, steps }
  * @returns {Array} TreeNode[]
  */
-export function buildExecutionTree(executionTree) {
-  if (!executionTree?.root) return [];
-  return buildAgentChildren(executionTree.root, new Set());
+export function buildExecutionTree(executionTree, injections = []) {
+  // 无执行树(assistant 纯文本回复/还没工具调用)但有注入:仍渲染 injection 节点,不因 tree 空丢失。
+  if (!executionTree?.root) {
+    return (injections || []).map(createInjectionNode);
+  }
+  return buildAgentChildren(executionTree.root, new Set(), injections);
 }

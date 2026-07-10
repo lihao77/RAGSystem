@@ -1,5 +1,4 @@
-import { createExecutionTreeState, applyEnvelope, getExecutionTree } from '@ragsystem/agent-protocol';
-import { legacyStepToEnvelope } from './legacyStepToEnvelope';
+import { buildExecutionTree as buildProtocolExecutionTree } from '@ragsystem/agent-protocol';
 
 export const SMOKE_ARTIFACT_ID = 'viz_smoke_chart';
 
@@ -68,75 +67,59 @@ export const smokeChartArtifact = {
   },
 };
 
-const smokeExecutionSteps = [
+const smokeExecutionEvents = [
   {
-    kind: 'run',
-    phase: 'start',
-    step_id: 'smoke-run-1',
+    type: 'agent_started',
+    session_id: 'smoke-session',
     call_id: 'smoke-root',
-    round: 1,
-    agent_name: 'orchestrator_agent',
-    agent_display_name: '编排 Agent',
-    status: 'running',
+    agent_id: 'orchestrator_agent',
+    payload: { phase: 'start', display_name: '编排 Agent' },
   },
   {
-    kind: 'intent',
-    phase: 'complete',
-    step_id: 'smoke-intent-1',
+    type: 'stream_output',
+    session_id: 'smoke-session',
     call_id: 'smoke-root',
-    round: 1,
-    agent_name: 'orchestrator_agent',
-    agent_display_name: '编排 Agent',
-    content: '读取监测数据并生成趋势图。',
-    status: 'success',
+    agent_id: 'orchestrator_agent',
+    payload: { phase: 'intent_complete', round: 1, content: '读取监测数据并生成趋势图。' },
   },
   {
-    kind: 'tool',
-    phase: 'start',
-    step_id: 'smoke-tool-1',
-    parent_step_id: 'smoke-intent-1',
+    type: 'tool_call',
+    session_id: 'smoke-session',
     call_id: 'smoke-create-chart',
-    parent_call_id: 'smoke-root',
-    round: 1,
-    tool_name: 'create_chart',
-    arguments: {
-      chart_type: 'line',
-      x_field: 'time',
-      y_field: 'water_level',
+    agent_id: 'orchestrator_agent',
+    payload: {
+      phase: 'start',
+      tool: 'create_chart',
+      round: 1,
+      input: { chart_type: 'line', x_field: 'time', y_field: 'water_level' },
+      lineage: { parent_call_id: 'smoke-root' },
     },
-    status: 'running',
   },
   {
-    kind: 'tool',
-    phase: 'end',
-    step_id: 'smoke-tool-1',
-    parent_step_id: 'smoke-intent-1',
+    type: 'tool_result',
+    session_id: 'smoke-session',
     call_id: 'smoke-create-chart',
-    parent_call_id: 'smoke-root',
-    round: 1,
-    tool_name: 'create_chart',
-    status: 'success',
-    elapsed_time: 0.42,
-    result_preview: `生成可视化产物 ${SMOKE_ARTIFACT_ID}`,
+    agent_id: 'orchestrator_agent',
+    payload: {
+      phase: 'end',
+      tool: 'create_chart',
+      ok: true,
+      elapsed_ms: 420,
+      observation: `生成可视化产物 ${SMOKE_ARTIFACT_ID}`,
+      lineage: { parent_call_id: 'smoke-root' },
+    },
   },
   {
-    kind: 'run',
-    phase: 'end',
-    step_id: 'smoke-run-1',
+    type: 'agent_ended',
+    session_id: 'smoke-session',
     call_id: 'smoke-root',
-    round: 1,
-    agent_name: 'orchestrator_agent',
-    agent_display_name: '编排 Agent',
-    status: 'success',
+    agent_id: 'orchestrator_agent',
+    payload: { phase: 'end', success: true, display_name: '编排 Agent' },
   },
 ];
 
 export function createSmokeArtifactMessages() {
-  const execState = createExecutionTreeState();
-  for (const env of legacyStepToEnvelope(smokeExecutionSteps)) {
-    applyEnvelope(execState, env);
-  }
-  const executionTree = getExecutionTree(execState);
+  const executionTree = buildProtocolExecutionTree(smokeExecutionEvents);
   const assistant = {
     role: 'assistant',
     id: 'smoke-assistant-1',
@@ -163,7 +146,7 @@ export function createSmokeArtifactMessages() {
       execution_time: 1.36,
       first_token_time: 0.28,
     },
-    _execState: execState,
+    _execState: null,
   };
 
   return [

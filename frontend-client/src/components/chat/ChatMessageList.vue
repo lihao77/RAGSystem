@@ -57,6 +57,7 @@
           :rollback-and-retry="rollbackAndRetry"
           :get-message-execution-time-text="getMessageExecutionTimeText"
           :get-message-execution-time-title="getMessageExecutionTimeTitle"
+          :injections-by-run-id="injectionsByRunId"
           @hover="messageActionsVisible = $event"
           @update:editing-draft="emit('update:editingDraft', $event)"
           @notify="emit('notify', $event)"
@@ -105,6 +106,7 @@ const props = defineProps({
   rollbackAndRetry: { type: Function, required: true },
   getMessageExecutionTimeText: { type: Function, required: true },
   getMessageExecutionTimeTitle: { type: Function, required: true },
+  injectionsByRunId: { type: Object, default: () => ({}) },
 });
 
 const emit = defineEmits(['update:editingDraft', 'notify']);

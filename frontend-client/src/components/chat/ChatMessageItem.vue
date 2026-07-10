@@ -30,6 +30,7 @@
         <div v-if="msg.showFullSubtasks" class="subtasks-full-view">
           <HierarchicalExecutionTree
             :execution-tree="msg.executionTree"
+            :injections="currentInjections"
             :session-id="currentSessionId"
           />
         </div>
@@ -139,6 +140,7 @@ const props = defineProps({
   rollbackAndRetry: { type: Function, required: true },
   getMessageExecutionTimeText: { type: Function, required: true },
   getMessageExecutionTimeTitle: { type: Function, required: true },
+  injectionsByRunId: { type: Object, default: () => ({}) },
 });
 
 const emit = defineEmits(['hover', 'update:editingDraft', 'notify']);
@@ -148,4 +150,10 @@ const emit = defineEmits(['hover', 'update:editingDraft', 'notify']);
 const renderableExts = computed(() => getMessageExtensions(props.msg).filter((e) => RENDERERS[e.kind]));
 const aboveExts = computed(() => renderableExts.value.filter((e) => RENDERERS[e.kind].slot === 'above'));
 const belowExts = computed(() => renderableExts.value.filter((e) => RENDERERS[e.kind].slot === 'below'));
+
+// 本 run 的注入消息(followup/后台通知):按 run_id 取,挂进 executionTree 作 injection 节点。
+const currentInjections = computed(() => {
+  const runId = props.msg?.run_id || props.msg?.metadata?.run_id;
+  return runId ? (props.injectionsByRunId[runId] || []) : [];
+});
 </script>

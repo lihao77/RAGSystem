@@ -99,6 +99,11 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { getAgentBadgeClass } from '../../utils/agentBadge'
+import {
+  formatExecutionElapsed as formatElapsed,
+  getExecutionNodeKey as getNodeKey,
+  normalizeExecutionStatus as normalizeStatus,
+} from '../../utils/executionTreePresentation'
 import WorkPanelTimelineIcon from './WorkPanelTimelineIcon.vue'
 import {
   getToolDisplayName as resolveToolDisplayName,
@@ -136,13 +141,15 @@ const nodeKeyValue = computed(() => getNodeKey(props.node))
 const nodeIconKind = computed(() => {
   if (props.node.type === 'agent_call') return 'agent'
   if (props.node.type === 'thought') return 'thought'
+  if (props.node.type === 'injection') return 'input'
   if (props.node.type === 'tool_call') return resolveToolIconKind(props.node.tool_name)
   return 'step'
 })
 
 const typeLabel = computed(() => {
-  if (props.node.type === 'thought') return props.node.round ? `轮次 ${props.node.round}` : '思考'
+  if (props.node.type === 'thought') return '思考'
   if (props.node.type === 'agent_call') return 'Agent'
+  if (props.node.type === 'injection') return props.node.injection_kind === 'background_notification' ? '后台通知' : '用户补充'
   if (props.node.type === 'tool_call') return '工具'
   return props.node.type || '步骤'
 })
@@ -157,13 +164,18 @@ const smartPreview = computed(() => {
 
 const titleText = computed(() => {
   if (props.node.type === 'thought') {
-    return truncate(props.node.intent || props.node.thought || props.node.thinking || (isRunning.value ? '思考中' : '思考记录'), 84)
+    const intent = props.node.intent || props.node.thought || props.node.thinking;
+    if (intent) return truncate(intent, 84);
+    return isRunning.value ? '思考中' : (props.node.round != null ? `轮次 ${props.node.round}` : '执行记录');
   }
   if (props.node.type === 'agent_call') {
     return truncate(props.node.description || props.node.result_summary || agentLabel.value || '调用智能体', 84)
   }
   if (props.node.type === 'tool_call') {
     return toolDisplayName.value
+  }
+  if (props.node.type === 'injection') {
+    return truncate(props.node.content || '注入消息', 84)
   }
   return '执行步骤'
 })
@@ -175,6 +187,9 @@ const subtitleText = computed(() => {
   }
   if (props.node.type === 'tool_call') {
     return smartPreview.value
+  }
+  if (props.node.type === 'injection') {
+    return truncate(props.node.content, 72)
   }
   return ''
 })
@@ -326,22 +341,6 @@ function truncate(value, max) {
   return text.length > max ? `${text.slice(0, max)}...` : text
 }
 
-function normalizeStatus(status) {
-  if (status === 'completed' || status === 'success') return 'success'
-  if (status === 'failed' || status === 'error') return 'error'
-  if (status === 'cancelled' || status === 'stopped') return 'stopped'
-  if (status === 'running') return 'running'
-  return 'pending'
-}
-
-function getNodeKey(node) {
-  if (!node) return ''
-  if (node.call_id) return `call:${node.call_id}`
-  if (node.task_id) return `task:${node.task_id}`
-  const identity = node.tool_name || node.agent_name || node.agent || node.agent_display_name || node.intent || node.description || ''
-  return `${node.type || 'node'}:${node.round || ''}:${String(identity).slice(0, 80)}`
-}
-
 function shouldRevealNode(node, focusKey) {
   if (!node) return false
   const status = normalizeStatus(node.status)
@@ -373,17 +372,6 @@ function collectToolStatuses(children, statuses) {
     if (child.type === 'tool_call') statuses.push(child.status || 'pending')
     if (Array.isArray(child.children)) collectToolStatuses(child.children, statuses)
   })
-}
-
-function formatElapsed(value) {
-  if (value === null || value === undefined || value === '') return ''
-  const seconds = Number(value)
-  if (!Number.isFinite(seconds)) return ''
-  if (seconds < 1) return `${Math.max(1, Math.round(seconds * 1000))}ms`
-  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`
-  const minutes = Math.floor(seconds / 60)
-  const rest = Math.round(seconds % 60)
-  return `${minutes}m${rest}s`
 }
 
 </script>

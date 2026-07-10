@@ -11,8 +11,7 @@ function createMessage(id, overrides = {}) {
     role: 'assistant',
     finished: true,
     has_execution: true,
-    execution_steps: [{ round: 1, intent: `step-${id}` }],
-    subtasks: [],
+    executionTree: { root: null, steps: [] },
     ...overrides,
   };
 }
@@ -61,7 +60,6 @@ test('work panel auto-selects the active run when its execution data appears', a
   const runningMessage = createMessage('running', {
     finished: false,
     has_execution: false,
-    execution_steps: [],
   });
   const messageRef = ref([oldMessage, runningMessage]);
   const activeRun = reactive({

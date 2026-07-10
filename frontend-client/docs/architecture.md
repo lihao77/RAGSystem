@@ -33,8 +33,8 @@ frontend-client/src/
 │   ├── SituationScreen.vue    # 态势大屏（Teleport to body）
 │   ├── FloatingChatPanel.vue  # 浮动对话面板
 │   ├── SubtaskStatusTicker.vue # 任务状态滚动条
-│   ├── HierarchicalExecutionTree.vue # 层次化执行树
-│   ├── ExecutionNode.vue      # 单个执行节点
+│   ├── HierarchicalExecutionTree.vue # 执行树容器，复用工作面板递归节点
+│   ├── workpanel/ExecutionTimelineNode.vue # 内联/工作面板共用的递归节点
 │   ├── MessageEditBox.vue     # 消息原地编辑组件
 │   ├── ChatInput.vue          # 消息输入框
 │   ├── ApprovalDialog.vue     # 工具审批确认
@@ -51,7 +51,7 @@ frontend-client/src/
 │   ├── modelAdapter.js        # 模型适配器
 │   └── vectorLibrary.js       # 知识库
 ├── router/index.js            # 路由配置
-├── utils/                     # executionProjector、markdown 等工具函数
+├── utils/                     # executionTreeBuilder、展示辅助、markdown 等工具函数
 └── main.js                    # 应用入口
 ```
 
@@ -92,7 +92,7 @@ handleSend({ content, attachments })
       ├─ reconnect_start / reconnect_end：run 回放边界
       ├─ 消息流：llm.first_token / output.chunk / output.final_answer / output.message_saved
       ├─ 运行态：execution.waiting_start / execution.waiting_end / execution.waiting_timeout
-      ├─ 执行树流：execution.step → executionProjector.applyStep()
+      ├─ 执行树流：协议 Envelope → agent-protocol applyEnvelope()
       ├─ 审批/输入：user.approval_required / user.input_required
       ├─ 命令结果：command.result
       └─ scrollToBottom()
@@ -105,37 +105,22 @@ loadSessionMessages(sessionId)
       └─ 历史消息默认只返回 message 主载荷；assistant message 通过 has_execution 标记是否可懒加载 execution steps
   → createAssistantMessageFromHistory(item)
       └─ 若 has_execution=true，则按需调用 GET /api/agent/sessions/{session_id}/messages/{message_id}/run-steps
-          并将返回 steps 交给 executionProjector.buildExecutionState()
+          并将返回 Envelope 逐条交给同一个 ExecutionTreeState
 ```
 
-### 执行树 projector
+### 执行树构建
 
-`src/utils/executionProjector.js` 是执行树唯一 projector，统一消费历史与实时的 canonical `execution.step.data`。
+执行树只有一个有状态 projector：`@ragsystem/agent-protocol` 的 `ExecutionTreeState`。实时、reconnect 和历史回放都消费协议 `Envelope`，通过 `applyEnvelope()` 增量写入状态，再由 `getExecutionTree()` 得到 `ExecutionTree`。
 
-当前前端执行树来源拆成两条路径：
-- 实时 / reconnect：继续直接消费 SSE `execution.step`
-- 历史消息：先加载 message 主载荷，再按 assistant message 的 `has_execution` 标记懒加载 `/messages/{message_id}/run-steps`，最后交给同一个 projector 构建视图
+- `lineage.parent_call_id` 表示协议父子关系，负责 Agent 和工具的基础归属。
+- `AgentLifecyclePayload.invocation_call_id` 表示触发子 Agent 的 `call_agent` / `send_message` 工具调用。展示层只按 call ID 精确合并，不再按 `agent_name` 猜测。
+- 协议状态机负责乱序容错、Agent 嵌套、ReAct round 和 tool call/result 配对。
+- `src/utils/executionTreeBuilder.js` 是无状态展示映射，只把 `ExecutionTree` 转成 `TreeNode[]` 并加入 injection 节点，不建立第二套树。
+- `src/utils/executionTreePresentation.js` 统一状态、节点 key、扁平化和耗时格式。
+- `HierarchicalExecutionTree.vue` 与工作面板都递归渲染 `workpanel/ExecutionTimelineNode.vue`，不再维护两套节点布局。
+- 没有 intent 的 round 不生成空 thought 包装；工具直接与相邻节点同层显示。
 
-- `createExecutionState()`：创建增量投影状态
-- `buildExecutionState(steps)`：按需对单条历史 assistant message 的 canonical step 列表做全量投影；默认不在整页历史加载时为所有消息预构建
-- `applyStep(state, step)`：实时 / reconnect 增量应用单条 canonical step
-
-projector 输出并维护：
-
-- `rawSteps`：canonical step 列表
-- `subtasks` / `execution_steps`：兼容当前 UI 组件的投影视图
-- `multimodalContents`：从 `kind=visualization` step 投影出的历史可视化内容
-- `pendingToolCallsByParentCallId`：子 agent tool 先于 `subtask start` 到达时的最小乱序缓冲
-- `agentNameDisplayNameMap`：按 `agent_name -> agent_display_name` 记忆已见过的展示名；历史回放与 SSE 增量都复用同一映射规则，保证后续未显式携带 display name 的 step 仍保持中文展示
-
-tool 归属规则：
-
-- 子 agent 的 tool 优先按 `parent_call_id -> subtaskMap` 归入对应 `subtask`
-- 若 `subtask start` 还未到达，则先暂存到 `pendingToolCallsByParentCallId`，待 subtask 建立后立即回填
-- 根级 `kind=run` 会先投影成一个 root execution step，用于运行态摘要与同轮 `intent/tool` 归属；完整执行树不会为缺少 thought / intent 内容的 root step 额外生成空 thought 节点
-- 执行树根节点的正文仍只来自有 thought / intent 内容的 root step；当 root 轮次只有 tool/subtask 而没有 thought / intent 时，tool/subtask 会直接按同层节点展示，避免根节点与子 Agent 使用不同的空 thought 包装规则
-- `buildExecutionState()` 与实时 `applyStep()` 共享同一套归属与回填逻辑，避免历史回放、实时流、reconnect 三条路径分叉
-- 所有 UI 展示 agent 名称时统一优先使用 `agent_display_name`，没有时再回退 `agent_name`；`SubtaskStatusTicker.vue` 与执行树节点都直接消费 projector 的投影结果，不再各自硬编码“编排器”等标签
+历史 `/messages/{message_id}/run-steps` 直接返回 Envelope。消息列表不接受 `expand`，也不内联旧 `execution_steps`；会话导出 `version=2` 使用 `execution_events` 保存同一协议数据。
 
 `ChatViewV2.vue` 的消息滚动统一由 `chat-messages-wrapper` 承担；桌面端与移动端都复用同一个滚动容器，避免移动端再让内层 `chat-messages` 自己滚动，导致 `scrollToBottom()`、底部检测和按钮点击命中错误元素。
 
@@ -160,8 +145,8 @@ tool 归属规则：
 
 - 根最终答案、`message_saved`、`[viz:artifact_id]` 仍属于 message-first 链路
 - 执行树只消费 `execution.step`
-- 历史消息列表默认不再内联 `execution_steps`；会先取 `/sessions/{session_id}/messages`，再按 `has_execution` 懒加载对应 message 的 run steps sidecar
-- reconnect 回放与历史 run steps 懒加载都复用同一个 projector
+- 历史消息列表不内联执行步骤；会先取 `/sessions/{session_id}/messages`，再按 `has_execution` 懒加载对应 message 的 run steps Envelope sidecar
+- reconnect 回放与历史 run steps 懒加载都复用 agent-protocol 的 `ExecutionTreeState`
 - 会话激活统一由路由驱动：`selectSession()`、`ensureSession()`、`startNewChat()` 只负责导航或创建会话，`syncSessionFromRoute()` 才负责设置 `currentSessionId`、拉取消息/文件并建立对应 session 的 WebSocket，避免本地状态提前变更后跳过建连
 - session WebSocket 采用“同 session 复用、跨 session 重连”语义：仅在目标 session 与当前 `_wsSessionId` 一致且 socket 仍处于 `OPEN/CONNECTING` 时复用；切换 session 或回到新聊天页时必须先断开旧连接再进入新路由状态
 - 切回历史会话时，前端会先用 `task-status` 判断后台 run 是否仍在进行；若后台已结束但本地仍残留未完成 assistant 占位或停在用户消息，`checkSessionTaskStatus()` 会主动丢弃该 session 的消息缓存并重新拉取服务端消息，修正“切走再切回后界面卡在运行中”的旧快照
@@ -169,11 +154,11 @@ tool 归属规则：
 
 ### WebSocket 事件类型处理
 
-前端执行树以 `execution.step` 为唯一事实来源，历史 / 实时 / reconnect 三条路径都走同一套 projector。
+前端执行树以协议 Envelope 为唯一输入，历史 / 实时 / reconnect 三条路径都走同一个 agent-protocol 状态机。
 
 | 事件类型 | 处理逻辑 |
 |---------|--------|
-| `execution.step` | 交给 executionProjector 增量更新执行树 |
+| `execution.step` | 事件翻译为 Envelope 后交给 `applyEnvelope()` 增量更新执行树 |
 | `llm.first_token` | 记录后端 provider stream 首个非空 content 的到达时间，切换 activeRun 为“模型输出中”；不在输出过程中展示首 token 耗时，避免运行态提示过载 |
 | `execution.waiting_start` | 切换 activeRun 为“等待后台任务”，保存 wait_id / background_task_ids / pending_task_count |
 | `execution.waiting_end` / `execution.waiting_timeout` | 清理后台等待状态，若 run 未结束则回到“等待模型响应” |
@@ -239,9 +224,10 @@ tool 归属规则：
   id: string, seq: number,
   content: string,               // 最终答案（流式拼接）
   has_execution: boolean,        // 是否存在可懒加载的 execution step sidecar
-  subtasks: [],                  // 子任务列表
-  execution_steps: [],           // 已懒加载并投影后的编排器执行步骤
-  multimodalContents: [],        // 历史 execution.step 中的可视化内容
+  executionTree: {               // agent-protocol 的统一树投影
+    root: object | null,
+    steps: []
+  },
   status: [],                    // 错误状态
   finished: boolean,
   stopped: boolean,              // 已停止/中断
@@ -249,7 +235,7 @@ tool 归属规则：
     execution_time?: number,              // 本次 run 执行时间（秒），ChatViewV2 在 message-actions 后显示为“响应时间”
     first_token_time?: number,            // provider stream 首个非空 content 到达时间（秒），用于 hover 精确信息
   },
-  _executionProjector: object    // 仅运行时内存态，不持久化
+  _execState: object             // ExecutionTreeState，仅运行时内存态
 }
 ```
 
@@ -428,7 +414,7 @@ Agent 配置页会先加载当前 Agent 配置，再读取 `config.custom_params
 
 | 操作 | 流程 |
 |------|------|
-| 加载会话 | 检查 messageCache → 未命中则 GET /api/agent/sessions/{id}/messages → 构建 subtasks/steps |
+| 加载会话 | 检查 messageCache → 未命中则 GET /api/agent/sessions/{id}/messages → 按需加载 run-steps Envelope 并投影 executionTree |
 | 重连 | checkSessionTaskStatus() → 有运行中任务 → reconnectToRunningTask() |
 | 流结束状态同步 | handleSend()/reconnect 收尾时单次 refreshSessionExecutionState() → 读取 `/task-status` |
 | 编辑重发 | startEditMessage() 在消息气泡内初始化文本草稿与附件草稿 → 用户在气泡内原地修改文本与附件 → confirmEditAndResend() 调用 POST rollback → 通过 `/api/agent/stream` 以编辑后的内容和 `attachments[]` 重新流式发送 |

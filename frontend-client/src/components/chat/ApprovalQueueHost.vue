@@ -7,6 +7,7 @@
       v-if="showWorkPanel"
       :active-run="activeRun"
       :current-message="currentMessage"
+      :injections-by-run-id="injectionsByRunId"
       :approval-queue="approvalQueue"
       :approval-submitting-id="approvalSubmittingId"
       :pending-user-input="pendingUserInput"
@@ -34,6 +35,7 @@ defineProps({
   showWorkPanel: { type: Boolean, default: false },
   activeRun: { type: Object, required: true },
   currentMessage: { type: Object, default: null },
+  injectionsByRunId: { type: Object, default: () => ({}) },
   approvalQueue: { type: Array, default: () => [] },
   approvalSubmittingId: { type: String, default: '' },
   pendingUserInput: { type: Object, default: null },

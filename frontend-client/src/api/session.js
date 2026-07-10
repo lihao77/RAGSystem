@@ -27,12 +27,11 @@ export async function getSessionTaskStatus(sessionId, { signal } = {}) {
 /** 会话消息列表。返回后端 JSON 整体（含 data.items）。 */
 export async function getSessionMessages(
   sessionId,
-  { limit = 500, offset = 0, expand = 'none' } = {},
+  { limit = 500, offset = 0 } = {},
 ) {
   const params = new URLSearchParams({
     limit: String(limit),
     offset: String(offset),
-    expand,
   });
   return http.get(`${BASE}/sessions/${encodeURIComponent(sessionId)}/messages?${params.toString()}`);
 }

@@ -7,11 +7,11 @@
     </div>
 
     <div class="tree-container">
-      <ExecutionNode
+      <ExecutionTimelineNode
         v-for="(node, index) in executionTreeNodes"
-        :key="index"
+        :key="getExecutionNodeKey(node) || index"
         :node="node"
-        :level="0"
+        :depth="0"
         :session-id="sessionId"
       />
     </div>
@@ -20,16 +20,19 @@
 
 <script setup>
 import { computed } from 'vue';
-import ExecutionNode from './ExecutionNode.vue';
+import ExecutionTimelineNode from './workpanel/ExecutionTimelineNode.vue';
 import { buildExecutionTree } from '../utils/executionTreeBuilder';
+import { getExecutionNodeKey } from '../utils/executionTreePresentation';
 
 const props = defineProps({
   executionTree: { type: Object, default: () => ({ root: null, steps: [] }) },
+  /** 本 run 的注入消息(followup/后台通知),挂进 tree 作 injection 节点。 */
+  injections: { type: Array, default: () => [] },
   sessionId: { type: String, default: '' }
 });
 
 const executionTreeNodes = computed(() =>
-  buildExecutionTree(props.executionTree)
+  buildExecutionTree(props.executionTree, props.injections)
 );
 </script>
 
@@ -58,8 +61,26 @@ const executionTreeNodes = computed(() =>
 }
 
 .tree-container {
+  --rail-width: 22px;
+  --rail-dot-top: 17px;
+  --rail-dot-size: 9px;
+  --rail-dot-center: calc(var(--rail-dot-top) + (var(--rail-dot-size) / 2));
+  --timeline-rail-thickness: 2px;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-lg);
+  position: relative;
+}
+
+.tree-container::before {
+  content: '';
+  position: absolute;
+  left: calc((var(--rail-width) - var(--timeline-rail-thickness)) / 2);
+  top: var(--rail-dot-center);
+  bottom: 0;
+  width: var(--timeline-rail-thickness);
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  opacity: 0.7;
+  pointer-events: none;
 }
 </style>

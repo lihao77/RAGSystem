@@ -16,6 +16,7 @@
           :messages-loading="messagesLoading"
           :messages="messages"
           :visible-messages="visibleMessages"
+          :injections-by-run-id="injectionsByRunId"
           :current-session-id="currentSessionId || ''"
           :show-work-panel="visibleWorkPanel"
           :is-loading="isLoading"
@@ -129,6 +130,7 @@
       :disable-transition="switchingToNewChat"
       :active-run="_activeRun"
      :current-message="currentRunMessage"
+      :injections-by-run-id="injectionsByRunId"
       :message-key="selectedWorkPanelMessageKey"
      :approval-queue="approvalQueue"
       :approval-submitting-id="approvalSubmittingId"
@@ -595,6 +597,7 @@ const {
 const {
   messageKey,
   visibleMessages,
+  injectionsByRunId,
   copyMessage,
 } = useMessageListView({
   messages,

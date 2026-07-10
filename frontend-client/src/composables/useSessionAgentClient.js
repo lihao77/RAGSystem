@@ -1179,7 +1179,13 @@ export function useSessionAgentClient(deps) {
       }
       deps.cacheMessages(sessionId, messages.value);
     } else if (isRunningFollowup) {
-      const followupMsg = createUserMessage(content, [], userMetadata);
+      // 记录 followup 到达时的 round 号(executionTree 当前最后一个 round),供 injection 节点按 round 定位插入。
+      const rounds = messages.value[activeRun.assistantMsgIndex]?.executionTree?.root?.rounds;
+      const roundIndex = Array.isArray(rounds) && rounds.length ? rounds[rounds.length - 1].round : null;
+      const followupMsg = createUserMessage(content, [], {
+        ...userMetadata,
+        ...(roundIndex != null ? { round_index: roundIndex } : {}),
+      });
       const insertIndex = activeRun.assistantMsgIndex >= 0
         ? Math.min(activeRun.assistantMsgIndex, messages.value.length)
         : messages.value.length;
