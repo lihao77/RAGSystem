@@ -4,15 +4,16 @@
   "private": true,
   "main": "main.js",
   "scripts": {
-    "dev": "electron .",
-    "build:frontend": "npm --prefix ../frontend-client run build",
-    "build:backend": "python -m PyInstaller ../backend-fastapi/ragsystem_backend.spec --noconfirm",
+    "dev": "npm run build:frontend && npm run build:backend && electron .",
+    "build:frontend": "npm --prefix .. -w frontend-client run build",
+    "build:backend": "node scripts/prepare-backend.mjs && node scripts/probe-backend.mjs",
     "build:installer": "npm run build:frontend && npm run build:backend && electron-builder --win nsis",
     "pack": "npm run build:frontend && npm run build:backend && electron-builder --dir"
   },
   "devDependencies": {
     "electron": "^37.2.6",
-    "electron-builder": "^26.0.12"
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.27.2"
   },
   "build": {
     "appId": "com.ragsystem.desktop",
@@ -28,8 +29,20 @@
     ],
     "extraResources": [
       {
-        "from": "dist/RAGSystemBackend",
-        "to": "backend/RAGSystemBackend"
+        "from": "dist/backend-ts",
+        "to": "backend-ts",
+        "filter": [
+          "**/*",
+          "!node_modules/**/*"
+        ]
+      },
+      {
+        "from": "dist/backend-ts/node_modules/sqlite-vec",
+        "to": "backend-ts/node_modules/sqlite-vec"
+      },
+      {
+        "from": "dist/backend-ts/node_modules/sqlite-vec-windows-x64",
+        "to": "backend-ts/node_modules/sqlite-vec-windows-x64"
       },
       {
         "from": "../frontend-client/dist",
@@ -38,6 +51,7 @@
     ],
     "win": {
       "icon": "build/icon.ico",
+      "signAndEditExecutable": false,
       "target": [
         {
           "target": "nsis",

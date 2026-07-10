@@ -8,7 +8,7 @@ const net = require('net')
 const http = require('http')
 
 const APP_NAME = 'RAGSystem'
-const PREFERRED_PORT = Number(process.env.RAGSYSTEM_BACKEND_PORT || 5001)
+const PREFERRED_PORT = Number(process.env.RAGSYSTEM_BACKEND_PORT || 5002)
 const MAX_PORT_SEARCH = 20
 const START_TIMEOUT_MS = 45000
 const isDev = !app.isPackaged
@@ -80,20 +80,20 @@ function ensureDir(dirPath) {
 
 function resolveBackendCommand() {
   if (isDev) {
+    const backendRoot = path.join(__dirname, 'dist', 'backend-ts')
     return {
-      command: process.env.RAGSYSTEM_PYTHON || 'python',
-      args: [path.join(__dirname, '..', 'backend-fastapi', 'desktop_entry.py')],
-      cwd: path.join(__dirname, '..', 'backend-fastapi'),
+      command: process.execPath,
+      args: [path.join(backendRoot, 'main.mjs')],
+      cwd: backendRoot,
       frontendDist: path.join(__dirname, '..', 'frontend-client', 'dist'),
     }
   }
 
   const resourcesDir = process.resourcesPath
-  const backendRoot = path.join(resourcesDir, 'backend', 'RAGSystemBackend')
-  const executable = path.join(backendRoot, 'RAGSystemBackend.exe')
+  const backendRoot = path.join(resourcesDir, 'backend-ts')
   return {
-    command: executable,
-    args: [],
+    command: process.execPath,
+    args: [path.join(backendRoot, 'main.mjs')],
     cwd: backendRoot,
     frontendDist: path.join(resourcesDir, 'frontend-dist'),
   }
@@ -122,12 +122,16 @@ async function startBackend() {
   const stderrLog = fs.openSync(path.join(logsDir, 'backend.stderr.log'), 'a')
 
   const backend = resolveBackendCommand()
+  if (!fs.existsSync(backend.args[0])) {
+    throw new Error(`TypeScript 后端产物不存在：${backend.args[0]}。请先运行 npm run build:backend`)
+  }
   const env = {
     ...process.env,
-    FASTAPI_HOST: '127.0.0.1',
-    FASTAPI_PORT: String(actualPort),
+    ELECTRON_RUN_AS_NODE: '1',
+    BACKEND_TS_HOST: '127.0.0.1',
+    BACKEND_TS_PORT: String(actualPort),
     PORT: String(actualPort),
-    FASTAPI_RELOAD: 'false',
+    NODE_ENV: 'production',
     FRONTEND_DIST: backend.frontendDist,
     RAG_DATA_ROOT: runtimeRoot,
   }

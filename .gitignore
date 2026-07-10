@@ -31,6 +31,7 @@ frontend-client/dist/
 frontend-client/.env
 desktop-electron/node_modules/
 desktop-electron/release/
+desktop-electron/dist/
 backend-ts/.env
 backend-ts/.env.local
 backend-ts/.test-data/
