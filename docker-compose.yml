@@ -1,17 +1,17 @@
-version: "3.9"
-
 services:
   backend:
-    build: ./backend-fastapi
+    build:
+      context: .
+      dockerfile: backend-ts/Dockerfile
     container_name: ragsystem-backend
-    env_file:
-      - ./backend-fastapi/.env
     environment:
+      BACKEND_TS_HOST: 0.0.0.0
+      BACKEND_TS_PORT: 5002
       RAG_DATA_ROOT: /data
     volumes:
-      - ./docker-data:/data
+      - ragsystem-data:/data
     ports:
-      - "5001:5001"
+      - "5002:5002"
     restart: unless-stopped
 
   frontend:
@@ -20,5 +20,9 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  ragsystem-data:

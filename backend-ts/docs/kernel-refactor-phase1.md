@@ -181,8 +181,7 @@ Protocol.invoke 内部（模型吐字中，invoke 尚未返回）:
    - 事件序列与现状一致（first_token/output_delta/tool_call/tool_result/observation_complete/done）。
    - abort 中途停止正常中断、状态置 interrupted。
    - 子 agent 委派（call_agent）跑通且 child 不发 runtime 事件。
-4. （可选）npm run smoke:parity。
-5. **确认无依赖非流式回退的测试 mock**：`LlmChatClient.stream` 类型上可选（llm-chat-client.ts:66），删除 `runToolCallingText`/`completeRequest` 后，测试中"注入无 `stream` 的 mock → 原回退 `completeRequest`"的路径不再存在。跑全量 `npm test`，若存在此类 mock 须改为流式 mock，否则测试会静默走 XmlProtocol 新路径而无人察觉。
+4. **确认无依赖非流式回退的测试 mock**：`LlmChatClient.stream` 类型上可选（llm-chat-client.ts:66），删除 `runToolCallingText`/`completeRequest` 后，测试中"注入无 `stream` 的 mock → 原回退 `completeRequest`"的路径不再存在。跑全量 `npm test`，若存在此类 mock 须改为流式 mock，否则测试会静默走 XmlProtocol 新路径而无人察觉。
 
 ## 十一、风险与注意
 

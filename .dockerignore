@@ -1,0 +1,11 @@
+.git
+.github
+.codex
+.agents
+**/node_modules
+**/dist
+desktop-electron/release
+backend-fastapi
+docker-data
+coverage
+*.log

@@ -14,7 +14,6 @@
     "typecheck:scripts": "tsc -p tsconfig.scripts.json --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run",
-    "smoke:parity": "tsx scripts/parity-smoke.ts",
     "smoke:outbox-live": "tsx scripts/outbox-live-smoke.ts"
   },
   "dependencies": {
