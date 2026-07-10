@@ -109,6 +109,14 @@ class AgentLaunchers {
       const runningRunId = runningStatus.run_id ?? null;
       const runningTaskId = runningStatus.task_id ?? null;
       const currentAgentName = normalizeSessionEntryAgent(sessionMetadata.entry_agent) ?? "orchestrator_agent";
+      // followup 的 round 定位:该 run 已落库 run_steps 的最大 round,供前端 injection 节点按 round 插入(历史回放也精确)。
+      const lastRound = runningRunId
+        ? this.conversationStore.listRunSteps({ sessionId, runId: runningRunId, limit: 1000 })
+            .reduce((max, s) => {
+              const r = (s.payload as Record<string, unknown> | undefined)?.round;
+              return typeof r === "number" && r > max ? r : max;
+            }, 0)
+        : 0;
       const followupMessage = this.sessions.addMessage({
         sessionId,
         role: "user",
@@ -119,6 +127,7 @@ class AgentLaunchers {
           request_id: requestId,
           execution_kind: "session_followup",
           source: "running_session",
+          round_index: lastRound,
         },
       });
       this.eventPublisher.publishOutputMessageSaved(sessionId, runningRunId, {

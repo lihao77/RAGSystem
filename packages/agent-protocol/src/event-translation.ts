@@ -125,6 +125,7 @@ function onToolCall(event: ToolCallEvent, ctx: WireTranslationContext): Envelope
       input: event.arguments,
       phase: "start",
       status: "running",
+      round: event.round,
       lineage: toolLineage(ctx),
     } satisfies ToolCallPayload,
   };

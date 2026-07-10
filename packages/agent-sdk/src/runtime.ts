@@ -67,6 +67,13 @@ export interface CreateRuntimeOptions {
    * 不传则每 run 仅 compaction。
    */
   hooks?: (registry: HookRegistry) => void;
+  /**
+   * 消息增量补充端口(可选):内核循环每轮开头调(refresh 在 round.before/buildMessages 之前),
+   * 返回的消息 append 进工作副本。用于 run 进行中注入新落库的 user 消息(followup 等)。
+   * 接口在 SDK,实现在消费端持 store(符合纯计算内核:SDK 不读 store)。
+   * 不传则不补充(默认空,preview 不受影响)。
+   */
+  refresher?: MessageRefresher;
 }
 
 export interface RunInput {
@@ -155,7 +162,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
         events: dispatcher,
         getTools: () => registry.listDefinitions(),
       });
-      const refresher: MessageRefresher = { refresh: async () => [] };
+      const refresher: MessageRefresher = options.refresher ?? { refresh: async () => [] };
 
       // per-run registry：每 run 新建;round.before 压缩由 backend handler 注册（A3 压缩外移）。
       const hooks = createHookRegistry();

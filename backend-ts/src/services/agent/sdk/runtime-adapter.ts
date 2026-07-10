@@ -6,7 +6,8 @@
  * 推 outbox + terminal 补终态 envelope（root run 的 stream_output(final)/message_saved/agent_ended/run_ended）。
  */
 import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, resolveToolInstructionMode, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
-import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry } from "@ragsystem/agent-sdk";
+import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageRefresher } from "@ragsystem/agent-sdk";
+import type { ChatMessage } from "@ragsystem/agent-llm";
 import { translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
@@ -199,6 +200,27 @@ export async function executeRunWithSdk(
   const contextBuilder = new AgentContextBuilder([...memorySources, recentSource], cacheTracker);
   const built = contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true });
   const conversation = built.conversation;
+  // refresh 水位线:本 run 启动前 store 最后一条消息的 seq;refresh 每轮拉 seq > lastSeq 的新 user 消息(followup 等)。
+  let lastSeq = built.rawMessages.reduce(
+    (max, m) => (m && typeof m.seq === "number" && m.seq > max ? m.seq : max),
+    0,
+  );
+  // per-run refresher:持 store,每轮从 store 拉本 run 启动后新落库的 user 消息 append 进 SDK 工作副本。
+  // SDK 零数据库(纯计算),store 读在 backend;返回的 user 消息不重复落库(已由 startStream running 分支落)。
+  const refresher: MessageRefresher = {
+    refresh: async (ctx) => {
+      const sid = ctx.session.sessionId;
+      const tk = ctx.session.threadKey;
+      const recent = deps.conversationStore.getRecentMessages(sid, HISTORY_SCAN_LIMIT, tk);
+      const newer = recent
+        .filter((m) => typeof m.seq === "number" && m.seq > lastSeq && m.role === "user")
+        .sort((a, b) => (a.seq as number) - (b.seq as number));
+      if (newer.length === 0) return [];
+      const lastMsg = newer[newer.length - 1];
+      if (lastMsg && typeof lastMsg.seq === "number") lastSeq = lastMsg.seq;
+      return newer.map((m): ChatMessage => ({ role: "user", content: m.content ?? "" }));
+    },
+  };
   // 性能指标采集:round.after hook 累计各轮 token,事件循环统计工具调用次数(终态随结果返回)。
   const tokenUsage = { inputTokens: 0, outputTokens: 0 };
   const toolCalls: Record<string, number> = {};
@@ -267,6 +289,7 @@ export async function executeRunWithSdk(
       arguments: sdkInput.arguments,
       parentCallId: input.rootCallId,
     }),
+    refresher,
   };
 
   // 翻译上下文（agent-protocol.translateKernelEvent 纯函数用）：root call + lineage。
