@@ -12,7 +12,7 @@ npm install
 npm run dev
 ```
 
-默认端口为 `http://localhost:5174`，`/api` 与 WebSocket 会代理到 `http://localhost:5001`。
+默认端口为 `http://localhost:5174`，`/api` 与 WebSocket 会代理到 TypeScript 后端 `http://localhost:5002`。
 
 ## 主要页面 / Main pages
 
@@ -60,7 +60,7 @@ npm install
 npm run dev
 ```
 
-The dev server runs on `http://localhost:5174` by default and proxies `/api` plus WebSocket traffic to `http://localhost:5001`.
+The dev server runs on `http://localhost:5174` by default and proxies `/api` plus WebSocket traffic to the TypeScript backend at `http://localhost:5002`.
 
 ### Main pages
 

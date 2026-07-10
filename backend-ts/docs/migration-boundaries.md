@@ -62,8 +62,7 @@ Management and provider compatibility:
 - Daemon status/config, start/stop, outbound send, test message dispatch, cron task management, and
   cron trigger.
 - File management, artifact management, embedding model management, vector library management,
-  permission policy routes, monitoring routes, context snapshot, raw tool
-  result reads, and outbox operations.
+  permission policy routes, monitoring routes, context snapshot, and outbox operations.
 
 ## Intentional Unsupported Modes
 

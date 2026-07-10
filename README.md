@@ -2,7 +2,7 @@
 
 中文 | [English](README.en.md)
 
-RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，包含 FastAPI 后端与 Vue 3 前端。仓库当前聚焦于 ReAct 编排、多 Agent 执行、Skill 化能力收敛、WebSocket 实时交互、Memory 与 Hook 系统、MCP 集成，以及面向运行时目录的配置驱动 Agent 系统。
+RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，主链路由 Fastify/TypeScript 后端与 Vue 3 前端组成。仓库当前聚焦于 ReAct 编排、多 Agent 执行、Skill 化能力收敛、WebSocket 实时交互、Memory 与 Hook 系统、MCP 集成，以及面向运行时目录的配置驱动 Agent 系统。
 
 ## 核心能力
 
@@ -42,7 +42,8 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 
 ```text
 .
-├── backend-fastapi/          # FastAPI 后端与 Agent 运行时
+├── backend-ts/               # 当前主后端与 Agent 运行时（Fastify/TypeScript）
+├── backend-fastapi/          # 遗留 Python 后端，仅桌面打包路径尚在使用
 ├── frontend-client/          # Vue 3 前端与执行可视化
 ├── docs/                     # 仓库正式文档中心
 └── .github/                  # GitHub 模板与工作流
@@ -50,7 +51,7 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 
 ## 技术栈
 
-- 后端：FastAPI, Pydantic, WebSocket, EventBus, MCP, Python
+- 后端：Fastify, TypeScript, WebSocket, SQLite, MCP
 - 前端：Vue 3, Vite, Axios, ECharts, Leaflet
 - 运行模式：Agent-first 编排、ReAct 风格执行、Skills、Memory、Hooks 与运行时目录配置
 
@@ -58,8 +59,7 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 
 ### 1. 环境要求
 
-- Python 3.12（CI 使用）
-- Node.js 20+
+- Node.js 24+
 - npm
 - Chrome 或 Edge（仅生成截图时需要）
 
@@ -68,11 +68,11 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 先复制环境变量示例：
 
 ```bash
-cp backend-fastapi/.env.example backend-fastapi/.env
+cp backend-ts/.env.example backend-ts/.env
 cp frontend-client/.env.example frontend-client/.env
 ```
 
-后端启动时会把缺失的运行时配置从 `.example` 模板初始化到运行时目录，并由 `AgentConfigManager` 生成系统默认 `default` team（包含 `orchestrator_agent`、`team_maker`、`plan_agent`、`explor_agent`、`general_agent`、`review_agent`、`test_agent`）。正式生效的配置读取自运行时目录，不再直接存放在 `backend-fastapi/...` 源码目录；模型 Provider、MCP Server、向量化器和守护 Agent 配置可在前端管理页面继续编辑。
+TypeScript 后端从运行时目录读取配置；模型 Provider、MCP Server、向量化器、Agent Team 与守护 Agent 配置可通过前端管理页面写入。
 
 - 默认运行时数据根目录：`~/.ragsystem`
 - 若设置 `RAG_DATA_ROOT`，则运行时数据根目录变为 `<RAG_DATA_ROOT>`
@@ -92,12 +92,11 @@ Windows PowerShell 可使用 `Copy-Item` 代替 `cp`。
 ### 3. 启动后端
 
 ```bash
-cd backend-fastapi
-pip install -r requirements.txt
-python main.py
+cd backend-ts
+npm run dev
 ```
 
-默认监听 `http://localhost:5001`。可通过 `FASTAPI_HOST`、`FASTAPI_PORT`、`PORT`、`FASTAPI_RELOAD` 调整启动参数；当 `frontend-client/dist` 存在时，后端也会托管前端构建产物。
+默认监听 `http://localhost:5002`。可通过 `BACKEND_TS_HOST`、`BACKEND_TS_PORT` 或 `PORT` 调整监听地址；当 `frontend-client/dist` 存在时，后端也会托管前端构建产物。
 
 ### 4. 启动前端
 
@@ -107,11 +106,11 @@ npm install
 npm run dev
 ```
 
-默认开发地址为 `http://localhost:5174`，并通过 Vite 代理 `/api` 与 WebSocket 到 `http://localhost:5001`。可在 `frontend-client/.env` 中配置 `VITE_DEV_PORT` 与 `VITE_API_PROXY_TARGET`。
+默认开发地址为 `http://localhost:5174`，并通过 Vite 代理 `/api` 与 WebSocket 到 `http://localhost:5002`。可在 `frontend-client/.env` 中配置 `VITE_DEV_PORT` 与 `VITE_API_PROXY_TARGET`。
 
 ### 5. 构建 Windows 安装包
 
-当前仓库已提供基于 Electron 的桌面封装目录 `desktop-electron/`，用于把 Vue 前端、FastAPI 后端与 Python 打包产物组合为 Windows 安装包。
+当前 Electron 安装包仍打包遗留的 `backend-fastapi`，尚未迁移到 TypeScript 后端。该路径与日常开发主链路分离，迁移完成前需要 Python 3.12 与 PyInstaller。
 
 先安装桌面壳依赖：
 
@@ -147,29 +146,18 @@ npm run build:installer
 
 ## 测试与验证
 
-后端：
-
 ```bash
-cd backend-fastapi
-python -m compileall .
-python -m py_compile main.py
-pytest --basetemp=.pytest-tmp agents/tests/
-```
-
-前端：
-
-```bash
-cd frontend-client
-npm run build
-npm test
-npm run screenshot:smoke
+npm run check:packages
+npm run check:backend
+npm run check:frontend
+npm run check:widget
 ```
 
 ## 文档导航
 
 - [README.en.md](README.en.md) — 英文版 README
 - [docs/README.md](docs/README.md) — 仓库正式文档中心
-- [backend-fastapi/docs/README.md](backend-fastapi/docs/README.md) — 后端文档入口
+- [backend-ts/README.md](backend-ts/README.md) — TypeScript 后端入口
 - [frontend-client/docs/README.md](frontend-client/docs/README.md) — 前端文档入口
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — 运行、配置与验证
 - [docs/refactor/README.md](docs/refactor/README.md) — 当前演进专题

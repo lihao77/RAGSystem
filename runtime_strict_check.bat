@@ -1,3 +1,5 @@
 @echo off
-python -m compileall backend-fastapi
-python -m py_compile backend-fastapi\main.py
+call npm run check:packages || exit /b 1
+call npm run check:backend || exit /b 1
+call npm run check:frontend || exit /b 1
+call npm run check:widget || exit /b 1

@@ -1,18 +1,17 @@
-PYTHON ?= python
 NPM ?= npm
 
-.PHONY: backend-compile backend-pycompile backend-test frontend-build check
+.PHONY: packages-check backend-check frontend-check widget-check check
 
-backend-compile:
-	$(PYTHON) -m compileall backend-fastapi
+packages-check:
+	$(NPM) run check:packages
 
-backend-pycompile:
-	$(PYTHON) -m py_compile backend-fastapi/main.py
+backend-check:
+	$(NPM) run check:backend
 
-backend-test:
-	cd backend-fastapi && $(PYTHON) -m pytest --basetemp=.pytest-tmp agents/tests/
+frontend-check:
+	$(NPM) run check:frontend
 
-frontend-build:
-	cd frontend-client && $(NPM) run build
+widget-check:
+	$(NPM) run check:widget
 
-check: backend-compile backend-pycompile backend-test frontend-build
+check: packages-check backend-check frontend-check widget-check

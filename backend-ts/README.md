@@ -1,15 +1,12 @@
 # RAGSystem Backend TS
 
-TypeScript backend migration workspace.
-
-This folder is intentionally separate from `backend-fastapi` as the TypeScript backend migration
-target. The tracked Python-backend parity slices now run in TypeScript. Unsupported future modes
-should fail explicitly instead of silently pretending to be available.
+Main TypeScript backend and Agent runtime for RAGSystem. `backend-fastapi` remains only as a legacy
+runtime used by the desktop packaging path until that distribution is migrated.
 
 ## Scripts
 
 ```bash
-npm install
+npm ci
 npm run dev
 npm run typecheck
 npm run build
@@ -35,7 +32,7 @@ Node.js 24+ is required because the first persistence milestone uses the built-i
   message reads
 - Session WebSocket shell with heartbeat, replay markers, and typed error responses
 - Python-compatible idle execution status routes for frontend polling, diagnostics, and overview reads
-- Monitoring compatibility routes for empty metrics
+- Monitoring, metrics, context snapshot, and durable outbox operations
 - In-memory permission policy API compatible with the Python `/api/permissions/*` route shapes
 - Knowledge-base uploaded files (source blobs + metadata) owned by the sqlite-vec driver, served at
   `/api/vector-library/files/*`; session-scoped attachments at `/api/agent/sessions/:sessionId/files/*`
@@ -88,7 +85,6 @@ Verification:
 
 ```bash
 npm run typecheck
-npm run typecheck:test
 npm test
 npm run build
 ```
