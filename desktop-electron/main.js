@@ -12,6 +12,7 @@ const PREFERRED_PORT = Number(process.env.RAGSYSTEM_BACKEND_PORT || 5002)
 const MAX_PORT_SEARCH = 20
 const START_TIMEOUT_MS = 45000
 const isDev = !app.isPackaged
+const isSmoke = process.env.RAGSYSTEM_DESKTOP_SMOKE === '1'
 const APP_ICON = path.join(__dirname, 'build', 'icon.ico')
 
 let mainWindow = null
@@ -114,7 +115,7 @@ async function startBackend() {
     actualPort = PREFERRED_PORT
   }
 
-  const runtimeRoot = path.join(os.homedir(), '.ragsystem')
+  const runtimeRoot = process.env.RAG_DATA_ROOT || path.join(os.homedir(), '.ragsystem')
   const logsDir = path.join(runtimeRoot, 'logs')
   ensureDir(logsDir)
 
@@ -175,8 +176,33 @@ function createMainWindow() {
   })
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow.show()
+    if (!isSmoke) mainWindow.show()
   })
+
+  if (isSmoke) {
+    mainWindow.webContents.on('console-message', (details) => {
+      console.error(`RAGSYSTEM_DESKTOP_RENDERER_CONSOLE level=${details.level} ${details.message} (${details.sourceId}:${details.lineNumber})`)
+    })
+    mainWindow.webContents.on('render-process-gone', (_event, details) => {
+      console.error(`RAGSYSTEM_DESKTOP_RENDERER_GONE ${JSON.stringify(details)}`)
+    })
+    mainWindow.webContents.once('did-finish-load', async () => {
+      try {
+        const page = await waitForRendererReady(mainWindow.webContents, 15000)
+        const health = await getJson(`http://127.0.0.1:${actualPort}/api/agent/health`, 3000)
+        if (page.textLength === 0 || page.rootChildren === 0 || health?.data?.status !== 'healthy') {
+          throw new Error(`invalid renderer state: ${JSON.stringify({ page, health })}`)
+        }
+        console.log(`RAGSYSTEM_DESKTOP_SMOKE_OK ${JSON.stringify({ port: actualPort, url: mainWindow.webContents.getURL(), page })}`)
+        finishSmoke(0)
+      } catch (error) {
+        failSmoke(error)
+      }
+    })
+    mainWindow.webContents.once('did-fail-load', (_event, code, description, url) => {
+      failSmoke(new Error(`renderer failed to load: code=${code} description=${description} url=${url}`))
+    })
+  }
 
   mainWindow.on('closed', () => {
     mainWindow = null
@@ -190,9 +216,57 @@ async function bootstrap() {
     await startBackend()
     createMainWindow()
   } catch (error) {
+    if (isSmoke) {
+      failSmoke(error)
+      return
+    }
     dialog.showErrorBox(APP_NAME, `启动失败：\n${error.message}`)
     app.quit()
   }
+}
+
+function getJson(url, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const request = http.get(url, { timeout: timeoutMs }, (response) => {
+      let body = ''
+      response.setEncoding('utf8')
+      response.on('data', (chunk) => { body += chunk })
+      response.on('end', () => {
+        try { resolve(JSON.parse(body)) } catch (error) { reject(error) }
+      })
+    })
+    request.on('timeout', () => request.destroy(new Error('health request timed out')))
+    request.on('error', reject)
+  })
+}
+
+async function waitForRendererReady(webContents, timeoutMs) {
+  const deadline = Date.now() + timeoutMs
+  let page = null
+  while (Date.now() < deadline) {
+    page = await webContents.executeJavaScript(`({
+      title: document.title,
+      textLength: document.body?.innerText?.trim().length || 0,
+      rootChildren: document.querySelector('#app')?.childElementCount || 0
+    })`)
+    if (page.textLength > 0 && page.rootChildren > 0) return page
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw new Error(`renderer did not mount within ${timeoutMs}ms: ${JSON.stringify(page)}`)
+}
+
+function failSmoke(error) {
+  console.error(`RAGSYSTEM_DESKTOP_SMOKE_FAILED ${error instanceof Error ? error.stack || error.message : String(error)}`)
+  finishSmoke(1)
+}
+
+function finishSmoke(code) {
+  app.isQuitting = true
+  process.exitCode = code
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy()
+  if (backendProcess && !backendProcess.killed) backendProcess.kill()
+  backendProcess = null
+  setTimeout(() => process.exit(code), 100)
 }
 
 app.on('before-quit', () => {
@@ -205,6 +279,7 @@ app.on('before-quit', () => {
 app.whenReady().then(bootstrap)
 
 app.on('window-all-closed', () => {
+  if (isSmoke) return
   app.quit()
 })
 

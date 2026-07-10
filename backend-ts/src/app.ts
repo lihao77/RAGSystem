@@ -224,13 +224,40 @@ function registerFrontendFallback(app: FastifyInstance): void {
         statusCode: 404,
       });
     }
-    const relativePath = rawPath.replace(/^\/+/, "");
+    let relativePath: string;
+    try {
+      relativePath = decodeURIComponent(rawPath).replace(/^\/+/, "");
+    } catch {
+      return reply.code(400).send({ message: "Invalid URL encoding", error: "Bad Request", statusCode: 400 });
+    }
     const candidate = path.resolve(frontendDist, relativePath);
-    if (candidate.startsWith(path.resolve(frontendDist)) && fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-      return reply.send(fs.createReadStream(candidate));
+    const relativeCandidate = path.relative(path.resolve(frontendDist), candidate);
+    if (!relativeCandidate.startsWith("..") && !path.isAbsolute(relativeCandidate) && fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      return reply.type(frontendContentType(candidate)).send(fs.createReadStream(candidate));
     }
     return reply.type("text/html; charset=utf-8").send(fs.createReadStream(indexPath));
   });
+}
+
+function frontendContentType(filePath: string): string {
+  const contentTypes: Record<string, string> = {
+    ".css": "text/css; charset=utf-8",
+    ".gif": "image/gif",
+    ".ico": "image/x-icon",
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".js": "application/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".map": "application/json; charset=utf-8",
+    ".mjs": "application/javascript; charset=utf-8",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".wasm": "application/wasm",
+    ".webp": "image/webp",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+  };
+  return contentTypes[path.extname(filePath).toLowerCase()] ?? "application/octet-stream";
 }
 
 function fastifyClientErrorStatusCode(error: unknown): number | null {

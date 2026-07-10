@@ -109,3 +109,9 @@ jobs:
       - name: Build and probe desktop backend
         run: npm run build:backend
         working-directory: desktop-electron
+      - name: Build desktop frontend
+        run: npm run build:frontend
+        working-directory: desktop-electron
+      - name: Smoke test Electron startup
+        run: npm run smoke:desktop
+        working-directory: desktop-electron

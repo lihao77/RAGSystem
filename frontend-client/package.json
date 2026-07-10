@@ -6,12 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "check:bundle-size": "node scripts/check-bundle-size.mjs",
     "preview": "vite preview",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "vue-tsc --noEmit -p tsconfig.json",
     "test": "node --test src/utils/*.test.js src/composables/*.test.js src/components/*.test.js",
     "test:coverage": "node --experimental-test-coverage --test-coverage-include=src/**/*.js --test-coverage-exclude=src/**/*.test.js --test-coverage-lines=65 --test-coverage-branches=60 --test-coverage-functions=50 --test src/utils/*.test.js src/composables/*.test.js src/components/*.test.js",
-    "check": "npm run lint && npm run typecheck && npm run test:coverage && npm run build",
+    "check": "npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run check:bundle-size",
     "screenshot:smoke": "node scripts/screenshot-smoke.mjs"
   },
   "dependencies": {
