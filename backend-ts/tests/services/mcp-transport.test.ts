@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
+import { externalCallPolicy } from "@ragsystem/agent-llm";
 
 import type { McpServerCreate } from "../../src/contracts/mcp.js";
 import { McpService } from "../../src/services/integrations/mcp-service.js";
@@ -11,6 +12,7 @@ import { McpService } from "../../src/services/integrations/mcp-service.js";
 const tempRoots: string[] = [];
 
 afterEach(() => {
+  externalCallPolicy.reset();
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -46,7 +48,7 @@ function resultFor(method: string, params: Record<string, unknown>): unknown {
   return null;
 }
 
-function startStreamableHttpServer(): Promise<{ url: string; close: () => Promise<void> }> {
+function startStreamableHttpServer(options: { stallToolCall?: boolean } = {}): Promise<{ url: string; close: () => Promise<void> }> {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
       if (req.method === "GET" || req.method === "DELETE") {
@@ -64,6 +66,9 @@ function startStreamableHttpServer(): Promise<{ url: string; close: () => Promis
         const message = JSON.parse(body || "{}") as { id?: number; method?: string; params?: Record<string, unknown> };
         if (message.id === undefined) {
           res.writeHead(202).end();
+          return;
+        }
+        if (options.stallToolCall && message.method === "tools/call") {
           return;
         }
         const result = resultFor(message.method ?? "", message.params ?? {});
@@ -195,6 +200,32 @@ describe("McpService remote transports", () => {
 
       service.disconnectServer("demo");
       expect(service.getServerStatus("demo").status).toBe("disconnected");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("cancels a stalled MCP tool call and records the policy timeout", async () => {
+    const server = await startStreamableHttpServer({ stallToolCall: true });
+    try {
+      const service = createService();
+      await service.addServer({
+        name: "slow",
+        transport: "streamable_http",
+        url: server.url,
+        enabled: true,
+        auto_connect: false,
+        timeout: 1,
+      } as unknown as McpServerCreate);
+      await service.connectServer("slow");
+
+      const result = await service.callTool("slow", "echo", { text: "hi" });
+      expect(result.success).toBe(false);
+      expect(service.getServerMetrics("slow").resilience).toMatchObject({
+        failures: 1,
+        timeouts: 1,
+      });
+      service.disconnectServer("slow");
     } finally {
       await server.close();
     }

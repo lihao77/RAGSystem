@@ -11,6 +11,12 @@
  * - HTTP 非 2xx 抛异常(携带响应 message),非静默。
  */
 import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
+import {
+  externalCallPolicy,
+  isRetryableHttpStatus,
+  providerCallPolicy,
+  RetryableHttpError,
+} from "@ragsystem/agent-llm";
 import { providerEmbeddingDefaultEndpoint } from "./provider-registry.js";
 
 export interface EmbeddingRequest {
@@ -30,12 +36,27 @@ export class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
     }
     const apiKey = resolveApiKey(request.provider);
     const endpoint = resolveEmbeddingsEndpoint(request.provider);
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model: request.model, input: request.texts }),
+    const providerKey = request.provider.key ?? request.provider.name;
+    const { response, body } = await externalCallPolicy.execute({
+      key: `provider:${providerKey}`,
+      ...providerCallPolicy(request.provider),
+      operation: async ({ signal }) => {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: request.model, input: request.texts }),
+          signal,
+        });
+        const body = await readJsonResponseBody(response);
+        if (isRetryableHttpStatus(response.status)) {
+          throw new RetryableHttpError(
+            response.status,
+            extractErrorMessage(body) ?? `Embedding request failed with HTTP ${response.status}`,
+          );
+        }
+        return { response, body };
+      },
     });
-    const body = await readJsonResponseBody(response);
     if (!response.ok) {
       throw new Error(extractErrorMessage(body) ?? `Embedding request failed with HTTP ${response.status}`);
     }

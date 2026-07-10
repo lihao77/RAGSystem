@@ -9,6 +9,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { LoggingMessageNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
+import { externalCallPolicy, type ExternalCallMetrics } from "@ragsystem/agent-llm";
 import YAML from "yaml";
 
 import type {
@@ -483,10 +484,18 @@ export class McpService {
     m.total_duration_ms += durationMs;
   }
 
-  getServerMetrics(serverName: string): { server_name: string; tools: McpToolMetrics[] } {
+  getServerMetrics(serverName: string): {
+    server_name: string;
+    tools: McpToolMetrics[];
+    resilience: ExternalCallMetrics | null;
+  } {
     this.ensureServer(serverName);
     const serverMetrics = this.metrics.get(serverName);
-    return { server_name: serverName, tools: serverMetrics ? [...serverMetrics.values()] : [] };
+    return {
+      server_name: serverName,
+      tools: serverMetrics ? [...serverMetrics.values()] : [],
+      resilience: externalCallPolicy.snapshot(`mcp:${serverName}`)[0] ?? null,
+    };
   }
 
   async callTool(
@@ -501,7 +510,13 @@ export class McpService {
       return toolError(`MCP Server '${serverName}' 未连接`, fullToolName, { server_name: serverName });
     }
     try {
-      const result = await state.client.callTool(toolName, args, meta);
+      // MCP tools may have side effects, so the shared policy deliberately performs only one attempt.
+      const result = await externalCallPolicy.execute({
+        key: `mcp:${serverName}`,
+        timeoutMs: Math.max(1, state.config.timeout) * 1000,
+        maxAttempts: 1,
+        operation: ({ signal }) => state.client!.callTool(toolName, args, meta, signal),
+      });
       return normalizeToolResult(fullToolName, serverName, toolName, result);
     } catch (error) {
       return toolError(`MCP 工具调用失败: ${formatError(error)}`, fullToolName, { server_name: serverName });
@@ -653,11 +668,12 @@ class SdkMcpClient implements McpClient {
     toolName: string,
     args: Record<string, unknown>,
     meta?: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<Record<string, unknown>> {
     const result = await this.client.callTool(
       { name: toolName, arguments: args, ...(meta ? { _meta: meta } : {}) },
       undefined,
-      { timeout: this.timeoutMs },
+      signal ? { signal } : undefined,
     );
     return isRecord(result) ? result : {};
   }
@@ -783,7 +799,12 @@ function createMcpTransport(config: McpServerConfig): { transport: Transport; st
 interface McpClient {
   tools: McpTool[];
   connect(): Promise<void>;
-  callTool(toolName: string, args: Record<string, unknown>, meta?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  callTool(
+    toolName: string,
+    args: Record<string, unknown>,
+    meta?: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>>;
   getServerCapabilities(): McpCapabilityFaces | undefined;
   listResources(): Promise<McpResource[]>;
   readResource(uri: string): Promise<McpResourceContent[]>;

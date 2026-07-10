@@ -72,6 +72,16 @@ describe("model adapter compatibility routes", () => {
       },
     });
 
+    const metrics = await app.inject({
+      method: "GET",
+      url: "/api/model-adapter/providers/my_deepseek_deepseek/metrics",
+    });
+    expect(metrics.statusCode).toBe(200);
+    expect(metrics.json().data).toEqual({
+      provider_key: "my_deepseek_deepseek",
+      resilience: null,
+    });
+
     const aliased = await app.inject({
       method: "POST",
       url: "/api/model-adapter/providers",

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { externalCallPolicy } from "@ragsystem/agent-llm";
 
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
 import { OpenAiCompatibleEmbeddingClient } from "../../src/services/integrations/embedding-client.js";
@@ -26,6 +27,7 @@ const provider = (overrides: Partial<ModelProviderConfig> = {}): ModelProviderCo
 });
 
 afterEach(() => {
+  externalCallPolicy.reset();
   vi.restoreAllMocks();
 });
 
@@ -81,6 +83,19 @@ describe("OpenAiCompatibleEmbeddingClient", () => {
     );
     const client = new OpenAiCompatibleEmbeddingClient();
     await expect(client.embed({ texts: ["x"], model: "m", provider: provider() })).rejects.toThrow("rate limited");
+  });
+
+  it("按 Provider 策略重试临时 HTTP 错误", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(mockResponse({ error: { message: "busy" } }, 503))
+      .mockResolvedValueOnce(mockResponse({ data: [{ embedding: [0.2] }] }));
+    const client = new OpenAiCompatibleEmbeddingClient();
+    await expect(client.embed({
+      texts: ["x"],
+      model: "m",
+      provider: provider({ retry_attempts: 1, retry_delay: 0 }),
+    })).resolves.toEqual([[0.2]]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("响应向量数量不匹配抛错", async () => {

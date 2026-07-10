@@ -17,6 +17,13 @@ import type {
 import { DEFAULT_ENDPOINTS, OPENAI_COMPATIBLE_TYPES } from "./provider-registry.js";
 import { compactRecord } from "./record-utils.js";
 import { extractText, toResponsesContent, toAnthropicContent } from "./content-parts.js";
+import {
+  externalCallPolicy,
+  ExternalCallTimeoutError,
+  isRetryableHttpStatus,
+  providerCallPolicy,
+  RetryableHttpError,
+} from "./external-call-policy.js";
 
 export class OpenAiCompatibleClient implements LlmClient {
   async complete(request: LlmRequest): Promise<LlmResult> {
@@ -27,8 +34,8 @@ export class OpenAiCompatibleClient implements LlmClient {
       return completeAnthropicMessages(request);
     }
     const { endpoint, apiKey } = resolveOpenAiCompatibleRequest(request);
-    const response = await fetch(endpoint, buildFetchOptions(request, apiKey, false));
-    const body = await readJsonResponseBody(response);
+    const response = await fetchWithProviderPolicy(request, endpoint, buildFetchOptions(request, apiKey, false));
+    const body = await readJsonResponseBody(response, providerTimeoutMs(request));
     if (!response.ok) {
       throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
     }
@@ -79,20 +86,30 @@ export class OpenAiCompatibleClient implements LlmClient {
       if (request.signal) {
         fetchOptions.signal = request.signal;
       }
-      const response = await fetch(endpoint, fetchOptions);
+      const response = await fetchWithProviderPolicy(request, endpoint, fetchOptions, true);
       if (!response.ok) {
-        const body = await readJsonResponseBody(response);
-        throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
+        const body = await readJsonResponseBody(response, providerTimeoutMs(request));
+        const error = new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
+        recordProviderStreamFailure(request, error);
+        throw error;
       }
-      return readAnthropicStream(response, onChunk, { allowEmptyContent: request.allowEmptyStream === true });
+      return readProviderStream(request, () => readAnthropicStream(response, onChunk, {
+        allowEmptyContent: request.allowEmptyStream === true,
+        idleTimeoutMs: providerTimeoutMs(request),
+      }));
     }
     const { endpoint, apiKey } = resolveOpenAiCompatibleRequest(request);
-    const response = await fetch(endpoint, buildFetchOptions(request, apiKey, true));
+    const response = await fetchWithProviderPolicy(request, endpoint, buildFetchOptions(request, apiKey, true), true);
     if (!response.ok) {
-      const body = await readJsonResponseBody(response);
-      throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
+      const body = await readJsonResponseBody(response, providerTimeoutMs(request));
+      const error = new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
+      recordProviderStreamFailure(request, error);
+      throw error;
     }
-    return readOpenAiCompatibleStream(response, onChunk, { allowEmptyContent: request.allowEmptyStream === true });
+    return readProviderStream(request, () => readOpenAiCompatibleStream(response, onChunk, {
+      allowEmptyContent: request.allowEmptyStream === true,
+      idleTimeoutMs: providerTimeoutMs(request),
+    }));
   }
 }
 
@@ -109,8 +126,8 @@ async function completeOpenAiResponses(request: LlmRequest): Promise<LlmResult> 
   if (request.signal) {
     fetchOptions.signal = request.signal;
   }
-  const response = await fetch(endpoint, fetchOptions);
-  const body = await readJsonResponseBody(response);
+  const response = await fetchWithProviderPolicy(request, endpoint, fetchOptions);
+  const body = await readJsonResponseBody(response, providerTimeoutMs(request));
   if (!response.ok) {
     throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
   }
@@ -143,8 +160,8 @@ async function completeAnthropicMessages(request: LlmRequest): Promise<LlmResult
   if (request.signal) {
     fetchOptions.signal = request.signal;
   }
-  const response = await fetch(endpoint, fetchOptions);
-  const body = await readJsonResponseBody(response);
+  const response = await fetchWithProviderPolicy(request, endpoint, fetchOptions);
+  const body = await readJsonResponseBody(response, providerTimeoutMs(request));
   if (!response.ok) {
     throw new Error(extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`);
   }
@@ -180,6 +197,56 @@ function buildFetchOptions(request: LlmRequest, apiKey: string, stream: boolean)
     options.signal = request.signal;
   }
   return options;
+}
+
+async function fetchWithProviderPolicy(
+  request: LlmRequest,
+  endpoint: string,
+  options: RequestInit,
+  deferSuccess = false,
+): Promise<Response> {
+  const providerKey = request.provider.key ?? request.provider.name ?? request.provider.provider_type;
+  return externalCallPolicy.execute({
+    key: `provider:${providerKey}`,
+    ...providerCallPolicy(request.provider),
+    ...(request.signal ? { signal: request.signal } : {}),
+    deferSuccess,
+    operation: async ({ signal }) => {
+      const response = await fetch(endpoint, { ...options, signal });
+      if (isRetryableHttpStatus(response.status)) {
+        const body = await readJsonResponseBody(response);
+        throw new RetryableHttpError(
+          response.status,
+          extractErrorMessage(body) ?? `LLM request failed with HTTP ${response.status}`,
+        );
+      }
+      return response;
+    },
+  });
+}
+
+function providerTimeoutMs(request: LlmRequest): number {
+  return providerCallPolicy(request.provider).timeoutMs ?? 60_000;
+}
+
+async function readProviderStream<T>(request: LlmRequest, read: () => Promise<T>): Promise<T> {
+  const providerKey = request.provider.key ?? request.provider.name ?? request.provider.provider_type;
+  const circuitKey = `provider:${providerKey}`;
+  const policy = providerCallPolicy(request.provider);
+  try {
+    const result = await read();
+    externalCallPolicy.recordSuccess(circuitKey, policy);
+    return result;
+  } catch (error) {
+    if (request.signal?.aborted) externalCallPolicy.recordAbort(circuitKey);
+    else externalCallPolicy.recordFailure(circuitKey, error, policy);
+    throw error;
+  }
+}
+
+function recordProviderStreamFailure(request: LlmRequest, error: unknown): void {
+  const providerKey = request.provider.key ?? request.provider.name ?? request.provider.provider_type;
+  externalCallPolicy.recordFailure(`provider:${providerKey}`, error, providerCallPolicy(request.provider));
 }
 
 function resolveOpenAiCompatibleRequest(request: LlmRequest): { endpoint: string; apiKey: string } {
@@ -410,6 +477,7 @@ function mapAnthropicToolChoice(toolChoice: "auto" | "none" | undefined): Record
 
 interface StreamReadOptions {
   allowEmptyContent: boolean;
+  idleTimeoutMs: number;
 }
 
 async function readOpenAiCompatibleStream(
@@ -485,7 +553,7 @@ async function readOpenAiCompatibleStream(
   };
 
   while (!done) {
-    const read = await reader.read();
+    const read = await readStreamChunk(reader, options.idleTimeoutMs);
     if (read.done) {
       break;
     }
@@ -675,7 +743,7 @@ async function readAnthropicStream(
   };
 
   while (!done) {
-    const read = await reader.read();
+    const read = await readStreamChunk(reader, options.idleTimeoutMs);
     if (read.done) {
       break;
     }
@@ -714,8 +782,11 @@ async function readAnthropicStream(
 
 // ────────────────────────────── 响应解析辅助 ──────────────────────────────
 
-async function readJsonResponseBody(response: Response): Promise<Record<string, unknown>> {
-  const text = await response.text().catch(() => "");
+async function readJsonResponseBody(response: Response, timeoutMs?: number): Promise<Record<string, unknown>> {
+  const text = await readResponseText(response, timeoutMs).catch((error: unknown) => {
+    if (error instanceof ExternalCallTimeoutError) throw error;
+    return "";
+  });
   if (!text) {
     return {};
   }
@@ -723,6 +794,46 @@ async function readJsonResponseBody(response: Response): Promise<Record<string, 
     return JSON.parse(text) as Record<string, unknown>;
   } catch {
     return { message: text };
+  }
+}
+
+async function readStreamChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  timeoutMs: number,
+) {
+  const timeout = Math.max(1, timeoutMs);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(new ExternalCallTimeoutError(timeout));
+          void reader.cancel().catch(() => undefined);
+        }, timeout);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function readResponseText(response: Response, timeoutMs?: number): Promise<string> {
+  if (timeoutMs === undefined) return response.text();
+  const timeout = Math.max(1, timeoutMs);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      response.text(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(new ExternalCallTimeoutError(timeout));
+          void response.body?.cancel().catch(() => undefined);
+        }, timeout);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 

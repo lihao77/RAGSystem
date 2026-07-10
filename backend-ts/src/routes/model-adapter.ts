@@ -88,6 +88,14 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
     }
   });
 
+  app.get<{ Params: ProviderParams }>("/providers/:providerKey/metrics", async (request) => {
+    try {
+      return ok(options.container.modelAdapter.getProviderMetrics(request.params.providerKey), "获取成功");
+    } catch (error) {
+      throw toHttpError(error);
+    }
+  });
+
   app.post("/test", async (request) => {
     const payload = TestProviderRequestSchema.parse(request.body);
     try {

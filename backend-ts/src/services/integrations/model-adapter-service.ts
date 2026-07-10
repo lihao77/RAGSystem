@@ -11,7 +11,12 @@ import type {
   ProviderTypeInfo,
   TestProviderRequest,
 } from "../../contracts/model-adapter.js";
-import { OpenAiCompatibleClient, type ProviderConfig } from "@ragsystem/agent-llm";
+import {
+  externalCallPolicy,
+  OpenAiCompatibleClient,
+  type ExternalCallMetrics,
+  type ProviderConfig,
+} from "@ragsystem/agent-llm";
 import { DEFAULT_ENDPOINTS, PROVIDER_TYPES, PROVIDER_TYPE_SET } from "./provider-registry.js";
 
 const PROVIDERS_CONFIG_RELATIVE_PATH = path.join("config", "model_adapter", "providers.yaml");
@@ -87,6 +92,17 @@ export class ModelAdapterService {
     return config ? cloneProviderConfig(config) : null;
   }
 
+  getProviderMetrics(providerKey: string): { provider_key: string; resilience: ExternalCallMetrics | null } {
+    const provider = this.providers.get(providerKey);
+    if (!provider) {
+      throw new ModelAdapterServiceError(`Provider 不存在: ${providerKey}`, 404);
+    }
+    return {
+      provider_key: providerKey,
+      resilience: externalCallPolicy.snapshot(providerCircuitKey(provider))[0] ?? null,
+    };
+  }
+
   createProvider(data: ProviderPayload): string {
     const config = this.buildCreateConfig(data);
     const providerKey = makeProviderKey(config);
@@ -129,6 +145,7 @@ export class ModelAdapterService {
     rebuildModelsFromModelMap(config);
     this.ensureProviderRuntimeShape(config);
     this.providers.set(providerKey, config);
+    externalCallPolicy.reset(providerCircuitKey(existing));
     this.saveProvidersToDisk();
     return providerKey;
   }
@@ -172,9 +189,11 @@ export class ModelAdapterService {
   }
 
   deleteProvider(providerKey: string): void {
-    if (!this.providers.delete(providerKey)) {
+    const provider = this.providers.get(providerKey);
+    if (!provider || !this.providers.delete(providerKey)) {
       throw new ModelAdapterServiceError(`Provider 不存在: ${providerKey}`, 404);
     }
+    externalCallPolicy.reset(providerCircuitKey(provider));
     this.saveProvidersToDisk();
   }
 
@@ -729,6 +748,10 @@ function normalizeRerankDocuments(documents: unknown, prompt: string): Array<{ i
 
 function normalizeProviderRef(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, "_");
+}
+
+function providerCircuitKey(provider: ModelProviderConfig): string {
+  return `provider:${provider.key ?? provider.name ?? provider.provider_type}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
