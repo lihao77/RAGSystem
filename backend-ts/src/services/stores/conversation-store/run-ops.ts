@@ -1,7 +1,7 @@
 import type { RunStepInfo } from "../../../contracts/common.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
-import { asString, parseJsonObject, stringifyJson } from "./helpers.js";
+import { stringifyJson } from "./helpers.js";
 import { rowToRun, rowToRunStep } from "./mappers.js";
 import type { AddRunStepInput, IRunStore, RunInfo, RunStepRecord } from "../../../contracts/conversation-store/index.js";
 import type { RunRow, RunStepRow } from "./types.js";
@@ -18,6 +18,7 @@ export class RunOps implements IRunStore {
     entrypoint?: string;
     status?: string;
     taskSummary?: string;
+    requestId?: string | null;
     userId?: string | null;
     agentName?: string | null;
     threadKey?: string | null;
@@ -40,9 +41,9 @@ export class RunOps implements IRunStore {
         `
           INSERT INTO runs (
             run_id, session_id, entrypoint, status, task_summary,
-            user_id, agent_name, thread_key, parent_run_id, parent_call_id, child_agent_id
+            request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id, child_agent_id
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
       .run(
@@ -51,6 +52,7 @@ export class RunOps implements IRunStore {
         input.entrypoint ?? "execute",
         status,
         input.taskSummary ?? "",
+        input.requestId ?? null,
         input.userId ?? null,
         input.agentName ?? null,
         threadKey,
@@ -87,7 +89,7 @@ export class RunOps implements IRunStore {
       .prepare(
         `
           SELECT run_id, session_id, entrypoint, status, task_summary,
-                 user_id, agent_name, thread_key, parent_run_id, parent_call_id,
+                 request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
                  child_agent_id, final_message_id, created_at, updated_at
           FROM runs
           WHERE session_id=? AND run_id=?
@@ -105,7 +107,7 @@ export class RunOps implements IRunStore {
       .prepare(
         `
           SELECT run_id, session_id, entrypoint, status, task_summary,
-                 user_id, agent_name, thread_key, parent_run_id, parent_call_id,
+                 request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
                  child_agent_id, final_message_id, created_at, updated_at
           FROM runs
           WHERE session_id=?
@@ -158,40 +160,6 @@ export class RunOps implements IRunStore {
     const rows = this.loadRunStepRows(input);
     const resourceRefsByStep = this.loadResourceRefs(rows.map((row) => row.id));
     return rows.map((row) => rowToRunStep(row, resourceRefsByStep.get(row.id) ?? []));
-  }
-
-  getToolCallRawResult(sessionId: string, callId: string): Record<string, unknown> | null {
-    const row = this.db
-      .prepare(`
-        SELECT ${RUN_STEP_SELECT_COLUMNS}
-        FROM run_steps
-        WHERE session_id=?
-          AND step_type=?
-          AND json_extract(payload, '$.kind')='tool'
-          AND json_extract(payload, '$.phase')='end'
-          AND json_extract(payload, '$.call_id')=?
-        ORDER BY id DESC
-        LIMIT 1
-      `)
-      .get(sessionId, "execution.step", callId) as RunStepRow | undefined;
-    if (!row) {
-      return null;
-    }
-    const payload = parseJsonObject(row.payload);
-    return {
-      id: row.id,
-      run_id: row.run_id,
-      session_id: row.session_id,
-      message_id: row.message_id,
-      step_order: row.step_order,
-      step_type: row.step_type,
-      created_at: row.created_at,
-      tool_name: asString(payload.tool_name),
-      result_preview: payload.result_preview ?? payload.result,
-      raw_result: payload.raw_result,
-      raw_result_ref: payload.raw_result_ref ?? {},
-      raw_result_available: Boolean(payload.raw_result_available ?? payload.raw_result !== undefined),
-    };
   }
 
   private loadRunStepRows(input: {

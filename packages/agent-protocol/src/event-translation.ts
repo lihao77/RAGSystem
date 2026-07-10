@@ -4,8 +4,8 @@
  * 设计稿 §6 原则 4：内核产 KernelWireEvent（透传），消费端翻译成 Envelope。
  * 本函数是唯一翻译点，居 agent-protocol 协议面——翻译契约与两端类型同居底座。
  *
- * 纯函数：只依据 event + ctx 构造 Envelope[]，不碰 DB / outbox / WS。落库（run_step/message）
- * 由 SDK Dispatcher 独占；推流由宿主（backend-ts）拿本函数返回的 Envelope[] 自行推 outbox。
+ * 纯函数：只依据 event + ctx 构造 Envelope[]，不碰 DB / outbox / WS。归档与推流由宿主
+ * （backend-ts）拿本函数返回的 Envelope[] 统一完成；message/run 状态另由 backend persister 维护。
  *
  * 映射分流（对齐旧 backend-ts publishRuntimeEvent 的产 Envelope 分支）：
  *   - first_token / output_delta / intent_delta → stream_output

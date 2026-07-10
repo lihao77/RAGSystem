@@ -6,7 +6,7 @@
  * - 协议契约以本包 protocol.ts（步骤三 envelope）为准；事件流类型为 Envelope。
  *
  * 两条模式物理分节，职责零交叉（设计红线，禁止合并为单一 onToolCall）：
- *   • 投影模式（Projection）：后端全权执行工具，SDK 单向消费 execution.step 等事件，
+ *   • 投影模式（Projection）：后端全权执行工具，SDK 单向消费协议 Envelope，
  *     产出只读执行树 / 运行状态 / 待响应交互。后端协议已存在 → 全部「已对接」。
  *   • 委托模式（Delegation）：后端将工具调用委托宿主执行，宿主回传 tool_result。
  *     后端协议当前不存在 → 全部「预留」，未 enableDelegation() 前调用抛 DelegationError。
@@ -331,7 +331,7 @@ export interface AgentClient {
 
   /** 原始事件流（去重、cursor 校准后透传 Envelope）。 @mode projection @status wired */
   readonly events: Observable<Envelope>;
-  /** 结构化执行树投影（SDK 消费 execution.step 后产出）。 @mode projection @status wired */
+  /** 结构化执行树投影（SDK 消费执行类 Envelope 后产出）。 @mode projection @status wired */
   readonly executionTree: Observable<ExecutionTree>;
   /** 当前 run 终止 / 中断状态（源自 run.end 终态）。 @mode projection @status wired */
   readonly runStatus: Observable<RunStatus>;

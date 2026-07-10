@@ -74,7 +74,6 @@ export function createConversationStore(options: ConversationStoreOptions) {
     addRunStep: runs.addRunStep.bind(runs),
     updateRunStepsMessageId: runs.updateRunStepsMessageId.bind(runs),
     listRunSteps: runs.listRunSteps.bind(runs),
-    getToolCallRawResult: runs.getToolCallRawResult.bind(runs),
 
     // child_agents
     createChildAgent: childAgents.createChildAgent.bind(childAgents),

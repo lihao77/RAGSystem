@@ -114,11 +114,7 @@ export function createAgentExecutionService(
     throw new Error("AgentExecutionService requires an outbox dispatcher");
   }
   const statusTracker = new AgentExecutionStatusTracker();
-  const eventPublisher = new AgentExecutionEventPublisher(
-    params.sessions,
-    params.clientEvents,
-    params.conversationStore,
-  );
+  const eventPublisher = new AgentExecutionEventPublisher(params.clientEvents);
   const attachmentResolver = new AttachmentResolver(params.fileIndex ?? null);
   const slashCommandHandler = new SlashCommandHandler(
     params.sessions,

@@ -77,6 +77,39 @@ export const MIGRATIONS: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 5,
+    name: "execution_envelope_only",
+    up: (db) => {
+      // 旧 execution.step 不再受支持。升级后历史执行树只认 protocol.envelope.v1；
+      // 老步骤直接删除，并标记对应消息不再提供执行历史，避免 UI 展示空树入口。
+      db.exec(`
+        UPDATE messages
+        SET metadata = json_set(COALESCE(metadata, '{}'), '$.execution_history_discarded', json('true'))
+        WHERE EXISTS (
+          SELECT 1
+          FROM run_steps AS legacy
+          WHERE legacy.step_type = 'execution.step'
+            AND legacy.session_id = messages.session_id
+            AND legacy.run_id = json_extract(messages.metadata, '$.run_id')
+            AND NOT EXISTS (
+              SELECT 1 FROM run_steps AS archived
+              WHERE archived.run_id = legacy.run_id
+                AND archived.session_id = legacy.session_id
+                AND archived.step_type = 'protocol.envelope.v1'
+            )
+        );
+        DELETE FROM run_steps WHERE step_type = 'execution.step';
+      `);
+    },
+  },
+  {
+    version: 6,
+    name: "runs_request_id",
+    up: (db) => {
+      db.exec(`ALTER TABLE runs ADD COLUMN request_id TEXT;`);
+    },
+  },
 ];
 
 function getUserVersion(db: ConversationDb): number {

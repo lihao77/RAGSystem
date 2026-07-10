@@ -2,7 +2,7 @@
  * Runtime 适配器—— 组装投影 + ToolRegistry + createRuntime，跑 SDK 事件循环 + 落库 + 翻译推流 + terminal。
  *
  * SDK 收窄为纯计算内核（B1：Dispatcher 不再落库，只推 KernelEvent 事件流）；本适配器独占 run/message/
- * run_step 落库（KernelEventPersister：createRun + 增量事件 + 终态合一事务）+ 翻译 KernelEvent 成 Envelope
+ * message/run 落库（KernelEventPersister）+ 翻译 KernelEvent 成 Envelope
  * 推 outbox + terminal 补终态 envelope（root run 的 stream_output(final)/message_saved/agent_ended/run_ended）。
  */
 import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, resolveToolInstructionMode, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
@@ -356,7 +356,7 @@ export async function executeRunWithSdk(
     await consumeEvents.catch(() => undefined);
     runtime.close();
     const interrupted = input.signal.aborted;
-    // 终态合一落库（B1：failed/interrupted 落终态 run_steps + updateRunStatus；interrupted 补悬空 tool_result）。
+    // 终态合一落库：failed/interrupted 更新 run 状态；interrupted 补悬空 tool observation。
     persister.finalize(interrupted ? "interrupted" : "failed", null);
     recordTerminal(deps, input, interrupted ? "interrupted" : "failed", null, error);
     const message = error instanceof Error ? error.message : String(error);
@@ -366,7 +366,7 @@ export async function executeRunWithSdk(
   await consumeEvents;
   runtime.close();
 
-  // completed：终态合一落库（B1：最终 assistant message + updateRunStepsMessageId + 终态 run_steps + updateRunStatus）。
+  // completed：终态合一落库（最终 assistant message + Envelope 关联 + updateRunStatus）。
   persister.finalize("completed", { content: result.content });
   const finalMessage = persister.resolveFinalMessage();
   recordTerminal(deps, input, "completed", finalMessage, null);
@@ -375,7 +375,7 @@ export async function executeRunWithSdk(
 
 /**
  * Terminal 推流（终态 outbox envelope；root run 的 stream_output(final)/message_saved/agent_ended/run_ended）。
- * 落库（最终 message + run_steps + updateRunStatus）已由 KernelEventPersister.finalize 合一事务完成。
+ * 最终 message + run 状态由 KernelEventPersister.finalize 合一事务完成。
  */
 function recordTerminal(
   deps: SdkRuntimeAdapterDeps,
@@ -386,7 +386,7 @@ function recordTerminal(
 ): void {
   const isRoot = !input.childAgentId;
 
-  // run_step / 最终 message / run 状态由 KernelEventPersister.finalize 合一事务落库（caller 已调）。
+  // 最终 message / run 状态由 KernelEventPersister.finalize 合一事务落库（caller 已调）。
   // 本函数只推终态 outbox envelope（root run 的 stream_output(final)/message_saved/agent_ended/run_ended）到实时流。
   const records: RecordedClientEvent[] = isRoot
     ? deps.conversationStore.runInTransaction((tx): RecordedClientEvent[] => {

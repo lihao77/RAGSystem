@@ -1,12 +1,7 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { Envelope, StateSyncPayload } from "../../../contracts/events.js";
 import type { ExecutionTaskStatus } from "../../../contracts/execution.js";
-import type { AgentSessionApplication } from "../../sessions/index.js";
-import type { IConversationTransactionRunner } from "../../../contracts/conversation-store/index.js";
-import type {
-  DurableClientEventPublisher,
-  RecordedClientEvent,
-} from "../../runtime/event-outbox/client-event-publisher.js";
+import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 
 interface ExecutionEventContext {
   sessionId: string;
@@ -44,9 +39,7 @@ function contextMarkers(input: ExecutionEventContext): {
 
 export class AgentExecutionEventPublisher {
   constructor(
-    private readonly sessions: AgentSessionApplication,
     private readonly clientEvents: DurableClientEventPublisher,
-    private readonly conversationStore: IConversationTransactionRunner,
   ) {}
 
   publishRunStarted(sessionId: string, runId: string, payload: { request_id?: string; task?: string; source?: string }): void {
@@ -89,16 +82,6 @@ export class AgentExecutionEventPublisher {
     });
   }
 
-  publishRootAgentEnd(input: ExecutionEventContext & { result: string; success: boolean }): void {
-    const { top, lineage } = contextMarkers(input);
-    this.publish(input.sessionId, {
-      type: "agent_ended",
-      session_id: input.sessionId,
-      ...top,
-      payload: { phase: "end", result: input.result.slice(0, 500), success: input.success, display_name: input.agent.display_name || input.agent.agent_name, lineage },
-    });
-  }
-
   publishUserInterrupt(status: ExecutionTaskStatus, reason: string): void {
     const sessionId = status.session_id;
     if (!sessionId) {
@@ -113,8 +96,8 @@ export class AgentExecutionEventPublisher {
   }
 
   /**
-   * 推单条已翻译的 Envelope 到 outbox + WS（纯推流，无 DB 落库）。
-   * 翻译由 agent-protocol.translateKernelEvent 纯函数完成；run_step/message 由 SDK Dispatcher 独占落库。
+   * 推单条已翻译的 Envelope。DurableClientEventPublisher 在同一事务内完成
+   * protocol.envelope.v1 归档与 outbox 写入，再投递到 WS。
    */
   publishEnvelope(envelope: Envelope): void {
     this.publish(typeof envelope.session_id === "string" ? envelope.session_id : "", envelope);
@@ -155,47 +138,6 @@ export class AgentExecutionEventPublisher {
       runId: typeof event.run_id === "string" ? event.run_id : null,
       aggregateType: typeof event.run_id === "string" ? "run" : "session",
       aggregateId: typeof event.run_id === "string" ? event.run_id : sessionId,
-    });
-  }
-
-  /**
-   * run_step 表（API 契约，旧 execution.step 结构）+ outbox 事件（新 envelope）原子写入。
-   * stepPayload 给 listRunSteps/buildSynchronousResult；envelope 给 WS 实时流 + 回放。
-   */
-  addExecutionStepAndPublish(
-    sessionId: string,
-    runId: string,
-    stepPayload: Record<string, unknown>,
-    envelope: Envelope,
-  ): void {
-    const record = this.conversationStore.runInTransaction((tx) => {
-      tx.addRunStep({
-        sessionId,
-        runId,
-        stepType: "execution.step",
-        payload: stepPayload,
-      });
-      return this.clientEvents.recordInTransaction(tx, sessionId, envelope, {
-        runId,
-        aggregateType: "run",
-        aggregateId: runId,
-      });
-    });
-    this.clientEvents.deliver([record]);
-  }
-
-  /**
-   * 仅写 run_step 表（API 契约），不发 outbox 事件。child agent 的 subtask step 用此——
-   * 其 agent_started/agent_ended 事件由 delegation publishAgentCallStart/End 独占发，避免双发。
-   */
-  addExecutionStepOnly(sessionId: string, runId: string, stepPayload: Record<string, unknown>): void {
-    this.conversationStore.runInTransaction((tx) => {
-      tx.addRunStep({
-        sessionId,
-        runId,
-        stepType: "execution.step",
-        payload: stepPayload,
-      });
     });
   }
 

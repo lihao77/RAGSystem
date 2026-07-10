@@ -3,8 +3,8 @@ import { normalizeSessionMetadata, type MessageInfo, type SessionInfo, type Sess
 import type { IMessageStore, IRunStore, ISessionStore, RunInfo } from "../../contracts/conversation-store/index.js";
 import type { IFileHistoryStore } from "../../contracts/file-history-store/index.js";
 import type { MessageExtension } from "../agent/context/extensions/kinds.js";
-import { executionStepsToEnvelopes } from "./execution-step-envelope.js";
-import type { Envelope } from "@ragsystem/agent-protocol";
+import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
+import { EXECUTION_ENVELOPE_STEP_TYPE } from "../runtime/event-outbox/execution-envelope-archive.js";
 
 export class AgentSessionApplication {
   constructor(
@@ -51,7 +51,7 @@ export class AgentSessionApplication {
         item.role === "assistant"
           ? {
               ...item,
-              has_execution: Boolean(item.metadata.run_id),
+              has_execution: Boolean(item.metadata.run_id) && item.metadata.execution_history_discarded !== true,
             }
           : item,
       );
@@ -76,13 +76,12 @@ export class AgentSessionApplication {
     const limit = input.limit ?? 500;
     const offset = input.offset ?? 0;
     const rootRunId = message.metadata.run_id ? String(message.metadata.run_id) : null;
-    const executionSteps = this.collectRunTreeExecutionSteps(
+    const envelopes = this.collectRunTreeExecutionEnvelopes(
       input.sessionId,
       rootRunId,
       limit + offset,
       input.messageId,
     );
-    const envelopes = executionStepsToEnvelopes(executionSteps, input.sessionId);
 
     return {
       message_id: input.messageId,
@@ -95,32 +94,36 @@ export class AgentSessionApplication {
   }
 
   /**
-   * 聚合 run 树(root + 递归子孙 run)的 execution.step。
-   * 子 agent 的工具 step 落在子 run_id 下(其 message_id 是子 run 的 final msg),
-   * 按 message_id / 单 run_id 查只能拿到 root run 的 step,子智能体容器内的工具节点会缺失;
-   * run 树聚合后前端 projector 按 parent_call_id 把子工具挂进对应 subtask 容器。
+   * 聚合 root/child run 的持久化 Envelope。系统只支持 protocol.envelope.v1，
+   * 数据库 v5 迁移会一次性删除旧 execution.step。
    */
-  private collectRunTreeExecutionSteps(
+  private collectRunTreeExecutionEnvelopes(
     sessionId: string,
     rootRunId: string | null,
     perRunLimit: number,
     fallbackMessageId?: string | null,
-  ): Record<string, unknown>[] {
+  ): Envelope[] {
     if (!rootRunId) {
-      // 旧数据/异常(assistant 无 run_id 关联):回退按 message_id 查,保持旧行为。
-      return this.conversationStore
-        .listRunSteps({ messageId: fallbackMessageId ?? null, sessionId, limit: perRunLimit })
-        .filter((step) => step.step_type === "execution.step")
-        .map((step) => compactExecutionStep(step.payload));
+      const steps = this.conversationStore.listRunSteps({
+        messageId: fallbackMessageId ?? null,
+        sessionId,
+        limit: perRunLimit,
+      });
+      const archived = steps
+        .filter((step) => step.step_type === EXECUTION_ENVELOPE_STEP_TYPE)
+        .map((step) => parseArchivedEnvelope(step.payload));
+      return archived;
     }
+
     const allRuns = this.conversationStore.listRuns(sessionId, 1000).items;
     const runIds = this.collectRunTreeRunIds(allRuns, rootRunId);
-    const rawSteps = runIds.flatMap((runId) =>
+    const steps = runIds.flatMap((runId) =>
       this.conversationStore.listRunSteps({ runId, sessionId, limit: perRunLimit }),
     );
-    return rawSteps
-      .filter((step) => step.step_type === "execution.step")
-      .map((step) => compactExecutionStep(step.payload));
+    const archived = steps
+      .filter((step) => step.step_type === EXECUTION_ENVELOPE_STEP_TYPE)
+      .map((step) => parseArchivedEnvelope(step.payload));
+    return archived;
   }
 
   /** root + 递归子孙 run_id;rootRunId 始终首位,子孙按 created_at 升序(父先于子,applyStep 依赖此序)。 */
@@ -285,10 +288,13 @@ export class AgentSessionApplication {
       if (message.role !== "assistant" || !message.metadata.run_id) {
         return message;
       }
-      const steps = this.collectRunTreeExecutionSteps(sessionId, String(message.metadata.run_id), 500);
       return {
         ...message,
-        execution_events: executionStepsToEnvelopes(steps, sessionId),
+        execution_events: this.collectRunTreeExecutionEnvelopes(
+          sessionId,
+          String(message.metadata.run_id),
+          500,
+        ),
       };
     });
     return {
@@ -375,27 +381,6 @@ function isVisibleRootMessage(item: MessageInfo): boolean {
   return true;
 }
 
-function compactExecutionStep(payload: Record<string, unknown>): Record<string, unknown> {
-  const droppedFields = new Set([
-    "event_id",
-    "timestamp",
-    "source_event_type",
-    "node_id",
-    "parent_node_id",
-    "child_agent_id",
-    "mode",
-    "raw_result",
-    "raw_result_ref",
-    "resource_refs",
-  ]);
-  const compact: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(payload)) {
-    if (!droppedFields.has(key)) {
-      compact[key] = value;
-    }
-  }
-  if (compact.result_preview !== undefined) {
-    delete compact.result;
-  }
-  return compact;
+function parseArchivedEnvelope(payload: Record<string, unknown>): Envelope {
+  return EnvelopeSchema.parse(payload) as Envelope;
 }

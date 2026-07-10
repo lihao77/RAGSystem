@@ -1,12 +1,11 @@
 /**
  * KernelEvent 落库翻译（B1：从 SDK Dispatcher 迁回 backend）。
  *
- * SDK 收窄为纯计算内核后，KernelEvent 的持久化（message/run_step/run 状态）由 backend 独占。
- * 本模块搬运原 SDK Dispatcher 的 event→落库分流逻辑，改用 backend ConversationStore：
- *   - 增量（persist）：intent_complete/tool_call/tool_result/assistant_intermediate（tool_result 兼落 observation message）
- *     → addRunStep / addMessage；其余事件（first_token/output_delta/intent_delta/error/context_usage）纯遥测不落库。
- *   - 终态（finalize）：一个事务合一落 最终 assistant message + updateRunStepsMessageId + 终态 run_steps
- *     （final + run:end）+ updateRunStatus。interrupted 先 closeDanglingToolCalls 补悬空 tool_result。
+ * SDK 收窄为纯计算内核后，message/run 状态持久化由 backend 独占；执行历史 Envelope
+ * 由 DurableClientEventPublisher 统一归档，本模块不再写 run_steps。
+ *   - 增量（persist）：tool_result 落 observation message，assistant_intermediate 落消息。
+ *   - 终态（finalize）：一个事务合一落最终 assistant message + 关联已归档 Envelope + updateRunStatus。
+ *     interrupted 时补悬空工具的 observation message。
  *   - startRun：createRun（backend 独占，SDK 不再 createRun）。
  *
  * 与原 SDK Dispatcher 的差异：
@@ -74,6 +73,7 @@ export class KernelEventPersister {
       threadKey: this.ctx.threadKey,
       ...(this.ctx.executionKind !== undefined ? { entrypoint: this.ctx.executionKind } : {}),
       ...(this.ctx.taskSummary !== undefined ? { taskSummary: this.ctx.taskSummary } : {}),
+      ...(this.ctx.requestId !== undefined ? { requestId: this.ctx.requestId } : {}),
       ...(this.ctx.userId !== undefined ? { userId: this.ctx.userId } : {}),
       ...(this.ctx.parentRunId !== undefined ? { parentRunId: this.ctx.parentRunId } : {}),
       ...(this.ctx.parentCallId !== undefined ? { parentCallId: this.ctx.parentCallId } : {}),
@@ -81,17 +81,11 @@ export class KernelEventPersister {
     });
   }
 
-  /** 增量落库（KernelEvent → message/run_step）。纯遥测事件不落库。 */
+  /** 增量消息落库；执行 Envelope 由发布器独立归档。 */
   persist(event: KernelEvent): void {
     switch (event.type) {
-      case "intent_complete":
-        this.persistIntentComplete(event);
-        break;
-      case "tool_call":
-        this.persistToolStep(event, "start");
-        break;
       case "tool_result":
-        this.persistToolStep(event, "end");
+        this.persistToolResultMessage(event);
         break;
       case "assistant_intermediate":
         this.persistAssistantMessage(event.message, event.round);
@@ -103,9 +97,9 @@ export class KernelEventPersister {
 
   /**
    * run 终态收口（一个事务合一）：
-   * - completed：落最终 assistant message + updateRunStepsMessageId + 终态 steps + updateRunStatus。
-   * - interrupted：closeDanglingToolCalls 补悬空 tool_result + 落空 assistant anchor + 终态 steps + updateRunStatus。
-   * - failed：仅终态 steps + updateRunStatus（无 final message）。
+   * - completed：落最终 assistant message + 关联 Envelope + updateRunStatus。
+   * - interrupted：补悬空 observation + 落空 assistant anchor + updateRunStatus。
+   * - failed：仅 updateRunStatus（无 final message）。
    */
   finalize(status: "completed" | "failed" | "interrupted", finalMessage: FinalMessageInput | null): void {
     this.store.runInTransaction((tx) => {
@@ -142,7 +136,6 @@ export class KernelEventPersister {
         tx.updateRunStepsMessageId(this.ctx.sessionId, this.ctx.runId, msg.id);
         finalMessageId = msg.id;
       }
-      this.persistTerminalSteps(tx, status, finalMessageId, finalMessage?.content ?? "");
       tx.updateRunStatus(this.ctx.runId, this.ctx.sessionId, status, finalMessageId);
     });
   }
@@ -162,83 +155,18 @@ export class KernelEventPersister {
 
   // ────────────────────────────── 增量落库 ──────────────────────────────
 
-  private persistIntentComplete(event: KernelEvent & { type: "intent_complete" }): void {
+  private persistToolResultMessage(event: KernelEvent & { type: "tool_result" }): void {
     this.store.runInTransaction((tx) => {
-      tx.addRunStep({
+      tx.addMessage({
         sessionId: this.ctx.sessionId,
-        runId: this.ctx.runId,
-        stepType: "execution.step",
-        payload: {
-          kind: "intent",
-          phase: "complete",
-          call_id: this.ctx.rootCallId,
-          parent_call_id: this.ctx.parentCallId,
-          step_id: `${this.ctx.rootCallId}:round:${event.round}`,
-          parent_step_id: `${this.ctx.rootCallId}:run`,
-          agent_name: event.agentName,
-          agent_display_name: this.ctx.agentDisplayName,
-          content: event.content,
-          round: event.round,
-          status: "completed",
-          ...this.stepMarkers(),
-        },
+        role: "tool",
+        content: event.observation,
+        threadKey: this.ctx.threadKey,
+        metadata: { ...this.messageMeta(event.round), msg_type: MSG_TYPE.OBSERVATION },
+        toolCallId: event.toolCallId,
+        name: event.toolName,
       });
     });
-  }
-
-  private persistToolStep(event: KernelEvent & { type: "tool_call" | "tool_result" }, phase: "start" | "end"): void {
-    this.store.runInTransaction((tx) => {
-      tx.addRunStep({
-        sessionId: this.ctx.sessionId,
-        runId: this.ctx.runId,
-        stepType: "execution.step",
-        payload: this.buildToolStepPayload(event, phase),
-      });
-      // tool_result（end）逐工具落 observation message：与 run_step 同粒度，
-      // abort 时已完成的工具两表都有、未完成的两表都无（finalize 时 closeDanglingToolCalls 给悬空 tool_call 补占位）。
-      if (event.type === "tool_result") {
-        tx.addMessage({
-          sessionId: this.ctx.sessionId,
-          role: "tool",
-          content: event.observation,
-          threadKey: this.ctx.threadKey,
-          metadata: { ...this.messageMeta(event.round), msg_type: MSG_TYPE.OBSERVATION },
-          toolCallId: event.toolCallId,
-          name: event.toolName,
-        });
-      }
-    });
-  }
-
-  /** tool run_step payload（对齐 execution.step 契约：step_id/parent_step_id/display_name/task_id/request_id/status）。 */
-  private buildToolStepPayload(event: KernelEvent & { type: "tool_call" | "tool_result" }, phase: "start" | "end"): Record<string, unknown> {
-    const payload: Record<string, unknown> = {
-      kind: "tool",
-      phase,
-      step_id: `${event.toolCallId}:tool`,
-      parent_step_id: `${this.ctx.rootCallId}:round:${event.round}`,
-      agent_name: event.agentName,
-      agent_display_name: this.ctx.agentDisplayName,
-      tool_name: event.toolName,
-      call_id: event.toolCallId,
-      tool_call_id: event.toolCallId,
-      parent_call_id: this.ctx.rootCallId,
-      round: event.round,
-      order: event.order,
-      round_index: event.roundIndex,
-      status: phase === "start" ? "running" : event.type === "tool_result" && event.success ? "success" : "error",
-      ...this.stepMarkers(),
-    };
-    if (event.type === "tool_call") {
-      payload.arguments = event.arguments;
-    } else {
-      payload.success = event.success;
-      payload.summary = event.summary;
-      payload.observation = event.observation;
-      payload.result_preview = event.observation || event.summary;
-      payload.elapsed_time = event.elapsedTime;
-    }
-    return payload;
   }
 
   private persistAssistantMessage(message: ChatMessage, round: number): void {
@@ -254,65 +182,6 @@ export class KernelEventPersister {
         input.toolCalls = message.tool_calls as AddMessageInput["toolCalls"];
       }
       tx.addMessage(input);
-    });
-  }
-
-  // ────────────────────────────── 终态 steps ──────────────────────────────
-
-  /**
-   * 终态 run_step：completed 落 final + run:end；failed/interrupted 仅落 run:end。
-   * 对齐 buildFinalStepPayload / buildRunEndStepPayload 契约（step_id/parent_step_id/display_name/task_id/request_id/status/result_preview）。
-   */
-  private persistTerminalSteps(
-    tx: ConversationStoreTransaction,
-    status: "completed" | "failed" | "interrupted",
-    finalMessageId: string | null,
-    finalContent: string,
-  ): void {
-    const resultPreview = finalContent.slice(0, 500);
-    if (status === "completed") {
-      tx.addRunStep({
-        sessionId: this.ctx.sessionId,
-        runId: this.ctx.runId,
-        stepType: "execution.step",
-        payload: {
-          kind: "final",
-          phase: "complete",
-          call_id: this.ctx.rootCallId,
-          parent_call_id: null,
-          step_id: `${this.ctx.rootCallId}:final`,
-          parent_step_id: `${this.ctx.rootCallId}:run`,
-          agent_name: this.ctx.agentName,
-          agent_display_name: this.ctx.agentDisplayName,
-          message_id: finalMessageId ?? "",
-          status: "completed",
-          result_preview: resultPreview,
-          ...this.stepMarkers(),
-        },
-      });
-    }
-    const runEndPayload: Record<string, unknown> = {
-      kind: "run",
-      phase: "end",
-      call_id: this.ctx.rootCallId,
-      parent_call_id: null,
-      step_id: `${this.ctx.rootCallId}:run`,
-      parent_step_id: null,
-      agent_name: this.ctx.agentName,
-      agent_display_name: this.ctx.agentDisplayName,
-      status,
-      ...this.stepMarkers(),
-    };
-    if (status === "completed") {
-      runEndPayload.result_preview = resultPreview;
-    } else if (status === "interrupted") {
-      runEndPayload.result_preview = "[已停止生成]";
-    }
-    tx.addRunStep({
-      sessionId: this.ctx.sessionId,
-      runId: this.ctx.runId,
-      stepType: "execution.step",
-      payload: runEndPayload,
     });
   }
 
@@ -335,10 +204,8 @@ export class KernelEventPersister {
         continue;
       }
       const round = resolveRound(message.metadata.round);
-      let order = 1;
       for (const toolCall of message.tool_calls) {
         if (answered.has(toolCall.id)) {
-          order += 1;
           continue;
         }
         tx.addMessage({
@@ -350,30 +217,11 @@ export class KernelEventPersister {
           threadKey: this.ctx.threadKey,
           metadata: { interrupted: true, agent_name: this.ctx.agentName, run_id: this.ctx.runId, round: round + 1, msg_type: MSG_TYPE.OBSERVATION },
         });
-        tx.addRunStep({
-          sessionId: this.ctx.sessionId,
-          runId: this.ctx.runId,
-          stepType: "execution.step",
-          payload: { kind: "tool", phase: "end", tool_name: toolCall.function.name, call_id: toolCall.id, round, order, success: false, observation: INTERRUPTED_OBSERVATION, summary: INTERRUPTED_SUMMARY, agent_name: this.ctx.agentName, run_id: this.ctx.runId },
-        });
-        order += 1;
       }
     }
   }
 
   // ────────────────────────────── metadata / markers ──────────────────────────────
-
-  /** run_step payload 公共字段（run_id/task_id/request_id；按可用性展开）。 */
-  private stepMarkers(): Record<string, unknown> {
-    const markers: Record<string, unknown> = { run_id: this.ctx.runId };
-    if (this.ctx.taskId) {
-      markers.task_id = this.ctx.taskId;
-    }
-    if (this.ctx.requestId) {
-      markers.request_id = this.ctx.requestId;
-    }
-    return markers;
-  }
 
   /** 中间 message 公共 metadata（react_intermediate + run/task/request/agent/thread/scope/visible/execution_kind）。 */
   private messageMeta(round: number): Record<string, unknown> {
@@ -422,8 +270,6 @@ export class KernelEventPersister {
 }
 
 const INTERRUPTED_OBSERVATION = "工具执行被中断";
-const INTERRUPTED_SUMMARY = "工具执行被中断";
-
 function resolveRound(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, value - 1) : 0;
 }

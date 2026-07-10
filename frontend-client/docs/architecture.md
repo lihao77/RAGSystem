@@ -102,7 +102,7 @@ handleSend({ content, attachments })
 
 loadSessionMessages(sessionId)
   → GET /api/agent/sessions/{session_id}/messages?limit=500&offset=0
-      └─ 历史消息默认只返回 message 主载荷；assistant message 通过 has_execution 标记是否可懒加载 execution steps
+      └─ 历史消息默认只返回 message 主载荷；assistant message 通过 has_execution 标记是否可懒加载执行 Envelope
   → createAssistantMessageFromHistory(item)
       └─ 若 has_execution=true，则按需调用 GET /api/agent/sessions/{session_id}/messages/{message_id}/run-steps
           并将返回 Envelope 逐条交给同一个 ExecutionTreeState
@@ -120,7 +120,7 @@ loadSessionMessages(sessionId)
 - `HierarchicalExecutionTree.vue` 与工作面板都递归渲染 `workpanel/ExecutionTimelineNode.vue`，不再维护两套节点布局。
 - 没有 intent 的 round 不生成空 thought 包装；工具直接与相邻节点同层显示。
 
-历史 `/messages/{message_id}/run-steps` 直接返回 Envelope。消息列表不接受 `expand`，也不内联旧 `execution_steps`；会话导出 `version=2` 使用 `execution_events` 保存同一协议数据。
+影响执行树的实时 Envelope 会在发布时同步归档为 `run_steps.step_type=protocol.envelope.v1`；该归档与 outbox 写入处于同一事务，但生命周期独立于可清理的投递队列。历史 `/messages/{message_id}/run-steps` 只聚合 root/child run 的归档 Envelope。数据库 v5 迁移会一次性删除旧 `execution.step`，并给受影响消息标记 `execution_history_discarded` 以隐藏空树入口；运行时没有旧格式读取或写入分支。消息列表不接受 `expand`，也不内联旧 `execution_steps`；会话导出 `version=2` 使用 `execution_events` 保存同一协议数据。
 
 `ChatViewV2.vue` 的消息滚动统一由 `chat-messages-wrapper` 承担；桌面端与移动端都复用同一个滚动容器，避免移动端再让内层 `chat-messages` 自己滚动，导致 `scrollToBottom()`、底部检测和按钮点击命中错误元素。
 
@@ -144,7 +144,7 @@ loadSessionMessages(sessionId)
 `ChatViewV2.vue` 现在把消息流与执行树流彻底拆开：
 
 - 根最终答案、`message_saved`、`[viz:artifact_id]` 仍属于 message-first 链路
-- 执行树只消费 `execution.step`
+- 执行树只消费协议 Envelope
 - 历史消息列表不内联执行步骤；会先取 `/sessions/{session_id}/messages`，再按 `has_execution` 懒加载对应 message 的 run steps Envelope sidecar
 - reconnect 回放与历史 run steps 懒加载都复用 agent-protocol 的 `ExecutionTreeState`
 - 会话激活统一由路由驱动：`selectSession()`、`ensureSession()`、`startNewChat()` 只负责导航或创建会话，`syncSessionFromRoute()` 才负责设置 `currentSessionId`、拉取消息/文件并建立对应 session 的 WebSocket，避免本地状态提前变更后跳过建连
@@ -158,7 +158,7 @@ loadSessionMessages(sessionId)
 
 | 事件类型 | 处理逻辑 |
 |---------|--------|
-| `execution.step` | 事件翻译为 Envelope 后交给 `applyEnvelope()` 增量更新执行树 |
+| 执行类 Envelope | 交给 `applyEnvelope()` 增量更新执行树 |
 | `llm.first_token` | 记录后端 provider stream 首个非空 content 的到达时间，切换 activeRun 为“模型输出中”；不在输出过程中展示首 token 耗时，避免运行态提示过载 |
 | `execution.waiting_start` | 切换 activeRun 为“等待后台任务”，保存 wait_id / background_task_ids / pending_task_count |
 | `execution.waiting_end` / `execution.waiting_timeout` | 清理后台等待状态，若 run 未结束则回到“等待模型响应” |
@@ -223,7 +223,7 @@ loadSessionMessages(sessionId)
   role: 'assistant',
   id: string, seq: number,
   content: string,               // 最终答案（流式拼接）
-  has_execution: boolean,        // 是否存在可懒加载的 execution step sidecar
+  has_execution: boolean,        // 是否存在可懒加载的执行 Envelope sidecar
   executionTree: {               // agent-protocol 的统一树投影
     root: object | null,
     steps: []

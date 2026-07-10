@@ -251,7 +251,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     ...(options.hooks ? { hooks: options.hooks } : {}),
   });
   agentDelegation.setRunEngine(() => agentExecution.runEngine);
-  agentDelegation.setEventPublisher(() => agentExecution.eventPublisher);
   // 后台任务完成 → 自动拉起 system run（通道 A）。lazy 绑定打破 backgroundTasks ↔ agentExecution 循环。
   backgroundTasks.setOnTaskCompleted((sessionId) => agentExecution.triggerBgNotificationRun(sessionId));
   let closed = false;

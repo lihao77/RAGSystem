@@ -5,6 +5,7 @@ import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } fro
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
+import { EnvelopeSchema } from "@ragsystem/agent-protocol";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
@@ -27,9 +28,16 @@ import {
   renderBackgroundNotification,
 } from "./helpers.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
+import { EXECUTION_ENVELOPE_STEP_TYPE } from "../../runtime/event-outbox/execution-envelope-archive.js";
 
 export interface AgentExecutionLogger {
   error(bindings: Record<string, unknown>, message: string): void;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 }
 
 /**
@@ -221,15 +229,19 @@ export class AgentRunEngine {
       runId: input.runId,
       limit: 1000,
     });
-    const toolCalls = steps
-      .map((step) => step.payload)
-      .filter((payload) => payload.kind === "tool" && payload.phase === "end");
-    const lastRunEnd = [...steps]
+    const envelopes = steps
+      .filter((step) => step.step_type === EXECUTION_ENVELOPE_STEP_TYPE)
+      .map((step) => EnvelopeSchema.parse(step.payload));
+    const toolCalls = envelopes
+      .filter((event) => event.type === "tool_result")
+      .map((event) => ({ call_id: event.call_id, agent_id: event.agent_id, ...asRecord(event.payload) }));
+    const lastAgentEnd = [...envelopes]
       .reverse()
-      .map((step) => step.payload)
-      .find((payload) => payload.kind === "run" && payload.phase === "end");
+      .find((event) => event.type === "agent_ended");
     const executionTime = numberOrNull(finalMessage?.metadata.execution_time);
-    const error = asString(lastRunEnd?.error) ?? (run?.status && run.status !== "completed" ? asString(lastRunEnd?.result_preview) : null);
+    const error = run?.status && run.status !== "completed"
+      ? asString(asRecord(lastAgentEnd?.payload).result)
+      : null;
     const metadata = {
       ...(finalMessage?.metadata ?? {}),
       run_id: input.runId,

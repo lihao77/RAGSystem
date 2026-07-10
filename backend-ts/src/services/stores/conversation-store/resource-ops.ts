@@ -2,10 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { ExecutionOverview, ExecutionTaskStatus } from "../../../contracts/execution.js";
 import type { ConversationDb } from "./shared/db.js";
 import type { SessionOps } from "./session-ops.js";
-import { asNullableString, parseJsonObject, stringifyJson } from "./helpers.js";
+import { stringifyJson } from "./helpers.js";
 import { rowToResource } from "./mappers.js";
 import { inferResourceScope } from "./resource-scope.js";
-import { isRecord } from "./shared/primitives.js";
 import type { IResourceStore, ResourceInfo } from "../../../contracts/conversation-store/index.js";
 import type { ResourceRow } from "./types.js";
 
@@ -21,50 +20,44 @@ export class ResourceOps implements IResourceStore {
     const rows = this.db
       .prepare(
         `
-          SELECT event_type, payload, created_at, delivered_at
-          FROM event_outbox
-          WHERE event_type IN (
-            'execution.step_recorded',
-            'agent.call_finished',
-            'agent.call_failed',
-            'run.final_answer_recorded'
-          )
-          ORDER BY id DESC
+          SELECT run_id, session_id, entrypoint, status, task_summary, request_id,
+                 created_at, updated_at
+          FROM runs
+          WHERE (? = 0 OR status = 'running')
+          ORDER BY created_at DESC
           LIMIT ?
         `,
       )
-      .all(limit) as Array<{ event_type: string; payload: string; created_at: string | null; delivered_at: string | null }>;
-    const byTask = new Map<string, ExecutionTaskStatus & { raw_status: string; timeout_seconds: null; waiting_status: null; pending_wait_ids: [] }>();
+      .all(activeOnly ? 1 : 0, limit) as Array<{
+        run_id: string;
+        session_id: string;
+        entrypoint: string | null;
+        status: string;
+        task_summary: string | null;
+        request_id: string | null;
+        created_at: string | null;
+        updated_at: string | null;
+      }>;
+    const items: Array<ExecutionTaskStatus & { raw_status: string; timeout_seconds: null; waiting_status: null; pending_wait_ids: [] }> = [];
     for (const row of rows) {
-      const payload = parseJsonObject(row.payload);
-      const execution = isRecord(payload._execution) ? payload._execution : payload;
-      const taskId = asNullableString(execution.task_id) ?? asNullableString(payload.task_id) ?? asNullableString(payload.run_id);
-      if (!taskId || byTask.has(taskId)) {
-        continue;
-      }
-      const status = normalizePersistedExecutionStatus(payload, row.event_type);
-      if (activeOnly && status !== "running") {
-        continue;
-      }
-      byTask.set(taskId, {
-        task_id: taskId,
-        session_id: asNullableString(execution.session_id) ?? asNullableString(payload.session_id),
-        run_id: asNullableString(execution.run_id) ?? asNullableString(payload.run_id),
-        request_id: asNullableString(execution.request_id) ?? asNullableString(payload.request_id),
-        execution_kind: asNullableString(execution.execution_kind) ?? asNullableString(payload.execution_kind) ?? "agent_stream",
-        task: asNullableString(payload.task) ?? asNullableString(payload.description) ?? "",
-        status,
-        raw_status: status,
-        elapsed_seconds: typeof payload.execution_time === "number" ? payload.execution_time : null,
+      items.push({
+        task_id: row.run_id,
+        session_id: row.session_id,
+        run_id: row.run_id,
+        request_id: row.request_id,
+        execution_kind: row.entrypoint ?? "agent_stream",
+        task: row.task_summary ?? "",
+        status: row.status,
+        raw_status: row.status,
+        elapsed_seconds: null,
         started_at: row.created_at,
-        finished_at: status === "running" ? null : row.delivered_at ?? row.created_at,
-        thread_alive: status === "running",
+        finished_at: row.status === "running" ? null : row.updated_at,
+        thread_alive: row.status === "running",
         timeout_seconds: null,
         waiting_status: null,
         pending_wait_ids: [],
       });
     }
-    const items = Array.from(byTask.values());
     const byExecutionKind: Record<string, number> = {};
     const byStatus: Record<string, number> = {};
     const sessions: string[] = [];
@@ -173,22 +166,4 @@ export class ResourceOps implements IResourceStore {
       )
       .run(stepId, resourceId, sessionId, runId);
   }
-}
-
-function normalizePersistedExecutionStatus(payload: Record<string, unknown>, eventType: string): string {
-  const status = asNullableString(payload.status);
-  if (status) {
-    return status;
-  }
-  if (eventType === "agent.call_failed") {
-    return "failed";
-  }
-  if (eventType === "execution.step_recorded") {
-    const step = isRecord(payload.step) ? payload.step : payload;
-    const stepStatus = asNullableString(step.status);
-    if (stepStatus) {
-      return stepStatus;
-    }
-  }
-  return "completed";
 }

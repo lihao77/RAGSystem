@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import { buildExecutionTree, type Envelope } from "@ragsystem/agent-protocol";
 
 import { buildTestHarness } from "../helpers/app.js";
 
@@ -24,22 +25,25 @@ describe("session run step routes", () => {
       content: "answer",
       metadata: { run_id: "run-1" },
     });
-    harness.container.conversationStore.addRunStep({
-      sessionId: "s1",
-      runId: "run-1",
-      stepType: "execution.step",
+    harness.container.clientEvents.publish("s1", {
+      type: "agent_started",
+      session_id: "s1",
+      run_id: "run-1",
+      call_id: "root-call",
+      agent_id: "orchestrator_agent",
+      payload: { phase: "start" },
+    });
+    harness.container.clientEvents.publish("s1", {
+      type: "tool_call",
+      session_id: "s1",
+      run_id: "run-1",
+      call_id: "tool-1",
+      agent_id: "orchestrator_agent",
       payload: {
-        kind: "tool",
+        tool: "read_file",
+        input: { file_path: "README.md" },
         phase: "start",
-        call_id: "tool-1",
-        parent_call_id: "root-call",
-        agent_name: "orchestrator_agent",
-        tool_name: "read_file",
-        arguments: { file_path: "README.md" },
-        result: "full result",
-        result_preview: "short result",
-        raw_result: "raw",
-        event_id: "event-1",
+        lineage: { parent_call_id: "root-call" },
       },
     });
     harness.container.conversationStore.updateRunStepsMessageId("s1", "run-1", assistant.id);
@@ -90,6 +94,17 @@ describe("session run step routes", () => {
         ],
       },
     });
+    const archived = harness.container.conversationStore
+      .listRunSteps({ sessionId: "s1", runId: "run-1", limit: 100 })
+      .filter((step) => step.step_type === "protocol.envelope.v1");
+    expect(archived).toHaveLength(2);
+    expect(archived.every((step) => step.payload.protocol_version === "1.0")).toBe(true);
+
+    const replayed = harness.container.sessionApplication.listMessageRunSteps({
+      sessionId: "s1",
+      messageId: assistant.id,
+    });
+    expect(replayed.items).toEqual(runSteps.json().data.items);
   });
 
   it("aggregates child agent run steps into the message run tree", async () => {
@@ -103,7 +118,7 @@ describe("session run step routes", () => {
       content: "delegated answer",
       metadata: { run_id: "root-run" },
     });
-    // root run(final message = assistant):记录 subtask step(子 agent 容器节点)。
+    // root run(final message = assistant)。
     harness.container.conversationStore.createRun({
       runId: "root-run",
       sessionId: "s2",
@@ -112,19 +127,6 @@ describe("session run step routes", () => {
       threadKey: "root",
     });
     harness.container.conversationStore.updateRunStatus("root-run", "s2", "completed", assistant.id);
-    harness.container.conversationStore.addRunStep({
-      sessionId: "s2",
-      runId: "root-run",
-      stepType: "execution.step",
-      payload: {
-        kind: "subtask",
-        phase: "start",
-        call_id: "agent-call-1",
-        parent_call_id: "root-call",
-        round: 0,
-        agent_name: "general_agent",
-      },
-    });
     // child run(parent_run_id=root-run):其工具 step 落子 run_id 下。
     harness.container.conversationStore.createRun({
       runId: "child-run",
@@ -136,17 +138,37 @@ describe("session run step routes", () => {
       parentCallId: "agent-call-1",
       childAgentId: "child-1",
     });
-    harness.container.conversationStore.addRunStep({
-      sessionId: "s2",
-      runId: "child-run",
-      stepType: "execution.step",
+    harness.container.clientEvents.publish("s2", {
+      type: "agent_started",
+      session_id: "s2",
+      run_id: "root-run",
+      call_id: "root-call",
+      agent_id: "orchestrator_agent",
+      payload: { phase: "start" },
+    });
+    harness.container.clientEvents.publish("s2", {
+      type: "agent_started",
+      session_id: "s2",
+      run_id: "root-run",
+      call_id: "agent-call-1",
+      agent_id: "general_agent",
       payload: {
-        kind: "tool",
         phase: "start",
-        call_id: "tool-1",
-        parent_call_id: "agent-call-1",
-        tool_name: "execute_bash",
+        invocation_call_id: "delegate-call",
+        lineage: { parent_call_id: "root-call" },
+      },
+    });
+    harness.container.clientEvents.publish("s2", {
+      type: "tool_call",
+      session_id: "s2",
+      run_id: "child-run",
+      call_id: "tool-1",
+      agent_id: "general_agent",
+      payload: {
+        tool: "execute_bash",
+        phase: "start",
         round: 0,
+        lineage: { parent_call_id: "agent-call-1" },
       },
     });
 
@@ -165,4 +187,118 @@ describe("session run step routes", () => {
       },
     });
   });
+
+  it("replays the same execution tree from archived envelopes after outbox cleanup", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+
+    const sessionId = "s3";
+    const rootRunId = "root-run";
+    const childRunId = "child-run";
+    harness.container.sessionApplication.createSession({ sessionId });
+    harness.container.conversationStore.createRun({
+      runId: rootRunId,
+      sessionId,
+      status: "running",
+      agentName: "orchestrator_agent",
+      threadKey: "root",
+    });
+    harness.container.conversationStore.createRun({
+      runId: childRunId,
+      sessionId,
+      status: "running",
+      agentName: "worker_agent",
+      threadKey: "child:worker-1",
+      parentRunId: rootRunId,
+      parentCallId: "child-call",
+      childAgentId: "worker-1",
+    });
+    const assistant = harness.container.sessionApplication.addMessage({
+      sessionId,
+      role: "assistant",
+      content: "done",
+      metadata: { run_id: rootRunId },
+    });
+
+    const liveEvents: Envelope[] = [
+      envelope("agent_started", rootRunId, "root-call", "orchestrator_agent", {
+        phase: "start",
+        display_name: "Orchestrator",
+      }),
+      envelope("stream_output", rootRunId, "root-call", "orchestrator_agent", {
+        phase: "intent_complete",
+        content: "delegate",
+        round: 0,
+      }),
+      envelope("tool_call", rootRunId, "delegate-call", "orchestrator_agent", {
+        tool: "call_agent",
+        input: { agent_name: "worker_agent" },
+        phase: "start",
+        round: 0,
+        lineage: { parent_call_id: "root-call" },
+      }),
+      envelope("agent_started", rootRunId, "child-call", "worker_agent", {
+        phase: "start",
+        display_name: "Worker",
+        invocation_call_id: "delegate-call",
+        lineage: { parent_call_id: "root-call" },
+      }),
+      envelope("tool_call", childRunId, "child-tool", "worker_agent", {
+        tool: "read_file",
+        input: { path: "README.md" },
+        phase: "start",
+        round: 0,
+        lineage: { parent_call_id: "child-call" },
+      }),
+      envelope("tool_result", childRunId, "child-tool", "worker_agent", {
+        tool: "read_file",
+        phase: "end",
+        ok: true,
+        observation: "content",
+        lineage: { parent_call_id: "child-call" },
+      }),
+      envelope("agent_ended", rootRunId, "child-call", "worker_agent", {
+        phase: "end",
+        result: "content",
+        success: true,
+        invocation_call_id: "delegate-call",
+        lineage: { parent_call_id: "root-call" },
+      }),
+    ];
+    for (const event of liveEvents) {
+      harness.container.clientEvents.publish(sessionId, event, { runId: event.run_id });
+    }
+
+    const deleted = harness.container.conversationStore.deleteDeliveredOutbox({
+      before: new Date(Date.now() + 60_000).toISOString(),
+      limit: 100,
+    });
+    expect(deleted).toBe(liveEvents.length);
+    expect(harness.container.conversationStore.listOutboxForReplay({ sessionId })).toEqual([]);
+
+    const history = harness.container.sessionApplication.listMessageRunSteps({
+      sessionId,
+      messageId: assistant.id,
+    });
+    expect(history.items).toHaveLength(liveEvents.length);
+    expect(history.items.every((event) => event.protocol_version === "1.0")).toBe(true);
+    expect(buildExecutionTree(history.items).root).toEqual(buildExecutionTree(liveEvents).root);
+  });
 });
+
+function envelope(
+  type: Envelope["type"],
+  runId: string,
+  callId: string,
+  agentId: string,
+  payload: Record<string, unknown>,
+): Envelope {
+  return {
+    type,
+    session_id: "s3",
+    run_id: runId,
+    call_id: callId,
+    agent_id: agentId,
+    payload,
+  };
+}

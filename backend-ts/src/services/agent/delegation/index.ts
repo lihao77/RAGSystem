@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
 import type { AgentRunEngine } from "../execution/run-engine.js";
-import type { AgentExecutionEventPublisher } from "../execution/event-publisher.js";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { ChildAgentInfo, IChildAgentStore, IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
@@ -32,7 +31,6 @@ import {
 
 export class AgentDelegationService implements DelegationPort {
   private runEngineProvider: (() => AgentRunEngine | null) | null = null;
-  private eventPublisherProvider: (() => AgentExecutionEventPublisher | null) | null = null;
 
   constructor(
     private readonly conversationStore: IMessageStore & IChildAgentStore & IRunStore & ISessionStore,
@@ -42,10 +40,6 @@ export class AgentDelegationService implements DelegationPort {
 
   setRunEngine(provider: () => AgentRunEngine | null): void {
     this.runEngineProvider = provider;
-  }
-
-  setEventPublisher(provider: () => AgentExecutionEventPublisher | null): void {
-    this.eventPublisherProvider = provider;
   }
 
   async callAgent(call: AgentDelegationCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
@@ -322,19 +316,6 @@ export class AgentDelegationService implements DelegationPort {
       childAgentId: input.childAgent.child_agent_id,
     });
 
-    // 发 kind:subtask execution.step（前端 projector 据此创建子 agent 容器节点，
-    // 子 run 的工具 step 靠 parent_call_id=agentCallId 挂到该容器下）。
-    this.publishSubtaskStep("start", {
-      sessionId: input.sessionId,
-      runId: input.parentRunId,
-      parentCallId: input.parentCallId,
-      rootParentCallId: input.rootParentCallId,
-      agent: targetAgent,
-      task: input.task,
-      childAgentId: input.childAgent.child_agent_id,
-      round: input.round,
-    });
-
     const runEngine = this.runEngineProvider?.();
     if (!runEngine) {
       const message = "RunEngine 未注入，无法执行子 Agent";
@@ -387,19 +368,6 @@ export class AgentDelegationService implements DelegationPort {
       lastRunId: childRunId,
     });
 
-    this.publishSubtaskStep("end", {
-      sessionId: input.sessionId,
-      runId: input.parentRunId,
-      parentCallId: input.parentCallId,
-      rootParentCallId: input.rootParentCallId,
-      agent: targetAgent,
-      task: input.task,
-      childAgentId: input.childAgent.child_agent_id,
-      round: input.round,
-      status: outcome.success ? "success" : "error",
-      resultPreview: outcome.content.slice(0, 500),
-    });
-
     return {
       success: outcome.success,
       content: outcome.content,
@@ -412,47 +380,6 @@ export class AgentDelegationService implements DelegationPort {
         thread_key: input.childAgent.thread_key,
       },
     };
-  }
-
-  private publishSubtaskStep(phase: "start" | "end", input: {
-    sessionId: string;
-    runId: string | null;
-    parentCallId: string | null;
-    rootParentCallId: string | null;
-    agent: AgentConfig;
-    task: string;
-    childAgentId: string;
-    status?: string;
-    resultPreview?: string;
-    round: number | null;
-  }): void {
-    const eventPublisher = this.eventPublisherProvider?.();
-    if (!eventPublisher || !input.parentCallId || !input.runId) {
-      return;
-    }
-    const payload: Record<string, unknown> = {
-      kind: "subtask",
-      phase,
-      step_id: `${input.parentCallId}:subtask`,
-      parent_step_id: null,
-      call_id: input.parentCallId,
-      parent_call_id: input.rootParentCallId,
-      agent_name: input.agent.agent_name,
-      agent_display_name: input.agent.display_name || input.agent.agent_name,
-      round: input.round ?? null,
-      round_index: null,
-      order: null,
-      child_agent_id: input.childAgentId,
-      status: phase === "start" ? "running" : (input.status ?? "success"),
-    };
-    if (phase === "start") {
-      payload.description = input.task.slice(0, 200);
-    } else {
-      payload.result_preview = input.resultPreview ?? "";
-    }
-    // 仅写 run_step 表（API 契约，kind=subtask）；不发 outbox 事件——child agent 的
-    // agent_started/agent_ended 由 delegation publishAgentCallStart/End 独占发，避免双发。
-    eventPublisher.addExecutionStepOnly(input.sessionId, input.runId, payload);
   }
 
 }

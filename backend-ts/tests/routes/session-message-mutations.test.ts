@@ -95,8 +95,8 @@ describe("session message mutation routes", () => {
       sessionId: "s1",
       runId: "run-1",
       messageId: assistant.id,
-      stepType: "execution.step",
-      payload: { kind: "tool" },
+      stepType: "protocol.envelope.v1",
+      payload: { type: "tool_call", session_id: "s1", run_id: "run-1", payload: { tool: "read_file", phase: "start" } },
     });
 
     const missingAnchor = await app.inject({
@@ -306,12 +306,11 @@ describe("session message mutation routes", () => {
       content: "answer",
       metadata: { run_id: "run-1" },
     });
-    harness.container.conversationStore.addRunStep({
-      sessionId: "session export!",
-      runId: "run-1",
-      messageId: assistant.id,
-      stepType: "execution.step",
-      payload: { kind: "final", result: "done" },
+    harness.container.clientEvents.publish("session export!", {
+      type: "stream_output",
+      session_id: "session export!",
+      run_id: "run-1",
+      payload: { phase: "final", content: "done" },
     });
 
     const response = await app.inject({

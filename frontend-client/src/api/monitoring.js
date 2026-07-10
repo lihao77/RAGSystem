@@ -139,18 +139,6 @@ export async function getTaskExecutionDiagnostics(taskId) {
   }
 }
 
-export async function getToolCallRawResult(sessionId, callId) {
-  try {
-    const result = await http.get(
-      `${API_BASE}/tool-call/raw-result?session_id=${encodeURIComponent(sessionId)}&call_id=${encodeURIComponent(callId)}`
-    );
-    return result.data || result;
-  } catch (error) {
-    console.error('Error fetching tool call raw result:', error);
-    throw error;
-  }
-}
-
 export async function getMessageRunSteps(sessionId, messageId, { limit = 500, offset = 0 } = {}) {
   try {
     const result = await http.get(

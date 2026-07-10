@@ -129,6 +129,7 @@ export interface RunInfo {
   entrypoint: string | null;
   status: string;
   task_summary: string | null;
+  request_id: string | null;
   user_id: string | null;
   agent_name: string | null;
   thread_key: string;

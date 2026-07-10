@@ -232,7 +232,7 @@ describe("monitoring compatibility routes", () => {
     expect(systemPrompt).toContain("call_agent");
     expect(systemPrompt).toContain("可委派子 Agent");
     expect(systemPrompt).toContain("general_agent");
-    expect(systemPrompt).toContain("## 输出格式");
+    expect(systemPrompt).toContain("## 工具调用总规则");
     expect(systemPrompt).toContain("## 执行规则");
     expect(systemPrompt).toContain("### 数据文件传递规则");
 
@@ -323,73 +323,6 @@ describe("monitoring compatibility routes", () => {
       content: "工具测试完成",
       metadata: { run_id: "run-1" },
     });
-    harness.container.conversationStore.addRunStep({
-      sessionId: "react-runsteps-only",
-      runId: "run-1",
-      messageId: runStepsOnlyAssistant.id,
-      stepType: "execution.step",
-      payload: {
-        kind: "intent",
-        phase: "complete",
-        content: "我先执行一个只读命令。",
-        round: 0,
-      },
-    });
-    harness.container.conversationStore.addRunStep({
-      sessionId: "react-runsteps-only",
-      runId: "run-1",
-      messageId: runStepsOnlyAssistant.id,
-      stepType: "execution.step",
-      payload: {
-        kind: "tool",
-        phase: "start",
-        call_id: "call-1",
-        tool_name: "execute_bash",
-        arguments: { command: "pwd" },
-        round: 0,
-      },
-    });
-    harness.container.conversationStore.addRunStep({
-      sessionId: "react-runsteps-only",
-      runId: "run-1",
-      messageId: runStepsOnlyAssistant.id,
-      stepType: "execution.step",
-      payload: {
-        kind: "tool",
-        phase: "end",
-        call_id: "call-1",
-        tool_name: "execute_bash",
-        observation: "[execute_bash]\n命令执行完成，返回码 0",
-      },
-    });
-    harness.container.conversationStore.addRunStep({
-      sessionId: "react-runsteps-only",
-      runId: "run-1",
-      messageId: runStepsOnlyAssistant.id,
-      stepType: "execution.step",
-      payload: {
-        kind: "tool",
-        phase: "start",
-        call_id: "call-2",
-        tool_name: "task_list",
-        arguments: {},
-        round: 0,
-      },
-    });
-    harness.container.conversationStore.addRunStep({
-      sessionId: "react-runsteps-only",
-      runId: "run-1",
-      messageId: runStepsOnlyAssistant.id,
-      stepType: "execution.step",
-      payload: {
-        kind: "tool",
-        phase: "end",
-        call_id: "call-2",
-        tool_name: "task_list",
-        observation: "[task_list]\n共 0 个任务",
-      },
-    });
-
     const runStepsOnlySnapshot = await app.inject({
       method: "GET",
       url: "/api/agent/context-snapshot?session_id=react-runsteps-only",
@@ -490,42 +423,4 @@ describe("monitoring compatibility routes", () => {
     ]);
   });
 
-  it("returns persisted tool call raw results by call id", async () => {
-    const harness = await buildTestHarness();
-    app = harness.app;
-
-    harness.container.sessionApplication.createSession({ sessionId: "s1" });
-    harness.container.conversationStore.addRunStep({
-      sessionId: "s1",
-      runId: "run-1",
-      stepType: "execution.step",
-      payload: {
-        kind: "tool",
-        phase: "end",
-        call_id: "call-1",
-        tool_name: "execute_bash",
-        result_preview: "ok",
-        raw_result: { stdout: "hello" },
-        raw_result_available: true,
-      },
-    });
-
-    const raw = await app.inject({
-      method: "GET",
-      url: "/api/agent/tool-call/raw-result?session_id=s1&call_id=call-1",
-    });
-    expect(raw.statusCode).toBe(200);
-    expect(raw.json()).toMatchObject({
-      success: true,
-      message: "获取工具调用原始结果成功",
-      data: {
-        run_id: "run-1",
-        session_id: "s1",
-        tool_name: "execute_bash",
-        result_preview: "ok",
-        raw_result: { stdout: "hello" },
-        raw_result_available: true,
-      },
-    });
-  });
 });

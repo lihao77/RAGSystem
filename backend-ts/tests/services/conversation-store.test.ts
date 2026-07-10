@@ -136,14 +136,14 @@ describe("ConversationStore", () => {
     const first = store.addRunStep({
       sessionId: "s1",
       runId: "run-1",
-      stepType: "execution.step",
-      payload: { kind: "tool", result: "full", result_preview: "preview" },
+      stepType: "protocol.envelope.v1",
+      payload: { type: "tool_call", session_id: "s1", run_id: "run-1", payload: { tool: "read_file", phase: "start" } },
     });
     const second = store.addRunStep({
       sessionId: "s1",
       runId: "run-1",
-      stepType: "execution.step",
-      payload: { kind: "final", result: "done" },
+      stepType: "protocol.envelope.v1",
+      payload: { type: "stream_output", session_id: "s1", run_id: "run-1", payload: { phase: "final", content: "done" } },
     });
 
     const updated = store.updateRunStepsMessageId("s1", "run-1", assistant.id);
@@ -152,7 +152,7 @@ describe("ConversationStore", () => {
     expect(first.step_order).toBe(1);
     expect(second.step_order).toBe(2);
     expect(updated).toBe(2);
-    expect(steps.map((step) => step.payload.kind)).toEqual(["tool", "final"]);
+    expect(steps.map((step) => step.payload.type)).toEqual(["tool_call", "stream_output"]);
     store.close();
   });
 
@@ -298,8 +298,8 @@ describe("ConversationStore", () => {
         tx.addRunStep({
           sessionId: "s-rollback",
           runId: "run-rollback",
-          stepType: "execution.step",
-          payload: { kind: "final" },
+          stepType: "protocol.envelope.v1",
+          payload: { type: "stream_output", session_id: "s-rollback", payload: { phase: "final" } },
           messageId: message.id,
         });
         tx.appendOutbox({
@@ -334,6 +334,7 @@ describe("ConversationStore", () => {
         entrypoint: "execute",
         status: "running",
         taskSummary: "demo task",
+        requestId: "request-1",
         userId: "user-1",
         agentName: "orchestrator_agent",
       });
@@ -371,7 +372,15 @@ describe("ConversationStore", () => {
       const steps = store.listRunSteps({ runId: "run-1", sessionId: "session-1" });
 
       expect(run).toMatchObject({ run_id: "run-1", status: "running", thread_key: "root" });
-      expect(runs.items[0]).toMatchObject({ status: "completed", final_message_id: message.id });
+      expect(runs.items[0]).toMatchObject({
+        status: "completed",
+        request_id: "request-1",
+        final_message_id: message.id,
+      });
+      expect(store.getPersistedExecutionOverview(false).items[0]).toMatchObject({
+        run_id: "run-1",
+        request_id: "request-1",
+      });
       expect(resources.items[0]).toMatchObject({ resource_id: resource.resource_id, source_tool: "write_file" });
       expect(steps[0]?.payload.resource_refs).toEqual([{ resource_id: resource.resource_id }]);
     } finally {

@@ -94,6 +94,7 @@ export interface IRunStore {
     entrypoint?: string;
     status?: string;
     taskSummary?: string;
+    requestId?: string | null;
     userId?: string | null;
     agentName?: string | null;
     threadKey?: string | null;
@@ -120,7 +121,6 @@ export interface IRunStore {
     sessionId?: string | null;
     limit?: number;
   }): RunStepInfo[];
-  getToolCallRawResult(sessionId: string, callId: string): Record<string, unknown> | null;
 }
 
 /** child_agents 聚合根。深合约：getChildAgent 不存在返回 null。 */

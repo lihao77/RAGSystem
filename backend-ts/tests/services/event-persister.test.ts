@@ -6,19 +6,13 @@ import type { ConversationStore } from "../../src/contracts/conversation-store/i
 
 interface MockStore {
   store: ConversationStore;
-  addRunStepCalls: Array<Record<string, unknown>>;
   addMessageCalls: Array<Record<string, unknown>>;
 }
 
-/** 最小 store mock：只实现 persist 路径用到的 runInTransaction + tx.addRunStep/addMessage，记录调用。 */
+/** 最小 store mock：只实现 persist 路径用到的 runInTransaction + tx.addMessage。 */
 function mockStore(): MockStore {
-  const addRunStepCalls: Array<Record<string, unknown>> = [];
   const addMessageCalls: Array<Record<string, unknown>> = [];
   const tx = {
-    addRunStep: (input: Record<string, unknown>) => {
-      addRunStepCalls.push(input);
-      return { id: `rs${addRunStepCalls.length}` };
-    },
     addMessage: (input: Record<string, unknown>) => {
       addMessageCalls.push(input);
       return { id: `m${addMessageCalls.length}`, seq: addMessageCalls.length };
@@ -27,7 +21,7 @@ function mockStore(): MockStore {
   const store = {
     runInTransaction: (fn: (tx: typeof tx) => unknown): unknown => fn(tx),
   } as unknown as ConversationStore;
-  return { store, addRunStepCalls, addMessageCalls };
+  return { store, addMessageCalls };
 }
 
 const ctx: PersisterRunContext = {
@@ -40,9 +34,9 @@ const ctx: PersisterRunContext = {
   parentCallId: null,
 };
 
-describe("KernelEventPersister — tool 结果逐工具落 message（与 run_step 同粒度）", () => {
-  it("tool_call(start) 只落 run_step，不落 message", () => {
-    const { store, addRunStepCalls, addMessageCalls } = mockStore();
+describe("KernelEventPersister — 工具消息持久化", () => {
+  it("tool_call 不在 persister 重复归档", () => {
+    const { store, addMessageCalls } = mockStore();
     const persister = new KernelEventPersister(store, ctx);
     const event: KernelEvent = {
       type: "tool_call",
@@ -55,12 +49,11 @@ describe("KernelEventPersister — tool 结果逐工具落 message（与 run_ste
       roundIndex: 1,
     };
     persister.persist(event);
-    expect(addRunStepCalls).toHaveLength(1);
     expect(addMessageCalls).toHaveLength(0);
   });
 
-  it("tool_result(end) 落 run_step + observation message", () => {
-    const { store, addRunStepCalls, addMessageCalls } = mockStore();
+  it("tool_result 只落 observation message", () => {
+    const { store, addMessageCalls } = mockStore();
     const persister = new KernelEventPersister(store, ctx);
     const event: KernelEvent = {
       type: "tool_result",
@@ -77,7 +70,6 @@ describe("KernelEventPersister — tool 结果逐工具落 message（与 run_ste
       roundIndex: 1,
     };
     persister.persist(event);
-    expect(addRunStepCalls).toHaveLength(1);
     expect(addMessageCalls).toHaveLength(1);
     const msg = addMessageCalls[0]!;
     expect(msg.role).toBe("tool");

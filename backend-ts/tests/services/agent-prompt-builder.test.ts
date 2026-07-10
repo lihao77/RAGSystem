@@ -93,12 +93,13 @@ describe("agent prompt builder", () => {
     expect(prompt).toContain('"content": "..."');
     expect(prompt).toContain("**使用约束**:");
     expect(prompt).toContain("Use line ranges for large files.");
-    expect(prompt).toContain("<file_path>src/main.ts</file_path>");
-    expect(prompt).toContain("<notes><![CDATA[line 1\nline 2]]></notes>");
+    expect(prompt).toContain('<tool name="read_file"><![CDATA[{');
+    expect(prompt).toContain('"file_path": "src/main.ts"');
+    expect(prompt).toContain('"notes": "line 1\\nline 2"');
     expect(prompt).toContain("标注 `code_execution` 的工具仅可在 `execute_code` 中通过 `call_tool(tool_name, arguments)` 调用");
   });
 
-  it("prefers tool_calls in output format while documenting legacy tools alias", () => {
+  it("keeps runtime XML protocol instructions out of the base system prompt", () => {
     const prompt = buildPrompt(minimalAgent(), {
       tools: [
         {
@@ -115,10 +116,9 @@ describe("agent prompt builder", () => {
 
     expect(prompt).toContain("## 工作目标");
     expect(prompt).toContain("## 执行原则");
-    expect(prompt).toContain("<tool_calls>");
-    expect(prompt).toContain("</tool_calls>");
-    expect(prompt).toContain("`<tools>` 是兼容旧别名；新输出优先使用 `<tool_calls>`");
-    expect(prompt).not.toContain("调用工具：\n<tools>");
+    expect(prompt).toContain("## 工具调用总规则");
+    expect(prompt).not.toContain("<tool_calls>");
+    expect(prompt).not.toContain("<tools>");
     expect(prompt).not.toContain("## Doing tasks");
     expect(prompt).not.toContain("## Executing actions with care");
   });

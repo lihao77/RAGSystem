@@ -2,10 +2,12 @@ import type { Envelope } from "../../../contracts/events.js";
 import type {
   AppendOutboxInput,
   ConversationStoreTransaction,
+  IConversationTransactionRunner,
   IOutboxStore,
   OutboxRow,
 } from "../../../contracts/conversation-store/index.js";
 import type { OutboxDispatcher } from "./dispatcher.js";
+import { archiveExecutionEnvelope } from "./execution-envelope-archive.js";
 
 export interface ClientEventPublishOptions {
   runId?: string | null | undefined;
@@ -26,14 +28,16 @@ export interface RecordedClientEvent {
 
 export class DurableClientEventPublisher {
   constructor(
-    private readonly conversationStore: IOutboxStore,
+    private readonly conversationStore: IOutboxStore & IConversationTransactionRunner,
     private readonly outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">,
   ) {}
 
   publish(sessionId: string, event: Envelope, options: ClientEventPublishOptions = {}): OutboxRow {
-    const row = this.conversationStore.appendOutbox(this.toOutboxInput(sessionId, event, options));
-    this.deliver([{ sessionId, event, row }]);
-    return row;
+    const record = this.conversationStore.runInTransaction((tx) =>
+      this.recordInTransaction(tx, sessionId, event, options),
+    );
+    this.deliver([record]);
+    return record.row;
   }
 
   recordInTransaction(
@@ -42,6 +46,8 @@ export class DurableClientEventPublisher {
     event: Envelope,
     options: ClientEventPublishOptions = {},
   ): RecordedClientEvent {
+    const runId = options.runId ?? event.run_id ?? null;
+    archiveExecutionEnvelope(tx, sessionId, runId, event);
     const row = tx.appendOutbox(this.toOutboxInput(sessionId, event, options));
     return { sessionId, event, row };
   }

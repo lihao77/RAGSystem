@@ -225,24 +225,6 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     return ok(data, "获取上下文快照成功");
   });
 
-  app.get("/tool-call/raw-result", async (request) => {
-    const query = request.query as { session_id?: string; call_id?: string };
-    const sessionId = query.session_id?.trim();
-    if (query.call_id === undefined) {
-      throw new HttpError(422, "validation_error", "请求参数验证失败", ["query -> call_id: Field required"]);
-    }
-    const callId = query.call_id?.trim();
-    if (!sessionId || !callId) {
-      throw new HttpError(400, "invalid_request", "请提供 session_id 和 call_id");
-    }
-
-    const item = options.container.conversationStore.getToolCallRawResult(sessionId, callId);
-    if (!item) {
-      throw new HttpError(404, "not_found", "未找到对应的工具调用原始结果");
-    }
-
-    return ok(item, "获取工具调用原始结果成功");
-  });
 };
 
 function toContextHistoryItem(
@@ -510,4 +492,3 @@ function parseCleanupBefore(query: OutboxCleanupQuery): string {
   });
   return new Date(Date.now() - olderThanHours * 60 * 60 * 1000).toISOString();
 }
-
