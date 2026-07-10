@@ -7,7 +7,8 @@ RUN npm ci \
     && npm -w @ragsystem/agent-llm run build \
     && npm -w @ragsystem/agent-sdk run build \
     && npm -w @ragsystem/backend-ts run build \
-    && npm prune --omit=dev
+    && npm prune --omit=dev \
+    && mkdir -p backend-ts/node_modules
 
 FROM node:24-bookworm-slim AS runtime
 
