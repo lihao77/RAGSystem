@@ -181,6 +181,8 @@ export interface AgentLifecyclePayload {
   success?: boolean;
   /** agent 展示名（中文等）；后端 AgentConfig.display_name，UI 据此显示而非英文 agent_id。 */
   display_name?: string;
+  /** 创建/续接该子 agent 执行的工具 call_id；用于把 agent 精确放回触发它的工具位置。 */
+  invocation_call_id?: string;
   /** 子 agent 挂父：parent_call_id 指向父 agent 的 call_id（root agent 无）。 */
   lineage?: { parent_call_id?: string };
 }
@@ -218,6 +220,9 @@ export interface ToolCallPayload {
   input?: unknown;
   phase: "start";
   status?: "running";
+  /** 工具调用的 ReAct 轮次号（来自 kernel round）；core execution-tree 据此把工具挂到正确 round，
+   *  无 intent 的 round（如纯工具轮）也能正确归属，不再被并入上一个有 intent 的 round。 */
+  round?: number;
   /** 投影树归属辅助；仅保留 parent_call_id。 */
   lineage?: { parent_call_id?: string };
 }
@@ -442,6 +447,7 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
         phase: z.literal("start"),
         task: z.string().optional(),
         display_name: z.string().optional(),
+        invocation_call_id: z.string().min(1).optional(),
         lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
       })
       .optional(),
@@ -457,6 +463,7 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
         result: z.string().optional(),
         success: z.boolean().optional(),
         display_name: z.string().optional(),
+        invocation_call_id: z.string().min(1).optional(),
         lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
       })
       .optional(),
@@ -517,6 +524,7 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
       input: z.unknown().optional(),
       phase: z.literal("start"),
       status: z.literal("running").optional(),
+      round: z.number().int().nonnegative().optional(),
       lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
     }),
   }),

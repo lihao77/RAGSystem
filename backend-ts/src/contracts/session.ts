@@ -94,7 +94,6 @@ export interface MessageInfo {
   /** tool 消息的工具名。 */
   name?: string | undefined;
   has_execution?: boolean;
-  execution_steps?: Record<string, unknown>[];
 }
 
 export function normalizeSessionMetadata(value: unknown): Record<string, unknown> {

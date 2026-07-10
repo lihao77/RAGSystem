@@ -286,7 +286,7 @@ describe("session message mutation routes", () => {
     expect(fs.existsSync(filePath)).toBe(false);
   });
 
-  it("exports session JSON with visible messages and expanded steps", async () => {
+  it("exports session JSON with visible messages and protocol execution events", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
@@ -323,7 +323,7 @@ describe("session message mutation routes", () => {
     expect(response.headers["content-type"]).toContain("application/json");
     expect(response.headers["content-disposition"]).toBe('attachment; filename="session_session_export.json"');
     expect(JSON.parse(response.body)).toMatchObject({
-      version: 1,
+      version: 2,
       session: {
         session_id: "session export!",
         user_id: "u1",
@@ -335,7 +335,9 @@ describe("session message mutation routes", () => {
           role: "assistant",
           content: "answer",
           has_execution: true,
-          execution_steps: [{ kind: "final", result: "done" }],
+          execution_events: [
+            { type: "stream_output", payload: { phase: "final", content: "done" } },
+          ],
         },
       ],
     });

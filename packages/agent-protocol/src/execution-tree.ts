@@ -58,13 +58,20 @@ function asNumber(value: unknown): number | undefined {
 function ensureAgent(
   state: ExecutionTreeState,
   callId: string,
-  init: { agentId?: string | undefined; task?: string | undefined; parentCallId?: string | undefined; displayName?: string | undefined },
+  init: {
+    agentId?: string | undefined;
+    task?: string | undefined;
+    parentCallId?: string | undefined;
+    invocationCallId?: string | undefined;
+    displayName?: string | undefined;
+  },
 ): ExecutionAgent {
   const existing = state.agentsByCallId.get(callId);
   if (existing) {
     // 隐式创建时 agentId 回退为 callId；agent_started 带真实 agent_id 时补正。
     if (init.agentId && existing.agentId === existing.callId) existing.agentId = init.agentId;
     if (init.displayName && !existing.displayName) existing.displayName = init.displayName;
+    if (init.invocationCallId && !existing.invocationCallId) existing.invocationCallId = init.invocationCallId;
     if (init.task && !existing.task) existing.task = init.task;
     if (init.parentCallId && !existing.parentCallId) {
       existing.parentCallId = init.parentCallId;
@@ -80,6 +87,7 @@ function ensureAgent(
     children: [],
   };
   if (init.displayName) agent.displayName = init.displayName;
+  if (init.invocationCallId) agent.invocationCallId = init.invocationCallId;
   if (init.task) agent.task = init.task;
   if (init.parentCallId) agent.parentCallId = init.parentCallId;
   state.agentsByCallId.set(callId, agent);
@@ -176,7 +184,7 @@ function applyToolCall(state: ExecutionTreeState, env: Envelope, payload: Record
   const lineage = asRecord(payload.lineage);
   const parentCallId = asString(lineage.parent_call_id) ?? IMPLICIT_ROOT_CALL_ID;
   const parent = ensureAgent(state, parentCallId, {});
-  const r = ensureRound(parent, latestRound(parent));
+  const r = ensureRound(parent, asNumber(payload.round) ?? latestRound(parent));
   if (!r.toolCalls.some((t) => t.callId === callId)) r.toolCalls.push(tool);
 }
 
@@ -213,6 +221,7 @@ export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
         displayName: asString(payload.display_name),
         task: asString(payload.task),
         parentCallId: asString(lineage.parent_call_id),
+        invocationCallId: asString(payload.invocation_call_id),
       });
       return;
     }

@@ -155,6 +155,8 @@ export interface ExecutionRound {
 export interface ExecutionAgent {
   agentId: string;
   callId: string;
+  /** 触发本次子 agent 执行的 call_agent/send_message 工具 call_id。 */
+  invocationCallId?: string;
   displayName?: string;
   /** agent 流式输出（stream_output delta/final 累加）；子 agent 实时展示用，result 为终态。 */
   output?: string;

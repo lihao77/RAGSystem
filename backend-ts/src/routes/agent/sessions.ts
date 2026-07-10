@@ -69,7 +69,6 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
       sessionId: request.params.sessionId,
       limit,
       offset,
-      expandSteps: parseExpandSteps((request.query as { expand?: string }).expand),
     });
     return ok(messages, "获取对话记录成功");
   });
@@ -218,10 +217,6 @@ function normalizeEmpty(value: string | undefined): string | null {
     return null;
   }
   return value.trim();
-}
-
-function parseExpandSteps(value: string | undefined): boolean {
-  return ["1", "true", "steps", "yes"].includes(String(value ?? "none").toLowerCase());
 }
 
 function sanitizeExportSessionId(sessionId: string): string {

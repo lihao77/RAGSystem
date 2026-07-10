@@ -18,6 +18,7 @@ import {
 // 断言执行树把子 agent 挂到 root 下、子 agent 的工具挂到子 agent 下。
 describe("child-agent tool visibility in execution-tree projection", () => {
   const ROOT_CALL = "call_root";
+  const ROOT_TOOL_CALL = "call_root_tool_1";
   const AGENT_CALL = "call_agent_1"; // delegation 为本次 call_agent 生成的 agent call id
   const CHILD_TOOL_CALL = "call_child_tool_1";
 
@@ -65,7 +66,7 @@ describe("child-agent tool visibility in execution-tree projection", () => {
       round: 0,
       order: 1,
       roundIndex: 1,
-      toolCallId: "call_root_tool_1",
+      toolCallId: ROOT_TOOL_CALL,
       toolName: "call_agent",
       arguments: { agent_name: "worker", task: "subtask" },
     });
@@ -76,7 +77,13 @@ describe("child-agent tool visibility in execution-tree projection", () => {
       run_id: "root-run",
       call_id: AGENT_CALL,
       agent_id: "worker",
-      payload: { phase: "start", task: "subtask", display_name: "执行者", lineage: { parent_call_id: ROOT_CALL } },
+      payload: {
+        phase: "start",
+        task: "subtask",
+        display_name: "执行者",
+        invocation_call_id: ROOT_TOOL_CALL,
+        lineage: { parent_call_id: ROOT_CALL },
+      },
     });
     // child agent 的工具调用：translateKernelEvent 用 childCtx，lineage.parent_call_id = AGENT_CALL
     feed(childCtx, {
@@ -96,7 +103,12 @@ describe("child-agent tool visibility in execution-tree projection", () => {
     // 子 agent 挂在 root 下（而非沦为第二个 root）
     expect(tree.root?.children).toHaveLength(1);
     const child = tree.root?.children[0];
-    expect(child).toMatchObject({ callId: AGENT_CALL, agentId: "worker", parentCallId: ROOT_CALL });
+    expect(child).toMatchObject({
+      callId: AGENT_CALL,
+      agentId: "worker",
+      parentCallId: ROOT_CALL,
+      invocationCallId: ROOT_TOOL_CALL,
+    });
 
     // 子 agent 的工具挂在子 agent 的轮次下（这是"前端看得见"的判定）
     const childTools = child?.rounds.flatMap((r) => r.toolCalls) ?? [];

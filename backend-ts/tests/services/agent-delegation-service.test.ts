@@ -159,6 +159,7 @@ describe("AgentDelegationService", () => {
           phase: "start",
           task: "继续分析",
           display_name: "worker_agent",
+          invocation_call_id: "resume-call",
         },
       }),
       expect.objectContaining({
@@ -170,6 +171,7 @@ describe("AgentDelegationService", () => {
           result: "resumed answer",
           success: true,
           display_name: "worker_agent",
+          invocation_call_id: "resume-call",
         },
       }),
     ]);

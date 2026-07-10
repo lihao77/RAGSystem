@@ -3,6 +3,8 @@ import { normalizeSessionMetadata, type MessageInfo, type SessionInfo, type Sess
 import type { IMessageStore, IRunStore, ISessionStore, RunInfo } from "../../contracts/conversation-store/index.js";
 import type { IFileHistoryStore } from "../../contracts/file-history-store/index.js";
 import type { MessageExtension } from "../agent/context/extensions/kinds.js";
+import { executionStepsToEnvelopes } from "./execution-step-envelope.js";
+import type { Envelope } from "@ragsystem/agent-protocol";
 
 export class AgentSessionApplication {
   constructor(
@@ -41,7 +43,6 @@ export class AgentSessionApplication {
     sessionId: string;
     limit?: number;
     offset?: number;
-    expandSteps?: boolean;
   }): PaginatedResult<MessageInfo> {
     const data = this.conversationStore.listMessages(input.sessionId, input.limit ?? 20, input.offset ?? 0);
     data.items = data.items
@@ -54,22 +55,6 @@ export class AgentSessionApplication {
             }
           : item,
       );
-    if (input.expandSteps) {
-      data.items = data.items.map((item) => {
-        if (item.role !== "assistant" || !item.metadata.run_id) {
-          return item;
-        }
-        const executionSteps = this.collectRunTreeExecutionSteps(
-          input.sessionId,
-          String(item.metadata.run_id),
-          500,
-        );
-        return {
-          ...item,
-          execution_steps: executionSteps,
-        } as MessageInfo;
-      });
-    }
     return data;
   }
 
@@ -78,7 +63,7 @@ export class AgentSessionApplication {
     messageId: string;
     limit?: number;
     offset?: number;
-  }): { message_id: string; items: Record<string, unknown>[]; total: number; limit: number; offset: number; has_more: boolean } {
+  }): { message_id: string; items: Envelope[]; total: number; limit: number; offset: number; has_more: boolean } {
     const data = this.conversationStore.listMessages(input.sessionId, 1000, 0);
     const message = data.items.find((item) => item.id === input.messageId && isVisibleRootMessage(item));
     if (!message) {
@@ -97,14 +82,15 @@ export class AgentSessionApplication {
       limit + offset,
       input.messageId,
     );
+    const envelopes = executionStepsToEnvelopes(executionSteps, input.sessionId);
 
     return {
       message_id: input.messageId,
-      items: executionSteps.slice(offset, offset + limit),
-      total: executionSteps.length,
+      items: envelopes.slice(offset, offset + limit),
+      total: envelopes.length,
       limit,
       offset,
-      has_more: offset + limit < executionSteps.length,
+      has_more: offset + limit < envelopes.length,
     };
   }
 
@@ -276,7 +262,7 @@ export class AgentSessionApplication {
     version: number;
     exported_at: string;
     session: SessionInfo;
-    messages: MessageInfo[];
+    messages: Array<MessageInfo & { execution_events?: Envelope[] }>;
     message_count: number;
   } {
     const session = this.getSession(sessionId);
@@ -287,22 +273,30 @@ export class AgentSessionApplication {
       sessionId,
       limit: 1000,
       offset: 0,
-      expandSteps: true,
     });
     if (messages.has_more) {
       messages = this.listMessages({
         sessionId,
         limit: Math.max(messages.total, 1000),
         offset: 0,
-        expandSteps: true,
       });
     }
+    const exportedMessages = messages.items.map((message) => {
+      if (message.role !== "assistant" || !message.metadata.run_id) {
+        return message;
+      }
+      const steps = this.collectRunTreeExecutionSteps(sessionId, String(message.metadata.run_id), 500);
+      return {
+        ...message,
+        execution_events: executionStepsToEnvelopes(steps, sessionId),
+      };
+    });
     return {
-      version: 1,
+      version: 2,
       exported_at: new Date().toISOString(),
       session,
-      messages: messages.items,
-      message_count: messages.items.length,
+      messages: exportedMessages,
+      message_count: exportedMessages.length,
     };
   }
 

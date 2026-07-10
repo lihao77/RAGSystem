@@ -13,7 +13,7 @@ afterEach(async () => {
 });
 
 describe("session run step routes", () => {
-  it("expands assistant execution steps and compacts raw fields like Python", async () => {
+  it("keeps message payloads lean and returns protocol envelopes from the run-steps sidecar", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
@@ -30,6 +30,12 @@ describe("session run step routes", () => {
       stepType: "execution.step",
       payload: {
         kind: "tool",
+        phase: "start",
+        call_id: "tool-1",
+        parent_call_id: "root-call",
+        agent_name: "orchestrator_agent",
+        tool_name: "read_file",
+        arguments: { file_path: "README.md" },
         result: "full result",
         result_preview: "short result",
         raw_result: "raw",
@@ -50,18 +56,11 @@ describe("session run step routes", () => {
           {
             id: assistant.id,
             has_execution: true,
-            execution_steps: [
-              {
-                kind: "tool",
-                result_preview: "short result",
-              },
-            ],
           },
         ],
       },
     });
-    expect(messages.json().data.items[0].execution_steps[0]).not.toHaveProperty("raw_result");
-    expect(messages.json().data.items[0].execution_steps[0]).not.toHaveProperty("result");
+    expect(messages.json().data.items[0]).not.toHaveProperty("execution_steps");
 
     const runSteps = await app.inject({
       method: "GET",
@@ -73,11 +72,20 @@ describe("session run step routes", () => {
       success: true,
       data: {
         message_id: assistant.id,
-        total: 1,
+        total: 2,
         items: [
           {
-            kind: "tool",
-            result_preview: "short result",
+            type: "agent_started",
+            call_id: "root-call",
+          },
+          {
+            type: "tool_call",
+            call_id: "tool-1",
+            payload: {
+              tool: "read_file",
+              input: { file_path: "README.md" },
+              lineage: { parent_call_id: "root-call" },
+            },
           },
         ],
       },
@@ -146,8 +154,15 @@ describe("session run step routes", () => {
       sessionId: "s2",
       messageId: assistant.id,
     });
-    // run 树聚合:root 的 subtask step + child 的 tool step 都返回(root 先,子孙后)。
-    expect(result.items.map((s) => (s as { kind: string }).kind)).toEqual(["subtask", "tool"]);
-    expect(result.items.map((s) => (s as { tool_name?: string }).tool_name)).toContain("execute_bash");
+    // run 树聚合后直接返回 Envelope；子 agent 工具仍归属 agent-call-1。
+    expect(result.items.map((event) => event.type)).toEqual(["agent_started", "agent_started", "tool_call"]);
+    expect(result.items.at(-1)).toMatchObject({
+      type: "tool_call",
+      call_id: "tool-1",
+      payload: {
+        tool: "execute_bash",
+        lineage: { parent_call_id: "agent-call-1" },
+      },
+    });
   });
 });
