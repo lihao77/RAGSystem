@@ -5,12 +5,14 @@ on:
     paths:
       - 'backend-ts/**'
       - 'frontend-client/**'
+      - 'desktop-electron/**'
       - 'packages/**'
       - 'host-tool-mcp-server/**'
       - 'examples/**'
       - 'package.json'
       - 'package-lock.json'
       - 'README.md'
+      - 'README.en.md'
       - 'docs/**'
       - '.github/workflows/runtime-strict-audit.yml'
   push:
@@ -20,12 +22,14 @@ on:
     paths:
       - 'backend-ts/**'
       - 'frontend-client/**'
+      - 'desktop-electron/**'
       - 'packages/**'
       - 'host-tool-mcp-server/**'
       - 'examples/**'
       - 'package.json'
       - 'package-lock.json'
       - 'README.md'
+      - 'README.en.md'
       - 'docs/**'
       - '.github/workflows/runtime-strict-audit.yml'
 
@@ -79,3 +83,25 @@ jobs:
         run: npm run check:frontend
       - name: Check agent widget
         run: npm run check:widget
+
+  desktop-backend-checks:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop-electron/package-lock.json
+      - name: Install workspace dependencies
+        run: npm ci
+      - name: Install desktop dependencies
+        run: npm ci
+        working-directory: desktop-electron
+      - name: Build and probe desktop backend
+        run: npm run build:backend
+        working-directory: desktop-electron
