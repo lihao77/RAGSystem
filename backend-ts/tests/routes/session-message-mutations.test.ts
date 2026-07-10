@@ -7,6 +7,7 @@ import path from "node:path";
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import { buildTestHarness } from "../helpers/app.js";
 import { PathApprovalService } from "../../src/services/runtime/path-service.js";
+import { toolContext } from "../helpers/tool-context.js";
 import { mockLlm } from "../helpers/llm-fetch-mock.js";
 
 let app: FastifyInstance | null = null;
@@ -229,10 +230,10 @@ describe("session message mutation routes", () => {
         filePath: "notes.txt",
         content: "v1",
       },
-      {
+      toolContext({
         sessionId: "file-rollback-session",
         workspaceRoot,
-      },
+      }),
       rollbackAgent(workspaceRoot),
       new PathApprovalService(),
     );
@@ -249,10 +250,10 @@ describe("session message mutation routes", () => {
         filePath: "notes.txt",
         content: "v2",
       },
-      {
+      toolContext({
         sessionId: "file-rollback-session",
         workspaceRoot,
-      },
+      }),
       rollbackAgent(workspaceRoot),
       new PathApprovalService(),
     );

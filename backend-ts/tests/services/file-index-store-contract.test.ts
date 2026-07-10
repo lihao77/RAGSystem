@@ -67,7 +67,7 @@ describe("IFileIndexStore 契约", () => {
     addSession(store, "second.txt", "2");
     const files = store.list({ scopeType: "session", scopeId: SESSION_ID });
     expect(files).toHaveLength(2);
-    expect(files[0].uploaded_at >= files[1].uploaded_at).toBe(true);
+    expect(files[0]!.uploaded_at >= files[1]!.uploaded_at).toBe(true);
   });
 
   it("list extensions 过滤(并集)", () => {
@@ -82,7 +82,7 @@ describe("IFileIndexStore 契约", () => {
     });
     const txt = store.list({ scopeType: "session", scopeId: SESSION_ID, extensions: [".txt"] });
     expect(txt).toHaveLength(1);
-    expect(txt[0].original_name).toBe("a.txt");
+    expect(txt[0]!.original_name).toBe("a.txt");
   });
 
   it("delete 存在返回 record 并清元数据;不存在返回 null", () => {

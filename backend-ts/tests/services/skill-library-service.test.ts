@@ -142,8 +142,8 @@ describe("SkillLibraryService", () => {
     const root = makeRoot();
     const { library, agentConfig } = makeService(root);
     library.createSkill({ name: "will-delete", description: "d", content: "" });
-    agentConfig.createAgent({ agent_name: "a1" });
-    agentConfig.createAgent({ agent_name: "a2" });
+    agentConfig.createAgent({ agent_name: "a1", default_entry: false });
+    agentConfig.createAgent({ agent_name: "a2", default_entry: false });
     agentConfig.patchConfig("a1", { skills: { enabled_skills: ["will-delete"] } });
     agentConfig.patchConfig("a2", { skills: { enabled_skills: ["will-delete", "keep"] } });
     expect(agentConfig.getConfig("a1")?.skills.enabled_skills).toContain("will-delete");

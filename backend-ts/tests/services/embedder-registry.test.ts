@@ -45,7 +45,7 @@ describe("embedder-registry", () => {
     const embedder = new HashFallbackEmbedder();
     const [vector] = await embedder.embed(["hello world 你好"]);
     expect(vector).toHaveLength(64);
-    const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
+    const norm = Math.sqrt(vector!.reduce((sum, value) => sum + value * value, 0));
     expect(norm).toBeCloseTo(1, 5);
   });
 

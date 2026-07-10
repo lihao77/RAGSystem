@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { toolContext } from "../helpers/tool-context.js";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
@@ -76,7 +77,7 @@ describe("AgentDelegationService", () => {
           teamName: null,
           input: { agentName: "worker_agent" },
         },
-        { sessionId: "session-1" },
+        toolContext({ sessionId: "session-1" }),
       ),
     ).toMatchObject({
       success: true,
@@ -101,13 +102,13 @@ describe("AgentDelegationService", () => {
           callId: "resume-call",
         },
       },
-      {
+      toolContext({
         sessionId: "session-1",
         runId: "parent-run",
         requestId: "request-1",
         currentAgentName: "orchestrator_agent",
         workspaceRoot: "E:/workspace",
-      },
+      }),
     );
 
     expect(result).toMatchObject({

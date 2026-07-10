@@ -85,6 +85,7 @@ Verification:
 
 ```bash
 npm run typecheck
+npm run typecheck:test
 npm test
 npm run build
 ```

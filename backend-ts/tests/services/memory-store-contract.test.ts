@@ -79,7 +79,7 @@ describe("IMemoryStore 契约", () => {
     store.saveMemory(baseSave("s1", "second"));
     const entries = store.listEntries(sessionScope("s1"));
     expect(entries).toHaveLength(2);
-    expect(entries[0].updated_at >= entries[1].updated_at).toBe(true);
+    expect(entries[0]!.updated_at >= entries[1]!.updated_at).toBe(true);
   });
 
   it("archiveMemory 不存在返回 false", () => {
@@ -92,7 +92,7 @@ describe("IMemoryStore 契约", () => {
     store.saveMemory(baseSave("s1", "m1"));
     const entries = store.listEntries(sessionScope("s1"));
     expect(entries).toHaveLength(1);
-    expect(store.archiveMemory(sessionScope("s1"), entries[0].file_name)).toBe(true);
+    expect(store.archiveMemory(sessionScope("s1"), entries[0]!.file_name)).toBe(true);
     expect(store.listEntries(sessionScope("s1"))).toHaveLength(0);
     expect(store.listEntries(sessionScope("s1"), { includeArchived: true })).toHaveLength(1);
   });
@@ -131,12 +131,13 @@ describe("输入边界 zod 契约", () => {
 
   it("saveMemory 入口对合法 input 正常通过（宽松不拒历史形状）", () => {
     const store = build();
-    const saved = store.saveMemory({
+    const input: unknown = {
       ...baseSave("s1", "ok"),
       why: "reason",
       how_to_apply: "tip",
       extra_unknown_field: "ignored", // z.object 默认 strip，不抛错
-    });
+    };
+    const saved = store.saveMemory(input as SaveMemoryInput);
     expect(saved.file_name).toContain("ok");
   });
 });

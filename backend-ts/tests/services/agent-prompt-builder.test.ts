@@ -26,7 +26,14 @@ const EXECUTE_CODE_TOOL: RuntimeToolDefinition = {
  */
 function buildPrompt(agent: AgentConfig, context: AgentPromptContext): string {
   const behavior = agent.custom_params.behavior as { system_prompt?: string } | null;
-  return buildFullSystemPrompt({ behavior: { systemPrompt: behavior?.system_prompt ?? "" } }, context, "xml");
+  return buildFullSystemPrompt({
+    behavior: {
+      systemPrompt: behavior?.system_prompt ?? "",
+      compressionTriggerRatio: null,
+      summarizeMaxTokens: null,
+      preserveRecentTurns: null,
+    },
+  }, context, "xml");
 }
 
 describe("agent prompt builder", () => {

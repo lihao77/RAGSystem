@@ -193,7 +193,7 @@ describe("MemoryToolService", () => {
 
     expect(
       service.checkMemoryScopeAccess(
-        { scope: "session", name: "Alpha Fact", description: "alpha fact", memoryType: "fact", content: "alpha body" },
+        { scope: "session" },
         context,
         "write",
       ),
@@ -203,7 +203,7 @@ describe("MemoryToolService", () => {
     });
     expect(
       service.checkMemoryScopeAccess(
-        { scope: "session", fileName: "fact_Alpha-Fact.md" },
+        { scope: "session" },
         context,
         "archive",
       ),

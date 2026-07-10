@@ -63,9 +63,9 @@ describe("IMessageStore 契约", () => {
     messages.addMessage({ ...baseMessage("s1"), content: "b" });
     const list = messages.listMessages("s1", 20);
     expect(list.items).toHaveLength(2);
-    expect(list.items[0].content).toBe("a");
-    expect(list.items[1].content).toBe("b");
-    expect(list.items[0].seq).toBeLessThan(list.items[1].seq);
+    expect(list.items[0]!.content).toBe("a");
+    expect(list.items[1]!.content).toBe("b");
+    expect(list.items[0]!.seq).toBeLessThan(list.items[1]!.seq);
   });
 
   it("getMessageBySeq 不存在返回 null", () => {
@@ -112,7 +112,7 @@ describe("IOutboxStore 契约", () => {
     });
     const pending = outbox.fetchPendingOutbox(10);
     expect(pending).toHaveLength(1);
-    expect(pending[0].event_type).toBe("e");
+    expect(pending[0]!.event_type).toBe("e");
   });
 });
 

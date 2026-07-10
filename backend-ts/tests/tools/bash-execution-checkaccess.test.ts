@@ -6,23 +6,13 @@ import path from "node:path";
 import { LocalBashToolService } from "../../src/tools/BashTool/BashExecution.js";
 import { PathApprovalService } from "../../src/services/runtime/path-service.js";
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
+import { toolContext } from "../helpers/tool-context.js";
 
 let dataRoot: string;
 let external: string;
 
 function ctx(over: Partial<ToolExecContext> = {}): ToolExecContext {
-  return {
-    sessionId: "s1",
-    runId: "r1",
-    taskId: null,
-    requestId: null,
-    parentCallId: null,
-    toolCallId: null,
-    round: null,
-    order: null,
-    roundIndex: null,
-    ...over,
-  } as ToolExecContext;
+  return toolContext({ sessionId: "s1", runId: "r1", ...over });
 }
 
 beforeAll(() => {

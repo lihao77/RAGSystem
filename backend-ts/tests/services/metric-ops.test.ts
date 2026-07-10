@@ -77,7 +77,7 @@ describe("MetricOps", () => {
     store.insertMetric({ agentName: "b", executionKind: "agent_stream", status: "completed", durationMs: 200, startedAt: "2026-01-01T00:00:00.000Z" });
     const onlyA = store.aggregateMetrics("a");
     expect(onlyA).toHaveLength(1);
-    expect(onlyA[0].agent_name).toBe("a");
+    expect(onlyA[0]!.agent_name).toBe("a");
   });
 
   it("resets all metrics", () => {
@@ -97,16 +97,16 @@ describe("MetricOps", () => {
     expect(one.deleted).toBe(1);
     const summaries = store.aggregateMetrics();
     expect(summaries).toHaveLength(1);
-    expect(summaries[0].agent_name).toBe("b");
+    expect(summaries[0]!.agent_name).toBe("b");
   });
 
   it("counts interrupted as failure, not success", () => {
     const store = makeStore();
     store.insertMetric({ agentName: "a", executionKind: "agent_stream", status: "interrupted", durationMs: 100, startedAt: "2026-01-01T00:00:00.000Z" });
     const [summary] = store.aggregateMetrics();
-    expect(summary.failure_count).toBe(1);
-    expect(summary.success_count).toBe(0);
-    expect(summary.success_rate).toBe(0);
+    expect(summary!.failure_count).toBe(1);
+    expect(summary!.success_count).toBe(0);
+    expect(summary!.success_rate).toBe(0);
   });
 
   it("aggregates token trend by day/hour with optional since filter", () => {
@@ -122,11 +122,11 @@ describe("MetricOps", () => {
 
     const byHour = store.aggregateTokenTrend({ bucket: "hour" });
     expect(byHour).toHaveLength(3);
-    expect(byHour[0].ts).toBe("2026-01-01T05:00");
+    expect(byHour[0]!.ts).toBe("2026-01-01T05:00");
 
     const sinceOnly = store.aggregateTokenTrend({ bucket: "day", since: "2026-01-02T00:00:00.000Z" });
     expect(sinceOnly).toHaveLength(1);
-    expect(sinceOnly[0].ts).toBe("2026-01-02");
+    expect(sinceOnly[0]!.ts).toBe("2026-01-02");
   });
 
   it("aggregates model usage (NULL model → 未知, ordered by tokens desc)", () => {

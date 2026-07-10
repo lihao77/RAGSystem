@@ -4,8 +4,10 @@ import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
 import {
   createAgentExecutionService,
+  type AgentExecutionService,
   type AgentExecutionLogger,
 } from "../../src/services/agent/execution/index.js";
+import type { ConversationStore } from "../../src/contracts/conversation-store/index.js";
 import { AgentSessionApplication } from "../../src/services/sessions/index.js";
 import os from "node:os";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
@@ -222,7 +224,7 @@ describe("AgentExecutionService (baseline regression)", () => {
 
   it("executes synchronously and returns the final answer", async () => {
     const { service, store } = buildHarness({ mode: "ok" });
-    const result = await service.executeSynchronously({ task: "sync task", attachments: [] }, "req-2");
+    const result = await service.executeSynchronously({ task: "sync task" }, "req-2");
     expect(result.success).toBe(true);
     expect(result.answer).toBe("the answer");
     store.close();

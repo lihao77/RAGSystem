@@ -10,6 +10,7 @@ import { AgentConfigService } from "../../src/services/agent/config/index.js";
 import { ArtifactService } from "../../src/services/artifacts/artifact-service.js";
 import { BackgroundTaskService } from "../../src/services/runtime/background-task-service.js";
 import { SkillToolService } from "../../src/tools/SkillTools/SkillExecution.js";
+import { toolContext } from "../helpers/tool-context.js";
 
 const tempRoots: string[] = [];
 
@@ -66,19 +67,19 @@ describe("SkillToolService", () => {
     });
 
     expect(service.hasVisibleSkills(skillAgent([], true, workspaceRoot), workspaceRoot)).toBe(true);
-    expect(service.activateSkill({ skillName: "workspace-skill" }, { workspaceRoot }, skillAgent([], true, workspaceRoot))).toMatchObject({
+    expect(service.activateSkill({ skillName: "workspace-skill" }, toolContext({ workspaceRoot }), skillAgent([], true, workspaceRoot))).toMatchObject({
       success: true,
     });
-    expect(service.activateSkill({ skillName: "global-skill" }, { workspaceRoot }, skillAgent([], true, workspaceRoot))).toMatchObject({
+    expect(service.activateSkill({ skillName: "global-skill" }, toolContext({ workspaceRoot }), skillAgent([], true, workspaceRoot))).toMatchObject({
       success: false,
       summary: expect.stringContaining("无权使用"),
     });
     expect(service.hasVisibleSkills(skillAgent([], true), null)).toBe(false);
     expect(service.hasVisibleSkills(skillAgent(["global-skill"], false), null)).toBe(true);
-    expect(service.activateSkill({ skillName: "global-skill" }, {}, skillAgent(["global-skill"], false))).toMatchObject({
+    expect(service.activateSkill({ skillName: "global-skill" }, toolContext(), skillAgent(["global-skill"], false))).toMatchObject({
       success: true,
     });
-    expect(service.activateSkill({ skillName: "builtin-skill" }, {}, skillAgent(["builtin-skill"], false))).toMatchObject({
+    expect(service.activateSkill({ skillName: "builtin-skill" }, toolContext(), skillAgent(["builtin-skill"], false))).toMatchObject({
       success: true,
     });
   });
@@ -96,7 +97,7 @@ describe("SkillToolService", () => {
       "utf8",
     );
     const service = new SkillToolService({ dataRoot: root, builtinSkillsRoot: builtinRoot, userGlobalSkillsRoot: path.join(root, "global") });
-    const context = { sessionId: "s1" };
+    const context = toolContext({ sessionId: "s1" });
     const agent = skillAgent(["demo-skill"]);
 
     expect(service.activateSkill({ skillName: "demo-skill" }, context, agent)).toMatchObject({
@@ -172,7 +173,7 @@ describe("SkillToolService", () => {
     await expect(
       service.executeSkillScript(
         { skillName: "team-generation", scriptName: "generate_team.py", arguments: [] },
-        {},
+        toolContext(),
         skillAgent(["team-generation"]),
       ),
     ).resolves.toMatchObject({
@@ -236,7 +237,7 @@ describe("SkillToolService", () => {
 
     const created = await service.executeSkillScript(
       { skillName: "visualization", scriptName: "create_chart.py", arguments: [] },
-      { sessionId: "viz-session" },
+      toolContext({ sessionId: "viz-session" }),
       skillAgent(["visualization"]),
     );
 
@@ -285,7 +286,7 @@ describe("SkillToolService", () => {
     await expect(
       service.executeSkillScript(
         { skillName: "visualization", scriptName: "revise_chart.py", arguments: [artifactId] },
-        { sessionId: "viz-session" },
+        toolContext({ sessionId: "viz-session" }),
         skillAgent(["visualization"]),
       ),
     ).resolves.toMatchObject({
@@ -331,7 +332,7 @@ describe("SkillToolService", () => {
     agent.tasks = { workflow: false, background: true };
     const started = await service.executeSkillScript(
       { skillName: "demo-skill", scriptName: "report.py", arguments: [], runInBackground: true },
-      { sessionId: "bg-session", runId: "run-1", taskId: "task-1" },
+      toolContext({ sessionId: "bg-session", runId: "run-1", taskId: "task-1" }),
       agent,
     );
 
@@ -388,7 +389,7 @@ describe("SkillToolService", () => {
 
     const result = await service.executeSkillScript(
       { skillName: "demo-skill", scriptName: "report.py", arguments: [], runInBackground: true },
-      { sessionId: "bg-session" },
+      toolContext({ sessionId: "bg-session" }),
       skillAgent(["demo-skill"]),
     );
 
@@ -424,7 +425,7 @@ describe("SkillToolService", () => {
 
     const result = await service.executeSkillScript(
       { skillName: "shared-skill", scriptName: "where.py", arguments: [] },
-      {},
+      toolContext(),
       skillAgent(["shared-skill"]),
     );
 
@@ -453,7 +454,7 @@ describe("SkillToolService", () => {
 
     const result = await service.executeSkillScript(
       { skillName: "venv-skill", scriptName: "where.py", arguments: [] },
-      {},
+      toolContext(),
       skillAgent(["venv-skill"]),
     );
 

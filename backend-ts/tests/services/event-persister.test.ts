@@ -12,14 +12,17 @@ interface MockStore {
 /** 最小 store mock：只实现 persist 路径用到的 runInTransaction + tx.addMessage。 */
 function mockStore(): MockStore {
   const addMessageCalls: Array<Record<string, unknown>> = [];
-  const tx = {
+  type MockTransaction = {
+    addMessage: (input: Record<string, unknown>) => { id: string; seq: number };
+  };
+  const tx: MockTransaction = {
     addMessage: (input: Record<string, unknown>) => {
       addMessageCalls.push(input);
       return { id: `m${addMessageCalls.length}`, seq: addMessageCalls.length };
     },
   };
   const store = {
-    runInTransaction: (fn: (tx: typeof tx) => unknown): unknown => fn(tx),
+    runInTransaction: (fn: (transaction: MockTransaction) => unknown): unknown => fn(tx),
   } as unknown as ConversationStore;
   return { store, addMessageCalls };
 }

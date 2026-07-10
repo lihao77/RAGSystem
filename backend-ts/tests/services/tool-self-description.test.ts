@@ -33,7 +33,7 @@ describe("skill tool self-description", () => {
     expect(activate).toBeTruthy();
 
     const activateSkillName = (activate!.parameters.properties as Record<string, { enum?: string[] }>).skill_name;
-    expect(activateSkillName.enum).toEqual(["etl", "viz"]);
+    expect(activateSkillName!.enum).toEqual(["etl", "viz"]);
     expect(activate!.extendedUsage).toContain("### Skill: viz");
     expect(activate!.extendedUsage).toContain("可视化场景");
     expect(activate!.extendedUsage).toContain("### Skill: etl");
@@ -74,7 +74,7 @@ describe("delegation tool self-description", () => {
     expect(listChild).toBeTruthy();
 
     const agentNameParam = (callAgent!.parameters.properties as Record<string, { enum?: string[] }>).agent_name;
-    expect(agentNameParam.enum).toEqual(["plan_agent", "worker_agent"]);
+    expect(agentNameParam!.enum).toEqual(["plan_agent", "worker_agent"]);
     expect(callAgent!.extendedUsage).toContain("可委派子 Agent：");
     expect(callAgent!.extendedUsage).toContain("`plan_agent` (Plan Agent): Plan work.");
     expect(callAgent!.extendedUsage).toContain("use_cases: plan");
@@ -83,7 +83,7 @@ describe("delegation tool self-description", () => {
     ]);
 
     // list_child_agents 的 agent_name 也带 enum
-    expect((listChild!.parameters.properties as Record<string, { enum?: string[] }>).agent_name.enum).toEqual(["plan_agent", "worker_agent"]);
+    expect((listChild!.parameters.properties as Record<string, { enum?: string[] }>).agent_name!.enum).toEqual(["plan_agent", "worker_agent"]);
 
     // send_message 自描述续接语义 + 示例
     expect(sendMessage!.extendedUsage).toContain("child_agent_id");

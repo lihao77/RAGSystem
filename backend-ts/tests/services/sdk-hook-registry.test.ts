@@ -60,7 +60,7 @@ describe("HookRegistry aggregation", () => {
 
   it("isolates handler errors (one throws, others still run, error recorded)", async () => {
     const hooks = createHookRegistry();
-    const survivor = vi.fn(() => ({ decision: "deny" }));
+    const survivor = vi.fn(() => ({ decision: "deny" as const }));
     hooks.on("tool.before", async () => { throw new Error("boom"); });
     hooks.on("tool.before", survivor);
     const out = await hooks.emit("tool.before", { toolName: "x", arguments: {}, ctx: toolCtx });

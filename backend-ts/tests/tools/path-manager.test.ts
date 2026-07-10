@@ -6,6 +6,7 @@ import path from "node:path";
 import { LocalDocumentPathManager } from "../../src/tools/DocumentTools/path-manager.js";
 import { PathApprovalService } from "../../src/services/runtime/path-service.js";
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
+import { toolContext } from "../helpers/tool-context.js";
 
 const sessionId = "sess-test";
 const runId = "run-test";
@@ -13,18 +14,7 @@ let dataRoot: string;
 let externalWs: string;
 
 function ctx(over: Partial<ToolExecContext> = {}): ToolExecContext {
-  return {
-    sessionId,
-    runId,
-    taskId: null,
-    requestId: null,
-    parentCallId: null,
-    toolCallId: null,
-    round: null,
-    order: null,
-    roundIndex: null,
-    ...over,
-  } as ToolExecContext;
+  return toolContext({ sessionId, runId, ...over });
 }
 
 beforeAll(() => {

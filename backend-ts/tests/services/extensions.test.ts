@@ -28,7 +28,7 @@ describe("projectConversationExtensions", () => {
       supportsVision: true,
       readImage: () => "data:image/png;base64,AAAA",
     });
-    const parts = conversation[0].content as ContentPart[];
+    const parts = conversation[0]!.content as ContentPart[];
     expect(parts).toHaveLength(2);
     expect(parts[0]).toMatchObject({ type: "text", text: "看这张图" });
     expect(parts[1]).toMatchObject({ type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } });
@@ -45,7 +45,7 @@ describe("projectConversationExtensions", () => {
       supportsVision: false,
       readImage: () => "data:image/png;base64,BBBB",
     });
-    const parts = conversation[0].content as ContentPart[];
+    const parts = conversation[0]!.content as ContentPart[];
     expect(parts).toHaveLength(2);
     expect(parts[0]).toMatchObject({ type: "text", text: "图呢" });
     expect(parts[1]).toMatchObject({ type: "text", text: "[图片:a.png(当前模型不支持图片识别)]" });
@@ -59,7 +59,7 @@ describe("projectConversationExtensions", () => {
       metadata: { extensions: [{ kind: "ui_context", data: { entries: [{ label: "当前视图", value: "订单详情" }] } }] },
     }];
     projectConversationExtensions(conversation, raw, registry, { supportsVision: true, readImage: () => null });
-    expect(conversation[0].content).toBe("这个怎么办\n<ui_context>\n- 当前视图: 订单详情\n</ui_context>");
+    expect(conversation[0]!.content).toBe("这个怎么办\n<ui_context>\n- 当前视图: 订单详情\n</ui_context>");
   });
 
   it("无扩展消息 content 不变(assistant 不投影)", () => {
@@ -70,8 +70,8 @@ describe("projectConversationExtensions", () => {
     ];
     const raw = [{ role: "user", metadata: {} }, { role: "assistant", metadata: {} }];
     projectConversationExtensions(conversation, raw, registry, { supportsVision: true, readImage: () => null });
-    expect(conversation[0].content).toBe("纯文本");
-    expect(conversation[1].content).toBe("回复");
+    expect(conversation[0]!.content).toBe("纯文本");
+    expect(conversation[1]!.content).toBe("回复");
   });
 
   it("image_attachment + ui_context 共存:文本 + ui_context 文本 + image parts 都进 content", () => {
@@ -88,7 +88,7 @@ describe("projectConversationExtensions", () => {
     }];
     projectConversationExtensions(conversation, raw, registry, { supportsVision: true, readImage: () => "data:image/png;base64,X" });
     // ui_context 先投影(string 追加,content 变字符串);image_attachment 后投影(array,mergeParts 转 ContentPart[])
-    const parts = conversation[0].content as ContentPart[];
+    const parts = conversation[0]!.content as ContentPart[];
     expect(Array.isArray(parts)).toBe(true);
     expect(parts.some((p) => p.type === "image_url")).toBe(true);
     const textPart = parts.find((p) => p.type === "text") as { text: string } | undefined;

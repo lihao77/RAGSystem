@@ -40,7 +40,7 @@ describe("OpenAiCompatibleEmbeddingClient", () => {
       [0.1, 0.2],
       [0.3, 0.4],
     ]);
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toBe("https://api.openai.com/v1/embeddings");
     const body = JSON.parse((init as RequestInit).body as string) as Record<string, unknown>;
     expect(body).toEqual({ model: "m", input: ["a", "b"] });
@@ -54,7 +54,7 @@ describe("OpenAiCompatibleEmbeddingClient", () => {
     try {
       const client = new OpenAiCompatibleEmbeddingClient();
       await client.embed({ texts: ["x"], model: "m", provider: provider({ api_key: "${TEST_EMBED_KEY}" }) });
-      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      const init = fetchMock.mock.calls[0]![1] as RequestInit;
       expect((init.headers as Record<string, string>).authorization).toBe("Bearer resolved-key");
     } finally {
       delete process.env.TEST_EMBED_KEY;
@@ -69,7 +69,7 @@ describe("OpenAiCompatibleEmbeddingClient", () => {
     try {
       const client = new OpenAiCompatibleEmbeddingClient();
       await client.embed({ texts: ["x"], model: "m", provider: provider({ api_endpoint: "${TEST_EMBED_HOST}" }) });
-      expect(String(fetchMock.mock.calls[0][0])).toBe("https://embed.example.com/v1/embeddings");
+      expect(String(fetchMock.mock.calls[0]![0])).toBe("https://embed.example.com/v1/embeddings");
     } finally {
       delete process.env.TEST_EMBED_HOST;
     }
