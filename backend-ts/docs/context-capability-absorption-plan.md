@@ -6,7 +6,7 @@
 
 ## 1. 背景与决策
 
-TS 现役上下文子系统（`AgentContextService` 门面 + `beforeModel` 压缩 hook + store 落库）在重构后已收敛到合约驱动架构。对比已废弃的 Python `ContextPipeline`（`backend-fastapi/agents/context/pipeline.py`），Python 仍有 **4 项 TS 缺失的能力**值得吸收。
+TS 现役上下文子系统（`AgentContextService` 门面 + `beforeModel` 压缩 hook + store 落库）在重构后已收敛到合约驱动架构。历史 Python 实现曾暴露出 **4 项 TS 能力缺口**；Python 源码已退出仓库，本文件保留其行为规格与 TS 落点，不再把旧实现作为运行或迁移依赖。
 
 **决策：吸收能力，不搬模块。**
 

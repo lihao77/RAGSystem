@@ -38,8 +38,7 @@ backend-ts/.test-data/
 backend-ts/.tmp/
 backend-ts/data/
 backend-ts/-
-backend-fastapi/build/
-backend-fastapi/dist/
+/backend-fastapi/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -55,47 +54,10 @@ pnpm-debug.log*
 .mcp.json
 skills-lock.json
 
-# Local backend runtime files
-backend-fastapi/.env
-backend-fastapi/uploads/
-backend-fastapi/data/
-backend-fastapi/services/data/
-backend-fastapi/__pycache__/
-backend-fastapi/.pytest_cache/
-backend-fastapi/.pytest-tmp/
-backend-fastapi/.pytest_tmp/
-backend-fastapi/test_output.txt
-backend-fastapi/test_read_write.txt
-backend-fastapi/agents/tests/test_core/tmp*/
-backend-fastapi/agents/configs/agent_configs.yaml
-backend-fastapi/agents/configs/*.yaml.bak
-backend-fastapi/agents/configs/*.backup.yaml
-backend-fastapi/model_adapter/configs/providers.yaml
-backend-fastapi/config/yaml/config.yaml
-backend-fastapi/mcp/configs/mcp_servers.yaml
-backend-fastapi/mcp/configs/*.yaml.bak
-backend-fastapi/mcp/configs/*.backup.yaml
-backend-fastapi/vector_store/config/vectorizers.yaml
-backend-fastapi/vector_store/config/*.yaml.bak
-backend-fastapi/vector_store/config/*.backup.yaml
-
 # Keep current tracked backend tests, ignore local unpublished test files
 tests/
 !backend-ts/tests/
 !backend-ts/tests/**
-!backend-fastapi/agents/tests/
-!backend-fastapi/agents/tests/test_core/
-!backend-fastapi/agents/tests/test_core/test_prompt_materializer.py
-!backend-fastapi/agents/tests/test_core/test_openai_provider_sdk.py
-!backend-fastapi/agents/tests/test_core/test_runtime_service_orchestrator_isolation.py
-!backend-fastapi/agents/tests/test_core/test_agent_result_flow.py
-!backend-fastapi/agents/tests/test_core/test_context_budget_profiles.py
-!backend-fastapi/agents/tests/test_core/test_context_components.py
-!backend-fastapi/agents/tests/test_core/test_observation_phase_ab_smoke.py
-!backend-fastapi/agents/tests/test_core/test_map_tools.py
-!backend-fastapi/agents/tests/test_core/test_tool_output_type_audit.py
-!backend-fastapi/vector_store/tests/
-!backend-fastapi/vector_store/tests/*.py
 *.log
 *.out.log
 *.err.log

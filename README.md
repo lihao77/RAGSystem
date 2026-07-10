@@ -43,7 +43,6 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 ```text
 .
 ├── backend-ts/               # 当前主后端与 Agent 运行时（Fastify/TypeScript）
-├── backend-fastapi/          # 已退出主运行链路的遗留 Python 实现
 ├── frontend-client/          # Vue 3 前端与执行可视化
 ├── docs/                     # 仓库正式文档中心
 └── .github/                  # GitHub 模板与工作流
