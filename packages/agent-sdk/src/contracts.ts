@@ -103,11 +103,20 @@ export type KernelToolCall = PreparedRoundToolCall;
 
 /** observation 落盘产物（大 payload 物化成文件后的引用）。 */
 export interface ToolArtifact {
-  artifactType: "json" | "text";
+  artifactType: "json" | "text" | "image";
   path: string;
   mimeType: string;
   size: number;
   metadata: Record<string, unknown>;
+}
+
+/** Binary media returned by a tool before the observation layer materializes it. */
+export interface ToolResultMedia {
+  kind: "image";
+  mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  source: { type: "base64"; data: string } | { type: "file"; path: string } | { type: "url"; url: string };
+  alt?: string;
+  detail?: "auto" | "low" | "high";
 }
 
 /** 工具执行结果（对齐 backend-ts ToolExecutionResult 形状）。 */
@@ -120,6 +129,7 @@ export interface ToolExecutionResult {
   content: unknown;
   metadata: Record<string, unknown>;
   artifacts: ToolArtifact[];
+  media?: ToolResultMedia[];
   llmHint: string | null;
 }
 
@@ -131,6 +141,8 @@ export interface KernelObservation {
   arguments: Record<string, unknown>;
   result: ToolExecutionResult;
   observation: string;
+  /** Model-only multimodal projection. Events and persistence continue to use observation text. */
+  modelContent?: ChatMessage["content"];
 }
 
 /** 一次 invoke 的产物：最终回答 or 工具调用申请。两分支都携带本轮 LLM 返回的 token 用量槽位（provider 未返回时为 undefined）。 */

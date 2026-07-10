@@ -14,7 +14,7 @@
  * visibleTools 来源从 session.toolExecutor 改为 deps.getTools()（SDK 工具端口尚未接入，默认空）。
  */
 import { randomUUID } from "node:crypto";
-import type { ChatMessage, ChatToolCall, ChatToolDefinition, LlmClient, LlmRequest, LlmStreamHandler, ProviderConfig, TokenUsage } from "@ragsystem/agent-llm";
+import type { ChatMessage, ChatToolCall, ChatToolDefinition, ContentPart, LlmClient, LlmRequest, LlmStreamHandler, ProviderConfig, TokenUsage } from "@ragsystem/agent-llm";
 import { extractText } from "@ragsystem/agent-llm";
 import { RuntimeAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
 import type { EventSink, KernelContext, KernelObservation, KernelOutcome, KernelToolCall, Protocol } from "../contracts.js";
@@ -255,6 +255,7 @@ export class NativeHybridProtocol implements Protocol {
       byIndex.set(observation.index, observation);
     }
     const messages: ChatMessage[] = [];
+    const imageParts: ContentPart[] = [];
     for (const call of calls) {
       const observation = byIndex.get(call.index);
       if (!observation) {
@@ -266,13 +267,47 @@ export class NativeHybridProtocol implements Protocol {
         name: call.toolName,
         content: observation.observation,
       });
+      if (Array.isArray(observation.modelContent)) {
+        const images = observation.modelContent.filter((part) => part.type === "image_url");
+        if (images.length) {
+          imageParts.push({ type: "text", text: `Images returned by tool ${call.toolName} (call_id=${call.callId})` }, ...images);
+        }
+      }
     }
-    return messages;
+    return imageParts.length ? [...messages, { role: "user", content: imageParts }] : messages;
   }
 
   /** FC 直传结构化 ChatMessage（厂商模型原生消费）。 */
   toModelMessages(messages: ChatMessage[]): ChatMessage[] {
-    return messages.map(renderNativeModelMessage);
+    const rendered: ChatMessage[] = [];
+    let deferredImages: ContentPart[] = [];
+    const flushImages = (): void => {
+      if (!deferredImages.length) return;
+      rendered.push({ role: "user", content: deferredImages });
+      deferredImages = [];
+    };
+    for (const message of messages) {
+      if (message.role !== "tool") {
+        flushImages();
+        rendered.push(renderNativeModelMessage(message));
+        continue;
+      }
+      if (!Array.isArray(message.content)) {
+        rendered.push(renderNativeModelMessage(message));
+        continue;
+      }
+      const images = message.content.filter((part) => part.type === "image_url");
+      const text = message.content.filter((part) => part.type === "text").map((part) => part.text).join("");
+      rendered.push(renderNativeModelMessage({ ...message, content: text }));
+      if (images.length) {
+        deferredImages.push(
+          { type: "text", text: `Images returned by tool ${message.name ?? "unknown"} (call_id=${message.tool_call_id ?? "unknown"})` },
+          ...images,
+        );
+      }
+    }
+    flushImages();
+    return rendered;
   }
 }
 

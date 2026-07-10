@@ -11,6 +11,7 @@ export interface ProjectContext {
   role: string;
   supportsVision: boolean;
   readImage: ImageReader;
+  readToolImage?: ImageReader;
 }
 
 /** 投影器:返回 null = 纯展示型,不进 LLM content。 */

@@ -156,13 +156,18 @@ export class KernelEventPersister {
   // ────────────────────────────── 增量落库 ──────────────────────────────
 
   private persistToolResultMessage(event: KernelEvent & { type: "tool_result" }): void {
+    const toolMedia = Array.isArray(event.metadata.tool_result_media) ? event.metadata.tool_result_media : [];
     this.store.runInTransaction((tx) => {
       tx.addMessage({
         sessionId: this.ctx.sessionId,
         role: "tool",
         content: event.observation,
         threadKey: this.ctx.threadKey,
-        metadata: { ...this.messageMeta(event.round), msg_type: MSG_TYPE.OBSERVATION },
+        metadata: {
+          ...this.messageMeta(event.round),
+          msg_type: MSG_TYPE.OBSERVATION,
+          ...(toolMedia.length ? { extensions: [{ kind: "tool_result_media", data: { media: toolMedia } }] } : {}),
+        },
         toolCallId: event.toolCallId,
         name: event.toolName,
       });

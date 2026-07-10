@@ -254,7 +254,7 @@ export class XmlProtocol implements Protocol {
         role: "tool",
         tool_call_id: call.callId,
         name: call.toolName,
-        content: observation.observation,
+        content: observation.modelContent ?? observation.observation,
       });
     }
     return messages;

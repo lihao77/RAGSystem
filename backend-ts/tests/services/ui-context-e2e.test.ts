@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { ContentPart } from "@ragsystem/agent-llm";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import {
@@ -101,5 +104,42 @@ describe("image_attachment 端到端投影(store → conversation)", () => {
     const parts = userMsg!.content as ContentPart[];
     expect(Array.isArray(parts)).toBe(true);
     expect(parts.some((p) => p.type === "text" && p.text.includes("[图片加载失败"))).toBe(true);
+  });
+});
+
+describe("tool_result_media TTL projection", () => {
+  it("does not reuse cached base64 after a transient tool image is deleted", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-tool-media-history-"));
+    const imagePath = path.join(root, "image.png");
+    fs.writeFileSync(imagePath, Buffer.from("iVBORw0KGgo=", "base64"));
+    const store = createConversationStore({ dbPath: ":memory:" });
+    try {
+      store.createSession("s-tool-image", null);
+      store.addMessage({
+        sessionId: "s-tool-image",
+        role: "tool",
+        content: "截图完成",
+        threadKey: "root",
+        toolCallId: "t1",
+        name: "screenshot",
+        metadata: {
+          msg_type: "observation",
+          extensions: [{ kind: "tool_result_media", data: { media: [{ kind: "image", stored_path: imagePath, mime: "image/png" }] } }],
+        },
+      });
+      const historyPort = {
+        getRecentMessages: (sid: string, limit?: number, tk?: string | null) => store.getRecentMessages(sid, limit ?? 10_000, tk ?? "root"),
+      };
+      const source = new RecentMessagesContextSource(historyPort, true, createDefaultProjectionRegistry());
+
+      const first = new AgentContextBuilder([source]).buildContext({ sessionId: "s-tool-image", threadKey: "root" }, { touch: false });
+      expect((first.conversation[0]?.content as ContentPart[]).some((part) => part.type === "image_url")).toBe(true);
+      fs.rmSync(imagePath);
+      const second = new AgentContextBuilder([source]).buildContext({ sessionId: "s-tool-image", threadKey: "root" }, { touch: false });
+      expect((second.conversation[0]?.content as ContentPart[]).some((part) => part.type === "text" && part.text.includes("已过期或加载失败"))).toBe(true);
+    } finally {
+      store.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

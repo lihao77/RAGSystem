@@ -6,7 +6,7 @@ export { createHookRegistry, EMPTY_HOOK_OUTPUT } from "./hooks/index.js";
 export type { HookEvent, HookHandler, HookInputMap, HookOutputMap, HookRegistry, HookDecision, ToolBeforeOutput, ToolAfterOutput, RoundBeforeOutput, BaseHookOutput, RunBeforeInput, RunAfterInput, RoundBeforeInput, RoundAfterInput, ToolBeforeInput, ToolAfterInput, ToolErrorInput } from "./hooks/index.js";
 export type { AgentProfile, ResolvedTier, TierMap, CompressionBudgetConfig, AgentBehavior, MessageInfo, RunStepRecord, RunRecord, RunStatus, MessageRole, ToolCallRef } from "./types.js";
 export { DEFAULT_COMPRESSION_BUDGET } from "./types.js";
-export type { KernelEvent, FirstTokenEvent, OutputDeltaEvent, IntentCompleteEvent, ToolCallEvent, ToolResultEvent, RuntimeErrorEvent, ContextUsageEvent, EventSink, Context, Protocol, ToolProvider, MessageRefresher, ToolInstructionMode, RuntimeSession, KernelResult, KernelOutcome, PreparedRoundToolCall, KernelToolCall, KernelObservation, ToolExecutionResult } from "./contracts.js";
+export type { KernelEvent, FirstTokenEvent, OutputDeltaEvent, IntentCompleteEvent, ToolCallEvent, ToolResultEvent, RuntimeErrorEvent, ContextUsageEvent, EventSink, Context, Protocol, ToolProvider, MessageRefresher, ToolInstructionMode, RuntimeSession, KernelResult, KernelOutcome, PreparedRoundToolCall, KernelToolCall, KernelObservation, ToolExecutionResult, ToolResultMedia } from "./contracts.js";
 export { AgentKernel } from "./kernel.js";
 export type { AgentKernelOptions, ContextUsageProvider } from "./kernel.js";
 export { KernelContext } from "./kernel-context.js";
@@ -34,7 +34,7 @@ export type { RuntimeToolDefinition, RuntimeToolReturns, RuntimeToolExample } fr
 export { buildFullSystemPrompt, getAgentBaseSystemPrompt } from "./prompt/prompt-builder.js";
 export type { AgentPromptContext } from "./prompt/types.js";
 // Tools 模块（SDK 自带编排 + observation 渲染）
-export { RuntimeToolProvider, executeToolCallRound, buildLlmFacingToolResult, renderToolResultContent, resolveToolArgumentReferences, materializeToolResult, buildToolReferenceErrorResult, buildToolExecutionErrorResult, runToolBatchWithScheduler, partitionToolCalls } from "./tools/index.js";
+export { RuntimeToolProvider, executeToolCallRound, buildLlmFacingToolResult, buildToolMediaModelContent, renderToolResultContent, withArtifactIndexLock, resolveToolArgumentReferences, materializeToolResult, buildToolReferenceErrorResult, buildToolExecutionErrorResult, runToolBatchWithScheduler, partitionToolCalls } from "./tools/index.js";
 export type { RuntimeToolProviderOptions, ToolRoundExecutorOptions, ToolSchedulerCall, ToolSchedulerExecutor } from "./tools/index.js";
 // LLM 协议模块（工具调用编码：XML/native 协议解析 + 自动选择）
 export { XmlProtocol, NativeHybridProtocol, createProtocol, resolveToolInstructionMode } from "./llm-protocol/index.js";

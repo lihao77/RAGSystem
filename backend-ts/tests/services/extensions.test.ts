@@ -6,11 +6,14 @@ import { normalizeExtensions } from "../../src/services/agent/context/extensions
 import { ProjectionRegistry } from "../../src/services/agent/context/extensions/registry.js";
 import { imageAttachmentProjector } from "../../src/services/agent/context/extensions/image-attachment-projector.js";
 import { uiContextProjector, renderUiContextText } from "../../src/services/agent/context/extensions/ui-context-projector.js";
+import { toolResultMediaProjector } from "../../src/services/agent/context/extensions/tool-result-media-projector.js";
+import { microcompactHistoryMessages } from "../../src/services/agent/context/history-view.js";
 
 function makeRegistry(): ProjectionRegistry {
   const r = new ProjectionRegistry();
   r.register(imageAttachmentProjector);
   r.register(uiContextProjector);
+  r.register(toolResultMediaProjector);
   return r;
 }
 
@@ -74,6 +77,52 @@ describe("projectConversationExtensions", () => {
     expect(conversation[1]!.content).toBe("回复");
   });
 
+  it("tool_result_media extension restores a tool image for vision history", () => {
+    const registry = makeRegistry();
+    const conversation: ChatMessage[] = [{ role: "tool", tool_call_id: "t1", content: "截图完成" }];
+    const raw = [{
+      role: "tool",
+      metadata: { extensions: [{ kind: "tool_result_media", data: { media: [IMG] } }] },
+    }];
+    projectConversationExtensions(conversation, raw, registry, {
+      supportsVision: true,
+      readImage: () => "data:image/png;base64,AAAA",
+    });
+
+    expect(conversation[0]?.content).toEqual([
+      { type: "text", text: "截图完成" },
+      { type: "image_url", image_url: { url: "data:image/png;base64,AAAA", detail: "auto" } },
+    ]);
+  });
+
+  it("does not restore tool media after microcompact cleared the observation", () => {
+    const registry = makeRegistry();
+    const conversation: ChatMessage[] = [{ role: "tool", content: "[工具结果已清理,轮次 1]" }];
+    const raw = [{ role: "tool", metadata: { extensions: [{ kind: "tool_result_media", data: { media: [IMG] } }] } }];
+    projectConversationExtensions(conversation, raw, registry, {
+      supportsVision: true,
+      readImage: () => "data:image/png;base64,AAAA",
+    });
+    expect(conversation[0]?.content).toBe("[工具结果已清理,轮次 1]");
+  });
+
+  it("uses the microcompact metadata marker instead of depending on placeholder wording", () => {
+    const registry = makeRegistry();
+    const conversation: ChatMessage[] = [{ role: "tool", content: "历史工具结果不可用" }];
+    const raw = [{
+      role: "tool",
+      metadata: {
+        microcompact_cleared: true,
+        extensions: [{ kind: "tool_result_media", data: { media: [IMG] } }],
+      },
+    }];
+    projectConversationExtensions(conversation, raw, registry, {
+      supportsVision: true,
+      readImage: () => "data:image/png;base64,AAAA",
+    });
+    expect(conversation[0]?.content).toBe("历史工具结果不可用");
+  });
+
   it("image_attachment + ui_context 共存:文本 + ui_context 文本 + image parts 都进 content", () => {
     const registry = makeRegistry();
     const conversation: ChatMessage[] = [{ role: "user", content: "看图参考上下文" }];
@@ -95,6 +144,30 @@ describe("projectConversationExtensions", () => {
     expect(textPart).toBeTruthy();
     expect(textPart!.text).toContain("看图参考上下文");
     expect(textPart!.text).toContain("<ui_context>");
+  });
+});
+
+describe("microcompact tool media marker", () => {
+  it("marks cleared observation metadata for extension projection", () => {
+    const messages = [1, 2].map((seq) => ({
+      id: `m${seq}`,
+      session_id: "s1",
+      seq,
+      role: "tool" as const,
+      content: `tool result ${seq}`,
+      metadata: { msg_type: "observation", extensions: [{ kind: "tool_result_media", data: { media: [IMG] } }] },
+      created_at: "2026-07-11T00:00:00.000Z",
+      thread_key: "root",
+      child_agent_id: null,
+      tool_call_id: `t${seq}`,
+      name: "screenshot",
+    }));
+
+    const compacted = microcompactHistoryMessages(messages, 1);
+
+    expect(compacted.messages[0]?.metadata.microcompact_cleared).toBe(true);
+    expect(compacted.messages[0]?.content).toContain("工具结果已清理");
+    expect(compacted.messages[1]?.metadata.microcompact_cleared).toBeUndefined();
   });
 });
 

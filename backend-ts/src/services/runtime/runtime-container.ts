@@ -8,6 +8,7 @@ import { SessionNotificationQueue } from "./session-notification-queue.js";
 import { AgentConfigService } from "../agent/config/index.js";
 import { AgentSessionApplication } from "../sessions/index.js";
 import { ArtifactService } from "../artifacts/artifact-service.js";
+import { TransientArtifactService } from "../artifacts/transient-artifact-service.js";
 import { createConversationStore, type ConversationStore } from "../stores/conversation-store/index.js";
 import { DaemonService } from "../daemon/daemon-service.js";
 import { EmbeddingModelService } from "../knowledge/embedding-model-service.js";
@@ -61,6 +62,7 @@ export interface RuntimeContainer {
   readonly fileIndex: IFileIndexStore;
   readonly vectorLibrary: VectorLibraryService;
   readonly artifacts: ArtifactService;
+  readonly transientArtifacts: TransientArtifactService;
   readonly embeddingModels: EmbeddingModelService;
   readonly memoryStore: MemoryStore;
   readonly memoryTools: MemoryToolService;
@@ -113,9 +115,12 @@ export interface RuntimeContainerOptions {
 }
 
 export function createRuntimeContainer(options: RuntimeContainerOptions): RuntimeContainer {
-  const conversationStore = createConversationStore({ dbPath: options.dbPath, dataRoot: options.dataRoot });
-  const fileHistory = new FileHistoryService({ dataRoot: options.dataRoot });
-  const sessionApplication = new AgentSessionApplication(conversationStore, fileHistory);
+  const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
+  const conversationStore = createConversationStore({ dbPath: options.dbPath, dataRoot });
+  const fileHistory = new FileHistoryService({ dataRoot });
+  const transientArtifacts = new TransientArtifactService(dataRoot);
+  transientArtifacts.startPruning();
+  const sessionApplication = new AgentSessionApplication(conversationStore, fileHistory, transientArtifacts);
   const realtimeEvents = new RealtimeEventHub();
   // widget 鉴权（optional）：配了 WIDGET_JWT_SECRET 才装配。复用同一 dbPath，独立句柄，close 时单独释放。
   // 声明先于 outboxDispatcher 启停块——token 周期清理需在其生命周期内调 startPruning。
@@ -203,7 +208,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const delegationPending = new DelegationPendingService();
   // agentDelegation 需先实例化（工具依赖它），但其 runEngine/eventPublisher 延迟设置。
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
-  const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
   const agentDelegation = new AgentDelegationService(
     conversationStore,
     runtimeCore,
@@ -263,6 +267,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     }
     closed = true;
     backgroundTasks.dispose();
+    transientArtifacts.stopPruning();
     outboxDispatcher.stop();
     widgetCredentialStore?.close();
     mcp.close();
@@ -290,6 +295,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     fileIndex,
     vectorLibrary,
     artifacts,
+    transientArtifacts,
     embeddingModels,
     memoryStore,
     memoryTools,

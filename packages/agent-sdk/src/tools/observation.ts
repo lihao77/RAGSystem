@@ -16,13 +16,17 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type { ProviderConfig } from "@ragsystem/agent-llm";
-import type { ToolArtifact, ToolExecutionResult, ToolExecContext } from "../contracts.js";
+import type { ContentPart, ProviderConfig } from "@ragsystem/agent-llm";
+import type { ToolArtifact, ToolExecutionResult, ToolExecContext, ToolResultMedia } from "../contracts.js";
 import type { AgentProfile } from "../types.js";
 import type { ObservationPolicy } from "../prompt/tool-types.js";
 import { renderSemanticBlock } from "../llm-protocol/xml/rendering.js";
+import { withArtifactIndexLock } from "./artifact-index-lock.js";
 
 const GEOJSON_TYPES = new Set(["FeatureCollection", "Feature", "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"]);
+const MAX_TOOL_IMAGES = 4;
+const MAX_TOOL_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_TOOL_IMAGE_TOTAL_BYTES = 20 * 1024 * 1024;
 
 interface ObservationDecision {
   mode: "inline" | "artifact_ref";
@@ -71,6 +75,162 @@ export async function buildLlmFacingToolResult(input: {
   } catch {
     return input.result;
   }
+}
+
+export async function buildToolMediaModelContent(input: {
+  result: ToolExecutionResult;
+  observation: string;
+  toolContext: ToolExecContext;
+  profile: AgentProfile;
+  provider: ProviderConfig;
+  dataRoot: string;
+}): Promise<ContentPart[] | null> {
+  const media = input.result.media?.slice(0, MAX_TOOL_IMAGES) ?? [];
+  if (!media.length) return null;
+  const sessionId = asNonEmptyString(input.toolContext.sessionId);
+  if (!sessionId) return null;
+  const budget = resolveObservationBudget(input.profile, input.provider);
+  const parts: ContentPart[] = [{ type: "text", text: input.observation }];
+  const materialized: ToolResultMedia[] = [];
+  const rejectedReasons: string[] = [];
+  let totalBytes = 0;
+
+  for (const item of media) {
+    try {
+      const bytes = await readToolImageBytes(item, input.dataRoot);
+      if (!bytes) {
+        rejectedReasons.push("invalid_or_unreadable_image");
+        continue;
+      }
+      if (bytes.length > MAX_TOOL_IMAGE_BYTES || totalBytes + bytes.length > MAX_TOOL_IMAGE_TOTAL_BYTES) {
+        rejectedReasons.push("image_size_limit_exceeded");
+        continue;
+      }
+      totalBytes += bytes.length;
+      const artifact = await saveToolImageArtifact({
+        dataRoot: input.dataRoot,
+        sessionId,
+        toolName: input.result.toolName,
+        mimeType: item.mimeType,
+        bytes,
+        ttlSeconds: budget.artifactTtlSeconds,
+      });
+      input.result.artifacts.push(artifact);
+      materialized.push({ ...item, source: { type: "file", path: artifact.path } });
+      if (input.provider.supports_vision === true) {
+        parts.push({
+          type: "image_url",
+          image_url: { url: `data:${item.mimeType};base64,${bytes.toString("base64")}`, detail: item.detail ?? "auto" },
+        });
+      }
+    } catch {
+      rejectedReasons.push("materialization_failed");
+    }
+  }
+  if ((input.result.media?.length ?? 0) > media.length) rejectedReasons.push("image_count_limit_exceeded");
+  input.result.media = materialized;
+  if (materialized.length) {
+    input.result.metadata.tool_result_media = materialized.map((item) => ({
+      kind: "image",
+      stored_path: item.source.type === "file" ? item.source.path : "",
+      mime: item.mimeType,
+      ...(item.alt ? { original_name: item.alt } : {}),
+    }));
+  }
+  if (rejectedReasons.length) {
+    input.result.metadata.tool_result_media_rejected = rejectedReasons.length;
+    input.result.metadata.tool_result_media_rejection_reasons = rejectedReasons;
+  }
+  return parts.length > 1 ? parts : null;
+}
+
+async function readToolImageBytes(item: ToolResultMedia, dataRoot: string): Promise<Buffer | null> {
+  if (item.source.type === "base64") return decodeBase64(item.source.data, item.mimeType);
+  if (item.source.type === "url") return null;
+  const filePath = path.resolve(item.source.path);
+  if (!isPathUnder(filePath, path.resolve(dataRoot))) return null;
+  try {
+    const bytes = await fs.promises.readFile(filePath);
+    return matchesImageSignature(bytes, item.mimeType) ? bytes : null;
+  } catch {
+    return null;
+  }
+}
+
+function decodeBase64(value: string, mimeType: ToolResultMedia["mimeType"]): Buffer | null {
+  const normalized = value.replace(/\s+/g, "");
+  if (!normalized || normalized.length > Math.ceil(MAX_TOOL_IMAGE_BYTES / 3) * 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(normalized)) return null;
+  try {
+    const bytes = Buffer.from(normalized, "base64");
+    return bytes.length && matchesImageSignature(bytes, mimeType) ? bytes : null;
+  } catch {
+    return null;
+  }
+}
+
+function matchesImageSignature(bytes: Buffer, mimeType: ToolResultMedia["mimeType"]): boolean {
+  if (mimeType === "image/png") return bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  if (mimeType === "image/jpeg") return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (mimeType === "image/gif") return bytes.length >= 6 && (bytes.subarray(0, 6).toString("ascii") === "GIF87a" || bytes.subarray(0, 6).toString("ascii") === "GIF89a");
+  return bytes.length >= 12 && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
+}
+
+async function saveToolImageArtifact(input: {
+  dataRoot: string;
+  sessionId: string;
+  toolName: string;
+  mimeType: ToolResultMedia["mimeType"];
+  bytes: Buffer;
+  ttlSeconds: number;
+}): Promise<ToolArtifact> {
+  const root = resolveSessionTransientRoot(input.dataRoot, input.sessionId);
+  await fs.promises.mkdir(root, { recursive: true });
+  const filePath = path.join(root, `image_${randomUUID().replace(/-/g, "").slice(0, 8)}${imageExtension(input.mimeType)}`);
+  await fs.promises.writeFile(filePath, input.bytes);
+  const createdAt = Date.now() / 1000;
+  const artifact: ToolArtifact = {
+    artifactType: "image",
+    path: filePath,
+    mimeType: input.mimeType,
+    size: input.bytes.length,
+    metadata: {
+      session_id: input.sessionId,
+      tool_name: input.toolName,
+      created_at: createdAt,
+      expires_at: createdAt + input.ttlSeconds,
+      reason: "tool_image",
+    },
+  };
+  try {
+    await appendArtifactIndexRecord(root, { artifact, toolName: input.toolName, sessionId: input.sessionId, createdAt });
+  } catch (error) {
+    await fs.promises.rm(filePath, { force: true });
+    throw error;
+  }
+  return artifact;
+}
+
+function imageExtension(mimeType: ToolResultMedia["mimeType"]): string {
+  if (mimeType === "image/jpeg") return ".jpg";
+  if (mimeType === "image/gif") return ".gif";
+  if (mimeType === "image/webp") return ".webp";
+  return ".png";
+}
+
+function isPathUnder(candidate: string, root: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function resolveSessionTransientRoot(dataRoot: string, sessionId: string): string {
+  const normalized = sessionId.trim();
+  if (!normalized || normalized.length > 200 || normalized === "." || normalized === ".." || /[<>:"/\\|?*\u0000-\u001f]/.test(normalized)) {
+    throw new Error("Unsafe sessionId for observation artifact path");
+  }
+  const sessionsRoot = path.resolve(dataRoot, "sessions");
+  const transientRoot = path.resolve(sessionsRoot, normalized, "transient");
+  if (!isPathUnder(transientRoot, sessionsRoot)) throw new Error("Observation artifact path escaped sessions root");
+  return transientRoot;
 }
 
 /* ============================================================
@@ -155,7 +315,7 @@ function preserveObservationMetadata(metadata: Record<string, unknown>): Record<
 
 async function saveObservationArtifact(input: { dataRoot: string; sessionId: string; toolName: string; content: unknown; decision: ObservationDecision }): Promise<ToolArtifact> {
   const isText = typeof input.content === "string";
-  const root = path.join(input.dataRoot, "sessions", input.sessionId, "transient");
+  const root = resolveSessionTransientRoot(input.dataRoot, input.sessionId);
   await fs.promises.mkdir(root, { recursive: true });
   const fileName = `data_${randomUUID().replace(/-/g, "").slice(0, 8)}${isText ? ".txt" : ".json"}`;
   const filePath = path.join(root, fileName);
@@ -167,7 +327,12 @@ async function saveObservationArtifact(input: { dataRoot: string; sessionId: str
     metadata.expires_at = createdAt + input.decision.artifactTtlSeconds;
   }
   const artifact: ToolArtifact = { artifactType: isText ? "text" : "json", path: filePath, mimeType: isText ? "text/plain" : "application/json", size: stat.size, metadata };
-  await appendArtifactIndexRecord(root, { artifact, toolName: input.toolName, sessionId: input.sessionId, createdAt });
+  try {
+    await appendArtifactIndexRecord(root, { artifact, toolName: input.toolName, sessionId: input.sessionId, createdAt });
+  } catch (error) {
+    await fs.promises.rm(filePath, { force: true });
+    throw error;
+  }
   return artifact;
 }
 
@@ -176,7 +341,9 @@ async function appendArtifactIndexRecord(root: string, input: { artifact: ToolAr
   if (typeof input.artifact.metadata.expires_at === "number") {
     record.expires_at = input.artifact.metadata.expires_at;
   }
-  await fs.promises.appendFile(path.join(root, "artifact_index.jsonl"), `${JSON.stringify(record)}\n`, "utf8");
+  await withArtifactIndexLock(root, async () => {
+    await fs.promises.appendFile(path.join(root, "artifact_index.jsonl"), `${JSON.stringify(record)}\n`, "utf8");
+  });
 }
 
 function stripArtifactIndexMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
@@ -322,6 +489,10 @@ function renderCompactToolObservation(result: ToolExecutionResult, toolName: str
     } else if (!observation) {
       observation = renderedContent;
     }
+  }
+  if (result.media?.length) {
+    const mediaSummary = `[工具返回 ${result.media.length} 张图片]`;
+    observation = observation ? `${observation}\n\n${mediaSummary}` : mediaSummary;
   }
   return appendLlmHint(observation || result.summary, result);
 }

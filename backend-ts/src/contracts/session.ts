@@ -3,6 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 
 import { AttachmentRefSchema } from "./execution.js";
+import { OptionalSessionIdSchema } from "./session-id.js";
 
 export const SessionMetadataSchema = z.unknown().optional().transform((value, context) => {
   try {
@@ -17,7 +18,7 @@ export const SessionMetadataSchema = z.unknown().optional().transform((value, co
 });
 
 export const CreateSessionRequestSchema = z.object({
-  session_id: z.string().nullable().optional(),
+  session_id: OptionalSessionIdSchema.nullable().optional(),
   user_id: z.string().nullable().optional(),
   metadata: SessionMetadataSchema,
 });

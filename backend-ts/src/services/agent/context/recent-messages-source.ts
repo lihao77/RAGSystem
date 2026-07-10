@@ -59,32 +59,64 @@ export class RecentMessagesContextSource implements AgentContextSource {
       };
     }
     const { conversation, originals } = messagesToConversation(microcompact.messages);
-    // extensions 投影(组装层,压缩视图之后):user 消息内容扩展(ui_context/image_attachment)
-    // 经 registry 投影进 content;image_attachment 复用 readAttachmentImage 读盘转 base64。
-    projectConversationExtensions(conversation, microcompact.messages, this.extensionRegistry, {
+    // extensions 投影(组装层,压缩视图之后):user 附件/UI 上下文 + tool 结果媒体。
+    // 附件图片可缓存；tool 图片每次读盘以遵守 transient TTL。两者都不把图片字节写入 SQLite。
+    projectConversationExtensions(conversation, originals, this.extensionRegistry, {
       supportsVision: this.supportsVision,
       readImage: readAttachmentImage,
+      readToolImage,
     });
     return { conversation, rawMessages: originals, metadata };
   }
 }
 
-/** 附件图片 base64 缓存(storedPath → dataUrl;空串为读盘失败标记,避免重复读失败)。图片文件内容不变,多轮对话复用。 */
-const attachmentImageCache = new Map<string, string>();
+/** Tool media obeys transient TTL, so it must never reuse the attachment data-URL cache. */
+function readToolImage(storedPath: string, mime: string): string | null {
+  try {
+    const buf = fs.readFileSync(storedPath);
+    return `data:${mime || "image/png"};base64,${buf.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
+const MAX_ATTACHMENT_CACHE_ENTRIES = 128;
+const MAX_ATTACHMENT_CACHE_BYTES = 64 * 1024 * 1024;
+interface CachedAttachmentImage { dataUrl: string; bytes: number }
+const attachmentImageCache = new Map<string, CachedAttachmentImage>();
+let attachmentImageCacheBytes = 0;
 
 /** 读附件图片为 base64 data URL;读盘失败返回 null(由 image_attachment projector 降级为文本占位)。结果缓存。 */
 function readAttachmentImage(storedPath: string, mime: string): string | null {
   if (attachmentImageCache.has(storedPath)) {
     const cached = attachmentImageCache.get(storedPath);
-    return cached === "" ? null : cached ?? null;
+    if (!cached) return null;
+    attachmentImageCache.delete(storedPath);
+    attachmentImageCache.set(storedPath, cached);
+    return cached.dataUrl || null;
   }
   try {
     const buf = fs.readFileSync(storedPath);
     const url = `data:${mime || "image/png"};base64,${buf.toString("base64")}`;
-    attachmentImageCache.set(storedPath, url);
+    cacheAttachmentImage(storedPath, { dataUrl: url, bytes: buf.byteLength });
     return url;
   } catch {
-    attachmentImageCache.set(storedPath, "");
+    cacheAttachmentImage(storedPath, { dataUrl: "", bytes: 0 });
     return null;
+  }
+}
+
+function cacheAttachmentImage(storedPath: string, value: CachedAttachmentImage): void {
+  const previous = attachmentImageCache.get(storedPath);
+  if (previous) attachmentImageCacheBytes -= previous.bytes;
+  attachmentImageCache.delete(storedPath);
+  attachmentImageCache.set(storedPath, value);
+  attachmentImageCacheBytes += value.bytes;
+  while (attachmentImageCache.size > MAX_ATTACHMENT_CACHE_ENTRIES || attachmentImageCacheBytes > MAX_ATTACHMENT_CACHE_BYTES) {
+    const oldestKey = attachmentImageCache.keys().next().value as string | undefined;
+    if (!oldestKey) break;
+    const oldest = attachmentImageCache.get(oldestKey);
+    attachmentImageCache.delete(oldestKey);
+    attachmentImageCacheBytes -= oldest?.bytes ?? 0;
   }
 }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { InteractionResponsePayloadSchema } from "./interactions.js";
+import { OptionalSessionIdSchema, RequiredSessionIdSchema } from "./session-id.js";
 
 export const AttachmentRefSchema = z.object({
   file_id: z.string().min(1),
@@ -14,7 +15,7 @@ export const AttachmentRefSchema = z.object({
 
 export const StreamExecuteRequestSchema = z.object({
   task: z.string().optional().default(""),
-  session_id: z.string().nullable().optional(),
+  session_id: OptionalSessionIdSchema.nullable().optional(),
   user_id: z.string().nullable().optional(),
   selected_llm: z.string().nullable().optional(),
   selectedLLM: z.string().nullable().optional(),
@@ -39,13 +40,13 @@ export const CollaborateTaskSchema = z.object({
 
 export const CollaborateRequestSchema = z.object({
   tasks: z.array(CollaborateTaskSchema).min(1),
-  session_id: z.string().nullable().optional(),
+  session_id: OptionalSessionIdSchema.nullable().optional(),
   user_id: z.string().nullable().optional(),
   mode: z.string().optional().default("sequential"),
 });
 
 export const StreamStopRequestSchema = z.object({
-  session_id: z.string().min(1),
+  session_id: RequiredSessionIdSchema,
 });
 
 export const ApprovalRequestSchema = z.object({

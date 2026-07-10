@@ -28,7 +28,7 @@ import type {
   McpToolMetrics,
 } from "../../contracts/mcp.js";
 import type { RiskLevel } from "../../contracts/permissions.js";
-import type { ToolExecutionResult } from "@ragsystem/agent-sdk";
+import type { ToolExecutionResult, ToolResultMedia } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "../agent/sdk/tool-results.js";
 
 const MCP_TOOL_PREFIX = "mcp__";
@@ -1109,9 +1109,14 @@ function normalizeToolResult(
   const contentItems = Array.isArray(result.content) ? result.content : [];
   const texts: string[] = [];
   const otherContent: unknown[] = [];
+  const media: ToolResultMedia[] = [];
   for (const item of contentItems) {
     if (isRecord(item) && item.type === "text") {
       texts.push(String(item.text ?? ""));
+    } else if (isRecord(item) && item.type === "image") {
+      const image = normalizeMcpImage(item);
+      if (image) media.push(image);
+      else otherContent.push({ type: "image", error: "unsupported_or_invalid_image" });
     } else {
       otherContent.push(item);
     }
@@ -1126,7 +1131,24 @@ function normalizeToolResult(
     summary: `MCP 工具 ${toolName} 执行成功`,
     outputType: otherContent.length ? "json" : "text",
     metadata: { server_name: serverName },
+    ...(media.length ? { media } : {}),
   });
+}
+
+function normalizeMcpImage(item: Record<string, unknown>): ToolResultMedia | null {
+  const mimeType = typeof item.mimeType === "string" ? item.mimeType.toLowerCase() : "";
+  if (!isSupportedToolImageMime(mimeType) || typeof item.data !== "string" || !item.data) return null;
+  return {
+    kind: "image",
+    mimeType,
+    source: { type: "base64", data: item.data },
+    alt: "MCP tool image result",
+    detail: "auto",
+  };
+}
+
+function isSupportedToolImageMime(value: string): value is ToolResultMedia["mimeType"] {
+  return value === "image/png" || value === "image/jpeg" || value === "image/gif" || value === "image/webp";
 }
 
 function buildServerConfigFromRegistryInstall(payload: McpRegistryInstall): McpServerConfig {

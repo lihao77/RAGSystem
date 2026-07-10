@@ -1,21 +1,20 @@
 /**
- * projectConversationExtensions——把 rawMessages 里 user 消息的 extensions 投影进 conversation。
+ * projectConversationExtensions——按 messagesToConversation 的 originals 索引，把消息扩展投影进模型消息。
  *
  * messagesToConversation 对 user 消息保持 1:1 数量对应(占位只补在 assistant tool_call 后),故按 user 序对齐可靠。
  * 注:user 的 content 可能已被 expanded_task 投影改写(messagesToConversation 内),但本函数消费 rawMessages
  * (原始 user.metadata.extensions)、追加投影进 conversation user content,不读 conversation 原始 content,故不受影响。
- * 本期只处理 user(extensions 主要挂在 user:ui_context/image_attachment);其余 kind projector 返回 null
- * 不投影。投影文本/parts 追加到 content 末尾。
+ * user 支持 ui_context/image_attachment，tool 支持 tool_result_media；各 projector 自行校验 role。
+ * 投影文本/parts 追加到 content 末尾。
  *
  * 必须在 messagesToConversation 之后调用(content 此时是初始 string);本函数接管所有 extensions 投影。
  */
 import type { ChatMessage, ContentPart } from "@ragsystem/agent-llm";
 import type { ProjectionRegistry } from "./registry.js";
 import type { ProjectContext } from "./types.js";
-import type { MessageExtension } from "./kinds.js";
 import { normalizeExtensions } from "./normalize.js";
 
-type RawMessage = { role: string; metadata: Record<string, unknown> };
+type RawMessage = { role: string; metadata: Record<string, unknown> } | null;
 
 export function projectConversationExtensions(
   conversation: ChatMessage[],
@@ -23,22 +22,24 @@ export function projectConversationExtensions(
   registry: ProjectionRegistry,
   ctxBase: Omit<ProjectContext, "role">,
 ): void {
-  const userExtQueue: MessageExtension[][] = [];
-  for (const m of rawMessages) {
-    if (m.role !== "user") continue;
-    userExtQueue.push(normalizeExtensions(m.metadata));
-  }
-  const ctx: ProjectContext = { ...ctxBase, role: "user" };
-  for (const msg of conversation) {
-    if (msg.role !== "user") continue;
-    const exts = userExtQueue.shift();
+  for (const [index, msg] of conversation.entries()) {
+    const raw = rawMessages[index];
+    if (!raw || raw.role !== msg.role) continue;
+    if (raw.role === "tool" && isMicrocompactCleared(raw, msg)) continue;
+    const exts = normalizeExtensions(raw.metadata);
     if (!exts || exts.length === 0) continue;
+    const ctx: ProjectContext = { ...ctxBase, role: raw.role };
     for (const ext of exts) {
       const projected = registry.project(ext, ctx);
       if (projected === null || projected === "") continue;
       appendProjection(msg, projected);
     }
   }
+}
+
+function isMicrocompactCleared(raw: NonNullable<RawMessage>, message: ChatMessage): boolean {
+  if (raw.metadata.microcompact_cleared === true) return true;
+  return typeof message.content === "string" && message.content.startsWith("[工具结果已清理");
 }
 
 function appendProjection(msg: ChatMessage, projected: ContentPart[] | string): void {

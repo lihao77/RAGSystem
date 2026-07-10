@@ -6,10 +6,12 @@
 import { ProjectionRegistry } from "./registry.js";
 import { imageAttachmentProjector } from "./image-attachment-projector.js";
 import { uiContextProjector } from "./ui-context-projector.js";
+import { toolResultMediaProjector } from "./tool-result-media-projector.js";
 
 export function createDefaultProjectionRegistry(): ProjectionRegistry {
   const registry = new ProjectionRegistry();
   registry.register(imageAttachmentProjector);
   registry.register(uiContextProjector);
+  registry.register(toolResultMediaProjector);
   return registry;
 }

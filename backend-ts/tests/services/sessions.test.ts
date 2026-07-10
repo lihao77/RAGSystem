@@ -4,8 +4,37 @@ import { describe, expect, it } from "vitest";
 
 import { AgentSessionApplication } from "../../src/services/sessions/index.js";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
+import { TransientArtifactService } from "../../src/services/artifacts/transient-artifact-service.js";
+import fs from "node:fs";
+import os from "node:os";
 
 describe("AgentSessionApplication", () => {
+  it("rejects unsafe session IDs before creating database or filesystem state", () => {
+    const store = createConversationStore({ dbPath: ":memory:" });
+    const app = new AgentSessionApplication(store);
+    expect(() => app.createSession({ sessionId: "../../outside" })).toThrow("session_id");
+    expect(store.getSession("../../outside")).toBeNull();
+    store.close();
+  });
+
+  it("removes managed session files after the database session is deleted", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-session-delete-"));
+    try {
+      const store = createConversationStore({ dbPath: ":memory:" });
+      const app = new AgentSessionApplication(store, null, new TransientArtifactService(root));
+      app.createSession({ sessionId: "s-delete" });
+      const file = path.join(root, "sessions", "s-delete", "transient", "data.txt");
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, "data");
+
+      expect(app.deleteSession("s-delete")).toBe(true);
+      expect(fs.existsSync(path.join(root, "sessions", "s-delete"))).toBe(false);
+      store.close();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("returns the same compact create_session payload as Python", () => {
     const store = createConversationStore({ dbPath: ":memory:" });
     const app = new AgentSessionApplication(store);

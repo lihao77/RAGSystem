@@ -157,11 +157,12 @@ export function microcompactHistoryMessages(messages: MessageInfo[], keepRecentT
       return message;
     }
     const nextContent = microcompactClearedContent(message);
-    if (extractText(message.content) === nextContent) {
+    const contentChanged = extractText(message.content) !== nextContent;
+    if (!contentChanged && message.metadata.microcompact_cleared === true) {
       return message;
     }
-    clearedCount += 1;
-    return { ...message, content: nextContent };
+    if (contentChanged) clearedCount += 1;
+    return { ...message, content: nextContent, metadata: { ...message.metadata, microcompact_cleared: true } };
   });
   return { messages: compacted, observationCount: observationIndices.length, clearedCount };
 }

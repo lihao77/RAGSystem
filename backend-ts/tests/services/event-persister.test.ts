@@ -81,4 +81,30 @@ describe("KernelEventPersister — 工具消息持久化", () => {
     expect(msg.name).toBe("search");
     expect((msg.metadata as Record<string, unknown>).msg_type).toBe("observation");
   });
+
+  it("persists tool media as file-reference extensions without base64", () => {
+    const { store, addMessageCalls } = mockStore();
+    const persister = new KernelEventPersister(store, ctx);
+    persister.persist({
+      type: "tool_result",
+      agentName: "agent",
+      toolCallId: "t-image",
+      toolName: "screenshot",
+      success: true,
+      summary: "ok",
+      observation: "截图完成",
+      metadata: {
+        tool_result_media: [{ kind: "image", stored_path: "/managed/image.png", mime: "image/png" }],
+      },
+      elapsedTime: 0.1,
+      round: 0,
+      order: 1,
+      roundIndex: 1,
+    });
+
+    expect(addMessageCalls[0]?.metadata).toMatchObject({
+      extensions: [{ kind: "tool_result_media", data: { media: [{ stored_path: "/managed/image.png" }] } }],
+    });
+    expect(JSON.stringify(addMessageCalls[0])).not.toContain("base64");
+  });
 });

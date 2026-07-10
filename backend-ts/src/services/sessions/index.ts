@@ -5,11 +5,14 @@ import type { IFileHistoryStore } from "../../contracts/file-history-store/index
 import type { MessageExtension } from "../agent/context/extensions/kinds.js";
 import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "../runtime/event-outbox/execution-envelope-archive.js";
+import type { TransientArtifactService } from "../artifacts/transient-artifact-service.js";
+import { assertSafeSessionId } from "../../contracts/session-id.js";
 
 export class AgentSessionApplication {
   constructor(
     private readonly conversationStore: ISessionStore & IMessageStore & IRunStore,
     private readonly fileHistory: IFileHistoryStore | null = null,
+    private readonly transientArtifacts: TransientArtifactService | null = null,
   ) {}
 
   createSession(input: {
@@ -17,6 +20,7 @@ export class AgentSessionApplication {
     userId?: string | null;
     metadata?: Record<string, unknown>;
   }): { session_id: string; user_id: string | null; metadata: Record<string, unknown> } {
+    assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
     this.conversationStore.createSession(input.sessionId, input.userId ?? null, metadata);
     return {
@@ -36,7 +40,9 @@ export class AgentSessionApplication {
 
   deleteSession(sessionId: string): boolean {
     this.fileHistory?.cleanup(sessionId);
-    return this.conversationStore.deleteSession(sessionId);
+    const deleted = this.conversationStore.deleteSession(sessionId);
+    if (deleted) this.transientArtifacts?.deleteSessionArtifacts(sessionId);
+    return deleted;
   }
 
   listMessages(input: {

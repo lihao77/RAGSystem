@@ -43,6 +43,15 @@ function resultFor(method: string, params: Record<string, unknown>): unknown {
   }
   if (method === "tools/call") {
     const text = (params.arguments as { text?: string } | undefined)?.text ?? "";
+    if (text === "image") {
+      return {
+        content: [
+          { type: "text", text: "screenshot" },
+          { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+        ],
+        isError: false,
+      };
+    }
     return { content: [{ type: "text", text: `echo:${text}` }], isError: false };
   }
   return null;
@@ -169,6 +178,32 @@ describe("McpService remote transports", () => {
 
       service.disconnectServer("demo");
       expect(service.getServerStatus("demo").status).toBe("disconnected");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("normalizes MCP images into the dedicated tool media channel", async () => {
+    const server = await startStreamableHttpServer();
+    try {
+      const service = createService();
+      await service.addServer({
+        name: "demo",
+        transport: "streamable_http",
+        url: server.url,
+        enabled: true,
+        auto_connect: false,
+        timeout: 5,
+      } as unknown as McpServerCreate);
+      await service.connectServer("demo");
+
+      const result = await service.callTool("demo", "echo", { text: "image" });
+
+      expect(result.content).toBe("screenshot");
+      expect(result.media).toEqual([
+        expect.objectContaining({ kind: "image", mimeType: "image/png", source: { type: "base64", data: "iVBORw0KGgo=" } }),
+      ]);
+      service.disconnectServer("demo");
     } finally {
       await server.close();
     }

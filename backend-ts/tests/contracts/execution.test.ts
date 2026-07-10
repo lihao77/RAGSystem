@@ -19,6 +19,12 @@ describe("execution contracts", () => {
     expect(parsed.attachments).toEqual([]);
   });
 
+  it("rejects session IDs that can escape managed filesystem roots", () => {
+    expect(() => StreamExecuteRequestSchema.parse({ task: "x", session_id: "../../outside" })).toThrow();
+    expect(() => StreamExecuteRequestSchema.parse({ task: "x", session_id: "bad\\path" })).toThrow();
+    expect(StreamExecuteRequestSchema.parse({ task: "x", session_id: "session-safe_1" }).session_id).toBe("session-safe_1");
+  });
+
   it("ExecuteRequest 拒绝 attachments/ui_context(/execute 不支持附件,显式 never)", () => {
     // 误传 attachments(任何值)→ ZodError(全局 handler 返回 400),而非静默 strip
     expect(() => ExecuteRequestSchema.parse({ task: "hi", attachments: [{ file_id: "x" }] })).toThrow();

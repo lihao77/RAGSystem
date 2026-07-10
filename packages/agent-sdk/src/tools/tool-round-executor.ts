@@ -22,7 +22,7 @@ import type { AgentProfile } from "../types.js";
 import type { ToolRegistry } from "./registry.js";
 import type { PreparedTool } from "./preparer.js";
 import { prepareTool } from "./preparer.js";
-import { buildLlmFacingToolResult, renderToolResultContent } from "./observation.js";
+import { buildLlmFacingToolResult, buildToolMediaModelContent, renderToolResultContent } from "./observation.js";
 import { runToolBatchWithScheduler } from "./scheduler.js";
 import {
   buildToolExecutionErrorResult,
@@ -37,6 +37,7 @@ interface ToolObservationResult {
   summary: string;
   observation: string;
   rawResult: Record<string, unknown>;
+  modelContent?: KernelObservation["modelContent"];
 }
 
 export interface ToolRoundExecutorOptions {
@@ -142,7 +143,15 @@ async function executeSingleToolCall(input: {
     roundIndex: order,
   });
 
-  return { index: call.index, callId: call.callId, toolName: call.toolName, arguments: toolArguments, result: toolResult, observation: observationResult.observation };
+  return {
+    index: call.index,
+    callId: call.callId,
+    toolName: call.toolName,
+    arguments: toolArguments,
+    result: toolResult,
+    observation: observationResult.observation,
+    ...(observationResult.modelContent ? { modelContent: observationResult.modelContent } : {}),
+  };
 }
 
 /**
@@ -295,11 +304,33 @@ async function resolveToolObservation(input: {
         dataRoot: input.opts.dataRoot,
         observationPolicy,
       });
+      let modelContent: KernelObservation["modelContent"] | undefined;
+      try {
+        modelContent = await buildToolMediaModelContent({
+          result: input.result,
+          observation: "",
+          toolContext: input.toolContext,
+          profile: input.opts.profile,
+          provider: input.opts.provider,
+          dataRoot: input.opts.dataRoot,
+        }) ?? undefined;
+      } catch {
+        input.result.media = [];
+        input.result.metadata.tool_result_media_projection_error = true;
+        modelContent = undefined;
+      }
+      if (input.result.media) llmFacingResult.media = input.result.media;
+      else delete llmFacingResult.media;
+      const observation = renderToolResultContent({ callId: input.callId, toolName: input.toolName, result: llmFacingResult });
+      if (modelContent?.[0]?.type === "text") {
+        modelContent[0] = { type: "text", text: observation };
+      }
       return {
         success: input.result.success,
         summary: input.result.summary,
-        observation: renderToolResultContent({ callId: input.callId, toolName: input.toolName, result: llmFacingResult }),
+        observation,
         rawResult: materializeForRef(input.result),
+        ...(modelContent ? { modelContent } : {}),
       };
     } catch (error) {
       if (isAbortError(error) || input.toolContext.signal?.aborted) { throw error; }

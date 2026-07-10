@@ -228,6 +228,28 @@ describe("buildAnthropicBody — cache_control 打标", () => {
 });
 
 describe("buildAnthropicBody — 连续 user 合并", () => {
+  it("coalesces a post-tool image message into Anthropic user content without losing the image block", () => {
+    const body = buildAnthropicBody(makeRequest({
+      tools: [],
+      messages: [
+        { role: "assistant", content: "", tool_calls: [{ id: "t1", type: "function", function: { name: "screenshot", arguments: "{}" } }] },
+        { role: "tool", tool_call_id: "t1", name: "screenshot", content: "截图完成" },
+        { role: "user", content: [
+          { type: "text", text: "Images returned by tool screenshot (call_id=t1)" },
+          { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } },
+        ] },
+      ],
+    }));
+
+    const messages = body.messages as Array<{ role: string; content: Array<Record<string, unknown>> }>;
+    expect(messages).toHaveLength(2);
+    expect(messages[1]?.role).toBe("user");
+    expect(messages[1]?.content).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "tool_result", tool_use_id: "t1" }),
+      expect.objectContaining({ type: "image" }),
+    ]));
+  });
+
   it("相邻两条 user → 合并为一条,content 数组含两段 text", () => {
     const body = buildAnthropicBody(makeRequest({
       tools: [],
