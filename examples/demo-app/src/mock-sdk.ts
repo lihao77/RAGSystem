@@ -11,6 +11,7 @@ import {
   type AgentClient,
   type ConnectionStatus,
   type ConnectOptions,
+  type DelegateCallPayload,
   type DelegatedToolSpec,
   type Envelope,
   type ExecutionTree,
@@ -22,7 +23,6 @@ import {
   type SendOptions,
   type SendResult,
   type ToolCallHandler,
-  type ToolCallPayload,
   type ToolPresentationSpec,
   type ToolResult,
   type Unsubscribe,
@@ -119,10 +119,10 @@ export class MockAgentClient implements AgentClient {
     this.events.set(env);
     this.executionTree.set(getExecutionTree(this.treeState));
 
-    // 委托模式：tool_call(delegation, request) 触发宿主 handler
-    if (env.type === "tool_call" && this.delegationEnabled && this.toolHandler) {
-      const payload = (env.payload ?? {}) as Partial<ToolCallPayload>;
-      if (payload.mode === "delegation" && payload.phase === "request") {
+    // 委托执行指令触发宿主 handler；tool_call 仅用于执行树投影。
+    if (env.type === "delegate_call" && this.delegationEnabled && this.toolHandler) {
+      const payload = (env.payload ?? {}) as Partial<DelegateCallPayload>;
+      if (payload.phase === "request") {
         const handler = this.toolHandler;
         void handler({
           callId: env.call_id ?? "",

@@ -14,6 +14,10 @@
     "typecheck:protocol": "npm -w @ragsystem/agent-protocol run typecheck",
     "typecheck:backend": "npm -w @ragsystem/backend-ts run typecheck",
     "build:frontend": "npm -w frontend-client run build",
+    "check:packages": "npm -w @ragsystem/agent-protocol run typecheck && npm -w @ragsystem/agent-llm run typecheck && npm -w @ragsystem/agent-sdk run typecheck && npm -w host-tool-mcp-server run typecheck && npm -w @ragsystem/demo-app run typecheck",
+    "check:backend": "npm -w @ragsystem/backend-ts run typecheck && npm -w @ragsystem/backend-ts run typecheck:scripts && npm -w @ragsystem/backend-ts run test && npm -w @ragsystem/backend-ts run build",
+    "check:frontend": "npm -w frontend-client run test && npm -w frontend-client run build",
+    "check:widget": "npm -w @ragsystem/agent-widget run typecheck && npm -w @ragsystem/agent-widget run typecheck:test && npm -w @ragsystem/agent-widget run build",
     "demo": "npm -w @ragsystem/demo-app run start"
   },
   "engines": {

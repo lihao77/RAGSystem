@@ -3,10 +3,11 @@
 - Link related issues if applicable.
 
 ## Testing
-- [ ] cd backend-fastapi && python -m compileall .
-- [ ] cd backend-fastapi && python -m py_compile main.py
-- [ ] cd backend-fastapi && pytest --basetemp=.pytest-tmp agents/tests/
-- [ ] cd frontend-client && npm run build
+- [ ] `npm ci`
+- [ ] `npm run check:packages`
+- [ ] `npm run check:backend`
+- [ ] `npm run check:frontend`
+- [ ] `npm run check:widget`
 
 ## Notes
 - Additional context, screenshots, or rollout notes if needed.
