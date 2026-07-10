@@ -4,7 +4,7 @@ import { ref } from 'vue';
 import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 
 import { useSessionAgentClient } from './useSessionAgentClient.js';
-import { useSessionRunStore, createActiveRunState } from '../stores/session-run.js';
+import { useSessionRunStore } from '../stores/session-run.js';
 
 class FakeWebSocket {
   static instances = [];

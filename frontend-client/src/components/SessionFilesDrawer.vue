@@ -1,9 +1,9 @@
 <template>
   <Dialog :open="visible" @update:open="onOpenChange">
-    <DialogContent class="flex w-full max-w-[720px] max-h-[88vh] flex-col gap-0 overflow-hidden rounded-[20px] p-0 shadow-[0_24px_80px_rgba(0,0,0,0.28)]" :hide-close="true">
+    <DialogContent class="flex max-h-[88vh] w-full max-w-[720px] flex-col gap-0 overflow-hidden p-0" :hide-close="true">
       <div class="ctx-drawer-header">
         <div>
-          <h3>{{ mode === 'message-edit' ? '编辑消息附件' : '添加附件' }}</h3>
+          <DialogTitle class="ctx-drawer-title">{{ mode === 'message-edit' ? '编辑消息附件' : '添加附件' }}</DialogTitle>
         </div>
         <Button variant="ghost" size="icon-sm" aria-label="关闭" @click="emit('close')">
           <IconClose :size="16" />
@@ -81,7 +81,7 @@
 
 <script setup>
 import { computed, ref } from 'vue';
-import { Dialog, DialogContent } from './ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
 import { formatAttachmentSize, isImageAttachment } from '../utils/sessionAttachments';
 import IconPlus from './icons/IconPlus.vue';
 import IconClose from './icons/IconClose.vue';
@@ -133,7 +133,7 @@ const onFileChange = (event) => {
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
-.ctx-drawer-header h3 { margin: 0; font-size: 16px; font-weight: 600; color: var(--color-text-primary); }
+.ctx-drawer-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--color-text-primary); }
 .ctx-subtitle { margin-top: 3px; font-size: 12px; color: var(--color-text-muted); }
 
 .ctx-drawer-body {

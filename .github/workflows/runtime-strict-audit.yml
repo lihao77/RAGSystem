@@ -83,6 +83,8 @@ jobs:
         run: npm ci
       - name: Check frontend client
         run: npm run check:frontend
+      - name: Run frontend browser smoke
+        run: npm -w frontend-client run screenshot:smoke
       - name: Check agent widget
         run: npm run check:widget
 

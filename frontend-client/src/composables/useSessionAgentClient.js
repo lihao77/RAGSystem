@@ -577,7 +577,7 @@ export function useSessionAgentClient(deps) {
     deps.enqueueApproval(event, approvalData, sessionId);
   };
 
-  const handleUserInputRequired = (event, eventData, sessionId) => {
+  const handleUserInputRequired = (event, eventData) => {
     const inputData = normalizeUserInputRequiredData(event, eventData);
     if (!rememberRequiredInteraction('user_input', inputData.input_id)) return;
     const submitUserInput = async (inputId, value) => {
@@ -772,7 +772,7 @@ export function useSessionAgentClient(deps) {
       if (payload.kind === 'approval') {
         handleApprovalRequired(event, payload, sessionId);
       } else if (payload.kind === 'user_input') {
-        handleUserInputRequired(event, payload, sessionId);
+        handleUserInputRequired(event, payload);
       }
     }
 

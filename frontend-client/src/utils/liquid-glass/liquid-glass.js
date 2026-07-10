@@ -262,7 +262,7 @@
     const shader = new Shader({
       width: 300,
       height: 200,
-      fragment: (uv, mouse) => {
+      fragment: (uv, _mouse) => {
         const ix = uv.x - 0.5;
         const iy = uv.y - 0.5;
         const distanceToEdge = roundedRectSDF(

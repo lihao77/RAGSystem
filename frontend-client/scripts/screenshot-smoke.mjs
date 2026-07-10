@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(__dirname, '..');
+const viteBin = resolve(dirname(fileURLToPath(import.meta.resolve('vite'))), '..', '..', 'bin', 'vite.js');
 const host = '127.0.0.1';
 const outputDir = resolve(rootDir, 'screenshots', 'smoke');
 const minScreenshotBytes = 8 * 1024;
@@ -108,7 +109,7 @@ const shots = [
     height: 844,
     actions: [
       { type: 'click', selector: '.page-mobile-nav__more' },
-      { type: 'expectText', selector: '.page-mobile-menu', text: '保存配置' },
+      { type: 'expectText', selector: '.page-mobile-menu__list', text: '保存配置' },
     ],
   },
   {
@@ -129,7 +130,7 @@ const shots = [
     height: 844,
     actions: [
       { type: 'click', selector: '.page-mobile-nav__more' },
-      { type: 'expectText', selector: '.page-mobile-menu', text: '刷新' },
+      { type: 'expectText', selector: '.page-mobile-menu__list', text: '刷新' },
     ],
   },
   {
@@ -139,7 +140,7 @@ const shots = [
     height: 844,
     actions: [
       { type: 'click', selector: '.page-mobile-nav__more' },
-      { type: 'expectText', selector: '.page-mobile-menu', text: '保存配置' },
+      { type: 'expectText', selector: '.page-mobile-menu__list', text: '保存配置' },
     ],
   },
   {
@@ -149,7 +150,7 @@ const shots = [
     height: 844,
     actions: [
       { type: 'click', selector: '.page-mobile-nav__more' },
-      { type: 'expectText', selector: '.page-mobile-menu', text: '添加 Provider' },
+      { type: 'expectText', selector: '.page-mobile-menu__list', text: '添加 Provider' },
     ],
   },
   {
@@ -159,7 +160,7 @@ const shots = [
     height: 844,
     actions: [
       { type: 'click', selector: '.page-mobile-nav__more' },
-      { type: 'expectText', selector: '.page-mobile-menu', text: '全局刷新' },
+      { type: 'expectText', selector: '.page-mobile-menu__list', text: '全局刷新' },
     ],
   },
   {
@@ -169,7 +170,7 @@ const shots = [
     height: 844,
     actions: [
       { type: 'click', selector: '.page-mobile-nav__more' },
-      { type: 'expectText', selector: '.page-mobile-menu', text: '刷新' },
+      { type: 'expectText', selector: '.page-mobile-menu__list', text: '刷新' },
     ],
   },
   {
@@ -179,7 +180,7 @@ const shots = [
     height: 844,
     actions: [
       { type: 'click', selector: '.page-mobile-nav__more' },
-      { type: 'expectText', selector: '.page-mobile-menu', text: '重置指标' },
+      { type: 'expectText', selector: '.page-mobile-menu__list', text: '重置指标' },
     ],
   },
 ];
@@ -301,7 +302,7 @@ async function waitForDevtools(port, timeoutMs = 10000) {
 function startDevServer(port) {
   const child = spawn(
     process.execPath,
-    [join(rootDir, 'node_modules', 'vite', 'bin', 'vite.js'), '--host', host, '--port', String(port), '--strictPort'],
+    [viteBin, '--host', host, '--port', String(port), '--strictPort'],
     {
       cwd: rootDir,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -310,7 +311,7 @@ function startDevServer(port) {
   );
 
   child.stdout.resume();
-  child.stderr.resume();
+  child.stderr.pipe(process.stderr);
 
   return child;
 }

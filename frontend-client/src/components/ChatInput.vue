@@ -86,7 +86,7 @@
 </template>
 
 <script setup>
-import { ref, defineProps, defineEmits, watch, nextTick, computed, onMounted, onUnmounted } from 'vue';
+import { ref, watch, nextTick, computed, onMounted, onUnmounted } from 'vue';
 import IconStop from './icons/IconStop.vue';
 import IconSend from './icons/IconSend.vue';
 import { Button } from './ui/button';

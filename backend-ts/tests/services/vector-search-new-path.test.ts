@@ -134,6 +134,28 @@ function emptyKnowledgeConfig(): IKnowledgeConfig {
 }
 
 describe("VectorLibraryService search 新路径(driver 召回 + scoring 重排)", () => {
+  it("远端 embedder 失败时显式失败而不是写入 hash 向量", async () => {
+    const modelAdapter = new ModelAdapterService({ providersConfigPath: "" });
+    const fakeDriver = makeFakeDriver([]);
+    const service = new VectorLibraryService(modelAdapter, {
+      vectorStore: fakeDriver,
+      knowledgeConfig: fakeDriver,
+      knowledgeFileStore: fakeDriver,
+      embedderFactory: () => ({
+        key: "remote:test/model",
+        semantic: true,
+        dimension: 0,
+        embed: async () => { throw new Error("embedding provider unavailable"); },
+      }),
+    });
+    try {
+      await expect(service.search({ collection_name: "kb", query: "probe", top_k: 5 }))
+        .rejects.toThrow("embedding provider unavailable");
+    } finally {
+      service.close();
+    }
+  });
+
   it("driver 召回后补 keyword/hybrid 并按 hybrid 排序", async () => {
     const dataRoot = makeDataRoot();
     const fileIndex = new FileIndexService({ dbPath: ":memory:", dataRoot });

@@ -265,9 +265,6 @@ const handleDeny = () => {
   emit('deny', _approvalId);
 };
 
-// 点击遮罩不关闭，强制用户做出选择
-const handleOverlayClick = () => {};
-
 defineExpose({ show, hide, toggleCollapsed });
 </script>
 

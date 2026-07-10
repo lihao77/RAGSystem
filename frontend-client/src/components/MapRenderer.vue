@@ -587,16 +587,6 @@ const renderBindmap = () => {
     const savedLayers = currentLayers.value;
     currentLayers.value = [];
 
-    // 创建虚拟 map 代理，将 addTo 重定向到 group
-    const fakeMap = {
-      addLayer: (l) => group.addLayer(l),
-      removeLayer: (l) => group.removeLayer(l),
-    };
-    // renderSingleLayer 内部用 .addTo(map)，而 addTo 调用 map.addLayer
-    // 因此我们用包装逻辑
-    const tempLayers = [];
-    const origPush = Array.prototype.push;
-
     // 渲染到 group
     renderSingleLayerToGroup(layer, group);
 
@@ -1261,4 +1251,3 @@ watch(() => props.mapData, () => {
   border: 1px solid var(--color-border) !important;
 }
 </style>
-

@@ -98,7 +98,7 @@ function withMock(setup, run) {
 }
 
 test('ack(send) 启动失败时会结束当前 assistant 占位并标记失败', () => {
-  const { deps, calls } = createDeps();
+  const { deps } = createDeps();
   deps.messages.value = [createAssistantMessage()];
   deps.isLoading.value = true;
   deps.activeRun.active = true;

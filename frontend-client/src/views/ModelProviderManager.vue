@@ -271,7 +271,6 @@ const dragOrderChanged = ref(false);
 let dragImageEl = null;
 let dragOffsetX = 0;
 let dragOffsetY = 0;
-let dragPointerId = null;
 const reordering = ref(false);
 const reorderError = ref('');
 
@@ -324,7 +323,6 @@ function startProviderDrag(event, provider) {
   if (!row) return;
   event.preventDefault();
   row.setPointerCapture?.(event.pointerId);
-  dragPointerId = event.pointerId;
   const rect = row.getBoundingClientRect();
   draggingKey.value = getProviderKey(provider);
   dragOriginalProviders.value = [...providers.value];
@@ -411,7 +409,6 @@ function cleanupProviderDrag(options = {}) {
   draggingKey.value = '';
   dragOriginalProviders.value = null;
   dragOrderChanged.value = false;
-  dragPointerId = null;
   if (imageToRemove && !options.keepImage) imageToRemove.remove();
   else if (imageToRemove) requestAnimationFrame(() => imageToRemove.remove());
   dragImageEl = null;

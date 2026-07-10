@@ -15,8 +15,9 @@ import type {
   VectorSearchResult,
 } from "../../contracts/vector-library.js";
 import type { IEmbedder, IKnowledgeConfig, IKnowledgeFileStore, IVectorStore, KnowledgeFile, StoredChunk, StoredReranker, StoredVectorizer, VectorRecord, VectorSearchHit } from "../../contracts/vector-store/index.js";
+import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
 import type { ModelAdapterService } from "../integrations/model-adapter-service.js";
-import { createEmbedder, HashFallbackEmbedder } from "../integrations/embedder-registry.js";
+import { createEmbedder } from "../integrations/embedder-registry.js";
 // 打分纯函数统一从 scoring.ts 复用(cosineSimilarity/tokenize 随 5h-2 降级路径删除,本地副本已无)。
 import { hybridScore, keywordOverlapScore } from "../vector-store/scoring.js";
 import { VectorLibraryServiceError } from "../../contracts/vector-library.js";
@@ -26,6 +27,11 @@ import { VectorLibraryServiceError } from "../../contracts/vector-library.js";
 export { VectorLibraryServiceError } from "../../contracts/vector-library.js";
 export type { VectorSearchResult } from "../../contracts/vector-library.js";
 
+export type VectorLibraryEmbedderFactory = (
+  provider: ModelProviderConfig | null | undefined,
+  modelName: string,
+) => IEmbedder;
+
 export class VectorLibraryService {
   private readonly knowledgeConfig: IKnowledgeConfig;
   /** 知识库文件存储(driver):路由层 CRUD(upload/list/delete/download)直连,业务编排(indexFile/fileStatus)由本 service。 */
@@ -34,6 +40,7 @@ export class VectorLibraryService {
   // 按 vectorizer_key 缓存 embedder,避免每次 search 重复解析 provider 配置。
   // 注:provider 配置(api_key 等)运行时更新后,缓存项持有旧快照——本期接受(重启生效),后续可加失效。
   private readonly embedderCache = new Map<string, IEmbedder>();
+  private readonly embedderFactory: VectorLibraryEmbedderFactory;
 
   constructor(
     private readonly modelAdapter: ModelAdapterService,
@@ -41,6 +48,7 @@ export class VectorLibraryService {
       vectorStore?: IVectorStore | undefined;
       knowledgeConfig?: IKnowledgeConfig | undefined;
       knowledgeFileStore?: IKnowledgeFileStore | undefined;
+      embedderFactory?: VectorLibraryEmbedderFactory | undefined;
     } = {},
   ) {
     if (!options.knowledgeConfig) {
@@ -52,6 +60,7 @@ export class VectorLibraryService {
     this.knowledgeConfig = options.knowledgeConfig;
     this.knowledgeFileStore = options.knowledgeFileStore;
     this.vectorStore = options.vectorStore;
+    this.embedderFactory = options.embedderFactory ?? createEmbedder;
   }
 
   close(): void {
@@ -488,7 +497,7 @@ export class VectorLibraryService {
     if (!this.vectorStore) {
       return [];
     }
-    const vectors = await this.embedWithFallback(vectorizer, [query]);
+    const vectors = await this.embed(vectorizer, [query]);
     const queryVector = vectors[0];
     if (!queryVector) {
       return [];
@@ -527,27 +536,15 @@ export class VectorLibraryService {
     }
     const providerKey = vectorizer.provider_key;
     const provider = providerKey && providerKey !== "local" ? this.modelAdapter.getProvider(providerKey) : null;
-    const embedder = createEmbedder(provider, vectorizer.model_name);
+    const embedder = this.embedderFactory(provider, vectorizer.model_name);
     this.embedderCache.set(vectorizer.vectorizer_key, embedder);
     return embedder;
   }
 
-  /**
-   * embedder 嵌入,失败时该 vectorizer 降级到本地 hash 并缓存(替换原 embedder)。
-   * 降级缓存保证 index/search 同一 vectorizer 用同一 embedder——避免真模型(如 1536 维)与 hash(64 维)
-   * 混用导致 driver 维度冲突。生产 embedding provider 故障(网络/key/配额)时退化为可用(hash 语义无效),
-   * console.warn 暴露降级,重启后缓存清、恢复真 embedder。开发期可接受;稳定环境 provider 不应故障。
-   */
-  private async embedWithFallback(vectorizer: StoredVectorizer, texts: string[]): Promise<number[][]> {
+  /** 远端 provider 失败时显式失败，禁止把无效 hash 向量伪装成成功的语义索引。 */
+  private async embed(vectorizer: StoredVectorizer, texts: string[]): Promise<number[][]> {
     const embedder = await this.resolveEmbedder(vectorizer);
-    try {
-      return await embedder.embed(texts);
-    } catch (error) {
-      console.warn(`[vector-store] embedder(${embedder.key}) 失败,vectorizer 降级 hash 重嵌:`, error);
-      const fallback = new HashFallbackEmbedder();
-      this.embedderCache.set(vectorizer.vectorizer_key, fallback);
-      return fallback.embed(texts);
-    }
+    return embedder.embed(texts);
   }
 
   async getModelStats(modelId: number): Promise<{
@@ -677,8 +674,8 @@ export class VectorLibraryService {
       input.documentId,
       input.vectorizer.model_id,
     );
-    // 真 embedder 批量嵌入(一次调用替逐 chunk 嵌入);失败降级 hash 并缓存,保证 index/search 维度一致。
-    const vectors = await this.embedWithFallback(input.vectorizer, chunks);
+    // 真 embedder 批量嵌入（一次调用替代逐 chunk 嵌入）；provider 失败时直接终止索引。
+    const vectors = await this.embed(input.vectorizer, chunks);
     const records: VectorRecord[] = [];
     for (const [index, chunk] of chunks.entries()) {
       const metadata = {
@@ -709,7 +706,7 @@ export class VectorLibraryService {
     if (chunks.length === 0 || !this.vectorStore) {
       return;
     }
-    const vectors = await this.embedWithFallback(vectorizer, chunks.map((chunk) => chunk.content));
+    const vectors = await this.embed(vectorizer, chunks.map((chunk) => chunk.content));
     const records: VectorRecord[] = [];
     for (const [index, chunk] of chunks.entries()) {
       records.push({

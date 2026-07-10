@@ -89,11 +89,6 @@ const currentInjections = computed(() => {
   return runId ? (props.injectionsByRunId[runId] || []) : []
 })
 
-function isErrorStatusItem(item) {
-  if (!item) return false
-  const type = String(item.type || item.kind || item.status || '').toLowerCase()
-  return type === 'error' || type === 'failed'
-}
 </script>
 
 <style scoped>

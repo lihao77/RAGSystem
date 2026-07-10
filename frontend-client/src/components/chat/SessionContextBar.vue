@@ -65,7 +65,7 @@ import { useThemeStore } from '../../stores/theme.js';
 
 const themeStore = useThemeStore();
 
-const props = defineProps({
+defineProps({
   currentSessionId: { type: String, default: '' },
   isExportingSession: { type: Boolean, default: false },
   scrolled: { type: Boolean, default: false },

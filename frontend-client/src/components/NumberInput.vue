@@ -19,7 +19,7 @@
       class="step-btn step-btn--dec"
       type="button"
       :disabled="disabled || internalValue <= min"
-      @click="step(-1)"
+      @click="adjustValue(-1)"
       tabindex="-1"
     >
       <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
@@ -32,7 +32,7 @@
       class="step-btn step-btn--inc"
       type="button"
       :disabled="disabled || internalValue >= max"
-      @click="step(1)"
+      @click="adjustValue(1)"
       tabindex="-1"
     >
       <IconPlus :size="12" :stroke-width="2.5" />
@@ -41,7 +41,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import IconPlus from './icons/IconPlus.vue';
 
 const props = defineProps({
@@ -66,7 +66,7 @@ function clamp(val) {
   return val;
 }
 
-function step(dir) {
+function adjustValue(dir) {
   const next = clamp((props.modelValue ?? 0) + dir * props.step);
   emit('update:modelValue', next);
 }

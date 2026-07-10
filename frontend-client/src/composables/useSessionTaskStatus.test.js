@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ref } from 'vue';
 import MockAdapter from 'axios-mock-adapter';
 import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 

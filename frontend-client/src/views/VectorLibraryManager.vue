@@ -765,7 +765,6 @@
 
 <script setup>
 import { computed, h, onMounted, reactive, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
 import PageLayout from '../components/PageLayout.vue';
 import IconRefresh from '../components/icons/IconRefresh.vue';
 import IconPlus from '../components/icons/IconPlus.vue';
@@ -804,12 +803,10 @@ import { Textarea } from '../components/ui/textarea';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 
-const props = defineProps({
+defineProps({
     embedded: { type: Boolean, default: false },
     chatReturnPath: { type: String, default: '/' },
 });
-
-const router = useRouter();
 
 const toast = useToast();
 const { confirm } = useConfirm();
@@ -1306,6 +1303,7 @@ const rerankers = ref([]);
 const rerankersLoading = ref(false);
 const activatingReranker = ref('');
 const deletingReranker = ref('');
+const showAddRerankerDialog = ref(false);
 const addingReranker = ref(false);
 const addRerankerForm = reactive({
     mode: 'model',

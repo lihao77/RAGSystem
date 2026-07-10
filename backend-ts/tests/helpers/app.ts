@@ -5,6 +5,7 @@ import type { AppEnv } from "../../src/config/env.js";
 import { createRuntimeContainer } from "../../src/services/runtime/runtime-container.js";
 import type { AgentExecutionLogger } from "../../src/services/agent/execution/index.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
+import { HashFallbackEmbedder } from "../../src/services/integrations/embedder-registry.js";
 import { makeTempRoot } from "./temp-db.js";
 
 /**
@@ -50,6 +51,7 @@ export async function buildTestHarness(
     logger: options.logger,
     ...(options.hooks ? { hooks: options.hooks } : {}),
     ...(options.widgetJwtSecret ? { widgetJwtSecret: options.widgetJwtSecret } : {}),
+    embedderFactory: () => new HashFallbackEmbedder(),
   });
   const app = await buildApp({ env: testEnv, container });
   await app.ready();

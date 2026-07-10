@@ -58,7 +58,7 @@
 <script setup>
 import { computed } from 'vue';
 
-const props = defineProps({
+defineProps({
   size: {
     type: [Number, String],
     default: 32

@@ -34,7 +34,7 @@ import MapRenderer from './MapRenderer.vue';
 import SituationBar from './SituationBar.vue';
 import FloatingChatPanel from './FloatingChatPanel.vue';
 
-const props = defineProps({
+defineProps({
   artifactId: { type: String, default: '' },
   mapData: { type: Object, default: () => ({}) },
   messages: { type: Array, default: () => [] },

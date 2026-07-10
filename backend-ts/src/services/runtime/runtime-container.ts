@@ -34,7 +34,7 @@ import { PermissionPolicyService } from "./permission-policy-service.js";
 import { RuntimeCoreService } from "../agent/execution/runtime-core-service.js";
 import { SystemConfigService } from "../config/system-config-service.js";
 import { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
-import { VectorLibraryService } from "../knowledge/vector-library-service.js";
+import { VectorLibraryService, type VectorLibraryEmbedderFactory } from "../knowledge/vector-library-service.js";
 import { createVectorStoreFromConfig } from "../vector-store/vector-store-factory.js";
 import type { IVectorStore } from "../../contracts/vector-store/index.js";
 import { OutboxDispatcher } from "./event-outbox/dispatcher.js";
@@ -108,6 +108,8 @@ export interface RuntimeContainerOptions {
   hooks?: ((registry: HookRegistry) => void) | undefined;
   /** widget JWT 签名密钥（optional）。非空才启用 widget 鉴权与受约束会话签发。 */
   widgetJwtSecret?: string | undefined;
+  /** 测试或离线运行可注入确定性 embedder；生产默认按 provider 配置解析。 */
+  embedderFactory?: VectorLibraryEmbedderFactory | undefined;
 }
 
 export function createRuntimeContainer(options: RuntimeContainerOptions): RuntimeContainer {
@@ -160,6 +162,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     vectorStore,
     knowledgeConfig: vectorStore,
     knowledgeFileStore: vectorStore,
+    ...(options.embedderFactory ? { embedderFactory: options.embedderFactory } : {}),
   });
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   const embeddingModels = new EmbeddingModelService(vectorLibrary);

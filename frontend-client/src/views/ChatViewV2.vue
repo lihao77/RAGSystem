@@ -339,7 +339,6 @@ const {
   normalizeAssistantExecutionState,
   hasExecutionContent,
   applyEnvelopeToMessage,
-  ensureExecutionStepsLoaded,
   toggleExecutionView,
   createAssistantMessageFromHistory,
   isRootEvent,
@@ -443,14 +442,14 @@ const chatMainClasses = computed(() => ({
 }));
 
 const {
-  invalidateActiveStream, scheduleCommandFallback, clearCommandFallback,
-  clearSessionResumeRecovery, scheduleSessionResumeRecovery,
+  invalidateActiveStream, scheduleCommandFallback,
+  scheduleSessionResumeRecovery,
   connectSessionWS, disconnectSessionWS, resetSessionEventCursor,
   resetStreamSessionState,
   send: sendSessionMessage,
   stop: handleStop,
   respondInteraction,
-  mergeExecutionObservability, refreshSessionExecutionState, beginOptimisticExecutionState,
+  mergeExecutionObservability,
 } = useSessionAgentClient({
   createAssistantMessage,
   cacheMessages,

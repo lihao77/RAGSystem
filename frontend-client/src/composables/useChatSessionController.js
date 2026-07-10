@@ -127,7 +127,7 @@ export function useChatSessionController(deps) {
     try {
       const { blob, headers } = await exportSession(sessionId);
       const contentDisposition = headers?.get?.('content-disposition') || '';
-      const match = contentDisposition.match(/filename\*?=(?:UTF-8''|")?([^\";]+)/i);
+      const match = contentDisposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
       const filename = match
         ? decodeURIComponent(match[1].replace(/"/g, '').trim())
         : `session_${sessionId}.json`;

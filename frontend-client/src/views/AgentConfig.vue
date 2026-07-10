@@ -715,7 +715,7 @@ import IconDownload from '../components/icons/IconDownload.vue';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { useToast } from '../composables/useToast.js';
-const props = defineProps({
+defineProps({
   embedded: { type: Boolean, default: false },
   chatReturnPath: { type: String, default: '/' },
 });

@@ -2,7 +2,7 @@
   <Sheet :open="visible" @update:open="onOpenChange">
     <SheetContent side="right" class="flex w-[520px] max-w-[90vw] flex-col gap-0 p-0 sm:max-w-[520px]">
       <div class="ctx-drawer-header">
-        <h3>上下文快照</h3>
+        <SheetTitle class="ctx-drawer-title">上下文快照</SheetTitle>
       </div>
 
       <div v-if="loading" class="ctx-loading"><span class="g-spinner"></span>加载中...</div>
@@ -134,7 +134,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
-import { Sheet, SheetContent } from './ui/sheet';
+import { Sheet, SheetContent, SheetTitle } from './ui/sheet';
 import { getContextSnapshot } from '../api/session';
 
 const props = defineProps({
@@ -197,7 +197,7 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 
 <style scoped>
 .ctx-drawer-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--color-border, #e4e7ed); flex-shrink: 0; }
-.ctx-drawer-header h3 { margin: 0; font-size: 15px; }
+.ctx-drawer-title { margin: 0; font-size: 15px; }
 .ctx-drawer-body { flex: 1; overflow-y: auto; padding: 14px 18px; }
 .ctx-loading, .ctx-error { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 40px; color: var(--color-text-muted, #999); }
 .ctx-error { color: var(--color-error); }

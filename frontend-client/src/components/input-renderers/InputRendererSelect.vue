@@ -25,7 +25,7 @@
 import { nextTick } from 'vue';
 import IconCheck from '../icons/IconCheck.vue';
 
-const props = defineProps({
+defineProps({
   modelValue: { type: String, default: '' },
   options:    { type: Array,  default: () => [] },
   extra:      { type: Object, default: () => ({}) },

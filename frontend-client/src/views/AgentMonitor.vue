@@ -191,7 +191,6 @@ import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import { Button } from '../components/ui/button';
-import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import {
@@ -204,7 +203,6 @@ defineProps({
   chatReturnPath: { type: String, default: '/' },
 });
 
-const toast = useToast();
 const { confirm } = useConfirm();
 
 const SVG = { xmlns: 'http://www.w3.org/2000/svg', width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
