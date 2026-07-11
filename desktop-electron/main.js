@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
@@ -18,6 +18,17 @@ const APP_ICON = path.join(__dirname, 'build', 'icon.ico')
 let mainWindow = null
 let backendProcess = null
 let actualPort = PREFERRED_PORT
+
+ipcMain.handle('dialog:select-project-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    title: '选择项目文件夹',
+  })
+  if (result.canceled || !result.filePaths[0]) {
+    return { canceled: true, path: null }
+  }
+  return { canceled: false, path: result.filePaths[0] }
+})
 
 function isPortInUse(port) {
   return new Promise((resolve) => {

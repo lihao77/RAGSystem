@@ -1,3 +1,5 @@
+import fs from "node:fs";
+
 import type { PaginatedResult } from "../../contracts/common.js";
 import { normalizeSessionMetadata, type MessageInfo, type SessionInfo, type SessionListItem } from "../../contracts/session.js";
 import type { IMessageStore, IRunStore, ISessionStore, RunInfo } from "../../contracts/conversation-store/index.js";
@@ -7,6 +9,13 @@ import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "../runtime/event-outbox/execution-envelope-archive.js";
 import type { TransientArtifactService } from "../artifacts/transient-artifact-service.js";
 import { assertSafeSessionId } from "../../contracts/session-id.js";
+
+export class WorkspaceRootValidationError extends Error {
+  constructor(workspaceRoot: string) {
+    super(`metadata.workspace_root 必须是已存在的目录: ${workspaceRoot}`);
+    this.name = "WorkspaceRootValidationError";
+  }
+}
 
 export class AgentSessionApplication {
   constructor(
@@ -22,6 +31,7 @@ export class AgentSessionApplication {
   }): { session_id: string; user_id: string | null; metadata: Record<string, unknown> } {
     assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
+    assertWorkspaceRootExists(metadata);
     this.conversationStore.createSession(input.sessionId, input.userId ?? null, metadata);
     return {
       session_id: input.sessionId,
@@ -369,6 +379,19 @@ export class AgentSessionApplication {
       .listMessagesBeforeOrAtSeq(sessionId, targetMessage.seq, 20)
       .find((message) => message.role === "user" && isVisibleRootMessage(message)) ?? null;
   }
+}
+
+function assertWorkspaceRootExists(metadata: Record<string, unknown>): void {
+  const workspaceRoot = metadata.workspace_root;
+  if (typeof workspaceRoot !== "string" || !workspaceRoot) {
+    return;
+  }
+  try {
+    if (fs.statSync(workspaceRoot).isDirectory()) {
+      return;
+    }
+  } catch {}
+  throw new WorkspaceRootValidationError(workspaceRoot);
 }
 
 function isVisibleRootMessage(item: MessageInfo): boolean {

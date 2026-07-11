@@ -13,6 +13,7 @@ import {
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import { ZodError } from "zod";
+import { WorkspaceRootValidationError } from "../../services/sessions/index.js";
 
 interface SessionParams {
   sessionId: string;
@@ -25,12 +26,19 @@ interface MessageParams extends SessionParams {
 export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.post("/sessions", async (request) => {
     const payload = CreateSessionRequestSchema.parse(request.body);
-    const session = options.container.sessionApplication.createSession({
-      sessionId: payload.session_id?.trim() || randomUUID(),
-      userId: payload.user_id ?? null,
-      metadata: payload.metadata,
-    });
-    return ok(session, "会话创建成功");
+    try {
+      const session = options.container.sessionApplication.createSession({
+        sessionId: payload.session_id?.trim() || randomUUID(),
+        userId: payload.user_id ?? null,
+        metadata: payload.metadata,
+      });
+      return ok(session, "会话创建成功");
+    } catch (error) {
+      if (error instanceof WorkspaceRootValidationError) {
+        throw new HttpError(400, "invalid_request", error.message);
+      }
+      throw error;
+    }
   });
 
   app.get("/sessions", async (request) => {

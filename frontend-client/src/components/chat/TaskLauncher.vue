@@ -22,6 +22,15 @@
         @blur="emit('update:workspaceRoot', normalizeWorkspaceRootInput($event.target.value))"
       />
     </label>
+    <button
+      v-if="isDesktop"
+      type="button"
+      class="project-picker-button"
+      title="打开项目文件夹"
+      @click="selectProjectFolder"
+    >
+      打开项目
+    </button>
   </section>
 </template>
 
@@ -29,7 +38,7 @@
 import CustomSelect from '../ui/CustomSelect.vue';
 import { Input } from '../ui/input';
 
-defineProps({
+const props = defineProps({
   entryAgent: { type: String, default: '' },
   entryAgentOptions: { type: Array, default: () => [] },
   entryAgentLoading: { type: Boolean, default: false },
@@ -41,6 +50,15 @@ const emit = defineEmits([
   'update:entryAgent',
   'update:workspaceRoot',
 ]);
+
+const isDesktop = typeof window !== 'undefined' && typeof window.ragsystemDesktop?.selectProjectFolder === 'function';
+
+const selectProjectFolder = async () => {
+  const result = await window.ragsystemDesktop.selectProjectFolder();
+  if (!result?.canceled && result?.path) {
+    emit('update:workspaceRoot', props.normalizeWorkspaceRootInput(result.path).replaceAll('\\', '/'));
+  }
+};
 </script>
 
 <style scoped>
@@ -83,6 +101,24 @@ const emit = defineEmits([
 .setup-field--path {
   width: min(230px, 34vw);
   flex: 1 1 170px;
+}
+
+.project-picker-button {
+  height: 32px;
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-elevated);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.project-picker-button:hover {
+  border-color: var(--color-border-hover);
+  color: var(--color-text-primary);
 }
 
 .setup-field input {
@@ -149,6 +185,10 @@ const emit = defineEmits([
   }
 
   .setup-field {
+    height: 30px;
+  }
+
+  .project-picker-button {
     height: 30px;
   }
 

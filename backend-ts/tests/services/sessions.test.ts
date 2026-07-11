@@ -56,28 +56,37 @@ describe("AgentSessionApplication", () => {
   it("normalizes Python-compatible session runtime metadata", () => {
     const store = createConversationStore({ dbPath: ":memory:" });
     const app = new AgentSessionApplication(store);
-    const workspaceRoot = path.resolve("workspace-demo");
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-workspace-"));
+    try {
+      const created = app.createSession({
+        sessionId: "s-meta",
+        metadata: {
+          team: "  ",
+          entry_agent: "  orchestrator  ",
+          workspace_root: `\"${workspaceRoot}\"`,
+        },
+      });
 
-    const created = app.createSession({
-      sessionId: "s-meta",
-      metadata: {
-        team: "  ",
-        entry_agent: "  orchestrator  ",
-        workspace_root: `\"${workspaceRoot}\"`,
-      },
-    });
-
-    expect(created.metadata).toEqual({
-      entry_agent: "orchestrator",
-      workspace_root: workspaceRoot,
-    });
-    expect(() =>
-      app.createSession({
-        sessionId: "s-invalid",
-        metadata: { workspace_root: "relative/path" },
-      }),
-    ).toThrow("metadata.workspace_root 必须是绝对路径");
-    store.close();
+      expect(created.metadata).toEqual({
+        entry_agent: "orchestrator",
+        workspace_root: workspaceRoot,
+      });
+      expect(() =>
+        app.createSession({
+          sessionId: "s-invalid",
+          metadata: { workspace_root: "relative/path" },
+        }),
+      ).toThrow("metadata.workspace_root 必须是绝对路径");
+      expect(() =>
+        app.createSession({
+          sessionId: "s-missing-workspace",
+          metadata: { workspace_root: path.join(workspaceRoot, "missing") },
+        }),
+      ).toThrow("metadata.workspace_root 必须是已存在的目录");
+    } finally {
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+      store.close();
+    }
   });
 
   it("filters hidden, intermediate, child, and non-root messages like Python", () => {
