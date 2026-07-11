@@ -15,6 +15,8 @@ export {
   DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOLS,
 } from "./types.js";
 export { AgentContextBuilder } from "./context-builder.js";
+export { buildBackendAgentContext, type BuildBackendAgentContextOptions } from "./backend-context-builder.js";
+export { previewBackendAgentContext } from "./context-snapshot-service.js";
 export { ProviderCacheTracker, DEFAULT_PROVIDER_CACHE_TTL_SECONDS } from "./provider-cache-tracker.js";
 export { RecentMessagesContextSource } from "./recent-messages-source.js";
 export {

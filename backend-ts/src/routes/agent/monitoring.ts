@@ -5,10 +5,9 @@ import { ok } from "../../contracts/common.js";
 import type { OutboxStatus } from "../../contracts/conversation-store/index.js";
 import { MSG_TYPE } from "../../contracts/message-kinds.js";
 import { resolveContextCompressionSettings } from "../../services/agent/context-compression/index.js";
-import { createRuntime, createToolRegistry, resolveContextBudget } from "@ragsystem/agent-sdk";
+import { createToolRegistry, resolveContextBudget } from "@ragsystem/agent-sdk";
 import { projectAgentProfile } from "../../services/agent/sdk/projection.js";
-import { buildMemoryIndexContextSourceOptions, MemoryIndexContextSource, isMemoryEnabled } from "../../services/agent/memory/index.js";
-import { AgentContextBuilder, createDefaultProjectionRegistry, DEFAULT_PROVIDER_CACHE_TTL_SECONDS, HISTORY_SCAN_LIMIT, ProviderCacheTracker, RecentMessagesContextSource, type ConversationHistoryPort, type SessionMetadataPort } from "../../services/agent/context/index.js";
+import { HISTORY_SCAN_LIMIT, previewBackendAgentContext, type ConversationHistoryPort, type SessionMetadataPort } from "../../services/agent/context/index.js";
 import { createBackendTools } from "../../tools/registry.js";
 import { PathApprovalService } from "../../services/runtime/path-service.js";
 import type { ChatMessage, ChatToolCall } from "@ragsystem/agent-llm";
@@ -152,33 +151,16 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       },
       updateSessionMetadata: (sid, patch) => options.container.conversationStore.updateSessionMetadata(sid, patch),
     };
-    const memorySources = isMemoryEnabled(agent.memory)
-      ? [new MemoryIndexContextSource(
-          historyPort,
-          agent.memory,
-          agent.agent_name,
-          buildMemoryIndexContextSourceOptions(options.container.systemConfig.getMemoryConfig(), options.container.dataRoot),
-        )]
-      : [];
-    const extensionRegistry = createDefaultProjectionRegistry();
-    const recentSource = new RecentMessagesContextSource(historyPort, profile.llmTiers.default?.provider.supports_vision === true, extensionRegistry);
-    const cacheTracker = new ProviderCacheTracker(
-      historyPort,
-      profile.llmTiers.default?.provider.cache_ttl_seconds ?? DEFAULT_PROVIDER_CACHE_TTL_SECONDS,
-    );
-    const contextBuilder = new AgentContextBuilder([...memorySources, recentSource], cacheTracker);
-    const built = sessionId
-      ? contextBuilder.buildContext({ sessionId, threadKey: threadKey ?? "root", microcompact: true }, { touch: false })
+    const snapshot = sessionId
+      ? previewBackendAgentContext(agent, profile, historyPort, registry, {
+          memoryConfig: options.container.systemConfig.getMemoryConfig(),
+          dataRoot: options.container.dataRoot,
+          sessionId,
+          threadKey,
+        })
       : null;
-    const runtime = createRuntime({
-      profile,
-      tools: registry,
-      dataRoot: options.container.dataRoot,
-    });
-    const preview = sessionId && built
-      ? runtime.preview({ sessionId, ...(threadKey ? { threadKey } : {}), conversation: built.conversation })
-      : null;
-    runtime.close();
+    const built = snapshot?.built ?? null;
+    const preview = snapshot?.preview ?? null;
 
     const memorySnapshot = getMemorySnapshot(built?.metadata.sources ?? []);
     // conversation_history 走 LLM 实际收到的 conversation 投影后 content(prompt 命令展开 / 图片 ContentPart)。

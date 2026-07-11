@@ -1,6 +1,6 @@
 /** @ragsystem/agent-sdk 公共导出。 */
 export { createRuntime } from "./runtime.js";
-export type { CreateRuntimeOptions, RunInput, RunHandle } from "./runtime.js";
+export type { CreateRuntimeOptions, PreviewInput, PreviewResult, RunInput, RunHandle } from "./runtime.js";
 // 事件 Hook 系统
 export { createHookRegistry, EMPTY_HOOK_OUTPUT } from "./hooks/index.js";
 export type { HookEvent, HookHandler, HookInputMap, HookOutputMap, HookRegistry, HookDecision, ToolBeforeOutput, ToolAfterOutput, RoundBeforeOutput, BaseHookOutput, RunBeforeInput, RunAfterInput, RoundBeforeInput, RoundAfterInput, ToolBeforeInput, ToolAfterInput, ToolErrorInput } from "./hooks/index.js";

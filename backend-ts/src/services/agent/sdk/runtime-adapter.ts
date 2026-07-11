@@ -25,9 +25,9 @@ import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
 import { KernelEventPersister } from "./event-persister.js";
-import { AgentContextBuilder, createDefaultProjectionRegistry, DEFAULT_PROVIDER_CACHE_TTL_SECONDS, HISTORY_SCAN_LIMIT, ProviderCacheTracker, RecentMessagesContextSource, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
+import { buildBackendAgentContext, HISTORY_SCAN_LIMIT, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
-import { buildMemoryIndexContextSourceOptions, MemoryIndexContextSource, isMemoryEnabled, memoryBaselineKey } from "../memory/index.js";
+import { memoryBaselineKey } from "../memory/index.js";
 import { registerGateHook } from "./gate-hook.js";
 import { PathApprovalService } from "../../../services/runtime/path-service.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
@@ -190,22 +190,12 @@ export async function executeRunWithSdk(
     updateSessionMetadata: (sid: string, patch: Record<string, unknown>) =>
       sessionMetadata.updateSessionMetadata?.(sid, patch) ?? null,
   };
-  const memorySources = isMemoryEnabled(input.agent.memory)
-    ? [new MemoryIndexContextSource(
-        historyPort,
-        input.agent.memory,
-        input.agent.agent_name,
-        buildMemoryIndexContextSourceOptions(deps.memoryConfig, deps.dataRoot),
-      )]
-    : [];
-  const extensionRegistry = createDefaultProjectionRegistry();
-  const recentSource = new RecentMessagesContextSource(historyPort, profile.llmTiers.default?.provider.supports_vision === true, extensionRegistry);
-  const cacheTracker = new ProviderCacheTracker(
-    historyPort,
-    profile.llmTiers.default?.provider.cache_ttl_seconds ?? DEFAULT_PROVIDER_CACHE_TTL_SECONDS,
-  );
-  const contextBuilder = new AgentContextBuilder([...memorySources, recentSource], cacheTracker);
-  const built = contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true });
+  const { built, contextBuilder, cacheTracker } = buildBackendAgentContext(input.agent, profile, historyPort, {
+    memoryConfig: deps.memoryConfig,
+    dataRoot: deps.dataRoot,
+    sessionId: input.sessionId,
+    threadKey: input.threadKey,
+  });
   const conversation = built.conversation;
   // refresh 水位线:本 run 启动前 store 最后一条消息的 seq;refresh 每轮拉 seq > lastSeq 的新 user 消息(followup 等)。
   let lastSeq = built.rawMessages.reduce(
