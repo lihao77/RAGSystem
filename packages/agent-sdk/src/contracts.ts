@@ -201,13 +201,6 @@ export interface ToolProvider {
   executeRound(ctx: KernelContext, round: number, calls: KernelToolCall[]): Promise<KernelObservation[]>;
 }
 
-/** 工具执行调用（消费端 ToolExecutor 收到的单次调用）。 */
-export interface ToolExecutorCall {
-  toolName: string;
-  arguments: Record<string, unknown>;
-  callId: string;
-}
-
 /** 工具执行上下文（运行时元数据 + 工具生命周期所需的 caller/workspaceRoot）。 */
 export interface ToolExecContext {
   sessionId: string | null;
@@ -244,22 +237,6 @@ export interface ToolWaitResult {
   success: boolean;
   timeout: boolean;
   payloads: Array<Record<string, unknown>>;
-}
-
-/**
- * 工具执行端口（已退役——由 ToolRegistry + Tool 替代）。
- *
- * 保留类型定义仅供消费端过渡期引用（backend-ts SdkToolExecutor 等尚未迁移的适配器）。
- * SDK 内部不再使用；createRuntime 接收 ToolRegistry | Tool[]。
- *
- * @deprecated 使用 Tool + ToolRegistry（from tools/tool.ts + tools/registry.ts）替代。
- */
-export interface ToolExecutor {
-  listTools(): import("./prompt/tool-types.js").RuntimeToolDefinition[];
-  executeTool(call: ToolExecutorCall, ctx: ToolExecContext): ToolExecutionResult | Promise<ToolExecutionResult>;
-  classifyConcurrency?(call: ToolExecutorCall, ctx: ToolExecContext): boolean;
-  waitForToolResult?(request: ToolWaitRequest, ctx: ToolExecContext): ToolWaitResult | Promise<ToolWaitResult>;
-  getToolRiskLevel?(toolName: string): string | undefined;
 }
 
 /** 实时输出导线（穿过 Protocol/Tool 内部），零翻译透传 KernelEvent 给 Dispatcher。 */

@@ -27,8 +27,7 @@ export type { ToolValidationResult, ToolValidationSuccess, ToolValidationFailure
 // Preparer
 export { prepareTool } from "./tools/preparer.js";
 export type { PreparedTool, PrepareResult, ToolPreparerOptions } from "./tools/preparer.js";
-// 端口类型（ToolExecutor deprecated，保留供过渡；新代码用 Tool + ToolRegistry）
-export type { ToolExecutor, ToolExecutorCall, ToolExecContext, ToolWaitRequest, ToolWaitResult, ToolArtifact } from "./contracts.js";
+export type { ToolExecContext, ToolWaitRequest, ToolWaitResult, ToolArtifact } from "./contracts.js";
 export type { RuntimeToolDefinition, RuntimeToolReturns, RuntimeToolExample } from "./prompt/tool-types.js";
 // Prompt 模块（system prompt 构建——与内核 makeContextPort 同源）
 export { buildFullSystemPrompt, getAgentBaseSystemPrompt } from "./prompt/prompt-builder.js";
