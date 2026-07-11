@@ -19,6 +19,7 @@ import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { throwIfAborted } from "@ragsystem/agent-protocol";
 import type { PathApprovalService } from "../../services/runtime/path-service.js";
+import { terminateProcessTree } from "../../services/runtime/process-tree.js";
 
 const TOOL_NAME = "execute_bash";
 const DEFAULT_TIMEOUT_SECONDS = 120;
@@ -449,33 +450,6 @@ function findBashExecutable(): string | null {
     path.join(process.env.ProgramFiles ?? "C:\\Program Files", "Git", "usr", "bin", "bash.exe"),
   ];
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
-}
-
-function terminateProcessTree(pid: number | undefined, force: boolean): void {
-  if (!pid) {
-    return;
-  }
-  if (process.platform === "win32") {
-    const args = ["/pid", String(pid), "/t"];
-    if (force) {
-      args.push("/f");
-    }
-    const killer = spawn("taskkill", args, {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    killer.on("error", () => undefined);
-    return;
-  }
-  try {
-    process.kill(-pid, force ? "SIGKILL" : "SIGTERM");
-  } catch {
-    try {
-      process.kill(pid, force ? "SIGKILL" : "SIGTERM");
-    } catch {
-      // Process already exited.
-    }
-  }
 }
 
 function positiveInt(value: unknown, fallback: number): number {

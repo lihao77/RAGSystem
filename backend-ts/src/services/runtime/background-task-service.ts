@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 
 import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 import { SessionNotificationQueue } from "./session-notification-queue.js";
+import { terminateProcessTree } from "./process-tree.js";
 
 type BackgroundTaskStatus = "running" | "completed" | "failed" | "cancelled";
 
@@ -393,31 +394,4 @@ function asString(value: unknown): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function terminateProcessTree(pid: number | undefined, force: boolean): void {
-  if (!pid) {
-    return;
-  }
-  if (process.platform === "win32") {
-    const args = ["/pid", String(pid), "/t"];
-    if (force) {
-      args.push("/f");
-    }
-    const killer = spawn("taskkill", args, {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    killer.on("error", () => undefined);
-    return;
-  }
-  try {
-    process.kill(-pid, force ? "SIGKILL" : "SIGTERM");
-  } catch {
-    try {
-      process.kill(pid, force ? "SIGKILL" : "SIGTERM");
-    } catch {
-      // Process already exited.
-    }
-  }
 }

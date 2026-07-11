@@ -1,17 +1,10 @@
 import { z } from "zod";
+import { AttachmentRefSchema } from "@ragsystem/agent-protocol";
 
 import { InteractionResponsePayloadSchema } from "./interactions.js";
 import { OptionalSessionIdSchema, RequiredSessionIdSchema } from "./session-id.js";
 
-export const AttachmentRefSchema = z.object({
-  file_id: z.string().min(1),
-  original_name: z.string().nullable().optional(),
-  stored_name: z.string().nullable().optional(),
-  stored_path: z.string().nullable().optional(),
-  mime: z.string().nullable().optional(),
-  size: z.number().int().nonnegative().nullable().optional(),
-  kind: z.string().nullable().optional(),
-});
+export { AttachmentRefSchema } from "@ragsystem/agent-protocol";
 
 export const StreamExecuteRequestSchema = z.object({
   task: z.string().optional().default(""),

@@ -21,12 +21,8 @@ interface TaskExecutionParams {
 }
 
 export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  app.post("/execute", async (request) => {
-    const payload = ExecuteRequestSchema.parse(request.body);
-    const result = await options.container.agentExecution.executeSynchronously(
-      payload,
-      request.headers["x-request-id"]?.toString() ?? randomUUID(),
-    );
+  const executeSynchronously = async (payload: ReturnType<typeof ExecuteRequestSchema.parse>, requestId: string) => {
+    const result = await options.container.agentExecution.executeSynchronously(payload, requestId);
     if (!result.success) {
       throw new HttpError(500, "execution_failed", result.error ?? "任务执行失败");
     }
@@ -40,6 +36,14 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
         session_id: result.session_id,
       },
       "任务执行成功",
+    );
+  };
+
+  app.post("/execute", async (request) => {
+    const payload = ExecuteRequestSchema.parse(request.body);
+    return executeSynchronously(
+      payload,
+      request.headers["x-request-id"]?.toString() ?? randomUUID(),
     );
   });
 
@@ -48,23 +52,9 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
       ...(isRecord(request.body) ? request.body : {}),
       agent: request.params.agentName,
     });
-    const result = await options.container.agentExecution.executeSynchronously(
+    return executeSynchronously(
       payload,
       request.headers["x-request-id"]?.toString() ?? randomUUID(),
-    );
-    if (!result.success) {
-      throw new HttpError(500, "execution_failed", result.error ?? "任务执行失败");
-    }
-    return ok(
-      {
-        answer: result.answer,
-        agent_name: result.agent_name,
-        execution_time: result.execution_time,
-        tool_calls: result.tool_calls,
-        metadata: result.metadata,
-        session_id: result.session_id,
-      },
-      "任务执行成功",
     );
   });
 

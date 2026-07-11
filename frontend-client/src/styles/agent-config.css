@@ -63,9 +63,6 @@
 
 /* ===== Header ===== */
 
-/* legacy - no longer used */
-.config-card__head { display: none; }
-
 .agent-header-select {
   width: clamp(136px, 15vw, 200px);
   flex: 0 1 200px;

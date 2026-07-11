@@ -22,11 +22,6 @@ import { createEmbedder } from "../integrations/embedder-registry.js";
 import { hybridScore, keywordOverlapScore } from "../vector-store/scoring.js";
 import { VectorLibraryServiceError } from "../../contracts/vector-library.js";
 
-// 契约泄漏修复:VectorLibraryServiceError / VectorSearchResult 收编至 contracts/vector-library.ts。
-// 本文件 re-export 保持 KnowledgeTools/routes 的 `from service` import 暂时兼容(Batch 5 改向 contracts)。
-export { VectorLibraryServiceError } from "../../contracts/vector-library.js";
-export type { VectorSearchResult } from "../../contracts/vector-library.js";
-
 export type VectorLibraryEmbedderFactory = (
   provider: ModelProviderConfig | null | undefined,
   modelName: string,

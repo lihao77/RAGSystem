@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import type { VectorLibraryService, VectorSearchResult } from "../../services/knowledge/vector-library-service.js";
+import type { VectorSearchResult } from "../../contracts/vector-library.js";
+import type { VectorLibraryService } from "../../services/knowledge/vector-library-service.js";
 import {
   LIST_KNOWLEDGE_COLLECTIONS_TOOL_NAME,
   SEARCH_KNOWLEDGE_BASE_TOOL_NAME,

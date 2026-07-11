@@ -37,6 +37,7 @@ import {
   type ToolsRegisterPayload,
   DelegatedToolDeclarationSchema,
   DelegateResultPayloadSchema,
+  AttachmentRefSchema,
 } from "@ragsystem/agent-protocol";
 
 export type {
@@ -72,16 +73,6 @@ export { EnvelopeTypeSchema, DelegatedToolDeclarationSchema };
  * 上行 envelope（host → runtime）校验
  * ========================================================== */
 
-const UplinkAttachmentRefSchema = z.object({
-  file_id: z.string().min(1),
-  original_name: z.string().nullable().optional(),
-  stored_name: z.string().nullable().optional(),
-  stored_path: z.string().nullable().optional(),
-  mime: z.string().nullable().optional(),
-  size: z.number().int().nonnegative().nullable().optional(),
-  kind: z.string().nullable().optional(),
-});
-
 /**
  * 上行合法帧：用户驱动变更 / 取消 / 交互响应。
  * session.hello、heartbeat、capability_manifest 等握手/控制帧本期不强求，按需扩展。
@@ -94,7 +85,7 @@ export const ClientToServerEnvelopeSchema = z.discriminatedUnion("type", [
       category: z.enum(["task_submit", "message", "redirect", "env_notice"]),
       task: z.string().optional().default(""),
       selected_llm: z.string().optional(),
-      attachments: z.array(UplinkAttachmentRefSchema).optional().default([]),
+      attachments: z.array(AttachmentRefSchema).optional().default([]),
       request_id: z.string().optional(),
       ui_context: z.record(z.string(), z.unknown()).nullish(),
     }),

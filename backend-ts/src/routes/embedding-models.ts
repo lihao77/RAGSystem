@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 
 import { SyncEmbeddingModelRequestSchema } from "../contracts/embedding-models.js";
 import { EmbeddingModelServiceError } from "../services/knowledge/embedding-model-service.js";
-import { VectorLibraryServiceError } from "../services/knowledge/vector-library-service.js";
+import { VectorLibraryServiceError } from "../contracts/vector-library.js";
 import { HttpError, httpErrorFrom, statusHttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 

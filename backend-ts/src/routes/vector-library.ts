@@ -8,7 +8,7 @@ import {
   VectorizerCreateSchema,
 } from "../contracts/vector-library.js";
 import { ok } from "../contracts/common.js";
-import { VectorLibraryServiceError } from "../services/knowledge/vector-library-service.js";
+import { VectorLibraryServiceError } from "../contracts/vector-library.js";
 import { HttpError, httpErrorFrom } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 

@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 
 import { GenericVectorRequestSchema, SearchVectorsRequestSchema } from "../contracts/vector-library.js";
 import { ok } from "../contracts/common.js";
-import { VectorLibraryServiceError } from "../services/knowledge/vector-library-service.js";
+import { VectorLibraryServiceError } from "../contracts/vector-library.js";
 import { HttpError, httpErrorFrom, statusHttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 import { isRecord } from "../utils/guards.js";
@@ -107,4 +107,3 @@ function normalizeVectorHealth(data: Record<string, unknown>): Record<string, un
     collections_count: data.collections_count ?? 0,
   };
 }
-
