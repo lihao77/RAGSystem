@@ -1,26 +1,26 @@
 <template>
   <div class="message-actions" :class="{ visible }">
-    <template v-if="msg.role === 'user' && editingMessage !== msg">
-      <Button variant="ghost" size="icon-xs" :disabled="isLoading" aria-label="编辑" title="编辑" @click="startEditMessage(msg)">
+    <template v-if="msg.role === 'user' && messageContext.editingMessage !== msg">
+      <Button variant="ghost" size="icon-xs" :disabled="messageContext.isLoading" aria-label="编辑" title="编辑" @click="messageContext.startEditMessage(msg)">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
           <path d="m15 5 4 4" />
         </svg>
       </Button>
-      <Button variant="ghost" size="icon-xs" aria-label="复制" title="复制" @click="copyMessage(msg)">
+      <Button variant="ghost" size="icon-xs" aria-label="复制" title="复制" @click="messageContext.copyMessage(msg)">
         <IconCopy :size="14" />
       </Button>
     </template>
 
     <template v-if="msg.role === 'assistant' && msg.finished">
       <Button
-        v-if="showWorkPanel && hasExecutionContent(msg)"
+        v-if="messageContext.showWorkPanel && hasExecutionContent(msg)"
         variant="ghost"
         size="icon-xs"
-        :active="selectedWorkPanelMessageKey === getWorkPanelMessageKey(msg)"
+        :active="messageContext.selectedWorkPanelMessageKey === messageContext.getWorkPanelMessageKey(msg)"
         aria-label="在工作栏查看执行树"
         title="在工作栏查看执行树"
-        @click="selectWorkPanelMessage(msg)"
+        @click="messageContext.selectWorkPanelMessage(msg)"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M6 3v12" />
@@ -29,17 +29,17 @@
           <circle cx="17" cy="9" r="3" />
         </svg>
       </Button>
-      <Button variant="ghost" size="icon-xs" aria-label="复制" title="复制" @click="copyMessage(msg)">
+      <Button variant="ghost" size="icon-xs" aria-label="复制" title="复制" @click="messageContext.copyMessage(msg)">
         <IconCopy :size="14" />
       </Button>
       <Button
         v-if="retryMessage"
         variant="ghost"
         size="icon-xs"
-        :disabled="isLoading"
+        :disabled="messageContext.isLoading"
         aria-label="重试"
         title="重试"
-        @click="rollbackAndRetry(retryMessage)"
+        @click="messageContext.rollbackAndRetry(retryMessage)"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
@@ -67,18 +67,11 @@ import {
   getMessageExecutionTimeTitle,
   hasExecutionContent,
 } from '../../utils/message-render.js';
+import { inject } from 'vue';
 defineProps({
   msg: { type: Object, required: true },
   visible: { type: Boolean, default: false },
-  showWorkPanel: { type: Boolean, default: false },
-  isLoading: { type: Boolean, default: false },
-  selectedWorkPanelMessageKey: { type: String, default: '' },
   retryMessage: { type: Object, default: null },
-  editingMessage: { type: Object, default: null },
-  startEditMessage: { type: Function, required: true },
-  copyMessage: { type: Function, required: true },
-  getWorkPanelMessageKey: { type: Function, required: true },
-  selectWorkPanelMessage: { type: Function, required: true },
-  rollbackAndRetry: { type: Function, required: true },
 });
+const messageContext = inject('messageContext');
 </script>

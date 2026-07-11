@@ -17,7 +17,7 @@
     </div>
   </div>
 
-  <div v-else-if="editingMessage !== msg" class="user-bubble-wrapper message-view-mode">
+  <div v-else-if="messageContext.editingMessage !== msg" class="user-bubble-wrapper message-view-mode">
     <div class="user-text">{{ msg.content }}</div>
     <div v-if="msg.attachments?.length" class="user-attachments">
       <div
@@ -27,7 +27,7 @@
       >
         <img
           v-if="isImageAttachment(attachment)"
-          :src="getAttachmentPreviewUrl(attachment)"
+          :src="messageContext.getAttachmentPreviewUrl(attachment)"
           :alt="attachment.original_name || attachment.stored_name"
           class="user-attachment-image"
         />
@@ -49,15 +49,15 @@
 
   <div v-else class="message-edit-mode">
     <MessageEditBox
-      :model-value="editingDraft"
-      :attachments="editingAttachmentsDraft"
-      :submitting="editingSubmitting"
-      :session-id="currentSessionId"
+      :model-value="messageContext.editingDraft"
+      :attachments="messageContext.editingAttachmentsDraft"
+      :submitting="messageContext.editingSubmitting"
+      :session-id="messageContext.currentSessionId"
       @update:model-value="emit('update:editingDraft', $event)"
-      @confirm="confirmEditAndResend"
-      @cancel="cancelEdit"
-      @open-attachments="openSessionFilesDrawer('message-edit')"
-      @remove-attachment="removeEditingAttachment"
+      @confirm="messageContext.confirmEditAndResend"
+      @cancel="messageContext.cancelEdit"
+      @open-attachments="messageContext.openSessionFilesDrawer('message-edit')"
+      @remove-attachment="messageContext.removeEditingAttachment"
     />
   </div>
 </template>
@@ -66,20 +66,12 @@
 import MessageEditBox from '../MessageEditBox.vue';
 import { formatAttachmentMeta, isImageAttachment } from '../../utils/sessionAttachments.js';
 import { parseTaskNotifications } from '../../utils/message-render.js';
+import { inject } from 'vue';
 
 defineProps({
   msg: { type: Object, required: true },
-  currentSessionId: { type: String, default: '' },
-  editingMessage: { type: Object, default: null },
-  editingDraft: { type: String, default: '' },
-  editingAttachmentsDraft: { type: Array, default: () => [] },
-  editingSubmitting: { type: Boolean, default: false },
-  getAttachmentPreviewUrl: { type: Function, required: true },
-  confirmEditAndResend: { type: Function, required: true },
-  cancelEdit: { type: Function, required: true },
-  openSessionFilesDrawer: { type: Function, required: true },
-  removeEditingAttachment: { type: Function, required: true },
 });
 
 const emit = defineEmits(['update:editingDraft']);
+const messageContext = inject('messageContext');
 </script>

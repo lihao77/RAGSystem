@@ -12,32 +12,10 @@
       />
       <div class="chat-messages-wrapper" ref="messagesRef" @scroll="handleScroll">
         <ChatMessageList
-          v-model:editing-draft="editingDraft"
           :messages-loading="messagesLoading"
           :messages="messages"
           :visible-messages="visibleMessages"
-          :injections-by-run-id="injectionsByRunId"
-          :current-session-id="currentSessionId || ''"
-          :show-work-panel="visibleWorkPanel"
-          :is-loading="isLoading"
-          :selected-work-panel-message-key="selectedWorkPanelMessageKey"
-          :editing-message="editingMessage"
-          :editing-attachments-draft="editingAttachmentsDraft"
-          :editing-submitting="editingSubmitting"
-          :message-key="messageKey"
-          :toggle-execution-view="toggleExecutionView"
-          :get-assistant-runtime-status-text="getAssistantRuntimeStatusText"
-          :handle-enter-situation="handleEnterSituation"
-          :get-attachment-preview-url="getAttachmentPreviewUrl"
-          :confirm-edit-and-resend="confirmEditAndResend"
-          :cancel-edit="cancelEdit"
-          :open-session-files-drawer="openSessionFilesDrawer"
-          :remove-editing-attachment="removeEditingAttachment"
-          :start-edit-message="startEditMessage"
-          :copy-message="copyMessage"
-          :get-work-panel-message-key="getWorkPanelMessageKey"
-          :select-work-panel-message="selectWorkPanelMessage"
-          :rollback-and-retry="rollbackAndRetry"
+          @update:editing-draft="editingDraft = $event"
           @notify="({ message, type }) => showToast(message, type)"
         >
           <template #empty>
@@ -180,7 +158,7 @@
 </template>
 
 <script setup>
-import { ref, computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, watch, inject } from 'vue';
+import { ref, computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, watch, inject, provide, reactive } from 'vue';
 import { useRoute } from 'vue-router';
 import { shouldRefreshSessionMessagesAfterResume, shouldRunResumeRecoveryWatchdog } from '../utils/sessionSocket';
 import { useChatSessionController } from '../composables/useChatSessionController';
@@ -586,6 +564,33 @@ const {
   messages,
   showToast,
 });
+
+const messageContext = reactive({
+  messageKey,
+  toggleExecutionView,
+  getAssistantRuntimeStatusText,
+  handleEnterSituation,
+  getAttachmentPreviewUrl,
+  confirmEditAndResend,
+  cancelEdit,
+  openSessionFilesDrawer,
+  removeEditingAttachment,
+  startEditMessage,
+  copyMessage,
+  getWorkPanelMessageKey,
+  selectWorkPanelMessage,
+  rollbackAndRetry,
+  currentSessionId,
+  showWorkPanel: visibleWorkPanel,
+  isLoading,
+  selectedWorkPanelMessageKey,
+  editingMessage,
+  editingDraft,
+  editingAttachmentsDraft,
+  editingSubmitting,
+  injectionsByRunId,
+});
+provide('messageContext', messageContext);
 
 // ── end Composables ─────────────────────────────────────────────────────
 

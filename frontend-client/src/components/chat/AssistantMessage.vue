@@ -8,7 +8,7 @@
       <div class="dot"></div>
       <div class="dot"></div>
     </div>
-    <span class="loading-text">{{ getAssistantRuntimeStatusText(msg) || '正在运行...' }}</span>
+    <span class="loading-text">{{ messageContext.getAssistantRuntimeStatusText(msg) || '正在运行...' }}</span>
   </div>
 
   <template v-for="(part, pi) in parseMessageParts(msg)" :key="pi">
@@ -23,7 +23,7 @@
       class="inline-chart-wrapper"
       :data-artifact-id="part.artifactId"
     >
-      <VisualizationLoader :artifactId="part.artifactId" @enter-situation="handleEnterSituation" />
+      <VisualizationLoader :artifactId="part.artifactId" @enter-situation="messageContext.handleEnterSituation" />
     </div>
   </template>
 
@@ -39,12 +39,12 @@
 import MarkdownContent from './MarkdownContent.vue';
 import VisualizationLoader from '../VisualizationLoader.vue';
 import { parseMessageParts } from '../../utils/message-render.js';
+import { inject } from 'vue';
 
 defineProps({
   msg: { type: Object, required: true },
-  getAssistantRuntimeStatusText: { type: Function, required: true },
-  handleEnterSituation: { type: Function, required: true },
 });
 
 const emit = defineEmits(['notify']);
+const messageContext = inject('messageContext');
 </script>

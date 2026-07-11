@@ -22,34 +22,11 @@
       <div v-else key="stream" class="message-stream">
         <ChatMessageItem
           v-for="(msg, index) in visibleMessages"
-          :key="messageKey(msg)"
+          :key="messageContext.messageKey(msg)"
           :msg="msg"
           :index="index"
-          :current-session-id="currentSessionId"
-          :show-work-panel="showWorkPanel"
-          :is-loading="isLoading"
-          :selected-work-panel-message-key="selectedWorkPanelMessageKey"
           :actions-visible="messageActionsVisible === index"
           :retry-message="getRetryMessage(index)"
-          :editing-message="editingMessage"
-          :editing-draft="editingDraft"
-          :editing-attachments-draft="editingAttachmentsDraft"
-          :editing-submitting="editingSubmitting"
-          :message-key="messageKey"
-          :toggle-execution-view="toggleExecutionView"
-          :get-assistant-runtime-status-text="getAssistantRuntimeStatusText"
-          :handle-enter-situation="handleEnterSituation"
-          :get-attachment-preview-url="getAttachmentPreviewUrl"
-          :confirm-edit-and-resend="confirmEditAndResend"
-          :cancel-edit="cancelEdit"
-          :open-session-files-drawer="openSessionFilesDrawer"
-          :remove-editing-attachment="removeEditingAttachment"
-          :start-edit-message="startEditMessage"
-          :copy-message="copyMessage"
-          :get-work-panel-message-key="getWorkPanelMessageKey"
-          :select-work-panel-message="selectWorkPanelMessage"
-          :rollback-and-retry="rollbackAndRetry"
-          :injections-by-run-id="injectionsByRunId"
           @hover="messageActionsVisible = $event"
           @update:editing-draft="emit('update:editingDraft', $event)"
           @notify="emit('notify', $event)"
@@ -60,7 +37,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { inject, ref } from 'vue';
 import { IconLogo } from '../icons';
 import ChatMessageItem from './ChatMessageItem.vue';
 
@@ -68,32 +45,10 @@ const props = defineProps({
   messagesLoading: { type: Boolean, default: false },
   messages: { type: Array, default: () => [] },
   visibleMessages: { type: Array, default: () => [] },
-  currentSessionId: { type: String, default: '' },
-  showWorkPanel: { type: Boolean, default: false },
-  isLoading: { type: Boolean, default: false },
-  selectedWorkPanelMessageKey: { type: String, default: '' },
-  editingMessage: { type: Object, default: null },
-  editingDraft: { type: String, default: '' },
-  editingAttachmentsDraft: { type: Array, default: () => [] },
-  editingSubmitting: { type: Boolean, default: false },
-  messageKey: { type: Function, required: true },
-  toggleExecutionView: { type: Function, required: true },
-  getAssistantRuntimeStatusText: { type: Function, required: true },
-  handleEnterSituation: { type: Function, required: true },
-  getAttachmentPreviewUrl: { type: Function, required: true },
-  confirmEditAndResend: { type: Function, required: true },
-  cancelEdit: { type: Function, required: true },
-  openSessionFilesDrawer: { type: Function, required: true },
-  removeEditingAttachment: { type: Function, required: true },
-  startEditMessage: { type: Function, required: true },
-  copyMessage: { type: Function, required: true },
-  getWorkPanelMessageKey: { type: Function, required: true },
-  selectWorkPanelMessage: { type: Function, required: true },
-  rollbackAndRetry: { type: Function, required: true },
-  injectionsByRunId: { type: Object, default: () => ({}) },
 });
 
 const emit = defineEmits(['update:editingDraft', 'notify']);
+const messageContext = inject('messageContext');
 const messageActionsVisible = ref(null);
 
 function getRetryMessage(index) {
