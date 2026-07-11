@@ -40,65 +40,6 @@ export async function resetMetrics(agentName = null) {
   }
 }
 
-/**
- * 获取会话检查点列表
- * @param {string} sessionId - 会话ID
- * @returns {Promise<Array>} 检查点列表
- */
-export async function getCheckpoints(sessionId) {
-  try {
-    const result = await http.get(`${API_BASE}/sessions/${sessionId}/checkpoints`);
-    const extracted = result.data || result;
-    return extracted.checkpoints || result.data?.checkpoints || [];
-  } catch (error) {
-    console.error('Error fetching checkpoints:', error);
-    throw error;
-  }
-}
-
-/**
- * 从检查点恢复执行
- * @param {string} sessionId - 会话ID
- * @param {string} agentName - 智能体名称
- * @param {string} checkpointId - 可选,检查点ID
- * @returns {Promise<Object>} 恢复结果
- */
-export async function recoverFromCheckpoint(sessionId, agentName, checkpointId = null) {
-  try {
-    const body = {
-      agent_name: agentName
-    };
-
-    if (checkpointId) {
-      body.checkpoint_id = checkpointId;
-    }
-
-    const result = await http.post(`${API_BASE}/sessions/${sessionId}/recover`, body);
-    return result.data || result;
-  } catch (error) {
-    console.error('Error recovering from checkpoint:', error);
-    throw error;
-  }
-}
-
-/**
- * 响应用户审批请求
- * @param {string} approvalId - 审批ID
- * @param {boolean} approved - 是否批准
- * @returns {Promise<Object>} 响应结果
- */
-export async function respondToApproval(approvalId, approved) {
-  try {
-    const result = await http.post(`${API_BASE}/approvals/${approvalId}/respond`, {
-      approved: approved
-    });
-    return result.data || result;
-  } catch (error) {
-    console.error('Error responding to approval:', error);
-    throw error;
-  }
-}
-
 export async function getExecutionOverview(activeOnly = true) {
   try {
     const result = await http.get(`${API_BASE}/execution/overview?active_only=${activeOnly ? 'true' : 'false'}`);

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { IMemoryStore, MemoryScopeSpec, SaveMemoryInput } from "../../src/contracts/memory-store/index.js";
 import { SaveMemoryInputSchema } from "../../src/contracts/memory-store/types.js";
@@ -49,6 +49,25 @@ describe("IMemoryStore 契约", () => {
     const second = store.saveMemory(baseSave("s1", "m1"));
     expect(second.file_name).toBe(first.file_name);
     expect(second.scope).toBe("session");
+  });
+
+  it("saveMemory 覆盖保持原始 created_at（幂等）", () => {
+    const store = build();
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+      store.saveMemory(baseSave("s1", "m1"));
+      const firstEntry = store.listEntries(sessionScope("s1"))[0]!;
+
+      vi.setSystemTime(new Date("2026-01-01T00:01:00.000Z"));
+      store.saveMemory({ ...baseSave("s1", "m1"), content: "updated body" });
+      const secondEntry = store.listEntries(sessionScope("s1"))[0]!;
+
+      expect(secondEntry.created_at).toBe(firstEntry.created_at);
+      expect(secondEntry.updated_at).toBe("2026-01-01T00:01:00Z");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("readEntryFile 不存在返回 null（深合约：非抛异常）", () => {

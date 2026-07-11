@@ -123,7 +123,7 @@ export class MemoryStore implements IMemoryStore {
     const filePath = path.join(scopeRoot, fileName);
     const now = nowIso();
     const existing = fs.existsSync(filePath) ? readEntry(filePath) : null;
-    const createdAt = existing?.updated_at || now;
+    const createdAt = existing?.created_at || now;
     const bodyLines = [input.content.trim()];
     const why = normalizeString(input.why);
     if (why) {
@@ -251,6 +251,7 @@ function readEntry(filePath: string): MemoryEntry | null {
     status: metadata.status ?? "active",
     file_name: path.basename(filePath),
     file_path: filePath,
+    created_at: metadata.created_at ?? "",
     updated_at: metadata.updated_at ?? "",
     body: (match[2] ?? "").trim(),
   };

@@ -63,6 +63,7 @@ export interface MemoryEntry {
   status: string;
   file_name: string;
   file_path: string;
+  created_at: string;
   updated_at: string;
   body: string;
 }
