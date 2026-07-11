@@ -84,42 +84,15 @@ export type AttachmentRef = z.infer<typeof AttachmentRefSchema>;
  * ========================================================== */
 
 /* —— 控制帧 —— */
-export interface HelloPayload {
-  role: "host" | "agent-runtime";
-  protocol: ProtocolDescriptor;
-  capabilities: CapabilityDescriptor;
-}
-export interface HeartbeatPayload {
-  last_seq?: number;
-}
-export interface ReconnectPayload {
-  phase: "start" | "end";
-  replay_count?: number;
-  replay_source?: "durable_outbox" | "memory";
-}
-export interface ErrorPayload {
-  code: string;
-  message: string;
-  ref_call_id?: string;
-}
-export interface AckPayload {
-  ref_message_id?: string;
-  ref_call_id?: string;
-  category: "send" | "stop" | "interaction" | "tool_delegate";
-  ok: boolean;
-  error?: string;
-}
+export type HelloPayload = z.infer<typeof HelloPayloadSchema>;
+export type HeartbeatPayload = z.infer<typeof HeartbeatPayloadSchema>;
+export type ReconnectPayload = z.infer<typeof ReconnectPayloadSchema>;
+export type ErrorPayload = z.infer<typeof ErrorPayloadSchema>;
+export type AckPayload = z.infer<typeof AckPayloadSchema>;
 
 /* —— 生命周期帧 —— */
-export interface RunStartedPayload {
-  request_id?: string;
-  task?: string;
-  source?: string;
-}
-export interface RunEndedPayload {
-  status: "completed" | "failed" | "interrupted";
-  reason?: string;
-}
+export type RunStartedPayload = z.infer<typeof RunStartedPayloadSchema>;
+export type RunEndedPayload = z.infer<typeof RunEndedPayloadSchema>;
 export interface AgentLifecyclePayload {
   phase: "start" | "end";
   task?: string;
@@ -134,44 +107,16 @@ export interface AgentLifecyclePayload {
 }
 
 /* —— 内容流 —— */
-export interface StreamOutputPayload {
-  phase: "first_token" | "delta" | "final" | "intent_delta" | "intent_complete";
-  content?: string;
-  elapsed_ms?: number;
-  round?: number;
-}
+export type StreamOutputPayload = z.infer<typeof StreamOutputPayloadSchema>;
 
 /**
  * 状态同步：外部状态已变更，请对齐本地视图。
  * detail 透传 unknown：command_result / compression 等宿主侧语义不强制 schema。
  */
-export interface StateSyncPayload {
-  category:
-    | "message_saved"
-    | "session_updated"
-    | "context_usage"
-    | "compression"
-    | "command_result"
-    | "retry"
-    | "waiting"
-    | "reflection";
-  ref?: { message_id?: string; seq?: number; role?: string; request_id?: string };
-  metrics?: Record<string, number>;
-  detail?: unknown;
-}
+export type StateSyncPayload = z.infer<typeof StateSyncPayloadSchema>;
 
 /* —— 工具帧（投影通知，后端本地执行） —— */
-export interface ToolCallPayload {
-  tool: string;
-  input?: unknown;
-  phase: "start";
-  status?: "running";
-  /** 工具调用的 ReAct 轮次号（来自 kernel round）；core execution-tree 据此把工具挂到正确 round，
-   *  无 intent 的 round（如纯工具轮）也能正确归属，不再被并入上一个有 intent 的 round。 */
-  round?: number;
-  /** 投影树归属辅助；仅保留 parent_call_id。 */
-  lineage?: { parent_call_id?: string };
-}
+export type ToolCallPayload = z.infer<typeof ToolCallPayloadSchema>;
 export interface ToolResultPayload {
   tool: string;
   phase: "end";
@@ -187,12 +132,7 @@ export interface ToolResultPayload {
 
 /* —— 委托帧（宿主执行，独立语义） —— */
 /** 委托执行指令（后端→前端）：gate 通过后驱动宿主执行。独立于 tool_call（纯通知）。 */
-export interface DelegateCallPayload {
-  tool: string;
-  input?: unknown;
-  phase: "request";
-  lineage?: { parent_call_id?: string };
-}
+export type DelegateCallPayload = z.infer<typeof DelegateCallPayloadSchema>;
 /** 委托执行回传（前端→后端）：宿主执行结果，resolve 委托等待器。 */
 export interface DelegateResultPayload {
   tool: string;
@@ -204,45 +144,15 @@ export interface DelegateResultPayload {
 }
 
 /** tools.register 上行 payload：宿主声明本连接可委托执行的工具清单。 */
-export interface ToolsRegisterPayload {
-  tools: DelegatedToolDeclaration[];
-}
+export type ToolsRegisterPayload = z.infer<typeof ToolsRegisterPayloadSchema>;
 
 /* —— 交互（单一 type，legacy 双发由 adapter 屏蔽） —— */
-export interface InteractionPayload {
-  kind: InteractionKind;
-  /** required=后端→宿主；responded=宿主→后端。 */
-  phase: "required" | "responded";
-  tool?: string;
-  input?: unknown;
-  prompt?: string;
-  risk_level?: RiskLevel;
-  /** kind=approval, phase=responded。 */
-  approved?: boolean;
-  /** kind=user_input, phase=responded。 */
-  value?: string;
-  message?: string;
-}
+export type InteractionPayload = z.infer<typeof InteractionPayloadSchema>;
 
 /* —— 用户驱动 / 取消 / 能力 —— */
-export interface UserDrivenChangePayload {
-  category: "task_submit" | "message" | "redirect" | "env_notice";
-  task?: string;
-  selected_llm?: string;
-  attachments?: AttachmentRef[];
-  /** 协议中唯一的 request_id（用户侧幂等键）；task_id 不进协议。 */
-  request_id?: string;
-}
-export interface AbortPayload {
-  scope: "run" | "tool_call";
-  reason?: string;
-  ref_call_id?: string;
-}
-export interface CapabilityManifestPayload {
-  protocol: ProtocolDescriptor;
-  capabilities: CapabilityDescriptor;
-  diff?: { added?: string[]; removed?: string[] };
-}
+export type UserDrivenChangePayload = z.infer<typeof UserDrivenChangePayloadSchema>;
+export type AbortPayload = z.infer<typeof AbortPayloadSchema>;
+export type CapabilityManifestPayload = z.infer<typeof CapabilityManifestPayloadSchema>;
 
 /* ============================================================
  * 五、zod validator
@@ -290,6 +200,140 @@ export const AttachmentRefSchema = z.object({
   kind: z.string().nullable().optional(),
 });
 
+export const HelloPayloadSchema = z.object({
+  role: z.enum(["host", "agent-runtime"]),
+  protocol: ProtocolDescriptorSchema,
+  capabilities: CapabilityDescriptorSchema,
+});
+
+export const HeartbeatPayloadSchema = z.object({
+  last_seq: z.number().int().nonnegative().optional(),
+});
+
+export const ReconnectPayloadSchema = z.object({
+  phase: z.enum(["start", "end"]),
+  replay_count: z.number().int().nonnegative().optional(),
+  replay_source: z.enum(["durable_outbox", "memory"]).optional(),
+});
+
+export const ErrorPayloadSchema = z.object({
+  code: z.string().min(1),
+  message: z.string(),
+  ref_call_id: z.string().optional(),
+});
+
+export const AckPayloadSchema = z.object({
+  ref_message_id: z.string().optional(),
+  ref_call_id: z.string().optional(),
+  category: z.enum(["send", "stop", "interaction", "tool_delegate"]),
+  ok: z.boolean(),
+  error: z.string().optional(),
+});
+
+export const RunStartedPayloadSchema = z.object({
+  request_id: z.string().optional(),
+  task: z.string().optional(),
+  source: z.string().optional(),
+});
+
+export const RunEndedPayloadSchema = z.object({
+  status: z.enum(["completed", "failed", "interrupted"]),
+  reason: z.string().optional(),
+});
+
+export const StreamOutputPayloadSchema = z.object({
+  phase: z.enum([
+    "first_token",
+    "delta",
+    "final",
+    "intent_delta",
+    "intent_complete",
+  ]),
+  content: z.string().optional(),
+  elapsed_ms: z.number().nonnegative().optional(),
+  round: z.number().int().nonnegative().optional(),
+});
+
+export const StateSyncPayloadSchema = z.object({
+  category: z.enum([
+    "message_saved",
+    "session_updated",
+    "context_usage",
+    "compression",
+    "command_result",
+    "retry",
+    "waiting",
+    "reflection",
+  ]),
+  ref: z
+    .object({
+      message_id: z.string().optional(),
+      seq: z.number().int().nonnegative().optional(),
+      role: z.string().optional(),
+      request_id: z.string().optional(),
+    })
+    .optional(),
+  metrics: z.record(z.number()).optional(),
+  detail: z.unknown().optional(),
+});
+
+export const ToolCallPayloadSchema = z.object({
+  tool: z.string().min(1),
+  input: z.unknown().optional(),
+  phase: z.literal("start"),
+  status: z.literal("running").optional(),
+  round: z.number().int().nonnegative().optional(),
+  lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
+});
+
+export const DelegateCallPayloadSchema = z.object({
+  tool: z.string().min(1),
+  input: z.unknown().optional(),
+  phase: z.literal("request"),
+  lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
+});
+
+export const ToolsRegisterPayloadSchema = z.object({
+  tools: z.array(DelegatedToolDeclarationSchema),
+});
+
+export const InteractionPayloadSchema = z.object({
+  kind: z.enum(["approval", "user_input"]),
+  phase: z.enum(["required", "responded"]),
+  tool: z.string().optional(),
+  input: z.unknown().optional(),
+  prompt: z.string().optional(),
+  risk_level: z.enum(["low", "medium", "high"]).optional(),
+  approved: z.boolean().optional(),
+  value: z.string().optional(),
+  message: z.string().optional(),
+});
+
+export const UserDrivenChangePayloadSchema = z.object({
+  category: z.enum(["task_submit", "message", "redirect", "env_notice"]),
+  task: z.string().optional(),
+  selected_llm: z.string().optional(),
+  attachments: z.array(AttachmentRefSchema).optional(),
+  request_id: z.string().optional(),
+});
+
+export const AbortPayloadSchema = z.object({
+  scope: z.enum(["run", "tool_call"]),
+  reason: z.string().optional(),
+  ref_call_id: z.string().optional(),
+});
+
+export const CapabilityManifestPayloadSchema = z.object({
+  protocol: ProtocolDescriptorSchema,
+  capabilities: CapabilityDescriptorSchema,
+  diff: z
+    .object({
+      added: z.array(z.string()).optional(),
+      removed: z.array(z.string()).optional(),
+    })
+    .optional(),
+});
+
 /**
  * 顶层基础形状（纯 ZodObject，供 HelloEnvelopeSchema 等 extend 复用）。
  *
@@ -325,11 +369,7 @@ export const EnvelopeSchema = ProtocolEnvelopeSchema.superRefine((env, ctx) => {
 export const HelloEnvelopeSchema = ProtocolEnvelopeSchema.extend({
   type: z.literal("session.hello"),
   protocol_version: z.literal("1.0"),
-  payload: z.object({
-    role: z.enum(["host", "agent-runtime"]),
-    protocol: ProtocolDescriptorSchema,
-    capabilities: CapabilityDescriptorSchema,
-  }),
+  payload: HelloPayloadSchema,
 });
 
 export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
@@ -337,46 +377,29 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("heartbeat"),
     session_id: z.string().min(1),
-    payload: z
-      .object({
-        last_seq: z.number().int().nonnegative().optional(),
-      })
-      .optional(),
+    payload: HeartbeatPayloadSchema.optional(),
   }),
   z.object({
     type: z.literal("session.reconnect"),
     session_id: z.string().min(1),
-    payload: z.object({
-      phase: z.enum(["start", "end"]),
-      replay_count: z.number().int().nonnegative().optional(),
-      replay_source: z.enum(["durable_outbox", "memory"]).optional(),
-    }),
+    payload: ReconnectPayloadSchema,
   }),
   z.object({
     type: z.literal("error"),
     session_id: z.string().min(1),
-    payload: z.object({
-      code: z.string().min(1),
-      message: z.string(),
-      ref_call_id: z.string().optional(),
-    }),
+    payload: ErrorPayloadSchema,
   }),
   z.object({
     type: z.literal("run_started"),
     session_id: z.string().min(1),
     run_id: z.string().min(1),
-    payload: z
-      .object({ request_id: z.string().optional(), task: z.string().optional(), source: z.string().optional() })
-      .optional(),
+    payload: RunStartedPayloadSchema.optional(),
   }),
   z.object({
     type: z.literal("run_ended"),
     session_id: z.string().min(1),
     run_id: z.string().min(1),
-    payload: z.object({
-      status: z.enum(["completed", "failed", "interrupted"]),
-      reason: z.string().optional(),
-    }),
+    payload: RunEndedPayloadSchema,
   }),
   z.object({
     type: z.literal("agent_started"),
@@ -417,57 +440,18 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
     run_id: z.string().optional(),
     call_id: z.string().optional(),
     agent_id: z.string().optional(),
-    payload: z.object({
-      phase: z.enum([
-        "first_token",
-        "delta",
-        "final",
-        "intent_delta",
-        "intent_complete",
-      ]),
-      content: z.string().optional(),
-      elapsed_ms: z.number().nonnegative().optional(),
-      round: z.number().int().nonnegative().optional(),
-    }),
+    payload: StreamOutputPayloadSchema,
   }),
   z.object({
     type: z.literal("state_sync"),
     session_id: z.string().min(1),
-    payload: z.object({
-      category: z.enum([
-        "message_saved",
-        "session_updated",
-        "context_usage",
-        "compression",
-        "command_result",
-        "retry",
-        "waiting",
-        "reflection",
-      ]),
-      ref: z
-        .object({
-          message_id: z.string().optional(),
-          seq: z.number().int().nonnegative().optional(),
-          role: z.string().optional(),
-          request_id: z.string().optional(),
-        })
-        .optional(),
-      metrics: z.record(z.number()).optional(),
-      detail: z.unknown().optional(),
-    }),
+    payload: StateSyncPayloadSchema,
   }),
   z.object({
     type: z.literal("tool_call"),
     session_id: z.string().min(1),
     call_id: z.string().min(1),
-    payload: z.object({
-      tool: z.string().min(1),
-      input: z.unknown().optional(),
-      phase: z.literal("start"),
-      status: z.literal("running").optional(),
-      round: z.number().int().nonnegative().optional(),
-      lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
-    }),
+    payload: ToolCallPayloadSchema,
   }),
   z.object({
     type: z.literal("tool_result"),
@@ -493,12 +477,7 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
     type: z.literal("delegate_call"),
     session_id: z.string().min(1),
     call_id: z.string().min(1),
-    payload: z.object({
-      tool: z.string().min(1),
-      input: z.unknown().optional(),
-      phase: z.literal("request"),
-      lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
-    }),
+    payload: DelegateCallPayloadSchema,
   }),
   z.object({
     type: z.literal("delegate_result"),
@@ -517,62 +496,27 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
     type: z.literal("interaction"),
     session_id: z.string().min(1),
     call_id: z.string().min(1),
-    payload: z.object({
-      kind: z.enum(["approval", "user_input"]),
-      phase: z.enum(["required", "responded"]),
-      tool: z.string().optional(),
-      input: z.unknown().optional(),
-      prompt: z.string().optional(),
-      risk_level: z.enum(["low", "medium", "high"]).optional(),
-      approved: z.boolean().optional(),
-      value: z.string().optional(),
-      message: z.string().optional(),
-    }),
+    payload: InteractionPayloadSchema,
   }),
   z.object({
     type: z.literal("user_driven_change"),
     session_id: z.string().min(1),
-    payload: z.object({
-      category: z.enum(["task_submit", "message", "redirect", "env_notice"]),
-      task: z.string().optional(),
-      selected_llm: z.string().optional(),
-      attachments: z.array(AttachmentRefSchema).optional(),
-      request_id: z.string().optional(),
-    }),
+    payload: UserDrivenChangePayloadSchema,
   }),
   z.object({
     type: z.literal("abort"),
     session_id: z.string().min(1),
-    payload: z.object({
-      scope: z.enum(["run", "tool_call"]),
-      reason: z.string().optional(),
-      ref_call_id: z.string().optional(),
-    }),
+    payload: AbortPayloadSchema,
   }),
   z.object({
     type: z.literal("capability_manifest"),
     session_id: z.string().min(1),
-    payload: z.object({
-      protocol: ProtocolDescriptorSchema,
-      capabilities: CapabilityDescriptorSchema,
-      diff: z
-        .object({
-          added: z.array(z.string()).optional(),
-          removed: z.array(z.string()).optional(),
-        })
-        .optional(),
-    }),
+    payload: CapabilityManifestPayloadSchema,
   }),
   z.object({
     type: z.literal("ack"),
     session_id: z.string().min(1),
-    payload: z.object({
-      ref_message_id: z.string().optional(),
-      ref_call_id: z.string().optional(),
-      category: z.enum(["send", "stop", "interaction", "tool_delegate"]),
-      ok: z.boolean(),
-      error: z.string().optional(),
-    }),
+    payload: AckPayloadSchema,
   }),
 ]);
 
