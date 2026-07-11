@@ -175,7 +175,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const memoryTools = new MemoryToolService(memoryStore, conversationStore);
   const documentTools = new LocalDocumentToolService({ dataRoot: options.dataRoot, fileHistory });
   // 后台通知暂存队列（单一数据来源）：backgroundTasks 生产（完成入队）+ launchers.triggerBgNotificationRun
-  // 消费（drain 起 system run）共用同一实例；run-engine 经 backgroundTasks 代理访问。
+  // 消费（drain 起 system run）共用同一实例；执行层直接注入该队列。
   const notificationQueue = new SessionNotificationQueue();
   const backgroundTasks = new BackgroundTaskService({ notificationQueue });
   const toolsConfig = systemConfig.getToolsConfig();
@@ -202,7 +202,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     backgroundTasks,
     clientEvents,
   });
-  const taskTools = new TaskToolService(backgroundTasks, { dataRoot: options.dataRoot });
+  const taskTools = new TaskToolService(backgroundTasks, notificationQueue, { dataRoot: options.dataRoot });
   const pendingInteractions = new PendingInteractionService(clientEvents);
   const hostToolRegistry = new HostToolRegistry();
   const delegationPending = new DelegationPendingService();

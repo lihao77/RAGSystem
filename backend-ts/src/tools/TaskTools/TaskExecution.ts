@@ -2,6 +2,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
+import type { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
 import type { ToolWaitResult as RuntimeToolWaitResult, ToolExecutionResult, ToolExecContext } from "@ragsystem/agent-sdk";
 import { toolSuccess, toolError } from "../../services/agent/sdk/tool-results.js";
 import {
@@ -52,6 +53,7 @@ export class TaskToolService {
 
   constructor(
     private readonly backgroundTasks: BackgroundTaskService,
+    private readonly notificationQueue: SessionNotificationQueue,
     options: { dataRoot?: string | undefined } = {},
   ) {
     this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
@@ -343,7 +345,10 @@ export class TaskToolService {
       const status = asString(snapshot.status) ?? "running";
       if (isBackgroundTerminalStatus(status)) {
         const payload = buildBackgroundNotificationPayload(snapshot, false);
-        this.backgroundTasks.clearPendingNotification(asString(snapshot.session_id), taskId);
+        const sessionId = asString(snapshot.session_id)?.trim();
+        if (sessionId) {
+          this.notificationQueue.markConsumed(sessionId, taskId);
+        }
         return {
           success: payload.success === true,
           timeout: false,

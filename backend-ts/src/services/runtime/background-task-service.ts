@@ -274,20 +274,6 @@ export class BackgroundTaskService {
     return output.slice(0, limit);
   }
 
-  /** @deprecated 代理到 SessionNotificationQueue.drain（保留供 TaskExecution/测试过渡）。 */
-  drainPendingNotifications(sessionId: string, excludeBackgroundTaskIds: string[] = []): BackgroundTaskNotificationPayload[] {
-    return this.notificationQueue.drain(sessionId, new Set(excludeBackgroundTaskIds.map(String)));
-  }
-
-  /** @deprecated 代理到 SessionNotificationQueue.markConsumed（保留供 TaskExecution 过渡）。 */
-  clearPendingNotification(sessionId: string | null | undefined, taskId: string): void {
-    const normalizedSessionId = normalizeString(sessionId);
-    if (!normalizedSessionId) {
-      return;
-    }
-    this.notificationQueue.markConsumed(normalizedSessionId, taskId);
-  }
-
   cancel(taskId: string): boolean {
     const task = this.tasks.get(taskId);
     const proc = this.processes.get(taskId);

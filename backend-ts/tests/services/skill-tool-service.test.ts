@@ -9,6 +9,7 @@ import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import { AgentConfigService } from "../../src/services/agent/config/index.js";
 import { ArtifactService } from "../../src/services/artifacts/artifact-service.js";
 import { BackgroundTaskService } from "../../src/services/runtime/background-task-service.js";
+import { SessionNotificationQueue } from "../../src/services/runtime/session-notification-queue.js";
 import { SkillToolService } from "../../src/tools/SkillTools/SkillExecution.js";
 import { toolContext } from "../helpers/tool-context.js";
 
@@ -379,7 +380,8 @@ describe("SkillToolService", () => {
     writeSkill(skillDir, "demo-skill", "demo description", "# Demo\n");
     fs.mkdirSync(path.join(skillDir, "scripts"), { recursive: true });
     fs.writeFileSync(path.join(skillDir, "scripts", "report.py"), "print('ok')\n", "utf8");
-    const backgroundTasks = new BackgroundTaskService();
+    const notificationQueue = new SessionNotificationQueue();
+    const backgroundTasks = new BackgroundTaskService({ notificationQueue });
     const service = new SkillToolService({
       dataRoot: root,
       builtinSkillsRoot: builtinRoot,
@@ -401,7 +403,7 @@ describe("SkillToolService", () => {
         background_started: false,
       },
     });
-    expect(backgroundTasks.drainPendingNotifications("bg-session")).toEqual([]);
+    expect(notificationQueue.drain("bg-session", new Set())).toEqual([]);
   });
 
   it("does not create a venv in shared isolation mode even with requirements.txt", async () => {

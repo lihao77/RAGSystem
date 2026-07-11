@@ -7,6 +7,7 @@ import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import { EnvelopeSchema } from "@ragsystem/agent-protocol";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
+import type { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
 import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js";
@@ -56,6 +57,7 @@ export class AgentRunEngine {
    /** 已加载的 provider 列表提供者（投影层解析 tier.provider 引用用）。 */
    private readonly providersProvider: () => ModelProviderConfig[],
    private readonly backgroundTasks: BackgroundTaskService | null,
+    private readonly notificationQueue: SessionNotificationQueue,
     private readonly statusTracker: AgentExecutionStatusTracker,
     private readonly eventPublisher: AgentExecutionEventPublisher,
     private readonly outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">,
@@ -429,7 +431,7 @@ export class AgentRunEngine {
  }
 
   private persistBackgroundNotifications(sessionId: string, threadKey: string): void {
-    const payloads = this.backgroundTasks?.drainPendingNotifications(sessionId) ?? [];
+    const payloads = this.notificationQueue.drain(sessionId, new Set());
     for (const payload of payloads) {
       const content = renderBackgroundNotification(payload);
       if (!content.trim()) {

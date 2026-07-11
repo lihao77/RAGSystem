@@ -116,6 +116,7 @@ export function createAgentExecutionService(
   const statusTracker = new AgentExecutionStatusTracker();
   const eventPublisher = new AgentExecutionEventPublisher(params.clientEvents);
   const attachmentResolver = new AttachmentResolver(params.fileIndex ?? null);
+  const notificationQueue = params.notificationQueue ?? new SessionNotificationQueue();
   const slashCommandHandler = new SlashCommandHandler(
     params.sessions,
     statusTracker,
@@ -134,6 +135,7 @@ export function createAgentExecutionService(
    params.taskTools ?? null,
    params.providersProvider,
    params.backgroundTasks ?? null,
+    notificationQueue,
     statusTracker,
     eventPublisher,
     params.outboxDispatcher,
@@ -156,7 +158,7 @@ export function createAgentExecutionService(
     statusTracker,
     eventPublisher,
     runEngine,
-    notificationQueue: params.notificationQueue ?? new SessionNotificationQueue(),
+    notificationQueue,
   });
   const sessionControl = createSessionControl({
     statusTracker,
