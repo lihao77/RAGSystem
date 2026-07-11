@@ -14,10 +14,10 @@ import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
 import {
   externalCallPolicy,
   isRetryableHttpStatus,
+  providerEmbeddingDefaultEndpoint,
   providerCallPolicy,
   RetryableHttpError,
 } from "@ragsystem/agent-llm";
-import { providerEmbeddingDefaultEndpoint } from "./provider-registry.js";
 
 export interface EmbeddingRequest {
   texts: string[];

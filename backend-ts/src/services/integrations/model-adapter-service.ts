@@ -17,7 +17,7 @@ import {
   type ExternalCallMetrics,
   type ProviderConfig,
 } from "@ragsystem/agent-llm";
-import { DEFAULT_ENDPOINTS, PROVIDER_TYPES, PROVIDER_TYPE_SET } from "./provider-registry.js";
+import { DEFAULT_ENDPOINTS, PROVIDER_TYPES, PROVIDER_TYPE_SET } from "@ragsystem/agent-llm";
 
 const PROVIDERS_CONFIG_RELATIVE_PATH = path.join("config", "model_adapter", "providers.yaml");
 

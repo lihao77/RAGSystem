@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
 import type { PathApprovalService } from "../../services/runtime/path-service.js";
+import { isAbsolutePathLike, isPathUnder, resolvePathLike } from "../shared/paths.js";
 
 const DISPLAY_PATH_PREFIX = "./data/";
 
@@ -330,17 +331,6 @@ function documentOperationForTool(toolName: string): ManagedOperation | null {
   return null;
 }
 
-function isAbsolutePathLike(value: string): boolean {
-  return path.isAbsolute(value) || /^[a-zA-Z]:[\\/]/.test(value);
-}
-
-function resolvePathLike(value: string): string {
-  if (process.platform !== "win32" && /^[a-zA-Z]:[\\/]/.test(value)) {
-    return value.replace(/\//g, "\\");
-  }
-  return path.resolve(value);
-}
-
 function dedupePaths(paths: Array<string | null | undefined>): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -356,9 +346,4 @@ function dedupePaths(paths: Array<string | null | undefined>): string[] {
     result.push(resolved);
   }
   return result;
-}
-
-function isPathUnder(candidate: string, root: string): boolean {
-  const relative = path.relative(path.resolve(root), path.resolve(candidate));
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
