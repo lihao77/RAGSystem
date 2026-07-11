@@ -62,6 +62,11 @@
 <script setup>
 import IconCopy from '../icons/IconCopy.vue';
 import { Button } from '../ui/button';
+import {
+  getMessageExecutionTimeText,
+  getMessageExecutionTimeTitle,
+  hasExecutionContent,
+} from '../../utils/message-render.js';
 defineProps({
   msg: { type: Object, required: true },
   visible: { type: Boolean, default: false },
@@ -70,13 +75,10 @@ defineProps({
   selectedWorkPanelMessageKey: { type: String, default: '' },
   retryMessage: { type: Object, default: null },
   editingMessage: { type: Object, default: null },
-  hasExecutionContent: { type: Function, required: true },
   startEditMessage: { type: Function, required: true },
   copyMessage: { type: Function, required: true },
   getWorkPanelMessageKey: { type: Function, required: true },
   selectWorkPanelMessage: { type: Function, required: true },
   rollbackAndRetry: { type: Function, required: true },
-  getMessageExecutionTimeText: { type: Function, required: true },
-  getMessageExecutionTimeTitle: { type: Function, required: true },
 });
 </script>

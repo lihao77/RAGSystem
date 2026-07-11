@@ -25,16 +25,10 @@
           :editing-attachments-draft="editingAttachmentsDraft"
           :editing-submitting="editingSubmitting"
           :message-key="messageKey"
-          :has-execution-content="hasExecutionContent"
           :toggle-execution-view="toggleExecutionView"
           :get-assistant-runtime-status-text="getAssistantRuntimeStatusText"
-          :parse-message-parts="parseMessageParts"
-          :render-markdown="renderMarkdown"
           :handle-enter-situation="handleEnterSituation"
-          :parse-task-notifications="parseTaskNotifications"
-          :is-image-attachment="isImageAttachment"
           :get-attachment-preview-url="getAttachmentPreviewUrl"
-          :format-attachment-meta="formatAttachmentMeta"
           :confirm-edit-and-resend="confirmEditAndResend"
           :cancel-edit="cancelEdit"
           :open-session-files-drawer="openSessionFilesDrawer"
@@ -44,8 +38,6 @@
           :get-work-panel-message-key="getWorkPanelMessageKey"
           :select-work-panel-message="selectWorkPanelMessage"
           :rollback-and-retry="rollbackAndRetry"
-          :get-message-execution-time-text="getMessageExecutionTimeText"
-          :get-message-execution-time-title="getMessageExecutionTimeTitle"
           @notify="({ message, type }) => showToast(message, type)"
         >
           <template #empty>
@@ -190,7 +182,6 @@
 <script setup>
 import { ref, computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, watch, inject } from 'vue';
 import { useRoute } from 'vue-router';
-import { renderMarkdown } from '../utils/markdown';
 import { shouldRefreshSessionMessagesAfterResume, shouldRunResumeRecoveryWatchdog } from '../utils/sessionSocket';
 import { useChatSessionController } from '../composables/useChatSessionController';
 import { useSessionAgentClient } from '../composables/useSessionAgentClient';
@@ -337,20 +328,16 @@ const {
 const {
   createAssistantMessage,
   normalizeAssistantExecutionState,
-  hasExecutionContent,
   applyEnvelopeToMessage,
   toggleExecutionView,
   createAssistantMessageFromHistory,
   isRootEvent,
   isMasterEvent,
   findRunningExecutionAgentByAgentId,
-  getMessageExecutionTimeText,
-  getMessageExecutionTimeTitle,
   selectedWorkPanelMessageKey,
   getWorkPanelMessageKey,
   currentRunMessage,
   selectWorkPanelMessage,
-  parseTaskNotifications,
 } = useChatMessageRuntime({
   activeRun: _activeRun,
   showToast,
@@ -487,8 +474,6 @@ const {
   uploadingSessionFiles,
   deletingSessionFileId,
   normalizeAttachment,
-  isImageAttachment,
-  formatAttachmentMeta,
   getAttachmentPreviewUrl,
   currentDrawerPendingFiles,
   removePendingAttachment,
@@ -542,7 +527,6 @@ const situationMapData = ref(null);
 const situationInfo = ref(null);
 
 const {
-  parseMessageParts,
   handleArtifactSelect,
   checkSituationScreenTrigger,
   handleEnterSituation,

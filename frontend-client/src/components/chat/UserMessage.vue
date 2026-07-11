@@ -64,6 +64,8 @@
 
 <script setup>
 import MessageEditBox from '../MessageEditBox.vue';
+import { formatAttachmentMeta, isImageAttachment } from '../../utils/sessionAttachments.js';
+import { parseTaskNotifications } from '../../utils/message-render.js';
 
 defineProps({
   msg: { type: Object, required: true },
@@ -72,10 +74,7 @@ defineProps({
   editingDraft: { type: String, default: '' },
   editingAttachmentsDraft: { type: Array, default: () => [] },
   editingSubmitting: { type: Boolean, default: false },
-  parseTaskNotifications: { type: Function, required: true },
-  isImageAttachment: { type: Function, required: true },
   getAttachmentPreviewUrl: { type: Function, required: true },
-  formatAttachmentMeta: { type: Function, required: true },
   confirmEditAndResend: { type: Function, required: true },
   cancelEdit: { type: Function, required: true },
   openSessionFilesDrawer: { type: Function, required: true },

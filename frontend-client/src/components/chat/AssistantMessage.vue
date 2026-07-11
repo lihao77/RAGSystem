@@ -15,7 +15,6 @@
     <div v-if="part.type === 'text' && part.content?.trim()" class="final-answer">
       <MarkdownContent
         :content="part.content"
-        :render-markdown="renderMarkdown"
         @notify="emit('notify', $event)"
       />
     </div>
@@ -39,12 +38,11 @@
 <script setup>
 import MarkdownContent from './MarkdownContent.vue';
 import VisualizationLoader from '../VisualizationLoader.vue';
+import { parseMessageParts } from '../../utils/message-render.js';
 
 defineProps({
   msg: { type: Object, required: true },
   getAssistantRuntimeStatusText: { type: Function, required: true },
-  parseMessageParts: { type: Function, required: true },
-  renderMarkdown: { type: Function, required: true },
   handleEnterSituation: { type: Function, required: true },
 });
 

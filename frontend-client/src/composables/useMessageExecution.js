@@ -1,5 +1,10 @@
 import { createExecutionTreeState, applyEnvelope, getExecutionTree } from '@ragsystem/agent-protocol';
 import { getMessageRunSteps } from '../api/monitoring.js';
+import {
+  getMessageExecutionTimeText,
+  getMessageExecutionTimeTitle,
+  hasExecutionContent,
+} from '../utils/message-render.js';
 
 export const createAssistantMessage = (overrides = {}) => ({
   role: 'assistant',
@@ -39,39 +44,7 @@ export const normalizeAssistantExecutionState = (msg) => {
   return msg;
 };
 
-const getMessageExecutionTime = (msg) => {
-  const value = msg?.metadata?.execution_time;
-  if (value == null || value === '') return null;
-  const seconds = Number(value);
-  return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
-};
-
-const getMessageFirstTokenTime = (msg) => {
-  const value = msg?.metadata?.first_token_time;
-  if (value == null || value === '') return null;
-  const seconds = Number(value);
-  return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
-};
-
-const formatExecutionTime = (seconds) => {
-  if (seconds < 1) return `${Math.round(seconds * 1000)}ms`;
-  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const restSeconds = Math.round(seconds % 60);
-  return `${minutes}m ${String(restSeconds).padStart(2, '0')}s`;
-};
-
-const formatPreciseExecutionTime = (seconds) => {
-  if (seconds < 1) return `${Math.round(seconds * 1000)}ms`;
-  return `${seconds.toFixed(3)}s`;
-};
-
 export function useMessageExecution(deps) {
-  const hasExecutionContent = (msg) => {
-    if (!msg || msg.role !== 'assistant') return false;
-    return Boolean(msg.has_execution) || executionTreeHasContent(msg.executionTree);
-  };
-
   // core ExecutionTreeState（增量投影状态机）懒挂在 msg._execState。
   const ensureExecutionTreeState = (msg) => {
     if (!msg._execState) {
@@ -163,22 +136,6 @@ export function useMessageExecution(deps) {
       }
     }
     return null;
-  };
-
-  const getMessageExecutionTimeText = (msg) => {
-    const seconds = getMessageExecutionTime(msg);
-    return seconds == null ? '' : `响应时间 ${formatExecutionTime(seconds)}`;
-  };
-
-  const getMessageExecutionTimeTitle = (msg) => {
-    const executionTime = getMessageExecutionTime(msg);
-    if (executionTime == null) return '';
-    const lines = [`Run 执行时间：${formatPreciseExecutionTime(executionTime)}`];
-    const firstTokenTime = getMessageFirstTokenTime(msg);
-    if (firstTokenTime != null) {
-      lines.push(`首 token：${formatPreciseExecutionTime(firstTokenTime)}`);
-    }
-    return lines.join('\n');
   };
 
   return {

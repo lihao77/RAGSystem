@@ -1,30 +1,8 @@
 import { nextTick, onUnmounted, ref } from 'vue';
 import { getVisualization } from '../api/artifact.js';
+import { parseMessageParts } from '../utils/message-render.js';
 
 const VIZ_PLACEHOLDER_RE = /\[viz:(viz_\w+)\]/g;
-
-export function parseMessageParts(msg) {
-  const content = msg?.content || '';
-  const hasViz = VIZ_PLACEHOLDER_RE.test(content);
-  VIZ_PLACEHOLDER_RE.lastIndex = 0;
-
-  if (!hasViz) return [{ type: 'text', content }];
-
-  const parts = [];
-  let lastIndex = 0;
-  let match;
-  while ((match = VIZ_PLACEHOLDER_RE.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push({ type: 'text', content: content.slice(lastIndex, match.index) });
-    }
-    parts.push({ type: 'viz', artifactId: match[1] });
-    lastIndex = match.index + match[0].length;
-  }
-  if (lastIndex < content.length) {
-    parts.push({ type: 'text', content: content.slice(lastIndex) });
-  }
-  return parts;
-}
 
 export function useMessageArtifacts(deps) {
   const artifactFocusTimer = ref(null);

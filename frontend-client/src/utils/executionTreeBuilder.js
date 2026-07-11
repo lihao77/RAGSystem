@@ -10,7 +10,7 @@
  * 匹配不到则保留普通 tool_call，未匹配的 child 作为独立 agent_call 追加，不按名称猜测。
  */
 
-import { parseTaskNotificationContent } from '../composables/useTaskNotifications.js';
+import { parseTaskNotificationContent } from './message-render.js';
 
 const mapStatus = (status) => {
   if (status === 'running') return 'running';

@@ -36,16 +36,10 @@
           :editing-attachments-draft="editingAttachmentsDraft"
           :editing-submitting="editingSubmitting"
           :message-key="messageKey"
-          :has-execution-content="hasExecutionContent"
           :toggle-execution-view="toggleExecutionView"
           :get-assistant-runtime-status-text="getAssistantRuntimeStatusText"
-          :parse-message-parts="parseMessageParts"
-          :render-markdown="renderMarkdown"
           :handle-enter-situation="handleEnterSituation"
-          :parse-task-notifications="parseTaskNotifications"
-          :is-image-attachment="isImageAttachment"
           :get-attachment-preview-url="getAttachmentPreviewUrl"
-          :format-attachment-meta="formatAttachmentMeta"
           :confirm-edit-and-resend="confirmEditAndResend"
           :cancel-edit="cancelEdit"
           :open-session-files-drawer="openSessionFilesDrawer"
@@ -55,8 +49,6 @@
           :get-work-panel-message-key="getWorkPanelMessageKey"
           :select-work-panel-message="selectWorkPanelMessage"
           :rollback-and-retry="rollbackAndRetry"
-          :get-message-execution-time-text="getMessageExecutionTimeText"
-          :get-message-execution-time-title="getMessageExecutionTimeTitle"
           :injections-by-run-id="injectionsByRunId"
           @hover="messageActionsVisible = $event"
           @update:editing-draft="emit('update:editingDraft', $event)"
@@ -85,16 +77,10 @@ const props = defineProps({
   editingAttachmentsDraft: { type: Array, default: () => [] },
   editingSubmitting: { type: Boolean, default: false },
   messageKey: { type: Function, required: true },
-  hasExecutionContent: { type: Function, required: true },
   toggleExecutionView: { type: Function, required: true },
   getAssistantRuntimeStatusText: { type: Function, required: true },
-  parseMessageParts: { type: Function, required: true },
-  renderMarkdown: { type: Function, required: true },
   handleEnterSituation: { type: Function, required: true },
-  parseTaskNotifications: { type: Function, required: true },
-  isImageAttachment: { type: Function, required: true },
   getAttachmentPreviewUrl: { type: Function, required: true },
-  formatAttachmentMeta: { type: Function, required: true },
   confirmEditAndResend: { type: Function, required: true },
   cancelEdit: { type: Function, required: true },
   openSessionFilesDrawer: { type: Function, required: true },
@@ -104,8 +90,6 @@ const props = defineProps({
   getWorkPanelMessageKey: { type: Function, required: true },
   selectWorkPanelMessage: { type: Function, required: true },
   rollbackAndRetry: { type: Function, required: true },
-  getMessageExecutionTimeText: { type: Function, required: true },
-  getMessageExecutionTimeTitle: { type: Function, required: true },
   injectionsByRunId: { type: Object, default: () => ({}) },
 });
 

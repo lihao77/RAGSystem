@@ -46,8 +46,6 @@
           v-if="msg.role === 'assistant'"
           :msg="msg"
           :get-assistant-runtime-status-text="getAssistantRuntimeStatusText"
-          :parse-message-parts="parseMessageParts"
-          :render-markdown="renderMarkdown"
           :handle-enter-situation="handleEnterSituation"
           @notify="emit('notify', $event)"
         />
@@ -59,10 +57,7 @@
           :editing-draft="editingDraft"
           :editing-attachments-draft="editingAttachmentsDraft"
           :editing-submitting="editingSubmitting"
-          :parse-task-notifications="parseTaskNotifications"
-          :is-image-attachment="isImageAttachment"
           :get-attachment-preview-url="getAttachmentPreviewUrl"
-          :format-attachment-meta="formatAttachmentMeta"
           :confirm-edit-and-resend="confirmEditAndResend"
           :cancel-edit="cancelEdit"
           :open-session-files-drawer="openSessionFilesDrawer"
@@ -83,14 +78,11 @@
       :selected-work-panel-message-key="selectedWorkPanelMessageKey"
       :retry-message="retryMessage"
       :editing-message="editingMessage"
-      :has-execution-content="hasExecutionContent"
       :start-edit-message="startEditMessage"
       :copy-message="copyMessage"
       :get-work-panel-message-key="getWorkPanelMessageKey"
       :select-work-panel-message="selectWorkPanelMessage"
       :rollback-and-retry="rollbackAndRetry"
-      :get-message-execution-time-text="getMessageExecutionTimeText"
-      :get-message-execution-time-title="getMessageExecutionTimeTitle"
     />
   </div>
 </template>
@@ -104,6 +96,7 @@ import MessageActions from './MessageActions.vue';
 import UserMessage from './UserMessage.vue';
 import { computed } from 'vue';
 import { RENDERERS, getMessageExtensions } from '../../utils/messageExtensions.js';
+import { hasExecutionContent } from '../../utils/message-render.js';
 
 const props = defineProps({
   msg: { type: Object, required: true },
@@ -119,16 +112,10 @@ const props = defineProps({
   editingAttachmentsDraft: { type: Array, default: () => [] },
   editingSubmitting: { type: Boolean, default: false },
   messageKey: { type: Function, required: true },
-  hasExecutionContent: { type: Function, required: true },
   toggleExecutionView: { type: Function, required: true },
   getAssistantRuntimeStatusText: { type: Function, required: true },
-  parseMessageParts: { type: Function, required: true },
-  renderMarkdown: { type: Function, required: true },
   handleEnterSituation: { type: Function, required: true },
-  parseTaskNotifications: { type: Function, required: true },
-  isImageAttachment: { type: Function, required: true },
   getAttachmentPreviewUrl: { type: Function, required: true },
-  formatAttachmentMeta: { type: Function, required: true },
   confirmEditAndResend: { type: Function, required: true },
   cancelEdit: { type: Function, required: true },
   openSessionFilesDrawer: { type: Function, required: true },
@@ -138,8 +125,6 @@ const props = defineProps({
   getWorkPanelMessageKey: { type: Function, required: true },
   selectWorkPanelMessage: { type: Function, required: true },
   rollbackAndRetry: { type: Function, required: true },
-  getMessageExecutionTimeText: { type: Function, required: true },
-  getMessageExecutionTimeTitle: { type: Function, required: true },
   injectionsByRunId: { type: Object, default: () => ({}) },
 });
 
