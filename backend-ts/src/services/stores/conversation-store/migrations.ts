@@ -1,6 +1,10 @@
-import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
 import { BASELINE_SCHEMA_SQL } from "./schema.js";
+
+export interface MigrationDatabase {
+  exec: import("node:sqlite").DatabaseSync["exec"];
+  prepare: import("node:sqlite").DatabaseSync["prepare"];
+}
 
 /**
  * 单个 schema 迁移。version 从 1 起严格递增、连续；up 内只写本版相对上一版的增量 DDL。
@@ -9,7 +13,7 @@ import { BASELINE_SCHEMA_SQL } from "./schema.js";
 export interface Migration {
   readonly version: number;
   readonly name: string;
-  readonly up: (db: ConversationDb) => void;
+  readonly up: (db: MigrationDatabase) => void;
 }
 
 /**
@@ -112,7 +116,7 @@ export const MIGRATIONS: readonly Migration[] = [
   },
 ];
 
-function getUserVersion(db: ConversationDb): number {
+function getUserVersion(db: MigrationDatabase): number {
   const row = db.prepare("PRAGMA user_version").get() as { user_version?: number } | undefined;
   return Number(row?.user_version ?? 0);
 }
@@ -122,7 +126,7 @@ function getUserVersion(db: ConversationDb): number {
  * 替代裸 CREATE TABLE IF NOT EXISTS——存量库与新库经同一条迁移链收敛到 LATEST_SCHEMA_VERSION。
  * 注:PRAGMA user_version=? 不支持参数绑定,版本号经 Number() 后内联,无注入面。
  */
-export function runMigrations(db: ConversationDb): void {
+export function runMigrations(db: MigrationDatabase): void {
   const ordered = [...MIGRATIONS].sort((a, b) => a.version - b.version);
   assertVersionsContiguous(ordered);
   const current = getUserVersion(db);

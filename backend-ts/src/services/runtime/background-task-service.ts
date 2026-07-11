@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 
 import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 import { SessionNotificationQueue } from "./session-notification-queue.js";
+import type { BackgroundTaskNotificationPayload } from "./session-notification-queue.js";
 import { terminateProcessTree } from "./process-tree.js";
 
 type BackgroundTaskStatus = "running" | "completed" | "failed" | "cancelled";
@@ -26,8 +27,6 @@ export interface BackgroundTask {
   kind: string;
   cancel_supported: boolean;
 }
-
-export type BackgroundTaskNotificationPayload = Record<string, unknown>;
 
 export interface SpawnBashInput {
   command: string;
@@ -347,7 +346,7 @@ export class BackgroundTaskService {
   }
 
   private publishCompleted(task: BackgroundTask): void {
-    const payload = {
+    const payload: BackgroundTaskNotificationPayload = {
       task_id: task.task_id,
       background_task_id: task.task_id,
       status: task.status,

@@ -1,10 +1,12 @@
-import type { ConversationDb } from "./db.js";
+export interface TransactionDatabase {
+  exec(sql: string): void;
+}
 
 /**
  * 在单个 SQLite 事务中执行 operation（BEGIN/COMMIT/ROLLBACK）。
  * 迁移自原 ConversationStore.withTransaction，逻辑零改动。
  */
-export function runInTransaction<T>(db: ConversationDb, operation: () => T): T {
+export function runInTransaction<T>(db: TransactionDatabase, operation: () => T): T {
   db.exec("BEGIN");
   try {
     const result = operation();

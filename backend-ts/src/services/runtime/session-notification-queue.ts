@@ -1,4 +1,4 @@
-import type { BackgroundTaskNotificationPayload } from "./background-task-service.js";
+export type BackgroundTaskNotificationPayload = Record<string, unknown>;
 
 /**
  * Session 级后台任务完成通知的暂存队列（单一数据来源）。
