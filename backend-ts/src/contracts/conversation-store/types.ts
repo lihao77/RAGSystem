@@ -5,7 +5,7 @@
  * - 输入边界（*Input）用 zod schema 定义 → z.infer 产出类型，既给编译期类型，
  *   也给运行时入口校验（见 ops 边界 parse）。schema 字段与历史 interface 逐一对应，
  *   不收紧历史数据（metadata/payload 用 z.record(z.unknown()) 宽松，避免拒历史行）。
- * - 输出/领域（*Info/*Row/Result/Stats）暂用 interface（输出 zod 化留 TODO）。
+ * - 输出/领域类型现已全部用 zod schema + z.infer 单源定义，与输入边界一致。
  *
  * 契约独立：本文件只 import contracts/ 内其他文件（session），绝不 import services/。
  * 凡 IXxxStore 签名引用的类型必在此定义——否则契约反向依赖实现，破坏可替换性。
@@ -98,164 +98,101 @@ export const DeleteDeliveredOutboxInputSchema = z.object({
 });
 export type DeleteDeliveredOutboxInput = z.infer<typeof DeleteDeliveredOutboxInputSchema>;
 
-// ────────────────────────────── 输出/领域（interface） ──────────────────────────────
+// ────────────────────────────── 输出/领域（zod schema + z.infer） ──────────────────────────────
 
 /**
  * event_outbox 对外 DTO。字段与物理列直通、无独立 mapper（outbox-ops 直接返回查询行），
  * 故保留 Row 命名。它是 outbox 聚合的对外表示，不是实现内部细节。
  */
-export interface OutboxRow {
-  id: number;
-  event_id: string;
-  session_id: string;
-  run_id: string | null;
-  session_seq: number;
-  event_type: string;
-  aggregate_type: string;
-  aggregate_id: string;
-  payload: string;
-  status: OutboxStatus;
-  attempts: number;
-  available_at: string | null;
-  locked_at: string | null;
-  delivered_at: string | null;
-  last_error: string | null;
-  created_at: string;
-}
+export const OutboxRowSchema = z.object({
+  id: z.number(), event_id: z.string(), session_id: z.string(), run_id: z.string().nullable(),
+  session_seq: z.number(), event_type: z.string(), aggregate_type: z.string(), aggregate_id: z.string(),
+  payload: z.string(), status: OutboxStatusSchema, attempts: z.number(), available_at: z.string().nullable(),
+  locked_at: z.string().nullable(), delivered_at: z.string().nullable(), last_error: z.string().nullable(),
+  created_at: z.string(),
+});
+export type OutboxRow = z.infer<typeof OutboxRowSchema>;
 
-export interface RunInfo {
-  run_id: string;
-  session_id: string;
-  entrypoint: string | null;
-  status: string;
-  task_summary: string | null;
-  request_id: string | null;
-  user_id: string | null;
-  agent_name: string | null;
-  thread_key: string;
-  parent_run_id: string | null;
-  parent_call_id: string | null;
-  child_agent_id: string | null;
-  final_message_id: string | null;
-  created_at: string;
-  updated_at: string;
-}
+export const RunInfoSchema = z.object({
+  run_id: z.string(),
+  session_id: z.string(),
+  entrypoint: z.string().nullable(),
+  status: z.string(),
+  task_summary: z.string().nullable(),
+  request_id: z.string().nullable(),
+  user_id: z.string().nullable(),
+  agent_name: z.string().nullable(),
+  thread_key: z.string(),
+  parent_run_id: z.string().nullable(),
+  parent_call_id: z.string().nullable(),
+  child_agent_id: z.string().nullable(),
+  final_message_id: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type RunInfo = z.infer<typeof RunInfoSchema>;
 
-export interface ChildAgentInfo {
-  child_agent_id: string;
-  session_id: string;
-  agent_name: string;
-  thread_key: string;
-  status: string;
-  created_seq: number | null;
-  created_by_run_id: string | null;
-  created_by_call_id: string | null;
-  parent_run_id: string | null;
-  parent_call_id: string | null;
-  last_run_id: string | null;
-  metadata: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
-}
+export const ChildAgentInfoSchema = z.object({
+  child_agent_id: z.string(), session_id: z.string(), agent_name: z.string(), thread_key: z.string(), status: z.string(),
+  created_seq: z.number().nullable(), created_by_run_id: z.string().nullable(), created_by_call_id: z.string().nullable(),
+  parent_run_id: z.string().nullable(), parent_call_id: z.string().nullable(), last_run_id: z.string().nullable(),
+  metadata: z.record(z.unknown()), created_at: z.string(), updated_at: z.string(),
+});
+export type ChildAgentInfo = z.infer<typeof ChildAgentInfoSchema>;
 
-export interface ResourceInfo {
-  resource_id: string;
-  session_id: string;
-  run_id: string | null;
-  path: string;
-  resource_type: string;
-  sub_type: string | null;
-  title: string | null;
-  scope: string;
-  source_tool: string | null;
-}
+export const ResourceInfoSchema = z.object({
+  resource_id: z.string(), session_id: z.string(), run_id: z.string().nullable(), path: z.string(),
+  resource_type: z.string(), sub_type: z.string().nullable(), title: z.string().nullable(), scope: z.string(),
+  source_tool: z.string().nullable(),
+});
+export type ResourceInfo = z.infer<typeof ResourceInfoSchema>;
 
 /** 单 agent 的聚合性能指标(对齐前端 AgentMonitor agent 卡片字段)。 */
-export interface AgentMetricSummary {
-  agent_name: string;
-  total_calls: number;
-  success_count: number;
-  failure_count: number;
-  success_rate: number;
-  avg_duration_ms: number;
-  avg_tokens: number;
-  first_call: string | null;
-  last_call: string | null;
-  tool_usage: Record<string, number>;
-  error_distribution: Record<string, number>;
-}
+export const AgentMetricSummarySchema = z.object({
+  agent_name: z.string(), total_calls: z.number(), success_count: z.number(), failure_count: z.number(),
+  success_rate: z.number(), avg_duration_ms: z.number(), avg_tokens: z.number(), first_call: z.string().nullable(),
+  last_call: z.string().nullable(), tool_usage: z.record(z.number()), error_distribution: z.record(z.number()),
+});
+export type AgentMetricSummary = z.infer<typeof AgentMetricSummarySchema>;
 
 /** token 用量时间序列点(按天或按小时聚合)。 */
-export interface TokenTrendPoint {
-  ts: string;
-  token_in: number;
-  token_out: number;
-  calls: number;
-}
+export const TokenTrendPointSchema = z.object({ ts: z.string(), token_in: z.number(), token_out: z.number(), calls: z.number() });
+export type TokenTrendPoint = z.infer<typeof TokenTrendPointSchema>;
 
 /** 按模型聚合的用量点(model 为 NULL 的历史行归 "未知")。 */
-export interface ModelUsagePoint {
-  model: string;
-  tokens: number;
-  calls: number;
-}
+export const ModelUsagePointSchema = z.object({ model: z.string(), tokens: z.number(), calls: z.number() });
+export type ModelUsagePoint = z.infer<typeof ModelUsagePointSchema>;
 
 /** 活跃度热力图点:weekday 0-6(0=周日)、hour 0-23。稀疏,前端补全 7×24 网格。 */
-export interface HeatmapPoint {
-  weekday: number;
-  hour: number;
-  calls: number;
-}
+export const HeatmapPointSchema = z.object({ weekday: z.number(), hour: z.number(), calls: z.number() });
+export type HeatmapPoint = z.infer<typeof HeatmapPointSchema>;
 
 /** 每日活跃度点(GitHub 式日历热力图:date=YYYY-MM-DD)。稀疏,前端按 range 补全。 */
-export interface DailyActivityPoint {
-  date: string;
-  calls: number;
-}
+export const DailyActivityPointSchema = z.object({ date: z.string(), calls: z.number() });
+export type DailyActivityPoint = z.infer<typeof DailyActivityPointSchema>;
 
 /** addRunStep 返回的精简记录（领域投影，非完整 run_step 物理行）。 */
-export interface RunStepRecord {
-  id: number;
-  run_id: string;
-  step_order: number;
-  step_type: string;
-}
+export const RunStepRecordSchema = z.object({ id: z.number(), run_id: z.string(), step_order: z.number(), step_type: z.string() });
+export type RunStepRecord = z.infer<typeof RunStepRecordSchema>;
 
-export interface RetryOutboxResult {
-  matched: number;
-  retried: number;
-  ids: number[];
-}
+export const RetryOutboxResultSchema = z.object({ matched: z.number(), retried: z.number(), ids: z.array(z.number()) });
+export type RetryOutboxResult = z.infer<typeof RetryOutboxResultSchema>;
 
-export interface EventOutboxErrorSummary {
-  id: number;
-  event_id: string;
-  session_id: string;
-  run_id: string | null;
-  event_type: string;
-  attempts: number;
-  last_error: string | null;
-  created_at: string;
-}
+export const EventOutboxErrorSummarySchema = z.object({
+  id: z.number(), event_id: z.string(), session_id: z.string(), run_id: z.string().nullable(), event_type: z.string(),
+  attempts: z.number(), last_error: z.string().nullable(), created_at: z.string(),
+});
+export type EventOutboxErrorSummary = z.infer<typeof EventOutboxErrorSummarySchema>;
 
-export interface EventOutboxStats {
-  total: number;
-  pending: number;
-  retrying: number;
-  delivered: number;
-  failed: number;
-  locked: number;
-  ready: number;
-  oldest_pending_created_at: string | null;
-  oldest_pending_age_seconds: number | null;
-  oldest_retrying_created_at: string | null;
-  oldest_retrying_age_seconds: number | null;
-  oldest_pending_or_retrying_created_at: string | null;
-  oldest_pending_or_retrying_age_seconds: number | null;
-  oldest_failed_created_at: string | null;
-  oldest_failed_age_seconds: number | null;
-  recent_failed_errors: EventOutboxErrorSummary[];
-}
+export const EventOutboxStatsSchema = z.object({
+  total: z.number(), pending: z.number(), retrying: z.number(), delivered: z.number(), failed: z.number(),
+  locked: z.number(), ready: z.number(), oldest_pending_created_at: z.string().nullable(),
+  oldest_pending_age_seconds: z.number().nullable(), oldest_retrying_created_at: z.string().nullable(),
+  oldest_retrying_age_seconds: z.number().nullable(), oldest_pending_or_retrying_created_at: z.string().nullable(),
+  oldest_pending_or_retrying_age_seconds: z.number().nullable(), oldest_failed_created_at: z.string().nullable(),
+  oldest_failed_age_seconds: z.number().nullable(), recent_failed_errors: z.array(EventOutboxErrorSummarySchema),
+});
+export type EventOutboxStats = z.infer<typeof EventOutboxStatsSchema>;
 
 export interface ConversationStoreOptions {
   dbPath: string;
