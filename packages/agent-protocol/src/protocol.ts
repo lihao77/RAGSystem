@@ -55,10 +55,8 @@ export interface ProtocolEnvelope {
   call_id?: string;
   /** agent 身份标识；多 agent 并发 / 委派子 agent 区分执行体。 */
   agent_id?: string;
-  /** 本连接内单调递增序号（去重）。 */
+  /** 会话内单调递增序号（去重 + 断线重连回放边界）。 */
   seq?: number;
-  /** 持久化事件游标（断线重连回放边界）。 */
-  cursor?: number;
   message_id?: string;
   timestamp?: number | string;
   payload?: unknown;
@@ -140,11 +138,9 @@ export interface HelloPayload {
   role: "host" | "agent-runtime";
   protocol: ProtocolDescriptor;
   capabilities: CapabilityDescriptor;
-  resume?: { cursor?: number };
 }
 export interface HeartbeatPayload {
   last_seq?: number;
-  last_cursor?: number;
 }
 export interface ReconnectPayload {
   phase: "start" | "end";
@@ -360,7 +356,6 @@ const EnvelopeBaseObject = z.object({
   call_id: z.string().min(1).optional(),
   agent_id: z.string().optional(),
   seq: z.number().int().nonnegative().optional(),
-  cursor: z.number().int().nonnegative().optional(),
   message_id: z.string().optional(),
   timestamp: z.union([z.number().int(), z.string().datetime()]).optional(),
   payload: z.unknown().optional(),
@@ -384,9 +379,6 @@ export const HelloEnvelopeSchema = EnvelopeBaseObject.extend({
     role: z.enum(["host", "agent-runtime"]),
     protocol: ProtocolDescriptorSchema,
     capabilities: CapabilityDescriptorSchema,
-    resume: z
-      .object({ cursor: z.number().int().nonnegative().optional() })
-      .optional(),
   }),
 });
 
@@ -398,7 +390,6 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
     payload: z
       .object({
         last_seq: z.number().int().nonnegative().optional(),
-        last_cursor: z.number().int().nonnegative().optional(),
       })
       .optional(),
   }),

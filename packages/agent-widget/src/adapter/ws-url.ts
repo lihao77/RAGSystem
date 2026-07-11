@@ -41,12 +41,16 @@ export function buildWidgetWsUrl(options: WidgetWsUrlOptions): string {
   return qs ? `${protocol}//${base.host}${path}?${qs}` : `${protocol}//${base.host}${path}`;
 }
 
-/** heartbeat 帧的 payload.last_seq / last_cursor（ws.ts 每 20s 回吐）取游标用。 */
+/** 顶层 seq 优先，heartbeat 帧回退 payload.last_seq（ws.ts 每 20s 回吐）。 */
 export function extractCursor(envelope: Envelope): number | null {
-  if (envelope.type === "heartbeat" && envelope.payload && typeof envelope.payload === "object") {
-    const payload = envelope.payload as { last_seq?: unknown; last_cursor?: unknown };
-    const candidate = payload.last_cursor ?? payload.last_seq;
-    return typeof candidate === "number" && Number.isFinite(candidate) ? candidate : null;
+  if (typeof envelope.seq === "number" && Number.isFinite(envelope.seq)) {
+    return envelope.seq;
   }
-  return typeof envelope.seq === "number" && Number.isFinite(envelope.seq) ? envelope.seq : null;
+  if (envelope.type === "heartbeat" && envelope.payload && typeof envelope.payload === "object") {
+    const payload = envelope.payload as { last_seq?: unknown };
+    return typeof payload.last_seq === "number" && Number.isFinite(payload.last_seq)
+      ? payload.last_seq
+      : null;
+  }
+  return null;
 }

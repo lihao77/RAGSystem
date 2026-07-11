@@ -15,11 +15,9 @@ export function getDurableCursorSeq(event) {
   const eventSeq = getDurableEventSeq(event);
   if (eventSeq !== null) return eventSeq;
   if (!event || typeof event !== 'object') return null;
-  const cursor = normalizeEventSeq(event.cursor);
-  if (cursor !== null) return cursor;
   if (event.type !== 'heartbeat') return null;
   const payload = event.payload || {};
-  return normalizeEventSeq(payload.last_cursor) || normalizeEventSeq(payload.last_seq);
+  return normalizeEventSeq(payload.last_seq);
 }
 
 export function buildSessionSocketUrl(sessionId, options = {}) {

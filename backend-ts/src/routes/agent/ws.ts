@@ -108,7 +108,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
         send({
           type: "heartbeat",
           session_id: sessionId,
-          payload: { last_seq: lastSeq, last_cursor: lastSeq },
+          payload: { last_seq: lastSeq },
         });
       }, 20_000);
 

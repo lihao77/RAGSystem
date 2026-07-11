@@ -42,11 +42,9 @@ test('仅接受正整数 event_seq 作为 durable cursor', () => {
 
 test('durable reconnect cursor 仅从 seq/cursor 或 heartbeat.payload 推进', () => {
   assert.equal(getDurableCursorSeq({ seq: 7 }), 7);
-  assert.equal(getDurableCursorSeq({ cursor: 5 }), 5);
-  assert.equal(getDurableCursorSeq({ type: 'heartbeat', payload: { last_cursor: 8 } }), 8);
   assert.equal(getDurableCursorSeq({ type: 'heartbeat', payload: { last_seq: 9 } }), 9);
   assert.equal(getDurableCursorSeq({ type: 'heartbeat', payload: { last_seq: 0 } }), null);
-  assert.equal(getDurableCursorSeq({ type: 'stream_output', payload: { last_cursor: 10 } }), null);
+  assert.equal(getDurableCursorSeq({ type: 'stream_output', payload: { last_seq: 10 } }), null);
   assert.equal(getDurableCursorSeq({ stream_seq: 11 }), null);
 });
 
