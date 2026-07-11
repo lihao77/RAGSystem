@@ -376,7 +376,7 @@ Agent 配置页会先加载当前 Agent 配置，再读取 `config.custom_params
 3. 读取该 Agent 的 `custom_params.workspace_root`。
 4. 调用 `getAvailableSkills(workspaceRoot)` 重新拉取 Skills。
 
-保存时前端仍保持最小 schema：只写回 `skills.enabled_skills` 与 `skills.auto_inject`，不会额外保存 `source_type` 等派生字段。
+保存时前端仍保持最小 schema：只写回 `skills.enabled_skills`，不会额外保存 `source_type` 等派生字段。
 
 其中 Memory 区块采用独立元数据接口而不是前端硬编码：
 - 前端通过 `GET /api/agent-config/memory-metadata` 获取 memory 工具描述与 scope 说明
