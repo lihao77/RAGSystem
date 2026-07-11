@@ -9,7 +9,12 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { LoggingMessageNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
-import { externalCallPolicy, type ExternalCallMetrics } from "@ragsystem/agent-llm";
+import {
+  externalCallPolicy,
+  isRetryableHttpStatus,
+  RetryableHttpError,
+  type ExternalCallMetrics,
+} from "@ragsystem/agent-llm";
 import YAML from "yaml";
 
 import type {
@@ -1367,17 +1372,21 @@ async function fetchRegistryPage(search: string, limit: number, cursor: string |
     url.searchParams.set("cursor", cursor);
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REGISTRY_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) {
-      throw new McpServiceError(`Failed to query MCP Registry: HTTP ${response.status}`, 502);
-    }
-    return await response.json() as unknown;
-  } finally {
-    clearTimeout(timeout);
-  }
+  return externalCallPolicy.execute({
+    key: "mcp:registry",
+    timeoutMs: REGISTRY_TIMEOUT_MS,
+    maxAttempts: 3,
+    operation: async ({ signal }) => {
+      const response = await fetch(url, { signal });
+      if (isRetryableHttpStatus(response.status)) {
+        throw new RetryableHttpError(response.status, `Failed to query MCP Registry: HTTP ${response.status}`);
+      }
+      if (!response.ok) {
+        throw new McpServiceError(`Failed to query MCP Registry: HTTP ${response.status}`, 502);
+      }
+      return await response.json() as unknown;
+    },
+  });
 }
 
 function readRegistryEntries(value: unknown): unknown[] {
