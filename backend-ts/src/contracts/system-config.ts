@@ -76,3 +76,9 @@ export interface VectorStoreConfig {
   backend: string;
   sqlite_vec: SqliteVecConfig;
 }
+
+export interface DocumentExtractionConfig {
+  engine: "builtin" | "cli" | "http";
+  cli: { command: string; timeout: number; applies_to: string[] };
+  http: { endpoint: string; timeout: number; applies_to: string[] };
+}

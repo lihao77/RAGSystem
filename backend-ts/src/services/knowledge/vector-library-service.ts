@@ -16,8 +16,11 @@ import type {
 } from "../../contracts/vector-library.js";
 import type { IEmbedder, IKnowledgeConfig, IKnowledgeFileStore, IVectorStore, KnowledgeFile, StoredChunk, StoredReranker, StoredVectorizer, VectorRecord, VectorSearchHit } from "../../contracts/vector-store/index.js";
 import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
+import type { DocumentExtractor } from "../../contracts/knowledge/document-extractor.js";
 import type { ModelAdapterService } from "../integrations/model-adapter-service.js";
 import { createEmbedder } from "../integrations/embedder-registry.js";
+import { createReranker, type IReranker } from "../integrations/reranker-registry.js";
+import { lexicalRerank } from "./rerank/lexical-rerank.js";
 // 打分纯函数统一从 scoring.ts 复用(cosineSimilarity/tokenize 随 5h-2 降级路径删除,本地副本已无)。
 import { hybridScore, keywordOverlapScore } from "../vector-store/scoring.js";
 import { VectorLibraryServiceError } from "../../contracts/vector-library.js";
@@ -26,6 +29,7 @@ export type VectorLibraryEmbedderFactory = (
   provider: ModelProviderConfig | null | undefined,
   modelName: string,
 ) => IEmbedder;
+export type VectorLibraryRerankerFactory = (stored: StoredReranker) => IReranker;
 
 export class VectorLibraryService {
   private readonly knowledgeConfig: IKnowledgeConfig;
@@ -36,6 +40,8 @@ export class VectorLibraryService {
   // 注:provider 配置(api_key 等)运行时更新后,缓存项持有旧快照——本期接受(重启生效),后续可加失效。
   private readonly embedderCache = new Map<string, IEmbedder>();
   private readonly embedderFactory: VectorLibraryEmbedderFactory;
+  private readonly documentExtractDispatcher: DocumentExtractor;
+  private readonly rerankerFactory: VectorLibraryRerankerFactory;
 
   constructor(
     private readonly modelAdapter: ModelAdapterService,
@@ -44,7 +50,9 @@ export class VectorLibraryService {
       knowledgeConfig?: IKnowledgeConfig | undefined;
       knowledgeFileStore?: IKnowledgeFileStore | undefined;
       embedderFactory?: VectorLibraryEmbedderFactory | undefined;
-    } = {},
+      documentExtractDispatcher: DocumentExtractor;
+      rerankerFactory?: VectorLibraryRerankerFactory | undefined;
+    },
   ) {
     if (!options.knowledgeConfig) {
       throw new Error("VectorLibraryService 需注入 knowledgeConfig(driver 单一配置源)");
@@ -56,6 +64,8 @@ export class VectorLibraryService {
     this.knowledgeFileStore = options.knowledgeFileStore;
     this.vectorStore = options.vectorStore;
     this.embedderFactory = options.embedderFactory ?? createEmbedder;
+    this.documentExtractDispatcher = options.documentExtractDispatcher;
+    this.rerankerFactory = options.rerankerFactory ?? createReranker;
   }
 
   close(): void {
@@ -186,7 +196,7 @@ export class VectorLibraryService {
     if (!fs.existsSync(file.stored_path)) {
       throw new VectorLibraryServiceError(`文件路径无效: ${file.stored_path}`, 404);
     }
-    const text = readUtf8File(file.stored_path);
+    const text = (await this.documentExtractDispatcher.extract({ file_path: file.stored_path, file_name: file.original_name, mime: file.mime })).text;
     const result = await this.indexTextDocument({
       collection,
       documentId: file.id,
@@ -289,7 +299,7 @@ export class VectorLibraryService {
       if (!fs.existsSync(file.stored_path)) {
         throw new VectorLibraryServiceError(`文件路径无效: ${file.stored_path}`, 404);
       }
-      text = readUtf8File(file.stored_path);
+      text = (await this.documentExtractDispatcher.extract({ file_path: file.stored_path, file_name: file.original_name, mime: file.mime })).text;
       documentId = documentId || file.id;
       metadata.source = metadata.source ?? file.original_name;
       metadata.source_file = metadata.source_file ?? file.original_name;
@@ -462,8 +472,21 @@ export class VectorLibraryService {
     const candidates = this.vectorStore
       ? await this.searchViaDriver(collectionName, query, topK, searchMode, vectorizer, input)
       : [];
-    const rerank = input.rerank === true && searchMode === "hybrid";
-    const results = rerank ? lexicalRerank(candidates, query) : candidates;
+    const activeReranker = this.knowledgeConfig.listRerankers().find((stored) => stored.is_active) ?? null;
+    const reranker = input.rerank !== false && activeReranker && searchMode === "hybrid" ? this.rerankerFactory(activeReranker) : null;
+    let results = candidates;
+    let rerankMode: "model" | "lexical" | "none" | "degraded" = "none";
+    if (reranker) {
+      try {
+        const reranked = await reranker.rerank(query, candidates);
+        results = reranked.results;
+        rerankMode = reranked.mode;
+      } catch (error) {
+        console.warn({ event: "reranker_degraded", reranker_key: activeReranker!.reranker_key, error: error instanceof Error ? error.message : String(error) });
+        results = lexicalRerank(candidates, query).map((result) => ({ ...result, rerank_degraded: true }));
+        rerankMode = "degraded";
+      }
+    }
     const finalTopK = input.final_top_k ?? topK;
     const sliced = results.slice(0, finalTopK);
     return {
@@ -472,8 +495,8 @@ export class VectorLibraryService {
       collection_name: collectionName,
       query,
       search_mode: searchMode,
-      rerank,
-      rerank_mode: rerank ? input.rerank_mode ?? "local" : "none",
+      rerank: reranker !== null,
+      rerank_mode: rerankMode,
     };
   }
 
@@ -790,10 +813,8 @@ export class VectorLibraryService {
       api_endpoint: reranker.api_endpoint,
       created_at: reranker.created_at,
       is_active: reranker.is_active,
+      api_key_set: Boolean(reranker.api_key),
     };
-    if (reranker.api_key !== null) {
-      config.api_key = reranker.api_key;
-    }
     return config;
   }
 
@@ -853,14 +874,6 @@ function normalizeRerankerMode(value: string | undefined): "model" | "lexical" |
   return "model";
 }
 
-function readUtf8File(filePath: string): string {
-  try {
-    return fs.readFileSync(filePath, "utf8");
-  } catch (error) {
-    throw new VectorLibraryServiceError(`读取文件失败: ${error instanceof Error ? error.message : String(error)}`, 500);
-  }
-}
-
 function chunkText(text: string, chunkSize: number, overlap: number): string[] {
   const normalized = text.replace(/\r\n/g, "\n").trim();
   if (!normalized) {
@@ -897,15 +910,6 @@ function hitToSearchResult(hit: VectorSearchHit): VectorSearchResult {
     vector_score: Math.round(hit.vector_score * 10000) / 10000,
     hybrid_score: score,
   };
-}
-
-function lexicalRerank(results: VectorSearchResult[], query: string): VectorSearchResult[] {
-  return results
-    .map((result) => ({
-      ...result,
-      rerank_score: Math.round(keywordOverlapScore(query, result.content) * 10000) / 10000,
-    }))
-    .sort((left, right) => (right.rerank_score ?? 0) - (left.rerank_score ?? 0) || right.hybrid_score - left.hybrid_score);
 }
 
 function asString(value: unknown): string | null {

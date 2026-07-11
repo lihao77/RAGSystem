@@ -36,6 +36,7 @@ import { RuntimeCoreService } from "../agent/execution/runtime-core-service.js";
 import { SystemConfigService } from "../config/system-config-service.js";
 import { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
 import { VectorLibraryService, type VectorLibraryEmbedderFactory } from "../knowledge/vector-library-service.js";
+import { DocumentExtractDispatcher } from "../knowledge/document-extract/dispatcher.js";
 import { createVectorStoreFromConfig } from "../vector-store/vector-store-factory.js";
 import type { IVectorStore } from "../../contracts/vector-store/index.js";
 import { OutboxDispatcher } from "./event-outbox/dispatcher.js";
@@ -162,12 +163,14 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
       ? { ...vectorStoreConfig, sqlite_vec: { ...vectorStoreConfig.sqlite_vec, database_path: ":memory:" } }
       : vectorStoreConfig;
   const vectorStore = createVectorStoreFromConfig(resolvedVectorStoreConfig, options.dataRoot);
+  const documentExtractDispatcher = new DocumentExtractDispatcher(systemConfig.getDocumentExtractionConfig());
   // vectorStore 同一对象同时实现 IVectorStore(数据面) + IKnowledgeConfig(配置面),
   // 共享 knowledge.db 单一连接——主库 ragsystem.db 不再涉及向量/配置面。
   const vectorLibrary = new VectorLibraryService(modelAdapter, {
     vectorStore,
     knowledgeConfig: vectorStore,
     knowledgeFileStore: vectorStore,
+    documentExtractDispatcher,
     ...(options.embedderFactory ? { embedderFactory: options.embedderFactory } : {}),
   });
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });

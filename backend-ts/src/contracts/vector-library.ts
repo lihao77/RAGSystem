@@ -47,7 +47,6 @@ export const SearchVectorsRequestSchema = z
     mode: z.enum(["hybrid", "vector"]).optional(),
     filters: z.unknown().optional(),
     rerank: z.boolean().optional(),
-    rerank_mode: z.string().trim().optional(),
     rerank_top_k: z.number().int().positive().optional(),
     final_top_k: z.number().int().positive().optional(),
     reranker_key: z.string().trim().optional(),
@@ -113,7 +112,7 @@ export interface RerankerConfig {
   api_endpoint: string;
   created_at: string;
   is_active: boolean;
-  api_key?: string;
+  api_key_set: boolean;
 }
 
 /**
@@ -150,4 +149,8 @@ export interface VectorSearchResult {
   vector_score: number;
   hybrid_score: number;
   rerank_score?: number;
+  rerank_degraded?: boolean;
 }
+
+/** 重排序执行结果:model/lexical/none 为策略结果,degraded 表示远程模型失败后的词法降级。 */
+export type RerankResultMode = RerankerMode | "degraded";
