@@ -29,9 +29,13 @@ export class TransientArtifactService {
 
   startPruning(intervalMs = 60 * 60 * 1000): void {
     if (this.pruneTimer) return;
-    void this.pruneExpired().catch(() => undefined);
+    void this.pruneExpired().catch((error: unknown) => {
+      console.error("[transient-artifact] prune failed", error);
+    });
     this.pruneTimer = setInterval(() => {
-      void this.pruneExpired().catch(() => undefined);
+      void this.pruneExpired().catch((error: unknown) => {
+        console.error("[transient-artifact] prune failed", error);
+      });
     }, intervalMs);
     this.pruneTimer.unref?.();
   }

@@ -2,13 +2,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TransientArtifactService } from "../../src/services/artifacts/transient-artifact-service.js";
 
 const roots: string[] = [];
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -19,6 +21,23 @@ function makeRoot(): string {
 }
 
 describe("TransientArtifactService", () => {
+  it("logs prune failures without throwing from immediate or interval cleanup", async () => {
+    vi.useFakeTimers();
+    const service = new TransientArtifactService(makeRoot());
+    const error = Object.assign(new Error("permission denied"), { code: "EACCES" });
+    vi.spyOn(service, "pruneExpired").mockRejectedValue(error);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    expect(() => service.startPruning(1_000)).not.toThrow();
+    await Promise.resolve();
+    expect(errorSpy).toHaveBeenCalledWith("[transient-artifact] prune failed", error);
+
+    errorSpy.mockClear();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(errorSpy).toHaveBeenCalledWith("[transient-artifact] prune failed", error);
+    service.stopPruning();
+  });
+
   it("skips sessions that have no transient directory", async () => {
     const root = makeRoot();
     fs.mkdirSync(path.join(root, "sessions", "plain-session"), { recursive: true });

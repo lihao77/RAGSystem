@@ -2,19 +2,55 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getWorkspaceMemoryKey, MemoryStore } from "../../src/services/stores/memory-store.js";
 
 const tempRoots: string[] = [];
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
 describe("MemoryStore", () => {
+  it("logs non-ENOENT index read failures and returns an empty string", () => {
+    const store = new MemoryStore({ dataRoot: makeTempDataRoot() });
+    const error = Object.assign(new Error("permission denied"), { code: "EACCES" });
+    vi.spyOn(fs, "readFileSync").mockImplementation(() => {
+      throw error;
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    expect(store.loadIndexHead({ scope: "session", session_id: "s1" })).toBe("");
+    expect(warnSpy).toHaveBeenCalledWith("[memory-store] loadIndexHead failed", {
+      scope: "session",
+      error,
+    });
+  });
+
+  it("logs non-ENOENT entry read failures and returns null", () => {
+    const dataRoot = makeTempDataRoot();
+    const store = new MemoryStore({ dataRoot });
+    const scopeRoot = path.join(dataRoot, "memory", "sessions", "s1");
+    fs.mkdirSync(scopeRoot, { recursive: true });
+    fs.writeFileSync(path.join(scopeRoot, "fact.md"), "body", "utf8");
+    const error = Object.assign(new Error("permission denied"), { code: "EACCES" });
+    vi.spyOn(fs, "readFileSync").mockImplementation(() => {
+      throw error;
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    expect(store.readEntryFile({ scope: "session", session_id: "s1" }, "fact.md")).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith("[memory-store] readEntryFile failed", {
+      scope: "session",
+      fileName: "fact.md",
+      error,
+    });
+  });
+
   it("reads Python-compatible MEMORY.md index heads from shared scopes", () => {
     const dataRoot = makeTempDataRoot();
     const store = new MemoryStore({ dataRoot });

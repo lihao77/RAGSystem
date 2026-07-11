@@ -84,7 +84,8 @@ export class MemoryStore implements IMemoryStore {
       const text = fs.readFileSync(indexPath, "utf8");
       const limited = text.split(/\r?\n/).slice(0, maxLines).join("\n");
       return limited.slice(0, maxChars).trim();
-    } catch {
+    } catch (error) {
+      console.warn("[memory-store] loadIndexHead failed", { scope: scopeSpec.scope, error });
       return "";
     }
   }
@@ -106,7 +107,13 @@ export class MemoryStore implements IMemoryStore {
         file_path: filePath,
         content: fs.readFileSync(filePath, "utf8"),
       };
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      console.warn("[memory-store] readEntryFile failed", {
+        scope: scopeSpec.scope,
+        fileName: normalizedFileName,
+        error,
+      });
       return null;
     }
   }
