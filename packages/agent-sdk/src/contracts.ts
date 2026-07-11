@@ -83,9 +83,6 @@ export type KernelEvent =
   | RuntimeErrorEvent
   | ContextUsageEvent;
 
-/** 内核事件处理器（EventSink 透传用）。 */
-export type KernelEventHandler = (event: KernelEvent) => void | Promise<void>;
-
 /* ============================================================
  * 二、内核循环的零件类型
  * ========================================================== */

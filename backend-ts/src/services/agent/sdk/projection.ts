@@ -17,7 +17,7 @@ import type { AgentProfile, CompressionBudgetConfig, ResolvedTier, TierMap } fro
 import type { ProviderConfig } from "@ragsystem/agent-llm";
 import type { AgentConfig, AgentLlmConfig } from "../../../contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
-import { findProviderByRef, normalizeProviderKey } from "../../runtime/provider-lookup.js";
+import { findProviderByRef } from "../../runtime/provider-lookup.js";
 import { compactRecord } from "../llm-params.js";
 
 export interface ProjectionInput {
@@ -242,31 +242,4 @@ function normalizeString(value: unknown): string | null {
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-}
-
-/** 选中模型可用性校验：modelName 在 provider 的模型集合中（读 model_map/models/model）。 */
-export function isModelAvailableInProvider(provider: ModelProviderConfig, modelName: string): boolean {
-  const target = normalizeProviderKey(modelName);
-  return listChatModels(provider).some((model) => normalizeProviderKey(model) === target);
-}
-
-function listChatModels(provider: ModelProviderConfig): string[] {
-  const values: string[] = [];
-  collectModelValues(provider.model_map?.chat, values);
-  collectModelValues(provider.model, values);
-  collectModelValues(provider.models, values);
-  return values;
-}
-
-function collectModelValues(value: unknown, output: string[]): void {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      collectModelValues(item, output);
-    }
-    return;
-  }
-  const normalized = normalizeString(value);
-  if (normalized) {
-    output.push(normalized);
-  }
 }
