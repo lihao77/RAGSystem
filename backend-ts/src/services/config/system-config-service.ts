@@ -114,7 +114,6 @@ function buildDefaultConfig(): SystemConfigData {
     memory: {
       index_max_lines: 200,
       index_max_chars: 25600,
-      search_limit: 5,
     },
     tools: {
       bash_default_timeout: 120,
@@ -160,7 +159,6 @@ function buildSystemConfigSchema(): SystemConfigSchema {
         fields: [
           numberField("index_max_lines", "Index Max Lines", "记忆索引注入最大行数", 200, { min: 10, step: 1 }),
           numberField("index_max_chars", "Index Max Chars", "记忆索引注入最大字符数", 25600, { min: 1024, step: 1 }),
-          numberField("search_limit", "Search Limit", "记忆召回返回条目数上限", 5, { min: 1, max: 50, step: 1 }),
         ],
       },
       {
@@ -350,7 +348,6 @@ function normalizeMemoryConfig(value: unknown): MemoryConfig {
   return {
     index_max_lines: positiveIntOrDefault(record.index_max_lines, 200),
     index_max_chars: positiveIntOrDefault(record.index_max_chars, 25600),
-    search_limit: positiveIntOrDefault(record.search_limit, 5),
   };
 }
 

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { AgentConfig } from "../../../contracts/agent-config.js";
+import type { MemoryConfig } from "../../../contracts/system-config.js";
 import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } from "../../../contracts/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
@@ -51,6 +52,7 @@ export class AgentRunEngine {
     private readonly sessions: AgentSessionApplication,
     private readonly conversationStore: IRunStore & IMessageStore & ISessionStore,
     private readonly dataRoot: string,
+    private readonly memoryConfig: MemoryConfig,
    private readonly toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName"> | null,
    private readonly codeExecutionTools: CodeExecutionToolService | null,
    private readonly taskTools: TaskToolService | null,
@@ -342,6 +344,7 @@ export class AgentRunEngine {
           clientEvents: this.clientEvents,
           providers: this.providersProvider(),
           dataRoot: this.dataRoot,
+          memoryConfig: this.memoryConfig,
           permissionPolicy: this.permissionPolicy,
           pendingInteractions: this.pendingInteractions,
           hostToolRegistry: this.hostToolRegistry,

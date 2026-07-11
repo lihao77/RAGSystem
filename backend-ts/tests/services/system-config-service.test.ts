@@ -21,7 +21,6 @@ describe("SystemConfigService 类型化 getter", () => {
     expect(service.getMemoryConfig()).toEqual({
       index_max_lines: 200,
       index_max_chars: 25600,
-      search_limit: 5,
     });
     expect(service.getSystemGroupConfig()).toEqual({ max_content_length: 104857600 });
   });
@@ -48,5 +47,7 @@ describe("SystemConfigService 类型化 getter", () => {
     expect(tools.bash_max_timeout).toBe(600); // 负数 → 默认
     expect(tools.code_max_timeout).toBe(300); // 缺失 → 默认
     expect(tools.bash_default_timeout).toBe(120); // 未覆盖 → 默认
+    service.updateConfig({ memory: { index_max_lines: -1, index_max_chars: "invalid" } });
+    expect(service.getMemoryConfig()).toEqual({ index_max_lines: 200, index_max_chars: 25600 });
   });
 });

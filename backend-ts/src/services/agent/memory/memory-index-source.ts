@@ -14,6 +14,7 @@ import type { IMemoryStore, MemoryScopeSpec, MemoryStoreOptions } from "../../..
 import { MemoryStore } from "../../stores/memory-store.js";
 import type { AgentContextContribution, AgentContextSource, ResolvedAgentContextRequest, SessionMetadataPort } from "../context/types.js";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
+import type { MemoryConfig as SystemMemoryConfig } from "../../../contracts/system-config.js";
 import {
   buildMemoryPrefixFingerprint,
   buildMemoryScopeCapabilities,
@@ -33,6 +34,17 @@ export interface MemoryIndexContextSourceOptions {
   memoryStore?: IMemoryStore;
   indexMaxLines?: number;
   indexMaxChars?: number;
+}
+
+export function buildMemoryIndexContextSourceOptions(
+  memoryConfig: SystemMemoryConfig,
+  dataRoot: string,
+): MemoryIndexContextSourceOptions {
+  return {
+    dataRoot,
+    indexMaxLines: memoryConfig.index_max_lines,
+    indexMaxChars: memoryConfig.index_max_chars,
+  };
 }
 
 export class MemoryIndexContextSource implements AgentContextSource {

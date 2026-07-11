@@ -33,6 +33,7 @@ import { SlashCommandHandler } from "./slash-command-handler.js";
 import { AgentRunEngine, type AgentExecutionLogger } from "./run-engine.js";
 import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
+import type { MemoryConfig } from "../../../contracts/system-config.js";
 import {
   createLaunchers,
   type RollbackRetryInput,
@@ -70,6 +71,7 @@ export interface AgentExecutionServiceParams {
   conversationStore: ConversationStore;
   runtimeCore: RuntimeExecutionConfigResolver;
   dataRoot: string;
+  memoryConfig: MemoryConfig;
   /** per-agent 工具依赖（runtime-adapter per-run 构建 Tool[] 用）。 */
   toolsDeps?: Omit<import("../../../tools/registry.js").BackendToolsDeps, "agent" | "teamName"> | null;
   codeExecutionTools?: import("../../../tools/CodeExecutionTool/CodeExecution.js").CodeExecutionToolService | null;
@@ -130,6 +132,7 @@ export function createAgentExecutionService(
     params.sessions,
     params.conversationStore,
     params.dataRoot,
+    params.memoryConfig,
    params.toolsDeps ?? null,
    params.codeExecutionTools ?? null,
    params.taskTools ?? null,

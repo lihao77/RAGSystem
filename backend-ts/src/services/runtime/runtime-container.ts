@@ -145,6 +145,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     providersConfigPath: options.modelAdapterProvidersConfigPath,
   });
   const systemConfig = new SystemConfigService({ dataRoot: options.dataRoot, configPath: options.systemConfigPath });
+  const memoryConfig = systemConfig.getMemoryConfig();
   const mcp = new McpService({ dataRoot: options.dataRoot, configPath: options.mcpConfigPath });
   void mcp.autoConnectEnabledServers();
   agentConfig.setMcpService(mcp);
@@ -235,6 +236,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     conversationStore,
     runtimeCore,
     dataRoot,
+    memoryConfig,
    toolsDeps,
    codeExecutionTools,
    taskTools,

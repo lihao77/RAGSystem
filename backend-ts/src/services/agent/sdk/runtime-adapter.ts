@@ -12,6 +12,7 @@ import { translateKernelEvent, type WireTranslationContext } from "@ragsystem/ag
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
+import type { MemoryConfig } from "../../../contracts/system-config.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { DelegatedToolDeclarationWire, Envelope } from "../../../contracts/events.js";
 import type { AgentExecutionEventPublisher } from "../execution/event-publisher.js";
@@ -26,7 +27,7 @@ import { projectAgentProfile } from "./projection.js";
 import { KernelEventPersister } from "./event-persister.js";
 import { AgentContextBuilder, createDefaultProjectionRegistry, DEFAULT_PROVIDER_CACHE_TTL_SECONDS, HISTORY_SCAN_LIMIT, ProviderCacheTracker, RecentMessagesContextSource, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
-import { MemoryIndexContextSource, isMemoryEnabled, memoryBaselineKey } from "../memory/index.js";
+import { buildMemoryIndexContextSourceOptions, MemoryIndexContextSource, isMemoryEnabled, memoryBaselineKey } from "../memory/index.js";
 import { registerGateHook } from "./gate-hook.js";
 import { PathApprovalService } from "../../../services/runtime/path-service.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
@@ -45,6 +46,7 @@ export interface SdkRuntimeAdapterDeps {
   /** 已加载的全部 provider（投影层解析 tier.provider 引用用）。 */
   providers: ModelProviderConfig[];
   dataRoot: string;
+  memoryConfig: MemoryConfig;
   /** 权限策略服务（SDK 审批编排判定端口用）。 */
   permissionPolicy: PermissionPolicyService;
   /** 审批交互服务（SDK 审批编排阻塞等待端口用）。 */
@@ -189,7 +191,12 @@ export async function executeRunWithSdk(
       sessionMetadata.updateSessionMetadata?.(sid, patch) ?? null,
   };
   const memorySources = isMemoryEnabled(input.agent.memory)
-    ? [new MemoryIndexContextSource(historyPort, input.agent.memory, input.agent.agent_name, { dataRoot: deps.dataRoot })]
+    ? [new MemoryIndexContextSource(
+        historyPort,
+        input.agent.memory,
+        input.agent.agent_name,
+        buildMemoryIndexContextSourceOptions(deps.memoryConfig, deps.dataRoot),
+      )]
     : [];
   const extensionRegistry = createDefaultProjectionRegistry();
   const recentSource = new RecentMessagesContextSource(historyPort, profile.llmTiers.default?.provider.supports_vision === true, extensionRegistry);

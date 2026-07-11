@@ -59,7 +59,6 @@ export interface ToolsConfig {
 export interface MemoryConfig {
   index_max_lines: number;
   index_max_chars: number;
-  search_limit: number;
 }
 
 export interface SystemGroupConfig {
