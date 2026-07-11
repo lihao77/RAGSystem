@@ -90,7 +90,7 @@ export function buildCustomAgentConfig(input: CreateAgentRequest): AgentConfig {
     default_entry: input.default_entry ?? false,
     llm_tiers: input.llm ? { default: { ...input.llm } } : null,
     tools: { enabled_tools: [] },
-    skills: { enabled_skills: [], auto_inject: true },
+    skills: { enabled_skills: [] },
     mcp: { enabled_servers: [] },
     memory: {
       auto_inject: true,
@@ -155,7 +155,7 @@ export function normalizeConfig(config: AgentConfig): AgentConfig {
       ...tools,
       enabled_tools: stripConfigManagedToolNames(tools.enabled_tools),
     },
-    skills: config.skills ?? { enabled_skills: [], auto_inject: true },
+    skills: config.skills ?? { enabled_skills: [] },
     mcp: config.mcp ?? { enabled_servers: [] },
     memory: config.memory ?? {
       auto_inject: true,
@@ -227,7 +227,7 @@ function buildSystemAgentConfig(input: {
     default_entry: input.default_entry ?? false,
     llm_tiers: { default: { ...defaultLlmTier } },
     tools: { enabled_tools: input.tools ?? ["read_file", "preview_data_structure"] },
-    skills: { enabled_skills: input.skills ?? [], auto_inject: true },
+    skills: { enabled_skills: input.skills ?? [] },
     mcp: { enabled_servers: [] },
     memory: {
       auto_inject: true,

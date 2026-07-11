@@ -50,7 +50,7 @@ function minimalAgent(agentName: string): AgentConfig {
       },
     },
     tools: { enabled_tools: [] },
-    skills: { enabled_skills: [], auto_inject: true },
+    skills: { enabled_skills: [] },
     mcp: { enabled_servers: [] },
     memory: { auto_inject: false, allowed_scopes: [], write_scopes: [], archive_scopes: [] },
     tasks: { workflow: false, background: false },

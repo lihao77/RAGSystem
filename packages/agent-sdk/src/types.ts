@@ -56,7 +56,6 @@ export interface AgentBehavior {
  */
 export interface AgentProfile {
   agentName: string;
- displayName: string | null;
  /** 全量已决的扁平 tier 表（投影算死，内核零兜底）。 */
   llmTiers: TierMap;
   behavior: AgentBehavior;

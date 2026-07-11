@@ -97,7 +97,6 @@ def _build_agent_config(team_goal: str, role: dict, index: int) -> tuple[str, di
         },
         "skills": {
             "enabled_skills": skills,
-            "auto_inject": True,
         },
         "mcp": {
             "enabled_servers": role.get("mcp_servers") or [],
@@ -145,7 +144,7 @@ def _normalize_agents_payload(team_goal: str, payload: dict) -> dict:
         config.setdefault("enabled", True)
         config.setdefault("llm_tiers", {"default": deepcopy(DEFAULT_LLM)})
         config.setdefault("tools", {"enabled_tools": DEFAULT_ORCHESTRATOR_TOOLS if config.get("default_entry") else DEFAULT_AGENT_TOOLS})
-        config.setdefault("skills", {"enabled_skills": [], "auto_inject": True})
+        config.setdefault("skills", {"enabled_skills": []})
         config.setdefault("mcp", {"enabled_servers": []})
         config.setdefault("memory", deepcopy(DEFAULT_MEMORY))
         config.setdefault("delegation", {"enabled_agents": []})

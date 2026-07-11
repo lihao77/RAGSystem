@@ -9,7 +9,6 @@ const EnvSchema = z.object({
   BACKEND_TS_LOG_LEVEL: z.string().optional(),
   BACKEND_TS_DB_PATH: z.string().optional(),
   CORS_ORIGINS: z.string().optional(),
-  NODE_ENV: z.string().optional(),
   PORT: z.string().optional(),
   RAG_DATA_ROOT: z.string().optional(),
   WIDGET_JWT_SECRET: z.string().optional(),
@@ -19,7 +18,6 @@ export interface AppEnv {
   host: string;
   port: number;
   logLevel: string;
-  nodeEnv: string;
   corsOrigins: string[] | boolean;
   dataRoot: string;
   dbPath: string;
@@ -57,7 +55,6 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     host: env.BACKEND_TS_HOST ?? "0.0.0.0",
     port,
     logLevel: env.BACKEND_TS_LOG_LEVEL ?? "info",
-    nodeEnv: env.NODE_ENV ?? "development",
     corsOrigins: parseCorsOrigins(env.CORS_ORIGINS),
     dataRoot,
     dbPath,

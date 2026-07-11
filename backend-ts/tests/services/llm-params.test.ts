@@ -146,7 +146,7 @@ function agentWithDefault(tier: Partial<AgentLlmConfig> & { provider: string; mo
     default_entry: true,
     llm_tiers: { default: { extra_params: {}, ...tier } as AgentLlmConfig },
     tools: { enabled_tools: [] },
-    skills: { enabled_skills: [], auto_inject: true },
+    skills: { enabled_skills: [] },
     mcp: { enabled_servers: [] },
   } as unknown as AgentConfig;
 }

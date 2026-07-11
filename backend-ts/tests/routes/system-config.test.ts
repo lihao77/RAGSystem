@@ -27,10 +27,6 @@ describe("system config compatibility routes", () => {
       data: {
         groups: expect.arrayContaining([
           expect.objectContaining({
-            key: "llm",
-            label: "LLM 配置",
-          }),
-          expect.objectContaining({
             key: "vector_store.sqlite_vec",
             label: "SQLite 向量存储",
           }),
@@ -38,13 +34,8 @@ describe("system config compatibility routes", () => {
       },
     });
 
-    const llmGroup = schema.json().data.groups.find((group: { key: string }) => group.key === "llm");
-    expect(llmGroup.fields).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ key: "model_name", type: "text" }),
-        expect.objectContaining({ key: "temperature", type: "number", min: 0, max: 2 }),
-        expect.objectContaining({ key: "reasoning_effort", type: "select", nullable: true }),
-      ]),
+    expect(schema.json().data.groups.map((group: { key: string }) => group.key)).not.toEqual(
+      expect.arrayContaining(["llm", "embedding", "waiting", "reflection"]),
     );
 
     const config = await app.inject({
@@ -56,11 +47,6 @@ describe("system config compatibility routes", () => {
       success: true,
       message: "当前系统配置",
       data: {
-        llm: {
-          model_name: "deepseek-chat",
-          temperature: 0.7,
-          reasoning_effort: null,
-        },
         vector_store: {
           backend: "sqlite_vec",
           sqlite_vec: {
@@ -78,10 +64,7 @@ describe("system config compatibility routes", () => {
       method: "PATCH",
       url: "/api/system-config",
       payload: {
-        llm: {
-          model_name: "gpt-4.1",
-          temperature: 0.2,
-        },
+        llm: { model_name: "legacy-model" },
         vector_store: {
           sqlite_vec: {
             distance_metric: "l2",
@@ -94,11 +77,6 @@ describe("system config compatibility routes", () => {
       success: true,
       message: "系统配置已更新",
       data: {
-        llm: {
-          model_name: "gpt-4.1",
-          temperature: 0.2,
-          retry_attempts: 10,
-        },
         vector_store: {
           backend: "sqlite_vec",
           sqlite_vec: {
@@ -108,6 +86,7 @@ describe("system config compatibility routes", () => {
         },
       },
     });
+    expect(updated.json().data).not.toHaveProperty("llm");
 
     const reloaded = await app.inject({
       method: "POST",
@@ -123,7 +102,7 @@ describe("system config compatibility routes", () => {
       method: "GET",
       url: "/api/system-config",
     });
-    expect(config.json().data.llm.model_name).toBe("deepseek-chat");
+    expect(config.json().data).not.toHaveProperty("llm");
     expect(config.json().data.vector_store.sqlite_vec.distance_metric).toBe("cosine");
   });
 

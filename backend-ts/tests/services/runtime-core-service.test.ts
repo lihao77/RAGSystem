@@ -155,7 +155,7 @@ function minimalAgent(agentName: string, defaultEntry: boolean): AgentConfig {
       },
     },
     tools: { enabled_tools: [] },
-    skills: { enabled_skills: [], auto_inject: true },
+    skills: { enabled_skills: [] },
     mcp: { enabled_servers: [] },
     memory: {
       auto_inject: true,

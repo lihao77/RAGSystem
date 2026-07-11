@@ -7,8 +7,7 @@ import type { BackgroundTaskNotificationPayload } from "./background-task-servic
  * （source:background_notification）永久留痕。queue 本身只做待投递暂存，不落库——后台任务
  * 本身是内存态，后端重启同丢，通知单独落库无意义。
  *
- * 通道 A（自动触发 run 的触发器 drain）与未来通道 B（round.before hook drain）共享同一队列、
- * 互斥消费：drain 即清空，通知只投递一次；idle 时通道 A 消费，active run 时通道 B 消费。
+ * 自动触发 run 与活动 run 的消费者共享同一队列并互斥消费：drain 即清空，通知只投递一次。
  *
  * 纯数据层，不含触发/起 run 逻辑——触发编排（scheduleAutoTrigger）在 BackgroundTaskService，
  * 起 run 在 launchers.triggerBgNotificationRun。
@@ -18,7 +17,7 @@ export class SessionNotificationQueue {
   private readonly consumed = new Map<string, Set<string>>();
 
   /**
-   * 入队。若 taskId 已在 consumed 集合（曾被 markConsumed，说明 waiting loop 已即时处理），
+   * 入队。若 taskId 已在 consumed 集合（曾被 markConsumed），
    * 视为已消费：清除标记、不入队；否则入 pending。
    */
   add(sessionId: string, payload: BackgroundTaskNotificationPayload): void {
@@ -37,8 +36,7 @@ export class SessionNotificationQueue {
   }
 
   /**
-   * 取出并清空 pending。excludeTaskIds 对应的保留在队列（预留给未来通道 B 的 waiting-loop
-   * 去重：已即时处理的 task 不重复 drain）。
+   * 取出并清空 pending。excludeTaskIds 对应的任务保留在队列，供调用方避免重复消费。
    */
   drain(
     sessionId: string,
@@ -76,7 +74,7 @@ export class SessionNotificationQueue {
     return !!pending?.length;
   }
 
-  /** 标记 taskId 已消费（waiting loop 已即时处理）并从 pending 移除，防重复投递。 */
+  /** 标记 taskId 已消费并从 pending 移除，防重复投递。 */
   markConsumed(sessionId: string, taskId: string): void {
     const consumed = this.consumed.get(sessionId) ?? new Set<string>();
     consumed.add(taskId);

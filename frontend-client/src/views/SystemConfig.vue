@@ -1,5 +1,5 @@
 <template>
-  <PageLayout title="系统配置" subtitle="全局 LLM、向量与系统参数">
+  <PageLayout title="系统配置" subtitle="向量存储与系统运行参数">
     <template #header-actions>
       <Button variant="ghost" size="icon-sm" :disabled="loading || saving" aria-label="重新加载" title="重新加载" @click="handleReload">
         <IconRefresh :size="16" />
@@ -23,7 +23,7 @@
     <EntityListLayout
       v-if="loading || error"
       title="系统配置数据"
-      description="加载全局 LLM、向量存储、反思机制等系统级参数。"
+      description="加载向量存储与系统运行参数。"
       :loading="loading"
       loading-text="加载系统配置..."
       :error="error"

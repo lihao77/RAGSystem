@@ -21,10 +21,9 @@ export const AgentConfigSchema = z.object({
   skills: z
     .object({
       enabled_skills: z.array(z.string()).optional().default([]),
-      auto_inject: z.boolean().optional().default(true),
     })
     .optional()
-    .default({ enabled_skills: [], auto_inject: true }),
+    .default({ enabled_skills: [] }),
   mcp: z.object({ enabled_servers: z.array(z.string()).optional().default([]) }).optional().default({ enabled_servers: [] }),
   memory: z
     .object({

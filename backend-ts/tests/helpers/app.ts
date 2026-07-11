@@ -18,7 +18,6 @@ export const testEnv: AppEnv = {
   host: "127.0.0.1",
   port: 0,
   logLevel: "silent",
-  nodeEnv: "test",
   corsOrigins: true,
   dataRoot: ".test-data",
   dbPath: ":memory:",

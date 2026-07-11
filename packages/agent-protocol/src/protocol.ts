@@ -235,8 +235,6 @@ export const StateSyncPayloadSchema = z.object({
     "compression",
     "command_result",
     "retry",
-    "waiting",
-    "reflection",
   ]),
   ref: z
     .object({

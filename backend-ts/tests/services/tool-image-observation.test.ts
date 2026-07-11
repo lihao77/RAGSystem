@@ -23,7 +23,6 @@ const PNG_BASE64 = "iVBORw0KGgo=";
 const provider: ProviderConfig = { key: "vision", name: "vision", provider_type: "openai", supports_vision: true };
 const profile: AgentProfile = {
   agentName: "agent",
-  displayName: "Agent",
   behavior: { systemPrompt: "", compressionTriggerRatio: null, summarizeMaxTokens: null, preserveRecentTurns: null },
   llmTiers: { default: { provider, modelName: "model", temperature: null, maxCompletionTokens: null, maxContextTokens: 128000, extraParams: {} } },
 };

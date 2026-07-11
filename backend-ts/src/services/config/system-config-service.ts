@@ -66,7 +66,7 @@ export class SystemConfigService {
   }
 
   updateConfig(update: SystemConfigUpdate): SystemConfigData {
-    const sanitized = dropRedactedValues(update) as SystemConfigData;
+    const sanitized = retainKnownRootGroups(dropRedactedValues(update), this.config);
     this.config = deepMerge(cloneConfig(this.config), sanitized);
     this.saveConfig();
     return this.getConfig();
@@ -83,7 +83,7 @@ export class SystemConfigService {
     }
     try {
       const parsed = YAML.parse(fs.readFileSync(this.configPath, "utf8")) as unknown;
-      return isRecord(parsed) ? deepMerge(defaults, parsed as SystemConfigData) : defaults;
+      return isRecord(parsed) ? deepMerge(defaults, retainKnownRootGroups(parsed, defaults)) : defaults;
     } catch {
       return defaults;
     }
@@ -108,42 +108,8 @@ function buildDefaultConfig(): SystemConfigData {
         distance_metric: "cosine",
       },
     },
-    llm: {
-      provider: "",
-      provider_type: "",
-      model_name: "deepseek-chat",
-      model_map: {},
-      temperature: 0.7,
-      max_completion_tokens: 4096,
-      max_context_tokens: null,
-      thinking_budget_tokens: null,
-      reasoning_effort: null,
-      timeout: 30,
-      retry_attempts: 10,
-      retry_backoff_factor: 2.5,
-    },
     system: {
       max_content_length: 104857600,
-    },
-    embedding: {
-      provider: "",
-      provider_type: "",
-      model_name: "",
-      batch_size: 100,
-    },
-    waiting: {
-      enabled: true,
-      default_poll_interval_seconds: 3,
-      max_poll_interval_seconds: 15,
-      idle_wait_timeout_seconds: 300,
-    },
-    reflection: {
-      enabled: true,
-      consecutive_tool_failures: 2,
-      repeated_tool_calls: 3,
-      rounds_without_answer: 6,
-      empty_result_count: 2,
-      max_reflections_per_run: 3,
     },
     memory: {
       index_max_lines: 200,
@@ -161,7 +127,6 @@ function buildDefaultConfig(): SystemConfigData {
       compression_trigger_ratio: 0.85,
       summarize_max_tokens: 300,
       preserve_recent_turns: 3,
-      system_prompt_reserve: 2000,
       min_context_budget: 4000,
     },
   };
@@ -181,64 +146,11 @@ function buildSystemConfigSchema(): SystemConfigSchema {
         ],
       },
       {
-        key: "llm",
-        label: "LLM 配置",
-        description: "LLM 配置 - 支持 ModelAdapter",
-        fields: [
-          textField("provider", "Provider", "AI 提供商名称（openai/deepseek/openrouter）", ""),
-          textField("provider_type", "Provider Type", "Provider 类型（用于精确查找，避免同名冲突）", ""),
-          textField("model_name", "Model Name", "默认 Chat 模型名称", "deepseek-chat"),
-          numberField("temperature", "Temperature", "生成温度，控制输出随机性", 0.7, { min: 0, max: 2, step: 0.1 }),
-          numberField("max_completion_tokens", "Max Completion Tokens", "单次输出的最大 token 数", 4096, { min: 1, step: 1 }),
-          numberField("max_context_tokens", "Max Context Tokens", "模型支持的最大上下文窗口", null, { min: 1, step: 1, nullable: true }),
-          numberField("thinking_budget_tokens", "Thinking Budget Tokens", "思考预算 token 数（仅部分模型支持）", null, { min: 1, step: 1, nullable: true }),
-          selectField("reasoning_effort", "Reasoning Effort", "推理强度（仅部分模型支持）", null, ["low", "medium", "high"], true),
-          numberField("timeout", "Timeout", "单次请求超时时间（秒）", 30, { min: 1, step: 1 }),
-          numberField("retry_attempts", "Retry Attempts", "失败重试次数", 10, { min: 0, step: 1 }),
-          numberField("retry_backoff_factor", "Retry Backoff Factor", "重试退避因子", 2.5, { min: 1, step: 0.1 }),
-        ],
-      },
-      {
         key: "system",
         label: "系统配置",
         description: "系统配置",
         fields: [
           numberField("max_content_length", "Max Content Length", "最大内容长度（字节），默认 100MB", 104857600, { min: 1, step: 1 }),
-        ],
-      },
-      {
-        key: "embedding",
-        label: "Embedding 配置",
-        description: "Embedding 配置 - 仅支持 ModelAdapter",
-        fields: [
-          textField("provider", "Provider", "Embedding 提供商名称（留空表示未配置）", ""),
-          textField("provider_type", "Provider Type", "Provider 类型（用于精确查找，避免同名冲突）", ""),
-          textField("model_name", "Model Name", "Embedding 模型名称", ""),
-          numberField("batch_size", "Batch Size", "批处理大小", 100, { min: 1, step: 1 }),
-        ],
-      },
-      {
-        key: "waiting",
-        label: "后台等待",
-        description: "后台任务等待配置",
-        fields: [
-          booleanField("enabled", "Enabled", "是否启用后台等待机制", true),
-          numberField("default_poll_interval_seconds", "Default Poll Interval Seconds", "默认轮询间隔（秒）", 3, { min: 0.5, step: 0.1 }),
-          numberField("max_poll_interval_seconds", "Max Poll Interval Seconds", "最大轮询间隔（秒）", 15, { min: 1, step: 0.1 }),
-          numberField("idle_wait_timeout_seconds", "Idle Wait Timeout Seconds", "空闲等待超时（秒）", 300, { min: 10, step: 0.1 }),
-        ],
-      },
-      {
-        key: "reflection",
-        label: "反思机制",
-        description: "反思机制配置（系统级默认，agent 级可覆盖）",
-        fields: [
-          booleanField("enabled", "Enabled", "是否启用反思机制", true),
-          numberField("consecutive_tool_failures", "Consecutive Tool Failures", "连续工具失败 N 次触发反思", 2, { min: 1, step: 1 }),
-          numberField("repeated_tool_calls", "Repeated Tool Calls", "同一工具连续调用 N 次触发", 3, { min: 2, step: 1 }),
-          numberField("rounds_without_answer", "Rounds Without Answer", "N 轮无答案时触发", 6, { min: 2, step: 1 }),
-          numberField("empty_result_count", "Empty Result Count", "空结果累积 N 次触发", 2, { min: 1, step: 1 }),
-          numberField("max_reflections_per_run", "Max Reflections Per Run", "单次 run 最大反思次数", 3, { min: 1, step: 1 }),
         ],
       },
       {
@@ -271,7 +183,6 @@ function buildSystemConfigSchema(): SystemConfigSchema {
           numberField("compression_trigger_ratio", "Compression Trigger Ratio", "触发上下文压缩的 token 使用比例", 0.85, { min: 0.5, max: 0.99, step: 0.1 }),
           numberField("summarize_max_tokens", "Summarize Max Tokens", "LLM 摘要的最大 token 数", 300, { min: 50, step: 1 }),
           numberField("preserve_recent_turns", "Preserve Recent Turns", "压缩时保留的最近对话轮数", 3, { min: 1, max: 20, step: 1 }),
-          numberField("system_prompt_reserve", "System Prompt Reserve", "系统提示词预留 token 数", 2000, { min: 500, step: 1 }),
           numberField("min_context_budget", "Min Context Budget", "最小上下文预算 token 数", 4000, { min: 1000, step: 1 }),
         ],
       },
@@ -343,6 +254,15 @@ function resolveConfigPath(options: { dataRoot?: string | undefined; configPath?
 
 function cloneConfig(config: SystemConfigData): SystemConfigData {
   return structuredClone(config) as SystemConfigData;
+}
+
+function retainKnownRootGroups(value: unknown, reference: SystemConfigData): SystemConfigData {
+  if (!isRecord(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value).filter(([key]) => Object.prototype.hasOwnProperty.call(reference, key)),
+  ) as SystemConfigData;
 }
 
 function deepMerge(base: SystemConfigData, override: SystemConfigData): SystemConfigData {

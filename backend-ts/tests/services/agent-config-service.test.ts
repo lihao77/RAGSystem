@@ -42,7 +42,7 @@ describe("AgentConfigService team file compatibility", () => {
           },
         },
         tools: { enabled_tools: ["read_file"] },
-        skills: { enabled_skills: ["visualization"], auto_inject: true },
+        skills: { enabled_skills: ["visualization"] },
         mcp: { enabled_servers: ["codex"] },
         memory: {
           auto_inject: true,

@@ -46,7 +46,6 @@ export function projectAgentProfile(input: ProjectionInput): AgentProfile {
 
   const profile: AgentProfile = {
     agentName: input.agent.agent_name,
-    displayName: input.agent.display_name ?? null,
     llmTiers: tiers,
     behavior,
   };

@@ -129,7 +129,6 @@ function buildProfile(config) {
   // profile.llmTiers.default.provider 内联完整 ProviderConfig（index.html 已构造，SDK 自建 OpenAiCompatibleClient 据此调用）。
   return {
     agentName: "demo-agent",
-    displayName: "Demo Agent",
     llmTiers: {
       default: {
         provider: config.provider,

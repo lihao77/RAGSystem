@@ -120,7 +120,7 @@ function skillAgent(enabledSkills: string[]): AgentConfig {
     enabled: true,
     default_entry: false,
     tools: { enabled_tools: [] },
-    skills: { enabled_skills: enabledSkills, auto_inject: true },
+    skills: { enabled_skills: enabledSkills },
     mcp: { enabled_servers: [] },
     memory: { auto_inject: true, allowed_scopes: [], write_scopes: [], archive_scopes: [] },
     tasks: { workflow: false, background: false },

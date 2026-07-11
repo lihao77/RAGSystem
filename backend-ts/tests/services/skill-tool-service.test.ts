@@ -497,7 +497,7 @@ function skillAgent(enabledSkills: string[], defaultEntry = false, workspaceRoot
     enabled: true,
     default_entry: defaultEntry,
     tools: { enabled_tools: [] },
-    skills: { enabled_skills: enabledSkills, auto_inject: true },
+    skills: { enabled_skills: enabledSkills },
     mcp: { enabled_servers: [] },
     memory: {
       auto_inject: true,

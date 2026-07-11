@@ -385,11 +385,6 @@
               <span>管理领域知识与脚本能力注入</span>
             </div>
             <div class="section-body skills-body">
-              <label class="form-item checkbox-item checkbox-item--inline">
-                <input v-model="configForm.skills.auto_inject" type="checkbox" />
-                <span>自动注入内置/工作区技能</span>
-              </label>
-
               <div v-for="group in skillGroups" :key="group.key" class="skill-group">
                 <div class="subsection-title">{{ group.title }}</div>
                 <div v-if="group.hint" class="skill-group__hint">{{ group.hint }}</div>
@@ -1068,7 +1063,7 @@ function createEmptyForm() {
     llm_tiers: { default: createEmptyLLM(), fast: null, powerful: null },
     tools: { enabled_tools: [] },
     tasks: { workflow: false, background: false },
-    skills: { enabled_skills: [], auto_inject: true },
+    skills: { enabled_skills: [] },
     mcp: { enabled_servers: [] },
     memory: {
       auto_inject: true,
@@ -1124,8 +1119,7 @@ function applyConfigToForm(config) {
       background: !!safeConfig.tasks?.background
     },
     skills: {
-      enabled_skills: Array.isArray(safeConfig.skills?.enabled_skills) ? [...safeConfig.skills.enabled_skills] : [],
-      auto_inject: safeConfig.skills?.auto_inject ?? true
+      enabled_skills: Array.isArray(safeConfig.skills?.enabled_skills) ? [...safeConfig.skills.enabled_skills] : []
     },
     mcp: {
       enabled_servers: Array.isArray(safeConfig.mcp?.enabled_servers) ? [...safeConfig.mcp.enabled_servers] : []
@@ -1261,8 +1255,7 @@ function buildPayload() {
 
   merged.skills = {
     ...(merged.skills || {}),
-    enabled_skills: configForm.value.skills.enabled_skills,
-    auto_inject: configForm.value.skills.auto_inject
+    enabled_skills: configForm.value.skills.enabled_skills
   };
 
   merged.mcp = {
