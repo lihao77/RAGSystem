@@ -117,31 +117,13 @@ export type StateSyncPayload = z.infer<typeof StateSyncPayloadSchema>;
 
 /* —— 工具帧（投影通知，后端本地执行） —— */
 export type ToolCallPayload = z.infer<typeof ToolCallPayloadSchema>;
-export interface ToolResultPayload {
-  tool: string;
-  phase: "end";
-  ok: boolean;
-  status?: "succeeded" | "failed";
-  observation?: string;
-  summary?: string;
-  elapsed_ms?: number;
-  approval?: { status: "pending" | "granted" | "denied"; message?: string };
-  lineage?: { parent_call_id?: string };
-  /** raw_result 系列不进协议，由宿主经独立资源通道拉取。 */
-}
+export type ToolResultPayload = z.infer<typeof ToolResultPayloadSchema>;
 
 /* —— 委托帧（宿主执行，独立语义） —— */
 /** 委托执行指令（后端→前端）：gate 通过后驱动宿主执行。独立于 tool_call（纯通知）。 */
 export type DelegateCallPayload = z.infer<typeof DelegateCallPayloadSchema>;
 /** 委托执行回传（前端→后端）：宿主执行结果，resolve 委托等待器。 */
-export interface DelegateResultPayload {
-  tool: string;
-  phase: "result";
-  ok: boolean;
-  observation?: string;
-  error?: string;
-  elapsed_ms?: number;
-}
+export type DelegateResultPayload = z.infer<typeof DelegateResultPayloadSchema>;
 
 /** tools.register 上行 payload：宿主声明本连接可委托执行的工具清单。 */
 export type ToolsRegisterPayload = z.infer<typeof ToolsRegisterPayloadSchema>;
@@ -286,11 +268,48 @@ export const ToolCallPayloadSchema = z.object({
   lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
 });
 
+export const ToolResultPayloadSchema = z
+  .object({
+    tool: z.string().min(1),
+    phase: z.literal("end"),
+    ok: z.boolean(),
+    status: z.enum(["succeeded", "failed"]).optional(),
+    observation: z.string().optional(),
+    summary: z.string().optional(),
+    elapsed_ms: z.number().nonnegative().optional(),
+    approval: z
+      .object({
+        status: z.enum(["pending", "granted", "denied"]),
+        message: z.string().optional(),
+      })
+      .optional(),
+    lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
+  })
+  .superRefine((payload, ctx) => {
+    if (payload.status === undefined) return;
+    const expectedStatus = payload.ok ? "succeeded" : "failed";
+    if (payload.status !== expectedStatus) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["status"],
+        message: `status must be ${expectedStatus} when ok is ${payload.ok}`,
+      });
+    }
+  });
+
 export const DelegateCallPayloadSchema = z.object({
   tool: z.string().min(1),
   input: z.unknown().optional(),
   phase: z.literal("request"),
   lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
+});
+
+export const DelegateResultPayloadSchema = z.object({
+  phase: z.literal("result"),
+  ok: z.boolean(),
+  observation: z.string().optional(),
+  error: z.string().optional(),
+  elapsed_ms: z.number().optional(),
 });
 
 export const ToolsRegisterPayloadSchema = z.object({
@@ -457,21 +476,7 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
     type: z.literal("tool_result"),
     session_id: z.string().min(1),
     call_id: z.string().min(1),
-    payload: z.object({
-      tool: z.string().min(1),
-      phase: z.literal("end"),
-      ok: z.boolean(),
-      observation: z.string().optional(),
-      summary: z.string().optional(),
-      elapsed_ms: z.number().nonnegative().optional(),
-      approval: z
-        .object({
-          status: z.enum(["pending", "granted", "denied"]),
-          message: z.string().optional(),
-        })
-        .optional(),
-      lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
-    }),
+    payload: ToolResultPayloadSchema,
   }),
   z.object({
     type: z.literal("delegate_call"),
@@ -483,14 +488,7 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
     type: z.literal("delegate_result"),
     session_id: z.string().min(1),
     call_id: z.string().min(1),
-    payload: z.object({
-      tool: z.string().min(1),
-      phase: z.literal("result"),
-      ok: z.boolean(),
-      observation: z.string().optional(),
-      error: z.string().optional(),
-      elapsed_ms: z.number().nonnegative().optional(),
-    }),
+    payload: DelegateResultPayloadSchema,
   }),
   z.object({
     type: z.literal("interaction"),

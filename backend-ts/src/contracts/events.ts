@@ -36,6 +36,7 @@ import {
   type DelegatedToolDeclaration,
   type ToolsRegisterPayload,
   DelegatedToolDeclarationSchema,
+  DelegateResultPayloadSchema,
 } from "@ragsystem/agent-protocol";
 
 export type {
@@ -131,13 +132,7 @@ export const ClientToServerEnvelopeSchema = z.discriminatedUnion("type", [
     type: z.literal("delegate_result"),
     session_id: z.string().min(1),
     call_id: z.string().min(1),
-    payload: z.object({
-      phase: z.literal("result"),
-      ok: z.boolean(),
-      observation: z.string().optional(),
-      error: z.string().optional(),
-      elapsed_ms: z.number().nonnegative().optional(),
-    }),
+    payload: DelegateResultPayloadSchema,
   }),
 ]);
 
