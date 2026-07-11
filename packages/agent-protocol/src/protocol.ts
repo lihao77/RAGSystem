@@ -93,18 +93,9 @@ export type AckPayload = z.infer<typeof AckPayloadSchema>;
 /* —— 生命周期帧 —— */
 export type RunStartedPayload = z.infer<typeof RunStartedPayloadSchema>;
 export type RunEndedPayload = z.infer<typeof RunEndedPayloadSchema>;
-export interface AgentLifecyclePayload {
-  phase: "start" | "end";
-  task?: string;
-  result?: string;
-  success?: boolean;
-  /** agent 展示名（中文等）；后端 AgentConfig.display_name，UI 据此显示而非英文 agent_id。 */
-  display_name?: string;
-  /** 创建/续接该子 agent 执行的工具 call_id；用于把 agent 精确放回触发它的工具位置。 */
-  invocation_call_id?: string;
-  /** 子 agent 挂父：parent_call_id 指向父 agent 的 call_id（root agent 无）。 */
-  lineage?: { parent_call_id?: string };
-}
+export type AgentStartedPayload = z.infer<typeof AgentStartedPayloadSchema>;
+export type AgentEndedPayload = z.infer<typeof AgentEndedPayloadSchema>;
+export type AgentLifecyclePayload = z.infer<typeof AgentLifecyclePayloadSchema>;
 
 /* —— 内容流 —— */
 export type StreamOutputPayload = z.infer<typeof StreamOutputPayloadSchema>;
@@ -391,6 +382,28 @@ export const HelloEnvelopeSchema = ProtocolEnvelopeSchema.extend({
   payload: HelloPayloadSchema,
 });
 
+export const AgentStartedPayloadSchema = z.object({
+  phase: z.literal("start"),
+  task: z.string().optional(),
+  display_name: z.string().optional(),
+  invocation_call_id: z.string().min(1).optional(),
+  lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
+});
+
+export const AgentEndedPayloadSchema = z.object({
+  phase: z.literal("end"),
+  result: z.string().optional(),
+  success: z.boolean().optional(),
+  display_name: z.string().optional(),
+  invocation_call_id: z.string().min(1).optional(),
+  lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
+});
+
+export const AgentLifecyclePayloadSchema = z.discriminatedUnion("phase", [
+  AgentStartedPayloadSchema,
+  AgentEndedPayloadSchema,
+]);
+
 export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
   HelloEnvelopeSchema,
   z.object({
@@ -425,31 +438,14 @@ export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
     session_id: z.string().min(1),
     agent_id: z.string(),
     call_id: z.string().min(1).optional(),
-    payload: z
-      .object({
-        phase: z.literal("start"),
-        task: z.string().optional(),
-        display_name: z.string().optional(),
-        invocation_call_id: z.string().min(1).optional(),
-        lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
-      })
-      .optional(),
+    payload: AgentStartedPayloadSchema.optional(),
   }),
   z.object({
     type: z.literal("agent_ended"),
     session_id: z.string().min(1),
     agent_id: z.string(),
     call_id: z.string().min(1).optional(),
-    payload: z
-      .object({
-        phase: z.literal("end"),
-        result: z.string().optional(),
-        success: z.boolean().optional(),
-        display_name: z.string().optional(),
-        invocation_call_id: z.string().min(1).optional(),
-        lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
-      })
-      .optional(),
+    payload: AgentEndedPayloadSchema.optional(),
   }),
   z.object({
     type: z.literal("stream_output"),
