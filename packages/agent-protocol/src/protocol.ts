@@ -43,24 +43,7 @@ export const EnvelopeTypeSchema = z.enum([
 ]);
 export type EnvelopeType = z.infer<typeof EnvelopeTypeSchema>;
 
-export interface ProtocolEnvelope {
-  /** 协议版本；仅 session.hello 必填并锁定连接，其余帧可省略。 */
-  protocol_version?: ProtocolVersion;
-  type: EnvelopeType;
-  /** 会话标识；session.hello 握手帧外必填。 */
-  session_id: string;
-  /** run 标识；agent 运行时的执行单元身份（协议第一公民，非业务名词）。 */
-  run_id?: string;
-  /** 调用/交互关联标识：tool_call↔tool_result、interaction 请求↔响应、execution 树归属。 */
-  call_id?: string;
-  /** agent 身份标识；多 agent 并发 / 委派子 agent 区分执行体。 */
-  agent_id?: string;
-  /** 会话内单调递增序号（去重 + 断线重连回放边界）。 */
-  seq?: number;
-  message_id?: string;
-  timestamp?: number | string;
-  payload?: unknown;
-}
+export type ProtocolEnvelope = z.infer<typeof ProtocolEnvelopeSchema>;
 
 /** 线协议信封的通用类型别名（供 SDK 门面引用）。 */
 export type Envelope = ProtocolEnvelope;
@@ -70,31 +53,12 @@ export type Envelope = ProtocolEnvelope;
  * ========================================================== */
 
 /** 扩展点 A：protocol —— agent 输出格式解析适配维度。 */
-export interface ProtocolDescriptor {
-  output: "xml_intent" | "native_function_call" | "hybrid";
-  intent_tag_enabled?: boolean;
-  function_call_mode?: "auto" | "required" | "none";
-  streaming_framing?: "token" | "sentence" | "block";
-}
+export type ProtocolDescriptor = z.infer<typeof ProtocolDescriptorSchema>;
 
 /** 扩展点 B：capabilities —— 工具白名单 + 权限分级维度。 */
-export interface CapabilityDescriptor {
-  tools: ToolAllowance[];
-  risk_policy: {
-    low: "auto" | "notify";
-    medium: "notify" | "require_approval";
-    high: "require_approval" | "deny";
-  };
-  /** 委托宿主执行的工具（reserved，本期为空）。 */
-  delegated_tools?: string[];
-}
+export type CapabilityDescriptor = z.infer<typeof CapabilityDescriptorSchema>;
 
-export interface ToolAllowance {
-  name: string;
-  risk_level?: RiskLevel;
-  /** 是否由宿主执行（本期全 false，工具在后端本地执行）。 */
-  host_executed?: boolean;
-}
+export type ToolAllowance = z.infer<typeof ToolAllowanceSchema>;
 
 /* ============================================================
  * 三、内联复用类型（避免 agent-protocol 依赖 backend-ts/contracts）
@@ -108,26 +72,12 @@ export type RiskLevel = "low" | "medium" | "high";
  * 握手期 tools.register 的载体 + 后端 HostToolRegistry 存储；不含 execute（执行在前端）。
  * 宿主侧 TS API（含 execute）见 agent-client.ts DelegatedToolSpec；二者经前端序列化映射。
  */
-export interface DelegatedToolDeclaration {
-  name: string;
-  description: string;
-  /** JSON Schema 参数描述（与后端 RuntimeTool schema 对齐）。 */
-  input_schema: Record<string, unknown>;
-  risk_level?: RiskLevel;
-  /** 是否可取消（宿主前端支持 abort）。 */
-  cancellable?: boolean;
-}
+export type DelegatedToolDeclaration = z.infer<
+  typeof DelegatedToolDeclarationSchema
+>;
 
 /** 附件引用，形状对齐 contracts/execution.ts 的 AttachmentRef。 */
-export interface AttachmentRef {
-  file_id: string;
-  original_name?: string | null;
-  stored_name?: string | null;
-  stored_path?: string | null;
-  mime?: string | null;
-  size?: number | null;
-  kind?: string | null;
-}
+export type AttachmentRef = z.infer<typeof AttachmentRefSchema>;
 
 /* ============================================================
  * 四、各 type 的 payload
@@ -305,14 +255,14 @@ export const ProtocolDescriptorSchema = z.object({
   streaming_framing: z.enum(["token", "sentence", "block"]).optional(),
 });
 
+export const ToolAllowanceSchema = z.object({
+  name: z.string().min(1),
+  risk_level: z.enum(["low", "medium", "high"]).optional(),
+  host_executed: z.boolean().optional(),
+});
+
 export const CapabilityDescriptorSchema = z.object({
-  tools: z.array(
-    z.object({
-      name: z.string().min(1),
-      risk_level: z.enum(["low", "medium", "high"]).optional(),
-      host_executed: z.boolean().optional(),
-    }),
-  ),
+  tools: z.array(ToolAllowanceSchema),
   risk_policy: z.object({
     low: z.enum(["auto", "notify"]),
     medium: z.enum(["notify", "require_approval"]),
@@ -330,7 +280,7 @@ export const DelegatedToolDeclarationSchema = z.object({
   cancellable: z.boolean().optional(),
 });
 
-const AttachmentRefSchema = z.object({
+export const AttachmentRefSchema = z.object({
   file_id: z.string().min(1),
   original_name: z.string().nullable().optional(),
   stored_name: z.string().nullable().optional(),
@@ -348,7 +298,7 @@ const AttachmentRefSchema = z.object({
  * （EnvelopeSchema = EnvelopeBaseObject.superRefine(...)，派生自本对象，字段自动跟随，
  *   无需手动同步。）
  */
-const EnvelopeBaseObject = z.object({
+export const ProtocolEnvelopeSchema = z.object({
   protocol_version: z.literal("1.0").optional(),
   type: EnvelopeTypeSchema,
   session_id: z.string(),
@@ -362,7 +312,7 @@ const EnvelopeBaseObject = z.object({
 });
 
 /** 通用 envelope 校验：非握手帧 session_id 必填。 */
-export const EnvelopeSchema = EnvelopeBaseObject.superRefine((env, ctx) => {
+export const EnvelopeSchema = ProtocolEnvelopeSchema.superRefine((env, ctx) => {
   if (env.type !== "session.hello" && env.session_id.length === 0) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -372,7 +322,7 @@ export const EnvelopeSchema = EnvelopeBaseObject.superRefine((env, ctx) => {
   }
 });
 
-export const HelloEnvelopeSchema = EnvelopeBaseObject.extend({
+export const HelloEnvelopeSchema = ProtocolEnvelopeSchema.extend({
   type: z.literal("session.hello"),
   protocol_version: z.literal("1.0"),
   payload: z.object({
