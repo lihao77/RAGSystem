@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 
 import { SyncEmbeddingModelRequestSchema } from "../contracts/embedding-models.js";
 import { EmbeddingModelServiceError } from "../services/knowledge/embedding-model-service.js";
-import { VectorLibraryServiceError } from "../contracts/vector-library.js";
+import { KnowledgeBaseError } from "../contracts/knowledge-base.js";
 import { HttpError, httpErrorFrom, statusHttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 
@@ -62,7 +62,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
         ...(await options.container.embeddingModels.syncModel(modelId, payload)),
       };
     } catch (error) {
-      if (error instanceof VectorLibraryServiceError && error.statusCode === 404 && error.message.startsWith("模型不存在:")) {
+      if (error instanceof KnowledgeBaseError && error.statusCode === 404 && error.message.startsWith("模型不存在:")) {
         throw new HttpError(500, "internal_error", error.message.replace("模型不存在: ", "模型不存在: ID="));
       }
       throw toHttpError(error);
@@ -110,7 +110,7 @@ function toHttpError(error: unknown): HttpError {
       }
       return statusHttpError(e.statusCode, e.message);
     }
-    if (e instanceof VectorLibraryServiceError) {
+    if (e instanceof KnowledgeBaseError) {
       return statusHttpError(e.statusCode, e.message);
     }
     return null;

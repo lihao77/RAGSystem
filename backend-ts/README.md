@@ -33,7 +33,7 @@ Node.js 24+ is required because the first persistence milestone uses the built-i
 - Monitoring, metrics, context snapshot, and durable outbox operations
 - In-memory permission policy API compatible with the Python `/api/permissions/*` route shapes
 - Knowledge-base uploaded files (source blobs + metadata) owned by the sqlite-vec driver, served at
-  `/api/vector-library/files/*`; session-scoped attachments at `/api/agent/sessions/:sessionId/files/*`
+  `/api/knowledge-bases/files/*`; session-scoped attachments at `/api/agent/sessions/:sessionId/files/*`
   via the main SQLite uploaded-file index
 - In-memory agent config/team API compatible with the Python `/api/agent-config/*` bootstrap and
   Team Builder route shapes, including config export and built-in preset application
@@ -45,10 +45,10 @@ Node.js 24+ is required because the first persistence milestone uses the built-i
 - In-memory MCP server config API compatible with the Python `/api/mcp/*` management route shapes
 - In-memory daemon config and cron-task API compatible with the Python `/api/daemon/*` management
   route shapes
-- In-memory vectorizer/reranker config API and vector library status reads compatible with the
-  Python `/api/vector-library/*` management route shapes
+- In-memory vectorizer/reranker config API and knowledge base status reads compatible with the
+  Python `/api/knowledge-bases/*` management route shapes
 - Empty vector collection/document reads and vector health status compatible with the Python
-  `/api/vector/*` management route shapes
+  `/api/knowledge-bases/*` management route shapes
 - Visualization artifact read/list/delete API compatible with the Python `/api/artifacts/*` route
   shapes for existing session visualization files
 - Embedding model management API compatible with the Python `/api/embedding-models/*` route shapes,

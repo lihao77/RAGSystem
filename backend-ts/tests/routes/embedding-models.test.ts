@@ -44,7 +44,7 @@ describe("embedding model compatibility routes", () => {
     await createEmbeddingProvider();
     const created = await app.inject({
       method: "POST",
-      url: "/api/vector-library/vectorizers",
+      url: "/api/knowledge-bases/vectorizers",
       payload: {
         provider_key: "embedding_openai_proxy",
         model_name: "text-embedding-3-small",
@@ -134,7 +134,7 @@ describe("embedding model compatibility routes", () => {
     await createEmbeddingProvider();
     const created = await app.inject({
       method: "POST",
-      url: "/api/vector-library/vectorizers",
+      url: "/api/knowledge-bases/vectorizers",
       payload: {
         provider_key: "embedding_openai_proxy",
         model_name: "text-embedding-3-small",
@@ -144,7 +144,7 @@ describe("embedding model compatibility routes", () => {
 
     const indexed = await app.inject({
       method: "POST",
-      url: "/api/vector/index",
+      url: "/api/knowledge-bases/index",
       payload: {
         collection_name: "documents",
         document_id: "sync-doc",
@@ -155,7 +155,7 @@ describe("embedding model compatibility routes", () => {
 
     const target = await app.inject({
       method: "POST",
-      url: "/api/vector-library/vectorizers",
+      url: "/api/knowledge-bases/vectorizers",
       payload: {
         provider_key: "embedding_openai_proxy",
         model_name: "text-embedding-3-large",

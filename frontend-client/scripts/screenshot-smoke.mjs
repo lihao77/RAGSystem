@@ -67,8 +67,8 @@ const shots = [
   },
   { name: 'team-builder-mobile', path: '/team-builder', width: 390, height: 844 },
   {
-    name: 'desktop-vector-library',
-    path: '/vector-library',
+    name: 'desktop-knowledge-base',
+    path: '/knowledge-base',
     width: 1440,
     height: 900,
     actions: [
@@ -77,7 +77,7 @@ const shots = [
     ],
   },
   { name: 'model-providers-narrow', path: '/model-providers', width: 768, height: 900 },
-  { name: 'vector-library-mobile', path: '/vector-library', width: 390, height: 844 },
+  { name: 'knowledge-base-mobile', path: '/knowledge-base', width: 390, height: 844 },
   {
     name: 'desktop-mcp-manager',
     path: '/mcp',
@@ -154,8 +154,8 @@ const shots = [
     ],
   },
   {
-    name: 'vector-library-mobile-menu',
-    path: '/vector-library',
+    name: 'knowledge-base-mobile-menu',
+    path: '/knowledge-base',
     width: 390,
     height: 844,
     actions: [

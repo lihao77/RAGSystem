@@ -21,6 +21,6 @@ export class HttpExtractor implements DocumentExtractor {
     });
     const text = await response.text();
     if (!response.ok) throw new Error(text || `Document extraction failed with HTTP ${response.status}`);
-    return { text, kind: "text" };
+    return { text, markdown: text, kind: "text" };
   }
 }

@@ -11,14 +11,12 @@ import { registerAgentConfigRoutes } from "./routes/agent-config.js";
 import { registerArtifactRoutes } from "./routes/artifacts.js";
 import { registerDaemonRoutes } from "./routes/daemon.js";
 import { registerEmbeddingModelRoutes } from "./routes/embedding-models.js";
-import { registerVectorLibraryFileRoutes } from "./routes/vector-library-files.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerModelAdapterRoutes } from "./routes/model-adapter.js";
 import { registerPermissionRoutes } from "./routes/permissions.js";
 import { registerSkillRoutes } from "./routes/skills.js";
 import { registerSystemConfigRoutes } from "./routes/system-config.js";
-import { registerVectorRoutes } from "./routes/vector.js";
-import { registerVectorLibraryRoutes } from "./routes/vector-library.js";
+import { registerKnowledgeBaseRoutes } from "./routes/knowledge-base.js";
 import { registerAgentRoutes } from "./routes/agent/index.js";
 import { registerAguiRoutes } from "./routes/agent/agui.js";
 import { registerHealthRoutes } from "./routes/health.js";
@@ -142,10 +140,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     prefix: "/api/permissions",
     container,
   });
-  await app.register(registerVectorLibraryFileRoutes, {
-    prefix: "/api/vector-library",
-    container,
-  });
   await app.register(registerArtifactRoutes, {
     prefix: "/api/artifacts",
     container,
@@ -174,12 +168,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     prefix: "/api/daemon",
     container,
   });
-  await app.register(registerVectorLibraryRoutes, {
-    prefix: "/api/vector-library",
-    container,
-  });
-  await app.register(registerVectorRoutes, {
-    prefix: "/api/vector",
+  await app.register(registerKnowledgeBaseRoutes, {
+    prefix: "/api/knowledge-bases",
     container,
   });
   await app.register(registerEmbeddingModelRoutes, {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-import type { VectorSearchResult } from "../../contracts/vector-library.js";
-import type { VectorLibraryService } from "../../services/knowledge/vector-library-service.js";
+import type { VectorSearchResult } from "../../contracts/knowledge-base.js";
+import type { KnowledgeBaseService } from "../../services/knowledge/knowledge-base-service.js";
 import {
   LIST_KNOWLEDGE_COLLECTIONS_TOOL_NAME,
   SEARCH_KNOWLEDGE_BASE_TOOL_NAME,
@@ -13,7 +13,7 @@ import type { AgentConfig } from "../../contracts/agent-config.js";
 import { metadataFrom, optionalBoolean, optionalInteger, optionalRecord, optionalString } from "../schema-helpers.js";
 
 export interface KnowledgeToolDeps {
-  vectorLibrary: VectorLibraryService | null;
+  knowledgeBase: KnowledgeBaseService | null;
   agent: AgentConfig;
 }
 
@@ -90,8 +90,8 @@ const KNOWLEDGE_TOOLS: RuntimeToolDefinition[] = [
 ];
 
 export function createKnowledgeTools(deps: KnowledgeToolDeps): Tool[] {
-  const vectorLibrary = deps.vectorLibrary;
-  if (!vectorLibrary) {
+  const knowledgeBase = deps.knowledgeBase;
+  if (!knowledgeBase) {
     return [];
   }
   const agent = deps.agent;
@@ -113,7 +113,7 @@ export function createKnowledgeTools(deps: KnowledgeToolDeps): Tool[] {
         const topK = input.top_k ?? input.topK ?? kbConfig.default_top_k ?? 5;
         const rerank = input.rerank ?? kbConfig.default_rerank ?? false;
         try {
-          const search = await vectorLibrary.search({
+          const search = await knowledgeBase.search({
             query: input.query,
             collection,
             top_k: topK,
@@ -151,7 +151,7 @@ export function createKnowledgeTools(deps: KnowledgeToolDeps): Tool[] {
       isConcurrencySafe: () => true,
       call: async (_input, _ctx: ToolExecContext) => {
         try {
-          const collections = await vectorLibrary.listCollections();
+          const collections = await knowledgeBase.listCollections();
           const content = collections.length
             ? collections.map((collection) => {
                 const name = String(collection.name ?? "");

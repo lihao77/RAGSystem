@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const ExtractorKindSchema = z.enum(["text", "pdf", "docx", "unknown"]);
+export const ExtractorKindSchema = z.enum(["text", "html", "pdf", "docx", "unknown"]);
 export type ExtractorKind = z.infer<typeof ExtractorKindSchema>;
 
 export const ExtractInputSchema = z.object({
@@ -12,6 +12,7 @@ export type ExtractInput = z.infer<typeof ExtractInputSchema>;
 
 export const ExtractResultSchema = z.object({
   text: z.string(),
+  markdown: z.string(),
   kind: ExtractorKindSchema,
 });
 export type ExtractResult = z.infer<typeof ExtractResultSchema>;

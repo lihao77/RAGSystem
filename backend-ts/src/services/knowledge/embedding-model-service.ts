@@ -4,7 +4,7 @@ import type {
   EmbeddingSyncStatus,
   SyncEmbeddingModelRequest,
 } from "../../contracts/embedding-models.js";
-import type { VectorLibraryService } from "./vector-library-service.js";
+import type { KnowledgeBaseService } from "./knowledge-base-service.js";
 
 export class EmbeddingModelServiceError extends Error {
   readonly statusCode: number;
@@ -17,11 +17,11 @@ export class EmbeddingModelServiceError extends Error {
 }
 
 export class EmbeddingModelService {
-  constructor(private readonly vectorLibrary: VectorLibraryService) {}
+  constructor(private readonly knowledgeBase: KnowledgeBaseService) {}
 
   async listModels(): Promise<EmbeddingModelInfo[]> {
     const models: EmbeddingModelInfo[] = [];
-    for (const vectorizer of await this.vectorLibrary.listVectorizers()) {
+    for (const vectorizer of await this.knowledgeBase.listVectorizers()) {
       if (vectorizer.model_id == null) {
         continue;
       }
@@ -60,7 +60,7 @@ export class EmbeddingModelService {
       }
       throw new EmbeddingModelServiceError(`模型不存在: ${modelId}`, 404);
     }
-    this.vectorLibrary.activateVectorizer(model.vectorizer_key);
+    this.knowledgeBase.activateVectorizer(model.vectorizer_key);
     return { message: `模型 ${modelId} 已激活` };
   }
 
@@ -72,7 +72,7 @@ export class EmbeddingModelService {
     if (model.is_active && !force) {
       throw new EmbeddingModelServiceError("删除失败，请检查日志", 400);
     }
-    await this.vectorLibrary.deleteVectorizer(model.vectorizer_key);
+    await this.knowledgeBase.deleteVectorizer(model.vectorizer_key);
     return { message: `模型 ${modelId} 已删除` };
   }
 
@@ -92,7 +92,7 @@ export class EmbeddingModelService {
 
   async getSyncStatus(collection: string): Promise<EmbeddingSyncStatus[]> {
     const models = new Map((await this.listModels()).map((model) => [model.id, model]));
-    return (await this.vectorLibrary.getSyncStatus(collection)).flatMap((status) => {
+    return (await this.knowledgeBase.getSyncStatus(collection)).flatMap((status) => {
       const model = models.get(status.model_id);
       if (!model) {
         return [];
@@ -110,7 +110,7 @@ export class EmbeddingModelService {
   }
 
   async syncModel(modelId: number, input: SyncEmbeddingModelRequest): Promise<Record<string, unknown>> {
-    return this.vectorLibrary.syncModel(modelId, {
+    return this.knowledgeBase.syncModel(modelId, {
       collection: input.collection,
       limit: input.limit ?? input.batch_size,
     });
@@ -127,7 +127,7 @@ export class EmbeddingModelService {
     dimension: number;
     isActive: boolean;
   }): Promise<EmbeddingModelStats> {
-    const stats = await this.vectorLibrary.getModelStats(input.id);
+    const stats = await this.knowledgeBase.getModelStats(input.id);
     return {
       model_id: input.id,
       model_key: this.modelKey(input.provider, input.modelName, input.dimension),

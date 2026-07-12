@@ -21,7 +21,7 @@ npm run dev
 - `/team-builder` — Team 编排
 - `/agent-config` — Agent 配置
 - `/mcp` — MCP 管理
-- `/vector-library` — 向量库管理
+- `/knowledge-base` — 知识库管理
 - `/model-providers` — 模型提供方管理
 - `/daemon` — 守护 Agent 管理
 - `/system-config` — 系统配置
@@ -69,7 +69,7 @@ The dev server runs on `http://localhost:5174` by default and proxies `/api` plu
 - `/team-builder` — team composition
 - `/agent-config` — agent configuration
 - `/mcp` — MCP management
-- `/vector-library` — vector library management
+- `/knowledge-base` — knowledge base management
 - `/model-providers` — model provider management
 - `/daemon` — daemon agent management
 - `/system-config` — system configuration

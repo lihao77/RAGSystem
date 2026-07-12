@@ -6,7 +6,7 @@
  * - vec_chunks_${model_id}:vec0 虚拟表(per model_id,因 vec0 维度固定),rowid 关联 vec_documents.id
  * - vectorizers/rerankers:配置面下沉(IKnowledgeConfig),is_active 列替 vector_settings KV + 内存副本
  *
- * 为避免与现有 VectorLibraryService 的 documents/document_vectors 表(共享 ragsystem.db)冲突,
+ * 为避免与现有 KnowledgeBaseService 的 documents/document_vectors 表(共享 ragsystem.db)冲突,
  * 本 driver 用 vec_ 前缀表名。Batch 6 迁移后清理旧表。
  */
 
@@ -91,7 +91,8 @@ export function kbFilesTableDdl(): string {
       stored_path TEXT NOT NULL,
       size INTEGER NOT NULL,
       mime TEXT NOT NULL,
-      uploaded_at TEXT NOT NULL
+      uploaded_at TEXT NOT NULL,
+      md_blob_hash TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_kb_files_uploaded_at ON kb_files(uploaded_at);
   `;

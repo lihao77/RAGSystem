@@ -1,5 +1,5 @@
 /**
- * 向量库管理 API
+ * 知识库管理 API
  * 封装文件管理、向量索引、向量化器和向量搜索相关接口
  */
 
@@ -17,7 +17,7 @@ export async function listFiles(extensions, mimeTypes) {
   if (extensions?.length) query.set('extensions', extensions.join(','));
   if (mimeTypes?.length) query.set('mime_types', mimeTypes.join(','));
   const suffix = query.toString() ? `?${query.toString()}` : '';
-  return http.get(`/api/vector-library/files${suffix}`);
+  return http.get(`/api/knowledge-bases/files${suffix}`);
 }
 
 /**
@@ -25,7 +25,7 @@ export async function listFiles(extensions, mimeTypes) {
  * @param {FormData} formData - 包含 files 字段的表单数据
  */
 export async function uploadFiles(formData) {
-  return http.post('/api/vector-library/files/upload', formData);
+  return http.post('/api/knowledge-bases/files/upload', formData);
 }
 
 /**
@@ -33,7 +33,11 @@ export async function uploadFiles(formData) {
  * @param {string} fileId - 文件 ID
  */
 export async function deleteFile(fileId) {
-  return http.del(`/api/vector-library/files/${encodeURIComponent(fileId)}`);
+  return http.del(`/api/knowledge-bases/files/${encodeURIComponent(fileId)}`);
+}
+
+export async function getFileMd(fileId) {
+  return http.get(`/api/knowledge-bases/files/${encodeURIComponent(fileId)}/md`);
 }
 
 // ── 向量索引管理 ─────────────────────────────────────────────────────────────
@@ -42,7 +46,7 @@ export async function deleteFile(fileId) {
  * 获取文件的向量索引状态
  */
 export async function getFileStatus() {
-  return http.get('/api/vector-library/file-status');
+  return http.get('/api/knowledge-bases/file-status');
 }
 
 /**
@@ -50,15 +54,7 @@ export async function getFileStatus() {
  * @param {Object} body - { file_id, vectorizer_key?, collection? }
  */
 export async function indexFile(body) {
-  return http.post('/api/vector-library/index-file', body);
-}
-
-/**
- * 删除文件的向量索引
- * @param {Object} body - { file_id, collection? }
- */
-export async function deleteFileIndex(body) {
-  return http.post('/api/vector-library/delete-file', body);
+  return http.post('/api/knowledge-bases/index-file', body);
 }
 
 // ── 向量化器管理 ─────────────────────────────────────────────────────────────
@@ -67,7 +63,7 @@ export async function deleteFileIndex(body) {
  * 列出所有向量化器
  */
 export async function listVectorizers() {
-  return http.get('/api/vector-library/vectorizers');
+  return http.get('/api/knowledge-bases/vectorizers');
 }
 
 /**
@@ -75,7 +71,7 @@ export async function listVectorizers() {
  * @param {Object} body - { key, model, ... }
  */
 export async function addVectorizer(body) {
-  return http.post('/api/vector-library/vectorizers', body);
+  return http.post('/api/knowledge-bases/vectorizers', body);
 }
 
 /**
@@ -83,7 +79,7 @@ export async function addVectorizer(body) {
  * @param {string} key - 向量化器 key
  */
 export async function activateVectorizer(key) {
-  return http.post(`/api/vector-library/vectorizers/${encodeURIComponent(key)}/activate`, {});
+  return http.post(`/api/knowledge-bases/vectorizers/${encodeURIComponent(key)}/activate`, {});
 }
 
 /**
@@ -91,7 +87,7 @@ export async function activateVectorizer(key) {
  * @param {string} key - 向量化器 key
  */
 export async function deleteVectorizer(key) {
-  return http.del(`/api/vector-library/vectorizers/${encodeURIComponent(key)}`);
+  return http.del(`/api/knowledge-bases/vectorizers/${encodeURIComponent(key)}`);
 }
 
 /**
@@ -99,7 +95,7 @@ export async function deleteVectorizer(key) {
  * @param {Object} body - { file_id, document_id?, collection_name?, metadata?, chunk_size?, overlap? }
  */
 export async function ingestFileToCollection(body) {
-  return http.post('/api/vector/index', body);
+  return http.post('/api/knowledge-bases/index', body);
 }
 
 // ── 重排序器管理 ─────────────────────────────────────────────────────────────
@@ -108,7 +104,7 @@ export async function ingestFileToCollection(body) {
  * 列出所有重排序器
  */
 export async function listRerankers() {
-  return http.get('/api/vector-library/rerankers');
+  return http.get('/api/knowledge-bases/rerankers');
 }
 
 /**
@@ -116,7 +112,7 @@ export async function listRerankers() {
  * @param {Object} body - { mode, provider_key?, provider_type?, model_name?, api_endpoint? }
  */
 export async function addReranker(body) {
-  return http.post('/api/vector-library/rerankers', body);
+  return http.post('/api/knowledge-bases/rerankers', body);
 }
 
 /**
@@ -124,7 +120,7 @@ export async function addReranker(body) {
  * @param {string} key - 重排序器 key
  */
 export async function getReranker(key) {
-  return http.get(`/api/vector-library/rerankers/${encodeURIComponent(key)}`);
+  return http.get(`/api/knowledge-bases/rerankers/${encodeURIComponent(key)}`);
 }
 
 /**
@@ -132,7 +128,7 @@ export async function getReranker(key) {
  * @param {string} key - 重排序器 key
  */
 export async function activateReranker(key) {
-  return http.post(`/api/vector-library/rerankers/${encodeURIComponent(key)}/activate`, {});
+  return http.post(`/api/knowledge-bases/rerankers/${encodeURIComponent(key)}/activate`, {});
 }
 
 /**
@@ -140,7 +136,7 @@ export async function activateReranker(key) {
  * @param {string} key - 重排序器 key
  */
 export async function deleteReranker(key) {
-  return http.del(`/api/vector-library/rerankers/${encodeURIComponent(key)}`);
+  return http.del(`/api/knowledge-bases/rerankers/${encodeURIComponent(key)}`);
 }
 
 // ── 向量搜索 ─────────────────────────────────────────────────────────────────
@@ -150,14 +146,14 @@ export async function deleteReranker(key) {
  * @param {Object} body - { query, top_k?, collection?, search_mode?, filters?, rerank?, rerank_mode?, rerank_top_k?, rerank_provider?, rerank_model? }
  */
 export async function searchVectors(body) {
-  return http.post('/api/vector/search', body);
+  return http.post('/api/knowledge-bases/search', body);
 }
 
 /**
- * 获取向量库健康状态
+ * 获取知识库健康状态
  */
 export async function getVectorHealth() {
-  return http.get('/api/vector/health');
+  return http.get('/api/knowledge-bases/health');
 }
 
 /**
@@ -168,7 +164,7 @@ export async function getVectorHealth() {
 export async function listDocsByVectorizer(key, params = {}) {
   const q = new URLSearchParams(params).toString();
   const suffix = q ? `?${q}` : '';
-  return http.get(`/api/vector-library/vectorizers/${encodeURIComponent(key)}/docs${suffix}`);
+  return http.get(`/api/knowledge-bases/vectorizers/${encodeURIComponent(key)}/docs${suffix}`);
 }
 
 /**
@@ -176,7 +172,7 @@ export async function listDocsByVectorizer(key, params = {}) {
  * @param {Object} body - { from_key, to_key, collection? }
  */
 export async function migrateVectorizer(body) {
-  return http.post('/api/vector-library/migrate', body);
+  return http.post('/api/knowledge-bases/migrate', body);
 }
 
 export default {
@@ -185,7 +181,6 @@ export default {
   deleteFile,
   getFileStatus,
   indexFile,
-  deleteFileIndex,
   listVectorizers,
   addVectorizer,
   activateVectorizer,

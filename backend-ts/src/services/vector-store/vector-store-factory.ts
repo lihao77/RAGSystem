@@ -17,7 +17,7 @@ import "./sqlite-vec/sqlite-vec-driver.js";
 
 /**
  * 按 systemConfig 的 vector_store 配置实例化 driver。
- * dataRoot 缺省 ~/​.ragsystem(与 VectorLibraryService 一致),driver 据此解析 knowledge.db 路径。
+ * dataRoot 缺省 ~/​.ragsystem(与 KnowledgeBaseService 一致),driver 据此解析 knowledge.db 路径。
  *
  * 返回类型为 IVectorStore & IKnowledgeConfig & IKnowledgeFileStore——同一对象承担数据面(向量/文本) +
  * 配置面(vectorizer/reranker) + 知识库文件面(上传源文件 blob),共享 knowledge.db 单一连接,

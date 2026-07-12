@@ -22,7 +22,7 @@ frontend-client/src/
 │   ├── TeamBuilder.vue        # Team 编排页
 │   ├── AgentConfig.vue        # Agent 配置页
 │   ├── MCPManager.vue         # MCP 管理页
-│   ├── VectorLibraryManager.vue # 向量库页
+│   ├── KnowledgeBaseManager.vue # 知识库页
 │   └── ModelProviderManager.vue # 模型 Provider 页
 ├── layouts/                   # 页面壳层
 │   └── MainLayout.vue         # sidebar + 右侧主卡片壳层
@@ -49,7 +49,7 @@ frontend-client/src/
 │   ├── sessionFiles.js        # session 文件
 │   ├── mcpService.js          # MCP 服务
 │   ├── modelAdapter.js        # 模型适配器
-│   └── vectorLibrary.js       # 知识库
+│   └── knowledgeBase.js       # 知识库
 ├── router/index.js            # 路由配置
 ├── utils/                     # executionTreeBuilder、展示辅助、markdown 等工具函数
 └── main.js                    # 应用入口
@@ -68,7 +68,7 @@ frontend-client/src/
 | `/team-builder` | MainLayout → TeamBuilder | 通过公共壳层在右侧主区渲染 Team 方案编排页 |
 | `/agent-config` | MainLayout → AgentConfig | 通过公共壳层在右侧主区渲染 Agent 配置页 |
 | `/mcp` | MainLayout → MCPManager | 通过公共壳层在右侧主区渲染 MCP 管理页 |
-| `/vector-library` | MainLayout → VectorLibraryManager | 通过公共壳层在右侧主区渲染知识库页 |
+| `/knowledge-base` | MainLayout → KnowledgeBaseManager | 通过公共壳层在右侧主区渲染知识库页 |
 | `/model-providers` | MainLayout → ModelProviderManager | 通过公共壳层在右侧主区渲染模型 Provider 页 |
 | `/daemon` | MainLayout → DaemonManager | 守护 Agent 系统页，统一管理基础配置、平台凭证、Cron 任务与主动推送 |
 
@@ -127,7 +127,7 @@ loadSessionMessages(sessionId)
 当前前端已改为“两层结构”：
 - `MainLayout.vue` 负责左侧 sidebar、顶层路由承载，以及右侧统一的玻璃卡片主区（视觉上等价于原先的 `chat-main` 外壳）；它只负责卡片边框/背景与页面级滚动承载，不再给页面内容强加统一 padding
 - `ChatViewV2.vue` 只负责聊天页本身，不再承担整个应用壳层职责；Chat 顶部保留专属的控制台式工具栏，并仅维护会话级执行状态摘要（execution pill / task_id / run_id / execution_kind），不再展示执行诊断详情抽屉
-- `AgentMonitor.vue`、`MCPManager.vue`、`ModelProviderManager.vue`、`VectorLibraryManager.vue`、`AgentConfig.vue`、`TeamBuilder.vue`、`DaemonManager.vue` 都作为 `MainLayout` 的子路由渲染到同一个右侧主卡片内；其中任务级 execution diagnostics 统一归属 `AgentMonitor.vue`
+- `AgentMonitor.vue`、`MCPManager.vue`、`ModelProviderManager.vue`、`KnowledgeBaseManager.vue`、`AgentConfig.vue`、`TeamBuilder.vue`、`DaemonManager.vue` 都作为 `MainLayout` 的子路由渲染到同一个右侧主卡片内；其中任务级 execution diagnostics 统一归属 `AgentMonitor.vue`
 - 所有非 Chat 页面统一通过 `components/PageLayout.vue` 承载页头，页头视觉参考 Chat 顶部控制栏：采用左右分组、玻璃胶囊操作区与移动端统一工具条风格，但不复用 Chat 专属控件结构
 - `ModelProviderManager.vue` 使用 `PageLayout + glass-card + builder-panel` 管理模型 Provider：通过 `src/api/modelAdapter.js` 读取 provider 类型、Provider 列表并执行创建/更新/删除/连通性测试；模型映射编辑支持同一任务多模型，多行编辑后提交为 `model_map` 的字符串或数组值。Provider 列表顺序直接消费后端 `providers.yaml` 顶层 key 顺序，新建 Provider 刷新后自然出现在末尾；页面采用一行一条的紧凑列表展示，左侧原生 HTML5 拖拽把手用于排序，拖拽过程中本地实时重排并由 `TransitionGroup` 提供移动动画，释放后调用 `PUT /api/model-adapter/providers/order` 持久化，失败时回滚并 toast 提示。列表行内只保留 Provider 类型、名称、Endpoint URL 和测试/编辑/删除操作，Provider key 仅作为悬停 title 保留，避免主列表信息过载。
 - `AgentConfig.vue` 已收敛进 `PageLayout` 体系，不再维护独立的桌面/移动端头部实现。
@@ -396,7 +396,7 @@ Agent 配置页会先加载当前 Agent 配置，再读取 `config.custom_params
 - 权限模式文案与后端语义保持一致：`strict` 为严格档（全部风险工具需审批），`standard` 为默认档（中/高风险工具需审批），`relaxed` 为高风险档（仅高风险工具需审批）；三者在命中 auto-accept 规则时都可自动通过，`dangerously_skip_permissions` 表示“跳过审批”（仅跳过常规风险 ask，路径越界等 ask 仍可能触发）；前端下拉按“严格 → 默认 → 高风险 → 全开放”顺序展示
 - `pendingWorkspaceRoot`：创建 session 时写入 `metadata.workspace_root`；前端会先去掉首尾包裹引号（如 `"C:/test" -> C:/test`）后再提交，并在本地回填/展示时沿用同一规范化结果
 - `pendingEntryAgent`：创建 session 时写入 `metadata.entry_agent`（值必须是后端返回的真实 `agent_name`；空值仅表示“使用配置默认入口 Agent”，前端不应提交 `default` 这类 UI alias）
-- `sessionFiles`：当前会话私有文件列表，通过 `/api/agent/sessions/{session_id}/files*` 维护；与知识库页使用的知识库文件池（`/api/vector-library/files*`，sqlite-vec driver 的 `kb_files`）严格分离
+- `sessionFiles`：当前会话私有文件列表，通过 `/api/agent/sessions/{session_id}/files*` 维护；与知识库页使用的知识库文件池（`/api/knowledge-bases/files*`，sqlite-vec driver 的 `kb_files`）严格分离
 - `pendingAttachments`：仅底部输入框中新消息的待发送附件
 - `editingDraft` / `editingAttachmentsDraft`：当前正在原地编辑的消息文本与附件草稿
 - `sessionFilesDrawerTarget`：附件抽屉当前服务对象（底部输入框 composer 或消息原地编辑）

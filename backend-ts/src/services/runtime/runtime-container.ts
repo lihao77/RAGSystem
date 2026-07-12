@@ -35,7 +35,7 @@ import { PermissionPolicyService } from "./permission-policy-service.js";
 import { RuntimeCoreService } from "../agent/execution/runtime-core-service.js";
 import { SystemConfigService } from "../config/system-config-service.js";
 import { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
-import { VectorLibraryService, type VectorLibraryEmbedderFactory } from "../knowledge/vector-library-service.js";
+import { KnowledgeBaseService, type KnowledgeBaseEmbedderFactory } from "../knowledge/knowledge-base-service.js";
 import { DocumentExtractDispatcher } from "../knowledge/document-extract/dispatcher.js";
 import { createVectorStoreFromConfig } from "../vector-store/vector-store-factory.js";
 import type { IVectorStore } from "../../contracts/vector-store/index.js";
@@ -61,7 +61,7 @@ export interface RuntimeContainer {
   readonly daemon: DaemonService;
   readonly fileHistory: IFileHistoryStore;
   readonly fileIndex: IFileIndexStore;
-  readonly vectorLibrary: VectorLibraryService;
+  readonly knowledgeBase: KnowledgeBaseService;
   readonly artifacts: ArtifactService;
   readonly transientArtifacts: TransientArtifactService;
   readonly embeddingModels: EmbeddingModelService;
@@ -112,7 +112,7 @@ export interface RuntimeContainerOptions {
   /** widget JWT 签名密钥（optional）。非空才启用 widget 鉴权与受约束会话签发。 */
   widgetJwtSecret?: string | undefined;
   /** 测试或离线运行可注入确定性 embedder；生产默认按 provider 配置解析。 */
-  embedderFactory?: VectorLibraryEmbedderFactory | undefined;
+  embedderFactory?: KnowledgeBaseEmbedderFactory | undefined;
 }
 
 export function createRuntimeContainer(options: RuntimeContainerOptions): RuntimeContainer {
@@ -166,7 +166,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const documentExtractDispatcher = new DocumentExtractDispatcher(systemConfig.getDocumentExtractionConfig());
   // vectorStore 同一对象同时实现 IVectorStore(数据面) + IKnowledgeConfig(配置面),
   // 共享 knowledge.db 单一连接——主库 ragsystem.db 不再涉及向量/配置面。
-  const vectorLibrary = new VectorLibraryService(modelAdapter, {
+  const knowledgeBase = new KnowledgeBaseService(modelAdapter, {
     vectorStore,
     knowledgeConfig: vectorStore,
     knowledgeFileStore: vectorStore,
@@ -174,7 +174,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     ...(options.embedderFactory ? { embedderFactory: options.embedderFactory } : {}),
   });
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
-  const embeddingModels = new EmbeddingModelService(vectorLibrary);
+  const embeddingModels = new EmbeddingModelService(knowledgeBase);
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
   const memoryTools = new MemoryToolService(memoryStore, conversationStore);
   const documentTools = new LocalDocumentToolService({ dataRoot: options.dataRoot, fileHistory });
@@ -225,7 +225,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     bashTools,
     taskTools,
     searchTools,
-    vectorLibrary,
+    knowledgeBase,
     mcp,
     codeExecutionTools,
     skillTools,
@@ -277,7 +277,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     widgetCredentialStore?.close();
     mcp.close();
     daemon.close();
-    vectorLibrary.close();
+    knowledgeBase.close();
     fileIndex.close();
     // conversation/file-index/vector 三个 store 各自开 SQLite 句柄（同 dbPath，WAL 允许多连接），
     // 各自需 close 释放文件句柄/WAL。conversationStore 是最底层（被 sessionApplication/outbox 等
@@ -298,7 +298,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     daemon,
     fileHistory,
     fileIndex,
-    vectorLibrary,
+    knowledgeBase,
     artifacts,
     transientArtifacts,
     embeddingModels,

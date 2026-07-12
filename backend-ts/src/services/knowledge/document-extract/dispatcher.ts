@@ -1,6 +1,6 @@
 import type { DocumentExtractionConfig } from "../../../contracts/system-config.js";
 import type { DocumentExtractor, ExtractInput, ExtractResult, ExtractorKind } from "../../../contracts/knowledge/document-extractor.js";
-import { VectorLibraryServiceError } from "../../../contracts/vector-library.js";
+import { KnowledgeBaseError } from "../../../contracts/knowledge-base.js";
 import { getBuiltinExtractor } from "./builtin/index.js";
 import { CliExtractor } from "./external/cli-extractor.js";
 import { HttpExtractor } from "./external/http-extractor.js";
@@ -11,11 +11,11 @@ export class DocumentExtractDispatcher implements DocumentExtractor {
 
   async extract(input: ExtractInput): Promise<ExtractResult> {
     const kind = detectExtractorKind(input);
-    if (kind === "unknown") throw new VectorLibraryServiceError("不支持的二进制文档格式", 415);
+    if (kind === "unknown") throw new KnowledgeBaseError("不支持的二进制文档格式", 415);
     const external = this.resolveExternal(kind);
     if (external) return external.extract(input);
     const builtin = getBuiltinExtractor(kind);
-    if (!builtin) throw new VectorLibraryServiceError(`不支持的文档格式: ${kind}`, 415);
+    if (!builtin) throw new KnowledgeBaseError(`不支持的文档格式: ${kind}`, 415);
     return builtin.extract(input);
   }
 

@@ -37,7 +37,7 @@
             <!-- ── Tab 内容 ──────────────────────────────────── -->
             <section class="tab-content">
 
-                <!-- ══ Tab 1: 向量库管理 ══════════════════════════ -->
+                <!-- ══ Tab 1: 知识库管理 ══════════════════════════ -->
                 <div v-if="activeTab === 'store'" class="tab-panel">
 
                     <!-- 当前激活向量化器提示栏 -->
@@ -52,13 +52,25 @@
                         </template>
                     </div>
 
+                    <!-- 拖拽上传区 -->
+                    <div class="upload-zone glass-card" :class="{ 'upload-zone--dragover': isDragOver }"
+                        @dragover.prevent="isDragOver = true" @dragleave.prevent="isDragOver = false"
+                        @drop.prevent="handleFileDrop" @click="triggerFileInput">
+                        <input ref="fileInputRef" type="file" multiple accept=".pdf,.txt,.md,.doc,.docx,.json"
+                            style="display:none" @change="handleFileSelect" />
+                        <div class="upload-content">
+                            <p class="upload-title">点击或拖拽文件到此处上传</p>
+                            <p class="upload-hint">支持 PDF、TXT、MD、DOC、DOCX、JSON，可多选</p>
+                        </div>
+                    </div>
+
                     <div class="section-toolbar">
                         <div class="toolbar-left">
                             <p class="section-desc">每行为一个已上传文件，每列为一个向量化器，可逐项建立或查看索引状态。</p>
                         </div>
                         <div class="toolbar-right">
-                            <Button variant="secondary" size="icon" aria-label="刷新索引状态" :disabled="storeLoading" @click="refreshFileStatus">
-                                <IconRefresh :size="14" :class="{ 'spin': storeLoading }" />
+                            <Button variant="secondary" size="icon" aria-label="刷新文件与索引状态" :disabled="mergedFilesLoading" @click="refreshFilesAndStatus">
+                                <IconRefresh :size="14" :class="{ 'spin': mergedFilesLoading }" />
                             </Button>
                             <div class="filter-select-wrap">
                                 <CustomSelect v-model="filterCollection" :options="collectionSelectOptions"
@@ -72,7 +84,7 @@
                     </div>
 
                     <!-- 无向量化器警告 -->
-                    <div v-if="!storeLoading && fileStatusVectorizers.length === 0 && fileList.length > 0"
+                    <div v-if="!mergedFilesLoading && fileStatusVectorizers.length === 0 && uploadedFiles.length > 0"
                         class="warn-banner">
                         <IconWarning :size="16" />
                         <span>尚未配置向量化器，请先在「向量化器」Tab 中添加并激活。</span>
@@ -81,22 +93,23 @@
 
                     <!-- 矩阵表格 -->
                     <div class="data-table-wrapper glass-card">
-                        <div v-if="storeLoading" class="g-table-loading">
+                        <div v-if="mergedFilesLoading" class="g-table-loading">
                             <div class="g-skeleton-rows" aria-busy="true"><div v-for="n in 5" :key="n" class="g-skeleton-row"><div class="g-skeleton-bar g-skeleton-bar--title"></div><div class="g-skeleton-bar g-skeleton-bar--sub"></div></div></div>
                         </div>
-                        <div v-else-if="filteredFileList.length === 0" class="empty-state adm-state adm-state--empty">
+                        <div v-else-if="mergedFileList.length === 0" class="empty-state adm-state adm-state--empty">
                             <IconFile :size="48" :stroke-width="1.5" />
-                            <p>{{ fileList.length === 0 ? '暂无已索引文件，点击「索引新文档」开始' : '当前集合下无文件，尝试清空筛选' }}</p>
-                            <Button v-if="fileList.length === 0" class="primary-action-button" variant="default" size="sm"
-                                @click="showIndexDialog = true">索引新文档</Button>
+                            <p>{{ uploadedFiles.length === 0 ? '暂无文件，请先上传文档' : '当前集合下无已索引文件，尝试清空筛选' }}</p>
+                            <Button v-if="uploadedFiles.length === 0" class="primary-action-button" variant="default" size="sm"
+                                @click="triggerFileInput">上传文件</Button>
                         </div>
                         <div v-else class="table-scroll">
                             <table class="data-table matrix-table">
                                 <thead>
                                     <tr>
                                         <th class="col-filename">文件名称</th>
-                                        <th class="col-collection">集合</th>
-                                        <th class="col-chunks">分块数</th>
+                                        <th>大小</th>
+                                        <th>上传时间</th>
+                                        <th>MD 状态</th>
                                         <!-- 每个向量化器一列 -->
                                         <th v-for="v in fileStatusVectorizers" :key="v.vectorizer_key"
                                             class="col-vectorizer">
@@ -110,18 +123,28 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr v-for="row in filteredFileList" :key="row.file_id">
+                                    <tr v-for="row in mergedFileList" :key="row.file_id">
                                         <td class="cell-filename">
                                             <IconFile :size="14" />
                                             {{ row.file_name }}
                                         </td>
-                                        <td><span class="collection-tag">{{ row.collection }}</span></td>
-                                        <td class="text-center">{{ row.chunk_count ?? '-' }}</td>
+                                        <td>{{ formatFileSize(row.size) }}</td>
+                                        <td>{{ formatTime(row.uploaded_at) }}</td>
+                                        <td class="text-center">
+                                            <Button variant="action-neutral" size="action" title="预览 Markdown"
+                                                :disabled="!row.md_blob_hash" @click="openMarkdownPreview(row)">
+                                                {{ row.md_blob_hash ? '预览' : '无' }}
+                                            </Button>
+                                        </td>
                                         <!-- 各向量化器状态单元格 -->
                                         <td v-for="v in fileStatusVectorizers" :key="v.vectorizer_key"
                                             class="text-center">
-                                            <UiBadge v-if="row.vectorizer_status?.[v.vectorizer_key] === '已索引'"
-                                                class="status-badge" size="sm" tone="success">已索引</UiBadge>
+                                            <Button v-if="row.vectorizer_status?.[v.vectorizer_key]?.indexed"
+                                                variant="action-neutral" size="action"
+                                                :title="`已索引到 ${row.vectorizer_status[v.vectorizer_key].collections.length} 个集合，点击测试检索`"
+                                                @click="openSearchTest(row.vectorizer_status[v.vectorizer_key].collections[0])">
+                                                <UiBadge class="status-badge" size="sm" tone="success">已索引<span v-if="row.vectorizer_status[v.vectorizer_key].collections.length > 1"> · {{ row.vectorizer_status[v.vectorizer_key].collections.length }} 集合</span></UiBadge>
+                                            </Button>
                                             <Button v-else variant="action-neutral" size="action"
                                                 :disabled="indexingFileKey === row.file_id + ':' + v.vectorizer_key"
                                                 @click="handleIndexFileWithVectorizer(row, v.vectorizer_key)">
@@ -131,13 +154,18 @@
                                         </td>
                                         <td>
                                             <div class="row-actions">
+                                                <Button variant="action-neutral" size="action" title="预览 Markdown"
+                                                    :disabled="!row.md_blob_hash" @click="openMarkdownPreview(row)">预览</Button>
+                                                <Button variant="action-neutral" size="action" title="下载" @click="downloadFile(row)">
+                                                    <IconDownload :size="13" />
+                                                </Button>
                                                 <Button variant="action-neutral" size="action"
-                                                    @click="openSearchTest(row.collection)" title="测试检索">
+                                                    :disabled="!row.has_index" @click="openSearchTest(row.search_collection)" title="测试检索">
                                                     <IconSearch :size="13" />
                                                 </Button>
                                                 <Button variant="action-danger" size="action"
-                                                    :disabled="deletingFileId === row.file_id"
-                                                    @click="handleDeleteIndexedFile(row)" title="删除">
+                                                    :disabled="deletingFileId === row.file_id || deletingUploadedFile === row.file_id"
+                                                    @click="handleDeleteMergedFile(row)" title="删除">
                                                     <IconTrash :size="13" />
                                                 </Button>
                                             </div>
@@ -221,81 +249,6 @@
                     </div>
                 </div>
 
-                <!-- ══ Tab 2: 文件管理 ════════════════════════════ -->
-                <div v-if="activeTab === 'files'" class="tab-panel">
-                    <div class="section-toolbar">
-                        <div class="toolbar-left">
-                            <p class="section-desc">上传、查看、删除系统中的文件，上传后可在「向量库管理」中建立索引。</p>
-                        </div>
-                    </div>
-
-                    <!-- 拖拽上传区 -->
-                    <div class="upload-zone glass-card" :class="{ 'upload-zone--dragover': isDragOver }"
-                        @dragover.prevent="isDragOver = true" @dragleave.prevent="isDragOver = false"
-                        @drop.prevent="handleFileDrop" @click="triggerFileInput">
-                        <input ref="fileInputRef" type="file" multiple accept=".pdf,.txt,.md,.doc,.docx,.json"
-                            style="display:none" @change="handleFileSelect" />
-                        <div class="upload-content">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24"
-                                fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-                                stroke-linejoin="round" class="upload-icon">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                <polyline points="17 8 12 3 7 8" />
-                                <line x1="12" y1="3" x2="12" y2="15" />
-                            </svg>
-                            <p class="upload-title">点击或拖拽文件到此处上传</p>
-                            <p class="upload-hint">支持 PDF、TXT、MD、DOC、DOCX、JSON，可多选</p>
-                        </div>
-                    </div>
-
-                    <!-- 文件列表 -->
-                    <div class="data-table-wrapper glass-card">
-                        <div v-if="filesLoading" class="g-table-loading">
-                            <div class="g-skeleton-rows" aria-busy="true"><div v-for="n in 5" :key="n" class="g-skeleton-row"><div class="g-skeleton-bar g-skeleton-bar--title"></div><div class="g-skeleton-bar g-skeleton-bar--sub"></div></div></div>
-                        </div>
-                        <div v-else-if="uploadedFiles.length === 0" class="empty-state adm-state adm-state--empty">
-                            <IconFile :size="48" :stroke-width="1.5" />
-                            <p>暂无文件，上传文档后在「矩阵」中建立索引</p>
-                            <Button class="primary-action-button" variant="default" size="sm" @click="triggerFileInput">上传文件</Button>
-                        </div>
-                        <table v-else class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>文件名</th>
-                                    <th>大小</th>
-                                    <th>MIME 类型</th>
-                                    <th>上传时间</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="file in uploadedFiles" :key="file.id">
-                                    <td class="cell-filename">
-                                        <IconFile :size="14" />
-                                        {{ file.original_name || file.filename }}
-                                    </td>
-                                    <td>{{ formatFileSize(file.size) }}</td>
-                                    <td>{{ file.mime || '-' }}</td>
-                                    <td>{{ formatTime(file.uploaded_at) }}</td>
-                                    <td>
-                                        <div class="row-actions adm-action-row">
-                                            <Button variant="action-neutral" size="action" title="下载"
-                                                @click="downloadFile(file)">
-                                                <IconDownload :size="13" />
-                                            </Button>
-                                            <Button variant="action-danger" size="action" title="删除"
-                                                :disabled="deletingUploadedFile === file.id"
-                                                @click="handleDeleteUploadedFile(file)">
-                                                <IconTrash :size="13" />
-                                            </Button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
                 <!-- ══ Tab 3: 向量化器 ════════════════════════════ -->
                 <div v-if="activeTab === 'vectorizers'" class="tab-panel">
                     <div class="section-toolbar">
@@ -325,7 +278,7 @@
                             <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
                             <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
                         </svg>
-                        <p>暂无向量化器，添加后即可在「向量库管理」中建立索引。</p>
+                        <p>暂无向量化器，添加后即可在「知识库管理」中建立索引。</p>
                         <Button class="primary-action-button" variant="default" size="sm" @click="openAddVectorizerDialog">新增向量化器</Button>
                     </div>
                     <div v-else class="data-table-wrapper glass-card">
@@ -655,6 +608,8 @@
                     </DialogFooter>
           </DialogContent>
         </Dialog>
+        <KnowledgeMdViewer v-model:open="showMarkdownPreview" :file-id="previewFile?.id || ''"
+            :file-name="previewFile?.original_name || ''" @notify="handleMarkdownNotify" />
 
         <!-- 新增向量化器对话框 -->
         <Dialog v-model:open="showAddVectorizerDialog">
@@ -773,6 +728,7 @@ import IconTrash from '../components/icons/IconTrash.vue';
 import IconWarning from '../components/icons/IconWarning.vue';
 import IconFile from '../components/icons/IconFile.vue';
 import IconDownload from '../components/icons/IconDownload.vue';
+import KnowledgeMdViewer from '../components/knowledge/KnowledgeMdViewer.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { useDictionariesStore } from '../stores/dictionaries.js';
@@ -782,7 +738,6 @@ import {
     addReranker,
     addVectorizer,
     deleteFile,
-    deleteFileIndex,
     deleteReranker,
     deleteVectorizer,
     getFileStatus,
@@ -794,7 +749,7 @@ import {
     migrateVectorizer,
     searchVectors,
     uploadFiles,
-} from '../api/vectorLibrary';
+} from '../api/knowledgeBase';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import { UiBadge } from '../components/ui';
 import { Button } from '../components/ui/button';
@@ -826,18 +781,15 @@ function showToast(msg, type = 'error') {
 
 // ── Tab ───────────────────────────────────────────────────
 const activeTab = ref('store');
+const showMarkdownPreview = ref(false);
+const previewFile = ref(null);
 const globalLoading = ref(false);
 
 const tabs = computed(() => [
     {
-        id: 'store', label: '向量库管理',
-        badge: fileList.value.length || null,
-        icon: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>`,
-    },
-    {
-        id: 'files', label: '文件管理',
+        id: 'store', label: '文件与索引',
         badge: uploadedFiles.value.length || null,
-        icon: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`,
+        icon: `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>`,
     },
     {
         id: 'vectorizers', label: '向量化器',
@@ -922,7 +874,14 @@ async function uploadSelectedFiles(fileList_) {
     }
 }
 function downloadFile(file) {
-    window.open(`/api/vector-library/files/${encodeURIComponent(file.id)}/download`, '_blank');
+    window.open(`/api/knowledge-bases/files/${encodeURIComponent(file.id)}/download`, '_blank');
+}
+function openMarkdownPreview(file) {
+    previewFile.value = file;
+    showMarkdownPreview.value = true;
+}
+function handleMarkdownNotify(payload) {
+    showToast(payload?.message || '操作失败', payload?.type || 'error');
 }
 async function handleDeleteUploadedFile(file) {
     const ok = await confirm({ message: `确定删除文件“${file.original_name || file.filename}”？`, confirmText: '删除', danger: true });
@@ -939,7 +898,7 @@ async function handleDeleteUploadedFile(file) {
     }
 }
 
-// ── 向量库矩阵 ────────────────────────────────────────────
+// ── 知识库矩阵 ────────────────────────────────────────────
 const fileList = ref([]);
 const fileStatusVectorizers = ref([]);
 const storeLoading = ref(false);
@@ -956,10 +915,50 @@ const collectionSelectOptions = computed(() => [
     { value: '', label: '全部集合' },
     ...collectionOptions.value.map(c => ({ value: c, label: c })),
 ]);
-const filteredFileList = computed(() => {
-    if (!filterCollection.value) return fileList.value;
-    return fileList.value.filter(f => f.collection === filterCollection.value);
+const mergedFilesLoading = computed(() => filesLoading.value || storeLoading.value);
+const mergedFileList = computed(() => {
+    const indexRowsByFile = new Map();
+    for (const indexRow of fileList.value) {
+        const rows = indexRowsByFile.get(indexRow.file_id) || [];
+        rows.push(indexRow);
+        indexRowsByFile.set(indexRow.file_id, rows);
+    }
+
+    return uploadedFiles.value
+        .map(file => {
+            const indexRows = indexRowsByFile.get(file.id) || [];
+            const collections = [...new Set(indexRows.map(row => row.collection).filter(Boolean))].sort();
+            const vectorizerStatus = {};
+
+            for (const vectorizer of fileStatusVectorizers.value) {
+                const indexedCollections = [...new Set(indexRows
+                    .filter(row => row.vectorizer_status?.[vectorizer.vectorizer_key] === '已索引')
+                    .map(row => row.collection)
+                    .filter(Boolean))].sort();
+                vectorizerStatus[vectorizer.vectorizer_key] = {
+                    indexed: indexedCollections.length > 0,
+                    collections: indexedCollections,
+                };
+            }
+
+            return {
+                ...file,
+                file_id: file.id,
+                file_name: file.original_name || file.filename,
+                collection: filterCollection.value || collections[0] || 'documents',
+                collections,
+                search_collection: filterCollection.value || collections[0] || '',
+                has_index: indexRows.length > 0,
+                index_rows: indexRows,
+                vectorizer_status: vectorizerStatus,
+            };
+        })
+        .filter(file => !filterCollection.value || file.collections.includes(filterCollection.value));
 });
+
+async function refreshFilesAndStatus() {
+    await Promise.all([loadUploadedFiles(), refreshFileStatus()]);
+}
 
 async function refreshFileStatus() {
     storeLoading.value = true;
@@ -1003,20 +1002,22 @@ async function handleIndexFileWithVectorizer(row, vectorizerKey) {
     }
 }
 
-async function handleDeleteIndexedFile(row) {
-    const ok = await confirm({ message: `确定删除“${row.file_name}”在所有向量化器下的分块与向量？此操作不可恢复。`, confirmText: '删除', danger: true });
+async function handleDeleteMergedFile(row) {
+    if (!row.has_index) {
+        await handleDeleteUploadedFile(row);
+        return;
+    }
+
+    const ok = await confirm({ message: `确定删除“${row.file_name}”的文件及全部集合中的索引？此操作不可恢复。`, confirmText: '删除', danger: true });
     if (!ok) return;
     deletingFileId.value = row.file_id;
     try {
-        const res = await deleteFileIndex({ collection: row.collection, file_id: row.file_id });
-        if (res.success) {
-            showToast(`已删除，共 ${res.data?.deleted_chunks ?? 0} 个分块`, 'success');
-            await refreshFileStatus();
-        } else {
-            showToast(res.message || '删除失败');
-        }
+        const res = await deleteFile(row.file_id);
+        showToast(`已删除文件及 ${res.deleted_chunks ?? 0} 个分块`, 'success');
+        await refreshFilesAndStatus();
     } catch (e) {
         showToast(e.message || '删除失败');
+        await refreshFilesAndStatus();
     } finally {
         deletingFileId.value = null;
     }

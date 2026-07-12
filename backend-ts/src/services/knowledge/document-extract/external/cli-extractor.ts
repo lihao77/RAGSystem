@@ -20,7 +20,8 @@ export class CliExtractor implements DocumentExtractor {
       await runCommand(command, this.timeoutSeconds * 1000, this.spawnProcess, this.terminateProcess);
       const markdownPath = await findLatestMarkdown(outputDirectory);
       if (!markdownPath) throw new Error("CLI document extractor produced no Markdown file");
-      return { text: await fs.readFile(markdownPath, "utf8"), kind: "text" };
+      const markdown = await fs.readFile(markdownPath, "utf8");
+      return { text: markdown, markdown, kind: "text" };
     } finally {
       await fs.rm(outputDirectory, { recursive: true, force: true });
     }

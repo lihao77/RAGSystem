@@ -7,7 +7,7 @@
 import type { Tool } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../contracts/agent-config.js";
 import type { DelegationPort } from "../services/agent/delegation/port.js";
-import type { VectorLibraryService } from "../services/knowledge/vector-library-service.js";
+import type { KnowledgeBaseService } from "../services/knowledge/knowledge-base-service.js";
 import type { McpService } from "../services/integrations/mcp-service.js";
 import type { CodeExecutionToolService } from "./CodeExecutionTool/CodeExecution.js";
 import type { LocalBashToolService } from "./BashTool/BashExecution.js";
@@ -38,7 +38,7 @@ export interface BackendToolsDeps {
   bashTools: LocalBashToolService | null;
   taskTools: TaskToolService | null;
   searchTools: LocalSearchToolService | null;
-  vectorLibrary: VectorLibraryService | null;
+  knowledgeBase: KnowledgeBaseService | null;
   mcp: McpService | null;
   codeExecutionTools: CodeExecutionToolService | null;
   skillTools: SkillToolService | null;
@@ -65,7 +65,7 @@ export function createBackendTools(deps: BackendToolsDeps, pathService: PathAppr
     ...createCodeExecutionTools({ codeExecutionTools: deps.codeExecutionTools, agent }),
     ...createLocalSearchTools({ service: deps.searchTools, agent }),
     ...createSkillTools({ skillTools: deps.skillTools, agent }),
-    ...createKnowledgeTools({ vectorLibrary: deps.vectorLibrary, agent }),
+    ...createKnowledgeTools({ knowledgeBase: deps.knowledgeBase, agent }),
     ...createTaskTools({ taskTools: deps.taskTools, agent }),
     ...createMemoryTools({ memoryTools: deps.memoryTools, agent }),
     ...createDelegationTools({

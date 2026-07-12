@@ -1,4 +1,4 @@
-import type { VectorSearchResult } from "../../../contracts/vector-library.js";
+import type { VectorSearchResult } from "../../../contracts/knowledge-base.js";
 import { keywordOverlapScore } from "../../vector-store/scoring.js";
 
 /** 词法重排：提升关键词重合度，用于显式 lexical 策略和模型失败后的降级。 */

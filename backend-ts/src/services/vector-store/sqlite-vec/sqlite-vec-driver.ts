@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 import { load as loadVec } from "sqlite-vec";
 
@@ -68,6 +68,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
   private readonly db: import("node:sqlite").DatabaseSync;
   private readonly dimensionByModel = new Map<number, number>();
   private readonly knowledgeUploadsRoot: string;
+  private readonly knowledgeMarkdownRoot: string;
   private readonly dbIsMemory: boolean;
 
   constructor(config: VectorStoreDriverConfig) {
@@ -82,6 +83,9 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     this.knowledgeUploadsRoot = this.dbIsMemory
       ? fs.mkdtempSync(path.join(os.tmpdir(), "rag-kb-uploads-"))
       : path.join(config.dataRoot ?? path.join(os.homedir(), ".ragsystem"), "db", "knowledge-uploads");
+    this.knowledgeMarkdownRoot = this.dbIsMemory
+      ? fs.mkdtempSync(path.join(os.tmpdir(), "rag-kb-markdown-"))
+      : path.join(config.dataRoot ?? path.join(os.homedir(), ".ragsystem"), "db", "knowledge-md");
     // allowExtension:true 必须创建时设置(node:sqlite 默认禁用 extension loading 且创建后不可启用)。
     this.db = new DatabaseSync(dbPath, { allowExtension: true });
     this.db.exec("PRAGMA journal_mode = WAL");
@@ -89,6 +93,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     loadVec(this.db);
     this.db.exec(documentsTableDdl());
     this.db.exec(kbFilesTableDdl());
+    this.ensureKnowledgeFileMarkdownColumn();
     this.db.exec(vectorizersTableDdl());
     this.db.exec(rerankersTableDdl());
     this.loadDimensionsFromSchema();
@@ -381,6 +386,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
       // :memory: 临时库的 blob 目录随 close 清理(测试隔离);文件库 blob 持久保留。
       if (this.dbIsMemory && this.knowledgeUploadsRoot.startsWith(os.tmpdir())) {
         fs.rmSync(this.knowledgeUploadsRoot, { recursive: true, force: true });
+        fs.rmSync(this.knowledgeMarkdownRoot, { recursive: true, force: true });
       }
     }
   }
@@ -679,7 +685,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
   listKnowledgeFiles(): KnowledgeFile[] {
     const rows = this.db
       .prepare(
-        `SELECT id, original_name, stored_name, stored_path, size, mime, uploaded_at FROM kb_files ORDER BY uploaded_at DESC`,
+        `SELECT id, original_name, stored_name, stored_path, size, mime, uploaded_at, md_blob_hash FROM kb_files ORDER BY uploaded_at DESC`,
       )
       .all() as unknown as KbFileRow[];
     return rows.map(rowToKnowledgeFile);
@@ -688,7 +694,7 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
   getKnowledgeFile(fileId: string): KnowledgeFile | null {
     const row = this.db
       .prepare(
-        `SELECT id, original_name, stored_name, stored_path, size, mime, uploaded_at FROM kb_files WHERE id = ?`,
+        `SELECT id, original_name, stored_name, stored_path, size, mime, uploaded_at, md_blob_hash FROM kb_files WHERE id = ?`,
       )
       .get(fileId) as unknown as KbFileRow | undefined;
     return row ? rowToKnowledgeFile(row) : null;
@@ -734,6 +740,29 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     // 删物理 blob(自包含:知识库 blob 归 driver 管)
     fs.rmSync(record.stored_path, { force: true });
     return record;
+  }
+
+  putKnowledgeMarkdown(fileId: string, markdown: string): { md_blob_hash: string } {
+    const mdBlobHash = createHash("sha256").update(markdown, "utf8").digest("hex");
+    const directory = path.join(this.knowledgeMarkdownRoot, mdBlobHash.slice(0, 2));
+    const target = path.join(directory, mdBlobHash);
+    fs.mkdirSync(directory, { recursive: true });
+    if (!fs.existsSync(target)) fs.writeFileSync(target, markdown, "utf8");
+    const result = this.db.prepare(`UPDATE kb_files SET md_blob_hash = ? WHERE id = ?`).run(mdBlobHash, fileId);
+    if (result.changes === 0) throw new Error(`知识库文件不存在: ${fileId}`);
+    return { md_blob_hash: mdBlobHash };
+  }
+
+  readKnowledgeMarkdown(mdBlobHash: string): string {
+    if (!/^[a-f0-9]{64}$/.test(mdBlobHash)) throw new Error("无效的 Markdown blob hash");
+    return fs.readFileSync(path.join(this.knowledgeMarkdownRoot, mdBlobHash.slice(0, 2), mdBlobHash), "utf8");
+  }
+
+  private ensureKnowledgeFileMarkdownColumn(): void {
+    const columns = this.db.prepare(`PRAGMA table_info(kb_files)`).all() as unknown as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "md_blob_hash")) {
+      this.db.exec(`ALTER TABLE kb_files ADD COLUMN md_blob_hash TEXT`);
+    }
   }
 
   private nextKbFileId(): string {
@@ -808,6 +837,7 @@ interface KbFileRow {
   size: number;
   mime: string;
   uploaded_at: string;
+  md_blob_hash: string | null;
 }
 
 function rowToKnowledgeFile(row: KbFileRow): KnowledgeFile {
@@ -819,6 +849,7 @@ function rowToKnowledgeFile(row: KbFileRow): KnowledgeFile {
     size: row.size,
     mime: row.mime,
     uploaded_at: row.uploaded_at,
+    md_blob_hash: row.md_blob_hash,
   };
 }
 

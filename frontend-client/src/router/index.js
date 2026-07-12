@@ -7,7 +7,7 @@ const AgentMonitor = () => import('../views/AgentMonitor.vue');
 const AgentConfig = () => import('../views/AgentConfig.vue');
 const TeamBuilder = () => import('../views/TeamBuilder.vue');
 const MCPManager = () => import('../views/MCPManager.vue');
-const VectorLibraryManager = () => import('../views/VectorLibraryManager.vue');
+const KnowledgeBaseManager = () => import('../views/KnowledgeBaseManager.vue');
 const SkillLibrary = () => import('../views/SkillLibrary.vue');
 const ModelProviderManager = () => import('../views/ModelProviderManager.vue');
 const DaemonManager = () => import('../views/DaemonManager.vue');
@@ -45,7 +45,7 @@ const routes = [
       { path: 'team-builder', component: TeamBuilder, meta: adminPageMeta('team-builder', 2, 2) },
       { path: 'agent-config', component: AgentConfig, meta: adminPageMeta('agent-config', 2, 3) },
       { path: 'mcp', component: MCPManager, meta: adminPageMeta('mcp', 3, 4) },
-      { path: 'vector-library', component: VectorLibraryManager, meta: adminPageMeta('vector-library', 4, 5) },
+      { path: 'knowledge-base', component: KnowledgeBaseManager, meta: adminPageMeta('knowledge-base', 4, 5) },
       { path: 'skill-library', component: SkillLibrary, meta: adminPageMeta('skill-library', 4, 6) },
       { path: 'model-providers', component: ModelProviderManager, meta: adminPageMeta('model-providers', 5, 2) },
       { path: 'daemon', component: DaemonManager, meta: adminPageMeta('daemon', 6, 6) },

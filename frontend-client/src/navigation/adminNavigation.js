@@ -110,12 +110,12 @@ export const managementNavItems = [
     ]),
   },
   {
-    key: 'vector-library',
-    mainView: 'vector-library',
-    path: '/vector-library',
+    key: 'knowledge-base',
+    mainView: 'knowledge-base',
+    path: '/knowledge-base',
     label: '知识库',
     title: '知识库管理',
-    description: '管理向量库、文档索引、检索测试和知识注入。',
+    description: '管理知识库、文档索引、检索测试和知识注入。',
     group: 'infrastructure',
     icon: createAdminIcon([
       { tag: 'ellipse', attrs: { cx: '12', cy: '5', rx: '9', ry: '3' } },

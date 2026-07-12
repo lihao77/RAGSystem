@@ -183,7 +183,7 @@
 - [x] 抽象 `EntityListLayout` 或轻量复用模式: 列表 + 详情 + 操作区。
 - [x] 统一 `badge`、`act-btn`、`form-control`、空态、错误态。
 - [x] 优先改 `ModelProviderManager` 和 `MCPManager`，因为它们最接近基础设施配置。
-- [x] 再改 `AgentConfig`、`TeamBuilder`、`VectorLibraryManager` 首轮控制台化。
+- [x] 再改 `AgentConfig`、`TeamBuilder`、`KnowledgeBaseManager` 首轮控制台化。
 
 验收:
 - 管理页首屏信息密度提升。
@@ -263,10 +263,10 @@
 - 2026-05-12: 阶段 4 完成。新增 `/admin` 管理中心页与共享管理导航数据，侧栏管理入口收敛为底部单一“管理中心”入口，并在顶部展示当前 Team/工作区摘要；模型、Agent、Team、MCP、知识库、监控、守护系统和系统配置旧路径保持直达；`npm run build` 与 `npm test` 通过。
 - 2026-05-12: 阶段 5 启动。新增 `EntityListLayout.vue` 与 `admin-console.css` 作为管理页控制台基础结构；`ModelProviderManager` 的 Provider 列表和 `MCPManager` 的已安装服务列表接入共享列表/状态容器，MCP 服务首屏从卡片网格收敛为行式控制台列表。
 - 2026-05-12: 阶段 5 继续推进。扩展 `admin-console.css` 的 `adm-form-*`、`adm-modal-*`、`adm-button-*` 原子类；`ModelProviderManager` 的创建/编辑/删除弹窗接入共享表单与模态结构，`MCPManager` 的 Registry 安装、服务编辑和工具查看模态接入共享模态结构。
-- 2026-05-12: 阶段 5 继续推进。`TeamBuilder` 的加载/错误态、KPI 与 Team 列表接入共享控制台结构，Team 卡片收敛为行式列表；`AgentConfig` 的加载/错误/空态与新建/删除 Agent 弹窗接入共享状态、模态、表单和按钮类；`VectorLibraryManager` 的统计卡和索引/新增向量化器/迁移弹窗接入共享 KPI 与模态按钮类。
-- 2026-05-12: 阶段 5 完成。`VectorLibraryManager` 的表格操作、状态徽标和加载/空态补齐共享类；`DaemonManager` 的状态概览、操作按钮、空态和弹窗接入 `adm-*` 控制台基础类；`SystemConfig` 的加载/错误态改为共享状态容器，`AgentConfig`、`MCPManager`、`AgentMonitor` 的局部空态完成补齐。
+- 2026-05-12: 阶段 5 继续推进。`TeamBuilder` 的加载/错误态、KPI 与 Team 列表接入共享控制台结构，Team 卡片收敛为行式列表；`AgentConfig` 的加载/错误/空态与新建/删除 Agent 弹窗接入共享状态、模态、表单和按钮类；`KnowledgeBaseManager` 的统计卡和索引/新增向量化器/迁移弹窗接入共享 KPI 与模态按钮类。
+- 2026-05-12: 阶段 5 完成。`KnowledgeBaseManager` 的表格操作、状态徽标和加载/空态补齐共享类；`DaemonManager` 的状态概览、操作按钮、空态和弹窗接入 `adm-*` 控制台基础类；`SystemConfig` 的加载/错误态改为共享状态容器，`AgentConfig`、`MCPManager`、`AgentMonitor` 的局部空态完成补齐。
 - 2026-05-12: 阶段 6 启动。全局视觉 token 收敛为低透明、低阴影、无 glow；移除 body radial 环境光并降低网格背景存在感；`PageLayout` 通用按钮、菜单和 `pl-card` 从 glass/pill/抬升风格改为 8px-12px 工具型控件；移动端 sidebar 去除 blur 并降低阴影。
-- 2026-05-12: 阶段 6 完成。管理页 KPI 图标、平台图标和辅助标识收敛为中性工具样式，局部渐变主按钮改为扁平主按钮；`VectorLibraryManager` 移除与激活提示条重复的“激活向量化器” KPI 卡，并修正移动端工具栏换行；已用 headless Chrome 生成 `screenshots/stage6-team-builder-mobile.png`、`screenshots/stage6-vector-library-mobile.png`、`screenshots/stage6-mcp-narrow.png`、`screenshots/stage6-daemon-narrow.png`；`npm run build`、`npm test`、`git diff --check` 通过。
+- 2026-05-12: 阶段 6 完成。管理页 KPI 图标、平台图标和辅助标识收敛为中性工具样式，局部渐变主按钮改为扁平主按钮；`KnowledgeBaseManager` 移除与激活提示条重复的“激活向量化器” KPI 卡，并修正移动端工具栏换行；已用 headless Chrome 生成 `screenshots/stage6-team-builder-mobile.png`、`screenshots/stage6-knowledge-base-mobile.png`、`screenshots/stage6-mcp-narrow.png`、`screenshots/stage6-daemon-narrow.png`；`npm run build`、`npm test`、`git diff --check` 通过。
 - 2026-05-12: 阶段 7 启动。新增 `npm run screenshot:smoke`，自动启动 Vite、调用本机 Chrome/Edge，对 Team、知识库、MCP、守护 Agent 的移动端/窄屏关键路径生成截图并做非空校验；`screenshots/` 加入忽略列表，避免 smoke 产物污染工作树；知识库移动端 Tab 改为 2x2 工具型分段布局。
 - 2026-05-12: 阶段 7 继续增强。`npm run screenshot:smoke` 改为通过 Chrome DevTools Protocol 驱动页面，同步校验 `document.scrollWidth` 是否超过视口，能在截图生成时直接拦截横向溢出回归；四个 smoke 页面均通过。
-- 2026-05-12: 阶段 7 继续收敛页面风格。管理类页面在 900px 以下提前使用覆盖式侧栏，避免窄屏主内容被挤压；`MCPManager` 与 `VectorLibraryManager` 的 Tab 导航接入共享 `adm-tabs` 工具型分段控件，移除局部 glass/blur 样式和重复响应式规则；`npm run build`、`npm test`、`npm run screenshot:smoke`、`git diff --check` 通过。
+- 2026-05-12: 阶段 7 继续收敛页面风格。管理类页面在 900px 以下提前使用覆盖式侧栏，避免窄屏主内容被挤压；`MCPManager` 与 `KnowledgeBaseManager` 的 Tab 导航接入共享 `adm-tabs` 工具型分段控件，移除局部 glass/blur 样式和重复响应式规则；`npm run build`、`npm test`、`npm run screenshot:smoke`、`git diff --check` 通过。

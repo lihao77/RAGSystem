@@ -502,7 +502,7 @@ const emptyToolsDeps: Omit<BackendToolsDeps, "agent" | "teamName"> = {
   bashTools: null,
   taskTools: null,
   searchTools: null,
-  vectorLibrary: null,
+  knowledgeBase: null,
   mcp: null,
   codeExecutionTools: null,
   skillTools: null,

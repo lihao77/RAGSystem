@@ -27,7 +27,7 @@ describe("vector library compatibility routes", () => {
 
     const uploaded = await app.inject({
       method: "POST",
-      url: "/api/vector-library/files/upload",
+      url: "/api/knowledge-bases/files/upload",
       headers: multipartHeaders("boundary-vector"),
       payload: multipartBody("boundary-vector", "files", "knowledge.txt", "text/plain", "hello vector"),
     });
@@ -36,7 +36,7 @@ describe("vector library compatibility routes", () => {
 
     const status = await app.inject({
       method: "GET",
-      url: "/api/vector-library/file-status",
+      url: "/api/knowledge-bases/file-status",
     });
     expect(status.statusCode).toBe(200);
     expect(status.json()).toMatchObject({
@@ -74,7 +74,7 @@ describe("vector library compatibility routes", () => {
 
     const created = await app.inject({
       method: "POST",
-      url: "/api/vector-library/vectorizers",
+      url: "/api/knowledge-bases/vectorizers",
       payload: {
         provider_key: "embedding_openai_proxy",
         model_name: "text-embedding-3-small",
@@ -92,7 +92,7 @@ describe("vector library compatibility routes", () => {
 
     const listed = await app.inject({
       method: "GET",
-      url: "/api/vector-library/vectorizers",
+      url: "/api/knowledge-bases/vectorizers",
     });
     expect(listed.statusCode).toBe(200);
     expect(listed.json().data).toMatchObject([
@@ -111,7 +111,7 @@ describe("vector library compatibility routes", () => {
 
     const docs = await app.inject({
       method: "GET",
-      url: "/api/vector-library/vectorizers/embedding_openai_proxy_text-embedding-3-small/docs",
+      url: "/api/knowledge-bases/vectorizers/embedding_openai_proxy_text-embedding-3-small/docs",
     });
     expect(docs.statusCode).toBe(200);
     expect(docs.json()).toMatchObject({
@@ -121,7 +121,7 @@ describe("vector library compatibility routes", () => {
 
     const activated = await app.inject({
       method: "POST",
-      url: "/api/vector-library/vectorizers/embedding_openai_proxy_text-embedding-3-small/activate",
+      url: "/api/knowledge-bases/vectorizers/embedding_openai_proxy_text-embedding-3-small/activate",
       payload: {},
     });
     expect(activated.statusCode).toBe(200);
@@ -129,7 +129,7 @@ describe("vector library compatibility routes", () => {
 
     const deleted = await app.inject({
       method: "DELETE",
-      url: "/api/vector-library/vectorizers/embedding_openai_proxy_text-embedding-3-small",
+      url: "/api/knowledge-bases/vectorizers/embedding_openai_proxy_text-embedding-3-small",
     });
     expect(deleted.statusCode).toBe(200);
     expect(deleted.json().data.deleted_vectorizer_key).toBe("embedding_openai_proxy_text-embedding-3-small");
@@ -140,7 +140,7 @@ describe("vector library compatibility routes", () => {
 
     const lexical = await app.inject({
       method: "POST",
-      url: "/api/vector-library/rerankers",
+      url: "/api/knowledge-bases/rerankers",
       payload: {
         mode: "lexical",
       },
@@ -150,7 +150,7 @@ describe("vector library compatibility routes", () => {
 
     const model = await app.inject({
       method: "POST",
-      url: "/api/vector-library/rerankers",
+      url: "/api/knowledge-bases/rerankers",
       payload: {
         mode: "model",
         provider_key: "ranker_rerank_api",
@@ -164,7 +164,7 @@ describe("vector library compatibility routes", () => {
 
     const listed = await app.inject({
       method: "GET",
-      url: "/api/vector-library/rerankers",
+      url: "/api/knowledge-bases/rerankers",
     });
     expect(listed.statusCode).toBe(200);
     expect(listed.json().data).toMatchObject([
@@ -185,14 +185,14 @@ describe("vector library compatibility routes", () => {
 
     const getOne = await app.inject({
       method: "GET",
-      url: "/api/vector-library/rerankers/ranker_rerank_api_jina-reranker-v2-base-multilingual",
+      url: "/api/knowledge-bases/rerankers/ranker_rerank_api_jina-reranker-v2-base-multilingual",
     });
     expect(getOne.statusCode).toBe(200);
     expect(getOne.json().data.mode).toBe("model");
 
     const activated = await app.inject({
       method: "POST",
-      url: "/api/vector-library/rerankers/ranker_rerank_api_jina-reranker-v2-base-multilingual/activate",
+      url: "/api/knowledge-bases/rerankers/ranker_rerank_api_jina-reranker-v2-base-multilingual/activate",
       payload: {},
     });
     expect(activated.statusCode).toBe(200);
@@ -202,7 +202,7 @@ describe("vector library compatibility routes", () => {
 
     const deleted = await app.inject({
       method: "DELETE",
-      url: "/api/vector-library/rerankers/bm25_local",
+      url: "/api/knowledge-bases/rerankers/bm25_local",
     });
     expect(deleted.statusCode).toBe(200);
     expect(deleted.json().data.deleted_reranker_key).toBe("bm25_local");
@@ -214,7 +214,7 @@ describe("vector library compatibility routes", () => {
     await createEmbeddingProvider();
     const created = await app.inject({
       method: "POST",
-      url: "/api/vector-library/vectorizers",
+      url: "/api/knowledge-bases/vectorizers",
       payload: {
         provider_key: "embedding_openai_proxy",
         model_name: "text-embedding-3-small",
@@ -225,7 +225,7 @@ describe("vector library compatibility routes", () => {
 
     const uploaded = await app.inject({
       method: "POST",
-      url: "/api/vector-library/files/upload",
+      url: "/api/knowledge-bases/files/upload",
       headers: multipartHeaders("boundary-vector-index"),
       payload: multipartBody(
         "boundary-vector-index",
@@ -240,7 +240,7 @@ describe("vector library compatibility routes", () => {
 
     const indexFile = await app.inject({
       method: "POST",
-      url: "/api/vector-library/index-file",
+      url: "/api/knowledge-bases/index-file",
       payload: {
         collection: "documents",
         file_id: file.id,
@@ -255,9 +255,16 @@ describe("vector library compatibility routes", () => {
       indexed_chunks: 1,
     });
 
+    const markdownPreview = await app.inject({ method: "GET", url: `/api/knowledge-bases/files/${file.id}/md` });
+    expect(markdownPreview.statusCode).toBe(200);
+    expect(markdownPreview.json()).toMatchObject({
+      markdown: "TypeScript vector migration indexes uploaded knowledge files for RAG search.",
+      md_blob_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+
     const status = await app.inject({
       method: "GET",
-      url: "/api/vector-library/file-status",
+      url: "/api/knowledge-bases/file-status",
     });
     expect(status.statusCode).toBe(200);
     expect(status.json().data.files[0]).toMatchObject({
@@ -270,7 +277,7 @@ describe("vector library compatibility routes", () => {
 
     const target = await app.inject({
       method: "POST",
-      url: "/api/vector-library/vectorizers",
+      url: "/api/knowledge-bases/vectorizers",
       payload: {
         provider_key: "embedding_openai_proxy",
         model_name: "text-embedding-3-large",
@@ -280,7 +287,7 @@ describe("vector library compatibility routes", () => {
 
     const migrate = await app.inject({
       method: "POST",
-      url: "/api/vector-library/migrate",
+      url: "/api/knowledge-bases/migrate",
       payload: {
         from_key: vectorizerKey,
         to_key: target.json().data.vectorizer_key,
@@ -293,17 +300,12 @@ describe("vector library compatibility routes", () => {
     });
 
     const deleteFile = await app.inject({
-      method: "POST",
-      url: "/api/vector-library/delete-file",
-      payload: {
-        collection: "documents",
-        file_id: file.id,
-      },
+      method: "DELETE",
+      url: `/api/knowledge-bases/files/${encodeURIComponent(file.id)}`,
     });
     expect(deleteFile.statusCode).toBe(200);
-    expect(deleteFile.json().data).toMatchObject({
-      collection: "documents",
-      document_id: file.id,
+    expect(deleteFile.json()).toMatchObject({
+      success: true,
       deleted_chunks: 1,
     });
   });
@@ -314,7 +316,7 @@ describe("vector library compatibility routes", () => {
     await createEmbeddingProvider();
     const created = await app.inject({
       method: "POST",
-      url: "/api/vector-library/vectorizers",
+      url: "/api/knowledge-bases/vectorizers",
       payload: { provider_key: "embedding_openai_proxy", model_name: "text-embedding-3-small" },
     });
     expect(created.statusCode).toBe(200);
@@ -322,7 +324,7 @@ describe("vector library compatibility routes", () => {
 
     const uploaded = await app.inject({
       method: "POST",
-      url: "/api/vector-library/files/upload",
+      url: "/api/knowledge-bases/files/upload",
       headers: multipartHeaders("boundary-cascade"),
       payload: multipartBody(
         "boundary-cascade",
@@ -337,30 +339,30 @@ describe("vector library compatibility routes", () => {
 
     const indexFile = await app.inject({
       method: "POST",
-      url: "/api/vector-library/index-file",
+      url: "/api/knowledge-bases/index-file",
       payload: { collection: "documents", file_id: file.id, vectorizer_key: vectorizerKey },
     });
     expect(indexFile.statusCode).toBe(200);
     expect(indexFile.json().data.indexed_chunks).toBe(1);
 
     // 删前:文件已索引,向量落在 documents collection
-    const docsBefore = await app.inject({ method: "GET", url: "/api/vector/documents/documents" });
+    const docsBefore = await app.inject({ method: "GET", url: "/api/knowledge-bases/documents/documents" });
     expect(docsBefore.json().data.sample_ids).toContain(file.id);
 
     // 删知识库文件 → 联动清向量(跨 collection 按 document_id)
     const deleted = await app.inject({
       method: "DELETE",
-      url: `/api/vector-library/files/${encodeURIComponent(file.id)}`,
+      url: `/api/knowledge-bases/files/${encodeURIComponent(file.id)}`,
     });
     expect(deleted.statusCode).toBe(200);
     expect(deleted.json()).toMatchObject({ success: true, deleted_chunks: 1 });
 
     // 文件已删(kb_files 不再含)
-    const fileList = await app.inject({ method: "GET", url: "/api/vector-library/files" });
+    const fileList = await app.inject({ method: "GET", url: "/api/knowledge-bases/files" });
     expect(fileList.json().files).toEqual([]);
 
     // 向量已删(documents collection 不再含该 document_id)
-    const docsAfter = await app.inject({ method: "GET", url: "/api/vector/documents/documents" });
+    const docsAfter = await app.inject({ method: "GET", url: "/api/knowledge-bases/documents/documents" });
     expect(docsAfter.json().data.sample_ids).not.toContain(file.id);
   });
 
@@ -370,12 +372,12 @@ describe("vector library compatibility routes", () => {
     // 两个 vectorizer(不同 model_name → 不同 model_id)
     const vA = await app.inject({
       method: "POST",
-      url: "/api/vector-library/vectorizers",
+      url: "/api/knowledge-bases/vectorizers",
       payload: { provider_key: "embedding_openai_proxy", model_name: "text-embedding-3-small" },
     });
     const vB = await app.inject({
       method: "POST",
-      url: "/api/vector-library/vectorizers",
+      url: "/api/knowledge-bases/vectorizers",
       payload: { provider_key: "embedding_openai_proxy", model_name: "text-embedding-3-large" },
     });
     expect(vA.statusCode).toBe(200);
@@ -385,7 +387,7 @@ describe("vector library compatibility routes", () => {
 
     const uploaded = await app.inject({
       method: "POST",
-      url: "/api/vector-library/files/upload",
+      url: "/api/knowledge-bases/files/upload",
       headers: multipartHeaders("boundary-multi"),
       payload: multipartBody(
         "boundary-multi",
@@ -401,21 +403,21 @@ describe("vector library compatibility routes", () => {
     // 先索引 A,再索引 B(关键:B 不应清掉 A 的向量)
     const iA = await app.inject({
       method: "POST",
-      url: "/api/vector-library/index-file",
+      url: "/api/knowledge-bases/index-file",
       payload: { collection: "documents", file_id: file.id, vectorizer_key: keyA },
     });
     expect(iA.statusCode).toBe(200);
     expect(iA.json().data.indexed_chunks).toBe(1);
     const iB = await app.inject({
       method: "POST",
-      url: "/api/vector-library/index-file",
+      url: "/api/knowledge-bases/index-file",
       payload: { collection: "documents", file_id: file.id, vectorizer_key: keyB },
     });
     expect(iB.statusCode).toBe(200);
     expect(iB.json().data.indexed_chunks).toBe(1);
 
     // 两个 vectorizer 都"已索引"——B 没清掉 A(修复证据);未修时 A 会被清成"未索引"
-    const status = await app.inject({ method: "GET", url: "/api/vector-library/file-status" });
+    const status = await app.inject({ method: "GET", url: "/api/knowledge-bases/file-status" });
     expect(status.statusCode).toBe(200);
     const f = status.json().data.files.find((x: { file_id: string }) => x.file_id === file.id);
     expect(f.vectorizer_status[keyA]).toBe("已索引");
@@ -429,7 +431,7 @@ describe("vector management compatibility routes", () => {
 
     const collections = await app.inject({
       method: "GET",
-      url: "/api/vector/collections",
+      url: "/api/knowledge-bases/collections",
     });
     expect(collections.statusCode).toBe(200);
     expect(collections.json()).toEqual({
@@ -440,7 +442,7 @@ describe("vector management compatibility routes", () => {
 
     const documents = await app.inject({
       method: "GET",
-      url: "/api/vector/documents/documents",
+      url: "/api/knowledge-bases/documents/documents",
     });
     expect(documents.statusCode).toBe(200);
     expect(documents.json()).toMatchObject({
@@ -454,7 +456,7 @@ describe("vector management compatibility routes", () => {
 
     const health = await app.inject({
       method: "GET",
-      url: "/api/vector/health",
+      url: "/api/knowledge-bases/health",
     });
     expect(health.statusCode).toBe(200);
     expect(health.json()).toMatchObject({
@@ -471,7 +473,7 @@ describe("vector management compatibility routes", () => {
 
     const index = await app.inject({
       method: "POST",
-      url: "/api/vector/index",
+      url: "/api/knowledge-bases/index",
       payload: {
         document_id: "doc-1",
         collection_name: "kb",
@@ -490,7 +492,7 @@ describe("vector management compatibility routes", () => {
 
     const collections = await app.inject({
       method: "GET",
-      url: "/api/vector/collections",
+      url: "/api/knowledge-bases/collections",
     });
     expect(collections.statusCode).toBe(200);
     expect(collections.json()).toMatchObject({
@@ -507,7 +509,7 @@ describe("vector management compatibility routes", () => {
 
     const search = await app.inject({
       method: "POST",
-      url: "/api/vector/search",
+      url: "/api/knowledge-bases/search",
       payload: {
         query: "RAG retrieval",
         collection_name: "kb",
@@ -530,14 +532,14 @@ describe("vector management compatibility routes", () => {
 
     const deleteDocument = await app.inject({
       method: "DELETE",
-      url: "/api/vector/documents/kb/doc-1",
+      url: "/api/knowledge-bases/documents/kb/doc-1",
     });
     expect(deleteDocument.statusCode).toBe(200);
     expect(deleteDocument.json().data.deleted_chunks).toBe(1);
 
     await app.inject({
       method: "POST",
-      url: "/api/vector/index",
+      url: "/api/knowledge-bases/index",
       payload: {
         document_id: "doc-2",
         collection_name: "kb",
@@ -546,7 +548,7 @@ describe("vector management compatibility routes", () => {
     });
     const deleteCollection = await app.inject({
       method: "DELETE",
-      url: "/api/vector/collections/kb",
+      url: "/api/knowledge-bases/collections/kb",
     });
     expect(deleteCollection.statusCode).toBe(200);
     expect(deleteCollection.json().data).toMatchObject({

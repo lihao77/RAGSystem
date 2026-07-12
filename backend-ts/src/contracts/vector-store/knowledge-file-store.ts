@@ -24,6 +24,7 @@ export interface KnowledgeFile {
   size: number;
   mime: string;
   uploaded_at: string;
+  md_blob_hash: string | null;
 }
 
 export interface AddKnowledgeFileInput {
@@ -38,4 +39,6 @@ export interface IKnowledgeFileStore {
   addKnowledgeFile(input: AddKnowledgeFileInput): KnowledgeFile;
   deleteKnowledgeFile(fileId: string): KnowledgeFile | null;
   getKnowledgeUploadsRoot(): string;
+  putKnowledgeMarkdown(fileId: string, markdown: string): { md_blob_hash: string };
+  readKnowledgeMarkdown(mdBlobHash: string): string;
 }

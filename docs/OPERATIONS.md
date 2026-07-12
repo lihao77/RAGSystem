@@ -84,4 +84,4 @@ npm run build:installer
 - `/team-builder`：Team 编排
 - `/agent-config`：Agent 配置
 - `/mcp`：MCP 管理
-- `/vector-library`：向量库管理
+- `/knowledge-base`：知识库管理

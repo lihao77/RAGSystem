@@ -294,6 +294,10 @@ describe("SqliteVecDriver", () => {
     expect(driver.listKnowledgeFiles()).toHaveLength(1);
     expect(driver.getKnowledgeFile(created.id)?.original_name).toBe("notes.txt");
     expect(driver.getKnowledgeFile("nope")).toBeNull();
+    const storedMd = driver.putKnowledgeMarkdown(created.id, "# 标题\n\n正文");
+    expect(storedMd.md_blob_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(driver.getKnowledgeFile(created.id)?.md_blob_hash).toBe(storedMd.md_blob_hash);
+    expect(driver.readKnowledgeMarkdown(storedMd.md_blob_hash)).toBe("# 标题\n\n正文");
     driver.close();
   });
 

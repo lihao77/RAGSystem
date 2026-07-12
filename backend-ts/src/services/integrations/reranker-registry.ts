@@ -1,4 +1,4 @@
-import type { RerankResultMode, VectorSearchResult } from "../../contracts/vector-library.js";
+import type { RerankResultMode, VectorSearchResult } from "../../contracts/knowledge-base.js";
 import type { StoredReranker } from "../../contracts/vector-store/index.js";
 import { lexicalRerank } from "../knowledge/rerank/lexical-rerank.js";
 import { OpenAiCompatibleRerankClient, type RerankClient } from "./reranker-client.js";

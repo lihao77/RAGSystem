@@ -515,7 +515,7 @@ registerHotkey([
   { id: 'hk-new-chat', combo: 'c', description: '新建聊天', group: '操作', action: () => startNewChat() },
   { id: 'hk-goto-chat', combo: 'g c', description: '前往对话', group: '导航', action: () => navigateTo('/') },
   { id: 'hk-goto-admin', combo: 'g a', description: '管理中心', group: '导航', action: () => navigateTo('/admin') },
-  { id: 'hk-goto-kb', combo: 'g k', description: '知识库', group: '导航', action: () => navigateTo('/vector-library') },
+  { id: 'hk-goto-kb', combo: 'g k', description: '知识库', group: '导航', action: () => navigateTo('/knowledge-base') },
   { id: 'hk-goto-models', combo: 'g m', description: '模型管理', group: '导航', action: () => navigateTo('/model-providers') },
   { id: 'hk-goto-monitor', combo: 'g o', description: '监控面板', group: '导航', action: () => navigateTo('/monitor') },
   { id: 'hk-prev-session', combo: 'alt+arrowup', description: '上一会话', group: '会话', action: () => switchSession(-1) },

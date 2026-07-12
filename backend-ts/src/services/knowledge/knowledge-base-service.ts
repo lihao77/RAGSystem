@@ -13,7 +13,7 @@ import type {
   VectorizerConfig,
   VectorizerCreate,
   VectorSearchResult,
-} from "../../contracts/vector-library.js";
+} from "../../contracts/knowledge-base.js";
 import type { IEmbedder, IKnowledgeConfig, IKnowledgeFileStore, IVectorStore, KnowledgeFile, StoredChunk, StoredReranker, StoredVectorizer, VectorRecord, VectorSearchHit } from "../../contracts/vector-store/index.js";
 import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
 import type { DocumentExtractor } from "../../contracts/knowledge/document-extractor.js";
@@ -23,15 +23,15 @@ import { createReranker, type IReranker } from "../integrations/reranker-registr
 import { lexicalRerank } from "./rerank/lexical-rerank.js";
 // 打分纯函数统一从 scoring.ts 复用(cosineSimilarity/tokenize 随 5h-2 降级路径删除,本地副本已无)。
 import { hybridScore, keywordOverlapScore } from "../vector-store/scoring.js";
-import { VectorLibraryServiceError } from "../../contracts/vector-library.js";
+import { KnowledgeBaseError } from "../../contracts/knowledge-base.js";
 
-export type VectorLibraryEmbedderFactory = (
+export type KnowledgeBaseEmbedderFactory = (
   provider: ModelProviderConfig | null | undefined,
   modelName: string,
 ) => IEmbedder;
 export type VectorLibraryRerankerFactory = (stored: StoredReranker) => IReranker;
 
-export class VectorLibraryService {
+export class KnowledgeBaseService {
   private readonly knowledgeConfig: IKnowledgeConfig;
   /** 知识库文件存储(driver):路由层 CRUD(upload/list/delete/download)直连,业务编排(indexFile/fileStatus)由本 service。 */
   public readonly knowledgeFileStore: IKnowledgeFileStore;
@@ -39,7 +39,7 @@ export class VectorLibraryService {
   // 按 vectorizer_key 缓存 embedder,避免每次 search 重复解析 provider 配置。
   // 注:provider 配置(api_key 等)运行时更新后,缓存项持有旧快照——本期接受(重启生效),后续可加失效。
   private readonly embedderCache = new Map<string, IEmbedder>();
-  private readonly embedderFactory: VectorLibraryEmbedderFactory;
+  private readonly embedderFactory: KnowledgeBaseEmbedderFactory;
   private readonly documentExtractDispatcher: DocumentExtractor;
   private readonly rerankerFactory: VectorLibraryRerankerFactory;
 
@@ -49,16 +49,16 @@ export class VectorLibraryService {
       vectorStore?: IVectorStore | undefined;
       knowledgeConfig?: IKnowledgeConfig | undefined;
       knowledgeFileStore?: IKnowledgeFileStore | undefined;
-      embedderFactory?: VectorLibraryEmbedderFactory | undefined;
+      embedderFactory?: KnowledgeBaseEmbedderFactory | undefined;
       documentExtractDispatcher: DocumentExtractor;
       rerankerFactory?: VectorLibraryRerankerFactory | undefined;
     },
   ) {
     if (!options.knowledgeConfig) {
-      throw new Error("VectorLibraryService 需注入 knowledgeConfig(driver 单一配置源)");
+      throw new Error("KnowledgeBaseService 需注入 knowledgeConfig(driver 单一配置源)");
     }
     if (!options.knowledgeFileStore) {
-      throw new Error("VectorLibraryService 需注入 knowledgeFileStore(driver 单一知识库文件源)");
+      throw new Error("KnowledgeBaseService 需注入 knowledgeFileStore(driver 单一知识库文件源)");
     }
     this.knowledgeConfig = options.knowledgeConfig;
     this.knowledgeFileStore = options.knowledgeFileStore;
@@ -119,11 +119,11 @@ export class VectorLibraryService {
     const providerKey = input.provider_key.trim();
     const modelName = input.model_name.trim();
     if (!this.modelAdapter.hasProvider(providerKey)) {
-      throw new VectorLibraryServiceError(`向量化器引用的 Provider 不存在: ${providerKey}`, 400);
+      throw new KnowledgeBaseError(`向量化器引用的 Provider 不存在: ${providerKey}`, 400);
     }
     const key = input.vectorizer_key?.trim() || normalizeVectorizerKey(providerKey, modelName);
     if (this.knowledgeConfig.getVectorizerByKey(key)) {
-      throw new VectorLibraryServiceError(`向量化器键已存在: ${key}`, 400);
+      throw new KnowledgeBaseError(`向量化器键已存在: ${key}`, 400);
     }
     const created = this.knowledgeConfig.createVectorizer({
       vectorizer_key: key,
@@ -141,7 +141,7 @@ export class VectorLibraryService {
 
   activateVectorizer(key: string): { active_vectorizer_key: string } {
     if (!this.knowledgeConfig.getVectorizerByKey(key)) {
-      throw new VectorLibraryServiceError(`向量化器不存在: ${key}`, 404);
+      throw new KnowledgeBaseError(`向量化器不存在: ${key}`, 404);
     }
     this.knowledgeConfig.activateVectorizer(key);
     return { active_vectorizer_key: key };
@@ -150,7 +150,7 @@ export class VectorLibraryService {
   async deleteVectorizer(key: string): Promise<{ deleted_vectorizer_key: string }> {
     const stored = this.knowledgeConfig.getVectorizerByKey(key);
     if (!stored) {
-      throw new VectorLibraryServiceError(`向量化器不存在: ${key}`, 404);
+      throw new KnowledgeBaseError(`向量化器不存在: ${key}`, 404);
     }
     // driver 内部事务包"清向量 + 删实体 + 回退 active"。
     this.knowledgeConfig.deleteVectorizer(key);
@@ -160,7 +160,7 @@ export class VectorLibraryService {
   async listDocsByVectorizer(key: string): Promise<Array<Record<string, unknown>>> {
     const vectorizer = this.getStoredVectorizer(key);
     if (!vectorizer) {
-      throw new VectorLibraryServiceError(`向量化器不存在或未在 DB 注册: ${key}`, 404);
+      throw new KnowledgeBaseError(`向量化器不存在或未在 DB 注册: ${key}`, 404);
     }
     if (!this.vectorStore) {
       return [];
@@ -182,25 +182,59 @@ export class VectorLibraryService {
     return result;
   }
 
+  /** 抽取并落库 canonical Markdown（extract + putKnowledgeMarkdown），返回 MD。 */
+  private async extractAndStoreMarkdown(file: KnowledgeFile): Promise<string> {
+    const extracted = await this.documentExtractDispatcher.extract({ file_path: file.stored_path, file_name: file.original_name, mime: file.mime });
+    this.knowledgeFileStore.putKnowledgeMarkdown(file.id, extracted.markdown);
+    return extracted.markdown;
+  }
+
+  /**
+   * 上传后即生成 canonical Markdown（预览/索引基础），与 embedding 解耦。
+   * routes upload 调：文件上传后立即可预览，无需先索引。
+   */
+  async generateMarkdownForFile(fileId: string): Promise<void> {
+    const file = this.knowledgeFileStore.getKnowledgeFile(fileId);
+    if (!file) {
+      throw new KnowledgeBaseError(`文件不存在: ${fileId}`, 404);
+    }
+    if (!fs.existsSync(file.stored_path)) {
+      throw new KnowledgeBaseError(`文件路径无效: ${file.stored_path}`, 404);
+    }
+    await this.extractAndStoreMarkdown(file);
+  }
+
+  /** 索引时解析 MD：优先已存（upload 生成），无则 extract 生成（兼容老文件/blob 损坏）。 */
+  private async resolveMarkdown(file: KnowledgeFile): Promise<string> {
+    if (file.md_blob_hash) {
+      try {
+        return this.knowledgeFileStore.readKnowledgeMarkdown(file.md_blob_hash);
+      } catch {
+        // blob 损坏/缺失，fall through 重新生成
+      }
+    }
+    return this.extractAndStoreMarkdown(file);
+  }
+
   async indexFile(input: IndexFileRequest): Promise<Record<string, unknown>> {
     const collection = input.collection.trim();
     const fileId = input.file_id.trim();
     const vectorizer = this.getStoredVectorizer(input.vectorizer_key.trim());
     if (!vectorizer) {
-      throw new VectorLibraryServiceError(`向量化器不存在: ${input.vectorizer_key}`, 404);
+      throw new KnowledgeBaseError(`向量化器不存在: ${input.vectorizer_key}`, 404);
     }
     const file = this.knowledgeFileStore.getKnowledgeFile(fileId);
     if (!file) {
-      throw new VectorLibraryServiceError(`文件不存在: ${fileId}`, 404);
+      throw new KnowledgeBaseError(`文件不存在: ${fileId}`, 404);
     }
     if (!fs.existsSync(file.stored_path)) {
-      throw new VectorLibraryServiceError(`文件路径无效: ${file.stored_path}`, 404);
+      throw new KnowledgeBaseError(`文件路径无效: ${file.stored_path}`, 404);
     }
-    const text = (await this.documentExtractDispatcher.extract({ file_path: file.stored_path, file_name: file.original_name, mime: file.mime })).text;
+    const markdown = await this.resolveMarkdown(file);
     const result = await this.indexTextDocument({
       collection,
       documentId: file.id,
-      text,
+      markdown,
       metadata: {
         source: file.original_name,
         source_file: file.original_name,
@@ -230,7 +264,7 @@ export class VectorLibraryService {
   /**
    * 删除知识库文件并联动清向量:先按 document_id(= file.id)跨 collection 删全部已索引向量(幂等),
    * 再删 kb_files 行 + 物理 blob。顺序保证向量删失败时文件保留、可重试,不留半删态/孤儿向量。
-   * 文件不存在返回 null(路由据此 404)。供 /api/vector-library/files/:fileId DELETE 调用。
+   * 文件不存在返回 null(路由据此 404)。供 /api/knowledge-bases/files/:fileId DELETE 调用。
    */
   async deleteKnowledgeFileWithVectors(
     fileId: string,
@@ -251,12 +285,12 @@ export class VectorLibraryService {
     const fromKey = asString(payload.from_key) ?? asString(payload.fromKey);
     const toKey = asString(payload.to_key) ?? asString(payload.toKey);
     if (!fromKey || !toKey) {
-      throw new VectorLibraryServiceError("缺少 from_key 或 to_key", 400);
+      throw new KnowledgeBaseError("缺少 from_key 或 to_key", 400);
     }
     const source = this.getStoredVectorizer(fromKey);
     const target = this.getStoredVectorizer(toKey);
     if (!source || !target) {
-      throw new VectorLibraryServiceError("源或目标向量化器不存在", 404);
+      throw new KnowledgeBaseError("源或目标向量化器不存在", 404);
     }
     if (!this.vectorStore) {
       return { from_key: fromKey, to_key: toKey, migrated_chunks: 0 };
@@ -288,32 +322,32 @@ export class VectorLibraryService {
     let documentId = asString(payload.document_id) ?? "";
     const chunkSize = readPositiveInteger(payload.chunk_size, 500);
     const overlap = readNonNegativeInteger(payload.overlap, 50);
-    let text = asString(payload.text) ?? "";
+    let markdown = asString(payload.markdown) ?? asString(payload.text) ?? "";
     const metadata = asRecord(payload.metadata);
     const fileId = asString(payload.file_id);
     if (fileId) {
       const file = this.knowledgeFileStore.getKnowledgeFile(fileId);
       if (!file) {
-        throw new VectorLibraryServiceError(`文件不存在: ${fileId}`, 404);
+        throw new KnowledgeBaseError(`文件不存在: ${fileId}`, 404);
       }
       if (!fs.existsSync(file.stored_path)) {
-        throw new VectorLibraryServiceError(`文件路径无效: ${file.stored_path}`, 404);
+        throw new KnowledgeBaseError(`文件路径无效: ${file.stored_path}`, 404);
       }
-      text = (await this.documentExtractDispatcher.extract({ file_path: file.stored_path, file_name: file.original_name, mime: file.mime })).text;
+      markdown = await this.resolveMarkdown(file);
       documentId = documentId || file.id;
       metadata.source = metadata.source ?? file.original_name;
       metadata.source_file = metadata.source_file ?? file.original_name;
       metadata.file_id = file.id;
       metadata.original_filename = file.original_name;
     }
-    if (!documentId || !text) {
-      throw new VectorLibraryServiceError("document_id和文本内容不能为空", 400);
+    if (!documentId || !markdown) {
+      throw new KnowledgeBaseError("document_id和 Markdown 内容不能为空", 400);
     }
     const vectorizer = this.resolveActiveVectorizer();
     const result = await this.indexTextDocument({
       collection,
       documentId,
-      text,
+      markdown,
       metadata,
       vectorizer,
       chunkSize,
@@ -372,15 +406,15 @@ export class VectorLibraryService {
     const modelName = input.model_name?.trim() || "";
     if (mode === "model") {
       if (!providerKey || !modelName) {
-        throw new VectorLibraryServiceError("model 模式的重排序器必须提供 provider_key 和 model_name", 400);
+        throw new KnowledgeBaseError("model 模式的重排序器必须提供 provider_key 和 model_name", 400);
       }
       if (!input.api_endpoint?.trim()) {
-        throw new VectorLibraryServiceError("model 模式的重排序器必须提供 api_endpoint", 400);
+        throw new KnowledgeBaseError("model 模式的重排序器必须提供 api_endpoint", 400);
       }
     }
     const key = input.reranker_key?.trim() || normalizeRerankerKey(mode, providerKey, modelName);
     if (this.knowledgeConfig.getReranker(key)) {
-      throw new VectorLibraryServiceError(`重排序器键已存在: ${key}`, 400);
+      throw new KnowledgeBaseError(`重排序器键已存在: ${key}`, 400);
     }
     this.knowledgeConfig.createReranker({
       reranker_key: key,
@@ -401,7 +435,7 @@ export class VectorLibraryService {
 
   activateReranker(key: string): { active_reranker_key: string } {
     if (!this.knowledgeConfig.getReranker(key)) {
-      throw new VectorLibraryServiceError(`重排序器不存在: ${key}`, 404);
+      throw new KnowledgeBaseError(`重排序器不存在: ${key}`, 404);
     }
     this.knowledgeConfig.activateReranker(key);
     return { active_reranker_key: key };
@@ -409,7 +443,7 @@ export class VectorLibraryService {
 
   deleteReranker(key: string): { deleted_reranker_key: string } {
     if (!this.knowledgeConfig.getReranker(key)) {
-      throw new VectorLibraryServiceError(`重排序器不存在: ${key}`, 404);
+      throw new KnowledgeBaseError(`重排序器不存在: ${key}`, 404);
     }
     this.knowledgeConfig.deleteReranker(key);
     return { deleted_reranker_key: key };
@@ -462,10 +496,10 @@ export class VectorLibraryService {
     const topK = input.top_k ?? 5;
     const searchMode = input.search_mode ?? input.mode ?? "hybrid";
     if (!query) {
-      throw new VectorLibraryServiceError("查询内容不能为空", 400);
+      throw new KnowledgeBaseError("查询内容不能为空", 400);
     }
     if (searchMode !== "hybrid" && searchMode !== "vector") {
-      throw new VectorLibraryServiceError("search_mode 只能是 hybrid 或 vector", 400);
+      throw new KnowledgeBaseError("search_mode 只能是 hybrid 或 vector", 400);
     }
     const vectorizer = this.resolveActiveVectorizer();
     // driver 唯一源:sqlite-vec 必须可用(runtime 启动校验);未注入时返空候选(仅防御,生产不触达)。
@@ -619,7 +653,7 @@ export class VectorLibraryService {
   async syncModel(modelId: number, input: { collection: string; limit?: number | null | undefined }): Promise<Record<string, unknown>> {
     const vectorizer = this.getVectorizerByModelId(modelId);
     if (!vectorizer) {
-      throw new VectorLibraryServiceError(`模型不存在: ${modelId}`, 404);
+      throw new KnowledgeBaseError(`模型不存在: ${modelId}`, 404);
     }
     const collection = input.collection || "default";
     if (!this.vectorStore) {
@@ -649,13 +683,13 @@ export class VectorLibraryService {
   private async indexTextDocument(input: {
     collection: string;
     documentId: string;
-    text: string;
+    markdown: string;
     metadata: Record<string, unknown>;
     vectorizer: StoredVectorizer;
     chunkSize: number;
     overlap: number;
   }): Promise<{ chunkCount: number }> {
-    const chunks = chunkText(input.text, input.chunkSize, input.overlap);
+    const chunks = chunkMarkdown(input.markdown, input.chunkSize, input.overlap);
     if (chunks.length === 0) {
       // 空文本:driver 清旧后返回。
       if (this.vectorStore) {
@@ -679,7 +713,7 @@ export class VectorLibraryService {
       metadata: Record<string, unknown>;
       vectorizer: StoredVectorizer;
     },
-    chunks: string[],
+    chunks: MarkdownChunk[],
   ): Promise<{ chunkCount: number }> {
     if (!this.vectorStore) {
       return { chunkCount: 0 };
@@ -693,13 +727,16 @@ export class VectorLibraryService {
       input.vectorizer.model_id,
     );
     // 真 embedder 批量嵌入（一次调用替代逐 chunk 嵌入）；provider 失败时直接终止索引。
-    const vectors = await this.embed(input.vectorizer, chunks);
+    const vectors = await this.embed(input.vectorizer, chunks.map((chunk) => chunk.content));
     const records: VectorRecord[] = [];
     for (const [index, chunk] of chunks.entries()) {
       const metadata = {
         ...input.metadata,
         document_id: input.documentId,
         chunk_index: index,
+        char_start: chunk.charStart,
+        char_end: chunk.charEnd,
+        heading_path: chunk.headingPath,
       };
       records.push({
         id: "",
@@ -707,7 +744,7 @@ export class VectorLibraryService {
         collection: input.collection,
         model_id: input.vectorizer.model_id,
         chunk_index: index,
-        content: chunk,
+        content: chunk.content,
         metadata,
         embedding: vectors[index] ?? [],
       });
@@ -874,24 +911,47 @@ function normalizeRerankerMode(value: string | undefined): "model" | "lexical" |
   return "model";
 }
 
-function chunkText(text: string, chunkSize: number, overlap: number): string[] {
-  const normalized = text.replace(/\r\n/g, "\n").trim();
+interface MarkdownChunk {
+  content: string;
+  charStart: number;
+  charEnd: number;
+  headingPath: string;
+}
+
+function chunkMarkdown(markdown: string, chunkSize: number, overlap: number): MarkdownChunk[] {
+  const normalized = markdown.replace(/\r\n/g, "\n").trim();
   if (!normalized) {
     return [];
   }
   const safeChunkSize = Math.max(1, chunkSize);
   const safeOverlap = Math.min(Math.max(0, overlap), Math.max(0, safeChunkSize - 1));
-  const chunks: string[] = [];
-  let index = 0;
-  while (index < normalized.length) {
-    const end = Math.min(index + safeChunkSize, normalized.length);
-    chunks.push(normalized.slice(index, end));
-    if (end === normalized.length) {
-      break;
+  const sections = splitMarkdownSections(normalized);
+  const chunks: MarkdownChunk[] = [];
+  for (const section of sections) {
+    let start = section.start;
+    while (start < section.end) {
+      const end = Math.min(start + safeChunkSize, section.end);
+      chunks.push({ content: normalized.slice(start, end), charStart: start, charEnd: end, headingPath: section.headingPath });
+      if (end === section.end) break;
+      start = end - safeOverlap;
     }
-    index = end - safeOverlap;
   }
   return chunks;
+}
+
+function splitMarkdownSections(markdown: string): Array<{ start: number; end: number; headingPath: string }> {
+  const headings: string[] = [];
+  const sections: Array<{ start: number; end: number; headingPath: string }> = [];
+  const matches = [...markdown.matchAll(/^(#{1,6})\s+(.+)$/gm)];
+  if (matches.length === 0) return [{ start: 0, end: markdown.length, headingPath: "" }];
+  if ((matches[0]?.index ?? 0) > 0) sections.push({ start: 0, end: matches[0]?.index ?? 0, headingPath: "" });
+  for (const [index, match] of matches.entries()) {
+    const level = match[1]?.length ?? 1;
+    headings.length = level - 1;
+    headings[level - 1] = match[2]?.trim() ?? "";
+    sections.push({ start: match.index ?? 0, end: matches[index + 1]?.index ?? markdown.length, headingPath: headings.filter(Boolean).join(">") });
+  }
+  return sections.filter((section) => section.end > section.start);
 }
 
 function hitToSearchResult(hit: VectorSearchHit): VectorSearchResult {

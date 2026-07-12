@@ -28,7 +28,7 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 </p>
 
 <p align="center">
-  <img src="docs/assets/screenshots/desktop-vector-library.png" alt="电脑端知识库管理页面" width="450">
+  <img src="docs/assets/screenshots/desktop-knowledge-base.png" alt="电脑端知识库管理页面" width="450">
   <img src="docs/assets/screenshots/desktop-mcp-manager.png" alt="电脑端 MCP 服务管理页面" width="450">
 </p>
 

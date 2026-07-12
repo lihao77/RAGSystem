@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StoredReranker } from "../../src/contracts/vector-store/index.js";
-import type { VectorSearchResult } from "../../src/contracts/vector-library.js";
+import type { VectorSearchResult } from "../../src/contracts/knowledge-base.js";
 import type { RerankClient } from "../../src/services/integrations/reranker-client.js";
 import { createReranker, LexicalReranker, NoopReranker, RemoteReranker } from "../../src/services/integrations/reranker-registry.js";
 
