@@ -11,15 +11,19 @@ import type { RouteOptions } from "./route-options.js";
 /**
  * widget 第三方嵌入接入面（prefix /api/widget）。
  *
- * - POST /auth/token：app-key/secret → 短时 JWT（嵌入方服务端调）。
- * - POST /sessions：Bearer JWT → 受约束会话（写 widget 上下文进 metadata）。
+ * - POST /auth/token：app-key/secret → 短时 JWT（嵌入方服务端调，secret 路径）。
+ * - POST /sessions：双鉴权单端点——Bearer JWT（secret 路径，服务端集成）
+ *   或 X-Widget-Key + Origin 白名单（publishable key 路径，前端嵌入零宿主后端）。
+ *   写 widget 上下文进 metadata，created_via 区分 "widget" / "widget_public"。
+ *
+ * 两条路径的鉴权大门不同：
+ * - secret→JWT：大门是 server-held secret（嵌入方服务端持 secret 换 token），token 走 WS query，15min TTL。
+ * - publishable key：publishable key 是公钥会暴露，大门是 allowed_origins 白名单（靠浏览器同源策略
+ *   保证 Origin 真实）。WS 凭证是 session_id + Origin header，无 token 过期。防跨站滥用，不防定向攻击
+ *   （非浏览器可伪造 Origin），定向防护用 secret 路径。
  *
  * 仅当 RuntimeContainer.widgetAuth 存在（配了 WIDGET_JWT_SECRET）时启用；否则整组端点返回 503，
  * 默认部署完全不受影响。鉴权只挂在本 plugin 内，不污染既有 /api/agent/* 零鉴权路由。
- *
- * 鉴权边界说明：真正的大门是 server-held secret（嵌入方服务端持 app-key/secret 换 token）。
- * CORS / per-app allowed_origins 不构成有效隔离——嵌入方服务端调用无 Origin 头（CORS 不 gate），
- * 浏览器仅持 token 开 WS（WS 不受 CORS 约束）。token 走 WS query，生产须 HTTPS + 短 TTL(15min)。
  */
 export const registerWidgetRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   const container = options.container;
@@ -45,9 +49,20 @@ export const registerWidgetRoutes: FastifyPluginAsync<RouteOptions> = async (app
   });
 
   app.post("/sessions", async (request) => {
-    let claims;
+    let appKey: string;
+    let createdVia: "widget" | "widget_public";
     try {
-      claims = auth.requireBearer(request);
+      if (request.headers.authorization) {
+        appKey = auth.requireBearer(request).sub;
+        createdVia = "widget";
+      } else {
+        const publishableKey = request.headers["x-widget-key"];
+        if (typeof publishableKey !== "string" || !publishableKey) {
+          throw new WidgetAuthError("missing widget credentials");
+        }
+        appKey = auth.verifyPublishableSession({ appKey: publishableKey, origin: request.headers.origin }).app_key;
+        createdVia = "widget_public";
+      }
     } catch (error) {
       if (error instanceof WidgetAuthError) {
         throw new HttpError(401, "unauthorized", error.message);
@@ -59,14 +74,14 @@ export const registerWidgetRoutes: FastifyPluginAsync<RouteOptions> = async (app
     const metadata = {
       ...(body.metadata ?? {}),
       widget: {
-        app_key: claims.sub,
+        app_key: appKey,
         host_tools: body.host_tools ?? [],
-        created_via: "widget" as const,
+        created_via: createdVia,
       },
     };
     container.sessionApplication.createSession({
       sessionId,
-      userId: `widget:${claims.sub}`,
+      userId: `widget:${appKey}`,
       metadata,
     });
     return ok({ session_id: sessionId }, "widget 会话创建成功");

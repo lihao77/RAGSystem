@@ -38,6 +38,11 @@ export function createWidgetCredentialDb(options: { dbPath: string }): WidgetCre
       revoked    INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_widget_tokens_app_key ON widget_tokens(app_key);
+    CREATE TABLE IF NOT EXISTS widget_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, app_key TEXT NOT NULL, action TEXT NOT NULL,
+      actor TEXT NOT NULL, detail_json TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_widget_audit_app_key ON widget_audit(app_key);
   `);
   return db;
 }

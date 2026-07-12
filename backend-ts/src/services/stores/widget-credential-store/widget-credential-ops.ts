@@ -21,6 +21,7 @@ export interface CreatedWidgetApp {
   display_name: string;
   allowed_origins: string[];
 }
+export interface WidgetToken { jti: string; app_key: string; issued_at: number; expires_at: number; revoked: boolean; }
 
 /**
  * widget 凭证聚合根操作。
@@ -76,11 +77,39 @@ export class WidgetCredentialOps {
     return row ?? null;
   }
 
+  listApps(): WidgetApp[] {
+    return this.db.prepare("SELECT app_key, secret_hash, secret_prefix, display_name, allowed_origins, created_at, revoked_at FROM widget_apps ORDER BY created_at DESC, app_key DESC").all() as unknown as WidgetApp[];
+  }
+
+  updateApp(app_key: string, input: { display_name?: string; allowed_origins?: string[] }): WidgetApp | null {
+    const current = this.getApp(app_key);
+    if (!current) return null;
+    this.db.prepare("UPDATE widget_apps SET display_name=?, allowed_origins=? WHERE app_key=?").run(input.display_name ?? current.display_name, input.allowed_origins?.join(",") ?? current.allowed_origins, app_key);
+    return this.getApp(app_key);
+  }
+
+  rotateSecret(app_key: string): CreatedWidgetApp | null {
+    const app = this.getApp(app_key);
+    if (!app || app.revoked_at) return null;
+    const secret = `wid_sk_${randomBytes(32).toString("hex")}`;
+    const secret_prefix = secret.slice(0, 12);
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("UPDATE widget_apps SET secret_hash=?, secret_prefix=? WHERE app_key=?").run(hashSecret(secret), secret_prefix, app_key);
+      this.revokeAppTokens(app_key);
+      this.db.exec("COMMIT");
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+    return { app_key, secret, secret_prefix, display_name: app.display_name, allowed_origins: splitOrigins(app.allowed_origins) };
+  }
+
   revokeApp(app_key: string): boolean {
-    const result = this.db
-      .prepare("UPDATE widget_apps SET revoked_at=CURRENT_TIMESTAMP WHERE app_key=? AND revoked_at IS NULL")
-      .run(app_key);
-    return Number(result.changes) > 0;
+    this.db.exec("BEGIN");
+    try {
+      const result = this.db.prepare("UPDATE widget_apps SET revoked_at=CURRENT_TIMESTAMP WHERE app_key=? AND revoked_at IS NULL").run(app_key);
+      this.revokeAppTokens(app_key);
+      this.db.exec("COMMIT");
+      return Number(result.changes) > 0;
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
 
   recordToken(input: { jti: string; app_key: string; issued_at: number; expires_at: number }): void {
@@ -102,6 +131,15 @@ export class WidgetCredentialOps {
 
   revokeToken(jti: string): void {
     this.db.prepare("UPDATE widget_tokens SET revoked=1 WHERE jti=?").run(jti);
+  }
+
+  listTokensByApp(app_key: string): WidgetToken[] {
+    const rows = this.db.prepare("SELECT jti, app_key, issued_at, expires_at, revoked FROM widget_tokens WHERE app_key=? ORDER BY issued_at DESC").all(app_key) as unknown as Array<Omit<WidgetToken, "revoked"> & { revoked: number }>;
+    return rows.map((row) => ({ ...row, revoked: Boolean(row.revoked) }));
+  }
+
+  revokeAppTokens(app_key: string): number {
+    return Number(this.db.prepare("UPDATE widget_tokens SET revoked=1 WHERE app_key=? AND revoked=0").run(app_key).changes);
   }
 
   /** 所有未吊销 app 的 allowed_origins 并集（CORS 白名单叠加用）。 */
@@ -127,6 +165,7 @@ export class WidgetCredentialOps {
     return Number(result.changes);
   }
 }
+function splitOrigins(value: string): string[] { return value.split(",").map((origin) => origin.trim()).filter(Boolean); }
 
 function hashSecret(secret: string): string {
   return createHash("sha256").update(secret).digest("hex");

@@ -16,7 +16,7 @@ import { createWidgetCredentialStore } from "../services/stores/widget-credentia
 
 function main(): void {
   const [, , command, ...rest] = process.argv;
-  if (command !== "create" && command !== "revoke") {
+  if (!["create", "revoke", "list", "rotate", "update-origin"].includes(command ?? "")) {
     usage();
     process.exit(1);
   }
@@ -37,7 +37,7 @@ function main(): void {
       const created = store.ops.createApp({ display_name: name, allowed_origins: origins });
       console.log(JSON.stringify(created, null, 2));
       console.error("\n⚠️  secret 仅此一次显示，请立即保存（后端只存 hash）。");
-    } else {
+    } else if (command === "revoke") {
       const appKey = rest[0];
       if (!appKey) {
         usage();
@@ -45,6 +45,18 @@ function main(): void {
       }
       const ok = store.ops.revokeApp(appKey);
       console.log(ok ? `已吊销 ${appKey}` : `未找到或已吊销：${appKey}`);
+    } else if (command === "list") {
+      console.log(JSON.stringify(store.ops.listApps().map(({ secret_hash: _secretHash, ...app }) => app), null, 2));
+    } else if (command === "rotate") {
+      const appKey = rest[0]; if (!appKey) { usage(); process.exit(1); }
+      const rotated = store.ops.rotateSecret(appKey);
+      console.log(rotated ? JSON.stringify(rotated, null, 2) : `未找到或已吊销：${appKey}`);
+      if (rotated) console.error("\n⚠️  secret 仅此一次显示，请立即保存。");
+    } else {
+      const appKey = rest[0]; if (!appKey) { usage(); process.exit(1); }
+      const origins = (rest[1] ?? "").split(",").map((item) => item.trim()).filter(Boolean);
+      const updated = store.ops.updateApp(appKey, { allowed_origins: origins });
+      console.log(updated ? JSON.stringify({ ...updated, secret_hash: undefined }, null, 2) : `未找到：${appKey}`);
     }
   } finally {
     store.close();
@@ -57,6 +69,9 @@ function usage(): void {
       "用法（位置参数）:",
       "  create <名称> [来源1,来源2,...]   例: create demo http://localhost:4321",
       "  revoke <app_key>",
+      "  list",
+      "  rotate <app_key>",
+      "  update-origin <app_key> <来源1,来源2,...>",
     ].join("\n"),
   );
 }

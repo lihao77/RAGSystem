@@ -177,6 +177,7 @@ const props = defineProps({
   backendBase: { type: String, required: true },
   sessionId: { type: String, default: undefined },
   token: { type: String, required: false },
+  publishableKey: { type: String, required: false },
   hostTools: { type: Array, default: () => [] },
   inputTools: { type: Array, default: () => [] },
   fabPosition: { type: Object, default: () => ({ bottom: 24, right: 24 }) },
@@ -274,7 +275,13 @@ async function createSession() {
         headers: { "content-type": "application/json", authorization: `Bearer ${props.token}` },
         body: JSON.stringify({ host_tools: hostToolNames }),
       })
-    : await fetch(`${base}/api/agent/sessions`, {
+    : props.publishableKey
+      ? await fetch(`${base}/api/widget/sessions`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-widget-key": props.publishableKey },
+          body: JSON.stringify({ host_tools: hostToolNames }),
+        })
+      : await fetch(`${base}/api/agent/sessions`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({}),
@@ -296,6 +303,7 @@ async function ensureConnected() {
       backendBase: props.backendBase,
       sessionId: sessionId.value,
       token: props.token,
+      publishableKey: props.publishableKey,
       hostTools: props.hostTools,
     });
     clientUnsub.forEach((fn) => { try { fn(); } catch {} });

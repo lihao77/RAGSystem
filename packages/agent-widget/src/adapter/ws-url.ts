@@ -12,6 +12,7 @@ export interface WidgetWsUrlOptions {
    * 省略=内部普通会话：后端 ws.ts 仅对 widget 来源会话校验 token，普通会话零鉴权放行。
    */
   token?: string | undefined;
+  publishableKey?: string | undefined;
   /** 断线重连游标；null 表示首次连接。 */
   cursor: number | null;
 }
@@ -30,7 +31,7 @@ export function buildWidgetWsUrl(options: WidgetWsUrlOptions): string {
   const basePath = base.pathname.replace(/\/+$/, "");
   const path = `${basePath}/api/agent/sessions/${encodeURIComponent(options.sessionId)}/ws`;
   const query = new URLSearchParams();
-  if (options.cursor !== null) {
+  if (!options.publishableKey && options.cursor !== null) {
     query.set("after_seq", String(options.cursor));
   }
   if (options.token) {

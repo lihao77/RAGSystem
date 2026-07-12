@@ -106,6 +106,8 @@ export interface RagWidgetMountOptions {
    * 嵌入方服务端换来的短时 JWT（可选）。省略=内部普通会话（零鉴权，由 widget 直接建普通 session）。
    */
   token?: string | undefined;
+  /** 浏览器嵌入使用的可公开 key；与 token 互斥。 */
+  publishableKey?: string | undefined;
   /** 已有会话 id；省略则自动建。 */
   sessionId?: string;
   /** 宿主页注册的业务工具（agent 可委托执行）。 */
@@ -142,6 +144,7 @@ function resolveHost(options: RagWidgetMountOptions): HTMLElement {
 
 /** 挂载 widget；返回创建的 <rag-agent-widget> 元素。 */
 export async function mount(options: RagWidgetMountOptions): Promise<RagWidgetHandle> {
+  if (options.token && options.publishableKey) throw new Error("token 与 publishableKey 不能同时提供");
   const host = resolveHost(options);
   const el = document.createElement("rag-agent-widget") as RagWidgetHandle;
   const props = el as unknown as Record<string, unknown>;
@@ -150,6 +153,7 @@ export async function mount(options: RagWidgetMountOptions): Promise<RagWidgetHa
   // sessionId 省略=懒建：首次发送时 widget 内部 POST 建会话，避免一加载就建空会话。
   props.sessionId = options.sessionId;
   props.token = options.token;
+  props.publishableKey = options.publishableKey;
   props.hostTools = options.hostTools ?? [];
   props.inputTools = options.inputTools ?? [];
   props.fabPosition = options.fabPosition ?? { bottom: 24, right: 24 };

@@ -56,6 +56,7 @@ export interface WidgetAgentClientOptions {
    * 第三方嵌入时由宿主服务端换取后注入；内部场景可完全不传。
    */
   token?: string | undefined;
+  publishableKey?: string | undefined;
   /** 宿主业务工具（hostTools）；握手时 tools.register 上行，delegate_call 时本地执行。 */
   hostTools?: DelegatedToolSpec[];
 }
@@ -68,6 +69,7 @@ export class WidgetAgentClient implements AgentClient {
   private readonly backendBase: string;
   private readonly sessionId: string;
   private readonly token: string | undefined;
+  private readonly publishableKey: string | undefined;
 
   private transport: WidgetWsTransport | null = null;
   private execState = createExecutionTreeState();
@@ -90,6 +92,8 @@ export class WidgetAgentClient implements AgentClient {
     this.backendBase = options.backendBase;
     this.sessionId = options.sessionId;
     this.token = options.token;
+    this.publishableKey = options.publishableKey;
+    if (this.token && this.publishableKey) throw new Error("token 与 publishableKey 不能同时提供");
     this.statusValue = new ObservableValue<ConnectionStatus>({ state: "idle" });
     this.eventsValue = new EventStream();
     this.treeValue = new ObservableValue<ExecutionTree>({ root: null, steps: [] });
@@ -289,6 +293,7 @@ export class WidgetAgentClient implements AgentClient {
       backendBase: this.backendBase,
       sessionId: this.sessionId,
       token: this.token,
+      publishableKey: this.publishableKey,
       cursor,
     });
   }

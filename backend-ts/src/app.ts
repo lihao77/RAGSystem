@@ -23,6 +23,7 @@ import { registerAgentRoutes } from "./routes/agent/index.js";
 import { registerAguiRoutes } from "./routes/agent/agui.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerWidgetRoutes } from "./routes/widget.js";
+import { registerWidgetAppsRoutes } from "./routes/widget-apps.js";
 import { HttpError, formatError } from "./utils/errors.js";
 import { createRuntimeContainer, type RuntimeContainer } from "./services/runtime/runtime-container.js";
 
@@ -122,6 +123,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       cb(null, allowed);
     },
     credentials: true,
+    allowedHeaders: ["authorization", "content-type", "x-widget-key"],
   });
   const maxContentLength = container.systemConfig.getSystemGroupConfig().max_content_length;
   await app.register(multipart, {
@@ -194,6 +196,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
   await app.register(registerWidgetRoutes, {
     prefix: "/api/widget",
+    container,
+  });
+  await app.register(registerWidgetAppsRoutes, {
+    prefix: "/api/widget/apps",
     container,
   });
 

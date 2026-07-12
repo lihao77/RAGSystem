@@ -1,0 +1,11 @@
+import { http } from './http.js';
+const BASE = '/api/widget/apps';
+export const listWidgetApps = async () => (await http.get(`${BASE}/`)).apps || [];
+export const createWidgetApp = async (body) => (await http.post(`${BASE}/`, body)).app;
+export const getWidgetApp = async (key) => (await http.get(`${BASE}/${encodeURIComponent(key)}`)).app;
+export const updateWidgetApp = async (key, body) => (await http.patch(`${BASE}/${encodeURIComponent(key)}`, body)).app;
+export const rotateWidgetSecret = async (key) => (await http.post(`${BASE}/${encodeURIComponent(key)}/rotate-secret`)).app;
+export const revokeWidgetApp = async (key) => (await http.post(`${BASE}/${encodeURIComponent(key)}/revoke`)).app;
+export const listWidgetTokens = async (key) => (await http.get(`${BASE}/${encodeURIComponent(key)}/tokens`)).tokens || [];
+export const revokeWidgetToken = async (key, jti) => http.delete(`${BASE}/${encodeURIComponent(key)}/tokens/${encodeURIComponent(jti)}`);
+export const listWidgetAudit = async (key) => (await http.get(`${BASE}/${encodeURIComponent(key)}/audit`)).audit || [];

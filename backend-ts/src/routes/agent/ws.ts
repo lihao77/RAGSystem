@@ -53,6 +53,14 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
             ws.close(4001, "unauthorized");
             return;
           }
+        } else if (widgetMeta?.created_via === "widget_public") {
+          try {
+            if (!widgetMeta.app_key) throw new Error("missing app key");
+            container.widgetAuth.verifyPublishableSession({ appKey: widgetMeta.app_key, origin: request.headers.origin });
+          } catch {
+            ws.close(4001, "unauthorized");
+            return;
+          }
         }
       }
       const afterSeq = parseSeqCursor(request.query.after_seq);

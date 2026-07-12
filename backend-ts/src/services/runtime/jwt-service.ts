@@ -40,6 +40,7 @@ export interface WidgetAuthService {
   issueToken(app_key: string): { token: string; expires_at: number };
   verifyWsToken(token: string | undefined): WidgetTokenClaims;
   requireBearer(request: FastifyRequest): WidgetTokenClaims;
+  verifyPublishableSession(input: { appKey: string; origin: string | undefined }): WidgetApp;
   isOriginAllowed(origin: string | undefined, fallback: string[] | boolean): boolean;
 }
 
@@ -94,6 +95,10 @@ export function createWidgetAuthService(secret: string, credentialOps: WidgetCre
     if (credentialOps.isTokenRevoked(claims.jti)) {
       throw new WidgetAuthError("token revoked");
     }
+    const app = credentialOps.getApp(claims.sub);
+    if (!app || app.revoked_at) {
+      throw new WidgetAuthError("app revoked");
+    }
     return claims as WidgetTokenClaims;
   };
 
@@ -126,6 +131,16 @@ export function createWidgetAuthService(secret: string, credentialOps: WidgetCre
         throw new WidgetAuthError("missing bearer token");
       }
       return verify(match[1]);
+    },
+    verifyPublishableSession(input) {
+      const app = credentialOps.getApp(input.appKey);
+      if (!app) throw new WidgetAuthError("publishable key 无效");
+      if (app.revoked_at) throw new WidgetAuthError("app revoked");
+      const origins = app.allowed_origins.split(",").map((origin) => origin.trim()).filter(Boolean);
+      if (origins.length === 0) throw new WidgetAuthError("allowed_origins 未配置");
+      if (!input.origin) throw new WidgetAuthError("missing origin");
+      if (!origins.includes(input.origin)) throw new WidgetAuthError(`origin 不允许: ${input.origin}`);
+      return app;
     },
     isOriginAllowed(origin, fallback) {
       // 边界说明（勿高估 allowed_origins 的隔离作用）：
