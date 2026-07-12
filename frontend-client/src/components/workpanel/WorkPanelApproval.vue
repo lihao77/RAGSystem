@@ -30,7 +30,7 @@
       <!-- Args (collapsible) -->
       <div v-if="hasArgs">
         <Button class="wpa-toggle" variant="ghost" size="sm" @click="showArgs = !showArgs">
-          <span class="wpa-chevron" :class="{ open: showArgs }">›</span>
+          <IconChevronRight class="wpa-chevron" :class="{ open: showArgs }" :size="14" />
           <span>参数</span>
         </Button>
         <pre v-if="showArgs" class="wpa-pre">{{ formattedArgs }}</pre>
@@ -47,9 +47,11 @@
       <!-- Actions -->
       <div class="wpa-actions">
         <Button class="wpa-btn w-full" variant="default" :disabled="submitting" @click="submit(true)">
+          <IconCheck :size="15" />
           {{ submitting && pendingApproved === true ? '…' : '允许' }}
         </Button>
         <Button class="wpa-btn w-full" variant="destructive" :disabled="submitting" @click="submit(false)">
+          <IconClose :size="15" />
           {{ submitting && pendingApproved === false ? '…' : '拒绝' }}
         </Button>
       </div>
@@ -61,6 +63,9 @@
 import { ref, computed } from 'vue'
 import WorkPanelStateIcon from './WorkPanelStateIcon.vue'
 import { Button } from '../ui/button'
+import IconChevronRight from '../icons/IconChevronRight.vue'
+import IconCheck from '../icons/IconCheck.vue'
+import IconClose from '../icons/IconClose.vue'
 
 const props = defineProps({
   queue: { type: Array, default: () => [] },
@@ -230,8 +235,8 @@ function submit(approved) {
 }
 
 .wpa-chevron {
-  display: inline-block;
-  font-size: 13px;
+  display: inline-flex;
+  color: var(--color-text-muted);
   transition: transform 0.2s;
 }
 .wpa-chevron.open { transform: rotate(90deg); }

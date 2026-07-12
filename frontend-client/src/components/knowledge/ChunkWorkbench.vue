@@ -1,11 +1,11 @@
 <template>
   <div class="grid min-h-0 flex-1 grid-cols-2 gap-3">
     <div ref="markdownHost" class="overflow-auto rounded border p-4" @click="selectFromMarkdown"><MarkdownContent :content="highlightedMarkdown" @notify="emit('notify', $event)" /></div>
-    <div class="overflow-auto rounded border p-3"><div v-if="loading" class="p-6 text-center">正在加载切片...</div><div v-else class="space-y-3"><article v-for="chunk in chunks" :key="chunk.id" :data-chunk-id="chunk.id" class="cursor-pointer rounded border p-3" :class="selected?.id === chunk.id ? 'border-primary bg-primary/5' : ''" @click="selectChunk(chunk)"><div class="mb-2 flex justify-between text-xs text-muted-foreground"><span>#{{ chunk.chunk_index }} {{ chunk.heading_path }}</span><button @click.stop="editing = chunk">编辑</button></div><ChunkEditor v-if="editing?.id === chunk.id" :file-id="fileId" :chunk="chunk" @cancel="editing = null" @saved="handleSaved" @notify="emit('notify', $event)" /><pre v-else class="whitespace-pre-wrap text-sm">{{ chunk.content }}</pre></article></div></div>
+    <div class="overflow-auto rounded border p-3"><div v-if="loading" class="p-6 text-center">正在加载切片...</div><div v-else class="space-y-3"><article v-for="chunk in chunks" :key="chunk.id" :data-chunk-id="chunk.id" class="cursor-pointer rounded border p-3" :class="selected?.id === chunk.id ? 'border-primary bg-primary/5' : ''" @click="selectChunk(chunk)"><div class="mb-2 flex justify-between text-xs text-muted-foreground"><span>#{{ chunk.chunk_index }} {{ chunk.heading_path }}</span><Button variant="ghost" size="sm" class="h-6 gap-1 px-2 text-xs" @click.stop="editing = chunk"><IconEdit :size="12" /> 编辑</Button></div><ChunkEditor v-if="editing?.id === chunk.id" :file-id="fileId" :chunk="chunk" @cancel="editing = null" @saved="handleSaved" @notify="emit('notify', $event)" /><pre v-else class="whitespace-pre-wrap text-sm">{{ chunk.content }}</pre></article></div></div>
   </div>
 </template>
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'; import { getFileChunks } from '../../api/knowledgeBase.js'; import MarkdownContent from '../chat/MarkdownContent.vue'; import ChunkEditor from './ChunkEditor.vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue'; import { getFileChunks } from '../../api/knowledgeBase.js'; import MarkdownContent from '../chat/MarkdownContent.vue'; import ChunkEditor from './ChunkEditor.vue'; import { Button } from '../ui/button'; import IconEdit from '../icons/IconEdit.vue';
 const props = defineProps({ fileId: String, markdown: String, initialCharStart: Number, initialHeading: String }); const emit = defineEmits(['notify']); const chunks=ref([]); const loading=ref(false); const selected=ref(null); const editing=ref(null); const markdownHost=ref(null);
 const highlightedMarkdown=computed(()=>props.markdown||'');
 const selectChunk=async(chunk)=>{selected.value=chunk;await nextTick();highlightChunkInDom(chunk);};
@@ -17,5 +17,5 @@ const handleSaved=(updated)=>{const index=chunks.value.findIndex(c=>c.id===updat
 onMounted(load);watch(()=>props.fileId,load);
 </script>
 <style scoped>
-.chunk-highlight { background: color-mix(in srgb, var(--color-accent, #3aa675) 18%, transparent); transition: background .4s; border-radius: 2px; }
+.chunk-highlight { background: color-mix(in srgb, var(--color-brand-accent) 18%, transparent); transition: background .4s; border-radius: 2px; }
 </style>

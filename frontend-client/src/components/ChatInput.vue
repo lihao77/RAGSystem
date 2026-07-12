@@ -17,7 +17,7 @@
             :disabled="isLoading"
             aria-label="移除附件"
           >
-            ×
+            <IconClose :size="14" />
           </button>
         </div>
       </div>
@@ -89,6 +89,7 @@
 import { ref, watch, nextTick, computed, onMounted, onUnmounted } from 'vue';
 import IconStop from './icons/IconStop.vue';
 import IconSend from './icons/IconSend.vue';
+import IconClose from './icons/IconClose.vue';
 import { Button } from './ui/button';
 
 const props = defineProps({
@@ -354,8 +355,6 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
   padding: 0;
   transition: all 0.3s;
   border-radius: 50%;

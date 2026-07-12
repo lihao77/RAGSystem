@@ -44,7 +44,7 @@
       </PopoverContent>
     </Popover>
 
-    <div v-if="error" class="error-indicator" :title="error">⚠️</div>
+    <div v-if="error" class="error-indicator" :title="error"><IconWarning :size="16" /></div>
   </div>
 </template>
 
@@ -57,6 +57,7 @@ import { getAvailableModels } from '../api/modelAdapter';
 import { useLlmStore } from '../stores/llm.js';
 import IconChevronDown from './icons/IconChevronDown.vue';
 import IconCheck from './icons/IconCheck.vue';
+import IconWarning from './icons/IconWarning.vue';
 
 const llmStore = useLlmStore();
 const { selectedLLM: selectedModel } = storeToRefs(llmStore);
@@ -246,7 +247,9 @@ defineExpose({ getSelection });
 }
 
 .error-indicator {
-  font-size: 18px;
+  display: flex;
+  align-items: center;
+  color: var(--color-error, var(--color-warning, #d97706));
   cursor: help;
   position: absolute;
   right: -24px;

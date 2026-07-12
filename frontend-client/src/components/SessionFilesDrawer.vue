@@ -34,7 +34,7 @@
           <div class="ctx-file-list">
             <div v-for="file in pendingFiles" :key="file.local_id || file.file_id || file.id" class="ctx-file-item ctx-file-item--pending">
               <div class="ctx-file-main">
-                <button v-if="isImageAttachment(file)" class="mb-2 block" @click="openImages(pendingFiles, file)"><img :src="getPreviewUrl(file)" :alt="file.original_name || file.stored_name" class="max-h-32 max-w-48 rounded border object-cover" /></button>
+                <button v-if="isImageAttachment(file)" class="ctx-thumb-btn" @click="openImages(pendingFiles, file)"><img :src="getPreviewUrl(file)" :alt="file.original_name || file.stored_name" class="ctx-thumb" /></button>
                 <div class="ctx-file-name" :title="file.original_name || file.stored_name">{{ file.original_name || file.stored_name }}</div>
                 <div class="ctx-file-meta">
                   <span>{{ formatAttachmentSize(file.size) }}</span>
@@ -213,5 +213,27 @@ const onFileChange = (event) => {
 }
 .ctx-file-item:hover .ctx-file-actions { opacity: 1; }
 .ctx-file-actions--visible { opacity: 1; }
+
+.ctx-thumb-btn {
+  display: block;
+  margin-bottom: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.ctx-thumb {
+  width: 100%;
+  max-width: 220px;
+  height: 128px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.ctx-thumb:hover {
+  transform: scale(1.02);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
+}
 
 </style>

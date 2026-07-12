@@ -9,10 +9,11 @@
         <aside class="flex min-h-0 flex-col border-r">
           <div class="flex items-center justify-between border-b p-3">
             <span class="text-sm text-muted-foreground">{{ files.length }} 个文件</span>
-            <Button variant="ghost" size="sm" :disabled="loading || !sessionId" @click="load">刷新</Button>
+            <Button variant="ghost" size="sm" :disabled="loading || !sessionId" @click="load"><IconRefresh :size="14" />刷新</Button>
           </div>
           <div class="min-h-0 flex-1 overflow-auto p-2">
-            <Button v-for="file in files" :key="file.path" variant="ghost" class="mb-1 h-auto w-full justify-start px-3 py-2 text-left" @click="selectedPath = file.path">
+            <Button v-for="file in files" :key="file.path" variant="ghost" class="mb-1 h-auto w-full justify-start gap-2 px-3 py-2 text-left" @click="selectedPath = file.path">
+              <IconFile :size="14" class="flex-shrink-0 text-muted-foreground" />
               <span class="min-w-0 flex-1 truncate" :title="file.path">{{ file.path }}</span>
               <Badge :variant="file.action === 'created' ? 'default' : 'secondary'">{{ actionLabel(file.action) }}</Badge>
             </Button>
@@ -44,6 +45,8 @@ import { getLatestFileChanges } from '../../api/fileChanges.js';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet';
+import IconRefresh from '../icons/IconRefresh.vue';
+import IconFile from '../icons/IconFile.vue';
 
 const props = defineProps({ open: Boolean, sessionId: { type: String, default: '' } });
 const emit = defineEmits(['update:open']);
@@ -72,8 +75,14 @@ watch(() => [props.open, props.sessionId], ([open]) => { if (open) load(); });
 const actionLabel = action => action === 'created' ? '新增' : '修改';
 const lineMark = type => type === 'added' ? '+' : type === 'removed' ? '-' : ' ';
 const lineClass = type => ({
-  'bg-emerald-500/10 text-foreground': type === 'added',
-  'bg-red-500/10 text-foreground': type === 'removed',
-  'text-muted-foreground': type === 'context',
+  'diff-line--added': type === 'added',
+  'diff-line--removed': type === 'removed',
+  'diff-line--context': type === 'context',
 });
 </script>
+
+<style scoped>
+.diff-line--added { background: rgba(var(--color-success-rgb), 0.12); }
+.diff-line--removed { background: rgba(var(--color-error-rgb), 0.12); }
+.diff-line--context { color: var(--color-text-muted); }
+</style>

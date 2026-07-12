@@ -1366,8 +1366,8 @@
 .user-attachment-card {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: 12px;
+  padding: 10px 12px;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -1376,28 +1376,53 @@
 
 .user-attachment-card:hover {
   border-color: var(--color-border-hover);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
-.user-attachment-image {
-  width: 32px;
-  height: 32px;
+/* 图片缩略图网格（点击进 lightbox） */
+.user-attachment-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.user-attachment-thumb-btn {
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.user-attachment-thumb {
+  width: 168px;
+  height: 124px;
   object-fit: cover;
-  border-radius: var(--radius-sm);
-  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.user-attachment-thumb:hover {
+  transform: scale(1.02);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
 }
 
 .user-attachment-file-icon {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--color-bg-tertiary);
   border-radius: var(--radius-sm);
   color: var(--color-text-muted);
-  font-size: 0.7rem;
   flex-shrink: 0;
+}
+
+.user-attachment-file-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 .user-attachment-info {

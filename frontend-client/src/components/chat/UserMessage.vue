@@ -20,22 +20,28 @@
   <div v-else-if="messageContext.editingMessage !== msg" class="user-bubble-wrapper message-view-mode">
     <div class="user-text">{{ msg.content }}</div>
     <div v-if="msg.attachments?.length" class="user-attachments">
+      <div v-if="imageAttachments.length" class="user-attachment-images">
+        <button
+          v-for="attachment in imageAttachments"
+          :key="attachment.file_id || attachment.id || attachment.local_id || attachment.stored_name"
+          class="user-attachment-thumb-btn"
+          @click="messageContext.openAttachmentImages(msg.attachments, attachment)"
+        >
+          <img
+            :src="messageContext.getAttachmentPreviewUrl(attachment)"
+            :alt="attachment.original_name || attachment.stored_name"
+            class="user-attachment-thumb"
+          />
+        </button>
+      </div>
       <div
-        v-for="attachment in msg.attachments"
+        v-for="attachment in fileAttachments"
         :key="attachment.file_id || attachment.id || attachment.local_id || attachment.stored_name"
         class="user-attachment-card"
       >
-        <img
-          v-if="isImageAttachment(attachment)"
-          :src="messageContext.getAttachmentPreviewUrl(attachment)"
-          :alt="attachment.original_name || attachment.stored_name"
-          class="user-attachment-image"
-          role="button"
-          tabindex="0"
-          @click="messageContext.openAttachmentImages(msg.attachments, attachment)"
-          @keydown.enter="messageContext.openAttachmentImages(msg.attachments, attachment)"
-        />
-        <div v-else class="user-attachment-file-icon">文件</div>
+        <div class="user-attachment-file-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+        </div>
         <div class="user-attachment-info">
           <div class="user-attachment-name">{{ attachment.original_name || attachment.stored_name }}</div>
           <div class="user-attachment-meta">{{ formatAttachmentMeta(attachment) }}</div>
@@ -70,12 +76,14 @@
 import MessageEditBox from '../MessageEditBox.vue';
 import { formatAttachmentMeta, isImageAttachment } from '../../utils/sessionAttachments.js';
 import { parseTaskNotifications } from '../../utils/message-render.js';
-import { inject } from 'vue';
+import { computed, inject } from 'vue';
 
-defineProps({
+const props = defineProps({
   msg: { type: Object, required: true },
 });
 
 const emit = defineEmits(['update:editingDraft']);
 const messageContext = inject('messageContext');
+const imageAttachments = computed(() => (props.msg.attachments || []).filter(isImageAttachment));
+const fileAttachments = computed(() => (props.msg.attachments || []).filter((attachment) => !isImageAttachment(attachment)));
 </script>

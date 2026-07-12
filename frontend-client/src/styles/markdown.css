@@ -339,6 +339,28 @@
   font-size: var(--font-size-xs);
 }
 
+/* citation 引用标记（点击跳源文件；后端注入 span[data-citation-file-id]） */
+.markdown-body [data-citation-file-id] {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  margin: 0 1px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  vertical-align: baseline;
+  border-radius: 4px;
+  color: var(--color-brand-accent);
+  background: rgba(var(--color-brand-accent-rgb), 0.1);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  user-select: none;
+}
+.markdown-body [data-citation-file-id]:hover {
+  color: var(--color-bg-elevated);
+  background: var(--color-brand-accent);
+}
+
 /* ===== 表格 ===== */
 .markdown-body .md-table-block table {
   width: max-content;
