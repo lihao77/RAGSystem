@@ -6,9 +6,7 @@
         <span class="wpe-inspector-name">{{ inspectorTitle }}</span>
       </div>
       <Button class="wpe-inspector-close" variant="ghost" size="icon" aria-label="关闭详情" @click="emit('close')">
-        <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true">
-          <path d="M5 5l10 10M15 5L5 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-        </svg>
+        <IconClose :size="14" />
       </Button>
     </div>
 
@@ -16,12 +14,7 @@
       <section v-if="selectedInspectorMeta.length || selectedSummarySections.length || node.ctx?.max > 0" class="wpe-inspector-section">
         <div class="wpe-section-heading heading-summary">
           <span class="wpe-section-icon" aria-hidden="true">
-            <svg viewBox="0 0 20 20">
-              <path d="M4 5.8C4 4.8 4.8 4 5.8 4h8.4c1 0 1.8.8 1.8 1.8v8.4c0 1-.8 1.8-1.8 1.8H5.8c-1 0-1.8-.8-1.8-1.8V5.8Z" />
-              <path d="M7 7.5h6" />
-              <path d="M7 10h6" />
-              <path d="M7 12.5h3.5" />
-            </svg>
+            <IconDocument :size="14" />
           </span>
           <span>摘要</span>
         </div>
@@ -55,11 +48,7 @@
       <section v-if="selectedInputSections.length" class="wpe-inspector-section">
         <div class="wpe-section-heading heading-input">
           <span class="wpe-section-icon" aria-hidden="true">
-            <svg viewBox="0 0 20 20">
-              <path d="M4 10h8.5" />
-              <path d="m9 6.5 3.5 3.5L9 13.5" />
-              <path d="M14 4.5h1.2c.9 0 1.6.7 1.6 1.6v7.8c0 .9-.7 1.6-1.6 1.6H14" />
-            </svg>
+            <IconChevronRight :size="14" />
           </span>
           <span>输入</span>
         </div>
@@ -144,6 +133,9 @@ import {
   hasToolArguments,
   parseToolPayload,
 } from '../../utils/toolPresentation'
+import IconClose from '../icons/IconClose.vue'
+import IconDocument from '../icons/IconDocument.vue'
+import IconChevronRight from '../icons/IconChevronRight.vue'
 import { Button } from '../ui/button'
 import {
   formatExecutionElapsed as formatElapsed,

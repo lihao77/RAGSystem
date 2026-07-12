@@ -96,7 +96,7 @@
           </div>
 
           <div v-if="testResults[getProviderKey(provider)]" class="provider-test-result" :class="testResults[getProviderKey(provider)].ok ? 'result--ok' : 'result--err'">
-            <span class="result-icon">{{ testResults[getProviderKey(provider)].ok ? '✓' : '✗' }}</span>
+            <span class="result-icon"><IconCheck v-if="testResults[getProviderKey(provider)].ok" :size="13" /><IconClose v-else :size="13" /></span>
             <span class="result-msg">{{ testResults[getProviderKey(provider)].msg }}</span>
           </div>
         </article>
@@ -168,7 +168,7 @@
           <div class="model-map-editor">
             <div v-for="(entry, idx) in modelMapEntries" :key="idx" class="model-map-row">
               <Input v-model="entry.task" class="form-control--sm" placeholder="chat" />
-              <span class="map-arrow">→</span>
+              <span class="map-arrow"><IconChevronRight :size="14" /></span>
               <Input v-model="entry.model" placeholder="gpt-4o" />
               <Button variant="destructive" size="icon" aria-label="删除映射" title="删除映射" @click="removeModelMapEntry(idx)">
                 <IconClose :size="14" />
@@ -212,6 +212,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import PageLayout from '../components/PageLayout.vue';
 import IconRefresh from '../components/icons/IconRefresh.vue';
 import IconClose from '../components/icons/IconClose.vue';
+import IconCheck from '../components/icons/IconCheck.vue';
+import IconChevronRight from '../components/icons/IconChevronRight.vue';
 import IconPlus from '../components/icons/IconPlus.vue';
 import IconTrash from '../components/icons/IconTrash.vue';
 import IconEdit from '../components/icons/IconEdit.vue';

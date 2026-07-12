@@ -15,9 +15,7 @@
                 </div>
               </div>
               <Button class="input-header-action" variant="ghost" size="sm" @click="toggleCollapsed" title="折叠输入窗口">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M20 12H4"/>
-                  </svg>
+                <IconChevronDown :size="14" />
                 <span>折叠</span>
               </Button>
             </div>
@@ -27,10 +25,7 @@
               <!-- 问题气泡 -->
               <div class="prompt-block">
                 <div class="prompt-avatar">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                    fill="currentColor">
-                    <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8zm-1-5h2v2h-2zm0-8h2v6h-2z"/>
-                  </svg>
+                  <IconInfo :size="14" />
                 </div>
                 <div class="prompt-text">{{ prompt }}</div>
               </div>
@@ -107,6 +102,7 @@ import { ref, computed, nextTick } from 'vue';
 import InputRendererText from './input-renderers/InputRendererText.vue';
 import InputRendererSelect from './input-renderers/InputRendererSelect.vue';
 import IconInfo from './icons/IconInfo.vue';
+import IconChevronDown from './icons/IconChevronDown.vue';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogFooter } from './ui/dialog';
 

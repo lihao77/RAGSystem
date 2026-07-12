@@ -955,13 +955,13 @@ onMounted(() => {
 .tool-annotations { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .tool-metrics { margin-top: 4px; font-size: var(--font-size-xs); color: var(--color-text-secondary); }
 .anno-chip { font-size: var(--font-size-sm); padding: 1px 6px; border-radius: var(--radius-sm); background: var(--color-bg-secondary); color: var(--color-text-secondary); border: 1px solid var(--color-border); }
-.anno-chip--warn { color: #d97706; border-color: #d97706; }
+.anno-chip--warn { color: var(--color-warning); border-color: var(--color-warning); }
 .tool-params { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--color-border); }
 .tool-params-label { font-size: var(--font-size-sm); color: var(--color-text-secondary); margin-bottom: 4px; }
 .param-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--font-size-sm); margin-bottom: 2px; }
 .param-name { font-family: var(--font-mono); color: var(--color-text-primary, var(--color-text-secondary)); }
 .param-type { color: var(--color-text-secondary); font-style: italic; }
-.param-required { color: #dc2626; font-size: 11px; padding: 0 4px; border: 1px solid #dc2626; border-radius: var(--radius-sm); }
+.param-required { color: var(--color-error); font-size: 11px; padding: 0 4px; border: 1px solid var(--color-error); border-radius: var(--radius-sm); }
 .param-desc { color: var(--color-text-secondary); }
 .form-hint { font-size: var(--font-size-sm); color: var(--color-text-secondary); margin: 4px 0 0; }
 

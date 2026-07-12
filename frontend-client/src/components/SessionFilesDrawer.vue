@@ -19,7 +19,7 @@
               <span>{{ uploading ? '处理中...' : '选择图片或文件' }}</span>
             </Button>
             <Button v-if="sessionId" variant="ghost" :disabled="loading" @click="emit('refresh')">
-              <span class="ctx-refresh-icon">↻</span>
+              <IconRefresh :size="14" />
               <span>刷新会话文件</span>
             </Button>
           </div>
@@ -88,6 +88,7 @@ import { formatAttachmentSize, isImageAttachment, isLocalAttachment } from '../u
 import { getSessionFileDownloadUrl } from '../api/sessionFiles.js';
 import IconPlus from './icons/IconPlus.vue';
 import IconClose from './icons/IconClose.vue';
+import IconRefresh from './icons/IconRefresh.vue';
 import { Button } from './ui/button';
 import ImageLightbox from './common/ImageLightbox.vue';
 import { useImageLightbox } from '../composables/useImageLightbox.js';

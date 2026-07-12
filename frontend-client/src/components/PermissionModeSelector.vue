@@ -52,7 +52,7 @@
                   title="查看说明"
                   @click.stop="skipAllDetailsOpen = !skipAllDetailsOpen"
                 >
-                  i
+                  <IconInfo :size="12" />
                 </button>
               </span>
             </span>
@@ -133,6 +133,7 @@ import {
 } from '../api/permissions';
 import { PERMISSION_MODE_OPTIONS, SKIP_ALL_APPROVALS_META, getPermissionModeLabel } from '../utils/permissionPresentation';
 import IconChevronDown from './icons/IconChevronDown.vue';
+import IconInfo from './icons/IconInfo.vue';
 import IconCheck from './icons/IconCheck.vue';
 import IconClose from './icons/IconClose.vue';
 import IconPlus from './icons/IconPlus.vue';

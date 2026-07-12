@@ -263,10 +263,13 @@ function onDaysChange(v) {
   reloadAnalytics();
 }
 
+// 读 CSS token：ECharts 不接受 CSS var，需解析为具体色值；主题切换时 computed 因 isDark 依赖重算，自动跟随
+const readCssToken = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
 const tokenTrendOption = computed(() => {
-  const isDark = themeStore.isDark;
-  const labelColor = isDark ? '#a1a1aa' : '#52525b';
-  const splitColor = isDark ? '#3f3f46' : '#e4e4e7';
+  void themeStore.isDark; // 主题切换时重算，readCssToken 重读新主题
+  const labelColor = readCssToken('--color-text-muted');
+  const splitColor = readCssToken('--color-border');
   return {
     backgroundColor: 'transparent',
     textStyle: { color: labelColor },
@@ -283,8 +286,8 @@ const tokenTrendOption = computed(() => {
 });
 
 const modelUsageOption = computed(() => {
-  const isDark = themeStore.isDark;
-  const labelColor = isDark ? '#a1a1aa' : '#52525b';
+  void themeStore.isDark; // 主题切换时重算，readCssToken 重读新主题
+  const labelColor = readCssToken('--color-text-muted');
   return {
     backgroundColor: 'transparent',
     textStyle: { color: labelColor },
@@ -302,8 +305,8 @@ const modelUsageOption = computed(() => {
 });
 
 const heatmapOption = computed(() => {
-  const isDark = themeStore.isDark;
-  const labelColor = isDark ? '#a1a1aa' : '#52525b';
+  void themeStore.isDark; // 主题切换时重算，readCssToken 重读新主题
+  const labelColor = readCssToken('--color-text-muted');
   const hours = Array.from({ length: 24 }, (_, i) => `${i}`);
   const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
   const maxCalls = Math.max(1, ...heatmap.value.map((p) => p.calls));
@@ -326,25 +329,25 @@ const heatmapOption = computed(() => {
       left: 'center',
       bottom: 0,
       textStyle: { color: labelColor },
-      inRange: { color: isDark ? ['#27272a', '#6366f1'] : ['#f4f4f5', '#6366f1'] },
+      inRange: { color: [readCssToken('--color-bg-secondary'), readCssToken('--color-brand-accent')] },
     },
     series: [{
       type: 'heatmap',
       data: buildHeatmapData(heatmap.value),
       label: { show: false },
       itemStyle: {
-        borderColor: isDark ? '#18181b' : '#ffffff',
+        borderColor: readCssToken('--color-bg-elevated'),
         borderWidth: 3,
         borderRadius: 3,
       },
-      emphasis: { itemStyle: { borderColor: '#6366f1', borderWidth: 2 } },
+      emphasis: { itemStyle: { borderColor: readCssToken('--color-brand-accent'), borderWidth: 2 } },
     }],
   };
 });
 
 const dailyHeatmapOption = computed(() => {
-  const isDark = themeStore.isDark;
-  const labelColor = isDark ? '#a1a1aa' : '#52525b';
+  void themeStore.isDark; // 主题切换时重算，readCssToken 重读新主题
+  const labelColor = readCssToken('--color-text-muted');
   const today = new Date();
   const start = new Date(today);
   start.setDate(start.getDate() - 179);
@@ -366,7 +369,7 @@ const dailyHeatmapOption = computed(() => {
       left: 'center',
       bottom: 0,
       textStyle: { color: labelColor },
-      inRange: { color: isDark ? ['#27272a', '#6366f1'] : ['#f4f4f5', '#6366f1'] },
+      inRange: { color: [readCssToken('--color-bg-secondary'), readCssToken('--color-brand-accent')] },
     },
     calendar: {
       top: 35,
@@ -376,8 +379,8 @@ const dailyHeatmapOption = computed(() => {
       range: [fmt(start), fmt(today)],
       cellSize: ['auto', 'auto'],
       itemStyle: {
-        color: isDark ? '#27272a' : '#f4f4f5',
-        borderColor: isDark ? '#18181b' : '#ffffff',
+        color: readCssToken('--color-bg-secondary'),
+        borderColor: readCssToken('--color-bg-elevated'),
         borderWidth: 3,
         borderRadius: 3,
       },
@@ -391,7 +394,7 @@ const dailyHeatmapOption = computed(() => {
       coordinateSystem: 'calendar',
       data: dailyActivity.value.map((p) => [p.date, p.calls]),
       itemStyle: { borderRadius: 3 },
-      emphasis: { itemStyle: { borderColor: '#6366f1', borderWidth: 2 } },
+      emphasis: { itemStyle: { borderColor: readCssToken('--color-brand-accent'), borderWidth: 2 } },
     }],
   };
 });

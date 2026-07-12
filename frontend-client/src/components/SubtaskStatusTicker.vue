@@ -8,7 +8,7 @@
            <div v-if="currentActivity" key="current" class="ticker-item active">
              <span class="agent-badge" :class="getAgentBadgeClass(currentActivity.agent_display_name)">{{ currentActivity.agent_display_name }}</span>
              <span class="action-text">
-               <span v-if="currentActivity.tool_name" class="tool-name">🛠️ {{ currentActivity.tool_name }}</span>
+               <span v-if="currentActivity.tool_name" class="tool-name"><IconPlay :size="11" /> {{ currentActivity.tool_name }}</span>
                <span v-else>{{ currentActivity.description }}</span>
              </span>
              <div class="loading-dots">
@@ -77,6 +77,7 @@
 import { computed } from 'vue';
 import { getAgentBadgeClass } from '../utils/agentBadge';
 import IconCheck from './icons/IconCheck.vue';
+import IconPlay from './icons/IconPlay.vue';
 import { Button } from './ui/button';
 
 const props = defineProps({
@@ -294,7 +295,7 @@ const lastCompletedTask = computed(() => {
 }
 
 .tool-name {
-    color: var(--color-warning);
+    color: var(--color-brand-accent);
     font-family: var(--font-mono);
     font-size: 0.85rem;
     overflow: hidden;
