@@ -5,6 +5,8 @@ import {
   IndexFileRequestSchema,
   RerankerCreateSchema,
   SearchVectorsRequestSchema,
+  UpdateChunkRequestSchema,
+  UpdateMarkdownRequestSchema,
   VectorizerCreateSchema,
 } from "../contracts/knowledge-base.js";
 import { ok } from "../contracts/common.js";
@@ -26,6 +28,7 @@ interface DocumentParams {
 }
 
 interface FileParams { fileId: string; }
+interface ChunkParams extends FileParams { chunkId: string; }
 interface FileListQuery { extensions?: string; mime_types?: string; }
 interface KeyParams { key: string; }
 interface DocsQuery { collection?: string; }
@@ -77,6 +80,22 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
       request.log.error({ err: error, file_id: file.id, md_blob_hash: file.md_blob_hash }, "读取知识库 Markdown 失败");
       throw new HttpError(500, "markdown_blob_missing", "Markdown 文件缺失或损坏");
     }
+  });
+
+  app.put<{ Params: FileParams }>("/files/:fileId/md", async (request) => {
+    const payload = UpdateMarkdownRequestSchema.parse(request.body);
+    try { return ok(await knowledgeBase.updateMarkdown(request.params.fileId, payload.content)); } catch (error) { throw toHttpError(error); }
+  });
+
+  app.get<{ Params: FileParams }>("/files/:fileId/chunks", async (request) => {
+    try { return ok((await knowledgeBase.listFileChunks(request.params.fileId)).map((chunk) => ({ id: chunk.id, content: chunk.content, char_start: Number(chunk.metadata.char_start ?? 0), char_end: Number(chunk.metadata.char_end ?? 0), heading_path: String(chunk.metadata.heading_path ?? ""), chunk_index: chunk.chunk_index, manual: chunk.metadata.manual === true }))); } catch (error) { throw toHttpError(error); }
+  });
+
+  app.patch<{ Params: ChunkParams }>("/files/:fileId/chunks/:chunkId", async (request) => {
+    const payload = UpdateChunkRequestSchema.parse(request.body);
+    const chunkId = Number.parseInt(request.params.chunkId, 10);
+    if (!Number.isSafeInteger(chunkId) || chunkId <= 0) throw new HttpError(400, "invalid_chunk_id", "切片 ID 无效");
+    try { return ok(await knowledgeBase.updateChunk(request.params.fileId, chunkId, payload.content)); } catch (error) { throw toHttpError(error); }
   });
 
   app.delete<{ Params: FileParams }>("/files/:fileId", async (request) => {

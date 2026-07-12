@@ -11,7 +11,7 @@ const props = defineProps({
   content: { type: String, default: '' },
 });
 
-const emit = defineEmits(['notify']);
+const emit = defineEmits(['notify', 'citation-click']);
 
 const COPY_ICON_SVG = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="5" width="8" height="8" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M3.5 10.5H3a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h5.5a2 2 0 0 1 2 2v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
 const COPIED_ICON_SVG = '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3.5 8.5 6.5 11.5 12.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -87,6 +87,12 @@ const getBlockCopyText = (button) => {
 };
 
 const handleBlockAction = async (event) => {
+  const citation = event.target instanceof Element ? event.target.closest('[data-citation-file-id]') : null;
+  if (citation) {
+    event.preventDefault();
+    emit('citation-click', { file_id: citation.getAttribute('data-citation-file-id'), char_start: Number(citation.getAttribute('data-citation-char-start') || 0), heading: citation.getAttribute('data-citation-heading') || '' });
+    return;
+  }
   const button = event.target instanceof Element
     ? event.target.closest('.md-block-copy-btn')
     : null;

@@ -24,6 +24,7 @@ import { lexicalRerank } from "./rerank/lexical-rerank.js";
 // 打分纯函数统一从 scoring.ts 复用(cosineSimilarity/tokenize 随 5h-2 降级路径删除,本地副本已无)。
 import { hybridScore, keywordOverlapScore } from "../vector-store/scoring.js";
 import { KnowledgeBaseError } from "../../contracts/knowledge-base.js";
+import { ChunkRevisionService } from "./chunk-revision-service.js";
 
 export type KnowledgeBaseEmbedderFactory = (
   provider: ModelProviderConfig | null | undefined,
@@ -42,6 +43,7 @@ export class KnowledgeBaseService {
   private readonly embedderFactory: KnowledgeBaseEmbedderFactory;
   private readonly documentExtractDispatcher: DocumentExtractor;
   private readonly rerankerFactory: VectorLibraryRerankerFactory;
+  private readonly chunkRevisionService: ChunkRevisionService | null;
 
   constructor(
     private readonly modelAdapter: ModelAdapterService,
@@ -66,6 +68,7 @@ export class KnowledgeBaseService {
     this.embedderFactory = options.embedderFactory ?? createEmbedder;
     this.documentExtractDispatcher = options.documentExtractDispatcher;
     this.rerankerFactory = options.rerankerFactory ?? createReranker;
+    this.chunkRevisionService = this.vectorStore ? new ChunkRevisionService(this.vectorStore, async (chunk) => this.listVectorizersForChunk(chunk), async (vectorizer, texts) => this.embed(vectorizer, texts)) : null;
   }
 
   close(): void {
@@ -202,6 +205,34 @@ export class KnowledgeBaseService {
       throw new KnowledgeBaseError(`文件路径无效: ${file.stored_path}`, 404);
     }
     await this.extractAndStoreMarkdown(file);
+  }
+
+  async updateMarkdown(fileId: string, content: string): Promise<{ md_blob_hash: string; indexed_chunks: number }> {
+    const file = this.knowledgeFileStore.getKnowledgeFile(fileId);
+    if (!file) throw new KnowledgeBaseError(`文件不存在: ${fileId}`, 404);
+    const locations = this.vectorStore ? (await this.vectorStore.listAllDocuments()).filter((doc) => doc.document_id === fileId) : [];
+    const targets: Array<{ collection: string; vectorizer: StoredVectorizer }> = [];
+    if (this.vectorStore) {
+      for (const location of locations) for (const vectorizer of this.knowledgeConfig.listVectorizers()) if (await this.vectorStore.countVectorsForDocument(location.collection, fileId, vectorizer.model_id)) targets.push({ collection: location.collection, vectorizer });
+      await this.vectorStore.deleteDocumentVectors(fileId);
+    }
+    const stored = this.knowledgeFileStore.putKnowledgeMarkdown(fileId, content);
+    let indexedChunks = 0;
+    for (const target of targets) {
+      const result = await this.indexTextDocument({ collection: target.collection, documentId: file.id, markdown: content, metadata: { source: file.original_name, source_file: file.original_name, file_id: file.id, original_filename: file.original_name, mime: file.mime }, vectorizer: target.vectorizer, chunkSize: 500, overlap: 50 });
+      indexedChunks = Math.max(indexedChunks, result.chunkCount);
+    }
+    return { md_blob_hash: stored.md_blob_hash, indexed_chunks: indexedChunks };
+  }
+
+  async listFileChunks(fileId: string): Promise<StoredChunk[]> {
+    if (!this.knowledgeFileStore.getKnowledgeFile(fileId)) throw new KnowledgeBaseError(`文件不存在: ${fileId}`, 404);
+    return this.vectorStore ? (await this.vectorStore.listChunks()).filter((chunk) => chunk.document_id === fileId) : [];
+  }
+
+  async updateChunk(fileId: string, chunkId: number, content: string): Promise<StoredChunk> {
+    if (!this.chunkRevisionService) throw new KnowledgeBaseError("向量存储不可用", 503);
+    return this.chunkRevisionService.updateContent(fileId, chunkId, content);
   }
 
   /** 索引时解析 MD：优先已存（upload 生成），无则 extract 生成（兼容老文件/blob 损坏）。 */
@@ -776,6 +807,13 @@ export class KnowledgeBaseService {
       });
     }
     await this.vectorStore.upsertRecords(records);
+  }
+
+  private async listVectorizersForChunk(chunk: StoredChunk): Promise<StoredVectorizer[]> {
+    if (!this.vectorStore) return [];
+    const result: StoredVectorizer[] = [];
+    for (const vectorizer of this.knowledgeConfig.listVectorizers()) if (await this.vectorStore.countVectorsForDocument(chunk.collection, chunk.document_id, vectorizer.model_id)) result.push(vectorizer);
+    return result;
   }
 
   private resolveActiveVectorizer(): StoredVectorizer {

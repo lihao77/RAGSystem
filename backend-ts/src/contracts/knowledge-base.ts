@@ -54,6 +54,8 @@ export const SearchVectorsRequestSchema = z
   .catchall(z.unknown());
 
 export const GenericVectorRequestSchema = z.record(z.unknown()).optional().default({});
+export const UpdateMarkdownRequestSchema = z.object({ content: z.string() });
+export const UpdateChunkRequestSchema = z.object({ content: z.string().trim().min(1) });
 
 export type VectorizerCreate = z.infer<typeof VectorizerCreateSchema>;
 export type IndexFileRequest = z.infer<typeof IndexFileRequestSchema>;
@@ -61,6 +63,8 @@ export type DeleteIndexedFileRequest = z.infer<typeof DeleteIndexedFileRequestSc
 export type RerankerCreate = z.infer<typeof RerankerCreateSchema>;
 export type SearchVectorsRequest = z.infer<typeof SearchVectorsRequestSchema>;
 export type GenericVectorRequest = z.infer<typeof GenericVectorRequestSchema>;
+export type UpdateMarkdownRequest = z.infer<typeof UpdateMarkdownRequestSchema>;
+export type UpdateChunkRequest = z.infer<typeof UpdateChunkRequestSchema>;
 
 export interface VectorizerConfig {
   vectorizer_key: string;

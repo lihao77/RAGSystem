@@ -40,6 +40,18 @@ export async function getFileMd(fileId) {
   return http.get(`/api/knowledge-bases/files/${encodeURIComponent(fileId)}/md`);
 }
 
+export async function updateFileMd(fileId, content) {
+  return http.put(`/api/knowledge-bases/files/${encodeURIComponent(fileId)}/md`, { content });
+}
+
+export async function getFileChunks(fileId) {
+  return http.get(`/api/knowledge-bases/files/${encodeURIComponent(fileId)}/chunks`);
+}
+
+export async function updateFileChunk(fileId, chunkId, content) {
+  return http.patch(`/api/knowledge-bases/files/${encodeURIComponent(fileId)}/chunks/${encodeURIComponent(chunkId)}`, { content });
+}
+
 // ── 向量索引管理 ─────────────────────────────────────────────────────────────
 
 /**
