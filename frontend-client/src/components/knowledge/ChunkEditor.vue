@@ -1,4 +1,4 @@
-<template><div class="space-y-2"><textarea v-model="draft" class="min-h-40 w-full rounded border p-2 text-sm"></textarea><div class="flex justify-end gap-2"><button class="rounded border px-3 py-1" @click="emit('cancel')">取消</button><button class="rounded bg-primary px-3 py-1 text-primary-foreground" :disabled="saving" @click="save">{{ saving ? '保存中...' : '保存并重嵌入' }}</button></div></div></template>
+<template><div class="space-y-2"><textarea v-model="draft" class="min-h-40 w-full rounded border border-border bg-background p-2 text-sm text-foreground"></textarea><div class="flex justify-end gap-2"><button class="rounded border px-3 py-1" @click="emit('cancel')">取消</button><button class="rounded bg-primary px-3 py-1 text-primary-foreground" :disabled="saving" @click="save">{{ saving ? '保存中...' : '保存并重嵌入' }}</button></div></div></template>
 <script setup>
 import { ref } from 'vue';
 import { updateFileChunk } from '../../api/knowledgeBase.js';

@@ -1,5 +1,5 @@
 <template>
-  <div class="grid min-h-[60vh] grid-cols-2 gap-3">
+  <div class="grid min-h-0 flex-1 grid-cols-2 gap-3">
     <div ref="markdownHost" class="overflow-auto rounded border p-4" @click="selectFromMarkdown"><MarkdownContent :content="highlightedMarkdown" @notify="emit('notify', $event)" /></div>
     <div class="overflow-auto rounded border p-3"><div v-if="loading" class="p-6 text-center">正在加载切片...</div><div v-else class="space-y-3"><article v-for="chunk in chunks" :key="chunk.id" :data-chunk-id="chunk.id" class="cursor-pointer rounded border p-3" :class="selected?.id === chunk.id ? 'border-primary bg-primary/5' : ''" @click="selectChunk(chunk)"><div class="mb-2 flex justify-between text-xs text-muted-foreground"><span>#{{ chunk.chunk_index }} {{ chunk.heading_path }}</span><button @click.stop="editing = chunk">编辑</button></div><ChunkEditor v-if="editing?.id === chunk.id" :file-id="fileId" :chunk="chunk" @cancel="editing = null" @saved="handleSaved" @notify="emit('notify', $event)" /><pre v-else class="whitespace-pre-wrap text-sm">{{ chunk.content }}</pre></article></div></div>
   </div>

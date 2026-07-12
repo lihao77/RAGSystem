@@ -1,13 +1,15 @@
 <template>
   <Dialog :open="open" @update:open="requestClose">
-    <DialogContent class="flex max-h-[92vh] max-w-[1200px] flex-col overflow-hidden">
+    <DialogContent class="flex h-[92vh] max-w-[1200px] flex-col overflow-hidden" :aria-describedby="undefined">
       <DialogHeader><DialogTitle>{{ fileName || 'Markdown 文件' }}<span v-if="dirty" class="ml-2 text-sm text-amber-600">未保存</span></DialogTitle></DialogHeader>
       <div class="flex items-center justify-between gap-3"><div class="flex gap-2"><button v-for="item in views" :key="item.value" class="rounded border px-3 py-1 text-sm" :class="viewMode===item.value?'bg-primary text-primary-foreground':''" @click="viewMode=item.value">{{ item.label }}</button></div><button v-if="viewMode==='edit'" class="rounded bg-primary px-3 py-1 text-sm text-primary-foreground" :disabled="saving||!dirty" @click="save">{{ saving?'保存中...':'保存' }}</button></div>
       <div v-if="loading" class="py-12 text-center text-muted-foreground">正在加载 Markdown...</div>
       <div v-else-if="error" class="py-12 text-center text-destructive">{{ error }}</div>
-      <MarkdownEditor v-else-if="viewMode==='edit'" v-model="draft" @save="save" @notify="handleNotify" />
-      <ChunkWorkbench v-else-if="viewMode==='chunks'" :file-id="fileId" :markdown="markdown" :initial-char-start="initialCharStart" :initial-heading="initialHeading" @notify="handleNotify" />
-      <div v-else class="knowledge-md-preview overflow-auto rounded-md border p-5"><MarkdownContent :content="markdown" @notify="handleNotify" @citation-click="emit('citation-click',$event)" /></div>
+      <div v-else class="flex min-h-0 flex-1 flex-col">
+        <MarkdownEditor v-if="viewMode==='edit'" v-model="draft" @save="save" @notify="handleNotify" />
+        <ChunkWorkbench v-else-if="viewMode==='chunks'" :file-id="fileId" :markdown="markdown" :initial-char-start="initialCharStart" :initial-heading="initialHeading" @notify="handleNotify" />
+        <div v-else class="knowledge-md-preview min-h-0 flex-1 overflow-auto rounded-md border p-5"><MarkdownContent :content="markdown" @notify="handleNotify" @citation-click="emit('citation-click',$event)" /></div>
+      </div>
     </DialogContent>
   </Dialog>
 </template>

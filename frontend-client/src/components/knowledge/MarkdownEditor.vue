@@ -1,38 +1,90 @@
 <template>
-  <div class="flex min-h-0 flex-1 flex-col gap-3">
-    <div class="flex gap-2">
-      <button v-for="item in modes" :key="item.value" class="rounded border px-3 py-1 text-sm" :class="mode === item.value ? 'bg-primary text-primary-foreground' : ''" @click="mode = item.value">{{ item.label }}</button>
-    </div>
-    <div class="grid min-h-0 flex-1 gap-3" :class="mode === 'split' ? 'grid-cols-2' : 'grid-cols-1'">
-      <div v-show="mode !== 'preview'" ref="editorHost" class="min-h-[55vh] overflow-hidden rounded border"></div>
-      <div v-if="mode !== 'edit'" class="min-h-[55vh] overflow-auto rounded border p-4"><MarkdownContent :content="modelValue" @notify="emit('notify', $event)" /></div>
-    </div>
+  <div class="flex min-h-0 flex-1 flex-col gap-2">
+    <div v-if="loading" class="text-sm text-muted-foreground">正在加载编辑器...</div>
+    <div ref="editorHost" class="vditor-host min-h-0 flex-1 overflow-hidden rounded border"></div>
   </div>
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue';
-import MarkdownContent from '../chat/MarkdownContent.vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { storeToRefs } from 'pinia';
+import { useThemeStore } from '../../stores/theme.js';
 
 const props = defineProps({ modelValue: { type: String, default: '' } });
 const emit = defineEmits(['update:modelValue', 'save', 'notify']);
-const modes = [{ value: 'edit', label: '编辑' }, { value: 'split', label: '分屏' }, { value: 'preview', label: '预览' }];
-const mode = ref('split');
-const editorHost = ref(null);
-let view;
 
-const mountEditor = async () => {
-  if (view || !editorHost.value) return;
-  const [{ EditorState }, { EditorView, keymap }, { defaultKeymap, history, historyKeymap }, { searchKeymap }, { markdown }] = await Promise.all([
-    import('@codemirror/state'), import('@codemirror/view'), import('@codemirror/commands'), import('@codemirror/search'), import('@codemirror/lang-markdown'),
-  ]);
-  view = new EditorView({
-    parent: editorHost.value,
-    state: EditorState.create({ doc: props.modelValue, extensions: [history(), markdown(), keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, { key: 'Mod-s', preventDefault: true, run: () => { emit('save'); return true; } }]), EditorView.lineWrapping, EditorView.updateListener.of((update) => { if (update.docChanged) emit('update:modelValue', update.state.doc.toString()); })] }),
-  });
+const loading = ref(true);
+const editorHost = ref(null);
+const { isDark } = storeToRefs(useThemeStore());
+let vditor = null;
+let disposed = false;
+let applyingExternalValue = false;
+
+const applyTheme = (dark) => {
+  if (!vditor) return;
+  vditor.setTheme(dark ? 'dark' : 'classic', dark ? 'dark' : 'light');
 };
 
-watch(editorHost, () => nextTick(mountEditor), { immediate: true });
-watch(() => props.modelValue, (value) => { if (view && value !== view.state.doc.toString()) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } }); });
-onBeforeUnmount(() => view?.destroy());
+const handleKeydown = (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+    event.preventDefault();
+    emit('save');
+  }
+};
+
+onMounted(async () => {
+  try {
+    const [{ default: Vditor }] = await Promise.all([
+      import('vditor'),
+      import('vditor/dist/index.css'),
+    ]);
+    if (disposed || !editorHost.value) return;
+
+    vditor = new Vditor(editorHost.value, {
+      mode: 'ir',
+      value: props.modelValue,
+      height: '100%',
+      cache: { enable: false },
+      theme: isDark.value ? 'dark' : 'classic',
+      preview: { theme: { current: isDark.value ? 'dark' : 'light' } },
+      input: (markdown) => {
+        if (!applyingExternalValue) emit('update:modelValue', markdown);
+      },
+      after: () => {
+        loading.value = false;
+        applyTheme(isDark.value);
+      },
+    });
+    await nextTick();
+    editorHost.value.addEventListener('keydown', handleKeydown);
+  } catch (error) {
+    loading.value = false;
+    emit('notify', { message: error.message || 'Vditor 加载失败', type: 'error' });
+  }
+});
+
+watch(() => props.modelValue, (value) => {
+  if (!vditor || vditor.getValue() === value) return;
+  applyingExternalValue = true;
+  vditor.setValue(value);
+  nextTick(() => {
+    applyingExternalValue = false;
+  });
+});
+
+watch(isDark, applyTheme);
+
+onBeforeUnmount(() => {
+  disposed = true;
+  editorHost.value?.removeEventListener('keydown', handleKeydown);
+  vditor?.destroy();
+  vditor = null;
+});
 </script>
+
+<style scoped>
+.vditor-host :deep(.vditor) {
+  height: 100% !important;
+  border: 0;
+}
+</style>
