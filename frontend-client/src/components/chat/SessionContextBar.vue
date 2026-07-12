@@ -9,6 +9,7 @@
     </div>
 
     <div class="right-controls glass-card">
+      <Button variant="ghost" size="sm" :disabled="!currentSessionId" title="查看最近一次 Agent 消息的文件变更" @click="emit('openFileChanges')">本轮变更</Button>
       <PermissionModeSelector />
       <Button
         variant="ghost"
@@ -74,6 +75,7 @@ defineProps({
 const emit = defineEmits([
   'openMobileSidebar',
   'exportSession',
+  'openFileChanges',
 ]);
 
 const llmSelectorRef = ref(null);

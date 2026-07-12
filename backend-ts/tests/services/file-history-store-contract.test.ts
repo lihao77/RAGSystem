@@ -81,6 +81,41 @@ describe("IFileHistoryStore 契约", () => {
     expect(store.makeSnapshot("s4", 1)).toBeNull();
   });
 
+  it("pending 持久化后可由新实例恢复，makeSnapshot 后删除 pending.json", () => {
+    const filePath = path.join(workDir, "pending.txt");
+    fs.writeFileSync(filePath, "before");
+    build().trackEdit("pending-session", filePath);
+
+    const pendingPath = path.join(dataRoot, "file-history", "pending-session", "pending.json");
+    expect(fs.existsSync(pendingPath)).toBe(true);
+    expect(build().getPendingTracked("pending-session")).toEqual({
+      [filePath]: {
+        backup_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        action: "modified",
+      },
+    });
+
+    expect(build().makeSnapshot("pending-session", 2)).not.toBeNull();
+    expect(fs.existsSync(pendingPath)).toBe(false);
+    expect(build().getPendingTracked("pending-session")).toBeNull();
+  });
+
+  it("rewind 跨重启：新实例回退旧实例的 pending 编辑并清理 pending.json", () => {
+    const filePath = path.join(workDir, "rewind-restart.txt");
+    fs.writeFileSync(filePath, "original");
+    build().trackEdit("rewind-session", filePath); // 备份 original，pending.json 落盘
+    fs.writeFileSync(filePath, "edited"); // 模拟 agent 编辑
+
+    // 新实例（模拟重启）从 pending.json 恢复 pending，rewind 回退到 original
+    const result = build().rewind("rewind-session", 0);
+    expect(result.success).toBe(true);
+    expect(result.reverted_files).toBe(1);
+    expect(fs.readFileSync(filePath, "utf8")).toBe("original");
+
+    const pendingPath = path.join(dataRoot, "file-history", "rewind-session", "pending.json");
+    expect(fs.existsSync(pendingPath)).toBe(false); // rewind 清理 pending.json
+  });
+
   it("makeSnapshot 非法 session/seq 返回 null（深合约：非抛异常）", () => {
     const store = build();
     expect(store.makeSnapshot(null, 1)).toBeNull();

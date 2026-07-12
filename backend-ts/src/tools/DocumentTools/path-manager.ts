@@ -193,7 +193,7 @@ export class LocalDocumentPathManager {
     ]);
   }
 
-  private allowedRoots(input: {
+  allowedRoots(input: {
     sessionId: string | null;
     runId: string | null;
     operation: ManagedOperation;
@@ -284,7 +284,7 @@ export class LocalDocumentPathManager {
     return path.join(this.dataRoot, "sessions", input.sessionId, "transient");
   }
 
-  private effectiveWorkspaceRoot(sessionId: string | null, workspaceRoot: string | null): string | null {
+  effectiveWorkspaceRoot(sessionId: string | null, workspaceRoot: string | null): string | null {
     if (workspaceRoot) {
       return path.resolve(workspaceRoot);
     }

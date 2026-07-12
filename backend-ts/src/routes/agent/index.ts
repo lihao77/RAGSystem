@@ -6,6 +6,7 @@ import { registerAnalyticsRoutes } from "./analytics.js";
 import { registerExecutionRoutes } from "./execution.js";
 import { registerMonitoringRoutes } from "./monitoring.js";
 import { registerRuntimeCoreRoutes } from "./runtime-core.js";
+import { registerFileChangeRoutes } from "./file-changes.js";
 import { registerSessionFileRoutes } from "./session-files.js";
 import { registerSessionRoutes } from "./sessions.js";
 import { registerStreamRoutes } from "./stream.js";
@@ -19,6 +20,7 @@ export const registerAgentRoutes: FastifyPluginAsync<RouteOptions> = async (app,
   await app.register(registerRuntimeCoreRoutes, { container: options.container });
   await app.register(registerStreamRoutes, { container: options.container });
   await app.register(registerSessionFileRoutes, { container: options.container });
+  await app.register(registerFileChangeRoutes, { container: options.container });
   await app.register(registerSessionRoutes, { container: options.container });
   await app.register(registerSessionWebSocketRoute, { container: options.container });
 };

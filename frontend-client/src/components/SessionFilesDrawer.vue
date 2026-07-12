@@ -34,6 +34,7 @@
           <div class="ctx-file-list">
             <div v-for="file in pendingFiles" :key="file.local_id || file.file_id || file.id" class="ctx-file-item ctx-file-item--pending">
               <div class="ctx-file-main">
+                <button v-if="isImageAttachment(file)" class="mb-2 block" @click="openImages(pendingFiles, file)"><img :src="getPreviewUrl(file)" :alt="file.original_name || file.stored_name" class="max-h-32 max-w-48 rounded border object-cover" /></button>
                 <div class="ctx-file-name" :title="file.original_name || file.stored_name">{{ file.original_name || file.stored_name }}</div>
                 <div class="ctx-file-meta">
                   <span>{{ formatAttachmentSize(file.size) }}</span>
@@ -77,15 +78,19 @@
       </div>
     </DialogContent>
   </Dialog>
+  <ImageLightbox :open="lightbox.open.value" :images="lightbox.images.value" :index="lightbox.index.value" :current="lightbox.current.value" @close="lightbox.close" @previous="lightbox.previous" @next="lightbox.next" />
 </template>
 
 <script setup>
 import { computed, ref } from 'vue';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
-import { formatAttachmentSize, isImageAttachment } from '../utils/sessionAttachments';
+import { formatAttachmentSize, isImageAttachment, isLocalAttachment } from '../utils/sessionAttachments';
+import { getSessionFileDownloadUrl } from '../api/sessionFiles.js';
 import IconPlus from './icons/IconPlus.vue';
 import IconClose from './icons/IconClose.vue';
 import { Button } from './ui/button';
+import ImageLightbox from './common/ImageLightbox.vue';
+import { useImageLightbox } from '../composables/useImageLightbox.js';
 
 const props = defineProps({
   visible: Boolean,
@@ -100,6 +105,13 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'upload', 'delete', 'download', 'refresh', 'reuse', 'removePending']);
 const fileInputRef = ref(null);
+const lightbox = useImageLightbox();
+const getPreviewUrl = (file) => {
+  if (isLocalAttachment(file)) return file.preview_url || '';
+  const fileId = file.file_id || file.id;
+  return props.sessionId && fileId ? getSessionFileDownloadUrl(props.sessionId, fileId) : '';
+};
+const openImages = (items, selected) => { const images = items.filter(isImageAttachment).map(file => ({ src: getPreviewUrl(file), alt: file.original_name || file.stored_name || '图片', source: file })); lightbox.show(images, Math.max(0, images.findIndex(item => item.source === selected))); };
 
 function onOpenChange(open) {
   if (!open) emit('close');

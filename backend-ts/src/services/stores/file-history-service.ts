@@ -34,12 +34,14 @@ export class FileHistoryService implements IFileHistoryStore {
         backup_hash: this.backupFile(normalizedSessionId, resolvedPath),
         action: "modified",
       });
+      this.savePending(normalizedSessionId, tracked);
       return;
     }
     tracked.set(resolvedPath, {
       backup_hash: null,
       action: "created",
     });
+    this.savePending(normalizedSessionId, tracked);
   }
 
   makeSnapshot(sessionId: string | null | undefined, messageSeq: number): string | null {
@@ -47,7 +49,7 @@ export class FileHistoryService implements IFileHistoryStore {
     if (!normalizedSessionId || !Number.isInteger(messageSeq)) {
       return null;
     }
-    const tracked = this.trackedBySession.get(normalizedSessionId);
+    const tracked = this.getTracked(normalizedSessionId);
     if (!tracked?.size) {
       return null;
     }
@@ -62,7 +64,16 @@ export class FileHistoryService implements IFileHistoryStore {
     snapshots.push(snapshot);
     this.saveSnapshots(normalizedSessionId, snapshots);
     tracked.clear();
+    this.clearPending(normalizedSessionId);
     return snapshotId;
+  }
+
+  getPendingTracked(sessionId: string | null | undefined): Record<string, FileHistoryTrackedFile> | null {
+    const normalizedSessionId = normalizeSessionId(sessionId);
+    if (!normalizedSessionId) return null;
+    const tracked = this.getTracked(normalizedSessionId);
+    if (!tracked?.size) return null;
+    return Object.fromEntries(tracked.entries());
   }
 
   rewind(sessionId: string | null | undefined, targetSeq: number): FileHistoryRewindResult {
@@ -71,7 +82,7 @@ export class FileHistoryService implements IFileHistoryStore {
       return { success: false, message: "无效的 session_id 或 target_seq", reverted_files: 0 };
     }
     const snapshots = this.loadSnapshots(normalizedSessionId);
-    const pending = new Map(this.trackedBySession.get(normalizedSessionId)?.entries() ?? []);
+    const pending = new Map(this.getTracked(normalizedSessionId).entries());
     if (!snapshots.length && !pending.size) {
       return { success: true, message: "无可回退的文件快照（该会话无编辑历史）", reverted_files: 0 };
     }
@@ -100,7 +111,8 @@ export class FileHistoryService implements IFileHistoryStore {
       this.restoreFile(normalizedSessionId, filePath, backupHash);
     }
     this.saveSnapshots(normalizedSessionId, snapshots.filter((snapshot) => snapshot.message_seq <= targetSeq));
-    this.trackedBySession.get(normalizedSessionId)?.clear();
+    this.getTracked(normalizedSessionId).clear();
+    this.clearPending(normalizedSessionId);
     return {
       success: true,
       message: `已回退到 seq=${targetSeq}，恢复了 ${restoreMap.size} 个文件`,
@@ -113,12 +125,22 @@ export class FileHistoryService implements IFileHistoryStore {
     if (!normalizedSessionId) {
       return false;
     }
-    return this.loadSnapshots(normalizedSessionId).length > 0 || Boolean(this.trackedBySession.get(normalizedSessionId)?.size);
+    return this.loadSnapshots(normalizedSessionId).length > 0 || this.getTracked(normalizedSessionId).size > 0;
   }
 
   listSnapshots(sessionId: string | null | undefined): FileHistorySnapshot[] {
     const normalizedSessionId = normalizeSessionId(sessionId);
     return normalizedSessionId ? this.loadSnapshots(normalizedSessionId) : [];
+  }
+
+  readBackup(sessionId: string | null | undefined, backupHash: string | null | undefined): string | null {
+    const normalizedSessionId = normalizeSessionId(sessionId);
+    const normalizedHash = backupHash?.trim();
+    if (!normalizedSessionId || !normalizedHash || !/^[a-f0-9]{64}$/i.test(normalizedHash)) {
+      return null;
+    }
+    const backupPath = path.join(this.backupsRoot(normalizedSessionId), normalizedHash);
+    return fs.existsSync(backupPath) ? fs.readFileSync(backupPath, "utf8") : null;
   }
 
   cleanup(sessionId: string | null | undefined): void {
@@ -138,9 +160,31 @@ export class FileHistoryService implements IFileHistoryStore {
     if (existing) {
       return existing;
     }
-    const tracked = new Map<string, FileHistoryTrackedFile>();
+    const tracked = new Map(Object.entries(this.loadPending(sessionId)));
     this.trackedBySession.set(sessionId, tracked);
     return tracked;
+  }
+
+  private loadPending(sessionId: string): Record<string, FileHistoryTrackedFile> {
+    const pendingPath = this.pendingPath(sessionId);
+    if (!fs.existsSync(pendingPath)) return {};
+    try {
+      const parsed: unknown = JSON.parse(fs.readFileSync(pendingPath, "utf8"));
+      return isRecord(parsed) ? Object.fromEntries(Object.entries(parsed).filter(isTrackedFileEntry)) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private savePending(sessionId: string, entries: Map<string, FileHistoryTrackedFile>): void {
+    const pendingPath = this.pendingPath(sessionId);
+    fs.mkdirSync(path.dirname(pendingPath), { recursive: true });
+    fs.writeFileSync(pendingPath, `${JSON.stringify(Object.fromEntries(entries), null, 2)}\n`, "utf8");
+  }
+
+  private clearPending(sessionId: string): void {
+    const pendingPath = this.pendingPath(sessionId);
+    if (fs.existsSync(pendingPath)) fs.rmSync(pendingPath, { force: true });
   }
 
   private backupFile(sessionId: string, filePath: string): string {
@@ -159,6 +203,10 @@ export class FileHistoryService implements IFileHistoryStore {
       if (fs.existsSync(filePath)) {
         fs.rmSync(filePath, { force: true });
       }
+      return;
+    }
+    // 防穿越：backupHash 必须是合法 sha256（与 readBackup 一致校验），绝不直接拼未经校验的路径片段
+    if (!/^[a-f0-9]{64}$/i.test(backupHash)) {
       return;
     }
     const backupPath = path.join(this.backupsRoot(sessionId), backupHash);
@@ -202,6 +250,10 @@ export class FileHistoryService implements IFileHistoryStore {
   private snapshotsPath(sessionId: string): string {
     return path.join(this.sessionRoot(sessionId), "snapshots.json");
   }
+
+  private pendingPath(sessionId: string): string {
+    return path.join(this.sessionRoot(sessionId), "pending.json");
+  }
 }
 
 function normalizeSessionId(sessionId: string | null | undefined): string | null {
@@ -228,4 +280,19 @@ function isSnapshot(value: unknown): value is FileHistorySnapshot {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isTrackedFileEntry(entry: [string, unknown]): entry is [string, FileHistoryTrackedFile] {
+  const [, value] = entry;
+  if (!isRecord(value)) {
+    return false;
+  }
+  // modified 必须带合法 sha256 备份；created 必须无备份。拒掉 pending.json 篡改/损坏注入的非法 hash
+  if (value.action === "modified") {
+    return typeof value.backup_hash === "string" && /^[a-f0-9]{64}$/i.test(value.backup_hash);
+  }
+  if (value.action === "created") {
+    return value.backup_hash === null;
+  }
+  return false;
 }

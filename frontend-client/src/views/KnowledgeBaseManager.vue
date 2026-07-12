@@ -609,7 +609,7 @@
           </DialogContent>
         </Dialog>
         <KnowledgeMdViewer v-model:open="showMarkdownPreview" :file-id="previewFile?.id || ''"
-            :file-name="previewFile?.original_name || ''" @notify="handleMarkdownNotify" />
+            :file-name="previewFile?.original_name || ''" :initial-char-start="previewAnchor.char_start" :initial-heading="previewAnchor.heading" @notify="handleMarkdownNotify" @citation-click="handlePreviewCitation" />
 
         <!-- 新增向量化器对话框 -->
         <Dialog v-model:open="showAddVectorizerDialog">
@@ -783,6 +783,7 @@ function showToast(msg, type = 'error') {
 const activeTab = ref('store');
 const showMarkdownPreview = ref(false);
 const previewFile = ref(null);
+const previewAnchor = ref({ char_start: undefined, heading: '' });
 const globalLoading = ref(false);
 
 const tabs = computed(() => [
@@ -877,8 +878,17 @@ function downloadFile(file) {
     window.open(`/api/knowledge-bases/files/${encodeURIComponent(file.id)}/download`, '_blank');
 }
 function openMarkdownPreview(file) {
+    previewAnchor.value = { char_start: undefined, heading: '' };
     previewFile.value = file;
     showMarkdownPreview.value = true;
+}
+function handlePreviewCitation(citation) {
+    const target = uploadedFiles.value.find(file => file.id === citation?.file_id);
+    if (!target) return showToast('引用文件不存在', 'error');
+    previewAnchor.value = { char_start: Number.isFinite(citation?.char_start) ? citation.char_start : undefined, heading: citation?.heading || '' };
+    previewFile.value = target;
+    showMarkdownPreview.value = false;
+    requestAnimationFrame(() => { showMarkdownPreview.value = true; });
 }
 function handleMarkdownNotify(payload) {
     showToast(payload?.message || '操作失败', payload?.type || 'error');

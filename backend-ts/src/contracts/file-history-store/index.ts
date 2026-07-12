@@ -9,6 +9,7 @@ import type {
   FileHistoryRewindResult,
   FileHistorySnapshot,
   FileHistoryStoreOptions,
+  FileHistoryTrackedFile,
 } from "./types.js";
 
 export * from "./types.js";
@@ -34,5 +35,12 @@ export interface IFileHistoryStore {
   rewind(sessionId: string | null | undefined, targetSeq: number): FileHistoryRewindResult;
   hasSnapshots(sessionId: string | null | undefined): boolean;
   listSnapshots(sessionId: string | null | undefined): FileHistorySnapshot[];
+  /**
+   * 当前持久化的 pending trackEdit（本轮 Agent 改的、makeSnapshot 之前的）。
+   * pending 落 pending.json（重启新进程从磁盘恢复），但进程内单实例 lazy 缓存——同进程多实例不互感知写入。
+   * 无则 null。
+   */
+  getPendingTracked(sessionId: string | null | undefined): Record<string, FileHistoryTrackedFile> | null;
+  readBackup(sessionId: string | null | undefined, backupHash: string | null | undefined): string | null;
   cleanup(sessionId: string | null | undefined): void;
 }

@@ -16,6 +16,7 @@
       <MarkdownContent
         :content="part.content"
         @notify="emit('notify', $event)"
+        @citation-click="emit('citation-click', $event)"
       />
     </div>
     <div
@@ -45,6 +46,6 @@ defineProps({
   msg: { type: Object, required: true },
 });
 
-const emit = defineEmits(['notify']);
+const emit = defineEmits(['notify', 'citation-click']);
 const messageContext = inject('messageContext');
 </script>

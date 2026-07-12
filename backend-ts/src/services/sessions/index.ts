@@ -174,7 +174,7 @@ export class AgentSessionApplication {
     childAgentId?: string | null;
   }): MessageInfo {
     const message = this.conversationStore.addMessage(input);
-    if (message.role === "user" && isVisibleRootMessage(message)) {
+    if ((message.role === "user" && isVisibleRootMessage(message)) || message.role === "assistant") {
       const snapshotId = this.fileHistory?.makeSnapshot(input.sessionId, message.seq);
       if (snapshotId) {
         const metadata = {
@@ -185,7 +185,7 @@ export class AgentSessionApplication {
           messageId: message.id,
           metadata,
           sessionId: input.sessionId,
-          roleFilter: "user",
+          roleFilter: message.role,
         });
         return {
           ...message,

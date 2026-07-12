@@ -30,6 +30,10 @@
           :src="messageContext.getAttachmentPreviewUrl(attachment)"
           :alt="attachment.original_name || attachment.stored_name"
           class="user-attachment-image"
+          role="button"
+          tabindex="0"
+          @click="messageContext.openAttachmentImages(msg.attachments, attachment)"
+          @keydown.enter="messageContext.openAttachmentImages(msg.attachments, attachment)"
         />
         <div v-else class="user-attachment-file-icon">文件</div>
         <div class="user-attachment-info">

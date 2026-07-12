@@ -46,6 +46,7 @@
           v-if="msg.role === 'assistant'"
           :msg="msg"
           @notify="emit('notify', $event)"
+          @citation-click="emit('citation-click', $event)"
         />
         <UserMessage
           v-if="msg.role === 'user'"
@@ -84,7 +85,7 @@ const props = defineProps({
   retryMessage: { type: Object, default: null },
 });
 
-const emit = defineEmits(['hover', 'update:editingDraft', 'notify']);
+const emit = defineEmits(['hover', 'update:editingDraft', 'notify', 'citation-click']);
 const messageContext = inject('messageContext');
 
 // Message Extension 渲染编排:按 slot 分组(above=content 上方 / below=下方)。

@@ -30,6 +30,7 @@
           @hover="messageActionsVisible = $event"
           @update:editing-draft="emit('update:editingDraft', $event)"
           @notify="emit('notify', $event)"
+          @citation-click="emit('citation-click', $event)"
         />
       </div>
     </Transition>
@@ -47,7 +48,7 @@ const props = defineProps({
   visibleMessages: { type: Array, default: () => [] },
 });
 
-const emit = defineEmits(['update:editingDraft', 'notify']);
+const emit = defineEmits(['update:editingDraft', 'notify', 'citation-click']);
 const messageContext = inject('messageContext');
 const messageActionsVisible = ref(null);
 

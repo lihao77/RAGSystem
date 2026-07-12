@@ -85,7 +85,7 @@ function buildBlockHeader({ title, copyType, copyPayload }) {
   return `<div class="md-block-head"><span class="md-block-title">${title}</span><button class="md-block-copy-btn" type="button" data-copy-type="${copyType}" data-copy-content="${escapeAttr(copyPayload)}" aria-label="复制${title}"><span class="md-block-copy-btn__icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="5" width="8" height="8" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M3.5 10.5H3a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h5.5a2 2 0 0 1 2 2v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span><span class="md-block-copy-btn__label">复制</span></button></div>`
 }
 
-function renderHighlightedCode(str, lang) {
+export function renderHighlightedCode(str, lang) {
   if (lang && hljs.getLanguage(lang)) {
     try {
       return hljs.highlight(str, { language: lang, ignoreIllegals: true }).value

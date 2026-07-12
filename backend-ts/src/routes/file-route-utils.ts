@@ -28,6 +28,7 @@ export interface MultipartFile {
 export interface StoredFileRef {
   stored_path: string;
   original_name: string;
+  mime?: string | null;
 }
 
 /**
@@ -110,14 +111,40 @@ export async function sendFileDownload(input: {
     throw error;
   }
 
-  const filename = sanitizeHeaderFilename(input.record.original_name || path.basename(storedPath));
-  input.reply.header("content-type", "application/octet-stream");
-  input.reply.header("content-disposition", `attachment; filename="${filename}"`);
+  const filename = input.record.original_name || path.basename(storedPath);
+  input.reply.header("content-type", resolveContentType(input.record.mime));
+  input.reply.header("content-disposition", buildContentDisposition(filename));
   return input.reply.send(fs.createReadStream(storedPath));
 }
 
+/**
+ * content-type：仅接受无参数的 type/subtype（RFC 7231 token 形式）。mime 来自上传 multipart（客户端可控），
+ * 含 CRLF/非 ASCII/畸形 token 会触发 node ERR_INVALID_CHAR → 500，非法一律回退 octet-stream。
+ */
+function resolveContentType(mime: string | null | undefined): string {
+  const candidate = mime?.trim() ?? "";
+  return /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/.test(candidate) ? candidate : "application/octet-stream";
+}
+
+/**
+ * content-disposition: attachment。非 ASCII 文件名走 RFC 5987 filename*（percent-encoded UTF-8），
+ * 同时给 ASCII fallback（filename=）兼容老客户端。直接把中文塞进 header 会触发 node ERR_INVALID_CHAR → 500。
+ */
+function buildContentDisposition(filename: string): string {
+  const fallback = sanitizeHeaderFilename(filename);
+  try {
+    // encodeURIComponent 不编码 !'()*，这些非 RFC 5987 attr-char，额外百分号编码以严格合规
+    const encoded = encodeURIComponent(filename).replace(/[!'()*]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
+    return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+  } catch {
+    // 孤立 UTF-16 surrogate 会让 encodeURIComponent 抛 URIError；退回仅 ASCII fallback（DB 污染/异常数据防御）
+    return `attachment; filename="${fallback}"`;
+  }
+}
+
 function sanitizeHeaderFilename(filename: string): string {
-  return filename.replace(/["\\\r\n]/g, "_");
+  // header 值仅允许 ASCII 可见字符；非 ASCII（中文等）由 filename* 承载此处全去。引号/反斜杠会破坏 filename="..." 定界，替换为下划线
+  return filename.replace(/[^\x20-\x7E]/g, "").replace(/["\\]/g, "_").trim() || "file";
 }
 
 function isPathUnder(candidate: string, root: string): boolean {
