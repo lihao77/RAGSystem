@@ -102,78 +102,77 @@
                             <Button v-if="uploadedFiles.length === 0" class="primary-action-button" variant="default" size="sm"
                                 @click="triggerFileInput">上传文件</Button>
                         </div>
-                        <div v-else class="table-scroll">
-                            <table class="data-table matrix-table">
-                                <thead>
-                                    <tr>
-                                        <th class="col-filename">文件名称</th>
-                                        <th>大小</th>
-                                        <th>上传时间</th>
-                                        <th>MD 状态</th>
-                                        <!-- 每个向量化器一列 -->
-                                        <th v-for="v in fileStatusVectorizers" :key="v.vectorizer_key"
-                                            class="col-vectorizer">
-                                            <div class="vectorizer-col-header">
-                                                <span class="vc-model" :title="v.model_name">{{ v.model_name }}</span>
+                        <Table v-else class="kb-table matrix-table">
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead class="col-filename">文件名称</TableHead>
+                                    <TableHead>大小</TableHead>
+                                    <TableHead>上传时间</TableHead>
+                                    <TableHead class="text-center">MD 状态</TableHead>
+                                    <TableHead v-for="v in fileStatusVectorizers" :key="v.vectorizer_key"
+                                        class="col-vectorizer text-center">
+                                        <div class="vectorizer-col-header">
+                                            <span class="vc-model" :title="v.model_name">{{ v.model_name }}</span>
+                                            <span class="vc-tags">
                                                 <span class="vc-tag vc-tag--provider">{{ v.provider_key }}</span>
                                                 <span class="vc-tag vc-tag--dim">{{ v.dimension }}d</span>
-                                            </div>
-                                        </th>
-                                        <th class="col-actions">操作</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr v-for="row in mergedFileList" :key="row.file_id">
-                                        <td class="cell-filename">
-                                            <IconFile :size="14" />
-                                            {{ row.file_name }}
-                                        </td>
-                                        <td>{{ formatFileSize(row.size) }}</td>
-                                        <td>{{ formatTime(row.uploaded_at) }}</td>
-                                        <td class="text-center">
+                                            </span>
+                                        </div>
+                                    </TableHead>
+                                    <TableHead class="col-actions text-right">操作</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                <TableRow v-for="row in mergedFileList" :key="row.file_id">
+                                    <TableCell>
+                                        <div class="cell-filename">
+                                            <IconFile :size="14" class="cell-filename__icon" />
+                                            <span class="cell-filename__name">{{ row.file_name }}</span>
+                                        </div>
+                                    </TableCell>
+                                    <TableCell class="cell-secondary">{{ formatFileSize(row.size) }}</TableCell>
+                                    <TableCell class="cell-secondary">{{ formatTime(row.uploaded_at) }}</TableCell>
+                                    <TableCell class="text-center">
+                                        <Button variant="action-neutral" size="action" title="预览 Markdown"
+                                            :disabled="!row.md_blob_hash" @click="openMarkdownPreview(row)">
+                                            {{ row.md_blob_hash ? '预览' : '无' }}
+                                        </Button>
+                                    </TableCell>
+                                    <TableCell v-for="v in fileStatusVectorizers" :key="v.vectorizer_key"
+                                        class="text-center">
+                                        <Button v-if="row.vectorizer_status?.[v.vectorizer_key]?.indexed"
+                                            variant="action-neutral" size="action"
+                                            :title="`已索引到 ${row.vectorizer_status[v.vectorizer_key].collections.length} 个集合，点击测试检索`"
+                                            @click="openSearchTest(row.vectorizer_status[v.vectorizer_key].collections[0])">
+                                            <UiBadge class="status-badge" size="sm" tone="success">已索引<span v-if="row.vectorizer_status[v.vectorizer_key].collections.length > 1"> · {{ row.vectorizer_status[v.vectorizer_key].collections.length }}</span></UiBadge>
+                                        </Button>
+                                        <Button v-else variant="action-neutral" size="action"
+                                            :disabled="indexingFileKey === row.file_id + ':' + v.vectorizer_key"
+                                            @click="handleIndexFileWithVectorizer(row, v.vectorizer_key)">
+                                            {{ indexingFileKey === row.file_id + ':' + v.vectorizer_key ? '索引中…' : '索引' }}
+                                        </Button>
+                                    </TableCell>
+                                    <TableCell class="cell-actions">
+                                        <div class="row-actions">
                                             <Button variant="action-neutral" size="action" title="预览 Markdown"
-                                                :disabled="!row.md_blob_hash" @click="openMarkdownPreview(row)">
-                                                {{ row.md_blob_hash ? '预览' : '无' }}
+                                                :disabled="!row.md_blob_hash" @click="openMarkdownPreview(row)">预览</Button>
+                                            <Button variant="action-neutral" size="action" title="下载" @click="downloadFile(row)">
+                                                <IconDownload :size="13" />
                                             </Button>
-                                        </td>
-                                        <!-- 各向量化器状态单元格 -->
-                                        <td v-for="v in fileStatusVectorizers" :key="v.vectorizer_key"
-                                            class="text-center">
-                                            <Button v-if="row.vectorizer_status?.[v.vectorizer_key]?.indexed"
-                                                variant="action-neutral" size="action"
-                                                :title="`已索引到 ${row.vectorizer_status[v.vectorizer_key].collections.length} 个集合，点击测试检索`"
-                                                @click="openSearchTest(row.vectorizer_status[v.vectorizer_key].collections[0])">
-                                                <UiBadge class="status-badge" size="sm" tone="success">已索引<span v-if="row.vectorizer_status[v.vectorizer_key].collections.length > 1"> · {{ row.vectorizer_status[v.vectorizer_key].collections.length }} 集合</span></UiBadge>
+                                            <Button variant="action-neutral" size="action"
+                                                :disabled="!row.has_index" @click="openSearchTest(row.search_collection)" title="测试检索">
+                                                <IconSearch :size="13" />
                                             </Button>
-                                            <Button v-else variant="action-neutral" size="action"
-                                                :disabled="indexingFileKey === row.file_id + ':' + v.vectorizer_key"
-                                                @click="handleIndexFileWithVectorizer(row, v.vectorizer_key)">
-                                                {{ indexingFileKey === row.file_id + ':' + v.vectorizer_key ? '索引中...' :
-                                                    '索引' }}
+                                            <Button variant="action-danger" size="action"
+                                                :disabled="deletingFileId === row.file_id || deletingUploadedFile === row.file_id"
+                                                @click="handleDeleteMergedFile(row)" title="删除">
+                                                <IconTrash :size="13" />
                                             </Button>
-                                        </td>
-                                        <td>
-                                            <div class="row-actions">
-                                                <Button variant="action-neutral" size="action" title="预览 Markdown"
-                                                    :disabled="!row.md_blob_hash" @click="openMarkdownPreview(row)">预览</Button>
-                                                <Button variant="action-neutral" size="action" title="下载" @click="downloadFile(row)">
-                                                    <IconDownload :size="13" />
-                                                </Button>
-                                                <Button variant="action-neutral" size="action"
-                                                    :disabled="!row.has_index" @click="openSearchTest(row.search_collection)" title="测试检索">
-                                                    <IconSearch :size="13" />
-                                                </Button>
-                                                <Button variant="action-danger" size="action"
-                                                    :disabled="deletingFileId === row.file_id || deletingUploadedFile === row.file_id"
-                                                    @click="handleDeleteMergedFile(row)" title="删除">
-                                                    <IconTrash :size="13" />
-                                                </Button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
+                                        </div>
+                                    </TableCell>
+                                </TableRow>
+                            </TableBody>
+                        </Table>
                     </div>
 
                     <!-- 内嵌检索测试区 -->
@@ -282,36 +281,36 @@
                         <Button class="primary-action-button" variant="default" size="sm" @click="openAddVectorizerDialog">新增向量化器</Button>
                     </div>
                     <div v-else class="data-table-wrapper glass-card">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>键 (Key)</th>
-                                    <th>Provider</th>
-                                    <th>模型</th>
-                                    <th class="text-center">维度</th>
-                                    <th class="text-center">文档数</th>
-                                    <th class="text-center">激活</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="v in vectorizers" :key="v.vectorizer_key"
+                        <Table class="kb-table">
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>键 (Key)</TableHead>
+                                    <TableHead>Provider</TableHead>
+                                    <TableHead>模型</TableHead>
+                                    <TableHead class="text-center">维度</TableHead>
+                                    <TableHead class="text-center">文档数</TableHead>
+                                    <TableHead class="text-center">激活</TableHead>
+                                    <TableHead class="text-right">操作</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                <TableRow v-for="v in vectorizers" :key="v.vectorizer_key"
                                     :class="{ 'row-active': v.is_active }">
-                                    <td class="font-mono">{{ v.vectorizer_key }}</td>
-                                    <td>{{ v.provider_key }}</td>
-                                    <td>{{ v.model_name }}</td>
-                                    <td class="text-center">{{ v.vector_dimension ?? '-' }}</td>
-                                    <td class="text-center">{{ v.vector_count ?? '-' }}</td>
-                                    <td class="text-center">
+                                    <TableCell class="font-mono">{{ v.vectorizer_key }}</TableCell>
+                                    <TableCell>{{ v.provider_key }}</TableCell>
+                                    <TableCell>{{ v.model_name }}</TableCell>
+                                    <TableCell class="text-center cell-secondary">{{ v.vector_dimension ?? '-' }}</TableCell>
+                                    <TableCell class="text-center cell-secondary">{{ v.vector_count ?? '-' }}</TableCell>
+                                    <TableCell class="text-center">
                                         <UiBadge v-if="v.is_active" class="status-badge" size="sm" tone="success">当前</UiBadge>
                                         <Button v-else variant="link"
                                             :disabled="activatingVectorizer === v.vectorizer_key"
                                             @click="handleActivateVectorizer(v.vectorizer_key)">
-                                            {{ activatingVectorizer === v.vectorizer_key ? '激活中...' : '激活' }}
+                                            {{ activatingVectorizer === v.vectorizer_key ? '激活中…' : '激活' }}
                                         </Button>
-                                    </td>
-                                    <td>
-                                        <div class="row-actions adm-action-row">
+                                    </TableCell>
+                                    <TableCell class="cell-actions">
+                                        <div class="row-actions">
                                             <Button variant="action-neutral" size="action"
                                                 :disabled="vectorizers.length < 2" @click="openMigrateDialog(v)"
                                                 title="迁移数据">
@@ -328,10 +327,10 @@
                                                 <IconTrash :size="13" />
                                             </Button>
                                         </div>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+                                    </TableCell>
+                                </TableRow>
+                            </TableBody>
+                        </Table>
                     </div>
                 </div>
 
@@ -380,50 +379,50 @@
                         <Button class="primary-action-button" variant="default" size="sm" @click="openAddRerankerDialog">新增重排序器</Button>
                     </div>
                     <div v-else class="data-table-wrapper glass-card">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>键 (Key)</th>
-                                    <th>模式</th>
-                                    <th>Provider</th>
-                                    <th>模型</th>
-                                    <th>API Endpoint</th>
-                                    <th class="text-center">激活</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="r in rerankers" :key="r.reranker_key"
+                        <Table class="kb-table">
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>键 (Key)</TableHead>
+                                    <TableHead>模式</TableHead>
+                                    <TableHead>Provider</TableHead>
+                                    <TableHead>模型</TableHead>
+                                    <TableHead>API Endpoint</TableHead>
+                                    <TableHead class="text-center">激活</TableHead>
+                                    <TableHead class="text-right">操作</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                <TableRow v-for="r in rerankers" :key="r.reranker_key"
                                     :class="{ 'row-active': r.is_active }">
-                                    <td class="font-mono">{{ r.reranker_key }}</td>
-                                    <td>
+                                    <TableCell class="font-mono">{{ r.reranker_key }}</TableCell>
+                                    <TableCell>
                                         <UiBadge size="sm" :tone="r.mode === 'model' ? 'info' : r.mode === 'lexical' ? 'warning' : 'neutral'">
                                             {{ r.mode === 'model' ? '模型' : r.mode === 'lexical' ? '本地' : '无' }}
                                         </UiBadge>
-                                    </td>
-                                    <td>{{ r.provider_key || '-' }}</td>
-                                    <td>{{ r.model_name || '-' }}</td>
-                                    <td class="font-mono" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis">{{ r.api_endpoint || '-' }}</td>
-                                    <td class="text-center">
+                                    </TableCell>
+                                    <TableCell>{{ r.provider_key || '-' }}</TableCell>
+                                    <TableCell>{{ r.model_name || '-' }}</TableCell>
+                                    <TableCell class="font-mono cell-endpoint" :title="r.api_endpoint || ''">{{ r.api_endpoint || '-' }}</TableCell>
+                                    <TableCell class="text-center">
                                         <UiBadge v-if="r.is_active" class="status-badge" size="sm" tone="success">当前</UiBadge>
                                         <Button v-else variant="link"
                                             :disabled="activatingReranker === r.reranker_key"
                                             @click="handleActivateReranker(r.reranker_key)">
-                                            {{ activatingReranker === r.reranker_key ? '激活中...' : '激活' }}
+                                            {{ activatingReranker === r.reranker_key ? '激活中…' : '激活' }}
                                         </Button>
-                                    </td>
-                                    <td>
-                                        <div class="row-actions adm-action-row">
+                                    </TableCell>
+                                    <TableCell class="cell-actions">
+                                        <div class="row-actions">
                                             <Button variant="action-danger" size="action"
                                                 :disabled="deletingReranker === r.reranker_key"
                                                 @click="handleDeleteReranker(r.reranker_key)" title="删除">
                                                 <IconTrash :size="13" />
                                             </Button>
                                         </div>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+                                    </TableCell>
+                                </TableRow>
+                            </TableBody>
+                        </Table>
                     </div>
                 </div>
 
@@ -755,6 +754,7 @@ import { UiBadge } from '../components/ui';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 
@@ -1704,7 +1704,7 @@ onMounted(() => {
     gap: var(--spacing-xs);
 }
 
-/* ─── 矩阵表格 ──────────────────────────────────────────── */
+/* ─── 数据表格（shadcn Table 特化）────────────────────────── */
 .data-table-wrapper {
     border-radius: var(--radius-xl);
     border: 1px solid var(--color-border);
@@ -1712,60 +1712,31 @@ onMounted(() => {
     overflow: hidden;
 }
 
-.table-scroll {
-    overflow-x: auto;
-}
-
-.data-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: var(--font-size-sm);
-}
-
-.data-table th,
-.data-table td {
-    padding: var(--spacing-sm) var(--spacing-md);
-    text-align: left;
-    border-bottom: 1px solid var(--color-border);
-}
-
-.data-table th {
+/* 表头视觉 / 单元格 padding：覆盖 shadcn 默认，更舒展更紧凑 */
+.kb-table :deep(thead th) {
+    height: 38px;
+    padding: 0 var(--spacing-md);
+    background: var(--color-bg-secondary);
     color: var(--color-text-secondary);
-    font-weight: 500;
     font-size: var(--font-size-xs);
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    background: var(--color-bg-secondary);
-    position: sticky;
-    top: 0;
-    z-index: 1;
 }
 
-.data-table th.col-chunks { text-align: center; }
-.data-table th:last-child { text-align: right; }
-
-.data-table tr:last-child td {
-    border-bottom: none;
+.kb-table :deep(tbody td) {
+    padding: var(--spacing-sm) var(--spacing-md);
+    vertical-align: middle;
 }
 
-.data-table tbody tr:hover {
-    background: var(--color-hover-overlay);
+/* 激活行：当前向量化器 / 重排序器 */
+.row-active {
+    background: rgba(var(--color-success-rgb), 0.07);
 }
 
-.data-table .row-active {
-    background: rgba(var(--color-success-rgb), 0.05);
-}
-
+/* 列宽 */
 .col-filename {
-    min-width: 200px;
-}
-
-.col-collection {
-    min-width: 100px;
-}
-
-.col-chunks {
-    width: 80px;
+    min-width: 220px;
 }
 
 .col-vectorizer {
@@ -1773,7 +1744,8 @@ onMounted(() => {
 }
 
 .col-actions {
-    width: 90px;
+    width: 1%;
+    white-space: nowrap;
 }
 
 .text-center {
@@ -1790,29 +1762,58 @@ onMounted(() => {
     align-items: center;
     gap: var(--spacing-sm);
     color: var(--color-text-primary);
+    font-weight: 500;
 }
 
-.cell-filename svg {
+.cell-filename__icon {
     color: var(--color-text-muted);
     flex-shrink: 0;
 }
 
-/* 向量化器列表头 */
+.cell-filename__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 320px;
+}
+
+.cell-secondary {
+    color: var(--color-text-secondary);
+}
+
+.cell-actions {
+    text-align: right;
+}
+
+.cell-endpoint {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 向量化器列表头（矩阵列）*/
 .vectorizer-col-header {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
+    gap: 3px;
 }
 
 .vc-model {
     font-size: var(--font-size-xs);
-    font-weight: 500;
+    font-weight: 600;
     color: var(--color-text-primary);
     max-width: 140px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.vc-tags {
+    display: flex;
+    align-items: center;
+    gap: 3px;
 }
 
 .vc-tag {
@@ -1822,56 +1823,22 @@ onMounted(() => {
     border-radius: var(--radius-full);
     font-size: 10px;
     font-weight: 500;
+    line-height: 1.4;
 }
 
 .vc-tag--provider {
-    background: rgba(var(--color-brand-accent-rgb), 0.12);
+    background: rgba(var(--color-brand-accent-rgb), 0.14);
     color: var(--color-brand-accent-light);
 }
 
 .vc-tag--dim {
-    background: rgba(var(--color-warning-rgb), 0.12);
+    background: rgba(var(--color-warning-rgb), 0.14);
     color: var(--color-warning);
 }
 
-/* 集合标签 */
-.collection-tag {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: var(--radius-full);
-    background: var(--color-bg-tertiary);
-    color: var(--color-text-secondary);
-    font-size: var(--font-size-xs);
-}
-
-/* 状态标签 */
+/* 状态徽章不换行 */
 .status-badge {
     white-space: nowrap;
-}
-
-/* 矩阵单元格内的索引按钮 */
-.btn-index-cell {
-    height: 26px;
-    padding: 0 10px;
-    border-radius: 13px;
-    border: 1px solid rgba(var(--color-brand-accent-rgb), 0.3);
-    background: rgba(var(--color-brand-accent-rgb), 0.08);
-    color: var(--color-brand-accent-light);
-    font: inherit;
-    font-size: 12px;
-    cursor: pointer;
-    transition: all 0.2s;
-    white-space: nowrap;
-}
-
-.btn-index-cell:hover:not(:disabled) {
-    background: rgba(var(--color-brand-accent-rgb), 0.15);
-    border-color: rgba(var(--color-brand-accent-rgb), 0.45);
-}
-
-.btn-index-cell:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
 }
 
 /* ─── 内嵌检索测试 ──────────────────────────────────────── */
@@ -2339,8 +2306,8 @@ onMounted(() => {
     }
 
     /* 表格：减小单元格内边距 */
-    .data-table th,
-    .data-table td {
+    .kb-table :deep(thead th),
+    .kb-table :deep(tbody td) {
         padding: 8px 10px;
     }
 
@@ -2426,8 +2393,8 @@ onMounted(() => {
     }
 
     /* 表格单元格更紧凑 */
-    .data-table th,
-    .data-table td {
+    .kb-table :deep(thead th),
+    .kb-table :deep(tbody td) {
         padding: 6px 8px;
         font-size: 12px;
     }

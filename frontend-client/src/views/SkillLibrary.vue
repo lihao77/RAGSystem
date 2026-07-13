@@ -14,17 +14,22 @@
 
     <div class="skill-lib">
       <EntityListLayout
-        class="skill-list-panel"
         title="技能清单"
         description="按来源分组，点击查看详情"
         :loading="loading"
-        loading-text="加载 Skill 中..."
         :error="error"
         empty-title="暂无 Skill"
         empty-hint="点“新建 Skill”创建第一个"
         :empty="!loading && !error && !skills.length"
         @retry="refresh"
       >
+        <div class="skill-search">
+          <IconSearch class="skill-search__icon" :size="14" />
+          <input v-model="searchQuery" class="skill-search__input" placeholder="搜索名称或描述…" />
+          <button v-if="searchQuery" type="button" class="skill-search__clear" aria-label="清除" @click="searchQuery = ''">
+            <IconClose :size="12" />
+          </button>
+        </div>
         <div class="adm-entity-list">
           <div v-for="group in groups" :key="group.key" class="skill-list-group">
             <div class="skill-list-group__head">
@@ -43,10 +48,16 @@
               @click="selectSkill(skill.name)"
             >
               <div class="skill-row__main">
-                <div class="skill-row__name">{{ skill.display_name || skill.name }}</div>
+                <div class="skill-row__name-row">
+                  <span class="skill-row__name">{{ skill.display_name || skill.name }}</span>
+                  <UiBadge size="sm" :tone="sourceMeta(skill.source_type).tone">{{ sourceMeta(skill.source_type).label }}</UiBadge>
+                </div>
                 <div class="skill-row__desc">{{ skill.description }}</div>
               </div>
             </button>
+          </div>
+          <div v-if="searchQuery && !groups.length" class="skill-search-empty">
+            未找到匹配「{{ searchQuery }}」的 Skill
           </div>
         </div>
       </EntityListLayout>
@@ -64,8 +75,8 @@
           <p class="adm-state__hint">从左侧选择查看正文与脚本</p>
         </div>
         <template v-else>
-          <CardHeader class="flex flex-row items-start justify-between gap-4 space-y-0">
-            <div class="space-y-1">
+          <CardHeader class="gap-y-4">
+            <div class="space-y-1 min-w-0">
               <CardTitle>{{ selected.display_name || selected.name }}</CardTitle>
               <CardDescription>{{ selected.description }}</CardDescription>
               <div class="skill-detail__chips">
@@ -74,28 +85,49 @@
                 <UiBadge v-else size="sm" tone="success">可编辑</UiBadge>
               </div>
             </div>
-            <div v-if="selected.writable">
-              <Button variant="ghost" @click="openEdit">编辑正文</Button>
-              <Button variant="ghost" @click="openUpload">上传脚本</Button>
-              <Button variant="destructive" :disabled="deleting" @click="confirmDelete">
-                {{ deleting ? '删除中…' : '删除' }}
+            <div v-if="selected.writable" class="skill-detail__actions">
+              <Button variant="secondary" size="sm" @click="openEdit">
+                <IconEdit :size="13" /><span>编辑正文</span>
+              </Button>
+              <Button variant="secondary" size="sm" @click="openUpload">
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+                <span>上传脚本</span>
+              </Button>
+              <Button variant="destructive" size="sm" :disabled="deleting" @click="confirmDelete">
+                <IconTrash :size="13" /><span>{{ deleting ? '删除中…' : '删除' }}</span>
               </Button>
             </div>
           </CardHeader>
           <CardContent>
 
-          <div v-if="selected.files.length" class="skill-section">
+          <div v-if="selected.files && selected.files.length" class="skill-section">
             <div class="skill-section__title">文件</div>
             <ul class="skill-filetree">
               <li
-                v-for="f in selected.files"
+                v-for="f in flatFiles"
                 :key="f.path"
-                :class="['skill-file', `skill-file--${f.type}`]"
+                :class="['skill-file', `skill-file--${f.type}`, { 'skill-file--collapsed': f.collapsed }]"
               >
-                <span class="skill-file__icon" v-html="fileIconSvg(f.type)"></span>
-                <a v-if="f.type === 'file'" :href="fileUrl(f.path)" target="_blank" rel="noopener">{{ f.path }}</a>
-                <span v-else>{{ f.path }}</span>
-                <span v-if="f.type === 'file' && f.size != null" class="skill-file__size">{{ formatSize(f.size) }}</span>
+                <button
+                  v-if="f.type === 'directory'"
+                  type="button"
+                  class="skill-file__row skill-file__row--dir"
+                  :style="{ paddingLeft: `${f.depth * 16 + 8}px` }"
+                  @click="toggleDir(f.path)"
+                >
+                  <span class="skill-file__chevron" :class="{ 'is-open': !f.collapsed }"><IconChevronDown :size="12" /></span>
+                  <span class="skill-file__icon" v-html="FOLDER_ICON"></span>
+                  <span class="skill-file__name">{{ f.name }}</span>
+                </button>
+                <div
+                  v-else
+                  class="skill-file__row"
+                  :style="{ paddingLeft: `${f.depth * 16 + 24}px` }"
+                >
+                  <span class="skill-file__icon" v-html="FILE_ICON"></span>
+                  <a :href="fileUrl(f.path)" target="_blank" rel="noopener" class="skill-file__name">{{ f.name }}</a>
+                  <span v-if="f.size != null" class="skill-file__size">{{ formatSize(f.size) }}</span>
+                </div>
               </li>
             </ul>
           </div>
@@ -144,17 +176,25 @@
           <DialogTitle>{{ uploadTitle }}</DialogTitle>
         </DialogHeader>
         <div class="form-section">
-        <label class="form-item">
+        <div class="form-item">
           <span class="field-label-text">目标目录</span>
-          <select v-model="uploader.dir">
-            <option value="scripts">scripts/（Python 脚本）</option>
-            <option value="">Skill 根目录（资源文件）</option>
-          </select>
-        </label>
-        <label class="form-item">
+          <CustomSelect v-model="uploader.dir" :options="dirOptions" />
+        </div>
+        <div class="form-item">
           <span class="field-label-text">文件</span>
-          <input type="file" multiple @change="onFileChange" />
-        </label>
+          <div class="skill-file-picker" @click="triggerFilePick">
+            <input ref="fileInputRef" type="file" multiple class="skill-file-picker__input" @change="onFileChange" />
+            <template v-if="uploader.files.length">
+              <IconFile :size="14" class="skill-file-picker__icon" />
+              <span class="skill-file-picker__list">{{ uploader.files.map((f) => f.name).join('、') }}</span>
+              <Button variant="action-danger" size="action" title="清除" @click.stop="clearFiles"><IconClose :size="12" /></Button>
+            </template>
+            <template v-else>
+              <IconFile :size="14" class="skill-file-picker__icon" />
+              <span class="skill-file-picker__hint">点击选择文件（可多选）</span>
+            </template>
+          </div>
+        </div>
         <p v-if="uploader.error" class="form-error">{{ uploader.error }}</p>
       </div>
       <DialogFooter>
@@ -183,6 +223,13 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../co
 import { UiBadge } from '../components/ui';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
+import CustomSelect from '../components/ui/CustomSelect.vue';
+import IconSearch from '../components/icons/IconSearch.vue';
+import IconClose from '../components/icons/IconClose.vue';
+import IconEdit from '../components/icons/IconEdit.vue';
+import IconTrash from '../components/icons/IconTrash.vue';
+import IconFile from '../components/icons/IconFile.vue';
+import IconChevronDown from '../components/icons/IconChevronDown.vue';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
@@ -237,17 +284,40 @@ const kpiItems = computed(() => [
   { key: 'workspace', label: '工作区', value: countByType.value.workspace },
 ]);
 
+const searchQuery = ref('');
+const filteredSkills = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return skills.value;
+  return skills.value.filter(
+    (s) =>
+      (s.display_name || s.name || '').toLowerCase().includes(q) ||
+      (s.description || '').toLowerCase().includes(q) ||
+      (s.name || '').toLowerCase().includes(q),
+  );
+});
+
 const groups = computed(() =>
   [
-    { key: 'user_global', title: '用户全局（可编辑）', items: skills.value.filter((s) => s.source_type === 'user_global') },
-    { key: 'workspace', title: '工作区', items: skills.value.filter((s) => s.source_type === 'workspace') },
-    { key: 'builtin', title: '内置', items: skills.value.filter((s) => s.source_type === 'builtin') },
+    { key: 'user_global', title: '用户全局（可编辑）', items: filteredSkills.value.filter((s) => s.source_type === 'user_global') },
+    { key: 'workspace', title: '工作区', items: filteredSkills.value.filter((s) => s.source_type === 'workspace') },
+    { key: 'builtin', title: '内置', items: filteredSkills.value.filter((s) => s.source_type === 'builtin') },
   ].filter((g) => g.items.length),
 );
 
 function isWritable(skill) {
   return skill.source_type === 'user_global';
 }
+
+// 来源类型 → 短标签 + 语义色（列表行徽章用）
+const SOURCE_META = {
+  user_global: { label: '用户', tone: 'success' },
+  workspace: { label: '工作区', tone: 'info' },
+  builtin: { label: '内置', tone: 'neutral' },
+};
+function sourceMeta(type) {
+  return SOURCE_META[type] || SOURCE_META.builtin;
+}
+
 function fileUrl(p) {
   return getSkillFileUrl(selected.value.name, p);
 }
@@ -258,6 +328,66 @@ const FILE_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14
 const FOLDER_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
 function fileIconSvg(type) {
   return type === 'directory' ? FOLDER_ICON : FILE_ICON;
+}
+
+// 文件树：扁平 files[{path,type,size}] → 按 '/' 构建层级；directory 可折叠
+function buildFileTree(files) {
+  const root = { name: '', path: '', type: 'directory', children: [] };
+  for (const f of files || []) {
+    const parts = String(f.path || '').split('/').filter(Boolean);
+    if (!parts.length) continue;
+    let node = root;
+    parts.forEach((part, i) => {
+      const isLast = i === parts.length - 1;
+      const fullPath = parts.slice(0, i + 1).join('/');
+      let child = node.children.find((c) => c.name === part);
+      if (!child) {
+        child = { name: part, path: fullPath, type: isLast ? f.type : 'directory', size: isLast ? f.size : null, children: [] };
+        node.children.push(child);
+      }
+      node = child;
+    });
+  }
+  const sortNodes = (nodes) => {
+    nodes.sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    nodes.forEach((n) => sortNodes(n.children));
+  };
+  sortNodes(root.children);
+  return root.children;
+}
+
+const collapsedDirs = ref(new Set());
+function toggleDir(path) {
+  const next = new Set(collapsedDirs.value);
+  if (next.has(path)) next.delete(path);
+  else next.add(path);
+  collapsedDirs.value = next;
+}
+const flatFiles = computed(() => {
+  const tree = buildFileTree(selected.value?.files);
+  const out = [];
+  const walk = (nodes, depth) => {
+    for (const n of nodes) {
+      const collapsed = n.type === 'directory' && collapsedDirs.value.has(n.path);
+      out.push({ ...n, depth, collapsed });
+      if (n.type === 'directory' && !collapsed) walk(n.children, depth + 1);
+    }
+  };
+  walk(tree, 0);
+  return out;
+});
+
+// 上传目录选项（CustomSelect）
+const dirOptions = [
+  { value: 'scripts', label: 'scripts/（Python 脚本）' },
+  { value: '', label: 'Skill 根目录（资源文件）' },
+];
+const fileInputRef = ref(null);
+function triggerFilePick() {
+  fileInputRef.value?.click();
 }
 
 async function selectSkill(name) {
@@ -339,6 +469,10 @@ function closeUploader() {
 function onFileChange(e) {
   uploader.value.files = Array.from(e.target.files || []);
 }
+function clearFiles() {
+  uploader.value.files = [];
+  if (fileInputRef.value) fileInputRef.value.value = '';
+}
 
 const { run: runUpload, loading: uploaderBusy } = useAsyncAction(
   async () => {
@@ -393,22 +527,78 @@ async function confirmDelete() {
   align-items: start;
   min-width: 0;
 }
+/* grid item 允许收缩：否则详情里的 markdown 正文/代码块会撑破面板，导致横向溢出 */
+.skill-lib > * {
+  min-width: 0;
+}
 @media (max-width: 900px) {
   .skill-lib {
     grid-template-columns: 1fr;
+    gap: var(--spacing-md);
   }
 }
 
-.skill-list-panel {
-  background: var(--color-bg-elevated);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
+/* 详情面板保证空状态最小高度（Card 自带 bg/radius/padding，不重复设）*/
 .skill-detail-panel {
-  background: var(--color-bg-elevated);
-  border-radius: var(--radius-lg);
   min-height: 400px;
-  padding: var(--spacing-xl);
+}
+
+/* 列表搜索框 */
+.skill-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--spacing-sm);
+}
+.skill-search__icon {
+  position: absolute;
+  left: 10px;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+.skill-search__input {
+  width: 100%;
+  height: var(--control-height-md);
+  padding: 0 32px 0 30px;
+  border-radius: var(--control-radius);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.skill-search__input::placeholder {
+  color: var(--color-text-muted);
+}
+.skill-search__input:focus {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.16);
+}
+.skill-search__clear {
+  position: absolute;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.skill-search__clear:hover {
+  background: var(--color-hover-overlay-md);
+  color: var(--color-text-primary);
+}
+.skill-search-empty {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
 }
 
 .skill-list-group {
@@ -427,9 +617,6 @@ async function confirmDelete() {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-}
-.skill-list-group__count {
-  font-weight: 500;
 }
 .skill-row {
   display: flex;
@@ -458,11 +645,20 @@ async function confirmDelete() {
   min-width: 0;
   flex: 1;
 }
+.skill-row__name-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
 .skill-row__name {
   color: var(--color-text-primary);
   font-size: var(--font-size-sm);
   font-weight: 600;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 .skill-row__desc {
   margin-top: 4px;
@@ -478,12 +674,11 @@ async function confirmDelete() {
   gap: var(--spacing-xs);
   margin-top: var(--spacing-sm);
 }
-.skill-chip--editable {
-  color: var(--color-success);
-  background: var(--color-success-bg);
-}
-.skill-chip--readonly {
-  color: var(--color-text-muted);
+.skill-detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
 }
 .skill-section {
   margin-top: var(--spacing-xl);
@@ -491,7 +686,7 @@ async function confirmDelete() {
   border-top: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-xs);
   min-width: 0;
 }
 .skill-section:first-of-type {
@@ -506,33 +701,107 @@ async function confirmDelete() {
   letter-spacing: 0.08em;
 }
 
+/* 文件树（层级缩进 + 目录可折叠）*/
 .skill-filetree {
   list-style: none;
   padding: 0;
   margin: 0;
 }
 .skill-file {
+  font-size: var(--font-size-sm);
+}
+.skill-file__row {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-xs) 0;
-  font-size: var(--font-size-sm);
+  gap: var(--spacing-xs);
+  min-height: 28px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
   overflow-wrap: anywhere;
 }
+.skill-file__row--dir {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.skill-file__row--dir:hover {
+  background: var(--color-hover-overlay);
+}
+.skill-file__chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  transform: rotate(-90deg);
+  transition: transform var(--transition-fast);
+}
+.skill-file__chevron.is-open {
+  transform: rotate(0deg);
+}
 .skill-file__icon {
+  display: inline-flex;
+  flex-shrink: 0;
   opacity: 0.6;
+}
+.skill-file__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .skill-file__size {
   margin-left: auto;
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
+  flex-shrink: 0;
 }
 .skill-file a {
   color: var(--color-brand-accent);
-  word-break: break-all;
 }
 .skill-file a:hover {
   text-decoration: underline;
+}
+
+/* 上传文件选择器（包裹隐藏 input）*/
+.skill-file-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-height: var(--control-height-md);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--control-radius);
+  border: 1px dashed var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+.skill-file-picker:hover {
+  border-color: var(--color-brand-accent);
+  color: var(--color-text-primary);
+}
+.skill-file-picker__input {
+  display: none;
+}
+.skill-file-picker__icon {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+.skill-file-picker__list {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-primary);
+}
+.skill-file-picker__hint {
+  color: var(--color-text-muted);
 }
 
 .skill-textarea {
