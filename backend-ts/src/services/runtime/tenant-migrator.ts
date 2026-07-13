@@ -99,7 +99,12 @@ export class TenantMigrator {
         const sourceExists = fs.existsSync(source);
         const targetExists = fs.existsSync(target);
         if (sourceExists && targetExists) {
-          throw new Error(`迁移目录源和目标同时存在，拒绝覆盖: ${summary.name}`);
+          if (!this.isTargetVacant(target, summary.name)) {
+            throw new Error(
+              `迁移目标目录已存在且含数据: ${summary.name}。可能是之前部分迁移或人工放入，需人工确认后再删除目标目录。`,
+            );
+          }
+          this.fileSystem.removeDirectory(target);
         }
         if (sourceExists) {
           this.moveDirectory(source, target, summary);
@@ -198,6 +203,32 @@ export class TenantMigrator {
       } finally {
         db.close();
       }
+    }
+  }
+
+  private isTargetVacant(targetPath: string, directoryName: LegacyBusinessDirectory): boolean {
+    try {
+      if (directoryName !== "db") {
+        return summarizeDirectory(targetPath, directoryName).fileCount === 0;
+      }
+      return [
+        { databaseName: "ragsystem.db", tableName: "sessions" },
+        { databaseName: "knowledge.db", tableName: "kb_files" },
+      ].every(({ databaseName, tableName }) => {
+        const databasePath = path.join(targetPath, databaseName);
+        if (!fs.existsSync(databasePath)) return true;
+        const db = new DatabaseSync(databasePath, { readOnly: true });
+        try {
+          const row = db.prepare(`SELECT COUNT(1) AS count FROM ${tableName}`).get() as
+            | { count?: number | bigint }
+            | undefined;
+          return row !== undefined && Number(row.count) === 0;
+        } finally {
+          db.close();
+        }
+      });
+    } catch {
+      return false;
     }
   }
 

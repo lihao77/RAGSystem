@@ -4,6 +4,8 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 
 import { TenantMigrator, type MigrationFileSystem } from "../../../src/services/runtime/tenant-migrator.js";
+import { createConversationDb } from "../../../src/services/stores/conversation-store/shared/db.js";
+import { createVectorStoreFromConfig } from "../../../src/services/vector-store/vector-store-factory.js";
 import { makeTempRoot } from "../../helpers/temp-db.js";
 
 const BUSINESS_DIRECTORIES = ["db", "sessions", "config", "memory", "tasks", "file-history"] as const;
@@ -48,6 +50,85 @@ describe("TenantMigrator", () => {
     fs.mkdirSync(path.join(harness.dataRoot, "sessions", "new-session"), { recursive: true });
     expect(harness.migrator.migrate()).toEqual({ status: "skipped", reason: "already_completed", directories: [] });
     expect(fs.existsSync(path.join(harness.dataRoot, "sessions", "new-session"))).toBe(true);
+  });
+
+  it("源和目标 db 共存且目标是 registry 创建的两个空库时自动替换", () => {
+    const harness = createHarness();
+    createLegacyLayout(harness.dataRoot);
+    const sourceDbPath = path.join(harness.dataRoot, "db", "ragsystem.db");
+    const targetDbPath = path.join(harness.targetRoot, "db", "ragsystem.db");
+    createEmptyConversationDatabase(targetDbPath, harness.targetRoot);
+    createEmptyKnowledgeDatabase(harness.targetRoot);
+
+    const emptyKnowledgeDb = new DatabaseSync(path.join(harness.targetRoot, "db", "knowledge.db"), { readOnly: true });
+    try {
+      expect(emptyKnowledgeDb.prepare("SELECT COUNT(1) AS count FROM kb_files").get()).toEqual({ count: 0 });
+    } finally {
+      emptyKnowledgeDb.close();
+    }
+
+    expect(harness.migrator.migrate()).toEqual({ status: "migrated", directories: [...BUSINESS_DIRECTORIES] });
+    expect(fs.existsSync(sourceDbPath)).toBe(false);
+    const targetDb = new DatabaseSync(targetDbPath, { readOnly: true });
+    try {
+      expect(targetDb.prepare("SELECT value FROM migration_fixture").get()).toEqual({ value: "ragsystem.db" });
+    } finally {
+      targetDb.close();
+    }
+    expect(fs.existsSync(path.join(harness.systemRoot, ".tenant-migration-done.json"))).toBe(true);
+  });
+
+  it("目标 knowledge.db 的 kb_files 已有数据时拒绝覆盖", () => {
+    const harness = createHarness();
+    createLegacyLayout(harness.dataRoot);
+    const sourceDbPath = path.join(harness.dataRoot, "db", "ragsystem.db");
+    const targetDbPath = path.join(harness.targetRoot, "db", "ragsystem.db");
+    const targetKnowledgeDbPath = path.join(harness.targetRoot, "db", "knowledge.db");
+    createEmptyConversationDatabase(targetDbPath, harness.targetRoot);
+    createEmptyKnowledgeDatabase(harness.targetRoot);
+    const targetKnowledgeDb = new DatabaseSync(targetKnowledgeDbPath);
+    try {
+      targetKnowledgeDb.prepare(`
+        INSERT INTO kb_files(id, original_name, stored_name, stored_path, size, mime, uploaded_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run("kb-existing", "existing.txt", "existing.txt", "existing.txt", 1, "text/plain", new Date().toISOString());
+    } finally {
+      targetKnowledgeDb.close();
+    }
+
+    expect(() => harness.migrator.migrate()).toThrow("迁移目标目录已存在且含数据: db");
+    expect(fs.existsSync(sourceDbPath)).toBe(true);
+    const preservedKnowledgeDb = new DatabaseSync(targetKnowledgeDbPath, { readOnly: true });
+    try {
+      expect(preservedKnowledgeDb.prepare("SELECT COUNT(1) AS count FROM kb_files").get()).toEqual({ count: 1 });
+    } finally {
+      preservedKnowledgeDb.close();
+    }
+    expect(fs.existsSync(path.join(harness.systemRoot, ".tenant-migration-done.json"))).toBe(false);
+  });
+
+  it("源和目标 db 共存且目标已有数据时拒绝覆盖", () => {
+    const harness = createHarness();
+    createLegacyLayout(harness.dataRoot);
+    const sourceDbPath = path.join(harness.dataRoot, "db", "ragsystem.db");
+    const targetDbPath = path.join(harness.targetRoot, "db", "ragsystem.db");
+    const targetDb = createConversationDb({ dbPath: targetDbPath, dataRoot: harness.targetRoot }).db;
+    try {
+      targetDb.prepare("INSERT INTO sessions(session_id, metadata) VALUES (?, ?)").run("target-session", "{}");
+    } finally {
+      targetDb.close();
+    }
+
+    expect(() => harness.migrator.migrate()).toThrow("迁移目标目录已存在且含数据: db");
+    expect(fs.existsSync(sourceDbPath)).toBe(true);
+    const preservedTarget = new DatabaseSync(targetDbPath, { readOnly: true });
+    try {
+      expect(preservedTarget.prepare("SELECT COUNT(1) AS count FROM sessions").get()).toEqual({ count: 1 });
+      expect(() => preservedTarget.prepare("SELECT value FROM migration_fixture").get()).toThrow();
+    } finally {
+      preservedTarget.close();
+    }
+    expect(fs.existsSync(path.join(harness.systemRoot, ".tenant-migration-done.json"))).toBe(false);
   });
 
   it("迁移后两个业务数据库可只读打开并通过 quick_check", () => {
@@ -138,6 +219,19 @@ function createSqliteFixture(dbPath: string, value: string): void {
   } finally {
     db.close();
   }
+}
+
+function createEmptyConversationDatabase(dbPath: string, dataRoot: string): void {
+  const handle = createConversationDb({ dbPath, dataRoot });
+  handle.db.close();
+}
+
+function createEmptyKnowledgeDatabase(dataRoot: string): void {
+  const vectorStore = createVectorStoreFromConfig({
+    backend: "sqlite_vec",
+    sqlite_vec: { database_path: "", vector_dimension: 0, distance_metric: "cosine" },
+  }, dataRoot);
+  vectorStore.close();
 }
 
 function writeFixture(dataRoot: string, ...parts: string[]): void {
