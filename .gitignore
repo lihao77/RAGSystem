@@ -86,5 +86,7 @@ dist/
 # VitePress documentation site (local only)
 /docs-site/
 
+/mcp-config-doc/
+
 # Tool-generated plans (local only)
 /.zcode/
