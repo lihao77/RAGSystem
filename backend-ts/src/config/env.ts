@@ -28,6 +28,8 @@ const EnvSchema = z.object({
   PORT: z.string().optional(),
   RAG_DATA_ROOT: z.string().optional(),
   WIDGET_JWT_SECRET: z.string().optional(),
+  SESSION_JWT_SECRET: z.string().optional(),
+  SESSION_TOKEN_TTL_HOURS: z.string().optional(),
   DEPLOYMENT_MODE: DeploymentModeSchema.optional(),
   AUTH_MODE: AuthModeSchema.optional(),
   TENANCY_MODE: TenancyModeSchema.optional(),
@@ -55,6 +57,9 @@ export interface AppEnv {
   allowUnsafeLocalExecution: boolean;
   /** widget JWT 签名密钥；未设则 widget 鉴权不启用。 */
   widgetJwtSecret?: string | undefined;
+  /** 用户 session JWT 签名密钥；password 模式必须可解析。 */
+  sessionJwtSecret?: string | undefined;
+  sessionTokenTtlHours?: number | undefined;
 }
 
 export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
@@ -100,13 +105,35 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     uiMode: env.UI_MODE,
     allowUnsafeLocalExecution: parseBooleanFlag(env.ALLOW_UNSAFE_LOCAL_EXECUTION),
     widgetJwtSecret: env.WIDGET_JWT_SECRET?.trim() || undefined,
+    sessionJwtSecret: env.SESSION_JWT_SECRET?.trim() || undefined,
+    sessionTokenTtlHours: parsePositiveNumber(env.SESSION_TOKEN_TTL_HOURS, 168, "SESSION_TOKEN_TTL_HOURS"),
   };
   resolveDeploymentProfile(appEnv);
   return appEnv;
 }
 
 export function resolveDeploymentProfile(env: AppEnv): DeploymentProfile {
+  const profile = seedDeploymentProfile(env);
+  validateDeploymentProfile(profile, env.allowUnsafeLocalExecution);
+  return profile;
+}
+
+export function resolveProfileFromSettings(settings: Record<string, string>, env: AppEnv): DeploymentProfile {
+  const seeded = seedDeploymentProfile(env);
   const profile: DeploymentProfile = {
+    deployment: DeploymentModeSchema.parse(settings.deployment_mode ?? seeded.deployment),
+    auth: AuthModeSchema.parse(settings.auth_mode ?? seeded.auth),
+    tenancy: TenancyModeSchema.parse(settings.tenancy_mode ?? seeded.tenancy),
+    execution: ExecutionModeSchema.parse(settings.execution_mode ?? seeded.execution),
+    storage: StorageModeSchema.parse(settings.storage_mode ?? seeded.storage),
+    ui: UiModeSchema.parse(settings.ui_mode ?? seeded.ui),
+  };
+  validateDeploymentProfile(profile, env.allowUnsafeLocalExecution);
+  return profile;
+}
+
+function seedDeploymentProfile(env: AppEnv): DeploymentProfile {
+  return {
     deployment: env.deploymentMode ?? "local",
     auth: env.authMode ?? "local",
     tenancy: env.tenancyMode ?? "single",
@@ -114,12 +141,6 @@ export function resolveDeploymentProfile(env: AppEnv): DeploymentProfile {
     storage: env.storageMode ?? "sqlite",
     ui: env.uiMode ?? "local",
   };
-  if (profile.deployment === "saas" && profile.execution === "local" && !env.allowUnsafeLocalExecution) {
-    throw new Error(
-      "危险配置: DEPLOYMENT_MODE=saas 禁止使用 EXECUTION_MODE=local。仅在明确接受宿主机执行风险时设置 ALLOW_UNSAFE_LOCAL_EXECUTION=true。",
-    );
-  }
-  return profile;
 }
 
 function parseCorsOrigins(rawValue: string | undefined): string[] | boolean {
@@ -134,4 +155,19 @@ function parseCorsOrigins(rawValue: string | undefined): string[] | boolean {
 
 function parseBooleanFlag(rawValue: string | undefined): boolean {
   return rawValue?.trim().toLowerCase() === "true";
+}
+
+function parsePositiveNumber(rawValue: string | undefined, fallback: number, name: string): number {
+  if (!rawValue?.trim()) return fallback;
+  const value = Number(rawValue);
+  if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} 必须为正数`);
+  return value;
+}
+
+function validateDeploymentProfile(profile: DeploymentProfile, allowUnsafeLocalExecution: boolean): void {
+  if (profile.deployment === "saas" && profile.execution === "local" && !allowUnsafeLocalExecution) {
+    throw new Error(
+      "危险配置: DEPLOYMENT_MODE=saas 禁止使用 EXECUTION_MODE=local。仅在明确接受宿主机执行风险时设置 ALLOW_UNSAFE_LOCAL_EXECUTION=true。",
+    );
+  }
 }

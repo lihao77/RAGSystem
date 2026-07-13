@@ -1,6 +1,6 @@
 import { assertVersionsContiguous } from "../conversation-store/migrations.js";
 import { runInTransaction } from "../conversation-store/shared/transaction.js";
-import { CONTROL_BASELINE_SCHEMA_SQL, CONTROL_WIDGET_SCHEMA_SQL } from "./schema.js";
+import { CONTROL_AUTH_SCHEMA_SQL, CONTROL_BASELINE_SCHEMA_SQL, CONTROL_WIDGET_SCHEMA_SQL } from "./schema.js";
 
 export interface ControlMigrationDatabase {
   exec: import("node:sqlite").DatabaseSync["exec"];
@@ -32,6 +32,13 @@ export const CONTROL_MIGRATIONS: readonly ControlMigration[] = [
     name: "widget-control-plane",
     up: (db) => {
       db.exec(CONTROL_WIDGET_SCHEMA_SQL);
+    },
+  },
+  {
+    version: 3,
+    name: "password-auth-control-plane",
+    up: (db) => {
+      db.exec(CONTROL_AUTH_SCHEMA_SQL);
     },
   },
 ];

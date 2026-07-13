@@ -34,6 +34,10 @@ describe("ControlStore", () => {
     expect(columns).toContainEqual(expect.objectContaining({ name: "tenant_id", notnull: 1 }));
     const indexes = db.prepare("PRAGMA index_list(widget_apps)").all() as unknown as Array<{ name: string }>;
     expect(indexes.map((index) => index.name)).toContain("idx_widget_apps_tenant_id");
+    const userColumns = db.prepare("PRAGMA table_info(users)").all() as unknown as Array<{ name: string }>;
+    expect(userColumns.map((column) => column.name)).toEqual(expect.arrayContaining(["username", "password_hash"]));
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='user_sessions'").get()).toBeTruthy();
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='system_settings'").get()).toBeTruthy();
     db.close();
   });
 
@@ -60,6 +64,26 @@ describe("ControlStore", () => {
     expect(store.getUser(userId)?.displayName).toBe("Alice Zhang");
     expect(store.deleteUser(userId)).toBe(true);
     expect(store.getUser(userId)).toBeNull();
+    store.close();
+  });
+
+  it("隔离用户凭据并支持 session 与 settings", () => {
+    const store = createControlStore(makeSystemRoot());
+    const tenantId = createTenantId("tnt_acme");
+    const userId = createUserId("usr_alice");
+    store.createTenant({ id: tenantId, displayName: "Acme" });
+    store.createUser({ id: userId, displayName: "Alice", username: "alice", password_hash: "secret-hash" });
+    expect(store.getUserByUsername("alice")).toEqual(expect.objectContaining({ id: userId, username: "alice" }));
+    expect(store.getUser(userId)).not.toHaveProperty("passwordHash");
+    expect(store.getUserWithCredentials(userId)?.passwordHash).toBe("secret-hash");
+    store.recordSession({ jti: "jti-1", userId, tenantId, issuedAt: 10, expiresAt: 20 });
+    expect(store.isSessionRevoked(tenantId, "jti-1")).toBe(false);
+    expect(store.revokeSession("jti-1")).toBe(true);
+    expect(store.isSessionRevoked(tenantId, "jti-1")).toBe(true);
+    expect(store.pruneExpiredSessions(21)).toBe(1);
+    store.setSetting("installed", "true");
+    expect(store.getSetting("installed")).toBe("true");
+    expect(store.getAllSettings()).toEqual({ installed: "true" });
     store.close();
   });
 

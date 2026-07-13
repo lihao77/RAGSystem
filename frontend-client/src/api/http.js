@@ -10,7 +10,7 @@
  *   - 响应侧：成功返回后端 JSON 整体（axios resp.data，不抽 .data，由各 api 函数按需取
  *     .data/.items/.providers…）；失败抛 Error，message 统一为
  *     detail(支持 Fastify 数组校验错) || message || `请求失败: ${status}`。
- *   - 不做 token 注入（client 同源走 cookie；widget 鉴权在独立包）；不设全局超时（长任务：
+ *   - 从认证 store 注入 session token；不设全局超时（长任务：
  *     向量化/导出/上传保持现状无超时，需要时按请求级传入 signal）。
  */
 
@@ -34,7 +34,13 @@ export const httpClient = axios.create({
   // 同源相对路径，不设 baseURL；不设 timeout 以兼容长任务。
 });
 
-httpClient.interceptors.request.use((config) => {
+httpClient.interceptors.request.use(async (config) => {
+  const { useAuthStore } = await import('../stores/auth.js');
+  const authStore = useAuthStore();
+  if (authStore.token) {
+    config.headers.set('Authorization', `Bearer ${authStore.token}`);
+  }
+
   // 空 body 请求清除 axios 默认注入的 Content-Type（axios 默认给 POST/PUT 加 application/json），
   // 避免 DELETE / 无 body POST 触发 Fastify FST_ERR_CTP_EMPTY_JSON_BODY。
   // FormData 与普通对象由 axios 自动处理 Content-Type（multipart 边界 / application/json）。
@@ -46,11 +52,24 @@ httpClient.interceptors.request.use((config) => {
 
 httpClient.interceptors.response.use(
   (resp) => (resp.config?._rawResponse ? resp : resp.data),
-  (err) => {
+  async (err) => {
     const status = err?.response?.status ?? 0;
     const body = err?.response?.data;
     const error = new Error(describeError(body, status));
     error.status = status;
+    if (status === 401) {
+      const [{ useAuthStore }, { default: router }] = await Promise.all([
+        import('../stores/auth.js'),
+        import('../router/index.js'),
+      ]);
+      useAuthStore().clear();
+      if (router.currentRoute.value.path !== '/login') {
+        await router.replace({
+          path: '/login',
+          query: { redirect: router.currentRoute.value.fullPath },
+        });
+      }
+    }
     return Promise.reject(error);
   },
 );

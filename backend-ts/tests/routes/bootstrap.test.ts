@@ -19,6 +19,7 @@ describe("GET /api/bootstrap", () => {
       execution: "local",
       storage: "sqlite",
       ui: "local",
+      installed: false,
       capabilities: {
         login: false,
         tenantSwitch: false,
@@ -28,5 +29,14 @@ describe("GET /api/bootstrap", () => {
         localExecution: true,
       },
     });
+  });
+
+  it("安装后返回持久化 profile 与 installed=true", async () => {
+    const harness = await buildTestHarness();
+    close.push(() => harness.app.close());
+    const install = await harness.app.inject({ method: "POST", url: "/api/install", payload: { deployment: "single" } });
+    expect(install.statusCode).toBe(200);
+    const response = await harness.app.inject({ method: "GET", url: "/api/bootstrap" });
+    expect(response.json()).toEqual(expect.objectContaining({ deployment: "local", auth: "local", installed: true }));
   });
 });

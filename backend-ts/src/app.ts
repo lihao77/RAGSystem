@@ -4,10 +4,11 @@ import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { ZodError } from "zod";
 import "./fastify-context.js";
 
-import type { AppEnv } from "./config/env.js";
+import { resolveProfileFromSettings, type AppEnv } from "./config/env.js";
 import { registerAgentConfigRoutes } from "./routes/agent-config.js";
 import { registerArtifactRoutes } from "./routes/artifacts.js";
 import { registerDaemonRoutes } from "./routes/daemon.js";
@@ -24,11 +25,13 @@ import { registerHealthRoutes } from "./routes/health.js";
 import { registerWidgetRoutes } from "./routes/widget.js";
 import { registerWidgetAppsRoutes } from "./routes/widget-apps.js";
 import { registerBootstrapRoutes } from "./routes/bootstrap.js";
+import { registerAuthRoutes, registerInstallRoutes } from "./routes/auth.js";
 import { HttpError, formatError } from "./utils/errors.js";
 import { createControlStore, type ControlStore } from "./services/stores/control-store/index.js";
 import { createWidgetCredentialStore, type WidgetCredentialStore } from "./services/stores/widget-credential-store/index.js";
-import { createWidgetAuthService, WidgetAuthError, type WidgetAuthService } from "./services/runtime/jwt-service.js";
-import { LocalIdentityProvider, WidgetIdentityProvider, type IdentityProvider } from "./services/identity/index.js";
+import { createWidgetAuthService, type WidgetAuthService } from "./services/runtime/jwt-service.js";
+import { createSessionTokenService, type SessionTokenService } from "./services/runtime/session-token-service.js";
+import { AuthError, LocalIdentityProvider, PasswordIdentityProvider, WidgetIdentityProvider, type IdentityProvider } from "./services/identity/index.js";
 import { DefaultTenantRuntimeRegistry, type TenantRuntimeRegistry } from "./services/runtime/tenant-runtime-registry.js";
 import { createTenantMigrator, type TenantMigrator } from "./services/runtime/tenant-migrator.js";
 
@@ -40,6 +43,7 @@ export interface BuildAppOptions {
   tenantMigrator?: Pick<TenantMigrator, "migrate">;
   widgetCredentialStore?: WidgetCredentialStore;
   widgetAuth?: WidgetAuthService;
+  sessionTokens?: SessionTokenService;
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
@@ -51,7 +55,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const controlStore = options.controlStore ?? createControlStore(options.env.systemRoot);
   const tenantMigrator = options.tenantMigrator ?? createTenantMigrator(options.env);
   tenantMigrator.migrate();
-  const identityProvider = options.identityProvider ?? new LocalIdentityProvider(controlStore);
+  const profile = resolveProfileFromSettings(controlStore.getAllSettings(), options.env);
+  const sessionTokens = options.sessionTokens ?? createSessionTokens(profile.auth, options.env, controlStore);
+  const identityProvider = options.identityProvider ?? createIdentityProvider(profile.auth, controlStore, sessionTokens);
   const widgetCredentialStore = options.widgetCredentialStore ?? createWidgetCredentialStore(controlStore.db);
   const widgetAuth = options.widgetAuth ?? (options.env.widgetJwtSecret
     ? createWidgetAuthService(options.env.widgetJwtSecret, widgetCredentialStore.ops)
@@ -69,8 +75,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     try {
       identity = resolver.resolve(request);
     } catch (error) {
-      if (error instanceof WidgetAuthError || usesWidgetIdentity(request.url)) {
-        throw new HttpError(401, "unauthorized", error instanceof Error ? error.message : "widget credentials 无效");
+      if (error instanceof AuthError || usesWidgetIdentity(request.url)) {
+        throw new HttpError(401, "unauthorized", error instanceof Error ? error.message : "认证失败");
       }
       throw error;
     }
@@ -177,7 +183,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     registry,
     identityProvider,
   });
-  await app.register(registerBootstrapRoutes, { prefix: "/api", env: options.env });
+  await app.register(registerBootstrapRoutes, { prefix: "/api", env: options.env, controlStore });
+  await app.register(registerInstallRoutes, { prefix: "/api", env: options.env, controlStore, ...(sessionTokens ? { sessionTokens } : {}) });
+  await app.register(registerAuthRoutes, { prefix: "/api/auth", env: options.env, controlStore, ...(sessionTokens ? { sessionTokens } : {}) });
   await app.register(registerPermissionRoutes, {
     prefix: "/api/permissions",
     registry,
@@ -267,8 +275,33 @@ function requiresTenantRuntime(url: string, method: string): boolean {
   const pathname = url.split("?", 1)[0] ?? url;
   if (!pathname.startsWith("/api/")) return false;
   return pathname !== "/api/bootstrap"
+    && pathname !== "/api/install"
+    && pathname !== "/api/auth/login"
     && pathname !== "/api/widget/auth/token"
     && !pathname.endsWith("/ws");
+}
+
+function createSessionTokens(authMode: string, env: AppEnv, controlStore: ControlStore): SessionTokenService | undefined {
+  if (authMode !== "password") return undefined;
+  const secret = env.sessionJwtSecret ?? (env.widgetJwtSecret
+    ? createHash("sha256").update(`ragsystem-session:${env.widgetJwtSecret}`).digest("hex")
+    : undefined);
+  if (!secret) throw new Error("password 模式必须配置 SESSION_JWT_SECRET，或配置 WIDGET_JWT_SECRET 用于派生");
+  return createSessionTokenService(secret, {
+    isSessionRevoked: (tenantId, jti) => controlStore.isSessionRevoked(tenantId, jti),
+    revokeSession: (jti) => controlStore.revokeSession(jti),
+  }, env.sessionTokenTtlHours ?? 168);
+}
+
+function createIdentityProvider(
+  authMode: string,
+  controlStore: ControlStore,
+  sessionTokens: SessionTokenService | undefined,
+): IdentityProvider {
+  if (authMode === "local") return new LocalIdentityProvider(controlStore);
+  if (authMode === "password" && sessionTokens) return new PasswordIdentityProvider(controlStore, sessionTokens);
+  if (authMode === "oidc") throw new Error("oidc 身份认证尚未实现");
+  throw new Error(`无法创建身份 provider: ${authMode}`);
 }
 
 function usesWidgetIdentity(url: string): boolean {

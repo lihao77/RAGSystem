@@ -69,3 +69,29 @@ export const CONTROL_WIDGET_SCHEMA_SQL = `
 
   CREATE INDEX idx_widget_audit_app_key ON widget_audit(app_key, id DESC);
 `;
+
+export const CONTROL_AUTH_SCHEMA_SQL = `
+  ALTER TABLE users ADD COLUMN password_hash TEXT;
+  ALTER TABLE users ADD COLUMN username TEXT;
+  CREATE UNIQUE INDEX idx_users_username ON users(username);
+
+  CREATE TABLE user_sessions (
+    jti TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    issued_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    revoked INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+  );
+  CREATE INDEX idx_user_sessions_user_id ON user_sessions(user_id);
+  CREATE INDEX idx_user_sessions_tenant_id ON user_sessions(tenant_id);
+  CREATE INDEX idx_user_sessions_expires_at ON user_sessions(expires_at);
+
+  CREATE TABLE system_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`;

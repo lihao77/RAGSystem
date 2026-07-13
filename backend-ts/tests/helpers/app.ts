@@ -29,6 +29,7 @@ export const testEnv: AppEnv = {
   systemRoot: path.join(".test-data", "system"),
   dbPath: ":memory:",
   allowUnsafeLocalExecution: false,
+  sessionTokenTtlHours: 168,
 };
 
 export async function buildTestApp() {
@@ -42,9 +43,14 @@ export async function buildTestHarness(
     logger?: AgentExecutionLogger;
     hooks?: (registry: HookRegistry) => void;
     widgetJwtSecret?: string;
+    sessionJwtSecret?: string;
+    sessionTokenTtlHours?: number;
+    root?: string;
+    settings?: Record<string, string>;
+    autoIdentityProvider?: boolean;
   } = {},
 ) {
-  const tempRoot = makeTempRoot();
+  const tempRoot = options.root ?? makeTempRoot();
   testDataRoot = tempRoot;
   const container = createRuntimeContainer({
     dbPath: path.join(tempRoot, "test.db"),
@@ -60,12 +66,21 @@ export async function buildTestHarness(
     embedderFactory: () => new HashFallbackEmbedder(),
   });
   const controlStore = createControlStore(path.join(tempRoot, "system"));
-  const identityProvider = new LocalIdentityProvider(controlStore);
+  for (const [key, value] of Object.entries(options.settings ?? {})) controlStore.setSetting(key, value);
+  const identityProvider = options.autoIdentityProvider ? undefined : new LocalIdentityProvider(controlStore);
   const widgetCredentialStore = createWidgetCredentialStore(controlStore.db);
   const widgetAuth = options.widgetJwtSecret
     ? createWidgetAuthService(options.widgetJwtSecret, widgetCredentialStore.ops)
     : undefined;
-  const env = { ...testEnv, dataRoot: tempRoot, systemRoot: path.join(tempRoot, "system"), tenantsRoot: path.join(tempRoot, "tenants"), ...(options.widgetJwtSecret ? { widgetJwtSecret: options.widgetJwtSecret } : {}) };
+  const env = {
+    ...testEnv,
+    dataRoot: tempRoot,
+    systemRoot: path.join(tempRoot, "system"),
+    tenantsRoot: path.join(tempRoot, "tenants"),
+    ...(options.widgetJwtSecret ? { widgetJwtSecret: options.widgetJwtSecret } : {}),
+    ...(options.sessionJwtSecret ? { sessionJwtSecret: options.sessionJwtSecret } : {}),
+    ...(options.sessionTokenTtlHours ? { sessionTokenTtlHours: options.sessionTokenTtlHours } : {}),
+  };
   const registry = new DefaultTenantRuntimeRegistry(env, controlStore, options.logger, {
     runtimeFactory: () => container,
   });
@@ -73,13 +88,13 @@ export async function buildTestHarness(
     env,
     registry,
     controlStore,
-    identityProvider,
+    ...(identityProvider ? { identityProvider } : {}),
     tenantMigrator: { migrate: () => ({ status: "skipped", reason: "no_legacy_data", directories: [] }) },
     widgetCredentialStore,
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await app.ready();
-  return { app, container, registry, controlStore, widgetCredentialStore, widgetAuth };
+  return { app, container, registry, controlStore, widgetCredentialStore, widgetAuth, root: tempRoot };
 }
 
 

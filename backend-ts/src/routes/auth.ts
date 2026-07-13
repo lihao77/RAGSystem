@@ -1,0 +1,133 @@
+import { randomUUID } from "node:crypto";
+import type { FastifyPluginAsync } from "fastify";
+import { z } from "zod";
+
+import { resolveProfileFromSettings, type AppEnv } from "../config/env.js";
+import { createTenantId, createUserId } from "../identity/types.js";
+import type { SessionTokenService } from "../services/runtime/session-token-service.js";
+import type { ControlStore } from "../services/stores/control-store/index.js";
+import { HttpError } from "../utils/errors.js";
+import { hashPassword, verifyPassword } from "../utils/password-hash.js";
+
+interface AuthRouteOptions {
+  env: AppEnv;
+  controlStore: ControlStore;
+  sessionTokens?: SessionTokenService;
+}
+
+const InstallSchema = z.object({
+  deployment: z.enum(["single", "saas"]),
+  tenancy: z.enum(["single", "multi"]).optional(),
+  admin: z.object({ username: z.string().trim().min(1), password: z.string().min(8) }).optional(),
+  tenantDisplayName: z.string().trim().min(1).optional(),
+});
+
+const LoginSchema = z.object({
+  username: z.string().trim().min(1),
+  password: z.string().min(1),
+});
+
+export const registerInstallRoutes: FastifyPluginAsync<AuthRouteOptions> = async (app, options) => {
+  app.post("/install", async (request) => {
+    if (options.controlStore.getSetting("installed") === "true") {
+      throw new HttpError(409, "already_installed", "系统已完成安装");
+    }
+    const input = InstallSchema.parse(request.body);
+    if (input.deployment === "saas" && !input.admin) {
+      throw new HttpError(400, "invalid_request", "SaaS 安装必须配置管理员账号");
+    }
+
+    const deploymentMode = input.deployment === "single" ? "local" : "saas";
+    const authMode = input.deployment === "single" ? "local" : "password";
+    const tenancyMode = input.deployment === "single" ? "single" : (input.tenancy ?? "single");
+    const tenantId = createTenantId(input.deployment === "single" ? "tnt_local" : "tnt_default");
+    const tenantName = input.tenantDisplayName ?? (input.deployment === "single" ? "Local" : "Default");
+
+    options.controlStore.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (!options.controlStore.getTenant(tenantId)) {
+        options.controlStore.createTenant({ id: tenantId, displayName: tenantName });
+      }
+      if (input.deployment === "saas" && input.admin) {
+        const userId = createUserId(`usr_${randomUUID().replaceAll("-", "")}`);
+        options.controlStore.createUser({
+          id: userId,
+          displayName: input.admin.username,
+          username: input.admin.username,
+          password_hash: hashPassword(input.admin.password),
+        });
+        options.controlStore.upsertMembership({ userId, tenantId, role: "owner" });
+      }
+      options.controlStore.setSetting("deployment_mode", deploymentMode);
+      options.controlStore.setSetting("auth_mode", authMode);
+      options.controlStore.setSetting("tenancy_mode", tenancyMode);
+      options.controlStore.setSetting("execution_mode", input.deployment === "single" ? "local" : "remote");
+      options.controlStore.setSetting("storage_mode", input.deployment === "single" ? "sqlite" : "sqlite-per-tenant");
+      options.controlStore.setSetting("ui_mode", input.deployment === "single" ? "local" : "saas");
+      options.controlStore.setSetting("installed", "true");
+      options.controlStore.db.exec("COMMIT");
+    } catch (error) {
+      options.controlStore.db.exec("ROLLBACK");
+      throw error;
+    }
+
+    const profile = resolveProfileFromSettings(options.controlStore.getAllSettings(), options.env);
+    return { ...profile, installed: true, restart_required: profile.auth !== "local" };
+  });
+};
+
+export const registerAuthRoutes: FastifyPluginAsync<AuthRouteOptions> = async (app, options) => {
+  app.post("/login", async (request) => {
+    const sessionTokens = requireSessionTokens(options.sessionTokens);
+    const input = LoginSchema.parse(request.body);
+    const publicUser = options.controlStore.getUserByUsername(input.username);
+    const user = publicUser ? options.controlStore.getUserWithCredentials(publicUser.id) : null;
+    if (!user?.passwordHash || !verifyPassword(input.password, user.passwordHash)) {
+      throw new HttpError(401, "unauthorized", "用户名或密码错误");
+    }
+    const memberships = options.controlStore.db.prepare(
+      "SELECT tenant_id, role FROM memberships WHERE user_id=? ORDER BY tenant_id LIMIT 1",
+    ).all(user.id) as unknown as Array<{ tenant_id: ReturnType<typeof createTenantId>; role: string }>;
+    const membership = memberships[0];
+    if (!membership) throw new HttpError(401, "unauthorized", "用户未加入任何租户");
+    const issued = sessionTokens.issueToken({ userId: user.id, tenantId: membership.tenant_id, role: membership.role });
+    options.controlStore.recordSession({
+      jti: issued.claims.jti,
+      userId: user.id,
+      tenantId: membership.tenant_id,
+      issuedAt: issued.claims.iat,
+      expiresAt: issued.claims.exp,
+    });
+    return {
+      token: issued.token,
+      expires_at: issued.expires_at,
+      user: { id: user.id, displayName: user.displayName },
+      tenantId: membership.tenant_id,
+      role: membership.role,
+    };
+  });
+
+  app.get("/me", async (request) => {
+    const claims = requireSessionTokens(options.sessionTokens).requireBearer(request);
+    const user = options.controlStore.getUser(claims.sub);
+    const membership = options.controlStore.getMembership(claims.sub, claims.tenant_id);
+    if (!user || !membership || membership.role !== claims.role) throw new HttpError(401, "unauthorized", "session identity 无效");
+    return { userId: user.id, tenantId: membership.tenantId, role: membership.role, permissions: rolePermissions(membership.role) };
+  });
+
+  app.post("/logout", async (request) => {
+    const sessionTokens = requireSessionTokens(options.sessionTokens);
+    const claims = sessionTokens.requireBearer(request);
+    sessionTokens.revoke(claims.jti);
+    return { success: true };
+  });
+};
+
+function requireSessionTokens(service: SessionTokenService | undefined): SessionTokenService {
+  if (!service) throw new HttpError(503, "auth_unavailable", "password 认证未在当前启动 profile 中启用");
+  return service;
+}
+
+function rolePermissions(role: string): string[] {
+  return role === "owner" || role === "admin" ? ["*"] : [];
+}

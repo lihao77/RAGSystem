@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import MainLayout from '../layouts/MainLayout.vue';
+import { useBootstrapStore } from '../stores/bootstrap.js';
+import { useAuthStore } from '../stores/auth.js';
 
 const ChatViewV2 = () => import('../views/ChatViewV2.vue');
 const AdminCenter = () => import('../views/AdminCenter.vue');
@@ -13,10 +15,13 @@ const ModelProviderManager = () => import('../views/ModelProviderManager.vue');
 const DaemonManager = () => import('../views/DaemonManager.vue');
 const SystemConfig = () => import('../views/SystemConfig.vue');
 const WidgetConsole = () => import('../views/WidgetConsole.vue');
+const Login = () => import('../views/Login.vue');
+const InstallWizard = () => import('../views/InstallWizard.vue');
 
 const shellMeta = {
   depth: 0,
   shellKey: 'main-layout',
+  requiresAuth: true,
 };
 
 const pageMeta = (mainView, depth, pageOrder = depth, extra = {}) => ({
@@ -32,6 +37,8 @@ const adminPageMeta = (mainView, depth, pageOrder = depth) => pageMeta(mainView,
 });
 
 const routes = [
+  { path: '/login', component: Login, meta: { public: true, depth: 0, shellKey: 'auth-layout' } },
+  { path: '/install', component: InstallWizard, meta: { public: true, depth: 0, shellKey: 'auth-layout' } },
   {
     path: '/',
     component: MainLayout,
@@ -59,6 +66,31 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
+});
+
+router.beforeEach(async (to) => {
+  const bootstrapStore = useBootstrapStore();
+  const authStore = useAuthStore();
+
+  await bootstrapStore.load();
+
+  if (bootstrapStore.needsInstall && to.path !== '/install') {
+    return { path: '/install' };
+  }
+  if (!bootstrapStore.needsInstall && to.path === '/install') {
+    return { path: bootstrapStore.requiresAuth && !authStore.isAuthenticated ? '/login' : '/' };
+  }
+  if (!bootstrapStore.requiresAuth && authStore.isAuthenticated) {
+    authStore.clear();
+  }
+  if (to.path === '/login' && (!bootstrapStore.requiresAuth || authStore.isAuthenticated)) {
+    return { path: '/' };
+  }
+  if (to.meta.public) return true;
+  if (bootstrapStore.requiresAuth && !authStore.isAuthenticated && to.path !== '/login') {
+    return { path: '/login', query: { redirect: to.fullPath } };
+  }
+  return true;
 });
 
 export default router;

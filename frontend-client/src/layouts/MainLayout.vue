@@ -1,5 +1,14 @@
 <template>
   <div class="chat-layout" :class="{ 'chat-layout--sidebar-overlay': isMobile }">
+    <div v-if="showUserArea" class="absolute right-5 top-5 z-10 flex items-center gap-3 rounded-md border border-input bg-background px-3 py-2 shadow-sm">
+      <div class="min-w-0 text-right">
+        <div class="max-w-48 truncate text-sm font-medium">{{ authStore.user?.displayName || '管理员' }}</div>
+        <div class="text-xs text-muted-foreground">{{ authStore.role }}</div>
+      </div>
+      <Button variant="outline" size="sm" :disabled="logoutLoading" @click="handleLogout">
+        {{ logoutLoading ? '退出中...' : '退出登录' }}
+      </Button>
+    </div>
     <div class="sidebar-backdrop" :class="{ active: mobileOpen }" @click="closeMobileSidebar"></div>
 
     <aside class="sidebar" :class="{ collapsed: sidebarCollapsed, 'mobile-open': mobileOpen }">
@@ -191,10 +200,13 @@ import { useConfirm } from '../composables/useConfirm.js';
 import { useThemeStore } from '../stores/theme.js';
 import { useDictionariesStore } from '../stores/dictionaries.js';
 import { useSessionListStore } from '../stores/session-list.js';
+import { useBootstrapStore } from '../stores/bootstrap.js';
+import { useAuthStore } from '../stores/auth.js';
 import { deleteSession as deleteSessionApi } from '../api/session';
+import { logout } from '../api/auth.js';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconNewConversation, IconTrash } from '../components/icons';
 import { Button } from '../components/ui/button';
-import { sidebarAdminNavItem, managementNavItems, adminNavGroups } from '../navigation/adminNavigation';
+import { sidebarAdminNavItem, filterManagementNavItems, adminNavGroups } from '../navigation/adminNavigation';
 import CommandPalette from '../components/CommandPalette.vue';
 import { useCommandPalette } from '../composables/useCommandPalette.js';
 import HotkeysHelp from '../components/HotkeysHelp.vue';
@@ -212,6 +224,8 @@ const toast = useToast();
 const { confirm } = useConfirm();
 const dictStore = useDictionariesStore();
 const sessionListStore = useSessionListStore();
+const bootstrapStore = useBootstrapStore();
+const authStore = useAuthStore();
 const { items: history, loading: historyLoading, loadingMore: historyLoadingMore, error: historyError, hasMore: historyHasMore } = storeToRefs(sessionListStore);
 const sidebarCollapsed = ref(localStorage.getItem('sidebarCollapsed') === 'true');
 const mobileOpen = ref(false);
@@ -222,7 +236,10 @@ const lastChatSessionId = ref(null);
 const isChatRoute = computed(() => (route.meta?.mainView || 'chat') === 'chat');
 const pageShell = computed(() => (isChatRoute.value ? 'div' : AdminLayout));
 const isPageActive = (mainView) => (route.meta?.mainView || 'chat') === mainView;
-const adminItemsByGroup = (groupKey) => managementNavItems.filter((i) => i.group === groupKey);
+const visibleManagementNavItems = computed(() => filterManagementNavItems(bootstrapStore.capabilities));
+const adminItemsByGroup = (groupKey) => visibleManagementNavItems.value.filter((i) => i.group === groupKey);
+const showUserArea = computed(() => bootstrapStore.requiresAuth && authStore.isAuthenticated);
+const logoutLoading = ref(false);
 const isSidebarNavActive = (item) => item.section
   ? route.meta?.section === item.section
   : isPageActive(item.mainView);
@@ -240,6 +257,19 @@ const getPageRouteKey = (targetRoute) => targetRoute.meta?.pageKey || targetRout
 const sidebarNavItems = [sidebarAdminNavItem];
 // 侧栏在所有路由下于同一断点（lg 900px）切抽屉/固定，避免切页时行为不一致。
 const sidebarOverlayBreakpoint = 900;
+
+async function handleLogout() {
+  logoutLoading.value = true;
+  try {
+    await logout();
+  } catch (error) {
+    toast.warning(error?.message || '服务端退出失败，已清除本地登录状态');
+  } finally {
+    authStore.clear();
+    logoutLoading.value = false;
+    await router.replace('/login');
+  }
+}
 
 const showToast = (message, actionOrType = null, actionLabel = '重试') => {
   let type = 'error';
@@ -500,7 +530,7 @@ registerCommand([
   { id: 'cmd-new-chat', title: '新聊天', section: '操作', action: () => startNewChat() },
   { id: 'cmd-toggle-theme', title: '切换主题', subtitle: '深色 / 亮色', section: '操作', action: () => useThemeStore().toggle() },
   { id: 'cmd-goto-chat', title: '前往聊天', section: '导航', action: () => navigateTo('/') },
-  ...managementNavItems.map((item) => ({
+  ...visibleManagementNavItems.value.map((item) => ({
     id: `cmd-nav-${item.key}`,
     title: item.label,
     subtitle: item.title,

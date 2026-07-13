@@ -2,6 +2,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { FastifyRequest } from "fastify";
 
 import { createTenantId, type TenantId } from "../../identity/types.js";
+import { AuthError } from "../identity/auth-error.js";
 import type { WidgetCredentialOps, WidgetApp } from "../stores/widget-credential-store/widget-credential-ops.js";
 
 /** widget 短时 token 的 TTL（秒）。 */
@@ -45,7 +46,7 @@ export interface WidgetAuthService {
 }
 
 /** 鉴权失败错误；路由层 catch 后转 HttpError(401)。 */
-export class WidgetAuthError extends Error {
+export class WidgetAuthError extends AuthError {
   constructor(message: string) {
     super(message);
     this.name = "WidgetAuthError";

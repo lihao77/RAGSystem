@@ -1,14 +1,16 @@
 import type { FastifyPluginAsync } from "fastify";
 
-import { resolveDeploymentProfile, type AppEnv } from "../config/env.js";
+import { resolveProfileFromSettings, type AppEnv } from "../config/env.js";
+import type { ControlStore } from "../services/stores/control-store/index.js";
 
 interface BootstrapOptions {
   env: AppEnv;
+  controlStore: ControlStore;
 }
 
 export const registerBootstrapRoutes: FastifyPluginAsync<BootstrapOptions> = async (app, options) => {
   app.get("/bootstrap", async () => {
-    const profile = resolveDeploymentProfile(options.env);
+    const profile = resolveProfileFromSettings(options.controlStore.getAllSettings(), options.env);
     const isLocal = profile.deployment === "local";
     return {
       deployment: profile.deployment,
@@ -17,6 +19,7 @@ export const registerBootstrapRoutes: FastifyPluginAsync<BootstrapOptions> = asy
       execution: profile.execution,
       storage: profile.storage,
       ui: profile.ui,
+      installed: options.controlStore.getSetting("installed") === "true",
       capabilities: {
         login: !isLocal && profile.auth !== "local",
         tenantSwitch: !isLocal && profile.tenancy === "multi",

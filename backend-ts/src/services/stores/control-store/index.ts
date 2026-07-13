@@ -11,6 +11,11 @@ export interface ControlUser {
   id: UserId;
   displayName: string;
   createdAt: string;
+  username?: string;
+}
+
+export interface ControlUserWithCredentials extends ControlUser {
+  passwordHash: string | null;
 }
 
 export interface ControlMembership {
@@ -47,20 +52,30 @@ export class ControlStore {
     return Number(this.db.prepare("DELETE FROM tenants WHERE id=?").run(id).changes) > 0;
   }
 
-  createUser(input: { id: UserId; displayName: string; createdAt?: string }): ControlUser {
+  createUser(input: { id: UserId; displayName: string; createdAt?: string; username?: string; password_hash?: string }): ControlUser {
     const createdAt = input.createdAt ?? new Date().toISOString();
-    this.db.prepare("INSERT INTO users(id, display_name, created_at) VALUES (?, ?, ?)")
-      .run(input.id, input.displayName, createdAt);
-    return { id: input.id, displayName: input.displayName, createdAt };
+    this.db.prepare("INSERT INTO users(id, display_name, created_at, username, password_hash) VALUES (?, ?, ?, ?, ?)")
+      .run(input.id, input.displayName, createdAt, input.username ?? null, input.password_hash ?? null);
+    return { id: input.id, displayName: input.displayName, createdAt, ...(input.username ? { username: input.username } : {}) };
   }
 
   getUser(id: UserId): ControlUser | null {
-    const row = this.db.prepare("SELECT id, display_name, created_at FROM users WHERE id=?").get(id) as UserRow | undefined;
+    const row = this.db.prepare("SELECT id, display_name, created_at, username FROM users WHERE id=?").get(id) as UserRow | undefined;
     return row ? mapUser(row) : null;
   }
 
+  getUserByUsername(username: string): ControlUser | null {
+    const row = this.db.prepare("SELECT id, display_name, created_at, username FROM users WHERE username=?").get(username) as UserRow | undefined;
+    return row ? mapUser(row) : null;
+  }
+
+  getUserWithCredentials(id: UserId): ControlUserWithCredentials | null {
+    const row = this.db.prepare("SELECT id, display_name, created_at, username, password_hash FROM users WHERE id=?").get(id) as UserCredentialRow | undefined;
+    return row ? { ...mapUser(row), passwordHash: row.password_hash } : null;
+  }
+
   listUsers(): ControlUser[] {
-    const rows = this.db.prepare("SELECT id, display_name, created_at FROM users ORDER BY created_at, id").all() as unknown as UserRow[];
+    const rows = this.db.prepare("SELECT id, display_name, created_at, username FROM users ORDER BY created_at, id").all() as unknown as UserRow[];
     return rows.map(mapUser);
   }
 
@@ -96,6 +111,43 @@ export class ControlStore {
     return Number(this.db.prepare("DELETE FROM memberships WHERE user_id=? AND tenant_id=?").run(userId, tenantId).changes) > 0;
   }
 
+  recordSession(input: { jti: string; userId: UserId; tenantId: TenantId; issuedAt: number; expiresAt: number }): void {
+    this.db.prepare(`
+      INSERT INTO user_sessions(jti, user_id, tenant_id, issued_at, expires_at, revoked)
+      VALUES (?, ?, ?, ?, ?, 0)
+    `).run(input.jti, input.userId, input.tenantId, input.issuedAt, input.expiresAt);
+  }
+
+  isSessionRevoked(tenantId: TenantId, jti: string): boolean {
+    const row = this.db.prepare("SELECT revoked FROM user_sessions WHERE tenant_id=? AND jti=?").get(tenantId, jti) as { revoked: number } | undefined;
+    return !row || row.revoked !== 0;
+  }
+
+  revokeSession(jti: string): boolean {
+    return Number(this.db.prepare("UPDATE user_sessions SET revoked=1 WHERE jti=?").run(jti).changes) > 0;
+  }
+
+  pruneExpiredSessions(now = Math.floor(Date.now() / 1000)): number {
+    return Number(this.db.prepare("DELETE FROM user_sessions WHERE expires_at < ?").run(now).changes);
+  }
+
+  getSetting(key: string): string | null {
+    const row = this.db.prepare("SELECT value FROM system_settings WHERE key=?").get(key) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  setSetting(key: string, value: string): void {
+    this.db.prepare(`
+      INSERT INTO system_settings(key, value, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+    `).run(key, value, new Date().toISOString());
+  }
+
+  getAllSettings(): Record<string, string> {
+    const rows = this.db.prepare("SELECT key, value FROM system_settings ORDER BY key").all() as unknown as Array<{ key: string; value: string }>;
+    return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  }
+
   close(): void {
     this.db.close();
   }
@@ -106,11 +158,14 @@ export function createControlStore(systemRoot: string): ControlStore {
 }
 
 interface TenantRow { id: TenantId; display_name: string; created_at: string; }
-interface UserRow { id: UserId; display_name: string; created_at: string; }
+interface UserRow { id: UserId; display_name: string; created_at: string; username: string | null; }
+interface UserCredentialRow extends UserRow { password_hash: string | null; }
 interface MembershipRow { user_id: UserId; tenant_id: TenantId; role: string; }
 
 function mapTenant(row: TenantRow): ControlTenant { return { id: row.id, displayName: row.display_name, createdAt: row.created_at }; }
-function mapUser(row: UserRow): ControlUser { return { id: row.id, displayName: row.display_name, createdAt: row.created_at }; }
+function mapUser(row: UserRow): ControlUser {
+  return { id: row.id, displayName: row.display_name, createdAt: row.created_at, ...(row.username ? { username: row.username } : {}) };
+}
 function mapMembership(row: MembershipRow): ControlMembership { return { userId: row.user_id, tenantId: row.tenant_id, role: row.role }; }
 
 export { CONTROL_LATEST_SCHEMA_VERSION } from "./migrations.js";

@@ -49,6 +49,7 @@ export const managementNavItems = [
   {
     key: 'widget-credentials', mainView: 'widget-credentials', path: '/widget-credentials', label: 'Widget 凭证',
     title: 'Widget 凭证控制台', description: '管理 publishable key、secret、来源白名单与审计记录。', group: 'infrastructure',
+    capability: 'widget',
     icon: createAdminIcon([{ tag: 'rect', attrs: { x: '3', y: '5', width: '18', height: '14', rx: '2' } }, { tag: 'path', attrs: { d: 'M8 12h8M12 8v8' } }]),
   },
   {
@@ -176,6 +177,20 @@ export const managementNavItems = [
     ]),
   },
 ];
+
+const capabilityByNavigationKey = {
+  'tenant-switch': 'tenantSwitch',
+  members: 'members',
+  billing: 'billing',
+  'widget-credentials': 'widget',
+};
+
+export function filterManagementNavItems(capabilities = {}) {
+  return managementNavItems.filter((item) => {
+    const capability = item.capability || capabilityByNavigationKey[item.key];
+    return !capability || capabilities[capability] !== false;
+  });
+}
 
 export const sidebarAdminNavItem = {
   key: 'admin-center',
