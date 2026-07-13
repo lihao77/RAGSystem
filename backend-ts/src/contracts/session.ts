@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { AttachmentRefSchema } from "./execution.js";
 import { OptionalSessionIdSchema } from "./session-id.js";
+import type { TenantId } from "../identity/types.js";
 
 export const SessionMetadataSchema = z.unknown().optional().transform((value, context) => {
   try {
@@ -48,6 +49,7 @@ export type RollbackAndRetryRequest = z.infer<typeof RollbackAndRetryRequestSche
 
 export interface SessionInfo {
   session_id: string;
+  tenant_id: TenantId;
   user_id: string | null;
   metadata: Record<string, unknown>;
   created_at: string;

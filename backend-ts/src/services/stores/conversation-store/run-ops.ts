@@ -40,15 +40,16 @@ export class RunOps implements IRunStore {
       .prepare(
         `
           INSERT INTO runs (
-            run_id, session_id, entrypoint, status, task_summary,
+            run_id, session_id, tenant_id, entrypoint, status, task_summary,
             request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id, child_agent_id
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          SELECT ?, session_id, tenant_id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          FROM sessions
+          WHERE session_id=?
         `,
       )
       .run(
         input.runId,
-        input.sessionId,
         input.entrypoint ?? "execute",
         status,
         input.taskSummary ?? "",
@@ -59,6 +60,7 @@ export class RunOps implements IRunStore {
         input.parentRunId ?? null,
         input.parentCallId ?? null,
         input.childAgentId ?? null,
+        input.sessionId,
       );
     return {
       run_id: input.runId,
@@ -88,7 +90,7 @@ export class RunOps implements IRunStore {
     const row = this.db
       .prepare(
         `
-          SELECT run_id, session_id, entrypoint, status, task_summary,
+          SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary,
                  request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
                  child_agent_id, final_message_id, created_at, updated_at
           FROM runs
@@ -106,7 +108,7 @@ export class RunOps implements IRunStore {
     const rows = this.db
       .prepare(
         `
-          SELECT run_id, session_id, entrypoint, status, task_summary,
+          SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary,
                  request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
                  child_agent_id, final_message_id, created_at, updated_at
           FROM runs

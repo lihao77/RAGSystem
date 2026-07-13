@@ -1,4 +1,3 @@
-import os from "node:os";
 import path from "node:path";
 
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
@@ -56,7 +55,10 @@ export class TaskToolService {
     private readonly notificationQueue: SessionNotificationQueue,
     options: { dataRoot?: string | undefined } = {},
   ) {
-    this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
+    if (!options.dataRoot?.trim()) {
+      throw new Error("TaskToolService 必须传入已解析的 dataRoot");
+    }
+    this.dataRoot = path.resolve(options.dataRoot);
     this.taskStore = new TaskStore(this.dataRoot);
   }
 

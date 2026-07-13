@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { runMigrations } from "../migrations.js";
@@ -23,7 +22,10 @@ export function createConversationDb(options: {
   dbPath: string;
   dataRoot?: string | undefined;
 }): ConversationDbHandle {
-  const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
+  if (!options.dataRoot?.trim()) {
+    throw new Error("createConversationDb 必须传入已解析的 dataRoot");
+  }
+  const dataRoot = path.resolve(options.dataRoot);
   if (options.dbPath !== ":memory:") {
     fs.mkdirSync(path.dirname(options.dbPath), { recursive: true });
   }

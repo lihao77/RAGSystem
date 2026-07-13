@@ -9,6 +9,7 @@ import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "../runtime/event-outbox/execution-envelope-archive.js";
 import type { TransientArtifactService } from "../artifacts/transient-artifact-service.js";
 import { assertSafeSessionId } from "../../contracts/session-id.js";
+import type { TenantId } from "../../identity/types.js";
 
 export class WorkspaceRootValidationError extends Error {
   constructor(workspaceRoot: string) {
@@ -25,6 +26,7 @@ export class AgentSessionApplication {
   ) {}
 
   createSession(input: {
+    tenantId: TenantId;
     sessionId: string;
     userId?: string | null;
     metadata?: Record<string, unknown>;
@@ -32,7 +34,7 @@ export class AgentSessionApplication {
     assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
     assertWorkspaceRootExists(metadata);
-    this.conversationStore.createSession(input.sessionId, input.userId ?? null, metadata);
+    this.conversationStore.createSession(input.tenantId, input.sessionId, input.userId ?? null, metadata);
     return {
       session_id: input.sessionId,
       user_id: input.userId ?? null,
@@ -40,8 +42,8 @@ export class AgentSessionApplication {
     };
   }
 
-  listSessions(input: { limit?: number; offset?: number; userId?: string | null }): PaginatedResult<SessionListItem> {
-    return this.conversationStore.listSessions(input.limit ?? 20, input.offset ?? 0, input.userId ?? null);
+  listSessions(input: { tenantId: TenantId; limit?: number; offset?: number; userId?: string | null }): PaginatedResult<SessionListItem> {
+    return this.conversationStore.listSessions(input.tenantId, input.limit ?? 20, input.offset ?? 0, input.userId ?? null);
   }
 
   getSession(sessionId: string): SessionInfo | null {

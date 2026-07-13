@@ -26,7 +26,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
   app.get<{ Querystring: RegistryQuery }>("/registry/servers", async (request) => {
     const limit = Number(request.query.limit ?? 8);
     const latestOnly = !["0", "false", "no", "off"].includes(String(request.query.latest_only ?? "true").toLowerCase());
-    const result = await options.container.mcp.searchRegistry({
+    const result = await request.container.mcp.searchRegistry({
       search: request.query.search,
       cursor: request.query.cursor,
       limit: Number.isFinite(limit) ? limit : 8,
@@ -39,7 +39,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
     const payload = McpRegistryInstallSchema.parse(request.body);
     try {
       return ok(
-        await options.container.mcp.installServerFromRegistry(payload),
+        await request.container.mcp.installServerFromRegistry(payload),
         "MCP Server installed from Registry",
       );
     } catch (error) {
@@ -47,8 +47,8 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
     }
   });
 
-  app.get("/servers", async () => {
-    return ok(options.container.mcp.listServers().map(normalizeServerListItem));
+  app.get("/servers", async (request) => {
+    return ok(request.container.mcp.listServers().map(normalizeServerListItem));
   });
 
   app.post("/servers", async (request) => {
@@ -59,7 +59,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
     }
     const payload = McpServerCreateSchema.parse(request.body);
     try {
-      return ok(await options.container.mcp.addServer(payload), "MCP Server 添加成功");
+      return ok(await request.container.mcp.addServer(payload), "MCP Server 添加成功");
     } catch (error) {
       throw toHttpError(error);
     }
@@ -68,7 +68,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
   app.put<{ Params: ServerParams }>("/servers/:serverName", async (request) => {
     const payload = McpServerPayloadSchema.parse(request.body);
     try {
-      const status = await options.container.mcp.updateServer(request.params.serverName, payload);
+      const status = await request.container.mcp.updateServer(request.params.serverName, payload);
       return ok(normalizeServerStatus(request.params.serverName, status as unknown as Record<string, unknown>), "MCP Server configuration updated and applied");
     } catch (error) {
       throw toHttpError(error);
@@ -77,7 +77,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.delete<{ Params: ServerParams }>("/servers/:serverName", async (request) => {
     try {
-      options.container.mcp.deleteServer(request.params.serverName);
+      request.container.mcp.deleteServer(request.params.serverName);
       return ok(undefined, "MCP Server 已删除");
     } catch (error) {
       throw toHttpError(error);
@@ -86,7 +86,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.post<{ Params: ServerParams }>("/servers/:serverName/connect", async (request) => {
     try {
-      return ok(await options.container.mcp.connectServer(request.params.serverName), "连接成功");
+      return ok(await request.container.mcp.connectServer(request.params.serverName), "连接成功");
     } catch (error) {
       throw toHttpError(error);
     }
@@ -94,7 +94,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.post<{ Params: ServerParams }>("/servers/:serverName/disconnect", async (request) => {
     try {
-      options.container.mcp.disconnectServer(request.params.serverName, { manual: true });
+      request.container.mcp.disconnectServer(request.params.serverName, { manual: true });
       return ok(undefined, "已断开连接");
     } catch (error) {
       throw toHttpError(error);
@@ -103,7 +103,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.post<{ Params: ServerParams }>("/servers/:serverName/test", async (request) => {
     try {
-      const result = await options.container.mcp.testServer(request.params.serverName);
+      const result = await request.container.mcp.testServer(request.params.serverName);
       return ok(result, result.message);
     } catch (error) {
       if (error instanceof McpServiceError && error.statusCode === 404) {
@@ -115,7 +115,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.get<{ Params: ServerParams }>("/servers/:serverName/tools", async (request) => {
     try {
-      return ok(normalizeToolsResponse(options.container.mcp.listServerTools(request.params.serverName)));
+      return ok(normalizeToolsResponse(request.container.mcp.listServerTools(request.params.serverName)));
     } catch (error) {
       if (error instanceof McpServiceError && error.statusCode === 404) {
         return ok({ server_name: request.params.serverName, tool_count: 0, tools: [] });
@@ -124,17 +124,17 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
     }
   });
 
-  app.get("/tools", async () => {
-    return ok(normalizeToolsResponse(options.container.mcp.listAllTools()));
+  app.get("/tools", async (request) => {
+    return ok(normalizeToolsResponse(request.container.mcp.listAllTools()));
   });
 
-  app.get("/prompts", async () => {
-    return ok(options.container.mcp.listAllPrompts());
+  app.get("/prompts", async (request) => {
+    return ok(request.container.mcp.listAllPrompts());
   });
 
   app.get<{ Params: ServerParams }>("/servers/:serverName/metrics", async (request) => {
     try {
-      return ok(options.container.mcp.getServerMetrics(request.params.serverName));
+      return ok(request.container.mcp.getServerMetrics(request.params.serverName));
     } catch (error) {
       if (error instanceof McpServiceError && error.statusCode === 404) {
         return ok({ server_name: request.params.serverName, tools: [] });
@@ -145,7 +145,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.get<{ Params: ServerParams }>("/servers/:serverName/resources", async (request) => {
     try {
-      return ok(options.container.mcp.listServerResources(request.params.serverName));
+      return ok(request.container.mcp.listServerResources(request.params.serverName));
     } catch (error) {
       if (error instanceof McpServiceError && error.statusCode === 404) {
         return ok({ server_name: request.params.serverName, resource_count: 0, resources: [] });
@@ -163,7 +163,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
       return ok({
         server_name: request.params.serverName,
         uri,
-        contents: await options.container.mcp.readResource(request.params.serverName, uri),
+        contents: await request.container.mcp.readResource(request.params.serverName, uri),
       });
     } catch (error) {
       throw toHttpError(error);
@@ -172,7 +172,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.get<{ Params: ServerParams }>("/servers/:serverName/prompts", async (request) => {
     try {
-      return ok(options.container.mcp.listServerPrompts(request.params.serverName));
+      return ok(request.container.mcp.listServerPrompts(request.params.serverName));
     } catch (error) {
       if (error instanceof McpServiceError && error.statusCode === 404) {
         return ok({ server_name: request.params.serverName, prompt_count: 0, prompts: [] });
@@ -192,7 +192,7 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
       return ok({
         server_name: request.params.serverName,
         name,
-        messages: await options.container.mcp.getPrompt(request.params.serverName, name, args),
+        messages: await request.container.mcp.getPrompt(request.params.serverName, name, args),
       });
     } catch (error) {
       throw toHttpError(error);

@@ -22,12 +22,11 @@ import type { RouteOptions } from "./route-options.js";
  *   保证 Origin 真实）。WS 凭证是 session_id + Origin header，无 token 过期。防跨站滥用，不防定向攻击
  *   （非浏览器可伪造 Origin），定向防护用 secret 路径。
  *
- * 仅当 RuntimeContainer.widgetAuth 存在（配了 WIDGET_JWT_SECRET）时启用；否则整组端点返回 503，
+ * 仅当全局 WidgetAuthService 存在（配了 WIDGET_JWT_SECRET）时启用；否则整组端点返回 503，
  * 默认部署完全不受影响。鉴权只挂在本 plugin 内，不污染既有 /api/agent/* 零鉴权路由。
  */
 export const registerWidgetRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  const container = options.container;
-  const auth = container.widgetAuth;
+  const auth = options.widgetAuth;
 
   if (!auth) {
     const disabled = async (): Promise<never> => {
@@ -44,23 +43,28 @@ export const registerWidgetRoutes: FastifyPluginAsync<RouteOptions> = async (app
     if (!widgetApp) {
       throw new HttpError(401, "unauthorized", "app_key 或 secret 无效");
     }
-    const { token, expires_at } = auth.issueToken(widgetApp.app_key);
+    const { token, expires_at } = auth.issueToken(widgetApp);
     return ok({ token, expires_at, token_type: "Bearer" }, "widget token 签发成功");
   });
 
   app.post("/sessions", async (request) => {
     let appKey: string;
+    let tenantId;
     let createdVia: "widget" | "widget_public";
     try {
       if (request.headers.authorization) {
-        appKey = auth.requireBearer(request).sub;
+        const claims = auth.requireBearer(request);
+        appKey = claims.sub;
+        tenantId = claims.tenant_id;
         createdVia = "widget";
       } else {
         const publishableKey = request.headers["x-widget-key"];
         if (typeof publishableKey !== "string" || !publishableKey) {
           throw new WidgetAuthError("missing widget credentials");
         }
-        appKey = auth.verifyPublishableSession({ appKey: publishableKey, origin: request.headers.origin }).app_key;
+        const widgetApp = auth.verifyPublishableSession({ appKey: publishableKey, origin: request.headers.origin });
+        appKey = widgetApp.app_key;
+        tenantId = widgetApp.tenant_id;
         createdVia = "widget_public";
       }
     } catch (error) {
@@ -79,7 +83,8 @@ export const registerWidgetRoutes: FastifyPluginAsync<RouteOptions> = async (app
         created_via: createdVia,
       },
     };
-    container.sessionApplication.createSession({
+    request.container.sessionApplication.createSession({
+      tenantId,
       sessionId,
       userId: `widget:${appKey}`,
       metadata,

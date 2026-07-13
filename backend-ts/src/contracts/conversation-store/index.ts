@@ -10,6 +10,7 @@
  * （旧 contracts.ts 的 `Pick<SessionOps,...>` 是依赖反向的「假身份证」，已废弃）。
  */
 import type { PaginatedResult, RunStepInfo } from "../common.js";
+import type { TenantId } from "../../identity/types.js";
 import type { ExecutionOverview } from "../execution.js";
 import type { MessageInfo, SessionInfo, SessionListItem } from "../session.js";
 import type {
@@ -43,11 +44,11 @@ export * from "./types.js";
  * 分页 has_more = offset+limit < total；createSession 幂等（ON CONFLICT 更新）。
  */
 export interface ISessionStore {
-  createSession(sessionId: string, userId?: string | null, metadata?: Record<string, unknown>): void;
+  createSession(tenantId: TenantId, sessionId: string, userId?: string | null, metadata?: Record<string, unknown>): void;
   getSession(sessionId: string): SessionInfo | null;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Record<string, unknown> | null;
   deleteSession(sessionId: string): boolean;
-  listSessions(limit?: number, offset?: number, userId?: string | null): PaginatedResult<SessionListItem>;
+  listSessions(tenantId: TenantId, limit?: number, offset?: number, userId?: string | null): PaginatedResult<SessionListItem>;
 }
 
 /**

@@ -7,12 +7,33 @@ import { createConversationStore } from "../../src/services/stores/conversation-
 import { TransientArtifactService } from "../../src/services/artifacts/transient-artifact-service.js";
 import fs from "node:fs";
 import os from "node:os";
+import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
+import { createTenantId } from "../../src/identity/types.js";
+
+const dataRoot = path.resolve(".test-data");
+
+function createStore() {
+  return createConversationStore({ dbPath: ":memory:", dataRoot });
+}
 
 describe("AgentSessionApplication", () => {
-  it("rejects unsafe session IDs before creating database or filesystem state", () => {
-    const store = createConversationStore({ dbPath: ":memory:" });
+  it("写入 tenant_id 并按租户列出会话", () => {
+    const store = createStore();
     const app = new AgentSessionApplication(store);
-    expect(() => app.createSession({ sessionId: "../../outside" })).toThrow("session_id");
+    const otherTenantId = createTenantId("tnt_other");
+    app.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "local-session" });
+    app.createSession({ tenantId: otherTenantId, sessionId: "other-session" });
+
+    expect(app.getSession("local-session")?.tenant_id).toBe(LOCAL_TENANT_ID);
+    expect(app.listSessions({ tenantId: LOCAL_TENANT_ID }).items.map((session) => session.session_id)).toEqual(["local-session"]);
+    expect(app.listSessions({ tenantId: otherTenantId }).items.map((session) => session.session_id)).toEqual(["other-session"]);
+    store.close();
+  });
+
+  it("rejects unsafe session IDs before creating database or filesystem state", () => {
+    const store = createStore();
+    const app = new AgentSessionApplication(store);
+    expect(() => app.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "../../outside" })).toThrow("session_id");
     expect(store.getSession("../../outside")).toBeNull();
     store.close();
   });
@@ -20,9 +41,9 @@ describe("AgentSessionApplication", () => {
   it("removes managed session files after the database session is deleted", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-session-delete-"));
     try {
-      const store = createConversationStore({ dbPath: ":memory:" });
+      const store = createStore();
       const app = new AgentSessionApplication(store, null, new TransientArtifactService(root));
-      app.createSession({ sessionId: "s-delete" });
+      app.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s-delete" });
       const file = path.join(root, "sessions", "s-delete", "transient", "data.txt");
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, "data");
@@ -36,10 +57,10 @@ describe("AgentSessionApplication", () => {
   });
 
   it("returns the same compact create_session payload as Python", () => {
-    const store = createConversationStore({ dbPath: ":memory:" });
+    const store = createStore();
     const app = new AgentSessionApplication(store);
 
-    const created = app.createSession({
+    const created = app.createSession({ tenantId: LOCAL_TENANT_ID,
       sessionId: "s1",
       userId: "u1",
       metadata: { team: "  default  " },
@@ -54,11 +75,11 @@ describe("AgentSessionApplication", () => {
   });
 
   it("normalizes Python-compatible session runtime metadata", () => {
-    const store = createConversationStore({ dbPath: ":memory:" });
+    const store = createStore();
     const app = new AgentSessionApplication(store);
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-workspace-"));
     try {
-      const created = app.createSession({
+      const created = app.createSession({ tenantId: LOCAL_TENANT_ID,
         sessionId: "s-meta",
         metadata: {
           team: "  ",
@@ -72,13 +93,13 @@ describe("AgentSessionApplication", () => {
         workspace_root: workspaceRoot,
       });
       expect(() =>
-        app.createSession({
+        app.createSession({ tenantId: LOCAL_TENANT_ID,
           sessionId: "s-invalid",
           metadata: { workspace_root: "relative/path" },
         }),
       ).toThrow("metadata.workspace_root 必须是绝对路径");
       expect(() =>
-        app.createSession({
+        app.createSession({ tenantId: LOCAL_TENANT_ID,
           sessionId: "s-missing-workspace",
           metadata: { workspace_root: path.join(workspaceRoot, "missing") },
         }),
@@ -90,9 +111,9 @@ describe("AgentSessionApplication", () => {
   });
 
   it("filters hidden, intermediate, child, and non-root messages like Python", () => {
-    const store = createConversationStore({ dbPath: ":memory:" });
+    const store = createStore();
     const app = new AgentSessionApplication(store);
-    app.createSession({ sessionId: "s1" });
+    app.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1" });
     app.addMessage({ sessionId: "s1", role: "user", content: "visible" });
     app.addMessage({ sessionId: "s1", role: "assistant", content: "hidden", metadata: { visible_to_user: false } });
     app.addMessage({ sessionId: "s1", role: "assistant", content: "react", metadata: { react_intermediate: true } });

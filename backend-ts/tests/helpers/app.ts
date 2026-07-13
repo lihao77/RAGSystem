@@ -7,6 +7,11 @@ import type { AgentExecutionLogger } from "../../src/services/agent/execution/in
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import { HashFallbackEmbedder } from "../../src/services/integrations/embedder-registry.js";
 import { makeTempRoot } from "./temp-db.js";
+import { createControlStore } from "../../src/services/stores/control-store/index.js";
+import { createWidgetCredentialStore } from "../../src/services/stores/widget-credential-store/index.js";
+import { createWidgetAuthService } from "../../src/services/runtime/jwt-service.js";
+import { LocalIdentityProvider } from "../../src/services/identity/index.js";
+import { DefaultTenantRuntimeRegistry } from "../../src/services/runtime/tenant-runtime-registry.js";
 
 /**
  * 当前测试 dataRoot(buildTestHarness 每次更新)。artifact 等需直接写文件的 fixture
@@ -20,7 +25,10 @@ export const testEnv: AppEnv = {
   logLevel: "silent",
   corsOrigins: true,
   dataRoot: ".test-data",
+  tenantsRoot: path.join(".test-data", "tenants"),
+  systemRoot: path.join(".test-data", "system"),
   dbPath: ":memory:",
+  allowUnsafeLocalExecution: false,
 };
 
 export async function buildTestApp() {
@@ -49,10 +57,29 @@ export async function buildTestHarness(
     startOutboxDispatcher: options.startOutboxDispatcher ?? false,
     logger: options.logger,
     ...(options.hooks ? { hooks: options.hooks } : {}),
-    ...(options.widgetJwtSecret ? { widgetJwtSecret: options.widgetJwtSecret } : {}),
     embedderFactory: () => new HashFallbackEmbedder(),
   });
-  const app = await buildApp({ env: testEnv, container });
+  const controlStore = createControlStore(path.join(tempRoot, "system"));
+  const identityProvider = new LocalIdentityProvider(controlStore);
+  const widgetCredentialStore = createWidgetCredentialStore(controlStore.db);
+  const widgetAuth = options.widgetJwtSecret
+    ? createWidgetAuthService(options.widgetJwtSecret, widgetCredentialStore.ops)
+    : undefined;
+  const env = { ...testEnv, dataRoot: tempRoot, systemRoot: path.join(tempRoot, "system"), tenantsRoot: path.join(tempRoot, "tenants"), ...(options.widgetJwtSecret ? { widgetJwtSecret: options.widgetJwtSecret } : {}) };
+  const registry = new DefaultTenantRuntimeRegistry(env, controlStore, options.logger, {
+    runtimeFactory: () => container,
+  });
+  const app = await buildApp({
+    env,
+    registry,
+    controlStore,
+    identityProvider,
+    tenantMigrator: { migrate: () => ({ status: "skipped", reason: "no_legacy_data", directories: [] }) },
+    widgetCredentialStore,
+    ...(widgetAuth ? { widgetAuth } : {}),
+  });
   await app.ready();
-  return { app, container };
+  return { app, container, registry, controlStore, widgetCredentialStore, widgetAuth };
 }
+
+

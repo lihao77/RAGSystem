@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
@@ -39,7 +38,10 @@ export class FileIndexService implements IFileIndexStore {
   private readonly dataRoot: string;
 
   constructor(options: FileIndexStoreOptions) {
-    this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
+    if (!options.dataRoot?.trim()) {
+      throw new Error("FileIndexService 必须传入已解析的 dataRoot");
+    }
+    this.dataRoot = path.resolve(options.dataRoot);
     if (options.dbPath !== ":memory:") {
       fs.mkdirSync(path.dirname(options.dbPath), { recursive: true });
     }

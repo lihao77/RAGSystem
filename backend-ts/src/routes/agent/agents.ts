@@ -12,15 +12,15 @@ interface AgentParams {
 }
 
 export const registerAgentManagementRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  app.get("/agents", async () => {
-    const agents = options.container.agentConfig.listAgents().map(normalizeAgentCatalogItem).sort(sortAgentCatalogLikePython);
+  app.get("/agents", async (request) => {
+    const agents = request.container.agentConfig.listAgents().map(normalizeAgentCatalogItem).sort(sortAgentCatalogLikePython);
     return ok(agents, `共有 ${agents.length} 个智能体`);
   });
 
   app.post("/agents/create", async (request) => {
     const payload = parseCreateAgentRequest(request.body);
     try {
-      const config = options.container.agentConfig.createAgent(payload);
+      const config = request.container.agentConfig.createAgent(payload);
       return ok(config, `智能体 ${config.agent_name} 创建成功`);
     } catch (error) {
       throw new HttpError(400, "invalid_request", errorMessage(error));
@@ -29,7 +29,7 @@ export const registerAgentManagementRoutes: FastifyPluginAsync<RouteOptions> = a
 
   app.delete<{ Params: AgentParams }>("/agents/delete/:agentName", async (request) => {
     try {
-      const deleted = options.container.agentConfig.deleteAgent(request.params.agentName);
+      const deleted = request.container.agentConfig.deleteAgent(request.params.agentName);
       if (!deleted) {
         throw new HttpError(404, "not_found", `智能体 ${request.params.agentName} 不存在`);
       }
@@ -42,7 +42,7 @@ export const registerAgentManagementRoutes: FastifyPluginAsync<RouteOptions> = a
     }
   });
 
-  app.post("/agents/reload", async () =>
+  app.post("/agents/reload", async (request) =>
     ok(
       {
         runtime: "ts",

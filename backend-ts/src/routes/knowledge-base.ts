@@ -34,17 +34,16 @@ interface KeyParams { key: string; }
 interface DocsQuery { collection?: string; }
 
 export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  const knowledgeBase = options.container.knowledgeBase;
-  const store = knowledgeBase.knowledgeFileStore;
-
   app.post("/files/upload", async (request) => {
+    const knowledgeBase = request.container.knowledgeBase;
+    const store = request.container.knowledgeBase.knowledgeFileStore;
     const parts = await collectMultipartFiles(request);
     const files: KnowledgeFile[] = [];
     for (const part of parts) {
       const file = store.addKnowledgeFile({ originalName: part.filename, buffer: part.buffer, mime: part.mime });
       // 上传即生成 canonical Markdown（预览/索引基础，与 embedding 解耦），失败不阻塞上传（预览时提示）
       try {
-        await knowledgeBase.generateMarkdownForFile(file.id);
+        await request.container.knowledgeBase.generateMarkdownForFile(file.id);
       } catch (error) {
         request.log.error({ err: error, file_id: file.id }, "上传后生成 Markdown 失败");
       }
@@ -56,13 +55,14 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   app.get<{ Querystring: FileListQuery }>("/files", async (request) => ({
     success: true,
     files: filterKnowledgeFiles(
-      store.listKnowledgeFiles(),
+      request.container.knowledgeBase.knowledgeFileStore.listKnowledgeFiles(),
       parseCsvList(request.query.extensions),
       parseCsvList(request.query.mime_types),
     ),
   }));
 
   app.get<{ Params: FileParams }>("/files/:fileId", async (request) => {
+    const store = request.container.knowledgeBase.knowledgeFileStore;
     const file = store.getKnowledgeFile(request.params.fileId);
     if (!file) {
       throw new HttpError(404, "not_found", "文件不存在");
@@ -71,6 +71,7 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   });
 
   app.get<{ Params: FileParams }>("/files/:fileId/md", async (request) => {
+    const store = request.container.knowledgeBase.knowledgeFileStore;
     const file = store.getKnowledgeFile(request.params.fileId);
     if (!file) throw new HttpError(404, "not_found", "文件不存在");
     if (!file.md_blob_hash) throw new HttpError(409, "markdown_not_ready", "文件尚未生成 Markdown，请先完成索引");
@@ -84,22 +85,22 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
 
   app.put<{ Params: FileParams }>("/files/:fileId/md", async (request) => {
     const payload = UpdateMarkdownRequestSchema.parse(request.body);
-    try { return ok(await knowledgeBase.updateMarkdown(request.params.fileId, payload.content)); } catch (error) { throw toHttpError(error); }
+    try { return ok(await request.container.knowledgeBase.updateMarkdown(request.params.fileId, payload.content)); } catch (error) { throw toHttpError(error); }
   });
 
   app.get<{ Params: FileParams }>("/files/:fileId/chunks", async (request) => {
-    try { return ok((await knowledgeBase.listFileChunks(request.params.fileId)).map((chunk) => ({ id: chunk.id, content: chunk.content, char_start: Number(chunk.metadata.char_start ?? 0), char_end: Number(chunk.metadata.char_end ?? 0), heading_path: String(chunk.metadata.heading_path ?? ""), chunk_index: chunk.chunk_index, manual: chunk.metadata.manual === true }))); } catch (error) { throw toHttpError(error); }
+    try { return ok((await request.container.knowledgeBase.listFileChunks(request.params.fileId)).map((chunk) => ({ id: chunk.id, content: chunk.content, char_start: Number(chunk.metadata.char_start ?? 0), char_end: Number(chunk.metadata.char_end ?? 0), heading_path: String(chunk.metadata.heading_path ?? ""), chunk_index: chunk.chunk_index, manual: chunk.metadata.manual === true }))); } catch (error) { throw toHttpError(error); }
   });
 
   app.patch<{ Params: ChunkParams }>("/files/:fileId/chunks/:chunkId", async (request) => {
     const payload = UpdateChunkRequestSchema.parse(request.body);
     const chunkId = Number.parseInt(request.params.chunkId, 10);
     if (!Number.isSafeInteger(chunkId) || chunkId <= 0) throw new HttpError(400, "invalid_chunk_id", "切片 ID 无效");
-    try { return ok(await knowledgeBase.updateChunk(request.params.fileId, chunkId, payload.content)); } catch (error) { throw toHttpError(error); }
+    try { return ok(await request.container.knowledgeBase.updateChunk(request.params.fileId, chunkId, payload.content)); } catch (error) { throw toHttpError(error); }
   });
 
   app.delete<{ Params: FileParams }>("/files/:fileId", async (request) => {
-    const result = await knowledgeBase.deleteKnowledgeFileWithVectors(request.params.fileId);
+    const result = await request.container.knowledgeBase.deleteKnowledgeFileWithVectors(request.params.fileId);
     if (!result) {
       throw new HttpError(404, "not_found", "文件不存在");
     }
@@ -107,29 +108,30 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   });
 
   app.get<{ Params: FileParams }>("/files/:fileId/download", async (request, reply) => {
+    const store = request.container.knowledgeBase.knowledgeFileStore;
     const file = store.getKnowledgeFile(request.params.fileId);
     if (!file) {
       throw new HttpError(404, "not_found", "文件不存在");
     }
     return sendFileDownload({ record: file, expectedRoot: store.getKnowledgeUploadsRoot(), reply });
   });
-  app.get("/file-status", async () => ok(await knowledgeBase.fileStatus()));
+  app.get("/file-status", async (request) => ok(await request.container.knowledgeBase.fileStatus()));
 
   app.post("/index-file", async (request) => {
     const payload = IndexFileRequestSchema.parse(request.body);
     try {
-      return ok(await knowledgeBase.indexFile(payload));
+      return ok(await request.container.knowledgeBase.indexFile(payload));
     } catch (error) {
       throw toHttpError(error);
     }
   });
 
-  app.get("/vectorizers", async () => ok(await knowledgeBase.listVectorizers()));
+  app.get("/vectorizers", async (request) => ok(await request.container.knowledgeBase.listVectorizers()));
 
   app.post("/vectorizers", async (request) => {
     const payload = VectorizerCreateSchema.parse(request.body);
     try {
-      return ok(knowledgeBase.addVectorizer(payload));
+      return ok(request.container.knowledgeBase.addVectorizer(payload));
     } catch (error) {
       throw toHttpError(error);
     }
@@ -137,7 +139,7 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
 
   app.post<{ Params: KeyParams }>("/vectorizers/:key/activate", async (request) => {
     try {
-      return ok(knowledgeBase.activateVectorizer(request.params.key));
+      return ok(request.container.knowledgeBase.activateVectorizer(request.params.key));
     } catch (error) {
       throw toHttpError(error);
     }
@@ -146,7 +148,7 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   app.get<{ Params: KeyParams; Querystring: DocsQuery }>("/vectorizers/:key/docs", async (request) => {
     void request.query.collection;
     try {
-      return ok(await knowledgeBase.listDocsByVectorizer(request.params.key));
+      return ok(await request.container.knowledgeBase.listDocsByVectorizer(request.params.key));
     } catch (error) {
       throw toHttpError(error);
     }
@@ -154,7 +156,7 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
 
   app.delete<{ Params: KeyParams }>("/vectorizers/:key", async (request) => {
     try {
-      return ok(await knowledgeBase.deleteVectorizer(request.params.key));
+      return ok(await request.container.knowledgeBase.deleteVectorizer(request.params.key));
     } catch (error) {
       throw toHttpError(error);
     }
@@ -163,25 +165,25 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   app.post("/migrate", async (request) => {
     const payload = GenericVectorRequestSchema.parse(request.body ?? {});
     try {
-      return ok(await knowledgeBase.migrate(payload));
+      return ok(await request.container.knowledgeBase.migrate(payload));
     } catch (error) {
       throw toHttpError(error);
     }
   });
 
-  app.get("/rerankers", async () => ok(knowledgeBase.listRerankers()));
+  app.get("/rerankers", async (request) => ok(request.container.knowledgeBase.listRerankers()));
 
   app.post("/rerankers", async (request) => {
     const payload = RerankerCreateSchema.parse(request.body);
     try {
-      return ok(knowledgeBase.addReranker(payload));
+      return ok(request.container.knowledgeBase.addReranker(payload));
     } catch (error) {
       throw toHttpError(error);
     }
   });
 
   app.get<{ Params: KeyParams }>("/rerankers/:key", async (request) => {
-    const reranker = knowledgeBase.getReranker(request.params.key);
+    const reranker = request.container.knowledgeBase.getReranker(request.params.key);
     if (!reranker) {
       throw new HttpError(404, "not_found", `重排序器不存在: ${request.params.key}`);
     }
@@ -190,7 +192,7 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
 
   app.post<{ Params: KeyParams }>("/rerankers/:key/activate", async (request) => {
     try {
-      return ok(knowledgeBase.activateReranker(request.params.key));
+      return ok(request.container.knowledgeBase.activateReranker(request.params.key));
     } catch (error) {
       throw toHttpError(error);
     }
@@ -198,13 +200,13 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
 
   app.delete<{ Params: KeyParams }>("/rerankers/:key", async (request) => {
     try {
-      return ok(knowledgeBase.deleteReranker(request.params.key));
+      return ok(request.container.knowledgeBase.deleteReranker(request.params.key));
     } catch (error) {
       throw toHttpError(error);
     }
   });
-  app.get("/collections", async () => {
-    const data = await options.container.knowledgeBase.listCollections();
+  app.get("/collections", async (request) => {
+    const data = await request.container.knowledgeBase.listCollections();
     return {
       success: true,
       data,
@@ -214,7 +216,7 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
 
   app.delete<{ Params: CollectionParams }>("/collections/:collectionName", async (request) => {
     try {
-      const result = await options.container.knowledgeBase.deleteCollection(request.params.collectionName);
+      const result = await request.container.knowledgeBase.deleteCollection(request.params.collectionName);
       return {
         success: true,
         data: result,
@@ -228,7 +230,7 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   app.post("/search", async (request) => {
     const payload = SearchVectorsRequestSchema.parse(request.body);
     try {
-      return ok(await options.container.knowledgeBase.search(payload));
+      return ok(await request.container.knowledgeBase.search(payload));
     } catch (error) {
       throw toHttpError(error);
     }
@@ -237,7 +239,7 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   app.post("/index", async (request) => {
     const payload = GenericVectorRequestSchema.parse(request.body ?? {});
     try {
-      return ok(await options.container.knowledgeBase.indexDocument(payload));
+      return ok(await request.container.knowledgeBase.indexDocument(payload));
     } catch (error) {
       throw toHttpError(error);
     }
@@ -245,7 +247,7 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
 
   app.delete<{ Params: DocumentParams }>("/documents/:collectionName/:documentId", async (request) => {
     try {
-      const result = await options.container.knowledgeBase.deleteDocument(
+      const result = await request.container.knowledgeBase.deleteDocument(
         request.params.collectionName,
         request.params.documentId,
       );
@@ -260,14 +262,14 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   });
 
   app.get<{ Params: CollectionParams }>("/documents/:collectionName", async (request) => {
-    const data = await options.container.knowledgeBase.listDocuments(request.params.collectionName);
+    const data = await request.container.knowledgeBase.listDocuments(request.params.collectionName);
     return {
       success: true,
       data: normalizeDocumentsResponse(data),
     };
   });
 
-  app.get("/health", async () => ok(normalizeVectorHealth(await options.container.knowledgeBase.vectorHealth())));
+  app.get("/health", async (request) => ok(normalizeVectorHealth(await request.container.knowledgeBase.vectorHealth())));
 };
 
 function filterKnowledgeFiles(

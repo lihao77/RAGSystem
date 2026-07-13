@@ -10,6 +10,7 @@ import type {
   ISessionStore,
 } from "../../src/contracts/conversation-store/index.js";
 import { AddMessageInputSchema } from "../../src/contracts/conversation-store/types.js";
+import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 /**
  * conversation-store 契约测试样本（路线图④替换验证雏形）。
@@ -23,7 +24,7 @@ import { AddMessageInputSchema } from "../../src/contracts/conversation-store/ty
  * 事务原子性（全成或全回滚）、输入边界 zod 校验。
  */
 
-const build = () => createConversationStore({ dbPath: ":memory:" });
+const build = () => createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
 
 const baseMessage = (sessionId: string): AddMessageInput => ({
   sessionId,
@@ -39,8 +40,8 @@ describe("ISessionStore 契约", () => {
 
   it("createSession 幂等（ON CONFLICT 覆盖）且可读回", () => {
     const sessions: ISessionStore = build();
-    sessions.createSession("s1", "u1", { title: "t" });
-    sessions.createSession("s1", "u2", {});
+    sessions.createSession(LOCAL_TENANT_ID, "s1", "u1", { title: "t" });
+    sessions.createSession(LOCAL_TENANT_ID, "s1", "u2", {});
     const got = sessions.getSession("s1");
     expect(got).not.toBeNull();
     expect(got?.user_id).toBe("u2");
@@ -48,8 +49,8 @@ describe("ISessionStore 契约", () => {
 
   it("listSessions 分页 has_more = offset+limit < total", () => {
     const sessions: ISessionStore = build();
-    for (let i = 0; i < 3; i += 1) sessions.createSession(`s${i}`);
-    const page = sessions.listSessions(2, 0);
+    for (let i = 0; i < 3; i += 1) sessions.createSession(LOCAL_TENANT_ID, `s${i}`);
+    const page = sessions.listSessions(LOCAL_TENANT_ID, 2, 0);
     expect(page.items).toHaveLength(2);
     expect(page.total).toBe(3);
     expect(page.has_more).toBe(true);
@@ -58,7 +59,8 @@ describe("ISessionStore 契约", () => {
 
 describe("IMessageStore 契约", () => {
   it("addMessage 写入并回读，listMessages 按 seq 升序", () => {
-    const messages: IMessageStore = build();
+    const messages: IMessageStore & ISessionStore = build();
+    messages.createSession(LOCAL_TENANT_ID, "s1");
     messages.addMessage({ ...baseMessage("s1"), content: "a" });
     messages.addMessage({ ...baseMessage("s1"), content: "b" });
     const list = messages.listMessages("s1", 20);
@@ -77,7 +79,7 @@ describe("IMessageStore 契约", () => {
 describe("IRunStore 契约", () => {
   it("addRunStep 的 step_order 在 (session,run) 内自增", () => {
     const store = build();
-    store.createSession("s1");
+    store.createSession(LOCAL_TENANT_ID, "s1");
     const runs: IRunStore = store;
     runs.createRun({ runId: "r1", sessionId: "s1" });
     const step1 = runs.addRunStep({ sessionId: "s1", runId: "r1", stepType: "x", payload: {} });
@@ -94,7 +96,7 @@ describe("IRunStore 契约", () => {
 describe("IOutboxStore 契约", () => {
   it("getNextSessionSeq 跨调用唯一递增（原子自增，前置：session 须先存在）", () => {
     const store = build();
-    store.createSession("s1");
+    store.createSession(LOCAL_TENANT_ID, "s1");
     const outbox: IOutboxStore = store;
     const a = outbox.getNextSessionSeq("s1");
     const b = outbox.getNextSessionSeq("s1");
@@ -102,7 +104,8 @@ describe("IOutboxStore 契约", () => {
   });
 
   it("appendOutbox 入库后可被 fetchPendingOutbox 取到", () => {
-    const outbox: IOutboxStore = build();
+    const outbox: IOutboxStore & ISessionStore = build();
+    outbox.createSession(LOCAL_TENANT_ID, "s1");
     outbox.appendOutbox({
       sessionId: "s1",
       eventType: "e",
@@ -119,7 +122,7 @@ describe("IOutboxStore 契约", () => {
 describe("IConversationTransactionRunner 契约——原子性", () => {
   it("事务内多域写入要么全成（提交后均可见）", () => {
     const store = build();
-    store.createSession("s1");
+    store.createSession(LOCAL_TENANT_ID, "s1");
     const runner: IConversationTransactionRunner = store;
     const result = runner.runInTransaction((tx) => {
       tx.addMessage({ ...baseMessage("s1"), content: "tx-msg" });
@@ -139,7 +142,7 @@ describe("IConversationTransactionRunner 契约——原子性", () => {
 
   it("事务内抛异常则全部回滚（写入不可见）", () => {
     const store = build();
-    store.createSession("s1");
+    store.createSession(LOCAL_TENANT_ID, "s1");
     const runner: IConversationTransactionRunner = store;
     const messages: IMessageStore = store;
     expect(() =>

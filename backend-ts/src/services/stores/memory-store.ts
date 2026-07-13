@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 import type {
@@ -24,7 +23,10 @@ export class MemoryStore implements IMemoryStore {
   private readonly dataRoot: string;
 
   constructor(options: MemoryStoreOptions = {}) {
-    this.dataRoot = path.resolve(options.dataRoot?.trim() || path.join(os.homedir(), ".ragsystem"));
+    if (!options.dataRoot?.trim()) {
+      throw new Error("MemoryStore 必须传入已解析的 dataRoot");
+    }
+    this.dataRoot = path.resolve(options.dataRoot);
   }
 
   getScopeRoot(scopeSpec: MemoryScopeSpec): string {

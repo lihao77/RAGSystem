@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
-import os from "node:os";
 import path from "node:path";
 import { URL } from "node:url";
 
@@ -18,7 +17,10 @@ export class LocalSearchToolService {
   private readonly todosBySession = new Map<string, TodoItem[]>();
 
   constructor(options: { dataRoot?: string | undefined } = {}) {
-    this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
+    if (!options.dataRoot?.trim()) {
+      throw new Error("LocalSearchToolService 必须传入已解析的 dataRoot");
+    }
+    this.dataRoot = path.resolve(options.dataRoot);
   }
 
   glob(

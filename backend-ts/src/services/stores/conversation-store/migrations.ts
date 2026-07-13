@@ -114,7 +114,26 @@ export const MIGRATIONS: readonly Migration[] = [
       db.exec(`ALTER TABLE runs ADD COLUMN request_id TEXT;`);
     },
   },
+  {
+    version: 7,
+    name: "session_tenant_ownership",
+    up: (db) => {
+      addColumnIfMissing(db, "sessions", "tenant_id", "TEXT");
+      addColumnIfMissing(db, "runs", "tenant_id", "TEXT");
+      addColumnIfMissing(db, "event_outbox", "tenant_id", "TEXT");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_tenant_updated ON sessions(tenant_id, updated_at)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_runs_tenant_session ON runs(tenant_id, session_id)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_event_outbox_tenant_status ON event_outbox(tenant_id, status, available_at, id)");
+    },
+  },
 ];
+
+function addColumnIfMissing(db: MigrationDatabase, table: string, column: string, declaration: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as unknown as Array<{ name: string }>;
+  if (!columns.some((item) => item.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${declaration}`);
+  }
+}
 
 function getUserVersion(db: MigrationDatabase): number {
   const row = db.prepare("PRAGMA user_version").get() as { user_version?: number } | undefined;
@@ -143,7 +162,7 @@ export function runMigrations(db: MigrationDatabase): void {
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce((max, m) => Math.max(max, m.version), 0);
 
-function assertVersionsContiguous(ordered: readonly Migration[]): void {
+export function assertVersionsContiguous(ordered: readonly Migration[]): void {
   ordered.forEach((migration, index) => {
     const expected = index + 1;
     if (migration.version !== expected) {

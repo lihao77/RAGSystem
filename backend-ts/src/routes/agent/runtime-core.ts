@@ -13,7 +13,7 @@ export const registerRuntimeCoreRoutes: FastifyPluginAsync<RouteOptions> = async
   app.get<{ Querystring: RuntimeCoreStatusQuery }>("/runtime-core/status", async (request) => {
     const selectedLlm = request.query.selected_llm ?? request.query.selectedLLM ?? null;
     return ok(
-      options.container.runtimeCore.getReadiness({
+      request.container.runtimeCore.getReadiness({
         agentName: request.query.agent_name ?? null,
         selectedLlm,
       }),

@@ -26,6 +26,7 @@ import type { AgentExecutionEventPublisher } from "./event-publisher.js";
 import type { MessageExtension } from "../context/extensions/kinds.js";
 import type { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
+import { LOCAL_TENANT_ID } from "../../identity/local-identity-provider.js";
 
 export interface RollbackRetryInput {
   sessionId: string;
@@ -178,7 +179,7 @@ class AgentLaunchers {
     }
 
     if (!this.sessions.getSession(sessionId)) {
-      this.sessions.createSession({ sessionId, userId: request.user_id ?? null });
+      this.sessions.createSession({ tenantId: LOCAL_TENANT_ID, sessionId, userId: request.user_id ?? null });
     }
     const runtimeAgent = ready.agent;
 
@@ -252,7 +253,7 @@ class AgentLaunchers {
       };
     }
     if (!this.sessions.getSession(sessionId)) {
-      this.sessions.createSession({ sessionId, userId: request.user_id ?? null });
+      this.sessions.createSession({ tenantId: LOCAL_TENANT_ID, sessionId, userId: request.user_id ?? null });
     }
 
     const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
@@ -362,7 +363,7 @@ class AgentLaunchers {
       };
     }
     if (!this.sessions.getSession(sessionId)) {
-      this.sessions.createSession({ sessionId, userId: input.userId ?? null });
+      this.sessions.createSession({ tenantId: LOCAL_TENANT_ID, sessionId, userId: input.userId ?? null });
     }
 
     const prepareInput: {
@@ -492,7 +493,7 @@ class AgentLaunchers {
       return;
     }
     if (!this.sessions.getSession(sessionId)) {
-      this.sessions.createSession({ sessionId });
+      this.sessions.createSession({ tenantId: LOCAL_TENANT_ID, sessionId });
     }
     try {
       this.runEngine.startRun({

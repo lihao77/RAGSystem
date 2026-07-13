@@ -1,50 +1,61 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createTenantId } from "../../../src/identity/types.js";
+import { createControlStore } from "../../../src/services/stores/control-store/index.js";
 import { createWidgetCredentialStore } from "../../../src/services/stores/widget-credential-store/index.js";
+import { makeTempRoot } from "../../helpers/temp-db.js";
+
+const tenantA = createTenantId("tnt_widget_a");
+const tenantB = createTenantId("tnt_widget_b");
 
 afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("WidgetCredentialStore pruning", () => {
-  it("pruneExpiredTokens removes expired token rows", () => {
-    const store = createWidgetCredentialStore({ dbPath: ":memory:" });
-    const created = store.ops.createApp({ display_name: "x" });
-    store.ops.recordToken({ jti: "j1", app_key: created.app_key, issued_at: 0, expires_at: 1 });
-    store.ops.recordToken({ jti: "j2", app_key: created.app_key, issued_at: 0, expires_at: 9_999_999_999 });
+function makeStore() {
+  const controlStore = createControlStore(makeTempRoot());
+  controlStore.createTenant({ id: tenantA, displayName: "A" });
+  controlStore.createTenant({ id: tenantB, displayName: "B" });
+  return { controlStore, store: createWidgetCredentialStore(controlStore.db) };
+}
 
-    // now > expires_at(1) → j1 过期被清，j2 保留。
-    const removed = store.ops.pruneExpiredTokens(1000);
-    expect(removed).toBe(1);
-    expect(store.ops.isTokenRevoked("j1")).toBe(true); // 已删 → 未知 jti 视为撤销
-    expect(store.ops.isTokenRevoked("j2")).toBe(false); // 未过期、未撤销
+describe("WidgetCredentialStore", () => {
+  it("按租户隔离 app 列表与 CORS 来源", () => {
+    const { controlStore, store } = makeStore();
+    const appA = store.ops.createApp({ tenantId: tenantA, display_name: "A", allowed_origins: ["https://a.test"] });
+    store.ops.createApp({ tenantId: tenantB, display_name: "B", allowed_origins: ["https://b.test"] });
+
+    expect(store.ops.listApps(tenantA).map((app) => app.app_key)).toEqual([appA.app_key]);
+    expect(store.ops.listAllowedOrigins(tenantA)).toEqual(["https://a.test"]);
+    expect(store.ops.listAllowedOrigins(tenantB)).toEqual(["https://b.test"]);
+
     store.close();
+    controlStore.close();
   });
 
-  it("startPruning runs cleanup on interval (fake timers)", () => {
-    vi.useFakeTimers();
-    const store = createWidgetCredentialStore({ dbPath: ":memory:" });
-    const created = store.ops.createApp({ display_name: "x" });
-    store.ops.recordToken({ jti: "expired", app_key: created.app_key, issued_at: 0, expires_at: 1 });
+  it("清理过期 token", () => {
+    const { controlStore, store } = makeStore();
+    const created = store.ops.createApp({ tenantId: tenantA, display_name: "x" });
+    store.ops.recordToken({ tenantId: tenantA, jti: "j1", app_key: created.app_key, issued_at: 0, expires_at: 1 });
+    store.ops.recordToken({ tenantId: tenantA, jti: "j2", app_key: created.app_key, issued_at: 0, expires_at: 9_999_999_999 });
 
-    store.startPruning(60_000);
-    // 首次立即清一次。
-    expect(store.ops.isTokenRevoked("expired")).toBe(true);
-    // 再塞一条，等一个周期确认定时清理生效。
-    store.ops.recordToken({ jti: "later", app_key: created.app_key, issued_at: 0, expires_at: 1 });
-    vi.advanceTimersByTime(60_000);
-    expect(store.ops.isTokenRevoked("later")).toBe(true);
-    store.stop();
+    expect(store.ops.pruneExpiredTokens(1000)).toBe(1);
+    expect(store.ops.isTokenRevoked(tenantA, "j1")).toBe(true);
+    expect(store.ops.isTokenRevoked(tenantA, "j2")).toBe(false);
     store.close();
+    controlStore.close();
   });
 
-  it("startPruning is idempotent", () => {
+  it("周期清理可幂等启动", () => {
     vi.useFakeTimers();
-    const store = createWidgetCredentialStore({ dbPath: ":memory:" });
+    const { controlStore, store } = makeStore();
+    const created = store.ops.createApp({ tenantId: tenantA, display_name: "x" });
+    store.ops.recordToken({ tenantId: tenantA, jti: "expired", app_key: created.app_key, issued_at: 0, expires_at: 1 });
     store.startPruning(60_000);
-    store.startPruning(60_000); // 不应重复挂定时器
+    store.startPruning(60_000);
+    expect(store.ops.isTokenRevoked(tenantA, "expired")).toBe(true);
     store.stop();
     store.close();
-    expect(true).toBe(true);
+    controlStore.close();
   });
 });

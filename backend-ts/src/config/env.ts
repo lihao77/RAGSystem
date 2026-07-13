@@ -2,6 +2,22 @@ import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import os from "node:os";
 import path from "node:path";
+import type {
+  AuthMode,
+  DeploymentMode,
+  DeploymentProfile,
+  ExecutionMode,
+  StorageMode,
+  TenancyMode,
+  UiMode,
+} from "../identity/types.js";
+
+const DeploymentModeSchema = z.enum(["local", "saas", "enterprise"]);
+const AuthModeSchema = z.enum(["local", "password", "oidc"]);
+const TenancyModeSchema = z.enum(["single", "multi"]);
+const ExecutionModeSchema = z.enum(["local", "docker", "remote"]);
+const StorageModeSchema = z.enum(["sqlite", "sqlite-per-tenant", "postgres"]);
+const UiModeSchema = z.enum(["local", "saas"]);
 
 const EnvSchema = z.object({
   BACKEND_TS_HOST: z.string().optional(),
@@ -12,6 +28,13 @@ const EnvSchema = z.object({
   PORT: z.string().optional(),
   RAG_DATA_ROOT: z.string().optional(),
   WIDGET_JWT_SECRET: z.string().optional(),
+  DEPLOYMENT_MODE: DeploymentModeSchema.optional(),
+  AUTH_MODE: AuthModeSchema.optional(),
+  TENANCY_MODE: TenancyModeSchema.optional(),
+  EXECUTION_MODE: ExecutionModeSchema.optional(),
+  STORAGE_MODE: StorageModeSchema.optional(),
+  UI_MODE: UiModeSchema.optional(),
+  ALLOW_UNSAFE_LOCAL_EXECUTION: z.string().optional(),
 });
 
 export interface AppEnv {
@@ -20,7 +43,16 @@ export interface AppEnv {
   logLevel: string;
   corsOrigins: string[] | boolean;
   dataRoot: string;
+  tenantsRoot: string;
+  systemRoot: string;
   dbPath: string;
+  deploymentMode?: DeploymentMode | undefined;
+  authMode?: AuthMode | undefined;
+  tenancyMode?: TenancyMode | undefined;
+  executionMode?: ExecutionMode | undefined;
+  storageMode?: StorageMode | undefined;
+  uiMode?: UiMode | undefined;
+  allowUnsafeLocalExecution: boolean;
   /** widget JWT 签名密钥；未设则 widget 鉴权不启用。 */
   widgetJwtSecret?: string | undefined;
 }
@@ -48,18 +80,46 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     throw new Error(`Invalid BACKEND_TS_PORT/PORT: ${rawPort}`);
   }
 
-  const dataRoot = env.RAG_DATA_ROOT?.trim() || path.join(os.homedir(), ".ragsystem");
+  const dataRoot = path.resolve(env.RAG_DATA_ROOT?.trim() || path.join(os.homedir(), ".ragsystem"));
   const dbPath = env.BACKEND_TS_DB_PATH?.trim() || path.join(dataRoot, "db", "ragsystem.db");
 
-  return {
+  const appEnv: AppEnv = {
     host: env.BACKEND_TS_HOST ?? "0.0.0.0",
     port,
     logLevel: env.BACKEND_TS_LOG_LEVEL ?? "info",
     corsOrigins: parseCorsOrigins(env.CORS_ORIGINS),
     dataRoot,
-    dbPath,
+    tenantsRoot: path.join(dataRoot, "tenants"),
+    systemRoot: path.join(dataRoot, "system"),
+    dbPath: path.resolve(dbPath),
+    deploymentMode: env.DEPLOYMENT_MODE,
+    authMode: env.AUTH_MODE,
+    tenancyMode: env.TENANCY_MODE,
+    executionMode: env.EXECUTION_MODE,
+    storageMode: env.STORAGE_MODE,
+    uiMode: env.UI_MODE,
+    allowUnsafeLocalExecution: parseBooleanFlag(env.ALLOW_UNSAFE_LOCAL_EXECUTION),
     widgetJwtSecret: env.WIDGET_JWT_SECRET?.trim() || undefined,
   };
+  resolveDeploymentProfile(appEnv);
+  return appEnv;
+}
+
+export function resolveDeploymentProfile(env: AppEnv): DeploymentProfile {
+  const profile: DeploymentProfile = {
+    deployment: env.deploymentMode ?? "local",
+    auth: env.authMode ?? "local",
+    tenancy: env.tenancyMode ?? "single",
+    execution: env.executionMode ?? "local",
+    storage: env.storageMode ?? "sqlite",
+    ui: env.uiMode ?? "local",
+  };
+  if (profile.deployment === "saas" && profile.execution === "local" && !env.allowUnsafeLocalExecution) {
+    throw new Error(
+      "危险配置: DEPLOYMENT_MODE=saas 禁止使用 EXECUTION_MODE=local。仅在明确接受宿主机执行风险时设置 ALLOW_UNSAFE_LOCAL_EXECUTION=true。",
+    );
+  }
+  return profile;
 }
 
 function parseCorsOrigins(rawValue: string | undefined): string[] | boolean {
@@ -70,4 +130,8 @@ function parseCorsOrigins(rawValue: string | undefined): string[] | boolean {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function parseBooleanFlag(rawValue: string | undefined): boolean {
+  return rawValue?.trim().toLowerCase() === "true";
 }

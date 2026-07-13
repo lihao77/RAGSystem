@@ -12,6 +12,8 @@
  * create 成功后 secret 仅显示一次——后端只存 SHA-256 hash，无法找回，请立即保存。
  */
 import { loadEnv } from "../config/env.js";
+import { LOCAL_TENANT_ID, LocalIdentityProvider } from "../services/identity/index.js";
+import { createControlStore } from "../services/stores/control-store/index.js";
 import { createWidgetCredentialStore } from "../services/stores/widget-credential-store/index.js";
 
 function main(): void {
@@ -22,7 +24,9 @@ function main(): void {
   }
 
   const env = loadEnv(process.env);
-  const store = createWidgetCredentialStore({ dbPath: env.dbPath });
+  const controlStore = createControlStore(env.systemRoot);
+  new LocalIdentityProvider(controlStore);
+  const store = createWidgetCredentialStore(controlStore.db);
   try {
     if (command === "create") {
       const name = rest[0];
@@ -34,7 +38,7 @@ function main(): void {
         .split(",")
         .map((item) => item.trim())
         .filter(Boolean);
-      const created = store.ops.createApp({ display_name: name, allowed_origins: origins });
+      const created = store.ops.createApp({ tenantId: LOCAL_TENANT_ID, display_name: name, allowed_origins: origins });
       console.log(JSON.stringify(created, null, 2));
       console.error("\n⚠️  secret 仅此一次显示，请立即保存（后端只存 hash）。");
     } else if (command === "revoke") {
@@ -43,23 +47,24 @@ function main(): void {
         usage();
         process.exit(1);
       }
-      const ok = store.ops.revokeApp(appKey);
+      const ok = store.ops.revokeApp(LOCAL_TENANT_ID, appKey);
       console.log(ok ? `已吊销 ${appKey}` : `未找到或已吊销：${appKey}`);
     } else if (command === "list") {
-      console.log(JSON.stringify(store.ops.listApps().map(({ secret_hash: _secretHash, ...app }) => app), null, 2));
+      console.log(JSON.stringify(store.ops.listApps(LOCAL_TENANT_ID).map(({ secret_hash: _secretHash, ...app }) => app), null, 2));
     } else if (command === "rotate") {
       const appKey = rest[0]; if (!appKey) { usage(); process.exit(1); }
-      const rotated = store.ops.rotateSecret(appKey);
+      const rotated = store.ops.rotateSecret(LOCAL_TENANT_ID, appKey);
       console.log(rotated ? JSON.stringify(rotated, null, 2) : `未找到或已吊销：${appKey}`);
       if (rotated) console.error("\n⚠️  secret 仅此一次显示，请立即保存。");
     } else {
       const appKey = rest[0]; if (!appKey) { usage(); process.exit(1); }
       const origins = (rest[1] ?? "").split(",").map((item) => item.trim()).filter(Boolean);
-      const updated = store.ops.updateApp(appKey, { allowed_origins: origins });
+      const updated = store.ops.updateApp(LOCAL_TENANT_ID, appKey, { allowed_origins: origins });
       console.log(updated ? JSON.stringify({ ...updated, secret_hash: undefined }, null, 2) : `未找到：${appKey}`);
     }
   } finally {
     store.close();
+    controlStore.close();
   }
 }
 

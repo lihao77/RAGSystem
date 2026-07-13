@@ -5,14 +5,16 @@ import { DurableClientEventPublisher } from "../../src/services/runtime/event-ou
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
+import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 describe("PendingInteractionService", () => {
   it("resolves approval interactions through the generic interaction response path", async () => {
-    const store = createConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
     const dispatcher = new OutboxDispatcher(store, realtimeEvents);
     const clientEvents = new DurableClientEventPublisher(store, dispatcher);
     const service = new PendingInteractionService(clientEvents);
+    store.createSession(LOCAL_TENANT_ID, "s1");
 
     const approvalPromise = service.waitForApproval({
       sessionId: "s1",

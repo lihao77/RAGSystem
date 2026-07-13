@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
+import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 import {
   AgentContextBuilder,
   RecentMessagesContextSource,
@@ -18,8 +19,8 @@ import {
  */
 describe("ui_context 端到端投影(store → conversation)", () => {
   it("user 消息 extensions[ui_context] 投影成 <ui_context> 文本追加到 content", () => {
-    const store = createConversationStore({ dbPath: ":memory:" });
-    store.createSession("s1", null);
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    store.createSession(LOCAL_TENANT_ID, "s1", null);
     store.addMessage({
       sessionId: "s1",
       role: "user",
@@ -51,8 +52,8 @@ describe("ui_context 端到端投影(store → conversation)", () => {
 
   it("老消息 metadata.ui_context(无 extensions)不被投影(仅 extensions[] 投影)", () => {
     // 佐证:只有 extensions[] 形态才投影;散落的 metadata.ui_context 不进 LLM(写入侧须落 extensions[])
-    const store = createConversationStore({ dbPath: ":memory:" });
-    store.createSession("s2", null);
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    store.createSession(LOCAL_TENANT_ID, "s2", null);
     store.addMessage({
       sessionId: "s2",
       role: "user",
@@ -76,8 +77,8 @@ describe("image_attachment 端到端投影(store → conversation)", () => {
   it("user 消息 extensions[image_attachment] 经装配投影进 content(读盘失败降级文本占位)", () => {
     // recent-source 内部硬编码 fs 读盘,无法注入 mock;此处用不存在路径走降级,验证装配链路通。
     // image_url 主路径(data URL 生成)在 extensions.test.ts 纯函数测试以 readImage mock 覆盖。
-    const store = createConversationStore({ dbPath: ":memory:" });
-    store.createSession("s3", null);
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    store.createSession(LOCAL_TENANT_ID, "s3", null);
     store.addMessage({
       sessionId: "s3",
       role: "user",
@@ -112,9 +113,9 @@ describe("tool_result_media TTL projection", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-tool-media-history-"));
     const imagePath = path.join(root, "image.png");
     fs.writeFileSync(imagePath, Buffer.from("iVBORw0KGgo=", "base64"));
-    const store = createConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     try {
-      store.createSession("s-tool-image", null);
+      store.createSession(LOCAL_TENANT_ID, "s-tool-image", null);
       store.addMessage({
         sessionId: "s-tool-image",
         role: "tool",

@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
@@ -23,7 +22,10 @@ export class LocalDocumentToolService {
   private readonly fileHistory: IFileHistoryStore | null;
 
   constructor(options: { dataRoot?: string | undefined; fileHistory?: IFileHistoryStore | null | undefined } = {}) {
-    const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
+    if (!options.dataRoot?.trim()) {
+      throw new Error("LocalDocumentToolService 必须传入已解析的 dataRoot");
+    }
+    const dataRoot = path.resolve(options.dataRoot);
     this.pathManager = new LocalDocumentPathManager(dataRoot);
     this.fileHistory = options.fileHistory ?? null;
   }

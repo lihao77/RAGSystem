@@ -1,10 +1,11 @@
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import websocket from "@fastify/websocket";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import fs from "node:fs";
 import path from "node:path";
 import { ZodError } from "zod";
+import "./fastify-context.js";
 
 import type { AppEnv } from "./config/env.js";
 import { registerAgentConfigRoutes } from "./routes/agent-config.js";
@@ -22,12 +23,23 @@ import { registerAguiRoutes } from "./routes/agent/agui.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerWidgetRoutes } from "./routes/widget.js";
 import { registerWidgetAppsRoutes } from "./routes/widget-apps.js";
+import { registerBootstrapRoutes } from "./routes/bootstrap.js";
 import { HttpError, formatError } from "./utils/errors.js";
-import { createRuntimeContainer, type RuntimeContainer } from "./services/runtime/runtime-container.js";
+import { createControlStore, type ControlStore } from "./services/stores/control-store/index.js";
+import { createWidgetCredentialStore, type WidgetCredentialStore } from "./services/stores/widget-credential-store/index.js";
+import { createWidgetAuthService, WidgetAuthError, type WidgetAuthService } from "./services/runtime/jwt-service.js";
+import { LocalIdentityProvider, WidgetIdentityProvider, type IdentityProvider } from "./services/identity/index.js";
+import { DefaultTenantRuntimeRegistry, type TenantRuntimeRegistry } from "./services/runtime/tenant-runtime-registry.js";
+import { createTenantMigrator, type TenantMigrator } from "./services/runtime/tenant-migrator.js";
 
 export interface BuildAppOptions {
   env: AppEnv;
-  container?: RuntimeContainer;
+  registry?: TenantRuntimeRegistry;
+  controlStore?: ControlStore;
+  identityProvider?: IdentityProvider;
+  tenantMigrator?: Pick<TenantMigrator, "migrate">;
+  widgetCredentialStore?: WidgetCredentialStore;
+  widgetAuth?: WidgetAuthService;
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
@@ -36,16 +48,47 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       level: options.env.logLevel,
     },
   });
-  const container =
-    options.container ??
-    createRuntimeContainer({
-      dbPath: options.env.dbPath,
-      dataRoot: options.env.dataRoot,
-      logger: app.log,
-      ...(options.env.widgetJwtSecret ? { widgetJwtSecret: options.env.widgetJwtSecret } : {}),
-    });
+  const controlStore = options.controlStore ?? createControlStore(options.env.systemRoot);
+  const tenantMigrator = options.tenantMigrator ?? createTenantMigrator(options.env);
+  tenantMigrator.migrate();
+  const identityProvider = options.identityProvider ?? new LocalIdentityProvider(controlStore);
+  const widgetCredentialStore = options.widgetCredentialStore ?? createWidgetCredentialStore(controlStore.db);
+  const widgetAuth = options.widgetAuth ?? (options.env.widgetJwtSecret
+    ? createWidgetAuthService(options.env.widgetJwtSecret, widgetCredentialStore.ops)
+    : undefined);
+  const widgetIdentityProvider = widgetAuth ? new WidgetIdentityProvider(widgetAuth, widgetCredentialStore) : undefined;
+  const registry = options.registry ?? new DefaultTenantRuntimeRegistry(options.env, controlStore, app.log);
+  widgetCredentialStore.startPruning();
+  app.decorateRequest("tenantId");
+  app.decorateRequest("container");
+  app.decorateRequest("tenantRuntimeLease", null);
+  app.addHook("onRequest", async (request) => {
+    if (!requiresTenantRuntime(request.url, request.method)) return;
+    const resolver = widgetIdentityProvider && usesWidgetIdentity(request.url) ? widgetIdentityProvider : identityProvider;
+    let identity;
+    try {
+      identity = resolver.resolve(request);
+    } catch (error) {
+      if (error instanceof WidgetAuthError || usesWidgetIdentity(request.url)) {
+        throw new HttpError(401, "unauthorized", error instanceof Error ? error.message : "widget credentials 无效");
+      }
+      throw error;
+    }
+    const lease = await registry.acquire(identity.tenantId);
+    request.tenantId = identity.tenantId;
+    request.container = lease.runtime;
+    request.tenantRuntimeLease = lease;
+  });
+  const releaseRequestLease = (request: FastifyRequest): void => {
+    request.tenantRuntimeLease?.release();
+    request.tenantRuntimeLease = null;
+  };
+  app.addHook("onResponse", async (request) => releaseRequestLease(request));
+  app.addHook("onError", async (request) => releaseRequestLease(request));
   app.addHook("onClose", async () => {
-    container.close();
+    await registry.closeAll();
+    widgetCredentialStore.close();
+    controlStore.close();
   });
 
   app.setErrorHandler((error, _request, reply) => {
@@ -112,18 +155,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     // widget 鉴权启用时，CORS 白名单 = env CORS_ORIGINS ∪ 各 app 的 allowed_origins；
     // 未启用时保持原 corsOrigins 行为（true 全开或显式数组），默认部署不受影响。
     origin: (origin, cb) => {
-      const widgetAuth = container.widgetAuth;
-      const allowed = widgetAuth
-        ? widgetAuth.isOriginAllowed(origin, options.env.corsOrigins)
-        : !origin ||
-          options.env.corsOrigins === true ||
-          (Array.isArray(options.env.corsOrigins) && origin != null && options.env.corsOrigins.includes(origin));
+      const allowed = !origin ||
+        options.env.corsOrigins === true ||
+        (Array.isArray(options.env.corsOrigins) && options.env.corsOrigins.includes(origin));
       cb(null, allowed);
     },
     credentials: true,
     allowedHeaders: ["authorization", "content-type", "x-widget-key"],
   });
-  const maxContentLength = container.systemConfig.getSystemGroupConfig().max_content_length;
+  const maxContentLength = 104_857_600;
   await app.register(multipart, {
     limits: {
       fileSize: maxContentLength,
@@ -134,68 +174,106 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await app.register(registerHealthRoutes, {
     prefix: "/api",
-    container,
+    registry,
+    identityProvider,
   });
+  await app.register(registerBootstrapRoutes, { prefix: "/api", env: options.env });
   await app.register(registerPermissionRoutes, {
     prefix: "/api/permissions",
-    container,
+    registry,
+    identityProvider,
   });
   await app.register(registerArtifactRoutes, {
     prefix: "/api/artifacts",
-    container,
+    registry,
+    identityProvider,
   });
   await app.register(registerAgentConfigRoutes, {
     prefix: "/api/agent-config",
-    container,
+    registry,
+    identityProvider,
   });
   await app.register(registerSkillRoutes, {
     prefix: "/api/skills",
-    container,
+    registry,
+    identityProvider,
   });
   await app.register(registerModelAdapterRoutes, {
     prefix: "/api/model-adapter",
-    container,
+    registry,
+    identityProvider,
   });
   await app.register(registerSystemConfigRoutes, {
     prefix: "/api/system-config",
-    container,
+    registry,
+    identityProvider,
   });
   await app.register(registerMcpRoutes, {
     prefix: "/api/mcp",
-    container,
+    registry,
+    identityProvider,
   });
   await app.register(registerDaemonRoutes, {
     prefix: "/api/daemon",
-    container,
+    registry,
+    identityProvider,
   });
   await app.register(registerKnowledgeBaseRoutes, {
     prefix: "/api/knowledge-bases",
-    container,
+    registry,
+    identityProvider,
   });
   await app.register(registerEmbeddingModelRoutes, {
     prefix: "/api/embedding-models",
-    container,
+    registry,
+    identityProvider,
   });
   await app.register(registerAgentRoutes, {
     prefix: "/api/agent",
-    container,
+    registry,
+    identityProvider,
+    widgetCredentialStore,
+    ...(widgetAuth ? { widgetAuth } : {}),
   });
   await app.register(registerAguiRoutes, {
     prefix: "/api/agui",
-    container,
+    registry,
+    identityProvider,
+    widgetCredentialStore,
+    ...(widgetAuth ? { widgetAuth } : {}),
   });
   await app.register(registerWidgetRoutes, {
     prefix: "/api/widget",
-    container,
+    registry,
+    identityProvider,
+    widgetCredentialStore,
+    ...(widgetAuth ? { widgetAuth } : {}),
   });
   await app.register(registerWidgetAppsRoutes, {
     prefix: "/api/widget/apps",
-    container,
+    registry,
+    identityProvider,
+    widgetCredentialStore,
+    ...(widgetAuth ? { widgetAuth } : {}),
   });
 
   registerFrontendFallback(app);
 
   return app;
+}
+
+function requiresTenantRuntime(url: string, method: string): boolean {
+  if (method === "OPTIONS") return false;
+  const pathname = url.split("?", 1)[0] ?? url;
+  if (!pathname.startsWith("/api/")) return false;
+  return pathname !== "/api/bootstrap"
+    && pathname !== "/api/widget/auth/token"
+    && !pathname.endsWith("/ws");
+}
+
+function usesWidgetIdentity(url: string): boolean {
+  const pathname = url.split("?", 1)[0] ?? url;
+  return pathname === "/api/widget/sessions" || pathname.startsWith("/api/agui");
 }
 
 function registerFrontendFallback(app: FastifyInstance): void {

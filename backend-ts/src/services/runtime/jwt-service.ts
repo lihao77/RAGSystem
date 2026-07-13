@@ -1,6 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { FastifyRequest } from "fastify";
 
+import { createTenantId, type TenantId } from "../../identity/types.js";
 import type { WidgetCredentialOps, WidgetApp } from "../stores/widget-credential-store/widget-credential-ops.js";
 
 /** widget 短时 token 的 TTL（秒）。 */
@@ -9,6 +10,7 @@ const TOKEN_TTL_SECONDS = 15 * 60;
 export interface WidgetTokenClaims {
   /** app_key（主体）。 */
   sub: string;
+  tenant_id: TenantId;
   /** token 唯一 id（撤销追踪）。 */
   jti: string;
   /** 签发时间（秒）。 */
@@ -32,16 +34,14 @@ export interface WidgetTokenClaims {
  * - issueToken(app_key)：换 token 端点签发短时 JWT，登记 jti。
  * - verifyWsToken(token)：WS 握手校验（签名 + exp + jti 未撤销）。
  * - requireBearer(request)：HTTP Bearer 校验。
- * - isOriginAllowed(origin, fallback)：CORS 白名单（env 白名单 ∪ app.allowed_origins）。
  */
 export interface WidgetAuthService {
   /** 校验 app_key + secret；命中未吊销且 hash 匹配返回 app，否则 null。 */
   verifyAppCredentials(app_key: string, secret: string): WidgetApp | null;
-  issueToken(app_key: string): { token: string; expires_at: number };
+  issueToken(app: WidgetApp): { token: string; expires_at: number };
   verifyWsToken(token: string | undefined): WidgetTokenClaims;
   requireBearer(request: FastifyRequest): WidgetTokenClaims;
   verifyPublishableSession(input: { appKey: string; origin: string | undefined }): WidgetApp;
-  isOriginAllowed(origin: string | undefined, fallback: string[] | boolean): boolean;
 }
 
 /** 鉴权失败错误；路由层 catch 后转 HttpError(401)。 */
@@ -89,13 +89,18 @@ export function createWidgetAuthService(secret: string, credentialOps: WidgetCre
     if (claims.scope !== "widget") {
       throw new WidgetAuthError("invalid scope");
     }
-    if (typeof claims.sub !== "string" || typeof claims.jti !== "string") {
+    if (typeof claims.sub !== "string" || typeof claims.jti !== "string" || typeof claims.tenant_id !== "string") {
       throw new WidgetAuthError("invalid claims");
     }
-    if (credentialOps.isTokenRevoked(claims.jti)) {
+    const tenantId = createTenantId(claims.tenant_id);
+    const resolvedTenantId = credentialOps.resolveTenantId(claims.sub);
+    if (!resolvedTenantId || resolvedTenantId !== tenantId) {
+      throw new WidgetAuthError("invalid tenant");
+    }
+    if (credentialOps.isTokenRevoked(tenantId, claims.jti)) {
       throw new WidgetAuthError("token revoked");
     }
-    const app = credentialOps.getApp(claims.sub);
+    const app = credentialOps.getApp(tenantId, claims.sub);
     if (!app || app.revoked_at) {
       throw new WidgetAuthError("app revoked");
     }
@@ -104,18 +109,26 @@ export function createWidgetAuthService(secret: string, credentialOps: WidgetCre
 
   return {
     verifyAppCredentials(app_key, secret) {
-      return credentialOps.verifySecret(app_key, secret);
+      const tenantId = credentialOps.resolveTenantId(app_key);
+      return tenantId ? credentialOps.verifySecret(tenantId, app_key, secret) : null;
     },
-    issueToken(app_key) {
+    issueToken(app) {
       const now = Math.floor(Date.now() / 1000);
       const claims: WidgetTokenClaims = {
-        sub: app_key,
+        sub: app.app_key,
+        tenant_id: app.tenant_id,
         jti: randomUUID(),
         iat: now,
         exp: now + TOKEN_TTL_SECONDS,
         scope: "widget",
       };
-      credentialOps.recordToken({ jti: claims.jti, app_key, issued_at: claims.iat, expires_at: claims.exp });
+      credentialOps.recordToken({
+        tenantId: app.tenant_id,
+        jti: claims.jti,
+        app_key: app.app_key,
+        issued_at: claims.iat,
+        expires_at: claims.exp,
+      });
       return { token: sign(claims), expires_at: claims.exp };
     },
     verifyWsToken(token) {
@@ -133,7 +146,8 @@ export function createWidgetAuthService(secret: string, credentialOps: WidgetCre
       return verify(match[1]);
     },
     verifyPublishableSession(input) {
-      const app = credentialOps.getApp(input.appKey);
+      const tenantId = credentialOps.resolveTenantId(input.appKey);
+      const app = tenantId ? credentialOps.getApp(tenantId, input.appKey) : null;
       if (!app) throw new WidgetAuthError("publishable key 无效");
       if (app.revoked_at) throw new WidgetAuthError("app revoked");
       const origins = app.allowed_origins.split(",").map((origin) => origin.trim()).filter(Boolean);
@@ -141,25 +155,6 @@ export function createWidgetAuthService(secret: string, credentialOps: WidgetCre
       if (!input.origin) throw new WidgetAuthError("missing origin");
       if (!origins.includes(input.origin)) throw new WidgetAuthError(`origin 不允许: ${input.origin}`);
       return app;
-    },
-    isOriginAllowed(origin, fallback) {
-      // 边界说明（勿高估 allowed_origins 的隔离作用）：
-      // 鉴权主链路是嵌入方【服务端】持 secret 调 /auth/token + /sessions——这两步无 Origin 头
-      // （!origin → true），CORS 根本不 gate；浏览器只持 token 开 WS（WS 不受 CORS 约束）。
-      // 故真正的鉴权大门是 server-held secret，allowed_origins 仅在浏览器后续带 Origin 的请求
-      // （如 widget 内部 fetch）时起辅助作用。per-app allowed_origins 非有效隔离边界。
-      // 无 Origin（同源 / 非浏览器请求）一律放行，与 CORS 通行行为一致。
-      if (!origin) {
-        return true;
-      }
-      // env 全开（CORS_ORIGINS 未设）保持现有行为，不因 widget 收紧。
-      if (fallback === true) {
-        return true;
-      }
-      if (Array.isArray(fallback) && fallback.includes(origin)) {
-        return true;
-      }
-      return credentialOps.listAllowedOrigins().includes(origin);
     },
   };
 }

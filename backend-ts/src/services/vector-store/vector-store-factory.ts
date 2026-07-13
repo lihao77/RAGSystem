@@ -7,7 +7,6 @@
  * Batch 5a:工厂就绪 + service 构造支持注入 vectorStore,但 runtime-container 尚未接线
  * (driver 实际启用在 5b search 切换,届时一并处理 sqlite-vec 扩展加载失败的降级)。
  */
-import os from "node:os";
 import path from "node:path";
 
 import type { VectorStoreConfig } from "../../contracts/system-config.js";
@@ -24,7 +23,10 @@ import "./sqlite-vec/sqlite-vec-driver.js";
  * 避免 runtime-container 做 `as` 类型断言。
  */
 export function createVectorStoreFromConfig(config: VectorStoreConfig, dataRoot?: string): IVectorStore & IKnowledgeConfig & IKnowledgeFileStore {
-  const resolvedDataRoot = dataRoot?.trim() || path.join(os.homedir(), ".ragsystem");
+  if (!dataRoot?.trim()) {
+    throw new Error("createVectorStoreFromConfig 必须传入已解析的 dataRoot");
+  }
+  const resolvedDataRoot = path.resolve(dataRoot);
   return createVectorStore({
     backend: config.backend,
     options: {

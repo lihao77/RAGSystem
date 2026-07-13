@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { ok } from "../../contracts/common.js";
@@ -41,20 +41,20 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
   app.get("/metrics", async (request) => {
     const query = request.query as { agent_name?: string };
     const agentName = query.agent_name?.trim() || null;
-    return ok(options.container.metricsCollector.getSystemMetrics(agentName), "获取系统指标成功");
+    return ok(request.container.metricsCollector.getSystemMetrics(agentName), "获取系统指标成功");
   });
 
   app.post("/metrics/reset", async (request) => {
     const body = isRecord(request.body) ? request.body : {};
     const agentName = typeof body.agent_name === "string" && body.agent_name.trim() ? body.agent_name.trim() : null;
-    const result = options.container.metricsCollector.reset(agentName);
+    const result = request.container.metricsCollector.reset(agentName);
     return ok(result, `已重置${agentName ? `智能体 ${agentName}` : "所有"}指标`);
   });
 
   app.get("/event-outbox", async (request) => {
     const query = request.query as OutboxListQuery;
     return ok(
-      options.container.conversationStore.listOutbox({
+      request.container.conversationStore.listOutbox({
         statuses: parseOutboxStatuses(query.status),
         sessionId: normalizeString(query.session_id),
         runId: normalizeString(query.run_id),
@@ -67,7 +67,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
 
   app.get<{ Params: { id: string } }>("/event-outbox/:id", async (request) => {
     const id = parsePositiveInteger(request.params.id, "id");
-    const row = options.container.conversationStore.getOutboxRow(id);
+    const row = request.container.conversationStore.getOutboxRow(id);
     if (!row) {
       throw new HttpError(404, "not_found", "outbox 事件不存在");
     }
@@ -76,7 +76,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
 
   app.post<{ Params: { id: string } }>("/event-outbox/:id/retry", async (request) => {
     const id = parsePositiveInteger(request.params.id, "id");
-    const retried = options.container.conversationStore.retryOutbox(id);
+    const retried = request.container.conversationStore.retryOutbox(id);
     if (!retried) {
       throw new HttpError(409, "outbox_not_retryable", "outbox 事件不存在或当前状态不可重试");
     }
@@ -87,7 +87,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const body = isRecord(request.body) ? request.body : {};
     const ids = parseIdArray(body.ids);
     const statuses = parseOutboxStatuses(typeof body.status === "string" ? body.status : undefined);
-    const result = options.container.conversationStore.retryOutboxBatch({
+    const result = request.container.conversationStore.retryOutboxBatch({
       ids,
       statuses: statuses.length > 0 ? statuses : undefined,
       limit: parseIntegerValue(body.limit, "limit", { defaultValue: 100, min: 1, max: 500 }),
@@ -98,7 +98,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
   app.delete("/event-outbox/delivered", async (request) => {
     const query = request.query as OutboxCleanupQuery;
     const before = parseCleanupBefore(query);
-    const deleted = options.container.conversationStore.deleteDeliveredOutbox({
+    const deleted = request.container.conversationStore.deleteDeliveredOutbox({
       before,
       limit: parseIntegerQuery(query.limit, "limit", { defaultValue: 1000, min: 1, max: 10_000 }),
     });
@@ -108,8 +108,8 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
   app.get("/context-snapshot", async (request) => {
     const query = request.query as ContextSnapshotQuery;
     const sessionId = normalizeString(query.session_id);
-    const sessionMetadata = sessionId ? options.container.conversationStore.getSession(sessionId)?.metadata ?? {} : {};
-    const resolved = options.container.runtimeCore.resolveExecutionConfig({
+    const sessionMetadata = sessionId ? request.container.conversationStore.getSession(sessionId)?.metadata ?? {} : {};
+    const resolved = request.container.runtimeCore.resolveExecutionConfig({
       agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
       teamName: normalizeString(sessionMetadata.team),
       selectedLlm: normalizeString(query.selected_llm),
@@ -125,7 +125,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     // 与 run 完全同源（同一套组请求代码），调试快照即真实 run 所见。snapshot 不再 backend 自组装。
     const profile = projectAgentProfile({
       agent,
-      providers: options.container.modelAdapter.listProviders(),
+      providers: request.container.modelAdapter.listProviders(),
       // 仅当前端真选了 selected_llm 才整体替换 default;否则用 agent default tier(保留 tier 配的窗口等参数)。
       ...(normalizeString(query.selected_llm) && resolved.provider && resolved.modelName
         ? { selectedLlm: { provider: resolved.provider, modelName: resolved.modelName } }
@@ -135,7 +135,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     // 故 pathService 不会被 approve/isApproved 调用；此处占位仅为满足 createBackendTools 签名。
     const registry = createToolRegistry({
       tools: createBackendTools({
-        ...options.container.toolsDeps,
+        ...request.container.toolsDeps,
         agent,
         ...(teamName ? { teamName } : {}),
       }, new PathApprovalService()),
@@ -144,17 +144,17 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     // conversation 注入 preview（组 LLM request）；rawMessages/sources 由 backend 自组，preview 不再返回 context。
     const threadKey = normalizeString(query.thread_key);
     const historyPort: ConversationHistoryPort & SessionMetadataPort = {
-      getRecentMessages: (sid, limit, tk) => options.container.conversationStore.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
+      getRecentMessages: (sid, limit, tk) => request.container.conversationStore.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
       getSession: (sid) => {
-        const s = options.container.conversationStore.getSession(sid);
+        const s = request.container.conversationStore.getSession(sid);
         return s ? { metadata: s.metadata ?? {} } : null;
       },
-      updateSessionMetadata: (sid, patch) => options.container.conversationStore.updateSessionMetadata(sid, patch),
+      updateSessionMetadata: (sid, patch) => request.container.conversationStore.updateSessionMetadata(sid, patch),
     };
     const snapshot = sessionId
       ? previewBackendAgentContext(agent, profile, historyPort, registry, {
-          memoryConfig: options.container.systemConfig.getMemoryConfig(),
-          dataRoot: options.container.dataRoot,
+          memoryConfig: request.container.systemConfig.getMemoryConfig(),
+          dataRoot: request.container.dataRoot,
           sessionId,
           threadKey,
         })
@@ -182,7 +182,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
 
     const data = {
       system_prompt: preview?.systemPrompt ?? "",
-      available_agent_tools: buildAvailableAgentTools(agent, teamName, options),
+      available_agent_tools: buildAvailableAgentTools(agent, teamName, request.container),
       conversation_history: history,
       token_stats: {
         system_prompt_tokens: systemPromptTokens,
@@ -193,12 +193,12 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       config: {
         agent_name: agent.agent_name,
         display_name: agent.display_name ?? agent.agent_name,
-        compression: buildCompressionConfig(agent, options),
+        compression: buildCompressionConfig(agent, request.container),
         model: resolved.modelName ?? agent.llm_tiers?.default?.model_name ?? "",
         ...(query.selected_llm ? { llm_override: parseSelectedLlmForSnapshot(query.selected_llm) } : {}),
       },
       available_tools: (preview?.toolDefinitions ?? []).map((tool) => ({ name: tool.name, description: tool.description })),
-      available_skills: buildAvailableSkills(agent, options),
+      available_skills: buildAvailableSkills(agent, request.container),
       ...(memorySnapshot
         ? {
             memory: {
@@ -248,8 +248,8 @@ function toContextHistoryItem(
   };
 }
 
-function buildCompressionConfig(agent: AgentConfig, options: RouteOptions): Record<string, unknown> {
-  const settings = resolveContextCompressionSettings(agent, options.container.systemConfig.getConfig());
+function buildCompressionConfig(agent: AgentConfig, container: FastifyRequest["container"]): Record<string, unknown> {
+  const settings = resolveContextCompressionSettings(agent, container.systemConfig.getConfig());
   return {
     strategy: "llm_summarize",
     trigger_ratio: settings.compressionTriggerRatio,
@@ -261,10 +261,10 @@ function buildCompressionConfig(agent: AgentConfig, options: RouteOptions): Reco
 function buildAvailableAgentTools(
   agent: AgentConfig,
   teamName: string | null,
-  options: RouteOptions,
+  container: FastifyRequest["container"],
 ): Array<Record<string, unknown>> {
   return (agent.delegation.enabled_agents ?? []).map((agentName) => {
-    const config = options.container.agentConfig.getConfig(agentName, { teamName });
+    const config = container.agentConfig.getConfig(agentName, { teamName });
     if (!config) {
       return {
         name: agentName,
@@ -282,8 +282,8 @@ function buildAvailableAgentTools(
   });
 }
 
-function buildAvailableSkills(agent: AgentConfig, options: RouteOptions): Array<Record<string, unknown>> {
-  const available = options.container.agentConfig.listAvailableSkills();
+function buildAvailableSkills(agent: AgentConfig, container: FastifyRequest["container"]): Array<Record<string, unknown>> {
+  const available = container.agentConfig.listAvailableSkills();
   const byName = new Map<string, Record<string, unknown>>();
   for (const item of available) {
     if (isRecord(item)) {

@@ -15,10 +15,10 @@ interface ProviderParams {
 }
 
 export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  app.get("/provider-types", async () => ok(options.container.modelAdapter.listProviderTypes(), "获取成功"));
+  app.get("/provider-types", async (request) => ok(request.container.modelAdapter.listProviderTypes(), "获取成功"));
 
-  app.get("/providers", async () => {
-    const providers = options.container.modelAdapter.listProviders();
+  app.get("/providers", async (request) => {
+    const providers = request.container.modelAdapter.listProviders();
     return {
       ...ok(providers, "Provider 列表获取成功"),
       providers,
@@ -28,7 +28,7 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
   app.post("/providers", async (request) => {
     const payload = ProviderPayloadSchema.parse(request.body);
     try {
-      const providerKey = options.container.modelAdapter.createProvider(payload);
+      const providerKey = request.container.modelAdapter.createProvider(payload);
       return {
         ...ok({ provider_key: providerKey }, "Provider 创建成功"),
         provider_key: providerKey,
@@ -41,7 +41,7 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
   app.put("/providers/order", async (request) => {
     const payload = ReorderProvidersRequestSchema.parse(request.body);
     try {
-      const providerKeys = options.container.modelAdapter.reorderProviders(payload);
+      const providerKeys = request.container.modelAdapter.reorderProviders(payload);
       return {
         ...ok({ provider_keys: providerKeys }, "Provider 顺序更新成功"),
         provider_keys: providerKeys,
@@ -54,7 +54,7 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
   app.put<{ Params: ProviderParams }>("/providers/:providerKey", async (request) => {
     const payload = ProviderPayloadSchema.parse(request.body);
     try {
-      const providerKey = options.container.modelAdapter.updateProvider(request.params.providerKey, payload);
+      const providerKey = request.container.modelAdapter.updateProvider(request.params.providerKey, payload);
       return {
         ...ok({ provider_key: providerKey }, "Provider 更新成功"),
         provider_key: providerKey,
@@ -66,7 +66,7 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
 
   app.delete<{ Params: ProviderParams }>("/providers/:providerKey", async (request) => {
     try {
-      options.container.modelAdapter.deleteProvider(request.params.providerKey);
+      request.container.modelAdapter.deleteProvider(request.params.providerKey);
       return ok(undefined, "Provider 删除成功");
     } catch (error) {
       if (error instanceof ModelAdapterServiceError && error.statusCode === 404 && error.message.startsWith("Provider 不存在:")) {
@@ -78,7 +78,7 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
 
   app.get<{ Params: ProviderParams }>("/providers/:providerKey/check", async (request) => {
     try {
-      const result = options.container.modelAdapter.checkProviderAvailability(request.params.providerKey);
+      const result = request.container.modelAdapter.checkProviderAvailability(request.params.providerKey);
       return {
         ...ok(result, "检查成功"),
         ...result,
@@ -90,7 +90,7 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
 
   app.get<{ Params: ProviderParams }>("/providers/:providerKey/metrics", async (request) => {
     try {
-      return ok(options.container.modelAdapter.getProviderMetrics(request.params.providerKey), "获取成功");
+      return ok(request.container.modelAdapter.getProviderMetrics(request.params.providerKey), "获取成功");
     } catch (error) {
       throw toHttpError(error);
     }
@@ -99,7 +99,7 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
   app.post("/test", async (request) => {
     const payload = TestProviderRequestSchema.parse(request.body);
     try {
-      const result = await options.container.modelAdapter.testProvider(payload);
+      const result = await request.container.modelAdapter.testProvider(payload);
       return {
         ...ok(result, "测试成功"),
         response: result,

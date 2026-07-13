@@ -16,6 +16,7 @@ import type {
 export function rowToSession(row: SessionRow): SessionInfo {
   return {
     session_id: row.session_id,
+    tenant_id: row.tenant_id,
     user_id: row.user_id,
     metadata: parseJsonObject(row.metadata),
     created_at: row.created_at,
@@ -29,6 +30,7 @@ export function rowToSessionListItem(row: SessionListRow): SessionListItem {
   const title = asString(metadata.title) || firstMessage.trim().slice(0, 30);
   return {
     session_id: row.session_id,
+    tenant_id: row.tenant_id,
     user_id: row.user_id,
     metadata,
     created_at: row.created_at,
@@ -80,6 +82,7 @@ export function rowToRun(row: RunRow): RunInfo {
   return {
     run_id: row.run_id,
     session_id: row.session_id,
+    tenant_id: row.tenant_id,
     entrypoint: row.entrypoint,
     status: row.status,
     task_summary: row.task_summary,

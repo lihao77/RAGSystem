@@ -1,4 +1,5 @@
 import type { MessageInfo } from "../../../contracts/session.js";
+import type { TenantId } from "../../../identity/types.js";
 
 /**
  * conversation-store 实现层内部物理行映射（SQLite 行 ↔ 内存对象）。
@@ -20,6 +21,7 @@ export interface MessageRow {
 
 export interface SessionRow {
   session_id: string;
+  tenant_id: TenantId;
   user_id: string | null;
   metadata: string | null;
   created_at: string;
@@ -46,6 +48,7 @@ export interface RunStepRow {
 export interface RunRow {
   run_id: string;
   session_id: string;
+  tenant_id: TenantId;
   entrypoint: string | null;
   status: string;
   task_summary: string | null;

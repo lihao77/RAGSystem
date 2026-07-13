@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -37,7 +36,10 @@ export class ArtifactService {
   private readonly sessionsRoot: string;
 
   constructor(options: { dataRoot?: string | undefined }) {
-    this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
+    if (!options.dataRoot?.trim()) {
+      throw new Error("ArtifactService 必须传入已解析的 dataRoot");
+    }
+    this.dataRoot = path.resolve(options.dataRoot);
     this.sessionsRoot = path.join(this.dataRoot, "sessions");
   }
 

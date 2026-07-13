@@ -4,6 +4,7 @@ import type { FastifyPluginAsync } from "fastify";
 
 import { ClientToServerEnvelopeSchema, type Envelope } from "../../contracts/events.js";
 import { EnvelopeProjector } from "../../services/runtime/event-outbox/projector.js";
+import type { RuntimeContainer } from "../../services/runtime/runtime-container.js";
 import type { RouteOptions } from "../route-options.js";
 import { isRecord } from "../../utils/guards.js";
 
@@ -30,14 +31,54 @@ const WS_OPEN = 1;
 export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.get<{ Params: SessionWsParams; Querystring: SessionWsQuery }>(
     "/sessions/:sessionId/ws",
-    { websocket: true },
+    {
+      websocket: true,
+      preValidation: async (request) => {
+        const sessionId = request.params.sessionId;
+        let lease;
+        try {
+          if (options.widgetAuth && request.query.token) {
+            const claims = options.widgetAuth.verifyWsToken(request.query.token);
+            lease = await options.registry.acquire(claims.tenant_id);
+          } else {
+            const identity = options.identityProvider.resolve(request);
+            lease = await options.registry.acquire(identity.tenantId);
+            if (!lease.runtime.sessionApplication.getSession(sessionId) && options.widgetAuth && request.headers.origin) {
+              const discovered = await options.registry.acquireForSession(sessionId);
+              const widgetMeta = discovered?.runtime.sessionApplication.getSession(sessionId)?.metadata as {
+                widget?: { created_via?: string };
+              } | undefined;
+              if (discovered && widgetMeta?.widget?.created_via === "widget_public") {
+                lease.release();
+                lease = discovered;
+              } else {
+                discovered?.release();
+              }
+            }
+          }
+          request.tenantId = lease.tenantId;
+          request.container = lease.runtime;
+          request.tenantRuntimeLease = lease;
+        } catch (error) {
+          lease?.release();
+          throw error;
+        }
+      },
+    },
     (socket: unknown, request) => {
       const ws = socket as WebSocketLike;
-      const container = options.container;
       const sessionId = request.params.sessionId;
+      const lease = request.tenantRuntimeLease;
+      if (!lease) {
+        ws.close(4001, "unauthorized");
+        return;
+      }
+      request.tenantRuntimeLease = null;
+      const container = request.container;
+      const wsActivity = options.registry.trackWebSocket(lease.tenantId);
       // widget 会话强制 token 鉴权：仅当本会话由 /api/widget/sessions 签发（metadata.widget.created_via 标记）。
       // 普通会话（frontend-client 等）保持零鉴权；widgetAuth 未启用时整段跳过，后端维持现状。
-      if (container.widgetAuth) {
+      if (options.widgetAuth) {
         const widgetMeta = (
           container.sessionApplication.getSession(sessionId)?.metadata as {
             widget?: { created_via?: string; app_key?: string };
@@ -45,19 +86,23 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
         )?.widget;
         if (widgetMeta?.created_via === "widget") {
           try {
-            const claims = container.widgetAuth.verifyWsToken(request.query.token);
+            const claims = options.widgetAuth.verifyWsToken(request.query.token);
             if (widgetMeta.app_key && claims.sub !== widgetMeta.app_key) {
               throw new Error("token 与会话来源不匹配");
             }
           } catch {
+            wsActivity.release();
+            lease.release();
             ws.close(4001, "unauthorized");
             return;
           }
         } else if (widgetMeta?.created_via === "widget_public") {
           try {
             if (!widgetMeta.app_key) throw new Error("missing app key");
-            container.widgetAuth.verifyPublishableSession({ appKey: widgetMeta.app_key, origin: request.headers.origin });
+            options.widgetAuth.verifyPublishableSession({ appKey: widgetMeta.app_key, origin: request.headers.origin });
           } catch {
+            wsActivity.release();
+            lease.release();
             ws.close(4001, "unauthorized");
             return;
           }
@@ -214,9 +259,14 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
         }
       });
 
+      let cleanedUp = false;
       const cleanup = (): void => {
+        if (cleanedUp) return;
+        cleanedUp = true;
         clearInterval(heartbeat);
         unsubscribe();
+        wsActivity.release();
+        lease.release();
       };
       ws.on("close", cleanup);
       ws.on("error", cleanup);
@@ -225,7 +275,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
 };
 
 function buildDurableOutboxReplay(
-  container: RouteOptions["container"],
+  container: RuntimeContainer,
   sessionId: string,
   afterSeq: number | null,
 ): { runId: string | null; events: Envelope[] } | null {
@@ -248,7 +298,7 @@ function buildDurableOutboxReplay(
 }
 
 function buildActiveRunReplay(
-  container: RouteOptions["container"],
+  container: RuntimeContainer,
   sessionId: string,
 ): { runId: string; events: Envelope[] } | null {
   const status = container.agentExecution.getSessionTaskStatus(sessionId).task_info;
@@ -305,7 +355,7 @@ function parseSeqCursor(value: string | undefined): number | null {
  * 新协议 interaction 顶层 call_id 即交互 id（pendingInteractions 的 approval/input key）。
  */
 function isPendingInteractionReplayEvent(
-  container: RouteOptions["container"],
+  container: RuntimeContainer,
   sessionId: string,
   event: Envelope,
 ): boolean {

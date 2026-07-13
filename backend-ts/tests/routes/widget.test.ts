@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { buildTestHarness } from "../helpers/app.js";
+import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 const TEST_SECRET = "test-widget-secret-0123456789abcdef0123456789abcdef";
 
@@ -25,7 +26,7 @@ describe("widget auth routes", () => {
   it("issues a short-lived token for valid app credentials", async () => {
     const harness = await buildTestHarness({ widgetJwtSecret: TEST_SECRET });
     app = harness.app;
-    const created = harness.container.widgetCredentialStore!.ops.createApp({
+    const created = harness.widgetCredentialStore.ops.createApp({ tenantId: LOCAL_TENANT_ID,
       display_name: "测试站点",
       allowed_origins: ["https://example.com"],
     });
@@ -45,7 +46,7 @@ describe("widget auth routes", () => {
   it("rejects token issuance for invalid secret with 401", async () => {
     const harness = await buildTestHarness({ widgetJwtSecret: TEST_SECRET });
     app = harness.app;
-    const created = harness.container.widgetCredentialStore!.ops.createApp({ display_name: "测试站点" });
+    const created = harness.widgetCredentialStore.ops.createApp({ tenantId: LOCAL_TENANT_ID, display_name: "测试站点" });
 
     const res = await app.inject({
       method: "POST",
@@ -58,7 +59,7 @@ describe("widget auth routes", () => {
   it("issues a widget session with Bearer token and stamps widget metadata", async () => {
     const harness = await buildTestHarness({ widgetJwtSecret: TEST_SECRET });
     app = harness.app;
-    const created = harness.container.widgetCredentialStore!.ops.createApp({ display_name: "测试站点" });
+    const created = harness.widgetCredentialStore.ops.createApp({ tenantId: LOCAL_TENANT_ID, display_name: "测试站点" });
     const tokenRes = await app.inject({
       method: "POST",
       url: "/api/widget/auth/token",
@@ -135,7 +136,7 @@ describe("widget auth routes", () => {
     harness: Awaited<ReturnType<typeof buildTestHarness>>,
     hostTools: string[],
   ): Promise<{ token: string; sessionId: string }> {
-    const created = harness.container.widgetCredentialStore!.ops.createApp({ display_name: "ws-test" });
+    const created = harness.widgetCredentialStore.ops.createApp({ tenantId: LOCAL_TENANT_ID, display_name: "ws-test" });
     const tokenRes = await app!.inject({
       method: "POST",
       url: "/api/widget/auth/token",
@@ -150,7 +151,7 @@ describe("widget auth routes", () => {
     harness: Awaited<ReturnType<typeof buildTestHarness>>,
     hostTools: string[],
   ): Promise<string> {
-    const created = harness.container.widgetCredentialStore!.ops.createApp({ display_name: "ws-test" });
+    const created = harness.widgetCredentialStore.ops.createApp({ tenantId: LOCAL_TENANT_ID, display_name: "ws-test" });
     const tokenRes = await app!.inject({
       method: "POST",
       url: "/api/widget/auth/token",

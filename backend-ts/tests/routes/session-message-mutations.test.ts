@@ -9,6 +9,7 @@ import { buildTestHarness } from "../helpers/app.js";
 import { PathApprovalService } from "../../src/services/runtime/path-service.js";
 import { toolContext } from "../helpers/tool-context.js";
 import { mockLlm } from "../helpers/llm-fetch-mock.js";
+import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 let app: FastifyInstance | null = null;
 
@@ -25,7 +26,7 @@ describe("session message mutation routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ sessionId: "s1" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1" });
     const user = harness.container.sessionApplication.addMessage({
       sessionId: "s1",
       role: "user",
@@ -75,7 +76,7 @@ describe("session message mutation routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ sessionId: "s1" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1" });
     const anchor = harness.container.sessionApplication.addMessage({
       sessionId: "s1",
       role: "user",
@@ -138,7 +139,7 @@ describe("session message mutation routes", () => {
     app = harness.app;
     await createDefaultChatProvider(app);
 
-    harness.container.sessionApplication.createSession({ sessionId: "retry-session" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "retry-session" });
     const anchor = harness.container.sessionApplication.addMessage({
       sessionId: "retry-session",
       role: "user",
@@ -216,7 +217,7 @@ describe("session message mutation routes", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-rollback-workspace-"));
     const filePath = path.join(workspaceRoot, "notes.txt");
 
-    harness.container.sessionApplication.createSession({
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID,
       sessionId: "file-rollback-session",
       metadata: { workspace_root: workspaceRoot },
     });
@@ -291,7 +292,7 @@ describe("session message mutation routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID,
       sessionId: "session export!",
       userId: "u1",
       metadata: { title: "Exported session" },

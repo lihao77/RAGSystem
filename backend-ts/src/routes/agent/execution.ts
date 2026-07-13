@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 
 import { ok } from "../../contracts/common.js";
@@ -21,8 +21,8 @@ interface TaskExecutionParams {
 }
 
 export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  const executeSynchronously = async (payload: ReturnType<typeof ExecuteRequestSchema.parse>, requestId: string) => {
-    const result = await options.container.agentExecution.executeSynchronously(payload, requestId);
+  const executeSynchronously = async (container: FastifyRequest["container"], payload: ReturnType<typeof ExecuteRequestSchema.parse>, requestId: string) => {
+    const result = await container.agentExecution.executeSynchronously(payload, requestId);
     if (!result.success) {
       throw new HttpError(500, "execution_failed", result.error ?? "任务执行失败");
     }
@@ -42,6 +42,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
   app.post("/execute", async (request) => {
     const payload = ExecuteRequestSchema.parse(request.body);
     return executeSynchronously(
+      request.container,
       payload,
       request.headers["x-request-id"]?.toString() ?? randomUUID(),
     );
@@ -53,6 +54,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
       agent: request.params.agentName,
     });
     return executeSynchronously(
+      request.container,
       payload,
       request.headers["x-request-id"]?.toString() ?? randomUUID(),
     );
@@ -63,7 +65,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
     if (payload.mode !== "sequential") {
       throw new HttpError(400, "invalid_request", "并行模式尚未实现");
     }
-    const result = await options.container.agentExecution.collaborateSequentially(
+    const result = await request.container.agentExecution.collaborateSequentially(
       payload,
       request.headers["x-request-id"]?.toString() ?? randomUUID(),
     );
@@ -84,28 +86,28 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
   });
 
   app.get<{ Params: SessionExecutionParams }>("/sessions/:sessionId/task-status", async (request) =>
-    ok(options.container.agentExecution.getSessionTaskStatus(request.params.sessionId)),
+    ok(request.container.agentExecution.getSessionTaskStatus(request.params.sessionId)),
   );
 
   app.get<{ Params: SessionExecutionParams }>("/sessions/:sessionId/execution-diagnostics", async (request) =>
-    ok(options.container.agentExecution.getSessionExecutionDiagnostics(request.params.sessionId)),
+    ok(request.container.agentExecution.getSessionExecutionDiagnostics(request.params.sessionId)),
   );
 
   app.get<{ Params: TaskExecutionParams }>("/tasks/:taskId/status", async (request) =>
-    ok(options.container.agentExecution.getTaskStatus(request.params.taskId)),
+    ok(request.container.agentExecution.getTaskStatus(request.params.taskId)),
   );
 
   app.get<{ Params: TaskExecutionParams }>("/tasks/:taskId/execution-diagnostics", async (request) =>
-    ok(options.container.agentExecution.getTaskExecutionDiagnostics(request.params.taskId)),
+    ok(request.container.agentExecution.getTaskExecutionDiagnostics(request.params.taskId)),
   );
 
-  app.get("/tasks/running", async () => ok(options.container.agentExecution.listRunningTasks()));
+  app.get("/tasks/running", async (request) => ok(request.container.agentExecution.listRunningTasks()));
 
   app.get("/execution/overview", async (request) => {
     const query = request.query as { active_only?: string };
     const activeOnly = parseActiveOnly(query.active_only);
-    const overview = options.container.agentExecution.getOverview(activeOnly);
-    const data = overview.count > 0 ? overview : options.container.conversationStore.getPersistedExecutionOverview(activeOnly);
+    const overview = request.container.agentExecution.getOverview(activeOnly);
+    const data = overview.count > 0 ? overview : request.container.conversationStore.getPersistedExecutionOverview(activeOnly);
     return ok(normalizeExecutionOverview(data));
   });
 };

@@ -10,10 +10,11 @@ import { createConversationStore } from "../../src/services/stores/conversation-
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
+import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 describe("AgentDelegationService", () => {
   it("lists child agents and resumes an existing child thread with send_message", async () => {
-    const store = createConversationStore({ dbPath: ":memory:" });
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
     const dispatcher = new OutboxDispatcher(store, realtimeEvents);
     const clientEvents = new DurableClientEventPublisher(store, dispatcher);
@@ -45,7 +46,7 @@ describe("AgentDelegationService", () => {
     } as unknown as AgentRunEngine;
     service.setRunEngine(() => mockEngine);
 
-    store.createSession("session-1", null, {
+    store.createSession(LOCAL_TENANT_ID, "session-1", null, {
       team: "default",
       workspace_root: "E:/workspace",
     });

@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import crypto, { randomUUID } from "node:crypto";
 
@@ -16,7 +15,10 @@ export class FileHistoryService implements IFileHistoryStore {
   private readonly trackedBySession = new Map<string, Map<string, FileHistoryTrackedFile>>();
 
   constructor(options: FileHistoryStoreOptions = {}) {
-    this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
+    if (!options.dataRoot?.trim()) {
+      throw new Error("FileHistoryService 必须传入已解析的 dataRoot");
+    }
+    this.dataRoot = path.resolve(options.dataRoot);
   }
 
   trackEdit(sessionId: string | null | undefined, filePath: string): void {

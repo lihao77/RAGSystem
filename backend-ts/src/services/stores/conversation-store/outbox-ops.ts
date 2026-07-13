@@ -28,7 +28,7 @@ import type {
 import { AppendOutboxInputSchema } from "../../../contracts/conversation-store/types.js";
 
 const OUTBOX_SELECT_COLUMNS = `
-  id, event_id, session_id, run_id, session_seq, event_type, aggregate_type,
+  id, event_id, session_id, tenant_id, run_id, session_seq, event_type, aggregate_type,
   aggregate_id, payload, status, attempts, available_at, locked_at, delivered_at,
   last_error, created_at
 `;
@@ -49,19 +49,23 @@ export class OutboxOps implements IOutboxStore {
   /** 事务内变体（供 ConversationStoreTransaction facade 调用，故 public）。 */
   appendOutboxInTransaction(input: AppendOutboxInput): OutboxRow {
     const eventId = input.eventId ?? randomUUID();
-    this.db.prepare("INSERT OR IGNORE INTO sessions (session_id, metadata) VALUES (?, ?)").run(input.sessionId, "{}");
+    const session = this.db.prepare("SELECT tenant_id FROM sessions WHERE session_id=?").get(input.sessionId) as
+      | { tenant_id: string | null }
+      | undefined;
+    if (!session?.tenant_id) throw new Error(`会话缺少租户归属: ${input.sessionId}`);
     const sessionSeq = input.sessionSeq ?? this.nextSessionSeqInTransaction(input.sessionId);
     const result = this.db
       .prepare(`
         INSERT INTO event_outbox (
-          event_id, session_id, run_id, session_seq, event_type, aggregate_type,
+          event_id, session_id, tenant_id, run_id, session_seq, event_type, aggregate_type,
           aggregate_id, payload, available_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         eventId,
         input.sessionId,
+        session.tenant_id,
         input.runId ?? null,
         sessionSeq,
         input.eventType,

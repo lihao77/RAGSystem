@@ -105,7 +105,7 @@ export type DeleteDeliveredOutboxInput = z.infer<typeof DeleteDeliveredOutboxInp
  * 故保留 Row 命名。它是 outbox 聚合的对外表示，不是实现内部细节。
  */
 export const OutboxRowSchema = z.object({
-  id: z.number(), event_id: z.string(), session_id: z.string(), run_id: z.string().nullable(),
+  id: z.number(), event_id: z.string(), session_id: z.string(), tenant_id: z.string(), run_id: z.string().nullable(),
   session_seq: z.number(), event_type: z.string(), aggregate_type: z.string(), aggregate_id: z.string(),
   payload: z.string(), status: OutboxStatusSchema, attempts: z.number(), available_at: z.string().nullable(),
   locked_at: z.string().nullable(), delivered_at: z.string().nullable(), last_error: z.string().nullable(),
@@ -116,6 +116,7 @@ export type OutboxRow = z.infer<typeof OutboxRowSchema>;
 export const RunInfoSchema = z.object({
   run_id: z.string(),
   session_id: z.string(),
+  tenant_id: z.string(),
   entrypoint: z.string().nullable(),
   status: z.string(),
   task_summary: z.string().nullable(),

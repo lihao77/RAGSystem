@@ -15,13 +15,22 @@ import { buildApp } from "../src/app.js";
 import type { AppEnv } from "../src/config/env.js";
 import { createRuntimeContainer } from "../src/services/runtime/runtime-container.js";
 import { HashFallbackEmbedder } from "../src/services/integrations/embedder-registry.js";
+import { createControlStore } from "../src/services/stores/control-store/index.js";
+import { createWidgetCredentialStore } from "../src/services/stores/widget-credential-store/index.js";
+import { createWidgetAuthService } from "../src/services/runtime/jwt-service.js";
+import { LOCAL_TENANT_ID, LocalIdentityProvider } from "../src/services/identity/index.js";
+import { DefaultTenantRuntimeRegistry } from "../src/services/runtime/tenant-runtime-registry.js";
 
 /** 进程内构造完整 app（直接用 src/，避开 tests/helpers 的 vitest 顶层副作用）。 */
 async function buildHarness(widgetJwtSecret: string) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "widget-demo-"));
   const env: AppEnv = {
     host: "127.0.0.1", port: 0, logLevel: "silent", corsOrigins: true,
-    dataRoot: tempRoot, dbPath: ":memory:",
+    dataRoot: tempRoot,
+    tenantsRoot: path.join(tempRoot, "tenants"),
+    systemRoot: path.join(tempRoot, "system"),
+    dbPath: ":memory:",
+    allowUnsafeLocalExecution: false,
   };
   const container = createRuntimeContainer({
     dbPath: path.join(tempRoot, "test.db"),
@@ -32,12 +41,16 @@ async function buildHarness(widgetJwtSecret: string) {
     systemConfigPath: "",
     agentConfigRoot: "",
     startOutboxDispatcher: false,
-    widgetJwtSecret,
     embedderFactory: () => new HashFallbackEmbedder(),
   });
-  const app = await buildApp({ env, container });
+  const controlStore = createControlStore(env.systemRoot);
+  const identityProvider = new LocalIdentityProvider(controlStore);
+  const widgetCredentialStore = createWidgetCredentialStore(controlStore.db);
+  const widgetAuth = createWidgetAuthService(widgetJwtSecret, widgetCredentialStore.ops);
+  const registry = new DefaultTenantRuntimeRegistry(env, controlStore, undefined, { runtimeFactory: () => container });
+  const app = await buildApp({ env, registry, controlStore, identityProvider, widgetCredentialStore, widgetAuth });
   await app.ready();
-  return { app, container };
+  return { app, container, widgetCredentialStore, widgetAuth };
 }
 
 const SECRET = "demo-widget-secret-0123456789abcdef0123456789abcdef";
@@ -51,13 +64,13 @@ const info = (s: string) => console.log(`  · ${s}`);
 async function main() {
   const harness = await buildHarness(SECRET);
   const { app, container } = harness;
-  const ops = container.widgetCredentialStore!.ops;
+  const ops = harness.widgetCredentialStore.ops;
   const meta = (id: string) =>
     (container.sessionApplication.getSession(id)?.metadata as { widget?: { created_via?: string } } | undefined)?.widget;
 
   try {
     H("准备：建 widget app（控制台 POST /api/widget/apps 的等价操作）");
-    const demo = ops.createApp({ display_name: "demo 站点", allowed_origins: [ORIGIN] });
+    const demo = ops.createApp({ tenantId: LOCAL_TENANT_ID, display_name: "demo 站点", allowed_origins: [ORIGIN] });
     info(`publishable key (app_key): ${demo.app_key}`);
     info(`secret (仅此一次):          ${demo.secret}`);
     info(`allowed_origins:            [${ORIGIN}]`);
@@ -86,7 +99,7 @@ async function main() {
     });
     if (r.statusCode === 401) bad(`无 Origin → 401  ${r.json().message}`);
 
-    const empty = ops.createApp({ display_name: "空白名单" });
+    const empty = ops.createApp({ tenantId: LOCAL_TENANT_ID, display_name: "空白名单" });
     r = await app.inject({
       method: "POST", url: "/api/widget/sessions",
       headers: { "x-widget-key": empty.app_key, origin: ORIGIN }, payload: {},
@@ -119,7 +132,7 @@ async function main() {
 
     // ========== 吊销联动 ==========
     H("吊销联动：revokeApp 后两条路径都断");
-    ops.revokeApp(demo.app_key);
+    ops.revokeApp(LOCAL_TENANT_ID, demo.app_key);
     info(`ops.revokeApp(${demo.app_key}) 已执行（事务：app.revoked_at + 该 app token 全 revoked）`);
 
     r = await app.inject({
@@ -136,7 +149,7 @@ async function main() {
 
     // ========== WS 双路径 ==========
     H("WS 鉴权双路径（按 created_via 分流）");
-    const wsApp = ops.createApp({ display_name: "ws-demo", allowed_origins: [ORIGIN] });
+    const wsApp = ops.createApp({ tenantId: LOCAL_TENANT_ID, display_name: "ws-demo", allowed_origins: [ORIGIN] });
 
     r = await app.inject({
       method: "POST", url: "/api/widget/sessions",
@@ -145,7 +158,7 @@ async function main() {
     const pubSid = r.json().data.session_id as string;
     // 对照：直接调 verifyPublishableSession（HTTP 路径 A 用的同一函数），确认 origin 校验逻辑正确
     try {
-      container.widgetAuth!.verifyPublishableSession({ appKey: wsApp.app_key, origin: ORIGIN });
+      harness.widgetAuth.verifyPublishableSession({ appKey: wsApp.app_key, origin: ORIGIN });
       good("对照：verifyPublishableSession(wsApp, ORIGIN) 直接调用通过 → origin 校验逻辑正确");
     } catch (e) {
       bad("对照：verifyPublishableSession 抛 " + (e as Error).message);

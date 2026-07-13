@@ -10,6 +10,7 @@ import {
 import type { ConversationStore } from "../../src/contracts/conversation-store/index.js";
 import { AgentSessionApplication } from "../../src/services/sessions/index.js";
 import os from "node:os";
+import path from "node:path";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import { mockLlm } from "../helpers/llm-fetch-mock.js";
 import { makeTempDb } from "../helpers/temp-db.js";
@@ -119,7 +120,7 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
   const mode = opts.mode ?? "ok";
   const ready = opts.ready ?? true;
   const dbPath = makeTempDb();
-  const store = createConversationStore({ dbPath });
+  const store = createConversationStore({ dbPath, dataRoot: path.dirname(dbPath) });
   const sessions = new AgentSessionApplication(store);
   const realtimeEvents = new RealtimeEventHub();
   const dispatcher = new OutboxDispatcher(store, realtimeEvents);

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
 import { buildTestHarness } from "../helpers/app.js";
+import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 let app: FastifyInstance | null = null;
 
@@ -50,7 +51,7 @@ describe("monitoring compatibility routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
     const store = harness.container.conversationStore;
-    store.createSession("ops-outbox");
+    store.createSession(LOCAL_TENANT_ID, "ops-outbox");
     const failed = store.appendOutbox({
       sessionId: "ops-outbox",
       runId: "run-failed",
@@ -167,7 +168,7 @@ describe("monitoring compatibility routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ sessionId: "s1" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1" });
     const systemMessage = harness.container.sessionApplication.addMessage({
       sessionId: "s1",
       role: "system",
@@ -242,7 +243,7 @@ describe("monitoring compatibility routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ sessionId: "compression-s1" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "compression-s1" });
     harness.container.sessionApplication.addMessage({
       sessionId: "compression-s1",
       role: "user",
@@ -310,7 +311,7 @@ describe("monitoring compatibility routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ sessionId: "react-runsteps-only" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "react-runsteps-only" });
     const runStepsOnlyUser = harness.container.sessionApplication.addMessage({
       sessionId: "react-runsteps-only",
       role: "user",
@@ -345,7 +346,7 @@ describe("monitoring compatibility routes", () => {
       }),
     ]);
 
-    harness.container.sessionApplication.createSession({ sessionId: "react-persisted" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "react-persisted" });
     const user = harness.container.sessionApplication.addMessage({
       sessionId: "react-persisted",
       role: "user",

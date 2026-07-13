@@ -13,14 +13,20 @@ import { registerStreamRoutes } from "./stream.js";
 import { registerSessionWebSocketRoute } from "./ws.js";
 
 export const registerAgentRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  await app.register(registerAgentManagementRoutes, { container: options.container });
-  await app.register(registerExecutionRoutes, { container: options.container });
-  await app.register(registerMonitoringRoutes, { container: options.container });
-  await app.register(registerAnalyticsRoutes, { container: options.container });
-  await app.register(registerRuntimeCoreRoutes, { container: options.container });
-  await app.register(registerStreamRoutes, { container: options.container });
-  await app.register(registerSessionFileRoutes, { container: options.container });
-  await app.register(registerFileChangeRoutes, { container: options.container });
-  await app.register(registerSessionRoutes, { container: options.container });
-  await app.register(registerSessionWebSocketRoute, { container: options.container });
+  const routeOptions: RouteOptions = {
+    registry: options.registry,
+    identityProvider: options.identityProvider,
+    ...(options.widgetCredentialStore ? { widgetCredentialStore: options.widgetCredentialStore } : {}),
+    ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
+  };
+  await app.register(registerAgentManagementRoutes, routeOptions);
+  await app.register(registerExecutionRoutes, routeOptions);
+  await app.register(registerMonitoringRoutes, routeOptions);
+  await app.register(registerAnalyticsRoutes, routeOptions);
+  await app.register(registerRuntimeCoreRoutes, routeOptions);
+  await app.register(registerStreamRoutes, routeOptions);
+  await app.register(registerSessionFileRoutes, routeOptions);
+  await app.register(registerFileChangeRoutes, routeOptions);
+  await app.register(registerSessionRoutes, routeOptions);
+  await app.register(registerSessionWebSocketRoute, routeOptions);
 };

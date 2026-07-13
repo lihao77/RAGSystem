@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
@@ -33,7 +32,10 @@ export class CodeExecutionToolService {
     defaultTimeoutSeconds?: number | undefined;
     maxTimeoutSeconds?: number | undefined;
   } = {}) {
-    this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
+    if (!options.dataRoot?.trim()) {
+      throw new Error("CodeExecutionToolService 必须传入已解析的 dataRoot");
+    }
+    this.dataRoot = path.resolve(options.dataRoot);
     this.defaultTimeoutSeconds = options.defaultTimeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS;
     this.maxTimeoutSeconds = options.maxTimeoutSeconds ?? MAX_TIMEOUT_SECONDS;
   }

@@ -4,7 +4,7 @@ import { createConversationStore } from "../../src/services/stores/conversation-
 import type { ConversationStore } from "../../src/contracts/conversation-store/index.js";
 
 function makeStore(): ConversationStore {
-  return createConversationStore({ dbPath: ":memory:" });
+  return createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
 }
 
 describe("MetricOps", () => {

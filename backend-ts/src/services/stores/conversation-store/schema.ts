@@ -6,6 +6,7 @@
 export const BASELINE_SCHEMA_SQL = `
     CREATE TABLE IF NOT EXISTS sessions (
       session_id TEXT PRIMARY KEY,
+      tenant_id TEXT,
       user_id TEXT,
       metadata TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -45,6 +46,7 @@ export const BASELINE_SCHEMA_SQL = `
     CREATE TABLE IF NOT EXISTS runs (
       run_id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
+      tenant_id TEXT,
       entrypoint TEXT,
       status TEXT NOT NULL DEFAULT 'running',
       task_summary TEXT,
@@ -113,6 +115,7 @@ export const BASELINE_SCHEMA_SQL = `
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       event_id TEXT UNIQUE NOT NULL,
       session_id TEXT NOT NULL,
+      tenant_id TEXT,
       run_id TEXT,
       session_seq INTEGER NOT NULL,
       event_type TEXT NOT NULL,

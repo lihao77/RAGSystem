@@ -35,15 +35,13 @@ interface UpdateBody {
 - 写/删仅限 user_global（service 层硬约束）
  */
 export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  const library = options.container.skillLibrary;
-
-  app.get("/", async () => {
-    const skills = library.listSkills();
+  app.get("/", async (request) => {
+    const skills = request.container.skillLibrary.listSkills();
     return ok(skills, `共有 ${skills.length} 个 Skill`);
   });
 
   app.get<{ Params: SkillParams }>("/:name", async (request) => {
-    return ok(library.getSkillDetail(request.params.name), "Skill 详情");
+    return ok(request.container.skillLibrary.getSkillDetail(request.params.name), "Skill 详情");
   });
 
   app.get<{ Params: SkillParams; Querystring: FileQuery }>("/:name/files", async (request, reply) => {
@@ -51,7 +49,7 @@ export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app,
     if (!rel) {
       throw new HttpError(400, "invalid_request", "缺少 path 参数");
     }
-    const { buffer, mime } = library.readSkillFile(request.params.name, rel);
+    const { buffer, mime } = request.container.skillLibrary.readSkillFile(request.params.name, rel);
     reply.header("content-type", mime);
     return buffer;
   });
@@ -65,7 +63,7 @@ export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app,
     if (!name || !description) {
       throw new HttpError(400, "invalid_request", "name 与 description 必填");
     }
-    const skill = library.createSkill({ name, description, content: asString(request.body.content) ?? "" });
+    const skill = request.container.skillLibrary.createSkill({ name, description, content: asString(request.body.content) ?? "" });
     return ok(skill, `Skill '${skill.name}' 已创建`);
   });
 
@@ -82,7 +80,7 @@ export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app,
     if (content !== null) {
       patch.content = content;
     }
-    const skill = library.updateSkillMd(request.params.name, patch);
+    const skill = request.container.skillLibrary.updateSkillMd(request.params.name, patch);
     return ok(skill, `Skill '${skill.name}' 已更新`);
   });
 
@@ -92,14 +90,14 @@ export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app,
     const uploaded = parts.map((part) => {
       const base = path.basename(part.filename);
       const rel = dir ? `${dir}/${base}` : base;
-      library.writeSkillFile(request.params.name, rel, part.buffer);
+      request.container.skillLibrary.writeSkillFile(request.params.name, rel, part.buffer);
       return { path: rel, bytes: part.buffer.length };
     });
     return ok({ uploaded }, `已上传 ${uploaded.length} 个文件`);
   });
 
   app.delete<{ Params: SkillParams }>("/:name", async (request) => {
-    library.deleteSkill(request.params.name);
+    request.container.skillLibrary.deleteSkill(request.params.name);
     return ok({ name: request.params.name }, `Skill '${request.params.name}' 已删除`);
   });
 };

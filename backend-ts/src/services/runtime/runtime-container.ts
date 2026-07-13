@@ -41,8 +41,6 @@ import { createVectorStoreFromConfig } from "../vector-store/vector-store-factor
 import type { IVectorStore } from "../../contracts/vector-store/index.js";
 import { OutboxDispatcher } from "./event-outbox/dispatcher.js";
 import { DurableClientEventPublisher } from "./event-outbox/client-event-publisher.js";
-import { createWidgetCredentialStore, type WidgetCredentialStore } from "../stores/widget-credential-store/index.js";
-import { createWidgetAuthService, type WidgetAuthService } from "./jwt-service.js";
 import { AgentMetricsCollector } from "../agent/metrics/metrics-collector.js";
 import { AgentCompressionService } from "../agent/context-compression/compression-service.js";
 
@@ -84,13 +82,6 @@ export interface RuntimeContainer {
   readonly agentDelegation: AgentDelegationService;
   readonly outboxDispatcher: OutboxDispatcher;
   readonly clientEvents: DurableClientEventPublisher;
-  /** widget 凭证存储（optional，与 widgetAuth 同生命周期；管理 app 凭证用）。 */
-  readonly widgetCredentialStore?: WidgetCredentialStore;
-  /**
-   * widget 第三方嵌入鉴权（optional）。仅当配了 WIDGET_JWT_SECRET 才实例化；
-   * 未配时为 undefined，widget 路由与 ws 握手鉴权跳过，后端保持现状。
-   */
-  readonly widgetAuth?: WidgetAuthService;
   /** 数据根目录（memory store / 工具数据用）；snapshot 装配 createRuntime 时透传。 */
   readonly dataRoot: string;
   close(): void;
@@ -109,8 +100,6 @@ export interface RuntimeContainerOptions {
   outboxDispatcherIntervalMs?: number | undefined;
   /** 消费端 hook 注册回调（可选）；透传 SDK，让 backend 注册 tool.before/after、round.before 等 handler。 */
   hooks?: ((registry: HookRegistry) => void) | undefined;
-  /** widget JWT 签名密钥（optional）。非空才启用 widget 鉴权与受约束会话签发。 */
-  widgetJwtSecret?: string | undefined;
   /** 测试或离线运行可注入确定性 embedder；生产默认按 provider 配置解析。 */
   embedderFactory?: KnowledgeBaseEmbedderFactory | undefined;
 }
@@ -123,20 +112,9 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   transientArtifacts.startPruning();
   const sessionApplication = new AgentSessionApplication(conversationStore, fileHistory, transientArtifacts);
   const realtimeEvents = new RealtimeEventHub();
-  // widget 鉴权（optional）：配了 WIDGET_JWT_SECRET 才装配。复用同一 dbPath，独立句柄，close 时单独释放。
-  // 声明先于 outboxDispatcher 启停块——token 周期清理需在其生命周期内调 startPruning。
-  const widgetCredentialStore: WidgetCredentialStore | undefined = options.widgetJwtSecret
-    ? createWidgetCredentialStore({ dbPath: options.dbPath })
-    : undefined;
-  const widgetAuth: WidgetAuthService | undefined =
-    widgetCredentialStore && options.widgetJwtSecret
-      ? createWidgetAuthService(options.widgetJwtSecret, widgetCredentialStore.ops)
-      : undefined;
   const outboxDispatcher = new OutboxDispatcher(conversationStore, realtimeEvents);
   if (options.startOutboxDispatcher ?? true) {
     outboxDispatcher.start(options.outboxDispatcherIntervalMs);
-    // widget token 周期清理跟随 outboxDispatcher 生命周期（同启用/禁用），避免 widget_tokens 无界增长。
-    widgetCredentialStore?.startPruning();
   }
   const clientEvents = new DurableClientEventPublisher(conversationStore, outboxDispatcher);
   const permissionPolicy = new PermissionPolicyService();
@@ -150,6 +128,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const mcp = new McpService({ dataRoot: options.dataRoot, configPath: options.mcpConfigPath });
   void mcp.autoConnectEnabledServers();
   agentConfig.setMcpService(mcp);
+  // M2 骨架：daemon 随租户 runtime 隔离；Local 使用 tnt_local。multi 下跨租户统一调度与常驻加载另行实现。
   const daemon = new DaemonService({ dataRoot: options.dataRoot, configPath: options.daemonConfigPath });
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
   // sqlite-vec driver 接线:读 systemConfig 选后端实例化(触发 driver 模块自注册)。
@@ -274,7 +253,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     backgroundTasks.dispose();
     transientArtifacts.stopPruning();
     outboxDispatcher.stop();
-    widgetCredentialStore?.close();
     mcp.close();
     daemon.close();
     knowledgeBase.close();
@@ -320,8 +298,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     agentDelegation,
     outboxDispatcher,
     clientEvents,
-    ...(widgetCredentialStore ? { widgetCredentialStore } : {}),
-    ...(widgetAuth ? { widgetAuth } : {}),
     dataRoot,
     close,
   };

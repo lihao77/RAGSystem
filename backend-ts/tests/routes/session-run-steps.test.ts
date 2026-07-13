@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { buildExecutionTree, type Envelope } from "@ragsystem/agent-protocol";
 
 import { buildTestHarness } from "../helpers/app.js";
+import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 let app: FastifyInstance | null = null;
 
@@ -18,7 +19,7 @@ describe("session run step routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ sessionId: "s1" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1" });
     const assistant = harness.container.sessionApplication.addMessage({
       sessionId: "s1",
       role: "assistant",
@@ -111,7 +112,7 @@ describe("session run step routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ sessionId: "s2" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s2" });
     const assistant = harness.container.sessionApplication.addMessage({
       sessionId: "s2",
       role: "assistant",
@@ -195,7 +196,7 @@ describe("session run step routes", () => {
     const sessionId = "s3";
     const rootRunId = "root-run";
     const childRunId = "child-run";
-    harness.container.sessionApplication.createSession({ sessionId });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId });
     harness.container.conversationStore.createRun({
       runId: rootRunId,
       sessionId,

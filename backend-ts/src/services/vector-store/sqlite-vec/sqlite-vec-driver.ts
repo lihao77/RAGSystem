@@ -82,10 +82,10 @@ export class SqliteVecDriver implements IVectorStore, IKnowledgeConfig, IKnowled
     // :memory: 临时库(测试/瞬态)→ os.tmpdir 下 mkdtemp 临时目录,close 时清理,不污染工作区。
     this.knowledgeUploadsRoot = this.dbIsMemory
       ? fs.mkdtempSync(path.join(os.tmpdir(), "rag-kb-uploads-"))
-      : path.join(config.dataRoot ?? path.join(os.homedir(), ".ragsystem"), "db", "knowledge-uploads");
+      : path.join(config.dataRoot, "db", "knowledge-uploads");
     this.knowledgeMarkdownRoot = this.dbIsMemory
       ? fs.mkdtempSync(path.join(os.tmpdir(), "rag-kb-markdown-"))
-      : path.join(config.dataRoot ?? path.join(os.homedir(), ".ragsystem"), "db", "knowledge-md");
+      : path.join(config.dataRoot, "db", "knowledge-md");
     // allowExtension:true 必须创建时设置(node:sqlite 默认禁用 extension loading 且创建后不可启用)。
     this.db = new DatabaseSync(dbPath, { allowExtension: true });
     this.db.exec("PRAGMA journal_mode = WAL");
@@ -800,10 +800,7 @@ function resolveDbPath(databasePath: string, dataRoot: string): string {
  * 旧 vectors.db 检测:Batch A2 改名 knowledge.db 后,遗留文件不会被引用。
  * 启动 warn 提示用户重新配置(用户决策:不做自动迁移)。不删除,避免误操作。
  */
-function warnLegacyVectorsDb(dataRoot: string | undefined): void {
-  if (!dataRoot?.trim()) {
-    return;
-  }
+function warnLegacyVectorsDb(dataRoot: string): void {
   const legacy = path.join(dataRoot, "db", "vectors.db");
   if (fs.existsSync(legacy)) {
     console.warn(

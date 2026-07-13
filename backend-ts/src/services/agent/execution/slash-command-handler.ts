@@ -11,6 +11,7 @@ import type { AgentCompressionService } from "../context-compression/compression
 import { asString, normalizeSessionEntryAgent } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
+import { LOCAL_TENANT_ID } from "../../identity/local-identity-provider.js";
 
 interface ParsedSlashCommand {
   name: string;
@@ -76,7 +77,7 @@ export class SlashCommandHandler {
     originalTask: string;
   }): Promise<AgentRunStartResult> {
     if (!this.sessions.getSession(input.sessionId)) {
-      this.sessions.createSession({ sessionId: input.sessionId, userId: input.userId });
+      this.sessions.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: input.sessionId, userId: input.userId });
     }
     this.sessions.addMessage({
       sessionId: input.sessionId,

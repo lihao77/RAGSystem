@@ -23,16 +23,16 @@ interface SyncStatusQuery {
 }
 
 export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  app.get("/models", async () => ({
+  app.get("/models", async (request) => ({
     success: true,
-    models: await options.container.embeddingModels.listModels(),
+    models: await request.container.embeddingModels.listModels(),
   }));
 
   app.post<{ Params: ModelParams }>("/models/:modelId/activate", async (request) => {
     try {
       return {
         success: true,
-        ...(await options.container.embeddingModels.activateModel(parseModelId(request.params.modelId), { missingOk: true })),
+        ...(await request.container.embeddingModels.activateModel(parseModelId(request.params.modelId), { missingOk: true })),
       };
     } catch (error) {
       throw toHttpError(error);
@@ -43,7 +43,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
     try {
       return {
         success: true,
-        ...(await options.container.embeddingModels.deleteModel(
+        ...(await request.container.embeddingModels.deleteModel(
           parseModelId(request.params.modelId),
           parseBoolean(request.query.force),
         )),
@@ -59,7 +59,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
     try {
       return {
         success: true,
-        ...(await options.container.embeddingModels.syncModel(modelId, payload)),
+        ...(await request.container.embeddingModels.syncModel(modelId, payload)),
       };
     } catch (error) {
       if (error instanceof KnowledgeBaseError && error.statusCode === 404 && error.message.startsWith("模型不存在:")) {
@@ -73,7 +73,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
     void request.query.collection;
     return {
       success: true,
-      stats: await options.container.embeddingModels.getModelStats(parseModelId(request.params.modelId)),
+      stats: await request.container.embeddingModels.getModelStats(parseModelId(request.params.modelId)),
     };
   });
 
@@ -82,7 +82,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
     return {
       success: true,
       collection,
-      sync_status: await options.container.embeddingModels.getSyncStatus(collection),
+      sync_status: await request.container.embeddingModels.getSyncStatus(collection),
     };
   });
 };

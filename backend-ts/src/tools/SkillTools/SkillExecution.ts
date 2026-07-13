@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import YAML from "yaml";
 
@@ -89,7 +88,10 @@ export class SkillToolService {
       skillIsolationMode?: SkillIsolationMode | undefined;
     } = {},
   ) {
-    this.dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
+    if (!options.dataRoot?.trim()) {
+      throw new Error("SkillToolService 必须传入已解析的 dataRoot");
+    }
+    this.dataRoot = path.resolve(options.dataRoot);
     this.builtinSkillsRoot = path.resolve(options.builtinSkillsRoot ?? path.join(process.cwd(), "skills"));
     this.userGlobalSkillsRoot = path.resolve(options.userGlobalSkillsRoot ?? path.join(this.dataRoot, "skills"));
     this.agentConfig = options.agentConfig ?? null;

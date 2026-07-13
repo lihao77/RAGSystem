@@ -29,13 +29,13 @@ interface ImportQuery {
 }
 
 export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  app.get("/configs", async () => {
-    const configs = options.container.agentConfig.listConfigs();
+  app.get("/configs", async (request) => {
+    const configs = request.container.agentConfig.listConfigs();
     return ok(configs, `共有 ${Object.keys(configs).length} 个智能体配置`);
   });
 
   app.get<{ Params: AgentParams }>("/configs/:agentName", async (request) => {
-    const config = options.container.agentConfig.getConfig(request.params.agentName);
+    const config = request.container.agentConfig.getConfig(request.params.agentName);
     if (!config) {
       throw new HttpError(404, "not_found", `智能体 "${request.params.agentName}" 不存在`);
     }
@@ -47,7 +47,7 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
       ...(isRecord(request.body) ? request.body : {}),
       agent_name: request.params.agentName,
     });
-    const config = options.container.agentConfig.replaceConfig(request.params.agentName, payload);
+    const config = request.container.agentConfig.replaceConfig(request.params.agentName, payload);
     return ok(config, `智能体 "${request.params.agentName}" 配置已更新`);
   });
 
@@ -55,7 +55,7 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
     if (!isRecord(request.body)) {
       throw new HttpError(400, "invalid_request", "请求体必须是对象");
     }
-    const config = options.container.agentConfig.patchConfig(request.params.agentName, request.body);
+    const config = request.container.agentConfig.patchConfig(request.params.agentName, request.body);
     if (!config) {
       throw new HttpError(404, "not_found", `智能体 "${request.params.agentName}" 不存在`);
     }
@@ -63,7 +63,7 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
   });
 
   app.delete<{ Params: AgentParams }>("/configs/:agentName", async (request) => {
-    const deleted = options.container.agentConfig.deleteConfig(request.params.agentName);
+    const deleted = request.container.agentConfig.deleteConfig(request.params.agentName);
     if (!deleted) {
       throw new HttpError(404, "not_found", `智能体 "${request.params.agentName}" 不存在`);
     }
@@ -72,7 +72,7 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
 
   app.get<{ Params: AgentParams; Querystring: ExportQuery }>("/configs/:agentName/export", async (request, reply) => {
     const format = normalizeExportFormat(request.query.format);
-    const exported = options.container.agentConfig.exportConfig(request.params.agentName, format);
+    const exported = request.container.agentConfig.exportConfig(request.params.agentName, format);
     if (!exported) {
       throw new HttpError(404, "not_found", `智能体 "${request.params.agentName}" 不存在`);
     }
@@ -85,10 +85,10 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
   app.post<{ Params: AgentParams }>("/configs/:agentName/preset", async (request) => {
     const payload = ApplyPresetRequestSchema.parse(request.body);
     try {
-      if (!Object.prototype.hasOwnProperty.call(options.container.agentConfig.listPresets(), payload.preset)) {
+      if (!Object.prototype.hasOwnProperty.call(request.container.agentConfig.listPresets(), payload.preset)) {
         throw new HttpError(400, "invalid_request", `无效的预设名称: ${payload.preset}`);
       }
-      const config = options.container.agentConfig.applyPreset(request.params.agentName, payload.preset);
+      const config = request.container.agentConfig.applyPreset(request.params.agentName, payload.preset);
       if (!config) {
         throw new HttpError(404, "not_found", `智能体 "${request.params.agentName}" 不存在`);
       }
@@ -110,7 +110,7 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
       if (request.headers["content-type"] !== undefined) {
         importOptions.contentType = request.headers["content-type"];
       }
-      const config = options.container.agentConfig.importConfig(request.body, {
+      const config = request.container.agentConfig.importConfig(request.body, {
         ...importOptions,
       });
       return ok(config, `智能体 "${config.agent_name}" 配置已导入`);
@@ -122,23 +122,23 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
   app.get<{ Params: AgentParams }>("/configs/:agentName/validate", async (request) =>
     ok(
       {
-        valid: options.container.agentConfig.getConfig(request.params.agentName) !== null,
-        error: options.container.agentConfig.getConfig(request.params.agentName) ? null : "not found",
+        valid: request.container.agentConfig.getConfig(request.params.agentName) !== null,
+        error: request.container.agentConfig.getConfig(request.params.agentName) ? null : "not found",
       },
       "验证完成",
     ),
   );
 
-  app.post("/teams/default/reset", async () =>
-    ok(options.container.agentConfig.resetDefaultTeam(), "default team 已重置为系统默认配置"),
+  app.post("/teams/default/reset", async (request) =>
+    ok(request.container.agentConfig.resetDefaultTeam(), "default team 已重置为系统默认配置"),
   );
 
-  app.get("/teams", async () => ok(options.container.agentConfig.listTeams(), "team 列表"));
+  app.get("/teams", async (request) => ok(request.container.agentConfig.listTeams(), "team 列表"));
 
   app.post("/teams", async (request) => {
     const payload = CreateTeamRequestSchema.parse(request.body);
     try {
-      return ok(options.container.agentConfig.createTeam(payload.team_name, payload.source_team), "team 已创建");
+      return ok(request.container.agentConfig.createTeam(payload.team_name, payload.source_team), "team 已创建");
     } catch (error) {
       throw new HttpError(400, "invalid_request", errorMessage(error));
     }
@@ -146,7 +146,7 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
 
   app.post<{ Params: TeamParams }>("/teams/:teamName/activate", async (request) => {
     try {
-      return ok(options.container.agentConfig.activateTeam(request.params.teamName), `team "${request.params.teamName}" 已激活`);
+      return ok(request.container.agentConfig.activateTeam(request.params.teamName), `team "${request.params.teamName}" 已激活`);
     } catch (error) {
       throw new HttpError(400, "invalid_request", errorMessage(error));
     }
@@ -154,7 +154,7 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
 
   app.delete<{ Params: TeamParams }>("/teams/:teamName", async (request) => {
     try {
-      return ok(options.container.agentConfig.deleteTeam(request.params.teamName), `team "${request.params.teamName}" 已删除`);
+      return ok(request.container.agentConfig.deleteTeam(request.params.teamName), `team "${request.params.teamName}" 已删除`);
     } catch (error) {
       throw new HttpError(400, "invalid_request", errorMessage(error));
     }
@@ -163,7 +163,7 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
   app.patch<{ Params: TeamParams }>("/teams/:teamName/rename", async (request) => {
     const payload = RenameTeamRequestSchema.parse(request.body);
     try {
-      return ok(options.container.agentConfig.renameTeam(request.params.teamName, payload.new_team_name), `team "${request.params.teamName}" 已重命名`);
+      return ok(request.container.agentConfig.renameTeam(request.params.teamName, payload.new_team_name), `team "${request.params.teamName}" 已重命名`);
     } catch (error) {
       throw new HttpError(400, "invalid_request", errorMessage(error));
     }
@@ -173,7 +173,7 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
     const payload = CopyAgentsRequestSchema.parse(request.body);
     try {
       return ok(
-        options.container.agentConfig.copyAgentsToTeam(request.params.teamName, payload.source_team, payload.agent_names),
+        request.container.agentConfig.copyAgentsToTeam(request.params.teamName, payload.source_team, payload.agent_names),
         "agents 已复制到目标 team",
       );
     } catch (error) {
@@ -181,27 +181,27 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
     }
   });
 
-  app.get("/presets", async () =>
+  app.get("/presets", async (request) =>
     ok(
-      options.container.agentConfig.listPresets(),
+      request.container.agentConfig.listPresets(),
       "共有 5 个预设",
     ),
   );
 
-  app.get("/tools", async () => {
-    const tools = options.container.agentConfig.listAvailableTools().map(normalizeAvailableTool);
+  app.get("/tools", async (request) => {
+    const tools = request.container.agentConfig.listAvailableTools().map(normalizeAvailableTool);
     return ok(tools, `共有 ${tools.length} 个可用工具`);
   });
 
-  app.get("/memory-metadata", async () => ok(options.container.agentConfig.getMemoryConfigMetadata(), "Memory 配置元数据"));
+  app.get("/memory-metadata", async (request) => ok(request.container.agentConfig.getMemoryConfigMetadata(), "Memory 配置元数据"));
 
-  app.get("/mcp-servers", async () => {
-    const servers = options.container.agentConfig.listAvailableMcpServers().map(normalizeMcpServerForConfig);
+  app.get("/mcp-servers", async (request) => {
+    const servers = request.container.agentConfig.listAvailableMcpServers().map(normalizeMcpServerForConfig);
     return ok(servers, `Found ${servers.length} MCP servers`);
   });
 
-  app.get("/skills", async () => {
-    const skills = options.container.agentConfig.listAvailableSkills();
+  app.get("/skills", async (request) => {
+    const skills = request.container.agentConfig.listAvailableSkills();
     return ok(skills, `共有 ${skills.length} 个可用 Skill`);
   });
 };

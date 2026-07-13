@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
 import { buildTestHarness } from "../helpers/app.js";
+import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 let app: FastifyInstance | null = null;
 
@@ -16,6 +17,7 @@ describe("interaction response routes", () => {
   it("resolves pending approvals through the generic HTTP route", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
+    harness.container.conversationStore.createSession(LOCAL_TENANT_ID, "approval-route-session");
 
     const approvalPromise = harness.container.pendingInteractions.waitForApproval({
       sessionId: "approval-route-session",
