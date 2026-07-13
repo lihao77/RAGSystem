@@ -814,7 +814,7 @@
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(17, 17, 17, 0.32);
+  background: rgba(var(--color-scrim-rgb), 0.32);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   display: flex;

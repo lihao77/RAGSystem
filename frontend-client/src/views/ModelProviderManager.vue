@@ -635,7 +635,7 @@ onMounted(() => { loadProviderTypes(); loadProviders(); });
 
 .form-row { display: flex; flex-direction: column; gap: 6px; }
 .form-label { font-size: 0.83rem; font-weight: 600; color: var(--color-text-primary); }
-.required { color: var(--color-error, #f87171); }
+.required { color: var(--color-error); }
 .form-hint--section { margin-bottom: 4px; }
 .fc-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-primary); }
 .form-section-title { font-size: 0.83rem; font-weight: 700; color: var(--color-text-primary); border-bottom: 1px solid var(--color-border); padding-bottom: 6px; }

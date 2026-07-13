@@ -211,9 +211,9 @@ function submit() {
   color: var(--color-text-muted);
 }
 .wpui-btn--cancel:hover {
-  background: var(--color-hover-overlay, rgba(255,255,255,0.04));
+  background: var(--color-hover-overlay);
 }
 .wpui-btn--cancel:active {
-  background: rgba(255,255,255,0.06);
+  background: var(--color-hover-overlay-md);
 }
 </style>

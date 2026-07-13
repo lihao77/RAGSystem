@@ -204,9 +204,9 @@ const handleWindowDrop = (event) => {
 };
 
 const handleEnter = (event) => {
-  if (event.shiftKey) {
-    return;
-  }
+  if (event.shiftKey) return;
+  // IME 组合输入中（中文/日文选词回车）不触发发送
+  if (event.isComposing || event.keyCode === 229) return;
   handleSend();
 };
 

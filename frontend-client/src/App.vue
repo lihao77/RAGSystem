@@ -1,5 +1,6 @@
 <template>
   <div id="app">
+    <a href="#main-content" class="skip-link">跳到主内容</a>
     <GlobalToast />
     <GlobalConfirmDialog />
     <RouterView v-slot="{ Component, route }">

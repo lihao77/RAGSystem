@@ -14,6 +14,15 @@
             </span>
           </div>
         </div>
+        <div v-for="g in contextGroups" :key="g.title" class="hk-group">
+          <div class="hk-group-title">{{ g.title }}</div>
+          <div v-for="item in g.items" :key="item.desc" class="hk-row">
+            <span class="hk-desc">{{ item.desc }}</span>
+            <span class="hk-keys">
+              <kbd v-for="(tok, i) in comboTokens(item.combo)" :key="i" class="hk-kbd">{{ tok }}</kbd>
+            </span>
+          </div>
+        </div>
         <div class="hk-footer">
           <span>更多操作用</span>
           <kbd class="hk-kbd">⌘</kbd><kbd class="hk-kbd">K</kbd>
@@ -34,6 +43,19 @@ const visible = helpVisible;
 const close = () => { helpVisible.value = false; };
 
 const GROUP_ORDER = ['操作', '导航', '会话', '帮助'];
+
+// 上下文快捷键：仅在对应面板生效（由组件自身 addEventListener 处理，
+// 不进全局监听，仅在此展示，保证帮助面板与实际可用键一致）
+const contextGroups = [
+  {
+    title: '上下文（仅在对应面板生效）',
+    items: [
+      { combo: 'escape', desc: '图片预览：关闭' },
+      { combo: 'arrowleft', desc: '图片预览：上一张' },
+      { combo: 'arrowright', desc: '图片预览：下一张' },
+    ],
+  },
+];
 const groups = computed(() => {
   const buckets = {};
   for (const b of bindings.value) {

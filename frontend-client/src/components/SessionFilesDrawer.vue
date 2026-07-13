@@ -212,8 +212,12 @@ const onFileChange = (event) => {
   opacity: 0;
   transition: opacity 0.2s;
 }
-.ctx-file-item:hover .ctx-file-actions { opacity: 1; }
+.ctx-file-item:hover .ctx-file-actions,
+.ctx-file-item:focus-within .ctx-file-actions { opacity: 1; }
 .ctx-file-actions--visible { opacity: 1; }
+@media (hover: none) {
+  .ctx-file-actions { opacity: 1; }
+}
 
 .ctx-thumb-btn {
   display: block;

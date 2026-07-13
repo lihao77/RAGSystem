@@ -2,15 +2,20 @@ import { computed, nextTick, onScopeDispose, ref, watch } from 'vue';
 
 const SCROLL_DETACH_THRESHOLD = 120;
 const SCROLL_REATTACH_THRESHOLD = 80;
+// 用户向上滚后停下：即使未达阈值也暂停跟随，避免流式把阅读中的用户拉回底部
+const PAUSE_DELAY = 600;
 
 export function useChatScrolling(deps) {
   const messagesRef = ref(null);
   const isFollowing = ref(true);
   const scrollBottomGap = ref(0);
+  const unreadCount = ref(0);
 
   let isProgrammaticScroll = false;
   let lastScrollTop = 0;
   let userScrollUpAccum = 0;
+  let pauseTimer = null;
+  let lastMsgCount = deps.messages.value.length;
 
   // --- 内容高度变化自动跟随（双 Observer） ---
   let mutationObs = null;
@@ -47,6 +52,7 @@ export function useChatScrolling(deps) {
 
   const cleanupObservers = () => {
     if (pendingRaf) { cancelAnimationFrame(pendingRaf); pendingRaf = null; }
+    if (pauseTimer) { clearTimeout(pauseTimer); pauseTimer = null; }
     if (mutationObs) { mutationObs.disconnect(); mutationObs = null; }
     if (resizeObs) { resizeObs.disconnect(); resizeObs = null; observedChild = null; }
   };
@@ -146,6 +152,9 @@ export function useChatScrolling(deps) {
     lastObsScrollHeight = 0;
     lastHandleHeight = 0;
     scrollBottomGap.value = 0;
+    unreadCount.value = 0;
+    lastMsgCount = deps.messages.value.length;
+    if (pauseTimer) { clearTimeout(pauseTimer); pauseTimer = null; }
     deps.topControlsBarScrolled.value = false;
     if (messagesRef.value) {
       messagesRef.value.scrollTop = 0;
@@ -194,6 +203,12 @@ export function useChatScrolling(deps) {
       if (userScrollUpAccum >= SCROLL_DETACH_THRESHOLD) {
         isFollowing.value = false;
       }
+      // 用户向上滚后停下：即使未达阈值也暂停跟随，避免流式把阅读中的用户拉回底部
+      if (pauseTimer) clearTimeout(pauseTimer);
+      pauseTimer = setTimeout(() => {
+        pauseTimer = null;
+        if (!checkIfAtBottom()) isFollowing.value = false;
+      }, PAUSE_DELAY);
     } else if (delta > 0 && !isFollowing.value && checkIfAtBottom()) {
       userScrollUpAccum = 0;
       isFollowing.value = true;
@@ -204,10 +219,20 @@ export function useChatScrolling(deps) {
     stickToBottom('smooth');
   };
 
+  // 未读计数：暂停跟随时新消息累加，恢复跟随（回到底部）清零
+  watch(() => deps.messages.value.length, (newLen) => {
+    if (lastMsgCount > 0 && newLen > lastMsgCount && !isFollowing.value) {
+      unreadCount.value += newLen - lastMsgCount;
+    }
+    lastMsgCount = newLen;
+  });
+  watch(isFollowing, (v) => { if (v) unreadCount.value = 0; });
+
   return {
     messagesRef,
     isFollowing,
     scrollBottomGap,
+    unreadCount,
     showScrollToBottomButton,
     updateScrollBottomGap,
     waitForScrollLayout,

@@ -46,7 +46,7 @@
 
       <!-- Actions -->
       <div class="wpa-actions">
-        <Button class="wpa-btn w-full" variant="default" :disabled="submitting" @click="submit(true)">
+        <Button class="wpa-btn w-full" variant="success" :disabled="submitting" @click="submit(true)">
           <IconCheck :size="15" />
           {{ submitting && pendingApproved === true ? '…' : '允许' }}
         </Button>
@@ -138,7 +138,7 @@ function submit(approved) {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: var(--color-warning, #f59e0b);
+  color: var(--color-warning);
 }
 
 .wpa-section-icon {
@@ -149,7 +149,7 @@ function submit(approved) {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: var(--color-warning, #f59e0b);
+  color: var(--color-warning);
   background: rgba(var(--color-warning-rgb), 0.16);
 }
 
@@ -166,7 +166,7 @@ function submit(approved) {
   height: 16px;
   padding: 0 5px;
   border-radius: 999px;
-  background: var(--color-warning, #f59e0b);
+  background: var(--color-warning);
   color: #1c1c1e;
   font-size: 10px;
   font-weight: 700;
@@ -200,9 +200,9 @@ function submit(approved) {
   flex-shrink: 0;
 }
 
-.risk-low    { background: rgba(34,197,94,0.18); color: var(--color-success, #22c55e); }
-.risk-medium { background: rgba(245,158,11,0.18); color: var(--color-warning, #f59e0b); }
-.risk-high, .risk-critical { background: rgba(239,68,68,0.18); color: var(--color-error, #ef4444); }
+.risk-low    { background: rgba(var(--color-success-rgb), 0.18); color: var(--color-success); }
+.risk-medium { background: rgba(var(--color-warning-rgb), 0.18); color: var(--color-warning); }
+.risk-high, .risk-critical { background: rgba(var(--color-error-rgb), 0.18); color: var(--color-error); }
 
 .wpa-agent {
   font-size: 12px;
@@ -289,30 +289,7 @@ function submit(approved) {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
-  border: 1px solid transparent;
-  background: transparent;
 }
 .wpa-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .wpa-btn:active:not(:disabled) { transform: scale(0.97); }
-
-.wpa-btn--approve {
-  background: var(--color-success);
-  color: var(--color-on-color);
-  box-shadow: 0 2px 12px rgba(var(--color-success-rgb), 0.3);
-}
-.wpa-btn--approve:hover:not(:disabled) {
-  filter: brightness(1.08);
-  box-shadow: 0 4px 20px rgba(var(--color-success-rgb), 0.45);
-  transform: translateY(-1px);
-}
-
-.wpa-btn--deny {
-  color: var(--color-error);
-  border-color: var(--color-border);
-}
-.wpa-btn--deny:hover:not(:disabled) {
-  border-color: var(--color-error);
-  background: rgba(var(--color-error-rgb), 0.08);
-  transform: translateY(-1px);
-}
 </style>

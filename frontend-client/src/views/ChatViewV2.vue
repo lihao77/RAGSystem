@@ -1,6 +1,6 @@
 <template>
  <div class="chat-page-shell">
-    <main class="chat-main" :class="chatMainClasses">
+    <main id="main-content" tabindex="-1" class="chat-main" :class="chatMainClasses">
     <div class="chat-conversation-column">
       <SessionContextBar
         ref="sessionContextBarRef"
@@ -29,8 +29,11 @@
          <transition name="scroll-btn-fade">
             <LiquidGlass v-if="showScrollToBottomButton" :width="40" :height="40" :radius="999"
               extra-filter="blur(2px) contrast(1.15) brightness(1.06) saturate(1.1)"
-              class="scroll-to-bottom-btn" @click="onScrollToBottomClick" title="滚动到底部">
+              class="scroll-to-bottom-btn" @click="onScrollToBottomClick"
+              :title="unreadCount > 0 ? `${unreadCount} 条新消息，滚动到底部` : '滚动到底部'"
+              :aria-label="unreadCount > 0 ? `${unreadCount} 条新消息，滚动到底部` : '滚动到底部'">
               <IconChevronDown :size="18" />
+              <span v-if="unreadCount > 0" class="scroll-unread-badge">{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
             </LiquidGlass>
           </transition>
           <div class="input-area-wrapper">
@@ -219,11 +222,27 @@ const {
   sessionExecutionObservability,
   contextUsage,
 } = storeToRefs(sessionRunStore);
+
+// 输入草稿持久化：按 sessionId 分片存 localStorage，切会话/刷新后恢复，发送清空
+const DRAFT_PREFIX = 'chat-draft:';
+const draftKey = computed(() => DRAFT_PREFIX + (currentSessionId.value || '__new__'));
+watch(currentSessionId, () => {
+  let saved = '';
+  try { saved = localStorage.getItem(draftKey.value) || ''; } catch (e) { saved = ''; }
+  inputMessage.value = saved;
+}, { immediate: true });
+watch(inputMessage, (val) => {
+  try {
+    if (val) localStorage.setItem(draftKey.value, val);
+    else localStorage.removeItem(draftKey.value);
+  } catch (e) { /* localStorage 不可用时静默 */ }
+});
 const sessionContextBarRef = ref(null);
 const topControlsBarScrolled = ref(false);
 const {
   messagesRef,
   showScrollToBottomButton,
+  unreadCount,
   updateScrollBottomGap,
   waitForScrollLayout,
   scrollToBottom,
@@ -1176,6 +1195,26 @@ onUnmounted(() => {
   outline-offset: 3px;
 }
 
+.scroll-unread-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--color-accent-fg);
+  background: var(--color-accent);
+  border: 2px solid var(--color-bg-primary);
+  border-radius: var(--radius-full);
+  font-variant-numeric: tabular-nums;
+}
+
 .scroll-btn-fade-enter-active,
 .scroll-btn-fade-leave-active {
   transition: opacity 0.2s ease, transform 0.2s ease;
@@ -1235,7 +1274,7 @@ onUnmounted(() => {
   min-height: 28px;
   border-radius: var(--radius-full);
   background: var(--color-warning-bg, rgba(250, 173, 20, 0.1));
-  color: var(--color-warning, #faad14);
+  color: var(--color-warning);
   font-size: 0.8rem;
   font-weight: 600;
   border: 1px solid rgba(250, 173, 20, 0.2);

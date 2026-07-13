@@ -61,7 +61,7 @@
     /* 文字层级 —— neutral 灰阶 */
     --color-text-primary: #fafafa;
     --color-text-secondary: #b3b3b3;
-    --color-text-muted: #737373;
+    --color-text-muted: #909090;
     --color-text-inverse: #0a0a0a;
     --color-on-color: #ffffff;
     --color-on-color-strong: #ffffff;
@@ -136,6 +136,9 @@
     --color-hover-overlay: rgba(255, 255, 255, 0.05);
     --color-hover-overlay-md: rgba(255, 255, 255, 0.08);
     --color-hover-overlay-lg: rgba(255, 255, 255, 0.1);
+
+    /* 遮罩 —— 浮层/抽屉/模态背景暗化（两模式都用暗遮罩，故仅 :root 定义） */
+    --color-scrim-rgb: 0, 0, 0;
 
     /* 玻璃 —— 浮层专用（neutral 灰） */
     --glass-bg: rgba(28, 28, 28, 0.72);
@@ -322,7 +325,7 @@
     /* 文字层级 —— neutral 灰阶 */
     --color-text-primary: #171717;
     --color-text-secondary: #595959;
-    --color-text-muted: #8c8c8c;
+    --color-text-muted: #6e6e6e;
     --color-text-inverse: #ffffff;
     --color-on-color: #ffffff;
     --color-on-color-strong: #171717;
@@ -447,6 +450,7 @@ html,
 body {
     width: 100%;
     height: 100%;
+    height: 100dvh;
     overflow: hidden;
 }
 
@@ -729,6 +733,25 @@ input[type='number'] {
     color: var(--color-text-primary);
 }
 
+/* 跳到主内容（键盘可达性）：默认离屏，focus 时滑入 */
+.skip-link {
+    position: fixed;
+    top: -120px;
+    left: 0;
+    z-index: 100000;
+    padding: var(--spacing-sm) var(--spacing-lg);
+    background: var(--color-accent);
+    color: var(--color-on-accent);
+    border-radius: 0 0 var(--radius-md) 0;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    text-decoration: none;
+    transition: top var(--transition-fast);
+}
+.skip-link:focus {
+    top: 0;
+}
+
 /* 聚焦轮廓 —— 交互元素键盘焦点（input/textarea 自有 caret，不套 outline） */
 :where(button, a, [role="button"], summary, [tabindex]):focus-visible {
     outline: 2px solid rgba(var(--color-brand-accent-rgb), 0.6);
@@ -868,6 +891,17 @@ input[type='number'] {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     transition: all var(--transition-normal);
+}
+
+/* 触屏设备：图标按钮最小触控目标 40px（WCAG 2.5.5 Target Size）
+   cva 的 icon-xs(28)/icon-sm(32) 在粗指针环境通过 min-size 撑到 40，
+   桌面 pointer:fine 不受影响。 */
+@media (pointer: coarse) {
+  .btn-icon-xs,
+  .btn-icon-sm {
+    min-width: 40px;
+    min-height: 40px;
+  }
 }
 
 /* ===== 响应式断点 ===== */

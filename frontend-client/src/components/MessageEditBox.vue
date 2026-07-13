@@ -257,8 +257,8 @@ onMounted(async () => {
 }
 
 .msg-edit-att-remove:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.12);
-  color: rgb(239, 68, 68);
+  background: rgba(var(--color-error-rgb), 0.12);
+  color: var(--color-error);
   transform: scale(1.15);
 }
 

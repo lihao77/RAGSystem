@@ -1,7 +1,13 @@
 <template>
   <Teleport to="body">
     <Transition name="toast">
-      <div v-if="state.visible" class="app-toast" :class="state.type">
+      <div
+        v-if="state.visible"
+        class="app-toast"
+        :class="state.type"
+        :role="state.type === 'error' ? 'alert' : 'status'"
+        aria-atomic="true"
+      >
         <span>{{ state.message }}</span>
         <Button v-if="state.action" variant="link" @click="runAction">
           {{ state.actionLabel }}

@@ -72,18 +72,28 @@
 
         <!-- System Prompt -->
         <section class="ctx-section">
-          <h4 class="ctx-collapsible" @click="spExpanded = !spExpanded">
-            System Prompt <span class="ctx-arrow">{{ spExpanded ? '▼' : '▶' }}</span>
+          <h4>
+            <button type="button" class="ctx-collapsible"
+              :aria-expanded="spExpanded"
+              aria-controls="ctx-system-prompt"
+              @click="spExpanded = !spExpanded">
+              System Prompt <span class="ctx-arrow" aria-hidden="true">{{ spExpanded ? '▼' : '▶' }}</span>
+            </button>
           </h4>
-          <pre v-if="spExpanded" class="ctx-code-block">{{ data.system_prompt }}</pre>
+          <pre v-if="spExpanded" id="ctx-system-prompt" class="ctx-code-block">{{ data.system_prompt }}</pre>
         </section>
 
         <!-- Memory -->
         <section v-if="data.memory" class="ctx-section">
-          <h4 class="ctx-collapsible" @click="memExpanded = !memExpanded">
-            Memory (Stable Prefix) <span class="ctx-arrow">{{ memExpanded ? '▼' : '▶' }}</span>
+          <h4>
+            <button type="button" class="ctx-collapsible"
+              :aria-expanded="memExpanded"
+              aria-controls="ctx-memory"
+              @click="memExpanded = !memExpanded">
+              Memory (Stable Prefix) <span class="ctx-arrow" aria-hidden="true">{{ memExpanded ? '▼' : '▶' }}</span>
+            </button>
           </h4>
-          <template v-if="memExpanded">
+          <div v-if="memExpanded" id="ctx-memory">
             <div v-if="data.memory.scope_capabilities && Object.keys(data.memory.scope_capabilities).length" class="ctx-kv-list" style="margin-bottom: 8px;">
               <div v-for="(caps, scope) in data.memory.scope_capabilities" :key="scope" class="ctx-kv ctx-kv-group">
                 <span class="ctx-k">{{ scope }}</span>
@@ -101,7 +111,7 @@
             <div v-if="!data.memory.indices || !Object.keys(data.memory.indices).length" class="ctx-v" style="font-size: 12px; color: var(--color-text-muted, #999);">
               无已加载的记忆索引
             </div>
-          </template>
+          </div>
         </section>
 
         <!-- 对话历史 -->
@@ -235,7 +245,19 @@ watch(() => props.visible, (v) => { if (v) fetchSnapshot(); });
 .ctx-tool-call { display: flex; flex-direction: column; gap: 1px; padding: 2px 4px; background: var(--color-bg-tertiary, #f0f0f0); border-radius: 3px; }
 .ctx-tool-name { font-weight: 600; color: var(--color-agent-violet, #7c3aed); font-size: 11px; }
 .ctx-tool-args { font-size: 11px; color: var(--color-text-secondary, #666); word-break: break-all; white-space: pre-wrap; }
-.ctx-collapsible { cursor: pointer; user-select: none; }
+.ctx-collapsible {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  user-select: none;
+}
 .ctx-arrow { font-size: 11px; margin-left: 4px; }
 .ctx-mem-scope { margin-bottom: 10px; }
 .ctx-mem-scope-title { font-size: 12px; font-weight: 600; color: var(--color-text-secondary, #666); margin-bottom: 4px; }

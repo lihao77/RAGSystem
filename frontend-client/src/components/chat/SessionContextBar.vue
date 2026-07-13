@@ -493,9 +493,9 @@ defineExpose({ getSelection });
   .theme-btn,
   .version-btn,
   .top-action-btn {
-    width: var(--icon-button-size-md);
-    min-width: var(--icon-button-size-md);
-    height: var(--control-height-md);
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
     padding: 0;
     justify-content: center;
     gap: 0;

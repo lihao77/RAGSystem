@@ -446,7 +446,7 @@ defineExpose({ show, hide, toggleCollapsed });
   padding: 0;
   border: 1px solid rgba(var(--color-active-rgb), 0.3);
   border-radius: 999px;
-  background: rgba(20, 20, 24, 0.92);
+  background: var(--glass-bg);
   backdrop-filter: blur(16px);
   color: var(--color-text-primary);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);

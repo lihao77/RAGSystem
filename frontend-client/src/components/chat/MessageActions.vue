@@ -7,8 +7,9 @@
           <path d="m15 5 4 4" />
         </svg>
       </Button>
-      <Button variant="ghost" size="icon-xs" aria-label="复制" title="复制" @click="messageContext.copyMessage(msg)">
-        <IconCopy :size="14" />
+      <Button variant="ghost" size="icon-xs" :aria-label="copied ? '已复制' : '复制'" :title="copied ? '已复制' : '复制'" @click="onCopy(msg)">
+        <IconCheck v-if="copied" :size="14" />
+        <IconCopy v-else :size="14" />
       </Button>
     </template>
 
@@ -29,8 +30,9 @@
           <circle cx="17" cy="9" r="3" />
         </svg>
       </Button>
-      <Button variant="ghost" size="icon-xs" aria-label="复制" title="复制" @click="messageContext.copyMessage(msg)">
-        <IconCopy :size="14" />
+      <Button variant="ghost" size="icon-xs" :aria-label="copied ? '已复制' : '复制'" :title="copied ? '已复制' : '复制'" @click="onCopy(msg)">
+        <IconCheck v-if="copied" :size="14" />
+        <IconCopy v-else :size="14" />
       </Button>
       <Button
         v-if="retryMessage"
@@ -61,17 +63,29 @@
 
 <script setup>
 import IconCopy from '../icons/IconCopy.vue';
+import IconCheck from '../icons/IconCheck.vue';
 import { Button } from '../ui/button';
 import {
   getMessageExecutionTimeText,
   getMessageExecutionTimeTitle,
   hasExecutionContent,
 } from '../../utils/message-render.js';
-import { inject } from 'vue';
+import { inject, ref, onUnmounted } from 'vue';
 defineProps({
   msg: { type: Object, required: true },
   visible: { type: Boolean, default: false },
   retryMessage: { type: Object, default: null },
 });
 const messageContext = inject('messageContext');
+
+// 复制反馈：点击后图标短暂变 ✓，给操作即时可感知的反馈（toast 在顶部，按钮 inline 更直接）
+const copied = ref(false);
+let copyTimer = null;
+const onCopy = async (msg) => {
+  try { await messageContext.copyMessage(msg); } catch (e) { /* 复制失败由 toast 提示 */ }
+  copied.value = true;
+  if (copyTimer) clearTimeout(copyTimer);
+  copyTimer = setTimeout(() => { copied.value = false; }, 1500);
+};
+onUnmounted(() => { if (copyTimer) clearTimeout(copyTimer); });
 </script>

@@ -1,6 +1,6 @@
 <template>
   <div class="admin-layout">
-    <main class="admin-main">
+    <main id="main-content" tabindex="-1" class="admin-main">
       <slot />
     </main>
   </div>

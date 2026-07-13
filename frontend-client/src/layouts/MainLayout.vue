@@ -621,6 +621,7 @@ onUnmounted(() => {
   --sidebar-btn-text-transition-out: opacity var(--duration-fast) ease;
   display: flex;
   height: 100vh;
+  height: 100dvh;
   width: 100%;
   max-width: 100%;
   background-color: var(--surface-sidebar);
@@ -632,7 +633,7 @@ onUnmounted(() => {
 .sidebar-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.36);
+  background: rgba(var(--color-scrim-rgb), 0.36);
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--duration-base) ease;
@@ -1080,13 +1081,31 @@ onUnmounted(() => {
 }
 
 .history-delete-btn:hover {
-  background: rgba(239, 68, 68, 0.12);
+  background: rgba(var(--color-error-rgb), 0.12);
   color: var(--color-error);
   transform: scale(1.1);
 }
 
 @media (hover: hover) {
   .history-item:hover .history-delete-btn {
+    width: 32px;
+    padding: 6px;
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* 键盘焦点可达：Tab 聚焦时展开（无论何种设备） */
+.history-item:focus-within .history-delete-btn {
+  width: 32px;
+  padding: 6px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 触屏设备（无 hover）：始终展开，避免不可达 */
+@media (hover: none) {
+  .history-delete-btn {
     width: 32px;
     padding: 6px;
     opacity: 1;
@@ -1300,7 +1319,7 @@ onUnmounted(() => {
 }
 
 .chat-layout--sidebar-overlay .sidebar-backdrop {
-  background: rgba(6, 8, 12, 0.42);
+  background: rgba(var(--color-scrim-rgb), 0.42);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }

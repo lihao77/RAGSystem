@@ -275,15 +275,15 @@ function compactNumber(value) {
 
 .fill-empty { background: transparent; }
 .fill-ok {
-  background: linear-gradient(90deg, var(--color-success, #22c55e), color-mix(in srgb, var(--color-success, #22c55e) 85%, #fff));
+  background: linear-gradient(90deg, var(--color-success), color-mix(in srgb, var(--color-success) 85%, #fff));
   box-shadow: 0 0 6px rgba(var(--color-success-rgb), 0.4);
 }
 .fill-warning {
-  background: linear-gradient(90deg, var(--color-warning, #f59e0b), color-mix(in srgb, var(--color-warning, #f59e0b) 85%, #fff));
+  background: linear-gradient(90deg, var(--color-warning), color-mix(in srgb, var(--color-warning) 85%, #fff));
   box-shadow: 0 0 6px rgba(var(--color-warning-rgb), 0.4);
 }
 .fill-danger {
-  background: linear-gradient(90deg, var(--color-error, #ef4444), color-mix(in srgb, var(--color-error, #ef4444) 85%, #fff));
+  background: linear-gradient(90deg, var(--color-error), color-mix(in srgb, var(--color-error) 85%, #fff));
   box-shadow: 0 0 6px rgba(var(--color-error-rgb), 0.45);
 }
 

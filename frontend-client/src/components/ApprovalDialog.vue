@@ -1,6 +1,6 @@
 <template>
   <Dialog :open="visible && !collapsed" @update:open="(v) => { if (!v) collapsed = true }">
-    <DialogContent class="max-w-[560px] gap-0 p-0" @pointer-down-outside.prevent @escape-key-down.prevent>
+    <DialogContent class="approval-shell max-w-[560px] gap-0 p-0" hide-close @pointer-down-outside.prevent @escape-key-down.prevent="onEscapeKeyDown">
       <div class="approval-header">
             <div class="approval-header-main">
               <div class="approval-icon">
@@ -8,6 +8,7 @@
               </div>
               <div class="approval-title-wrap">
                 <DialogTitle class="approval-title">权限确认</DialogTitle>
+                <DialogDescription class="sr-only">{{ agentName }} 请求执行 {{ toolName }}：{{ actionDescription }}</DialogDescription>
                 <p class="approval-subtitle">可先折叠窗口，继续查看 AI 实时进展</p>
               </div>
             </div>
@@ -80,37 +81,36 @@
             </div>
 
             <!-- 审批模式切换 -->
-            <div class="approval-mode-tabs">
+            <div class="approval-mode-tabs" role="tablist" aria-label="审批决定">
               <button
+                role="tab"
+                id="approval-tab-approve"
                 class="mode-tab"
                 :class="{ active: activeMode === 'approve' }"
-                @click="activeMode = 'approve'"
-              >允许执行</button>
+                :aria-selected="activeMode === 'approve'"
+                :tabindex="activeMode === 'approve' ? 0 : -1"
+                @click="setMode('approve')"
+                @keydown="onTabKeydown"
+              ><IconCheck :size="14" class="mode-tab-icon" />允许执行</button>
               <button
+                role="tab"
+                id="approval-tab-deny"
                 class="mode-tab mode-tab-deny"
                 :class="{ active: activeMode === 'deny' }"
-                @click="activeMode = 'deny'"
-              >拒绝</button>
+                :aria-selected="activeMode === 'deny'"
+                :tabindex="activeMode === 'deny' ? 0 : -1"
+                @click="setMode('deny')"
+                @keydown="onTabKeydown"
+              ><IconClose :size="14" class="mode-tab-icon" />拒绝</button>
             </div>
 
-            <!-- 批准附言 -->
-            <div v-if="activeMode === 'approve'" class="approval-message-box">
-              <label class="message-label">附加提示（可选）</label>
+            <!-- 附言（同意/拒绝共用同一个输入框） -->
+            <div class="approval-message-box" :class="{ denial: activeMode === 'deny' }">
+              <label class="message-label">{{ messageLabel }}</label>
               <textarea
-                v-model="approveMessage"
+                v-model="message"
                 class="message-textarea"
-                placeholder="可向智能体补充说明，例如：请特别注意备份现有数据…"
-                rows="2"
-              ></textarea>
-            </div>
-
-            <!-- 拒绝理由 -->
-            <div v-if="activeMode === 'deny'" class="approval-message-box denial">
-              <label class="message-label">拒绝理由 / 后续指令（可选）</label>
-              <textarea
-                v-model="denyMessage"
-                class="message-textarea"
-                placeholder="可告诉智能体原因或指定下一步，例如：请改用只读方式查询…"
+                :placeholder="messagePlaceholder"
                 rows="2"
               ></textarea>
             </div>
@@ -122,13 +122,13 @@
               class="approval-btn w-full"
               variant="default"
               @click="handleApprove"
-            >确认允许执行</Button>
+            ><IconCheck :size="16" /> 确认允许执行</Button>
             <Button
               v-if="activeMode === 'deny'"
               class="approval-btn w-full"
               variant="destructive"
               @click="handleDeny"
-            >确认拒绝</Button>
+            ><IconClose :size="16" /> 确认拒绝</Button>
           </DialogFooter>
     </DialogContent>
   </Dialog>
@@ -152,14 +152,16 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, nextTick } from 'vue';
 import { getApprovalReasonLabels, getApprovalReasonText, getPermissionModeLabel } from '../utils/permissionPresentation';
 import IconWarning from './icons/IconWarning.vue';
 import IconInfo from './icons/IconInfo.vue';
 import IconChevronDown from './icons/IconChevronDown.vue';
 import IconDocument from './icons/IconDocument.vue';
+import IconCheck from './icons/IconCheck.vue';
+import IconClose from './icons/IconClose.vue';
 import { Button } from './ui/button';
-import { Dialog, DialogContent, DialogTitle, DialogFooter } from './ui/dialog';
+import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 
 const emit = defineEmits(['approve', 'deny']);
 
@@ -177,8 +179,11 @@ const approvalSecondaryReasons = ref([]);
 const externalPathCandidates = ref([]);
 const queueCount = ref(1);
 const activeMode = ref('approve');
-const approveMessage = ref('');
-const denyMessage = ref('');
+const message = ref('');
+const messageLabel = computed(() => activeMode.value === 'deny' ? '拒绝理由 / 后续指令（可选）' : '附加提示（可选）');
+const messagePlaceholder = computed(() => activeMode.value === 'deny'
+  ? '可告诉智能体原因或指定下一步，例如：请改用只读方式查询…'
+  : '可向智能体补充说明，例如：请特别注意备份现有数据…');
 
 let _approvalId = '';
 let _onApprove = null;
@@ -231,8 +236,7 @@ const show = (data, onApprove, onDeny) => {
   externalPathCandidates.value = Array.isArray(data.external_path_candidates) ? data.external_path_candidates : [];
   queueCount.value = Number.isFinite(data.queue_count) && data.queue_count > 0 ? data.queue_count : 1;
   activeMode.value = 'approve';
-  approveMessage.value = '';
-  denyMessage.value = '';
+  message.value = '';
   collapsed.value = false;
   _onApprove = onApprove || null;
   _onDeny = onDeny || null;
@@ -248,15 +252,33 @@ const toggleCollapsed = () => {
   collapsed.value = !collapsed.value;
 };
 
+// ESC 不直接关闭弹窗（防误触批准/拒绝），改为折叠到 dock 保留 pending
+const onEscapeKeyDown = () => {
+  if (!collapsed.value) toggleCollapsed();
+};
+
+const setMode = (mode) => { activeMode.value = mode; };
+
+// ARIA tab 模式：左右方向键在 允许/拒绝 间切换并移动焦点
+const onTabKeydown = (e) => {
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+  e.preventDefault();
+  activeMode.value = activeMode.value === 'approve' ? 'deny' : 'approve';
+  nextTick(() => {
+    const id = activeMode.value === 'approve' ? 'approval-tab-approve' : 'approval-tab-deny';
+    document.getElementById(id)?.focus();
+  });
+};
+
 const handleApprove = () => {
-  const msg = approveMessage.value.trim();
+  const msg = message.value.trim();
   hide();
   if (_onApprove) _onApprove(_approvalId, msg);
   emit('approve', _approvalId);
 };
 
 const handleDeny = () => {
-  const msg = denyMessage.value.trim();
+  const msg = message.value.trim();
   hide();
   if (_onDeny) _onDeny(_approvalId, msg);
   emit('deny', _approvalId);
@@ -266,6 +288,16 @@ defineExpose({ show, hide, toggleCollapsed });
 </script>
 
 <style scoped>
+/* 玻璃浮层外壳 —— 与 ImageLightbox 浮层基线一致：半透 + blur + border + 大圆角 + 深阴影 */
+.approval-shell {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16), 0 24px 80px rgba(0, 0, 0, 0.5);
+}
+
 .approval-header {
   padding: var(--spacing-lg);
   border-bottom: 1px solid var(--color-border);
@@ -273,7 +305,9 @@ defineExpose({ show, hide, toggleCollapsed });
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--spacing-md);
-  background: transparent;
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
   position: sticky;
   top: 0;
   z-index: 1;
@@ -296,6 +330,7 @@ defineExpose({ show, hide, toggleCollapsed });
   justify-content: center;
   color: var(--color-bg-primary);
   flex-shrink: 0;
+  box-shadow: 0 0 0 4px rgba(var(--color-warning-rgb), 0.16), 0 6px 16px rgba(var(--color-warning-rgb), 0.3);
 }
 
 .approval-title {
@@ -321,9 +356,11 @@ defineExpose({ show, hide, toggleCollapsed });
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  border: 1px solid rgba(var(--color-warning-rgb), 0.28);
+  border: 1px solid var(--color-glass-border);
   border-radius: 999px;
-  background: rgba(var(--color-warning-rgb), 0.12);
+  background: var(--color-hover-overlay);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   color: var(--color-warning);
   cursor: pointer;
   font-size: 0.8125rem;
@@ -333,7 +370,7 @@ defineExpose({ show, hide, toggleCollapsed });
 }
 
 .approval-header-action:hover {
-  background: rgba(var(--color-warning-rgb), 0.18);
+  background: var(--color-hover-overlay-md);
   border-color: rgba(var(--color-warning-rgb), 0.4);
 }
 
@@ -389,11 +426,22 @@ defineExpose({ show, hide, toggleCollapsed });
 
 /* 风险标签 */
 .risk-badge {
-  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px 2px 8px;
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
+  flex-shrink: 0;
+}
+.risk-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 5px;
   flex-shrink: 0;
 }
 
@@ -544,32 +592,39 @@ defineExpose({ show, hide, toggleCollapsed });
 .approval-mode-tabs {
   display: flex;
   gap: 2px;
-  background: var(--color-bg-secondary);
+  background: var(--color-hover-overlay);
+  border: 1px solid var(--color-glass-border);
   padding: 3px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
 }
 
 .mode-tab {
   flex: 1;
-  padding: 7px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
   border: none;
   border-radius: calc(var(--radius-sm) - 2px);
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
   background: transparent;
   color: var(--color-text-secondary);
 }
+.mode-tab-icon { flex-shrink: 0; }
 
 .mode-tab.active {
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
+  background: var(--color-accent-bg);
+  color: var(--color-accent);
   font-weight: 600;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 }
 
 .mode-tab-deny.active {
+  background: var(--color-error-bg);
   color: var(--color-error);
 }
 
@@ -626,18 +681,19 @@ defineExpose({ show, hide, toggleCollapsed });
 
 .approval-btn {
   padding: 12px 28px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
-  border: none;
+  border: 1px solid transparent;
   outline: none;
   width: 100%;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
 }
 
-.approval-btn:active {
-  transform: scale(0.98);
+.approval-btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .approval-dock {
@@ -649,7 +705,7 @@ defineExpose({ show, hide, toggleCollapsed });
   padding: 0;
   border: 1px solid rgba(var(--color-warning-rgb), 0.3);
   border-radius: 999px;
-  background: rgba(20, 20, 24, 0.92);
+  background: var(--glass-bg);
   backdrop-filter: blur(16px);
   color: var(--color-text-primary);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
