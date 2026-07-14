@@ -1,16 +1,18 @@
 import type { FastifyPluginAsync } from "fastify";
 
-import { resolveProfileFromSettings, type AppEnv } from "../config/env.js";
+import type { AppEnv } from "../config/env.js";
+import type { DeploymentProfile } from "../identity/types.js";
 import type { ControlStore } from "../services/stores/control-store/index.js";
 
 interface BootstrapOptions {
   env: AppEnv;
   controlStore: ControlStore;
+  runtime: { profile: DeploymentProfile };
 }
 
 export const registerBootstrapRoutes: FastifyPluginAsync<BootstrapOptions> = async (app, options) => {
   app.get("/bootstrap", async () => {
-    const profile = resolveProfileFromSettings(options.controlStore.getAllSettings(), options.env);
+    const profile = options.runtime.profile;
     const isLocal = profile.deployment === "local";
     return {
       deployment: profile.deployment,

@@ -9,6 +9,7 @@ import { ZodError } from "zod";
 import "./fastify-context.js";
 
 import { resolveProfileFromSettings, type AppEnv } from "./config/env.js";
+import type { DeploymentProfile } from "./identity/types.js";
 import { registerAgentConfigRoutes } from "./routes/agent-config.js";
 import { registerArtifactRoutes } from "./routes/artifacts.js";
 import { registerDaemonRoutes } from "./routes/daemon.js";
@@ -55,9 +56,23 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const controlStore = options.controlStore ?? createControlStore(options.env.systemRoot);
   const tenantMigrator = options.tenantMigrator ?? createTenantMigrator(options.env);
   tenantMigrator.migrate();
-  const profile = resolveProfileFromSettings(controlStore.getAllSettings(), options.env);
-  const sessionTokens = options.sessionTokens ?? createSessionTokens(profile.auth, options.env, controlStore);
-  const identityProvider = options.identityProvider ?? createIdentityProvider(profile.auth, controlStore, sessionTokens);
+  const initialProfile = resolveProfileFromSettings(controlStore.getAllSettings(), options.env);
+  const initialSessionTokens = options.sessionTokens ?? createSessionTokens(initialProfile.auth, options.env, controlStore);
+  const runtime: AuthRuntime = {
+    profile: initialProfile,
+    sessionTokens: initialSessionTokens,
+    identityProvider: options.identityProvider ?? createIdentityProvider(initialProfile.auth, controlStore, initialSessionTokens),
+  };
+  const refreshProfile = (): DeploymentProfile => {
+    const profile = resolveProfileFromSettings(controlStore.getAllSettings(), options.env);
+    const sessionTokens = createSessionTokens(profile.auth, options.env, controlStore);
+    const identityProvider = createIdentityProvider(profile.auth, controlStore, sessionTokens);
+    Object.assign(runtime, { profile, sessionTokens, identityProvider });
+    return profile;
+  };
+  const routedIdentityProvider: IdentityProvider = {
+    resolve: (request) => runtime.identityProvider.resolve(request),
+  };
   const widgetCredentialStore = options.widgetCredentialStore ?? createWidgetCredentialStore(controlStore.db);
   const widgetAuth = options.widgetAuth ?? (options.env.widgetJwtSecret
     ? createWidgetAuthService(options.env.widgetJwtSecret, widgetCredentialStore.ops)
@@ -70,7 +85,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.decorateRequest("tenantRuntimeLease", null);
   app.addHook("onRequest", async (request) => {
     if (!requiresTenantRuntime(request.url, request.method)) return;
-    const resolver = widgetIdentityProvider && usesWidgetIdentity(request.url) ? widgetIdentityProvider : identityProvider;
+    const resolver = widgetIdentityProvider && usesWidgetIdentity(request.url)
+      ? widgetIdentityProvider
+      : runtime.identityProvider;
     let identity;
     try {
       identity = resolver.resolve(request);
@@ -181,86 +198,86 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await app.register(registerHealthRoutes, {
     prefix: "/api",
     registry,
-    identityProvider,
+    identityProvider: routedIdentityProvider,
   });
-  await app.register(registerBootstrapRoutes, { prefix: "/api", env: options.env, controlStore });
-  await app.register(registerInstallRoutes, { prefix: "/api", env: options.env, controlStore, ...(sessionTokens ? { sessionTokens } : {}) });
-  await app.register(registerAuthRoutes, { prefix: "/api/auth", env: options.env, controlStore, ...(sessionTokens ? { sessionTokens } : {}) });
+  await app.register(registerBootstrapRoutes, { prefix: "/api", env: options.env, controlStore, runtime });
+  await app.register(registerInstallRoutes, { prefix: "/api", controlStore, runtime, refreshProfile });
+  await app.register(registerAuthRoutes, { prefix: "/api/auth", controlStore, runtime });
   await app.register(registerPermissionRoutes, {
     prefix: "/api/permissions",
     registry,
-    identityProvider,
+    identityProvider: routedIdentityProvider,
   });
   await app.register(registerArtifactRoutes, {
     prefix: "/api/artifacts",
     registry,
-    identityProvider,
+    identityProvider: routedIdentityProvider,
   });
   await app.register(registerAgentConfigRoutes, {
     prefix: "/api/agent-config",
     registry,
-    identityProvider,
+    identityProvider: routedIdentityProvider,
   });
   await app.register(registerSkillRoutes, {
     prefix: "/api/skills",
     registry,
-    identityProvider,
+    identityProvider: routedIdentityProvider,
   });
   await app.register(registerModelAdapterRoutes, {
     prefix: "/api/model-adapter",
     registry,
-    identityProvider,
+    identityProvider: routedIdentityProvider,
   });
   await app.register(registerSystemConfigRoutes, {
     prefix: "/api/system-config",
     registry,
-    identityProvider,
+    identityProvider: routedIdentityProvider,
   });
   await app.register(registerMcpRoutes, {
     prefix: "/api/mcp",
     registry,
-    identityProvider,
+    identityProvider: routedIdentityProvider,
   });
   await app.register(registerDaemonRoutes, {
     prefix: "/api/daemon",
     registry,
-    identityProvider,
+    identityProvider: routedIdentityProvider,
   });
   await app.register(registerKnowledgeBaseRoutes, {
     prefix: "/api/knowledge-bases",
     registry,
-    identityProvider,
+    identityProvider: routedIdentityProvider,
   });
   await app.register(registerEmbeddingModelRoutes, {
     prefix: "/api/embedding-models",
     registry,
-    identityProvider,
+    identityProvider: routedIdentityProvider,
   });
   await app.register(registerAgentRoutes, {
     prefix: "/api/agent",
     registry,
-    identityProvider,
+    identityProvider: routedIdentityProvider,
     widgetCredentialStore,
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await app.register(registerAguiRoutes, {
     prefix: "/api/agui",
     registry,
-    identityProvider,
+    identityProvider: routedIdentityProvider,
     widgetCredentialStore,
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await app.register(registerWidgetRoutes, {
     prefix: "/api/widget",
     registry,
-    identityProvider,
+    identityProvider: routedIdentityProvider,
     widgetCredentialStore,
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await app.register(registerWidgetAppsRoutes, {
     prefix: "/api/widget/apps",
     registry,
-    identityProvider,
+    identityProvider: routedIdentityProvider,
     widgetCredentialStore,
     ...(widgetAuth ? { widgetAuth } : {}),
   });
@@ -279,6 +296,12 @@ function requiresTenantRuntime(url: string, method: string): boolean {
     && pathname !== "/api/auth/login"
     && pathname !== "/api/widget/auth/token"
     && !pathname.endsWith("/ws");
+}
+
+interface AuthRuntime {
+  profile: DeploymentProfile;
+  sessionTokens: SessionTokenService | undefined;
+  identityProvider: IdentityProvider;
 }
 
 function createSessionTokens(authMode: string, env: AppEnv, controlStore: ControlStore): SessionTokenService | undefined {

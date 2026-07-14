@@ -10,7 +10,7 @@ afterEach(async () => {
 
 describe("认证路由", () => {
   it("首次安装成功，重复安装返回 409", async () => {
-    const harness = await buildTestHarness();
+    const harness = await buildTestHarness({ sessionJwtSecret: secret });
     close.push(() => harness.app.close());
     const first = await harness.app.inject({
       method: "POST",
@@ -23,13 +23,55 @@ describe("认证路由", () => {
       },
     });
     expect(first.statusCode).toBe(200);
-    expect(first.json()).toEqual(expect.objectContaining({ deployment: "saas", auth: "password", installed: true, restart_required: true }));
+    expect(first.json()).toEqual(expect.objectContaining({ deployment: "saas", auth: "password", installed: true, restart_required: false }));
     expect(harness.controlStore.getSetting("auth_mode")).toBe("password");
     expect(harness.controlStore.getTenant("tnt_default" as never)?.displayName).toBe("Acme");
     expect(harness.controlStore.getUserByUsername("admin")).not.toBeNull();
 
     const second = await harness.app.inject({ method: "POST", url: "/api/install", payload: { deployment: "single" } });
     expect(second.statusCode).toBe(409);
+  });
+
+  it("SaaS 安装后同进程立即登录、bootstrap 与 me 全部切换", async () => {
+    const harness = await buildTestHarness({ sessionJwtSecret: secret });
+    close.push(() => harness.app.close());
+    const installed = await harness.app.inject({
+      method: "POST",
+      url: "/api/install",
+      payload: { deployment: "saas", admin: { username: "admin", password: "password123" } },
+    });
+    expect(installed.statusCode).toBe(200);
+    expect(installed.json().restart_required).toBe(false);
+
+    const bootstrap = await harness.app.inject({ method: "GET", url: "/api/bootstrap" });
+    expect(bootstrap.json()).toEqual(expect.objectContaining({ auth: "password", installed: true }));
+
+    const loginResponse = await login(harness.app);
+    expect(loginResponse.statusCode).toBe(200);
+    const token = loginResponse.json().token as string;
+    const me = await harness.app.inject({
+      method: "GET",
+      url: "/api/auth/me",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(me.statusCode).toBe(200);
+    expect(me.json()).toEqual(expect.objectContaining({ tenantId: "tnt_default", role: "owner" }));
+    const health = await harness.app.inject({
+      method: "GET",
+      url: "/api/health",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(health.statusCode).toBe(200);
+  });
+
+  it("single 安装后热刷新仍保持 local provider", async () => {
+    const harness = await buildTestHarness();
+    close.push(() => harness.app.close());
+    const installed = await harness.app.inject({ method: "POST", url: "/api/install", payload: { deployment: "single" } });
+    expect(installed.statusCode).toBe(200);
+    expect(installed.json()).toEqual(expect.objectContaining({ auth: "local", restart_required: false }));
+    const health = await harness.app.inject({ method: "GET", url: "/api/health" });
+    expect(health.statusCode).toBe(200);
   });
 
   it("正确密码登录，错误密码返回 401", async () => {
@@ -85,21 +127,16 @@ describe("认证路由", () => {
 });
 
 async function installedPasswordHarness(sessionTokenTtlHours?: number) {
-  const installer = await buildTestHarness();
-  const root = installer.root;
-  const installed = await installer.app.inject({
+  const harness = await buildTestHarness({
+    sessionJwtSecret: secret,
+    ...(sessionTokenTtlHours ? { sessionTokenTtlHours } : {}),
+  });
+  const installed = await harness.app.inject({
     method: "POST",
     url: "/api/install",
     payload: { deployment: "saas", admin: { username: "admin", password: "password123" } },
   });
   expect(installed.statusCode).toBe(200);
-  await installer.app.close();
-  const harness = await buildTestHarness({
-    root,
-    autoIdentityProvider: true,
-    sessionJwtSecret: secret,
-    ...(sessionTokenTtlHours ? { sessionTokenTtlHours } : {}),
-  });
   close.push(() => harness.app.close());
   return harness;
 }

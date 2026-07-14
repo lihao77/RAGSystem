@@ -2,17 +2,24 @@ import { randomUUID } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 
-import { resolveProfileFromSettings, type AppEnv } from "../config/env.js";
-import { createTenantId, createUserId } from "../identity/types.js";
+import { createTenantId, createUserId, type DeploymentProfile } from "../identity/types.js";
 import type { SessionTokenService } from "../services/runtime/session-token-service.js";
 import type { ControlStore } from "../services/stores/control-store/index.js";
 import { HttpError } from "../utils/errors.js";
 import { hashPassword, verifyPassword } from "../utils/password-hash.js";
 
-interface AuthRouteOptions {
-  env: AppEnv;
+interface AuthRuntimeView {
+  profile: DeploymentProfile;
+  sessionTokens: SessionTokenService | undefined;
+}
+
+interface BaseAuthRouteOptions {
   controlStore: ControlStore;
-  sessionTokens?: SessionTokenService;
+  runtime: AuthRuntimeView;
+}
+
+interface InstallRouteOptions extends BaseAuthRouteOptions {
+  refreshProfile: () => DeploymentProfile;
 }
 
 const InstallSchema = z.object({
@@ -27,7 +34,7 @@ const LoginSchema = z.object({
   password: z.string().min(1),
 });
 
-export const registerInstallRoutes: FastifyPluginAsync<AuthRouteOptions> = async (app, options) => {
+export const registerInstallRoutes: FastifyPluginAsync<InstallRouteOptions> = async (app, options) => {
   app.post("/install", async (request) => {
     if (options.controlStore.getSetting("installed") === "true") {
       throw new HttpError(409, "already_installed", "系统已完成安装");
@@ -71,14 +78,14 @@ export const registerInstallRoutes: FastifyPluginAsync<AuthRouteOptions> = async
       throw error;
     }
 
-    const profile = resolveProfileFromSettings(options.controlStore.getAllSettings(), options.env);
-    return { ...profile, installed: true, restart_required: profile.auth !== "local" };
+    const profile = options.refreshProfile();
+    return { ...profile, installed: true, restart_required: false };
   });
 };
 
-export const registerAuthRoutes: FastifyPluginAsync<AuthRouteOptions> = async (app, options) => {
+export const registerAuthRoutes: FastifyPluginAsync<BaseAuthRouteOptions> = async (app, options) => {
   app.post("/login", async (request) => {
-    const sessionTokens = requireSessionTokens(options.sessionTokens);
+    const sessionTokens = requireSessionTokens(options.runtime.sessionTokens);
     const input = LoginSchema.parse(request.body);
     const publicUser = options.controlStore.getUserByUsername(input.username);
     const user = publicUser ? options.controlStore.getUserWithCredentials(publicUser.id) : null;
@@ -108,7 +115,7 @@ export const registerAuthRoutes: FastifyPluginAsync<AuthRouteOptions> = async (a
   });
 
   app.get("/me", async (request) => {
-    const claims = requireSessionTokens(options.sessionTokens).requireBearer(request);
+    const claims = requireSessionTokens(options.runtime.sessionTokens).requireBearer(request);
     const user = options.controlStore.getUser(claims.sub);
     const membership = options.controlStore.getMembership(claims.sub, claims.tenant_id);
     if (!user || !membership || membership.role !== claims.role) throw new HttpError(401, "unauthorized", "session identity 无效");
@@ -116,7 +123,7 @@ export const registerAuthRoutes: FastifyPluginAsync<AuthRouteOptions> = async (a
   });
 
   app.post("/logout", async (request) => {
-    const sessionTokens = requireSessionTokens(options.sessionTokens);
+    const sessionTokens = requireSessionTokens(options.runtime.sessionTokens);
     const claims = sessionTokens.requireBearer(request);
     sessionTokens.revoke(claims.jti);
     return { success: true };
