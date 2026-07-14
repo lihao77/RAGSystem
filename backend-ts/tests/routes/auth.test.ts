@@ -23,10 +23,10 @@ describe("认证路由", () => {
       },
     });
     expect(first.statusCode).toBe(200);
-    expect(first.json()).toEqual(expect.objectContaining({ deployment: "saas", auth: "password", installed: true, restart_required: false }));
+    expect(first.json()).toEqual(expect.objectContaining({ deployment: "saas", auth: "password", installed: true, restart_required: false, platformRole: "admin" }));
     expect(harness.controlStore.getSetting("auth_mode")).toBe("password");
     expect(harness.controlStore.getTenant("tnt_default" as never)?.displayName).toBe("Acme");
-    expect(harness.controlStore.getUserByUsername("admin")).not.toBeNull();
+    expect(harness.controlStore.getUserByUsername("admin")?.platformRole).toBe("admin");
 
     const second = await harness.app.inject({ method: "POST", url: "/api/install", payload: { deployment: "single" } });
     expect(second.statusCode).toBe(409);
@@ -55,7 +55,7 @@ describe("认证路由", () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(me.statusCode).toBe(200);
-    expect(me.json()).toEqual(expect.objectContaining({ tenantId: "tnt_default", role: "owner" }));
+    expect(me.json()).toEqual(expect.objectContaining({ tenantId: "tnt_default", role: "owner", platformRole: "admin" }));
     const health = await harness.app.inject({
       method: "GET",
       url: "/api/health",
@@ -93,7 +93,7 @@ describe("认证路由", () => {
 
     const me = await harness.app.inject({ method: "GET", url: "/api/auth/me", headers });
     expect(me.statusCode).toBe(200);
-    expect(me.json()).toEqual({ userId: expect.any(String), tenantId: "tnt_default", role: "owner", permissions: ["*"] });
+    expect(me.json()).toEqual(expect.objectContaining({ userId: expect.any(String), tenantId: "tnt_default", role: "owner", permissions: ["*"], platformRole: "admin" }));
 
     const logout = await harness.app.inject({ method: "POST", url: "/api/auth/logout", headers });
     expect(logout.statusCode).toBe(200);

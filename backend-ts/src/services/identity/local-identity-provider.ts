@@ -22,6 +22,7 @@ export class LocalIdentityProvider implements IdentityProvider {
       tenantId: LOCAL_TENANT_ID,
       role: "owner",
       permissions: ["*"],
+      platformRole: "admin",
     };
   }
 
@@ -30,7 +31,10 @@ export class LocalIdentityProvider implements IdentityProvider {
       this.controlStore.createTenant({ id: LOCAL_TENANT_ID, displayName: "Local" });
     }
     if (!this.controlStore.getUser(LOCAL_USER_ID)) {
-      this.controlStore.createUser({ id: LOCAL_USER_ID, displayName: "Local User" });
+      this.controlStore.createUser({ id: LOCAL_USER_ID, displayName: "Local User", platform_role: "admin" });
+    } else {
+      this.controlStore.setUserStatus(LOCAL_USER_ID, "active");
+      this.controlStore.setUserPlatformRole(LOCAL_USER_ID, "admin");
     }
     this.controlStore.upsertMembership({
       userId: LOCAL_USER_ID,

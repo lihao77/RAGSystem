@@ -29,6 +29,11 @@ export const IconAdminCenter = createAdminIcon([
 
 export const adminNavGroups = [
   {
+    key: 'platform',
+    label: '平台管理',
+    description: '跨租户运营、用户治理与平台支持。',
+  },
+  {
     key: 'agent-runtime',
     label: 'Agent 运行',
     description: '配置 Agent、Team 与运行入口。',
@@ -46,6 +51,16 @@ export const adminNavGroups = [
 ];
 
 export const managementNavItems = [
+  {
+    key: 'platform-tenants', mainView: 'platform-tenants', path: '/platform/tenants', label: '租户治理',
+    title: '平台租户治理', description: '跨租户查看状态，并暂停或恢复租户。', group: 'platform', requiresPlatformAdmin: true,
+    icon: createAdminIcon([{ tag: 'path', attrs: { d: 'M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6' } }]),
+  },
+  {
+    key: 'platform-users', mainView: 'platform-users', path: '/platform/users', label: '用户治理',
+    title: '平台用户治理', description: '跨租户禁用用户，并授予或撤销平台管理员。', group: 'platform', requiresPlatformAdmin: true,
+    icon: createAdminIcon([{ tag: 'circle', attrs: { cx: '12', cy: '8', r: '4' } }, { tag: 'path', attrs: { d: 'M4 21a8 8 0 0 1 16 0' } }]),
+  },
   {
     key: 'members',
     mainView: 'members',
@@ -202,6 +217,9 @@ const capabilityByNavigationKey = {
 
 export function filterManagementNavItems(capabilities = {}, context = {}) {
   return managementNavItems.filter((item) => {
+    if (item.requiresPlatformAdmin && context.platformRole !== 'admin') {
+      return false;
+    }
     if (item.requiresPasswordAuth && !(context.isAuthenticated && context.authMode === 'password')) {
       return false;
     }
@@ -219,4 +237,15 @@ export const sidebarAdminNavItem = {
   title: '模型、Agent、Team、MCP、知识库、监控与系统配置',
   buttonClass: 'sidebar-btn-secondary',
   icon: IconAdminCenter,
+};
+
+export const sidebarPlatformNavItem = {
+  key: 'platform-center',
+  mainView: 'platform',
+  section: 'platform',
+  path: '/platform/tenants',
+  label: '平台控制台',
+  title: '跨租户治理与平台运营支持',
+  buttonClass: 'sidebar-btn-secondary',
+  icon: managementNavItems[0].icon,
 };

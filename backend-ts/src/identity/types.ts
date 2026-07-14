@@ -25,6 +25,7 @@ export interface RequestIdentity {
   tenantId: TenantId;
   role: string;
   permissions: string[];
+  platformRole?: "admin";
 }
 
 export function createTenantId(value: string): TenantId {

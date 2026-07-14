@@ -22,6 +22,7 @@ export const registerBootstrapRoutes: FastifyPluginAsync<BootstrapOptions> = asy
       storage: profile.storage,
       ui: profile.ui,
       installed: options.controlStore.getSetting("installed") === "true",
+      ...(isLocal ? { platformRole: "admin" as const } : {}),
       capabilities: {
         login: !isLocal && profile.auth !== "local",
         tenantSwitch: !isLocal && profile.tenancy === "multi",

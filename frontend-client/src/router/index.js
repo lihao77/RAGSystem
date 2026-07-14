@@ -18,6 +18,8 @@ const WidgetConsole = () => import('../views/WidgetConsole.vue');
 const MembersManager = () => import('../views/MembersManager.vue');
 const Login = () => import('../views/Login.vue');
 const InstallWizard = () => import('../views/InstallWizard.vue');
+const PlatformTenants = () => import('../views/PlatformTenants.vue');
+const PlatformUsers = () => import('../views/PlatformUsers.vue');
 
 const shellMeta = {
   depth: 0,
@@ -60,6 +62,9 @@ const routes = [
       { path: 'system-config', component: SystemConfig, meta: adminPageMeta('system-config', 7, 7) },
       { path: 'widget-credentials', component: WidgetConsole, meta: adminPageMeta('widget-credentials', 8, 8) },
       { path: 'members', component: MembersManager, meta: adminPageMeta('members', 8, 9) },
+      { path: 'platform', redirect: '/platform/tenants', meta: pageMeta('platform', 9, 10, { section: 'platform', requiresPlatformAdmin: true }) },
+      { path: 'platform/tenants', component: PlatformTenants, meta: pageMeta('platform-tenants', 9, 10, { section: 'platform', requiresPlatformAdmin: true }) },
+      { path: 'platform/users', component: PlatformUsers, meta: pageMeta('platform-users', 9, 11, { section: 'platform', requiresPlatformAdmin: true }) },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
@@ -85,12 +90,24 @@ router.beforeEach(async (to) => {
   if (!bootstrapStore.requiresAuth && authStore.isAuthenticated) {
     authStore.clear();
   }
+  if (!bootstrapStore.requiresAuth) {
+    authStore.setPlatformRoleHint(bootstrapStore.profile.platformRole || '');
+  } else if (authStore.isAuthenticated && !authStore.identityLoaded) {
+    try {
+      await authStore.refreshIdentity();
+    } catch {
+      return { path: '/login', query: { redirect: to.fullPath } };
+    }
+  }
   if (to.path === '/login' && (!bootstrapStore.requiresAuth || authStore.isAuthenticated)) {
     return { path: '/' };
   }
   if (to.meta.public) return true;
   if (bootstrapStore.requiresAuth && !authStore.isAuthenticated && to.path !== '/login') {
     return { path: '/login', query: { redirect: to.fullPath } };
+  }
+  if (to.meta.requiresPlatformAdmin && !authStore.isPlatformAdmin) {
+    return { path: '/' };
   }
   return true;
 });

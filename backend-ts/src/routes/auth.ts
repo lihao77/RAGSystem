@@ -66,6 +66,7 @@ export const registerInstallRoutes: FastifyPluginAsync<InstallRouteOptions> = as
           displayName: input.admin.username,
           username: input.admin.username,
           password_hash: hashPassword(input.admin.password),
+          platform_role: "admin",
         });
         options.controlStore.upsertMembership({ userId, tenantId, role: "owner" });
       }
@@ -83,7 +84,7 @@ export const registerInstallRoutes: FastifyPluginAsync<InstallRouteOptions> = as
     }
 
     const profile = options.refreshProfile();
-    return { ...profile, installed: true, restart_required: false };
+    return { ...profile, installed: true, restart_required: false, platformRole: "admin" };
   });
 };
 
@@ -96,12 +97,24 @@ export const registerAuthRoutes: FastifyPluginAsync<BaseAuthRouteOptions> = asyn
     if (!user?.passwordHash || !verifyPassword(input.password, user.passwordHash)) {
       throw new HttpError(401, "unauthorized", "用户名或密码错误");
     }
-    const memberships = options.controlStore.db.prepare(
-      "SELECT tenant_id, role FROM memberships WHERE user_id=? ORDER BY tenant_id LIMIT 1",
-    ).all(user.id) as unknown as Array<{ tenant_id: ReturnType<typeof createTenantId>; role: string }>;
-    const membership = memberships[0];
-    if (!membership) throw new HttpError(401, "unauthorized", "用户未加入任何租户");
-    const issued = sessionTokens.issueToken({ userId: user.id, tenantId: membership.tenant_id, role: membership.role });
+    if (user.status === "disabled") throw new HttpError(401, "unauthorized", "用户已被禁用");
+    const memberships = options.controlStore.db.prepare(`
+      SELECT memberships.tenant_id, memberships.role
+      FROM memberships
+      JOIN tenants ON tenants.id=memberships.tenant_id
+      WHERE memberships.user_id=? AND tenants.status='active'
+      ORDER BY memberships.tenant_id LIMIT 1
+    `).all(user.id) as unknown as Array<{ tenant_id: ReturnType<typeof createTenantId>; role: string }>;
+    const membership = memberships[0] ?? (user.platformRole === "admin"
+      ? options.controlStore.db.prepare("SELECT id AS tenant_id, 'member' AS role FROM tenants ORDER BY id LIMIT 1").get() as { tenant_id: ReturnType<typeof createTenantId>; role: string } | undefined
+      : undefined);
+    if (!membership) throw new HttpError(401, "unauthorized", "用户未加入可用租户");
+    const issued = sessionTokens.issueToken({
+      userId: user.id,
+      tenantId: membership.tenant_id,
+      role: membership.role,
+      ...(user.platformRole ? { platformRole: user.platformRole } : {}),
+    });
     options.controlStore.recordSession({
       jti: issued.claims.jti,
       userId: user.id,
@@ -115,6 +128,7 @@ export const registerAuthRoutes: FastifyPluginAsync<BaseAuthRouteOptions> = asyn
       user: { id: user.id, displayName: user.displayName },
       tenantId: membership.tenant_id,
       role: membership.role,
+      platformRole: user.platformRole,
     };
   });
 
@@ -126,8 +140,15 @@ export const registerAuthRoutes: FastifyPluginAsync<BaseAuthRouteOptions> = asyn
     const membership = options.controlStore.getMembership(claims.sub, tenantId);
     if (!membership) throw new HttpError(403, "forbidden", "用户不是该租户成员");
     const user = options.controlStore.getUser(claims.sub);
-    if (!user) throw new HttpError(401, "unauthorized", "session identity 无效");
-    const issued = sessionTokens.issueToken({ userId: user.id, tenantId, role: membership.role });
+    const tenant = options.controlStore.getTenant(tenantId);
+    if (!user || user.status === "disabled") throw new HttpError(401, "unauthorized", "session identity 无效");
+    if (!tenant || tenant.status === "suspended") throw new HttpError(401, "unauthorized", "租户已暂停");
+    const issued = sessionTokens.issueToken({
+      userId: user.id,
+      tenantId,
+      role: membership.role,
+      ...(user.platformRole ? { platformRole: user.platformRole } : {}),
+    });
     options.controlStore.recordSession({
       jti: issued.claims.jti,
       userId: user.id,
@@ -141,6 +162,7 @@ export const registerAuthRoutes: FastifyPluginAsync<BaseAuthRouteOptions> = asyn
       user: { id: user.id, displayName: user.displayName },
       tenantId,
       role: membership.role,
+      platformRole: user.platformRole,
     };
   });
 
@@ -148,8 +170,15 @@ export const registerAuthRoutes: FastifyPluginAsync<BaseAuthRouteOptions> = asyn
     const claims = requireSessionTokens(options.runtime.sessionTokens).requireBearer(request);
     const user = options.controlStore.getUser(claims.sub);
     const membership = options.controlStore.getMembership(claims.sub, claims.tenant_id);
-    if (!user || !membership || membership.role !== claims.role) throw new HttpError(401, "unauthorized", "session identity 无效");
-    return { userId: user.id, tenantId: membership.tenantId, role: membership.role, permissions: rolePermissions(membership.role) };
+    const tenant = options.controlStore.getTenant(claims.tenant_id);
+    if (!user || user.status === "disabled") throw new HttpError(401, "unauthorized", "session identity 无效");
+    if (membership && membership.role === claims.role && tenant?.status === "active") {
+      return { user: { id: user.id, displayName: user.displayName }, userId: user.id, tenantId: membership.tenantId, role: membership.role, permissions: rolePermissions(membership.role), platformRole: user.platformRole };
+    }
+    if (user.platformRole === "admin") {
+      return { user: { id: user.id, displayName: user.displayName }, userId: user.id, tenantId: claims.tenant_id, role: claims.role, permissions: [], platformRole: user.platformRole };
+    }
+    throw new HttpError(401, "unauthorized", tenant?.status === "suspended" ? "租户已暂停" : "session identity 无效");
   });
 
   app.post("/logout", async (request) => {

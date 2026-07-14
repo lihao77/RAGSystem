@@ -12,6 +12,7 @@ export interface SessionTokenClaims {
   iat: number;
   exp: number;
   scope: "session";
+  platform_role?: "admin";
 }
 
 export interface SessionOps {
@@ -20,7 +21,7 @@ export interface SessionOps {
 }
 
 export interface SessionTokenService {
-  issueToken(user: { userId: UserId; tenantId: TenantId; role: string }): { token: string; expires_at: number; claims: SessionTokenClaims };
+  issueToken(user: { userId: UserId; tenantId: TenantId; role: string; platformRole?: "admin" }): { token: string; expires_at: number; claims: SessionTokenClaims };
   verifyToken(token: string): SessionTokenClaims;
   requireBearer(request: FastifyRequest): SessionTokenClaims;
   revoke(jti: string): boolean;
@@ -81,6 +82,7 @@ export function createSessionTokenService(secret: string, sessionOps: SessionOps
         iat: now,
         exp: now + ttlSeconds,
         scope: "session",
+        ...(user.platformRole ? { platform_role: user.platformRole } : {}),
       };
       return { token: sign(claims), expires_at: claims.exp, claims };
     },

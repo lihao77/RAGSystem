@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
+import { getMe } from '../api/auth.js';
 
 const TOKEN_STORAGE_KEY = 'auth_token';
 const SESSION_STORAGE_KEY = 'auth_session';
@@ -19,14 +20,19 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref(storedSession.user || null);
   const tenantId = ref(storedSession.tenantId || '');
   const role = ref(storedSession.role || '');
+  const platformRole = ref(storedSession.platformRole || '');
+  const identityLoaded = ref(false);
 
   const isAuthenticated = computed(() => Boolean(token.value));
+  const isPlatformAdmin = computed(() => platformRole.value === 'admin');
 
   function setSession(session) {
     token.value = session?.token || '';
     user.value = session?.user || null;
     tenantId.value = session?.tenantId || '';
     role.value = session?.role || '';
+    platformRole.value = session?.platformRole || '';
+    identityLoaded.value = Boolean(session?.identityLoaded);
 
     if (token.value) {
       localStorage.setItem(TOKEN_STORAGE_KEY, token.value);
@@ -34,6 +40,7 @@ export const useAuthStore = defineStore('auth', () => {
         user: user.value,
         tenantId: tenantId.value,
         role: role.value,
+        platformRole: platformRole.value,
       }));
     } else {
       clear();
@@ -45,9 +52,28 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null;
     tenantId.value = '';
     role.value = '';
+    platformRole.value = '';
+    identityLoaded.value = false;
     localStorage.removeItem(TOKEN_STORAGE_KEY);
     localStorage.removeItem(SESSION_STORAGE_KEY);
   }
 
-  return { token, user, tenantId, role, isAuthenticated, setSession, clear };
+  function setPlatformRoleHint(nextPlatformRole) {
+    platformRole.value = nextPlatformRole || '';
+  }
+
+  async function refreshIdentity() {
+    if (!token.value || identityLoaded.value) return;
+    const identity = await getMe();
+    setSession({
+      token: token.value,
+      user: identity.user || user.value,
+      tenantId: identity.tenantId || tenantId.value,
+      role: identity.role || role.value,
+      platformRole: identity.platformRole || '',
+      identityLoaded: true,
+    });
+  }
+
+  return { token, user, tenantId, role, platformRole, identityLoaded, isAuthenticated, isPlatformAdmin, setSession, setPlatformRoleHint, refreshIdentity, clear };
 });

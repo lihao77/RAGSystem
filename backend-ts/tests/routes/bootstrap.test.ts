@@ -20,6 +20,7 @@ describe("GET /api/bootstrap", () => {
       storage: "sqlite",
       ui: "local",
       installed: false,
+      platformRole: "admin",
       capabilities: {
         login: false,
         tenantSwitch: false,

@@ -6,6 +6,7 @@ export interface ControlTenant {
   id: TenantId;
   displayName: string;
   createdAt: string;
+  status: TenantStatus;
 }
 
 export interface ControlUser {
@@ -13,6 +14,19 @@ export interface ControlUser {
   displayName: string;
   createdAt: string;
   username?: string;
+  platformRole?: PlatformRole;
+  status: UserStatus;
+}
+
+export type PlatformRole = "admin";
+export type UserStatus = "active" | "disabled";
+export type TenantStatus = "active" | "suspended";
+
+export interface PaginatedControlResult<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface ControlUserWithCredentials extends ControlUser {
@@ -28,20 +42,21 @@ export interface ControlMembership {
 export class ControlStore {
   constructor(readonly db: ControlDb) {}
 
-  createTenant(input: { id: TenantId; displayName: string; createdAt?: string }): ControlTenant {
+  createTenant(input: { id: TenantId; displayName: string; createdAt?: string; status?: TenantStatus }): ControlTenant {
     const createdAt = input.createdAt ?? new Date().toISOString();
-    this.db.prepare("INSERT INTO tenants(id, display_name, created_at) VALUES (?, ?, ?)")
-      .run(input.id, input.displayName, createdAt);
-    return { id: input.id, displayName: input.displayName, createdAt };
+    const status = assertTenantStatus(input.status ?? "active");
+    this.db.prepare("INSERT INTO tenants(id, display_name, created_at, status) VALUES (?, ?, ?, ?)")
+      .run(input.id, input.displayName, createdAt, status);
+    return { id: input.id, displayName: input.displayName, createdAt, status };
   }
 
   getTenant(id: TenantId): ControlTenant | null {
-    const row = this.db.prepare("SELECT id, display_name, created_at FROM tenants WHERE id=?").get(id) as TenantRow | undefined;
+    const row = this.db.prepare("SELECT id, display_name, created_at, status FROM tenants WHERE id=?").get(id) as TenantRow | undefined;
     return row ? mapTenant(row) : null;
   }
 
   listTenants(): ControlTenant[] {
-    const rows = this.db.prepare("SELECT id, display_name, created_at FROM tenants ORDER BY created_at, id").all() as unknown as TenantRow[];
+    const rows = this.db.prepare("SELECT id, display_name, created_at, status FROM tenants ORDER BY created_at, id").all() as unknown as TenantRow[];
     return rows.map(mapTenant);
   }
 
@@ -53,31 +68,122 @@ export class ControlStore {
     return Number(this.db.prepare("DELETE FROM tenants WHERE id=?").run(id).changes) > 0;
   }
 
-  createUser(input: { id: UserId; displayName: string; createdAt?: string; username?: string; password_hash?: string }): ControlUser {
+  createUser(input: { id: UserId; displayName: string; createdAt?: string; username?: string; password_hash?: string; platform_role?: PlatformRole | null; status?: UserStatus }): ControlUser {
     const createdAt = input.createdAt ?? new Date().toISOString();
-    this.db.prepare("INSERT INTO users(id, display_name, created_at, username, password_hash) VALUES (?, ?, ?, ?, ?)")
-      .run(input.id, input.displayName, createdAt, input.username ?? null, input.password_hash ?? null);
-    return { id: input.id, displayName: input.displayName, createdAt, ...(input.username ? { username: input.username } : {}) };
+    const platformRole = assertPlatformRole(input.platform_role ?? null);
+    const status = assertUserStatus(input.status ?? "active");
+    this.db.prepare("INSERT INTO users(id, display_name, created_at, username, password_hash, platform_role, status) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(input.id, input.displayName, createdAt, input.username ?? null, input.password_hash ?? null, platformRole, status);
+    return {
+      id: input.id,
+      displayName: input.displayName,
+      createdAt,
+      ...(input.username ? { username: input.username } : {}),
+      ...(platformRole ? { platformRole } : {}),
+      status,
+    };
   }
 
   getUser(id: UserId): ControlUser | null {
-    const row = this.db.prepare("SELECT id, display_name, created_at, username FROM users WHERE id=?").get(id) as UserRow | undefined;
+    const row = this.db.prepare("SELECT id, display_name, created_at, username, platform_role, status FROM users WHERE id=?").get(id) as UserRow | undefined;
     return row ? mapUser(row) : null;
   }
 
   getUserByUsername(username: string): ControlUser | null {
-    const row = this.db.prepare("SELECT id, display_name, created_at, username FROM users WHERE username=?").get(username) as UserRow | undefined;
+    const row = this.db.prepare("SELECT id, display_name, created_at, username, platform_role, status FROM users WHERE username=?").get(username) as UserRow | undefined;
     return row ? mapUser(row) : null;
   }
 
   getUserWithCredentials(id: UserId): ControlUserWithCredentials | null {
-    const row = this.db.prepare("SELECT id, display_name, created_at, username, password_hash FROM users WHERE id=?").get(id) as UserCredentialRow | undefined;
+    const row = this.db.prepare("SELECT id, display_name, created_at, username, password_hash, platform_role, status FROM users WHERE id=?").get(id) as UserCredentialRow | undefined;
     return row ? { ...mapUser(row), passwordHash: row.password_hash } : null;
   }
 
   listUsers(): ControlUser[] {
-    const rows = this.db.prepare("SELECT id, display_name, created_at, username FROM users ORDER BY created_at, id").all() as unknown as UserRow[];
+    const rows = this.db.prepare("SELECT id, display_name, created_at, username, platform_role, status FROM users ORDER BY created_at, id").all() as unknown as UserRow[];
     return rows.map(mapUser);
+  }
+
+  listAllTenants(input: { limit?: number; offset?: number; status?: TenantStatus; query?: string } = {}): PaginatedControlResult<ControlTenant> {
+    const limit = clampPageSize(input.limit);
+    const offset = clampPageOffset(input.offset);
+    const clauses: string[] = [];
+    const params: Array<string | number> = [];
+    if (input.status) {
+      clauses.push("status=?");
+      params.push(assertTenantStatus(input.status));
+    }
+    if (input.query?.trim()) {
+      clauses.push("(id LIKE ? OR display_name LIKE ?)");
+      const pattern = `%${input.query.trim()}%`;
+      params.push(pattern, pattern);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const totalRow = this.db.prepare(`SELECT COUNT(*) AS count FROM tenants ${where}`).get(...params) as { count: number | bigint };
+    const rows = this.db.prepare(`SELECT id, display_name, created_at, status FROM tenants ${where} ORDER BY created_at DESC, id LIMIT ? OFFSET ?`)
+      .all(...params, limit, offset) as unknown as TenantRow[];
+    return { items: rows.map(mapTenant), total: Number(totalRow.count), limit, offset };
+  }
+
+  listAllUsers(input: { limit?: number; offset?: number; status?: UserStatus; platformRole?: PlatformRole | null; query?: string } = {}): PaginatedControlResult<ControlUser> {
+    const limit = clampPageSize(input.limit);
+    const offset = clampPageOffset(input.offset);
+    const clauses: string[] = [];
+    const params: Array<string | number> = [];
+    if (input.status) {
+      clauses.push("status=?");
+      params.push(assertUserStatus(input.status));
+    }
+    if (input.platformRole !== undefined) {
+      const platformRole = assertPlatformRole(input.platformRole);
+      clauses.push(platformRole ? "platform_role=?" : "platform_role IS NULL");
+      if (platformRole) params.push(platformRole);
+    }
+    if (input.query?.trim()) {
+      clauses.push("(id LIKE ? OR display_name LIKE ? OR username LIKE ?)");
+      const pattern = `%${input.query.trim()}%`;
+      params.push(pattern, pattern, pattern);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const totalRow = this.db.prepare(`SELECT COUNT(*) AS count FROM users ${where}`).get(...params) as { count: number | bigint };
+    const rows = this.db.prepare(`SELECT id, display_name, created_at, username, platform_role, status FROM users ${where} ORDER BY created_at DESC, id LIMIT ? OFFSET ?`)
+      .all(...params, limit, offset) as unknown as UserRow[];
+    return { items: rows.map(mapUser), total: Number(totalRow.count), limit, offset };
+  }
+
+  setTenantStatus(id: TenantId, status: TenantStatus): boolean {
+    return Number(this.db.prepare("UPDATE tenants SET status=? WHERE id=?").run(assertTenantStatus(status), id).changes) > 0;
+  }
+
+  setUserStatus(id: UserId, status: UserStatus): boolean {
+    const normalized = assertUserStatus(status);
+    return this.inImmediateTransaction(() => {
+      const user = this.getUser(id);
+      if (!user) return false;
+      if (normalized === "disabled" && user.status === "active" && user.platformRole === "admin") {
+        this.assertAnotherActivePlatformAdmin(id);
+      }
+      return Number(this.db.prepare("UPDATE users SET status=? WHERE id=?").run(normalized, id).changes) > 0;
+    });
+  }
+
+  setUserPlatformRole(id: UserId, platformRole: PlatformRole | null): boolean {
+    const normalized = assertPlatformRole(platformRole);
+    return this.inImmediateTransaction(() => {
+      const user = this.getUser(id);
+      if (!user) return false;
+      if (normalized === null && user.platformRole === "admin" && user.status === "active") {
+        this.assertAnotherActivePlatformAdmin(id);
+      }
+      return Number(this.db.prepare("UPDATE users SET platform_role=? WHERE id=?").run(normalized, id).changes) > 0;
+    });
+  }
+
+  recordPlatformAudit(input: { actorUserId: UserId; action: string; targetTenantId?: TenantId; targetResource: string; detail?: Record<string, unknown> }): void {
+    this.db.prepare(`
+      INSERT INTO platform_audit(actor_user_id, action, target_tenant_id, target_resource, detail_json)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(input.actorUserId, input.action, input.targetTenantId ?? null, input.targetResource, input.detail ? JSON.stringify(input.detail) : null);
   }
 
   updateUser(id: UserId, displayName: string): boolean {
@@ -135,6 +241,14 @@ export class ControlStore {
     const row = this.db.prepare("SELECT COUNT(*) AS count FROM memberships WHERE tenant_id=? AND role='owner'")
       .get(tenantId) as { count: number | bigint };
     return Number(row.count);
+  }
+
+  private assertAnotherActivePlatformAdmin(excludedUserId: UserId): void {
+    const row = this.db.prepare("SELECT COUNT(*) AS count FROM users WHERE platform_role='admin' AND status='active' AND id<>?")
+      .get(excludedUserId) as { count: number | bigint };
+    if (Number(row.count) < 1) {
+      throw new HttpError(409, "last_platform_admin", "至少需要保留一个 active 平台管理员");
+    }
   }
 
   private inImmediateTransaction<T>(operation: () => T): T {
@@ -196,15 +310,49 @@ export function createControlStore(systemRoot: string): ControlStore {
   return new ControlStore(createControlDb(systemRoot));
 }
 
-interface TenantRow { id: TenantId; display_name: string; created_at: string; }
-interface UserRow { id: UserId; display_name: string; created_at: string; username: string | null; }
+interface TenantRow { id: TenantId; display_name: string; created_at: string; status: string; }
+interface UserRow { id: UserId; display_name: string; created_at: string; username: string | null; platform_role: string | null; status: string; }
 interface UserCredentialRow extends UserRow { password_hash: string | null; }
 interface MembershipRow { user_id: UserId; tenant_id: TenantId; role: string; }
 
-function mapTenant(row: TenantRow): ControlTenant { return { id: row.id, displayName: row.display_name, createdAt: row.created_at }; }
+function mapTenant(row: TenantRow): ControlTenant {
+  return { id: row.id, displayName: row.display_name, createdAt: row.created_at, status: assertTenantStatus(row.status) };
+}
 function mapUser(row: UserRow): ControlUser {
-  return { id: row.id, displayName: row.display_name, createdAt: row.created_at, ...(row.username ? { username: row.username } : {}) };
+  const platformRole = assertPlatformRole(row.platform_role);
+  return {
+    id: row.id,
+    displayName: row.display_name,
+    createdAt: row.created_at,
+    ...(row.username ? { username: row.username } : {}),
+    ...(platformRole ? { platformRole } : {}),
+    status: assertUserStatus(row.status),
+  };
 }
 function mapMembership(row: MembershipRow): ControlMembership { return { userId: row.user_id, tenantId: row.tenant_id, role: row.role }; }
+
+function assertPlatformRole(value: unknown): PlatformRole | null {
+  if (value === null || value === undefined) return null;
+  if (value !== "admin") throw new Error(`未知平台角色: ${String(value)}`);
+  return value;
+}
+
+function assertUserStatus(value: unknown): UserStatus {
+  if (value !== "active" && value !== "disabled") throw new Error(`未知用户状态: ${String(value)}`);
+  return value;
+}
+
+function assertTenantStatus(value: unknown): TenantStatus {
+  if (value !== "active" && value !== "suspended") throw new Error(`未知租户状态: ${String(value)}`);
+  return value;
+}
+
+function clampPageSize(value: number | undefined): number {
+  return Math.min(200, Math.max(1, Number.isFinite(value) ? Math.trunc(value as number) : 20));
+}
+
+function clampPageOffset(value: number | undefined): number {
+  return Math.max(0, Number.isFinite(value) ? Math.trunc(value as number) : 0);
+}
 
 export { CONTROL_LATEST_SCHEMA_VERSION } from "./migrations.js";

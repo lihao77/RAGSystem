@@ -208,7 +208,7 @@ import { logout } from '../api/auth.js';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconNewConversation, IconTrash } from '../components/icons';
 import { Button } from '../components/ui/button';
 import TenantSwitcher from '../components/TenantSwitcher.vue';
-import { sidebarAdminNavItem, filterManagementNavItems, adminNavGroups } from '../navigation/adminNavigation';
+import { sidebarAdminNavItem, sidebarPlatformNavItem, filterManagementNavItems, adminNavGroups } from '../navigation/adminNavigation';
 import CommandPalette from '../components/CommandPalette.vue';
 import { useCommandPalette } from '../composables/useCommandPalette.js';
 import HotkeysHelp from '../components/HotkeysHelp.vue';
@@ -241,6 +241,7 @@ const isPageActive = (mainView) => (route.meta?.mainView || 'chat') === mainView
 const visibleManagementNavItems = computed(() => filterManagementNavItems(bootstrapStore.capabilities, {
   isAuthenticated: authStore.isAuthenticated,
   authMode: bootstrapStore.profile.auth,
+  platformRole: authStore.platformRole,
 }));
 const adminItemsByGroup = (groupKey) => visibleManagementNavItems.value.filter((i) => i.group === groupKey);
 const showUserArea = computed(() => bootstrapStore.requiresAuth && authStore.isAuthenticated);
@@ -259,7 +260,9 @@ const chatReturnPath = computed(() => activeSessionId.value ? `/chat/${encodeURI
 const getPageDepth = (targetRoute) => targetRoute.meta?.depth ?? 0;
 const getPageOrder = (targetRoute) => targetRoute.meta?.pageOrder ?? getPageDepth(targetRoute);
 const getPageRouteKey = (targetRoute) => targetRoute.meta?.pageKey || targetRoute.meta?.mainView || 'chat';
-const sidebarNavItems = [sidebarAdminNavItem];
+const sidebarNavItems = computed(() => authStore.isPlatformAdmin
+  ? [sidebarAdminNavItem, sidebarPlatformNavItem]
+  : [sidebarAdminNavItem]);
 // 侧栏在所有路由下于同一断点（lg 900px）切抽屉/固定，避免切页时行为不一致。
 const sidebarOverlayBreakpoint = 900;
 

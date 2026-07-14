@@ -24,6 +24,7 @@ describe("IdentityProvider", () => {
       tenantId: LOCAL_TENANT_ID,
       role: "owner",
       permissions: ["*"],
+      platformRole: "admin",
     });
     expect(controlStore.getTenant(LOCAL_TENANT_ID)).not.toBeNull();
     expect(controlStore.getUser(LOCAL_USER_ID)).not.toBeNull();

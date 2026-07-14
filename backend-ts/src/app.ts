@@ -28,6 +28,7 @@ import { registerWidgetAppsRoutes } from "./routes/widget-apps.js";
 import { registerBootstrapRoutes } from "./routes/bootstrap.js";
 import { registerAuthRoutes, registerInstallRoutes } from "./routes/auth.js";
 import { registerAdminRoutes } from "./routes/admin.js";
+import { registerPlatformRoutes } from "./routes/platform.js";
 import { HttpError, formatError } from "./utils/errors.js";
 import { createControlStore, type ControlStore } from "./services/stores/control-store/index.js";
 import { createWidgetCredentialStore, type WidgetCredentialStore } from "./services/stores/widget-credential-store/index.js";
@@ -88,7 +89,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.decorateRequest("tenantRuntimeLease", null);
   app.addHook("onRequest", async (request) => {
     const needsTenantRuntime = requiresTenantRuntime(request.url, request.method);
-    if (!needsTenantRuntime && !usesAdminIdentity(request.url, request.method)) return;
+    if (!needsTenantRuntime && !usesAdminIdentity(request.url, request.method) && !usesPlatformIdentity(request.url, request.method)) return;
     const resolver = widgetIdentityProvider && usesWidgetIdentity(request.url)
       ? widgetIdentityProvider
       : runtime.identityProvider;
@@ -216,6 +217,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await app.register(registerInstallRoutes, { prefix: "/api", controlStore, runtime, refreshProfile });
   await app.register(registerAuthRoutes, { prefix: "/api/auth", controlStore, runtime });
   await app.register(registerAdminRoutes, { prefix: "/api/admin", controlStore });
+  await app.register(registerPlatformRoutes, { prefix: "/api/platform", controlStore, registry });
   await app.register(registerPermissionRoutes, {
     prefix: "/api/permissions",
     registry,
@@ -308,9 +310,12 @@ function requiresTenantRuntime(url: string, method: string): boolean {
     && pathname !== "/api/install"
     && pathname !== "/api/auth/login"
     && pathname !== "/api/auth/switch-tenant"
+    && pathname !== "/api/auth/me"
     && pathname !== "/api/widget/auth/token"
     && pathname !== "/api/admin"
     && !pathname.startsWith("/api/admin/")
+    && pathname !== "/api/platform"
+    && !pathname.startsWith("/api/platform/")
     && !pathname.endsWith("/ws");
 }
 
@@ -318,6 +323,12 @@ function usesAdminIdentity(url: string, method: string): boolean {
   if (method === "OPTIONS") return false;
   const pathname = url.split("?", 1)[0] ?? url;
   return pathname === "/api/admin" || pathname.startsWith("/api/admin/");
+}
+
+function usesPlatformIdentity(url: string, method: string): boolean {
+  if (method === "OPTIONS") return false;
+  const pathname = url.split("?", 1)[0] ?? url;
+  return pathname === "/api/platform" || pathname.startsWith("/api/platform/");
 }
 
 interface AuthRuntime {

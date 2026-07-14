@@ -35,7 +35,11 @@ describe("ControlStore", () => {
     const indexes = db.prepare("PRAGMA index_list(widget_apps)").all() as unknown as Array<{ name: string }>;
     expect(indexes.map((index) => index.name)).toContain("idx_widget_apps_tenant_id");
     const userColumns = db.prepare("PRAGMA table_info(users)").all() as unknown as Array<{ name: string }>;
-    expect(userColumns.map((column) => column.name)).toEqual(expect.arrayContaining(["username", "password_hash"]));
+    expect(userColumns.map((column) => column.name)).toEqual(expect.arrayContaining(["username", "password_hash", "platform_role", "status"]));
+    const tenantColumns = db.prepare("PRAGMA table_info(tenants)").all() as unknown as Array<{ name: string }>;
+    expect(tenantColumns.map((column) => column.name)).toContain("status");
+    const controlIndexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all() as unknown as Array<{ name: string }>;
+    expect(controlIndexes.map((index) => index.name)).toEqual(expect.arrayContaining(["idx_users_status", "idx_tenants_status", "idx_users_platform_role"]));
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='user_sessions'").get()).toBeTruthy();
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='system_settings'").get()).toBeTruthy();
     db.close();
@@ -120,6 +124,27 @@ describe("ControlStore", () => {
     expect(() => store.deleteMembership(ownerOne, tenantId))
       .toThrow("不能移除租户唯一 owner");
     expect(store.getMembership(ownerOne, tenantId)?.role).toBe("owner");
+    store.close();
+  });
+
+  it("分页过滤平台用户与租户，并保护最后一个 active 平台 admin", () => {
+    const store = createControlStore(makeSystemRoot());
+    const tenantId = createTenantId("tnt_acme");
+    const adminOne = createUserId("usr_admin_one");
+    const adminTwo = createUserId("usr_admin_two");
+    store.createTenant({ id: tenantId, displayName: "Acme" });
+    store.createUser({ id: adminOne, displayName: "Admin One", platform_role: "admin" });
+
+    expect(store.listAllTenants({ status: "active" }).items).toEqual([expect.objectContaining({ id: tenantId, status: "active" })]);
+    expect(store.listAllUsers({ platformRole: "admin" }).items).toEqual([expect.objectContaining({ id: adminOne, platformRole: "admin" })]);
+    expect(() => store.setUserStatus(adminOne, "disabled")).toThrow("至少需要保留一个 active 平台管理员");
+    expect(() => store.setUserPlatformRole(adminOne, null)).toThrow("至少需要保留一个 active 平台管理员");
+
+    store.createUser({ id: adminTwo, displayName: "Admin Two", platform_role: "admin" });
+    expect(store.setUserStatus(adminOne, "disabled")).toBe(true);
+    expect(store.getUser(adminOne)?.status).toBe("disabled");
+    expect(store.setTenantStatus(tenantId, "suspended")).toBe(true);
+    expect(store.getTenant(tenantId)?.status).toBe("suspended");
     store.close();
   });
 });

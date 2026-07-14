@@ -41,6 +41,34 @@ export const CONTROL_MIGRATIONS: readonly ControlMigration[] = [
       db.exec(CONTROL_AUTH_SCHEMA_SQL);
     },
   },
+  {
+    version: 4,
+    name: "platform-control-plane",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE users ADD COLUMN platform_role TEXT;
+        ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active';
+        ALTER TABLE tenants ADD COLUMN status TEXT NOT NULL DEFAULT 'active';
+
+        CREATE INDEX idx_users_status ON users(status);
+        CREATE INDEX idx_tenants_status ON tenants(status);
+        CREATE INDEX idx_users_platform_role ON users(platform_role);
+
+        CREATE TABLE platform_audit (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          actor_user_id TEXT NOT NULL,
+          action TEXT NOT NULL,
+          target_tenant_id TEXT,
+          target_resource TEXT NOT NULL,
+          detail_json TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+          FOREIGN KEY (target_tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
+        );
+        CREATE INDEX idx_platform_audit_created_at ON platform_audit(created_at DESC, id DESC);
+      `);
+    },
+  },
 ];
 
 export function runControlMigrations(db: ControlMigrationDatabase): void {
