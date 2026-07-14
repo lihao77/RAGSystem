@@ -1,11 +1,7 @@
 <template>
-  <div class="flex flex-col gap-6">
+  <PageLayout title="平台用户治理" subtitle="禁用或恢复用户，并管理跨租户平台管理员权限">
     <Card>
-      <CardHeader>
-        <CardTitle>平台用户治理</CardTitle>
-        <CardDescription>禁用或恢复用户，并管理跨租户平台管理员权限。</CardDescription>
-      </CardHeader>
-      <CardContent class="flex flex-col gap-4">
+      <CardContent class="flex flex-col gap-4 pt-6">
         <div class="flex flex-col gap-3 sm:flex-row">
           <Input v-model="query" placeholder="按用户 ID、名称或用户名搜索" @keyup.enter="loadUsers" />
           <Button variant="outline" :disabled="loading" @click="loadUsers">{{ loading ? '加载中...' : '查询' }}</Button>
@@ -53,11 +49,11 @@
         <p v-if="mutationError" class="text-sm text-destructive" role="alert">{{ mutationError }}</p>
         <AlertDialogFooter>
           <AlertDialogCancel :disabled="updating">取消</AlertDialogCancel>
-          <AlertDialogAction :disabled="updating" @click.prevent="confirmChange">{{ updating ? '处理中...' : '确认' }}</AlertDialogAction>
+          <Button :disabled="updating" @click="confirmChange">{{ updating ? '处理中…' : '确认' }}</Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  </div>
+  </PageLayout>
 </template>
 
 <script setup>
@@ -68,10 +64,11 @@ import { useAsyncAction } from '../composables/useAsyncAction.js';
 import { useAuthStore } from '../stores/auth.js';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardContent } from '../components/ui/card';
+import PageLayout from '../components/PageLayout.vue';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../components/ui/alert-dialog';
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../components/ui/alert-dialog';
 
 const router = useRouter();
 const authStore = useAuthStore();
