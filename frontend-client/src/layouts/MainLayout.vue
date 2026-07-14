@@ -1,15 +1,5 @@
 <template>
   <div class="chat-layout" :class="{ 'chat-layout--sidebar-overlay': isMobile }">
-    <div v-if="showUserArea" class="absolute right-5 top-5 z-10 flex items-center gap-3 rounded-md border border-input bg-background px-3 py-2 shadow-sm">
-      <TenantSwitcher />
-      <div class="min-w-0 text-right">
-        <div class="max-w-48 truncate text-sm font-medium">{{ authStore.user?.displayName || '管理员' }}</div>
-        <div class="text-xs text-muted-foreground">{{ authStore.role }}</div>
-      </div>
-      <Button variant="outline" size="sm" :disabled="logoutLoading" @click="handleLogout">
-        {{ logoutLoading ? '退出中...' : '退出登录' }}
-      </Button>
-    </div>
     <div class="sidebar-backdrop" :class="{ active: mobileOpen }" @click="closeMobileSidebar"></div>
 
     <aside class="sidebar" :class="{ collapsed: sidebarCollapsed, 'mobile-open': mobileOpen }">
@@ -127,27 +117,14 @@
       </Transition>
 
       <div class="sidebar-footer">
-        <template v-if="isChatRoute">
-          <button
-            v-for="item in sidebarNavItems"
-            :key="item.key"
-            :class="['sidebar-btn', 'sidebar-footer-btn', item.buttonClass, { active: isSidebarNavActive(item) }]"
-            :title="item.title"
-            @click="navigateTo(item.path)"
-          >
-            <component :is="item.icon" class="icon" />
-            <span class="btn-text">{{ item.label }}</span>
-            <span class="sidebar-status__dot"></span>
-          </button>
-        </template>
+        <UserMenu />
         <button
-          v-else
-          class="sidebar-btn sidebar-footer-btn"
-          title="返回聊天"
-          @click="navigateTo('/')"
+          class="footer-toggle-btn"
+          :title="isChatRoute ? '管理中心' : '返回聊天'"
+          :aria-label="isChatRoute ? '管理中心' : '返回聊天'"
+          @click="navigateTo(isChatRoute ? sidebarAdminNavItem.path : '/')"
         >
-          <IconChevronLeft :size="22" class="icon" />
-          <span class="btn-text">返回聊天</span>
+          <component :is="isChatRoute ? sidebarAdminNavItem.icon : IconChevronLeft" :size="22" />
         </button>
       </div>
     </aside>
@@ -204,11 +181,10 @@ import { useSessionListStore } from '../stores/session-list.js';
 import { useBootstrapStore } from '../stores/bootstrap.js';
 import { useAuthStore } from '../stores/auth.js';
 import { deleteSession as deleteSessionApi } from '../api/session';
-import { logout } from '../api/auth.js';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconNewConversation, IconTrash } from '../components/icons';
 import { Button } from '../components/ui/button';
-import TenantSwitcher from '../components/TenantSwitcher.vue';
-import { sidebarAdminNavItem, sidebarPlatformNavItem, filterManagementNavItems, adminNavGroups } from '../navigation/adminNavigation';
+import UserMenu from '../components/UserMenu.vue';
+import { sidebarAdminNavItem, filterManagementNavItems, adminNavGroups } from '../navigation/adminNavigation';
 import CommandPalette from '../components/CommandPalette.vue';
 import { useCommandPalette } from '../composables/useCommandPalette.js';
 import HotkeysHelp from '../components/HotkeysHelp.vue';
@@ -244,11 +220,6 @@ const visibleManagementNavItems = computed(() => filterManagementNavItems(bootst
   platformRole: authStore.platformRole,
 }));
 const adminItemsByGroup = (groupKey) => visibleManagementNavItems.value.filter((i) => i.group === groupKey);
-const showUserArea = computed(() => bootstrapStore.requiresAuth && authStore.isAuthenticated);
-const logoutLoading = ref(false);
-const isSidebarNavActive = (item) => item.section
-  ? route.meta?.section === item.section
-  : isPageActive(item.mainView);
 const pageTransitionName = ref('slide-forward');
 const activeSessionId = computed(() => {
   if (isChatRoute.value && typeof route.params.id === 'string') {
@@ -260,24 +231,8 @@ const chatReturnPath = computed(() => activeSessionId.value ? `/chat/${encodeURI
 const getPageDepth = (targetRoute) => targetRoute.meta?.depth ?? 0;
 const getPageOrder = (targetRoute) => targetRoute.meta?.pageOrder ?? getPageDepth(targetRoute);
 const getPageRouteKey = (targetRoute) => targetRoute.meta?.pageKey || targetRoute.meta?.mainView || 'chat';
-const sidebarNavItems = computed(() => authStore.isPlatformAdmin
-  ? [sidebarAdminNavItem, sidebarPlatformNavItem]
-  : [sidebarAdminNavItem]);
 // 侧栏在所有路由下于同一断点（lg 900px）切抽屉/固定，避免切页时行为不一致。
 const sidebarOverlayBreakpoint = 900;
-
-async function handleLogout() {
-  logoutLoading.value = true;
-  try {
-    await logout();
-  } catch (error) {
-    toast.warning(error?.message || '服务端退出失败，已清除本地登录状态');
-  } finally {
-    authStore.clear();
-    logoutLoading.value = false;
-    await router.replace('/login');
-  }
-}
 
 const showToast = (message, actionOrType = null, actionLabel = '重试') => {
   let type = 'error';
@@ -323,6 +278,7 @@ provide('shellSidebarControl', {
   openMobileSidebar,
   closeMobileSidebar,
 });
+provide('sidebarCollapsed', sidebarCollapsed);
 
 const toggleSidebar = () => {
   if (isMobile.value) {
@@ -1222,8 +1178,29 @@ onUnmounted(() => {
 .sidebar-footer {
   padding: var(--spacing-sm);
   margin-top: auto;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--spacing-xs);
   /* border-top: 1px solid var(--color-border); */
 }
+.footer-toggle-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 5px;
+  background: none;
+  color: var(--color-text-secondary);
+  border: none;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.footer-toggle-btn:hover { background: var(--color-hover-overlay-md); color: var(--color-text-primary); }
+.sidebar.collapsed .footer-toggle-btn { display: none; }
 
 .sidebar-footer-btn {
   margin: 0;
