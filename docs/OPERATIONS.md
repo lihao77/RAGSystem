@@ -20,7 +20,7 @@ npm run dev
 ```
 
 - 默认地址：`http://localhost:5002`
-- 配置：`BACKEND_TS_HOST`、`BACKEND_TS_PORT`、`PORT`、`RAG_DATA_ROOT`、`BACKEND_TS_DB_PATH`
+- 配置：`BACKEND_TS_HOST`、`BACKEND_TS_PORT`、`PORT`、`RAG_DATA_ROOT`
 - 默认数据根目录：`~/.ragsystem`
 - 若存在 `frontend-client/dist`，后端会托管前端构建产物
 

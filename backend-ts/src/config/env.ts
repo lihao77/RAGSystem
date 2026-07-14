@@ -23,7 +23,6 @@ const EnvSchema = z.object({
   BACKEND_TS_HOST: z.string().optional(),
   BACKEND_TS_PORT: z.string().optional(),
   BACKEND_TS_LOG_LEVEL: z.string().optional(),
-  BACKEND_TS_DB_PATH: z.string().optional(),
   CORS_ORIGINS: z.string().optional(),
   PORT: z.string().optional(),
   RAG_DATA_ROOT: z.string().optional(),
@@ -47,7 +46,6 @@ export interface AppEnv {
   dataRoot: string;
   tenantsRoot: string;
   systemRoot: string;
-  dbPath: string;
   deploymentMode?: DeploymentMode | undefined;
   authMode?: AuthMode | undefined;
   tenancyMode?: TenancyMode | undefined;
@@ -86,7 +84,6 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
   }
 
   const dataRoot = path.resolve(env.RAG_DATA_ROOT?.trim() || path.join(os.homedir(), ".ragsystem"));
-  const dbPath = env.BACKEND_TS_DB_PATH?.trim() || path.join(dataRoot, "db", "ragsystem.db");
 
   const appEnv: AppEnv = {
     host: env.BACKEND_TS_HOST ?? "0.0.0.0",
@@ -96,7 +93,6 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     dataRoot,
     tenantsRoot: path.join(dataRoot, "tenants"),
     systemRoot: path.join(dataRoot, "system"),
-    dbPath: path.resolve(dbPath),
     deploymentMode: env.DEPLOYMENT_MODE,
     authMode: env.AUTH_MODE,
     tenancyMode: env.TENANCY_MODE,
