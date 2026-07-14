@@ -10,6 +10,7 @@ import {
 } from "../contracts/agent-config.js";
 import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
+import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
 import { isRecord } from "../utils/guards.js";
 
 interface AgentParams {
@@ -29,6 +30,11 @@ interface ImportQuery {
 }
 
 export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
+  app.addHook("preHandler", async (request) => {
+    requireTenantMember(request);
+    if (request.method !== "GET") requireTenantAdmin(request);
+  });
+
   app.get("/configs", async (request) => {
     const configs = request.container.agentConfig.listConfigs();
     return ok(configs, `共有 ${Object.keys(configs).length} 个智能体配置`);

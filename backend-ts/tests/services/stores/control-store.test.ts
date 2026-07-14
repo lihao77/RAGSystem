@@ -102,6 +102,26 @@ describe("ControlStore", () => {
     expect(store.getMembership(userId, tenantId)).toBeNull();
     store.close();
   });
+
+  it("在 store 事务内阻止租户失去最后一个 owner", () => {
+    const store = createControlStore(makeSystemRoot());
+    const tenantId = createTenantId("tnt_acme");
+    const ownerOne = createUserId("usr_owner_one");
+    const ownerTwo = createUserId("usr_owner_two");
+    store.createTenant({ id: tenantId, displayName: "Acme" });
+    store.createUser({ id: ownerOne, displayName: "Owner One" });
+    store.createUser({ id: ownerTwo, displayName: "Owner Two" });
+    store.upsertMembership({ userId: ownerOne, tenantId, role: "owner" });
+    store.upsertMembership({ userId: ownerTwo, tenantId, role: "owner" });
+
+    expect(store.deleteMembership(ownerTwo, tenantId)).toBe(true);
+    expect(() => store.upsertMembership({ userId: ownerOne, tenantId, role: "admin" }))
+      .toThrow("不能降级租户唯一 owner");
+    expect(() => store.deleteMembership(ownerOne, tenantId))
+      .toThrow("不能移除租户唯一 owner");
+    expect(store.getMembership(ownerOne, tenantId)?.role).toBe("owner");
+    store.close();
+  });
 });
 
 function makeSystemRoot(): string {

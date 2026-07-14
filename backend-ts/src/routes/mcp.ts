@@ -10,6 +10,7 @@ import { McpServiceError } from "../services/integrations/mcp-service.js";
 import { HttpError, httpErrorFrom } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 import { isRecord } from "../utils/guards.js";
+import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
 
 interface ServerParams {
   serverName: string;
@@ -23,6 +24,15 @@ interface RegistryQuery {
 }
 
 export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
+  app.addHook("preHandler", async (request) => {
+    requireTenantMember(request);
+    const pathname = request.url.split("?", 1)[0] ?? request.url;
+    const isReadOperation = request.method === "GET"
+      || pathname.endsWith("/resources/read")
+      || pathname.endsWith("/prompts/get");
+    if (!isReadOperation) requireTenantAdmin(request);
+  });
+
   app.get<{ Querystring: RegistryQuery }>("/registry/servers", async (request) => {
     const limit = Number(request.query.limit ?? 8);
     const latestOnly = !["0", "false", "no", "off"].includes(String(request.query.latest_only ?? "true").toLowerCase());
@@ -48,7 +58,9 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
   });
 
   app.get("/servers", async (request) => {
-    return ok(request.container.mcp.listServers().map(normalizeServerListItem));
+    return ok(request.container.mcp.listServers().map((server) => normalizeServerListItem(
+      request.identity.role === "member" ? redactServerSecrets(server) : server,
+    )));
   });
 
   app.post("/servers", async (request) => {
@@ -199,6 +211,19 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
     }
   });
 };
+
+function redactServerSecrets<T extends Record<string, unknown>>(server: T): T {
+  return {
+    ...server,
+    env: redactRecordValues(server.env),
+    headers: redactRecordValues(server.headers),
+  };
+}
+
+function redactRecordValues(value: unknown): Record<string, string> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(Object.keys(value).map((key) => [key, "********"]));
+}
 
 function normalizeServerListItem(server: Record<string, unknown>): Record<string, unknown> {
   const serverName = String(server.name ?? server.server_name ?? "");

@@ -51,7 +51,7 @@ describe("monitoring compatibility routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
     const store = harness.container.conversationStore;
-    store.createSession(LOCAL_TENANT_ID, "ops-outbox");
+    store.createSession(LOCAL_TENANT_ID, "ops-outbox", "usr_local");
     const failed = store.appendOutbox({
       sessionId: "ops-outbox",
       runId: "run-failed",
@@ -168,7 +168,7 @@ describe("monitoring compatibility routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "s1" });
     const systemMessage = harness.container.sessionApplication.addMessage({
       sessionId: "s1",
       role: "system",
@@ -243,7 +243,7 @@ describe("monitoring compatibility routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "compression-s1" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "compression-s1" });
     harness.container.sessionApplication.addMessage({
       sessionId: "compression-s1",
       role: "user",
@@ -311,7 +311,7 @@ describe("monitoring compatibility routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "react-runsteps-only" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "react-runsteps-only" });
     const runStepsOnlyUser = harness.container.sessionApplication.addMessage({
       sessionId: "react-runsteps-only",
       role: "user",
@@ -346,7 +346,7 @@ describe("monitoring compatibility routes", () => {
       }),
     ]);
 
-    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "react-persisted" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "react-persisted" });
     const user = harness.container.sessionApplication.addMessage({
       sessionId: "react-persisted",
       role: "user",

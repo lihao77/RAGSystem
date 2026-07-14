@@ -5,6 +5,7 @@ import { ok } from "../contracts/common.js";
 import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 import { collectMultipartFiles } from "./file-route-utils.js";
+import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
 
 interface SkillParams {
   name: string;
@@ -35,6 +36,8 @@ interface UpdateBody {
 - 写/删仅限 user_global（service 层硬约束）
  */
 export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
+  app.addHook("preHandler", async (request) => { requireTenantMember(request); });
+
   app.get("/", async (request) => {
     const skills = request.container.skillLibrary.listSkills();
     return ok(skills, `共有 ${skills.length} 个 Skill`);
@@ -55,6 +58,7 @@ export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app,
   });
 
   app.post<{ Body: CreateBody }>("/", async (request) => {
+    requireTenantAdmin(request);
     if (!isRecord(request.body)) {
       throw new HttpError(400, "invalid_request", "请求体必须是对象");
     }
@@ -68,6 +72,7 @@ export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app,
   });
 
   app.put<{ Params: SkillParams; Body: UpdateBody }>("/:name", async (request) => {
+    requireTenantAdmin(request);
     if (!isRecord(request.body)) {
       throw new HttpError(400, "invalid_request", "请求体必须是对象");
     }
@@ -85,6 +90,7 @@ export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app,
   });
 
   app.post<{ Params: SkillParams; Querystring: UploadQuery }>("/:name/files", async (request) => {
+    requireTenantAdmin(request);
     const parts = await collectMultipartFiles(request);
     const dir = request.query.dir === "scripts" ? "scripts" : "";
     const uploaded = parts.map((part) => {
@@ -97,6 +103,7 @@ export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app,
   });
 
   app.delete<{ Params: SkillParams }>("/:name", async (request) => {
+    requireTenantAdmin(request);
     request.container.skillLibrary.deleteSkill(request.params.name);
     return ok({ name: request.params.name }, `Skill '${request.params.name}' 已删除`);
   });

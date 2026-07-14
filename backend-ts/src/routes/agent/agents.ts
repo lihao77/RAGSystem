@@ -6,18 +6,22 @@ import type { RouteOptions } from "../route-options.js";
 import { HttpError } from "../../utils/errors.js";
 import { ZodError } from "zod";
 import { isRecord } from "../../utils/guards.js";
+import { requireTenantAdmin, requireTenantMember } from "../tenant-role.js";
 
 interface AgentParams {
   agentName: string;
 }
 
 export const registerAgentManagementRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
+  app.addHook("preHandler", async (request) => { requireTenantMember(request); });
+
   app.get("/agents", async (request) => {
     const agents = request.container.agentConfig.listAgents().map(normalizeAgentCatalogItem).sort(sortAgentCatalogLikePython);
     return ok(agents, `共有 ${agents.length} 个智能体`);
   });
 
   app.post("/agents/create", async (request) => {
+    requireTenantAdmin(request);
     const payload = parseCreateAgentRequest(request.body);
     try {
       const config = request.container.agentConfig.createAgent(payload);
@@ -28,6 +32,7 @@ export const registerAgentManagementRoutes: FastifyPluginAsync<RouteOptions> = a
   });
 
   app.delete<{ Params: AgentParams }>("/agents/delete/:agentName", async (request) => {
+    requireTenantAdmin(request);
     try {
       const deleted = request.container.agentConfig.deleteAgent(request.params.agentName);
       if (!deleted) {
@@ -42,15 +47,16 @@ export const registerAgentManagementRoutes: FastifyPluginAsync<RouteOptions> = a
     }
   });
 
-  app.post("/agents/reload", async (request) =>
-    ok(
+  app.post("/agents/reload", async (request) => {
+    requireTenantAdmin(request);
+    return ok(
       {
         runtime: "ts",
         reloaded: true,
       },
       "智能体已重新加载",
-    ),
-  );
+    );
+  });
 };
 
 function errorMessage(error: unknown): string {
@@ -148,4 +154,3 @@ function normalizeLlmTier(value: unknown): Record<string, unknown> {
   }
   return tier;
 }
-

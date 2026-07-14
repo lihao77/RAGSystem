@@ -12,6 +12,7 @@ import { DaemonServiceError } from "../services/daemon/daemon-service.js";
 import { HttpError, httpErrorFrom } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 import { isRecord } from "../utils/guards.js";
+import { requireTenantAdmin, requireTenantMember, requireTenantOwner } from "./tenant-role.js";
 
 interface AgentParams {
   teamName: string;
@@ -26,6 +27,16 @@ interface CronTaskParams {
 }
 
 export const registerDaemonRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
+  app.addHook("preHandler", async (request) => {
+    requireTenantMember(request);
+    const pathname = request.url.split("?", 1)[0] ?? request.url;
+    if (pathname.endsWith("/start") || pathname.endsWith("/stop")) {
+      requireTenantOwner(request);
+    } else if (pathname.endsWith("/config") || request.method !== "GET") {
+      requireTenantAdmin(request);
+    }
+  });
+
   app.get("/config", async (request) => request.container.daemon.getConfig());
 
   app.put("/config", async (request) => {
@@ -148,4 +159,3 @@ function toHttpError(error: unknown): HttpError {
     e instanceof DaemonServiceError ? new HttpError(e.statusCode, "invalid_request", e.message) : null,
   );
 }
-

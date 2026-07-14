@@ -9,16 +9,23 @@ import { ok } from "../contracts/common.js";
 import { ModelAdapterServiceError } from "../services/integrations/model-adapter-service.js";
 import { HttpError, httpErrorFrom } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
+import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
 
 interface ProviderParams {
   providerKey: string;
 }
 
 export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
+  app.addHook("preHandler", async (request) => {
+    requireTenantMember(request);
+    if (request.method !== "GET") requireTenantAdmin(request);
+  });
+
   app.get("/provider-types", async (request) => ok(request.container.modelAdapter.listProviderTypes(), "获取成功"));
 
   app.get("/providers", async (request) => {
-    const providers = request.container.modelAdapter.listProviders();
+    const providers = request.container.modelAdapter.listProviders()
+      .map((provider) => request.identity.role === "member" ? redactProviderSecrets(provider) : provider);
     return {
       ...ok(providers, "Provider 列表获取成功"),
       providers,
@@ -125,6 +132,13 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
     }
   });
 };
+
+function redactProviderSecrets<T extends Record<string, unknown>>(provider: T): T {
+  return {
+    ...provider,
+    ...(provider.api_key ? { api_key: "********" } : {}),
+  };
+}
 
 function toHttpError(error: unknown): HttpError {
   return httpErrorFrom(error, (e) =>

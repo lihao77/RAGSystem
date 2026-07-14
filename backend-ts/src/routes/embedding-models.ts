@@ -5,6 +5,7 @@ import { EmbeddingModelServiceError } from "../services/knowledge/embedding-mode
 import { KnowledgeBaseError } from "../contracts/knowledge-base.js";
 import { HttpError, httpErrorFrom, statusHttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
+import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
 
 interface ModelParams {
   modelId: string;
@@ -23,12 +24,15 @@ interface SyncStatusQuery {
 }
 
 export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
+  app.addHook("preHandler", async (request) => { requireTenantMember(request); });
+
   app.get("/models", async (request) => ({
     success: true,
     models: await request.container.embeddingModels.listModels(),
   }));
 
   app.post<{ Params: ModelParams }>("/models/:modelId/activate", async (request) => {
+    requireTenantAdmin(request);
     try {
       return {
         success: true,
@@ -40,6 +44,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
   });
 
   app.delete<{ Params: ModelParams; Querystring: DeleteQuery }>("/models/:modelId", async (request) => {
+    requireTenantAdmin(request);
     try {
       return {
         success: true,
@@ -54,6 +59,7 @@ export const registerEmbeddingModelRoutes: FastifyPluginAsync<RouteOptions> = as
   });
 
   app.post<{ Params: ModelParams }>("/models/:modelId/sync", async (request) => {
+    requireTenantAdmin(request);
     const modelId = parseModelId(request.params.modelId);
     const payload = SyncEmbeddingModelRequestSchema.parse(request.body ?? {});
     try {

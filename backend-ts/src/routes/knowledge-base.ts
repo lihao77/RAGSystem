@@ -17,6 +17,7 @@ import { matchesFileFilters } from "../utils/file-filter.js";
 import type { RouteOptions } from "./route-options.js";
 import { isRecord } from "../utils/guards.js";
 import { collectMultipartFiles, parseCsvList, sendFileDownload } from "./file-route-utils.js";
+import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
 
 interface CollectionParams {
   collectionName: string;
@@ -34,6 +35,20 @@ interface KeyParams { key: string; }
 interface DocsQuery { collection?: string; }
 
 export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
+  app.addHook("preHandler", async (request) => {
+    requireTenantMember(request);
+    const pathname = request.url.split("?", 1)[0] ?? request.url;
+    const adminOperation = pathname.endsWith("/index-file")
+      || (pathname.includes("/vectorizers") && request.method !== "GET")
+      || pathname.endsWith("/migrate")
+      || (pathname.includes("/rerankers") && request.method !== "GET")
+      || (pathname.includes("/collections/") && request.method === "DELETE")
+      || pathname.endsWith("/index")
+      || (pathname.includes("/documents/") && request.method === "DELETE")
+      || (pathname.includes("/files/") && request.method === "DELETE");
+    if (adminOperation) requireTenantAdmin(request);
+  });
+
   app.post("/files/upload", async (request) => {
     const knowledgeBase = request.container.knowledgeBase;
     const store = request.container.knowledgeBase.knowledgeFileStore;

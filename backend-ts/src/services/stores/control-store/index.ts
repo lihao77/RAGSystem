@@ -1,4 +1,5 @@
 import type { TenantId, UserId } from "../../../identity/types.js";
+import { HttpError } from "../../../utils/errors.js";
 import { createControlDb, type ControlDb } from "./db.js";
 
 export interface ControlTenant {
@@ -88,11 +89,17 @@ export class ControlStore {
   }
 
   upsertMembership(input: ControlMembership): ControlMembership {
-    this.db.prepare(`
-      INSERT INTO memberships(user_id, tenant_id, role) VALUES (?, ?, ?)
-      ON CONFLICT(user_id, tenant_id) DO UPDATE SET role=excluded.role
-    `).run(input.userId, input.tenantId, input.role);
-    return input;
+    return this.inImmediateTransaction(() => {
+      const existing = this.getMembership(input.userId, input.tenantId);
+      if (existing?.role === "owner" && input.role !== "owner" && this.countOwners(input.tenantId) <= 1) {
+        throw new HttpError(403, "forbidden", "不能降级租户唯一 owner");
+      }
+      this.db.prepare(`
+        INSERT INTO memberships(user_id, tenant_id, role) VALUES (?, ?, ?)
+        ON CONFLICT(user_id, tenant_id) DO UPDATE SET role=excluded.role
+      `).run(input.userId, input.tenantId, input.role);
+      return input;
+    });
   }
 
   getMembership(userId: UserId, tenantId: TenantId): ControlMembership | null {
@@ -114,7 +121,33 @@ export class ControlStore {
   }
 
   deleteMembership(userId: UserId, tenantId: TenantId): boolean {
-    return Number(this.db.prepare("DELETE FROM memberships WHERE user_id=? AND tenant_id=?").run(userId, tenantId).changes) > 0;
+    return this.inImmediateTransaction(() => {
+      const existing = this.getMembership(userId, tenantId);
+      if (!existing) return false;
+      if (existing.role === "owner" && this.countOwners(tenantId) <= 1) {
+        throw new HttpError(403, "forbidden", "不能移除租户唯一 owner");
+      }
+      return Number(this.db.prepare("DELETE FROM memberships WHERE user_id=? AND tenant_id=?").run(userId, tenantId).changes) > 0;
+    });
+  }
+
+  private countOwners(tenantId: TenantId): number {
+    const row = this.db.prepare("SELECT COUNT(*) AS count FROM memberships WHERE tenant_id=? AND role='owner'")
+      .get(tenantId) as { count: number | bigint };
+    return Number(row.count);
+  }
+
+  private inImmediateTransaction<T>(operation: () => T): T {
+    if (this.db.isTransaction) return operation();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const result = operation();
+      this.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   recordSession(input: { jti: string; userId: UserId; tenantId: TenantId; issuedAt: number; expiresAt: number }): void {

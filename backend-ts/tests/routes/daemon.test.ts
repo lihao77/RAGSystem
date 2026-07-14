@@ -6,6 +6,7 @@ import path from "node:path";
 
 import { buildTestApp } from "../helpers/app.js";
 import { createRuntimeContainer } from "../../src/services/runtime/runtime-container.js";
+import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 let app: FastifyInstance | null = null;
 const tempRoots: string[] = [];
@@ -78,6 +79,7 @@ describe("daemon compatibility routes", () => {
     );
 
     const container = createRuntimeContainer({
+      tenantId: LOCAL_TENANT_ID,
       dbPath: ":memory:",
       dataRoot: root,
       modelAdapterProvidersConfigPath: "",

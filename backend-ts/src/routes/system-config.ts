@@ -4,14 +4,18 @@ import { ok } from "../contracts/common.js";
 import { SystemConfigUpdateSchema } from "../contracts/system-config.js";
 import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
+import { requireTenantMember, requireTenantOwner } from "./tenant-role.js";
 import { isRecord } from "../utils/guards.js";
 
 export const registerSystemConfigRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
+  app.addHook("preHandler", async (request) => { requireTenantMember(request); });
+
   app.get("/schema", async (request) => ok(request.container.systemConfig.getSchema(), "系统配置 schema"));
 
   app.get("/", async (request) => ok(request.container.systemConfig.getConfig(), "当前系统配置"));
 
   app.patch("/", async (request) => {
+    requireTenantOwner(request);
     if (!isRecord(request.body)) {
       throw new HttpError(400, "invalid_request", "请求体必须是 JSON object");
     }
@@ -20,8 +24,8 @@ export const registerSystemConfigRoutes: FastifyPluginAsync<RouteOptions> = asyn
   });
 
   app.post("/reload", async (request) => {
+    requireTenantOwner(request);
     request.container.systemConfig.reload();
     return ok(undefined, "系统配置已重新加载");
   });
 };
-

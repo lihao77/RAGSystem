@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { ok } from "../../contracts/common.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
+import { requireTenantAdmin } from "../tenant-role.js";
 
 /**
  * 管理中心数据分析端点。基于 agent_call_metrics 明细做时间序列 / 分组聚合,
@@ -39,6 +40,8 @@ function daysToSince(days: number): string {
 }
 
 export const registerAnalyticsRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
+  app.addHook("preHandler", async (request) => { requireTenantAdmin(request); });
+
   app.get("/analytics/token-trend", async (request) => {
     const query = request.query as TokenTrendQuery;
     const days = parseDays(query.days, DEFAULT_TOKEN_DAYS);

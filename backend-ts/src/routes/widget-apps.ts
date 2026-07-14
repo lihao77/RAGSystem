@@ -4,6 +4,7 @@ import { CreatedWidgetAppViewSchema, CreateWidgetAppRequestSchema, UpdateWidgetA
 import type { CreatedWidgetApp, WidgetApp } from "../services/stores/widget-credential-store/index.js";
 import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
+import { requireTenantAdmin, requireTenantOwner } from "./tenant-role.js";
 
 interface AppParams { key: string; }
 interface TokenParams extends AppParams { jti: string; }
@@ -18,23 +19,26 @@ export const registerWidgetAppsRoutes: FastifyPluginAsync<RouteOptions> = async 
     return;
   }
 
+  app.addHook("preHandler", async (request) => { requireTenantAdmin(request); });
+
   app.get("/", async (request) => {
-    const { tenantId } = options.identityProvider.resolve(request);
+    const { tenantId } = request.identity;
     return { success: true, apps: store.ops.listApps(tenantId).map(toAppView) };
   });
   app.post("/", async (request) => {
-    const { tenantId } = options.identityProvider.resolve(request);
+    requireTenantOwner(request);
+    const { tenantId } = request.identity;
     const body = CreateWidgetAppRequestSchema.parse(request.body);
     const created = store.ops.createApp({ tenantId, ...body });
     store.audit.record(tenantId, { app_key: created.app_key, action: "create", actor: "console", detail: { display_name: created.display_name, allowed_origins: created.allowed_origins } });
     return { success: true, app: toCreatedView(created) };
   });
   app.get<{ Params: AppParams }>("/:key", async (request) => {
-    const { tenantId } = options.identityProvider.resolve(request);
+    const { tenantId } = request.identity;
     return { success: true, app: toAppView(requireApp(store.ops.getApp(tenantId, request.params.key))) };
   });
   app.patch<{ Params: AppParams }>("/:key", async (request) => {
-    const { tenantId } = options.identityProvider.resolve(request);
+    const { tenantId } = request.identity;
     const body = UpdateWidgetAppRequestSchema.parse(request.body);
     const update = {
       ...(body.display_name !== undefined ? { display_name: body.display_name } : {}),
@@ -46,24 +50,25 @@ export const registerWidgetAppsRoutes: FastifyPluginAsync<RouteOptions> = async 
     return { success: true, app: toAppView(updated) };
   });
   app.post<{ Params: AppParams }>("/:key/rotate-secret", async (request) => {
-    const { tenantId } = options.identityProvider.resolve(request);
+    requireTenantOwner(request);
+    const { tenantId } = request.identity;
     const rotated = store.ops.rotateSecret(tenantId, request.params.key);
     if (!rotated) throw new HttpError(404, "not_found", "widget app 不存在或已吊销");
     store.audit.record(tenantId, { app_key: rotated.app_key, action: "rotate_secret", actor: "console" });
     return { success: true, app: toCreatedView(rotated) };
   });
   app.post<{ Params: AppParams }>("/:key/revoke", async (request) => {
-    const { tenantId } = options.identityProvider.resolve(request);
+    const { tenantId } = request.identity;
     if (!store.ops.revokeApp(tenantId, request.params.key)) throw new HttpError(404, "not_found", "widget app 不存在或已吊销");
     store.audit.record(tenantId, { app_key: request.params.key, action: "revoke", actor: "console" });
     return { success: true, app: toAppView(requireApp(store.ops.getApp(tenantId, request.params.key))) };
   });
   app.get<{ Params: AppParams }>("/:key/tokens", async (request) => {
-    const { tenantId } = options.identityProvider.resolve(request);
+    const { tenantId } = request.identity;
     return { success: true, tokens: store.ops.listTokensByApp(tenantId, request.params.key).map((token) => WidgetTokenViewSchema.parse(token)) };
   });
   app.delete<{ Params: TokenParams }>("/:key/tokens/:jti", async (request) => {
-    const { tenantId } = options.identityProvider.resolve(request);
+    const { tenantId } = request.identity;
     requireApp(store.ops.getApp(tenantId, request.params.key));
     if (!store.ops.listTokensByApp(tenantId, request.params.key).some((token) => token.jti === request.params.jti)) throw new HttpError(404, "not_found", "widget token 不存在");
     store.ops.revokeToken(tenantId, request.params.jti);
@@ -71,7 +76,7 @@ export const registerWidgetAppsRoutes: FastifyPluginAsync<RouteOptions> = async 
     return { success: true };
   });
   app.get<{ Params: AppParams; Querystring: AuditQuery }>("/:key/audit", async (request) => {
-    const { tenantId } = options.identityProvider.resolve(request);
+    const { tenantId } = request.identity;
     requireApp(store.ops.getApp(tenantId, request.params.key));
     const limit = parsePageValue(request.query.limit, 100, 1, 500);
     const offset = parsePageValue(request.query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
