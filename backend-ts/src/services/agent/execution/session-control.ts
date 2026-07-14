@@ -40,7 +40,7 @@ export function createSessionControl(deps: SessionControlDeps): SessionControlAp
         const executeRequest: ExecuteRequest = {
           task: taskItem.task,
           session_id: sessionId,
-          user_id: request.user_id ?? null,
+          userId: request.userId,
         };
         if (taskItem.agent !== undefined) {
           executeRequest.agent = taskItem.agent;

@@ -26,11 +26,11 @@ import type { AgentExecutionEventPublisher } from "./event-publisher.js";
 import type { MessageExtension } from "../context/extensions/kinds.js";
 import type { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
-import { LOCAL_TENANT_ID } from "../../identity/local-identity-provider.js";
+import type { TenantId } from "../../../identity/types.js";
 
 export interface RollbackRetryInput {
   sessionId: string;
-  userId?: string | null;
+  userId: string;
   requestId: string;
   afterSeq?: number | null;
   afterMessageId?: string | null;
@@ -49,6 +49,7 @@ export interface LauncherApi {
 }
 
 export interface LauncherDeps {
+  tenantId: TenantId;
   sessions: AgentSessionApplication;
   conversationStore: IRunStore;
   runtimeCore: RuntimeExecutionConfigResolver;
@@ -66,6 +67,7 @@ export interface LauncherDeps {
  */
 class AgentLaunchers {
   constructor(
+    private readonly tenantId: TenantId,
     private readonly sessions: AgentSessionApplication,
     private readonly conversationStore: IRunStore,
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
@@ -86,7 +88,7 @@ class AgentLaunchers {
     if (slashCommand) {
       const commandResult = await this.slashCommandHandler.handle({
         sessionId,
-        userId: request.user_id ?? null,
+        userId: request.userId,
         requestId,
         selectedLlm: resolveSelectedLlm(request),
         command: slashCommand,
@@ -179,7 +181,7 @@ class AgentLaunchers {
     }
 
     if (!this.sessions.getSession(sessionId)) {
-      this.sessions.createSession({ tenantId: LOCAL_TENANT_ID, sessionId, userId: request.user_id ?? null });
+      this.sessions.createSession({ tenantId: this.tenantId, sessionId, userId: request.userId });
     }
     const runtimeAgent = ready.agent;
 
@@ -193,7 +195,7 @@ class AgentLaunchers {
 
     const started = this.runEngine.startRun({
       sessionId,
-      userId: request.user_id ?? null,
+      userId: request.userId,
       requestId,
       task,
       executionKind: "agent_stream",
@@ -253,7 +255,7 @@ class AgentLaunchers {
       };
     }
     if (!this.sessions.getSession(sessionId)) {
-      this.sessions.createSession({ tenantId: LOCAL_TENANT_ID, sessionId, userId: request.user_id ?? null });
+      this.sessions.createSession({ tenantId: this.tenantId, sessionId, userId: request.userId });
     }
 
     const sessionMetadata = this.sessions.getSession(sessionId)?.metadata ?? {};
@@ -285,7 +287,7 @@ class AgentLaunchers {
     const runtimeAgent = ready.agent;
     const started = this.runEngine.startRun({
       sessionId,
-      userId: request.user_id ?? null,
+      userId: request.userId,
       requestId,
       task,
       executionKind: "execute",
@@ -363,7 +365,7 @@ class AgentLaunchers {
       };
     }
     if (!this.sessions.getSession(sessionId)) {
-      this.sessions.createSession({ tenantId: LOCAL_TENANT_ID, sessionId, userId: input.userId ?? null });
+      this.sessions.createSession({ tenantId: this.tenantId, sessionId, userId: input.userId });
     }
 
     const prepareInput: {
@@ -411,7 +413,7 @@ class AgentLaunchers {
     const runtimeAgent = ready.agent;
     const started = this.runEngine.startRun({
       sessionId,
-      userId: input.userId ?? null,
+      userId: input.userId,
       requestId: input.requestId,
       task: prepared.task,
       executionKind: "rollback_and_retry",
@@ -493,7 +495,7 @@ class AgentLaunchers {
       return;
     }
     if (!this.sessions.getSession(sessionId)) {
-      this.sessions.createSession({ tenantId: LOCAL_TENANT_ID, sessionId });
+      this.sessions.createSystemSession({ tenantId: this.tenantId, sessionId });
     }
     try {
       this.runEngine.startRun({
@@ -520,6 +522,7 @@ class AgentLaunchers {
 
 export function createLaunchers(deps: LauncherDeps): LauncherApi {
   const impl = new AgentLaunchers(
+    deps.tenantId,
     deps.sessions,
     deps.conversationStore,
     deps.runtimeCore,

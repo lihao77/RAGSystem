@@ -11,7 +11,7 @@ import type { AgentCompressionService } from "../context-compression/compression
 import { asString, normalizeSessionEntryAgent } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
-import { LOCAL_TENANT_ID } from "../../identity/local-identity-provider.js";
+import type { TenantId } from "../../../identity/types.js";
 
 interface ParsedSlashCommand {
   name: string;
@@ -45,6 +45,7 @@ const PROMPT_SLASH_COMMANDS: Record<string, { description: string; template: str
 
 export class SlashCommandHandler {
   constructor(
+    private readonly tenantId: TenantId,
     private readonly sessions: AgentSessionApplication,
     private readonly statusTracker: AgentExecutionStatusTracker,
     private readonly runtimeCore: RuntimeExecutionConfigResolver,
@@ -56,7 +57,7 @@ export class SlashCommandHandler {
 
   handle(input: {
     sessionId: string;
-    userId: string | null;
+    userId: string;
     requestId: string;
     selectedLlm: string;
     command: ParsedSlashCommand;
@@ -70,14 +71,14 @@ export class SlashCommandHandler {
 
   private async executeSystemSlashCommand(input: {
     sessionId: string;
-    userId: string | null;
+    userId: string;
     requestId: string;
     selectedLlm: string;
     command: ParsedSlashCommand;
     originalTask: string;
   }): Promise<AgentRunStartResult> {
     if (!this.sessions.getSession(input.sessionId)) {
-      this.sessions.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: input.sessionId, userId: input.userId });
+      this.sessions.createSession({ tenantId: this.tenantId, sessionId: input.sessionId, userId: input.userId });
     }
     this.sessions.addMessage({
       sessionId: input.sessionId,

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyReply } from "fastify";
+import type { UserId } from "../../identity/types.js";
 
 import type { RuntimeContainer } from "../runtime/runtime-container.js";
 import { AguiTranslator } from "./agui-translator.js";
@@ -23,7 +24,10 @@ const baseFields = (threadId: string, runId: string) => ({ threadId, runId, time
 export class AguiGateway {
   private readonly interruptMachine = new InterruptMachine();
 
-  constructor(private readonly container: RuntimeContainer) {}
+  constructor(
+    private readonly container: RuntimeContainer,
+    private readonly userId: UserId,
+  ) {}
 
   async handle(input: RunAgentInput, reply: FastifyReply): Promise<void> {
     const threadId = input.threadId ?? randomUUID();
@@ -92,7 +96,7 @@ export class AguiGateway {
     });
 
     const started = await this.container.agentExecution.startStream(
-      { task, session_id: threadId, user_id: null, attachments: [] },
+      { task, session_id: threadId, userId: this.userId, attachments: [] },
       externalRunId,
     );
     if (!started.started || !started.run_id) {

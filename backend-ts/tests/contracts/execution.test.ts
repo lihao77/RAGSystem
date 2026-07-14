@@ -19,6 +19,11 @@ describe("execution contracts", () => {
     expect(parsed.attachments).toEqual([]);
   });
 
+  it("rejects client-supplied user_id", () => {
+    expect(() => StreamExecuteRequestSchema.parse({ task: "x", user_id: "usr_spoof" })).toThrow();
+    expect(() => ExecuteRequestSchema.parse({ task: "x", user_id: "usr_spoof" })).toThrow();
+  });
+
   it("rejects session IDs that can escape managed filesystem roots", () => {
     expect(() => StreamExecuteRequestSchema.parse({ task: "x", session_id: "../../outside" })).toThrow();
     expect(() => StreamExecuteRequestSchema.parse({ task: "x", session_id: "bad\\path" })).toThrow();

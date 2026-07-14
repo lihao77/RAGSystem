@@ -13,7 +13,7 @@ import type { TenantId } from "../../../identity/types.js";
 export class SessionOps implements ISessionStore {
   constructor(private readonly db: ConversationDb) {}
 
-  createSession(tenantId: TenantId, sessionId: string, userId: string | null = null, metadata: Record<string, unknown> = {}): void {
+  createSession(tenantId: TenantId, sessionId: string, userId: string | null, metadata: Record<string, unknown> = {}): void {
     this.db
       .prepare(`
         INSERT INTO sessions (session_id, tenant_id, user_id, metadata)

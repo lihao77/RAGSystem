@@ -30,7 +30,7 @@ export interface TenantRuntimeSnapshot {
 export interface TenantRuntimeRegistryOptions {
   idleTimeoutMs?: number;
   sweepIntervalMs?: number;
-  runtimeOptions?: Omit<RuntimeContainerOptions, "dbPath" | "dataRoot" | "logger">;
+  runtimeOptions?: Omit<RuntimeContainerOptions, "tenantId" | "dbPath" | "dataRoot" | "logger">;
   runtimeFactory?: (options: RuntimeContainerOptions) => RuntimeContainer;
 }
 
@@ -65,7 +65,7 @@ export class DefaultTenantRuntimeRegistry implements TenantRuntimeRegistry {
   private readonly entries = new Map<TenantId, RuntimeEntry>();
   private readonly idleTimeoutMs: number;
   private readonly runtimeFactory: (options: RuntimeContainerOptions) => RuntimeContainer;
-  private readonly runtimeOptions: Omit<RuntimeContainerOptions, "dbPath" | "dataRoot" | "logger">;
+  private readonly runtimeOptions: Omit<RuntimeContainerOptions, "tenantId" | "dbPath" | "dataRoot" | "logger">;
   private readonly sweepTimer: NodeJS.Timeout;
   private closingAll = false;
 
@@ -190,6 +190,7 @@ export class DefaultTenantRuntimeRegistry implements TenantRuntimeRegistry {
       .then(() => {
         const container = this.runtimeFactory({
           ...this.runtimeOptions,
+          tenantId,
           dbPath: paths.ragsystemDbPath(),
           dataRoot: paths.dataRoot,
           ...(this.logger ? { logger: this.logger } : {}),

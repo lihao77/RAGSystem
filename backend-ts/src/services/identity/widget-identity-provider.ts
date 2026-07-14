@@ -1,6 +1,7 @@
 import type { FastifyRequest } from "fastify";
 
-import { createUserId, type RequestIdentity } from "../../identity/types.js";
+import type { RequestIdentity } from "../../identity/types.js";
+import { widgetUserId } from "../../identity/widget-user-id.js";
 import type { WidgetAuthService } from "../runtime/jwt-service.js";
 import type { WidgetCredentialStore } from "../stores/widget-credential-store/index.js";
 import type { IdentityProvider } from "./identity-provider.js";
@@ -16,7 +17,7 @@ export class WidgetIdentityProvider implements IdentityProvider {
       ? this.auth.requireBearer(request)
       : this.resolveFromAppKey(request);
     return {
-      userId: createUserId(`usr_widget_${normalizeAppKey(claims.sub)}`),
+      userId: widgetUserId(claims.sub),
       tenantId: claims.tenant_id,
       role: "widget",
       permissions: ["sessions:create"],
@@ -30,8 +31,4 @@ export class WidgetIdentityProvider implements IdentityProvider {
     if (!tenantId) throw new Error("widget app 不存在");
     return { sub: appKey, tenant_id: tenantId };
   }
-}
-
-function normalizeAppKey(appKey: string): string {
-  return appKey.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }

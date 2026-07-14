@@ -43,6 +43,7 @@ import { OutboxDispatcher } from "./event-outbox/dispatcher.js";
 import { DurableClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 import { AgentMetricsCollector } from "../agent/metrics/metrics-collector.js";
 import { AgentCompressionService } from "../agent/context-compression/compression-service.js";
+import type { TenantId } from "../../identity/types.js";
 
 export interface RuntimeContainer {
   readonly conversationStore: ConversationStore;
@@ -88,6 +89,7 @@ export interface RuntimeContainer {
 }
 
 export interface RuntimeContainerOptions {
+  tenantId: TenantId;
   dbPath: string;
   dataRoot?: string | undefined;
   logger?: AgentExecutionLogger | undefined;
@@ -214,6 +216,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   // 性能监控采集器:复用 conversationStore 的 metricOps(IMetricStore),供 AgentRunEngine 终态落库 + /metrics 读取。
   const metricsCollector = new AgentMetricsCollector(conversationStore);
   const agentExecution = createAgentExecutionService({
+    tenantId: options.tenantId,
     sessions: sessionApplication,
     conversationStore,
     runtimeCore,

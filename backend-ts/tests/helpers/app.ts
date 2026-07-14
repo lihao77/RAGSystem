@@ -12,6 +12,8 @@ import { createWidgetCredentialStore } from "../../src/services/stores/widget-cr
 import { createWidgetAuthService } from "../../src/services/runtime/jwt-service.js";
 import { LocalIdentityProvider } from "../../src/services/identity/index.js";
 import { DefaultTenantRuntimeRegistry } from "../../src/services/runtime/tenant-runtime-registry.js";
+import type { IdentityProvider } from "../../src/services/identity/index.js";
+import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 /**
  * 当前测试 dataRoot(buildTestHarness 每次更新)。artifact 等需直接写文件的 fixture
@@ -48,11 +50,13 @@ export async function buildTestHarness(
     root?: string;
     settings?: Record<string, string>;
     autoIdentityProvider?: boolean;
+    identityProvider?: IdentityProvider;
   } = {},
 ) {
   const tempRoot = options.root ?? makeTempRoot();
   testDataRoot = tempRoot;
   const container = createRuntimeContainer({
+    tenantId: LOCAL_TENANT_ID,
     dbPath: path.join(tempRoot, "test.db"),
     dataRoot: tempRoot,
     modelAdapterProvidersConfigPath: "",
@@ -67,7 +71,8 @@ export async function buildTestHarness(
   });
   const controlStore = createControlStore(path.join(tempRoot, "system"));
   for (const [key, value] of Object.entries(options.settings ?? {})) controlStore.setSetting(key, value);
-  const identityProvider = options.autoIdentityProvider ? undefined : new LocalIdentityProvider(controlStore);
+  const identityProvider = options.identityProvider
+    ?? (options.autoIdentityProvider ? undefined : new LocalIdentityProvider(controlStore));
   const widgetCredentialStore = createWidgetCredentialStore(controlStore.db);
   const widgetAuth = options.widgetJwtSecret
     ? createWidgetAuthService(options.widgetJwtSecret, widgetCredentialStore.ops)

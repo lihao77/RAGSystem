@@ -16,6 +16,7 @@ import { mockLlm } from "../helpers/llm-fetch-mock.js";
 import { makeTempDb } from "../helpers/temp-db.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
+import { LOCAL_TENANT_ID, LOCAL_USER_ID } from "../../src/services/identity/index.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { HostToolRegistry } from "../../src/services/runtime/host-tool-registry.js";
 import { DelegationPendingService } from "../../src/services/runtime/delegation-pending-service.js";
@@ -144,6 +145,7 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
     : null;
   mockLlm({ mode, contents: ["the answer"] });
   const service = createAgentExecutionService({
+    tenantId: LOCAL_TENANT_ID,
     sessions,
     conversationStore: store,
     runtimeCore: runtimeCoreStub(agent, ready, provider),
@@ -166,7 +168,7 @@ const WAIT = { timeout: 4000, interval: 20 };
 describe("AgentExecutionService (baseline regression)", () => {
   it("runs a stream to completion and records the assistant message", async () => {
     const { service, store } = buildHarness({ mode: "ok" });
-    const started = await service.startStream({ task: "hello world", attachments: [] }, "req-1");
+    const started = await service.startStream({ task: "hello world", attachments: [], userId: LOCAL_USER_ID }, "req-1");
     expect(started.started).toBe(true);
     expect(started.run_id).toBeTruthy();
     const sessionId = started.session_id;
@@ -183,7 +185,7 @@ describe("AgentExecutionService (baseline regression)", () => {
 
   it("marks a stopped session as interrupted", async () => {
     const { service, store } = buildHarness({ mode: "abort" });
-    const started = await service.startStream({ task: "long work", attachments: [] }, "req-1");
+    const started = await service.startStream({ task: "long work", attachments: [], userId: LOCAL_USER_ID }, "req-1");
     const stopped = await service.stopSession(started.session_id);
     expect(stopped).toBe(true);
     await vi.waitFor(
@@ -197,7 +199,7 @@ describe("AgentExecutionService (baseline regression)", () => {
 
   it("records a failed run and logs the error when the runtime throws", async () => {
     const { service, store, errors } = buildHarness({ mode: "fail", logger: true });
-    const started = await service.startStream({ task: "boom", attachments: [] }, "req-1");
+    const started = await service.startStream({ task: "boom", attachments: [], userId: LOCAL_USER_ID }, "req-1");
     await vi.waitFor(
       () => {
         expect(service.getSessionTaskStatus(started.session_id).task_info?.status).toBe("failed");
@@ -210,7 +212,7 @@ describe("AgentExecutionService (baseline regression)", () => {
 
   it("rejects startStream when runtime core is not ready", async () => {
     const { service, store } = buildHarness({ ready: false });
-    const started = await service.startStream({ task: "x", attachments: [] }, "req-1");
+    const started = await service.startStream({ task: "x", attachments: [], userId: LOCAL_USER_ID }, "req-1");
     expect(started.started).toBe(false);
     expect(started.error).toBeTruthy();
     store.close();
@@ -218,7 +220,7 @@ describe("AgentExecutionService (baseline regression)", () => {
 
   it("rejects an empty task with no attachments", async () => {
     const { service, store } = buildHarness({ mode: "ok" });
-    const started = await service.startStream({ task: "   ", attachments: [] }, "req-1");
+    const started = await service.startStream({ task: "   ", attachments: [], userId: LOCAL_USER_ID }, "req-1");
     expect(started.started).toBe(false);
     expect(String(started.error)).toMatch(/empty/i);
     store.close();
@@ -226,7 +228,7 @@ describe("AgentExecutionService (baseline regression)", () => {
 
   it("executes synchronously and returns the final answer", async () => {
     const { service, store } = buildHarness({ mode: "ok" });
-    const result = await service.executeSynchronously({ task: "sync task" }, "req-2");
+    const result = await service.executeSynchronously({ task: "sync task", userId: LOCAL_USER_ID }, "req-2");
     expect(result.success).toBe(true);
     expect(result.answer).toBe("the answer");
     store.close();
@@ -234,7 +236,7 @@ describe("AgentExecutionService (baseline regression)", () => {
 
   it("handles the /help slash command via the slash handler", async () => {
     const { service, store } = buildHarness({ mode: "ok" });
-    const result = await service.startStream({ task: "/help", attachments: [] }, "req-1");
+    const result = await service.startStream({ task: "/help", attachments: [], userId: LOCAL_USER_ID }, "req-1");
     expect(result.started).toBe(true);
     expect(result.kind).toBe("command");
     const messages = store.listMessages(result.session_id, 50, 0).items;

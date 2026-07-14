@@ -2,11 +2,12 @@ import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 
 import { ok } from "../../contracts/common.js";
-import { CollaborateRequestSchema, ExecuteRequestSchema } from "../../contracts/execution.js";
+import { CollaborateRequestSchema, ExecuteRequestSchema, type ExecuteRequest } from "../../contracts/execution.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import { ZodError } from "zod";
 import { isRecord } from "../../utils/guards.js";
+import { assertOwnedSessionIfExists } from "../session-owner.js";
 
 interface ExecuteAgentParams {
   agentName: string;
@@ -21,7 +22,7 @@ interface TaskExecutionParams {
 }
 
 export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  const executeSynchronously = async (container: FastifyRequest["container"], payload: ReturnType<typeof ExecuteRequestSchema.parse>, requestId: string) => {
+  const executeSynchronously = async (container: FastifyRequest["container"], payload: ExecuteRequest, requestId: string) => {
     const result = await container.agentExecution.executeSynchronously(payload, requestId);
     if (!result.success) {
       throw new HttpError(500, "execution_failed", result.error ?? "任务执行失败");
@@ -41,9 +42,10 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
 
   app.post("/execute", async (request) => {
     const payload = ExecuteRequestSchema.parse(request.body);
+    assertOwnedSessionIfExists(request, payload.session_id);
     return executeSynchronously(
       request.container,
-      payload,
+      { ...payload, userId: request.identity.userId },
       request.headers["x-request-id"]?.toString() ?? randomUUID(),
     );
   });
@@ -53,20 +55,22 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
       ...(isRecord(request.body) ? request.body : {}),
       agent: request.params.agentName,
     });
+    assertOwnedSessionIfExists(request, payload.session_id);
     return executeSynchronously(
       request.container,
-      payload,
+      { ...payload, userId: request.identity.userId },
       request.headers["x-request-id"]?.toString() ?? randomUUID(),
     );
   });
 
   app.post("/collaborate", async (request) => {
     const payload = parseCollaborateRequest(request.body);
+    assertOwnedSessionIfExists(request, payload.session_id);
     if (payload.mode !== "sequential") {
       throw new HttpError(400, "invalid_request", "并行模式尚未实现");
     }
     const result = await request.container.agentExecution.collaborateSequentially(
-      payload,
+      { ...payload, userId: request.identity.userId },
       request.headers["x-request-id"]?.toString() ?? randomUUID(),
     );
     return ok(

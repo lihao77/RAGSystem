@@ -1,0 +1,64 @@
+import type { FastifyInstance, FastifyRequest } from "fastify";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { createUserId, type RequestIdentity } from "../../src/identity/types.js";
+import type { IdentityProvider } from "../../src/services/identity/index.js";
+import { LOCAL_TENANT_ID, LOCAL_USER_ID } from "../../src/services/identity/index.js";
+import { buildTestHarness } from "../helpers/app.js";
+
+const USER_A = createUserId("usr_owner_a");
+const USER_B = createUserId("usr_owner_b");
+
+let app: FastifyInstance | null = null;
+
+afterEach(async () => {
+  if (app) {
+    await app.close();
+    app = null;
+  }
+});
+
+describe("session ownership", () => {
+  it("returns 403 when another user in the same tenant accesses the session", async () => {
+    const identityProvider: IdentityProvider = {
+      resolve(request: FastifyRequest): RequestIdentity {
+        const userId = request.headers["x-test-user"] === "b" ? USER_B : USER_A;
+        return { userId, tenantId: LOCAL_TENANT_ID, role: "member", permissions: [] };
+      },
+    };
+    const harness = await buildTestHarness({ identityProvider });
+    app = harness.app;
+    harness.controlStore.createTenant({ id: LOCAL_TENANT_ID, displayName: "Local" });
+    const spoofedCreate = await app.inject({
+      method: "POST",
+      url: "/api/agent/sessions",
+      headers: { "x-test-user": "a" },
+      payload: { session_id: "spoofed-session", user_id: USER_B },
+    });
+    expect(spoofedCreate.statusCode).toBe(400);
+    harness.container.sessionApplication.createSession({
+      tenantId: LOCAL_TENANT_ID,
+      sessionId: "private-session",
+      userId: USER_A,
+    });
+
+    const forbidden = await app.inject({
+      method: "GET",
+      url: "/api/agent/sessions/private-session",
+      headers: { "x-test-user": "b" },
+    });
+    expect(forbidden.statusCode).toBe(403);
+    expect(forbidden.json()).toMatchObject({ code: "forbidden" });
+  });
+
+  it("allows local identity to access a historical null-owner session", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+    harness.container.conversationStore.createSession(LOCAL_TENANT_ID, "legacy-local-null", null, {});
+
+    const response = await app.inject({ method: "GET", url: "/api/agent/sessions/legacy-local-null" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ data: { session_id: "legacy-local-null", user_id: null } });
+    expect(LOCAL_USER_ID).toBe("usr_local");
+  });
+});

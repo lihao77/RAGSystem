@@ -40,7 +40,6 @@ describe("foundation routes", () => {
       url: "/api/agent/sessions",
       payload: {
         session_id: "session-test",
-        user_id: "user-test",
         metadata: { team: "default" },
       },
     });
@@ -50,13 +49,13 @@ describe("foundation routes", () => {
       success: true,
       data: {
         session_id: "session-test",
-        user_id: "user-test",
+        user_id: "usr_local",
       },
     });
 
     const listed = await app.inject({
       method: "GET",
-      url: "/api/agent/sessions?user_id=user-test",
+      url: "/api/agent/sessions",
     });
 
     expect(listed.statusCode).toBe(200);
@@ -67,7 +66,7 @@ describe("foundation routes", () => {
         items: [
           {
             session_id: "session-test",
-            user_id: "user-test",
+            user_id: "usr_local",
           },
         ],
       },

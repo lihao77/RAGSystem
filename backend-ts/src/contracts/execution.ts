@@ -3,19 +3,19 @@ import { AttachmentRefSchema } from "@ragsystem/agent-protocol";
 
 import { InteractionResponsePayloadSchema } from "./interactions.js";
 import { OptionalSessionIdSchema, RequiredSessionIdSchema } from "./session-id.js";
+import type { UserId } from "../identity/types.js";
 
 export { AttachmentRefSchema } from "@ragsystem/agent-protocol";
 
 export const StreamExecuteRequestSchema = z.object({
   task: z.string().optional().default(""),
   session_id: OptionalSessionIdSchema.nullable().optional(),
-  user_id: z.string().nullable().optional(),
   selected_llm: z.string().nullable().optional(),
   selectedLLM: z.string().nullable().optional(),
   attachments: z.array(AttachmentRefSchema).optional().default([]),
   // 前端组件状态快照(ui_context extension 的 data):backend 透传 + 投影,结构由前端定义。
   ui_context: z.record(z.string(), z.unknown()).nullish(),
-});
+}).strict();
 
 // /execute(同步执行)不支持附件/ui_context:executeSynchronously 不解析附件也不投影 ui_context。
 // 显式声明为 never——客户端误传该字段 → ZodError(全局 handler 返回 400),而非静默 strip。
@@ -34,9 +34,8 @@ export const CollaborateTaskSchema = z.object({
 export const CollaborateRequestSchema = z.object({
   tasks: z.array(CollaborateTaskSchema).min(1),
   session_id: OptionalSessionIdSchema.nullable().optional(),
-  user_id: z.string().nullable().optional(),
   mode: z.string().optional().default("sequential"),
-});
+}).strict();
 
 export const StreamStopRequestSchema = z.object({
   session_id: RequiredSessionIdSchema,
@@ -53,11 +52,11 @@ export const UserInputRequestSchema = z.object({
 export const InteractionRequestSchema = InteractionResponsePayloadSchema;
 
 export type AttachmentRef = z.infer<typeof AttachmentRefSchema>;
-export type ExecuteRequest = z.infer<typeof ExecuteRequestSchema>;
-export type StreamExecuteRequest = z.infer<typeof StreamExecuteRequestSchema>;
+export type ExecuteRequest = z.infer<typeof ExecuteRequestSchema> & { userId: UserId };
+export type StreamExecuteRequest = z.infer<typeof StreamExecuteRequestSchema> & { userId: UserId };
 export type StreamStopRequest = z.infer<typeof StreamStopRequestSchema>;
 export type CollaborateTask = z.infer<typeof CollaborateTaskSchema>;
-export type CollaborateRequest = z.infer<typeof CollaborateRequestSchema>;
+export type CollaborateRequest = z.infer<typeof CollaborateRequestSchema> & { userId: UserId };
 export type ApprovalRequest = z.infer<typeof ApprovalRequestSchema>;
 export type UserInputRequest = z.infer<typeof UserInputRequestSchema>;
 export type InteractionRequest = z.infer<typeof InteractionRequestSchema>;

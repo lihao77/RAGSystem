@@ -28,18 +28,30 @@ export class AgentSessionApplication {
   createSession(input: {
     tenantId: TenantId;
     sessionId: string;
-    userId?: string | null;
+    userId: string;
     metadata?: Record<string, unknown>;
   }): { session_id: string; user_id: string | null; metadata: Record<string, unknown> } {
     assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
     assertWorkspaceRootExists(metadata);
-    this.conversationStore.createSession(input.tenantId, input.sessionId, input.userId ?? null, metadata);
+    this.conversationStore.createSession(input.tenantId, input.sessionId, input.userId, metadata);
     return {
       session_id: input.sessionId,
-      user_id: input.userId ?? null,
+      user_id: input.userId,
       metadata,
     };
+  }
+
+  createSystemSession(input: {
+    tenantId: TenantId;
+    sessionId: string;
+    metadata?: Record<string, unknown>;
+  }): { session_id: string; user_id: null; metadata: Record<string, unknown> } {
+    assertSafeSessionId(input.sessionId);
+    const metadata = normalizeSessionMetadata(input.metadata ?? {});
+    assertWorkspaceRootExists(metadata);
+    this.conversationStore.createSession(input.tenantId, input.sessionId, null, metadata);
+    return { session_id: input.sessionId, user_id: null, metadata };
   }
 
   listSessions(input: { tenantId: TenantId; limit?: number; offset?: number; userId?: string | null }): PaginatedResult<SessionListItem> {

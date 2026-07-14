@@ -24,8 +24,8 @@ describe("TenantRuntimeRegistry 多租户隔离", () => {
       expect(leaseA.runtime.dataRoot).toBe(path.join(harness.env.tenantsRoot, TENANT_A));
       expect(leaseB.runtime.dataRoot).toBe(path.join(harness.env.tenantsRoot, TENANT_B));
 
-      leaseA.runtime.sessionApplication.createSession({ tenantId: TENANT_A, sessionId: "same-session" });
-      leaseB.runtime.sessionApplication.createSession({ tenantId: TENANT_B, sessionId: "same-session" });
+      leaseA.runtime.sessionApplication.createSession({ tenantId: TENANT_A, userId: "usr_local", sessionId: "same-session" });
+      leaseB.runtime.sessionApplication.createSession({ tenantId: TENANT_B, userId: "usr_local", sessionId: "same-session" });
       leaseA.runtime.agentConfig.createTeam("same-team", "default");
       leaseB.runtime.agentConfig.createTeam("same-team", "default");
       leaseA.runtime.agentConfig.createAgent({ agent_name: "same_agent", default_entry: false });
@@ -50,7 +50,7 @@ describe("TenantRuntimeRegistry 多租户隔离", () => {
     const leaseA = await harness.registry.acquire(TENANT_A);
     const leaseB = await harness.registry.acquire(TENANT_B);
     try {
-      leaseB.runtime.sessionApplication.createSession({ tenantId: TENANT_B, sessionId: "tenant-b-only" });
+      leaseB.runtime.sessionApplication.createSession({ tenantId: TENANT_B, userId: "usr_local", sessionId: "tenant-b-only" });
       expect(leaseA.runtime.sessionApplication.getSession("tenant-b-only")).toBeNull();
       expect(leaseB.runtime.sessionApplication.getSession("tenant-b-only")?.tenant_id).toBe(TENANT_B);
     } finally {

@@ -74,8 +74,8 @@ describe("ConversationStore", () => {
 
   it("returns the latest window in ascending sequence order", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s1");
-    store.createSession(LOCAL_TENANT_ID, "s1");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
     store.addMessage({ sessionId: "s1", role: "user", content: "m1" });
     store.addMessage({ sessionId: "s1", role: "assistant", content: "m2" });
     store.addMessage({ sessionId: "s1", role: "user", content: "m3" });
@@ -90,8 +90,8 @@ describe("ConversationStore", () => {
 
   it("deletes messages after seq but keeps the anchor", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s1");
-    store.createSession(LOCAL_TENANT_ID, "s1");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
     const first = store.addMessage({ sessionId: "s1", role: "user", content: "m1" });
     store.addMessage({ sessionId: "s1", role: "assistant", content: "m2" });
     store.addMessage({ sessionId: "s1", role: "user", content: "m3" });
@@ -105,8 +105,8 @@ describe("ConversationStore", () => {
 
   it("updates messages only when session and role filters match", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s1");
-    store.createSession(LOCAL_TENANT_ID, "s1");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
     const user = store.addMessage({ sessionId: "s1", role: "user", content: "old" });
     const assistant = store.addMessage({ sessionId: "s1", role: "assistant", content: "answer" });
 
@@ -119,8 +119,8 @@ describe("ConversationStore", () => {
 
   it("deletes child agents created after the rollback anchor", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s1");
-    store.createSession(LOCAL_TENANT_ID, "s1");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
     const anchor = store.addMessage({ sessionId: "s1", role: "user", content: "m1" });
     const later = store.addMessage({ sessionId: "s1", role: "assistant", content: "m2" });
     store.createChildAgent({ sessionId: "s1", childAgentId: "before", agentName: "worker", createdSeq: anchor.seq });
@@ -136,8 +136,8 @@ describe("ConversationStore", () => {
 
   it("stores run steps with per-run step order and message binding", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s1");
-    store.createSession(LOCAL_TENANT_ID, "s1");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
     const assistant = store.addMessage({
       sessionId: "s1",
       role: "assistant",
@@ -169,8 +169,8 @@ describe("ConversationStore", () => {
 
   it("records durable outbox rows with per-session sequence and delivery status", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s1");
-    store.createSession(LOCAL_TENANT_ID, "s2");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
+    store.createSession(LOCAL_TENANT_ID, "s2", "usr_local");
 
     const first = store.appendOutbox({
       sessionId: "s1",
@@ -214,7 +214,7 @@ describe("ConversationStore", () => {
 
   it("manages failed and delivered outbox rows for operations", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "ops-outbox");
+    store.createSession(LOCAL_TENANT_ID, "ops-outbox", "usr_local");
     const pending = store.appendOutbox({
       sessionId: "ops-outbox",
       runId: "run-pending",
@@ -298,8 +298,8 @@ describe("ConversationStore", () => {
 
   it("rolls back core state and outbox writes from the transaction facade", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-    store.createSession(LOCAL_TENANT_ID, "s-rollback");
-    store.createSession(LOCAL_TENANT_ID, "s-rollback");
+    store.createSession(LOCAL_TENANT_ID, "s-rollback", "usr_local");
+    store.createSession(LOCAL_TENANT_ID, "s-rollback", "usr_local");
 
     expect(() =>
       store.runInTransaction((tx) => {

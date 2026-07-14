@@ -179,6 +179,7 @@ export class AgentRunEngine {
       threadKey: "root",
       parentRunId: null,
       childAgentId: null,
+      ...(input.userId !== undefined ? { userId: input.userId } : {}),
       userMessageId: existingUserMessageId,
       executionKind: input.executionKind,
       finalMetadataExtra: input.finalMetadataExtra,
@@ -290,6 +291,7 @@ export class AgentRunEngine {
     parentRunId?: string | null;
     parentCallId?: string | null | undefined;
     childAgentId?: string | null;
+    userId?: string | null;
     userMessageId?: string | undefined;
     executionKind?: string | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
@@ -368,7 +370,7 @@ export class AgentRunEngine {
          ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
          sessionMetadata,
          ...(input.executionKind !== undefined ? { executionKind } : {}),
-          ...(asString(sessionMetadata.user_id) ? { userId: asString(sessionMetadata.user_id) } : {}),
+          ...(input.userId !== undefined ? { userId: input.userId } : {}),
         signal: input.abortController.signal,
          selectedLlm: input.selectedLlm ?? null,
          // 最终 assistant 消息的调用点元数据：execution_kind + finalMetadataExtra（retry_of_* 等）。

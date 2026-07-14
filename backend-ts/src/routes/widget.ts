@@ -6,6 +6,7 @@ import { ok } from "../contracts/common.js";
 import { WidgetCreateSessionRequestSchema, WidgetTokenRequestSchema } from "../contracts/widget.js";
 import { WidgetAuthError } from "../services/runtime/jwt-service.js";
 import { HttpError } from "../utils/errors.js";
+import { widgetUserId } from "../identity/widget-user-id.js";
 import type { RouteOptions } from "./route-options.js";
 
 /**
@@ -86,7 +87,7 @@ export const registerWidgetRoutes: FastifyPluginAsync<RouteOptions> = async (app
     request.container.sessionApplication.createSession({
       tenantId,
       sessionId,
-      userId: `widget:${appKey}`,
+      userId: widgetUserId(appKey),
       metadata,
     });
     return ok({ session_id: sessionId }, "widget 会话创建成功");

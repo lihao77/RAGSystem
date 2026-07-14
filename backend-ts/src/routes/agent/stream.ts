@@ -12,6 +12,7 @@ import {
 } from "../../contracts/execution.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
+import { assertOwnedSessionIfExists, loadOwnedSession } from "../session-owner.js";
 
 interface ApprovalParams {
   sessionId: string;
@@ -31,8 +32,12 @@ interface InteractionParams {
 export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.post("/stream", async (request) => {
     const payload = StreamExecuteRequestSchema.parse(request.body);
+    assertOwnedSessionIfExists(request, payload.session_id);
     const requestId = request.headers["x-request-id"]?.toString() ?? randomUUID();
-    const result = await request.container.agentExecution.startStream(payload, requestId);
+    const result = await request.container.agentExecution.startStream(
+      { ...payload, userId: request.identity.userId },
+      requestId,
+    );
     if (result.error && !result.started) {
       throw new HttpError(400, "invalid_request", result.error);
     }
@@ -41,6 +46,7 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
 
   app.post("/stream/stop", async (request) => {
     const payload = StreamStopRequestSchema.parse(request.body);
+    loadOwnedSession(request, payload.session_id);
     const interrupted = await request.container.agentExecution.stopSession(payload.session_id);
     if (!interrupted) {
       throw new HttpError(404, "not_found", "该会话没有正在执行的任务");
@@ -51,6 +57,7 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
   app.post<{ Params: ApprovalParams }>(
     "/sessions/:sessionId/approvals/:approvalId/respond",
     async (request) => {
+      loadOwnedSession(request, request.params.sessionId);
       const payload = ApprovalRequestSchema.parse(request.body);
       const resolved = request.container.pendingInteractions.respondApproval(
         request.params.sessionId,
@@ -72,6 +79,7 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
   );
 
   app.post<{ Params: InputParams }>("/sessions/:sessionId/inputs/:inputId/respond", async (request) => {
+    loadOwnedSession(request, request.params.sessionId);
     const payload = UserInputRequestSchema.parse(request.body);
     const resolved = request.container.pendingInteractions.respondUserInput(
       request.params.sessionId,
@@ -87,6 +95,7 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
   app.post<{ Params: InteractionParams }>(
     "/sessions/:sessionId/interactions/:interactionId/respond",
     async (request) => {
+      loadOwnedSession(request, request.params.sessionId);
       const payload = InteractionRequestSchema.parse(request.body);
       const result = request.container.pendingInteractions.respondInteraction(
         request.params.sessionId,

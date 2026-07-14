@@ -14,7 +14,7 @@ describe("PendingInteractionService", () => {
     const dispatcher = new OutboxDispatcher(store, realtimeEvents);
     const clientEvents = new DurableClientEventPublisher(store, dispatcher);
     const service = new PendingInteractionService(clientEvents);
-    store.createSession(LOCAL_TENANT_ID, "s1");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
 
     const approvalPromise = service.waitForApproval({
       sessionId: "s1",

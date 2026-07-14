@@ -26,7 +26,7 @@ describe("session message mutation routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "s1" });
     const user = harness.container.sessionApplication.addMessage({
       sessionId: "s1",
       role: "user",
@@ -76,7 +76,7 @@ describe("session message mutation routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "s1" });
     const anchor = harness.container.sessionApplication.addMessage({
       sessionId: "s1",
       role: "user",
@@ -139,7 +139,7 @@ describe("session message mutation routes", () => {
     app = harness.app;
     await createDefaultChatProvider(app);
 
-    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "retry-session" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "retry-session" });
     const anchor = harness.container.sessionApplication.addMessage({
       sessionId: "retry-session",
       role: "user",
@@ -217,7 +217,7 @@ describe("session message mutation routes", () => {
     const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-rollback-workspace-"));
     const filePath = path.join(workspaceRoot, "notes.txt");
 
-    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID,
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local",
       sessionId: "file-rollback-session",
       metadata: { workspace_root: workspaceRoot },
     });

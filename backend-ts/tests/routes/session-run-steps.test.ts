@@ -19,7 +19,7 @@ describe("session run step routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s1" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "s1" });
     const assistant = harness.container.sessionApplication.addMessage({
       sessionId: "s1",
       role: "assistant",
@@ -112,7 +112,7 @@ describe("session run step routes", () => {
     const harness = await buildTestHarness();
     app = harness.app;
 
-    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "s2" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId: "s2" });
     const assistant = harness.container.sessionApplication.addMessage({
       sessionId: "s2",
       role: "assistant",
@@ -196,7 +196,7 @@ describe("session run step routes", () => {
     const sessionId = "s3";
     const rootRunId = "root-run";
     const childRunId = "child-run";
-    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, userId: "usr_local", sessionId });
     harness.container.conversationStore.createRun({
       runId: rootRunId,
       sessionId,

@@ -14,6 +14,7 @@ import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import { ZodError } from "zod";
 import { WorkspaceRootValidationError } from "../../services/sessions/index.js";
+import { loadOwnedSession } from "../session-owner.js";
 
 interface SessionParams {
   sessionId: string;
@@ -23,15 +24,14 @@ interface MessageParams extends SessionParams {
   messageId: string;
 }
 
-export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
+export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (app) => {
   app.post("/sessions", async (request) => {
-    const identity = options.identityProvider.resolve(request);
     const payload = CreateSessionRequestSchema.parse(request.body);
     try {
       const session = request.container.sessionApplication.createSession({
-        tenantId: identity.tenantId,
+        tenantId: request.identity.tenantId,
         sessionId: payload.session_id?.trim() || randomUUID(),
-        userId: payload.user_id ?? null,
+        userId: request.identity.userId,
         metadata: payload.metadata,
       });
       return ok(session, "会话创建成功");
@@ -44,34 +44,25 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
   });
 
   app.get("/sessions", async (request) => {
-    const identity = options.identityProvider.resolve(request);
-    const query = request.query as { limit?: string; offset?: string; user_id?: string };
+    const query = request.query as { limit?: string; offset?: string };
     const limit = clampInt(query.limit, 20, 1, 200);
     const offset = clampInt(query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
     const sessions = request.container.sessionApplication.listSessions({
-      tenantId: identity.tenantId,
+      tenantId: request.identity.tenantId,
       limit,
       offset,
-      userId: normalizeEmpty(query.user_id),
+      userId: request.identity.userId,
     });
     return ok(sessions, "获取会话列表成功");
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId", async (request) => {
-    const identity = options.identityProvider.resolve(request);
-    const session = request.container.sessionApplication.getSession(request.params.sessionId);
-    if (!session || session.tenant_id !== identity.tenantId) {
-      throw new HttpError(404, "not_found", "会话不存在");
-    }
+    const session = loadOwnedSession(request, request.params.sessionId);
     return ok(session, "获取会话成功");
   });
 
   app.delete<{ Params: SessionParams }>("/sessions/:sessionId", async (request) => {
-    const identity = options.identityProvider.resolve(request);
-    const session = request.container.sessionApplication.getSession(request.params.sessionId);
-    if (!session || session.tenant_id !== identity.tenantId) {
-      throw new HttpError(404, "not_found", "会话不存在");
-    }
+    loadOwnedSession(request, request.params.sessionId);
     const deleted = request.container.sessionApplication.deleteSession(request.params.sessionId);
     if (!deleted) {
       throw new HttpError(404, "not_found", "会话不存在");
@@ -80,6 +71,7 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/messages", async (request) => {
+    loadOwnedSession(request, request.params.sessionId);
     const query = request.query as { limit?: string; offset?: string };
     const limit = clampInt(query.limit, 20, 1, 1000);
     const offset = clampInt(query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
@@ -92,6 +84,7 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/export", async (request, reply) => {
+    loadOwnedSession(request, request.params.sessionId);
     try {
       const data = request.container.sessionApplication.exportSession(request.params.sessionId);
       const safeSessionId = sanitizeExportSessionId(request.params.sessionId);
@@ -107,6 +100,7 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
   app.get<{ Params: MessageParams }>(
     "/sessions/:sessionId/messages/:messageId/run-steps",
     async (request) => {
+      loadOwnedSession(request, request.params.sessionId);
       try {
         const query = request.query as { limit?: string; offset?: string };
         const data = request.container.sessionApplication.listMessageRunSteps({
@@ -127,6 +121,7 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
   );
 
   app.patch<{ Params: MessageParams }>("/sessions/:sessionId/messages/:messageId", async (request) => {
+    loadOwnedSession(request, request.params.sessionId);
     const payload = UpdateMessageRequestSchema.parse(request.body);
     const updated = request.container.sessionApplication.updateUserMessage({
       sessionId: request.params.sessionId,
@@ -140,6 +135,7 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/rollback", async (request) => {
+    loadOwnedSession(request, request.params.sessionId);
     const payload = RollbackRequestSchema.parse(request.body);
     if (payload.after_seq == null && !payload.after_message_id) {
       throw new HttpError(400, "invalid_request", "请提供 after_seq 或 after_message_id");
@@ -158,6 +154,7 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/rollback-and-retry", async (request) => {
+    loadOwnedSession(request, request.params.sessionId);
     const payload = parseRollbackAndRetryRequest(request.body);
     if (payload.after_seq == null && !payload.after_message_id) {
       throw new HttpError(400, "invalid_request", "请提供 after_seq 或 after_message_id");
@@ -165,7 +162,7 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
     try {
       const retryInput: {
         sessionId: string;
-        userId?: string | null;
+        userId: typeof request.identity.userId;
         requestId: string;
         afterSeq?: number | null;
         afterMessageId?: string | null;
@@ -175,7 +172,7 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
         uiContext?: Record<string, unknown> | null;
       } = {
         sessionId: request.params.sessionId,
-        userId: payload.user_id ?? null,
+        userId: request.identity.userId,
         requestId: request.headers["x-request-id"]?.toString() ?? randomUUID(),
         selectedLlm: payload.selected_llm ?? payload.selectedLLM ?? null,
       };
@@ -228,13 +225,6 @@ function clampInt(rawValue: string | undefined, fallback: number, min: number, m
     return fallback;
   }
   return Math.max(min, Math.min(max, parsed));
-}
-
-function normalizeEmpty(value: string | undefined): string | null {
-  if (!value?.trim()) {
-    return null;
-  }
-  return value.trim();
 }
 
 function sanitizeExportSessionId(sessionId: string): string {

@@ -20,9 +20,8 @@ export const SessionMetadataSchema = z.unknown().optional().transform((value, co
 
 export const CreateSessionRequestSchema = z.object({
   session_id: OptionalSessionIdSchema.nullable().optional(),
-  user_id: z.string().nullable().optional(),
   metadata: SessionMetadataSchema,
-});
+}).strict();
 
 export const UpdateMessageRequestSchema = z.object({
   content: z.string(),
@@ -35,12 +34,11 @@ export const RollbackRequestSchema = z.object({
 
 export const RollbackAndRetryRequestSchema = RollbackRequestSchema.extend({
   modify_user_message: z.string().nullable().optional(),
-  user_id: z.string().nullable().optional(),
   selected_llm: z.string().nullable().optional(),
   selectedLLM: z.string().nullable().optional(),
   attachments: z.array(AttachmentRefSchema).optional().default([]),
   ui_context: z.record(z.string(), z.unknown()).nullish(),
-});
+}).strict();
 
 export type CreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>;
 export type UpdateMessageRequest = z.infer<typeof UpdateMessageRequestSchema>;

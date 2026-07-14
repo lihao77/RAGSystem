@@ -7,6 +7,8 @@ import { EnvelopeProjector } from "../../services/runtime/event-outbox/projector
 import type { RuntimeContainer } from "../../services/runtime/runtime-container.js";
 import type { RouteOptions } from "../route-options.js";
 import { isRecord } from "../../utils/guards.js";
+import { widgetUserId } from "../../identity/widget-user-id.js";
+import { assertSessionOwner } from "../session-owner.js";
 
 interface SessionWsParams {
   sessionId: string;
@@ -42,6 +44,8 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
             lease = await options.registry.acquire(claims.tenant_id);
           } else {
             const identity = options.identityProvider.resolve(request);
+            request.identity = identity;
+            request.userId = identity.userId;
             lease = await options.registry.acquire(identity.tenantId);
             if (!lease.runtime.sessionApplication.getSession(sessionId) && options.widgetAuth && request.headers.origin) {
               const discovered = await options.registry.acquireForSession(sessionId);
@@ -76,11 +80,12 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
       request.tenantRuntimeLease = null;
       const container = request.container;
       const wsActivity = options.registry.trackWebSocket(lease.tenantId);
+      const session = container.sessionApplication.getSession(sessionId);
       // widget 会话强制 token 鉴权：仅当本会话由 /api/widget/sessions 签发（metadata.widget.created_via 标记）。
       // 普通会话（frontend-client 等）保持零鉴权；widgetAuth 未启用时整段跳过，后端维持现状。
       if (options.widgetAuth) {
         const widgetMeta = (
-          container.sessionApplication.getSession(sessionId)?.metadata as {
+          session?.metadata as {
             widget?: { created_via?: string; app_key?: string };
           } | undefined
         )?.widget;
@@ -107,6 +112,30 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
             return;
           }
         }
+      }
+      if (!session) {
+        wsActivity.release();
+        lease.release();
+        ws.close(4004, "session not found");
+        return;
+      }
+      try {
+        const widgetMeta = (session.metadata as { widget?: { app_key?: string } }).widget;
+        if (widgetMeta?.app_key) {
+          request.identity = {
+            userId: widgetUserId(widgetMeta.app_key),
+            tenantId: lease.tenantId,
+            role: "widget",
+            permissions: ["sessions:create"],
+          };
+          request.userId = request.identity.userId;
+        }
+        assertSessionOwner(request.identity, session);
+      } catch {
+        wsActivity.release();
+        lease.release();
+        ws.close(4003, "forbidden");
+        return;
       }
       const afterSeq = parseSeqCursor(request.query.after_seq);
       let lastSeq = 0;
@@ -197,7 +226,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
                   {
                     task: payload.task,
                     session_id: sessionId,
-                    user_id: container.sessionApplication.getSession(sessionId)?.user_id ?? null,
+                    userId: request.userId,
                     selected_llm: payload.selected_llm,
                     attachments: payload.attachments,
                     ui_context: payload.ui_context,

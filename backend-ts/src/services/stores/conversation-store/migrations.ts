@@ -1,5 +1,7 @@
 import { runInTransaction } from "./shared/transaction.js";
 import { BASELINE_SCHEMA_SQL } from "./schema.js";
+import { widgetUserId } from "../../../identity/widget-user-id.js";
+import { LOCAL_TENANT_ID, LOCAL_USER_ID } from "../../identity/local-identity-provider.js";
 
 export interface MigrationDatabase {
   exec: import("node:sqlite").DatabaseSync["exec"];
@@ -124,6 +126,36 @@ export const MIGRATIONS: readonly Migration[] = [
       db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_tenant_updated ON sessions(tenant_id, updated_at)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_runs_tenant_session ON runs(tenant_id, session_id)");
       db.exec("CREATE INDEX IF NOT EXISTS idx_event_outbox_tenant_status ON event_outbox(tenant_id, status, available_at, id)");
+    },
+  },
+  {
+    version: 8,
+    name: "private_session_owners",
+    up: (db) => {
+      const widgetRows = db
+        .prepare("SELECT session_id, user_id FROM sessions WHERE user_id LIKE 'widget%'")
+        .all() as unknown as Array<{ session_id: string; user_id: string }>;
+      const invalid = widgetRows.filter((row) => !row.user_id.startsWith("widget:") || !row.user_id.slice(7).trim());
+      if (invalid.length > 0) {
+        const report = invalid.map((row) => `${row.session_id}=${row.user_id}`).join(", ");
+        throw new Error(`v8 无法解析历史 widget owner: ${report}`);
+      }
+      const updateSessionOwner = db.prepare("UPDATE sessions SET user_id=? WHERE session_id=?");
+      const updateRunOwner = db.prepare("UPDATE runs SET user_id=? WHERE session_id=?");
+      for (const row of widgetRows) {
+        const ownerId = widgetUserId(row.user_id.slice(7));
+        updateSessionOwner.run(ownerId, row.session_id);
+        updateRunOwner.run(ownerId, row.session_id);
+      }
+      db.prepare("UPDATE sessions SET user_id=? WHERE tenant_id=? AND user_id IS NULL")
+        .run(LOCAL_USER_ID, LOCAL_TENANT_ID);
+      db.prepare(`
+        UPDATE runs
+        SET user_id=?
+        WHERE session_id IN (
+          SELECT session_id FROM sessions WHERE tenant_id=? AND user_id=?
+        )
+      `).run(LOCAL_USER_ID, LOCAL_TENANT_ID, LOCAL_USER_ID);
     },
   },
 ];

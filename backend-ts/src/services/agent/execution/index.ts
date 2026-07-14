@@ -33,6 +33,7 @@ import { SlashCommandHandler } from "./slash-command-handler.js";
 import { AgentRunEngine, type AgentExecutionLogger } from "./run-engine.js";
 import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
+import type { TenantId } from "../../../identity/types.js";
 import type { MemoryConfig } from "../../../contracts/system-config.js";
 import {
   createLaunchers,
@@ -67,6 +68,7 @@ export interface AgentExecutionServiceApi {
 export type AgentExecutionService = AgentExecutionServiceApi;
 
 export interface AgentExecutionServiceParams {
+  tenantId: TenantId;
   sessions: AgentSessionApplication;
   conversationStore: ConversationStore;
   runtimeCore: RuntimeExecutionConfigResolver;
@@ -120,6 +122,7 @@ export function createAgentExecutionService(
   const attachmentResolver = new AttachmentResolver(params.fileIndex ?? null);
   const notificationQueue = params.notificationQueue ?? new SessionNotificationQueue();
   const slashCommandHandler = new SlashCommandHandler(
+    params.tenantId,
     params.sessions,
     statusTracker,
     params.runtimeCore,
@@ -153,6 +156,7 @@ export function createAgentExecutionService(
     params.compressionService ?? null,
   );
   const launchers = createLaunchers({
+    tenantId: params.tenantId,
     sessions: params.sessions,
     conversationStore: params.conversationStore,
     runtimeCore: params.runtimeCore,

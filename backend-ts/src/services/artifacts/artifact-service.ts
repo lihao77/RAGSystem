@@ -81,6 +81,10 @@ export class ArtifactService {
     }));
   }
 
+  getVisualizationSessionId(artifactId: string): string | null {
+    return this.findVisualizationWithSession(artifactId)?.sessionId ?? null;
+  }
+
   createChart(input: {
     sessionId: string | null | undefined;
     chartConfig: JsonValue;

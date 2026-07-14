@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { buildTestHarness } from "../helpers/app.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
+import { widgetUserId } from "../../src/identity/widget-user-id.js";
 
 const TEST_SECRET = "test-widget-secret-0123456789abcdef0123456789abcdef";
 
@@ -76,6 +77,7 @@ describe("widget auth routes", () => {
     expect(sessionRes.statusCode).toBe(200);
     const sessionId: string = sessionRes.json().data.session_id;
     const session = harness.container.sessionApplication.getSession(sessionId);
+    expect(session?.user_id).toBe(widgetUserId(created.app_key));
     expect(session?.metadata).toMatchObject({
       widget: { app_key: created.app_key, host_tools: ["get_page_title"], created_via: "widget" },
     });

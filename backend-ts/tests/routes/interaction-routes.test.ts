@@ -17,7 +17,7 @@ describe("interaction response routes", () => {
   it("resolves pending approvals through the generic HTTP route", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    harness.container.conversationStore.createSession(LOCAL_TENANT_ID, "approval-route-session");
+    harness.container.conversationStore.createSession(LOCAL_TENANT_ID, "approval-route-session", "usr_local");
 
     const approvalPromise = harness.container.pendingInteractions.waitForApproval({
       sessionId: "approval-route-session",

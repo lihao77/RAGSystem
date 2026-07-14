@@ -81,11 +81,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const widgetIdentityProvider = widgetAuth ? new WidgetIdentityProvider(widgetAuth, widgetCredentialStore) : undefined;
   const registry = options.registry ?? new DefaultTenantRuntimeRegistry(options.env, controlStore, app.log);
   widgetCredentialStore.startPruning();
+  app.decorateRequest("identity");
+  app.decorateRequest("userId");
   app.decorateRequest("tenantId");
   app.decorateRequest("container");
   app.decorateRequest("tenantRuntimeLease", null);
   app.addHook("onRequest", async (request) => {
-    if (!requiresTenantRuntime(request.url, request.method)) return;
+    const needsTenantRuntime = requiresTenantRuntime(request.url, request.method);
+    if (!needsTenantRuntime && !usesAdminIdentity(request.url, request.method)) return;
     const resolver = widgetIdentityProvider && usesWidgetIdentity(request.url)
       ? widgetIdentityProvider
       : runtime.identityProvider;
@@ -98,8 +101,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       }
       throw error;
     }
-    const lease = await registry.acquire(identity.tenantId);
+    request.identity = identity;
+    request.userId = identity.userId;
     request.tenantId = identity.tenantId;
+    if (!needsTenantRuntime) return;
+    const lease = await registry.acquire(identity.tenantId);
     request.container = lease.runtime;
     request.tenantRuntimeLease = lease;
   });
@@ -209,7 +215,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await app.register(registerBootstrapRoutes, { prefix: "/api", env: options.env, controlStore, runtime });
   await app.register(registerInstallRoutes, { prefix: "/api", controlStore, runtime, refreshProfile });
   await app.register(registerAuthRoutes, { prefix: "/api/auth", controlStore, runtime });
-  await app.register(registerAdminRoutes, { prefix: "/api/admin", controlStore, runtime });
+  await app.register(registerAdminRoutes, { prefix: "/api/admin", controlStore });
   await app.register(registerPermissionRoutes, {
     prefix: "/api/permissions",
     registry,
@@ -306,6 +312,12 @@ function requiresTenantRuntime(url: string, method: string): boolean {
     && pathname !== "/api/admin"
     && !pathname.startsWith("/api/admin/")
     && !pathname.endsWith("/ws");
+}
+
+function usesAdminIdentity(url: string, method: string): boolean {
+  if (method === "OPTIONS") return false;
+  const pathname = url.split("?", 1)[0] ?? url;
+  return pathname === "/api/admin" || pathname.startsWith("/api/admin/");
 }
 
 interface AuthRuntime {

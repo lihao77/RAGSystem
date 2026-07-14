@@ -82,7 +82,7 @@ describe("event outbox projection and dispatch", () => {
   it("publishes projected events to realtime fanout by default", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
-    store.createSession(LOCAL_TENANT_ID, "s1");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
     appendClientRow(store, "s1", "run-1", "event-1", {
       type: "run_ended",
       session_id: "s1",
@@ -118,7 +118,7 @@ describe("event outbox projection and dispatch", () => {
   it("marks projected events delivered after realtime fanout", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
-    store.createSession(LOCAL_TENANT_ID, "s1");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
     appendClientRow(store, "s1", "run-1", "event-1", {
       type: "run_ended",
       session_id: "s1",
@@ -142,7 +142,7 @@ describe("event outbox projection and dispatch", () => {
   it("does not retry delivered rows when a realtime subscriber fails", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
-    store.createSession(LOCAL_TENANT_ID, "s1");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
     realtimeEvents.subscribe("s1", () => {
       throw new Error("websocket send failed");
     });
@@ -183,7 +183,7 @@ describe("event outbox projection and dispatch", () => {
     const now = () => new Date(nowMs);
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
-    store.createSession(LOCAL_TENANT_ID, "s1");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
     appendClientRow(
       store,
       "s1",
@@ -269,7 +269,7 @@ describe("event outbox projection and dispatch", () => {
     const now = () => new Date(nowMs);
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
-    store.createSession(LOCAL_TENANT_ID, "s1");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
     appendClientRow(
       store,
       "s1",
@@ -326,7 +326,7 @@ describe("event outbox projection and dispatch", () => {
     const now = () => new Date(nowMs);
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
-    store.createSession(LOCAL_TENANT_ID, "s1");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
     appendClientRow(
       store,
       "s1",
@@ -380,7 +380,7 @@ describe("event outbox projection and dispatch", () => {
   it("stamps persisted event_id/seq over transient client_event values", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const projector = new EnvelopeProjector();
-    store.createSession(LOCAL_TENANT_ID, "s1");
+    store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
     const row = appendClientRow(store, "s1", "run-1", "event-client-1", {
       // 产出方临时值（session_id/run_id/message_id/seq）一律不可信——还原后以落库权威值盖戳。
       type: "state_sync",

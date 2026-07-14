@@ -44,7 +44,7 @@ export * from "./types.js";
  * 分页 has_more = offset+limit < total；createSession 幂等（ON CONFLICT 更新）。
  */
 export interface ISessionStore {
-  createSession(tenantId: TenantId, sessionId: string, userId?: string | null, metadata?: Record<string, unknown>): void;
+  createSession(tenantId: TenantId, sessionId: string, userId: string | null, metadata?: Record<string, unknown>): void;
   getSession(sessionId: string): SessionInfo | null;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Record<string, unknown> | null;
   deleteSession(sessionId: string): boolean;

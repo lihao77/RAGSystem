@@ -18,6 +18,7 @@ afterEach(async () => {
 describe("artifact compatibility routes", () => {
   it("reads Python-compatible visualization config and session index entries", async () => {
     app = await buildTestApp();
+    await createSession(app, "artifact-session");
     const fixture = createVisualizationFixture("artifact-session", "viz_test_chart");
 
     const config = await app.inject({
@@ -57,6 +58,7 @@ describe("artifact compatibility routes", () => {
 
   it("returns image visualization metadata without reading image bytes", async () => {
     app = await buildTestApp();
+    await createSession(app, "image-session");
     const fixture = createImageFixture("image-session", "viz_test_image");
 
     const response = await app.inject({
@@ -76,6 +78,7 @@ describe("artifact compatibility routes", () => {
 
   it("deletes one visualization and rewrites the session index", async () => {
     app = await buildTestApp();
+    await createSession(app, "delete-session");
     const first = createVisualizationFixture("delete-session", "viz_delete_one");
     const second = createVisualizationFixture("delete-session", "viz_keep_one");
 
@@ -101,6 +104,7 @@ describe("artifact compatibility routes", () => {
 
   it("deletes all visualizations for a session", async () => {
     app = await buildTestApp();
+    await createSession(app, "delete-all-session");
     const first = createVisualizationFixture("delete-all-session", "viz_delete_all_1");
     const second = createImageFixture("delete-all-session", "viz_delete_all_2");
 
@@ -150,6 +154,15 @@ describe("artifact compatibility routes", () => {
     });
   });
 });
+
+async function createSession(instance: FastifyInstance, sessionId: string): Promise<void> {
+  const response = await instance.inject({
+    method: "POST",
+    url: "/api/agent/sessions",
+    payload: { session_id: sessionId },
+  });
+  expect(response.statusCode).toBe(200);
+}
 
 function createVisualizationFixture(sessionId: string, artifactId: string): { filePath: string; createdAt: number } {
   const createdAt = 1710000000;
