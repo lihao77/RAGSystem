@@ -26,14 +26,10 @@
       <Card>
         <CardHeader>
           <CardTitle>系统状态</CardTitle>
-          <CardDescription>守护进程与执行平面实时状态（从左侧导航进入各模块管理）</CardDescription>
+          <CardDescription>Agent 执行平面实时状态</CardDescription>
         </CardHeader>
         <CardContent>
           <div class="status-grid">
-          <div class="status-item">
-            <span class="status-item__label">守护进程</span>
-            <span class="status-item__value" :class="daemonClass">{{ daemonLabel }}</span>
-          </div>
           <div class="status-item">
             <span class="status-item__label">活跃会话</span>
             <span class="status-item__value">{{ activeSessions }}</span>
@@ -41,10 +37,6 @@
           <div class="status-item">
             <span class="status-item__label">运行中任务</span>
             <span class="status-item__value">{{ runningTasks }}</span>
-          </div>
-          <div class="status-item">
-            <span class="status-item__label">已连接平台</span>
-            <span class="status-item__value">{{ connectedPlatforms }}</span>
           </div>
           </div>
         </CardContent>
@@ -119,7 +111,6 @@ import { useDictionariesStore } from '../stores/dictionaries.js';
 import { useThemeStore } from '../stores/theme.js';
 import { listMCPServers } from '../api/mcpService';
 import { listSkills } from '../api/skillLibrary';
-import { getStatus as getDaemonStatus } from '../api/daemon';
 import { getExecutionOverview } from '../api/monitoring';
 import { getTokenTrend, getModelUsage, getActivityHeatmap, getDailyActivity } from '../api/analytics';
 
@@ -131,7 +122,6 @@ defineProps({
 const dictStore = useDictionariesStore();
 const themeStore = useThemeStore();
 const counts = ref({ agents: null, providers: null, mcp: null, skills: null });
-const daemonStatus = ref(null);
 const overview = ref(null);
 const loadError = ref('');
 
@@ -163,22 +153,6 @@ const kpiItems = computed(() => [
   { key: 'skills', label: 'Skill', value: counts.value.skills ?? '—' },
 ]);
 
-const daemonLabel = computed(() => {
-  const s = daemonStatus.value;
-  if (!s) return '未知';
-  const running = s.daemon_running ?? s.running ?? s.is_running ?? (s.status === 'running');
-  if (running === true) return '运行中';
-  if (running === false) return '已停止';
-  return s.status ? String(s.status) : '未知';
-});
-const daemonClass = computed(() => {
-  const s = daemonStatus.value;
-  const running = s && (s.daemon_running ?? s.running ?? s.is_running ?? (s.status === 'running'));
-  if (running === true) return 'status-item__value--ok';
-  if (running === false) return 'status-item__value--off';
-  return '';
-});
-
 const activeSessions = computed(() => {
   const o = overview.value;
   if (!o) return '—';
@@ -192,25 +166,15 @@ const runningTasks = computed(() => {
   if (Array.isArray(rt)) return rt.length;
   return o.summary?.running_tasks ?? '—';
 });
-const connectedPlatforms = computed(() => {
-  const s = daemonStatus.value;
-  if (!s) return '—';
-  const platforms = s.platforms ?? s.connected_platforms;
-  if (Array.isArray(platforms)) return platforms.length;
-  if (typeof s.connected_platforms === 'number') return s.connected_platforms;
-  return '—';
-});
-
 onMounted(async () => {
   const results = await Promise.allSettled([
     dictStore.ensureAgents(),
     dictStore.ensureProviders(),
     listMCPServers(),
     listSkills(),
-    getDaemonStatus(),
     getExecutionOverview(),
   ]);
-  const [agents, providers, mcp, skills, status, ov] = results;
+  const [agents, providers, mcp, skills, ov] = results;
   const failed = results.filter((r) => r.status === 'rejected').map((r) => r.reason?.message).filter(Boolean);
 
   counts.value = {
@@ -219,7 +183,6 @@ onMounted(async () => {
     mcp: mcp.status === 'fulfilled' ? len(mcp.value) : null,
     skills: skills.status === 'fulfilled' ? (skills.value?.data?.length ?? len(skills.value)) : null,
   };
-  daemonStatus.value = status.status === 'fulfilled' ? status.value : null;
   overview.value = ov.status === 'fulfilled' ? ov.value : null;
   loadError.value = failed.length ? failed.join('; ') : '';
 

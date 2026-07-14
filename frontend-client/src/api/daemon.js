@@ -6,32 +6,12 @@ import { http } from './http.js';
 
 const API_BASE = '/api/daemon';
 
-export async function getStatus() {
-  return http.get(`${API_BASE}/status`);
-}
-
 export async function getConfig() {
   return http.get(`${API_BASE}/config`);
 }
 
 export async function updateConfig(config) {
   return http.put(`${API_BASE}/config`, config);
-}
-
-export async function startDaemon() {
-  return http.post(`${API_BASE}/start`);
-}
-
-export async function stopDaemon() {
-  return http.post(`${API_BASE}/stop`);
-}
-
-export async function listAgents() {
-  return http.get(`${API_BASE}/agents`);
-}
-
-export async function getAgentHeartbeat(agentName, limit = 20) {
-  return http.get(`${API_BASE}/agents/${agentName}/heartbeat?limit=${limit}`);
 }
 
 export async function testAgent(agentName, { content, platform, chat_id } = {}) {
