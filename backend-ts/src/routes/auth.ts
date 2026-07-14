@@ -34,6 +34,10 @@ const LoginSchema = z.object({
   password: z.string().min(1),
 });
 
+const SwitchTenantSchema = z.object({
+  tenantId: z.string().regex(/^tnt_[a-z0-9]+(?:_[a-z0-9]+)*$/),
+});
+
 export const registerInstallRoutes: FastifyPluginAsync<InstallRouteOptions> = async (app, options) => {
   app.post("/install", async (request) => {
     if (options.controlStore.getSetting("installed") === "true") {
@@ -110,6 +114,32 @@ export const registerAuthRoutes: FastifyPluginAsync<BaseAuthRouteOptions> = asyn
       expires_at: issued.expires_at,
       user: { id: user.id, displayName: user.displayName },
       tenantId: membership.tenant_id,
+      role: membership.role,
+    };
+  });
+
+  app.post("/switch-tenant", async (request) => {
+    const sessionTokens = requireSessionTokens(options.runtime.sessionTokens);
+    const claims = sessionTokens.requireBearer(request);
+    const input = SwitchTenantSchema.parse(request.body);
+    const tenantId = createTenantId(input.tenantId);
+    const membership = options.controlStore.getMembership(claims.sub, tenantId);
+    if (!membership) throw new HttpError(403, "forbidden", "用户不是该租户成员");
+    const user = options.controlStore.getUser(claims.sub);
+    if (!user) throw new HttpError(401, "unauthorized", "session identity 无效");
+    const issued = sessionTokens.issueToken({ userId: user.id, tenantId, role: membership.role });
+    options.controlStore.recordSession({
+      jti: issued.claims.jti,
+      userId: user.id,
+      tenantId,
+      issuedAt: issued.claims.iat,
+      expiresAt: issued.claims.exp,
+    });
+    return {
+      token: issued.token,
+      expires_at: issued.expires_at,
+      user: { id: user.id, displayName: user.displayName },
+      tenantId,
       role: membership.role,
     };
   });

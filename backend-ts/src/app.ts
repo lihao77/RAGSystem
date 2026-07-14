@@ -27,6 +27,7 @@ import { registerWidgetRoutes } from "./routes/widget.js";
 import { registerWidgetAppsRoutes } from "./routes/widget-apps.js";
 import { registerBootstrapRoutes } from "./routes/bootstrap.js";
 import { registerAuthRoutes, registerInstallRoutes } from "./routes/auth.js";
+import { registerAdminRoutes } from "./routes/admin.js";
 import { HttpError, formatError } from "./utils/errors.js";
 import { createControlStore, type ControlStore } from "./services/stores/control-store/index.js";
 import { createWidgetCredentialStore, type WidgetCredentialStore } from "./services/stores/widget-credential-store/index.js";
@@ -120,6 +121,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       return;
     }
 
+    if (error instanceof AuthError) {
+      reply.code(401).send(formatError(new HttpError(401, "unauthorized", error.message)));
+      return;
+    }
+
     const validation =
       typeof error === "object" && error !== null && "validation" in error
         ? (error as { validation?: unknown }).validation
@@ -203,6 +209,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await app.register(registerBootstrapRoutes, { prefix: "/api", env: options.env, controlStore, runtime });
   await app.register(registerInstallRoutes, { prefix: "/api", controlStore, runtime, refreshProfile });
   await app.register(registerAuthRoutes, { prefix: "/api/auth", controlStore, runtime });
+  await app.register(registerAdminRoutes, { prefix: "/api/admin", controlStore, runtime });
   await app.register(registerPermissionRoutes, {
     prefix: "/api/permissions",
     registry,
@@ -294,7 +301,10 @@ function requiresTenantRuntime(url: string, method: string): boolean {
   return pathname !== "/api/bootstrap"
     && pathname !== "/api/install"
     && pathname !== "/api/auth/login"
+    && pathname !== "/api/auth/switch-tenant"
     && pathname !== "/api/widget/auth/token"
+    && pathname !== "/api/admin"
+    && !pathname.startsWith("/api/admin/")
     && !pathname.endsWith("/ws");
 }
 

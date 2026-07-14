@@ -97,6 +97,7 @@ describe("ControlStore", () => {
     expect(store.getMembership(userId, tenantId)?.role).toBe("member");
     store.upsertMembership({ userId, tenantId, role: "admin" });
     expect(store.listMembershipsByTenant(tenantId)).toEqual([{ userId, tenantId, role: "admin" }]);
+    expect(store.listMembershipsByUser(userId)).toEqual([{ userId, tenantId, role: "admin" }]);
     expect(store.deleteMembership(userId, tenantId)).toBe(true);
     expect(store.getMembership(userId, tenantId)).toBeNull();
     store.close();

@@ -15,6 +15,7 @@ const ModelProviderManager = () => import('../views/ModelProviderManager.vue');
 const DaemonManager = () => import('../views/DaemonManager.vue');
 const SystemConfig = () => import('../views/SystemConfig.vue');
 const WidgetConsole = () => import('../views/WidgetConsole.vue');
+const MembersManager = () => import('../views/MembersManager.vue');
 const Login = () => import('../views/Login.vue');
 const InstallWizard = () => import('../views/InstallWizard.vue');
 
@@ -58,6 +59,7 @@ const routes = [
       { path: 'daemon', component: DaemonManager, meta: adminPageMeta('daemon', 6, 6) },
       { path: 'system-config', component: SystemConfig, meta: adminPageMeta('system-config', 7, 7) },
       { path: 'widget-credentials', component: WidgetConsole, meta: adminPageMeta('widget-credentials', 8, 8) },
+      { path: 'members', component: MembersManager, meta: adminPageMeta('members', 8, 9) },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },

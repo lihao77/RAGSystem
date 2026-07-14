@@ -107,6 +107,12 @@ export class ControlStore {
     return rows.map(mapMembership);
   }
 
+  listMembershipsByUser(userId: UserId): ControlMembership[] {
+    const rows = this.db.prepare("SELECT user_id, tenant_id, role FROM memberships WHERE user_id=? ORDER BY tenant_id")
+      .all(userId) as unknown as MembershipRow[];
+    return rows.map(mapMembership);
+  }
+
   deleteMembership(userId: UserId, tenantId: TenantId): boolean {
     return Number(this.db.prepare("DELETE FROM memberships WHERE user_id=? AND tenant_id=?").run(userId, tenantId).changes) > 0;
   }

@@ -47,6 +47,22 @@ export const adminNavGroups = [
 
 export const managementNavItems = [
   {
+    key: 'members',
+    mainView: 'members',
+    path: '/members',
+    label: '成员管理',
+    title: '租户成员管理',
+    description: '查看租户成员，并按当前角色邀请、调整角色或移除成员。',
+    group: 'infrastructure',
+    requiresPasswordAuth: true,
+    icon: createAdminIcon([
+      { tag: 'path', attrs: { d: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2' } },
+      { tag: 'circle', attrs: { cx: '9', cy: '7', r: '4' } },
+      { tag: 'path', attrs: { d: 'M22 21v-2a4 4 0 0 0-3-3.87' } },
+      { tag: 'path', attrs: { d: 'M16 3.13a4 4 0 0 1 0 7.75' } },
+    ]),
+  },
+  {
     key: 'widget-credentials', mainView: 'widget-credentials', path: '/widget-credentials', label: 'Widget 凭证',
     title: 'Widget 凭证控制台', description: '管理 publishable key、secret、来源白名单与审计记录。', group: 'infrastructure',
     capability: 'widget',
@@ -180,13 +196,15 @@ export const managementNavItems = [
 
 const capabilityByNavigationKey = {
   'tenant-switch': 'tenantSwitch',
-  members: 'members',
   billing: 'billing',
   'widget-credentials': 'widget',
 };
 
-export function filterManagementNavItems(capabilities = {}) {
+export function filterManagementNavItems(capabilities = {}, context = {}) {
   return managementNavItems.filter((item) => {
+    if (item.requiresPasswordAuth && !(context.isAuthenticated && context.authMode === 'password')) {
+      return false;
+    }
     const capability = item.capability || capabilityByNavigationKey[item.key];
     return !capability || capabilities[capability] !== false;
   });

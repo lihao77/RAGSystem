@@ -1,6 +1,7 @@
 <template>
   <div class="chat-layout" :class="{ 'chat-layout--sidebar-overlay': isMobile }">
     <div v-if="showUserArea" class="absolute right-5 top-5 z-10 flex items-center gap-3 rounded-md border border-input bg-background px-3 py-2 shadow-sm">
+      <TenantSwitcher />
       <div class="min-w-0 text-right">
         <div class="max-w-48 truncate text-sm font-medium">{{ authStore.user?.displayName || '管理员' }}</div>
         <div class="text-xs text-muted-foreground">{{ authStore.role }}</div>
@@ -206,6 +207,7 @@ import { deleteSession as deleteSessionApi } from '../api/session';
 import { logout } from '../api/auth.js';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconNewConversation, IconTrash } from '../components/icons';
 import { Button } from '../components/ui/button';
+import TenantSwitcher from '../components/TenantSwitcher.vue';
 import { sidebarAdminNavItem, filterManagementNavItems, adminNavGroups } from '../navigation/adminNavigation';
 import CommandPalette from '../components/CommandPalette.vue';
 import { useCommandPalette } from '../composables/useCommandPalette.js';
@@ -236,7 +238,10 @@ const lastChatSessionId = ref(null);
 const isChatRoute = computed(() => (route.meta?.mainView || 'chat') === 'chat');
 const pageShell = computed(() => (isChatRoute.value ? 'div' : AdminLayout));
 const isPageActive = (mainView) => (route.meta?.mainView || 'chat') === mainView;
-const visibleManagementNavItems = computed(() => filterManagementNavItems(bootstrapStore.capabilities));
+const visibleManagementNavItems = computed(() => filterManagementNavItems(bootstrapStore.capabilities, {
+  isAuthenticated: authStore.isAuthenticated,
+  authMode: bootstrapStore.profile.auth,
+}));
 const adminItemsByGroup = (groupKey) => visibleManagementNavItems.value.filter((i) => i.group === groupKey);
 const showUserArea = computed(() => bootstrapStore.requiresAuth && authStore.isAuthenticated);
 const logoutLoading = ref(false);
