@@ -24,9 +24,15 @@ export function buildSessionSocketUrl(sessionId, options = {}) {
   const protocol = options.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = options.host || '';
   const encodedSessionId = encodeURIComponent(sessionId);
+  const params = new URLSearchParams();
   const afterEventSeq = normalizeEventSeq(options.afterEventSeq);
-  const query = afterEventSeq === null ? '' : `?after_seq=${afterEventSeq}`;
-  return `${protocol}//${host}/api/agent/sessions/${encodedSessionId}/ws${query}`;
+  if (afterEventSeq !== null) params.set('after_seq', String(afterEventSeq));
+  // 浏览器 WS 无法设 Authorization header,saas 模式经 query 传 session token。
+  if (typeof options.sessionToken === 'string' && options.sessionToken) {
+    params.set('session_token', options.sessionToken);
+  }
+  const query = params.toString();
+  return `${protocol}//${host}/api/agent/sessions/${encodedSessionId}/ws${query ? `?${query}` : ''}`;
 }
 
 export function canReuseSessionSocket(targetSessionId, currentSessionId, ws) {

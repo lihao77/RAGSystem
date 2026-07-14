@@ -18,6 +18,8 @@ interface SessionWsQuery {
   after_seq?: string;
   /** widget 会话的短时 JWT（query 传，因浏览器 WS 无法设 header）；普通会话不要求。 */
   token?: string;
+  /** 普通会话 session JWT（query 传，浏览器 WS 无法设 Authorization header；WS 路由注入 header 供 identityProvider 解析）。 */
+  session_token?: string;
 }
 
 type WebSocketLike = {
@@ -43,6 +45,11 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
             const claims = options.widgetAuth.verifyWsToken(request.query.token);
             lease = await options.registry.acquire(claims.tenant_id);
           } else {
+            // 浏览器 WS 无法设 Authorization header:普通会话经 query.session_token 传入,注入 header 让 identityProvider 正常解析。
+            const sessionToken = request.query.session_token;
+            if (typeof sessionToken === "string" && sessionToken && !request.headers.authorization) {
+              request.headers.authorization = `Bearer ${sessionToken}`;
+            }
             const identity = options.identityProvider.resolve(request);
             request.identity = identity;
             request.userId = identity.userId;

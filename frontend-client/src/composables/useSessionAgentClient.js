@@ -12,6 +12,7 @@ import { getHostTool, getHostToolDeclarations } from '../utils/hostTools.js';
 import { createAssistantMessage } from './useMessageExecution.js';
 import { getSessionTaskStatus, startStream, stopStream, respondInteraction as respondInteractionApi } from '../api/session.js';
 import { useSessionRunStore } from '../stores/session-run.js';
+import { useAuthStore } from '../stores/auth.js';
 import { useRunRuntime } from './useRunRuntime.js';
 
 const WS_OPEN = 1;
@@ -442,6 +443,7 @@ export function useSessionAgentClient(deps) {
       protocol: currentLocation.protocol,
       host: currentLocation.host,
       afterEventSeq: lastEventSeq > 0 ? lastEventSeq : null,
+      sessionToken: useAuthStore().token || null,
     });
     const ws = new WebSocket(url);
     _wsSessionId = sessionId;
