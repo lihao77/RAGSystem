@@ -4,7 +4,7 @@ import { PermissionPolicySchema } from "./permissions.js";
 
 const nullToUndefined = (value: unknown): unknown => (value === null ? undefined : value);
 
-export const PlatformTypeSchema = z.enum(["feishu", "wechat", "dingtalk"]);
+export const PlatformTypeSchema = z.enum(["feishu"]);
 
 export const PlatformConnectionSchema = z.object({
   enabled: z.boolean().optional().default(false),
@@ -12,6 +12,8 @@ export const PlatformConnectionSchema = z.object({
   app_secret: z.string().nullable().optional().default(null),
   token: z.string().nullable().optional().default(null),
   encoding_aes_key: z.string().nullable().optional().default(null),
+  route_token: z.string().nullable().optional().default(null),
+  receive_mode: z.enum(["webhook", "long_connection"]).optional().default("long_connection"),
   webhook_url: z.string().nullable().optional().default(null),
   session_id: z.string().nullable().optional().default(null),
   extra: z.preprocess(nullToUndefined, z.record(z.unknown()).optional().default({})),

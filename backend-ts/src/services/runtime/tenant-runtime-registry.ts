@@ -27,6 +27,11 @@ export interface TenantRuntimeSnapshot {
   dataRoot: string;
 }
 
+export interface DaemonRouteTarget {
+  tenantId: TenantId;
+  teamName: string;
+}
+
 export interface TenantRuntimeRegistryOptions {
   idleTimeoutMs?: number;
   sweepIntervalMs?: number;
@@ -41,6 +46,9 @@ export interface TenantRuntimeRegistry {
   trackWebSocket(tenantId: string): TenantRuntimeActivityLease;
   trackRun(tenantId: string): TenantRuntimeActivityLease;
   snapshot(tenantId: string): TenantRuntimeSnapshot | null;
+  registerRouteToken(tenantId: TenantId, teamName: string, routeToken: string): void;
+  unregisterRouteToken(routeToken: string, tenantId?: TenantId): void;
+  resolveRouteToken(routeToken: string): DaemonRouteTarget | null;
   closeTenant(tenantId: string): Promise<void>;
   closeAll(): Promise<void>;
 }
@@ -63,6 +71,7 @@ const DEFAULT_IDLE_TIMEOUT_MS = 60_000;
 
 export class DefaultTenantRuntimeRegistry implements TenantRuntimeRegistry {
   private readonly entries = new Map<TenantId, RuntimeEntry>();
+  private readonly routeTokenIndex = new Map<string, DaemonRouteTarget>();
   private readonly idleTimeoutMs: number;
   private readonly runtimeFactory: (options: RuntimeContainerOptions) => RuntimeContainer;
   private readonly runtimeOptions: Omit<RuntimeContainerOptions, "tenantId" | "dbPath" | "dataRoot" | "logger">;
@@ -137,6 +146,24 @@ export class DefaultTenantRuntimeRegistry implements TenantRuntimeRegistry {
     return this.trackActivity(tenantId, "runs");
   }
 
+  registerRouteToken(tenantId: TenantId, teamName: string, routeToken: string): void {
+    const existing = this.routeTokenIndex.get(routeToken);
+    if (existing && (existing.tenantId !== tenantId || existing.teamName !== teamName)) {
+      throw new Error("飞书 webhook routeToken 冲突");
+    }
+    this.routeTokenIndex.set(routeToken, { tenantId, teamName });
+  }
+
+  unregisterRouteToken(routeToken: string, tenantId?: TenantId): void {
+    const existing = this.routeTokenIndex.get(routeToken);
+    if (!existing || (tenantId && existing.tenantId !== tenantId)) return;
+    this.routeTokenIndex.delete(routeToken);
+  }
+
+  resolveRouteToken(routeToken: string): DaemonRouteTarget | null {
+    return this.routeTokenIndex.get(routeToken) ?? null;
+  }
+
   async closeTenant(rawTenantId: string): Promise<void> {
     const entry = this.entries.get(createTenantId(rawTenantId));
     if (entry) await this.closeEntry(entry);
@@ -195,6 +222,7 @@ export class DefaultTenantRuntimeRegistry implements TenantRuntimeRegistry {
           dataRoot: paths.dataRoot,
           ...(this.logger ? { logger: this.logger } : {}),
         });
+        container.daemon.setRuntimeRegistry(this, tenantId);
         container.backgroundTasks.setOnTaskCompleted((sessionId) => {
           this.forTenant(tenantId).agentExecution.triggerBgNotificationRun(sessionId);
         });

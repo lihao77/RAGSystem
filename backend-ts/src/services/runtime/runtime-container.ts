@@ -1,8 +1,10 @@
 import { createAgentExecutionService, type AgentExecutionService } from "../agent/execution/index.js";
 import type { AgentExecutionLogger } from "../agent/execution/index.js";
 import { AgentDelegationService } from "../agent/delegation/index.js";
+import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
+import { createUserId } from "../../identity/types.js";
 import { BackgroundTaskService } from "./background-task-service.js";
 import { SessionNotificationQueue } from "./session-notification-queue.js";
 import { AgentConfigService } from "../agent/config/index.js";
@@ -243,6 +245,16 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
       systemConfig,
     ),
     ...(options.hooks ? { hooks: options.hooks } : {}),
+  });
+  daemon.setRunAgentTask(async (input) => {
+    const result = await agentExecution.executeSynchronously({
+      task: input.task,
+      session_id: input.sessionId,
+      agent: input.entryAgent,
+      userId: createUserId("usr_daemon"),
+    }, randomUUID());
+    if (!result.success) throw new Error(result.error ?? "agent 执行失败");
+    return result.answer ?? "";
   });
   agentDelegation.setRunEngine(() => agentExecution.runEngine);
   // 后台任务完成 → 自动拉起 system run（通道 A）。lazy 绑定打破 backgroundTasks ↔ agentExecution 循环。

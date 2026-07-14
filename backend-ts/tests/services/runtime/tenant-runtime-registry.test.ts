@@ -16,6 +16,16 @@ const TENANT_A = createTenantId("tnt_a");
 const TENANT_B = createTenantId("tnt_b");
 
 describe("TenantRuntimeRegistry 多租户隔离", () => {
+  it("全局反查并注销 daemon routeToken", async () => {
+    const harness = createRegistryHarness();
+    harness.registry.registerRouteToken(TENANT_A, "default", "route-token");
+    expect(harness.registry.resolveRouteToken("route-token")).toEqual({ tenantId: TENANT_A, teamName: "default" });
+    harness.registry.unregisterRouteToken("route-token", TENANT_A);
+    expect(harness.registry.resolveRouteToken("route-token")).toBeNull();
+    await harness.registry.closeAll();
+    harness.controlStore.close();
+  });
+
   it("为两个租户创建独立目录、数据库与同名资源", async () => {
     const harness = createRegistryHarness();
     const [leaseA, leaseB] = await Promise.all([harness.registry.acquire(TENANT_A), harness.registry.acquire(TENANT_B)]);

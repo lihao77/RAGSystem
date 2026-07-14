@@ -20,6 +20,7 @@
     "@fastify/cors": "^10.0.0",
     "@fastify/multipart": "^9.4.0",
     "@fastify/websocket": "^11.0.0",
+    "@larksuiteoapi/node-sdk": "^1.71.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@ragsystem/agent-llm": "*",
     "@ragsystem/agent-protocol": "*",

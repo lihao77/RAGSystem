@@ -311,6 +311,7 @@ function requiresTenantRuntime(url: string, method: string): boolean {
     && pathname !== "/api/auth/login"
     && pathname !== "/api/auth/switch-tenant"
     && pathname !== "/api/auth/me"
+    && !pathname.startsWith("/api/daemon/webhook/")
     && pathname !== "/api/widget/auth/token"
     && pathname !== "/api/admin"
     && !pathname.startsWith("/api/admin/")

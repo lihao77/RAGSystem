@@ -40,7 +40,7 @@ describe("管理中心租户角色权限", () => {
     await expectStatus(harness, memberToken, "GET", "/api/embedding-models/models", 200);
     await expectStatus(harness, memberToken, "GET", "/api/mcp/tools", 200);
     await expectStatus(harness, memberToken, "GET", "/api/skills", 200);
-    await expectStatus(harness, memberToken, "GET", "/api/daemon/status", 200);
+    await expectStatus(harness, memberToken, "GET", "/api/daemon/config", 403);
     await expectStatus(harness, memberToken, "GET", "/api/agent/analytics/token-trend", 403);
     await expectStatus(harness, memberToken, "GET", "/api/widget/apps", 403);
 
@@ -61,12 +61,12 @@ describe("管理中心租户角色权限", () => {
     expect(execute.statusCode).not.toBe(403);
 
     await expectStatus(harness, adminToken, "POST", "/api/agent/agents/reload", 200, {});
-    await expectStatus(harness, adminToken, "PUT", "/api/daemon/config", 200, { default_session_ttl: 0 });
+    await expectStatus(harness, adminToken, "PUT", "/api/daemon/config", 200, { enabled: false, agents: [], default_session_ttl: 86400 });
     await expectStatus(harness, adminToken, "GET", "/api/permissions/policy", 200);
     await expectStatus(harness, adminToken, "GET", "/api/agent/analytics/token-trend", 200);
     await expectStatus(harness, adminToken, "PUT", "/api/permissions/mode", 403, { mode: "standard" });
     await expectStatus(harness, adminToken, "PATCH", "/api/system-config", 403, {});
-    await expectStatus(harness, adminToken, "POST", "/api/daemon/start", 403, {});
+    await expectStatus(harness, adminToken, "POST", "/api/daemon/start", 404, {});
 
     await expectStatus(harness, adminToken, "POST", "/api/model-adapter/providers", 200, {
       name: "Role Provider",
@@ -114,8 +114,8 @@ describe("管理中心租户角色权限", () => {
 
     await expectStatus(harness, ownerToken, "PUT", "/api/permissions/mode", 200, { mode: "standard" });
     await expectStatus(harness, ownerToken, "PATCH", "/api/system-config", 200, {});
-    await expectStatus(harness, ownerToken, "POST", "/api/daemon/start", 200, {});
-    await expectStatus(harness, ownerToken, "POST", "/api/daemon/stop", 200, {});
+    await expectStatus(harness, ownerToken, "POST", "/api/daemon/start", 404, {});
+    await expectStatus(harness, ownerToken, "POST", "/api/daemon/stop", 404, {});
     await expectStatus(harness, ownerToken, "POST", `/api/widget/apps/${appKey}/rotate-secret`, 200, {});
   });
 });
