@@ -203,6 +203,85 @@ describe("bot 自动化执行引擎", () => {
     harness.close();
   });
 
+  it("自动调度只串行触发 active bot 已启用且到期的任务", async () => {
+    const executionOrder: string[] = [];
+    let activeExecutions = 0;
+    let maxActiveExecutions = 0;
+    const runAgentTask = vi.fn(async ({ task }: { task: string }) => {
+      activeExecutions += 1;
+      maxActiveExecutions = Math.max(maxActiveExecutions, activeExecutions);
+      executionOrder.push(task);
+      await Promise.resolve();
+      activeExecutions -= 1;
+      return `result:${task}`;
+    });
+    const harness = createEngineHarness(runAgentTask);
+    const now = 1_700_000_000;
+    for (const [taskId, enabled, nextRun] of [
+      ["due-a", true, now - 2],
+      ["due-b", true, now - 1],
+      ["future", true, now + 60],
+      ["disabled", false, now - 1],
+    ] as const) {
+      harness.controlStore.createBotCronTask(harness.botId, {
+        task_id: taskId,
+        cron: "* * * * *",
+        task: taskId,
+        entry_agent: null,
+        enabled,
+        push_platform: null,
+        push_chat_id: null,
+        next_run: nextRun,
+      });
+    }
+
+    await runDueTasks(harness.engine, now);
+
+    expect(executionOrder).toEqual(["due-a", "due-b"]);
+    expect(maxActiveExecutions).toBe(1);
+    expect(harness.controlStore.getBotCronTask(harness.botId, "due-a")?.next_run).toBeGreaterThan(now);
+    expect(harness.controlStore.getBotCronTask(harness.botId, "future")?.last_run).toBeNull();
+    expect(harness.controlStore.getBotCronTask(harness.botId, "disabled")?.last_run).toBeNull();
+
+    harness.controlStore.updateBotCronTask(harness.botId, "future", { next_run: now - 1 });
+    harness.controlStore.setUserStatus(harness.botId, "disabled");
+    await runDueTasks(harness.engine, now);
+    expect(executionOrder).toEqual(["due-a", "due-b"]);
+    harness.close();
+  });
+
+  it("自动调度隔离单任务失败并继续推进后续任务", async () => {
+    const runAgentTask = vi.fn(async ({ task }: { task: string }) => {
+      if (task === "fail") throw new Error("scheduled failure");
+      return "ok";
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const harness = createEngineHarness(runAgentTask);
+    const now = 1_700_000_000;
+    for (const taskId of ["a-fail", "b-ok"]) {
+      harness.controlStore.createBotCronTask(harness.botId, {
+        task_id: taskId,
+        cron: "* * * * *",
+        task: taskId === "a-fail" ? "fail" : "ok",
+        entry_agent: null,
+        enabled: true,
+        push_platform: null,
+        push_chat_id: null,
+        next_run: now - 1,
+      });
+    }
+
+    await runDueTasks(harness.engine, now);
+
+    expect(runAgentTask).toHaveBeenCalledTimes(2);
+    expect(harness.controlStore.getBotCronTask(harness.botId, "a-fail")?.last_result).toContain("scheduled failure");
+    expect(harness.controlStore.getBotCronTask(harness.botId, "a-fail")?.next_run).toBeGreaterThan(now);
+    expect(harness.controlStore.getBotCronTask(harness.botId, "b-ok")?.last_result).toBe("ok");
+    expect(errorSpy).toHaveBeenCalledOnce();
+    errorSpy.mockRestore();
+    harness.close();
+  });
+
   it("start 遍历 control-store 中已启用飞书 bot", () => {
     const harness = createEngineHarness(async () => "ok", false);
     configureFeishu(harness.controlStore, harness.botId, "long_connection");
@@ -230,6 +309,10 @@ function createEngineHarness(runAgentTask: DaemonRunAgentTask, start = true) {
   const engine = new DaemonService({ controlStore, registry, runAgentTask });
   if (start) engine.start();
   return { tenantId, botId, controlStore, engine, registry, close: () => { engine.close(); controlStore.close(); } };
+}
+
+function runDueTasks(engine: DaemonService, now: number): Promise<void> {
+  return (engine as unknown as { runDueTasks(timestamp: number): Promise<void> }).runDueTasks(now);
 }
 
 function configureFeishu(controlStore: ControlStore, botId: UserId, receiveMode: "webhook" | "long_connection"): void {

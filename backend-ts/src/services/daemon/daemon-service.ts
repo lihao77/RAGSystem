@@ -63,6 +63,8 @@ export interface DaemonServiceOptions {
 export class DaemonService {
   private readonly states = new Map<UserId, BotRuntimeState>();
   private started = false;
+  private schedulerTimer: NodeJS.Timeout | null = null;
+  private schedulerRunning = false;
 
   constructor(private readonly options: DaemonServiceOptions) {}
 
@@ -70,6 +72,7 @@ export class DaemonService {
     if (this.started) return;
     this.started = true;
     for (const config of this.options.controlStore.getAllEnabledFeishuBots()) this.rebuildBot(config);
+    this.startScheduler();
   }
 
   reloadBot(botId: UserId): void {
@@ -161,7 +164,11 @@ export class DaemonService {
     } catch (error) {
       const now = Date.now() / 1000;
       const message = error instanceof Error ? error.message : String(error);
-      this.options.controlStore.updateBotCronTask(botId, taskId, { last_run: now, last_result: `ERROR: ${message}` });
+      this.options.controlStore.updateBotCronTask(botId, taskId, {
+        last_run: now,
+        next_run: computeNextRun(task.cron),
+        last_result: `ERROR: ${message}`,
+      });
       this.recordCronHistory(state, taskId, { timestamp: now, success: false, result: "", error: message, elapsed: (Date.now() - startedAt) / 1000 });
       throw new DaemonServiceError(400, message);
     }
@@ -172,9 +179,35 @@ export class DaemonService {
   }
 
   close(): void {
+    if (this.schedulerTimer) clearInterval(this.schedulerTimer);
+    this.schedulerTimer = null;
+    this.schedulerRunning = false;
     for (const state of this.states.values()) this.disposeState(state);
     this.states.clear();
     this.started = false;
+  }
+
+  private async runDueTasks(now: number): Promise<void> {
+    const tasks = this.options.controlStore.listDueCronTasks(now);
+    for (const { botId, taskId } of tasks) {
+      try {
+        await this.triggerBotCronTask(botId, taskId);
+      } catch (error) {
+        console.error(`[daemon][cron][${botId}/${taskId}] 自动调度失败`, error);
+      }
+    }
+  }
+
+  private startScheduler(): void {
+    if (this.schedulerTimer) return;
+    this.schedulerTimer = setInterval(() => {
+      if (this.schedulerRunning) return;
+      this.schedulerRunning = true;
+      void this.runDueTasks(Date.now() / 1000).finally(() => {
+        this.schedulerRunning = false;
+      });
+    }, 60_000);
+    this.schedulerTimer.unref();
   }
 
   private ensureState(botId: UserId): BotRuntimeState {

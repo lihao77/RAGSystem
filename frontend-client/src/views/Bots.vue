@@ -154,7 +154,7 @@
             <div class="card-heading-row">
               <div>
                 <CardTitle>定时任务</CardTitle>
-                <CardDescription>Cron 任务保存在机器人配置中，当前支持手动触发。</CardDescription>
+                <CardDescription>任务保存后按计划自动执行，也可手动触发。</CardDescription>
               </div>
               <Button size="sm" @click="openCronDialog()">
                 <IconPlus data-icon="inline-start" />
@@ -244,7 +244,7 @@
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{{ editingCronId ? '编辑定时任务' : '新建定时任务' }}</DialogTitle>
-          <DialogDescription>使用标准五段 Cron 表达式；自动调度将在后续版本启用。</DialogDescription>
+          <DialogDescription>使用标准五段 Cron 表达式；任务保存后按计划自动执行，也可手动触发。</DialogDescription>
         </DialogHeader>
         <div class="dialog-form form-grid">
           <div class="form-item"><label>任务 ID</label><Input v-model="cronForm.task_id" :disabled="Boolean(editingCronId)" /></div>

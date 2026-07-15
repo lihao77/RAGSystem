@@ -160,6 +160,26 @@ describe("ControlStore", () => {
     store.close();
   });
 
+  it("只列出 active bot 已启用且到期的 Cron 任务", () => {
+    const store = createControlStore(makeSystemRoot());
+    const tenantId = createTenantId("tnt_cron");
+    const ownerId = createUserId("usr_cron_owner");
+    store.createTenant({ id: tenantId, displayName: "Cron Tenant" });
+    store.createUser({ id: ownerId, displayName: "Cron Owner" });
+    store.upsertMembership({ userId: ownerId, tenantId, role: "owner" });
+    const bot = store.createBot({ tenantId, ownerId, displayName: "Cron Bot" });
+    const now = 1_700_000_000;
+
+    store.createBotCronTask(bot.id, cronTask("due", true, now - 1));
+    store.createBotCronTask(bot.id, cronTask("future", true, now + 60));
+    store.createBotCronTask(bot.id, cronTask("disabled", false, now - 1));
+
+    expect(store.listDueCronTasks(now)).toEqual([{ botId: bot.id, taskId: "due" }]);
+    store.setUserStatus(bot.id, "disabled");
+    expect(store.listDueCronTasks(now)).toEqual([]);
+    store.close();
+  });
+
   it("隔离用户凭据并支持 session 与 settings", () => {
     const store = createControlStore(makeSystemRoot());
     const tenantId = createTenantId("tnt_acme");
@@ -259,4 +279,17 @@ function makeSystemRoot(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-control-store-"));
   tempRoots.push(root);
   return path.join(root, "system");
+}
+
+function cronTask(taskId: string, enabled: boolean, nextRun: number) {
+  return {
+    task_id: taskId,
+    cron: "* * * * *",
+    task: taskId,
+    entry_agent: null,
+    enabled,
+    push_platform: null,
+    push_chat_id: null,
+    next_run: nextRun,
+  };
 }
