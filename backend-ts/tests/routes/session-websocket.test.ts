@@ -174,6 +174,11 @@ describe("session websocket route", () => {
     const approvalPromise = harness.container.pendingInteractions.waitForApproval({
       sessionId: "ws-approval-session",
       runId: "run-approval",
+      rootRunId: "run-approval",
+      parentRunId: null,
+      parentCallId: null,
+      toolCallId: "tool-call-approval",
+      deadlineMs: 120_000,
       toolName: "execute_bash",
       description: "Run command",
     });

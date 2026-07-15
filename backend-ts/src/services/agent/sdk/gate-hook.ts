@@ -10,10 +10,10 @@
  * ask 时阻塞等用户审批；approve 记录候选路径供工具 call 放行（替代原 ctx.approvedExternalPaths 链）。
  */
 import type { HookRegistry, ToolExecContext } from "@ragsystem/agent-sdk";
-import { isAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
+import { isAbortError, RecoverableInterrupt, throwIfAborted } from "@ragsystem/agent-protocol";
 import type { RiskLevel } from "../../../contracts/permissions.js";
 import type { PermissionPolicyService, RuntimeToolApprovalInput } from "../../runtime/permission-policy-service.js";
-import type { PendingInteractionService, PendingApprovalRequest } from "../../runtime/pending-interaction-service.js";
+import { resolveInteractionDeadlineMs, type PendingInteractionService, type PendingApprovalRequest } from "../../runtime/pending-interaction-service.js";
 import type { PathApprovalService } from "../../runtime/path-service.js";
 
 export interface GateHookDeps {
@@ -49,8 +49,15 @@ export function registerGateHook(hooks: HookRegistry, deps: GateHookDeps): void 
     }
     // ask：阻塞等用户审批
     throwIfAborted(input.ctx.signal, "Agent run aborted");
+    const runContext = requireRunContext(input.ctx);
     const pendingRequest: PendingApprovalRequest = {
       sessionId: requireSessionId(input.ctx),
+      runId: runContext.runId,
+      rootRunId: runContext.rootRunId,
+      parentRunId: runContext.parentRunId,
+      parentCallId: runContext.parentCallId,
+      toolCallId: runContext.toolCallId,
+      deadlineMs: resolveInteractionDeadlineMs(input.ctx.executionKind),
       agentName: deps.agentName,
       approvalType: "tool_execution",
       toolName: input.toolName,
@@ -62,10 +69,8 @@ export function registerGateHook(hooks: HookRegistry, deps: GateHookDeps): void 
       ...(decision.reasonCodes.length ? { approvalReasonCodes: decision.reasonCodes } : {}),
       ...(decision.secondaryReasons.length ? { approvalSecondaryReasons: decision.secondaryReasons } : {}),
       ...(candidatePaths.length ? { externalPathCandidates: candidatePaths } : {}),
-      runId: input.ctx.runId ?? undefined,
       taskId: input.ctx.taskId ?? undefined,
       requestId: input.ctx.requestId ?? undefined,
-      toolCallId: input.ctx.toolCallId ?? undefined,
       ...(input.ctx.signal ? { signal: input.ctx.signal } : {}),
     };
     let resolution;
@@ -73,6 +78,7 @@ export function registerGateHook(hooks: HookRegistry, deps: GateHookDeps): void 
       resolution = await deps.pendingInteractions.waitForApproval(pendingRequest);
     } catch (error) {
       if (isAbortError(error) || input.ctx.signal?.aborted) { throw error; }
+      if (error instanceof RecoverableInterrupt) { throw error; }
       return { decision: "deny" as const, reason: `审批流程异常: ${error instanceof Error ? error.message : String(error)}` };
     }
     if (!resolution.approved) {
@@ -96,4 +102,22 @@ function normalizeRiskLevel(value: string): RiskLevel | undefined {
 function requireSessionId(ctx: ToolExecContext): string {
   if (!ctx.sessionId) { throw new Error("审批交互需要 session_id"); }
   return ctx.sessionId;
+}
+
+function requireRunContext(ctx: ToolExecContext): {
+  runId: string;
+  rootRunId: string;
+  parentRunId: string | null;
+  parentCallId: string | null;
+  toolCallId: string;
+} {
+  if (!ctx.runId) { throw new Error("审批交互需要 run_id"); }
+  if (!ctx.toolCallId) { throw new Error("审批交互需要 tool_call_id"); }
+  return {
+    runId: ctx.runId,
+    rootRunId: ctx.rootRunId ?? ctx.runId,
+    parentRunId: ctx.parentRunId ?? null,
+    parentCallId: ctx.runParentCallId ?? null,
+    toolCallId: ctx.toolCallId,
+  };
 }

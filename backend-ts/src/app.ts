@@ -103,6 +103,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
             session_id: input.sessionId,
             agent: input.entryAgent,
             userId: input.botId,
+            executionKind: input.source,
           }, randomUUID());
           if (!result.success) throw new Error(result.error ?? "agent 执行失败");
           return result.answer ?? "";

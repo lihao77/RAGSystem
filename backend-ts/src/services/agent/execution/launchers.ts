@@ -285,12 +285,13 @@ class AgentLaunchers {
     }
 
     const runtimeAgent = ready.agent;
+    const executionKind = request.executionKind?.trim() || "execute";
     const started = this.runEngine.startRun({
       sessionId,
       userId: request.userId,
       requestId,
       task,
-      executionKind: "execute",
+      executionKind,
       entrypoint: "execute",
       agent: runtimeAgent,
       provider: ready.provider,
@@ -300,7 +301,7 @@ class AgentLaunchers {
         metadata: {
           agent: runtimeAgent.agent_name,
           request_id: requestId,
-          execution_kind: "execute",
+          execution_kind: executionKind,
         },
       },
     });

@@ -1,13 +1,22 @@
 import { describe, expect, it } from "vitest";
 
+import { RecoverableInterrupt } from "@ragsystem/agent-protocol";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
+import { resolveInteractionDeadlineMs } from "../../src/services/runtime/pending-interaction-service.js";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 describe("PendingInteractionService", () => {
+  it("daemon 来源立即挂起，交互来源默认等待两分钟", () => {
+    expect(resolveInteractionDeadlineMs("daemon")).toBe(0);
+    expect(resolveInteractionDeadlineMs("daemon.cron")).toBe(0);
+    expect(resolveInteractionDeadlineMs("daemon.webhook")).toBe(0);
+    expect(resolveInteractionDeadlineMs("agent_stream")).toBe(120_000);
+  });
+
   it("resolves approval interactions through the generic interaction response path", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
@@ -19,9 +28,13 @@ describe("PendingInteractionService", () => {
     const approvalPromise = service.waitForApproval({
       sessionId: "s1",
       runId: "run-1",
+      rootRunId: "run-1",
+      parentRunId: null,
+      parentCallId: null,
       taskId: "task-1",
       requestId: "req-1",
       toolCallId: "tool-call-1",
+      deadlineMs: 120_000,
       toolName: "execute_bash",
       arguments: { command: "echo ok" },
       riskLevel: "high",
@@ -126,6 +139,70 @@ describe("PendingInteractionService", () => {
       { eventType: "client.interaction", status: "delivered", sessionSeq: 1 },
       { eventType: "client.interaction", status: "delivered", sessionSeq: 2 },
     ]);
+    store.close();
+  });
+
+  it("命中 approvalCache 后一次消费且不发布 required 事件", async () => {
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    const realtimeEvents = new RealtimeEventHub();
+    const dispatcher = new OutboxDispatcher(store, realtimeEvents);
+    const service = new PendingInteractionService(new DurableClientEventPublisher(store, dispatcher));
+    store.createSession(LOCAL_TENANT_ID, "s-cache", "usr_local");
+    service.setApprovalCache("s-cache", "tool-cache", { approved: true, message: "已缓存批准" });
+
+    await expect(service.waitForApproval({
+      sessionId: "s-cache",
+      runId: "run-cache",
+      rootRunId: "run-cache",
+      parentRunId: null,
+      parentCallId: null,
+      toolCallId: "tool-cache",
+      deadlineMs: 0,
+      toolName: "execute_bash",
+    })).resolves.toMatchObject({ approved: true, message: "已缓存批准" });
+    expect(realtimeEvents.getHistory("s-cache")).toEqual([]);
+
+    const secondWait = service.waitForApproval({
+      sessionId: "s-cache",
+      runId: "run-cache",
+      rootRunId: "run-cache",
+      parentRunId: null,
+      parentCallId: null,
+      toolCallId: "tool-cache",
+      deadlineMs: 0,
+      toolName: "execute_bash",
+    });
+    await expect(secondWait).rejects.toMatchObject({
+      sessionId: "s-cache",
+      runId: "run-cache",
+      rootRunId: "run-cache",
+      toolCallId: "tool-cache",
+      kind: "approval",
+    } satisfies Partial<RecoverableInterrupt>);
+    const approvalId = realtimeEvents.getHistory("s-cache")[0]?.call_id ?? "";
+    expect(service.isApprovalPending("s-cache", approvalId)).toBe(false);
+    store.close();
+  });
+
+  it("user_input 缓存命中后直接返回且不进入等待", async () => {
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    const realtimeEvents = new RealtimeEventHub();
+    const dispatcher = new OutboxDispatcher(store, realtimeEvents);
+    const service = new PendingInteractionService(new DurableClientEventPublisher(store, dispatcher));
+    store.createSession(LOCAL_TENANT_ID, "s-input-cache", "usr_local");
+    service.setApprovalCache("s-input-cache", "tool-input", { value: "缓存输入" });
+
+    await expect(service.waitForUserInput({
+      sessionId: "s-input-cache",
+      runId: "run-input",
+      rootRunId: "run-input",
+      parentRunId: null,
+      parentCallId: null,
+      toolCallId: "tool-input",
+      deadlineMs: 0,
+      prompt: "请输入",
+    })).resolves.toMatchObject({ value: "缓存输入" });
+    expect(realtimeEvents.getHistory("s-input-cache")).toEqual([]);
     store.close();
   });
 });

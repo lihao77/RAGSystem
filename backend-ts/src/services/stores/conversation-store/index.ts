@@ -80,6 +80,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     createChildAgent: childAgents.createChildAgent.bind(childAgents),
     listChildAgents: childAgents.listChildAgents.bind(childAgents),
     getChildAgent: childAgents.getChildAgent.bind(childAgents),
+    findChildAgentByCreator: childAgents.findChildAgentByCreator.bind(childAgents),
     updateChildAgentLastRun: childAgents.updateChildAgentLastRun.bind(childAgents),
 
     /** 跨域：按 child agent 的 thread_key 取最近消息。 */

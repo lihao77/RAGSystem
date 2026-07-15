@@ -111,6 +111,25 @@ export class ChildAgentOps implements IChildAgentStore {
     return row ? rowToChildAgent(row) : null;
   }
 
+  findChildAgentByCreator(input: {
+    sessionId: string;
+    createdByRunId: string;
+    createdByCallId: string;
+  }): ChildAgentInfo | null {
+    const row = this.db
+      .prepare(
+        `
+          SELECT ${CHILD_AGENT_SELECT_COLUMNS}
+          FROM child_agents
+          WHERE session_id=? AND created_by_run_id=? AND created_by_call_id=?
+          ORDER BY created_at DESC
+          LIMIT 1
+        `,
+      )
+      .get(input.sessionId, input.createdByRunId, input.createdByCallId) as ChildAgentRow | undefined;
+    return row ? rowToChildAgent(row) : null;
+  }
+
   updateChildAgentLastRun(input: {
     sessionId: string;
     childAgentId: string;

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import type { PendingInteractionService } from "../../services/runtime/pending-interaction-service.js";
+import { isAbortError, RecoverableInterrupt } from "@ragsystem/agent-protocol";
+import { resolveInteractionDeadlineMs, type PendingInteractionService } from "../../services/runtime/pending-interaction-service.js";
 import {
   readInputType,
   readOptions,
@@ -71,13 +72,20 @@ export function createRequestUserInputTools(deps: RequestUserInputToolDeps): Too
         if (!sessionId) {
           return toolError(REQUEST_USER_INPUT_TOOL_NAME, "request_user_input 缺少 session_id");
         }
+        if (!ctx.runId || !ctx.toolCallId) {
+          return toolError(REQUEST_USER_INPUT_TOOL_NAME, "request_user_input 缺少 run_id 或 tool_call_id");
+        }
         try {
           const resolution = await deps.pendingInteractions!.waitForUserInput({
             sessionId,
             runId: ctx.runId,
+            rootRunId: ctx.rootRunId ?? ctx.runId,
+            parentRunId: ctx.parentRunId ?? null,
+            parentCallId: ctx.runParentCallId ?? null,
             taskId: ctx.taskId,
             requestId: ctx.requestId,
             toolCallId: ctx.toolCallId,
+            deadlineMs: resolveInteractionDeadlineMs(ctx.executionKind),
             agentName: ctx.currentAgentName ?? agent.agent_name,
             prompt,
             inputType: readInputType(input),
@@ -97,6 +105,8 @@ export function createRequestUserInputTools(deps: RequestUserInputToolDeps): Too
             },
           });
         } catch (error) {
+          if (isAbortError(error) || ctx.signal?.aborted) { throw error; }
+          if (error instanceof RecoverableInterrupt) { throw error; }
           return toolError(
             REQUEST_USER_INPUT_TOOL_NAME,
             `request_user_input 失败: ${error instanceof Error ? error.message : String(error)}`,

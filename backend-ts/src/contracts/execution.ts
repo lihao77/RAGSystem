@@ -52,7 +52,11 @@ export const UserInputRequestSchema = z.object({
 export const InteractionRequestSchema = InteractionResponsePayloadSchema;
 
 export type AttachmentRef = z.infer<typeof AttachmentRefSchema>;
-export type ExecuteRequest = z.infer<typeof ExecuteRequestSchema> & { userId: UserId };
+export type ExecuteRequest = z.infer<typeof ExecuteRequestSchema> & {
+  userId: UserId;
+  /** 内部调用来源；HTTP /execute 不接收该字段。 */
+  executionKind?: string;
+};
 export type StreamExecuteRequest = z.infer<typeof StreamExecuteRequestSchema> & { userId: UserId };
 export type StreamStopRequest = z.infer<typeof StreamStopRequestSchema>;
 export type CollaborateTask = z.infer<typeof CollaborateTaskSchema>;

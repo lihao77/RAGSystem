@@ -6,7 +6,7 @@ import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } fro
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
-import { EnvelopeSchema } from "@ragsystem/agent-protocol";
+import { EnvelopeSchema, RecoverableInterrupt } from "@ragsystem/agent-protocol";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
 import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
@@ -297,8 +297,8 @@ export class AgentRunEngine {
     finalMetadataExtra?: Record<string, unknown> | undefined;
     // 终态回调（替代直接耦合 statusTracker）：root 由 startRun 壳传绑定 statusTracker 的回调，
     // child 不传。executeRun 自己用 startedAt 算 execution_time，不依赖外部 status 对象。
-    onTerminal?: (finalStatus: "completed" | "failed" | "interrupted") => void;
-  }): Promise<{ content: string; success: boolean }> {
+    onTerminal?: (finalStatus: "completed" | "failed" | "interrupted" | "suspended") => void;
+  }): Promise<{ content: string; success: boolean; suspended?: boolean }> {
     // 性能监控落库:统一在此处采集(root/child 都走 executeRun),不挂 onTerminal——
     // child run 不绑 onTerminal,挂那里会漏采子智能体/委托调用。token/工具用量来自 executeRunWithSdk 返回值。
     const recordMetric = (
@@ -378,6 +378,11 @@ export class AgentRunEngine {
        },
      );
 
+      if (result.suspended) {
+        recordMetric("suspended", result.tokenUsage, result.toolCalls, null);
+        input.onTerminal?.("suspended");
+        return result;
+      }
       if (!result.success) {
         const interrupted = input.abortController.signal.aborted;
         if (!interrupted) {
@@ -409,8 +414,11 @@ export class AgentRunEngine {
       recordMetric("completed", result.tokenUsage, result.toolCalls, null);
       input.onTerminal?.("completed");
       return result;
-   } catch (error) {
-     const interrupted = input.abortController.signal.aborted;
+    } catch (error) {
+      if (error instanceof RecoverableInterrupt) {
+        throw error;
+      }
+      const interrupted = input.abortController.signal.aborted;
       const finalStatus = interrupted ? "interrupted" : "failed";
       const errorMessage = error instanceof Error ? error.message : String(error);
       const executionKind = input.executionKind ?? "agent_stream";

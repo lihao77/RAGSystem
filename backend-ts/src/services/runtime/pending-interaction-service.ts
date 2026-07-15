@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { RecoverableInterrupt } from "@ragsystem/agent-protocol";
 import type { Envelope } from "../../contracts/events.js";
 import type { ApprovalRequest, UserInputRequest } from "../../contracts/execution.js";
 import type { InteractionKind, InteractionResponsePayload } from "../../contracts/interactions.js";
@@ -7,10 +8,14 @@ import type { ClientEventPublisher } from "./event-outbox/client-event-publisher
 
 export interface PendingUserInputRequest {
   sessionId: string;
-  runId?: string | null | undefined;
+  runId: string;
+  rootRunId: string;
+  parentRunId: string | null;
+  parentCallId: string | null;
   taskId?: string | null | undefined;
   requestId?: string | null | undefined;
-  toolCallId?: string | null | undefined;
+  toolCallId: string;
+  deadlineMs: number;
   agentName?: string | null | undefined;
   prompt: string;
   inputType?: string | null | undefined;
@@ -27,10 +32,14 @@ export interface PendingUserInputResolution {
 
 export interface PendingApprovalRequest {
   sessionId: string;
-  runId?: string | null | undefined;
+  runId: string;
+  rootRunId: string;
+  parentRunId: string | null;
+  parentCallId: string | null;
   taskId?: string | null | undefined;
   requestId?: string | null | undefined;
-  toolCallId?: string | null | undefined;
+  toolCallId: string;
+  deadlineMs: number;
   agentName?: string | null | undefined;
   approvalType?: string | null | undefined;
   toolName: string;
@@ -62,6 +71,17 @@ export interface PendingInteractionResolutionResult {
   error?: string | undefined;
 }
 
+export type ApprovalCacheResolution =
+  | { approved: boolean; message: string }
+  | { value: string };
+
+export const DEFAULT_INTERACTION_DEADLINE_MS = 120_000;
+
+/** daemon 类 run 不占用 lease 等待交互，其余对话 run 默认等待两分钟。 */
+export function resolveInteractionDeadlineMs(executionKind: string | null | undefined): number {
+  return executionKind?.startsWith("daemon") ? 0 : DEFAULT_INTERACTION_DEADLINE_MS;
+}
+
 interface PendingInputEntry {
   sessionId: string;
   inputId: string;
@@ -84,8 +104,14 @@ interface PendingApprovalEntry {
 export class PendingInteractionService {
   private readonly pendingInputs = new Map<string, PendingInputEntry>();
   private readonly pendingApprovals = new Map<string, PendingApprovalEntry>();
+  private readonly approvalCache = new Map<string, ApprovalCacheResolution>();
 
   constructor(private readonly clientEvents: ClientEventPublisher) {}
+
+  /** 恢复入口写入已完成的审批/输入结果；工具按 session+toolCallId 消费一次。 */
+  setApprovalCache(sessionId: string, toolCallId: string, resolution: ApprovalCacheResolution): void {
+    this.approvalCache.set(cacheKey(sessionId, toolCallId), resolution);
+  }
 
   waitForUserInput(input: PendingUserInputRequest): Promise<PendingUserInputResolution> {
     const sessionId = input.sessionId.trim();
@@ -96,13 +122,25 @@ export class PendingInteractionService {
       return Promise.reject(new Error("request_user_input cancelled"));
     }
 
+    const cached = this.takeApprovalCache(sessionId, input.toolCallId);
+    if (cached) {
+      if (!("value" in cached)) {
+        return Promise.reject(new Error("request_user_input 缓存结果类型不匹配"));
+      }
+      return Promise.resolve({
+        inputId: randomUUID(),
+        value: cached.value,
+        respondedAt: new Date().toISOString(),
+      });
+    }
+
     const inputId = randomUUID();
     const prompt = input.prompt.trim();
     const inputType = normalizeInputType(input.inputType);
     const options = input.options ?? [];
     const extra = input.extra ?? {};
 
-    const promise = new Promise<PendingUserInputResolution>((resolve, reject) => {
+    const respondPromise = new Promise<PendingUserInputResolution>((resolve, reject) => {
       const entry: PendingInputEntry = {
         sessionId,
         inputId,
@@ -135,7 +173,30 @@ export class PendingInteractionService {
     };
     this.publish(sessionId, interactionEvent);
 
-    return promise;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<PendingUserInputResolution>((_resolve, reject) => {
+      timeoutHandle = setTimeout(() => {
+        const entry = this.pendingInputs.get(inputId);
+        if (entry) {
+          this.pendingInputs.delete(inputId);
+          entry.abortListener?.();
+        }
+        reject(new RecoverableInterrupt({
+          sessionId,
+          runId: input.runId,
+          rootRunId: input.rootRunId,
+          parentRunId: input.parentRunId,
+          parentCallId: input.parentCallId,
+          toolCallId: input.toolCallId,
+          kind: "user_input",
+        }));
+      }, Math.max(0, input.deadlineMs));
+    });
+    return Promise.race([respondPromise, timeoutPromise]).finally(() => {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    });
   }
 
   respondUserInput(sessionId: string, inputId: string, payload: UserInputRequest): boolean {
@@ -162,8 +223,21 @@ export class PendingInteractionService {
       return Promise.reject(new Error("approval cancelled"));
     }
 
+    const cached = this.takeApprovalCache(sessionId, input.toolCallId);
+    if (cached) {
+      if (!("approved" in cached)) {
+        return Promise.reject(new Error("approval 缓存结果类型不匹配"));
+      }
+      return Promise.resolve({
+        approvalId: randomUUID(),
+        approved: cached.approved,
+        message: cached.message,
+        respondedAt: new Date().toISOString(),
+      });
+    }
+
     const approvalId = randomUUID();
-    const promise = new Promise<PendingApprovalResolution>((resolve, reject) => {
+    const respondPromise = new Promise<PendingApprovalResolution>((resolve, reject) => {
       const entry: PendingApprovalEntry = {
         sessionId,
         approvalId,
@@ -213,7 +287,30 @@ export class PendingInteractionService {
     };
     this.publish(sessionId, interactionEvent);
 
-    return promise;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<PendingApprovalResolution>((_resolve, reject) => {
+      timeoutHandle = setTimeout(() => {
+        const entry = this.pendingApprovals.get(approvalId);
+        if (entry) {
+          this.pendingApprovals.delete(approvalId);
+          entry.abortListener?.();
+        }
+        reject(new RecoverableInterrupt({
+          sessionId,
+          runId: input.runId,
+          rootRunId: input.rootRunId,
+          parentRunId: input.parentRunId,
+          parentCallId: input.parentCallId,
+          toolCallId: input.toolCallId,
+          kind: "approval",
+        }));
+      }, Math.max(0, input.deadlineMs));
+    });
+    return Promise.race([respondPromise, timeoutPromise]).finally(() => {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    });
   }
 
   respondApproval(sessionId: string, approvalId: string, payload: ApprovalRequest): boolean {
@@ -281,6 +378,12 @@ export class PendingInteractionService {
       entry.abortListener?.();
       entry.reject(new Error(reason));
     }
+    const cachePrefix = `${sessionId}:`;
+    for (const key of this.approvalCache.keys()) {
+      if (key.startsWith(cachePrefix)) {
+        this.approvalCache.delete(key);
+      }
+    }
   }
 
   isUserInputPending(sessionId: string, inputId: string): boolean {
@@ -317,6 +420,19 @@ export class PendingInteractionService {
     };
     this.publish(entry.sessionId, event);
   }
+
+  private takeApprovalCache(sessionId: string, toolCallId: string): ApprovalCacheResolution | null {
+    const key = cacheKey(sessionId, toolCallId);
+    const resolution = this.approvalCache.get(key) ?? null;
+    if (resolution) {
+      this.approvalCache.delete(key);
+    }
+    return resolution;
+  }
+}
+
+function cacheKey(sessionId: string, toolCallId: string): string {
+  return `${sessionId}:${toolCallId}`;
 }
 
 function normalizeInputType(value: string | null | undefined): string {

@@ -13,6 +13,104 @@ import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispat
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 describe("AgentDelegationService", () => {
+  it("call_agent 重执行时续原 suspended child run", async () => {
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    const realtimeEvents = new RealtimeEventHub();
+    const dispatcher = new OutboxDispatcher(store, realtimeEvents);
+    const clientEvents = new DurableClientEventPublisher(store, dispatcher);
+    const workerAgent = minimalAgent("worker_agent");
+    const parentAgent = minimalAgent("orchestrator_agent");
+    parentAgent.delegation.enabled_agents = ["worker_agent"];
+    const service = new AgentDelegationService(store, runtimeCoreStub(workerAgent), clientEvents);
+    store.createSession(LOCAL_TENANT_ID, "resume-session", null, { workspace_root: "E:/workspace" });
+    store.createRun({
+      sessionId: "resume-session",
+      runId: "parent-run",
+      status: "suspended",
+      agentName: "orchestrator_agent",
+    });
+    store.createChildAgent({
+      sessionId: "resume-session",
+      childAgentId: "child-resume",
+      agentName: "worker_agent",
+      threadKey: "child:child-resume",
+      createdByRunId: "parent-run",
+      createdByCallId: "tool-call-resume",
+      parentRunId: "parent-run",
+      parentCallId: "tool-call-resume",
+      lastRunId: "child-run",
+      metadata: { workspace_root: "E:/workspace", agent_call_id: "agent-call-original" },
+    });
+    store.createRun({
+      sessionId: "resume-session",
+      runId: "child-run",
+      status: "suspended",
+      agentName: "worker_agent",
+      threadKey: "child:child-resume",
+      parentRunId: "parent-run",
+      parentCallId: "agent-call-original",
+      childAgentId: "child-resume",
+    });
+    store.addMessage({
+      sessionId: "resume-session",
+      role: "assistant",
+      content: "等待审批",
+      threadKey: "child:child-resume",
+      childAgentId: "child-resume",
+      toolCalls: [{ id: "approval-tool", type: "function", function: { name: "execute_bash", arguments: "{}" } }],
+    });
+
+    const seenInputs: Array<Record<string, unknown>> = [];
+    const mockEngine = {
+      async executeRun(input: Record<string, unknown>) {
+        seenInputs.push(input);
+        expect(store.getRun("resume-session", "child-run")?.status).toBe("running");
+        return { content: "恢复完成", success: true };
+      },
+    } as unknown as AgentRunEngine;
+    service.setRunEngine(() => mockEngine);
+
+    const result = await service.callAgent({
+      agent: parentAgent,
+      teamName: null,
+      input: {
+        agentName: "worker_agent",
+        task: "继续原任务",
+        callId: "tool-call-resume",
+      },
+    }, toolContext({
+      sessionId: "resume-session",
+      runId: "parent-run",
+      rootRunId: "parent-run",
+      toolCallId: "tool-call-resume",
+      executionKind: "daemon.cron",
+      currentAgentName: "orchestrator_agent",
+      workspaceRoot: "E:/workspace",
+    }));
+
+    expect(result).toMatchObject({
+      success: true,
+      content: "恢复完成",
+      metadata: {
+        run_id: "child-run",
+        child_agent_id: "child-resume",
+        agent_call_id: "agent-call-original",
+      },
+    });
+    expect(seenInputs).toHaveLength(1);
+    expect(seenInputs[0]).toMatchObject({
+      runId: "child-run",
+      threadKey: "child:child-resume",
+      parentRunId: "parent-run",
+      rootCallId: "agent-call-original",
+      executionKind: "daemon.cron",
+    });
+    expect(store.listChildAgents({ sessionId: "resume-session" }).total).toBe(1);
+    expect(store.listMessages("resume-session", 20, 0, "child:child-resume").items).toHaveLength(1);
+    expect(realtimeEvents.getHistory("resume-session").filter((event) => event.type === "agent_started")).toEqual([]);
+    store.close();
+  });
+
   it("lists child agents and resumes an existing child thread with send_message", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createHookRegistry } from "@ragsystem/agent-sdk";
+import { RecoverableInterrupt } from "@ragsystem/agent-protocol";
 import type { ToolExecutionResult } from "@ragsystem/agent-sdk";
 
 // 纯 registry 聚合逻辑测试（不跑 runtime）。内核消费侧（tool.before deny 跳过工具等）
@@ -68,6 +69,28 @@ describe("HookRegistry aggregation", () => {
     expect(out.decision).toBe("deny");
     expect(Array.isArray(out.metadata?.hook_errors)).toBe(true);
     expect((out.metadata?.hook_errors as Array<{ message: string }>)[0]?.message).toBe("boom");
+  });
+
+  it("透传 RecoverableInterrupt 以挂起 run", async () => {
+    const hooks = createHookRegistry();
+    const interrupt = new RecoverableInterrupt({
+      sessionId: "s1",
+      runId: "r1",
+      rootRunId: "r1",
+      parentRunId: null,
+      parentCallId: null,
+      toolCallId: "t1",
+      kind: "approval",
+    });
+    hooks.on("tool.gate", async () => { throw interrupt; });
+
+    await expect(hooks.emit("tool.gate", {
+      toolName: "write_file",
+      arguments: {},
+      ctx: toolCtx,
+      riskLevel: "high",
+      access: null,
+    })).rejects.toBe(interrupt);
   });
 
   it("unsubscribe stops the handler", async () => {

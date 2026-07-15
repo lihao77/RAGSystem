@@ -148,6 +148,11 @@ export interface IChildAgentStore {
     limit?: number;
   }): { items: ChildAgentInfo[]; total: number };
   getChildAgent(sessionId: string, childAgentId: string): ChildAgentInfo | null;
+  findChildAgentByCreator(input: {
+    sessionId: string;
+    createdByRunId: string;
+    createdByCallId: string;
+  }): ChildAgentInfo | null;
   updateChildAgentLastRun(input: {
     sessionId: string;
     childAgentId: string;

@@ -21,6 +21,12 @@ describe("interaction response routes", () => {
 
     const approvalPromise = harness.container.pendingInteractions.waitForApproval({
       sessionId: "approval-route-session",
+      runId: "approval-route-run",
+      rootRunId: "approval-route-run",
+      parentRunId: null,
+      parentCallId: null,
+      toolCallId: "approval-route-tool-call",
+      deadlineMs: 120_000,
       toolName: "execute_bash",
       arguments: { command: "echo ok" },
       riskLevel: "high",

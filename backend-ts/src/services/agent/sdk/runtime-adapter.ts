@@ -8,7 +8,7 @@
 import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, resolveToolInstructionMode, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
 import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageRefresher } from "@ragsystem/agent-sdk";
 import type { ChatMessage } from "@ragsystem/agent-llm";
-import { translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
+import { RecoverableInterrupt, translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
@@ -92,6 +92,13 @@ export interface SdkExecuteRunInput {
 export interface SdkExecuteRunResult {
   content: string;
   success: boolean;
+  suspended?: boolean;
+  rootRunId?: string;
+  runId?: string;
+  parentRunId?: string | null;
+  parentCallId?: string | null;
+  toolCallId?: string;
+  interactionKind?: "approval" | "user_input";
   /** 本 run 各轮 LLM 调用累计的 token 用量(provider 未返回则为 0)。 */
   tokenUsage: { inputTokens: number; outputTokens: number };
   /** 本 run 的工具调用次数分布(toolName → count)。 */
@@ -114,6 +121,7 @@ export async function executeRunWithSdk(
     providers: deps.providers,
     ...(input.selectedLlm !== undefined ? { selectedLlm: input.selectedLlm } : {}),
   });
+  const rootRunId = resolveRootRunId(deps.conversationStore, input);
   // session metadata 端口：委托真实 ConversationStore，让 memory 源能读到 team/workspace_root，
   // 解析出 team/agent/workspace scope（否则只 session scope 存活，其余静默丢弃）。
   const sessionMetadata: SessionMetadataPort = {
@@ -145,6 +153,9 @@ export async function executeRunWithSdk(
   const baseExecCtx: ToolExecContext = {
     sessionId: input.sessionId,
     runId: input.runId,
+    rootRunId,
+    parentRunId: input.parentRunId ?? null,
+    runParentCallId: input.parentCallId ?? null,
     taskId: input.taskId,
     requestId: input.requestId,
     parentCallId: input.parentCallId ?? input.rootCallId,
@@ -153,6 +164,7 @@ export async function executeRunWithSdk(
     order: null,
     roundIndex: null,
     currentAgentName: input.agent.agent_name,
+    executionKind: input.executionKind ?? "agent_stream",
     workspaceRoot: asString(input.sessionMetadata.workspace_root) ?? asString(input.agent.custom_params.workspace_root),
     ...(input.signal ? { signal: input.signal } : {}),
   };
@@ -320,7 +332,9 @@ export async function executeRunWithSdk(
     ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
     ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
   });
-  persister.startRun();
+  if (!deps.conversationStore.getRun(input.sessionId, input.runId)) {
+    persister.startRun();
+  }
   const runtime = createRuntime(runtimeOpts);
   const handle = runtime.run({
     sessionId: input.sessionId,
@@ -351,6 +365,26 @@ export async function executeRunWithSdk(
     result = await handle.result;
   } catch (error) {
     await consumeEvents.catch(() => undefined);
+    if (error instanceof RecoverableInterrupt) {
+      persister.finalize("suspended", null);
+      runtime.close();
+      if (input.runId !== error.rootRunId) {
+        throw error;
+      }
+      return {
+        content: error.message,
+        success: false,
+        suspended: true,
+        rootRunId: error.rootRunId,
+        runId: error.runId,
+        parentRunId: error.parentRunId,
+        parentCallId: error.parentCallId,
+        toolCallId: error.toolCallId,
+        interactionKind: error.kind,
+        tokenUsage,
+        toolCalls,
+      };
+    }
     runtime.close();
     const interrupted = input.signal.aborted;
     // 终态合一落库：failed/interrupted 更新 run 状态；interrupted 补悬空 tool observation。
@@ -518,4 +552,18 @@ function toHostToolExecutionResult(toolName: string, resolution: DelegationResol
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** 沿 runs.parent_run_id 解析当前 run 所属执行树的根 run。 */
+function resolveRootRunId(store: ConversationStore, input: SdkExecuteRunInput): string {
+  let rootRunId = input.runId;
+  let parentRunId = input.parentRunId ?? null;
+  const visited = new Set<string>();
+  while (parentRunId && !visited.has(parentRunId)) {
+    visited.add(parentRunId);
+    rootRunId = parentRunId;
+    const parent = store.getRun(input.sessionId, parentRunId);
+    parentRunId = parent?.parent_run_id ?? null;
+  }
+  return rootRunId;
 }

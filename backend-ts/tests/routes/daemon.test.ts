@@ -132,7 +132,10 @@ describe("bot 自动化执行引擎", () => {
     app.botEngine.reloadBot(bot.id);
     const token = harness.controlStore.getBotRuntimeConfig(bot.id)!.feishu.route_token!;
     await app.botEngine.handleIncomingMessage(token, feishuMessage("om_runtime"));
-    await vi.waitFor(() => expect(execute).toHaveBeenCalledWith(expect.objectContaining({ userId: bot.id }), expect.any(String)));
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledWith(expect.objectContaining({
+      userId: bot.id,
+      executionKind: "daemon.feishu.incoming",
+    }), expect.any(String)));
     const sessionId = `bot-${bot.id}-feishu-oc_chat`;
     await vi.waitFor(() => expect(harness.container.sessionApplication.getSession(sessionId)?.permission_mode).toBe("relaxed"));
     await vi.waitFor(() => expect(harness.container.sessionApplication.getSession(sessionId)?.metadata).toMatchObject({ feishu: { sender_open_id: "ou_user" } }));

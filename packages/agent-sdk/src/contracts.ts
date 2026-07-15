@@ -202,6 +202,12 @@ export interface ToolProvider {
 export interface ToolExecContext {
   sessionId: string | null;
   runId: string | null;
+  /** 当前 run 所属执行树的根 run id。 */
+  rootRunId?: string | null;
+  /** 当前 run 的父 run id；root run 为 null。 */
+  parentRunId?: string | null;
+  /** 当前 run 在父 agent 下的调用 id；root run 为 null。 */
+  runParentCallId?: string | null;
   taskId: string | null;
   requestId: string | null;
   parentCallId: string | null;
@@ -212,6 +218,8 @@ export interface ToolExecContext {
   signal?: AbortSignal;
   /** 调用者来源（direct / code_execution / ...）。 */
   caller?: string;
+  /** run 入口来源；daemon* 用于交互工具立即挂起。 */
+  executionKind?: string;
   /** 当前 agent 名称。 */
   currentAgentName?: string | null;
   /** 工作空间根路径（文件类工具判断外部路径用）。 */
