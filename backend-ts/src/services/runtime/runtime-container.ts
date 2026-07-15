@@ -33,6 +33,7 @@ import { HostToolRegistry } from "./host-tool-registry.js";
 import { PendingInteractionService } from "./pending-interaction-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
 import { RuntimeCoreService } from "../agent/execution/runtime-core-service.js";
+import { createResumeExecutor, type ResumeExecutor } from "../agent/execution/resume-executor.js";
 import { SystemConfigService } from "../config/system-config-service.js";
 import { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
 import { KnowledgeBaseService, type KnowledgeBaseEmbedderFactory } from "../knowledge/knowledge-base-service.js";
@@ -50,6 +51,7 @@ export interface RuntimeContainer {
   readonly sessionApplication: AgentSessionApplication;
   readonly realtimeEvents: RealtimeEventHub;
   readonly agentExecution: AgentExecutionService;
+  readonly resumeExecutor: ResumeExecutor;
   /** 智能体性能指标采集器（/metrics 端点读其聚合结果）。 */
   readonly metricsCollector: AgentMetricsCollector;
   readonly permissionPolicy: PermissionPolicyService;
@@ -240,6 +242,12 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     ),
     ...(options.hooks ? { hooks: options.hooks } : {}),
   });
+  const resumeExecutor = createResumeExecutor({
+    runEngine: agentExecution.runEngine,
+    conversationStore,
+    pendingInteractions,
+    runtimeCore,
+  });
   agentDelegation.setRunEngine(() => agentExecution.runEngine);
   // 后台任务完成 → 自动拉起 system run（通道 A）。lazy 绑定打破 backgroundTasks ↔ agentExecution 循环。
   backgroundTasks.setOnTaskCompleted((sessionId) => agentExecution.triggerBgNotificationRun(sessionId));
@@ -265,6 +273,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     sessionApplication,
     realtimeEvents,
     agentExecution,
+    resumeExecutor,
     metricsCollector,
     permissionPolicy,
     agentConfig,

@@ -65,7 +65,7 @@ describe("交互工具挂起语义", () => {
       arguments: { command: "echo ok" },
       ctx: daemonToolContext(),
       riskLevel: "high",
-      access: { action: "ask", signals: {} },
+      access: { action: "ask", reason: "需要审批", signals: {} },
     })).rejects.toBe(interrupt);
     expect(waitForApproval).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: "session-1",

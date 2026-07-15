@@ -137,6 +137,7 @@ export class AgentDelegationService implements DelegationPort {
       resumeRunId: resumedRun?.run_id ?? null,
       entrypoint: "call_agent",
       executionKind: ctx.executionKind ?? "call_agent",
+      rootTask: ctx.rootTask ?? task,
       source: "agent_call",
       signal: ctx.signal,
       teamName: normalizeString(teamName),
@@ -218,6 +219,7 @@ export class AgentDelegationService implements DelegationPort {
       resumeRunId: null,
       entrypoint: "send_message",
       executionKind: ctx.executionKind ?? "send_message",
+      rootTask: ctx.rootTask ?? message,
       source: "agent_call",
       signal: ctx.signal,
       teamName: normalizeString(teamName),
@@ -303,6 +305,7 @@ export class AgentDelegationService implements DelegationPort {
     resumeRunId: string | null;
     entrypoint: "call_agent" | "send_message";
     executionKind: string;
+    rootTask: string;
     source: "agent_call";
     signal?: AbortSignal | undefined;
     teamName: string | null;
@@ -399,6 +402,7 @@ export class AgentDelegationService implements DelegationPort {
       parentRunId: input.parentRunId,
       childAgentId: input.childAgent.child_agent_id,
       executionKind: input.executionKind,
+      rootTask: input.rootTask,
     });
 
     return {

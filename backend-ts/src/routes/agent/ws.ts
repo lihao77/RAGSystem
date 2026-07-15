@@ -271,14 +271,28 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
             case "interaction": {
               const payload = message.payload;
               if (payload.kind === "approval") {
-                const ok = container.pendingInteractions.respondApproval(sessionId, message.call_id, {
+                const result = container.pendingInteractions.respondApproval(sessionId, message.call_id, {
                   approved: payload.approved ?? false,
                   message: payload.message,
                 });
-                sendAck("interaction", ok, { ref_call_id: message.call_id, ...(ok ? {} : { error: "未找到对应的审批请求，可能已被取消或不存在" }) });
+                if (result.needsResume) {
+                  container.resumeExecutor.resumeRun({
+                    sessionId,
+                    approvalId: message.call_id,
+                    resolution: { approved: payload.approved ?? false, message: payload.message ?? "" },
+                  });
+                }
+                sendAck("interaction", result.resolved, { ref_call_id: message.call_id, ...(result.resolved ? {} : { error: "未找到对应的审批请求，可能已被取消或不存在" }) });
               } else {
-                const ok = container.pendingInteractions.respondUserInput(sessionId, message.call_id, { value: payload.value });
-                sendAck("interaction", ok, { ref_call_id: message.call_id, ...(ok ? {} : { error: "未找到对应的输入请求，可能已被取消或不存在" }) });
+                const result = container.pendingInteractions.respondUserInput(sessionId, message.call_id, { value: payload.value });
+                if (result.needsResume) {
+                  container.resumeExecutor.resumeRun({
+                    sessionId,
+                    approvalId: message.call_id,
+                    resolution: { value: payload.value ?? "" },
+                  });
+                }
+                sendAck("interaction", result.resolved, { ref_call_id: message.call_id, ...(result.resolved ? {} : { error: "未找到对应的输入请求，可能已被取消或不存在" }) });
               }
               break;
             }

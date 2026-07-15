@@ -58,6 +58,8 @@ export function registerGateHook(hooks: HookRegistry, deps: GateHookDeps): void 
       parentCallId: runContext.parentCallId,
       toolCallId: runContext.toolCallId,
       deadlineMs: resolveInteractionDeadlineMs(input.ctx.executionKind),
+      task: input.ctx.rootTask ?? "",
+      executionKind: input.ctx.executionKind,
       agentName: deps.agentName,
       approvalType: "tool_execution",
       toolName: input.toolName,

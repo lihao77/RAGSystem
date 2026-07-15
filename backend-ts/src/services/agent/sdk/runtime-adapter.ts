@@ -79,6 +79,8 @@ export interface SdkExecuteRunInput {
   sessionMetadata: Record<string, unknown>;
   userId?: string | null;
   executionKind?: string;
+  /** 整棵执行树的根任务；child run 从父工具上下文继承。 */
+  rootTask?: string;
   signal: AbortSignal;
   /** selectLlm 解析结果（前端选定的 provider+model，整体替换 default 档）。 */
   selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
@@ -165,6 +167,7 @@ export async function executeRunWithSdk(
     roundIndex: null,
     currentAgentName: input.agent.agent_name,
     executionKind: input.executionKind ?? "agent_stream",
+    rootTask: input.rootTask ?? input.task,
     workspaceRoot: asString(input.sessionMetadata.workspace_root) ?? asString(input.agent.custom_params.workspace_root),
     ...(input.signal ? { signal: input.signal } : {}),
   };

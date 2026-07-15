@@ -76,6 +76,10 @@ export class AgentRunEngine {
 
   startRun(input: {
     sessionId: string;
+    runId?: string | undefined;
+    taskId?: string | undefined;
+    rootCallId?: string | undefined;
+    resume?: boolean | undefined;
     userId?: string | null;
     requestId: string;
     task: string;
@@ -98,10 +102,10 @@ export class AgentRunEngine {
     runStartExtra?: Record<string, unknown> | undefined;
     startStepExtra?: Record<string, unknown> | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
-  }): AgentRunStartResult & { promise: Promise<{ content: string; success: boolean }> } {
-    const runId = randomUUID();
-    const taskId = randomUUID();
-    const rootCallId = `call_${randomUUID()}`;
+  }): AgentRunStartResult & { promise: Promise<{ content: string; success: boolean; suspended?: boolean }> } {
+    const runId = input.runId ?? randomUUID();
+    const taskId = input.taskId ?? randomUUID();
+    const rootCallId = input.rootCallId ?? `call_${randomUUID()}`;
     const startedAt = new Date();
     const abortController = new AbortController();
     const status = buildRunningExecutionStatus({
@@ -116,7 +120,7 @@ export class AgentRunEngine {
 
     let userMessageSavedPayload = input.userMessageSavedPayload;
     let existingUserMessageId = input.existingUserMessageId;
-    if (input.persistUserMessage) {
+    if (!input.resume && input.persistUserMessage) {
       const userMessage = this.sessions.addMessage({
         sessionId: input.sessionId,
         role: "user",
@@ -138,30 +142,32 @@ export class AgentRunEngine {
       };
     }
 
-    this.eventPublisher.publishRunStarted(input.sessionId, runId, {
-      request_id: input.requestId,
-      task: input.task,
-      source: input.executionKind,
-    });
-    if (userMessageSavedPayload) {
-      this.eventPublisher.publishOutputMessageSaved(input.sessionId, runId, {
-        message_id: typeof userMessageSavedPayload.id === "string" ? userMessageSavedPayload.id : "",
-        ...(typeof userMessageSavedPayload.seq === "number" ? { seq: userMessageSavedPayload.seq } : {}),
-        ...(typeof userMessageSavedPayload.role === "string" ? { role: userMessageSavedPayload.role } : {}),
-        ...(input.requestId ? { request_id: input.requestId } : {}),
+    if (!input.resume) {
+      this.eventPublisher.publishRunStarted(input.sessionId, runId, {
+        request_id: input.requestId,
+        task: input.task,
+        source: input.executionKind,
+      });
+      if (userMessageSavedPayload) {
+        this.eventPublisher.publishOutputMessageSaved(input.sessionId, runId, {
+          message_id: typeof userMessageSavedPayload.id === "string" ? userMessageSavedPayload.id : "",
+          ...(typeof userMessageSavedPayload.seq === "number" ? { seq: userMessageSavedPayload.seq } : {}),
+          ...(typeof userMessageSavedPayload.role === "string" ? { role: userMessageSavedPayload.role } : {}),
+          ...(input.requestId ? { request_id: input.requestId } : {}),
+        });
+      }
+      this.eventPublisher.publishRootAgentStart({
+        sessionId: input.sessionId,
+        runId,
+        taskId,
+        requestId: input.requestId,
+        rootCallId,
+        parentCallId: null,
+        agent: input.agent,
+        task: input.task,
+        threadKey: "root",
       });
     }
-    this.eventPublisher.publishRootAgentStart({
-      sessionId: input.sessionId,
-      runId,
-      taskId,
-      requestId: input.requestId,
-      rootCallId,
-      parentCallId: null,
-      agent: input.agent,
-      task: input.task,
-      threadKey: "root",
-    });
 
     const promise = this.executeRun({
       sessionId: input.sessionId,
@@ -182,6 +188,7 @@ export class AgentRunEngine {
       ...(input.userId !== undefined ? { userId: input.userId } : {}),
       userMessageId: existingUserMessageId,
       executionKind: input.executionKind,
+      rootTask: input.task,
       finalMetadataExtra: input.finalMetadataExtra,
       onTerminal: (finalStatus) => this.statusTracker.finishStatus(status, finalStatus, startedAt),
     });
@@ -294,6 +301,7 @@ export class AgentRunEngine {
     userId?: string | null;
     userMessageId?: string | undefined;
     executionKind?: string | undefined;
+    rootTask?: string | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
     // 终态回调（替代直接耦合 statusTracker）：root 由 startRun 壳传绑定 statusTracker 的回调，
     // child 不传。executeRun 自己用 startedAt 算 execution_time，不依赖外部 status 对象。
@@ -369,7 +377,8 @@ export class AgentRunEngine {
          ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
          ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
          sessionMetadata,
-         ...(input.executionKind !== undefined ? { executionKind } : {}),
+          ...(input.executionKind !== undefined ? { executionKind } : {}),
+          ...(input.rootTask !== undefined ? { rootTask: input.rootTask } : {}),
           ...(input.userId !== undefined ? { userId: input.userId } : {}),
         signal: input.abortController.signal,
          selectedLlm: input.selectedLlm ?? null,

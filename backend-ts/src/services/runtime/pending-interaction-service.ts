@@ -16,6 +16,10 @@ export interface PendingUserInputRequest {
   requestId?: string | null | undefined;
   toolCallId: string;
   deadlineMs: number;
+  task: string;
+  executionKind?: string | undefined;
+  botId?: string | undefined;
+  chatId?: string | undefined;
   agentName?: string | null | undefined;
   prompt: string;
   inputType?: string | null | undefined;
@@ -40,6 +44,10 @@ export interface PendingApprovalRequest {
   requestId?: string | null | undefined;
   toolCallId: string;
   deadlineMs: number;
+  task: string;
+  executionKind?: string | undefined;
+  botId?: string | undefined;
+  chatId?: string | undefined;
   agentName?: string | null | undefined;
   approvalType?: string | null | undefined;
   toolName: string;
@@ -64,8 +72,12 @@ export interface PendingApprovalResolution {
 
 export interface PendingInteractionResolutionResult {
   resolved: boolean;
+  needsResume: boolean;
   kind: InteractionKind;
   interactionId: string;
+  rootRunId?: string | undefined;
+  approvalId?: string | undefined;
+  toolCallId?: string | undefined;
   approved?: boolean | undefined;
   message?: string | undefined;
   error?: string | undefined;
@@ -74,6 +86,30 @@ export interface PendingInteractionResolutionResult {
 export type ApprovalCacheResolution =
   | { approved: boolean; message: string }
   | { value: string };
+
+export interface ApprovalMeta {
+  approvalId: string;
+  sessionId: string;
+  toolCallId: string;
+  rootRunId: string;
+  runId: string;
+  kind: InteractionKind;
+  task: string;
+  requestId: string | null;
+  executionKind?: string | undefined;
+  botId?: string | undefined;
+  chatId?: string | undefined;
+}
+
+export interface PendingInteractionRespondResult {
+  resolved: boolean;
+  needsResume: boolean;
+  kind: InteractionKind;
+  interactionId: string;
+  rootRunId?: string | undefined;
+  approvalId?: string | undefined;
+  toolCallId?: string | undefined;
+}
 
 export const DEFAULT_INTERACTION_DEADLINE_MS = 120_000;
 
@@ -85,6 +121,7 @@ export function resolveInteractionDeadlineMs(executionKind: string | null | unde
 interface PendingInputEntry {
   sessionId: string;
   inputId: string;
+  runId: string;
   abortListener?: (() => void) | undefined;
   resolve(value: PendingUserInputResolution): void;
   reject(error: Error): void;
@@ -105,12 +142,28 @@ export class PendingInteractionService {
   private readonly pendingInputs = new Map<string, PendingInputEntry>();
   private readonly pendingApprovals = new Map<string, PendingApprovalEntry>();
   private readonly approvalCache = new Map<string, ApprovalCacheResolution>();
+  private readonly approvalMeta = new Map<string, ApprovalMeta>();
 
   constructor(private readonly clientEvents: ClientEventPublisher) {}
 
   /** 恢复入口写入已完成的审批/输入结果；工具按 session+toolCallId 消费一次。 */
   setApprovalCache(sessionId: string, toolCallId: string, resolution: ApprovalCacheResolution): void {
     this.approvalCache.set(cacheKey(sessionId, toolCallId), resolution);
+  }
+
+  /** 恢复执行器消费一次挂起凭证。 */
+  takeApprovalMeta(approvalId: string): ApprovalMeta | null {
+    const meta = this.approvalMeta.get(approvalId) ?? null;
+    if (meta) {
+      this.approvalMeta.delete(approvalId);
+    }
+    return meta;
+  }
+
+  /** 查询同一 root 最新生成的挂起凭证，供续跑中再次挂起回调。 */
+  findLatestApprovalMeta(rootRunId: string): ApprovalMeta | null {
+    const matches = Array.from(this.approvalMeta.values()).filter((meta) => meta.rootRunId === rootRunId);
+    return matches.at(-1) ?? null;
   }
 
   waitForUserInput(input: PendingUserInputRequest): Promise<PendingUserInputResolution> {
@@ -144,6 +197,7 @@ export class PendingInteractionService {
       const entry: PendingInputEntry = {
         sessionId,
         inputId,
+        runId: input.runId,
         resolve,
         reject,
       };
@@ -176,6 +230,7 @@ export class PendingInteractionService {
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
     const timeoutPromise = new Promise<PendingUserInputResolution>((_resolve, reject) => {
       timeoutHandle = setTimeout(() => {
+        this.approvalMeta.set(inputId, buildApprovalMeta(inputId, sessionId, "user_input", input));
         const entry = this.pendingInputs.get(inputId);
         if (entry) {
           this.pendingInputs.delete(inputId);
@@ -199,19 +254,27 @@ export class PendingInteractionService {
     });
   }
 
-  respondUserInput(sessionId: string, inputId: string, payload: UserInputRequest): boolean {
+  respondUserInput(sessionId: string, inputId: string, payload: UserInputRequest): PendingInteractionRespondResult {
     const entry = this.pendingInputs.get(inputId);
-    if (!entry || entry.sessionId !== sessionId) {
-      return false;
+    const value = payload.value ?? "";
+    if (entry && entry.sessionId === sessionId) {
+      this.pendingInputs.delete(inputId);
+      entry.abortListener?.();
+      this.publishUserInputResolution(entry, value);
+      entry.resolve({
+        inputId,
+        value,
+        respondedAt: new Date().toISOString(),
+      });
+      return { resolved: true, needsResume: false, kind: "user_input", interactionId: inputId };
     }
-    this.pendingInputs.delete(inputId);
-    entry.abortListener?.();
-    entry.resolve({
-      inputId,
-      value: payload.value ?? "",
-      respondedAt: new Date().toISOString(),
-    });
-    return true;
+    const meta = this.approvalMeta.get(inputId);
+    if (!meta || meta.sessionId !== sessionId || meta.kind !== "user_input") {
+      return { resolved: false, needsResume: false, kind: "user_input", interactionId: inputId };
+    }
+    this.setApprovalCache(sessionId, meta.toolCallId, { value });
+    this.publishUserInputResolution(meta, value);
+    return resumeResult(meta);
   }
 
   waitForApproval(input: PendingApprovalRequest): Promise<PendingApprovalResolution> {
@@ -290,6 +353,7 @@ export class PendingInteractionService {
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
     const timeoutPromise = new Promise<PendingApprovalResolution>((_resolve, reject) => {
       timeoutHandle = setTimeout(() => {
+        this.approvalMeta.set(approvalId, buildApprovalMeta(approvalId, sessionId, "approval", input));
         const entry = this.pendingApprovals.get(approvalId);
         if (entry) {
           this.pendingApprovals.delete(approvalId);
@@ -313,23 +377,29 @@ export class PendingInteractionService {
     });
   }
 
-  respondApproval(sessionId: string, approvalId: string, payload: ApprovalRequest): boolean {
+  respondApproval(sessionId: string, approvalId: string, payload: ApprovalRequest): PendingInteractionRespondResult {
     const entry = this.pendingApprovals.get(approvalId);
-    if (!entry || entry.sessionId !== sessionId) {
-      return false;
-    }
-    this.pendingApprovals.delete(approvalId);
-    entry.abortListener?.();
     const approved = Boolean(payload.approved);
     const message = payload.message ?? "";
-    this.publishApprovalResolution(entry, { approved, message });
-    entry.resolve({
-      approvalId,
-      approved,
-      message,
-      respondedAt: new Date().toISOString(),
-    });
-    return true;
+    if (entry && entry.sessionId === sessionId) {
+      this.pendingApprovals.delete(approvalId);
+      entry.abortListener?.();
+      this.publishApprovalResolution(entry, { approved, message });
+      entry.resolve({
+        approvalId,
+        approved,
+        message,
+        respondedAt: new Date().toISOString(),
+      });
+      return { resolved: true, needsResume: false, kind: "approval", interactionId: approvalId };
+    }
+    const meta = this.approvalMeta.get(approvalId);
+    if (!meta || meta.sessionId !== sessionId || meta.kind !== "approval") {
+      return { resolved: false, needsResume: false, kind: "approval", interactionId: approvalId };
+    }
+    this.setApprovalCache(sessionId, meta.toolCallId, { approved, message });
+    this.publishApprovalResolution(meta, { approved, message });
+    return resumeResult(meta);
   }
 
   respondInteraction(
@@ -341,23 +411,23 @@ export class PendingInteractionService {
     if (kind === "approval") {
       const approved = Boolean(payload.approved);
       const message = payload.message ?? "";
-      const resolved = this.respondApproval(sessionId, interactionId, { approved, message });
+      const result = this.respondApproval(sessionId, interactionId, { approved, message });
       return {
-        resolved,
+        ...result,
         kind,
         interactionId,
         approved,
         message,
-        ...(resolved ? {} : { error: "未找到对应的审批请求，可能已被取消或不存在" }),
+        ...(result.resolved ? {} : { error: "未找到对应的审批请求，可能已被取消或不存在" }),
       };
     }
 
-    const resolved = this.respondUserInput(sessionId, interactionId, { value: payload.value ?? "" });
+    const result = this.respondUserInput(sessionId, interactionId, { value: payload.value ?? "" });
     return {
-      resolved,
+      ...result,
       kind,
       interactionId,
-      ...(resolved ? {} : { error: "未找到对应的输入请求，可能已被取消或不存在" }),
+      ...(result.resolved ? {} : { error: "未找到对应的输入请求，可能已被取消或不存在" }),
     };
   }
 
@@ -384,6 +454,11 @@ export class PendingInteractionService {
         this.approvalCache.delete(key);
       }
     }
+    for (const [approvalId, meta] of this.approvalMeta.entries()) {
+      if (meta.sessionId === sessionId) {
+        this.approvalMeta.delete(approvalId);
+      }
+    }
   }
 
   isUserInputPending(sessionId: string, inputId: string): boolean {
@@ -405,7 +480,7 @@ export class PendingInteractionService {
     });
   }
 
-  private publishApprovalResolution(entry: PendingApprovalEntry, payload: { approved: boolean; message: string }): void {
+  private publishApprovalResolution(entry: Pick<PendingApprovalEntry, "sessionId" | "approvalId" | "runId">, payload: { approved: boolean; message: string }): void {
     const event: Envelope = {
       type: "interaction",
       session_id: entry.sessionId,
@@ -416,6 +491,22 @@ export class PendingInteractionService {
         phase: "responded",
         approved: payload.approved,
         message: payload.message,
+      },
+    };
+    this.publish(entry.sessionId, event);
+  }
+
+  private publishUserInputResolution(entry: { sessionId: string; inputId?: string; approvalId?: string; runId: string }, value: string): void {
+    const interactionId = entry.inputId ?? entry.approvalId ?? "";
+    const event: Envelope = {
+      type: "interaction",
+      session_id: entry.sessionId,
+      call_id: interactionId,
+      ...(entry.runId ? { run_id: entry.runId } : {}),
+      payload: {
+        kind: "user_input",
+        phase: "responded",
+        value,
       },
     };
     this.publish(entry.sessionId, event);
@@ -433,6 +524,39 @@ export class PendingInteractionService {
 
 function cacheKey(sessionId: string, toolCallId: string): string {
   return `${sessionId}:${toolCallId}`;
+}
+
+function buildApprovalMeta(
+  approvalId: string,
+  sessionId: string,
+  kind: InteractionKind,
+  input: PendingApprovalRequest | PendingUserInputRequest,
+): ApprovalMeta {
+  return {
+    approvalId,
+    sessionId,
+    toolCallId: input.toolCallId,
+    rootRunId: input.rootRunId,
+    runId: input.runId,
+    kind,
+    task: input.task,
+    requestId: input.requestId ?? null,
+    ...(input.executionKind ? { executionKind: input.executionKind } : {}),
+    ...(input.botId ? { botId: input.botId } : {}),
+    ...(input.chatId ? { chatId: input.chatId } : {}),
+  };
+}
+
+function resumeResult(meta: ApprovalMeta): PendingInteractionRespondResult {
+  return {
+    resolved: true,
+    needsResume: true,
+    kind: meta.kind,
+    interactionId: meta.approvalId,
+    rootRunId: meta.rootRunId,
+    approvalId: meta.approvalId,
+    toolCallId: meta.toolCallId,
+  };
 }
 
 function normalizeInputType(value: string | null | undefined): string {

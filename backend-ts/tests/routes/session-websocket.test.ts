@@ -179,6 +179,7 @@ describe("session websocket route", () => {
       parentCallId: null,
       toolCallId: "tool-call-approval",
       deadlineMs: 120_000,
+      task: "执行命令",
       toolName: "execute_bash",
       description: "Run command",
     });

@@ -220,6 +220,8 @@ export interface ToolExecContext {
   caller?: string;
   /** run 入口来源；daemon* 用于交互工具立即挂起。 */
   executionKind?: string;
+  /** 整棵执行树的根任务文本；child run 继承，用于挂起后从 root 恢复。 */
+  rootTask?: string;
   /** 当前 agent 名称。 */
   currentAgentName?: string | null;
   /** 工作空间根路径（文件类工具判断外部路径用）。 */

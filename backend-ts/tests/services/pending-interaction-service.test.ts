@@ -35,6 +35,7 @@ describe("PendingInteractionService", () => {
       requestId: "req-1",
       toolCallId: "tool-call-1",
       deadlineMs: 120_000,
+      task: "执行命令",
       toolName: "execute_bash",
       arguments: { command: "echo ok" },
       riskLevel: "high",
@@ -142,6 +143,92 @@ describe("PendingInteractionService", () => {
     store.close();
   });
 
+  it("超时挂起后返回恢复凭证并缓存审批结果", async () => {
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    const realtimeEvents = new RealtimeEventHub();
+    const dispatcher = new OutboxDispatcher(store, realtimeEvents);
+    const service = new PendingInteractionService(new DurableClientEventPublisher(store, dispatcher));
+    store.createSession(LOCAL_TENANT_ID, "s-resume", "usr_local");
+
+    const suspended = service.waitForApproval({
+      sessionId: "s-resume",
+      runId: "child-run",
+      rootRunId: "root-run",
+      parentRunId: "root-run",
+      parentCallId: "call-agent-1",
+      toolCallId: "tool-resume",
+      deadlineMs: 0,
+      task: "完整根任务",
+      executionKind: "daemon.cron",
+      toolName: "execute_bash",
+    });
+    const approvalId = realtimeEvents.getHistory("s-resume")[0]?.call_id ?? "";
+    await expect(suspended).rejects.toBeInstanceOf(RecoverableInterrupt);
+
+    expect(service.respondApproval("s-resume", approvalId, { approved: true, message: "继续" })).toEqual({
+      resolved: true,
+      needsResume: true,
+      kind: "approval",
+      interactionId: approvalId,
+      rootRunId: "root-run",
+      approvalId,
+      toolCallId: "tool-resume",
+    });
+    expect(service.takeApprovalMeta(approvalId)).toMatchObject({
+      task: "完整根任务",
+      executionKind: "daemon.cron",
+      runId: "child-run",
+      rootRunId: "root-run",
+    });
+    await expect(service.waitForApproval({
+      sessionId: "s-resume",
+      runId: "child-run",
+      rootRunId: "root-run",
+      parentRunId: "root-run",
+      parentCallId: "call-agent-1",
+      toolCallId: "tool-resume",
+      deadlineMs: 0,
+      task: "完整根任务",
+      toolName: "execute_bash",
+    })).resolves.toMatchObject({ approved: true, message: "继续" });
+    store.close();
+  });
+
+  it("超时输入响应发布 responded 事件并标记恢复", async () => {
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    const realtimeEvents = new RealtimeEventHub();
+    const dispatcher = new OutboxDispatcher(store, realtimeEvents);
+    const service = new PendingInteractionService(new DurableClientEventPublisher(store, dispatcher));
+    store.createSession(LOCAL_TENANT_ID, "s-input-resume", "usr_local");
+
+    const suspended = service.waitForUserInput({
+      sessionId: "s-input-resume",
+      runId: "run-input-resume",
+      rootRunId: "run-input-resume",
+      parentRunId: null,
+      parentCallId: null,
+      toolCallId: "tool-input-resume",
+      deadlineMs: 0,
+      task: "询问用户",
+      prompt: "请输入名称",
+    });
+    const inputId = realtimeEvents.getHistory("s-input-resume")[0]?.call_id ?? "";
+    await expect(suspended).rejects.toBeInstanceOf(RecoverableInterrupt);
+
+    expect(service.respondUserInput("s-input-resume", inputId, { value: "Alice" })).toMatchObject({
+      resolved: true,
+      needsResume: true,
+      rootRunId: "run-input-resume",
+      toolCallId: "tool-input-resume",
+    });
+    expect(realtimeEvents.getHistory("s-input-resume").at(-1)).toMatchObject({
+      type: "interaction",
+      call_id: inputId,
+      payload: { kind: "user_input", phase: "responded", value: "Alice" },
+    });
+    store.close();
+  });
+
   it("命中 approvalCache 后一次消费且不发布 required 事件", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
@@ -158,6 +245,7 @@ describe("PendingInteractionService", () => {
       parentCallId: null,
       toolCallId: "tool-cache",
       deadlineMs: 0,
+      task: "执行命令",
       toolName: "execute_bash",
     })).resolves.toMatchObject({ approved: true, message: "已缓存批准" });
     expect(realtimeEvents.getHistory("s-cache")).toEqual([]);
@@ -170,6 +258,7 @@ describe("PendingInteractionService", () => {
       parentCallId: null,
       toolCallId: "tool-cache",
       deadlineMs: 0,
+      task: "执行命令",
       toolName: "execute_bash",
     });
     await expect(secondWait).rejects.toMatchObject({
@@ -200,6 +289,7 @@ describe("PendingInteractionService", () => {
       parentCallId: null,
       toolCallId: "tool-input",
       deadlineMs: 0,
+      task: "采集输入",
       prompt: "请输入",
     })).resolves.toMatchObject({ value: "缓存输入" });
     expect(realtimeEvents.getHistory("s-input-cache")).toEqual([]);

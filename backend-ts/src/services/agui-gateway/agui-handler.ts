@@ -211,15 +211,23 @@ export class AguiGateway {
       return;
     }
     if (record.kind === "approval") {
-      this.container.pendingInteractions.respondApproval(sessionId, callId, {
+      const resolution = {
         approved: resolved && payload.approved === true,
         message: str(payload.message) ?? "",
-      });
+      };
+      const result = this.container.pendingInteractions.respondApproval(sessionId, callId, resolution);
+      if (result.needsResume) {
+        this.container.resumeExecutor.resumeRun({ sessionId, approvalId: callId, resolution });
+      }
       return;
     }
     // user_input
-    this.container.pendingInteractions.respondUserInput(sessionId, callId, {
+    const resolution = {
       value: resolved ? (str(payload.value) ?? "") : "",
-    });
+    };
+    const result = this.container.pendingInteractions.respondUserInput(sessionId, callId, resolution);
+    if (result.needsResume) {
+      this.container.resumeExecutor.resumeRun({ sessionId, approvalId: callId, resolution });
+    }
   }
 }

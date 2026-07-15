@@ -86,6 +86,8 @@ export function createRequestUserInputTools(deps: RequestUserInputToolDeps): Too
             requestId: ctx.requestId,
             toolCallId: ctx.toolCallId,
             deadlineMs: resolveInteractionDeadlineMs(ctx.executionKind),
+            task: ctx.rootTask ?? "",
+            executionKind: ctx.executionKind,
             agentName: ctx.currentAgentName ?? agent.agent_name,
             prompt,
             inputType: readInputType(input),
