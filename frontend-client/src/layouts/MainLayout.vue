@@ -90,6 +90,7 @@
         </div>
         <div class="admin-nav-list">
           <button
+            v-if="canViewAdminOverview"
             class="sidebar-btn admin-nav-item admin-nav-overview"
             :class="{ active: isPageActive(sidebarAdminNavItem.mainView) }"
             :title="sidebarAdminNavItem.title"
@@ -98,7 +99,7 @@
             <component :is="sidebarAdminNavItem.icon" class="icon" />
             <span class="btn-text">{{ sidebarAdminNavItem.label }}</span>
           </button>
-          <div v-for="group in adminNavGroups" :key="group.key" class="admin-nav-group">
+          <div v-for="group in visibleAdminNavGroups" :key="group.key" class="admin-nav-group">
             <div class="admin-nav-group-label">{{ group.label }}</div>
             <button
               v-for="item in adminItemsByGroup(group.key)"
@@ -122,7 +123,7 @@
           class="footer-toggle-btn"
           :title="isChatRoute ? '管理中心' : '返回聊天'"
           :aria-label="isChatRoute ? '管理中心' : '返回聊天'"
-          @click="navigateTo(isChatRoute ? sidebarAdminNavItem.path : '/')"
+          @click="navigateTo(isChatRoute ? managementEntryPath : '/')"
         >
           <component :is="isChatRoute ? sidebarAdminNavItem.icon : IconChevronLeft" :size="22" />
         </button>
@@ -180,6 +181,7 @@ import { useDictionariesStore } from '../stores/dictionaries.js';
 import { useSessionListStore } from '../stores/session-list.js';
 import { useBootstrapStore } from '../stores/bootstrap.js';
 import { useAuthStore } from '../stores/auth.js';
+import { usePermission } from '../composables/usePermission.js';
 import { deleteSession as deleteSessionApi } from '../api/session';
 import { IconLogo, IconChevronLeft, IconChevronRight, IconDocument, IconNewConversation, IconTrash } from '../components/icons';
 import { Button } from '../components/ui/button';
@@ -204,6 +206,7 @@ const dictStore = useDictionariesStore();
 const sessionListStore = useSessionListStore();
 const bootstrapStore = useBootstrapStore();
 const authStore = useAuthStore();
+const { isPlatformAdmin, hasTenantRole } = usePermission();
 const { items: history, loading: historyLoading, loadingMore: historyLoadingMore, error: historyError, hasMore: historyHasMore } = storeToRefs(sessionListStore);
 const sidebarCollapsed = ref(localStorage.getItem('sidebarCollapsed') === 'true');
 const mobileOpen = ref(false);
@@ -217,9 +220,15 @@ const isPageActive = (mainView) => (route.meta?.mainView || 'chat') === mainView
 const visibleManagementNavItems = computed(() => filterManagementNavItems(bootstrapStore.capabilities, {
   isAuthenticated: authStore.isAuthenticated,
   authMode: bootstrapStore.profile.auth,
-  platformRole: authStore.platformRole,
+  isPlatformAdmin: isPlatformAdmin.value,
+  hasTenantRole,
 }));
 const adminItemsByGroup = (groupKey) => visibleManagementNavItems.value.filter((i) => i.group === groupKey);
+const visibleAdminNavGroups = computed(() => adminNavGroups.filter((group) => adminItemsByGroup(group.key).length > 0));
+const canViewAdminOverview = computed(() => hasTenantRole(sidebarAdminNavItem.requireTenantRole));
+const managementEntryPath = computed(() => canViewAdminOverview.value
+  ? sidebarAdminNavItem.path
+  : visibleManagementNavItems.value[0]?.path || '/');
 const pageTransitionName = ref('slide-forward');
 const activeSessionId = computed(() => {
   if (isChatRoute.value && typeof route.params.id === 'string') {
@@ -508,10 +517,12 @@ registerHotkey([
   { id: 'hk-focus-input', combo: '/', description: '聚焦输入框', group: '操作', action: () => focusComposer() },
   { id: 'hk-new-chat', combo: 'c', description: '新建聊天', group: '操作', action: () => startNewChat() },
   { id: 'hk-goto-chat', combo: 'g c', description: '前往对话', group: '导航', action: () => navigateTo('/') },
-  { id: 'hk-goto-admin', combo: 'g a', description: '管理中心', group: '导航', action: () => navigateTo('/admin') },
-  { id: 'hk-goto-kb', combo: 'g k', description: '知识库', group: '导航', action: () => navigateTo('/knowledge-base') },
-  { id: 'hk-goto-models', combo: 'g m', description: '模型管理', group: '导航', action: () => navigateTo('/model-providers') },
-  { id: 'hk-goto-monitor', combo: 'g o', description: '监控面板', group: '导航', action: () => navigateTo('/monitor') },
+  { id: 'hk-goto-admin', combo: 'g a', description: '管理中心', group: '导航', action: () => navigateTo(managementEntryPath.value) },
+  ...(hasTenantRole('admin') ? [
+    { id: 'hk-goto-kb', combo: 'g k', description: '知识库', group: '导航', action: () => navigateTo('/knowledge-base') },
+    { id: 'hk-goto-models', combo: 'g m', description: '模型管理', group: '导航', action: () => navigateTo('/model-providers') },
+    { id: 'hk-goto-monitor', combo: 'g o', description: '监控面板', group: '导航', action: () => navigateTo('/monitor') },
+  ] : []),
   { id: 'hk-prev-session', combo: 'alt+arrowup', description: '上一会话', group: '会话', action: () => switchSession(-1) },
   { id: 'hk-next-session', combo: 'alt+arrowdown', description: '下一会话', group: '会话', action: () => switchSession(1) },
 ]);

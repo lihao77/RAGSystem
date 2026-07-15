@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import { getMe } from '../api/auth.js';
+import { useBootstrapStore } from './bootstrap.js';
 
 const TOKEN_STORAGE_KEY = 'auth_token';
 const SESSION_STORAGE_KEY = 'auth_session';
@@ -15,6 +16,7 @@ function readStoredSession() {
 }
 
 export const useAuthStore = defineStore('auth', () => {
+  const bootstrapStore = useBootstrapStore();
   const storedSession = readStoredSession();
   const token = ref(localStorage.getItem(TOKEN_STORAGE_KEY) || '');
   const user = ref(storedSession.user || null);
@@ -24,7 +26,18 @@ export const useAuthStore = defineStore('auth', () => {
   const identityLoaded = ref(false);
 
   const isAuthenticated = computed(() => Boolean(token.value));
+  const isOwner = computed(() => role.value === 'owner');
+  const isAdmin = computed(() => role.value === 'admin');
+  const isTenantAdmin = computed(() => isAdmin.value || isOwner.value);
   const isPlatformAdmin = computed(() => platformRole.value === 'admin');
+
+  function hasTenantRole(minimumRole) {
+    if (bootstrapStore.profile.auth !== 'password') return true;
+    if (minimumRole === 'member') return true;
+    if (minimumRole === 'admin') return isTenantAdmin.value;
+    if (minimumRole === 'owner') return isOwner.value;
+    return false;
+  }
 
   function setSession(session) {
     token.value = session?.token || '';
@@ -75,5 +88,22 @@ export const useAuthStore = defineStore('auth', () => {
     });
   }
 
-  return { token, user, tenantId, role, platformRole, identityLoaded, isAuthenticated, isPlatformAdmin, setSession, setPlatformRoleHint, refreshIdentity, clear };
+  return {
+    token,
+    user,
+    tenantId,
+    role,
+    platformRole,
+    identityLoaded,
+    isAuthenticated,
+    isOwner,
+    isAdmin,
+    isTenantAdmin,
+    isPlatformAdmin,
+    hasTenantRole,
+    setSession,
+    setPlatformRoleHint,
+    refreshIdentity,
+    clear,
+  };
 });

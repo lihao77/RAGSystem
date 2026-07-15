@@ -35,8 +35,9 @@ const pageMeta = (mainView, depth, pageOrder = depth, extra = {}) => ({
   ...extra,
 });
 
-const adminPageMeta = (mainView, depth, pageOrder = depth) => pageMeta(mainView, depth, pageOrder, {
+const adminPageMeta = (mainView, depth, pageOrder = depth, requireTenantRole = 'admin') => pageMeta(mainView, depth, pageOrder, {
   section: 'admin',
+  requireTenantRole,
 });
 
 const routes = [
@@ -49,7 +50,7 @@ const routes = [
     children: [
       { path: '', component: ChatViewV2, meta: pageMeta('chat', 0, 0) },
       { path: 'chat/:id?', component: ChatViewV2, meta: pageMeta('chat', 0, 0) },
-      { path: 'admin', component: AdminCenter, meta: adminPageMeta('admin', 1, 1) },
+      { path: 'admin', component: AdminCenter, meta: adminPageMeta('admin', 1, 1, 'admin') },
       { path: 'monitor', component: AgentMonitor, meta: adminPageMeta('monitor', 2, 5) },
       { path: 'agent-monitor', redirect: '/monitor' },
       { path: 'team-builder', component: TeamBuilder, meta: adminPageMeta('team-builder', 2, 2) },
@@ -58,10 +59,10 @@ const routes = [
       { path: 'knowledge-base', component: KnowledgeBaseManager, meta: adminPageMeta('knowledge-base', 4, 5) },
       { path: 'skill-library', component: SkillLibrary, meta: adminPageMeta('skill-library', 4, 6) },
       { path: 'model-providers', component: ModelProviderManager, meta: adminPageMeta('model-providers', 5, 2) },
-      { path: 'bots', component: Bots, meta: adminPageMeta('bots', 6, 6) },
-      { path: 'system-config', component: SystemConfig, meta: adminPageMeta('system-config', 7, 7) },
-      { path: 'widget-credentials', component: WidgetConsole, meta: adminPageMeta('widget-credentials', 8, 8) },
-      { path: 'members', component: MembersManager, meta: adminPageMeta('members', 8, 9) },
+      { path: 'bots', component: Bots, meta: adminPageMeta('bots', 6, 6, 'member') },
+      { path: 'system-config', component: SystemConfig, meta: adminPageMeta('system-config', 7, 7, 'owner') },
+      { path: 'widget-credentials', component: WidgetConsole, meta: adminPageMeta('widget-credentials', 8, 8, 'owner') },
+      { path: 'members', component: MembersManager, meta: adminPageMeta('members', 8, 9, 'admin') },
       { path: 'platform', redirect: '/platform/tenants', meta: pageMeta('platform', 9, 10, { section: 'platform', requiresPlatformAdmin: true }) },
       { path: 'platform/tenants', component: PlatformTenants, meta: pageMeta('platform-tenants', 9, 10, { section: 'platform', requiresPlatformAdmin: true }) },
       { path: 'platform/users', component: PlatformUsers, meta: pageMeta('platform-users', 9, 11, { section: 'platform', requiresPlatformAdmin: true }) },
@@ -107,6 +108,9 @@ router.beforeEach(async (to) => {
     return { path: '/login', query: { redirect: to.fullPath } };
   }
   if (to.meta.requiresPlatformAdmin && !authStore.isPlatformAdmin) {
+    return { path: '/' };
+  }
+  if (to.meta.requireTenantRole && !authStore.hasTenantRole(to.meta.requireTenantRole)) {
     return { path: '/' };
   }
   return true;

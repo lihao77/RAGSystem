@@ -69,7 +69,7 @@ export const managementNavItems = [
     title: '租户成员管理',
     description: '查看租户成员，并按当前角色邀请、调整角色或移除成员。',
     group: 'infrastructure',
-    requiresPasswordAuth: true,
+    requireTenantRole: 'admin',
     icon: createAdminIcon([
       { tag: 'path', attrs: { d: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2' } },
       { tag: 'circle', attrs: { cx: '9', cy: '7', r: '4' } },
@@ -81,6 +81,7 @@ export const managementNavItems = [
     key: 'widget-credentials', mainView: 'widget-credentials', path: '/widget-credentials', label: 'Widget 凭证',
     title: 'Widget 凭证控制台', description: '管理 publishable key、secret、来源白名单与审计记录。', group: 'infrastructure',
     capability: 'widget',
+    requireTenantRole: 'owner',
     icon: createAdminIcon([{ tag: 'rect', attrs: { x: '3', y: '5', width: '18', height: '14', rx: '2' } }, { tag: 'path', attrs: { d: 'M8 12h8M12 8v8' } }]),
   },
   {
@@ -91,6 +92,7 @@ export const managementNavItems = [
     title: '模型 Provider 管理',
     description: '配置 Provider 实例、模型映射、默认参数，并测试连通性。',
     group: 'infrastructure',
+    requireTenantRole: 'admin',
     icon: createAdminIcon([
       { tag: 'circle', attrs: { cx: '12', cy: '12', r: '3' } },
       { tag: 'path', attrs: { d: 'M19.07 4.93a10 10 0 0 1 0 14.14' } },
@@ -105,6 +107,7 @@ export const managementNavItems = [
     title: 'Team 方案编排',
     description: '组合入口 Agent、协作链路和 Team 方案，并切换当前团队。',
     group: 'agent-runtime',
+    requireTenantRole: 'admin',
     icon: createAdminIcon([
       { tag: 'rect', attrs: { x: '3', y: '4', width: '7', height: '7', rx: '1' } },
       { tag: 'rect', attrs: { x: '14', y: '4', width: '7', height: '7', rx: '1' } },
@@ -121,6 +124,7 @@ export const managementNavItems = [
     title: '智能体配置',
     description: '维护 Agent 角色、工具权限、记忆策略、技能和模型偏好。',
     group: 'agent-runtime',
+    requireTenantRole: 'admin',
     icon: createAdminIcon([
       { tag: 'path', attrs: { d: 'M12 20h9' } },
       { tag: 'path', attrs: { d: 'M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z' } },
@@ -134,6 +138,7 @@ export const managementNavItems = [
     title: 'MCP 服务管理',
     description: '安装、连接、测试 MCP 工具服务，并查看可用工具。',
     group: 'infrastructure',
+    requireTenantRole: 'admin',
     icon: createAdminIcon([
       { tag: 'path', attrs: { d: 'M12 22v-5' } },
       { tag: 'rect', attrs: { x: '6', y: '9', width: '12', height: '6', rx: '2' } },
@@ -149,6 +154,7 @@ export const managementNavItems = [
     title: '知识库管理',
     description: '管理知识库、文档索引、检索测试和知识注入。',
     group: 'infrastructure',
+    requireTenantRole: 'admin',
     icon: createAdminIcon([
       { tag: 'ellipse', attrs: { cx: '12', cy: '5', rx: '9', ry: '3' } },
       { tag: 'path', attrs: { d: 'M21 12c0 1.66-4 3-9 3s-9-1.34-9-3' } },
@@ -163,6 +169,7 @@ export const managementNavItems = [
     title: 'Skill 库管理',
     description: '管理领域技能：查看正文与脚本，新建、编辑、上传与删除用户全局 Skill。',
     group: 'infrastructure',
+    requireTenantRole: 'admin',
     icon: createAdminIcon([
       { tag: 'path', attrs: { d: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20' } },
       { tag: 'path', attrs: { d: 'M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z' } },
@@ -176,6 +183,7 @@ export const managementNavItems = [
     title: '智能体性能监控',
     description: '查看 Agent 性能、任务状态、运行指标和诊断数据。',
     group: 'operations',
+    requireTenantRole: 'admin',
     icon: createAdminIcon([
       { tag: 'polyline', attrs: { points: '22 12 18 12 15 21 9 3 6 12 2 12' } },
     ]),
@@ -188,6 +196,7 @@ export const managementNavItems = [
     title: '机器人管理',
     description: '管理私有 Bot 身份、飞书连接、会话策略和定时任务。',
     group: 'operations',
+    requireTenantRole: 'member',
     icon: createAdminIcon([
       { tag: 'path', attrs: { d: 'M12 2L2 7l10 5 10-5-10-5z' } },
       { tag: 'path', attrs: { d: 'M2 17l10 5 10-5' } },
@@ -202,6 +211,7 @@ export const managementNavItems = [
     title: '系统配置',
     description: '管理全局 LLM、向量存储、反思机制等系统级参数。',
     group: 'operations',
+    requireTenantRole: 'owner',
     icon: createAdminIcon([
       { tag: 'circle', attrs: { cx: '12', cy: '12', r: '3' } },
       { tag: 'path', attrs: { d: 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z' } },
@@ -217,7 +227,10 @@ const capabilityByNavigationKey = {
 
 export function filterManagementNavItems(capabilities = {}, context = {}) {
   return managementNavItems.filter((item) => {
-    if (item.requiresPlatformAdmin && context.platformRole !== 'admin') {
+    if (item.requiresPlatformAdmin && !context.isPlatformAdmin) {
+      return false;
+    }
+    if (item.requireTenantRole && (typeof context.hasTenantRole !== 'function' || !context.hasTenantRole(item.requireTenantRole))) {
       return false;
     }
     if (item.requiresPasswordAuth && !(context.isAuthenticated && context.authMode === 'password')) {
@@ -235,6 +248,7 @@ export const sidebarAdminNavItem = {
   path: '/admin',
   label: '管理中心',
   title: '模型、Agent、Team、MCP、知识库、监控与系统配置',
+  requireTenantRole: 'admin',
   buttonClass: 'sidebar-btn-secondary',
   icon: IconAdminCenter,
 };
