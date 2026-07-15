@@ -11,6 +11,42 @@ afterEach(async () => {
 });
 
 describe("多租户管理 API", () => {
+  it("仅 platform admin 可创建租户，纯租户 owner 被拒绝", async () => {
+    const harness = await installedHarness();
+    const platformAdminLogin = await login(harness.app, "admin", "password123");
+    const platformAdminToken = platformAdminLogin.json().token as string;
+
+    const created = await harness.app.inject({
+      method: "POST",
+      url: "/api/admin/tenants",
+      headers: bearer(platformAdminToken),
+      payload: { displayName: "Platform Created" },
+    });
+    expect(created.statusCode).toBe(200);
+    const tenantId = created.json().tenant.id as string;
+    const platformAdminId = platformAdminLogin.json().user.id as string;
+    expect(harness.controlStore.getMembership(createUserId(platformAdminId), createTenantId(tenantId))?.role).toBe("owner");
+
+    const invited = await harness.app.inject({
+      method: "POST",
+      url: `/api/admin/tenants/${tenantId}/members`,
+      headers: bearer(platformAdminToken),
+      payload: { username: "tenant-owner", password: "password456", role: "owner" },
+    });
+    expect(invited.statusCode).toBe(200);
+
+    const tenantOwnerLogin = await login(harness.app, "tenant-owner", "password456");
+    expect(tenantOwnerLogin.json().role).toBe("owner");
+    expect(tenantOwnerLogin.json().platformRole).toBeUndefined();
+    const denied = await harness.app.inject({
+      method: "POST",
+      url: "/api/admin/tenants",
+      headers: bearer(tenantOwnerLogin.json().token as string),
+      payload: { displayName: "Tenant Owner Denied" },
+    });
+    expect(denied.statusCode).toBe(403);
+  });
+
   it("owner 完成租户与成员生命周期并切换租户", async () => {
     const harness = await installedHarness();
     const ownerLogin = await login(harness.app, "admin", "password123");

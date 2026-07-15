@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync, FastifyRequest } from "fastify";
+import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 
 import { createTenantId, createUserId, type TenantId } from "../identity/types.js";
@@ -10,6 +10,7 @@ import type {
 } from "../services/stores/control-store/index.js";
 import type { TenantRuntimeRegistry } from "../services/runtime/tenant-runtime-registry.js";
 import { HttpError } from "../utils/errors.js";
+import { requirePlatformAdmin } from "./platform-guard.js";
 
 interface PlatformRouteOptions {
   controlStore: ControlStore;
@@ -31,14 +32,6 @@ interface SessionParams {
 const TenantStatusSchema = z.enum(["active", "suspended"]);
 const UserStatusSchema = z.enum(["active", "disabled"]);
 const PlatformRoleSchema = z.enum(["admin"]).nullable();
-
-export function requirePlatformAdmin(request: FastifyRequest, controlStore: ControlStore) {
-  const user = controlStore.getUser(request.identity.userId);
-  if (!user || user.status !== "active" || user.platformRole !== "admin") {
-    throw new HttpError(403, "forbidden", "需要 active 平台管理员权限");
-  }
-  return user;
-}
 
 export const registerPlatformRoutes: FastifyPluginAsync<PlatformRouteOptions> = async (app, options) => {
   app.get("/tenants", async (request) => {

@@ -7,7 +7,8 @@ import { createTenantId, createUserId, type TenantId } from "../identity/types.j
 import type { ControlStore } from "../services/stores/control-store/index.js";
 import { HttpError } from "../utils/errors.js";
 import { hashPassword } from "../utils/password-hash.js";
-import { requireTenantMember, requireTenantOwner, requireTenantRole } from "./tenant-role.js";
+import { requirePlatformAdmin } from "./platform-guard.js";
+import { requireTenantMember, requireTenantRole } from "./tenant-role.js";
 
 interface AdminRouteOptions {
   controlStore: ControlStore;
@@ -43,14 +44,14 @@ export const registerAdminRoutes: FastifyPluginAsync<AdminRouteOptions> = async 
   });
 
   app.post("/tenants", async (request) => {
-    const identity = requireTenantOwner(request);
+    const actor = requirePlatformAdmin(request, options.controlStore);
     const input = CreateTenantSchema.parse(request.body);
     const tenantId = createTenantId(`tnt_${randomUUID().replaceAll("-", "")}`);
 
     options.controlStore.db.exec("BEGIN IMMEDIATE");
     try {
       const tenant = options.controlStore.createTenant({ id: tenantId, displayName: input.displayName });
-      const membership = options.controlStore.upsertMembership({ userId: identity.userId, tenantId, role: "owner" });
+      const membership = options.controlStore.upsertMembership({ userId: actor.id, tenantId, role: "owner" });
       options.controlStore.db.exec("COMMIT");
       return { success: true, tenant: { ...tenant, role: membership.role } };
     } catch (error) {

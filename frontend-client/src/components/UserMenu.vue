@@ -28,7 +28,7 @@
               <span class="truncate">{{ t.displayName }}</span>
               <IconCheck v-if="t.id === authStore.tenantId" :size="14" style="margin-left: auto" />
             </DropdownMenuItem>
-            <DropdownMenuItem v-if="isOwner" class="justify-center" @click="openCreate">
+            <DropdownMenuItem v-if="isPlatformAdmin" class="justify-center" @click="openCreate">
               <IconPlus :size="14" />
             </DropdownMenuItem>
           </DropdownMenuSubContent>
@@ -91,8 +91,8 @@ const logoutLoading = ref(false);
 
 const showUserArea = computed(() => bootstrapStore.requiresAuth && authStore.isAuthenticated);
 const isSaasLogin = computed(() => authStore.isAuthenticated && bootstrapStore.profile.auth === 'password');
-const isOwner = computed(() => authStore.role === 'owner');
-const showTenantSwitcher = computed(() => isSaasLogin.value && (tenants.value.length > 1 || isOwner.value));
+const isPlatformAdmin = computed(() => authStore.isPlatformAdmin);
+const showTenantSwitcher = computed(() => isSaasLogin.value && (tenants.value.length > 1 || isPlatformAdmin.value));
 const displayName = computed(() => authStore.user?.displayName || '用户');
 const initial = computed(() => {
   const ch = (displayName.value.trim()[0] || '?');
@@ -138,7 +138,7 @@ function openCreate() {
   createOpen.value = true;
 }
 function submitCreate() {
-  if (!isOwner.value || !displayNameInput.value.trim()) return;
+  if (!isPlatformAdmin.value || !displayNameInput.value.trim()) return;
   runCreate();
 }
 async function handleLogout() {
