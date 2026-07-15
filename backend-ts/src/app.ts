@@ -4,7 +4,7 @@ import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import fs from "node:fs";
 import path from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { ZodError } from "zod";
 import "./fastify-context.js";
 
@@ -12,7 +12,7 @@ import { resolveProfileFromSettings, type AppEnv } from "./config/env.js";
 import type { DeploymentProfile } from "./identity/types.js";
 import { registerAgentConfigRoutes } from "./routes/agent-config.js";
 import { registerArtifactRoutes } from "./routes/artifacts.js";
-import { registerDaemonRoutes } from "./routes/daemon.js";
+import { registerBotRoutes } from "./routes/bots.js";
 import { registerEmbeddingModelRoutes } from "./routes/embedding-models.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerModelAdapterRoutes } from "./routes/model-adapter.js";
@@ -37,6 +37,7 @@ import { createSessionTokenService, type SessionTokenService } from "./services/
 import { AuthError, LocalIdentityProvider, PasswordIdentityProvider, WidgetIdentityProvider, type IdentityProvider } from "./services/identity/index.js";
 import { DefaultTenantRuntimeRegistry, type TenantRuntimeRegistry } from "./services/runtime/tenant-runtime-registry.js";
 import { createTenantMigrator, type TenantMigrator } from "./services/runtime/tenant-migrator.js";
+import { DaemonService } from "./services/daemon/daemon-service.js";
 
 export interface BuildAppOptions {
   env: AppEnv;
@@ -47,6 +48,7 @@ export interface BuildAppOptions {
   widgetCredentialStore?: WidgetCredentialStore;
   widgetAuth?: WidgetAuthService;
   sessionTokens?: SessionTokenService;
+  botEngine?: DaemonService;
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
@@ -81,6 +83,34 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     : undefined);
   const widgetIdentityProvider = widgetAuth ? new WidgetIdentityProvider(widgetAuth, widgetCredentialStore) : undefined;
   const registry = options.registry ?? new DefaultTenantRuntimeRegistry(options.env, controlStore, app.log);
+  const botEngine = options.botEngine ?? new DaemonService({
+    controlStore,
+    registry,
+    runAgentTask: async (input) => {
+      const lease = await registry.acquire(input.tenantId);
+      try {
+        try {
+          const result = await lease.runtime.agentExecution.executeSynchronously({
+            task: input.task,
+            session_id: input.sessionId,
+            agent: input.entryAgent,
+            userId: input.botId,
+          }, randomUUID());
+          if (!result.success) throw new Error(result.error ?? "agent 执行失败");
+          return result.answer ?? "";
+        } finally {
+          if (input.sessionMetadata) {
+            lease.runtime.conversationStore.updateSessionMetadata(input.sessionId, input.sessionMetadata);
+          }
+        }
+      } finally {
+        lease.release();
+      }
+    },
+  });
+  botEngine.start();
+  app.decorate("botEngine", botEngine);
+  app.decorate("controlStore", controlStore);
   widgetCredentialStore.startPruning();
   app.decorateRequest("identity");
   app.decorateRequest("userId");
@@ -89,7 +119,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.decorateRequest("tenantRuntimeLease", null);
   app.addHook("onRequest", async (request) => {
     const needsTenantRuntime = requiresTenantRuntime(request.url, request.method);
-    if (!needsTenantRuntime && !usesAdminIdentity(request.url, request.method) && !usesPlatformIdentity(request.url, request.method)) return;
+    if (!needsTenantRuntime && !usesAdminIdentity(request.url, request.method) && !usesPlatformIdentity(request.url, request.method) && !usesBotIdentity(request.url, request.method)) return;
     const resolver = widgetIdentityProvider && usesWidgetIdentity(request.url)
       ? widgetIdentityProvider
       : runtime.identityProvider;
@@ -117,6 +147,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.addHook("onResponse", async (request) => releaseRequestLease(request));
   app.addHook("onError", async (request) => releaseRequestLease(request));
   app.addHook("onClose", async () => {
+    botEngine.close();
     await registry.closeAll();
     widgetCredentialStore.close();
     controlStore.close();
@@ -253,8 +284,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     registry,
     identityProvider: routedIdentityProvider,
   });
-  await app.register(registerDaemonRoutes, {
-    prefix: "/api/daemon",
+  await app.register(registerBotRoutes, {
+    prefix: "/api/bots",
     registry,
     identityProvider: routedIdentityProvider,
   });
@@ -311,13 +342,19 @@ function requiresTenantRuntime(url: string, method: string): boolean {
     && pathname !== "/api/auth/login"
     && pathname !== "/api/auth/switch-tenant"
     && pathname !== "/api/auth/me"
-    && !pathname.startsWith("/api/daemon/webhook/")
+    && !pathname.startsWith("/api/bots")
     && pathname !== "/api/widget/auth/token"
     && pathname !== "/api/admin"
     && !pathname.startsWith("/api/admin/")
     && pathname !== "/api/platform"
     && !pathname.startsWith("/api/platform/")
     && !pathname.endsWith("/ws");
+}
+
+function usesBotIdentity(url: string, method: string): boolean {
+  if (method === "OPTIONS") return false;
+  const pathname = url.split("?", 1)[0] ?? url;
+  return pathname.startsWith("/api/bots") && !pathname.startsWith("/api/bots/webhook/");
 }
 
 function usesAdminIdentity(url: string, method: string): boolean {

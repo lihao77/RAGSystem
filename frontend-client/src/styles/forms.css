@@ -2,7 +2,7 @@
  * 全局表单基线（single source of truth）
  *
  * 统一所有管理页表单控件与布局：AgentConfig / SkillLibrary / ModelProvider /
- * TeamBuilder / MCP / Daemon / SystemConfig（含 SchemaForm 通用组件）。
+ * TeamBuilder / MCP / Bots / SystemConfig（含 SchemaForm 通用组件）。
  *
  * 替代旧散落的四套定义：agent-config.css 的 .form-*（AgentConfig scoped）、
  * admin-console.css 的 .adm-form-*、ModelProvider/TeamBuilder 各自 scoped 的 .form-control。

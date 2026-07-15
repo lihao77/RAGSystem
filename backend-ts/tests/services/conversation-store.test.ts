@@ -14,7 +14,7 @@ describe("ConversationStore", () => {
     store.addMessage({ sessionId: "s1", role: "user", content: "first message" });
     store.addMessage({ sessionId: "s1", role: "assistant", content: "latest answer" });
 
-    const listed = store.listSessions(LOCAL_TENANT_ID, 20, 0, "u1");
+    const listed = store.listSessions(LOCAL_TENANT_ID, 20, 0, ["u1"]);
 
     expect(listed).toMatchObject({
       total: 1,

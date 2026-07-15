@@ -38,7 +38,7 @@ test('skip_all_approvals 文案可展示', () => {
   assert.match(SKIP_ALL_APPROVALS_META.desc, /路径越界/);
 });
 
-test('normalizePermissionPolicy 归一化 daemon 权限策略', () => {
+test('normalizePermissionPolicy 归一化后台任务权限策略', () => {
   assert.deepEqual(normalizePermissionPolicy({
     mode: 'relaxed',
     auto_accept_patterns: [

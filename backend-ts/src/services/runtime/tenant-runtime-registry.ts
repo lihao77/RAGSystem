@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import type { AppEnv } from "../../config/env.js";
-import { createTenantId, type TenantId } from "../../identity/types.js";
+import { createTenantId, type TenantId, type UserId } from "../../identity/types.js";
 import type { AgentExecutionLogger } from "../agent/execution/index.js";
 import type { ControlStore } from "../stores/control-store/index.js";
 import { createRuntimeContainer, type RuntimeContainer, type RuntimeContainerOptions } from "./runtime-container.js";
@@ -29,7 +29,7 @@ export interface TenantRuntimeSnapshot {
 
 export interface DaemonRouteTarget {
   tenantId: TenantId;
-  teamName: string;
+  botId: UserId;
 }
 
 export interface TenantRuntimeRegistryOptions {
@@ -46,7 +46,7 @@ export interface TenantRuntimeRegistry {
   trackWebSocket(tenantId: string): TenantRuntimeActivityLease;
   trackRun(tenantId: string): TenantRuntimeActivityLease;
   snapshot(tenantId: string): TenantRuntimeSnapshot | null;
-  registerRouteToken(tenantId: TenantId, teamName: string, routeToken: string): void;
+  registerRouteToken(tenantId: TenantId, botId: UserId, routeToken: string): void;
   unregisterRouteToken(routeToken: string, tenantId?: TenantId): void;
   resolveRouteToken(routeToken: string): DaemonRouteTarget | null;
   closeTenant(tenantId: string): Promise<void>;
@@ -146,12 +146,12 @@ export class DefaultTenantRuntimeRegistry implements TenantRuntimeRegistry {
     return this.trackActivity(tenantId, "runs");
   }
 
-  registerRouteToken(tenantId: TenantId, teamName: string, routeToken: string): void {
+  registerRouteToken(tenantId: TenantId, botId: UserId, routeToken: string): void {
     const existing = this.routeTokenIndex.get(routeToken);
-    if (existing && (existing.tenantId !== tenantId || existing.teamName !== teamName)) {
+    if (existing && (existing.tenantId !== tenantId || existing.botId !== botId)) {
       throw new Error("飞书 webhook routeToken 冲突");
     }
-    this.routeTokenIndex.set(routeToken, { tenantId, teamName });
+    this.routeTokenIndex.set(routeToken, { tenantId, botId });
   }
 
   unregisterRouteToken(routeToken: string, tenantId?: TenantId): void {
@@ -222,7 +222,6 @@ export class DefaultTenantRuntimeRegistry implements TenantRuntimeRegistry {
           dataRoot: paths.dataRoot,
           ...(this.logger ? { logger: this.logger } : {}),
         });
-        container.daemon.setRuntimeRegistry(this, tenantId);
         container.backgroundTasks.setOnTaskCompleted((sessionId) => {
           this.forTenant(tenantId).agentExecution.triggerBgNotificationRun(sessionId);
         });

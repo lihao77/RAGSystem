@@ -816,8 +816,7 @@ onUnmounted(() => {
 }
 
 .sidebar-btn-secondary,
-.sidebar-btn-monitor,
-.sidebar-btn-daemon {
+.sidebar-btn-monitor {
   margin-top: var(--spacing-xs);
 }
 

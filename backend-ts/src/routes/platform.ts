@@ -89,6 +89,13 @@ export const registerPlatformRoutes: FastifyPluginAsync<PlatformRouteOptions> = 
     return { success: true, users: result.items, ...result };
   });
 
+  app.get("/bots", async (request) => {
+    const actor = requirePlatformAdmin(request, options.controlStore);
+    const bots = options.controlStore.listAllBots();
+    options.controlStore.recordPlatformAudit({ actorUserId: actor.id, action: "list_bots", targetResource: "bots" });
+    return { success: true, bots };
+  });
+
   app.patch<{ Params: UserParams }>("/users/:userId/status", async (request) => {
     const actor = requirePlatformAdmin(request, options.controlStore);
     const userId = createUserId(request.params.userId);
@@ -96,6 +103,7 @@ export const registerPlatformRoutes: FastifyPluginAsync<PlatformRouteOptions> = 
     if (!options.controlStore.setUserStatus(userId, input.status)) {
       throw new HttpError(404, "not_found", "用户不存在");
     }
+    if (options.controlStore.getBot(userId)) app.botEngine.reloadBot(userId);
     options.controlStore.recordPlatformAudit({
       actorUserId: actor.id,
       action: "set_user_status",

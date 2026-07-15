@@ -35,13 +35,15 @@ describe("ControlStore", () => {
     const indexes = db.prepare("PRAGMA index_list(widget_apps)").all() as unknown as Array<{ name: string }>;
     expect(indexes.map((index) => index.name)).toContain("idx_widget_apps_tenant_id");
     const userColumns = db.prepare("PRAGMA table_info(users)").all() as unknown as Array<{ name: string }>;
-    expect(userColumns.map((column) => column.name)).toEqual(expect.arrayContaining(["username", "password_hash", "platform_role", "status"]));
+    expect(userColumns.map((column) => column.name)).toEqual(expect.arrayContaining(["username", "password_hash", "platform_role", "status", "type", "owner_id"]));
     const tenantColumns = db.prepare("PRAGMA table_info(tenants)").all() as unknown as Array<{ name: string }>;
     expect(tenantColumns.map((column) => column.name)).toContain("status");
     const controlIndexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all() as unknown as Array<{ name: string }>;
-    expect(controlIndexes.map((index) => index.name)).toEqual(expect.arrayContaining(["idx_users_status", "idx_tenants_status", "idx_users_platform_role"]));
+    expect(controlIndexes.map((index) => index.name)).toEqual(expect.arrayContaining(["idx_users_status", "idx_tenants_status", "idx_users_platform_role", "idx_users_owner_id"]));
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='user_sessions'").get()).toBeTruthy();
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='system_settings'").get()).toBeTruthy();
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='bot_configs'").get()).toBeTruthy();
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='bot_cron_tasks'").get()).toBeTruthy();
     db.close();
   });
 
@@ -68,6 +70,93 @@ describe("ControlStore", () => {
     expect(store.getUser(userId)?.displayName).toBe("Alice Zhang");
     expect(store.deleteUser(userId)).toBe(true);
     expect(store.getUser(userId)).toBeNull();
+    store.close();
+  });
+
+  it("支持 owner-only Bot CRUD 并建立租户成员关系", () => {
+    const store = createControlStore(makeSystemRoot());
+    const tenantId = createTenantId("tnt_acme");
+    const ownerId = createUserId("usr_owner");
+    const otherId = createUserId("usr_other");
+    store.createTenant({ id: tenantId, displayName: "Acme" });
+    store.createUser({ id: ownerId, displayName: "Owner" });
+    store.createUser({ id: otherId, displayName: "Other" });
+    store.upsertMembership({ userId: ownerId, tenantId, role: "member" });
+
+    const bot = store.createBot({ tenantId, ownerId, displayName: "Support Bot" });
+    expect(bot).toMatchObject({ displayName: "Support Bot", type: "bot", owner_id: ownerId, status: "active" });
+    expect(store.getBot(bot.id)).toEqual(bot);
+    expect(store.getUser(bot.id)).toEqual(bot);
+    expect(store.listUsers()).toEqual(expect.arrayContaining([expect.objectContaining({ id: bot.id, type: "bot" })]));
+    expect(store.listAllUsers().items).toEqual(expect.arrayContaining([expect.objectContaining({ id: ownerId, type: "human" })]));
+    expect(store.listAllUsers().items).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: bot.id })]));
+    expect(store.listAllBots()).toEqual([expect.objectContaining({
+      id: bot.id,
+      displayName: "Support Bot",
+      tenantId,
+      tenantName: "Acme",
+      ownerName: "Owner",
+      enabled: false,
+      feishuEnabled: false,
+      feishuReceiveMode: "webhook",
+      entryAgent: null,
+    })]);
+    expect(store.listBotsByTenant(tenantId)).toEqual([expect.objectContaining({
+      id: bot.id,
+      ownerName: "Owner",
+      enabled: false,
+      feishuEnabled: false,
+      feishuReceiveMode: "webhook",
+      entryAgent: null,
+    })]);
+    expect(store.listBotsByTenant(tenantId)[0]).not.toHaveProperty("tenantId");
+    expect(store.listBotsByTenant(tenantId)[0]).not.toHaveProperty("tenantName");
+    expect(store.getMembership(bot.id, tenantId)?.role).toBe("member");
+    expect(store.getBotConfig(bot.id)).toMatchObject({
+      bot_id: bot.id,
+      tenant_id: tenantId,
+      enabled: false,
+      default_session_ttl: 86400,
+      feishu: { enabled: false, receive_mode: "webhook" },
+      cron_tasks: [],
+    });
+    expect(store.listBotsByOwner(ownerId)).toEqual([bot]);
+    expect(store.listBotsWithConfig(ownerId)).toEqual([expect.objectContaining({ id: bot.id, config: expect.objectContaining({ bot_id: bot.id }) })]);
+    expect(store.listBotsByOwner(otherId)).toEqual([]);
+    expect(store.isBotOwnedBy(bot.id, ownerId)).toBe(true);
+    expect(store.isBotOwnedBy(bot.id, otherId)).toBe(false);
+    expect(store.getUserWithCredentials(bot.id)).toBeNull();
+    const updated = store.updateBotConfig(bot.id, {
+      enabled: true,
+      entry_agent: "orchestrator_agent",
+      feishu: { enabled: true, app_id: "cli", app_secret: "secret", token: "token", encoding_aes_key: "key", receive_mode: "webhook" },
+    });
+    expect(store.listAllBots()[0]).toMatchObject({ enabled: true, feishuEnabled: true, feishuReceiveMode: "webhook", entryAgent: "orchestrator_agent" });
+    expect(store.listAllBots()[0]).not.toHaveProperty("app_secret");
+    expect(store.listAllBots()[0]).not.toHaveProperty("token");
+    expect(store.listAllBots()[0]).not.toHaveProperty("encoding_aes_key");
+    expect(updated.feishu).toMatchObject({ app_secret: "***", token: "***", encoding_aes_key: "***" });
+    expect(store.getBotRuntimeConfig(bot.id)?.feishu.app_secret).toBe("secret");
+    store.updateBotConfig(bot.id, { feishu: { app_secret: "***", token: "***", encoding_aes_key: "***" } });
+    expect(store.getBotRuntimeConfig(bot.id)?.feishu.app_secret).toBe("secret");
+    const cron = store.createBotCronTask(bot.id, {
+      task_id: "daily",
+      cron: "0 9 * * *",
+      task: "report",
+      entry_agent: null,
+      enabled: true,
+      push_platform: null,
+      push_chat_id: null,
+      next_run: 123,
+    });
+    expect(store.getBotCronTask(bot.id, "daily")).toEqual(cron);
+    expect(store.listBotCronTasks(bot.id)).toEqual([cron]);
+    expect(store.updateBotCronTask(bot.id, "daily", { last_result: "ok" })?.last_result).toBe("ok");
+    expect(store.deleteBot(bot.id)).toBe(true);
+    expect(store.getBot(bot.id)).toBeNull();
+    expect(store.getBotConfig(bot.id)).toBeNull();
+    expect(store.getBotCronTask(bot.id, "daily")).toBeNull();
+    expect(store.getMembership(bot.id, tenantId)).toBeNull();
     store.close();
   });
 
@@ -100,10 +189,27 @@ describe("ControlStore", () => {
     store.upsertMembership({ userId, tenantId, role: "member" });
     expect(store.getMembership(userId, tenantId)?.role).toBe("member");
     store.upsertMembership({ userId, tenantId, role: "admin" });
-    expect(store.listMembershipsByTenant(tenantId)).toEqual([{ userId, tenantId, role: "admin" }]);
-    expect(store.listMembershipsByUser(userId)).toEqual([{ userId, tenantId, role: "admin" }]);
+    expect(store.listMembershipsByTenant(tenantId)).toEqual([{ userId, tenantId, role: "admin", type: "human" }]);
+    expect(store.listMembershipsByUser(userId)).toEqual([{ userId, tenantId, role: "admin", type: "human" }]);
     expect(store.deleteMembership(userId, tenantId)).toBe(true);
     expect(store.getMembership(userId, tenantId)).toBeNull();
+    store.close();
+  });
+
+  it("租户成员列表只返回 human，bot 由租户 Bot 查询返回", () => {
+    const store = createControlStore(makeSystemRoot());
+    const tenantId = createTenantId("tnt_acme");
+    const ownerId = createUserId("usr_owner");
+    store.createTenant({ id: tenantId, displayName: "Acme" });
+    store.createUser({ id: ownerId, displayName: "Owner" });
+    store.upsertMembership({ userId: ownerId, tenantId, role: "owner" });
+    const bot = store.createBot({ tenantId, ownerId, displayName: "Private Bot" });
+
+    expect(store.getMembership(bot.id, tenantId)).not.toBeNull();
+    expect(store.listMembershipsByTenant(tenantId)).toEqual([{ userId: ownerId, tenantId, role: "owner", type: "human" }]);
+    expect(store.listBotsByTenant(tenantId)).toEqual([expect.objectContaining({ id: bot.id, ownerName: "Owner" })]);
+    expect(store.deleteMembership(bot.id, tenantId)).toBe(true);
+    expect(store.listBotsByTenant(tenantId)).toEqual([]);
     store.close();
   });
 

@@ -12,7 +12,7 @@ const MCPManager = () => import('../views/MCPManager.vue');
 const KnowledgeBaseManager = () => import('../views/KnowledgeBaseManager.vue');
 const SkillLibrary = () => import('../views/SkillLibrary.vue');
 const ModelProviderManager = () => import('../views/ModelProviderManager.vue');
-const DaemonManager = () => import('../views/DaemonManager.vue');
+const Bots = () => import('../views/Bots.vue');
 const SystemConfig = () => import('../views/SystemConfig.vue');
 const WidgetConsole = () => import('../views/WidgetConsole.vue');
 const MembersManager = () => import('../views/MembersManager.vue');
@@ -58,7 +58,7 @@ const routes = [
       { path: 'knowledge-base', component: KnowledgeBaseManager, meta: adminPageMeta('knowledge-base', 4, 5) },
       { path: 'skill-library', component: SkillLibrary, meta: adminPageMeta('skill-library', 4, 6) },
       { path: 'model-providers', component: ModelProviderManager, meta: adminPageMeta('model-providers', 5, 2) },
-      { path: 'daemon', component: DaemonManager, meta: adminPageMeta('daemon', 6, 6) },
+      { path: 'bots', component: Bots, meta: adminPageMeta('bots', 6, 6) },
       { path: 'system-config', component: SystemConfig, meta: adminPageMeta('system-config', 7, 7) },
       { path: 'widget-credentials', component: WidgetConsole, meta: adminPageMeta('widget-credentials', 8, 8) },
       { path: 'members', component: MembersManager, meta: adminPageMeta('members', 8, 9) },

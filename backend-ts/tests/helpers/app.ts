@@ -29,7 +29,6 @@ export const testEnv: AppEnv = {
   dataRoot: ".test-data",
   tenantsRoot: path.join(".test-data", "tenants"),
   systemRoot: path.join(".test-data", "system"),
-  dbPath: ":memory:",
   allowUnsafeLocalExecution: false,
   sessionTokenTtlHours: 168,
 };
@@ -61,7 +60,6 @@ export async function buildTestHarness(
     dataRoot: tempRoot,
     modelAdapterProvidersConfigPath: "",
     mcpConfigPath: "",
-    daemonConfigPath: "",
     systemConfigPath: "",
     agentConfigRoot: "",
     startOutboxDispatcher: options.startOutboxDispatcher ?? false,

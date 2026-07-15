@@ -3,72 +3,112 @@
     :embedded="embedded"
     :chat-return-path="chatReturnPath"
     title="成员管理"
-    subtitle="查看当前租户成员，并按角色权限管理协作账号"
+    subtitle="分别管理租户成员角色与机器人租户归属"
     mobile-title="成员管理"
   >
     <template v-if="canInvite" #header-actions>
       <Button size="sm" @click="openInviteDialog">邀请成员</Button>
     </template>
 
-    <Card>
-      <CardHeader>
-        <CardTitle>租户成员</CardTitle>
-        <CardDescription>
-          当前角色：{{ roleLabels[authStore.role] || authStore.role || '未知' }}。成员可查看列表，管理操作仅对管理员和所有者开放。
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div class="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>成员</TableHead>
-                <TableHead>用户名</TableHead>
-                <TableHead>角色</TableHead>
-                <TableHead v-if="showActions" class="text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableEmpty v-if="loadingMembers" :colspan="columnCount">正在加载成员...</TableEmpty>
-              <TableEmpty v-else-if="membersError" :colspan="columnCount">
-                <div class="flex flex-col items-center gap-3">
-                  <span>{{ membersError }}</span>
-                  <Button variant="outline" size="sm" @click="refreshMembers">重试</Button>
-                </div>
-              </TableEmpty>
-              <TableEmpty v-else-if="members.length === 0" :colspan="columnCount">当前租户暂无成员</TableEmpty>
-              <TableRow v-for="member in members" v-else :key="member.userId">
-                <TableCell>
-                  <div class="flex flex-col gap-1">
-                    <span class="font-medium">{{ member.user?.displayName || member.user?.username || member.userId }}</span>
-                    <span v-if="member.userId === authStore.user?.id" class="text-xs text-muted-foreground">当前用户</span>
+    <div class="flex flex-col gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>成员 ({{ members.length }})</CardTitle>
+          <CardDescription>
+            当前角色：{{ roleLabels[authStore.role] || authStore.role || '未知' }}。成员可查看列表，角色管理仅对管理员和所有者开放。
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div class="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>成员</TableHead>
+                  <TableHead>角色</TableHead>
+                  <TableHead v-if="showActions" class="text-right">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableEmpty v-if="loadingDirectory" :colspan="memberColumnCount">正在加载成员...</TableEmpty>
+                <TableEmpty v-else-if="directoryError" :colspan="memberColumnCount">
+                  <div class="flex flex-col items-center gap-3">
+                    <span>{{ directoryError }}</span>
+                    <Button variant="outline" size="sm" @click="refreshDirectory">重试</Button>
                   </div>
-                </TableCell>
-                <TableCell>{{ member.user?.username || '—' }}</TableCell>
-                <TableCell>
-                  <Badge :variant="roleBadgeVariant(member.role)">{{ roleLabels[member.role] || member.role }}</Badge>
-                </TableCell>
-                <TableCell v-if="showActions" class="text-right">
-                  <div class="flex justify-end gap-2">
-                    <Button v-if="canChangeRole" variant="outline" size="sm" @click="openRoleDialog(member)">修改角色</Button>
-                    <Button
-                      v-if="canRemove"
-                      variant="destructive"
-                      size="sm"
-                      :disabled="member.userId === authStore.user?.id"
-                      :title="member.userId === authStore.user?.id ? '不能移除自己' : '移除成员'"
-                      @click="openRemoveDialog(member)"
-                    >
-                      移除
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-      </CardContent>
-    </Card>
+                </TableEmpty>
+                <TableEmpty v-else-if="members.length === 0" :colspan="memberColumnCount">当前租户暂无成员</TableEmpty>
+                <TableRow v-for="member in members" v-else :key="member.userId">
+                  <TableCell>
+                    <div class="flex flex-col gap-1">
+                      <span class="font-medium">{{ member.user?.displayName || member.user?.username || member.userId }}</span>
+                      <span class="text-xs text-muted-foreground">{{ member.userId }}</span>
+                      <span v-if="member.userId === authStore.user?.id" class="text-xs text-muted-foreground">当前用户</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge :variant="roleBadgeVariant(member.role)">{{ roleLabels[member.role] || member.role }}</Badge>
+                  </TableCell>
+                  <TableCell v-if="showActions" class="text-right">
+                    <div class="flex justify-end gap-2">
+                      <Button v-if="canChangeRole" variant="outline" size="sm" @click="openRoleDialog(member)">修改角色</Button>
+                      <Button
+                        v-if="canRemove"
+                        variant="destructive"
+                        size="sm"
+                        :disabled="member.userId === authStore.user?.id"
+                        :title="member.userId === authStore.user?.id ? '不能移除自己' : '移除成员'"
+                        @click="openRemoveDialog(member)"
+                      >
+                        移除
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>机器人 ({{ bots.length }})</CardTitle>
+          <CardDescription>机器人在此只读展示；停用由平台用户治理执行，删除由 Owner 在机器人管理页执行。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div class="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>机器人</TableHead>
+                  <TableHead>所属用户</TableHead>
+                  <TableHead>状态</TableHead>
+                  <TableHead>飞书</TableHead>
+                  <TableHead>启用</TableHead>
+                  <TableHead>创建时间</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableEmpty v-if="loadingDirectory" :colspan="6">正在加载机器人...</TableEmpty>
+                <TableEmpty v-else-if="directoryError" :colspan="6">{{ directoryError }}</TableEmpty>
+                <TableEmpty v-else-if="bots.length === 0" :colspan="6">当前租户暂无机器人</TableEmpty>
+                <TableRow v-for="bot in bots" v-else :key="bot.id">
+                  <TableCell>
+                    <div class="font-medium">{{ bot.displayName }}</div>
+                    <div class="text-xs text-muted-foreground">{{ bot.id }}</div>
+                  </TableCell>
+                  <TableCell>{{ bot.ownerName }}</TableCell>
+                  <TableCell><Badge :variant="bot.status === 'active' ? 'secondary' : 'outline'">{{ bot.status === 'active' ? '正常' : '已禁用' }}</Badge></TableCell>
+                  <TableCell><Badge :variant="bot.feishuEnabled ? 'secondary' : 'outline'">{{ feishuLabel(bot) }}</Badge></TableCell>
+                  <TableCell><Badge :variant="bot.enabled ? 'default' : 'outline'">{{ bot.enabled ? '已启用' : '已停用' }}</Badge></TableCell>
+                  <TableCell>{{ formatDateTime(bot.createdAt) }}</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
 
     <Dialog :open="inviteOpen" @update:open="inviteOpen = $event">
       <DialogContent>
@@ -151,7 +191,7 @@
         <AlertDialogHeader>
           <AlertDialogTitle>确认移除成员</AlertDialogTitle>
           <AlertDialogDescription>
-            移除后，{{ removeTarget?.user?.displayName || removeTarget?.user?.username }} 将无法再访问当前租户。此操作不会删除用户账号。
+            {{ removeTargetName }} 将不再属于当前租户。此操作不会删除用户账号。
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -171,6 +211,7 @@ import PageLayout from '../components/PageLayout.vue';
 import { useAuthStore } from '../stores/auth.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import { inviteMember, listMembers, removeMember, updateMemberRole } from '../api/admin.js';
+import { listTenantBots } from '../api/bots.js';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -187,6 +228,7 @@ defineProps({
 
 const authStore = useAuthStore();
 const members = ref([]);
+const bots = ref([]);
 const inviteOpen = ref(false);
 const roleOpen = ref(false);
 const removeOpen = ref(false);
@@ -207,15 +249,24 @@ const canInvite = computed(() => authStore.role === 'owner' || authStore.role ==
 const canChangeRole = computed(() => authStore.role === 'owner');
 const canRemove = computed(() => authStore.role === 'owner' || authStore.role === 'admin');
 const showActions = computed(() => canChangeRole.value || canRemove.value);
-const columnCount = computed(() => showActions.value ? 4 : 3);
+const memberColumnCount = computed(() => showActions.value ? 3 : 2);
 const inviteRoleOptions = computed(() => authStore.role === 'owner' ? ownerRoleOptions : adminRoleOptions);
+const removeTargetName = computed(() => removeTarget.value?.user?.displayName
+  || removeTarget.value?.user?.username
+  || removeTarget.value?.userId
+  || '该对象');
 
-const { run: loadMembers, loading: loadingMembers, error: membersError } = useAsyncAction(
+const { run: loadDirectory, loading: loadingDirectory, error: directoryError } = useAsyncAction(
   async () => {
-    members.value = await listMembers(authStore.tenantId);
-    return members.value;
+    const [memberItems, botItems] = await Promise.all([
+      listMembers(authStore.tenantId),
+      listTenantBots(),
+    ]);
+    members.value = memberItems;
+    bots.value = botItems;
+    return { memberItems, botItems };
   },
-  { showErrorToast: false, errorPrefix: '加载成员失败' },
+  { showErrorToast: false, errorPrefix: '加载成员与机器人失败' },
 );
 
 const { run: runInvite, loading: inviting } = useAsyncAction(
@@ -229,7 +280,7 @@ const { run: runInvite, loading: inviting } = useAsyncAction(
     });
     inviteOpen.value = false;
     resetInviteForm();
-    await loadMembers();
+    await loadDirectory();
   },
   { successMessage: '成员邀请成功', errorPrefix: '邀请成员失败' },
 );
@@ -239,7 +290,7 @@ const { run: runRoleChange, loading: updatingRole } = useAsyncAction(
     await updateMemberRole(authStore.tenantId, roleTarget.value.userId, selectedRole.value);
     roleOpen.value = false;
     roleTarget.value = null;
-    await loadMembers();
+    await loadDirectory();
   },
   { successMessage: '成员角色已更新', errorPrefix: '更新角色失败' },
 );
@@ -249,14 +300,14 @@ const { run: runRemove, loading: removing } = useAsyncAction(
     await removeMember(authStore.tenantId, removeTarget.value.userId);
     removeOpen.value = false;
     removeTarget.value = null;
-    await loadMembers();
+    await loadDirectory();
   },
-  { successMessage: '成员已移除', errorPrefix: '移除成员失败' },
+  { successMessage: '租户成员关系已移除', errorPrefix: '移除失败' },
 );
 
-function refreshMembers() {
+function refreshDirectory() {
   if (!authStore.tenantId) return;
-  loadMembers();
+  loadDirectory();
 }
 
 function resetInviteForm() {
@@ -305,6 +356,15 @@ function roleBadgeVariant(role) {
   return 'outline';
 }
 
-onMounted(refreshMembers);
-watch(() => authStore.tenantId, refreshMembers);
+function feishuLabel(bot) {
+  if (!bot.feishuEnabled) return '未接入';
+  return bot.feishuReceiveMode === 'long_connection' ? '已接入长连接' : '已接入 Webhook';
+}
+
+function formatDateTime(value) {
+  return value ? new Date(value).toLocaleString() : '—';
+}
+
+onMounted(refreshDirectory);
+watch(() => authStore.tenantId, refreshDirectory);
 </script>

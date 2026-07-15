@@ -58,11 +58,15 @@ export class SessionOps implements ISessionStore {
     return Number(result.changes) > 0;
   }
 
-  listSessions(tenantId: TenantId, limit = 20, offset = 0, userId?: string | null): PaginatedResult<SessionListItem> {
-    const resolvedUserId = userId?.trim() ? userId.trim() : null;
+  listSessions(tenantId: TenantId, limit = 20, offset = 0, userIds?: readonly string[] | null): PaginatedResult<SessionListItem> {
+    const resolvedUserIds = userIds?.map((userId) => userId.trim()).filter(Boolean) ?? null;
+    if (resolvedUserIds && resolvedUserIds.length === 0) {
+      return { items: [], total: 0, limit, offset, has_more: false };
+    }
+    const ownerClause = resolvedUserIds ? ` AND user_id IN (${resolvedUserIds.map(() => "?").join(", ")})` : "";
     const totalRow = this.db
-      .prepare("SELECT COUNT(1) AS cnt FROM sessions WHERE tenant_id=? AND (? IS NULL OR user_id = ?)")
-      .get(tenantId, resolvedUserId, resolvedUserId) as { cnt: number };
+      .prepare(`SELECT COUNT(1) AS cnt FROM sessions WHERE tenant_id=?${ownerClause}`)
+      .get(tenantId, ...(resolvedUserIds ?? [])) as { cnt: number };
     const rows = this.db
       .prepare(`
         SELECT
@@ -94,11 +98,11 @@ export class SessionOps implements ISessionStore {
             LIMIT 1
           ) AS first_content
         FROM sessions s
-        WHERE s.tenant_id=? AND (? IS NULL OR s.user_id = ?)
+        WHERE s.tenant_id=?${ownerClause}
         ORDER BY s.updated_at DESC
         LIMIT ? OFFSET ?
       `)
-      .all(tenantId, resolvedUserId, resolvedUserId, limit, offset) as unknown as SessionListRow[];
+      .all(tenantId, ...(resolvedUserIds ?? []), limit, offset) as unknown as SessionListRow[];
 
     return {
       items: rows.map(rowToSessionListItem),

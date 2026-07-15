@@ -1,5 +1,7 @@
+import path from "node:path";
+
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { FastifyInstance } from "fastify";
 
 const feishuMock = vi.hoisted(() => ({
   handlers: new Map<string, (data: unknown) => Promise<void> | void>(),
@@ -11,10 +13,11 @@ const feishuMock = vi.hoisted(() => ({
 vi.mock("../../src/services/daemon/platforms/feishu-adapter.js", () => ({
   createFeishuClient: () => ({}),
   createDispatcher: (_connection: unknown, handlers: { onMessage(data: unknown): Promise<void> | void }) => {
-    feishuMock.handlers.set("default", handlers.onMessage);
+    const key = `handler-${feishuMock.handlers.size}`;
+    feishuMock.handlers.set(key, handlers.onMessage);
     return {
       invoke: async (body: unknown) => {
-        await feishuMock.handlers.get("default")?.(body);
+        await handlers.onMessage(body);
         return { code: 0 };
       },
     };
@@ -26,238 +29,237 @@ vi.mock("../../src/services/daemon/platforms/feishu-adapter.js", () => ({
   },
   startLongConnection: () => {
     feishuMock.longStarts += 1;
-    return {
-      started: Promise.resolve(),
-      close: () => { feishuMock.longCloses += 1; },
-    };
+    return { started: Promise.resolve(), close: () => { feishuMock.longCloses += 1; } };
   },
 }));
 
-import { buildTestApp, buildTestHarness } from "../helpers/app.js";
-import { DaemonSystemConfigSchema } from "../../src/contracts/daemon.js";
-import { createTenantId } from "../../src/identity/types.js";
-import { DaemonService } from "../../src/services/daemon/daemon-service.js";
+import { createTenantId, createUserId, type RequestIdentity, type TenantId, type UserId } from "../../src/identity/types.js";
+import { DaemonService, type DaemonRunAgentTask } from "../../src/services/daemon/daemon-service.js";
+import type { IdentityProvider } from "../../src/services/identity/index.js";
+import { LOCAL_TENANT_ID, LOCAL_USER_ID } from "../../src/services/identity/index.js";
 import type { TenantRuntimeRegistry } from "../../src/services/runtime/tenant-runtime-registry.js";
+import { createControlStore, type ControlStore } from "../../src/services/stores/control-store/index.js";
+import { buildTestHarness } from "../helpers/app.js";
+import { makeTempRoot } from "../helpers/temp-db.js";
 
 let app: FastifyInstance | null = null;
 
 afterEach(async () => {
+  if (app) await app.close();
+  app = null;
   feishuMock.handlers.clear();
   feishuMock.sent.length = 0;
   feishuMock.longStarts = 0;
   feishuMock.longCloses = 0;
-  if (app) await app.close();
-  app = null;
 });
 
-describe("daemon 飞书接入", () => {
-  it("保存配置后生成 routeToken 并脱敏凭证", async () => {
-    app = await buildTestApp();
-    const saved = await app.inject({ method: "PUT", url: "/api/daemon/config", payload: daemonConfig() });
-    expect(saved.statusCode).toBe(200);
-    expect(saved.json()).toEqual({ status: "ok", message: "配置已保存并生效" });
-
-    const response = await app.inject({ method: "GET", url: "/api/daemon/config" });
-    expect(response.statusCode).toBe(200);
-    expect(response.json().agents[0].platforms.feishu).toMatchObject({
-      app_id: "cli_demo",
-      app_secret: "***",
-      token: "***",
-      encoding_aes_key: "***",
-      route_token: expect.stringMatching(/^[a-f0-9]{32}$/),
-    });
-  });
-
-  it("webhook challenge 不依赖会话鉴权", async () => {
-    app = await buildTestApp();
-    await app.inject({ method: "PUT", url: "/api/daemon/config", payload: daemonConfig() });
-    const config = await app.inject({ method: "GET", url: "/api/daemon/config" });
-    const routeToken = config.json().agents[0].platforms.feishu.route_token as string;
-
-    const response = await app.inject({
-      method: "POST",
-      url: `/api/daemon/webhook/feishu/${routeToken}`,
-      payload: { type: "url_verification", challenge: "challenge-value" },
-    });
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ challenge: "challenge-value" });
-  });
-
-  it("收到飞书文本后执行注入的 agent 并回复原 chat", async () => {
-    const daemon = new DaemonService({ configPath: "" });
-    const tenantId = createTenantId("tnt_test");
-    const routeIndex = new Map<string, { tenantId: typeof tenantId; teamName: string }>();
-    const registry = {
-      registerRouteToken: (id: typeof tenantId, teamName: string, routeToken: string) => routeIndex.set(routeToken, { tenantId: id, teamName }),
-      unregisterRouteToken: (routeToken: string) => routeIndex.delete(routeToken),
-      resolveRouteToken: (routeToken: string) => routeIndex.get(routeToken) ?? null,
-      acquire: async () => ({ tenantId, runtime: { daemon }, release: () => undefined }),
-    } as unknown as TenantRuntimeRegistry;
-    const runAgentTask = vi.fn(async () => "agent reply");
-    daemon.setRunAgentTask(runAgentTask);
-    daemon.setRuntimeRegistry(registry, tenantId);
-    daemon.updateConfig(DaemonSystemConfigSchema.parse(daemonConfig()));
-    const routeToken = daemon.getConfig().agents[0]!.platforms.feishu!.route_token!;
-
-    const response = await daemon.handleIncomingMessage(routeToken, {
-      sender: { sender_id: { open_id: "ou_user" } },
-      message: { chat_id: "oc_chat", chat_type: "p2p", message_type: "text", content: JSON.stringify({ text: "hello" }) },
-    });
-
-    expect(response).toEqual({ code: 0 });
-    await vi.waitFor(() => {
-      expect(runAgentTask).toHaveBeenCalledWith(expect.objectContaining({
-        task: "hello",
-        teamName: "default",
-        entryAgent: "orchestrator_agent",
-        sessionId: "daemon-default-feishu-oc_chat",
-        source: "daemon.feishu.incoming",
-      }));
-    });
-    await vi.waitFor(() => {
-      expect(feishuMock.sent).toEqual([{ chatId: "ou_user", receiveIdType: "open_id", content: "agent reply" }]);
-    });
-    daemon.close();
-  });
-
-  it("相同 message_id 的重发消息只处理一次", async () => {
-    const daemon = new DaemonService({ configPath: "" });
-    const tenantId = createTenantId("tnt_test");
-    const routeIndex = new Map<string, { tenantId: typeof tenantId; teamName: string }>();
-    const registry = {
-      registerRouteToken: (id: typeof tenantId, teamName: string, routeToken: string) => routeIndex.set(routeToken, { tenantId: id, teamName }),
-      unregisterRouteToken: (routeToken: string) => routeIndex.delete(routeToken),
-      resolveRouteToken: (routeToken: string) => routeIndex.get(routeToken) ?? null,
-      acquire: async () => ({ tenantId, runtime: { daemon }, release: () => undefined }),
-    } as unknown as TenantRuntimeRegistry;
-    const runAgentTask = vi.fn(async () => "agent reply");
-    daemon.setRunAgentTask(runAgentTask);
-    daemon.setRuntimeRegistry(registry, tenantId);
-    daemon.updateConfig(DaemonSystemConfigSchema.parse(daemonConfig()));
-    const routeToken = daemon.getConfig().agents[0]!.platforms.feishu!.route_token!;
-
-    const body = {
-      sender: { sender_id: { open_id: "ou_user" } },
-      message: { chat_id: "oc_chat", chat_type: "p2p", message_type: "text", message_id: "om_dup", content: JSON.stringify({ text: "hello" }) },
-    };
-    await daemon.handleIncomingMessage(routeToken, body);
-    await daemon.handleIncomingMessage(routeToken, body);
-
-    await vi.waitFor(() => {
-      expect(runAgentTask).toHaveBeenCalledTimes(1);
-    });
-    await vi.waitFor(() => {
-      expect(feishuMock.sent).toHaveLength(1);
-    });
-    daemon.close();
-  });
-
-  it("runtime-container 将 daemon 任务注入真实 agentExecution", async () => {
+describe("bot 自动化执行引擎", () => {
+  it("Bot config CRUD 使用 control-store 并脱敏凭证", async () => {
     const harness = await buildTestHarness();
     app = harness.app;
-    const execute = vi.spyOn(harness.container.agentExecution, "executeSynchronously").mockResolvedValue({
-      success: true,
-      answer: "runtime answer",
-      agent_name: "orchestrator_agent",
-      execution_time: 0,
-      tool_calls: [],
-      metadata: {},
-      session_id: "daemon-default-feishu-test-chat",
-      run_id: "run_test",
-      task_id: "task_test",
-      error: null,
+    const created = await app.inject({ method: "POST", url: "/api/bots", payload: { display_name: "Feishu Bot" } });
+    expect(created.statusCode).toBe(200);
+    const botId = created.json().bot.id as string;
+    const updated = await app.inject({
+      method: "PUT",
+      url: `/api/bots/${botId}/config`,
+      payload: botConfigPatch("webhook"),
     });
-    harness.container.daemon.updateConfig(DaemonSystemConfigSchema.parse(daemonConfig()));
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().feishu).toMatchObject({ app_secret: "***", token: "***", encoding_aes_key: "***", route_token: expect.stringMatching(/^[a-f0-9]{32}$/) });
+    expect(harness.controlStore.getBotRuntimeConfig(createUserId(botId))?.feishu.app_secret).toBe("secret");
 
-    const result = await harness.container.daemon.testMessage("default", { content: "run", platform: "feishu", chat_id: "test-chat" });
-
-    expect(result.result).toBe("runtime answer");
-    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
-      task: "run",
-      session_id: "daemon-default-feishu-test-chat",
-      agent: "orchestrator_agent",
-      userId: "usr_daemon",
-    }), expect.any(String));
-  });
-
-  it("长连接在配置重建和 daemon close 时正确启停", () => {
-    const daemon = new DaemonService({ configPath: "" });
-    daemon.setRunAgentTask(async () => "ok");
-
-    daemon.updateConfig(DaemonSystemConfigSchema.parse(daemonConfig("long_connection")));
-    expect(feishuMock.longStarts).toBe(1);
-    expect(feishuMock.longCloses).toBe(0);
-
-    daemon.updateConfig(DaemonSystemConfigSchema.parse(daemonConfig("long_connection")));
-    expect(feishuMock.longStarts).toBe(2);
-    expect(feishuMock.longCloses).toBe(1);
-
-    daemon.updateConfig(DaemonSystemConfigSchema.parse(daemonConfig("webhook")));
-    expect(feishuMock.longStarts).toBe(2);
-    expect(feishuMock.longCloses).toBe(2);
-
-    daemon.updateConfig(DaemonSystemConfigSchema.parse(daemonConfig("long_connection")));
-    daemon.close();
-    expect(feishuMock.longStarts).toBe(3);
-    expect(feishuMock.longCloses).toBe(3);
-  });
-
-  it("receive_mode 默认使用长连接且不注册 webhook routeToken", () => {
-    const daemon = new DaemonService({ configPath: "", runAgentTask: async () => "ok" });
-    const tenantId = createTenantId("tnt_test");
-    const routeIndex = new Map<string, { tenantId: typeof tenantId; teamName: string }>();
-    const registry = {
-      registerRouteToken: (id: typeof tenantId, teamName: string, routeToken: string) => routeIndex.set(routeToken, { tenantId: id, teamName }),
-      unregisterRouteToken: (routeToken: string) => routeIndex.delete(routeToken),
-      resolveRouteToken: (routeToken: string) => routeIndex.get(routeToken) ?? null,
-    } as unknown as TenantRuntimeRegistry;
-    daemon.setRuntimeRegistry(registry, tenantId);
-    const config = daemonConfig();
-    delete config.agents[0].platforms.feishu.receive_mode;
-    daemon.updateConfig(DaemonSystemConfigSchema.parse(config));
-
-    expect(daemon.getConfig().agents[0]!.platforms.feishu).toMatchObject({
-      receive_mode: "long_connection",
-      route_token: null,
+    const maskedUpdate = await app.inject({
+      method: "PUT",
+      url: `/api/bots/${botId}/config`,
+      payload: { feishu: { app_secret: "***", token: "***", encoding_aes_key: "***" } },
     });
-    expect(routeIndex.size).toBe(0);
-    daemon.close();
+    expect(maskedUpdate.statusCode).toBe(200);
+    expect(harness.controlStore.getBotRuntimeConfig(createUserId(botId))?.feishu.app_secret).toBe("secret");
   });
 
-  it("旧 start/stop/status/agents 端点已移除", async () => {
-    app = await buildTestApp();
-    for (const [method, url] of [["POST", "/api/daemon/start"], ["POST", "/api/daemon/stop"], ["GET", "/api/daemon/status"], ["GET", "/api/daemon/agents"]] as const) {
-      const response = await app.inject({ method, url });
-      expect(response.statusCode).toBe(404);
+  it("非 owner 无法读取或修改 bot 配置", async () => {
+    const USER_A = createUserId("usr_owner_a");
+    const USER_B = createUserId("usr_owner_b");
+    const identityProvider: IdentityProvider = {
+      resolve(request: FastifyRequest): RequestIdentity {
+        return { userId: request.headers["x-test-user"] === "b" ? USER_B : USER_A, tenantId: LOCAL_TENANT_ID, role: "member", permissions: [] };
+      },
+    };
+    const harness = await buildTestHarness({ identityProvider });
+    app = harness.app;
+    harness.controlStore.createTenant({ id: LOCAL_TENANT_ID, displayName: "Local" });
+    for (const userId of [USER_A, USER_B]) {
+      harness.controlStore.createUser({ id: userId, displayName: userId });
+      harness.controlStore.upsertMembership({ userId, tenantId: LOCAL_TENANT_ID, role: "member" });
     }
+    const bot = harness.controlStore.createBot({ tenantId: LOCAL_TENANT_ID, ownerId: USER_A, displayName: "Private Bot" });
+    const tenantBots = await app.inject({ method: "GET", url: "/api/bots?tenant=1", headers: { "x-test-user": "b" } });
+    expect(tenantBots.statusCode).toBe(200);
+    expect(tenantBots.json().bots).toEqual([expect.objectContaining({ id: bot.id, ownerName: USER_A })]);
+    expect(tenantBots.json().bots[0]).not.toHaveProperty("feishu");
+    const privateList = await app.inject({ method: "GET", url: "/api/bots", headers: { "x-test-user": "b" } });
+    expect(privateList.statusCode).toBe(200);
+    expect(privateList.json().bots).toEqual([]);
+    const denied = await app.inject({ method: "GET", url: `/api/bots/${bot.id}/config`, headers: { "x-test-user": "b" } });
+    expect(denied.statusCode).toBe(403);
+    const updateDenied = await app.inject({ method: "PUT", url: `/api/bots/${bot.id}/config`, headers: { "x-test-user": "b" }, payload: { enabled: true } });
+    expect(updateDenied.statusCode).toBe(403);
+  });
+
+  it("webhook routeToken 反查 bot 且无需鉴权", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+    const bot = harness.controlStore.createBot({ tenantId: LOCAL_TENANT_ID, ownerId: LOCAL_USER_ID, displayName: "Webhook Bot" });
+    configureFeishu(harness.controlStore, bot.id, "webhook");
+    app.botEngine.reloadBot(bot.id);
+    const token = harness.controlStore.getBotRuntimeConfig(bot.id)!.feishu.route_token!;
+    expect(harness.registry.resolveRouteToken(token)).toEqual({ tenantId: LOCAL_TENANT_ID, botId: bot.id });
+    const response = await app.inject({ method: "POST", url: `/api/bots/webhook/feishu/${token}`, payload: { type: "url_verification", challenge: "ok" } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ challenge: "ok" });
+  });
+
+  it("收到飞书消息后以 bot 身份执行并写 sender metadata", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+    const bot = harness.controlStore.createBot({ tenantId: LOCAL_TENANT_ID, ownerId: LOCAL_USER_ID, displayName: "Runner Bot" });
+    configureFeishu(harness.controlStore, bot.id, "webhook");
+    const execute = vi.spyOn(harness.container.agentExecution, "executeSynchronously").mockImplementation(async (request) => {
+      harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: request.session_id!, userId: request.userId });
+      return { success: true, answer: "reply", agent_name: "orchestrator_agent", execution_time: 0, tool_calls: [], metadata: {}, session_id: request.session_id!, run_id: "run", task_id: "task", error: null };
+    });
+    app.botEngine.reloadBot(bot.id);
+    const token = harness.controlStore.getBotRuntimeConfig(bot.id)!.feishu.route_token!;
+    await app.botEngine.handleIncomingMessage(token, feishuMessage("om_runtime"));
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledWith(expect.objectContaining({ userId: bot.id }), expect.any(String)));
+    const sessionId = `bot-${bot.id}-feishu-oc_chat`;
+    await vi.waitFor(() => expect(harness.container.sessionApplication.getSession(sessionId)?.metadata).toMatchObject({ feishu: { sender_open_id: "ou_user" } }));
+    await vi.waitFor(() => expect(feishuMock.sent).toEqual([{ chatId: "ou_user", receiveIdType: "open_id", content: "reply" }]));
+  });
+
+  it("reloadBot 在 bot 禁用时卸载长连接，恢复后重建", () => {
+    const harness = createEngineHarness(async () => "ok");
+    configureFeishu(harness.controlStore, harness.botId, "long_connection");
+    harness.engine.reloadBot(harness.botId);
+    expect(feishuMock.longStarts).toBe(1);
+    harness.controlStore.setUserStatus(harness.botId, "disabled");
+    harness.engine.reloadBot(harness.botId);
+    expect(feishuMock.longCloses).toBe(1);
+    expect(feishuMock.longStarts).toBe(1);
+    expect(() => harness.engine.listBotCronTasks(harness.botId)).toThrow("bot 已禁用");
+    harness.controlStore.setUserStatus(harness.botId, "active");
+    harness.engine.reloadBot(harness.botId);
+    expect(feishuMock.longStarts).toBe(2);
+    harness.close();
+  });
+
+  it("reloadBot 在 bot 禁用时注销 routeToken，恢复后重新注册", () => {
+    const harness = createEngineHarness(async () => "ok");
+    configureFeishu(harness.controlStore, harness.botId, "webhook");
+    harness.engine.reloadBot(harness.botId);
+    const routeToken = harness.controlStore.getBotRuntimeConfig(harness.botId)!.feishu.route_token!;
+    expect(harness.registry.resolveRouteToken(routeToken)).toEqual({ tenantId: harness.tenantId, botId: harness.botId });
+    harness.controlStore.setUserStatus(harness.botId, "disabled");
+    harness.engine.reloadBot(harness.botId);
+    expect(harness.registry.resolveRouteToken(routeToken)).toBeNull();
+    harness.controlStore.setUserStatus(harness.botId, "active");
+    harness.engine.reloadBot(harness.botId);
+    expect(harness.registry.resolveRouteToken(routeToken)).toEqual({ tenantId: harness.tenantId, botId: harness.botId });
+    harness.close();
+  });
+
+  it("长连接不随 tenant runtime idle 回收", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+    const bot = harness.controlStore.createBot({ tenantId: LOCAL_TENANT_ID, ownerId: LOCAL_USER_ID, displayName: "Persistent Bot" });
+    configureFeishu(harness.controlStore, bot.id, "long_connection");
+    app.botEngine.reloadBot(bot.id);
+    expect(feishuMock.longStarts).toBe(1);
+    await harness.registry.closeTenant(LOCAL_TENANT_ID);
+    expect(feishuMock.longCloses).toBe(0);
+  });
+
+  it("bot Cron CRUD 落 control-store 并以 botId trigger", async () => {
+    const runAgentTask = vi.fn(async () => "cron result");
+    const harness = createEngineHarness(runAgentTask);
+    const created = harness.engine.createBotCronTask(harness.botId, {
+      task_id: "daily",
+      cron: "0 9 * * *",
+      task: "daily report",
+      entry_agent: null,
+      enabled: true,
+      push_platform: null,
+      push_chat_id: null,
+    });
+    expect(harness.controlStore.getBotCronTask(harness.botId, "daily")).toEqual(created);
+    expect(created.next_run).not.toBeNull();
+    const triggered = await harness.engine.triggerBotCronTask(harness.botId, "daily");
+    expect(triggered.result).toBe("cron result");
+    expect(runAgentTask).toHaveBeenCalledWith(expect.objectContaining({ botId: harness.botId, task: "daily report", source: "daemon.cron" }));
+    expect(harness.controlStore.getBotCronTask(harness.botId, "daily")?.last_result).toBe("cron result");
+    expect(harness.engine.deleteBotCronTask(harness.botId, "daily")).toBe(true);
+    expect(harness.controlStore.getBotCronTask(harness.botId, "daily")).toBeNull();
+    harness.close();
+  });
+
+  it("start 遍历 control-store 中已启用飞书 bot", () => {
+    const harness = createEngineHarness(async () => "ok", false);
+    configureFeishu(harness.controlStore, harness.botId, "long_connection");
+    harness.engine.start();
+    expect(feishuMock.longStarts).toBe(1);
+    harness.close();
   });
 });
 
-function daemonConfig(receiveMode: "webhook" | "long_connection" = "webhook") {
+function createEngineHarness(runAgentTask: DaemonRunAgentTask, start = true) {
+  const root = makeTempRoot();
+  const controlStore = createControlStore(path.join(root, "system"));
+  const tenantId = createTenantId("tnt_test");
+  const ownerId = createUserId("usr_owner");
+  controlStore.createTenant({ id: tenantId, displayName: "Test" });
+  controlStore.createUser({ id: ownerId, displayName: "Owner" });
+  controlStore.upsertMembership({ userId: ownerId, tenantId, role: "owner" });
+  const botId = controlStore.createBot({ tenantId, ownerId, displayName: "Bot" }).id;
+  const routeIndex = new Map<string, { tenantId: TenantId; botId: UserId }>();
+  const registry = {
+    registerRouteToken: (id: TenantId, idBot: UserId, routeToken: string) => routeIndex.set(routeToken, { tenantId: id, botId: idBot }),
+    unregisterRouteToken: (routeToken: string) => routeIndex.delete(routeToken),
+    resolveRouteToken: (routeToken: string) => routeIndex.get(routeToken) ?? null,
+  } as unknown as TenantRuntimeRegistry;
+  const engine = new DaemonService({ controlStore, registry, runAgentTask });
+  if (start) engine.start();
+  return { tenantId, botId, controlStore, engine, registry, close: () => { engine.close(); controlStore.close(); } };
+}
+
+function configureFeishu(controlStore: ControlStore, botId: UserId, receiveMode: "webhook" | "long_connection"): void {
+  controlStore.updateBotConfig(botId, {
+    enabled: true,
+    entry_agent: "orchestrator_agent",
+    feishu: {
+      enabled: true,
+      app_id: "cli_demo",
+      app_secret: "secret",
+      token: "token",
+      encoding_aes_key: "encrypt-key",
+      receive_mode: receiveMode,
+    },
+  });
+}
+
+function botConfigPatch(receiveMode: "webhook" | "long_connection") {
   return {
     enabled: true,
+    entry_agent: "orchestrator_agent",
+    session_id: null,
     default_session_ttl: 86400,
-    agents: [{
-      team_name: "default",
-      entry_agent: "orchestrator_agent",
-      session_id: null,
-      permissions: {},
-      enabled: true,
-      platforms: {
-        feishu: {
-          enabled: true,
-          app_id: "cli_demo",
-          app_secret: "secret",
-          token: "token",
-          encoding_aes_key: "encrypt-key",
-          route_token: null,
-          receive_mode: receiveMode,
-          webhook_url: null,
-          session_id: null,
-          extra: {},
-        },
-      },
-      cron_tasks: [],
-    }],
+    feishu: { enabled: true, app_id: "cli_demo", app_secret: "secret", token: "token", encoding_aes_key: "encrypt-key", receive_mode: receiveMode },
+  };
+}
+
+function feishuMessage(messageId: string) {
+  return {
+    sender: { sender_id: { open_id: "ou_user" } },
+    message: { chat_id: "oc_chat", chat_type: "p2p", message_type: "text", message_id: messageId, content: JSON.stringify({ text: "hello" }) },
   };
 }

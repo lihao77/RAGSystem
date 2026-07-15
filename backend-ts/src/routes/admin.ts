@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 
+import { TenantRoleSchema } from "../contracts/user.js";
 import { createTenantId, createUserId, type TenantId } from "../identity/types.js";
 import type { ControlStore } from "../services/stores/control-store/index.js";
 import { HttpError } from "../utils/errors.js";
@@ -20,7 +21,6 @@ interface MemberParams extends TenantParams {
   userId: string;
 }
 
-const TenantRoleSchema = z.enum(["owner", "admin", "member"]);
 const TenantIdSchema = z.string().regex(/^tnt_[a-z0-9]+(?:_[a-z0-9]+)*$/);
 const UserIdSchema = z.string().regex(/^usr_[a-z0-9]+(?:_[a-z0-9]+)*$/);
 const CreateTenantSchema = z.object({ displayName: z.string().trim().min(1) });

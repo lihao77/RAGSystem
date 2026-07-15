@@ -4,7 +4,6 @@ import { AgentDelegationService } from "../agent/delegation/index.js";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
-import { createUserId } from "../../identity/types.js";
 import { BackgroundTaskService } from "./background-task-service.js";
 import { SessionNotificationQueue } from "./session-notification-queue.js";
 import { AgentConfigService } from "../agent/config/index.js";
@@ -12,7 +11,6 @@ import { AgentSessionApplication } from "../sessions/index.js";
 import { ArtifactService } from "../artifacts/artifact-service.js";
 import { TransientArtifactService } from "../artifacts/transient-artifact-service.js";
 import { createConversationStore, type ConversationStore } from "../stores/conversation-store/index.js";
-import { DaemonService } from "../daemon/daemon-service.js";
 import { EmbeddingModelService } from "../knowledge/embedding-model-service.js";
 import { FileHistoryService } from "../stores/file-history-service.js";
 import type { IFileHistoryStore } from "../../contracts/file-history-store/index.js";
@@ -59,7 +57,6 @@ export interface RuntimeContainer {
   readonly modelAdapter: ModelAdapterService;
   readonly systemConfig: SystemConfigService;
   readonly mcp: McpService;
-  readonly daemon: DaemonService;
   readonly fileHistory: IFileHistoryStore;
   readonly fileIndex: IFileIndexStore;
   readonly knowledgeBase: KnowledgeBaseService;
@@ -97,7 +94,6 @@ export interface RuntimeContainerOptions {
   logger?: AgentExecutionLogger | undefined;
   modelAdapterProvidersConfigPath?: string | undefined;
   mcpConfigPath?: string | undefined;
-  daemonConfigPath?: string | undefined;
   systemConfigPath?: string | undefined;
   agentConfigRoot?: string | undefined;
   startOutboxDispatcher?: boolean | undefined;
@@ -132,8 +128,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const mcp = new McpService({ dataRoot: options.dataRoot, configPath: options.mcpConfigPath });
   void mcp.autoConnectEnabledServers();
   agentConfig.setMcpService(mcp);
-  // M2 骨架：daemon 随租户 runtime 隔离；Local 使用 tnt_local。multi 下跨租户统一调度与常驻加载另行实现。
-  const daemon = new DaemonService({ dataRoot: options.dataRoot, configPath: options.daemonConfigPath });
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
   // sqlite-vec driver 接线:读 systemConfig 选后端实例化(触发 driver 模块自注册)。
   // sqlite-vec 是唯一向量源(driver 唯一);扩展加载失败(vec0 不可用、Node/Windows ABI)直接抛错,
@@ -246,16 +240,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     ),
     ...(options.hooks ? { hooks: options.hooks } : {}),
   });
-  daemon.setRunAgentTask(async (input) => {
-    const result = await agentExecution.executeSynchronously({
-      task: input.task,
-      session_id: input.sessionId,
-      agent: input.entryAgent,
-      userId: createUserId("usr_daemon"),
-    }, randomUUID());
-    if (!result.success) throw new Error(result.error ?? "agent 执行失败");
-    return result.answer ?? "";
-  });
   agentDelegation.setRunEngine(() => agentExecution.runEngine);
   // 后台任务完成 → 自动拉起 system run（通道 A）。lazy 绑定打破 backgroundTasks ↔ agentExecution 循环。
   backgroundTasks.setOnTaskCompleted((sessionId) => agentExecution.triggerBgNotificationRun(sessionId));
@@ -269,7 +253,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     transientArtifacts.stopPruning();
     outboxDispatcher.stop();
     mcp.close();
-    daemon.close();
     knowledgeBase.close();
     fileIndex.close();
     // conversation/file-index/vector 三个 store 各自开 SQLite 句柄（同 dbPath，WAL 允许多连接），
@@ -288,7 +271,6 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     modelAdapter,
     systemConfig,
     mcp,
-    daemon,
     fileHistory,
     fileIndex,
     knowledgeBase,

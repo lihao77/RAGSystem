@@ -32,7 +32,6 @@ export class TenantPaths {
   tasksSession(sessionId: string): string { return path.join(this.dataRoot, "tasks", sessionId); }
   fileHistorySession(sessionId: string): string { return path.join(this.dataRoot, "file-history", sessionId); }
   configApp(): string { return path.join(this.dataRoot, "config", "app", "config.yaml"); }
-  configDaemon(): string { return path.join(this.dataRoot, "config", "daemon", "daemon.yaml"); }
   configMcp(): string { return path.join(this.dataRoot, "config", "mcp", "mcp_servers.yaml"); }
   configModelAdapter(): string { return path.join(this.dataRoot, "config", "model_adapter", "providers.yaml"); }
   configAgents(): string { return path.join(this.dataRoot, "config", "agents"); }

@@ -54,8 +54,8 @@ export class AgentSessionApplication {
     return { session_id: input.sessionId, user_id: null, metadata };
   }
 
-  listSessions(input: { tenantId: TenantId; limit?: number; offset?: number; userId?: string | null }): PaginatedResult<SessionListItem> {
-    return this.conversationStore.listSessions(input.tenantId, input.limit ?? 20, input.offset ?? 0, input.userId ?? null);
+  listSessions(input: { tenantId: TenantId; limit?: number; offset?: number; userIds?: readonly string[] | null }): PaginatedResult<SessionListItem> {
+    return this.conversationStore.listSessions(input.tenantId, input.limit ?? 20, input.offset ?? 0, input.userIds ?? null);
   }
 
   getSession(sessionId: string): SessionInfo | null {

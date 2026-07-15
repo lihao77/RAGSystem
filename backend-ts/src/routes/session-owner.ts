@@ -1,18 +1,18 @@
 import type { FastifyRequest } from "fastify";
 
 import type { SessionInfo } from "../contracts/session.js";
-import type { RequestIdentity } from "../identity/types.js";
 import { LOCAL_USER_ID } from "../services/identity/local-identity-provider.js";
 import { HttpError } from "../utils/errors.js";
 
-export function assertSessionOwner(identity: RequestIdentity, session: SessionInfo): void {
+export function assertSessionOwner(request: FastifyRequest, session: SessionInfo): void {
+  const identity = request.identity;
   if (session.tenant_id !== identity.tenantId) {
     throw new HttpError(404, "not_found", "会话不存在");
   }
   if (identity.userId === LOCAL_USER_ID) {
     return;
   }
-  if (session.user_id !== identity.userId) {
+  if (session.user_id !== identity.userId && !request.server.controlStore.isBotOwnedBy(session.user_id ?? "", identity.userId)) {
     throw new HttpError(403, "forbidden", "无权访问该会话");
   }
 }
@@ -22,7 +22,7 @@ export function loadOwnedSession(request: FastifyRequest, sessionId: string): Se
   if (!session) {
     throw new HttpError(404, "not_found", "会话不存在");
   }
-  assertSessionOwner(request.identity, session);
+  assertSessionOwner(request, session);
   return session;
 }
 
@@ -32,7 +32,7 @@ export function assertOwnedSessionIfExists(request: FastifyRequest, sessionId: s
   }
   const session = request.container.sessionApplication.getSession(sessionId);
   if (session) {
-    assertSessionOwner(request.identity, session);
+    assertSessionOwner(request, session);
   }
 }
 

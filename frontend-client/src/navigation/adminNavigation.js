@@ -46,7 +46,7 @@ export const adminNavGroups = [
   {
     key: 'operations',
     label: '运行与诊断',
-    description: '查看状态、守护任务与系统配置。',
+    description: '查看状态、机器人与系统配置。',
   },
 ];
 
@@ -181,12 +181,12 @@ export const managementNavItems = [
     ]),
   },
   {
-    key: 'daemon',
-    mainView: 'daemon',
-    path: '/daemon',
-    label: '守护系统',
-    title: '守护 Agent 系统',
-    description: '管理常驻守护、消息网关、定时任务和心跳监控。',
+    key: 'bots',
+    mainView: 'bots',
+    path: '/bots',
+    label: '机器人',
+    title: '机器人管理',
+    description: '管理私有 Bot 身份、飞书连接、会话策略和定时任务。',
     group: 'operations',
     icon: createAdminIcon([
       { tag: 'path', attrs: { d: 'M12 2L2 7l10 5 10-5-10-5z' } },

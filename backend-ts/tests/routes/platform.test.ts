@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createTenantId, createUserId } from "../../src/identity/types.js";
 import { createSessionTokenService } from "../../src/services/runtime/session-token-service.js";
@@ -21,11 +21,35 @@ describe("平台控制面", () => {
     harness.controlStore.createTenant({ id: tenantId, displayName: "Customer" });
     harness.controlStore.createUser({ id: userId, displayName: "Customer Owner", username: "customer", password_hash: hashPassword("password123") });
     harness.controlStore.upsertMembership({ userId, tenantId, role: "owner" });
+    const bot = harness.controlStore.createBot({ tenantId, ownerId: userId, displayName: "Customer Bot" });
+    harness.controlStore.updateBotConfig(bot.id, {
+      enabled: true,
+      entry_agent: "support_agent",
+      feishu: { enabled: true, app_id: "app", app_secret: "secret", token: "token", encoding_aes_key: "aes", receive_mode: "long_connection" },
+    });
     const userToken = await login(harness, "customer", "password123");
 
     const tenants = await harness.app.inject({ method: "GET", url: "/api/platform/tenants", headers: bearer(adminToken) });
     expect(tenants.statusCode).toBe(200);
     expect(tenants.json().tenants).toEqual(expect.arrayContaining([expect.objectContaining({ id: tenantId })]));
+
+    const users = await harness.app.inject({ method: "GET", url: "/api/platform/users", headers: bearer(adminToken) });
+    expect(users.statusCode).toBe(200);
+    expect(users.json().users).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: bot.id })]));
+
+    const bots = await harness.app.inject({ method: "GET", url: "/api/platform/bots", headers: bearer(adminToken) });
+    expect(bots.statusCode).toBe(200);
+    expect(bots.json().bots).toEqual(expect.arrayContaining([expect.objectContaining({
+      id: bot.id,
+      ownerName: "Customer Owner",
+      tenantName: "Customer",
+      tenantId,
+      enabled: true,
+      feishuEnabled: true,
+      feishuReceiveMode: "long_connection",
+      entryAgent: "support_agent",
+    })]));
+    expect(bots.json().bots.find((item: { id: string }) => item.id === bot.id)).not.toHaveProperty("app_secret");
 
     const disabled = await harness.app.inject({
       method: "PATCH",
@@ -64,6 +88,43 @@ describe("平台控制面", () => {
     expect(restored.statusCode).toBe(200);
   });
 
+  it("平台状态接口仅在 bot 状态变化时通知执行引擎 reload", async () => {
+    const harness = await installedHarness();
+    const adminToken = await login(harness, "admin", "password123");
+    const owner = harness.controlStore.getUserByUsername("admin")!;
+    const bot = harness.controlStore.createBot({ tenantId: createTenantId("tnt_default"), ownerId: owner.id, displayName: "Reload Bot" });
+    const humanId = createUserId("usr_status_human");
+    harness.controlStore.createUser({ id: humanId, displayName: "Status Human" });
+    const reloadSpy = vi.spyOn(harness.app.botEngine, "reloadBot").mockImplementation(() => {});
+
+    const disabled = await harness.app.inject({
+      method: "PATCH",
+      url: `/api/platform/users/${bot.id}/status`,
+      headers: bearer(adminToken),
+      payload: { status: "disabled" },
+    });
+    expect(disabled.statusCode).toBe(200);
+    expect(reloadSpy).toHaveBeenLastCalledWith(bot.id);
+
+    const restored = await harness.app.inject({
+      method: "PATCH",
+      url: `/api/platform/users/${bot.id}/status`,
+      headers: bearer(adminToken),
+      payload: { status: "active" },
+    });
+    expect(restored.statusCode).toBe(200);
+    expect(reloadSpy).toHaveBeenCalledTimes(2);
+
+    const humanDisabled = await harness.app.inject({
+      method: "PATCH",
+      url: `/api/platform/users/${humanId}/status`,
+      headers: bearer(adminToken),
+      payload: { status: "disabled" },
+    });
+    expect(humanDisabled.statusCode).toBe(200);
+    expect(reloadSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("平台 admin 无目标租户 membership 仍可只读穿透会话", async () => {
     const harness = await installedHarness();
     const adminToken = await login(harness, "admin", "password123");
@@ -91,6 +152,8 @@ describe("平台控制面", () => {
     const ownerToken = await login(harness, "regular", "password123");
     const ownerResponse = await harness.app.inject({ method: "GET", url: "/api/platform/users", headers: bearer(ownerToken) });
     expect(ownerResponse.statusCode).toBe(403);
+    const ownerBotsResponse = await harness.app.inject({ method: "GET", url: "/api/platform/bots", headers: bearer(ownerToken) });
+    expect(ownerBotsResponse.statusCode).toBe(403);
 
     const tokenService = createSessionTokenService(secret, {
       isSessionRevoked: (claimTenantId, jti) => harness.controlStore.isSessionRevoked(claimTenantId, jti),
@@ -100,6 +163,8 @@ describe("平台控制面", () => {
     harness.controlStore.recordSession({ jti: forged.claims.jti, userId, tenantId, issuedAt: forged.claims.iat, expiresAt: forged.claims.exp });
     const forgedResponse = await harness.app.inject({ method: "GET", url: "/api/platform/users", headers: bearer(forged.token) });
     expect(forgedResponse.statusCode).toBe(403);
+    const forgedBotsResponse = await harness.app.inject({ method: "GET", url: "/api/platform/bots", headers: bearer(forged.token) });
+    expect(forgedBotsResponse.statusCode).toBe(403);
   });
 });
 

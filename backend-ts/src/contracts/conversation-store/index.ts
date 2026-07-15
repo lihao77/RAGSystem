@@ -48,7 +48,7 @@ export interface ISessionStore {
   getSession(sessionId: string): SessionInfo | null;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Record<string, unknown> | null;
   deleteSession(sessionId: string): boolean;
-  listSessions(tenantId: TenantId, limit?: number, offset?: number, userId?: string | null): PaginatedResult<SessionListItem>;
+  listSessions(tenantId: TenantId, limit?: number, offset?: number, userIds?: readonly string[] | null): PaginatedResult<SessionListItem>;
 }
 
 /**

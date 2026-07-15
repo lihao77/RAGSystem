@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { AppEnv } from "../../../src/config/env.js";
-import { createTenantId } from "../../../src/identity/types.js";
+import { createTenantId, createUserId } from "../../../src/identity/types.js";
 import { LOCAL_TENANT_ID } from "../../../src/services/identity/index.js";
 import { createRuntimeContainer, type RuntimeContainerOptions } from "../../../src/services/runtime/runtime-container.js";
 import { DefaultTenantRuntimeRegistry } from "../../../src/services/runtime/tenant-runtime-registry.js";
@@ -18,8 +18,9 @@ const TENANT_B = createTenantId("tnt_b");
 describe("TenantRuntimeRegistry 多租户隔离", () => {
   it("全局反查并注销 daemon routeToken", async () => {
     const harness = createRegistryHarness();
-    harness.registry.registerRouteToken(TENANT_A, "default", "route-token");
-    expect(harness.registry.resolveRouteToken("route-token")).toEqual({ tenantId: TENANT_A, teamName: "default" });
+    const botId = createUserId("usr_bot_route");
+    harness.registry.registerRouteToken(TENANT_A, botId, "route-token");
+    expect(harness.registry.resolveRouteToken("route-token")).toEqual({ tenantId: TENANT_A, botId });
     harness.registry.unregisterRouteToken("route-token", TENANT_A);
     expect(harness.registry.resolveRouteToken("route-token")).toBeNull();
     await harness.registry.closeAll();
@@ -138,7 +139,6 @@ function createRegistryHarness(options: {
     dataRoot,
     tenantsRoot: path.join(dataRoot, "tenants"),
     systemRoot: path.join(dataRoot, "system"),
-    dbPath: path.join(dataRoot, "legacy.db"),
     tenancyMode: options.localOnly ? "single" : "multi",
     allowUnsafeLocalExecution: false,
   };
@@ -158,7 +158,6 @@ function createTestRuntime(options: RuntimeContainerOptions) {
     ...options,
     modelAdapterProvidersConfigPath: "",
     mcpConfigPath: "",
-    daemonConfigPath: "",
     systemConfigPath: "",
     startOutboxDispatcher: false,
     embedderFactory: () => new HashFallbackEmbedder(),

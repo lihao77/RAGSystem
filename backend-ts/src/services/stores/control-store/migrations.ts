@@ -1,6 +1,6 @@
 import { assertVersionsContiguous } from "../conversation-store/migrations.js";
 import { runInTransaction } from "../conversation-store/shared/transaction.js";
-import { CONTROL_AUTH_SCHEMA_SQL, CONTROL_BASELINE_SCHEMA_SQL, CONTROL_WIDGET_SCHEMA_SQL } from "./schema.js";
+import { CONTROL_AUTH_SCHEMA_SQL, CONTROL_BASELINE_SCHEMA_SQL, CONTROL_BOT_CONFIG_SCHEMA_SQL, CONTROL_BOT_SCHEMA_SQL, CONTROL_WIDGET_SCHEMA_SQL } from "./schema.js";
 
 export interface ControlMigrationDatabase {
   exec: import("node:sqlite").DatabaseSync["exec"];
@@ -67,6 +67,20 @@ export const CONTROL_MIGRATIONS: readonly ControlMigration[] = [
         );
         CREATE INDEX idx_platform_audit_created_at ON platform_audit(created_at DESC, id DESC);
       `);
+    },
+  },
+  {
+    version: 5,
+    name: "bot-users",
+    up: (db) => {
+      db.exec(CONTROL_BOT_SCHEMA_SQL);
+    },
+  },
+  {
+    version: 6,
+    name: "bot-configs-and-cron",
+    up: (db) => {
+      db.exec(CONTROL_BOT_CONFIG_SCHEMA_SQL);
     },
   },
 ];

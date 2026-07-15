@@ -137,7 +137,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
           };
           request.userId = request.identity.userId;
         }
-        assertSessionOwner(request.identity, session);
+        assertSessionOwner(request, session);
       } catch {
         wsActivity.release();
         lease.release();

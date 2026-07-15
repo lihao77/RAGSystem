@@ -47,11 +47,14 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
     const query = request.query as { limit?: string; offset?: string };
     const limit = clampInt(query.limit, 20, 1, 200);
     const offset = clampInt(query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
+    const botIds = app.controlStore.listBotsByOwner(request.identity.userId)
+      .filter((bot) => app.controlStore.getMembership(bot.id, request.identity.tenantId))
+      .map((bot) => bot.id);
     const sessions = request.container.sessionApplication.listSessions({
       tenantId: request.identity.tenantId,
       limit,
       offset,
-      userId: request.identity.userId,
+      userIds: [request.identity.userId, ...botIds],
     });
     return ok(sessions, "获取会话列表成功");
   });

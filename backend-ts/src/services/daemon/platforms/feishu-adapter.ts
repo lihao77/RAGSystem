@@ -1,6 +1,6 @@
 import * as lark from "@larksuiteoapi/node-sdk";
 
-import type { PlatformConnection } from "../../../contracts/daemon.js";
+import type { BotFeishuConfig } from "../../../contracts/bot.js";
 
 export interface FeishuMessageEvent {
   message?: {
@@ -31,7 +31,7 @@ export interface FeishuLongConnectionHandle {
   close(): void;
 }
 
-export function createFeishuClient(connection: PlatformConnection): FeishuClient {
+export function createFeishuClient(connection: BotFeishuConfig): FeishuClient {
   if (!connection.app_id || !connection.app_secret) {
     throw new Error("飞书 app_id/app_secret 未配置");
   }
@@ -41,7 +41,7 @@ export function createFeishuClient(connection: PlatformConnection): FeishuClient
   });
 }
 
-export function createDispatcher(connection: PlatformConnection, handlers: FeishuHandlers): FeishuDispatcher {
+export function createDispatcher(connection: BotFeishuConfig, handlers: FeishuHandlers): FeishuDispatcher {
   return new lark.EventDispatcher({
     ...(connection.encoding_aes_key ? { encryptKey: connection.encoding_aes_key } : {}),
     ...(connection.token ? { verificationToken: connection.token } : {}),

@@ -61,4 +61,45 @@ describe("session ownership", () => {
     expect(response.json()).toMatchObject({ data: { session_id: "legacy-local-null", user_id: null } });
     expect(LOCAL_USER_ID).toBe("usr_local");
   });
+
+  it("bot owner 可查看 owned-bot 会话详情与列表", async () => {
+    const harness = await buildOwnershipHarness();
+    app = harness.app;
+    const bot = harness.controlStore.createBot({ tenantId: LOCAL_TENANT_ID, ownerId: USER_A, displayName: "Owner A Bot" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "owned-bot-session", userId: bot.id });
+
+    const detail = await app.inject({ method: "GET", url: "/api/agent/sessions/owned-bot-session", headers: { "x-test-user": "a" } });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json()).toMatchObject({ data: { session_id: "owned-bot-session", user_id: bot.id } });
+    const listed = await app.inject({ method: "GET", url: "/api/agent/sessions", headers: { "x-test-user": "a" } });
+    expect(listed.json().data.items).toEqual([expect.objectContaining({ session_id: "owned-bot-session", user_id: bot.id })]);
+  });
+
+  it("非 owner 无法查看其他用户 bot 的会话", async () => {
+    const harness = await buildOwnershipHarness();
+    app = harness.app;
+    const bot = harness.controlStore.createBot({ tenantId: LOCAL_TENANT_ID, ownerId: USER_A, displayName: "Owner A Bot" });
+    harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: "foreign-bot-session", userId: bot.id });
+
+    const detail = await app.inject({ method: "GET", url: "/api/agent/sessions/foreign-bot-session", headers: { "x-test-user": "b" } });
+    expect(detail.statusCode).toBe(403);
+    const listed = await app.inject({ method: "GET", url: "/api/agent/sessions", headers: { "x-test-user": "b" } });
+    expect(listed.json().data.items).toEqual([]);
+  });
 });
+
+async function buildOwnershipHarness() {
+  const identityProvider: IdentityProvider = {
+    resolve(request: FastifyRequest): RequestIdentity {
+      const userId = request.headers["x-test-user"] === "b" ? USER_B : USER_A;
+      return { userId, tenantId: LOCAL_TENANT_ID, role: "member", permissions: [] };
+    },
+  };
+  const harness = await buildTestHarness({ identityProvider });
+  harness.controlStore.createTenant({ id: LOCAL_TENANT_ID, displayName: "Local" });
+  harness.controlStore.createUser({ id: USER_A, displayName: "Owner A" });
+  harness.controlStore.createUser({ id: USER_B, displayName: "Owner B" });
+  harness.controlStore.upsertMembership({ userId: USER_A, tenantId: LOCAL_TENANT_ID, role: "member" });
+  harness.controlStore.upsertMembership({ userId: USER_B, tenantId: LOCAL_TENANT_ID, role: "member" });
+  return harness;
+}
