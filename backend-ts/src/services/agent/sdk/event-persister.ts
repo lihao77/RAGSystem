@@ -99,10 +99,15 @@ export class KernelEventPersister {
    * run 终态收口（一个事务合一）：
    * - completed：落最终 assistant message + 关联 Envelope + updateRunStatus。
    * - interrupted：补悬空 observation + 落空 assistant anchor + updateRunStatus。
+   * - suspended：仅 updateRunStatus，保留悬空 tool_use 供恢复时重执行。
    * - failed：仅 updateRunStatus（无 final message）。
    */
-  finalize(status: "completed" | "failed" | "interrupted", finalMessage: FinalMessageInput | null): void {
+  finalize(status: "completed" | "failed" | "interrupted" | "suspended", finalMessage: FinalMessageInput | null): void {
     this.store.runInTransaction((tx) => {
+      if (status === "suspended") {
+        tx.updateRunStatus(this.ctx.runId, this.ctx.sessionId, "suspended", null);
+        return;
+      }
       let finalMessageId: string | null = null;
       if (status === "interrupted") {
         this.closeDanglingToolCalls(tx);

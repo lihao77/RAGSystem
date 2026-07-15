@@ -6,6 +6,7 @@
  * MessageRefresher）+ EventSink 导线 + 事件 Hook 全部构造注入，内核绝不 import 任何具体实现。
  *
  * 循环顺序：
+ *   扫描并重执行会话中未配对的 tool_use →
  *   throwIfAborted → appendMessages(refresher 增量) → round.before hook
  *   → context.buildMessages → protocol.invoke（问模型 + 边流边解析 + 发 delta + 修复重试，全在 invoke 内部）
  *   → round.after hook → 若 tool_calls 则 tools.executeRound + appendAssistant
@@ -17,12 +18,13 @@
  * 与 backend-ts 差异：KernelSession → RuntimeSession；session.agent.agent_name → session.profile.agentName；
  * runtime.* 方言事件（data 包裹）→ 扁平 KernelEvent。
  */
-import { isAbortError } from "@ragsystem/agent-protocol";
-import type { TokenUsage } from "@ragsystem/agent-llm";
+import { isAbortError, RecoverableInterrupt } from "@ragsystem/agent-protocol";
+import type { ChatMessage, TokenUsage } from "@ragsystem/agent-llm";
 import type {
   Context,
   EventSink,
   KernelResult,
+  KernelToolCall,
   MessageRefresher,
   Protocol,
   RuntimeSession,
@@ -83,6 +85,11 @@ export class AgentKernel {
     await this.hooks.emit("run.before", { session });
     try {
       let tokenUsage: TokenUsage | null = null;
+      const resumeCalls = collectUnansweredToolCalls(ctx.messages);
+      if (resumeCalls.length > 0) {
+        const observations = await this.tools.executeRound(ctx, 0, resumeCalls);
+        ctx.appendMessages(this.protocol.renderObservations(resumeCalls, observations));
+      }
       for (let round = 0; ; round++) {
         ctx.throwIfAborted();
         ctx.appendMessages(await this.refresher.refresh(ctx));
@@ -149,6 +156,9 @@ export class AgentKernel {
       if (isAbortError(error)) {
         throw error;
       }
+      if (error instanceof RecoverableInterrupt) {
+        throw error;
+      }
       this.events.emit({
         type: "error",
         agentName,
@@ -157,4 +167,33 @@ export class AgentKernel {
       throw error;
     }
   }
+}
+
+/** 扫描会话中尚无 tool_result 配对的 tool_use，供 run 开始时原位重执行。 */
+function collectUnansweredToolCalls(messages: readonly ChatMessage[]): KernelToolCall[] {
+  const answered = new Set<string>();
+  for (const message of messages) {
+    if (message.role === "tool" && message.tool_call_id) {
+      answered.add(message.tool_call_id);
+    }
+  }
+
+  const calls: KernelToolCall[] = [];
+  for (const message of messages) {
+    if (message.role !== "assistant" || !message.tool_calls?.length) {
+      continue;
+    }
+    for (const toolCall of message.tool_calls) {
+      if (answered.has(toolCall.id)) {
+        continue;
+      }
+      calls.push({
+        index: calls.length,
+        callId: toolCall.id,
+        toolName: toolCall.function.name,
+        arguments: JSON.parse(toolCall.function.arguments ?? "{}") as Record<string, unknown>,
+      });
+    }
+  }
+  return calls;
 }

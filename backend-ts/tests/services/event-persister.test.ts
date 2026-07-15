@@ -7,24 +7,31 @@ import type { ConversationStore } from "../../src/contracts/conversation-store/i
 interface MockStore {
   store: ConversationStore;
   addMessageCalls: Array<Record<string, unknown>>;
+  updateRunStatusCalls: Array<[string, string, string, string | null]>;
 }
 
-/** 最小 store mock：只实现 persist 路径用到的 runInTransaction + tx.addMessage。 */
+/** 最小 store mock：只实现当前测试路径用到的事务方法。 */
 function mockStore(): MockStore {
   const addMessageCalls: Array<Record<string, unknown>> = [];
+  const updateRunStatusCalls: Array<[string, string, string, string | null]> = [];
   type MockTransaction = {
     addMessage: (input: Record<string, unknown>) => { id: string; seq: number };
+    updateRunStatus: (runId: string, sessionId: string, status: string, finalMessageId: string | null) => boolean;
   };
   const tx: MockTransaction = {
     addMessage: (input: Record<string, unknown>) => {
       addMessageCalls.push(input);
       return { id: `m${addMessageCalls.length}`, seq: addMessageCalls.length };
     },
+    updateRunStatus: (runId, sessionId, status, finalMessageId) => {
+      updateRunStatusCalls.push([runId, sessionId, status, finalMessageId]);
+      return true;
+    },
   };
   const store = {
     runInTransaction: (fn: (transaction: MockTransaction) => unknown): unknown => fn(tx),
   } as unknown as ConversationStore;
-  return { store, addMessageCalls };
+  return { store, addMessageCalls, updateRunStatusCalls };
 }
 
 const ctx: PersisterRunContext = {
@@ -106,5 +113,15 @@ describe("KernelEventPersister — 工具消息持久化", () => {
       extensions: [{ kind: "tool_result_media", data: { media: [{ stored_path: "/managed/image.png" }] } }],
     });
     expect(JSON.stringify(addMessageCalls[0])).not.toContain("base64");
+  });
+
+  it("suspended 仅更新状态并保留悬空工具调用", () => {
+    const { store, addMessageCalls, updateRunStatusCalls } = mockStore();
+    const persister = new KernelEventPersister(store, ctx);
+
+    persister.finalize("suspended", null);
+
+    expect(addMessageCalls).toHaveLength(0);
+    expect(updateRunStatusCalls).toEqual([["r1", "s1", "suspended", null]]);
   });
 });

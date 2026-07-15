@@ -64,7 +64,7 @@ export interface AgentProfile {
 }
 
 /** run 终态。 */
-export type RunStatus = "completed" | "failed" | "interrupted";
+export type RunStatus = "completed" | "failed" | "interrupted" | "suspended";
 
 /** 消息角色（对齐 backend-ts MessageInfo.role）。 */
 export type MessageRole = "system" | "user" | "assistant" | "tool";

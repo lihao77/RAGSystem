@@ -9,7 +9,7 @@
  * （综合 riskLevel + access.action + signals）→ deny 跳过 / allow 放行。无 handler 即全部 allow。
  */
 import type { ProviderConfig } from "@ragsystem/agent-llm";
-import { isAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
+import { isAbortError, RecoverableInterrupt, throwIfAborted } from "@ragsystem/agent-protocol";
 import type {
   ToolExecutionResult,
   ToolExecContext,
@@ -238,6 +238,7 @@ async function executeToolWithHookError(input: {
     return result;
   } catch (error) {
     if (isAbortError(error) || execContext.signal?.aborted) { throw error; }
+    if (error instanceof RecoverableInterrupt) { throw error; }
     if (hooks) {
       await hooks.emit("tool.error", {
         toolName: prepared.tool.name,
