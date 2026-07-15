@@ -85,17 +85,9 @@ export function resolveCompressionViewDetailed(messages: MessageInfo[]): Compres
   return { messages: output, applied: true, summarySeq: compressionMessage.seq, replacesUpToSeq };
 }
 
-const UNANSWERED_TOOL_PLACEHOLDER = "工具未返回结果";
-
 export function messagesToConversation(messages: MessageInfo[]): { conversation: ChatMessage[]; originals: (MessageInfo | null)[] } {
-  const answeredToolCallIds = new Set<string>();
-  for (const message of messages) {
-    if (message.role === "tool" && message.tool_call_id) {
-      answeredToolCallIds.add(message.tool_call_id);
-    }
-  }
   const conversation: ChatMessage[] = [];
-  // 与 conversation 逐条对齐的 rawMessage 来源(补占位 tool message 无 rawMessage → null);供调试快照按 index 回绑元数据。
+  // 与 conversation 逐条对齐的 rawMessage 来源;供调试快照按 index 回绑元数据。悬空 tool_use 不补占位——保留供 SDK 通用开始契约(kernel.collectUnansweredToolCalls)恢复时重执行。
   const originals: (MessageInfo | null)[] = [];
   for (const message of messages) {
     if (message.role !== "user" && message.role !== "assistant" && message.role !== "system" && message.role !== "tool") {
@@ -119,20 +111,6 @@ export function messagesToConversation(messages: MessageInfo[]): { conversation:
     }
     conversation.push(entry);
     originals.push(message);
-    if (message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0) {
-      for (const toolCall of message.tool_calls) {
-        if (toolCall.id && !answeredToolCallIds.has(toolCall.id)) {
-          conversation.push({
-            role: "tool",
-            tool_call_id: toolCall.id,
-            name: toolCall.function?.name ?? "",
-            content: UNANSWERED_TOOL_PLACEHOLDER,
-          });
-          originals.push(null);
-          answeredToolCallIds.add(toolCall.id);
-        }
-      }
-    }
   }
   return { conversation, originals };
 }
