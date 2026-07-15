@@ -1,132 +1,40 @@
-import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { buildTestApp } from "../helpers/app.js";
+import { buildTestHarness } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
 
 afterEach(async () => {
-  if (app) {
-    await app.close();
-    app = null;
-  }
+  if (app) await app.close();
+  app = null;
 });
 
-describe("permission policy routes", () => {
-  it("returns the default Python-compatible permission policy", async () => {
-    app = await buildTestApp();
+describe("session permission routes", () => {
+  it("读取 standard 回落并持久化更新当前会话 mode", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+    const created = await app.inject({ method: "POST", url: "/api/agent/sessions", payload: { session_id: "permission-session" } });
+    expect(created.statusCode).toBe(200);
 
-    const response = await app.inject({
-      method: "GET",
-      url: "/api/permissions/policy",
-    });
+    const initial = await app.inject({ method: "GET", url: "/api/agent/sessions/permission-session/permissions" });
+    expect(initial.statusCode).toBe(200);
+    expect(initial.json()).toMatchObject({ data: { mode: "standard" } });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
-      mode: "standard",
-      auto_accept_patterns: [],
-      audit_all_checks: false,
-      approval_timeout: 300,
-      skip_all_approvals: false,
-    });
-  });
-
-  it("updates mode and whole policy", async () => {
-    app = await buildTestApp();
-
-    const mode = await app.inject({
-      method: "PUT",
-      url: "/api/permissions/mode",
+    const updated = await app.inject({
+      method: "PATCH",
+      url: "/api/agent/sessions/permission-session/permissions",
       payload: { mode: "relaxed" },
     });
-    expect(mode.statusCode).toBe(200);
-    expect(mode.json()).toEqual({ mode: "relaxed" });
-
-    const policy = await app.inject({
-      method: "PUT",
-      url: "/api/permissions/policy",
-      payload: {
-        mode: "strict",
-        auto_accept_patterns: [
-          {
-            pattern_type: "tool_name",
-            pattern_value: "read_*",
-            description: "readonly",
-          },
-        ],
-        audit_all_checks: true,
-        approval_timeout: 120,
-        skip_all_approvals: true,
-      },
-    });
-    expect(policy.statusCode).toBe(200);
-    expect(policy.json()).toEqual({
-      mode: "strict",
-      auto_accept_patterns: [
-        {
-          pattern_type: "tool_name",
-          pattern_value: "read_*",
-          description: "readonly",
-        },
-      ],
-      audit_all_checks: true,
-      approval_timeout: 120,
-      skip_all_approvals: true,
-    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({ data: { mode: "relaxed" } });
+    expect(harness.container.conversationStore.getSession("permission-session")?.permission_mode).toBe("relaxed");
   });
 
-  it("adds, removes, and clears auto-accept patterns", async () => {
-    app = await buildTestApp();
-
-    const added = await app.inject({
-      method: "POST",
-      url: "/api/permissions/auto-accept",
-      payload: {
-        pattern_type: "risk_level",
-        pattern_value: "low",
-        description: "low risk",
-      },
-    });
-    expect(added.statusCode).toBe(200);
-    expect(added.json()).toMatchObject({
-      auto_accept_patterns: [
-        {
-          pattern_type: "risk_level",
-          pattern_value: "low",
-          description: "low risk",
-        },
-      ],
-    });
-
-    const removed = await app.inject({
-      method: "DELETE",
-      url: "/api/permissions/auto-accept",
-      payload: {
-        pattern_type: "risk_level",
-        pattern_value: "low",
-      },
-    });
-    expect(removed.statusCode).toBe(200);
-    expect(removed.json()).toMatchObject({
-      removed: true,
-      auto_accept_patterns: [],
-    });
-
-    await app.inject({
-      method: "POST",
-      url: "/api/permissions/auto-accept",
-      payload: {
-        pattern_type: "tool_name",
-        pattern_value: "read_file",
-      },
-    });
-    const cleared = await app.inject({
-      method: "DELETE",
-      url: "/api/permissions/auto-accept/all",
-    });
-    expect(cleared.statusCode).toBe(200);
-    expect(cleared.json()).toMatchObject({
-      auto_accept_patterns: [],
-    });
+  it("全局 permission 端点已彻底移除", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+    expect((await app.inject({ method: "GET", url: "/api/permissions/policy" })).statusCode).toBe(404);
+    expect((await app.inject({ method: "PUT", url: "/api/permissions/mode", payload: { mode: "relaxed" } })).statusCode).toBe(404);
   });
 });

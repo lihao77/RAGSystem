@@ -83,6 +83,13 @@ export const CONTROL_MIGRATIONS: readonly ControlMigration[] = [
       db.exec(CONTROL_BOT_CONFIG_SCHEMA_SQL);
     },
   },
+  {
+    version: 7,
+    name: "bot-permission-mode",
+    up: (db) => {
+      db.exec("ALTER TABLE bot_configs ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'relaxed'");
+    },
+  },
 ];
 
 export function runControlMigrations(db: ControlMigrationDatabase): void {

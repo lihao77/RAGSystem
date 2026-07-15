@@ -10,6 +10,7 @@ import { EXECUTION_ENVELOPE_STEP_TYPE } from "../runtime/event-outbox/execution-
 import type { TransientArtifactService } from "../artifacts/transient-artifact-service.js";
 import { assertSafeSessionId } from "../../contracts/session-id.js";
 import type { TenantId } from "../../identity/types.js";
+import type { PermissionMode } from "../../contracts/permissions.js";
 
 export class WorkspaceRootValidationError extends Error {
   constructor(workspaceRoot: string) {
@@ -30,14 +31,16 @@ export class AgentSessionApplication {
     sessionId: string;
     userId: string;
     metadata?: Record<string, unknown>;
-  }): { session_id: string; user_id: string | null; metadata: Record<string, unknown> } {
+    permissionMode?: PermissionMode | null;
+  }): { session_id: string; user_id: string | null; permission_mode: PermissionMode | null; metadata: Record<string, unknown> } {
     assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
     assertWorkspaceRootExists(metadata);
-    this.conversationStore.createSession(input.tenantId, input.sessionId, input.userId, metadata);
+    this.conversationStore.createSession(input.tenantId, input.sessionId, input.userId, metadata, input.permissionMode ?? null);
     return {
       session_id: input.sessionId,
       user_id: input.userId,
+      permission_mode: input.permissionMode ?? null,
       metadata,
     };
   }
@@ -46,12 +49,13 @@ export class AgentSessionApplication {
     tenantId: TenantId;
     sessionId: string;
     metadata?: Record<string, unknown>;
-  }): { session_id: string; user_id: null; metadata: Record<string, unknown> } {
+    permissionMode?: PermissionMode | null;
+  }): { session_id: string; user_id: null; permission_mode: PermissionMode | null; metadata: Record<string, unknown> } {
     assertSafeSessionId(input.sessionId);
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
     assertWorkspaceRootExists(metadata);
-    this.conversationStore.createSession(input.tenantId, input.sessionId, null, metadata);
-    return { session_id: input.sessionId, user_id: null, metadata };
+    this.conversationStore.createSession(input.tenantId, input.sessionId, null, metadata, input.permissionMode ?? null);
+    return { session_id: input.sessionId, user_id: null, permission_mode: input.permissionMode ?? null, metadata };
   }
 
   listSessions(input: { tenantId: TenantId; limit?: number; offset?: number; userIds?: readonly string[] | null }): PaginatedResult<SessionListItem> {

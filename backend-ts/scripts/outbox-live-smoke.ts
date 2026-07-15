@@ -17,13 +17,7 @@ interface Options {
 
 type SmokeScenario = "basic" | "interrupt" | "background" | "approval" | "user_input" | "delegation";
 
-interface PermissionPolicy {
-  mode?: string;
-  auto_accept_patterns?: unknown[];
-  audit_all_checks?: boolean;
-  approval_timeout?: number;
-  skip_all_approvals?: boolean;
-}
+type PermissionMode = "strict" | "standard" | "relaxed" | "dangerously_skip_permissions";
 
 interface WebSocketLike {
   readonly readyState: number;
@@ -221,15 +215,11 @@ async function runApprovalScenario(
   wsConstructor: WebSocketConstructorLike,
 ): Promise<{ scenario: "approval"; sessionId: string; runId: string; maxEventSeq: number }> {
   const sessionId = `${options.sessionId}-approval`;
-  const originalPolicy = await getPermissionPolicy(options);
+  await ensureSession(options, sessionId);
+  const originalMode = await getSessionPermissionMode(options, sessionId);
   const live = createCollector(options, wsConstructor, null, sessionId);
   try {
-    await setPermissionPolicy(options, {
-      ...(originalPolicy ?? {}),
-      mode: "standard",
-      auto_accept_patterns: [],
-      skip_all_approvals: false,
-    });
+    await setSessionPermissionMode(options, sessionId, "standard");
     await assertOpen(live, 5000, "approval live WebSocket");
     const runId = await startAgentStream(options, sessionId, options.approvalTask);
     const approvalEvent = await live.waitForEvent(
@@ -266,9 +256,7 @@ async function runApprovalScenario(
     return { scenario: "approval", sessionId, runId, maxEventSeq };
   } finally {
     live.close();
-    if (originalPolicy) {
-      await setPermissionPolicy(options, originalPolicy);
-    }
+    await setSessionPermissionMode(options, sessionId, originalMode);
   }
 }
 
@@ -277,14 +265,11 @@ async function runBackgroundScenario(
   wsConstructor: WebSocketConstructorLike,
 ): Promise<{ scenario: "background"; sessionId: string; runId: string; maxEventSeq: number }> {
   const sessionId = `${options.sessionId}-background`;
-  const originalPolicy = await getPermissionPolicy(options);
+  await ensureSession(options, sessionId);
+  const originalMode = await getSessionPermissionMode(options, sessionId);
   const live = createCollector(options, wsConstructor, null, sessionId);
   try {
-    await setPermissionPolicy(options, {
-      ...(originalPolicy ?? {}),
-      mode: "dangerously_skip_permissions",
-      skip_all_approvals: true,
-    });
+    await setSessionPermissionMode(options, sessionId, "dangerously_skip_permissions");
     await assertOpen(live, 5000, "background live WebSocket");
     const runId = await startAgentStream(options, sessionId, options.backgroundTask);
     const completed = await live.waitForEvent(
@@ -309,9 +294,7 @@ async function runBackgroundScenario(
     return { scenario: "background", sessionId, runId, maxEventSeq };
   } finally {
     live.close();
-    if (originalPolicy) {
-      await setPermissionPolicy(options, originalPolicy);
-    }
+    await setSessionPermissionMode(options, sessionId, originalMode);
   }
 }
 
@@ -472,16 +455,41 @@ async function assertRuntimeReady(options: Options): Promise<void> {
   }
 }
 
-async function getPermissionPolicy(options: Options): Promise<PermissionPolicy | null> {
-  const response = await requestJson(options, "/api/permissions/policy");
-  return isRecord(response) ? response as PermissionPolicy : null;
+async function ensureSession(options: Options, sessionId: string): Promise<void> {
+  await requestJson(options, "/api/agent/sessions", {
+    method: "POST",
+    body: { session_id: sessionId },
+  });
 }
 
-async function setPermissionPolicy(options: Options, policy: PermissionPolicy): Promise<void> {
-  await requestJson(options, "/api/permissions/policy", {
-    method: "PUT",
-    body: policy as Record<string, unknown>,
+async function getSessionPermissionMode(options: Options, sessionId: string): Promise<PermissionMode> {
+  const response = await requestJson(
+    options,
+    `/api/agent/sessions/${encodeURIComponent(sessionId)}/permissions`,
+  );
+  const mode = asString(getPath(response, ["data", "mode"]));
+  if (!isPermissionMode(mode)) {
+    throw new Error(`session permission response has invalid mode: ${JSON.stringify(response)}`);
+  }
+  return mode;
+}
+
+async function setSessionPermissionMode(
+  options: Options,
+  sessionId: string,
+  mode: PermissionMode,
+): Promise<void> {
+  await requestJson(options, `/api/agent/sessions/${encodeURIComponent(sessionId)}/permissions`, {
+    method: "PATCH",
+    body: { mode },
   });
+}
+
+function isPermissionMode(value: string | null): value is PermissionMode {
+  return value === "strict"
+    || value === "standard"
+    || value === "relaxed"
+    || value === "dangerously_skip_permissions";
 }
 
 async function requestJson(

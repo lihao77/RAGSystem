@@ -128,7 +128,7 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
   const clientEvents = new DurableClientEventPublisher(store, dispatcher);
   const hostToolRegistry = new HostToolRegistry();
   const delegationPending = new DelegationPendingService();
-  const permissionPolicy = new PermissionPolicyService();
+  const permissionPolicy = new PermissionPolicyService(store);
   const pendingInteractions = new PendingInteractionService(clientEvents);
   const agent = minimalAgent("orchestrator_agent");
   const provider: ModelProviderConfig = {

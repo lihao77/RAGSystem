@@ -30,8 +30,6 @@ describe("管理中心租户角色权限", () => {
     const memberToken = await login(harness, "member", "password456");
     const adminToken = await login(harness, "admin", "password789");
 
-    await expectStatus(harness, memberToken, "PUT", "/api/permissions/mode", 403, { mode: "standard" });
-    await expectStatus(harness, memberToken, "GET", "/api/permissions/policy", 403);
     await expectStatus(harness, memberToken, "PATCH", "/api/system-config", 403, {});
     await expectStatus(harness, memberToken, "POST", "/api/agent/agents/create", 403, {});
     await expectStatus(harness, memberToken, "POST", "/api/knowledge-bases/index", 403, {});
@@ -62,9 +60,7 @@ describe("管理中心租户角色权限", () => {
 
     await expectStatus(harness, adminToken, "POST", "/api/agent/agents/reload", 200, {});
     await expectStatus(harness, adminToken, "GET", "/api/bots", 200);
-    await expectStatus(harness, adminToken, "GET", "/api/permissions/policy", 200);
     await expectStatus(harness, adminToken, "GET", "/api/agent/analytics/token-trend", 200);
-    await expectStatus(harness, adminToken, "PUT", "/api/permissions/mode", 403, { mode: "standard" });
     await expectStatus(harness, adminToken, "PATCH", "/api/system-config", 403, {});
 
     await expectStatus(harness, adminToken, "POST", "/api/model-adapter/providers", 200, {
@@ -111,7 +107,6 @@ describe("管理中心租户角色权限", () => {
     const appKey = createdApp.json().app.app_key as string;
     await expectStatus(harness, adminToken, "POST", `/api/widget/apps/${appKey}/rotate-secret`, 403, {});
 
-    await expectStatus(harness, ownerToken, "PUT", "/api/permissions/mode", 200, { mode: "standard" });
     await expectStatus(harness, ownerToken, "PATCH", "/api/system-config", 200, {});
     await expectStatus(harness, ownerToken, "POST", `/api/widget/apps/${appKey}/rotate-secret`, 200, {});
   });

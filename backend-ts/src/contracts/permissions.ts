@@ -32,20 +32,8 @@ export const PermissionPolicySchema = z.object({
   skip_all_approvals: z.boolean().optional().default(false),
 });
 
-export const SetModeRequestSchema = z.object({
-  mode: PermissionModeSchema,
-});
-
-export const PatternRequestSchema = z.object({
-  pattern_type: z.string().min(1),
-  pattern_value: z.string().min(1),
-  description: z.string().optional().default(""),
-});
-
 export type PermissionMode = z.infer<typeof PermissionModeSchema>;
 export type RiskLevel = z.infer<typeof RiskLevelSchema>;
 export type AutoAcceptPattern = z.infer<typeof AutoAcceptPatternSchema>;
 export type ToolPermission = z.infer<typeof ToolPermissionSchema>;
 export type PermissionPolicy = z.infer<typeof PermissionPolicySchema>;
-export type SetModeRequest = z.infer<typeof SetModeRequestSchema>;
-export type PatternRequest = z.infer<typeof PatternRequestSchema>;

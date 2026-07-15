@@ -38,7 +38,7 @@ frontend-client/src/
 │   ├── MessageEditBox.vue     # 消息原地编辑组件
 │   ├── ChatInput.vue          # 消息输入框
 │   ├── ApprovalDialog.vue     # 工具审批确认
-│   ├── PermissionModeSelector.vue # 权限模式与 auto-accept 规则切换
+│   ├── PermissionModeSelector.vue # 当前会话权限模式切换
 │   ├── SessionFilesDrawer.vue # 输入区/编辑态附件抽屉
 │   ├── ContextSnapshotDrawer.vue # 上下文快照抽屉
 │   └── ...
@@ -187,10 +187,9 @@ loadSessionMessages(sessionId)
 
 ### 权限审批展示
 
-- `PermissionModeSelector.vue` 仅负责全局权限模式与 auto-accept 规则，不与 session 绑定；同时提供独立的 `skip_all_approvals` 总开关。
-- `skip_all_approvals` 在 UI 上表现为 switch 风格总开关，旁边使用 `i` 信息按钮展开说明；开启后外层 trigger 进入红色危险态并更新 tooltip，明确当前为“跳过所有审批”，同时“权限模式”列表进入置灰禁用态，仅保留展示，不允许再切换 mode，避免两个维度同时可编辑造成语义混淆。
-- `dangerously_skip_permissions` 的前端中文语义统一为“跳过审批”，表示跳过常规风险 ask；`skip_all_approvals` 才是“跳过所有审批”的总开关，但仍保留工具执行权限 deny。
-- `src/api/permissions.js` 统一调用全局 `/api/permissions/*` 接口，不传 session 参数。
+- `PermissionModeSelector.vue` 读取当前会话持久化的 permission mode；会话 owner 可修改，其他身份只读。
+- `dangerously_skip_permissions` 的前端中文语义统一为“跳过审批”，表示跳过常规风险 ask；路径越界等 ask 仍可能触发。
+- `src/api/session.js` 统一调用 `/api/agent/sessions/:sessionId/permissions`，权限配置始终绑定 session。
 - `ChatViewV2.vue` 在收到 `user.approval_required` 时会先把事件 data 收敛进本地审批队列，按 `approval_id` 去重，并始终只展示队首审批；收到 `user.approval_granted` / `user.approval_denied` 后再出队并自动切换下一条，避免多个待审批时只能处理第一条。
 - `ApprovalDialog.vue` 支持折叠 / 展开：用户可先将审批窗口折叠为右下角悬浮条，继续观察聊天流和执行树的实时进展，再随时展开完成审批；折叠只改变展示形态，不会丢失当前审批上下文。
 - `ApprovalDialog.vue` 对 `permission_mode` 与 `approval_reason` 做可选渲染，兼容旧审批事件；当前会额外读取 `approval_reason_codes`、`approval_secondary_reasons` 与 `approved_external_paths`，用于区分“风险审批”“路径越界审批”以及双重原因场景，并展示本次调用被授权的越界路径列表。
@@ -392,8 +391,8 @@ Agent 配置页会先加载当前 Agent 配置，再读取 `config.custom_params
 
 
 `ChatViewV2.vue` 将新会话初始化参数保存在页面本地状态中：
-- 顶部右侧控制区新增 `PermissionModeSelector`，用于切换审批模式并维护 auto-accept 规则
-- 权限模式文案与后端语义保持一致：`strict` 为严格档（全部风险工具需审批），`standard` 为默认档（中/高风险工具需审批），`relaxed` 为高风险档（仅高风险工具需审批）；三者在命中 auto-accept 规则时都可自动通过，`dangerously_skip_permissions` 表示“跳过审批”（仅跳过常规风险 ask，路径越界等 ask 仍可能触发）；前端下拉按“严格 → 默认 → 高风险 → 全开放”顺序展示
+- 顶部右侧控制区使用 `PermissionModeSelector` 展示并切换当前 session 的审批模式
+- 权限模式文案与后端语义保持一致：`strict` 为严格档（全部风险工具需审批），`standard` 为默认档（中/高风险工具需审批），`relaxed` 为宽松档（仅高风险工具需审批），`dangerously_skip_permissions` 表示“跳过审批”（仅跳过常规风险 ask，路径越界等 ask 仍可能触发）
 - `pendingWorkspaceRoot`：创建 session 时写入 `metadata.workspace_root`；前端会先去掉首尾包裹引号（如 `"C:/test" -> C:/test`）后再提交，并在本地回填/展示时沿用同一规范化结果
 - `pendingEntryAgent`：创建 session 时写入 `metadata.entry_agent`（值必须是后端返回的真实 `agent_name`；空值仅表示“使用配置默认入口 Agent”，前端不应提交 `default` 这类 UI alias）
 - `sessionFiles`：当前会话私有文件列表，通过 `/api/agent/sessions/{session_id}/files*` 维护；与知识库页使用的知识库文件池（`/api/knowledge-bases/files*`，sqlite-vec driver 的 `kb_files`）严格分离

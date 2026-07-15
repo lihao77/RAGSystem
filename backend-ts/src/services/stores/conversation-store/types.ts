@@ -1,4 +1,5 @@
 import type { MessageInfo } from "../../../contracts/session.js";
+import type { PermissionMode } from "../../../contracts/permissions.js";
 import type { TenantId } from "../../../identity/types.js";
 
 /**
@@ -23,6 +24,7 @@ export interface SessionRow {
   session_id: string;
   tenant_id: TenantId;
   user_id: string | null;
+  permission_mode: PermissionMode | null;
   metadata: string | null;
   created_at: string;
   updated_at: string;

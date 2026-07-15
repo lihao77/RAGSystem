@@ -117,7 +117,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     outboxDispatcher.start(options.outboxDispatcherIntervalMs);
   }
   const clientEvents = new DurableClientEventPublisher(conversationStore, outboxDispatcher);
-  const permissionPolicy = new PermissionPolicyService();
+  const permissionPolicy = new PermissionPolicyService(conversationStore);
   const agentConfig = new AgentConfigService({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot });
   const modelAdapter = new ModelAdapterService({
     dataRoot: options.dataRoot,

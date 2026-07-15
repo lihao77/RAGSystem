@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { BotConfig, BotCronTask, BotCronTaskCreate, BotCronTaskUpdate, PlatformType } from "../../contracts/bot.js";
 import type { DaemonOutgoingMessage, DaemonTestMessage } from "../../contracts/daemon.js";
 import type { TenantId, UserId } from "../../identity/types.js";
+import type { PermissionMode } from "../../contracts/permissions.js";
 import type { TenantRuntimeRegistry } from "../runtime/tenant-runtime-registry.js";
 import type { ControlStore } from "../stores/control-store/index.js";
 import {
@@ -34,6 +35,7 @@ export interface DaemonRunAgentInput {
   sessionId: string;
   source: string;
   sessionMetadata?: Record<string, unknown>;
+  permissionMode: PermissionMode;
 }
 
 export type DaemonRunAgentTask = (input: DaemonRunAgentInput) => Promise<string> | string;
@@ -325,6 +327,7 @@ export class DaemonService {
       entryAgent,
       sessionId,
       source,
+      permissionMode: state.config.permission_mode,
       ...(sessionMetadata ? { sessionMetadata } : {}),
     });
   }

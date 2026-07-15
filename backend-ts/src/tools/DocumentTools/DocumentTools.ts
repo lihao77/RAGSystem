@@ -390,7 +390,7 @@ export function createDocumentTools(deps: DocumentToolDeps): Tool[] {
   return tools;
 }
 
-/** 文档工具 checkAccess：越界外部路径 → ask（signals.candidatePaths），否则 allow。 */
+/** 文档工具 checkAccess：越界路径作为候选信号交给 permission mode，工具本身保持 allow。 */
 function documentAccessDecision(
   documentTools: LocalDocumentToolService,
   toolName: string,
@@ -401,9 +401,7 @@ function documentAccessDecision(
   const candidates = documentTools.getExternalCandidates(toolName, input, ctx, pathService);
   if (candidates.length) {
     return {
-      action: "ask",
-      reason: "路径越界访问需要审批",
-      description: `外部路径: ${candidates.join(", ")}`,
+      action: "allow",
       signals: { candidatePaths: candidates },
     };
   }

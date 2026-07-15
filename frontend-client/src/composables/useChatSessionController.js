@@ -224,6 +224,8 @@ export function useChatSessionController(deps) {
       };
       sessionListStore.upsert({
         session_id: sessionId,
+        user_id: result.data?.user_id || null,
+        permission_mode: result.data?.permission_mode || null,
         title: result.data?.title || 'New Conversation',
         first_message: '',
         last_message: '',

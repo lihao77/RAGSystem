@@ -8,6 +8,25 @@ import { createConversationStore } from "../../src/services/stores/conversation-
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 describe("ConversationStore", () => {
+  it("持久化 session permission_mode，并在幂等 create 时保留已有值", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "backend-ts-session-permission-"));
+    const dbPath = path.join(root, "conversation.db");
+    try {
+      const first = createConversationStore({ dbPath, dataRoot: root });
+      first.createSession(LOCAL_TENANT_ID, "permission-session", "usr_local", {}, "relaxed");
+      first.createSession(LOCAL_TENANT_ID, "permission-session", "usr_local", {}, null);
+      expect(first.getSession("permission-session")?.permission_mode).toBe("relaxed");
+      expect(first.updateSessionPermissionMode("permission-session", "standard")).toBe(true);
+      first.close();
+
+      const reopened = createConversationStore({ dbPath, dataRoot: root });
+      expect(reopened.getSession("permission-session")?.permission_mode).toBe("standard");
+      reopened.close();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("upserts sessions and returns Python-compatible session list metadata", () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     store.createSession(LOCAL_TENANT_ID, "s1", "u1", { title: "Pinned title", unread_count: 2 });

@@ -8,28 +8,36 @@ import { rowToSession, rowToSessionListItem } from "./mappers.js";
 import type { ISessionStore } from "../../../contracts/conversation-store/index.js";
 import type { SessionListRow, SessionRow } from "./types.js";
 import type { TenantId } from "../../../identity/types.js";
+import type { PermissionMode } from "../../../contracts/permissions.js";
 
 /** sessions 聚合根操作（迁移自 ConversationStore，方法体零改动）。 */
 export class SessionOps implements ISessionStore {
   constructor(private readonly db: ConversationDb) {}
 
-  createSession(tenantId: TenantId, sessionId: string, userId: string | null, metadata: Record<string, unknown> = {}): void {
+  createSession(
+    tenantId: TenantId,
+    sessionId: string,
+    userId: string | null,
+    metadata: Record<string, unknown> = {},
+    permissionMode: PermissionMode | null = null,
+  ): void {
     this.db
       .prepare(`
-        INSERT INTO sessions (session_id, tenant_id, user_id, metadata)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO sessions (session_id, tenant_id, user_id, permission_mode, metadata)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(session_id) DO UPDATE SET
           tenant_id=excluded.tenant_id,
           user_id=excluded.user_id,
+          permission_mode=COALESCE(sessions.permission_mode, excluded.permission_mode),
           metadata=excluded.metadata,
           updated_at=CURRENT_TIMESTAMP
       `)
-      .run(sessionId, tenantId, userId, stringifyJson(metadata));
+      .run(sessionId, tenantId, userId, permissionMode, stringifyJson(metadata));
   }
 
   getSession(sessionId: string): SessionInfo | null {
     const row = this.db
-      .prepare("SELECT session_id, tenant_id, user_id, metadata, created_at, updated_at FROM sessions WHERE session_id=?")
+      .prepare("SELECT session_id, tenant_id, user_id, permission_mode, metadata, created_at, updated_at FROM sessions WHERE session_id=?")
       .get(sessionId) as SessionRow | undefined;
     return row ? rowToSession(row) : null;
   }
@@ -44,6 +52,13 @@ export class SessionOps implements ISessionStore {
       .prepare("UPDATE sessions SET metadata=?, updated_at=CURRENT_TIMESTAMP WHERE session_id=?")
       .run(stringifyJson(metadata), sessionId);
     return metadata;
+  }
+
+  updateSessionPermissionMode(sessionId: string, mode: PermissionMode): boolean {
+    const result = this.db
+      .prepare("UPDATE sessions SET permission_mode=?, updated_at=CURRENT_TIMESTAMP WHERE session_id=?")
+      .run(mode, sessionId);
+    return Number(result.changes) > 0;
   }
 
   deleteSession(sessionId: string): boolean {
@@ -73,6 +88,7 @@ export class SessionOps implements ISessionStore {
           s.session_id,
           s.tenant_id,
           s.user_id,
+          s.permission_mode,
           s.metadata,
           s.created_at,
           s.updated_at,

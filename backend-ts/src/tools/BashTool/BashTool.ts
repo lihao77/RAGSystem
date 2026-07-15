@@ -100,7 +100,8 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
       checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision => {
         const bashInput = readBashArguments(input);
         // 只做命令分类（不 resolve workingDir）：workingDir 越界时 pathService 尚未 approve，resolve 会抛错。
-        // 路径越界候选单独算；命令高危/路径越界都 ask。call 阶段（gate 已 approve）才调完整 prepareExecution resolve。
+        // 路径越界候选单独计算并交给 permission mode；命令自身高危才声明 ask。
+        // call 阶段（gate allow/审批后已 approve）才调完整 prepareExecution resolve。
         const classified = bashTools.buildCommandClassification(bashInput, deps.agent);
         if (!classified.ok) {
           return {
@@ -122,10 +123,8 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
         }
         if (pathCandidates.length) {
           return {
-            action: "ask",
-            reason: "路径越界访问需要审批",
+            action: "allow",
             riskLevel: c.riskLevel,
-            description: `外部路径: ${pathCandidates.join(", ")}`,
             signals: { candidatePaths: pathCandidates },
           };
         }

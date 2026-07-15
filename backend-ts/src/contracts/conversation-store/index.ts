@@ -13,6 +13,7 @@ import type { PaginatedResult, RunStepInfo } from "../common.js";
 import type { TenantId } from "../../identity/types.js";
 import type { ExecutionOverview } from "../execution.js";
 import type { MessageInfo, SessionInfo, SessionListItem } from "../session.js";
+import type { PermissionMode } from "../permissions.js";
 import type {
   AddMessageInput,
   AddRunStepInput,
@@ -44,9 +45,10 @@ export * from "./types.js";
  * 分页 has_more = offset+limit < total；createSession 幂等（ON CONFLICT 更新）。
  */
 export interface ISessionStore {
-  createSession(tenantId: TenantId, sessionId: string, userId: string | null, metadata?: Record<string, unknown>): void;
+  createSession(tenantId: TenantId, sessionId: string, userId: string | null, metadata?: Record<string, unknown>, permissionMode?: PermissionMode | null): void;
   getSession(sessionId: string): SessionInfo | null;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Record<string, unknown> | null;
+  updateSessionPermissionMode(sessionId: string, mode: PermissionMode): boolean;
   deleteSession(sessionId: string): boolean;
   listSessions(tenantId: TenantId, limit?: number, offset?: number, userIds?: readonly string[] | null): PaginatedResult<SessionListItem>;
 }

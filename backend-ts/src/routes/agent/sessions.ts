@@ -8,6 +8,7 @@ import {
   CreateSessionRequestSchema,
   RollbackAndRetryRequestSchema,
   RollbackRequestSchema,
+  UpdateSessionPermissionModeRequestSchema,
   UpdateMessageRequestSchema,
 } from "../../contracts/session.js";
 import { HttpError } from "../../utils/errors.js";
@@ -32,6 +33,7 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
         tenantId: request.identity.tenantId,
         sessionId: payload.session_id?.trim() || randomUUID(),
         userId: request.identity.userId,
+        permissionMode: payload.permission_mode ?? null,
         metadata: payload.metadata,
       });
       return ok(session, "会话创建成功");
@@ -62,6 +64,19 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
   app.get<{ Params: SessionParams }>("/sessions/:sessionId", async (request) => {
     const session = loadOwnedSession(request, request.params.sessionId);
     return ok(session, "获取会话成功");
+  });
+
+  app.get<{ Params: SessionParams }>("/sessions/:sessionId/permissions", async (request) => {
+    const session = loadOwnedSession(request, request.params.sessionId);
+    return ok({ mode: session.permission_mode ?? "standard" }, "获取会话权限成功");
+  });
+
+  app.patch<{ Params: SessionParams }>("/sessions/:sessionId/permissions", async (request) => {
+    loadOwnedSession(request, request.params.sessionId);
+    const payload = UpdateSessionPermissionModeRequestSchema.parse(request.body);
+    const updated = request.container.conversationStore.updateSessionPermissionMode(request.params.sessionId, payload.mode);
+    if (!updated) throw new HttpError(404, "not_found", "会话不存在");
+    return ok({ mode: payload.mode }, "会话权限已更新");
   });
 
   app.delete<{ Params: SessionParams }>("/sessions/:sessionId", async (request) => {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTenantId, createUserId } from "../identity/types.js";
 import { UserStatusSchema } from "./user.js";
+import { PermissionModeSchema } from "./permissions.js";
 
 const UserIdSchema = z.string().transform(createUserId);
 const TenantIdSchema = z.string().transform(createTenantId);
@@ -42,6 +43,7 @@ export const BotConfigSchema = z.object({
   entry_agent: z.string().nullable().optional().default(null),
   session_id: z.string().nullable().optional().default(null),
   default_session_ttl: z.number().int().positive().optional().default(86400),
+  permission_mode: PermissionModeSchema.optional().default("relaxed"),
   feishu: BotFeishuConfigSchema.optional().default({}),
   cron_tasks: z.array(BotCronTaskSchema).optional().default([]),
   created_at: z.string(),
@@ -53,6 +55,7 @@ export const BotConfigUpdateSchema = z.object({
   entry_agent: z.string().nullable().optional(),
   session_id: z.string().nullable().optional(),
   default_session_ttl: z.number().int().positive().optional(),
+  permission_mode: PermissionModeSchema.optional(),
   feishu: BotFeishuConfigSchema.partial().optional(),
 });
 

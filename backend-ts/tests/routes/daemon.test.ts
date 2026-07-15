@@ -134,8 +134,36 @@ describe("bot 自动化执行引擎", () => {
     await app.botEngine.handleIncomingMessage(token, feishuMessage("om_runtime"));
     await vi.waitFor(() => expect(execute).toHaveBeenCalledWith(expect.objectContaining({ userId: bot.id }), expect.any(String)));
     const sessionId = `bot-${bot.id}-feishu-oc_chat`;
+    await vi.waitFor(() => expect(harness.container.sessionApplication.getSession(sessionId)?.permission_mode).toBe("relaxed"));
     await vi.waitFor(() => expect(harness.container.sessionApplication.getSession(sessionId)?.metadata).toMatchObject({ feishu: { sender_open_id: "ou_user" } }));
     await vi.waitFor(() => expect(feishuMock.sent).toEqual([{ chatId: "ou_user", receiveIdType: "open_id", content: "reply" }]));
+  });
+
+  it("bot 只在新建会话时继承 permission_mode，不覆盖已有会话", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+    const bot = harness.controlStore.createBot({ tenantId: LOCAL_TENANT_ID, ownerId: LOCAL_USER_ID, displayName: "Policy Bot" });
+    configureFeishu(harness.controlStore, bot.id, "webhook");
+    harness.controlStore.updateBotConfig(bot.id, { permission_mode: "dangerously_skip_permissions" });
+    const sessionId = `bot-${bot.id}-feishu-oc_chat`;
+    harness.container.conversationStore.createSession(LOCAL_TENANT_ID, sessionId, bot.id, {}, "standard");
+    const execute = vi.spyOn(harness.container.agentExecution, "executeSynchronously").mockResolvedValue({
+      success: true,
+      answer: "reply",
+      agent_name: "orchestrator_agent",
+      execution_time: 0,
+      tool_calls: [],
+      metadata: {},
+      session_id: sessionId,
+      run_id: "run",
+      task_id: "task",
+      error: null,
+    });
+    app.botEngine.reloadBot(bot.id);
+    const token = harness.controlStore.getBotRuntimeConfig(bot.id)!.feishu.route_token!;
+    await app.botEngine.handleIncomingMessage(token, feishuMessage("om_existing_policy"));
+    await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+    await vi.waitFor(() => expect(harness.container.conversationStore.getSession(sessionId)?.permission_mode).toBe("standard"));
   });
 
   it("reloadBot 在 bot 禁用时卸载长连接，恢复后重建", () => {

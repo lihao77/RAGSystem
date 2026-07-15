@@ -49,6 +49,22 @@ describe("session ownership", () => {
     });
     expect(forbidden.statusCode).toBe(403);
     expect(forbidden.json()).toMatchObject({ code: "forbidden" });
+
+    const ownerUpdate = await app.inject({
+      method: "PATCH",
+      url: "/api/agent/sessions/private-session/permissions",
+      headers: { "x-test-user": "a" },
+      payload: { mode: "relaxed" },
+    });
+    expect(ownerUpdate.statusCode).toBe(200);
+    const foreignUpdate = await app.inject({
+      method: "PATCH",
+      url: "/api/agent/sessions/private-session/permissions",
+      headers: { "x-test-user": "b" },
+      payload: { mode: "standard" },
+    });
+    expect(foreignUpdate.statusCode).toBe(403);
+    expect(harness.container.conversationStore.getSession("private-session")?.permission_mode).toBe("relaxed");
   });
 
   it("allows local identity to access a historical null-owner session", async () => {
@@ -71,6 +87,14 @@ describe("session ownership", () => {
     const detail = await app.inject({ method: "GET", url: "/api/agent/sessions/owned-bot-session", headers: { "x-test-user": "a" } });
     expect(detail.statusCode).toBe(200);
     expect(detail.json()).toMatchObject({ data: { session_id: "owned-bot-session", user_id: bot.id } });
+    const permissionUpdate = await app.inject({
+      method: "PATCH",
+      url: "/api/agent/sessions/owned-bot-session/permissions",
+      headers: { "x-test-user": "a" },
+      payload: { mode: "relaxed" },
+    });
+    expect(permissionUpdate.statusCode).toBe(200);
+    expect(harness.container.conversationStore.getSession("owned-bot-session")?.permission_mode).toBe("relaxed");
     const listed = await app.inject({ method: "GET", url: "/api/agent/sessions", headers: { "x-test-user": "a" } });
     expect(listed.json().data.items).toEqual([expect.objectContaining({ session_id: "owned-bot-session", user_id: bot.id })]);
   });
@@ -83,6 +107,13 @@ describe("session ownership", () => {
 
     const detail = await app.inject({ method: "GET", url: "/api/agent/sessions/foreign-bot-session", headers: { "x-test-user": "b" } });
     expect(detail.statusCode).toBe(403);
+    const permissionUpdate = await app.inject({
+      method: "PATCH",
+      url: "/api/agent/sessions/foreign-bot-session/permissions",
+      headers: { "x-test-user": "b" },
+      payload: { mode: "relaxed" },
+    });
+    expect(permissionUpdate.statusCode).toBe(403);
     const listed = await app.inject({ method: "GET", url: "/api/agent/sessions", headers: { "x-test-user": "b" } });
     expect(listed.json().data.items).toEqual([]);
   });

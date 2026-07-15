@@ -56,7 +56,7 @@ describe("AgentSessionApplication", () => {
     }
   });
 
-  it("returns the same compact create_session payload as Python", () => {
+  it("returns the compact create_session payload with persisted permission mode", () => {
     const store = createStore();
     const app = new AgentSessionApplication(store);
 
@@ -69,6 +69,7 @@ describe("AgentSessionApplication", () => {
     expect(created).toEqual({
       session_id: "s1",
       user_id: "u1",
+      permission_mode: null,
       metadata: { team: "default" },
     });
     store.close();

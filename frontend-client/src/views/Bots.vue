@@ -99,6 +99,11 @@
               <label for="bot-session-ttl">默认会话 TTL（秒）</label>
               <Input id="bot-session-ttl" v-model.number="form.default_session_ttl" type="number" min="60" />
             </div>
+            <div class="form-item">
+              <label>默认会话权限</label>
+              <CustomSelect v-model="form.permission_mode" :options="permissionModeOptions" />
+              <small>自动化场景建议使用“宽松”；仅新建会话继承此配置。</small>
+            </div>
           </CardContent>
         </Card>
 
@@ -341,6 +346,11 @@ const receiveModeOptions = [
   { value: 'webhook', label: 'Webhook' },
   { value: 'long_connection', label: '长连接' },
 ];
+const permissionModeOptions = [
+  { value: 'standard', label: '标准（中高风险需审批）' },
+  { value: 'relaxed', label: '宽松（自动化推荐）' },
+  { value: 'dangerously_skip_permissions', label: '跳过审批（高风险）' },
+];
 const webhookUrl = computed(() => {
   if (form.feishu.receive_mode !== 'webhook' || !selectedConfig.value?.feishu?.route_token) return '';
   return `${window.location.origin}/api/bots/webhook/feishu/${selectedConfig.value.feishu.route_token}`;
@@ -421,7 +431,7 @@ const sendAction = useAsyncAction(async () => botApi.sendBotMessage(requireBotId
 
 function emptyForm() {
   return {
-    displayName: '', enabled: false, entry_agent: '', session_id: '', default_session_ttl: 86400,
+    displayName: '', enabled: false, entry_agent: '', session_id: '', default_session_ttl: 86400, permission_mode: 'relaxed',
     feishu: { enabled: false, app_id: '', app_secret: '', token: '', encoding_aes_key: '', receive_mode: 'webhook' },
   };
 }
@@ -439,6 +449,7 @@ function applySelectedBot() {
     entry_agent: config?.entry_agent || '',
     session_id: config?.session_id || '',
     default_session_ttl: config?.default_session_ttl || 86400,
+    permission_mode: config?.permission_mode || 'relaxed',
     feishu: {
       enabled: Boolean(config?.feishu?.enabled),
       app_id: config?.feishu?.app_id || '',
@@ -488,6 +499,7 @@ function buildConfigPayload() {
     entry_agent: form.entry_agent || null,
     session_id: form.session_id || null,
     default_session_ttl: Number(form.default_session_ttl) || 86400,
+    permission_mode: form.permission_mode || 'relaxed',
     feishu,
   };
 }
@@ -565,6 +577,7 @@ onMounted(() => loadAction.run());
 .form-item { display: flex; flex-direction: column; gap: var(--spacing-xs); min-width: 0; }
 .form-item.full { grid-column: 1 / -1; }
 .form-item label, .dialog-form label { color: var(--color-text-secondary); font-size: var(--font-size-sm); font-weight: 600; }
+.form-item small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .input-mono, .webhook-box code { font-family: var(--font-mono); }
 .webhook-box { justify-content: space-between; padding: var(--spacing-sm); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-hover-overlay-md); }
 .webhook-box code { min-width: 0; overflow-wrap: anywhere; color: var(--color-brand-accent); font-size: var(--font-size-xs); }

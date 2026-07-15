@@ -158,6 +158,13 @@ export const MIGRATIONS: readonly Migration[] = [
       `).run(LOCAL_USER_ID, LOCAL_TENANT_ID, LOCAL_USER_ID);
     },
   },
+  {
+    version: 9,
+    name: "session_permission_mode",
+    up: (db) => {
+      db.exec("ALTER TABLE sessions ADD COLUMN permission_mode TEXT");
+    },
+  },
 ];
 
 function addColumnIfMissing(db: MigrationDatabase, table: string, column: string, declaration: string): void {

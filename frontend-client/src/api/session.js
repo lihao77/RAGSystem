@@ -19,6 +19,14 @@ export async function deleteSession(sessionId) {
   return http.del(`${BASE}/sessions/${encodeURIComponent(sessionId)}`);
 }
 
+export async function getSessionPermissions(sessionId) {
+  return http.get(`${BASE}/sessions/${encodeURIComponent(sessionId)}/permissions`);
+}
+
+export async function updateSessionPermissions(sessionId, mode) {
+  return http.patch(`${BASE}/sessions/${encodeURIComponent(sessionId)}/permissions`, { mode });
+}
+
 /** 会话任务状态（has_running_task / task_info / observability 等）。可选 signal 用于取消。 */
 export async function getSessionTaskStatus(sessionId, { signal } = {}) {
   return http.get(`${BASE}/sessions/${encodeURIComponent(sessionId)}/task-status`, { signal });

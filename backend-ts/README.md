@@ -31,7 +31,8 @@ Node.js 24+ is required because the first persistence milestone uses the built-i
 - Session WebSocket shell with heartbeat, replay markers, and typed error responses
 - Python-compatible idle execution status routes for frontend polling, diagnostics, and overview reads
 - Monitoring, metrics, context snapshot, and durable outbox operations
-- In-memory permission policy API compatible with the Python `/api/permissions/*` route shapes
+- SQLite-backed session permission policies exposed through
+  `/api/agent/sessions/:sessionId/permissions`
 - Knowledge-base uploaded files (source blobs + metadata) owned by the sqlite-vec driver, served at
   `/api/knowledge-bases/files/*`; session-scoped attachments at `/api/agent/sessions/:sessionId/files/*`
   via the main SQLite uploaded-file index

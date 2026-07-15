@@ -106,10 +106,10 @@ export class ControlStore {
         .run(id, input.tenantId);
       this.db.prepare(`
         INSERT INTO bot_configs(
-          bot_id, tenant_id, enabled, entry_agent, session_id, default_session_ttl,
+          bot_id, tenant_id, enabled, entry_agent, session_id, default_session_ttl, permission_mode,
           feishu_app_id, feishu_app_secret, feishu_token, feishu_encoding_aes_key,
           feishu_receive_mode, feishu_route_token, feishu_enabled, created_at, updated_at
-        ) VALUES (?, ?, 0, NULL, NULL, 86400, NULL, NULL, NULL, NULL, 'webhook', NULL, 0, ?, ?)
+        ) VALUES (?, ?, 0, NULL, NULL, 86400, 'relaxed', NULL, NULL, NULL, NULL, 'webhook', NULL, 0, ?, ?)
       `).run(id, input.tenantId, createdAt, createdAt);
       return { id, displayName: input.displayName, createdAt, status: "active", type: "bot", owner_id: input.ownerId };
     });
@@ -165,12 +165,12 @@ export class ControlStore {
     restoreMaskedBotSecrets(next, current);
     this.db.prepare(`
       UPDATE bot_configs SET
-        enabled=?, entry_agent=?, session_id=?, default_session_ttl=?,
+        enabled=?, entry_agent=?, session_id=?, default_session_ttl=?, permission_mode=?,
         feishu_app_id=?, feishu_app_secret=?, feishu_token=?, feishu_encoding_aes_key=?,
         feishu_receive_mode=?, feishu_route_token=?, feishu_enabled=?, updated_at=?
       WHERE bot_id=?
     `).run(
-      boolToInt(next.enabled), next.entry_agent, next.session_id, next.default_session_ttl,
+      boolToInt(next.enabled), next.entry_agent, next.session_id, next.default_session_ttl, next.permission_mode,
       next.feishu.app_id, next.feishu.app_secret, next.feishu.token, next.feishu.encoding_aes_key,
       next.feishu.receive_mode, next.feishu.route_token, boolToInt(next.feishu.enabled), next.updated_at, botId,
     );
@@ -504,7 +504,7 @@ const USER_CREDENTIAL_SELECT = "SELECT id, display_name, created_at, username, p
 const BOT_SUMMARY_SELECT = `SELECT b.id, b.display_name, b.created_at, b.status,
   o.display_name AS owner_name, bc.enabled, bc.feishu_enabled,
   bc.feishu_receive_mode, bc.entry_agent`;
-const BOT_CONFIG_SELECT = `SELECT bot_id, tenant_id, enabled, entry_agent, session_id, default_session_ttl,
+const BOT_CONFIG_SELECT = `SELECT bot_id, tenant_id, enabled, entry_agent, session_id, default_session_ttl, permission_mode,
   feishu_app_id, feishu_app_secret, feishu_token, feishu_encoding_aes_key, feishu_receive_mode,
   feishu_route_token, feishu_enabled, created_at, updated_at FROM bot_configs`;
 const BOT_CRON_SELECT = `SELECT bot_id, task_id, cron, task, entry_agent, enabled, push_platform,
@@ -533,6 +533,7 @@ interface BotConfigRow {
   entry_agent: string | null;
   session_id: string | null;
   default_session_ttl: number;
+  permission_mode: BotConfig["permission_mode"];
   feishu_app_id: string | null;
   feishu_app_secret: string | null;
   feishu_token: string | null;
@@ -603,6 +604,7 @@ function mapBotConfig(row: BotConfigRow, cronTasks: BotCronTask[]): BotConfig {
     entry_agent: row.entry_agent,
     session_id: row.session_id,
     default_session_ttl: row.default_session_ttl,
+    permission_mode: row.permission_mode,
     feishu: {
       enabled: row.feishu_enabled !== 0,
       app_id: row.feishu_app_id,
@@ -676,12 +678,13 @@ function restoreMaskedBotSecrets(next: BotConfig, current: BotConfig): void {
   if (next.feishu.encoding_aes_key === MASKED_SECRET) next.feishu.encoding_aes_key = current.feishu.encoding_aes_key;
 }
 
-function definedConfigFields(patch: BotConfigUpdate): Partial<Pick<BotConfig, "enabled" | "entry_agent" | "session_id" | "default_session_ttl">> {
-  const fields: Partial<Pick<BotConfig, "enabled" | "entry_agent" | "session_id" | "default_session_ttl">> = {};
+function definedConfigFields(patch: BotConfigUpdate): Partial<Pick<BotConfig, "enabled" | "entry_agent" | "session_id" | "default_session_ttl" | "permission_mode">> {
+  const fields: Partial<Pick<BotConfig, "enabled" | "entry_agent" | "session_id" | "default_session_ttl" | "permission_mode">> = {};
   if (patch.enabled !== undefined) fields.enabled = patch.enabled;
   if (patch.entry_agent !== undefined) fields.entry_agent = patch.entry_agent;
   if (patch.session_id !== undefined) fields.session_id = patch.session_id;
   if (patch.default_session_ttl !== undefined) fields.default_session_ttl = patch.default_session_ttl;
+  if (patch.permission_mode !== undefined) fields.permission_mode = patch.permission_mode;
   return fields;
 }
 

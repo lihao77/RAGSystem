@@ -109,8 +109,8 @@ export class LocalDocumentPathManager {
   }
 
   /**
-   * 越界外部路径候选（工具 checkAccess 产 ask 用）：绝对外部路径 + 未批准 + 不在受管根 → 候选。
-   * 返回非空时 checkAccess 应 ask（signals.candidatePaths），gate handler 审批后 pathService.approve。
+   * 越界外部路径候选：绝对外部路径 + 未批准 + 不在受管根 → 候选。
+   * checkAccess 通过 signals.candidatePaths 交给 permission mode，gate allow/审批后由 pathService.approve 放行。
    */
   getExternalCandidates(
     toolName: string,

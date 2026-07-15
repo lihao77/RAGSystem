@@ -117,6 +117,7 @@ describe("ControlStore", () => {
       tenant_id: tenantId,
       enabled: false,
       default_session_ttl: 86400,
+      permission_mode: "relaxed",
       feishu: { enabled: false, receive_mode: "webhook" },
       cron_tasks: [],
     });
@@ -129,6 +130,7 @@ describe("ControlStore", () => {
     const updated = store.updateBotConfig(bot.id, {
       enabled: true,
       entry_agent: "orchestrator_agent",
+      permission_mode: "standard",
       feishu: { enabled: true, app_id: "cli", app_secret: "secret", token: "token", encoding_aes_key: "key", receive_mode: "webhook" },
     });
     expect(store.listAllBots()[0]).toMatchObject({ enabled: true, feishuEnabled: true, feishuReceiveMode: "webhook", entryAgent: "orchestrator_agent" });
@@ -136,6 +138,7 @@ describe("ControlStore", () => {
     expect(store.listAllBots()[0]).not.toHaveProperty("token");
     expect(store.listAllBots()[0]).not.toHaveProperty("encoding_aes_key");
     expect(updated.feishu).toMatchObject({ app_secret: "***", token: "***", encoding_aes_key: "***" });
+    expect(updated.permission_mode).toBe("standard");
     expect(store.getBotRuntimeConfig(bot.id)?.feishu.app_secret).toBe("secret");
     store.updateBotConfig(bot.id, { feishu: { app_secret: "***", token: "***", encoding_aes_key: "***" } });
     expect(store.getBotRuntimeConfig(bot.id)?.feishu.app_secret).toBe("secret");

@@ -16,7 +16,6 @@ import { registerBotRoutes } from "./routes/bots.js";
 import { registerEmbeddingModelRoutes } from "./routes/embedding-models.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerModelAdapterRoutes } from "./routes/model-adapter.js";
-import { registerPermissionRoutes } from "./routes/permissions.js";
 import { registerSkillRoutes } from "./routes/skills.js";
 import { registerSystemConfigRoutes } from "./routes/system-config.js";
 import { registerKnowledgeBaseRoutes } from "./routes/knowledge-base.js";
@@ -90,6 +89,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       const lease = await registry.acquire(input.tenantId);
       try {
         try {
+          if (!lease.runtime.conversationStore.getSession(input.sessionId)) {
+            lease.runtime.conversationStore.createSession(
+              input.tenantId,
+              input.sessionId,
+              input.botId,
+              {},
+              input.permissionMode,
+            );
+          }
           const result = await lease.runtime.agentExecution.executeSynchronously({
             task: input.task,
             session_id: input.sessionId,
@@ -249,11 +257,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await app.register(registerAuthRoutes, { prefix: "/api/auth", controlStore, runtime });
   await app.register(registerAdminRoutes, { prefix: "/api/admin", controlStore });
   await app.register(registerPlatformRoutes, { prefix: "/api/platform", controlStore, registry });
-  await app.register(registerPermissionRoutes, {
-    prefix: "/api/permissions",
-    registry,
-    identityProvider: routedIdentityProvider,
-  });
   await app.register(registerArtifactRoutes, {
     prefix: "/api/artifacts",
     registry,

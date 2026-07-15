@@ -3,6 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 
 import { AttachmentRefSchema } from "./execution.js";
+import { PermissionModeSchema, type PermissionMode } from "./permissions.js";
 import { OptionalSessionIdSchema } from "./session-id.js";
 import type { TenantId } from "../identity/types.js";
 
@@ -20,7 +21,12 @@ export const SessionMetadataSchema = z.unknown().optional().transform((value, co
 
 export const CreateSessionRequestSchema = z.object({
   session_id: OptionalSessionIdSchema.nullable().optional(),
+  permission_mode: PermissionModeSchema.nullable().optional(),
   metadata: SessionMetadataSchema,
+}).strict();
+
+export const UpdateSessionPermissionModeRequestSchema = z.object({
+  mode: PermissionModeSchema,
 }).strict();
 
 export const UpdateMessageRequestSchema = z.object({
@@ -49,6 +55,7 @@ export interface SessionInfo {
   session_id: string;
   tenant_id: TenantId;
   user_id: string | null;
+  permission_mode: PermissionMode | null;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
