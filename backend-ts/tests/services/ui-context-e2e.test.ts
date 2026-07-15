@@ -118,6 +118,14 @@ describe("tool_result_media TTL projection", () => {
       store.createSession(LOCAL_TENANT_ID, "s-tool-image", null);
       store.addMessage({
         sessionId: "s-tool-image",
+        role: "assistant",
+        content: "",
+        threadKey: "root",
+        toolCalls: [{ id: "t1", type: "function", function: { name: "screenshot", arguments: "{}" } }],
+        metadata: { msg_type: "intent", run_id: "r1" },
+      });
+      store.addMessage({
+        sessionId: "s-tool-image",
         role: "tool",
         content: "截图完成",
         threadKey: "root",
@@ -134,10 +142,10 @@ describe("tool_result_media TTL projection", () => {
       const source = new RecentMessagesContextSource(historyPort, true, createDefaultProjectionRegistry());
 
       const first = new AgentContextBuilder([source]).buildContext({ sessionId: "s-tool-image", threadKey: "root" }, { touch: false });
-      expect((first.conversation[0]?.content as ContentPart[]).some((part) => part.type === "image_url")).toBe(true);
+      expect((first.conversation[1]?.content as ContentPart[]).some((part) => part.type === "image_url")).toBe(true);
       fs.rmSync(imagePath);
       const second = new AgentContextBuilder([source]).buildContext({ sessionId: "s-tool-image", threadKey: "root" }, { touch: false });
-      expect((second.conversation[0]?.content as ContentPart[]).some((part) => part.type === "text" && part.text.includes("已过期或加载失败"))).toBe(true);
+      expect((second.conversation[1]?.content as ContentPart[]).some((part) => part.type === "text" && part.text.includes("已过期或加载失败"))).toBe(true);
     } finally {
       store.close();
       fs.rmSync(root, { recursive: true, force: true });

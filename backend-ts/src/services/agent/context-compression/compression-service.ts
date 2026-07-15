@@ -213,7 +213,19 @@ function selectCompressibleSegment(historyResolved: MessageInfo[], settings: Con
   if (candidates.length <= preserveCount) {
     return { ok: false, reason: "insufficient_candidates" };
   }
-  const segment = preserveCount > 0 ? candidates.slice(0, candidates.length - preserveCount) : [...candidates];
+  let segment = preserveCount > 0 ? candidates.slice(0, candidates.length - preserveCount) : [...candidates];
+  // 配对边界对齐:segment 末若是 assistant tool_use(其 tool_result 落在保留区),排除该 tool_use,避免摘要 tool_use 而保留 tool_result 造成孤立 observation(Anthropic tool_result without preceding tool_use)。
+  while (segment.length > 0) {
+    const last = segment[segment.length - 1];
+    if (!last) {
+      break;
+    }
+    if (last.role === "assistant" && last.tool_calls && last.tool_calls.length > 0) {
+      segment = segment.slice(0, -1);
+    } else {
+      break;
+    }
+  }
   const replacesUpToSeq = lastPositiveSeq(segment);
   if (segment.length === 0 || replacesUpToSeq === null) {
     return { ok: false, reason: "missing_segment_seq" };

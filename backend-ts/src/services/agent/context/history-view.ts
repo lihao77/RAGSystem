@@ -89,8 +89,13 @@ export function messagesToConversation(messages: MessageInfo[]): { conversation:
   const conversation: ChatMessage[] = [];
   // 与 conversation 逐条对齐的 rawMessage 来源;供调试快照按 index 回绑元数据。悬空 tool_use 不补占位——保留供 SDK 通用开始契约(kernel.collectUnansweredToolCalls)恢复时重执行。
   const originals: (MessageInfo | null)[] = [];
+  // orphan guard:丢弃无前置 assistant tool_use 的孤立 tool_result(压缩切片/历史数据防御,避免 Anthropic tool_result without preceding tool_use)。
+  const seenToolUseIds = new Set<string>();
   for (const message of messages) {
     if (message.role !== "user" && message.role !== "assistant" && message.role !== "system" && message.role !== "tool") {
+      continue;
+    }
+    if (message.role === "tool" && message.tool_call_id && !seenToolUseIds.has(message.tool_call_id)) {
       continue;
     }
     // prompt 模式斜杠命令(/review 等):user 消息持久化原始命令,组装 LLM conversation 时投影成展开后的完整 prompt。
@@ -108,6 +113,11 @@ export function messagesToConversation(messages: MessageInfo[]): { conversation:
         type: "function" as const,
         function: { name: call.function.name, arguments: call.function.arguments },
       }));
+      for (const call of message.tool_calls) {
+        if (call.id) {
+          seenToolUseIds.add(call.id);
+        }
+      }
     }
     conversation.push(entry);
     originals.push(message);

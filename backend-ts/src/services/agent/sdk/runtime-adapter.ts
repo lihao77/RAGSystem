@@ -277,7 +277,15 @@ export async function executeRunWithSdk(
             historyPort.updateSessionMetadata?.(input.sessionId, { memory_prefix_states: { [baselineKey]: null } });
             cacheTracker.invalidate(input.sessionId, input.threadKey);
             const rebuilt = contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true }).conversation;
+            // 恢复首轮修复:replaceAll 从 store 重读会丢 SDK 工作副本里本轮(通用开始契约重执行)追加但 store 尚未落库的 tool observation。按 tool_call_id 回补配对,避免 assistant tool_use 无 tool_result(Anthropic 400 insufficient tool messages)。
+            const rebuiltToolCallIds = new Set(rebuilt.filter((m) => m.role === "tool").map((m) => m.tool_call_id).filter((id): id is string => Boolean(id)));
+            const lostObservations = hookInput.ctx.messages.filter(
+              (m) => m.role === "tool" && typeof m.tool_call_id === "string" && !rebuiltToolCallIds.has(m.tool_call_id),
+            );
             hookInput.ctx.replaceAll(rebuilt);
+            if (lostObservations.length > 0) {
+              hookInput.ctx.appendMessages(lostObservations);
+            }
           }
         });
       }
