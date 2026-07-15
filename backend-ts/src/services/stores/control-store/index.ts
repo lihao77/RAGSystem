@@ -108,8 +108,8 @@ export class ControlStore {
         INSERT INTO bot_configs(
           bot_id, tenant_id, enabled, entry_agent, session_id, default_session_ttl, permission_mode,
           feishu_app_id, feishu_app_secret, feishu_token, feishu_encoding_aes_key,
-          feishu_receive_mode, feishu_route_token, feishu_enabled, created_at, updated_at
-        ) VALUES (?, ?, 0, NULL, NULL, 86400, 'relaxed', NULL, NULL, NULL, NULL, 'webhook', NULL, 0, ?, ?)
+          feishu_receive_mode, feishu_route_token, feishu_default_chat_id, feishu_enabled, created_at, updated_at
+        ) VALUES (?, ?, 0, NULL, NULL, 86400, 'relaxed', NULL, NULL, NULL, NULL, 'webhook', NULL, NULL, 0, ?, ?)
       `).run(id, input.tenantId, createdAt, createdAt);
       return { id, displayName: input.displayName, createdAt, status: "active", type: "bot", owner_id: input.ownerId };
     });
@@ -167,12 +167,12 @@ export class ControlStore {
       UPDATE bot_configs SET
         enabled=?, entry_agent=?, session_id=?, default_session_ttl=?, permission_mode=?,
         feishu_app_id=?, feishu_app_secret=?, feishu_token=?, feishu_encoding_aes_key=?,
-        feishu_receive_mode=?, feishu_route_token=?, feishu_enabled=?, updated_at=?
+        feishu_receive_mode=?, feishu_route_token=?, feishu_default_chat_id=?, feishu_enabled=?, updated_at=?
       WHERE bot_id=?
     `).run(
       boolToInt(next.enabled), next.entry_agent, next.session_id, next.default_session_ttl, next.permission_mode,
       next.feishu.app_id, next.feishu.app_secret, next.feishu.token, next.feishu.encoding_aes_key,
-      next.feishu.receive_mode, next.feishu.route_token, boolToInt(next.feishu.enabled), next.updated_at, botId,
+      next.feishu.receive_mode, next.feishu.route_token, next.feishu.default_chat_id, boolToInt(next.feishu.enabled), next.updated_at, botId,
     );
     return maskBotConfig(next);
   }
@@ -506,7 +506,7 @@ const BOT_SUMMARY_SELECT = `SELECT b.id, b.display_name, b.created_at, b.status,
   bc.feishu_receive_mode, bc.entry_agent`;
 const BOT_CONFIG_SELECT = `SELECT bot_id, tenant_id, enabled, entry_agent, session_id, default_session_ttl, permission_mode,
   feishu_app_id, feishu_app_secret, feishu_token, feishu_encoding_aes_key, feishu_receive_mode,
-  feishu_route_token, feishu_enabled, created_at, updated_at FROM bot_configs`;
+  feishu_route_token, feishu_default_chat_id, feishu_enabled, created_at, updated_at FROM bot_configs`;
 const BOT_CRON_SELECT = `SELECT bot_id, task_id, cron, task, entry_agent, enabled, push_platform,
   push_chat_id, next_run, last_run, last_result FROM bot_cron_tasks`;
 
@@ -540,6 +540,7 @@ interface BotConfigRow {
   feishu_encoding_aes_key: string | null;
   feishu_receive_mode: "webhook" | "long_connection";
   feishu_route_token: string | null;
+  feishu_default_chat_id: string | null;
   feishu_enabled: number;
   created_at: string;
   updated_at: string;
@@ -613,6 +614,7 @@ function mapBotConfig(row: BotConfigRow, cronTasks: BotCronTask[]): BotConfig {
       encoding_aes_key: row.feishu_encoding_aes_key,
       receive_mode: row.feishu_receive_mode,
       route_token: row.feishu_route_token,
+      default_chat_id: row.feishu_default_chat_id,
     },
     cron_tasks: cronTasks,
     created_at: row.created_at,
@@ -702,6 +704,7 @@ function mergeFeishuPatch(current: BotConfig["feishu"], patch: BotConfigUpdate["
     encoding_aes_key: patch.encoding_aes_key !== undefined ? patch.encoding_aes_key : current.encoding_aes_key,
     receive_mode: patch.receive_mode ?? current.receive_mode,
     route_token: patch.route_token !== undefined ? patch.route_token : current.route_token,
+    default_chat_id: patch.default_chat_id !== undefined ? patch.default_chat_id : current.default_chat_id,
   };
 }
 

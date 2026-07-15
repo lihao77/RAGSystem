@@ -6,13 +6,18 @@ import type { TenantId, UserId } from "../../identity/types.js";
 import type { PermissionMode } from "../../contracts/permissions.js";
 import type { TenantRuntimeRegistry } from "../runtime/tenant-runtime-registry.js";
 import type { ControlStore } from "../stores/control-store/index.js";
+import type { ApprovalMeta } from "../runtime/pending-interaction-service.js";
 import {
+  buildApprovalCard,
+  buildUserInputCard,
   createDispatcher,
   createFeishuClient,
   invokeWebhook,
+  sendInteractiveCard,
   sendTextMessage,
   startLongConnection,
   type FeishuClient,
+  type FeishuCardActionEvent,
   type FeishuDispatcher,
   type FeishuLongConnectionHandle,
   type FeishuMessageEvent,
@@ -38,7 +43,24 @@ export interface DaemonRunAgentInput {
   permissionMode: PermissionMode;
 }
 
-export type DaemonRunAgentTask = (input: DaemonRunAgentInput) => Promise<string> | string;
+export interface DaemonSuspendedInteraction {
+  approvalId: string;
+  sessionId: string;
+  botId: UserId;
+  rootRunId: string;
+  kind: "approval" | "user_input";
+  toolName?: string | undefined;
+  riskLevel?: string | undefined;
+  reason?: string | undefined;
+  prompt?: string | undefined;
+  options?: string[] | undefined;
+}
+
+export type DaemonRunAgentResult =
+  | { suspended: false; content: string }
+  | { suspended: true; content: ""; interaction: DaemonSuspendedInteraction };
+
+export type DaemonRunAgentTask = (input: DaemonRunAgentInput) => Promise<DaemonRunAgentResult> | DaemonRunAgentResult;
 
 interface FeishuRuntime {
   client: FeishuClient;
@@ -91,8 +113,12 @@ export class DaemonService {
   async testMessage(botId: UserId, input: DaemonTestMessage): Promise<{ status: "ok"; message: string; session_id: string; result: string }> {
     const state = this.ensureState(botId);
     const sessionId = resolveSessionId(state.config, input.platform, input.chat_id);
-    const result = await this.runAgent(state, input.content, sessionId, `daemon.${input.platform}.test`);
-    return { status: "ok", message: "测试消息已执行", session_id: sessionId, result };
+    const sessionMetadata = { chatId: input.chat_id };
+    const result = await this.runAgent(state, input.content, sessionId, `daemon.${input.platform}.test`, state.config.entry_agent, sessionMetadata);
+    if (result.suspended) {
+      await this.sendSuspendedCard(state, result.interaction, sessionMetadata);
+    }
+    return { status: "ok", message: "测试消息已执行", session_id: sessionId, result: result.content };
   }
 
   async sendMessage(botId: UserId, input: DaemonOutgoingMessage): Promise<{ status: "ok" | "failed"; message_id?: string; error?: string }> {
@@ -150,19 +176,23 @@ export class DaemonService {
     const startedAt = Date.now();
     try {
       const sessionId = resolveSessionId(state.config, "feishu", `cron:${taskId}`);
-      const result = await this.runAgent(state, task.task, sessionId, "daemon.cron", task.entry_agent ?? state.config.entry_agent);
+      const sessionMetadata = { push_chat_id: task.push_chat_id };
+      const result = await this.runAgent(state, task.task, sessionId, "daemon.cron", task.entry_agent ?? state.config.entry_agent, sessionMetadata);
       const now = Date.now() / 1000;
+      if (result.suspended) {
+        await this.sendSuspendedCard(state, result.interaction, sessionMetadata, task);
+      }
       this.options.controlStore.updateBotCronTask(botId, taskId, {
         last_run: now,
         next_run: computeNextRun(task.cron),
-        last_result: result.slice(0, 200),
+        last_result: result.suspended ? "SUSPENDED" : result.content.slice(0, 200),
       });
-      this.recordCronHistory(state, taskId, { timestamp: now, success: true, result: result.slice(0, 200), error: null, elapsed: (Date.now() - startedAt) / 1000 });
-      if (task.push_platform && task.push_chat_id) {
-        const sent = await this.sendMessage(botId, { platform: task.push_platform, chat_id: task.push_chat_id, content: result, message_type: "text" });
+      this.recordCronHistory(state, taskId, { timestamp: now, success: true, result: result.suspended ? "SUSPENDED" : result.content.slice(0, 200), error: null, elapsed: (Date.now() - startedAt) / 1000 });
+      if (!result.suspended && task.push_platform && task.push_chat_id) {
+        const sent = await this.sendMessage(botId, { platform: task.push_platform, chat_id: task.push_chat_id, content: result.content, message_type: "text" });
         if (sent.status === "failed") throw new Error(sent.error ?? "飞书消息发送失败");
       }
-      return { status: "ok", result: result || null };
+      return { status: "ok", result: result.content || null };
     } catch (error) {
       const now = Date.now() / 1000;
       const message = error instanceof Error ? error.message : String(error);
@@ -254,7 +284,10 @@ export class DaemonService {
     const connection = state.config.feishu;
     if (!connection.app_id || !connection.app_secret) return;
     const client = createFeishuClient(connection);
-    const dispatcher = createDispatcher(connection, { onMessage: (data) => this.onFeishuMessage(state, data) });
+    const dispatcher = createDispatcher(connection, {
+      onMessage: (data) => this.onFeishuMessage(state, data),
+      onCardAction: (data) => this.onFeishuCardAction(state, data),
+    });
     const longConnection = connection.receive_mode === "long_connection" ? startLongConnection(client, dispatcher) : undefined;
     if (longConnection) void longConnection.started.catch((error: unknown) => console.error(`[daemon][feishu][${state.botId}] 长连接启动失败`, error));
     state.feishuRuntime = { client, dispatcher, ...(longConnection ? { longConnection } : {}) };
@@ -286,6 +319,85 @@ export class DaemonService {
     });
   }
 
+  private async onFeishuCardAction(state: BotRuntimeState, input: FeishuCardActionEvent): Promise<Record<string, unknown>> {
+    const value = isRecord(input.action?.value) ? input.action.value : null;
+    if (!value) {
+      throw new DaemonServiceError(400, "飞书卡片回调缺少 action.value");
+    }
+    const botId = typeof value.botId === "string" ? value.botId : "";
+    const sessionId = typeof value.sessionId === "string" ? value.sessionId : "";
+    const kind = value.kind === "approval" || value.kind === "user_input" ? value.kind : null;
+    const approvalId = typeof value.approvalId === "string"
+      ? value.approvalId
+      : typeof value.inputId === "string"
+        ? value.inputId
+        : "";
+    if (botId !== state.botId || !sessionId || !kind || !approvalId) {
+      throw new DaemonServiceError(400, "飞书卡片回调参数无效");
+    }
+    if (kind === "approval" && value.decision !== "approve" && value.decision !== "deny") {
+      throw new DaemonServiceError(400, "飞书审批卡片 decision 无效");
+    }
+    if (kind === "user_input" && typeof value.value !== "string") {
+      throw new DaemonServiceError(400, "飞书输入卡片 value 无效");
+    }
+
+    const lease = await this.options.registry.acquire(state.tenantId);
+    let leaseReleased = false;
+    let releaseByCallback = false;
+    const releaseLease = (): void => {
+      if (leaseReleased) return;
+      leaseReleased = true;
+      lease.release();
+    };
+    try {
+      const resolution = kind === "approval"
+        ? { approved: value.decision === "approve", message: value.decision === "approve" ? "飞书卡片已批准" : "飞书卡片已拒绝" }
+        : { value: typeof value.value === "string" ? value.value : "" };
+      const responded = kind === "approval"
+        ? lease.runtime.pendingInteractions.respondApproval(sessionId, approvalId, resolution as { approved: boolean; message: string })
+        : lease.runtime.pendingInteractions.respondUserInput(sessionId, approvalId, resolution as { value: string });
+      if (!responded.resolved) {
+        throw new DaemonServiceError(404, "待处理交互不存在或已完成");
+      }
+      if (!responded.needsResume) {
+        return { toast: { type: "success", content: "响应已提交" } };
+      }
+
+      const rootRunId = responded.rootRunId ?? "";
+      lease.runtime.resumeExecutor.resumeRun({
+        sessionId,
+        approvalId,
+        resolution,
+        onCompleted: (result) => {
+          const metadata = lease.runtime.conversationStore.getSession(sessionId)?.metadata ?? {};
+          const chatId = resolveBotChatId(state.config, metadata);
+          releaseLease();
+          if (!chatId) return;
+          const content = result.success ? result.content : `Agent 恢复执行失败：${result.content}`;
+          void this.sendFeishuMessage(state, chatId, "chat_id", content).catch((error: unknown) => {
+            console.error(`[daemon][feishu][${state.botId}] 恢复结果发送失败`, error);
+          });
+        },
+        onSuspended: () => {
+          const next = lease.runtime.pendingInteractions.findLatestApprovalMeta(rootRunId);
+          const metadata = lease.runtime.conversationStore.getSession(sessionId)?.metadata ?? {};
+          releaseLease();
+          if (!next) return;
+          void this.sendSuspendedCard(state, toSuspendedInteraction(state.botId, next), metadata).catch((error: unknown) => {
+            console.error(`[daemon][feishu][${state.botId}] 后续挂起卡片发送失败`, error);
+          });
+        },
+      });
+      releaseByCallback = true;
+      return { toast: { type: "success", content: "已恢复 Agent 执行" } };
+    } finally {
+      if (!releaseByCallback) {
+        releaseLease();
+      }
+    }
+  }
+
   private async processFeishuMessage(state: BotRuntimeState, data: FeishuMessageEvent): Promise<void> {
     const message = data.message;
     const chatId = message?.chat_id;
@@ -294,20 +406,28 @@ export class DaemonService {
     const text = isRecord(parsedContent) && typeof parsedContent.text === "string" ? parsedContent.text.trim() : "";
     if (!text) return;
     const senderOpenId = data.sender?.sender_id?.open_id;
+    const sessionMetadata = {
+      chatId,
+      ...(senderOpenId ? { sender_open_id: senderOpenId, feishu: { sender_open_id: senderOpenId } } : {}),
+    };
     const result = await this.runAgent(
       state,
       text,
       resolveSessionId(state.config, "feishu", chatId),
       "daemon.feishu.incoming",
       state.config.entry_agent,
-      senderOpenId ? { feishu: { sender_open_id: senderOpenId } } : undefined,
+      sessionMetadata,
     );
+    if (result.suspended) {
+      await this.sendSuspendedCard(state, result.interaction, sessionMetadata);
+      return;
+    }
     if (message.chat_type === "p2p") {
       if (!senderOpenId) throw new Error("单聊消息缺少 sender open_id,无法回复");
-      const sent = await this.sendFeishuMessage(state, senderOpenId, "open_id", result);
+      const sent = await this.sendFeishuMessage(state, senderOpenId, "open_id", result.content);
       if (sent.status === "failed") throw new Error(sent.error ?? "飞书消息发送失败");
     } else {
-      const sent = await this.sendFeishuMessage(state, chatId, "chat_id", result);
+      const sent = await this.sendFeishuMessage(state, chatId, "chat_id", result.content);
       if (sent.status === "failed") throw new Error(sent.error ?? "飞书消息发送失败");
     }
   }
@@ -319,7 +439,7 @@ export class DaemonService {
     source: string,
     entryAgent = state.config.entry_agent,
     sessionMetadata?: Record<string, unknown>,
-  ): Promise<string> | string {
+  ): Promise<DaemonRunAgentResult> | DaemonRunAgentResult {
     return this.options.runAgentTask({
       tenantId: state.tenantId,
       botId: state.botId,
@@ -330,6 +450,38 @@ export class DaemonService {
       permissionMode: state.config.permission_mode,
       ...(sessionMetadata ? { sessionMetadata } : {}),
     });
+  }
+
+  private async sendSuspendedCard(
+    state: BotRuntimeState,
+    interaction: DaemonSuspendedInteraction,
+    sessionMetadata: Record<string, unknown>,
+    cronTask?: BotCronTask | undefined,
+  ): Promise<void> {
+    if (!state.feishuRuntime) {
+      throw new Error("飞书适配器未配置");
+    }
+    const chatId = resolveBotChatId(state.config, sessionMetadata, cronTask);
+    if (!chatId) {
+      throw new Error("挂起交互缺少飞书 chat_id，请配置 default_chat_id 或 cron push_chat_id");
+    }
+    const cardSchema = interaction.kind === "approval"
+      ? buildApprovalCard({
+          approvalId: interaction.approvalId,
+          sessionId: interaction.sessionId,
+          botId: interaction.botId,
+          toolName: interaction.toolName ?? "未知工具",
+          riskLevel: interaction.riskLevel,
+          reason: interaction.reason,
+        })
+      : buildUserInputCard({
+          inputId: interaction.approvalId,
+          sessionId: interaction.sessionId,
+          botId: interaction.botId,
+          prompt: interaction.prompt ?? "Agent 正在等待你的输入。",
+          options: interaction.options,
+        });
+    await sendInteractiveCard(state.feishuRuntime.client, { chatId, cardSchema });
   }
 
   private async sendFeishuMessage(state: BotRuntimeState, receiveId: string, receiveIdType: "chat_id" | "open_id", content: string): Promise<{ status: "ok" | "failed"; message_id?: string; error?: string }> {
@@ -362,6 +514,41 @@ export class DaemonService {
 
 function resolveSessionId(config: BotConfig, platform: PlatformType, chatId: string): string {
   return config.session_id?.trim() || `bot-${safeSessionPart(config.bot_id)}-${platform}-${safeSessionPart(chatId)}`;
+}
+
+export function resolveBotChatId(
+  config: BotConfig,
+  sessionMetadata: Record<string, unknown>,
+  cronTask?: Pick<BotCronTask, "push_chat_id"> | undefined,
+): string | null {
+  const directChatId = readNonEmptyString(sessionMetadata.chatId);
+  if (directChatId) return directChatId;
+  const senderOpenId = readNonEmptyString(sessionMetadata.sender_open_id)
+    ?? (isRecord(sessionMetadata.feishu) ? readNonEmptyString(sessionMetadata.feishu.sender_open_id) : null);
+  if (senderOpenId) return senderOpenId;
+  const defaultChatId = config.feishu.default_chat_id?.trim();
+  if (defaultChatId) return defaultChatId;
+  const cronChatId = cronTask?.push_chat_id?.trim() ?? readNonEmptyString(sessionMetadata.push_chat_id);
+  return cronChatId || null;
+}
+
+function toSuspendedInteraction(botId: UserId, meta: ApprovalMeta): DaemonSuspendedInteraction {
+  return {
+    approvalId: meta.approvalId,
+    sessionId: meta.sessionId,
+    botId,
+    rootRunId: meta.rootRunId,
+    kind: meta.kind,
+    ...(meta.toolName ? { toolName: meta.toolName } : {}),
+    ...(meta.riskLevel ? { riskLevel: meta.riskLevel } : {}),
+    ...(meta.reason ? { reason: meta.reason } : {}),
+    ...(meta.prompt ? { prompt: meta.prompt } : {}),
+    ...(meta.options ? { options: meta.options } : {}),
+  };
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function compactCronPatch(patch: BotCronTaskUpdate): Partial<Omit<BotCronTask, "bot_id" | "task_id">> {

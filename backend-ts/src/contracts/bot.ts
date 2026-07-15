@@ -17,6 +17,7 @@ export const BotFeishuConfigSchema = z.object({
   encoding_aes_key: z.string().nullable().optional().default(null),
   receive_mode: FeishuReceiveModeSchema.optional().default("webhook"),
   route_token: z.string().nullable().optional().default(null),
+  default_chat_id: z.string().nullable().optional().default(null),
 });
 
 export const BotCronTaskSchema = z.object({

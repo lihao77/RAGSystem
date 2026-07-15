@@ -263,6 +263,7 @@ export class AgentRunEngine {
 
     return {
       success: run?.status === "completed" && Boolean(finalMessage),
+      ...(run?.status === "suspended" ? { suspended: true, rootRunId: input.runId } : {}),
       answer: finalMessage?.content ?? null,
       agent_name: run?.agent_name ?? input.agentName,
       execution_time: executionTime,

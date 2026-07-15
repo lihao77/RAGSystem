@@ -99,6 +99,11 @@ export interface ApprovalMeta {
   executionKind?: string | undefined;
   botId?: string | undefined;
   chatId?: string | undefined;
+  toolName?: string | undefined;
+  riskLevel?: string | undefined;
+  reason?: string | undefined;
+  prompt?: string | undefined;
+  options?: string[] | undefined;
 }
 
 export interface PendingInteractionRespondResult {
@@ -544,6 +549,11 @@ function buildApprovalMeta(
     ...(input.executionKind ? { executionKind: input.executionKind } : {}),
     ...(input.botId ? { botId: input.botId } : {}),
     ...(input.chatId ? { chatId: input.chatId } : {}),
+    ...("toolName" in input ? { toolName: input.toolName } : {}),
+    ...("riskLevel" in input && input.riskLevel ? { riskLevel: input.riskLevel } : {}),
+    ...("approvalReason" in input && input.approvalReason ? { reason: input.approvalReason } : {}),
+    ...("prompt" in input ? { prompt: input.prompt } : {}),
+    ...("options" in input && input.options ? { options: input.options } : {}),
   };
 }
 

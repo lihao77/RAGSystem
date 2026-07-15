@@ -21,6 +21,20 @@ export interface FeishuMessageEvent {
 
 export interface FeishuHandlers {
   onMessage(data: unknown): Promise<void> | void;
+  onCardAction(data: FeishuCardActionEvent): Promise<unknown> | unknown;
+}
+
+export interface FeishuCardActionEvent {
+  action?: {
+    value?: unknown;
+    tag?: string;
+  };
+  context?: {
+    open_chat_id?: string;
+    open_message_id?: string;
+  };
+  open_chat_id?: string;
+  open_message_id?: string;
 }
 
 export type FeishuClient = lark.Client;
@@ -47,6 +61,7 @@ export function createDispatcher(connection: BotFeishuConfig, handlers: FeishuHa
     ...(connection.token ? { verificationToken: connection.token } : {}),
   }).register({
     "im.message.receive_v1": handlers.onMessage,
+    "card.action.trigger": handlers.onCardAction,
   });
 }
 
@@ -66,6 +81,121 @@ export async function sendTextMessage(
       receive_id_type: receiveIdType,
     },
   });
+}
+
+export async function sendInteractiveCard(
+  client: FeishuClient,
+  input: { chatId: string; cardSchema: lark.InteractiveCard },
+): Promise<unknown> {
+  return client.im.message.create({
+    data: {
+      receive_id: input.chatId,
+      msg_type: "interactive",
+      content: JSON.stringify(input.cardSchema),
+    },
+    params: {
+      receive_id_type: "chat_id",
+    },
+  });
+}
+
+export function buildApprovalCard(input: {
+  approvalId: string;
+  sessionId: string;
+  botId: string;
+  toolName: string;
+  riskLevel?: string | null | undefined;
+  reason?: string | null | undefined;
+}): lark.InteractiveCard {
+  const riskText = input.riskLevel ? `\n**风险等级：** ${input.riskLevel}` : "";
+  const reasonText = input.reason ? `\n**原因：** ${input.reason}` : "";
+  return {
+    config: { wide_screen_mode: true },
+    header: {
+      template: "orange",
+      title: { tag: "plain_text", content: "Agent 工具执行审批" },
+    },
+    elements: [
+      {
+        tag: "markdown",
+        content: `Agent 请求执行工具 **${input.toolName}**。${riskText}${reasonText}`,
+      },
+      {
+        tag: "action",
+        layout: "bisected",
+        actions: [
+          {
+            tag: "button",
+            type: "primary",
+            text: { tag: "plain_text", content: "批准" },
+            value: {
+              kind: "approval",
+              approvalId: input.approvalId,
+              sessionId: input.sessionId,
+              botId: input.botId,
+              decision: "approve",
+            },
+          },
+          {
+            tag: "button",
+            type: "danger",
+            text: { tag: "plain_text", content: "拒绝" },
+            value: {
+              kind: "approval",
+              approvalId: input.approvalId,
+              sessionId: input.sessionId,
+              botId: input.botId,
+              decision: "deny",
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+export function buildUserInputCard(input: {
+  inputId: string;
+  sessionId: string;
+  botId: string;
+  prompt: string;
+  options?: string[] | undefined;
+}): lark.InteractiveCard {
+  const options = input.options?.filter((option) => option.trim()).map((option) => option.trim()) ?? [];
+  const elements: lark.InteractiveCardElement[] = [
+    { tag: "markdown", content: input.prompt || "Agent 正在等待你的输入。" },
+  ];
+  if (options.length > 0) {
+    elements.push({
+      tag: "action",
+      layout: "flow",
+      actions: options.map((option) => ({
+        tag: "button" as const,
+        type: "default" as const,
+        text: { tag: "plain_text" as const, content: option },
+        value: {
+          kind: "user_input",
+          inputId: input.inputId,
+          sessionId: input.sessionId,
+          botId: input.botId,
+          value: option,
+        },
+      })),
+    });
+  } else {
+    elements.push({
+      tag: "note",
+      elements: [{ tag: "plain_text", content: "当前问题需要自由文本输入，请回到原会话中回复。" }],
+    });
+  }
+  return {
+    config: { wide_screen_mode: true },
+    header: {
+      template: "blue",
+      title: { tag: "plain_text", content: "Agent 等待输入" },
+    },
+    elements,
+  };
 }
 
 export async function invokeWebhook(dispatcher: FeishuDispatcher, body: Record<string, unknown>): Promise<unknown> {

@@ -77,16 +77,25 @@ export function createResumeExecutor(deps: {
         modelName: ready.modelName,
       });
 
-      void started.promise.then((result) => {
-        if (result.suspended) {
-          const next = deps.pendingInteractions.findLatestApprovalMeta(meta.rootRunId);
-          if (next) {
-            input.onSuspended?.(next.approvalId);
+      void started.promise
+        .then((result) => {
+          if (result.suspended) {
+            const next = deps.pendingInteractions.findLatestApprovalMeta(meta.rootRunId);
+            if (next) {
+              input.onSuspended?.(next.approvalId);
+            } else {
+              input.onCompleted?.({ content: "续跑再次挂起，但未找到待处理交互", success: false });
+            }
+            return;
           }
-          return;
-        }
-        input.onCompleted?.({ content: result.content, success: result.success });
-      });
+          input.onCompleted?.({ content: result.content, success: result.success });
+        })
+        .catch((error: unknown) => {
+          input.onCompleted?.({
+            content: error instanceof Error ? error.message : String(error),
+            success: false,
+          });
+        });
 
       return {
         rootRunId: meta.rootRunId,

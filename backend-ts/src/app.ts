@@ -105,8 +105,31 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
             userId: input.botId,
             executionKind: input.source,
           }, randomUUID());
-          if (!result.success) throw new Error(result.error ?? "agent 执行失败");
-          return result.answer ?? "";
+          if (!result.success && !result.suspended) throw new Error(result.error ?? "agent 执行失败");
+          if (result.suspended) {
+            const rootRunId = result.rootRunId ?? result.run_id ?? "";
+            const meta = lease.runtime.pendingInteractions.findLatestApprovalMeta(rootRunId);
+            if (!meta) {
+              throw new Error("Agent 已挂起，但未找到待处理交互");
+            }
+            return {
+              suspended: true,
+              content: "",
+              interaction: {
+                approvalId: meta.approvalId,
+                sessionId: meta.sessionId,
+                botId: input.botId,
+                rootRunId: meta.rootRunId,
+                kind: meta.kind,
+                ...(meta.toolName ? { toolName: meta.toolName } : {}),
+                ...(meta.riskLevel ? { riskLevel: meta.riskLevel } : {}),
+                ...(meta.reason ? { reason: meta.reason } : {}),
+                ...(meta.prompt ? { prompt: meta.prompt } : {}),
+                ...(meta.options ? { options: meta.options } : {}),
+              },
+            };
+          }
+          return { suspended: false, content: result.answer ?? "" };
         } finally {
           if (input.sessionMetadata) {
             lease.runtime.conversationStore.updateSessionMetadata(input.sessionId, input.sessionMetadata);

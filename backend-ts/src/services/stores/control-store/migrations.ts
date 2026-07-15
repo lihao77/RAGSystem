@@ -90,6 +90,13 @@ export const CONTROL_MIGRATIONS: readonly ControlMigration[] = [
       db.exec("ALTER TABLE bot_configs ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'relaxed'");
     },
   },
+  {
+    version: 8,
+    name: "bot-feishu-default-chat",
+    up: (db) => {
+      db.exec("ALTER TABLE bot_configs ADD COLUMN feishu_default_chat_id TEXT");
+    },
+  },
 ];
 
 export function runControlMigrations(db: ControlMigrationDatabase): void {

@@ -77,6 +77,8 @@ export interface AgentRunStartResult {
 
 export interface AgentExecuteResult {
   success: boolean;
+  suspended?: boolean;
+  rootRunId?: string;
   answer: string | null;
   agent_name: string | null;
   execution_time: number | null;
