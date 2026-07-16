@@ -1,18 +1,9 @@
 // @ts-check
 import { getSessionTaskStatus } from '../api/session.js';
 
-/** @typedef {import('vue').Ref<any>} AnyRef */
 /** @typedef {Record<string, any>} AnyRecord */
 
-/**
- * @param {{
- *   currentSessionId: AnyRef,
- *   sessionTaskInfo: AnyRef,
- *   sessionExecutionObservability: AnyRef,
- *   fetchTaskStatus?: (sessionId: string) => Promise<any>,
- *   warn?: (...args: any[]) => void,
- * }} options
- */
+/** @param {import('./sessionCoreTypes.js').SessionTaskStateOptions} options */
 export function createSessionTaskState({
   currentSessionId,
   sessionTaskInfo,

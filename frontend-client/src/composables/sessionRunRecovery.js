@@ -6,7 +6,7 @@ import { shouldRefreshSessionMessagesAfterResume } from '../utils/sessionSocket.
 /** @param {unknown} error */
 const errorMessage = error => error instanceof Error ? error.message : String(error);
 
-/** @param {any} options */
+/** @param {import('./sessionCoreTypes.js').SessionRunRecoveryOptions} options */
 export function createSessionRunRecovery({
   getCurrentSessionId,
   activeRun,

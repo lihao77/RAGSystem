@@ -63,18 +63,7 @@ const handleDelegateCall = async (ws, event, sessionId) => {
   }
 };
 
-/**
- * @param {{
- *   getCurrentSessionId: () => string | null,
- *   onEnvelope: (event: AnyRecord, sessionId: string) => void,
- *   onDisconnect?: () => void,
- *   onSocketClose?: () => void,
- *   onReconnectExhausted?: (sessionId: string) => void,
- *   issueTicket?: (sessionId: string) => Promise<any>,
- *   createSocket?: (url: string) => WebSocket,
- *   maxReconnectAttempts?: number,
- * }} options
- */
+/** @param {import('./sessionCoreTypes.js').SessionTransportOptions} options */
 export function createSessionTransport({
   getCurrentSessionId,
   onEnvelope,
@@ -106,7 +95,7 @@ export function createSessionTransport({
     if (sessionId) lastEventSeqBySession.delete(sessionId);
   };
 
-  /** @param {AnyRecord} event @param {string} sessionId */
+  /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {string} sessionId */
   const observeDurableCursor = (event, sessionId) => {
     const cursorSeq = getDurableCursorSeq(event);
     if (cursorSeq === null) return getLastEventSeq(sessionId);
@@ -118,7 +107,7 @@ export function createSessionTransport({
     return lastEventSeq;
   };
 
-  /** @param {AnyRecord} event @param {string} sessionId */
+  /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {string} sessionId */
   const shouldDeliverEvent = (event, sessionId) => {
     const eventSeq = getDurableEventSeq(event);
     if (eventSeq !== null) {
@@ -206,7 +195,7 @@ export function createSessionTransport({
     };
     nextSocket.onmessage = (message) => {
       try {
-        const event = JSON.parse(message.data);
+        const event = /** @type {import('./sessionCoreTypes.js').SessionEnvelope} */ (JSON.parse(message.data));
         if (!shouldDeliverEvent(event, sessionId)) return;
         if (event.type === 'delegate_call' && event.payload?.phase === 'request') {
           void handleDelegateCall(nextSocket, event, sessionId);

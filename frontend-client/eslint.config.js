@@ -40,6 +40,10 @@ export default [
     files: ['**/*.{ts,tsx}'],
     languageOptions: {
       parser: tseslint.parser,
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+      },
     },
     plugins: {
       '@typescript-eslint': tseslint.plugin,

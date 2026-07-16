@@ -6,13 +6,12 @@ const INTERACTION_ACK_TIMEOUT_MS = 8000;
 const INTERACTION_ACK_TIMEOUT_CODE = 'INTERACTION_ACK_TIMEOUT';
 const INTERACTION_REJECTED_CODE = 'INTERACTION_REJECTED';
 
-/** @typedef {{ kind: 'user_input', value?: unknown } | { kind: 'approval', approved?: boolean, message?: string }} InteractionResponse */
 /** @typedef {Error & { code?: string }} CodedError */
 
 /** @param {WebSocket | null | undefined} ws */
 const isOpenWebSocket = (ws) => !!ws && ws.readyState === WS_OPEN;
 
-/** @param {InteractionResponse} response */
+/** @param {import('./sessionCoreTypes.js').InteractionResponse} response */
 const buildInteractionPayload = (response) => {
   if (response.kind === 'user_input') {
     return { kind: 'user_input', phase: 'responded', value: String(response.value ?? '') };
@@ -25,14 +24,7 @@ const buildInteractionPayload = (response) => {
   };
 };
 
-/**
- * @param {{
- *   getCurrentSessionId: () => string,
- *   getSocket: () => WebSocket | null,
- *   respondHttp?: (sessionId: string, interactionId: string, body: any) => Promise<any>,
- *   ackTimeoutMs?: number,
- * }} options
- */
+/** @param {import('./sessionCoreTypes.js').SessionInteractionControllerOptions} options */
 export function createSessionInteractionController({
   getCurrentSessionId,
   getSocket,
@@ -99,7 +91,7 @@ export function createSessionInteractionController({
     }
   });
 
-  /** @param {string} sessionId @param {string} interactionId @param {InteractionResponse} response */
+  /** @param {string} sessionId @param {string} interactionId @param {import('./sessionCoreTypes.js').InteractionResponse} response */
   const submitHttp = async (sessionId, interactionId, response) => {
     if (response.kind === 'user_input') {
       await respondHttp(sessionId, interactionId, {
@@ -115,7 +107,7 @@ export function createSessionInteractionController({
     });
   };
 
-  /** @param {string} interactionId @param {InteractionResponse} response */
+  /** @param {string} interactionId @param {import('./sessionCoreTypes.js').InteractionResponse} response */
   const respond = async (interactionId, response) => {
     const sessionId = getCurrentSessionId();
     const socket = getSocket();

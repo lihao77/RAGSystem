@@ -94,7 +94,7 @@ const createFollowupMetadata = (requestId, activeRun, fallbackRunId = null) => (
   ...(activeRun.runId || fallbackRunId ? { run_id: activeRun.runId || fallbackRunId } : {}),
 });
 
-/** @param {any} options */
+/** @param {import('./sessionCoreTypes.js').SessionCommandControllerOptions} options */
 export function createSessionCommandController({
   deps,
   currentSessionId,

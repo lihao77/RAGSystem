@@ -9,7 +9,7 @@ const startupPhases = new Set(['creating_session', 'preparing_attachments', 'sta
 /** @param {unknown} error */
 const errorMessage = error => error instanceof Error ? error.message : String(error);
 
-/** @param {any} options */
+/** @param {import('./sessionCoreTypes.js').DispatcherOptions} options */
 export function createSessionEnvelopeDispatcher({
   deps,
   state,
@@ -39,10 +39,10 @@ export function createSessionEnvelopeDispatcher({
     refreshSessionExecutionState,
   } = taskState;
 
-  /** @param {AnyRecord} event */
+  /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event */
   const getEventInteractionId = event => event?.call_id || '';
 
-  /** @param {AnyRecord} event @param {AnyRecord} [eventData] */
+  /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {AnyRecord} [eventData] */
   const normalizeUserInputRequiredData = (event, eventData = {}) => {
     const inputId = eventData.input_id || getEventInteractionId(event);
     const inputSchema = eventData.input && typeof eventData.input === 'object' ? eventData.input : {};
@@ -55,7 +55,7 @@ export function createSessionEnvelopeDispatcher({
     };
   };
 
-  /** @param {AnyRecord} event @param {AnyRecord} [eventData] */
+  /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {AnyRecord} [eventData] */
   const normalizeApprovalRequiredData = (event, eventData = {}) => {
     const approvalId = eventData.approval_id || getEventInteractionId(event);
     return {
@@ -71,7 +71,7 @@ export function createSessionEnvelopeDispatcher({
     interaction.reset();
   };
 
-  /** @param {AnyRecord} event @param {AnyRecord} eventData @param {string} sessionId */
+  /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {AnyRecord} eventData @param {string} sessionId */
   const handleApprovalRequired = (event, eventData, sessionId) => {
     const approvalData = normalizeApprovalRequiredData(event, eventData);
     if (!interaction.rememberRequired('approval', approvalData.approval_id)) return;
@@ -79,7 +79,7 @@ export function createSessionEnvelopeDispatcher({
     deps.enqueueApproval(event, approvalData, sessionId);
   };
 
-  /** @param {AnyRecord} event @param {AnyRecord} eventData */
+  /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {AnyRecord} eventData */
   const handleUserInputRequired = (event, eventData) => {
     const inputData = normalizeUserInputRequiredData(event, eventData);
     if (!interaction.rememberRequired('user_input', inputData.input_id)) return;
@@ -149,7 +149,7 @@ export function createSessionEnvelopeDispatcher({
     handleUserInputRequired,
   });
 
-  /** @param {AnyRecord} event @param {string} sessionId */
+  /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {string} sessionId */
   const handleEnvelope = (event, sessionId) => {
     if (sessionId !== currentSessionId.value) return;
 

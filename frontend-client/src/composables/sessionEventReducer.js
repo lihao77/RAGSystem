@@ -9,7 +9,7 @@ const isVisibleRootCompressionSummary = (eventData) => {
   return threadKey == null || threadKey === '' || threadKey === 'root';
 };
 
-/** @param {any} options */
+/** @param {import('./sessionCoreTypes.js').EventReducerOptions} options */
 export function createSessionEventReducer({
   deps,
   runtime,
@@ -22,7 +22,7 @@ export function createSessionEventReducer({
   handleApprovalRequired,
   handleUserInputRequired,
 }) {
-  /** @param {AnyRecord} event @param {AnyRecord} currentMsg @param {string} sessionId */
+  /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {import('./sessionCoreTypes.js').SessionMessage} currentMsg @param {string} sessionId */
   return (event, currentMsg, sessionId) => {
     const eventType = event.type;
     const payload = event.payload || {};
