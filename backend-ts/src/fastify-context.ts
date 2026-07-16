@@ -5,6 +5,10 @@ import type { DaemonService } from "./services/daemon/daemon-service.js";
 import type { ControlStore } from "./services/stores/control-store/index.js";
 
 declare module "fastify" {
+  interface FastifyContextConfig {
+    auth?: "public";
+  }
+
   interface FastifyInstance {
     botEngine: DaemonService;
     controlStore: ControlStore;

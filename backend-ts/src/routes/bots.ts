@@ -43,7 +43,9 @@ export const registerBotRoutes: FastifyPluginAsync<RouteOptions> = async (app) =
     return { bot: { ...bot, config: app.controlStore.getBotConfig(bot.id) } };
   });
 
-  app.post<{ Params: { platform: string; routeToken: string } }>("/webhook/:platform/:routeToken", async (request) => {
+  app.post<{ Params: { platform: string; routeToken: string } }>("/webhook/:platform/:routeToken", {
+    config: { auth: "public" },
+  }, async (request) => {
     if (request.params.platform !== "feishu") throw new HttpError(400, "invalid_request", `不支持的平台: ${request.params.platform}`);
     try {
       return await app.botEngine.handleIncomingMessage(request.params.routeToken, request.body);

@@ -10,7 +10,6 @@ import { registerFileChangeRoutes } from "./file-changes.js";
 import { registerSessionFileRoutes } from "./session-files.js";
 import { registerSessionRoutes } from "./sessions.js";
 import { registerStreamRoutes } from "./stream.js";
-import { registerSessionWebSocketRoute } from "./ws.js";
 
 export const registerAgentRoutes: FastifyPluginAsync<AgentRouteOptions> = async (app, options) => {
   const routeOptions: AgentRouteOptions = {
@@ -29,5 +28,4 @@ export const registerAgentRoutes: FastifyPluginAsync<AgentRouteOptions> = async 
   await app.register(registerSessionFileRoutes, routeOptions);
   await app.register(registerFileChangeRoutes, routeOptions);
   await app.register(registerSessionRoutes, routeOptions);
-  await app.register(registerSessionWebSocketRoute, routeOptions);
 };

@@ -37,15 +37,14 @@ export const registerProbeRoutes: FastifyPluginAsync<ProbeRouteOptions> = async 
   });
 };
 
-export const registerHealthRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
+export const registerHealthRoutes: FastifyPluginAsync<RouteOptions> = async (app) => {
   app.get("/health", async (request) => {
-    const identity = options.identityProvider.resolve(request);
     return ok(
       {
         status: "healthy",
         backend: "backend-ts",
         migration_status: "runtime_migrated",
-        sessions_count: request.container.sessionApplication.listSessions({ tenantId: identity.tenantId, limit: 1, offset: 0 }).total,
+        sessions_count: request.container.sessionApplication.listSessions({ tenantId: request.identity.tenantId, limit: 1, offset: 0 }).total,
         agents_count: request.container.agentConfig.listAgents().length,
       },
       "backend-ts health check passed",

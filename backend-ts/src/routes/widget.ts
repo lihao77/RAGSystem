@@ -37,13 +37,13 @@ export const registerWidgetRoutes: FastifyPluginAsync<AgentRouteOptions> = async
     const disabled = async (): Promise<never> => {
       throw new HttpError(503, "widget_disabled", "未配置 WIDGET_JWT_SECRET，widget 接入未启用");
     };
-    app.post("/auth/token", disabled);
+    app.post("/auth/token", { config: { auth: "public" } }, disabled);
     app.post("/sessions", disabled);
     app.post("/sessions/:sessionId/ws-ticket", disabled);
     return;
   }
 
-  app.post("/auth/token", async (request) => {
+  app.post("/auth/token", { config: { auth: "public" } }, async (request) => {
     const body = WidgetTokenRequestSchema.parse(request.body);
     const widgetApp = auth.verifyAppCredentials(body.app_key, body.secret);
     if (!widgetApp) {
