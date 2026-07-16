@@ -4,7 +4,7 @@
  * 宿主页用法（任意框架/纯 HTML）：
  *   <script src="ragsystem-widget.umd.cjs"></script>
  *   <script>
- *     // 第三方嵌入：传 token（宿主服务端换取，widgetAuth 受约束会话）
+ *     // 第三方嵌入：传 token（宿主服务端换取，仅用于 HTTP ticket 签发）
  *     // 内部嵌入：省略 token，走普通会话（后端零鉴权）
  *     RagWidget.mount({ backendBase: "https://api...", hostTools: [...] })
  *       .then(el => window._ragWidget = el);

@@ -44,7 +44,7 @@ import { buildWidgetWsUrl, extractCursor } from "./ws-url.js";
  * 设计要点：
  * - delegate_call 不进投影（对齐 frontend-client handleDelegateCall：委托对用户透明），由 delegation 路由独立处理。
  * - hostTools（宿主工具）经 registerTool 注册，握手 connected 时一次性 tools.register 上行。
- * - 重连游标由 client 持有（最近 seq），transport 重连时回调取最新 URL。
+ * - 重连游标由 client 持有；transport 重连前异步签发新 ticket 并生成最新 URL。
  */
 
 export interface WidgetAgentClientOptions {
@@ -52,8 +52,7 @@ export interface WidgetAgentClientOptions {
   backendBase: string;
   sessionId: string;
   /**
-   * widget 短时 JWT（可选，WS 走 query）；省略=内部普通会话，后端零鉴权不校验。
-   * 第三方嵌入时由宿主服务端换取后注入；内部场景可完全不传。
+   * widget 短时 JWT（可选），只用于 HTTP ticket 签发，不进入 WS URL。
    */
   token?: string | undefined;
   publishableKey?: string | undefined;
@@ -110,7 +109,7 @@ export class WidgetAgentClient implements AgentClient {
   /* ---- 连接与生命周期 ---- */
 
   /**
-   * 建立连接。widget 自建 WS URL（backendBase + token + cursor），故忽略契约的 options.url；
+   * 建立连接。widget 每次先通过 HTTP 签发 ticket，再构造 WS URL；
    * 仍保留可选参数以忠实实现 AgentClient 契约，按契约写 connect({...}) 的消费者不会被静默破坏。
    */
   async connect(_options?: ConnectOptions): Promise<void> {
@@ -123,8 +122,7 @@ export class WidgetAgentClient implements AgentClient {
       return;
     }
     this.transport = new WidgetWsTransport({
-      initialUrl: this.buildUrl(this.cursor),
-      resolveReconnectUrl: () => this.buildUrl(this.cursor),
+      resolveUrl: () => this.buildUrl(this.cursor),
       sessionId: this.sessionId,
       handlers: {
         onStatus: (status) => {
@@ -288,14 +286,31 @@ export class WidgetAgentClient implements AgentClient {
 
   /* ---- 内部 ---- */
 
-  private buildUrl(cursor: number | null): string {
+  private async buildUrl(cursor: number | null): Promise<string> {
+    const ticket = await this.issueWsTicket();
     return buildWidgetWsUrl({
       backendBase: this.backendBase,
       sessionId: this.sessionId,
-      token: this.token,
-      publishableKey: this.publishableKey,
+      ticket,
       cursor,
     });
+  }
+
+  private async issueWsTicket(): Promise<string> {
+    const base = this.backendBase.replace(/\/$/, "");
+    const isWidgetCredential = Boolean(this.token || this.publishableKey);
+    const path = isWidgetCredential
+      ? `/api/widget/sessions/${encodeURIComponent(this.sessionId)}/ws-ticket`
+      : `/api/agent/sessions/${encodeURIComponent(this.sessionId)}/ws-ticket`;
+    const headers: Record<string, string> = {};
+    if (this.token) headers.authorization = `Bearer ${this.token}`;
+    if (this.publishableKey) headers["x-widget-key"] = this.publishableKey;
+    const response = await fetch(`${base}${path}`, { method: "POST", headers });
+    if (!response.ok) throw new Error(`WebSocket ticket 签发失败: ${response.status}`);
+    const body = await response.json() as { data?: { ticket?: unknown } };
+    const ticket = body.data?.ticket;
+    if (typeof ticket !== "string" || !ticket) throw new Error("WebSocket ticket 响应无效");
+    return ticket;
   }
 
   private onConnected(): void {

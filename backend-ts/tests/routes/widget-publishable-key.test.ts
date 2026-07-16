@@ -25,4 +25,28 @@ describe("widget publishable key", () => {
     harness.widgetCredentialStore.ops.revokeApp(LOCAL_TENANT_ID, revoked.app_key);
     expect((await harness.app.inject({ method: "POST", url: "/api/widget/sessions", headers: { "x-widget-key": revoked.app_key, origin: "https://host.test" }, payload: {} })).statusCode).toBe(401);
   });
+
+  it("issues a session-bound WS ticket only for the matching Origin and app", async () => {
+    const harness = await buildTestHarness({ widgetJwtSecret: secret }); close.push(() => harness.app.close());
+    const widgetApp = harness.widgetCredentialStore.ops.createApp({ tenantId: LOCAL_TENANT_ID, display_name: "public", allowed_origins: ["https://host.test"] });
+    const headers = { "x-widget-key": widgetApp.app_key, origin: "https://host.test" };
+    const session = await harness.app.inject({ method: "POST", url: "/api/widget/sessions", headers, payload: {} });
+    const sessionId = session.json().data.session_id as string;
+
+    const issued = await harness.app.inject({ method: "POST", url: `/api/widget/sessions/${sessionId}/ws-ticket`, headers });
+    expect(issued.statusCode).toBe(200);
+    expect(issued.json().data.ticket).toEqual(expect.any(String));
+    expect((await harness.app.inject({
+      method: "POST",
+      url: `/api/widget/sessions/${sessionId}/ws-ticket`,
+      headers: { ...headers, origin: "https://wrong.test" },
+    })).statusCode).toBe(401);
+
+    const otherApp = harness.widgetCredentialStore.ops.createApp({ tenantId: LOCAL_TENANT_ID, display_name: "other", allowed_origins: ["https://host.test"] });
+    expect((await harness.app.inject({
+      method: "POST",
+      url: `/api/widget/sessions/${sessionId}/ws-ticket`,
+      headers: { "x-widget-key": otherApp.app_key, origin: "https://host.test" },
+    })).statusCode).toBe(404);
+  });
 });

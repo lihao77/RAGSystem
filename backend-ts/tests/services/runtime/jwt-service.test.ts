@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { FastifyRequest } from "fastify";
 
 import { createTenantId } from "../../../src/identity/types.js";
 import { createWidgetAuthService, WidgetAuthError } from "../../../src/services/runtime/jwt-service.js";
@@ -8,6 +9,10 @@ import { makeTempRoot } from "../../helpers/temp-db.js";
 
 const SECRET = "unit-test-secret-0123456789abcdef0123456789";
 const tenantId = createTenantId("tnt_widget_auth");
+
+const bearerRequest = (token?: string): FastifyRequest => ({
+  headers: token ? { authorization: `Bearer ${token}` } : {},
+}) as FastifyRequest;
 
 function makeService(secret: string = SECRET) {
   const controlStore = createControlStore(makeTempRoot());
@@ -22,7 +27,7 @@ describe("WidgetAuthService", () => {
     const { service, store, controlStore } = makeService();
     const app = store.ops.createApp({ tenantId, display_name: "x" });
     const { token } = service.issueToken(store.ops.getApp(tenantId, app.app_key)!);
-    const claims = service.verifyWsToken(token);
+    const claims = service.requireBearer(bearerRequest(token));
     expect(claims).toMatchObject({ sub: app.app_key, tenant_id: tenantId, scope: "widget" });
     store.close();
     controlStore.close();
@@ -42,10 +47,10 @@ describe("WidgetAuthService", () => {
     const { service, store, controlStore } = makeService();
     const app = store.ops.createApp({ tenantId, display_name: "x" });
     const { token } = service.issueToken(store.ops.getApp(tenantId, app.app_key)!);
-    expect(() => service.verifyWsToken(`${token.slice(0, -4)}aaaa`)).toThrow(WidgetAuthError);
-    expect(() => service.verifyWsToken(undefined)).toThrow(WidgetAuthError);
+    expect(() => service.requireBearer(bearerRequest(`${token.slice(0, -4)}aaaa`))).toThrow(WidgetAuthError);
+    expect(() => service.requireBearer(bearerRequest())).toThrow(WidgetAuthError);
     const other = createWidgetAuthService("another-secret-0123456789abcdef0123456789", store.ops);
-    expect(() => other.verifyWsToken(token)).toThrow(WidgetAuthError);
+    expect(() => other.requireBearer(bearerRequest(token))).toThrow(WidgetAuthError);
     store.close();
     controlStore.close();
   });

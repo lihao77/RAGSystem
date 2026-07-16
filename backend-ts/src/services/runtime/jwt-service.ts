@@ -20,9 +20,8 @@ export interface WidgetTokenClaims {
   exp: number;
   scope: "widget";
   /**
-   * 可选：绑定特定 session_id（per-session 强绑定）。
-   * 当前签发/校验未启用 sess——token 复用窗口 = TTL(15min)：一个 token 可连同一 app 的任一会话。
-   * per-session 强绑定需 /sessions 端点换发带 sess 的 token（签发 + WS 校验比对），本期未做。
+   * 保留字段，仅用于未来缩小 HTTP control token 的授权范围。
+   * WebSocket 已使用独立的 session-scoped 单次 ticket，不消费该 JWT。
    */
   sess?: string;
 }
@@ -33,14 +32,12 @@ export interface WidgetTokenClaims {
  *
  * 用法：
  * - issueToken(app_key)：换 token 端点签发短时 JWT，登记 jti。
- * - verifyWsToken(token)：WS 握手校验（签名 + exp + jti 未撤销）。
  * - requireBearer(request)：HTTP Bearer 校验。
  */
 export interface WidgetAuthService {
   /** 校验 app_key + secret；命中未吊销且 hash 匹配返回 app，否则 null。 */
   verifyAppCredentials(app_key: string, secret: string): WidgetApp | null;
   issueToken(app: WidgetApp): { token: string; expires_at: number };
-  verifyWsToken(token: string | undefined): WidgetTokenClaims;
   requireBearer(request: FastifyRequest): WidgetTokenClaims;
   verifyPublishableSession(input: { appKey: string; origin: string | undefined }): WidgetApp;
 }
@@ -131,12 +128,6 @@ export function createWidgetAuthService(secret: string, credentialOps: WidgetCre
         expires_at: claims.exp,
       });
       return { token: sign(claims), expires_at: claims.exp };
-    },
-    verifyWsToken(token) {
-      if (!token) {
-        throw new WidgetAuthError("missing token");
-      }
-      return verify(token);
     },
     requireBearer(request) {
       const header = request.headers.authorization ?? "";

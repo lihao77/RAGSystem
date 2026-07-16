@@ -117,13 +117,21 @@ describe("widget auth routes", () => {
     expect(closeInfo.code).toBe(4001);
   });
 
-  it("admits WS connection to a widget session with valid token", async () => {
+  it("admits WS connection with a session ticket and rejects replay", async () => {
     const harness = await buildTestHarness({ widgetJwtSecret: TEST_SECRET });
     app = harness.app;
     const { token, sessionId } = await createWidgetSessionWithToken(harness, []);
 
+    const ticketResponse = await app.inject({
+      method: "POST",
+      url: `/api/widget/sessions/${sessionId}/ws-ticket`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(ticketResponse.statusCode).toBe(200);
+    const ticket: string = ticketResponse.json().data.ticket;
+    const path = `/api/agent/sessions/${sessionId}/ws?ticket=${encodeURIComponent(ticket)}`;
     const ws = (await app.injectWS(
-      `/api/agent/sessions/${sessionId}/ws?token=${token}`,
+      path,
       {},
       {},
     )) as unknown as WsLike;
@@ -131,6 +139,7 @@ describe("widget auth routes", () => {
     // 鉴权通过：连接保持 OPEN（readyState 1），未被 4001 关闭。
     expect(ws.readyState).toBe(1);
     ws.terminate();
+    await expect(app.injectWS(path)).rejects.toThrow();
   });
 
   /** 建 widget app + 换 token + 签发 widget 会话（无 token 返回路径用）。 */

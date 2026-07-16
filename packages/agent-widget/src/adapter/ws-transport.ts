@@ -8,10 +8,8 @@ export interface TransportHandlers {
 }
 
 export interface WidgetWsTransportOptions {
-  /** 首次连接 URL（cursor 可为 null）。 */
-  initialUrl: string;
-  /** 重连时回调，返回带最新 cursor 的 URL（client 持有最新 seq，重连边界由它定）。 */
-  resolveReconnectUrl: () => string;
+  /** 每次连接前异步签发 ticket，并返回带最新 cursor 的 URL。 */
+  resolveUrl: () => Promise<string>;
   /** 会话 id（status=connected 回填用）。 */
   sessionId: string;
   handlers: TransportHandlers;
@@ -50,7 +48,7 @@ export class WidgetWsTransport {
 
   connect(): void {
     this.disposed = false;
-    this.open(this.options.initialUrl, true);
+    void this.openResolved(true);
   }
 
   /** 手动重连：重置退避计数后发起新连接（自动重连耗尽进 disconnected 后，UI 可调此恢复）。 */
@@ -70,7 +68,7 @@ export class WidgetWsTransport {
       this.ws = null;
     }
     this.reconnectAttempts = 0;
-    this.open(this.options.resolveReconnectUrl(), false);
+    void this.openResolved(false);
   }
 
   send(message: object): void {
@@ -93,12 +91,22 @@ export class WidgetWsTransport {
     this.emitStatus({ state: "disconnected" });
   }
 
-  private open(url: string, isFirst: boolean): void {
+  private async openResolved(isFirst: boolean): Promise<void> {
     this.emitStatus(
       isFirst
         ? { state: "connecting" }
         : { state: "reconnecting", replayCount: this.reconnectAttempts },
     );
+    try {
+      const url = await this.options.resolveUrl();
+      if (this.disposed) return;
+      this.open(url);
+    } catch {
+      if (!this.disposed) this.scheduleReconnect();
+    }
+  }
+
+  private open(url: string): void {
     const ws = new WebSocket(url);
     this.ws = ws;
     ws.onopen = () => {
@@ -155,7 +163,7 @@ export class WidgetWsTransport {
       if (this.disposed) {
         return;
       }
-      this.open(this.options.resolveReconnectUrl(), false);
+      void this.openResolved(false);
     }, delay);
   }
 

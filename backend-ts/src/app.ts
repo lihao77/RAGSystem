@@ -377,6 +377,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     registry,
     identityProvider: routedIdentityProvider,
     widgetCredentialStore,
+    wsTickets,
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await app.register(registerWidgetAppsRoutes, {
@@ -459,7 +460,9 @@ function createIdentityProvider(
 
 function usesWidgetIdentity(url: string): boolean {
   const pathname = url.split("?", 1)[0] ?? url;
-  return pathname === "/api/widget/sessions" || pathname.startsWith("/api/agui");
+  return pathname === "/api/widget/sessions"
+    || pathname.startsWith("/api/widget/sessions/")
+    || pathname.startsWith("/api/agui");
 }
 
 function registerFrontendFallback(app: FastifyInstance): void {

@@ -16,8 +16,6 @@ interface SessionWsParams {
 
 interface SessionWsQuery {
   after_seq?: string;
-  /** widget 会话的短时 JWT（query 传，因浏览器 WS 无法设 header）；普通会话不要求。 */
-  token?: string;
   /** 普通前端会话使用的短时、单次 WebSocket ticket。 */
   ticket?: string;
 }
@@ -41,10 +39,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
         const sessionId = request.params.sessionId;
         let lease;
         try {
-          if (options.widgetAuth && request.query.token) {
-            const claims = options.widgetAuth.verifyWsToken(request.query.token);
-            lease = await options.registry.acquire(claims.tenant_id);
-          } else if (request.query.ticket) {
+          if (request.query.ticket) {
             const identity = options.wsTickets.consume(request.query.ticket, sessionId);
             request.identity = identity;
             request.userId = identity.userId;
@@ -56,18 +51,6 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
             request.identity = identity;
             request.userId = identity.userId;
             lease = await options.registry.acquire(identity.tenantId);
-            if (!lease.runtime.sessionApplication.getSession(sessionId) && options.widgetAuth && request.headers.origin) {
-              const discovered = await options.registry.acquireForSession(sessionId);
-              const widgetMeta = discovered?.runtime.sessionApplication.getSession(sessionId)?.metadata as {
-                widget?: { created_via?: string };
-              } | undefined;
-              if (discovered && widgetMeta?.widget?.created_via === "widget_public") {
-                lease.release();
-                lease = discovered;
-              } else {
-                discovered?.release();
-              }
-            }
           }
           request.tenantId = lease.tenantId;
           request.container = lease.runtime;
@@ -90,37 +73,12 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
       const container = request.container;
       const wsActivity = options.registry.trackWebSocket(lease.tenantId);
       const session = container.sessionApplication.getSession(sessionId);
-      // widget 会话强制 token 鉴权：仅当本会话由 /api/widget/sessions 签发（metadata.widget.created_via 标记）。
-      // 普通会话（frontend-client 等）保持零鉴权；widgetAuth 未启用时整段跳过，后端维持现状。
-      if (options.widgetAuth) {
-        const widgetMeta = (
-          session?.metadata as {
-            widget?: { created_via?: string; app_key?: string };
-          } | undefined
-        )?.widget;
-        if (widgetMeta?.created_via === "widget") {
-          try {
-            const claims = options.widgetAuth.verifyWsToken(request.query.token);
-            if (widgetMeta.app_key && claims.sub !== widgetMeta.app_key) {
-              throw new Error("token 与会话来源不匹配");
-            }
-          } catch {
-            wsActivity.release();
-            lease.release();
-            ws.close(4001, "unauthorized");
-            return;
-          }
-        } else if (widgetMeta?.created_via === "widget_public") {
-          try {
-            if (!widgetMeta.app_key) throw new Error("missing app key");
-            options.widgetAuth.verifyPublishableSession({ appKey: widgetMeta.app_key, origin: request.headers.origin });
-          } catch {
-            wsActivity.release();
-            lease.release();
-            ws.close(4001, "unauthorized");
-            return;
-          }
-        }
+      const widgetMeta = (session?.metadata as { widget?: { app_key?: string } } | undefined)?.widget;
+      if (widgetMeta?.app_key && request.identity.userId !== widgetUserId(widgetMeta.app_key)) {
+        wsActivity.release();
+        lease.release();
+        ws.close(4001, "unauthorized");
+        return;
       }
       if (!session) {
         wsActivity.release();
