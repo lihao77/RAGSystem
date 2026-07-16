@@ -64,6 +64,9 @@ packages/agent-widget/tests/*
 !packages/agent-protocol/tests/
 packages/agent-protocol/tests/*
 !packages/agent-protocol/tests/protocol.test.ts
+!packages/api-contracts/tests/
+packages/api-contracts/tests/*
+!packages/api-contracts/tests/session.test.ts
 *.log
 *.out.log
 *.err.log

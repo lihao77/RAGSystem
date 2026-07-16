@@ -5,40 +5,26 @@
  */
 
 import { http } from './http.js';
-export { createSession, issueSessionWsTicket, updateSessionPermissions } from './session-contracts.ts';
+export {
+  createSession,
+  getSession,
+  getSessionMessages,
+  getSessionPermissions,
+  issueSessionWsTicket,
+  listSessions,
+  updateSessionPermissions,
+} from './session-contracts.ts';
 
 const BASE = '/api/agent';
-
-/** 会话列表（分页）。返回后端 JSON 整体（含 data.items / data.has_more）。 */
-export async function listSessions({ limit = 20, offset = 0 } = {}) {
-  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
-  return http.get(`${BASE}/sessions?${params.toString()}`);
-}
 
 /** 删除会话。 */
 export async function deleteSession(sessionId) {
   return http.del(`${BASE}/sessions/${encodeURIComponent(sessionId)}`);
 }
 
-export async function getSessionPermissions(sessionId) {
-  return http.get(`${BASE}/sessions/${encodeURIComponent(sessionId)}/permissions`);
-}
-
 /** 会话任务状态（has_running_task / task_info / observability 等）。可选 signal 用于取消。 */
 export async function getSessionTaskStatus(sessionId, { signal } = {}) {
   return http.get(`${BASE}/sessions/${encodeURIComponent(sessionId)}/task-status`, { signal });
-}
-
-/** 会话消息列表。返回后端 JSON 整体（含 data.items）。 */
-export async function getSessionMessages(
-  sessionId,
-  { limit = 500, offset = 0 } = {},
-) {
-  const params = new URLSearchParams({
-    limit: String(limit),
-    offset: String(offset),
-  });
-  return http.get(`${BASE}/sessions/${encodeURIComponent(sessionId)}/messages?${params.toString()}`);
 }
 
 /**

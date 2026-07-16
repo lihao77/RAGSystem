@@ -2,11 +2,17 @@ import { randomUUID } from "node:crypto";
 
 import type { FastifyPluginAsync } from "fastify";
 import {
-  SessionWsTicketDataSchema,
+  CreateSessionResponseSchema,
+  SessionDetailResponseSchema,
+  SessionListResponseSchema,
+  SessionMessageListResponseSchema,
+  SessionMessageRunStepsResponseSchema,
+  SessionPermissionResponseSchema,
+  SessionWsTicketResponseSchema,
   UpdateSessionPermissionModeRequestSchema,
 } from "@ragsystem/api-contracts";
 
-import { ok } from "../../contracts/common.js";
+import { ok, validateResponse } from "../../contracts/common.js";
 import type { AttachmentRef } from "../../contracts/execution.js";
 import {
   CreateSessionRequestSchema,
@@ -39,7 +45,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
         permissionMode: payload.permission_mode ?? null,
         ...(payload.metadata ? { metadata: payload.metadata } : {}),
       });
-      return ok(session, "会话创建成功");
+      return validateResponse(CreateSessionResponseSchema, ok(session, "会话创建成功"));
     } catch (error) {
       if (error instanceof WorkspaceRootValidationError) {
         throw new HttpError(400, "invalid_request", error.message);
@@ -61,22 +67,28 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
       offset,
       userIds: [request.identity.userId, ...botIds],
     });
-    return ok(sessions, "获取会话列表成功");
+    return validateResponse(SessionListResponseSchema, ok(sessions, "获取会话列表成功"));
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId", async (request) => {
     const session = loadOwnedSession(request, request.params.sessionId);
-    return ok(session, "获取会话成功");
+    return validateResponse(SessionDetailResponseSchema, ok(session, "获取会话成功"));
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/ws-ticket", async (request) => {
     loadOwnedSession(request, request.params.sessionId);
-    return ok(SessionWsTicketDataSchema.parse(options.wsTickets.issue(request.identity, request.params.sessionId)), "WebSocket ticket 已签发");
+    return validateResponse(
+      SessionWsTicketResponseSchema,
+      ok(options.wsTickets.issue(request.identity, request.params.sessionId), "WebSocket ticket 已签发"),
+    );
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/permissions", async (request) => {
     const session = loadOwnedSession(request, request.params.sessionId);
-    return ok({ mode: session.permission_mode ?? "standard" }, "获取会话权限成功");
+    return validateResponse(
+      SessionPermissionResponseSchema,
+      ok({ mode: session.permission_mode ?? "standard" }, "获取会话权限成功"),
+    );
   });
 
   app.patch<{ Params: SessionParams }>("/sessions/:sessionId/permissions", async (request) => {
@@ -84,7 +96,10 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
     const payload = UpdateSessionPermissionModeRequestSchema.parse(request.body);
     const updated = request.container.conversationStore.updateSessionPermissionMode(request.params.sessionId, payload.mode);
     if (!updated) throw new HttpError(404, "not_found", "会话不存在");
-    return ok({ mode: payload.mode }, "会话权限已更新");
+    return validateResponse(
+      SessionPermissionResponseSchema,
+      ok({ mode: payload.mode }, "会话权限已更新"),
+    );
   });
 
   app.delete<{ Params: SessionParams }>("/sessions/:sessionId", async (request) => {
@@ -106,7 +121,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
       limit,
       offset,
     });
-    return ok(messages, "获取对话记录成功");
+    return validateResponse(SessionMessageListResponseSchema, ok(messages, "获取对话记录成功"));
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/export", async (request, reply) => {
@@ -135,7 +150,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
           limit: clampInt(query.limit, 500, 1, 2000),
           offset: clampInt(query.offset, 0, 0, Number.MAX_SAFE_INTEGER),
         });
-        return ok(data, "获取执行步骤成功");
+        return validateResponse(SessionMessageRunStepsResponseSchema, ok(data, "获取执行步骤成功"));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (message.includes("仅 assistant")) {

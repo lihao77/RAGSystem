@@ -1,3 +1,5 @@
+import type { ZodType } from "zod";
+
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
@@ -38,4 +40,12 @@ export function ok<T>(data?: T, message = "success"): SuccessResponse<T> {
     return { success: true, message };
   }
   return { success: true, message, data };
+}
+
+export function validateResponse<T>(schema: ZodType<T>, value: unknown): T {
+  const result = schema.safeParse(value);
+  if (!result.success) {
+    throw new Error(`REST response contract violation: ${result.error.message}`);
+  }
+  return value as T;
 }

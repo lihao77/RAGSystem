@@ -3,6 +3,7 @@
  */
 
 import { http } from './http.js';
+export { getMessageRunSteps } from './session-contracts.ts';
 
 const API_BASE = '/api/agent';
 
@@ -76,18 +77,6 @@ export async function getTaskExecutionDiagnostics(taskId) {
     return result.data || result;
   } catch (error) {
     console.error('Error fetching task execution diagnostics:', error);
-    throw error;
-  }
-}
-
-export async function getMessageRunSteps(sessionId, messageId, { limit = 500, offset = 0 } = {}) {
-  try {
-    const result = await http.get(
-      `${API_BASE}/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/run-steps?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`
-    );
-    return result.data || result;
-  } catch (error) {
-    console.error('Error fetching message run steps:', error);
     throw error;
   }
 }
