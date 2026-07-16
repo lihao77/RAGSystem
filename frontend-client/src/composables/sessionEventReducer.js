@@ -1,3 +1,7 @@
+// @ts-check
+/** @typedef {Record<string, any>} AnyRecord */
+
+/** @param {AnyRecord} eventData */
 const isVisibleRootCompressionSummary = (eventData) => {
   if (eventData.visible_to_user === false) return false;
   if (eventData.conversation_scope === 'child') return false;
@@ -5,6 +9,7 @@ const isVisibleRootCompressionSummary = (eventData) => {
   return threadKey == null || threadKey === '' || threadKey === 'root';
 };
 
+/** @param {any} options */
 export function createSessionEventReducer({
   deps,
   runtime,
@@ -17,6 +22,7 @@ export function createSessionEventReducer({
   handleApprovalRequired,
   handleUserInputRequired,
 }) {
+  /** @param {AnyRecord} event @param {AnyRecord} currentMsg @param {string} sessionId */
   return (event, currentMsg, sessionId) => {
     const eventType = event.type;
     const payload = event.payload || {};
@@ -76,6 +82,7 @@ export function createSessionEventReducer({
           if (isVisibleRootCompressionSummary(detail)) {
             const summaryContent = detail.content || '';
             const alreadyExists = messages.value.some(
+              /** @param {AnyRecord} message */
               message => message.metadata?.msg_type === 'context_compression_summary'
                 && message.content === summaryContent,
             );

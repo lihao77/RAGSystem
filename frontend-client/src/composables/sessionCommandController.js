@@ -1,3 +1,4 @@
+// @ts-check
 import { nextTick, ref } from 'vue';
 
 import { getSessionTaskStatus, startStream, stopStream } from '../api/session.js';
@@ -5,6 +6,11 @@ import { createAssistantMessage } from './useMessageExecution.js';
 
 const WS_OPEN = 1;
 
+/** @typedef {Record<string, any>} AnyRecord */
+/** @param {unknown} error */
+const errorMessage = error => error instanceof Error ? error.message : String(error);
+
+/** @param {AnyRecord} activeRun @param {number} assistantMsgIndex */
 export const resetActiveRunForSend = (activeRun, assistantMsgIndex) => {
   Object.assign(activeRun, {
     active: true,
@@ -23,6 +29,7 @@ export const resetActiveRunForSend = (activeRun, assistantMsgIndex) => {
   });
 };
 
+/** @param {AnyRecord} activeRun */
 const resetActiveRunAfterSendError = (activeRun) => {
   Object.assign(activeRun, {
     active: false,
@@ -37,6 +44,7 @@ const resetActiveRunAfterSendError = (activeRun) => {
   });
 };
 
+/** @param {AnyRecord} attachment */
 export const serializeAttachmentForSend = ({ file_id, original_name, stored_name, mime, size, kind }) => ({
   file_id,
   original_name,
@@ -49,6 +57,7 @@ export const serializeAttachmentForSend = ({ file_id, original_name, stored_name
 const createRequestId = () => globalThis.crypto?.randomUUID?.()
   || `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
+/** @param {AnyRecord[]} attachments @param {AnyRecord} [metadata] */
 const buildUserMetadata = (attachments, metadata = {}) => {
   const images = attachments.filter(attachment => attachment?.kind === 'image');
   const files = attachments.filter(attachment => attachment?.kind !== 'image');
@@ -62,6 +71,7 @@ const buildUserMetadata = (attachments, metadata = {}) => {
   return result;
 };
 
+/** @param {string} content @param {AnyRecord[]} attachments @param {AnyRecord} [metadata] */
 export const createUserMessage = (content, attachments, metadata = {}) => ({
   role: 'user',
   content,
@@ -69,11 +79,13 @@ export const createUserMessage = (content, attachments, metadata = {}) => ({
   metadata: buildUserMetadata(attachments, metadata),
 });
 
+/** @param {string} requestId */
 const createAgentStreamMetadata = requestId => ({
   request_id: requestId,
   execution_kind: 'agent_stream',
 });
 
+/** @param {string} requestId @param {AnyRecord} activeRun @param {string | null} [fallbackRunId] */
 const createFollowupMetadata = (requestId, activeRun, fallbackRunId = null) => ({
   request_id: requestId,
   execution_kind: 'session_followup',
@@ -82,6 +94,7 @@ const createFollowupMetadata = (requestId, activeRun, fallbackRunId = null) => (
   ...(activeRun.runId || fallbackRunId ? { run_id: activeRun.runId || fallbackRunId } : {}),
 });
 
+/** @param {any} options */
 export function createSessionCommandController({
   deps,
   currentSessionId,
@@ -119,6 +132,7 @@ export function createSessionCommandController({
     sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'cancel_requested' };
   };
 
+  /** @param {{ content?: string, attachments?: AnyRecord[] } | null} [payload] */
   const send = async (payload = null) => {
     const content = (payload?.content ?? deps.inputMessage.value).trim();
     const draftAttachments = Array.isArray(payload?.attachments)
@@ -161,7 +175,7 @@ export function createSessionCommandController({
       if (startsDraftSession) {
         const currentMessage = messages.value[assistantMsgIndex];
         if (currentMessage) {
-          currentMessage.content += `\n\n[System Error: ${error.message || '创建会话失败'}]`;
+          currentMessage.content += `\n\n[System Error: ${errorMessage(error) || '创建会话失败'}]`;
           currentMessage.finished = true;
         }
         resetActiveRunAfterSendError(activeRun);
@@ -198,7 +212,7 @@ export function createSessionCommandController({
         }
       }
     } catch (error) {
-      console.warn('发送前查询任务状态失败:', error.message);
+      console.warn('发送前查询任务状态失败:', errorMessage(error));
     }
 
     try {
@@ -209,13 +223,13 @@ export function createSessionCommandController({
       if (startsDraftSession) {
         const currentMessage = messages.value[assistantMsgIndex];
         if (currentMessage) {
-          currentMessage.content += `\n\n[System Error: ${error.message || '附件准备失败'}]`;
+          currentMessage.content += `\n\n[System Error: ${errorMessage(error) || '附件准备失败'}]`;
           currentMessage.finished = true;
         }
         resetActiveRunAfterSendError(activeRun);
         isLoading.value = false;
       }
-      deps.showToast(error.message || '附件准备失败');
+      deps.showToast(errorMessage(error) || '附件准备失败');
       return;
     }
 
@@ -264,6 +278,7 @@ export function createSessionCommandController({
     }
 
     try {
+      /** @type {AnyRecord} */
       const body = {
         task: content,
         session_id: sessionId,
@@ -309,14 +324,14 @@ export function createSessionCommandController({
         if (followupMessage) {
           followupMessage.status = [
             ...(followupMessage.status || []),
-            { type: 'error', content: error.message || '补充说明发送失败' },
+            { type: 'error', content: errorMessage(error) || '补充说明发送失败' },
           ];
           followupMessage.metadata = { ...followupMessage.metadata, persistence_status: 'failed' };
         }
       } else {
         const currentMessage = messages.value[assistantMsgIndex];
         if (currentMessage) {
-          currentMessage.content += `\n\n[System Error: ${error.message || 'Request failed'}]`;
+          currentMessage.content += `\n\n[System Error: ${errorMessage(error) || 'Request failed'}]`;
           currentMessage.finished = true;
         }
         sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'failed' };

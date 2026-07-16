@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "checkJs": false,
+    "noImplicitAny": true,
+    "useUnknownInCatchVariables": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "src/composables/sessionCommandController.js",
+    "src/composables/sessionEnvelopeDispatcher.js",
+    "src/composables/sessionEventReducer.js",
+    "src/composables/sessionInteractionController.js",
+    "src/composables/sessionRunRecovery.js",
+    "src/composables/sessionTaskState.js",
+    "src/composables/sessionTransport.js"
+  ],
+  "exclude": ["node_modules", "dist", "src/**/*.test.js"]
+}

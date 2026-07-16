@@ -1,9 +1,15 @@
+// @ts-check
 import { nextTick } from 'vue';
 import { createSessionEventReducer } from './sessionEventReducer.js';
 import { createUserMessage } from './sessionCommandController.js';
 
 const startupPhases = new Set(['creating_session', 'preparing_attachments', 'starting_agent']);
 
+/** @typedef {Record<string, any>} AnyRecord */
+/** @param {unknown} error */
+const errorMessage = error => error instanceof Error ? error.message : String(error);
+
+/** @param {any} options */
 export function createSessionEnvelopeDispatcher({
   deps,
   state,
@@ -33,8 +39,10 @@ export function createSessionEnvelopeDispatcher({
     refreshSessionExecutionState,
   } = taskState;
 
+  /** @param {AnyRecord} event */
   const getEventInteractionId = event => event?.call_id || '';
 
+  /** @param {AnyRecord} event @param {AnyRecord} [eventData] */
   const normalizeUserInputRequiredData = (event, eventData = {}) => {
     const inputId = eventData.input_id || getEventInteractionId(event);
     const inputSchema = eventData.input && typeof eventData.input === 'object' ? eventData.input : {};
@@ -47,6 +55,7 @@ export function createSessionEnvelopeDispatcher({
     };
   };
 
+  /** @param {AnyRecord} event @param {AnyRecord} [eventData] */
   const normalizeApprovalRequiredData = (event, eventData = {}) => {
     const approvalId = eventData.approval_id || getEventInteractionId(event);
     return {
@@ -62,6 +71,7 @@ export function createSessionEnvelopeDispatcher({
     interaction.reset();
   };
 
+  /** @param {AnyRecord} event @param {AnyRecord} eventData @param {string} sessionId */
   const handleApprovalRequired = (event, eventData, sessionId) => {
     const approvalData = normalizeApprovalRequiredData(event, eventData);
     if (!interaction.rememberRequired('approval', approvalData.approval_id)) return;
@@ -69,15 +79,17 @@ export function createSessionEnvelopeDispatcher({
     deps.enqueueApproval(event, approvalData, sessionId);
   };
 
+  /** @param {AnyRecord} event @param {AnyRecord} eventData */
   const handleUserInputRequired = (event, eventData) => {
     const inputData = normalizeUserInputRequiredData(event, eventData);
     if (!interaction.rememberRequired('user_input', inputData.input_id)) return;
+    /** @param {string} inputId @param {unknown} value */
     const submitUserInput = async (inputId, value) => {
       try {
         await interaction.respond(inputId, { kind: 'user_input', value });
       } catch (error) {
         console.warn('用户输入提交失败:', error);
-        deps.showToast(error.message || '用户输入提交失败', 'warning');
+        deps.showToast(errorMessage(error) || '用户输入提交失败', 'warning');
         throw error;
       }
     };
@@ -89,15 +101,18 @@ export function createSessionEnvelopeDispatcher({
     }
   };
 
+  /** @param {AnyRecord} eventData */
   const findUserMessageSavedTarget = (eventData) => {
     const requestId = eventData.request_id || null;
     if (requestId) {
       const byRequestId = messages.value.find(
+        /** @param {AnyRecord} message */
         message => message?.role === 'user' && message.metadata?.request_id === requestId,
       );
       if (byRequestId) return byRequestId;
     }
     const pendingFollowup = messages.value.findLast?.(
+      /** @param {AnyRecord} message */
       message => message?.role === 'user'
         && message.metadata?.execution_kind === 'session_followup'
         && message.metadata?.persistence_status === 'pending',
@@ -106,6 +121,7 @@ export function createSessionEnvelopeDispatcher({
     return messages.value[activeRun.assistantMsgIndex - 1] || null;
   };
 
+  /** @param {AnyRecord | null | undefined} target @param {AnyRecord} eventData @param {string} sessionId */
   const applyMessageSaved = (target, eventData, sessionId) => {
     if (!target) return;
     if (eventData.id != null) target.id = eventData.id;
@@ -133,6 +149,7 @@ export function createSessionEnvelopeDispatcher({
     handleUserInputRequired,
   });
 
+  /** @param {AnyRecord} event @param {string} sessionId */
   const handleEnvelope = (event, sessionId) => {
     if (sessionId !== currentSessionId.value) return;
 

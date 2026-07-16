@@ -1,7 +1,12 @@
+// @ts-check
 import { getSessionTaskStatus } from '../api/session.js';
 import { resetActiveRunState } from '../stores/session-run.js';
 import { shouldRefreshSessionMessagesAfterResume } from '../utils/sessionSocket.js';
 
+/** @param {unknown} error */
+const errorMessage = error => error instanceof Error ? error.message : String(error);
+
+/** @param {any} options */
 export function createSessionRunRecovery({
   getCurrentSessionId,
   activeRun,
@@ -14,8 +19,11 @@ export function createSessionRunRecovery({
   scheduleTimer = setTimeout,
   cancelTimer = clearTimeout,
 }) {
+  /** @type {any} */
   let commandFallbackTimer = null;
+  /** @type {any} */
   let resumeRecoveryTimer = null;
+  /** @type {AbortController | null} */
   let resumeRecoveryAbort = null;
 
   const invalidateActiveStream = () => {
@@ -28,6 +36,7 @@ export function createSessionRunRecovery({
     commandFallbackTimer = null;
   };
 
+  /** @param {string} sessionId @param {number} messageIndex @param {number} [timeout] */
   const scheduleCommandFallback = (sessionId, messageIndex, timeout = 10000) => {
     clearCommandFallback();
     commandFallbackTimer = scheduleTimer(() => {
@@ -57,6 +66,7 @@ export function createSessionRunRecovery({
     }
   };
 
+  /** @param {string} sessionId @param {number} [timeout] */
   const scheduleSessionResumeRecovery = (sessionId, timeout = 1500) => {
     clearSessionResumeRecovery();
     resumeRecoveryTimer = scheduleTimer(async () => {
@@ -80,7 +90,7 @@ export function createSessionRunRecovery({
         }
         await refreshSessionExecutionState(sessionId, { silent: true });
       } catch (error) {
-        console.warn('resume task-status 探测失败:', error.message);
+        console.warn('resume task-status 探测失败:', errorMessage(error));
       } finally {
         if (resumeRecoveryAbort === abort) resumeRecoveryAbort = null;
       }

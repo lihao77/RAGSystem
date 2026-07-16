@@ -1,3 +1,4 @@
+// @ts-check
 import {
   buildSessionSocketUrl,
   canReuseSessionSocket,
@@ -10,12 +11,16 @@ import { getHostTool, getHostToolDeclarations } from '../utils/hostTools.js';
 const WS_OPEN = 1;
 const DEFAULT_MAX_RECONNECT_ATTEMPTS = 10;
 
+/** @typedef {Record<string, any>} AnyRecord */
+
+/** @param {WebSocket} ws @param {string} sessionId */
 const sendHostToolsRegister = (ws, sessionId) => {
   const declarations = getHostToolDeclarations();
   if (!declarations.length || ws.readyState !== WS_OPEN) return;
   ws.send(JSON.stringify({ type: 'tools.register', session_id: sessionId, payload: { tools: declarations } }));
 };
 
+/** @param {WebSocket} ws @param {string} sessionId @param {string} callId @param {AnyRecord} payload */
 const sendDelegateResult = (ws, sessionId, callId, payload) => {
   if (ws.readyState !== WS_OPEN) return;
   ws.send(JSON.stringify({
@@ -26,11 +31,12 @@ const sendDelegateResult = (ws, sessionId, callId, payload) => {
   }));
 };
 
+/** @param {WebSocket} ws @param {AnyRecord} event @param {string} sessionId */
 const handleDelegateCall = async (ws, event, sessionId) => {
   const toolName = event.payload?.tool;
   const callId = event.call_id;
   const input = event.payload?.input ?? {};
-  const tool = getHostTool(toolName);
+  const tool = /** @type {any} */ (getHostTool(toolName));
   const startedAt = Date.now();
   if (!tool) {
     sendDelegateResult(ws, sessionId, callId, {
@@ -51,12 +57,24 @@ const handleDelegateCall = async (ws, event, sessionId) => {
   } catch (error) {
     sendDelegateResult(ws, sessionId, callId, {
       ok: false,
-      error: error?.message || String(error),
+      error: error instanceof Error ? error.message : String(error),
       elapsed_ms: Date.now() - startedAt,
     });
   }
 };
 
+/**
+ * @param {{
+ *   getCurrentSessionId: () => string | null,
+ *   onEnvelope: (event: AnyRecord, sessionId: string) => void,
+ *   onDisconnect?: () => void,
+ *   onSocketClose?: () => void,
+ *   onReconnectExhausted?: (sessionId: string) => void,
+ *   issueTicket?: (sessionId: string) => Promise<any>,
+ *   createSocket?: (url: string) => WebSocket,
+ *   maxReconnectAttempts?: number,
+ * }} options
+ */
 export function createSessionTransport({
   getCurrentSessionId,
   onEnvelope,
@@ -67,20 +85,28 @@ export function createSessionTransport({
   createSocket = (url) => new WebSocket(url),
   maxReconnectAttempts = DEFAULT_MAX_RECONNECT_ATTEMPTS,
 }) {
+  /** @type {WebSocket | null} */
   let socket = null;
+  /** @type {string | null} */
   let socketSessionId = null;
+  /** @type {string | null} */
   let pendingSessionId = null;
   let connectGeneration = 0;
+  /** @type {ReturnType<typeof setTimeout> | null} */
   let reconnectTimer = null;
   let reconnectAttempts = 0;
+  /** @type {Map<string, number>} */
   const lastEventSeqBySession = new Map();
 
+  /** @param {string} sessionId */
   const getLastEventSeq = (sessionId) => lastEventSeqBySession.get(sessionId) || 0;
 
+  /** @param {string} sessionId */
   const resetSessionEventCursor = (sessionId) => {
     if (sessionId) lastEventSeqBySession.delete(sessionId);
   };
 
+  /** @param {AnyRecord} event @param {string} sessionId */
   const observeDurableCursor = (event, sessionId) => {
     const cursorSeq = getDurableCursorSeq(event);
     if (cursorSeq === null) return getLastEventSeq(sessionId);
@@ -92,6 +118,7 @@ export function createSessionTransport({
     return lastEventSeq;
   };
 
+  /** @param {AnyRecord} event @param {string} sessionId */
   const shouldDeliverEvent = (event, sessionId) => {
     const eventSeq = getDurableEventSeq(event);
     if (eventSeq !== null) {
@@ -104,6 +131,7 @@ export function createSessionTransport({
     return true;
   };
 
+  /** @param {string} sessionId */
   const scheduleReconnect = (sessionId) => {
     if (getCurrentSessionId() !== sessionId || reconnectTimer) return;
     if (reconnectAttempts >= maxReconnectAttempts) {
@@ -134,6 +162,7 @@ export function createSessionTransport({
     currentSocket?.close();
   };
 
+  /** @param {string} sessionId @param {{ isReconnect?: boolean }} [options] */
   const connect = async (sessionId, { isReconnect = false } = {}) => {
     if (!sessionId) return;
     if (canReuseSessionSocket(sessionId, socketSessionId, socket)) return;
@@ -144,7 +173,7 @@ export function createSessionTransport({
     let ticket;
     try {
       const response = await issueTicket(sessionId);
-      ticket = response?.data?.ticket ?? response?.ticket;
+      ticket = response?.data?.ticket ?? /** @type {any} */ (response)?.ticket;
       if (!ticket) throw new Error('WebSocket ticket 响应无效');
     } catch (error) {
       if (generation === connectGeneration && pendingSessionId === sessionId) {

@@ -1,5 +1,18 @@
+// @ts-check
 import { getSessionTaskStatus } from '../api/session.js';
 
+/** @typedef {import('vue').Ref<any>} AnyRef */
+/** @typedef {Record<string, any>} AnyRecord */
+
+/**
+ * @param {{
+ *   currentSessionId: AnyRef,
+ *   sessionTaskInfo: AnyRef,
+ *   sessionExecutionObservability: AnyRef,
+ *   fetchTaskStatus?: (sessionId: string) => Promise<any>,
+ *   warn?: (...args: any[]) => void,
+ * }} options
+ */
 export function createSessionTaskState({
   currentSessionId,
   sessionTaskInfo,
@@ -7,6 +20,7 @@ export function createSessionTaskState({
   fetchTaskStatus = getSessionTaskStatus,
   warn = console.warn,
 }) {
+  /** @param {AnyRecord} [payload] */
   const mergeExecutionObservability = (payload = {}) => {
     const current = sessionExecutionObservability.value || {};
     sessionExecutionObservability.value = {
@@ -18,6 +32,7 @@ export function createSessionTaskState({
     };
   };
 
+  /** @param {AnyRecord} [patch] */
   const patchTaskInfo = (patch = {}) => {
     sessionTaskInfo.value = {
       ...(sessionTaskInfo.value || {}),
@@ -25,6 +40,7 @@ export function createSessionTaskState({
     };
   };
 
+  /** @param {string} sessionId */
   const refreshSessionExecutionState = async (sessionId) => {
     if (!sessionId) return;
     try {
@@ -37,10 +53,11 @@ export function createSessionTaskState({
         mergeExecutionObservability(result.data.observability);
       }
     } catch (error) {
-      warn('refreshSessionExecutionState 状态同步失败:', error.message);
+      warn('refreshSessionExecutionState 状态同步失败:', error instanceof Error ? error.message : String(error));
     }
   };
 
+  /** @param {string} sessionId */
   const beginOptimisticExecutionState = (sessionId) => {
     patchTaskInfo({
       task_id: null,
