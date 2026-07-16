@@ -29,15 +29,14 @@ async function buildHarness(widgetJwtSecret: string) {
     dataRoot: tempRoot,
     tenantsRoot: path.join(tempRoot, "tenants"),
     systemRoot: path.join(tempRoot, "system"),
-    dbPath: ":memory:",
     allowUnsafeLocalExecution: false,
   };
   const container = createRuntimeContainer({
+    tenantId: LOCAL_TENANT_ID,
     dbPath: path.join(tempRoot, "test.db"),
     dataRoot: tempRoot,
     modelAdapterProvidersConfigPath: "",
     mcpConfigPath: "",
-    daemonConfigPath: "",
     systemConfigPath: "",
     agentConfigRoot: "",
     startOutboxDispatcher: false,
