@@ -1,90 +1,52 @@
 <template>
-  <div class="flex min-h-0 flex-1 flex-col gap-2">
-    <div v-if="loading" class="text-sm text-muted-foreground">正在加载编辑器...</div>
-    <div ref="editorHost" class="vditor-host min-h-0 flex-1 overflow-hidden rounded border"></div>
-  </div>
+  <textarea
+    ref="editor"
+    class="markdown-editor min-h-0 flex-1 resize-none rounded-md border border-input bg-background p-4 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    :value="modelValue"
+    aria-label="Markdown 编辑器"
+    spellcheck="false"
+    @input="handleInput"
+    @keydown="handleKeydown"
+  ></textarea>
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { storeToRefs } from 'pinia';
-import { useThemeStore } from '../../stores/theme.js';
+import { nextTick, ref } from 'vue';
 
 const props = defineProps({ modelValue: { type: String, default: '' } });
-const emit = defineEmits(['update:modelValue', 'save', 'notify']);
+const emit = defineEmits(['update:modelValue', 'save']);
 
-const loading = ref(true);
-const editorHost = ref(null);
-const { isDark } = storeToRefs(useThemeStore());
-let vditor = null;
-let disposed = false;
-let applyingExternalValue = false;
+const editor = ref(null);
 
-const applyTheme = (dark) => {
-  if (!vditor) return;
-  vditor.setTheme(dark ? 'dark' : 'classic', dark ? 'dark' : 'light');
+const handleInput = (event) => {
+  emit('update:modelValue', event.target.value);
 };
 
 const handleKeydown = (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
     event.preventDefault();
     emit('save');
+    return;
   }
-};
 
-onMounted(async () => {
-  try {
-    const [{ default: Vditor }] = await Promise.all([
-      import('vditor'),
-      import('vditor/dist/index.css'),
-    ]);
-    if (disposed || !editorHost.value) return;
-
-    vditor = new Vditor(editorHost.value, {
-      mode: 'ir',
-      value: props.modelValue,
-      height: '100%',
-      cache: { enable: false },
-      theme: isDark.value ? 'dark' : 'classic',
-      preview: { theme: { current: isDark.value ? 'dark' : 'light' } },
-      input: (markdown) => {
-        if (!applyingExternalValue) emit('update:modelValue', markdown);
-      },
-      after: () => {
-        loading.value = false;
-        applyTheme(isDark.value);
-      },
-    });
-    await nextTick();
-    editorHost.value.addEventListener('keydown', handleKeydown);
-  } catch (error) {
-    loading.value = false;
-    emit('notify', { message: error.message || 'Vditor 加载失败', type: 'error' });
-  }
-});
-
-watch(() => props.modelValue, (value) => {
-  if (!vditor || vditor.getValue() === value) return;
-  applyingExternalValue = true;
-  vditor.setValue(value);
+  if (event.key !== 'Tab') return;
+  event.preventDefault();
+  const target = event.target;
+  const start = target.selectionStart;
+  const end = target.selectionEnd;
+  const value = `${props.modelValue.slice(0, start)}  ${props.modelValue.slice(end)}`;
+  emit('update:modelValue', value);
   nextTick(() => {
-    applyingExternalValue = false;
+    editor.value?.setSelectionRange(start + 2, start + 2);
   });
-});
-
-watch(isDark, applyTheme);
-
-onBeforeUnmount(() => {
-  disposed = true;
-  editorHost.value?.removeEventListener('keydown', handleKeydown);
-  vditor?.destroy();
-  vditor = null;
-});
+};
 </script>
 
 <style scoped>
-.vditor-host :deep(.vditor) {
-  height: 100% !important;
-  border: 0;
+.markdown-editor {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 14px;
+  line-height: 1.65;
+  tab-size: 2;
 }
 </style>
