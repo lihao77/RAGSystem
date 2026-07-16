@@ -21,8 +21,8 @@ describe("messagesToConversation", () => {
     const { conversation, originals } = messagesToConversation(messages);
 
     expect(conversation).toHaveLength(2);
-    expect(conversation[1].role).toBe("assistant");
-    expect(conversation[1].tool_calls?.[0]?.id).toBe("call_1");
+    expect(conversation[1]?.role).toBe("assistant");
+    expect(conversation[1]?.tool_calls?.[0]?.id).toBe("call_1");
     expect(conversation.some((m) => m.role === "tool" && m.content === "工具未返回结果")).toBe(false);
     expect(originals).toHaveLength(2);
     expect(originals.every((m) => m !== null)).toBe(true);

@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ref } from 'vue';
+import { createPinia, setActivePinia } from 'pinia';
 import MockAdapter from 'axios-mock-adapter';
 
 import { useSessionFilesAttachments } from './useSessionFilesAttachments.js';
 import { httpClient } from '../api/http.js';
 
 function createDeps(overrides = {}) {
+  setActivePinia(createPinia());
   const sessionFilesDrawerVisible = ref(false);
   const sessionFilesDrawerTarget = ref('composer');
   const currentSessionId = ref('session-1');
