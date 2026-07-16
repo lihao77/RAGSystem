@@ -14,7 +14,7 @@
  * visibleTools 来源从 session.toolExecutor 改为 deps.getTools()（SDK 工具端口尚未接入，默认空）。
  */
 import { randomUUID } from "node:crypto";
-import type { ChatMessage, ChatToolCall, ChatToolDefinition, ContentPart, LlmClient, LlmRequest, LlmStreamHandler, ProviderConfig, TokenUsage } from "@ragsystem/agent-llm";
+import type { ChatMessage, ChatToolCall, ChatToolDefinition, ContentPart, LlmClient, LlmRequest, LlmResult, LlmStreamHandler, ProviderConfig } from "@ragsystem/agent-llm";
 import { extractText } from "@ragsystem/agent-llm";
 import { RuntimeAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
 import type { EventSink, KernelContext, KernelObservation, KernelOutcome, KernelToolCall, Protocol } from "../contracts.js";
@@ -96,7 +96,7 @@ export class NativeHybridProtocol implements Protocol {
     ctx: KernelContext,
     baseRequest: LlmRequest,
     round: number,
-    stream: (request: LlmRequest, onChunk: LlmStreamHandler) => Promise<{ content: string; toolCalls?: ChatToolCall[]; finishReason?: string | null; usage?: TokenUsage }>,
+    stream: (request: LlmRequest, onChunk: LlmStreamHandler) => Promise<LlmResult>,
   ): Promise<KernelOutcome> {
     const session = ctx.session;
     const agentName = session.profile.agentName;
@@ -186,6 +186,7 @@ export class NativeHybridProtocol implements Protocol {
         role: "assistant",
         content: intentContent,
         tool_calls: toolCalls,
+        ...(result.reasoningBlocks?.length ? { reasoning_blocks: result.reasoningBlocks } : {}),
       };
       return { kind: "tool_calls", calls, assistantMessage, finishReason: result.finishReason ?? null, usage: result.usage };
     }
@@ -233,6 +234,7 @@ export class NativeHybridProtocol implements Protocol {
           role: "assistant",
           content: taggedIntent || fallbackText,
           tool_calls: result.toolCalls,
+          ...(result.reasoningBlocks?.length ? { reasoning_blocks: result.reasoningBlocks } : {}),
         },
         finishReason: result.finishReason ?? null,
         usage: result.usage,

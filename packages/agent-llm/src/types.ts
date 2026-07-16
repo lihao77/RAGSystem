@@ -30,7 +30,17 @@ export interface ChatMessage {
   name?: string;
   tool_call_id?: string;
   tool_calls?: ChatToolCall[];
+  /**
+   * 厂商要求在工具调用后原样回传的隐藏推理块。
+   * 当前由 Anthropic extended thinking 使用；普通调用无需设置。
+   */
+  reasoning_blocks?: ReasoningBlock[];
 }
+
+/** 可安全跨工具轮次回传的隐藏推理块（不会进入正文事件流）。 */
+export type ReasoningBlock =
+  | { type: "thinking"; thinking: string; signature: string }
+  | { type: "redacted_thinking"; data: string };
 
 /** 结构化工具调用（厂商 function calling 产物 / XML 解析重建）。 */
 export interface ChatToolCall {
@@ -73,6 +83,10 @@ export interface ProviderConfig {
   max_completion_tokens?: number | null;
   max_tokens?: number | null;
   temperature?: number | null;
+  /** Anthropic extended thinking 预算；正数时发送 thinking.enabled。 */
+  thinking_budget_tokens?: number | null;
+  /** OpenAI/o-series 及兼容服务的推理强度。 */
+  reasoning_effort?: string | null;
   /** 厂商扩展参数（extra_params 等）原样透传给请求 body。 */
   [extra: string]: unknown;
 }
@@ -103,6 +117,8 @@ export interface LlmResult {
   content: string;
   /** 思考模型思维链原文；仅用于非空判定与调试，不进事件流正文。 */
   reasoning?: string;
+  /** 需随 assistant 工具调用消息原样回传的厂商推理块。 */
+  reasoningBlocks?: ReasoningBlock[];
   raw?: unknown;
   finishReason?: string | null;
   toolCalls?: ChatToolCall[];
