@@ -1,4 +1,4 @@
-import type { Envelope } from "@ragsystem/agent-protocol";
+import type { Envelope } from "@ragsystem/agent-protocol/wire";
 
 /**
  * widget WS 连接参数。ticket 每次建连前签发；cursor 来自最近收到的 envelope seq。
@@ -16,8 +16,7 @@ export interface WidgetWsUrlOptions {
 /**
  * 自拼 widget WS URL。
  *
- * 不复用 protocol 包的 buildSessionSocketUrl——它产出 `?after_event_seq=`，而后端 ws.ts 实读 `?after_seq=`
- * （参数名不一致曾导致 durable outbox 增量回放哑火，已在 1c6693b 统一修复；此处沿用后端权威名 after_seq）。
+ * URL 属于部署/API 约定而不是 wire protocol，由 Widget transport 自己构造。
  * ticket 仅用于一次 WebSocket 握手；重连必须重新签发。
  */
 export function buildWidgetWsUrl(options: WidgetWsUrlOptions): string {

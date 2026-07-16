@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import type { FastifyPluginAsync } from "fastify";
+import {
+  SessionWsTicketDataSchema,
+  UpdateSessionPermissionModeRequestSchema,
+} from "@ragsystem/api-contracts";
 
 import { ok } from "../../contracts/common.js";
 import type { AttachmentRef } from "../../contracts/execution.js";
@@ -8,7 +12,6 @@ import {
   CreateSessionRequestSchema,
   RollbackAndRetryRequestSchema,
   RollbackRequestSchema,
-  UpdateSessionPermissionModeRequestSchema,
   UpdateMessageRequestSchema,
 } from "../../contracts/session.js";
 import { HttpError } from "../../utils/errors.js";
@@ -34,7 +37,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
         sessionId: payload.session_id?.trim() || randomUUID(),
         userId: request.identity.userId,
         permissionMode: payload.permission_mode ?? null,
-        metadata: payload.metadata,
+        ...(payload.metadata ? { metadata: payload.metadata } : {}),
       });
       return ok(session, "会话创建成功");
     } catch (error) {
@@ -68,7 +71,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/ws-ticket", async (request) => {
     loadOwnedSession(request, request.params.sessionId);
-    return ok(options.wsTickets.issue(request.identity, request.params.sessionId), "WebSocket ticket 已签发");
+    return ok(SessionWsTicketDataSchema.parse(options.wsTickets.issue(request.identity, request.params.sessionId)), "WebSocket ticket 已签发");
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/permissions", async (request) => {

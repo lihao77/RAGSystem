@@ -2,7 +2,6 @@ import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { createSession, exportSession } from '../api/session.js';
-import { useUserStore } from '../stores/user.js';
 import { useDictionariesStore } from '../stores/dictionaries.js';
 import { useSessionListStore } from '../stores/session-list.js';
 import { useSessionRunStore } from '../stores/session-run.js';
@@ -192,7 +191,6 @@ export function useChatSessionController(deps) {
       deps.connectSessionWS(currentSessionId.value);
       return currentSessionId.value;
     }
-    const userId = useUserStore().userId.value;
     const workspaceRoot = normalizeWorkspaceRootInput(pendingWorkspaceRoot.value);
     pendingWorkspaceRoot.value = workspaceRoot;
     const entryAgent = pendingEntryAgent.value.trim();
@@ -206,9 +204,6 @@ export function useChatSessionController(deps) {
       ...(entryAgent ? { entry_agent: entryAgent } : {}),
     };
     const body = {};
-    if (userId) {
-      body.user_id = userId;
-    }
     if (Object.keys(metadata).length > 0) {
       body.metadata = metadata;
     }

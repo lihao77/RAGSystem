@@ -1,5 +1,6 @@
-import type { ConnectionStatus, Envelope, ReconnectPolicy } from "@ragsystem/agent-protocol";
-import { TypedEnvelopeSchema } from "@ragsystem/agent-protocol";
+import type { Envelope } from "@ragsystem/agent-protocol/wire";
+import { ServerToClientEnvelopeSchema } from "@ragsystem/agent-protocol/wire";
+import type { ConnectionStatus, ReconnectPolicy } from "@ragsystem/agent-protocol/client";
 
 /** 收到合法下行 Envelope（已 zod 校验）+ 连接状态变化时回调 client。 */
 export interface TransportHandlers {
@@ -29,7 +30,7 @@ const DEFAULT_RECONNECT: Required<ReconnectPolicy> = {
  * widget WS 传输层：连接 + 心跳 + 指数退避重连。
  *
  * 职责单一——只管字节收发与连接状态机，不管协议语义：
- * - 下行帧用 TypedEnvelopeSchema 校验后透传给 client（投影 / 控制帧分流由 client 决定）。
+ * - 下行帧用 ServerToClientEnvelopeSchema 校验后透传给 client（投影 / 控制帧分流由 client 决定）。
  * - 重连用 resolveReconnectUrl() 拿最新 cursor，保证 durable outbox 增量回放边界正确。
  * - tools.register 等握手协议在 client 层（status=connected 时发），不在本层。
  */
@@ -123,7 +124,7 @@ export class WidgetWsTransport {
       const raw = typeof event.data === "string" ? event.data : String(event.data);
       let env: Envelope;
       try {
-        env = TypedEnvelopeSchema.parse(JSON.parse(raw)) as Envelope;
+        env = ServerToClientEnvelopeSchema.parse(JSON.parse(raw)) as Envelope;
       } catch {
         return; // 非 envelope / 校验失败：静默丢弃，不影响连接
       }

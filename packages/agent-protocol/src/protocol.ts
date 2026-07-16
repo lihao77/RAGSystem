@@ -323,6 +323,7 @@ export const UserDrivenChangePayloadSchema = z.object({
   selected_llm: z.string().optional(),
   attachments: z.array(AttachmentRefSchema).optional(),
   request_id: z.string().optional(),
+  ui_context: z.record(z.string(), z.unknown()).nullish(),
 });
 
 export const AbortPayloadSchema = z.object({
@@ -402,114 +403,41 @@ export const AgentLifecyclePayloadSchema = z.discriminatedUnion("phase", [
   AgentEndedPayloadSchema,
 ]);
 
-export const TypedEnvelopeSchema = z.discriminatedUnion("type", [
+const typed = <T extends z.ZodRawShape>(shape: T) => ProtocolEnvelopeSchema.extend(shape);
+
+export const ServerToClientEnvelopeSchema = z.discriminatedUnion("type", [
   HelloEnvelopeSchema,
-  z.object({
-    type: z.literal("heartbeat"),
-    session_id: z.string().min(1),
-    payload: HeartbeatPayloadSchema.optional(),
-  }),
-  z.object({
-    type: z.literal("session.reconnect"),
-    session_id: z.string().min(1),
-    payload: ReconnectPayloadSchema,
-  }),
-  z.object({
-    type: z.literal("error"),
-    session_id: z.string().min(1),
-    payload: ErrorPayloadSchema,
-  }),
-  z.object({
-    type: z.literal("run_started"),
-    session_id: z.string().min(1),
-    run_id: z.string().min(1),
-    payload: RunStartedPayloadSchema.optional(),
-  }),
-  z.object({
-    type: z.literal("run_ended"),
-    session_id: z.string().min(1),
-    run_id: z.string().min(1),
-    payload: RunEndedPayloadSchema,
-  }),
-  z.object({
-    type: z.literal("agent_started"),
-    session_id: z.string().min(1),
-    agent_id: z.string(),
-    call_id: z.string().min(1).optional(),
-    payload: AgentStartedPayloadSchema.optional(),
-  }),
-  z.object({
-    type: z.literal("agent_ended"),
-    session_id: z.string().min(1),
-    agent_id: z.string(),
-    call_id: z.string().min(1).optional(),
-    payload: AgentEndedPayloadSchema.optional(),
-  }),
-  z.object({
-    type: z.literal("stream_output"),
-    session_id: z.string().min(1),
-    // 顶层路由 marker（run_id/call_id/agent_id）必须声明，否则 z.object 默认 strip，
-    // 消费端 applyIntentStream 的 routeStreamAgent 拿不到 call_id → intent 误落 IMPLICIT_ROOT。
-    run_id: z.string().optional(),
-    call_id: z.string().optional(),
-    agent_id: z.string().optional(),
-    payload: StreamOutputPayloadSchema,
-  }),
-  z.object({
-    type: z.literal("state_sync"),
-    session_id: z.string().min(1),
-    payload: StateSyncPayloadSchema,
-  }),
-  z.object({
-    type: z.literal("tool_call"),
-    session_id: z.string().min(1),
-    call_id: z.string().min(1),
-    payload: ToolCallPayloadSchema,
-  }),
-  z.object({
-    type: z.literal("tool_result"),
-    session_id: z.string().min(1),
-    call_id: z.string().min(1),
-    payload: ToolResultPayloadSchema,
-  }),
-  z.object({
-    type: z.literal("delegate_call"),
-    session_id: z.string().min(1),
-    call_id: z.string().min(1),
-    payload: DelegateCallPayloadSchema,
-  }),
-  z.object({
-    type: z.literal("delegate_result"),
-    session_id: z.string().min(1),
-    call_id: z.string().min(1),
-    payload: DelegateResultPayloadSchema,
-  }),
-  z.object({
-    type: z.literal("interaction"),
-    session_id: z.string().min(1),
-    call_id: z.string().min(1),
-    payload: InteractionPayloadSchema,
-  }),
-  z.object({
-    type: z.literal("user_driven_change"),
-    session_id: z.string().min(1),
-    payload: UserDrivenChangePayloadSchema,
-  }),
-  z.object({
-    type: z.literal("abort"),
-    session_id: z.string().min(1),
-    payload: AbortPayloadSchema,
-  }),
-  z.object({
-    type: z.literal("capability_manifest"),
-    session_id: z.string().min(1),
-    payload: CapabilityManifestPayloadSchema,
-  }),
-  z.object({
-    type: z.literal("ack"),
-    session_id: z.string().min(1),
-    payload: AckPayloadSchema,
-  }),
+  typed({ type: z.literal("heartbeat"), session_id: z.string().min(1), payload: HeartbeatPayloadSchema.optional() }),
+  typed({ type: z.literal("session.reconnect"), session_id: z.string().min(1), payload: ReconnectPayloadSchema }),
+  typed({ type: z.literal("error"), session_id: z.string().min(1), payload: ErrorPayloadSchema }),
+  typed({ type: z.literal("run_started"), session_id: z.string().min(1), run_id: z.string().min(1), payload: RunStartedPayloadSchema.optional() }),
+  typed({ type: z.literal("run_ended"), session_id: z.string().min(1), run_id: z.string().min(1), payload: RunEndedPayloadSchema }),
+  typed({ type: z.literal("agent_started"), session_id: z.string().min(1), agent_id: z.string(), call_id: z.string().min(1).optional(), payload: AgentStartedPayloadSchema.optional() }),
+  typed({ type: z.literal("agent_ended"), session_id: z.string().min(1), agent_id: z.string(), call_id: z.string().min(1).optional(), payload: AgentEndedPayloadSchema.optional() }),
+  typed({ type: z.literal("stream_output"), session_id: z.string().min(1), payload: StreamOutputPayloadSchema }),
+  typed({ type: z.literal("state_sync"), session_id: z.string().min(1), payload: StateSyncPayloadSchema }),
+  typed({ type: z.literal("tool_call"), session_id: z.string().min(1), call_id: z.string().min(1), payload: ToolCallPayloadSchema }),
+  typed({ type: z.literal("tool_result"), session_id: z.string().min(1), call_id: z.string().min(1), payload: ToolResultPayloadSchema }),
+  typed({ type: z.literal("delegate_call"), session_id: z.string().min(1), call_id: z.string().min(1), payload: DelegateCallPayloadSchema }),
+  typed({ type: z.literal("interaction"), session_id: z.string().min(1), call_id: z.string().min(1), payload: InteractionPayloadSchema.extend({ phase: z.literal("required") }) }),
+  typed({ type: z.literal("abort"), session_id: z.string().min(1), payload: AbortPayloadSchema }),
+  typed({ type: z.literal("capability_manifest"), session_id: z.string().min(1), payload: CapabilityManifestPayloadSchema }),
+  typed({ type: z.literal("ack"), session_id: z.string().min(1), payload: AckPayloadSchema }),
 ]);
 
-export type TypedEnvelope = z.infer<typeof TypedEnvelopeSchema>;
+export type ServerToClientEnvelope = z.infer<typeof ServerToClientEnvelopeSchema>;
+
+/** @deprecated Use ServerToClientEnvelopeSchema to make the wire direction explicit. */
+export const TypedEnvelopeSchema = ServerToClientEnvelopeSchema;
+/** @deprecated Use ServerToClientEnvelope. */
+export type TypedEnvelope = ServerToClientEnvelope;
+
+export const ClientToServerEnvelopeSchema = z.discriminatedUnion("type", [
+  typed({ type: z.literal("user_driven_change"), session_id: z.string().min(1), payload: UserDrivenChangePayloadSchema.extend({ task: z.string().optional().default(""), attachments: z.array(AttachmentRefSchema).optional().default([]) }) }),
+  typed({ type: z.literal("abort"), session_id: z.string().min(1), payload: z.object({ scope: z.literal("run"), reason: z.string().optional() }).optional() }),
+  typed({ type: z.literal("interaction"), session_id: z.string().min(1), call_id: z.string().min(1), payload: z.object({ kind: z.enum(["approval", "user_input"]), phase: z.literal("responded"), approved: z.boolean().optional(), value: z.string().optional().default(""), message: z.string().optional().default("") }) }),
+  typed({ type: z.literal("tools.register"), session_id: z.string().min(1), payload: ToolsRegisterPayloadSchema }),
+  typed({ type: z.literal("delegate_result"), session_id: z.string().min(1), call_id: z.string().min(1), payload: DelegateResultPayloadSchema }),
+]);
+
+export type ClientToServerEnvelope = z.infer<typeof ClientToServerEnvelopeSchema>;

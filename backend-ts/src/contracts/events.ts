@@ -8,8 +8,8 @@
  * 类型与运行时 schema 自 agent-protocol re-export，后端零重复定义；agent-protocol 保持零后端依赖。
  */
 import { z } from "zod";
-
 import {
+  ClientToServerEnvelopeSchema,
   EnvelopeTypeSchema,
   type Envelope,
   type EnvelopeType,
@@ -36,9 +36,7 @@ import {
   type DelegatedToolDeclaration,
   type ToolsRegisterPayload,
   DelegatedToolDeclarationSchema,
-  DelegateResultPayloadSchema,
-  AttachmentRefSchema,
-} from "@ragsystem/agent-protocol";
+} from "@ragsystem/agent-protocol/wire";
 
 export type {
   Envelope,
@@ -67,7 +65,7 @@ export type {
   ToolsRegisterPayload,
 };
 
-export { EnvelopeTypeSchema, DelegatedToolDeclarationSchema };
+export { EnvelopeTypeSchema, DelegatedToolDeclarationSchema, ClientToServerEnvelopeSchema };
 
 /* ============================================================
  * 上行 envelope（host → runtime）校验
@@ -77,57 +75,7 @@ export { EnvelopeTypeSchema, DelegatedToolDeclarationSchema };
  * 上行合法帧：用户驱动变更 / 取消 / 交互响应。
  * session.hello、heartbeat、capability_manifest 等握手/控制帧本期不强求，按需扩展。
  */
-export const ClientToServerEnvelopeSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("user_driven_change"),
-    session_id: z.string().min(1),
-    payload: z.object({
-      category: z.enum(["task_submit", "message", "redirect", "env_notice"]),
-      task: z.string().optional().default(""),
-      selected_llm: z.string().optional(),
-      attachments: z.array(AttachmentRefSchema).optional().default([]),
-      request_id: z.string().optional(),
-      ui_context: z.record(z.string(), z.unknown()).nullish(),
-    }),
-  }),
-  z.object({
-    type: z.literal("abort"),
-    session_id: z.string().min(1),
-    payload: z
-      .object({
-        scope: z.literal("run"),
-        reason: z.string().optional(),
-      })
-      .optional(),
-  }),
-  z.object({
-    type: z.literal("interaction"),
-    session_id: z.string().min(1),
-    call_id: z.string().min(1),
-    payload: z.object({
-      kind: z.enum(["approval", "user_input"]),
-      phase: z.literal("responded"),
-      approved: z.boolean().optional(),
-      value: z.string().optional().default(""),
-      message: z.string().optional().default(""),
-    }),
-  }),
-  z.object({
-    type: z.literal("tools.register"),
-    session_id: z.string().min(1),
-    payload: z.object({
-      tools: z.array(DelegatedToolDeclarationSchema),
-    }),
-  }),
-  z.object({
-    type: z.literal("delegate_result"),
-    session_id: z.string().min(1),
-    call_id: z.string().min(1),
-    payload: DelegateResultPayloadSchema,
-  }),
-]);
-
-export type ClientToServerEnvelope = z.infer<typeof ClientToServerEnvelopeSchema>;
+export type ClientToServerEnvelope = import("@ragsystem/agent-protocol/wire").ClientToServerEnvelope;
 
 /** DelegatedToolDeclaration 的 wire 类型（z.infer，exactOptionalPropertyTypes 下与 schema 一致）。backend 内部存取用。 */
 export type DelegatedToolDeclarationWire = z.infer<typeof DelegatedToolDeclarationSchema>;

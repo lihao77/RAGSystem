@@ -8,6 +8,22 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./wire": {
+      "types": "./dist/wire.d.ts",
+      "import": "./dist/wire.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
+    },
+    "./projection": {
+      "types": "./dist/projection.d.ts",
+      "import": "./dist/projection.js"
     }
   },
   "files": [
@@ -16,14 +32,16 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "zod": "^3.23.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=24.0.0"

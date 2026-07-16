@@ -61,6 +61,9 @@ tests/
 !packages/agent-widget/tests/
 packages/agent-widget/tests/*
 !packages/agent-widget/tests/widget-agent-client.test.ts
+!packages/agent-protocol/tests/
+packages/agent-protocol/tests/*
+!packages/agent-protocol/tests/protocol.test.ts
 *.log
 *.out.log
 *.err.log

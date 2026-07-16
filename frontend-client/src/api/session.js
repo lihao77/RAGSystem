@@ -5,6 +5,7 @@
  */
 
 import { http } from './http.js';
+export { createSession, issueSessionWsTicket, updateSessionPermissions } from './session-contracts.ts';
 
 const BASE = '/api/agent';
 
@@ -21,15 +22,6 @@ export async function deleteSession(sessionId) {
 
 export async function getSessionPermissions(sessionId) {
   return http.get(`${BASE}/sessions/${encodeURIComponent(sessionId)}/permissions`);
-}
-
-/** 签发与 session 绑定、短时且单次使用的 WebSocket ticket。 */
-export async function issueSessionWsTicket(sessionId) {
-  return http.post(`${BASE}/sessions/${encodeURIComponent(sessionId)}/ws-ticket`);
-}
-
-export async function updateSessionPermissions(sessionId, mode) {
-  return http.patch(`${BASE}/sessions/${encodeURIComponent(sessionId)}/permissions`, { mode });
 }
 
 /** 会话任务状态（has_running_task / task_info / observability 等）。可选 signal 用于取消。 */
@@ -84,11 +76,6 @@ export async function exportSession(sessionId) {
     responseType: 'blob',
   });
   return { blob: resp.data, headers: resp.headers };
-}
-
-/** 创建会话。body 含 team/workspace_root/entry_agent/message/metadata 等。返回 JSON 整体（data.session_id/title）。 */
-export async function createSession(body) {
-  return http.post(`${BASE}/sessions`, body);
 }
 
 /**

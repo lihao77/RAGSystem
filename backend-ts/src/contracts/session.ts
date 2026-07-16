@@ -1,6 +1,10 @@
 import path from "node:path";
 
 import { z } from "zod";
+import {
+  CreateSessionRequestSchema as SharedCreateSessionRequestSchema,
+  UpdateSessionPermissionModeRequestSchema,
+} from "@ragsystem/api-contracts";
 
 import { AttachmentRefSchema } from "./execution.js";
 import { PermissionModeSchema, type PermissionMode } from "./permissions.js";
@@ -19,15 +23,13 @@ export const SessionMetadataSchema = z.unknown().optional().transform((value, co
   }
 });
 
-export const CreateSessionRequestSchema = z.object({
+export const CreateSessionRequestSchema = SharedCreateSessionRequestSchema.extend({
   session_id: OptionalSessionIdSchema.nullable().optional(),
   permission_mode: PermissionModeSchema.nullable().optional(),
   metadata: SessionMetadataSchema,
-}).strict();
+});
 
-export const UpdateSessionPermissionModeRequestSchema = z.object({
-  mode: PermissionModeSchema,
-}).strict();
+export { UpdateSessionPermissionModeRequestSchema };
 
 export const UpdateMessageRequestSchema = z.object({
   content: z.string(),

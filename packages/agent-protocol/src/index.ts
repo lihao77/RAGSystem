@@ -5,5 +5,4 @@ export * from "./event-translation.js";
 export * from "./agent-client.js";
 export * from "./abort.js";
 export * from "./recoverable-interrupt.js";
-export * from "./session-socket.js";
 export * from "./execution-tree.js";
