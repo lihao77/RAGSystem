@@ -21,7 +21,7 @@ import { registerSystemConfigRoutes } from "./routes/system-config.js";
 import { registerKnowledgeBaseRoutes } from "./routes/knowledge-base.js";
 import { registerAgentRoutes } from "./routes/agent/index.js";
 import { registerAguiRoutes } from "./routes/agent/agui.js";
-import { registerHealthRoutes } from "./routes/health.js";
+import { registerHealthRoutes, registerProbeRoutes } from "./routes/health.js";
 import { registerWidgetRoutes } from "./routes/widget.js";
 import { registerWidgetAppsRoutes } from "./routes/widget-apps.js";
 import { registerBootstrapRoutes } from "./routes/bootstrap.js";
@@ -297,6 +297,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
   await app.register(websocket);
 
+  await app.register(registerProbeRoutes, { controlStore });
   await app.register(registerHealthRoutes, {
     prefix: "/api",
     registry,

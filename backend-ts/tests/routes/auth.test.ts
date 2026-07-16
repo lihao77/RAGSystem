@@ -118,6 +118,9 @@ describe("认证路由", () => {
     const passwordHarness = await installedPasswordHarness();
     const unauthorized = await passwordHarness.app.inject({ method: "GET", url: "/api/health" });
     expect(unauthorized.statusCode).toBe(401);
+    const readiness = await passwordHarness.app.inject({ method: "GET", url: "/readyz" });
+    expect(readiness.statusCode).toBe(200);
+    expect(readiness.json()).toMatchObject({ status: "ready" });
 
     const localHarness = await buildTestHarness({ autoIdentityProvider: true });
     close.push(() => localHarness.app.close());

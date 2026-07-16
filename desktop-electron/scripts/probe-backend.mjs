@@ -36,9 +36,9 @@ child.stdout.on("data", (chunk) => { stdout += String(chunk); });
 child.stderr.on("data", (chunk) => { stderr += String(chunk); });
 
 try {
-  const health = await waitForHealth();
-  if (health?.data?.status !== "healthy") {
-    throw new Error(`Unexpected health response: ${JSON.stringify(health)}`);
+  const readiness = await waitForReadiness();
+  if (readiness?.status !== "ready" || readiness?.service !== "ragsystem-backend") {
+    throw new Error(`Unexpected readiness response: ${JSON.stringify(readiness)}`);
   }
   console.log(`Electron backend probe passed (Electron Node, node:sqlite, sqlite-vec) on ${port}`);
 } finally {
@@ -49,14 +49,14 @@ try {
   fs.rmSync(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
 
-async function waitForHealth() {
+async function waitForReadiness() {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
       throw new Error(`Backend exited with ${child.exitCode}\nstdout:\n${stdout}\nstderr:\n${stderr}`);
     }
     try {
-      return await getJson(`http://127.0.0.1:${port}/api/agent/health`);
+      return await getJson(`http://127.0.0.1:${port}/readyz`);
     } catch {
       await new Promise((resolve) => setTimeout(resolve, 250));
     }

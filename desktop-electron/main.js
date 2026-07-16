@@ -41,14 +41,13 @@ function isPortInUse(port) {
   })
 }
 
-function isRAGSystemBackend(port) {
-  return new Promise((resolve) => {
-    const req = http.get(`http://127.0.0.1:${port}/api/agent/health`, { timeout: 2000 }, (res) => {
-      resolve(res.statusCode >= 200 && res.statusCode < 500)
-    })
-    req.on('error', () => resolve(false))
-    req.on('timeout', () => { req.destroy(); resolve(false) })
-  })
+async function isRAGSystemBackend(port) {
+  try {
+    const ready = await getJson(`http://127.0.0.1:${port}/readyz`, 2000)
+    return ready?.status === 'ready' && ready?.service === 'ragsystem-backend'
+  } catch {
+    return false
+  }
 }
 
 async function findFreePort(preferred) {
@@ -200,9 +199,9 @@ function createMainWindow() {
     mainWindow.webContents.once('did-finish-load', async () => {
       try {
         const page = await waitForRendererReady(mainWindow.webContents, 15000)
-        const health = await getJson(`http://127.0.0.1:${actualPort}/api/agent/health`, 3000)
-        if (page.textLength === 0 || page.rootChildren === 0 || health?.data?.status !== 'healthy') {
-          throw new Error(`invalid renderer state: ${JSON.stringify({ page, health })}`)
+        const readiness = await getJson(`http://127.0.0.1:${actualPort}/readyz`, 3000)
+        if (page.textLength === 0 || page.rootChildren === 0 || readiness?.status !== 'ready' || readiness?.service !== 'ragsystem-backend') {
+          throw new Error(`invalid renderer state: ${JSON.stringify({ page, readiness })}`)
         }
         console.log(`RAGSYSTEM_DESKTOP_SMOKE_OK ${JSON.stringify({ port: actualPort, url: mainWindow.webContents.getURL(), page })}`)
         finishSmoke(0)

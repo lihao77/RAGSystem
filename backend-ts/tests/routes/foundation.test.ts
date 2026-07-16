@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 
-import { buildTestApp } from "../helpers/app.js";
+import { buildTestApp, buildTestHarness } from "../helpers/app.js";
 
 let app: FastifyInstance | null = null;
 
@@ -13,6 +13,28 @@ afterEach(async () => {
 });
 
 describe("foundation routes", () => {
+  it("serves unauthenticated liveness and readiness probes without acquiring a tenant runtime", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+    const acquire = vi.spyOn(harness.registry, "acquire");
+
+    const live = await app.inject({ method: "GET", url: "/livez" });
+    const ready = await app.inject({ method: "GET", url: "/readyz" });
+
+    expect(live.statusCode).toBe(200);
+    expect(live.json()).toEqual({ status: "alive" });
+    expect(ready.statusCode).toBe(200);
+    expect(ready.json()).toEqual({
+      status: "ready",
+      service: "ragsystem-backend",
+      checks: {
+        control_database: "ok",
+        migrations: "ok",
+      },
+    });
+    expect(acquire).not.toHaveBeenCalled();
+  });
+
   it("reports backend-ts health and migration status", async () => {
     app = await buildTestApp();
 
@@ -28,8 +50,15 @@ describe("foundation routes", () => {
         status: "healthy",
         backend: "backend-ts",
         migration_status: "runtime_migrated",
+        agents_count: expect.any(Number),
       },
     });
+  });
+
+  it("does not expose the retired agent-specific health endpoint", async () => {
+    app = await buildTestApp();
+    const response = await app.inject({ method: "GET", url: "/api/agent/health" });
+    expect(response.statusCode).toBe(404);
   });
 
   it("creates and lists sessions through Python-compatible route shapes", async () => {
