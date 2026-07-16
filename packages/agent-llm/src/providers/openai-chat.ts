@@ -74,7 +74,11 @@ export function buildChatBody(request: LlmRequest, stream = false): Record<strin
 }
 
 function stripInternalMessageFields(message: LlmRequest["messages"][number]): Record<string, unknown> {
-  const { reasoning_blocks: _reasoningBlocks, ...wireMessage } = message;
+  const {
+    reasoning_blocks: _reasoningBlocks,
+    provider_continuation: _providerContinuation,
+    ...wireMessage
+  } = message;
   return wireMessage;
 }
 

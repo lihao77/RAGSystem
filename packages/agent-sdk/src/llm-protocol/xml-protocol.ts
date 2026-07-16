@@ -27,7 +27,7 @@ import type { ChatMessage, ChatToolCall, LlmClient, LlmRequest, LlmStreamHandler
 import { extractText } from "@ragsystem/agent-llm";
 import { RuntimeAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
 import type { EventSink, KernelContext, KernelObservation, KernelOutcome, KernelToolCall, Protocol } from "../contracts.js";
-import { readTierParams } from "../llm-params/index.js";
+import { buildPromptCacheKey, readTierParams } from "../llm-params/index.js";
 import type { RuntimeToolDefinition } from "../prompt/tool-types.js";
 import {
   parseRuntimeToolCallsXml,
@@ -77,6 +77,7 @@ export class XmlProtocol implements Protocol {
       temperature: llmParams.temperature,
       maxCompletionTokens: llmParams.maxCompletionTokens,
       extraParams: llmParams.extraParams,
+      promptCacheKey: buildPromptCacheKey(session),
     };
     if (session.signal) {
       request.signal = session.signal;

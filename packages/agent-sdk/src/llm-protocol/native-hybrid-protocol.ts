@@ -18,7 +18,7 @@ import type { ChatMessage, ChatToolCall, ChatToolDefinition, ContentPart, LlmCli
 import { extractText } from "@ragsystem/agent-llm";
 import { RuntimeAbortError, throwIfAborted } from "@ragsystem/agent-protocol";
 import type { EventSink, KernelContext, KernelObservation, KernelOutcome, KernelToolCall, Protocol } from "../contracts.js";
-import { readTierParams } from "../llm-params/index.js";
+import { buildPromptCacheKey, readTierParams } from "../llm-params/index.js";
 import type { RuntimeToolDefinition } from "../prompt/tool-types.js";
 import { renderNativeXmlProtocolInstruction, StreamingRuntimeXmlParser } from "./xml/index.js";
 import { renderNativeModelMessage } from "./message-rendering.js";
@@ -59,6 +59,7 @@ export class NativeHybridProtocol implements Protocol {
       temperature: llmParams.temperature,
       maxCompletionTokens: llmParams.maxCompletionTokens,
       extraParams: llmParams.extraParams,
+      promptCacheKey: buildPromptCacheKey(session),
     };
     if (session.signal) {
       request.signal = session.signal;
@@ -187,6 +188,7 @@ export class NativeHybridProtocol implements Protocol {
         content: intentContent,
         tool_calls: toolCalls,
         ...(result.reasoningBlocks?.length ? { reasoning_blocks: result.reasoningBlocks } : {}),
+        ...(result.providerContinuation ? { provider_continuation: result.providerContinuation } : {}),
       };
       return { kind: "tool_calls", calls, assistantMessage, finishReason: result.finishReason ?? null, usage: result.usage };
     }
@@ -235,6 +237,7 @@ export class NativeHybridProtocol implements Protocol {
           content: taggedIntent || fallbackText,
           tool_calls: result.toolCalls,
           ...(result.reasoningBlocks?.length ? { reasoning_blocks: result.reasoningBlocks } : {}),
+          ...(result.providerContinuation ? { provider_continuation: result.providerContinuation } : {}),
         },
         finishReason: result.finishReason ?? null,
         usage: result.usage,

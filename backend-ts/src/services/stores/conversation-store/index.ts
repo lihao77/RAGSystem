@@ -8,6 +8,7 @@ import { OutboxOps } from "./outbox-ops.js";
 import { ResourceOps } from "./resource-ops.js";
 import { MetricOps } from "./metric-ops.js";
 import { PendingInteractionOps } from "./pending-interaction-ops.js";
+import { ProviderContinuationOps } from "./provider-continuation-ops.js";
 import type {
   ConversationStore,
   ConversationStoreOptions,
@@ -33,6 +34,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
   const resources = new ResourceOps(db, dataRoot, sessions);
   const metrics = new MetricOps(db);
   const pendingInteractions = new PendingInteractionOps(db);
+  const providerContinuations = new ProviderContinuationOps(db);
 
   const createTransactionFacade = (): ConversationStoreTransaction => ({
     addMessage: messages.addMessageInTransaction.bind(messages),
@@ -46,6 +48,8 @@ export function createConversationStore(options: ConversationStoreOptions) {
     appendOutbox: outbox.appendOutboxInTransaction.bind(outbox),
     // 纯读、不开新事务（listMessages 仅 SELECT），事务内读消除 TOCTOU，故直接 bind 无需 InTransaction 变体。
     getRecentMessages: messages.getRecentMessages.bind(messages),
+    putProviderContinuation: providerContinuations.putProviderContinuationInTransaction.bind(providerContinuations),
+    deleteProviderContinuations: providerContinuations.deleteProviderContinuations.bind(providerContinuations),
   });
 
   return {
@@ -71,6 +75,11 @@ export function createConversationStore(options: ConversationStoreOptions) {
     getRecentMessages: messages.getRecentMessages.bind(messages),
     deleteMessagesAfter: messages.deleteMessagesAfter.bind(messages),
     updateMessage: messages.updateMessage.bind(messages),
+
+    // private provider continuation state
+    putProviderContinuation: providerContinuations.putProviderContinuation.bind(providerContinuations),
+    getProviderContinuation: providerContinuations.getProviderContinuation.bind(providerContinuations),
+    deleteProviderContinuations: providerContinuations.deleteProviderContinuations.bind(providerContinuations),
 
     // run + run_steps
     createRun: runs.createRun.bind(runs),

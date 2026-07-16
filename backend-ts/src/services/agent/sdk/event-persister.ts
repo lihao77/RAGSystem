@@ -29,6 +29,7 @@ export interface PersisterRunContext {
   threadKey: string;
   agentName: string;
   agentDisplayName: string;
+  providerType: string;
   /** 当前 run 的 root call id（step_id 规则基准；root run=自身 call_id，child run=父 call_id）。 */
   rootCallId: string;
   /** 整棵执行树的根 run id；挂起时与 pending interaction 同事务收口。 */
@@ -113,6 +114,7 @@ export class KernelEventPersister {
       }
       let finalMessageId: string | null = null;
       if (status === "interrupted") {
+        tx.deleteProviderContinuations(this.ctx.sessionId, this.ctx.threadKey);
         this.closeDanglingToolCalls(tx);
         const anchor = tx.addMessage({
           sessionId: this.ctx.sessionId,
@@ -124,6 +126,7 @@ export class KernelEventPersister {
         tx.updateRunStepsMessageId(this.ctx.sessionId, this.ctx.runId, anchor.id);
         finalMessageId = anchor.id;
       } else if (status === "completed" && finalMessage) {
+        tx.deleteProviderContinuations(this.ctx.sessionId, this.ctx.threadKey);
         // caller（runtime-adapter.executeRunWithSdk）completed 时恒传非空 finalMessage（{ content: result.content }），
         // 本分支必命中、最终 message 必落。若未来 caller 传 null（未使用边界），将跳过落 message、落空 final step
         // （message_id/result_preview 空）—— 该边界需 caller 保证不触发。
@@ -184,6 +187,7 @@ export class KernelEventPersister {
 
   private persistAssistantMessage(message: ChatMessage, round: number): void {
     this.store.runInTransaction((tx) => {
+      tx.deleteProviderContinuations(this.ctx.sessionId, this.ctx.threadKey);
       const input: AddMessageInput = {
         sessionId: this.ctx.sessionId,
         role: "assistant",
@@ -194,7 +198,21 @@ export class KernelEventPersister {
       if (message.tool_calls) {
         input.toolCalls = message.tool_calls as AddMessageInput["toolCalls"];
       }
-      tx.addMessage(input);
+      const persisted = tx.addMessage(input);
+      if (message.provider_continuation && message.tool_calls?.length) {
+        const callIds = message.tool_calls.map((call) => call.id);
+        const stateIds = new Set(message.provider_continuation.toolCallIds);
+        if (callIds.length === stateIds.size && callIds.every((id) => stateIds.has(id))) {
+          tx.putProviderContinuation({
+            messageId: persisted.id,
+            sessionId: this.ctx.sessionId,
+            threadKey: this.ctx.threadKey,
+            providerType: this.ctx.providerType,
+            toolCallIds: callIds,
+            state: message.provider_continuation,
+          });
+        }
+      }
     });
   }
 

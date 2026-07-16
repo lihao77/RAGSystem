@@ -196,6 +196,27 @@ export const MIGRATIONS: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 11,
+    name: "provider_continuations",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE provider_continuations (
+          message_id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          thread_key TEXT NOT NULL,
+          provider_type TEXT NOT NULL,
+          tool_call_ids TEXT NOT NULL,
+          state TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
+          FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+        );
+        CREATE INDEX idx_provider_continuations_session_thread
+          ON provider_continuations(session_id, thread_key, created_at);
+      `);
+    },
+  },
 ];
 
 function addColumnIfMissing(db: MigrationDatabase, table: string, column: string, declaration: string): void {

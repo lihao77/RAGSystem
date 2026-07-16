@@ -3,3 +3,4 @@ export { readTierParams, compactRecord } from "./tier-params.js";
 export { resolveContextBudget } from "./budget.js";
 export { resolveSummaryTierCandidates } from "./summary-tier.js";
 export type { SummaryTierCandidate } from "./summary-tier.js";
+export { buildPromptCacheKey } from "./prompt-cache-key.js";

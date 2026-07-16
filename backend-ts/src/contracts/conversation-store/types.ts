@@ -11,6 +11,7 @@
  * 凡 IXxxStore 签名引用的类型必在此定义——否则契约反向依赖实现，破坏可替换性。
  */
 import { z } from "zod";
+import type { ProviderContinuationState } from "@ragsystem/agent-llm";
 
 import type { MessageInfo } from "../session.js";
 
@@ -55,6 +56,26 @@ export interface CreatePendingInteractionInput {
   batchId: string;
   kind: "approval" | "user_input";
   requestPayload: Record<string, unknown>;
+}
+
+/** Private provider state bound to an assistant tool-call message. Never exposed as message metadata. */
+export interface ProviderContinuationRecord {
+  message_id: string;
+  session_id: string;
+  thread_key: string;
+  provider_type: string;
+  tool_call_ids: string[];
+  state: ProviderContinuationState;
+  created_at: string;
+}
+
+export interface PutProviderContinuationInput {
+  messageId: string;
+  sessionId: string;
+  threadKey: string;
+  providerType: string;
+  toolCallIds: string[];
+  state: ProviderContinuationState;
 }
 
 // ────────────────────────────── 输入边界（zod schema + z.infer） ──────────────────────────────
@@ -263,4 +284,6 @@ export interface ConversationStoreTransaction {
   appendOutbox(input: AppendOutboxInput): OutboxRow;
   /** 读最近消息（对齐 IMessageStore.getRecentMessages：纯 SELECT 不开新事务，事务内读消除 TOCTOU）。 */
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): MessageInfo[];
+  putProviderContinuation(input: PutProviderContinuationInput): ProviderContinuationRecord;
+  deleteProviderContinuations(sessionId: string, threadKey: string): number;
 }

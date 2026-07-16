@@ -294,3 +294,40 @@ describe("buildAnthropicBody — 连续 user 合并", () => {
     expect(merged.some((b) => b.type === "text")).toBe(true);
   });
 });
+
+describe("buildAnthropicBody — provider continuation", () => {
+  it("only replays the newest thinking state across repeated tool rounds", () => {
+    const body = buildAnthropicBody(makeRequest({
+      tools: [],
+      messages: [
+        { role: "user", content: "first" },
+        {
+          role: "assistant",
+          content: "",
+          provider_continuation: {
+            protocol: "anthropic_messages",
+            toolCallIds: ["t1"],
+            blocks: [{ type: "thinking", thinking: "old", signature: "sig-old" }],
+          },
+          tool_calls: [{ id: "t1", type: "function", function: { name: "one", arguments: "{}" } }],
+        },
+        { role: "tool", tool_call_id: "t1", content: "one result" },
+        {
+          role: "assistant",
+          content: "",
+          provider_continuation: {
+            protocol: "anthropic_messages",
+            toolCallIds: ["t2"],
+            blocks: [{ type: "thinking", thinking: "new", signature: "sig-new" }],
+          },
+          tool_calls: [{ id: "t2", type: "function", function: { name: "two", arguments: "{}" } }],
+        },
+        { role: "tool", tool_call_id: "t2", content: "two result" },
+      ],
+    }));
+    const blocks = (body.messages as Array<{ content: Array<Record<string, unknown>> }>)
+      .flatMap((message) => message.content)
+      .filter((block) => block.type === "thinking");
+    expect(blocks).toEqual([{ type: "thinking", thinking: "new", signature: "sig-new" }]);
+  });
+});

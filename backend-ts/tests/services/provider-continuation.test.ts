@@ -1,0 +1,79 @@
+import { describe, expect, it } from "vitest";
+
+import { RecentMessagesContextSource } from "../../src/services/agent/context/recent-messages-source.js";
+import { ProjectionRegistry } from "../../src/services/agent/context/extensions/index.js";
+import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
+
+const continuation = {
+  protocol: "anthropic_messages" as const,
+  toolCallIds: ["tool-1"],
+  blocks: [{ type: "thinking" as const, thinking: "private", signature: "sig" }],
+};
+
+describe("provider continuation persistence", () => {
+  it("stores continuation outside public message metadata", () => {
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    const message = store.addMessage({
+      sessionId: "s1",
+      role: "assistant",
+      content: "working",
+      threadKey: "root",
+      toolCalls: [{ id: "tool-1", type: "function", function: { name: "search", arguments: "{}" } }],
+    });
+    store.putProviderContinuation({
+      messageId: message.id,
+      sessionId: "s1",
+      threadKey: "root",
+      providerType: "anthropic",
+      toolCallIds: ["tool-1"],
+      state: continuation,
+    });
+
+    expect(store.getProviderContinuation("s1", message.id)?.state).toEqual(continuation);
+    const publicMessage = store.getMessageById("s1", message.id)!;
+    expect(JSON.stringify(publicMessage.metadata)).not.toContain("private");
+    expect(JSON.stringify(publicMessage.metadata)).not.toContain("signature");
+    expect(store.deleteProviderContinuations("s1", "root")).toBe(1);
+    expect(store.getProviderContinuation("s1", message.id)).toBeNull();
+    store.close();
+  });
+
+  it("restores state only when its assistant tool call is the active history tail", () => {
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    store.addMessage({ sessionId: "s1", role: "user", content: "search", threadKey: "root" });
+    const assistant = store.addMessage({
+      sessionId: "s1",
+      role: "assistant",
+      content: "working",
+      threadKey: "root",
+      toolCalls: [{ id: "tool-1", type: "function", function: { name: "search", arguments: "{}" } }],
+    });
+    store.putProviderContinuation({
+      messageId: assistant.id,
+      sessionId: "s1",
+      threadKey: "root",
+      providerType: "anthropic",
+      toolCallIds: ["tool-1"],
+      state: continuation,
+    });
+    const source = new RecentMessagesContextSource(store, false, new ProjectionRegistry());
+    const pending = source.build(request());
+    expect(pending.conversation?.[1]?.provider_continuation).toEqual(continuation);
+
+    store.addMessage({ sessionId: "s1", role: "user", content: "new task", threadKey: "root" });
+    const newTurn = source.build(request());
+    expect(newTurn.conversation?.some((message) => message.provider_continuation !== undefined)).toBe(false);
+    store.close();
+  });
+});
+
+function request() {
+  return {
+    sessionId: "s1",
+    threadKey: "root",
+    microcompact: false,
+    microcompactKeepRecentTools: 5,
+    cacheAlive: false,
+    touch: false,
+  };
+}

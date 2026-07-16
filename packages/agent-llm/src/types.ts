@@ -35,12 +35,32 @@ export interface ChatMessage {
    * 当前由 Anthropic extended thinking 使用；普通调用无需设置。
    */
   reasoning_blocks?: ReasoningBlock[];
+  /** Provider-owned opaque state required only to continue a pending tool transaction. */
+  provider_continuation?: ProviderContinuationState;
 }
 
 /** 可安全跨工具轮次回传的隐藏推理块（不会进入正文事件流）。 */
 export type ReasoningBlock =
   | { type: "thinking"; thinking: string; signature: string }
   | { type: "redacted_thinking"; data: string };
+
+/**
+ * Opaque continuation state. Consumers must persist and replay payloads without rewriting them.
+ * It is not conversation content and must not be exposed in user-facing message metadata.
+ */
+export type ProviderContinuationState =
+  | {
+      protocol: "anthropic_messages";
+      toolCallIds: string[];
+      blocks: ReasoningBlock[];
+    }
+  | {
+      protocol: "openai_responses";
+      toolCallIds: string[];
+      /** First function call after the user turn; reasoning items must be replayed before it. */
+      anchorCallId: string;
+      reasoningItems: Record<string, unknown>[];
+    };
 
 /** 结构化工具调用（厂商 function calling 产物 / XML 解析重建）。 */
 export interface ChatToolCall {
@@ -76,7 +96,7 @@ export interface ProviderConfig {
   api_key?: string | null;
   supports_function_calling?: boolean | null;
   supports_vision?: boolean | null;
-  /** Anthropic 路径 prompt cache 总开关(默认开,!== false 即在 system/tools 尾部 + 最后一条 assistant 末 block 打 cache_control)。 */
+  /** Provider prompt cache switch. Defaults on; Anthropic uses cache_control, OpenAI Responses uses prompt_cache_key. */
   supports_prompt_caching?: boolean | null;
   /** provider KV cache 有效期(秒);memory 前缀快照 sliding 失效阈值用。 */
   cache_ttl_seconds?: number | null;
@@ -103,6 +123,8 @@ export interface LlmRequest {
   toolChoice?: "auto" | "none";
   allowEmptyStream?: boolean;
   extraParams?: Record<string, unknown> | null;
+  /** Stable, non-sensitive routing key used by providers that support prompt caching. */
+  promptCacheKey?: string;
 }
 
 /** 一次 LLM 调用的 token 用量（厂商返回的 usage 解析归一化）。 */
@@ -119,6 +141,8 @@ export interface LlmResult {
   reasoning?: string;
   /** 需随 assistant 工具调用消息原样回传的厂商推理块。 */
   reasoningBlocks?: ReasoningBlock[];
+  /** Opaque state to attach to the assistant tool-call message until its continuation succeeds. */
+  providerContinuation?: ProviderContinuationState;
   raw?: unknown;
   finishReason?: string | null;
   toolCalls?: ChatToolCall[];

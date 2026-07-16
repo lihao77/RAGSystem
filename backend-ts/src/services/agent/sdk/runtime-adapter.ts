@@ -203,6 +203,8 @@ export async function executeRunWithSdk(
   const historyPort: ConversationHistoryPort & SessionMetadataPort = {
     getRecentMessages: (sid: string, limit: number | undefined, tk: string | null | undefined) =>
       deps.conversationStore.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
+    getProviderContinuation: (sid: string, messageId: string) =>
+      deps.conversationStore.getProviderContinuation(sid, messageId),
     getSession: (sid: string) => sessionMetadata.getSession(sid),
     updateSessionMetadata: (sid: string, patch: Record<string, unknown>) =>
       sessionMetadata.updateSessionMetadata?.(sid, patch) ?? null,
@@ -334,6 +336,7 @@ export async function executeRunWithSdk(
     threadKey: input.threadKey,
     agentName: input.agent.agent_name,
     agentDisplayName: input.agent.display_name ?? input.agent.agent_name,
+    providerType: input.provider.provider_type,
     rootCallId: input.rootCallId,
     rootRunId,
     parentCallId: input.parentCallId ?? null,

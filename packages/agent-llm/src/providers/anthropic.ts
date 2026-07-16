@@ -73,8 +73,12 @@ export function buildAnthropicBody(request: LlmRequest, stream = false): Record<
     .map((message) => ({ type: "text", text: extractText(message.content) }));
   if (cacheEnabled && system.length) system[system.length - 1]!.cache_control = { type: "ephemeral" };
 
+  const activeContinuationIndex = findLastContinuationIndex(request.messages, "anthropic_messages");
   const messages = coalesceConsecutiveUserMessages(
-    request.messages.filter((message) => message.role !== "system").map(mapAnthropicMessage),
+    request.messages
+      .map((message, index) => ({ message, index }))
+      .filter(({ message }) => message.role !== "system")
+      .map(({ message, index }) => mapAnthropicMessage(message, index === activeContinuationIndex)),
   );
   if (cacheEnabled) markLastAssistantCacheBreakpoint(messages);
 
@@ -105,7 +109,7 @@ export function buildAnthropicBody(request: LlmRequest, stream = false): Record<
   };
 }
 
-function mapAnthropicMessage(message: ChatMessage): Record<string, unknown> {
+function mapAnthropicMessage(message: ChatMessage, includeContinuation: boolean): Record<string, unknown> {
   if (message.role === "tool") {
     return {
       role: "user",
@@ -114,7 +118,12 @@ function mapAnthropicMessage(message: ChatMessage): Record<string, unknown> {
   }
   const role = message.role === "assistant" ? "assistant" : "user";
   const content: unknown[] = [];
-  if (role === "assistant") content.push(...sanitizeReasoningBlocks(message.reasoning_blocks));
+  if (role === "assistant" && includeContinuation) {
+    const continuationBlocks = message.provider_continuation?.protocol === "anthropic_messages"
+      ? message.provider_continuation.blocks
+      : message.reasoning_blocks;
+    content.push(...sanitizeReasoningBlocks(continuationBlocks));
+  }
   if (message.content) content.push(...toAnthropicContent(message.content));
   else if (!message.tool_calls?.length && content.length === 0) content.push({ type: "text", text: "" });
   for (const toolCall of message.tool_calls ?? []) {
@@ -126,6 +135,14 @@ function mapAnthropicMessage(message: ChatMessage): Record<string, unknown> {
     });
   }
   return { role, content };
+}
+
+function findLastContinuationIndex(messages: ChatMessage[], protocol: "anthropic_messages"): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.provider_continuation?.protocol === protocol || message?.reasoning_blocks?.length) return index;
+  }
+  return -1;
 }
 
 function sanitizeReasoningBlocks(blocks: ReasoningBlock[] | undefined): ReasoningBlock[] {
@@ -192,6 +209,13 @@ function parseAnthropicResponse(body: Record<string, unknown>): LlmResult {
   if (reasoning) result.reasoning = reasoning;
   if (reasoningBlocks.length) result.reasoningBlocks = reasoningBlocks;
   if (toolCalls.length) result.toolCalls = toolCalls;
+  if (reasoningBlocks.length && toolCalls.length) {
+    result.providerContinuation = {
+      protocol: "anthropic_messages",
+      toolCallIds: toolCalls.map((call) => call.id),
+      blocks: reasoningBlocks,
+    };
+  }
   const usage = extractAnthropicUsage(body);
   if (usage) result.usage = usage;
   return result;
@@ -317,6 +341,13 @@ async function parseAnthropicStream(
   if (reasoning) result.reasoning = reasoning;
   if (reasoningBlocks.length) result.reasoningBlocks = reasoningBlocks;
   if (completedTools.length) result.toolCalls = completedTools;
+  if (reasoningBlocks.length && completedTools.length) {
+    result.providerContinuation = {
+      protocol: "anthropic_messages",
+      toolCallIds: completedTools.map((call) => call.id),
+      blocks: reasoningBlocks,
+    };
+  }
   if (hasUsage) result.usage = { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens };
   return result;
 }

@@ -33,6 +33,8 @@ import type {
   CreatePendingInteractionInput,
   PendingInteractionRecord,
   PendingInteractionStatus,
+  ProviderContinuationRecord,
+  PutProviderContinuationInput,
   ResourceInfo,
   RetryOutboxBatchInput,
   RetryOutboxResult,
@@ -86,6 +88,13 @@ export interface IMessageStore {
     sessionId?: string | null;
     roleFilter?: MessageInfo["role"] | null;
   }): boolean;
+}
+
+/** Private continuation state for resumable provider tool transactions. */
+export interface IProviderContinuationStore {
+  putProviderContinuation(input: PutProviderContinuationInput): ProviderContinuationRecord;
+  getProviderContinuation(sessionId: string, messageId: string): ProviderContinuationRecord | null;
+  deleteProviderContinuations(sessionId: string, threadKey: string): number;
 }
 
 /**
@@ -279,6 +288,7 @@ export interface ConversationStore
     IChildAgentStore,
     IOutboxStore,
     IResourceStore,
+    IProviderContinuationStore,
     IMetricStore,
     IPendingInteractionStore,
     IConversationTransactionRunner {

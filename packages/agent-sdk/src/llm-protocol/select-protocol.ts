@@ -3,7 +3,7 @@
  *
  * 按 provider_type + supports_function_calling 分派到 NativeHybridProtocol / XmlProtocol：
  * - anthropic：原生 tool_use -> NativeHybridProtocol (native)。
- * - OpenAI 兼容 + supports_function_calling === true -> NativeHybridProtocol (native)。
+ * - OpenAI Responses / OpenAI 兼容 + supports_function_calling === true -> NativeHybridProtocol (native)。
  * - 其余 / supports_function_calling 未标注或 false -> XmlProtocol (xml)，保守回退。
  *
  * toolInstructionMode 随协议形态产出，由 createRuntime 绑进 Context（prompt 按模式注入不同说明）。
@@ -37,6 +37,9 @@ export function resolveToolInstructionMode(provider: ProviderConfig | null | und
     return "xml";
   }
   if (provider.provider_type === "anthropic") {
+    return "native";
+  }
+  if (provider.provider_type === "openai_resp" && provider.supports_function_calling === true) {
     return "native";
   }
   if (OPENAI_COMPATIBLE_TYPES.has(provider.provider_type) && provider.supports_function_calling === true) {
