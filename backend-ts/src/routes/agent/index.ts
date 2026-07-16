@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 
-import type { RouteOptions } from "../route-options.js";
+import type { AgentRouteOptions, RouteOptions } from "../route-options.js";
 import { registerAgentManagementRoutes } from "./agents.js";
 import { registerAnalyticsRoutes } from "./analytics.js";
 import { registerExecutionRoutes } from "./execution.js";
@@ -12,10 +12,11 @@ import { registerSessionRoutes } from "./sessions.js";
 import { registerStreamRoutes } from "./stream.js";
 import { registerSessionWebSocketRoute } from "./ws.js";
 
-export const registerAgentRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  const routeOptions: RouteOptions = {
+export const registerAgentRoutes: FastifyPluginAsync<AgentRouteOptions> = async (app, options) => {
+  const routeOptions: AgentRouteOptions = {
     registry: options.registry,
     identityProvider: options.identityProvider,
+    wsTickets: options.wsTickets,
     ...(options.widgetCredentialStore ? { widgetCredentialStore: options.widgetCredentialStore } : {}),
     ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
   };

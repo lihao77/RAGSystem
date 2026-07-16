@@ -29,6 +29,13 @@ test('已知 event_seq 时会构造 after_seq 重连 URL', () => {
   );
 });
 
+test('WebSocket URL 使用短时 ticket 而不是 session token', () => {
+  assert.equal(
+    buildSessionSocketUrl('session-1', { protocol: 'https:', host: 'example.test', afterEventSeq: 12, ticket: 'ticket-1' }),
+    'wss://example.test/api/agent/sessions/session-1/ws?after_seq=12&ticket=ticket-1',
+  );
+});
+
 test('仅接受正整数 event_seq 作为 durable cursor', () => {
   assert.equal(normalizeEventSeq(1), 1);
   assert.equal(normalizeEventSeq('2'), 2);

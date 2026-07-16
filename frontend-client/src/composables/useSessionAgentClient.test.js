@@ -42,6 +42,7 @@ function createConnectionDeps() {
   const { currentSessionId, messages, isLoading, isCompressing } = storeToRefs(sessionRunStore);
   currentSessionId.value = 'session-1';
   const noop = () => {};
+  let ticketSequence = 0;
   return {
     currentSessionId,
     messages,
@@ -72,6 +73,7 @@ function createConnectionDeps() {
     handleStop: noop,
     scrollToBottom: noop,
     showToast: noop,
+    issueSessionWsTicket: async () => ({ data: { ticket: `ticket-${++ticketSequence}` } }),
     userInputDialogRef: ref(null),
   };
 }
@@ -99,23 +101,23 @@ function installFakeSessionSocketEnv() {
   };
 }
 
-test('session connection 重连时使用已观察到的 seq durable cursor', () => {
+test('session connection 重连时使用已观察到的 seq durable cursor', async () => {
   const restore = installFakeSessionSocketEnv();
 
   try {
     const connection = useSessionAgentClient(createConnectionDeps());
 
-    connection.connectSessionWS('session-1');
-    assert.equal(FakeWebSocket.instances[0].url, 'ws://localhost:5174/api/agent/sessions/session-1/ws');
+    await connection.connectSessionWS('session-1');
+    assert.equal(FakeWebSocket.instances[0].url, 'ws://localhost:5174/api/agent/sessions/session-1/ws?ticket=ticket-1');
 
     FakeWebSocket.instances[0].emit({ type: 'run_started', seq: 3, run_id: 'run-1' });
     assert.equal(connection.getLastEventSeq('session-1'), 3);
 
     connection.disconnectSessionWS();
-    connection.connectSessionWS('session-1');
+    await connection.connectSessionWS('session-1');
     assert.equal(
       FakeWebSocket.instances[1].url,
-      'ws://localhost:5174/api/agent/sessions/session-1/ws?after_seq=3',
+      'ws://localhost:5174/api/agent/sessions/session-1/ws?after_seq=3&ticket=ticket-2',
     );
 
     // seq 3 已投递过（cursor=3），重连后重复投递被 shouldDeliverEvent 拦截；seq 4 推进 cursor
@@ -128,13 +130,13 @@ test('session connection 重连时使用已观察到的 seq durable cursor', () 
   }
 });
 
-test('session connection 使用 heartbeat.last_seq 推进重连 cursor', () => {
+test('session connection 使用 heartbeat.last_seq 推进重连 cursor', async () => {
   const restore = installFakeSessionSocketEnv();
 
   try {
     const connection = useSessionAgentClient(createConnectionDeps());
 
-    connection.connectSessionWS('session-1');
+    await connection.connectSessionWS('session-1');
     FakeWebSocket.instances[0].emit({ type: 'heartbeat', payload: { last_seq: 5 } });
     assert.equal(connection.getLastEventSeq('session-1'), 5);
 
@@ -142,10 +144,10 @@ test('session connection 使用 heartbeat.last_seq 推进重连 cursor', () => {
     assert.equal(connection.getLastEventSeq('session-1'), 5);
 
     connection.disconnectSessionWS();
-    connection.connectSessionWS('session-1');
+    await connection.connectSessionWS('session-1');
     assert.equal(
       FakeWebSocket.instances[1].url,
-      'ws://localhost:5174/api/agent/sessions/session-1/ws?after_seq=5',
+      'ws://localhost:5174/api/agent/sessions/session-1/ws?after_seq=5&ticket=ticket-2',
     );
 
     FakeWebSocket.instances[1].emit({ type: 'stream_output', seq: 5, payload: { phase: 'delta', content: 'duplicate' } });
@@ -158,13 +160,13 @@ test('session connection 使用 heartbeat.last_seq 推进重连 cursor', () => {
   }
 });
 
-test('session connection 可重置 session durable cursor 以支持快照加载后的完整 active replay', () => {
+test('session connection 可重置 session durable cursor 以支持快照加载后的完整 active replay', async () => {
   const restore = installFakeSessionSocketEnv();
 
   try {
     const connection = useSessionAgentClient(createConnectionDeps());
 
-    connection.connectSessionWS('session-1');
+    await connection.connectSessionWS('session-1');
     FakeWebSocket.instances[0].emit({ type: 'stream_output', seq: 9, payload: { phase: 'delta', content: 'x' } });
     assert.equal(connection.getLastEventSeq('session-1'), 9);
 
@@ -172,8 +174,31 @@ test('session connection 可重置 session durable cursor 以支持快照加载�
     connection.resetSessionEventCursor('session-1');
     assert.equal(connection.getLastEventSeq('session-1'), 0);
 
-    connection.connectSessionWS('session-1');
-    assert.equal(FakeWebSocket.instances[1].url, 'ws://localhost:5174/api/agent/sessions/session-1/ws');
+    await connection.connectSessionWS('session-1');
+    assert.equal(FakeWebSocket.instances[1].url, 'ws://localhost:5174/api/agent/sessions/session-1/ws?ticket=ticket-2');
+  } finally {
+    restore();
+  }
+});
+
+test('切换 session 后会丢弃旧 session 迟到的 ticket', async () => {
+  const restore = installFakeSessionSocketEnv();
+  let resolveFirstTicket;
+  try {
+    const deps = createConnectionDeps();
+    deps.issueSessionWsTicket = (sessionId) => sessionId === 'session-1'
+      ? new Promise((resolve) => { resolveFirstTicket = resolve; })
+      : Promise.resolve({ data: { ticket: 'ticket-2' } });
+    const connection = useSessionAgentClient(deps);
+
+    const firstConnection = connection.connectSessionWS('session-1');
+    deps.currentSessionId.value = 'session-2';
+    await connection.connectSessionWS('session-2');
+    resolveFirstTicket({ data: { ticket: 'stale-ticket' } });
+    await firstConnection;
+
+    assert.equal(FakeWebSocket.instances.length, 1);
+    assert.equal(FakeWebSocket.instances[0].url, 'ws://localhost:5174/api/agent/sessions/session-2/ws?ticket=ticket-2');
   } finally {
     restore();
   }

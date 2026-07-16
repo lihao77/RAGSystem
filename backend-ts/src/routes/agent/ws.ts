@@ -5,7 +5,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { ClientToServerEnvelopeSchema, type Envelope } from "../../contracts/events.js";
 import { EnvelopeProjector } from "../../services/runtime/event-outbox/projector.js";
 import type { RuntimeContainer } from "../../services/runtime/runtime-container.js";
-import type { RouteOptions } from "../route-options.js";
+import type { AgentRouteOptions } from "../route-options.js";
 import { isRecord } from "../../utils/guards.js";
 import { widgetUserId } from "../../identity/widget-user-id.js";
 import { assertSessionOwner } from "../session-owner.js";
@@ -18,8 +18,8 @@ interface SessionWsQuery {
   after_seq?: string;
   /** widget 会话的短时 JWT（query 传，因浏览器 WS 无法设 header）；普通会话不要求。 */
   token?: string;
-  /** 普通会话 session JWT（query 传，浏览器 WS 无法设 Authorization header；WS 路由注入 header 供 identityProvider 解析）。 */
-  session_token?: string;
+  /** 普通前端会话使用的短时、单次 WebSocket ticket。 */
+  ticket?: string;
 }
 
 type WebSocketLike = {
@@ -32,7 +32,7 @@ type WebSocketLike = {
 
 const WS_OPEN = 1;
 
-export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = async (app, options) => {
+export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions> = async (app, options) => {
   app.get<{ Params: SessionWsParams; Querystring: SessionWsQuery }>(
     "/sessions/:sessionId/ws",
     {
@@ -44,12 +44,14 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<RouteOptions> = a
           if (options.widgetAuth && request.query.token) {
             const claims = options.widgetAuth.verifyWsToken(request.query.token);
             lease = await options.registry.acquire(claims.tenant_id);
+          } else if (request.query.ticket) {
+            const identity = options.wsTickets.consume(request.query.ticket, sessionId);
+            request.identity = identity;
+            request.userId = identity.userId;
+            lease = await options.registry.acquire(identity.tenantId);
           } else {
-            // 浏览器 WS 无法设 Authorization header:普通会话经 query.session_token 传入,注入 header 让 identityProvider 正常解析。
-            const sessionToken = request.query.session_token;
-            if (typeof sessionToken === "string" && sessionToken && !request.headers.authorization) {
-              request.headers.authorization = `Bearer ${sessionToken}`;
-            }
+            // local profile 和受信任的非浏览器客户端仍可由 identity provider 直接解析；
+            // 浏览器 password profile 必须先走 HTTP 签发 ticket，不再接受长期 JWT query。
             const identity = options.identityProvider.resolve(request);
             request.identity = identity;
             request.userId = identity.userId;

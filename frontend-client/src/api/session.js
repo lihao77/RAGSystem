@@ -23,6 +23,11 @@ export async function getSessionPermissions(sessionId) {
   return http.get(`${BASE}/sessions/${encodeURIComponent(sessionId)}/permissions`);
 }
 
+/** 签发与 session 绑定、短时且单次使用的 WebSocket ticket。 */
+export async function issueSessionWsTicket(sessionId) {
+  return http.post(`${BASE}/sessions/${encodeURIComponent(sessionId)}/ws-ticket`);
+}
+
 export async function updateSessionPermissions(sessionId, mode) {
   return http.patch(`${BASE}/sessions/${encodeURIComponent(sessionId)}/permissions`, { mode });
 }

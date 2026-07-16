@@ -10,9 +10,8 @@ import {
 import { resetActiveRunState } from '../stores/session-run.js';
 import { getHostTool, getHostToolDeclarations } from '../utils/hostTools.js';
 import { createAssistantMessage } from './useMessageExecution.js';
-import { getSessionTaskStatus, startStream, stopStream, respondInteraction as respondInteractionApi } from '../api/session.js';
+import { getSessionTaskStatus, issueSessionWsTicket, startStream, stopStream, respondInteraction as respondInteractionApi } from '../api/session.js';
 import { useSessionRunStore } from '../stores/session-run.js';
-import { useAuthStore } from '../stores/auth.js';
 import { useRunRuntime } from './useRunRuntime.js';
 
 const WS_OPEN = 1;
@@ -432,18 +431,54 @@ export function useSessionAgentClient(deps) {
     return true;
   };
 
-  const connectSessionWS = (sessionId) => {
+  let _wsConnectGeneration = 0;
+  let _wsPendingSessionId = null;
+
+  const scheduleWsReconnect = (sessionId) => {
+    if (currentSessionId.value !== sessionId || _wsReconnectTimer) return;
+    if (_wsReconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      console.warn(`[WS] 达到最大重连次数 (${MAX_RECONNECT_ATTEMPTS})，放弃重连`);
+      if (activeRun.active) finalizeActiveRun(sessionId);
+      return;
+    }
+    const delay = Math.min(1000 * Math.pow(2, _wsReconnectAttempts), 30000) + Math.random() * 1000;
+    _wsReconnectAttempts++;
+    _wsReconnectTimer = setTimeout(() => {
+      _wsReconnectTimer = null;
+      void connectSessionWS(sessionId, { isReconnect: true });
+    }, delay);
+  };
+
+  const connectSessionWS = async (sessionId, { isReconnect = false } = {}) => {
     if (!sessionId) return;
     if (canReuseSessionSocket(sessionId, _wsSessionId, _ws)) return;
-    disconnectSessionWS();
+    if (_wsPendingSessionId === sessionId) return;
+    disconnectSessionWS({ preserveReconnectState: isReconnect });
     deps.resetApprovalState();
+    const connectGeneration = _wsConnectGeneration;
+    _wsPendingSessionId = sessionId;
+    let ticket;
+    try {
+      const response = await (deps.issueSessionWsTicket ?? issueSessionWsTicket)(sessionId);
+      ticket = response?.data?.ticket ?? response?.ticket;
+      if (!ticket) throw new Error('WebSocket ticket 响应无效');
+    } catch (error) {
+      if (connectGeneration === _wsConnectGeneration && _wsPendingSessionId === sessionId) {
+        _wsPendingSessionId = null;
+        console.warn('[WS] ticket 签发失败:', error);
+        scheduleWsReconnect(sessionId);
+      }
+      return;
+    }
+    if (connectGeneration !== _wsConnectGeneration || _wsPendingSessionId !== sessionId || currentSessionId.value !== sessionId) return;
+    _wsPendingSessionId = null;
     const currentLocation = globalThis.location || { protocol: 'http:', host: '' };
     const lastEventSeq = getLastEventSeq(sessionId);
     const url = buildSessionSocketUrl(sessionId, {
       protocol: currentLocation.protocol,
       host: currentLocation.host,
       afterEventSeq: lastEventSeq > 0 ? lastEventSeq : null,
-      sessionToken: useAuthStore().token || null,
+      ticket,
     });
     const ws = new WebSocket(url);
     _wsSessionId = sessionId;
@@ -482,27 +517,20 @@ export function useSessionAgentClient(deps) {
       // 断连时不立即 finalize——先尝试重连，由恢复兜底逻辑决定是否 finalize
       clearCommandFallback();
       if (currentSessionId.value === sessionId) {
-        if (_wsReconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-          console.warn(`[WS] 达到最大重连次数 (${MAX_RECONNECT_ATTEMPTS})，放弃重连`);
-          if (activeRun.active) {
-            finalizeActiveRun(sessionId);
-          }
-          return;
-        }
-        const delay = Math.min(1000 * Math.pow(2, _wsReconnectAttempts), 30000) + Math.random() * 1000;
-        _wsReconnectAttempts++;
-        _wsReconnectTimer = setTimeout(() => connectSessionWS(sessionId), delay);
+        scheduleWsReconnect(sessionId);
       }
     };
     ws.onerror = () => {};
     _ws = ws;
   };
 
-  const disconnectSessionWS = () => {
+  const disconnectSessionWS = ({ preserveReconnectState = false } = {}) => {
+    _wsConnectGeneration++;
+    _wsPendingSessionId = null;
     clearCommandFallback();
     clearSessionResumeRecovery();
     deps.resetApprovalState();
-    _wsReconnectAttempts = 0;
+    if (!preserveReconnectState) _wsReconnectAttempts = 0;
     if (_wsReconnectTimer) {
       clearTimeout(_wsReconnectTimer);
       _wsReconnectTimer = null;

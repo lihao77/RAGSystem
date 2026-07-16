@@ -33,6 +33,7 @@ import { createControlStore, type ControlStore } from "./services/stores/control
 import { createWidgetCredentialStore, type WidgetCredentialStore } from "./services/stores/widget-credential-store/index.js";
 import { createWidgetAuthService, type WidgetAuthService } from "./services/runtime/jwt-service.js";
 import { createSessionTokenService, type SessionTokenService } from "./services/runtime/session-token-service.js";
+import { createWsTicketService, type WsTicketService } from "./services/runtime/ws-ticket-service.js";
 import { AuthError, LocalIdentityProvider, PasswordIdentityProvider, WidgetIdentityProvider, type IdentityProvider } from "./services/identity/index.js";
 import { DefaultTenantRuntimeRegistry, type TenantRuntimeRegistry } from "./services/runtime/tenant-runtime-registry.js";
 import { createTenantMigrator, type TenantMigrator } from "./services/runtime/tenant-migrator.js";
@@ -48,6 +49,7 @@ export interface BuildAppOptions {
   widgetAuth?: WidgetAuthService;
   sessionTokens?: SessionTokenService;
   botEngine?: DaemonService;
+  wsTickets?: WsTicketService;
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
@@ -82,6 +84,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     : undefined);
   const widgetIdentityProvider = widgetAuth ? new WidgetIdentityProvider(widgetAuth, widgetCredentialStore) : undefined;
   const registry = options.registry ?? new DefaultTenantRuntimeRegistry(options.env, controlStore, app.log);
+  const wsTickets = options.wsTickets ?? createWsTicketService();
   const botEngine = options.botEngine ?? new DaemonService({
     controlStore,
     registry,
@@ -208,6 +211,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     botEngine.close();
     await registry.closeAll();
     widgetCredentialStore.close();
+    wsTickets.close();
     controlStore.close();
   });
 
@@ -358,6 +362,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     registry,
     identityProvider: routedIdentityProvider,
     widgetCredentialStore,
+    wsTickets,
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await app.register(registerAguiRoutes, {

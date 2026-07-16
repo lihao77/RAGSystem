@@ -16,6 +16,63 @@ afterEach(async () => {
 });
 
 describe("session websocket route", () => {
+  it("requires a one-time ticket in password mode and rejects a session JWT query", async () => {
+    const harness = await buildTestHarness({ sessionJwtSecret: "ws-ticket-secret-0123456789abcdef0123456789" });
+    app = harness.app;
+    await app.inject({
+      method: "POST",
+      url: "/api/install",
+      payload: { deployment: "saas", admin: { username: "admin", password: "password123" } },
+    });
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { username: "admin", password: "password123" },
+    });
+    const token = login.json().token as string;
+    const headers = { authorization: `Bearer ${token}` };
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/agent/sessions",
+      headers,
+      payload: { session_id: "password-ws-ticket" },
+    });
+    expect(created.statusCode).toBe(200);
+    const issued = await app.inject({
+      method: "POST",
+      url: "/api/agent/sessions/password-ws-ticket/ws-ticket",
+      headers,
+    });
+    expect(issued.statusCode).toBe(200);
+    const ticket = issued.json().data.ticket as string;
+
+    const client = await connectWs(app, `/api/agent/sessions/password-ws-ticket/ws?ticket=${encodeURIComponent(ticket)}`);
+    client.ws.terminate();
+    await expect(app.injectWS(`/api/agent/sessions/password-ws-ticket/ws?session_token=${encodeURIComponent(token)}`)).rejects.toThrow();
+  });
+
+  it("accepts an issued ticket once and rejects replay", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/agent/sessions",
+      payload: { session_id: "ws-ticket-session" },
+    });
+    expect(created.statusCode).toBe(200);
+    const issued = await app.inject({
+      method: "POST",
+      url: "/api/agent/sessions/ws-ticket-session/ws-ticket",
+    });
+    expect(issued.statusCode).toBe(200);
+    const ticket = issued.json().data.ticket as string;
+    const path = `/api/agent/sessions/ws-ticket-session/ws?ticket=${encodeURIComponent(ticket)}`;
+
+    const client = await connectWs(app, path);
+    client.ws.terminate();
+    await expect(app.injectWS(path)).rejects.toThrow();
+  });
+
   it("does not send an empty reconnect envelope for idle sessions", async () => {
     const harness = await buildTestHarness();
     app = harness.app;

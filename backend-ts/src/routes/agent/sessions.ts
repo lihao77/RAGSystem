@@ -12,7 +12,7 @@ import {
   UpdateMessageRequestSchema,
 } from "../../contracts/session.js";
 import { HttpError } from "../../utils/errors.js";
-import type { RouteOptions } from "../route-options.js";
+import type { AgentRouteOptions } from "../route-options.js";
 import { ZodError } from "zod";
 import { WorkspaceRootValidationError } from "../../services/sessions/index.js";
 import { loadOwnedSession } from "../session-owner.js";
@@ -25,7 +25,7 @@ interface MessageParams extends SessionParams {
   messageId: string;
 }
 
-export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (app) => {
+export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = async (app, options) => {
   app.post("/sessions", async (request) => {
     const payload = CreateSessionRequestSchema.parse(request.body);
     try {
@@ -64,6 +64,11 @@ export const registerSessionRoutes: FastifyPluginAsync<RouteOptions> = async (ap
   app.get<{ Params: SessionParams }>("/sessions/:sessionId", async (request) => {
     const session = loadOwnedSession(request, request.params.sessionId);
     return ok(session, "获取会话成功");
+  });
+
+  app.post<{ Params: SessionParams }>("/sessions/:sessionId/ws-ticket", async (request) => {
+    loadOwnedSession(request, request.params.sessionId);
+    return ok(options.wsTickets.issue(request.identity, request.params.sessionId), "WebSocket ticket 已签发");
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/permissions", async (request) => {

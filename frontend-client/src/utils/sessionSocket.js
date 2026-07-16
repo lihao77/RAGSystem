@@ -27,9 +27,8 @@ export function buildSessionSocketUrl(sessionId, options = {}) {
   const params = new URLSearchParams();
   const afterEventSeq = normalizeEventSeq(options.afterEventSeq);
   if (afterEventSeq !== null) params.set('after_seq', String(afterEventSeq));
-  // 浏览器 WS 无法设 Authorization header,saas 模式经 query 传 session token。
-  if (typeof options.sessionToken === 'string' && options.sessionToken) {
-    params.set('session_token', options.sessionToken);
+  if (typeof options.ticket === 'string' && options.ticket) {
+    params.set('ticket', options.ticket);
   }
   const query = params.toString();
   return `${protocol}//${host}/api/agent/sessions/${encodedSessionId}/ws${query ? `?${query}` : ''}`;
