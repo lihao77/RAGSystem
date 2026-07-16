@@ -13,7 +13,7 @@ export function createSessionEventReducer({
   isCompressing,
   contextUsage,
   llmRetryState,
-  sessionTaskInfo,
+  patchTaskInfo,
   handleApprovalRequired,
   handleUserInputRequired,
 }) {
@@ -46,7 +46,7 @@ export function createSessionEventReducer({
           model: detail.model || '',
         });
         activeRun.phase = 'retrying';
-        sessionTaskInfo.value = { ...(sessionTaskInfo.value || {}), status: 'running' };
+        patchTaskInfo({ status: 'running' });
       } else if (category === 'waiting') {
         const detail = payload.detail || {};
         const isStart = detail.phase === 'start' || Boolean(detail.wait_id && !activeRun.waiting);
