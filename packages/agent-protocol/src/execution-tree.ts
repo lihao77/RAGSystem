@@ -173,6 +173,20 @@ function applyOutputStream(state: ExecutionTreeState, env: Envelope, payload: Re
 function applyToolCall(state: ExecutionTreeState, env: Envelope, payload: Record<string, unknown>): void {
   const callId = asString(env.call_id);
   if (!callId) return;
+
+  // tool_call is an idempotent lifecycle start keyed by call_id. Approval resume,
+  // reconnect replay, or at-least-once delivery may publish the same start more
+  // than once. Reuse the object already attached to the round so a later
+  // tool_result updates the object rendered by consumers, and never regresses a
+  // terminal tool back to running.
+  const existing = state.toolsByCallId.get(callId);
+  if (existing) {
+    const toolName = asString(payload.tool);
+    if (!existing.toolName && toolName) existing.toolName = toolName;
+    if (existing.arguments === undefined && payload.input !== undefined) existing.arguments = payload.input;
+    return;
+  }
+
   const tool: ExecutionToolCall = {
     callId,
     toolName: asString(payload.tool) ?? "",

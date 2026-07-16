@@ -40,6 +40,16 @@ interface ToolObservationResult {
   modelContent?: KernelObservation["modelContent"];
 }
 
+interface PlannedToolCall {
+  call: KernelToolCall;
+  index: number;
+  arguments: Record<string, unknown>;
+  toolContext: ToolExecContext;
+  startedAt: number;
+  prepared: PreparedTool | null;
+  result: ToolExecutionResult | null;
+}
+
 export interface ToolRoundExecutorOptions {
   /** 工具注册表（SDK 定义的 Tool 实例集合）。 */
   registry: ToolRegistry;
@@ -62,15 +72,23 @@ export async function executeToolCallRound(calls: KernelToolCall[], opts: ToolRo
   const batches = buildExecutionBatches(calls);
   for (const batch of batches) {
     throwIfAborted(opts.toolContext.signal, "Agent run aborted");
-    const runCall = (call: KernelToolCall) =>
-      executeSingleToolCall({ call, previousResults: roundResults, opts });
-    const batchExecutions = await runToolBatchWithScheduler(batch, {
+    const interactionBatchId = buildInteractionBatchId(opts.toolContext.runId, batch);
+    const planned = await Promise.all(batch.map((call) => planToolCall({
+      call,
+      previousResults: roundResults,
+      interactionBatchId,
+      opts,
+    })));
+
+    // 门禁预检只做策略判断/登记交互，不执行工具副作用。同一依赖批次的 ask 会在
+    // daemon 的 0ms deadline 到达前全部注册，从而一次挂起、全部审批后一次恢复。
+    await Promise.all(planned.map((item) => applyToolGate(item, opts)));
+
+    const batchExecutions = await runToolBatchWithScheduler(planned, {
       signal: opts.toolContext.signal,
-      classify: (call) => {
-        const resolved = resolveToolArgumentReferences(call.arguments, roundResults);
-        return opts.registry.classifyConcurrency(call.toolName, resolved);
-      },
-      run: runCall,
+      classify: (item) => item.result === null
+        && opts.registry.classifyConcurrency(item.call.toolName, item.arguments),
+      run: (item) => executePlannedToolCall(item, opts),
     });
     throwIfAborted(opts.toolContext.signal, "Agent run aborted");
     for (const execution of batchExecutions) {
@@ -81,13 +99,19 @@ export async function executeToolCallRound(calls: KernelToolCall[], opts: ToolRo
   return [...executions.values()].sort((left, right) => left.index - right.index);
 }
 
-async function executeSingleToolCall(input: {
+async function planToolCall(input: {
   call: KernelToolCall;
   previousResults: Map<number, ToolExecutionResult>;
+  interactionBatchId: string;
   opts: ToolRoundExecutorOptions;
-}): Promise<KernelObservation> {
-  const { call, previousResults, opts } = input;
-  const toolContext = buildToolCallExecutionContext(opts.toolContext, { callId: call.callId, round: opts.round, index: call.index });
+}): Promise<PlannedToolCall> {
+  const { call, previousResults, interactionBatchId, opts } = input;
+  const toolContext = buildToolCallExecutionContext(opts.toolContext, {
+    callId: call.callId,
+    round: opts.round,
+    index: call.index,
+    interactionBatchId,
+  });
   throwIfAborted(toolContext.signal, "Agent run aborted");
   const order = call.index + 1;
   const toolArguments = resolveToolArgumentReferences(call.arguments, previousResults);
@@ -104,19 +128,85 @@ async function executeSingleToolCall(input: {
 
   const startedAt = Date.now();
   const unresolvedPlaceholders = collectResultPlaceholders(toolArguments);
-
-  let toolResult: ToolExecutionResult;
   if (unresolvedPlaceholders.length) {
-    toolResult = buildToolReferenceErrorResult(call.toolName, unresolvedPlaceholders);
-  } else {
-    // prepare → approve → hook.before → tool.call → hook.after/error
-    toolResult = await prepareAndExecute({
-      toolName: call.toolName,
-      toolArguments,
+    return {
+      call,
+      index: call.index,
+      arguments: toolArguments,
       toolContext,
-      opts,
+      startedAt,
+      prepared: null,
+      result: buildToolReferenceErrorResult(call.toolName, unresolvedPlaceholders),
+    };
+  }
+
+  const prepareResult = prepareTool({ registry: opts.registry }, call.toolName, toolArguments, toolContext);
+  if (!prepareResult.ok) {
+    return { call, index: call.index, arguments: toolArguments, toolContext, startedAt, prepared: null, result: prepareResult.result };
+  }
+  let prepared = prepareResult.prepared;
+
+  if (opts.hooks) {
+    const hookOut = await opts.hooks.emit("tool.before", {
+      toolName: call.toolName,
+      arguments: prepared.input,
+      ctx: toolContext,
+    });
+    throwIfAborted(toolContext.signal, "Agent run aborted");
+    if (hookOut.decision === "deny") {
+      return {
+        call,
+        index: call.index,
+        arguments: toolArguments,
+        toolContext,
+        startedAt,
+        prepared: null,
+        result: buildToolExecutionErrorResult(prepared.tool.name, new Error(hookOut.reason ?? `工具 ${prepared.tool.name} 被 hook 拒绝`)),
+      };
+    }
+    if (hookOut.modifiedInput) {
+      const reprepared = prepareTool({ registry: opts.registry }, prepared.tool.name, hookOut.modifiedInput, toolContext);
+      if (!reprepared.ok) {
+        return { call, index: call.index, arguments: toolArguments, toolContext, startedAt, prepared: null, result: reprepared.result };
+      }
+      prepared = reprepared.prepared;
+    }
+  }
+
+  return { call, index: call.index, arguments: prepared.input, toolContext, startedAt, prepared, result: null };
+}
+
+async function applyToolGate(plan: PlannedToolCall, opts: ToolRoundExecutorOptions): Promise<void> {
+  if (plan.result || !plan.prepared || !opts.hooks) return;
+  const gateOut = await opts.hooks.emit("tool.gate", {
+    toolName: plan.prepared.tool.name,
+    arguments: plan.prepared.input,
+    ctx: plan.toolContext,
+    riskLevel: plan.prepared.permission?.riskLevel ?? plan.prepared.tool.riskLevel ?? "low",
+    access: plan.prepared.permission,
+  });
+  throwIfAborted(plan.toolContext.signal, "Agent run aborted");
+  if (gateOut.decision === "deny") {
+    plan.result = buildToolExecutionErrorResult(
+      plan.prepared.tool.name,
+      new Error(gateOut.reason ?? `工具 ${plan.prepared.tool.name} 被门禁拒绝`),
+    );
+    plan.prepared = null;
+  }
+}
+
+async function executePlannedToolCall(plan: PlannedToolCall, opts: ToolRoundExecutorOptions): Promise<KernelObservation> {
+  const { call, toolContext } = plan;
+  const order = call.index + 1;
+  let toolResult = plan.result;
+  if (!toolResult && plan.prepared) {
+    toolResult = await executeToolWithHookError({
+      prepared: plan.prepared,
+      execContext: toolContext,
+      ...(opts.hooks ? { hooks: opts.hooks } : {}),
     });
   }
+  toolResult ??= buildToolExecutionErrorResult(call.toolName, new Error(`工具 ${call.toolName} 未产生执行结果`));
 
   throwIfAborted(toolContext.signal, "Agent run aborted");
   const observationResult = await resolveToolObservation({
@@ -127,7 +217,7 @@ async function executeSingleToolCall(input: {
     opts,
   });
   throwIfAborted(toolContext.signal, "Agent run aborted");
-  const elapsedTime = (Date.now() - startedAt) / 1000;
+  const elapsedTime = (Date.now() - plan.startedAt) / 1000;
   opts.events.emit({
     type: "tool_result",
     agentName: opts.agentName,
@@ -147,72 +237,11 @@ async function executeSingleToolCall(input: {
     index: call.index,
     callId: call.callId,
     toolName: call.toolName,
-    arguments: toolArguments,
+    arguments: plan.arguments,
     result: toolResult,
     observation: observationResult.observation,
     ...(observationResult.modelContent ? { modelContent: observationResult.modelContent } : {}),
   };
-}
-
-/**
- * prepare → hook.before（可 deny/改入参）→ 审批编排 → tool.call → hook.after（可改结果）/hook.error。
- * hook 是智能层（先跑、可改判/改入参），permission 是兜底安全网（对最终入参判定）。
- * 全流程内置，消费端只提供 Tool 实例 + 可选审批端口。
- */
-async function prepareAndExecute(input: {
-  toolName: string;
-  toolArguments: Record<string, unknown>;
-  toolContext: ToolExecContext;
-  opts: ToolRoundExecutorOptions;
-}): Promise<ToolExecutionResult> {
-  const { toolName, toolArguments, toolContext, opts } = input;
-
-  // 1. prepare（校验 + 权限自检 + 路径收集）
-  const prepareResult = prepareTool(
-    { registry: opts.registry },
-    toolName,
-    toolArguments,
-    toolContext,
-  );
-  if (!prepareResult.ok) {
-    return prepareResult.result;
-  }
-  let prepared = prepareResult.prepared;
-
-  // 2. hook.before：可 deny（跳过工具）或 modifiedInput（re-prepare 校验后替换）
-  if (opts.hooks) {
-    const hookOut = await opts.hooks.emit("tool.before", { toolName, arguments: prepared.input, ctx: toolContext });
-    throwIfAborted(toolContext.signal, "Agent run aborted");
-    if (hookOut.decision === "deny") {
-      return buildToolExecutionErrorResult(prepared.tool.name, new Error(hookOut.reason ?? `工具 ${prepared.tool.name} 被 hook 拒绝`));
-    }
-    if (hookOut.modifiedInput) {
-      const reprepared = prepareTool({ registry: opts.registry }, prepared.tool.name, hookOut.modifiedInput, toolContext);
-      if (!reprepared.ok) {
-        return reprepared.result;
-      }
-      prepared = reprepared.prepared;
-    }
-  }
-
-  // 3. tool.gate：门禁最终入参（审批策略挂这里）。deny→跳过工具。handler 内部消化审批交互，
-  //    返回 allow/deny；路径准入由 backend pathService 在 handler↔tool.call 间流转（不经 ctx）。
-  if (opts.hooks) {
-    const gateOut = await opts.hooks.emit("tool.gate", {
-      toolName: prepared.tool.name,
-      arguments: prepared.input,
-      ctx: toolContext,
-      riskLevel: prepared.permission?.riskLevel ?? prepared.tool.riskLevel ?? "low",
-      access: prepared.permission,
-    });
-    throwIfAborted(toolContext.signal, "Agent run aborted");
-    if (gateOut.decision === "deny") {
-      return buildToolExecutionErrorResult(prepared.tool.name, new Error(gateOut.reason ?? `工具 ${prepared.tool.name} 被门禁拒绝`));
-    }
-  }
-
-  // 4. tool.call + hook.after（可改结果）/ hook.error
-  return executeToolWithHookError({ prepared, execContext: toolContext, ...(opts.hooks ? { hooks: opts.hooks } : {}) });
 }
 
 /** tool.call + hook.after（可改结果）/hook.error 包装。 */
@@ -357,9 +386,23 @@ async function resolveToolObservation(input: {
   };
 }
 
-function buildToolCallExecutionContext(context: ToolExecContext, input: { callId: string; round: number; index: number }): ToolExecContext {
+function buildToolCallExecutionContext(
+  context: ToolExecContext,
+  input: { callId: string; round: number; index: number; interactionBatchId: string },
+): ToolExecContext {
   const order = input.index + 1;
-  return { ...context, toolCallId: input.callId, round: input.round, order, roundIndex: order };
+  return {
+    ...context,
+    toolCallId: input.callId,
+    round: input.round,
+    order,
+    roundIndex: order,
+    interactionBatchId: input.interactionBatchId,
+  };
+}
+
+function buildInteractionBatchId(runId: string | null, calls: KernelToolCall[]): string {
+  return `${runId ?? "run"}:${calls.map((call) => call.callId).sort().join(",")}`;
 }
 
 function extractToolWaitSignal(result: ToolExecutionResult): { backgroundTaskId: string; timeoutMs?: number | null } | null {

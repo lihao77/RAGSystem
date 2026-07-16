@@ -31,6 +31,8 @@ export interface PersisterRunContext {
   agentDisplayName: string;
   /** 当前 run 的 root call id（step_id 规则基准；root run=自身 call_id，child run=父 call_id）。 */
   rootCallId: string;
+  /** 整棵执行树的根 run id；挂起时与 pending interaction 同事务收口。 */
+  rootRunId?: string;
   /** 父 run 的 call_id（root run=null；用于 lineage / conversation_scope 判定）。 */
   parentCallId: string | null;
   taskId?: string | null;
@@ -105,6 +107,7 @@ export class KernelEventPersister {
   finalize(status: "completed" | "failed" | "interrupted" | "suspended", finalMessage: FinalMessageInput | null): void {
     this.store.runInTransaction((tx) => {
       if (status === "suspended") {
+        tx.suspendPendingInteractions(this.ctx.sessionId, this.ctx.rootRunId ?? this.ctx.runId);
         tx.updateRunStatus(this.ctx.runId, this.ctx.sessionId, "suspended", null);
         return;
       }

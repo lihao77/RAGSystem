@@ -186,7 +186,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
     clientEvents,
   });
   const taskTools = new TaskToolService(backgroundTasks, notificationQueue, { dataRoot: options.dataRoot });
-  const pendingInteractions = new PendingInteractionService(clientEvents);
+  const pendingInteractions = new PendingInteractionService(clientEvents, conversationStore);
   const hostToolRegistry = new HostToolRegistry();
   const delegationPending = new DelegationPendingService();
   // agentDelegation 需先实例化（工具依赖它），但其 runEngine/eventPublisher 延迟设置。

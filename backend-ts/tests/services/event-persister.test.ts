@@ -8,15 +8,18 @@ interface MockStore {
   store: ConversationStore;
   addMessageCalls: Array<Record<string, unknown>>;
   updateRunStatusCalls: Array<[string, string, string, string | null]>;
+  suspendPendingCalls: Array<[string, string]>;
 }
 
 /** 最小 store mock：只实现当前测试路径用到的事务方法。 */
 function mockStore(): MockStore {
   const addMessageCalls: Array<Record<string, unknown>> = [];
   const updateRunStatusCalls: Array<[string, string, string, string | null]> = [];
+  const suspendPendingCalls: Array<[string, string]> = [];
   type MockTransaction = {
     addMessage: (input: Record<string, unknown>) => { id: string; seq: number };
     updateRunStatus: (runId: string, sessionId: string, status: string, finalMessageId: string | null) => boolean;
+    suspendPendingInteractions: (sessionId: string, rootRunId: string) => number;
   };
   const tx: MockTransaction = {
     addMessage: (input: Record<string, unknown>) => {
@@ -27,11 +30,15 @@ function mockStore(): MockStore {
       updateRunStatusCalls.push([runId, sessionId, status, finalMessageId]);
       return true;
     },
+    suspendPendingInteractions: (sessionId, rootRunId) => {
+      suspendPendingCalls.push([sessionId, rootRunId]);
+      return 1;
+    },
   };
   const store = {
     runInTransaction: (fn: (transaction: MockTransaction) => unknown): unknown => fn(tx),
   } as unknown as ConversationStore;
-  return { store, addMessageCalls, updateRunStatusCalls };
+  return { store, addMessageCalls, updateRunStatusCalls, suspendPendingCalls };
 }
 
 const ctx: PersisterRunContext = {
@@ -41,6 +48,7 @@ const ctx: PersisterRunContext = {
   agentName: "agent",
   agentDisplayName: "Agent",
   rootCallId: "c1",
+  rootRunId: "r1",
   parentCallId: null,
 };
 
@@ -116,12 +124,13 @@ describe("KernelEventPersister — 工具消息持久化", () => {
   });
 
   it("suspended 仅更新状态并保留悬空工具调用", () => {
-    const { store, addMessageCalls, updateRunStatusCalls } = mockStore();
+    const { store, addMessageCalls, updateRunStatusCalls, suspendPendingCalls } = mockStore();
     const persister = new KernelEventPersister(store, ctx);
 
     persister.finalize("suspended", null);
 
     expect(addMessageCalls).toHaveLength(0);
+    expect(suspendPendingCalls).toEqual([["s1", "r1"]]);
     expect(updateRunStatusCalls).toEqual([["r1", "s1", "suspended", null]]);
   });
 });

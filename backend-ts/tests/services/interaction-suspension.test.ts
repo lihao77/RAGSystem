@@ -29,7 +29,7 @@ function daemonToolContext(): ToolExecContext {
 }
 
 describe("交互工具挂起语义", () => {
-  it("gate-hook 传递 daemon deadline 与 run 树并重抛 RecoverableInterrupt", async () => {
+  it("gate-hook 对 daemon 使用统一 deadline 并透传 run 树", async () => {
     const interrupt = new RecoverableInterrupt({
       sessionId: "session-1",
       runId: "child-run",
@@ -74,11 +74,11 @@ describe("交互工具挂起语义", () => {
       parentRunId: "root-run",
       parentCallId: "agent-call-1",
       toolCallId: "tool-call-1",
-      deadlineMs: 0,
+      deadlineMs: 120_000,
     }));
   });
 
-  it("request_user_input 透传 RecoverableInterrupt", async () => {
+  it("request_user_input 对 daemon 使用统一 deadline", async () => {
     const interrupt = new RecoverableInterrupt({
       sessionId: "session-1",
       runId: "child-run",
@@ -99,7 +99,7 @@ describe("交互工具挂起语义", () => {
       rootRunId: "root-run",
       parentRunId: "root-run",
       parentCallId: "agent-call-1",
-      deadlineMs: 0,
+      deadlineMs: 120_000,
     }));
   });
 });

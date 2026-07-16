@@ -16,7 +16,7 @@ import type { BackendToolsDeps } from "../../../tools/registry.js";
 import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/CodeExecution.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
-import type { PendingInteractionService } from "../../runtime/pending-interaction-service.js";
+import type { InteractionRequiredNotice, PendingInteractionService } from "../../runtime/pending-interaction-service.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService } from "../../runtime/delegation-pending-service.js";
 import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
@@ -102,6 +102,7 @@ export class AgentRunEngine {
     runStartExtra?: Record<string, unknown> | undefined;
     startStepExtra?: Record<string, unknown> | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
+    onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
   }): AgentRunStartResult & { promise: Promise<{ content: string; success: boolean; suspended?: boolean }> } {
     const runId = input.runId ?? randomUUID();
     const taskId = input.taskId ?? randomUUID();
@@ -190,6 +191,7 @@ export class AgentRunEngine {
       executionKind: input.executionKind,
       rootTask: input.task,
       finalMetadataExtra: input.finalMetadataExtra,
+      ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
       onTerminal: (finalStatus) => this.statusTracker.finishStatus(status, finalStatus, startedAt),
     });
     this.statusTracker.register(taskId, input.sessionId, { abortController, status, promise });
@@ -304,6 +306,7 @@ export class AgentRunEngine {
     executionKind?: string | undefined;
     rootTask?: string | undefined;
     finalMetadataExtra?: Record<string, unknown> | undefined;
+    onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
     // 终态回调（替代直接耦合 statusTracker）：root 由 startRun 壳传绑定 statusTracker 的回调，
     // child 不传。executeRun 自己用 startedAt 算 execution_time，不依赖外部 status 对象。
     onTerminal?: (finalStatus: "completed" | "failed" | "interrupted" | "suspended") => void;
@@ -385,6 +388,7 @@ export class AgentRunEngine {
          selectedLlm: input.selectedLlm ?? null,
          // 最终 assistant 消息的调用点元数据：execution_kind + finalMetadataExtra（retry_of_* 等）。
          messageMetadata: { execution_kind: executionKind, ...(input.finalMetadataExtra ?? {}) },
+         ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
        },
      );
 

@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import path from "node:path";
+
+import { describe, expect, it, vi } from "vitest";
 
 import { RecoverableInterrupt } from "@ragsystem/agent-protocol";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
@@ -8,12 +10,13 @@ import { PendingInteractionService } from "../../src/services/runtime/pending-in
 import { resolveInteractionDeadlineMs } from "../../src/services/runtime/pending-interaction-service.js";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
+import { makeTempRoot } from "../helpers/temp-db.js";
 
 describe("PendingInteractionService", () => {
-  it("daemon 来源立即挂起，交互来源默认等待两分钟", () => {
-    expect(resolveInteractionDeadlineMs("daemon")).toBe(0);
-    expect(resolveInteractionDeadlineMs("daemon.cron")).toBe(0);
-    expect(resolveInteractionDeadlineMs("daemon.webhook")).toBe(0);
+  it("daemon 与交互入口统一等待两分钟", () => {
+    expect(resolveInteractionDeadlineMs("daemon")).toBe(120_000);
+    expect(resolveInteractionDeadlineMs("daemon.cron")).toBe(120_000);
+    expect(resolveInteractionDeadlineMs("daemon.webhook")).toBe(120_000);
     expect(resolveInteractionDeadlineMs("agent_stream")).toBe(120_000);
   });
 
@@ -25,6 +28,7 @@ describe("PendingInteractionService", () => {
     const service = new PendingInteractionService(clientEvents);
     store.createSession(LOCAL_TENANT_ID, "s1", "usr_local");
 
+    const onInteractionRequired = vi.fn();
     const approvalPromise = service.waitForApproval({
       sessionId: "s1",
       runId: "run-1",
@@ -40,10 +44,16 @@ describe("PendingInteractionService", () => {
       arguments: { command: "echo ok" },
       riskLevel: "high",
       description: "Execute bash command",
+      onInteractionRequired,
       permissionMode: "standard",
       approvalReason: "标准模式：high 风险工具需要审批",
       approvalReasonCodes: ["ask-risk"],
     });
+    expect(onInteractionRequired).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: "s1",
+      rootRunId: "run-1",
+      kind: "approval",
+    }));
 
     const history = realtimeEvents.getHistory("s1");
     const approvalRequired = history.find(
@@ -271,6 +281,128 @@ describe("PendingInteractionService", () => {
     const approvalId = realtimeEvents.getHistory("s-cache")[0]?.call_id ?? "";
     expect(service.isApprovalPending("s-cache", approvalId)).toBe(false);
     store.close();
+  });
+
+  it("同一 batch 全部响应后才触发一次恢复", async () => {
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    const realtimeEvents = new RealtimeEventHub();
+    const service = new PendingInteractionService(
+      new DurableClientEventPublisher(store, new OutboxDispatcher(store, realtimeEvents)),
+      store,
+    );
+    store.createSession(LOCAL_TENANT_ID, "s-batch", "usr_local");
+    const batchId = "run-batch:call-1,call-2";
+    const waits = ["call-1", "call-2"].map((toolCallId) => service.waitForApproval({
+      sessionId: "s-batch",
+      runId: "run-batch",
+      rootRunId: "run-batch",
+      parentRunId: null,
+      parentCallId: null,
+      toolCallId,
+      interactionBatchId: batchId,
+      deadlineMs: 0,
+      task: "批量写入",
+      toolName: "write_file",
+    }));
+    const approvalIds = realtimeEvents.getHistory("s-batch").map((event) => event.call_id ?? "");
+    await Promise.all(waits.map((wait) => expect(wait).rejects.toBeInstanceOf(RecoverableInterrupt)));
+
+    expect(service.respondApproval("s-batch", approvalIds[0]!, { approved: true, message: "允许一" })).toMatchObject({
+      resolved: true,
+      needsResume: false,
+    });
+    expect(service.respondApproval("s-batch", approvalIds[1]!, { approved: true, message: "允许二" })).toMatchObject({
+      resolved: true,
+      needsResume: true,
+      rootRunId: "run-batch",
+    });
+    store.close();
+  });
+
+  it("同批部分实时响应后其结果仍保留给整批恢复消费", async () => {
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    const realtimeEvents = new RealtimeEventHub();
+    const service = new PendingInteractionService(
+      new DurableClientEventPublisher(store, new OutboxDispatcher(store, realtimeEvents)),
+      store,
+    );
+    store.createSession(LOCAL_TENANT_ID, "s-partial", "usr_local");
+    const base = {
+      sessionId: "s-partial",
+      runId: "run-partial",
+      rootRunId: "run-partial",
+      parentRunId: null,
+      parentCallId: null,
+      interactionBatchId: "batch-partial",
+      task: "部分响应",
+      toolName: "write_file",
+    } as const;
+    const first = service.waitForApproval({ ...base, toolCallId: "tool-live", deadlineMs: 1000 });
+    const second = service.waitForApproval({ ...base, toolCallId: "tool-timeout", deadlineMs: 0 });
+    const [firstId, secondId] = realtimeEvents.getHistory("s-partial").map((event) => event.call_id ?? "");
+
+    expect(service.respondApproval("s-partial", firstId!, { approved: true, message: "提前批准" })).toMatchObject({ needsResume: false });
+    await expect(first).resolves.toMatchObject({ approved: true });
+    await expect(second).rejects.toBeInstanceOf(RecoverableInterrupt);
+    expect(service.respondApproval("s-partial", secondId!, { approved: true, message: "最后批准" })).toMatchObject({ needsResume: true });
+    service.takeApprovalMeta(secondId!, "s-partial");
+
+    await expect(service.waitForApproval({ ...base, toolCallId: "tool-live", deadlineMs: 0 }))
+      .resolves.toMatchObject({ approved: true, message: "提前批准" });
+    store.close();
+  });
+
+  it("runtime 重建后仍可从 SQLite 响应并消费挂起审批", async () => {
+    const dataRoot = makeTempRoot();
+    const dbPath = path.join(dataRoot, "ragsystem.db");
+    const firstStore = createConversationStore({ dbPath, dataRoot });
+    firstStore.createSession(LOCAL_TENANT_ID, "s-durable", "usr_local");
+    const realtimeEvents = new RealtimeEventHub();
+    const firstPublisher = new DurableClientEventPublisher(firstStore, new OutboxDispatcher(firstStore, realtimeEvents));
+    const firstService = new PendingInteractionService(firstPublisher, firstStore);
+    const wait = firstService.waitForApproval({
+      sessionId: "s-durable",
+      runId: "run-durable",
+      rootRunId: "run-durable",
+      parentRunId: null,
+      parentCallId: null,
+      toolCallId: "tool-durable",
+      interactionBatchId: "batch-durable",
+      deadlineMs: 0,
+      task: "重启恢复",
+      executionKind: "daemon.feishu.incoming",
+      toolName: "write_file",
+    });
+    const approvalId = realtimeEvents.getHistory("s-durable")[0]?.call_id ?? "";
+    await expect(wait).rejects.toBeInstanceOf(RecoverableInterrupt);
+    firstStore.close();
+
+    const restoredStore = createConversationStore({ dbPath, dataRoot });
+    const restoredPublisher = new DurableClientEventPublisher(restoredStore, new OutboxDispatcher(restoredStore, new RealtimeEventHub()));
+    const restoredService = new PendingInteractionService(restoredPublisher, restoredStore);
+    expect(restoredService.respondApproval("s-durable", approvalId, { approved: true, message: "重启后批准" })).toMatchObject({
+      resolved: true,
+      needsResume: true,
+    });
+    expect(restoredService.peekApprovalMeta(approvalId, "s-durable")).toMatchObject({
+      rootRunId: "run-durable",
+      toolCallId: "tool-durable",
+    });
+    restoredService.takeApprovalMeta(approvalId, "s-durable");
+    await expect(restoredService.waitForApproval({
+      sessionId: "s-durable",
+      runId: "run-durable",
+      rootRunId: "run-durable",
+      parentRunId: null,
+      parentCallId: null,
+      toolCallId: "tool-durable",
+      interactionBatchId: "batch-durable",
+      deadlineMs: 0,
+      task: "重启恢复",
+      toolName: "write_file",
+    })).resolves.toMatchObject({ approved: true, message: "重启后批准" });
+    expect(restoredStore.getPendingInteraction("s-durable", approvalId)?.status).toBe("consumed");
+    restoredStore.close();
   });
 
   it("user_input 缓存命中后直接返回且不进入等待", async () => {

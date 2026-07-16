@@ -57,6 +57,8 @@ export function registerGateHook(hooks: HookRegistry, deps: GateHookDeps): void 
       parentRunId: runContext.parentRunId,
       parentCallId: runContext.parentCallId,
       toolCallId: runContext.toolCallId,
+      ...(input.ctx.interactionBatchId ? { interactionBatchId: input.ctx.interactionBatchId } : {}),
+      ...(input.ctx.onInteractionRequired ? { onInteractionRequired: input.ctx.onInteractionRequired } : {}),
       deadlineMs: resolveInteractionDeadlineMs(input.ctx.executionKind),
       task: input.ctx.rootTask ?? "",
       executionKind: input.ctx.executionKind,

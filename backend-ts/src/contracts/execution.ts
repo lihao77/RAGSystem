@@ -56,6 +56,13 @@ export type ExecuteRequest = z.infer<typeof ExecuteRequestSchema> & {
   userId: UserId;
   /** 内部调用来源；HTTP /execute 不接收该字段。 */
   executionKind?: string;
+  onInteractionRequired?: (notice: {
+    interactionId: string;
+    sessionId: string;
+    rootRunId: string;
+    batchId: string;
+    kind: "approval" | "user_input";
+  }) => void;
 };
 export type StreamExecuteRequest = z.infer<typeof StreamExecuteRequestSchema> & { userId: UserId };
 export type StreamStopRequest = z.infer<typeof StreamStopRequestSchema>;

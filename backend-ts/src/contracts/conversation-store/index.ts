@@ -30,6 +30,9 @@ import type {
   EventOutboxStats,
   ListOutboxInput,
   OutboxRow,
+  CreatePendingInteractionInput,
+  PendingInteractionRecord,
+  PendingInteractionStatus,
   ResourceInfo,
   RetryOutboxBatchInput,
   RetryOutboxResult,
@@ -234,6 +237,31 @@ export interface IMetricStore {
   aggregateDailyActivity(opts: { since?: string | null }): DailyActivityPoint[];
 }
 
+/** 用户交互挂起状态；恢复凭证必须跨进程和租户 runtime 回收存活。 */
+export interface IPendingInteractionStore {
+  createPendingInteraction(input: CreatePendingInteractionInput): PendingInteractionRecord;
+  getPendingInteraction(sessionId: string, interactionId: string): PendingInteractionRecord | null;
+  listPendingInteractions(input: {
+    sessionId: string;
+    rootRunId?: string | null;
+    batchId?: string | null;
+    statuses?: PendingInteractionStatus[];
+  }): PendingInteractionRecord[];
+  updatePendingInteractionStatus(input: {
+    sessionId: string;
+    interactionId: string;
+    from?: PendingInteractionStatus[];
+    status: PendingInteractionStatus;
+    resolution?: Record<string, unknown> | null;
+  }): boolean;
+  /** 仅当 batch 已全部响应时原子领取 resolved 记录；返回 0 表示不可领取或已被领取。 */
+  markPendingBatchResuming(sessionId: string, batchId: string): number;
+  releasePendingBatch(sessionId: string, batchId: string): number;
+  suspendPendingInteractions(sessionId: string, rootRunId: string): number;
+  consumePendingResolution(sessionId: string, toolCallId: string): PendingInteractionRecord | null;
+  cancelPendingInteractions(sessionId: string): number;
+}
+
 /** 跨域事务运行器（事务原子性独立成契，不可按聚合根拆分）。 */
 export interface IConversationTransactionRunner {
   runInTransaction<T>(operation: (tx: ConversationStoreTransaction) => T): T;
@@ -252,6 +280,7 @@ export interface ConversationStore
     IOutboxStore,
     IResourceStore,
     IMetricStore,
+    IPendingInteractionStore,
     IConversationTransactionRunner {
   close(): void;
   getRecentMessagesByChildAgent(sessionId: string, childAgentId: string, limit?: number): MessageInfo[];

@@ -18,7 +18,7 @@ import type { DelegatedToolDeclarationWire, Envelope } from "../../../contracts/
 import type { AgentExecutionEventPublisher } from "../execution/event-publisher.js";
 import type { DurableClientEventPublisher, RecordedClientEvent } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
-import type { PendingInteractionService } from "../../runtime/pending-interaction-service.js";
+import type { InteractionRequiredNotice, PendingInteractionService } from "../../runtime/pending-interaction-service.js";
 import type { BackendToolsDeps } from "../../../tools/registry.js";
 import { createBackendTools } from "../../../tools/registry.js";
 import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/CodeExecution.js";
@@ -89,6 +89,7 @@ export interface SdkExecuteRunInput {
    * 投影点把 execution_kind / retry_of_* 等调用点元数据在这里打好（无值不影响默认）。
    */
   messageMetadata?: Record<string, unknown> | null;
+  onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
 }
 
 export interface SdkExecuteRunResult {
@@ -167,6 +168,7 @@ export async function executeRunWithSdk(
     roundIndex: null,
     currentAgentName: input.agent.agent_name,
     executionKind: input.executionKind ?? "agent_stream",
+    ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
     rootTask: input.rootTask ?? input.task,
     workspaceRoot: asString(input.sessionMetadata.workspace_root) ?? asString(input.agent.custom_params.workspace_root),
     ...(input.signal ? { signal: input.signal } : {}),
@@ -333,6 +335,7 @@ export async function executeRunWithSdk(
     agentName: input.agent.agent_name,
     agentDisplayName: input.agent.display_name ?? input.agent.agent_name,
     rootCallId: input.rootCallId,
+    rootRunId,
     parentCallId: input.parentCallId ?? null,
     ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
     ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
@@ -400,6 +403,7 @@ export async function executeRunWithSdk(
     const interrupted = input.signal.aborted;
     // 终态合一落库：failed/interrupted 更新 run 状态；interrupted 补悬空 tool observation。
     persister.finalize(interrupted ? "interrupted" : "failed", null);
+    if (input.runId === rootRunId) deps.pendingInteractions.finalizeRoot(input.sessionId, rootRunId, false);
     recordTerminal(deps, input, interrupted ? "interrupted" : "failed", null, error);
     const message = error instanceof Error ? error.message : String(error);
     return { content: message, success: false, tokenUsage, toolCalls };
@@ -410,6 +414,7 @@ export async function executeRunWithSdk(
 
   // completed：终态合一落库（最终 assistant message + Envelope 关联 + updateRunStatus）。
   persister.finalize("completed", { content: result.content });
+  if (input.runId === rootRunId) deps.pendingInteractions.finalizeRoot(input.sessionId, rootRunId, true);
   const finalMessage = persister.resolveFinalMessage();
   recordTerminal(deps, input, "completed", finalMessage, null);
   return { content: result.content, success: true, tokenUsage, toolCalls };

@@ -165,6 +165,37 @@ export const MIGRATIONS: readonly Migration[] = [
       db.exec("ALTER TABLE sessions ADD COLUMN permission_mode TEXT");
     },
   },
+  {
+    version: 10,
+    name: "durable_pending_interactions",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE pending_interactions (
+          interaction_id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          run_id TEXT NOT NULL,
+          root_run_id TEXT NOT NULL,
+          tool_call_id TEXT NOT NULL,
+          batch_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          status TEXT NOT NULL,
+          request_payload TEXT NOT NULL,
+          resolution_payload TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          responded_at TIMESTAMP,
+          consumed_at TIMESTAMP,
+          FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+        );
+        CREATE INDEX idx_pending_interactions_session_status
+          ON pending_interactions(session_id, status, updated_at);
+        CREATE INDEX idx_pending_interactions_root_batch
+          ON pending_interactions(session_id, root_run_id, batch_id, status);
+        CREATE INDEX idx_pending_interactions_tool
+          ON pending_interactions(session_id, tool_call_id, status);
+      `);
+    },
+  },
 ];
 
 function addColumnIfMissing(db: MigrationDatabase, table: string, column: string, declaration: string): void {

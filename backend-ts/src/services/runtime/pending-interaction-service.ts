@@ -5,6 +5,7 @@ import type { Envelope } from "../../contracts/events.js";
 import type { ApprovalRequest, UserInputRequest } from "../../contracts/execution.js";
 import type { InteractionKind, InteractionResponsePayload } from "../../contracts/interactions.js";
 import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
+import type { IPendingInteractionStore, PendingInteractionRecord } from "../../contracts/conversation-store/index.js";
 
 export interface PendingUserInputRequest {
   sessionId: string;
@@ -15,6 +16,8 @@ export interface PendingUserInputRequest {
   taskId?: string | null | undefined;
   requestId?: string | null | undefined;
   toolCallId: string;
+  interactionBatchId?: string | undefined;
+  onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
   deadlineMs: number;
   task: string;
   executionKind?: string | undefined;
@@ -43,6 +46,8 @@ export interface PendingApprovalRequest {
   taskId?: string | null | undefined;
   requestId?: string | null | undefined;
   toolCallId: string;
+  interactionBatchId?: string | undefined;
+  onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
   deadlineMs: number;
   task: string;
   executionKind?: string | undefined;
@@ -94,6 +99,8 @@ export interface ApprovalMeta {
   rootRunId: string;
   runId: string;
   kind: InteractionKind;
+  batchId: string;
+  resolved: boolean;
   task: string;
   requestId: string | null;
   executionKind?: string | undefined;
@@ -104,6 +111,14 @@ export interface ApprovalMeta {
   reason?: string | undefined;
   prompt?: string | undefined;
   options?: string[] | undefined;
+}
+
+export interface InteractionRequiredNotice {
+  interactionId: string;
+  sessionId: string;
+  rootRunId: string;
+  batchId: string;
+  kind: InteractionKind;
 }
 
 export interface PendingInteractionRespondResult {
@@ -118,9 +133,9 @@ export interface PendingInteractionRespondResult {
 
 export const DEFAULT_INTERACTION_DEADLINE_MS = 120_000;
 
-/** daemon 类 run 不占用 lease 等待交互，其余对话 run 默认等待两分钟。 */
-export function resolveInteractionDeadlineMs(executionKind: string | null | undefined): number {
-  return executionKind?.startsWith("daemon") ? 0 : DEFAULT_INTERACTION_DEADLINE_MS;
+/** 所有入口统一等待交互；宿主适配器通过 required 通知发送自己的交互 UI。 */
+export function resolveInteractionDeadlineMs(_executionKind: string | null | undefined): number {
+  return DEFAULT_INTERACTION_DEADLINE_MS;
 }
 
 interface PendingInputEntry {
@@ -149,7 +164,10 @@ export class PendingInteractionService {
   private readonly approvalCache = new Map<string, ApprovalCacheResolution>();
   private readonly approvalMeta = new Map<string, ApprovalMeta>();
 
-  constructor(private readonly clientEvents: ClientEventPublisher) {}
+  constructor(
+    private readonly clientEvents: ClientEventPublisher,
+    private readonly durableStore: IPendingInteractionStore | null = null,
+  ) {}
 
   /** 恢复入口写入已完成的审批/输入结果；工具按 session+toolCallId 消费一次。 */
   setApprovalCache(sessionId: string, toolCallId: string, resolution: ApprovalCacheResolution): void {
@@ -157,18 +175,61 @@ export class PendingInteractionService {
   }
 
   /** 恢复执行器消费一次挂起凭证。 */
-  takeApprovalMeta(approvalId: string): ApprovalMeta | null {
-    const meta = this.approvalMeta.get(approvalId) ?? null;
+  peekApprovalMeta(approvalId: string, sessionId: string): ApprovalMeta | null {
+    return this.approvalMeta.get(approvalId) ?? this.loadApprovalMeta(sessionId, approvalId);
+  }
+
+  /** 恢复执行器完成校验后领取整批已响应交互。 */
+  takeApprovalMeta(approvalId: string, sessionId?: string): ApprovalMeta | null {
+    const meta = this.approvalMeta.get(approvalId) ?? (sessionId ? this.loadApprovalMeta(sessionId, approvalId) : null);
     if (meta) {
-      this.approvalMeta.delete(approvalId);
+      for (const [id, candidate] of this.approvalMeta) {
+        if (candidate.sessionId === meta.sessionId && candidate.batchId === meta.batchId && candidate.resolved) {
+          this.approvalMeta.delete(id);
+        }
+      }
     }
     return meta;
   }
 
+  /** 恢复启动失败时把已领取 batch 退回可重试状态。 */
+  releaseApprovalBatch(meta: ApprovalMeta): void {
+    if (!this.durableStore) return;
+    this.durableStore.releasePendingBatch(meta.sessionId, meta.batchId);
+  }
+
   /** 查询同一 root 最新生成的挂起凭证，供续跑中再次挂起回调。 */
-  findLatestApprovalMeta(rootRunId: string): ApprovalMeta | null {
-    const matches = Array.from(this.approvalMeta.values()).filter((meta) => meta.rootRunId === rootRunId);
+  findLatestApprovalMeta(rootRunId: string, sessionId?: string): ApprovalMeta | null {
+    const durable = this.listDurableMeta(rootRunId, sessionId);
+    if (durable.length > 0) return durable.at(-1) ?? null;
+    const matches = Array.from(this.approvalMeta.values()).filter((meta) => meta.rootRunId === rootRunId && !meta.resolved);
     return matches.at(-1) ?? null;
+  }
+
+  /** 查询同一 root 当前未响应的整批交互，daemon 用于一次发送全部卡片。 */
+  listPendingApprovalMeta(rootRunId: string, sessionId?: string): ApprovalMeta[] {
+    const durable = this.listDurableMeta(rootRunId, sessionId);
+    if (durable.length > 0) return durable;
+    return Array.from(this.approvalMeta.values()).filter((meta) => meta.rootRunId === rootRunId && !meta.resolved);
+  }
+
+  /** run 终止后清理该 root 的 durable 状态与一次性缓存。 */
+  finalizeRoot(sessionId: string, rootRunId: string, completed: boolean): void {
+    const records = this.durableStore?.listPendingInteractions({
+      sessionId,
+      rootRunId,
+      statuses: ["waiting", "suspended", "resolved", "resuming"],
+    }) ?? [];
+    for (const record of records) {
+      this.approvalCache.delete(cacheKey(sessionId, record.tool_call_id));
+      this.approvalMeta.delete(record.interaction_id);
+      this.durableStore?.updatePendingInteractionStatus({
+        sessionId,
+        interactionId: record.interaction_id,
+        from: ["waiting", "suspended", "resolved", "resuming"],
+        status: completed && (record.status === "resolved" || record.status === "resuming") ? "consumed" : "cancelled",
+      });
+    }
   }
 
   waitForUserInput(input: PendingUserInputRequest): Promise<PendingUserInputResolution> {
@@ -197,6 +258,9 @@ export class PendingInteractionService {
     const inputType = normalizeInputType(input.inputType);
     const options = input.options ?? [];
     const extra = input.extra ?? {};
+    const meta = buildApprovalMeta(inputId, sessionId, "user_input", input);
+    this.approvalMeta.set(inputId, meta);
+    this.persistPendingMeta(meta);
 
     const respondPromise = new Promise<PendingUserInputResolution>((resolve, reject) => {
       const entry: PendingInputEntry = {
@@ -209,6 +273,7 @@ export class PendingInteractionService {
       if (input.signal) {
         const onAbort = (): void => {
           this.pendingInputs.delete(inputId);
+          this.approvalMeta.delete(inputId);
           reject(new Error("request_user_input cancelled"));
         };
         input.signal.addEventListener("abort", onAbort, { once: true });
@@ -231,11 +296,23 @@ export class PendingInteractionService {
       },
     };
     this.publish(sessionId, interactionEvent);
+    input.onInteractionRequired?.({
+      interactionId: inputId,
+      sessionId,
+      rootRunId: meta.rootRunId,
+      batchId: meta.batchId,
+      kind: meta.kind,
+    });
 
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
     const timeoutPromise = new Promise<PendingUserInputResolution>((_resolve, reject) => {
       timeoutHandle = setTimeout(() => {
-        this.approvalMeta.set(inputId, buildApprovalMeta(inputId, sessionId, "user_input", input));
+        this.durableStore?.updatePendingInteractionStatus({
+          sessionId,
+          interactionId: inputId,
+          from: ["waiting"],
+          status: "suspended",
+        });
         const entry = this.pendingInputs.get(inputId);
         if (entry) {
           this.pendingInputs.delete(inputId);
@@ -264,6 +341,16 @@ export class PendingInteractionService {
     const value = payload.value ?? "";
     if (entry && entry.sessionId === sessionId) {
       this.pendingInputs.delete(inputId);
+      const meta = this.approvalMeta.get(inputId);
+      if (meta) meta.resolved = true;
+      if (meta) this.setApprovalCache(sessionId, meta.toolCallId, { value });
+      this.durableStore?.updatePendingInteractionStatus({
+        sessionId,
+        interactionId: inputId,
+        from: ["waiting"],
+        status: "resolved",
+        resolution: { value },
+      });
       entry.abortListener?.();
       this.publishUserInputResolution(entry, value);
       entry.resolve({
@@ -273,13 +360,25 @@ export class PendingInteractionService {
       });
       return { resolved: true, needsResume: false, kind: "user_input", interactionId: inputId };
     }
-    const meta = this.approvalMeta.get(inputId);
+    const durableRecord = this.durableStore?.getPendingInteraction(sessionId, inputId);
+    if (durableRecord && (durableRecord.status === "resuming" || durableRecord.status === "consumed" || durableRecord.status === "cancelled")) {
+      return { resolved: durableRecord.status !== "cancelled", needsResume: false, kind: "user_input", interactionId: inputId };
+    }
+    const meta = this.approvalMeta.get(inputId) ?? (durableRecord ? metaFromRecord(durableRecord) : null);
     if (!meta || meta.sessionId !== sessionId || meta.kind !== "user_input") {
       return { resolved: false, needsResume: false, kind: "user_input", interactionId: inputId };
     }
     this.setApprovalCache(sessionId, meta.toolCallId, { value });
+    meta.resolved = true;
+    this.durableStore?.updatePendingInteractionStatus({
+      sessionId,
+      interactionId: inputId,
+      from: ["waiting", "suspended"],
+      status: "resolved",
+      resolution: { value },
+    });
     this.publishUserInputResolution(meta, value);
-    return resumeResult(meta);
+    return resumeResult(meta, this.isBatchResolved(meta));
   }
 
   waitForApproval(input: PendingApprovalRequest): Promise<PendingApprovalResolution> {
@@ -305,6 +404,9 @@ export class PendingInteractionService {
     }
 
     const approvalId = randomUUID();
+    const meta = buildApprovalMeta(approvalId, sessionId, "approval", input);
+    this.approvalMeta.set(approvalId, meta);
+    this.persistPendingMeta(meta);
     const respondPromise = new Promise<PendingApprovalResolution>((resolve, reject) => {
       const entry: PendingApprovalEntry = {
         sessionId,
@@ -318,6 +420,7 @@ export class PendingInteractionService {
       if (input.signal) {
         const onAbort = (): void => {
           this.pendingApprovals.delete(approvalId);
+          this.approvalMeta.delete(approvalId);
           reject(new Error("approval cancelled"));
         };
         input.signal.addEventListener("abort", onAbort, { once: true });
@@ -354,11 +457,23 @@ export class PendingInteractionService {
       },
     };
     this.publish(sessionId, interactionEvent);
+    input.onInteractionRequired?.({
+      interactionId: approvalId,
+      sessionId,
+      rootRunId: meta.rootRunId,
+      batchId: meta.batchId,
+      kind: meta.kind,
+    });
 
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
     const timeoutPromise = new Promise<PendingApprovalResolution>((_resolve, reject) => {
       timeoutHandle = setTimeout(() => {
-        this.approvalMeta.set(approvalId, buildApprovalMeta(approvalId, sessionId, "approval", input));
+        this.durableStore?.updatePendingInteractionStatus({
+          sessionId,
+          interactionId: approvalId,
+          from: ["waiting"],
+          status: "suspended",
+        });
         const entry = this.pendingApprovals.get(approvalId);
         if (entry) {
           this.pendingApprovals.delete(approvalId);
@@ -388,6 +503,16 @@ export class PendingInteractionService {
     const message = payload.message ?? "";
     if (entry && entry.sessionId === sessionId) {
       this.pendingApprovals.delete(approvalId);
+      const meta = this.approvalMeta.get(approvalId);
+      if (meta) meta.resolved = true;
+      if (meta) this.setApprovalCache(sessionId, meta.toolCallId, { approved, message });
+      this.durableStore?.updatePendingInteractionStatus({
+        sessionId,
+        interactionId: approvalId,
+        from: ["waiting"],
+        status: "resolved",
+        resolution: { approved, message },
+      });
       entry.abortListener?.();
       this.publishApprovalResolution(entry, { approved, message });
       entry.resolve({
@@ -398,13 +523,25 @@ export class PendingInteractionService {
       });
       return { resolved: true, needsResume: false, kind: "approval", interactionId: approvalId };
     }
-    const meta = this.approvalMeta.get(approvalId);
+    const durableRecord = this.durableStore?.getPendingInteraction(sessionId, approvalId);
+    if (durableRecord && (durableRecord.status === "resuming" || durableRecord.status === "consumed" || durableRecord.status === "cancelled")) {
+      return { resolved: durableRecord.status !== "cancelled", needsResume: false, kind: "approval", interactionId: approvalId };
+    }
+    const meta = this.approvalMeta.get(approvalId) ?? (durableRecord ? metaFromRecord(durableRecord) : null);
     if (!meta || meta.sessionId !== sessionId || meta.kind !== "approval") {
       return { resolved: false, needsResume: false, kind: "approval", interactionId: approvalId };
     }
     this.setApprovalCache(sessionId, meta.toolCallId, { approved, message });
+    meta.resolved = true;
+    this.durableStore?.updatePendingInteractionStatus({
+      sessionId,
+      interactionId: approvalId,
+      from: ["waiting", "suspended"],
+      status: "resolved",
+      resolution: { approved, message },
+    });
     this.publishApprovalResolution(meta, { approved, message });
-    return resumeResult(meta);
+    return resumeResult(meta, this.isBatchResolved(meta));
   }
 
   respondInteraction(
@@ -464,6 +601,7 @@ export class PendingInteractionService {
         this.approvalMeta.delete(approvalId);
       }
     }
+    this.durableStore?.cancelPendingInteractions(sessionId);
   }
 
   isUserInputPending(sessionId: string, inputId: string): boolean {
@@ -522,8 +660,56 @@ export class PendingInteractionService {
     const resolution = this.approvalCache.get(key) ?? null;
     if (resolution) {
       this.approvalCache.delete(key);
+      this.durableStore?.consumePendingResolution(sessionId, toolCallId);
+      return resolution;
     }
-    return resolution;
+    const durable = this.durableStore?.consumePendingResolution(sessionId, toolCallId);
+    return durable ? resolutionFromRecord(durable) : null;
+  }
+
+  private isBatchResolved(meta: ApprovalMeta): boolean {
+    const durableUnresolved = this.durableStore?.listPendingInteractions({
+      sessionId: meta.sessionId,
+      batchId: meta.batchId,
+      statuses: ["waiting", "suspended"],
+    });
+    if (durableUnresolved) return durableUnresolved.length === 0;
+    return !Array.from(this.approvalMeta.values()).some((candidate) =>
+      candidate.sessionId === meta.sessionId
+      && candidate.batchId === meta.batchId
+      && !candidate.resolved,
+    );
+  }
+
+  private persistPendingMeta(meta: ApprovalMeta): void {
+    this.durableStore?.createPendingInteraction({
+      interactionId: meta.approvalId,
+      sessionId: meta.sessionId,
+      runId: meta.runId,
+      rootRunId: meta.rootRunId,
+      toolCallId: meta.toolCallId,
+      batchId: meta.batchId,
+      kind: meta.kind,
+      requestPayload: { ...meta },
+    });
+  }
+
+  private loadApprovalMeta(sessionId: string, approvalId: string): ApprovalMeta | null {
+    if (!this.durableStore) return null;
+    const record = this.durableStore.getPendingInteraction(sessionId, approvalId);
+    return record ? metaFromRecord(record) : null;
+  }
+
+  private listDurableMeta(rootRunId: string, explicitSessionId?: string): ApprovalMeta[] {
+    if (!this.durableStore) return [];
+    const sessionId = explicitSessionId
+      ?? Array.from(this.approvalMeta.values()).find((meta) => meta.rootRunId === rootRunId)?.sessionId;
+    if (!sessionId) return [];
+    return this.durableStore.listPendingInteractions({
+      sessionId,
+      rootRunId,
+      statuses: ["waiting", "suspended"],
+    }).map(metaFromRecord);
   }
 }
 
@@ -544,6 +730,8 @@ function buildApprovalMeta(
     rootRunId: input.rootRunId,
     runId: input.runId,
     kind,
+    batchId: input.interactionBatchId?.trim() || `${input.rootRunId}:${input.toolCallId}`,
+    resolved: false,
     task: input.task,
     requestId: input.requestId ?? null,
     ...(input.executionKind ? { executionKind: input.executionKind } : {}),
@@ -557,10 +745,10 @@ function buildApprovalMeta(
   };
 }
 
-function resumeResult(meta: ApprovalMeta): PendingInteractionRespondResult {
+function resumeResult(meta: ApprovalMeta, needsResume: boolean): PendingInteractionRespondResult {
   return {
     resolved: true,
-    needsResume: true,
+    needsResume,
     kind: meta.kind,
     interactionId: meta.approvalId,
     rootRunId: meta.rootRunId,
@@ -579,4 +767,40 @@ function normalizeInteractionKind(payload: InteractionResponsePayload): Interact
     return payload.kind;
   }
   return typeof payload.approved === "boolean" ? "approval" : "user_input";
+}
+
+function metaFromRecord(record: PendingInteractionRecord): ApprovalMeta {
+  const payload = record.request_payload;
+  return {
+    approvalId: record.interaction_id,
+    sessionId: record.session_id,
+    toolCallId: record.tool_call_id,
+    rootRunId: record.root_run_id,
+    runId: record.run_id,
+    kind: record.kind,
+    batchId: record.batch_id,
+    resolved: record.status === "resolved" || record.status === "resuming" || record.status === "consumed",
+    task: typeof payload.task === "string" ? payload.task : "",
+    requestId: typeof payload.requestId === "string" ? payload.requestId : null,
+    ...(typeof payload.executionKind === "string" ? { executionKind: payload.executionKind } : {}),
+    ...(typeof payload.botId === "string" ? { botId: payload.botId } : {}),
+    ...(typeof payload.chatId === "string" ? { chatId: payload.chatId } : {}),
+    ...(typeof payload.toolName === "string" ? { toolName: payload.toolName } : {}),
+    ...(typeof payload.riskLevel === "string" ? { riskLevel: payload.riskLevel } : {}),
+    ...(typeof payload.reason === "string" ? { reason: payload.reason } : {}),
+    ...(typeof payload.prompt === "string" ? { prompt: payload.prompt } : {}),
+    ...(Array.isArray(payload.options) ? { options: payload.options.filter((item): item is string => typeof item === "string") } : {}),
+  };
+}
+
+function resolutionFromRecord(record: PendingInteractionRecord): ApprovalCacheResolution | null {
+  const payload = record.resolution_payload;
+  if (!payload) return null;
+  if (record.kind === "user_input") {
+    return { value: typeof payload.value === "string" ? payload.value : "" };
+  }
+  return {
+    approved: payload.approved === true,
+    message: typeof payload.message === "string" ? payload.message : "",
+  };
 }

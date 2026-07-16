@@ -170,6 +170,8 @@ export function createAgentExecutionService(
   const sessionControl = createSessionControl({
     statusTracker,
     eventPublisher,
+    conversationStore: params.conversationStore,
+    pendingInteractions: params.pendingInteractions,
     executeSynchronously: launchers.executeSynchronously,
   });
   const query = createExecutionQueryService(statusTracker);

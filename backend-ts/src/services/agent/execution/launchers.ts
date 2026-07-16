@@ -292,6 +292,7 @@ class AgentLaunchers {
       requestId,
       task,
       executionKind,
+      ...(request.onInteractionRequired ? { onInteractionRequired: request.onInteractionRequired } : {}),
       entrypoint: "execute",
       agent: runtimeAgent,
       provider: ready.provider,

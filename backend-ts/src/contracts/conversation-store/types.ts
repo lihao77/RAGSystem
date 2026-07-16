@@ -19,6 +19,44 @@ import type { MessageInfo } from "../session.js";
 export const OutboxStatusSchema = z.enum(["pending", "retrying", "delivered", "failed"]);
 export type OutboxStatus = z.infer<typeof OutboxStatusSchema>;
 
+export const PendingInteractionStatusSchema = z.enum([
+  "waiting",
+  "suspended",
+  "resolved",
+  "resuming",
+  "consumed",
+  "cancelled",
+]);
+export type PendingInteractionStatus = z.infer<typeof PendingInteractionStatusSchema>;
+
+export interface PendingInteractionRecord {
+  interaction_id: string;
+  session_id: string;
+  run_id: string;
+  root_run_id: string;
+  tool_call_id: string;
+  batch_id: string;
+  kind: "approval" | "user_input";
+  status: PendingInteractionStatus;
+  request_payload: Record<string, unknown>;
+  resolution_payload: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+  responded_at: string | null;
+  consumed_at: string | null;
+}
+
+export interface CreatePendingInteractionInput {
+  interactionId: string;
+  sessionId: string;
+  runId: string;
+  rootRunId: string;
+  toolCallId: string;
+  batchId: string;
+  kind: "approval" | "user_input";
+  requestPayload: Record<string, unknown>;
+}
+
 // ────────────────────────────── 输入边界（zod schema + z.infer） ──────────────────────────────
 // TODO 校验覆盖一致性：当前仅 addMessage/appendOutbox 入口 parse，其余 *Input 仅定义形状；
 // 运行时校验待统一接入（事务 facade 与 ops 间内部调用信任输入）。契约 v2（位置参数→input）一并处理。
@@ -218,6 +256,9 @@ export interface ConversationStoreTransaction {
   addRunStep(input: AddRunStepInput): RunStepRecord;
   updateRunStepsMessageId(sessionId: string, runId: string, messageId: string): number;
   updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null): boolean;
+  suspendPendingInteractions(sessionId: string, rootRunId: string): number;
+  markPendingBatchResuming(sessionId: string, batchId: string): number;
+  releasePendingBatch(sessionId: string, batchId: string): number;
   nextSessionSeq(sessionId: string): number;
   appendOutbox(input: AppendOutboxInput): OutboxRow;
   /** 读最近消息（对齐 IMessageStore.getRecentMessages：纯 SELECT 不开新事务，事务内读消除 TOCTOU）。 */

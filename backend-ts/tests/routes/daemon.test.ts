@@ -182,6 +182,7 @@ describe("bot 自动化执行引擎", () => {
         toolName: "execute_bash",
         riskLevel: "high",
         approvalReason: "高风险工具需要审批",
+        onInteractionRequired: request.onInteractionRequired,
       });
       await pending.catch(() => undefined);
       return {
@@ -382,6 +383,34 @@ describe("bot 自动化执行引擎", () => {
       cardSchema: expect.objectContaining({ kind: "approval-card" }),
     }]);
     expect(harness.controlStore.getBotCronTask(harness.botId, "suspended")?.last_result).toBe("SUSPENDED");
+    harness.close();
+  });
+
+  it("daemon 同批多审批一次发送全部卡片", async () => {
+    const harness = createEngineHarness(async (input) => {
+      const interactions = ["approval-1", "approval-2"].map((approvalId, index) => ({
+        approvalId,
+        sessionId: input.sessionId,
+        botId: input.botId,
+        rootRunId: "root-run",
+        kind: "approval" as const,
+        toolName: index === 0 ? "write_file" : "execute_bash",
+        riskLevel: "high",
+        reason: "需要审批",
+      }));
+      return { suspended: true as const, content: "" as const, interaction: interactions[0]!, interactions };
+    });
+    configureFeishu(harness.controlStore, harness.botId, "webhook");
+    harness.controlStore.updateBotConfig(harness.botId, { feishu: { default_chat_id: "oc_batch" } });
+    harness.engine.reloadBot(harness.botId);
+
+    await harness.engine.testMessage(harness.botId, { platform: "feishu", chat_id: "oc_batch", content: "批量审批" });
+
+    expect(feishuMock.cards).toHaveLength(2);
+    expect(feishuMock.cards.map((item) => (item.cardSchema.input as { approvalId?: string }).approvalId)).toEqual([
+      "approval-1",
+      "approval-2",
+    ]);
     harness.close();
   });
 

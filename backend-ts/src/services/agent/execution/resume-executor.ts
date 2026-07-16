@@ -33,7 +33,7 @@ export function createResumeExecutor(deps: {
 }): ResumeExecutor {
   return {
     resumeRun(input) {
-      const meta = deps.pendingInteractions.takeApprovalMeta(input.approvalId);
+      const meta = deps.pendingInteractions.peekApprovalMeta(input.approvalId, input.sessionId);
       if (!meta || meta.sessionId !== input.sessionId) {
         throw new Error("未找到可恢复的挂起交互");
       }
@@ -57,30 +57,56 @@ export function createResumeExecutor(deps: {
       }
 
       const rootCallId = findRootCallId(deps.conversationStore, input.sessionId, meta.rootRunId);
-      deps.pendingInteractions.setApprovalCache(input.sessionId, meta.toolCallId, input.resolution);
-      if (!deps.conversationStore.updateRunStatus(meta.rootRunId, input.sessionId, "running", null)) {
-        throw new Error("更新挂起 run 状态失败");
+      const claimed = deps.pendingInteractions.takeApprovalMeta(input.approvalId, input.sessionId);
+      if (!claimed) {
+        throw new Error("挂起交互已被其他恢复任务领取");
       }
+      try {
+        deps.conversationStore.runInTransaction((tx) => {
+          const claimed = tx.markPendingBatchResuming(input.sessionId, meta.batchId);
+          if (claimed === 0) {
+            throw new Error("审批批次尚未全部响应或已被其他恢复任务领取");
+          }
+          if (!tx.updateRunStatus(meta.rootRunId, input.sessionId, "running", null)) {
+            throw new Error("更新挂起 run 状态失败");
+          }
+        });
+      } catch (error) {
+        deps.pendingInteractions.releaseApprovalBatch(meta);
+        throw error;
+      }
+      deps.pendingInteractions.setApprovalCache(input.sessionId, meta.toolCallId, input.resolution);
 
-      const started = deps.runEngine.startRun({
-        sessionId: input.sessionId,
-        runId: meta.rootRunId,
-        rootCallId,
-        resume: true,
-        userId: run.user_id,
-        requestId: meta.requestId ?? run.request_id ?? randomUUID(),
-        task: meta.task,
-        executionKind: meta.executionKind ?? run.entrypoint ?? "agent_stream",
-        entrypoint: run.entrypoint ?? undefined,
-        agent: ready.agent,
-        provider: ready.provider,
-        modelName: ready.modelName,
-      });
+      let started;
+      try {
+        started = deps.runEngine.startRun({
+          sessionId: input.sessionId,
+          runId: meta.rootRunId,
+          rootCallId,
+          resume: true,
+          userId: run.user_id,
+          requestId: meta.requestId ?? run.request_id ?? randomUUID(),
+          task: meta.task,
+          executionKind: meta.executionKind ?? run.entrypoint ?? "agent_stream",
+          entrypoint: run.entrypoint ?? undefined,
+          agent: ready.agent,
+          provider: ready.provider,
+          modelName: ready.modelName,
+        });
+      } catch (error) {
+        deps.conversationStore.runInTransaction((tx) => {
+          if (!tx.updateRunStatus(meta.rootRunId, input.sessionId, "suspended", null)) {
+            throw new Error("恢复启动失败且 run 状态回滚失败", { cause: error });
+          }
+          tx.releasePendingBatch(input.sessionId, meta.batchId);
+        });
+        throw error;
+      }
 
       void started.promise
         .then((result) => {
           if (result.suspended) {
-            const next = deps.pendingInteractions.findLatestApprovalMeta(meta.rootRunId);
+            const next = deps.pendingInteractions.findLatestApprovalMeta(meta.rootRunId, input.sessionId);
             if (next) {
               input.onSuspended?.(next.approvalId);
             } else {

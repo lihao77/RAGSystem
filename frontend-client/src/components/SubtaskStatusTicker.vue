@@ -135,6 +135,8 @@ const allAgents = computed(() => flattenAgents(props.executionTree));
 const rootAgent = computed(() => props.executionTree?.root || null);
 
 const currentActivity = computed(() => {
+  // run 终态是整体执行状态的权威来源；历史树即使含不完整/旧版节点，也不能继续显示为执行中。
+  if (!props.running) return null;
   // 非根 running agent（子 agent 执行中）
   const runningChild = allAgents.value.find(a => a !== rootAgent.value && a.status === 'running');
   if (runningChild) {

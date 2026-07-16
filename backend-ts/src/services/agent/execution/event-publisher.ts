@@ -95,6 +95,15 @@ export class AgentExecutionEventPublisher {
     });
   }
 
+  publishRunEnded(sessionId: string, runId: string, status: "interrupted" | "failed"): void {
+    this.publish(sessionId, {
+      type: "run_ended",
+      session_id: sessionId,
+      run_id: runId,
+      payload: { status },
+    });
+  }
+
   /**
    * 推单条已翻译的 Envelope。DurableClientEventPublisher 在同一事务内完成
    * protocol.envelope.v1 归档与 outbox 写入，再投递到 WS。

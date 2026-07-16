@@ -41,6 +41,7 @@ export interface DaemonRunAgentInput {
   source: string;
   sessionMetadata?: Record<string, unknown>;
   permissionMode: PermissionMode;
+  onInteractionRequired?: (interactions: DaemonSuspendedInteraction[]) => void;
 }
 
 export interface DaemonSuspendedInteraction {
@@ -58,7 +59,7 @@ export interface DaemonSuspendedInteraction {
 
 export type DaemonRunAgentResult =
   | { suspended: false; content: string }
-  | { suspended: true; content: ""; interaction: DaemonSuspendedInteraction };
+  | { suspended: true; content: ""; interaction: DaemonSuspendedInteraction; interactions?: DaemonSuspendedInteraction[]; interactionsDelivered?: boolean };
 
 export type DaemonRunAgentTask = (input: DaemonRunAgentInput) => Promise<DaemonRunAgentResult> | DaemonRunAgentResult;
 
@@ -116,7 +117,7 @@ export class DaemonService {
     const sessionMetadata = { chatId: input.chat_id };
     const result = await this.runAgent(state, input.content, sessionId, `daemon.${input.platform}.test`, state.config.entry_agent, sessionMetadata);
     if (result.suspended) {
-      await this.sendSuspendedCard(state, result.interaction, sessionMetadata);
+      if (!result.interactionsDelivered) await this.sendSuspendedCards(state, suspendedInteractions(result), sessionMetadata);
     }
     return { status: "ok", message: "测试消息已执行", session_id: sessionId, result: result.content };
   }
@@ -180,7 +181,7 @@ export class DaemonService {
       const result = await this.runAgent(state, task.task, sessionId, "daemon.cron", task.entry_agent ?? state.config.entry_agent, sessionMetadata);
       const now = Date.now() / 1000;
       if (result.suspended) {
-        await this.sendSuspendedCard(state, result.interaction, sessionMetadata, task);
+        if (!result.interactionsDelivered) await this.sendSuspendedCards(state, suspendedInteractions(result), sessionMetadata, task);
       }
       this.options.controlStore.updateBotCronTask(botId, taskId, {
         last_run: now,
@@ -380,11 +381,11 @@ export class DaemonService {
           });
         },
         onSuspended: () => {
-          const next = lease.runtime.pendingInteractions.findLatestApprovalMeta(rootRunId);
+          const next = lease.runtime.pendingInteractions.listPendingApprovalMeta(rootRunId, sessionId);
           const metadata = lease.runtime.conversationStore.getSession(sessionId)?.metadata ?? {};
           releaseLease();
-          if (!next) return;
-          void this.sendSuspendedCard(state, toSuspendedInteraction(state.botId, next), metadata).catch((error: unknown) => {
+          if (next.length === 0) return;
+          void this.sendSuspendedCards(state, next.map((item) => toSuspendedInteraction(state.botId, item)), metadata).catch((error: unknown) => {
             console.error(`[daemon][feishu][${state.botId}] 后续挂起卡片发送失败`, error);
           });
         },
@@ -419,7 +420,7 @@ export class DaemonService {
       sessionMetadata,
     );
     if (result.suspended) {
-      await this.sendSuspendedCard(state, result.interaction, sessionMetadata);
+      if (!result.interactionsDelivered) await this.sendSuspendedCards(state, suspendedInteractions(result), sessionMetadata);
       return;
     }
     if (message.chat_type === "p2p") {
@@ -432,15 +433,16 @@ export class DaemonService {
     }
   }
 
-  private runAgent(
+  private async runAgent(
     state: BotRuntimeState,
     task: string,
     sessionId: string,
     source: string,
     entryAgent = state.config.entry_agent,
     sessionMetadata?: Record<string, unknown>,
-  ): Promise<DaemonRunAgentResult> | DaemonRunAgentResult {
-    return this.options.runAgentTask({
+  ): Promise<DaemonRunAgentResult> {
+    const interactionDeliveries: Promise<void>[] = [];
+    const result = await this.options.runAgentTask({
       tenantId: state.tenantId,
       botId: state.botId,
       task,
@@ -449,7 +451,19 @@ export class DaemonService {
       source,
       permissionMode: state.config.permission_mode,
       ...(sessionMetadata ? { sessionMetadata } : {}),
+      onInteractionRequired: (interactions) => {
+        interactionDeliveries.push(this.sendSuspendedCards(state, interactions, sessionMetadata ?? {}));
+      },
     });
+    const deliveryResults = await Promise.allSettled(interactionDeliveries);
+    for (const delivery of deliveryResults) {
+      if (delivery.status === "rejected") {
+        console.error(`[daemon][feishu][${state.botId}] 审批卡片发送失败`, delivery.reason);
+      }
+    }
+    const interactionsDelivered = deliveryResults.length > 0
+      && deliveryResults.every((delivery) => delivery.status === "fulfilled");
+    return result.suspended ? { ...result, interactionsDelivered } : result;
   }
 
   private async sendSuspendedCard(
@@ -482,6 +496,17 @@ export class DaemonService {
           options: interaction.options,
         });
     await sendInteractiveCard(state.feishuRuntime.client, { chatId, cardSchema });
+  }
+
+  private async sendSuspendedCards(
+    state: BotRuntimeState,
+    interactions: DaemonSuspendedInteraction[],
+    sessionMetadata: Record<string, unknown>,
+    cronTask?: BotCronTask | undefined,
+  ): Promise<void> {
+    for (const interaction of interactions) {
+      await this.sendSuspendedCard(state, interaction, sessionMetadata, cronTask);
+    }
   }
 
   private async sendFeishuMessage(state: BotRuntimeState, receiveId: string, receiveIdType: "chat_id" | "open_id", content: string): Promise<{ status: "ok" | "failed"; message_id?: string; error?: string }> {
@@ -545,6 +570,12 @@ function toSuspendedInteraction(botId: UserId, meta: ApprovalMeta): DaemonSuspen
     ...(meta.prompt ? { prompt: meta.prompt } : {}),
     ...(meta.options ? { options: meta.options } : {}),
   };
+}
+
+function suspendedInteractions(result: Extract<DaemonRunAgentResult, { suspended: true }>): DaemonSuspendedInteraction[] {
+  return Array.isArray(result.interactions) && result.interactions.length > 0
+    ? result.interactions
+    : [result.interaction];
 }
 
 function readNonEmptyString(value: unknown): string | null {

@@ -7,6 +7,7 @@ import { ChildAgentOps } from "./child-agent-ops.js";
 import { OutboxOps } from "./outbox-ops.js";
 import { ResourceOps } from "./resource-ops.js";
 import { MetricOps } from "./metric-ops.js";
+import { PendingInteractionOps } from "./pending-interaction-ops.js";
 import type {
   ConversationStore,
   ConversationStoreOptions,
@@ -31,12 +32,16 @@ export function createConversationStore(options: ConversationStoreOptions) {
   const outbox = new OutboxOps(db);
   const resources = new ResourceOps(db, dataRoot, sessions);
   const metrics = new MetricOps(db);
+  const pendingInteractions = new PendingInteractionOps(db);
 
   const createTransactionFacade = (): ConversationStoreTransaction => ({
     addMessage: messages.addMessageInTransaction.bind(messages),
     addRunStep: runs.addRunStepInTransaction.bind(runs),
     updateRunStepsMessageId: runs.updateRunStepsMessageId.bind(runs),
     updateRunStatus: runs.updateRunStatus.bind(runs),
+    suspendPendingInteractions: pendingInteractions.suspendPendingInteractions.bind(pendingInteractions),
+    markPendingBatchResuming: pendingInteractions.markPendingBatchResuming.bind(pendingInteractions),
+    releasePendingBatch: pendingInteractions.releasePendingBatch.bind(pendingInteractions),
     nextSessionSeq: outbox.nextSessionSeqInTransaction.bind(outbox),
     appendOutbox: outbox.appendOutboxInTransaction.bind(outbox),
     // 纯读、不开新事务（listMessages 仅 SELECT），事务内读消除 TOCTOU，故直接 bind 无需 InTransaction 变体。
@@ -122,6 +127,17 @@ export function createConversationStore(options: ConversationStoreOptions) {
     aggregateModelUsage: metrics.aggregateModelUsage.bind(metrics),
     aggregateActivityHeatmap: metrics.aggregateActivityHeatmap.bind(metrics),
     aggregateDailyActivity: metrics.aggregateDailyActivity.bind(metrics),
+
+    // durable pending interactions
+    createPendingInteraction: pendingInteractions.createPendingInteraction.bind(pendingInteractions),
+    getPendingInteraction: pendingInteractions.getPendingInteraction.bind(pendingInteractions),
+    listPendingInteractions: pendingInteractions.listPendingInteractions.bind(pendingInteractions),
+    updatePendingInteractionStatus: pendingInteractions.updatePendingInteractionStatus.bind(pendingInteractions),
+    markPendingBatchResuming: pendingInteractions.markPendingBatchResuming.bind(pendingInteractions),
+    releasePendingBatch: pendingInteractions.releasePendingBatch.bind(pendingInteractions),
+    suspendPendingInteractions: pendingInteractions.suspendPendingInteractions.bind(pendingInteractions),
+    consumePendingResolution: pendingInteractions.consumePendingResolution.bind(pendingInteractions),
+    cancelPendingInteractions: pendingInteractions.cancelPendingInteractions.bind(pendingInteractions),
 
     // 跨域事务（组合 message/run/outbox ops）
     runInTransaction<T>(operation: (tx: ConversationStoreTransaction) => T): T {

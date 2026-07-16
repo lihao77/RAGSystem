@@ -220,6 +220,16 @@ export interface ToolExecContext {
   caller?: string;
   /** run 入口来源；daemon* 用于交互工具立即挂起。 */
   executionKind?: string;
+  /** 同一依赖就绪工具批次的稳定标识；backend 用它聚合审批并只恢复一次。 */
+  interactionBatchId?: string;
+  /** 交互请求已持久化后通知宿主适配器；不负责恢复或改变审批结果。 */
+  onInteractionRequired?: (notice: {
+    interactionId: string;
+    sessionId: string;
+    rootRunId: string;
+    batchId: string;
+    kind: "approval" | "user_input";
+  }) => void;
   /** 整棵执行树的根任务文本；child run 继承，用于挂起后从 root 恢复。 */
   rootTask?: string;
   /** 当前 agent 名称。 */

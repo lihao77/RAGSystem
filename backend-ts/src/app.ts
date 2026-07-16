@@ -36,7 +36,7 @@ import { createSessionTokenService, type SessionTokenService } from "./services/
 import { AuthError, LocalIdentityProvider, PasswordIdentityProvider, WidgetIdentityProvider, type IdentityProvider } from "./services/identity/index.js";
 import { DefaultTenantRuntimeRegistry, type TenantRuntimeRegistry } from "./services/runtime/tenant-runtime-registry.js";
 import { createTenantMigrator, type TenantMigrator } from "./services/runtime/tenant-migrator.js";
-import { DaemonService } from "./services/daemon/daemon-service.js";
+import { DaemonService, type DaemonSuspendedInteraction } from "./services/daemon/daemon-service.js";
 
 export interface BuildAppOptions {
   env: AppEnv;
@@ -98,35 +98,61 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               input.permissionMode,
             );
           }
+          const scheduledBatches = new Set<string>();
+          const onInteractionRequired = (notice: { rootRunId: string; batchId: string }): void => {
+            if (scheduledBatches.has(notice.batchId)) return;
+            scheduledBatches.add(notice.batchId);
+            queueMicrotask(() => {
+              scheduledBatches.delete(notice.batchId);
+              const metas = lease.runtime.pendingInteractions.listPendingApprovalMeta(notice.rootRunId, input.sessionId);
+              if (metas.length === 0) return;
+              input.onInteractionRequired?.(metas.map((item): DaemonSuspendedInteraction => ({
+                approvalId: item.approvalId,
+                sessionId: item.sessionId,
+                botId: input.botId,
+                rootRunId: item.rootRunId,
+                kind: item.kind,
+                ...(item.toolName ? { toolName: item.toolName } : {}),
+                ...(item.riskLevel ? { riskLevel: item.riskLevel } : {}),
+                ...(item.reason ? { reason: item.reason } : {}),
+                ...(item.prompt ? { prompt: item.prompt } : {}),
+                ...(item.options ? { options: item.options } : {}),
+              })));
+            });
+          };
           const result = await lease.runtime.agentExecution.executeSynchronously({
             task: input.task,
             session_id: input.sessionId,
             agent: input.entryAgent,
             userId: input.botId,
             executionKind: input.source,
+            onInteractionRequired,
           }, randomUUID());
           if (!result.success && !result.suspended) throw new Error(result.error ?? "agent 执行失败");
           if (result.suspended) {
             const rootRunId = result.rootRunId ?? result.run_id ?? "";
-            const meta = lease.runtime.pendingInteractions.findLatestApprovalMeta(rootRunId);
+            const metas = lease.runtime.pendingInteractions.listPendingApprovalMeta(rootRunId, input.sessionId);
+            const meta = metas[0];
             if (!meta) {
               throw new Error("Agent 已挂起，但未找到待处理交互");
             }
+            const interactions = metas.map((item) => ({
+              approvalId: item.approvalId,
+              sessionId: item.sessionId,
+              botId: input.botId,
+              rootRunId: item.rootRunId,
+              kind: item.kind,
+              ...(item.toolName ? { toolName: item.toolName } : {}),
+              ...(item.riskLevel ? { riskLevel: item.riskLevel } : {}),
+              ...(item.reason ? { reason: item.reason } : {}),
+              ...(item.prompt ? { prompt: item.prompt } : {}),
+              ...(item.options ? { options: item.options } : {}),
+            }));
             return {
               suspended: true,
               content: "",
-              interaction: {
-                approvalId: meta.approvalId,
-                sessionId: meta.sessionId,
-                botId: input.botId,
-                rootRunId: meta.rootRunId,
-                kind: meta.kind,
-                ...(meta.toolName ? { toolName: meta.toolName } : {}),
-                ...(meta.riskLevel ? { riskLevel: meta.riskLevel } : {}),
-                ...(meta.reason ? { reason: meta.reason } : {}),
-                ...(meta.prompt ? { prompt: meta.prompt } : {}),
-                ...(meta.options ? { options: meta.options } : {}),
-              },
+              interaction: interactions[0]!,
+              interactions,
             };
           }
           return { suspended: false, content: result.answer ?? "" };

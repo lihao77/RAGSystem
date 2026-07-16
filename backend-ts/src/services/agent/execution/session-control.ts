@@ -5,6 +5,8 @@ import type {
 } from "../../../contracts/execution.js";
 import type { AgentExecutionEventPublisher } from "./event-publisher.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
+import type { IRunStore } from "../../../contracts/conversation-store/index.js";
+import type { PendingInteractionService } from "../../runtime/pending-interaction-service.js";
 
 export interface SessionControlApi {
   stopSession(sessionId: string): Promise<boolean>;
@@ -17,6 +19,8 @@ export interface SessionControlApi {
 export interface SessionControlDeps {
   statusTracker: AgentExecutionStatusTracker;
   eventPublisher: AgentExecutionEventPublisher;
+  conversationStore: IRunStore;
+  pendingInteractions: PendingInteractionService;
   /** collaborateSequentially 顺序复用 executeSynchronously（由 launchers 提供，注入打破环）。 */
   executeSynchronously: (request: ExecuteRequest, requestId: string) => Promise<AgentExecuteResult>;
 }
@@ -27,7 +31,15 @@ export function createSessionControl(deps: SessionControlDeps): SessionControlAp
     async stopSession(sessionId) {
       const handle = deps.statusTracker.getRunningHandleBySession(sessionId);
       if (!handle) {
-        return false;
+        const suspendedRuns = deps.conversationStore.listRuns(sessionId, 1000).items
+          .filter((run) => run.status === "suspended");
+        if (suspendedRuns.length === 0) return false;
+        deps.pendingInteractions.cancelSession(sessionId, "suspended run cancelled");
+        for (const run of suspendedRuns) {
+          deps.conversationStore.updateRunStatus(run.run_id, sessionId, "interrupted", null);
+          if (!run.parent_run_id) deps.eventPublisher.publishRunEnded(sessionId, run.run_id, "interrupted");
+        }
+        return true;
       }
       deps.eventPublisher.publishUserInterrupt(handle.status, "user_stop");
       handle.abortController.abort();

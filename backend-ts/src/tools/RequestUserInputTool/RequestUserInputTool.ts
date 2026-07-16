@@ -85,6 +85,8 @@ export function createRequestUserInputTools(deps: RequestUserInputToolDeps): Too
             taskId: ctx.taskId,
             requestId: ctx.requestId,
             toolCallId: ctx.toolCallId,
+            ...(ctx.interactionBatchId ? { interactionBatchId: ctx.interactionBatchId } : {}),
+            ...(ctx.onInteractionRequired ? { onInteractionRequired: ctx.onInteractionRequired } : {}),
             deadlineMs: resolveInteractionDeadlineMs(ctx.executionKind),
             task: ctx.rootTask ?? "",
             executionKind: ctx.executionKind,
