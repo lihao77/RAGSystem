@@ -92,7 +92,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { install } from '../api/auth.js';
+import { install } from '../api/auth.ts';
 import { useBootstrapStore } from '../stores/bootstrap.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 

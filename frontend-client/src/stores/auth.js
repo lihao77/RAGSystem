@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import { getMe } from '../api/auth.js';
+import { getMe } from '../api/auth.ts';
 import { useBootstrapStore } from './bootstrap.js';
 
 const TOKEN_STORAGE_KEY = 'auth_token';

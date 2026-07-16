@@ -22,6 +22,7 @@
     "@fastify/websocket": "^11.0.0",
     "@larksuiteoapi/node-sdk": "^1.71.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@ragsystem/api-contracts": "*",
     "@ragsystem/agent-llm": "*",
     "@ragsystem/agent-protocol": "*",
     "@ragsystem/agent-sdk": "*",

@@ -65,7 +65,7 @@
 import { computed, inject, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { createTenant, listTenants } from '../api/admin.js';
-import { logout, switchTenant } from '../api/auth.js';
+import { logout, switchTenant } from '../api/auth.ts';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import { useToast } from '../composables/useToast.js';
 import { useAuthStore } from '../stores/auth.js';

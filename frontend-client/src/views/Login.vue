@@ -34,7 +34,7 @@ import AuthLayout from '../layouts/AuthLayout.vue';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
-import { login } from '../api/auth.js';
+import { login } from '../api/auth.ts';
 import { useAuthStore } from '../stores/auth.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 

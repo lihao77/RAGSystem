@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
-import { z } from "zod";
+import {
+  AuthIdentitySchema,
+  AuthSessionSchema,
+  InstallRequestSchema,
+  LoginRequestSchema,
+  LogoutResponseSchema,
+  SwitchTenantRequestSchema,
+} from "@ragsystem/api-contracts";
 
 import { createTenantId, createUserId, type DeploymentProfile } from "../identity/types.js";
 import type { SessionTokenService } from "../services/runtime/session-token-service.js";
@@ -22,28 +29,12 @@ interface InstallRouteOptions extends BaseAuthRouteOptions {
   refreshProfile: () => DeploymentProfile;
 }
 
-const InstallSchema = z.object({
-  deployment: z.enum(["single", "saas"]),
-  tenancy: z.enum(["single", "multi"]).optional(),
-  admin: z.object({ username: z.string().trim().min(1), password: z.string().min(8) }).optional(),
-  tenantDisplayName: z.string().trim().min(1).optional(),
-});
-
-const LoginSchema = z.object({
-  username: z.string().trim().min(1),
-  password: z.string().min(1),
-});
-
-const SwitchTenantSchema = z.object({
-  tenantId: z.string().regex(/^tnt_[a-z0-9]+(?:_[a-z0-9]+)*$/),
-});
-
 export const registerInstallRoutes: FastifyPluginAsync<InstallRouteOptions> = async (app, options) => {
   app.post("/install", async (request) => {
     if (options.controlStore.getSetting("installed") === "true") {
       throw new HttpError(409, "already_installed", "系统已完成安装");
     }
-    const input = InstallSchema.parse(request.body);
+    const input = InstallRequestSchema.parse(request.body);
     if (input.deployment === "saas" && !input.admin) {
       throw new HttpError(400, "invalid_request", "SaaS 安装必须配置管理员账号");
     }
@@ -91,7 +82,7 @@ export const registerInstallRoutes: FastifyPluginAsync<InstallRouteOptions> = as
 export const registerAuthRoutes: FastifyPluginAsync<BaseAuthRouteOptions> = async (app, options) => {
   app.post("/login", async (request) => {
     const sessionTokens = requireSessionTokens(options.runtime.sessionTokens);
-    const input = LoginSchema.parse(request.body);
+    const input = LoginRequestSchema.parse(request.body);
     const publicUser = options.controlStore.getUserByUsername(input.username);
     const user = publicUser ? options.controlStore.getUserWithCredentials(publicUser.id) : null;
     if (!user?.passwordHash || !verifyPassword(input.password, user.passwordHash)) {
@@ -122,20 +113,20 @@ export const registerAuthRoutes: FastifyPluginAsync<BaseAuthRouteOptions> = asyn
       issuedAt: issued.claims.iat,
       expiresAt: issued.claims.exp,
     });
-    return {
+    return AuthSessionSchema.parse({
       token: issued.token,
       expires_at: issued.expires_at,
       user: { id: user.id, displayName: user.displayName },
       tenantId: membership.tenant_id,
       role: membership.role,
       platformRole: user.platformRole,
-    };
+    });
   });
 
   app.post("/switch-tenant", async (request) => {
     const sessionTokens = requireSessionTokens(options.runtime.sessionTokens);
     const claims = sessionTokens.requireBearer(request);
-    const input = SwitchTenantSchema.parse(request.body);
+    const input = SwitchTenantRequestSchema.parse(request.body);
     const tenantId = createTenantId(input.tenantId);
     const membership = options.controlStore.getMembership(claims.sub, tenantId);
     if (!membership) throw new HttpError(403, "forbidden", "用户不是该租户成员");
@@ -156,14 +147,14 @@ export const registerAuthRoutes: FastifyPluginAsync<BaseAuthRouteOptions> = asyn
       issuedAt: issued.claims.iat,
       expiresAt: issued.claims.exp,
     });
-    return {
+    return AuthSessionSchema.parse({
       token: issued.token,
       expires_at: issued.expires_at,
       user: { id: user.id, displayName: user.displayName },
       tenantId,
       role: membership.role,
       platformRole: user.platformRole,
-    };
+    });
   });
 
   app.get("/me", async (request) => {
@@ -173,10 +164,10 @@ export const registerAuthRoutes: FastifyPluginAsync<BaseAuthRouteOptions> = asyn
     const tenant = options.controlStore.getTenant(claims.tenant_id);
     if (!user || user.status === "disabled") throw new HttpError(401, "unauthorized", "session identity 无效");
     if (membership && membership.role === claims.role && tenant?.status === "active") {
-      return { user: { id: user.id, displayName: user.displayName }, userId: user.id, tenantId: membership.tenantId, role: membership.role, permissions: rolePermissions(membership.role), platformRole: user.platformRole };
+      return AuthIdentitySchema.parse({ user: { id: user.id, displayName: user.displayName }, userId: user.id, tenantId: membership.tenantId, role: membership.role, permissions: rolePermissions(membership.role), platformRole: user.platformRole });
     }
     if (user.platformRole === "admin") {
-      return { user: { id: user.id, displayName: user.displayName }, userId: user.id, tenantId: claims.tenant_id, role: claims.role, permissions: [], platformRole: user.platformRole };
+      return AuthIdentitySchema.parse({ user: { id: user.id, displayName: user.displayName }, userId: user.id, tenantId: claims.tenant_id, role: claims.role, permissions: [], platformRole: user.platformRole });
     }
     throw new HttpError(401, "unauthorized", tenant?.status === "suspended" ? "租户已暂停" : "session identity 无效");
   });
@@ -185,7 +176,7 @@ export const registerAuthRoutes: FastifyPluginAsync<BaseAuthRouteOptions> = asyn
     const sessionTokens = requireSessionTokens(options.runtime.sessionTokens);
     const claims = sessionTokens.requireBearer(request);
     sessionTokens.revoke(claims.jti);
-    return { success: true };
+    return LogoutResponseSchema.parse({ success: true });
   });
 };
 
