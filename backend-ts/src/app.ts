@@ -11,6 +11,7 @@ import "./fastify-context.js";
 import { resolveProfileFromSettings, type AppEnv } from "./config/env.js";
 import type { DeploymentProfile } from "./identity/types.js";
 import { registerAgentConfigRoutes } from "./routes/agent-config.js";
+import { registerMemoryRoutes } from "./routes/memory.js";
 import { registerArtifactRoutes } from "./routes/artifacts.js";
 import { registerBotRoutes } from "./routes/bots.js";
 import { registerEmbeddingModelRoutes } from "./routes/embedding-models.js";
@@ -290,6 +291,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     await scope.register(registerHealthRoutes, { prefix: "/api", ...routeOptions });
     await scope.register(registerArtifactRoutes, { prefix: "/api/artifacts", ...routeOptions });
     await scope.register(registerAgentConfigRoutes, { prefix: "/api/agent-config", ...routeOptions });
+    await scope.register(registerMemoryRoutes, { prefix: "/api/memory", ...routeOptions });
     await scope.register(registerSkillRoutes, { prefix: "/api/skills", ...routeOptions });
     await scope.register(registerModelAdapterRoutes, { prefix: "/api/model-adapter", ...routeOptions });
     await scope.register(registerSystemConfigRoutes, { prefix: "/api/system-config", ...routeOptions });

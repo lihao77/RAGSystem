@@ -155,7 +155,7 @@ export function createRuntimeContainer(options: RuntimeContainerOptions): Runtim
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   const embeddingModels = new EmbeddingModelService(knowledgeBase);
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
-  const memoryTools = new MemoryToolService(memoryStore, conversationStore);
+  const memoryTools = new MemoryToolService(memoryStore, conversationStore, conversationStore, options.tenantId);
   const documentTools = new LocalDocumentToolService({ dataRoot: options.dataRoot, fileHistory });
   // 后台通知暂存队列（单一数据来源）：backgroundTasks 生产（完成入队）+ launchers.triggerBgNotificationRun
   // 消费（drain 起 system run）共用同一实例；执行层直接注入该队列。

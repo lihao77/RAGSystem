@@ -10,7 +10,7 @@ import { z } from "zod";
 
 // ────────────────────────────── 共享枚举 / 作用域 ──────────────────────────────
 
-export const MemoryScopeNameSchema = z.enum(["team", "session", "agent", "workspace"]);
+export const MemoryScopeNameSchema = z.enum(["team", "session", "agent", "workspace", "user"]);
 export type MemoryScopeName = z.infer<typeof MemoryScopeNameSchema>;
 
 export const MemoryScopeSpecSchema = z.object({
@@ -19,6 +19,7 @@ export const MemoryScopeSpecSchema = z.object({
   session_id: z.string().optional(),
   agent_name: z.string().optional(),
   workspace_key: z.string().optional(),
+  user_id: z.string().optional(),
 });
 export type MemoryScopeSpec = z.infer<typeof MemoryScopeSpecSchema>;
 

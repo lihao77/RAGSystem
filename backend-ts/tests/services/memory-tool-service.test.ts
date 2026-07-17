@@ -8,6 +8,7 @@ import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { RuntimeMemorySessionPort } from "../../src/tools/MemoryTools/MemoryExecution.js";
 import { MemoryToolService } from "../../src/tools/MemoryTools/MemoryExecution.js";
 import { MemoryStore } from "../../src/services/stores/memory-store.js";
+import type { CreateMemoryCandidateInput, MemoryCandidateRecord } from "../../src/contracts/conversation-store/index.js";
 
 const tempRoots: string[] = [];
 
@@ -26,12 +27,76 @@ class InMemorySessions implements RuntimeMemorySessionPort {
 }
 
 describe("MemoryToolService", () => {
+  it("writes user memory beneath the current user identity", () => {
+    const dataRoot = makeTempDataRoot();
+    const service = new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} }));
+
+    const result = service.writeMemory(
+      { scope: "user", name: "Preference", description: "personal", memoryType: "preference", content: "compact replies" },
+      { agent: minimalAgent(["user"], ["user"]), sessionId: "s1", userId: "usr_alice" },
+    );
+
+    expect(result).toMatchObject({ success: true, content: { scope: "user" } });
+    expect(fs.existsSync(path.join(dataRoot, "memory", "users", "usr_alice", "preference_Preference.md"))).toBe(true);
+  });
+
+  it("stores team writes as a private candidate instead of shared memory", () => {
+    const dataRoot = makeTempDataRoot();
+    const candidates = new InMemoryCandidates();
+    const service = new MemoryToolService(
+      new MemoryStore({ dataRoot }),
+      new InMemorySessions({ s1: { team: "alpha" } }),
+      candidates,
+      "tnt_alpha",
+    );
+
+    const result = service.writeMemory(
+      { scope: "team", name: "Rule", description: "team rule", memoryType: "constraint", content: "review first" },
+      { agent: minimalAgent(["team"], ["team"]), sessionId: "s1", userId: "usr_alice", runId: "run-1" },
+    );
+
+    expect(result).toMatchObject({ success: true, content: { saved: true, scope: "team" } });
+    expect(candidates.records).toMatchObject([{
+      tenant_id: "tnt_alpha",
+      owner_user_id: "usr_alice",
+      target_scope: "team",
+      team_name: "alpha",
+      status: "candidate",
+    }]);
+    expect(fs.existsSync(path.join(dataRoot, "memory", "teams", "alpha", "constraint_Rule.md"))).toBe(false);
+  });
+
+  it("stores shared archive requests as private candidates without archiving the shared file", () => {
+    const dataRoot = makeTempDataRoot();
+    const store = new MemoryStore({ dataRoot });
+    const saved = store.saveMemory({
+      scope: "team", team_name: "alpha", name: "Shared", description: "shared", memory_type: "fact", content: "active",
+    });
+    const candidates = new InMemoryCandidates();
+    const service = new MemoryToolService(store, new InMemorySessions({ s1: { team: "alpha" } }), candidates, "tnt_alpha");
+    const context = {
+      agent: minimalAgent(["team"], [], ["team"]), sessionId: "s1", userId: "usr_alice", runId: "run-1",
+    };
+
+    expect(service.checkMemoryScopeAccess({ scope: "team" }, context, "archive")).toEqual({ action: "allow" });
+    expect(service.archiveMemory({ scope: "team", fileName: saved.file_name }, context)).toMatchObject({
+      success: true,
+      content: { saved: true, scope: "team" },
+      metadata: { operation: "archive" },
+    });
+    expect(candidates.records[0]).toMatchObject({
+      operation: "archive",
+      target_file_name: saved.file_name,
+      owner_user_id: "usr_alice",
+    });
+    expect(fs.readFileSync(saved.file_path, "utf8")).toContain("status: active");
+  });
   it("lists memory indices with session-injected team and workspace scope inputs", () => {
     const dataRoot = makeTempDataRoot();
     writeFile(dataRoot, ["memory", "teams", "alpha-team", "MEMORY.md"], "# Team Memory\n");
     writeFile(
       dataRoot,
-      ["memory", "workspaces", "E-Python-RAGSystem-workspaces-demo-workspace", "MEMORY.md"],
+      ["memory", "users", "usr_alice", "workspaces", "E-Python-RAGSystem-workspaces-demo-workspace", "MEMORY.md"],
       "# Workspace Memory\n",
     );
     const service = new MemoryToolService(
@@ -46,6 +111,7 @@ describe("MemoryToolService", () => {
     const context = {
       agent: minimalAgent(["team", "workspace"]),
       sessionId: "s1",
+      userId: "usr_alice",
     };
 
     expect(service.listMemoryIndex({ scope: "team" }, context)).toMatchObject({
@@ -226,7 +292,11 @@ function writeFile(dataRoot: string, parts: string[], content: string): void {
   fs.writeFileSync(filePath, content, "utf8");
 }
 
-function minimalAgent(allowedScopes: string[], writeScopes: string[] = [], archiveScopes: string[] = []): AgentConfig {
+function minimalAgent(
+  allowedScopes: AgentConfig["memory"]["allowed_scopes"],
+  writeScopes: AgentConfig["memory"]["write_scopes"] = [],
+  archiveScopes: AgentConfig["memory"]["archive_scopes"] = [],
+): AgentConfig {
   return {
     agent_name: "orchestrator_agent",
     display_name: "Orchestrator Agent",
@@ -262,4 +332,50 @@ function minimalAgent(allowedScopes: string[], writeScopes: string[] = [], archi
     },
     custom_params: {},
   };
+}
+
+class InMemoryCandidates {
+  readonly records: MemoryCandidateRecord[] = [];
+
+  createMemoryCandidate(input: CreateMemoryCandidateInput): MemoryCandidateRecord {
+    const record: MemoryCandidateRecord = {
+      id: `candidate-${this.records.length + 1}`,
+      tenant_id: input.tenantId,
+      owner_user_id: input.ownerUserId,
+      target_scope: input.targetScope,
+      operation: input.operation ?? "publish",
+      target_file_name: input.targetFileName ?? null,
+      team_name: input.teamName,
+      agent_name: input.agentName ?? null,
+      name: input.name,
+      description: input.description,
+      memory_type: input.memoryType,
+      content: input.content,
+      why: input.why ?? null,
+      how_to_apply: input.howToApply ?? null,
+      status: "candidate",
+      source_session_id: input.sourceSessionId ?? null,
+      source_run_id: input.sourceRunId ?? null,
+      source_message_id: input.sourceMessageId ?? null,
+      reviewer_user_id: null,
+      review_comment: null,
+      published_file_name: null,
+      created_at: "2026-07-17T00:00:00Z",
+      updated_at: "2026-07-17T00:00:00Z",
+      reviewed_at: null,
+      review_claimed_at: null,
+      review_attempt_id: null,
+    };
+    this.records.push(record);
+    return record;
+  }
+
+  getMemoryCandidate(id: string) { return this.records.find((item) => item.id === id) ?? null; }
+  listMemoryCandidates() { return [...this.records]; }
+  countMemoryCandidates() { return this.records.length; }
+  claimMemoryCandidate() { return { attemptId: "attempt-1", claimedAt: "2026-07-17T00:00:00Z" }; }
+  releaseMemoryCandidate() { return true; }
+  updateMemoryCandidate() { return false; }
+  reviewMemoryCandidate() { return false; }
+  withdrawMemoryCandidate() { return false; }
 }

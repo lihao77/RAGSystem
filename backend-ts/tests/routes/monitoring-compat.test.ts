@@ -239,6 +239,41 @@ describe("monitoring compatibility routes", () => {
 
   });
 
+  it("includes user and private candidate memory in context snapshot", async () => {
+    const harness = await buildTestHarness();
+    app = harness.app;
+    harness.container.sessionApplication.createSession({
+      tenantId: LOCAL_TENANT_ID,
+      userId: "usr_local",
+      sessionId: "memory-preview",
+      metadata: { team: "default" },
+    });
+    harness.container.memoryStore.saveMemory({
+      scope: "user",
+      user_id: "usr_local",
+      name: "User preference",
+      description: "personal preference",
+      memory_type: "preference",
+      content: "remember-user-preview",
+    });
+    harness.container.conversationStore.createMemoryCandidate({
+      tenantId: "tnt_local",
+      ownerUserId: "usr_local",
+      targetScope: "team",
+      teamName: "default",
+      name: "Private candidate",
+      description: "private",
+      memoryType: "fact",
+      content: "remember-private-preview",
+    });
+
+    const snapshot = await app.inject({ method: "GET", url: "/api/agent/context-snapshot?session_id=memory-preview" });
+    expect(snapshot.statusCode).toBe(200);
+    const serialized = JSON.stringify(snapshot.json().data);
+    expect(serialized).toContain("User preference");
+    expect(serialized).toContain("remember-private-preview");
+  });
+
   it("serves context snapshot history through the compression view for the root thread", async () => {
     const harness = await buildTestHarness();
     app = harness.app;

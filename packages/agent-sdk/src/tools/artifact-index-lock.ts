@@ -12,16 +12,17 @@ const LOCK_RETRIES = {
   randomize: true,
 } as const;
 
-export interface ArtifactIndexLockOptions {
+export interface LeaseLockOptions {
   staleMs?: number;
   updateMs?: number;
   retries?: number;
 }
 
+export type ArtifactIndexLockOptions = LeaseLockOptions;
+
 /** Cross-process lease backed by proper-lockfile's atomic mkdir lock and stale-lock heartbeat. */
-export async function withArtifactIndexLock<T>(root: string, action: () => Promise<T>, options: ArtifactIndexLockOptions = {}): Promise<T> {
-  await fs.promises.mkdir(root, { recursive: true });
-  const target = path.join(root, "artifact_index.jsonl");
+export async function withLeaseLock<T>(target: string, action: () => Promise<T>, options: LeaseLockOptions = {}): Promise<T> {
+  await fs.promises.mkdir(path.dirname(target), { recursive: true });
   const staleMs = options.staleMs ?? LOCK_LEASE_MS;
   const updateMs = options.updateMs ?? LOCK_UPDATE_MS;
   let compromisedError: Error | undefined;
@@ -46,15 +47,47 @@ export async function withArtifactIndexLock<T>(root: string, action: () => Promi
   try {
     const result = await action();
     if (watchdogDetectedStall || Date.now() - lastWatchdogTick >= staleMs) {
-      compromisedError ??= Object.assign(new Error("Artifact index lock lease may have been lost after an event-loop stall"), { code: "ECOMPROMISED" });
+      compromisedError ??= compromisedLockError();
     }
     if (compromisedError) throw compromisedError;
     return result;
   } finally {
     if (watchdogDetectedStall || Date.now() - lastWatchdogTick >= staleMs) {
-      compromisedError ??= Object.assign(new Error("Artifact index lock lease may have been lost after an event-loop stall"), { code: "ECOMPROMISED" });
+      compromisedError ??= compromisedLockError();
     }
     clearInterval(watchdog);
     if (!compromisedError) await release();
   }
+}
+
+/** Synchronous lease for short filesystem critical sections. */
+export function withLeaseLockSync<T>(target: string, action: () => T, options: LeaseLockOptions = {}): T {
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const staleMs = options.staleMs ?? LOCK_LEASE_MS;
+  let compromisedError: Error | undefined;
+  const acquiredAt = Date.now();
+  const release = lockfile.lockSync(target, {
+    realpath: false,
+    stale: staleMs,
+    update: options.updateMs ?? LOCK_UPDATE_MS,
+    retries: 0,
+    onCompromised: (error) => { compromisedError = error; },
+  });
+  try {
+    const result = action();
+    if (Date.now() - acquiredAt >= staleMs) compromisedError ??= compromisedLockError();
+    if (compromisedError) throw compromisedError;
+    return result;
+  } finally {
+    if (Date.now() - acquiredAt >= staleMs) compromisedError ??= compromisedLockError();
+    if (!compromisedError) release();
+  }
+}
+
+export async function withArtifactIndexLock<T>(root: string, action: () => Promise<T>, options: ArtifactIndexLockOptions = {}): Promise<T> {
+  return withLeaseLock(path.join(root, "artifact_index.jsonl"), action, options);
+}
+
+function compromisedLockError(): Error {
+  return Object.assign(new Error("Lock lease may have been lost after an event-loop stall"), { code: "ECOMPROMISED" });
 }

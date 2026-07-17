@@ -9,7 +9,7 @@ export const MEMORY_SCOPE_CAPABILITIES_HEADING = "[Memory Scope Capabilities]";
 export const MEMORY_INDEX_HEADING_SUFFIX = "Memory Index]";
 
 export function isMemoryScopeName(value: unknown): value is MemoryScopeName {
-  return value === "team" || value === "session" || value === "agent" || value === "workspace";
+  return value === "team" || value === "session" || value === "agent" || value === "workspace" || value === "user";
 }
 
 export function pythonStableJsonStringify(value: unknown): string {

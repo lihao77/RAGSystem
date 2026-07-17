@@ -149,13 +149,14 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     // backend 组装 context（memory + recent）—— 与 run 路径同源（runtime-adapter 同一套 builder + source）。
     // conversation 注入 preview（组 LLM request）；rawMessages/sources 由 backend 自组，preview 不再返回 context。
     const threadKey = normalizeString(query.thread_key);
-    const historyPort: ConversationHistoryPort & SessionMetadataPort = {
+    const historyPort: ConversationHistoryPort & SessionMetadataPort & Pick<typeof request.container.conversationStore, "listMemoryCandidates"> = {
       getRecentMessages: (sid, limit, tk) => request.container.conversationStore.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
       getSession: (sid) => {
         const s = request.container.conversationStore.getSession(sid);
-        return s ? { metadata: s.metadata ?? {} } : null;
+        return s ? { metadata: s.metadata ?? {}, user_id: s.user_id } : null;
       },
       updateSessionMetadata: (sid, patch) => request.container.conversationStore.updateSessionMetadata(sid, patch),
+      listMemoryCandidates: (candidateQuery) => request.container.conversationStore.listMemoryCandidates(candidateQuery),
     };
     const snapshot = sessionId
       ? previewBackendAgentContext(agent, profile, historyPort, registry, {

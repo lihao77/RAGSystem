@@ -10,10 +10,13 @@
  * 迿自 SDK memory 模块，归位 backend；字段对齐 AgentConfig.memory（snake）。
  * 由 backend AgentContextBuilder 组装（memory + recent）→ conversation 经 RunInput.conversation 注入 SDK。
  */
+import crypto from "node:crypto";
+
 import type { IMemoryStore, MemoryScopeSpec, MemoryStoreOptions } from "../../../contracts/memory-store/index.js";
 import { MemoryStore } from "../../stores/memory-store.js";
 import type { AgentContextContribution, AgentContextSource, ResolvedAgentContextRequest, SessionMetadataPort } from "../context/types.js";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
+import type { IMemoryCandidateStore, MemoryCandidateRecord } from "../../../contracts/conversation-store/index.js";
 import type { MemoryConfig as SystemMemoryConfig } from "../../../contracts/system-config.js";
 import {
   buildMemoryPrefixFingerprint,
@@ -54,7 +57,7 @@ export class MemoryIndexContextSource implements AgentContextSource {
   private readonly indexMaxChars: number;
 
   constructor(
-    private readonly sessions: SessionMetadataPort,
+    private readonly sessions: SessionMetadataPort & Partial<IMemoryCandidateStore>,
     private readonly memory: MemoryConfig,
     private readonly agentName: string,
     options: MemoryIndexContextSourceOptions = {},
@@ -77,18 +80,26 @@ export class MemoryIndexContextSource implements AgentContextSource {
     if (!memoryEnabled && memory.auto_inject === false) {
       return { conversation: [], metadata: { status: "disabled", scope_capabilities: scopeCapabilities } };
     }
-    const sessionMetadata = this.sessions.getSession(request.sessionId)?.metadata ?? {};
+    const session = this.sessions.getSession(request.sessionId);
+    const sessionMetadata = session?.metadata ?? {};
+    const userId = session?.user_id ?? null;
     const scopeSpecs = buildMemoryScopeSpecs({
       memory,
       sessionId: request.sessionId,
       agentName: this.agentName,
       sessionMetadata,
+      userId,
     });
+    const privateCandidates = memory.auto_inject === false
+      ? []
+      : this.loadPrivateCandidates(userId, sessionMetadata, scopeCapabilities.allowed_scopes);
+    const privateCandidateRevision = fingerprintCandidates(privateCandidates);
     const fingerprint = buildMemoryPrefixFingerprint({
       memory,
       scopeCapabilities,
       scopeSpecs,
       agentName: this.agentName,
+      privateCandidateRevision,
     });
     const baselineKey = memoryBaselineKey(request.threadKey, this.agentName);
     const existingSnapshot = readMemoryPrefixSnapshot(sessionMetadata, baselineKey);
@@ -98,7 +109,7 @@ export class MemoryIndexContextSource implements AgentContextSource {
     const snapshot =
       existingSnapshot && fingerprintMatch && request.cacheAlive
         ? existingSnapshot
-        : this.buildAndPersistSnapshot({ request, baselineKey, fingerprint, scopeCapabilities, scopeSpecs });
+        : this.buildAndPersistSnapshot({ request, baselineKey, fingerprint, scopeCapabilities, scopeSpecs, privateCandidates });
     const renderedBlock = snapshot.rendered_block;
     return {
       conversation: renderedBlock ? [{ role: "system", content: renderedBlock }] : [],
@@ -112,6 +123,7 @@ export class MemoryIndexContextSource implements AgentContextSource {
     fingerprint: MemoryPrefixFingerprint;
     scopeCapabilities: MemoryScopeCapabilities;
     scopeSpecs: MemoryScopeSpec[];
+    privateCandidates: MemoryCandidateRecord[];
   }): MemoryPrefixSnapshot {
     const indices: Record<string, string> = {};
     if (this.memory.auto_inject !== false) {
@@ -120,7 +132,9 @@ export class MemoryIndexContextSource implements AgentContextSource {
         if (content) { indices[scopeSpec.scope] = content; }
       }
     }
-    const renderedBlock = renderMemoryPrefixBlock({ scopeCapabilities: input.scopeCapabilities, indices });
+    const sharedBlock = renderMemoryPrefixBlock({ scopeCapabilities: input.scopeCapabilities, indices });
+    const privateBlock = renderPrivateMemory(input.privateCandidates);
+    const renderedBlock = [sharedBlock, privateBlock].filter(Boolean).join("\n\n");
     const snapshot: MemoryPrefixSnapshot = {
       baseline_key: input.baselineKey,
       session_id: input.request.sessionId,
@@ -135,4 +149,69 @@ export class MemoryIndexContextSource implements AgentContextSource {
     this.sessions.updateSessionMetadata?.(input.request.sessionId, { memory_prefix_states: { [input.baselineKey]: snapshot } });
     return snapshot;
   }
+
+  private loadPrivateCandidates(
+    userId: string | null,
+    sessionMetadata: Record<string, unknown>,
+    allowedScopes: string[],
+  ): MemoryCandidateRecord[] {
+    if (!userId || !this.sessions.listMemoryCandidates) return [];
+    const teamName = typeof sessionMetadata.team === "string" ? sessionMetadata.team.trim() : "";
+    if (!teamName) return [];
+    const records: MemoryCandidateRecord[] = [];
+    if (allowedScopes.includes("agent")) {
+      records.push(...this.sessions.listMemoryCandidates({
+        ownerUserId: userId,
+        statuses: ["candidate"],
+        targetScope: "agent",
+        operation: "publish",
+        teamName,
+        agentName: this.agentName,
+        limit: 60,
+        contentMaxChars: 4_000,
+      }));
+    }
+    if (allowedScopes.includes("team")) {
+      records.push(...this.sessions.listMemoryCandidates({
+        ownerUserId: userId,
+        statuses: ["candidate"],
+        targetScope: "team",
+        operation: "publish",
+        teamName,
+        limit: 60,
+        contentMaxChars: 4_000,
+      }));
+    }
+    return records
+      .sort((left, right) => {
+        const scopePriority = Number(right.target_scope === "agent") - Number(left.target_scope === "agent");
+        return scopePriority || right.updated_at.localeCompare(left.updated_at) || right.id.localeCompare(left.id);
+      })
+      .slice(0, 100);
+  }
+}
+
+function fingerprintCandidates(candidates: MemoryCandidateRecord[]): string {
+  const hash = crypto.createHash("sha256");
+  for (const candidate of candidates) {
+    hash.update(JSON.stringify([
+      candidate.id,
+      candidate.updated_at,
+      candidate.name,
+      candidate.description,
+      candidate.content,
+      candidate.why,
+      candidate.how_to_apply,
+    ]));
+  }
+  return hash.digest("hex").slice(0, 24);
+}
+
+function renderPrivateMemory(candidates: MemoryCandidateRecord[]): string {
+  if (!candidates.length) return "";
+  const lines = ["# Personal Agent Memory", "", "以下记忆仅对当前用户生效，不代表团队共识。"];
+  for (const candidate of candidates) {
+    lines.push("", `## ${candidate.name}`, candidate.description, "", candidate.content);
+  }
+  return lines.join("\n").slice(0, 25_600).trim();
 }

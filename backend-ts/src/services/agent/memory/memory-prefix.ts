@@ -38,6 +38,7 @@ export interface MemoryPrefixFingerprint {
   write_scopes: string[];
   archive_scopes: string[];
   scope_specs: Array<{ scope_name: string; scope_spec: MemoryScopeSpec }>;
+  private_candidate_revision: string;
   fingerprint: string;
 }
 
@@ -71,6 +72,7 @@ export function buildMemoryScopeSpecs(input: {
   sessionId: string;
   agentName: string;
   sessionMetadata: Record<string, unknown>;
+  userId?: string | null;
 }): MemoryScopeSpec[] {
   const allowedScopes = new Set(input.memory.allowed_scopes);
   const teamName = getString(input.sessionMetadata.team);
@@ -85,8 +87,11 @@ export function buildMemoryScopeSpecs(input: {
   if (allowedScopes.has("agent") && input.agentName && teamName) {
     scopeSpecs.push({ scope: "agent", agent_name: input.agentName, team_name: teamName });
   }
-  if (allowedScopes.has("workspace") && workspaceKey) {
-    scopeSpecs.push({ scope: "workspace", workspace_key: workspaceKey });
+  if (allowedScopes.has("workspace") && workspaceKey && input.userId) {
+    scopeSpecs.push({ scope: "workspace", workspace_key: workspaceKey, user_id: input.userId });
+  }
+  if (allowedScopes.has("user") && input.userId) {
+    scopeSpecs.push({ scope: "user", user_id: input.userId });
   }
   return scopeSpecs;
 }
@@ -96,6 +101,7 @@ export function buildMemoryPrefixFingerprint(input: {
   scopeCapabilities: MemoryScopeCapabilities;
   scopeSpecs: MemoryScopeSpec[];
   agentName: string;
+  privateCandidateRevision?: string;
 }): MemoryPrefixFingerprint {
   const payload = {
     agent_name: input.agentName.trim() || null,
@@ -104,6 +110,7 @@ export function buildMemoryPrefixFingerprint(input: {
     write_scopes: [...input.scopeCapabilities.write_scopes].sort(),
     archive_scopes: [...input.scopeCapabilities.archive_scopes].sort(),
     scope_specs: input.scopeSpecs.map((scopeSpec) => ({ scope_name: scopeSpec.scope, scope_spec: { ...scopeSpec } })),
+    private_candidate_revision: input.privateCandidateRevision ?? "",
   };
   return { ...payload, fingerprint: crypto.createHash("sha256").update(pythonStableJsonStringify(payload), "utf8").digest("hex").slice(0, 16) };
 }
@@ -158,6 +165,7 @@ export function readMemoryPrefixSnapshot(
       write_scopes: stringArray(fingerprint?.write_scopes),
       archive_scopes: stringArray(fingerprint?.archive_scopes),
       scope_specs: readFingerprintScopeSpecs(fingerprint?.scope_specs),
+      private_candidate_revision: getString(fingerprint?.private_candidate_revision) ?? "",
       fingerprint: fingerprintValue,
     },
     scope_capabilities: readScopeCapabilities(snapshot.scope_capabilities),
@@ -176,7 +184,7 @@ function readFingerprintScopeSpecs(value: unknown): MemoryPrefixFingerprint["sco
       const scopeSpec = asRecord(record?.scope_spec);
       if (!scopeName || !scopeSpec || !isMemoryScopeName(scopeSpec.scope)) { return null; }
       const output: MemoryPrefixFingerprint["scope_specs"][number] = { scope_name: scopeName, scope_spec: { scope: scopeSpec.scope } };
-      for (const key of ["team_name", "session_id", "agent_name", "workspace_key"] as const) {
+      for (const key of ["team_name", "session_id", "agent_name", "workspace_key", "user_id"] as const) {
         const stringValue = getString(scopeSpec[key]);
         if (stringValue) { output.scope_spec[key] = stringValue; }
       }

@@ -232,6 +232,8 @@ export interface ToolExecContext {
   }) => void;
   /** 整棵执行树的根任务文本；child run 继承，用于挂起后从 root 恢复。 */
   rootTask?: string;
+  /** 发起当前 run 的用户；供宿主执行资源所有权校验，不暴露给模型。 */
+  userId?: string | null;
   /** 当前 agent 名称。 */
   currentAgentName?: string | null;
   /** 工作空间根路径（文件类工具判断外部路径用）。 */

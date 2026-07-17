@@ -16,6 +16,43 @@ afterEach(() => {
 });
 
 describe("MemoryStore", () => {
+  it("copies legacy workspace memory into each user's isolated workspace on first access", () => {
+    const dataRoot = makeTempDataRoot();
+    const legacyRoot = path.join(dataRoot, "memory", "workspaces", "demo");
+    fs.mkdirSync(legacyRoot, { recursive: true });
+    fs.writeFileSync(path.join(legacyRoot, "MEMORY.md"), "# Legacy Workspace\n", "utf8");
+    fs.writeFileSync(path.join(legacyRoot, "fact_old.md"), "legacy body", "utf8");
+    const store = new MemoryStore({ dataRoot });
+
+    expect(store.loadIndexHead({ scope: "workspace", workspace_key: "demo", user_id: "usr_alice" }))
+      .toBe("# Legacy Workspace");
+    expect(fs.readFileSync(path.join(dataRoot, "memory", "users", "usr_alice", "workspaces", "demo", "fact_old.md"), "utf8"))
+      .toBe("legacy body");
+    expect(fs.existsSync(path.join(legacyRoot, "fact_old.md"))).toBe(true);
+  });
+
+  it("restores the shared scope when publish state commit fails", () => {
+    const dataRoot = makeTempDataRoot();
+    const store = new MemoryStore({ dataRoot });
+    const scope = { scope: "team" as const, team_name: "default" };
+    store.saveMemory({ ...scope, name: "Existing", description: "existing", memory_type: "fact", content: "old" });
+    const before = store.loadIndexHead(scope);
+
+    expect(() => store.saveMemoryWithCommit(
+      { ...scope, name: "Candidate", description: "candidate", memory_type: "fact", content: "new" },
+      () => false,
+    )).toThrow("memory publish state changed before commit");
+    expect(store.loadIndexHead(scope)).toBe(before);
+    expect(fs.existsSync(path.join(dataRoot, "memory", "teams", "default", "fact_Candidate.md"))).toBe(false);
+  });
+
+  it("rejects path traversal in every scope identity segment", () => {
+    const store = new MemoryStore({ dataRoot: makeTempDataRoot() });
+    expect(() => store.getScopeRoot({ scope: "team", team_name: "../../../tnt_other" })).toThrow("非法路径字符");
+    expect(() => store.getScopeRoot({ scope: "agent", team_name: "default", agent_name: "../admin" })).toThrow("非法路径字符");
+    expect(() => store.getScopeRoot({ scope: "session", session_id: "..\\outside" })).toThrow("非法路径字符");
+    expect(() => store.getScopeRoot({ scope: "workspace", user_id: "usr_alice", workspace_key: "../outside" })).toThrow("非法路径字符");
+  });
   it("logs non-ENOENT index read failures and returns an empty string", () => {
     const store = new MemoryStore({ dataRoot: makeTempDataRoot() });
     const error = Object.assign(new Error("permission denied"), { code: "EACCES" });

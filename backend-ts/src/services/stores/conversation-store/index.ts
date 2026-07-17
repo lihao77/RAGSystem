@@ -9,6 +9,7 @@ import { ResourceOps } from "./resource-ops.js";
 import { MetricOps } from "./metric-ops.js";
 import { PendingInteractionOps } from "./pending-interaction-ops.js";
 import { ProviderContinuationOps } from "./provider-continuation-ops.js";
+import { MemoryCandidateOps } from "./memory-candidate-ops.js";
 import type {
   ConversationStore,
   ConversationStoreOptions,
@@ -35,6 +36,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
   const metrics = new MetricOps(db);
   const pendingInteractions = new PendingInteractionOps(db);
   const providerContinuations = new ProviderContinuationOps(db);
+  const memoryCandidates = new MemoryCandidateOps(db);
 
   const createTransactionFacade = (): ConversationStoreTransaction => ({
     addMessage: messages.addMessageInTransaction.bind(messages),
@@ -147,6 +149,17 @@ export function createConversationStore(options: ConversationStoreOptions) {
     suspendPendingInteractions: pendingInteractions.suspendPendingInteractions.bind(pendingInteractions),
     consumePendingResolution: pendingInteractions.consumePendingResolution.bind(pendingInteractions),
     cancelPendingInteractions: pendingInteractions.cancelPendingInteractions.bind(pendingInteractions),
+
+    // private agent/team memory candidates
+    createMemoryCandidate: memoryCandidates.createMemoryCandidate.bind(memoryCandidates),
+    getMemoryCandidate: memoryCandidates.getMemoryCandidate.bind(memoryCandidates),
+    listMemoryCandidates: memoryCandidates.listMemoryCandidates.bind(memoryCandidates),
+    countMemoryCandidates: memoryCandidates.countMemoryCandidates.bind(memoryCandidates),
+    claimMemoryCandidate: memoryCandidates.claimMemoryCandidate.bind(memoryCandidates),
+    releaseMemoryCandidate: memoryCandidates.releaseMemoryCandidate.bind(memoryCandidates),
+    updateMemoryCandidate: memoryCandidates.updateMemoryCandidate.bind(memoryCandidates),
+    reviewMemoryCandidate: memoryCandidates.reviewMemoryCandidate.bind(memoryCandidates),
+    withdrawMemoryCandidate: memoryCandidates.withdrawMemoryCandidate.bind(memoryCandidates),
 
     // 跨域事务（组合 message/run/outbox ops）
     runInTransaction<T>(operation: (tx: ConversationStoreTransaction) => T): T {

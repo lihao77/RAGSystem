@@ -217,6 +217,68 @@ export const MIGRATIONS: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 12,
+    name: "memory_candidates",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE memory_candidates (
+          id TEXT PRIMARY KEY,
+          tenant_id TEXT NOT NULL,
+          owner_user_id TEXT NOT NULL,
+          target_scope TEXT NOT NULL CHECK(target_scope IN ('team', 'agent')),
+          team_name TEXT NOT NULL,
+          agent_name TEXT,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL,
+          memory_type TEXT NOT NULL,
+          content TEXT NOT NULL,
+          why TEXT,
+          how_to_apply TEXT,
+          status TEXT NOT NULL DEFAULT 'candidate'
+            CHECK(status IN ('candidate', 'approved', 'rejected', 'withdrawn')),
+          source_session_id TEXT,
+          source_run_id TEXT,
+          source_message_id TEXT,
+          reviewer_user_id TEXT,
+          review_comment TEXT,
+          published_file_name TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          reviewed_at TIMESTAMP
+        );
+        CREATE INDEX idx_memory_candidates_owner_status
+          ON memory_candidates(owner_user_id, status, updated_at DESC);
+        CREATE INDEX idx_memory_candidates_target_status
+          ON memory_candidates(target_scope, team_name, agent_name, status, updated_at DESC);
+      `);
+    },
+  },
+  {
+    version: 13,
+    name: "memory_candidate_operations",
+    up: (db) => {
+      addColumnIfMissing(db, "memory_candidates", "operation", "TEXT NOT NULL DEFAULT 'publish'");
+      addColumnIfMissing(db, "memory_candidates", "target_file_name", "TEXT");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_memory_candidates_operation_status ON memory_candidates(operation, status, updated_at DESC)");
+    },
+  },
+  {
+    version: 14,
+    name: "memory_candidate_claim_timestamps",
+    up: (db) => {
+      addColumnIfMissing(db, "memory_candidates", "review_claimed_at", "TIMESTAMP");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_memory_candidates_review_claim ON memory_candidates(status, reviewer_user_id, review_claimed_at)");
+    },
+  },
+  {
+    version: 15,
+    name: "memory_candidate_attempt_tokens",
+    up: (db) => {
+      addColumnIfMissing(db, "memory_candidates", "review_attempt_id", "TEXT");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_memory_candidates_review_attempt ON memory_candidates(id, status, review_attempt_id)");
+    },
+  },
 ];
 
 function addColumnIfMissing(db: MigrationDatabase, table: string, column: string, declaration: string): void {

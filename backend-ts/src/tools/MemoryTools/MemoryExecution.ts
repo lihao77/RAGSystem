@@ -4,6 +4,7 @@ import type { ToolAccessDecision, ToolExecutionResult } from "@ragsystem/agent-s
 import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
 import { getWorkspaceMemoryKey } from "../../services/stores/memory-store.js";
 import type { IMemoryStore, MemoryScopeName, MemoryScopeSpec } from "../../contracts/memory-store/index.js";
+import type { IMemoryCandidateStore } from "../../contracts/conversation-store/index.js";
 
 export interface RuntimeMemorySessionPort {
   getSession(sessionId: string): Pick<SessionInfo, "metadata"> | null;
@@ -15,6 +16,8 @@ export interface MemoryToolRuntimeContext {
   currentAgentName?: string | null | undefined;
   teamName?: string | null | undefined;
   workspaceRoot?: string | null | undefined;
+  userId?: string | null | undefined;
+  runId?: string | null | undefined;
 }
 
 export interface ListMemoryIndexInput {
@@ -55,6 +58,8 @@ export class MemoryToolService {
   constructor(
     private readonly memoryStore: IMemoryStore,
     private readonly sessions: RuntimeMemorySessionPort,
+    private readonly candidates?: IMemoryCandidateStore,
+    private readonly tenantId?: string,
   ) {}
 
   /**
@@ -85,6 +90,13 @@ export class MemoryToolService {
       }
     }
     if (mode === "archive") {
+      if (normalizedScope === "team" || normalizedScope === "agent") {
+        const ownerUserId = normalizeString(context.userId);
+        if (!ownerUserId || !this.candidates || !this.tenantId) {
+          return { action: "deny", reason: "当前执行缺少用户身份，无法提交共享 memory 归档申请" };
+        }
+        return { action: "allow" };
+      }
       const archiveScopes = new Set((memoryConfig.archive_scopes ?? []).map((item) => item.toLowerCase()));
       if (!archiveScopes.has(normalizedScope)) {
         return { action: "deny", reason: `当前 Agent 不允许归档 memory scope: ${input.scope}` };
@@ -151,6 +163,37 @@ export class MemoryToolService {
     }
 
     try {
+      if (setup.scopeSpec.scope === "team" || setup.scopeSpec.scope === "agent") {
+        const ownerUserId = normalizeString(context.userId);
+        if (!ownerUserId || !this.candidates || !this.tenantId) {
+          return toolError(toolName, "当前执行缺少用户身份，无法保存共享范围 memory");
+        }
+        this.candidates.createMemoryCandidate({
+          tenantId: this.tenantId,
+          ownerUserId,
+          targetScope: setup.scopeSpec.scope,
+          teamName: setup.scopeSpec.team_name!,
+          agentName: setup.scopeSpec.scope === "agent" ? setup.scopeSpec.agent_name ?? null : null,
+          name: input.name,
+          description: input.description,
+          memoryType: input.memoryType,
+          content: input.content,
+          ...(input.why !== undefined ? { why: input.why } : {}),
+          ...(input.howToApply !== undefined ? { howToApply: input.howToApply } : {}),
+          sourceSessionId: normalizeString(context.sessionId),
+          sourceRunId: input.sourceRunId ?? normalizeString(context.runId),
+          ...(input.sourceMessageId !== undefined ? { sourceMessageId: input.sourceMessageId } : {}),
+        });
+        return toolSuccess(
+          { saved: true, scope: setup.scopeSpec.scope },
+          {
+            toolName,
+            summary: `已保存 ${setup.scopeSpec.scope} memory`,
+            outputType: "json",
+            metadata: { scope: setup.scopeSpec.scope },
+          },
+        );
+      }
       const saved = this.memoryStore.saveMemory({
         ...setup.scopeSpec,
         name: input.name,
@@ -194,6 +237,33 @@ export class MemoryToolService {
     }
 
     try {
+      if (setup.scopeSpec.scope === "team" || setup.scopeSpec.scope === "agent") {
+        const ownerUserId = normalizeString(context.userId);
+        if (!ownerUserId || !this.candidates || !this.tenantId) {
+          return toolError(toolName, "当前执行缺少用户身份，无法提交共享范围 memory 归档申请");
+        }
+        this.candidates.createMemoryCandidate({
+          tenantId: this.tenantId,
+          ownerUserId,
+          targetScope: setup.scopeSpec.scope,
+          operation: "archive",
+          targetFileName: input.fileName,
+          teamName: setup.scopeSpec.team_name!,
+          agentName: setup.scopeSpec.scope === "agent" ? setup.scopeSpec.agent_name ?? null : null,
+          name: `Archive ${input.fileName}`,
+          description: `请求归档 ${input.fileName}`,
+          memoryType: "constraint",
+          content: "",
+          sourceSessionId: normalizeString(context.sessionId),
+          sourceRunId: normalizeString(context.runId),
+        });
+        return toolSuccess({ saved: true, scope: setup.scopeSpec.scope }, {
+          toolName,
+          summary: `已提交 ${setup.scopeSpec.scope} memory 归档申请`,
+          outputType: "json",
+          metadata: { scope: setup.scopeSpec.scope, operation: "archive" },
+        });
+      }
       const archived = this.memoryStore.archiveMemory(setup.scopeSpec, input.fileName);
       if (!archived) {
         return toolError(
@@ -260,11 +330,11 @@ export class MemoryToolService {
     scope: MemoryScopeName,
     currentAgentName: string | null,
   ): MemoryScopeSpec | { error: string } {
-    const sessionId = normalizeString(input.sessionId) ?? normalizeString(context.sessionId);
+    const sessionId = normalizeString(context.sessionId);
     const sessionMetadata = sessionId ? (this.sessions.getSession(sessionId)?.metadata ?? {}) : {};
-    const teamName = normalizeString(input.teamName) ?? normalizeString(context.teamName) ?? normalizeString(sessionMetadata.team);
+    const teamName = normalizeString(context.teamName) ?? normalizeString(sessionMetadata.team);
     const workspaceRoot =
-      normalizeString(input.workspaceRoot) ?? normalizeString(context.workspaceRoot) ?? normalizeString(sessionMetadata.workspace_root);
+      normalizeString(context.workspaceRoot) ?? normalizeString(sessionMetadata.workspace_root);
 
     if (scope === "team") {
       return teamName ? { scope, team_name: teamName } : { error: "team_name" };
@@ -273,14 +343,20 @@ export class MemoryToolService {
       return sessionId ? { scope, session_id: sessionId } : { error: "session_id" };
     }
     if (scope === "agent") {
-      const agentName = normalizeString(input.agentName) ?? currentAgentName;
+      const agentName = currentAgentName;
       if (!teamName) {
         return { error: "team_name" };
       }
       return agentName ? { scope, agent_name: agentName, team_name: teamName } : { error: "agent_name" };
     }
-    const workspaceKey = normalizeString(input.workspaceKey) ?? getWorkspaceMemoryKey(workspaceRoot);
-    return workspaceKey ? { scope, workspace_key: workspaceKey } : { error: "workspace_key" };
+    if (scope === "user") {
+      const userId = normalizeString(context.userId);
+      return userId ? { scope, user_id: userId } : { error: "user_id" };
+    }
+    const workspaceKey = getWorkspaceMemoryKey(workspaceRoot);
+    const userId = normalizeString(context.userId);
+    if (!userId) return { error: "user_id" };
+    return workspaceKey ? { scope, workspace_key: workspaceKey, user_id: userId } : { error: "workspace_key" };
   }
 }
 
@@ -294,7 +370,7 @@ function hasMemoryCapability(memoryConfig: AgentConfig["memory"]): boolean {
 
 function normalizeMemoryScope(value: string): MemoryScopeName | null {
   const normalized = value.trim().toLowerCase();
-  if (normalized === "team" || normalized === "session" || normalized === "agent" || normalized === "workspace") {
+  if (normalized === "team" || normalized === "session" || normalized === "agent" || normalized === "workspace" || normalized === "user") {
     return normalized;
   }
   return null;

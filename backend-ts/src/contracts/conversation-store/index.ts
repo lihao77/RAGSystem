@@ -35,6 +35,9 @@ import type {
   PendingInteractionStatus,
   ProviderContinuationRecord,
   PutProviderContinuationInput,
+  CreateMemoryCandidateInput,
+  MemoryCandidateRecord,
+  MemoryCandidateStatus,
   ResourceInfo,
   RetryOutboxBatchInput,
   RetryOutboxResult,
@@ -112,6 +115,7 @@ export interface IRunStore {
     requestId?: string | null;
     userId?: string | null;
     agentName?: string | null;
+    operation?: "publish" | "archive" | null;
     threadKey?: string | null;
     parentRunId?: string | null;
     parentCallId?: string | null;
@@ -157,6 +161,7 @@ export interface IChildAgentStore {
   listChildAgents(input: {
     sessionId: string;
     agentName?: string | null;
+    operation?: "publish" | "archive" | null;
     limit?: number;
   }): { items: ChildAgentInfo[]; total: number };
   getChildAgent(sessionId: string, childAgentId: string): ChildAgentInfo | null;
@@ -271,6 +276,53 @@ export interface IPendingInteractionStore {
   cancelPendingInteractions(sessionId: string): number;
 }
 
+export interface IMemoryCandidateStore {
+  createMemoryCandidate(input: CreateMemoryCandidateInput): MemoryCandidateRecord;
+  getMemoryCandidate(id: string): MemoryCandidateRecord | null;
+  listMemoryCandidates(input: {
+    ownerUserId?: string | null;
+    statuses?: MemoryCandidateStatus[];
+    targetScope?: "team" | "agent" | null;
+    teamName?: string | null;
+    agentName?: string | null;
+    operation?: "publish" | "archive" | null;
+    limit?: number;
+    offset?: number;
+    contentMaxChars?: number;
+  }): MemoryCandidateRecord[];
+  countMemoryCandidates(input: {
+    ownerUserId?: string | null;
+    statuses?: MemoryCandidateStatus[];
+    targetScope?: "team" | "agent" | null;
+    teamName?: string | null;
+    agentName?: string | null;
+    operation?: "publish" | "archive" | null;
+  }): number;
+  claimMemoryCandidate(id: string, reviewerUserId: string): { attemptId: string; claimedAt: string } | null;
+  releaseMemoryCandidate(id: string, reviewerUserId: string, attemptId: string): boolean;
+  updateMemoryCandidate(input: {
+    id: string;
+    ownerUserId: string;
+    name?: string;
+    description?: string;
+    content?: string;
+    why?: string | null;
+    howToApply?: string | null;
+  }): boolean;
+  reviewMemoryCandidate(input: {
+    id: string;
+    status: "approved" | "rejected";
+    reviewerUserId: string;
+    attemptId?: string;
+    reviewComment?: string | null;
+    publishedFileName?: string | null;
+    publishedName?: string;
+    publishedDescription?: string;
+    publishedContent?: string;
+  }): boolean;
+  withdrawMemoryCandidate(id: string, ownerUserId: string): boolean;
+}
+
 /** 跨域事务运行器（事务原子性独立成契，不可按聚合根拆分）。 */
 export interface IConversationTransactionRunner {
   runInTransaction<T>(operation: (tx: ConversationStoreTransaction) => T): T;
@@ -291,6 +343,7 @@ export interface ConversationStore
     IProviderContinuationStore,
     IMetricStore,
     IPendingInteractionStore,
+    IMemoryCandidateStore,
     IConversationTransactionRunner {
   close(): void;
   getRecentMessagesByChildAgent(sessionId: string, childAgentId: string, limit?: number): MessageInfo[];

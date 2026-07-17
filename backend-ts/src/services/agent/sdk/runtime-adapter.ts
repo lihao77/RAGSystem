@@ -130,7 +130,7 @@ export async function executeRunWithSdk(
   const sessionMetadata: SessionMetadataPort = {
     getSession: (sessionId: string) => {
       const session = deps.conversationStore.getSession(sessionId);
-      return session ? { metadata: session.metadata ?? {} } : null;
+      return session ? { metadata: session.metadata ?? {}, user_id: session.user_id } : null;
     },
     updateSessionMetadata: (sessionId: string, patch: Record<string, unknown>) =>
       deps.conversationStore.updateSessionMetadata(sessionId, patch),
@@ -170,6 +170,7 @@ export async function executeRunWithSdk(
     executionKind: input.executionKind ?? "agent_stream",
     ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
     rootTask: input.rootTask ?? input.task,
+    userId: input.userId ?? null,
     workspaceRoot: asString(input.sessionMetadata.workspace_root) ?? asString(input.agent.custom_params.workspace_root),
     ...(input.signal ? { signal: input.signal } : {}),
   };
@@ -200,7 +201,7 @@ export async function executeRunWithSdk(
   // backend 组装 context（memory + recent），产 conversation 注入 SDK（SDK 不再读 store/自组 context）。
   // historyPort 组合 ConversationHistoryPort + SessionMetadataPort：recent source 读历史 + microcompact 缓存指纹，
   // memory source 读 session metadata（team/workspace scope 解析）。
-  const historyPort: ConversationHistoryPort & SessionMetadataPort = {
+  const historyPort: ConversationHistoryPort & SessionMetadataPort & Pick<ConversationStore, "listMemoryCandidates"> = {
     getRecentMessages: (sid: string, limit: number | undefined, tk: string | null | undefined) =>
       deps.conversationStore.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
     getProviderContinuation: (sid: string, messageId: string) =>
@@ -208,6 +209,7 @@ export async function executeRunWithSdk(
     getSession: (sid: string) => sessionMetadata.getSession(sid),
     updateSessionMetadata: (sid: string, patch: Record<string, unknown>) =>
       sessionMetadata.updateSessionMetadata?.(sid, patch) ?? null,
+    listMemoryCandidates: (query) => deps.conversationStore.listMemoryCandidates(query),
   };
   const { built, contextBuilder, cacheTracker } = buildBackendAgentContext(input.agent, profile, historyPort, {
     memoryConfig: deps.memoryConfig,

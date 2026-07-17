@@ -27,7 +27,7 @@ interface MemoryToolDeps {
 }
 
 const memoryScopeSchema = z.object({
-  scope: z.enum(["team", "session", "agent", "workspace"]),
+  scope: z.enum(["team", "session", "agent", "workspace", "user"]),
   session_id: optionalString,
   sessionId: optionalString,
   agent_name: optionalString,
@@ -83,7 +83,7 @@ const READ_ONLY_MEMORY_TOOLS: RuntimeToolDefinition[] = [
     },
     usage_contract: [
       "先调用 list_memory_index 再决定是否读取具体记忆文件。",
-      "team、session、agent、workspace 等定位信息由运行时上下文自动注入，Agent 不应手工构造。",
+      "team、session、agent、workspace、user 等定位信息由运行时上下文自动注入，Agent 不应手工构造。",
       "该工具只返回 MEMORY.md 头部，不返回所有记忆正文。",
     ],
     parameters: {
@@ -93,7 +93,7 @@ const READ_ONLY_MEMORY_TOOLS: RuntimeToolDefinition[] = [
       properties: {
         scope: {
           type: "string",
-          enum: ["team", "session", "agent", "workspace"],
+          enum: ["team", "session", "agent", "workspace", "user"],
           description: "Memory scope to inspect.",
         },
         session_id: {
@@ -138,7 +138,7 @@ const READ_ONLY_MEMORY_TOOLS: RuntimeToolDefinition[] = [
     },
     usage_contract: [
       "通常先通过 list_memory_index 或 prompt 中给出的 memory 文件路径定位 file_name，再调用本工具。",
-      "team、session、agent、workspace 等定位信息由运行时上下文自动注入，Agent 不应手工构造。",
+      "team、session、agent、workspace、user 等定位信息由运行时上下文自动注入，Agent 不应手工构造。",
       "该工具只读取一条具体记忆，不做全文检索。",
     ],
     parameters: {
@@ -148,7 +148,7 @@ const READ_ONLY_MEMORY_TOOLS: RuntimeToolDefinition[] = [
       properties: {
         scope: {
           type: "string",
-          enum: ["team", "session", "agent", "workspace"],
+          enum: ["team", "session", "agent", "workspace", "user"],
           description: "Memory scope containing the entry file.",
         },
         file_name: {
@@ -186,21 +186,21 @@ const WRITE_MEMORY_TOOL: RuntimeToolDefinition = {
   category: "memory",
   riskLevel: "low",
   allowed_callers: ["direct"],
-  description: "Create or update one memory entry in an allowed writable scope and rebuild that scope's MEMORY.md index.",
+  description: "Save one memory entry in an allowed scope. Team and agent memories remain personal to the current user unless later published by an administrator.",
   returns: {
-    description: "返回写入后的记忆文件路径和摘要。",
+    description: "返回保存状态和目标 scope；team/agent 保存不会立即发布为租户共享记忆。",
     shape: {
-      content: "string",
+      content: "object",
       metadata: {
-        file_path: "string",
         scope: "string",
       },
     },
   },
   usage_contract: [
     "写入记忆前应确保 scope 允许写入。",
-    "team、session、agent、workspace 等定位信息由运行时上下文自动注入，Agent 不应手工构造。",
-    "后续如需查看结果，优先复用返回的 file_path。",
+    "team、session、agent、workspace、user 等定位信息由运行时上下文自动注入，Agent 不应手工构造。",
+    "team 和 agent scope 的保存结果仅对当前用户生效，不代表已经发布为租户共享记忆。",
+    "不要根据保存结果声称 team/agent memory 已对其他用户生效。",
   ],
   parameters: {
     type: "object",
@@ -209,7 +209,7 @@ const WRITE_MEMORY_TOOL: RuntimeToolDefinition = {
     properties: {
       scope: {
         type: "string",
-        enum: ["team", "session", "agent", "workspace"],
+        enum: ["team", "session", "agent", "workspace", "user"],
         description: "Memory scope to write.",
       },
       name: {
@@ -275,9 +275,9 @@ const ARCHIVE_MEMORY_TOOL: RuntimeToolDefinition = {
   category: "memory",
   riskLevel: "low",
   allowed_callers: ["direct"],
-  description: "Archive one memory entry in an allowed archive scope and rebuild that scope's MEMORY.md index.",
+  description: "Archive one personal memory entry, or submit a private administrator-reviewed archive request for team and agent memory.",
   returns: {
-    description: "返回归档后的记忆文件路径和状态。",
+    description: "个人 scope 返回归档状态；team/agent 返回已保存归档申请，不会立即影响共享记忆。",
     shape: {
       content: "string",
       metadata: {
@@ -288,7 +288,8 @@ const ARCHIVE_MEMORY_TOOL: RuntimeToolDefinition = {
   },
   usage_contract: [
     "归档前应确保 scope 允许归档。",
-    "team、session、agent、workspace 等定位信息由运行时上下文自动注入，Agent 不应手工构造。",
+    "team、session、agent、workspace、user 等定位信息由运行时上下文自动注入，Agent 不应手工构造。",
+    "team 和 agent scope 只提交当前用户的归档申请，管理员批准前共享记忆保持不变。",
     "该工具只处理单条记忆，不做批量操作。",
   ],
   parameters: {
@@ -298,7 +299,7 @@ const ARCHIVE_MEMORY_TOOL: RuntimeToolDefinition = {
     properties: {
       scope: {
         type: "string",
-        enum: ["team", "session", "agent", "workspace"],
+        enum: ["team", "session", "agent", "workspace", "user"],
         description: "Memory scope containing the entry file.",
       },
       file_name: {
@@ -372,11 +373,16 @@ export function createMemoryTools(deps: MemoryToolDeps): Tool[] {
     );
   }
 
-  if (agent.memory.archive_scopes?.length) {
+  const actionableArchiveScopes = agent.memory.archive_scopes;
+  if (actionableArchiveScopes.length) {
+    const configuredArchiveSchema = archiveMemorySchema.refine(
+      (input) => actionableArchiveScopes.includes(input.scope),
+      "当前 Agent 不允许归档该 memory scope",
+    );
     tools.push(
       buildTool({
         ...metadataFrom(ARCHIVE_MEMORY_TOOL),
-        inputSchema: archiveMemorySchema,
+        inputSchema: configuredArchiveSchema,
         checkAccess: (input, ctx: ToolExecContext): ToolAccessDecision =>
           memoryTools.checkMemoryScopeAccess(readArchiveMemoryArguments(input), toMemoryRuntimeContext(agent, ctx), "archive"),
         call: (input, ctx: ToolExecContext) =>
@@ -394,5 +400,7 @@ function toMemoryRuntimeContext(agent: AgentConfig, ctx: ToolExecContext) {
     sessionId: ctx.sessionId,
     currentAgentName: ctx.currentAgentName,
     workspaceRoot: ctx.workspaceRoot,
+    userId: ctx.userId,
+    runId: ctx.runId,
   };
 }

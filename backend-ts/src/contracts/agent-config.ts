@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MemoryScopeNameSchema } from "./memory-store/types.js";
 
 export const AgentLlmConfigSchema = z.object({
   provider: z.string().nullable().optional(),
@@ -28,16 +29,16 @@ export const AgentConfigSchema = z.object({
   memory: z
     .object({
       auto_inject: z.boolean().optional().default(true),
-      allowed_scopes: z.array(z.string()).optional().default(["team", "session"]),
-      write_scopes: z.array(z.string()).optional().default(["session"]),
-      archive_scopes: z.array(z.string()).optional().default(["session"]),
+      allowed_scopes: z.array(MemoryScopeNameSchema).optional().default(["team", "session", "user"]),
+      write_scopes: z.array(MemoryScopeNameSchema).optional().default(["session", "user"]),
+      archive_scopes: z.array(MemoryScopeNameSchema).optional().default(["session", "user"]),
     })
     .optional()
     .default({
       auto_inject: true,
-      allowed_scopes: ["team", "session"],
-      write_scopes: ["session"],
-      archive_scopes: ["session"],
+      allowed_scopes: ["team", "session", "user"],
+      write_scopes: ["session", "user"],
+      archive_scopes: ["session", "user"],
     }),
   tasks: z
     .object({
