@@ -43,24 +43,24 @@ const baseSave = (sessionId: string, name: string): SaveMemoryInput => ({
 });
 
 describe("IMemoryStore 契约", () => {
-  it("saveMemory 写入，同名再次写入幂等（文件名稳定）", () => {
+  it("saveMemory 写入，同名再次写入幂等（文件名稳定）", async () => {
     const store = build();
-    const first = store.saveMemory(baseSave("s1", "m1"));
-    const second = store.saveMemory(baseSave("s1", "m1"));
+    const first = await store.saveMemory(baseSave("s1", "m1"));
+    const second = await store.saveMemory(baseSave("s1", "m1"));
     expect(second.file_name).toBe(first.file_name);
     expect(second.scope).toBe("session");
   });
 
-  it("saveMemory 覆盖保持原始 created_at（幂等）", () => {
+  it("saveMemory 覆盖保持原始 created_at（幂等）", async () => {
     const store = build();
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
-      store.saveMemory(baseSave("s1", "m1"));
+      await store.saveMemory(baseSave("s1", "m1"));
       const firstEntry = store.listEntries(sessionScope("s1"))[0]!;
 
       vi.setSystemTime(new Date("2026-01-01T00:01:00.000Z"));
-      store.saveMemory({ ...baseSave("s1", "m1"), content: "updated body" });
+      await store.saveMemory({ ...baseSave("s1", "m1"), content: "updated body" });
       const secondEntry = store.listEntries(sessionScope("s1"))[0]!;
 
       expect(secondEntry.created_at).toBe(firstEntry.created_at);
@@ -82,9 +82,9 @@ describe("IMemoryStore 契约", () => {
     expect(head.length).toBeGreaterThan(0);
   });
 
-  it("saveMemory 后 loadIndexHead 含条目，readEntryFile 可读回", () => {
+  it("saveMemory 后 loadIndexHead 含条目，readEntryFile 可读回", async () => {
     const store = build();
-    const saved = store.saveMemory(baseSave("s1", "m1"));
+    const saved = await store.saveMemory(baseSave("s1", "m1"));
     const index = store.loadIndexHead(sessionScope("s1"));
     expect(index).toContain("m1");
     const entry = store.readEntryFile(sessionScope("s1"), saved.file_name);
@@ -92,33 +92,33 @@ describe("IMemoryStore 契约", () => {
     expect(entry?.content).toContain("body");
   });
 
-  it("listEntries 按 updated_at 降序（字典序即时间序）", () => {
+  it("listEntries 按 updated_at 降序（字典序即时间序）", async () => {
     const store = build();
-    store.saveMemory(baseSave("s1", "first"));
-    store.saveMemory(baseSave("s1", "second"));
+    await store.saveMemory(baseSave("s1", "first"));
+    await store.saveMemory(baseSave("s1", "second"));
     const entries = store.listEntries(sessionScope("s1"));
     expect(entries).toHaveLength(2);
     expect(entries[0]!.updated_at >= entries[1]!.updated_at).toBe(true);
   });
 
-  it("archiveMemory 不存在返回 false", () => {
+  it("archiveMemory 不存在返回 false", async () => {
     const store = build();
-    expect(store.archiveMemory(sessionScope("s1"), "missing.md")).toBe(false);
+    expect(await store.archiveMemory(sessionScope("s1"), "missing.md")).toBe(false);
   });
 
-  it("archiveMemory 后默认 listEntries 仅 active；includeArchived 含已归档", () => {
+  it("archiveMemory 后默认 listEntries 仅 active；includeArchived 含已归档", async () => {
     const store = build();
-    store.saveMemory(baseSave("s1", "m1"));
+    await store.saveMemory(baseSave("s1", "m1"));
     const entries = store.listEntries(sessionScope("s1"));
     expect(entries).toHaveLength(1);
-    expect(store.archiveMemory(sessionScope("s1"), entries[0]!.file_name)).toBe(true);
+    expect(await store.archiveMemory(sessionScope("s1"), entries[0]!.file_name)).toBe(true);
     expect(store.listEntries(sessionScope("s1"))).toHaveLength(0);
     expect(store.listEntries(sessionScope("s1"), { includeArchived: true })).toHaveLength(1);
   });
 
-  it("saveMemory 非白名单 memory_type 抛错（深合约前置条件）", () => {
+  it("saveMemory 非白名单 memory_type 抛错（深合约前置条件）", async () => {
     const store = build();
-    expect(() => store.saveMemory({ ...baseSave("s1", "m1"), memory_type: "invalid" })).toThrow();
+    await expect(store.saveMemory({ ...baseSave("s1", "m1"), memory_type: "invalid" })).rejects.toThrow();
   });
 });
 
@@ -131,24 +131,21 @@ describe("输入边界 zod 契约", () => {
         description: "d",
         memory_type: "fact",
         content: "c",
-      }),
-    ).toThrow();
+      })).toThrow();
   });
 
-  it("saveMemory 入口拒绝非法 scope（zod 边界生效）", () => {
+  it("saveMemory 入口拒绝非法 scope（zod 边界生效）", async () => {
     const store = build();
-    expect(() =>
-      store.saveMemory({
+    await expect(store.saveMemory({
         scope: "invalid" as SaveMemoryInput["scope"],
         name: "x",
         description: "d",
         memory_type: "fact",
         content: "c",
-      }),
-    ).toThrow();
+      })).rejects.toThrow();
   });
 
-  it("saveMemory 入口对合法 input 正常通过（宽松不拒历史形状）", () => {
+  it("saveMemory 入口对合法 input 正常通过（宽松不拒历史形状）", async () => {
     const store = build();
     const input: unknown = {
       ...baseSave("s1", "ok"),
@@ -156,7 +153,7 @@ describe("输入边界 zod 契约", () => {
       how_to_apply: "tip",
       extra_unknown_field: "ignored", // z.object 默认 strip，不抛错
     };
-    const saved = store.saveMemory(input as SaveMemoryInput);
+    const saved = await store.saveMemory(input as SaveMemoryInput);
     expect(saved.file_name).toContain("ok");
   });
 });

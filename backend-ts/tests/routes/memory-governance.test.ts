@@ -44,7 +44,7 @@ describe("memory governance routes", () => {
   it("applies an archive candidate only after administrator approval", async () => {
     const harness = await buildTestHarness();
     close.push(() => harness.app.close());
-    const saved = harness.container.memoryStore.saveMemory({
+    const saved = await harness.container.memoryStore.saveMemory({
       scope: "team", team_name: "default", name: "Shared", description: "shared", memory_type: "fact", content: "active",
     });
     const candidate = harness.container.conversationStore.createMemoryCandidate({

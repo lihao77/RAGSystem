@@ -27,11 +27,11 @@ class InMemorySessions implements RuntimeMemorySessionPort {
 }
 
 describe("MemoryToolService", () => {
-  it("writes user memory beneath the current user identity", () => {
+  it("writes user memory beneath the current user identity", async () => {
     const dataRoot = makeTempDataRoot();
     const service = new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} }));
 
-    const result = service.writeMemory(
+    const result = await service.writeMemory(
       { scope: "user", name: "Preference", description: "personal", memoryType: "preference", content: "compact replies" },
       { agent: minimalAgent(["user"], ["user"]), sessionId: "s1", userId: "usr_alice" },
     );
@@ -40,7 +40,7 @@ describe("MemoryToolService", () => {
     expect(fs.existsSync(path.join(dataRoot, "memory", "users", "usr_alice", "preference_Preference.md"))).toBe(true);
   });
 
-  it("stores team writes as a private candidate instead of shared memory", () => {
+  it("stores team writes as a private candidate instead of shared memory", async () => {
     const dataRoot = makeTempDataRoot();
     const candidates = new InMemoryCandidates();
     const service = new MemoryToolService(
@@ -50,7 +50,7 @@ describe("MemoryToolService", () => {
       "tnt_alpha",
     );
 
-    const result = service.writeMemory(
+    const result = await service.writeMemory(
       { scope: "team", name: "Rule", description: "team rule", memoryType: "constraint", content: "review first" },
       { agent: minimalAgent(["team"], ["team"]), sessionId: "s1", userId: "usr_alice", runId: "run-1" },
     );
@@ -66,10 +66,10 @@ describe("MemoryToolService", () => {
     expect(fs.existsSync(path.join(dataRoot, "memory", "teams", "alpha", "constraint_Rule.md"))).toBe(false);
   });
 
-  it("stores shared archive requests as private candidates without archiving the shared file", () => {
+  it("stores shared archive requests as private candidates without archiving the shared file", async () => {
     const dataRoot = makeTempDataRoot();
     const store = new MemoryStore({ dataRoot });
-    const saved = store.saveMemory({
+    const saved = await store.saveMemory({
       scope: "team", team_name: "alpha", name: "Shared", description: "shared", memory_type: "fact", content: "active",
     });
     const candidates = new InMemoryCandidates();
@@ -79,7 +79,7 @@ describe("MemoryToolService", () => {
     };
 
     expect(service.checkMemoryScopeAccess({ scope: "team" }, context, "archive")).toEqual({ action: "allow" });
-    expect(service.archiveMemory({ scope: "team", fileName: saved.file_name }, context)).toMatchObject({
+    expect(await service.archiveMemory({ scope: "team", fileName: saved.file_name }, context)).toMatchObject({
       success: true,
       content: { saved: true, scope: "team" },
       metadata: { operation: "archive" },
@@ -187,7 +187,7 @@ describe("MemoryToolService", () => {
     });
   });
 
-  it("writes and archives session memory using configured write/archive scopes", () => {
+  it("writes and archives session memory using configured write/archive scopes", async () => {
     const dataRoot = makeTempDataRoot();
     const service = new MemoryToolService(
       new MemoryStore({ dataRoot }),
@@ -200,7 +200,7 @@ describe("MemoryToolService", () => {
       sessionId: "s1",
     };
 
-    const writeResult = service.writeMemory(
+    const writeResult = await service.writeMemory(
       {
         scope: "session",
         name: "Alpha Fact",
@@ -229,7 +229,7 @@ describe("MemoryToolService", () => {
       "- [Alpha Fact](fact_Alpha-Fact.md) - alpha fact",
     );
 
-    const archiveResult = service.archiveMemory(
+    const archiveResult = await service.archiveMemory(
       {
         scope: "session",
         fileName: "fact_Alpha-Fact.md",

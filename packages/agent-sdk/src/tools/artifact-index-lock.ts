@@ -20,7 +20,8 @@ export interface LeaseLockOptions {
 
 export type ArtifactIndexLockOptions = LeaseLockOptions;
 
-/** Cross-process lease backed by proper-lockfile's atomic mkdir lock and stale-lock heartbeat. */
+
+/** Cross-process lease for asynchronous critical sections. */
 export async function withLeaseLock<T>(target: string, action: () => Promise<T>, options: LeaseLockOptions = {}): Promise<T> {
   await fs.promises.mkdir(path.dirname(target), { recursive: true });
   const staleMs = options.staleMs ?? LOCK_LEASE_MS;
@@ -57,30 +58,6 @@ export async function withLeaseLock<T>(target: string, action: () => Promise<T>,
     }
     clearInterval(watchdog);
     if (!compromisedError) await release();
-  }
-}
-
-/** Synchronous lease for short filesystem critical sections. */
-export function withLeaseLockSync<T>(target: string, action: () => T, options: LeaseLockOptions = {}): T {
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  const staleMs = options.staleMs ?? LOCK_LEASE_MS;
-  let compromisedError: Error | undefined;
-  const acquiredAt = Date.now();
-  const release = lockfile.lockSync(target, {
-    realpath: false,
-    stale: staleMs,
-    update: options.updateMs ?? LOCK_UPDATE_MS,
-    retries: 0,
-    onCompromised: (error) => { compromisedError = error; },
-  });
-  try {
-    const result = action();
-    if (Date.now() - acquiredAt >= staleMs) compromisedError ??= compromisedLockError();
-    if (compromisedError) throw compromisedError;
-    return result;
-  } finally {
-    if (Date.now() - acquiredAt >= staleMs) compromisedError ??= compromisedLockError();
-    if (!compromisedError) release();
   }
 }
 

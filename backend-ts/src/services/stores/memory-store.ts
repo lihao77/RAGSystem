@@ -1,7 +1,13 @@
-import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { withLeaseLockSync } from "@ragsystem/agent-sdk";
+import { withLeaseLock } from "@ragsystem/agent-sdk";
+import {
+  atomicWriteFile as atomicWriteMemoryFile,
+  migrateLegacyWorkspace as migrateLegacyWorkspaceAsync,
+  readFileIfExists,
+  restoreFileIfExpected,
+  snapshotFile,
+} from "./memory-files.js";
 
 import type {
   IMemoryStore,
@@ -75,7 +81,6 @@ export class MemoryStore implements IMemoryStore {
       throw new Error("workspace scope 缺少 workspace_key");
     }
     const userWorkspaceRoot = resolveScopePath(memoryRoot, "users", userId, "workspaces", workspaceKey);
-    migrateLegacyWorkspace(resolveScopePath(memoryRoot, "workspaces", workspaceKey), userWorkspaceRoot);
     return userWorkspaceRoot;
   }
 
@@ -86,11 +91,31 @@ export class MemoryStore implements IMemoryStore {
   ensureScope(scopeSpec: MemoryScopeSpec): string {
     const scopeRoot = this.getScopeRoot(scopeSpec);
     fs.mkdirSync(scopeRoot, { recursive: true });
+    if (scopeSpec.scope === "workspace") {
+      const memoryRoot = path.join(this.dataRoot, "memory");
+      migrateLegacyWorkspaceSync(resolveScopePath(memoryRoot, "workspaces", scopeSpec.workspace_key!), scopeRoot);
+    }
     const indexPath = path.join(scopeRoot, "MEMORY.md");
-    if (!fs.existsSync(indexPath)) {
-      fs.writeFileSync(indexPath, `# ${titleCase(scopeSpec.scope)} Memory\n\n`, "utf8");
+    try {
+      fs.writeFileSync(indexPath, `# ${titleCase(scopeSpec.scope)} Memory\n\n`, { encoding: "utf8", flag: "wx" });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
     return scopeRoot;
+  }
+
+  private async ensureScopeUnlocked(scopeSpec: MemoryScopeSpec, scopeRoot: string): Promise<void> {
+    await fs.promises.mkdir(scopeRoot, { recursive: true });
+    if (scopeSpec.scope === "workspace") {
+      const memoryRoot = path.join(this.dataRoot, "memory");
+      const legacyRoot = resolveScopePath(memoryRoot, "workspaces", scopeSpec.workspace_key!);
+      await migrateLegacyWorkspaceAsync(legacyRoot, scopeRoot);
+    }
+    try {
+      await fs.promises.writeFile(path.join(scopeRoot, "MEMORY.md"), `# ${titleCase(scopeSpec.scope)} Memory\n\n`, { encoding: "utf8", flag: "wx" });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
   }
 
   loadIndexHead(scopeSpec: MemoryScopeSpec, options: MemoryIndexReadOptions = {}): string {
@@ -136,33 +161,48 @@ export class MemoryStore implements IMemoryStore {
     }
   }
 
-  saveMemory(rawInput: SaveMemoryInput): SavedMemoryFile {
+  async saveMemory(rawInput: SaveMemoryInput): Promise<SavedMemoryFile> {
     const input = SaveMemoryInputSchema.parse(rawInput);
-    const scopeRoot = this.ensureScope(input);
-    return withScopeLock(scopeRoot, () => this.saveMemoryUnlocked(input, scopeRoot));
+    const scopeRoot = this.getScopeRoot(input);
+    return this.withScopeLock(scopeRoot, async () => {
+      await this.ensureScopeUnlocked(input, scopeRoot);
+      return this.saveMemoryUnlocked(input, scopeRoot);
+    });
   }
 
-  saveMemoryWithCommit(rawInput: SaveMemoryInput, commit: (saved: SavedMemoryFile) => boolean): SavedMemoryFile {
+  async saveMemoryWithCommit(
+    rawInput: SaveMemoryInput,
+    commit: (saved: SavedMemoryFile) => boolean | Promise<boolean>,
+  ): Promise<SavedMemoryFile> {
     const input = SaveMemoryInputSchema.parse(rawInput);
-    const scopeRoot = this.ensureScope(input);
-    return withScopeLock(scopeRoot, () => {
+    const scopeRoot = this.getScopeRoot(input);
+    return this.withScopeLock(scopeRoot, async () => {
+      await this.ensureScopeUnlocked(input, scopeRoot);
       const fileName = memoryFileName(input);
-      const snapshot = snapshotEntryFile(scopeRoot, fileName);
-      let writtenContent = "";
+      const entryPath = resolveEntryPath(scopeRoot, fileName);
+      const indexPath = path.join(scopeRoot, "MEMORY.md");
+      const entryBefore = await snapshotFile(entryPath);
+      const indexBefore = await snapshotFile(indexPath);
+      let expectedEntry: string | undefined;
+      let expectedIndex: string | undefined;
       try {
-        const saved = this.saveMemoryUnlocked(input, scopeRoot);
-        writtenContent = fs.readFileSync(saved.file_path, "utf8");
-        if (!commit(saved)) throw new Error("memory publish state changed before commit");
+        const saved = await this.saveMemoryUnlocked(input, scopeRoot, (content) => { expectedEntry = content; }, (content) => { expectedIndex = content; });
+        expectedIndex = await readFileIfExists(indexPath) ?? undefined;
+        if (!await commit(saved)) throw new Error("memory publish state changed before commit");
         return saved;
       } catch (error) {
-        restoreEntryFile(scopeRoot, fileName, snapshot, writtenContent);
-        this.rebuildIndexUnlocked(input, scopeRoot);
+        await this.restoreMutation(entryPath, entryBefore, expectedEntry, indexPath, indexBefore, expectedIndex, error);
         throw error;
       }
     });
   }
 
-  private saveMemoryUnlocked(input: SaveMemoryInput, scopeRoot: string): SavedMemoryFile {
+  private async saveMemoryUnlocked(
+    input: SaveMemoryInput,
+    scopeRoot: string,
+    onEntryWritten?: (content: string) => void,
+    onIndexWritten?: (content: string) => void,
+  ): Promise<SavedMemoryFile> {
     const normalizedMemoryType = normalizeString(input.memory_type)?.toLowerCase() ?? "fact";
     if (!ALLOWED_MEMORY_TYPES.has(normalizedMemoryType)) {
       throw new Error(`不支持的 memory_type: ${input.memory_type}`);
@@ -170,7 +210,7 @@ export class MemoryStore implements IMemoryStore {
     const fileName = memoryFileName(input);
     const filePath = resolveEntryPath(scopeRoot, fileName);
     const now = nowIso();
-    const existing = fs.existsSync(filePath) ? readEntry(filePath) : null;
+    const existing = await readEntryAsync(filePath);
     const createdAt = existing?.created_at || now;
     const bodyLines = [input.content.trim()];
     const why = normalizeString(input.why);
@@ -178,21 +218,16 @@ export class MemoryStore implements IMemoryStore {
     const howToApply = normalizeString(input.how_to_apply);
     if (howToApply) bodyLines.push(`**How to apply:** ${howToApply}`);
     const frontmatter: Record<string, string> = {
-      name: input.name.trim(),
-      description: input.description.trim(),
-      type: input.scope,
-      memory_type: normalizedMemoryType,
-      status: normalizeString(input.status)?.toLowerCase() ?? "active",
-      agent: input.agent_name?.trim() ?? "",
-      session_id: input.session_id?.trim() ?? "",
-      team_name: input.team_name?.trim() ?? "",
-      created_at: createdAt,
-      updated_at: now,
-      source_run_id: input.source_run_id?.trim() ?? "",
-      source_message_id: input.source_message_id?.trim() ?? "",
+      name: input.name.trim(), description: input.description.trim(), type: input.scope,
+      memory_type: normalizedMemoryType, status: normalizeString(input.status)?.toLowerCase() ?? "active",
+      agent: input.agent_name?.trim() ?? "", session_id: input.session_id?.trim() ?? "",
+      team_name: input.team_name?.trim() ?? "", created_at: createdAt, updated_at: now,
+      source_run_id: input.source_run_id?.trim() ?? "", source_message_id: input.source_message_id?.trim() ?? "",
     };
-    atomicWriteFile(filePath, renderMarkdown(frontmatter, `${bodyLines.join("\n").trim()}\n`));
-    this.rebuildIndexUnlocked(input, scopeRoot);
+    const content = renderMarkdown(frontmatter, `${bodyLines.join("\n").trim()}\n`);
+    await atomicWriteMemoryFile(filePath, content);
+    onEntryWritten?.(content);
+    await this.rebuildIndexUnlockedAsync(input, scopeRoot, onIndexWritten);
     return { file_name: fileName, file_path: filePath, scope: input.scope };
   }
 
@@ -200,52 +235,69 @@ export class MemoryStore implements IMemoryStore {
     return readEntriesUnlocked(this.ensureScope(scopeSpec), options.includeArchived === true);
   }
 
-  archiveMemory(scopeSpec: MemoryScopeSpec, fileName: string): boolean {
-    const scopeRoot = this.ensureScope(scopeSpec);
-    return withScopeLock(scopeRoot, () => this.archiveMemoryUnlocked(scopeSpec, scopeRoot, fileName));
+  async archiveMemory(scopeSpec: MemoryScopeSpec, fileName: string): Promise<boolean> {
+    const scopeRoot = this.getScopeRoot(scopeSpec);
+    return this.withScopeLock(scopeRoot, async () => {
+      await this.ensureScopeUnlocked(scopeSpec, scopeRoot);
+      return this.archiveMemoryUnlocked(scopeSpec, scopeRoot, fileName);
+    });
   }
 
-  archiveMemoryWithCommit(
+  async archiveMemoryWithCommit(
     scopeSpec: MemoryScopeSpec,
     fileName: string,
-    commit: () => boolean,
-  ): boolean {
-    const scopeRoot = this.ensureScope(scopeSpec);
-    return withScopeLock(scopeRoot, () => {
+    commit: () => boolean | Promise<boolean>,
+  ): Promise<boolean> {
+    const scopeRoot = this.getScopeRoot(scopeSpec);
+    return this.withScopeLock(scopeRoot, async () => {
+      await this.ensureScopeUnlocked(scopeSpec, scopeRoot);
       const normalizedFileName = path.basename(fileName);
-      const snapshot = snapshotEntryFile(scopeRoot, normalizedFileName);
-      let writtenContent = "";
+      const entryPath = resolveEntryPath(scopeRoot, normalizedFileName);
+      const indexPath = path.join(scopeRoot, "MEMORY.md");
+      const entryBefore = await snapshotFile(entryPath);
+      const indexBefore = await snapshotFile(indexPath);
+      let expectedEntry: string | undefined;
+      let expectedIndex: string | undefined;
       try {
-        const archived = this.archiveMemoryUnlocked(scopeSpec, scopeRoot, fileName);
+        const archived = await this.archiveMemoryUnlocked(scopeSpec, scopeRoot, fileName, (content) => { expectedEntry = content; }, (content) => { expectedIndex = content; });
         if (!archived) return false;
-        writtenContent = fs.readFileSync(resolveEntryPath(scopeRoot, normalizedFileName), "utf8");
-        if (!commit()) throw new Error("memory archive state changed before commit");
+        expectedIndex = await readFileIfExists(indexPath) ?? undefined;
+        if (!await commit()) throw new Error("memory archive state changed before commit");
         return true;
       } catch (error) {
-        restoreEntryFile(scopeRoot, normalizedFileName, snapshot, writtenContent);
-        this.rebuildIndexUnlocked(scopeSpec, scopeRoot);
+        await this.restoreMutation(entryPath, entryBefore, expectedEntry, indexPath, indexBefore, expectedIndex, error);
         throw error;
       }
     });
   }
 
-  private archiveMemoryUnlocked(scopeSpec: MemoryScopeSpec, scopeRoot: string, fileName: string): boolean {
+  private async archiveMemoryUnlocked(
+    scopeSpec: MemoryScopeSpec,
+    scopeRoot: string,
+    fileName: string,
+    onEntryWritten?: (content: string) => void,
+    onIndexWritten?: (content: string) => void,
+  ): Promise<boolean> {
     const normalizedFileName = path.basename(fileName);
-    if (!normalizedFileName || normalizedFileName === "." || normalizedFileName === ".." || normalizedFileName !== fileName) {
-      return false;
-    }
+    if (!normalizedFileName || normalizedFileName === "." || normalizedFileName === ".." || normalizedFileName !== fileName) return false;
     const filePath = resolveEntryPath(scopeRoot, normalizedFileName);
-    const entry = readEntry(filePath);
+    const entry = await readEntryAsync(filePath);
     if (!entry) return false;
-    const text = fs.readFileSync(filePath, "utf8");
+    const text = await fs.promises.readFile(filePath, "utf8");
     if (!text.includes("status: active")) return false;
-    atomicWriteFile(filePath, text.replace("status: active", "status: archived"));
-    this.rebuildIndexUnlocked(scopeSpec, scopeRoot);
+    const content = text.replace("status: active", "status: archived");
+    await atomicWriteMemoryFile(filePath, content);
+    onEntryWritten?.(content);
+    await this.rebuildIndexUnlockedAsync(scopeSpec, scopeRoot, onIndexWritten);
     return true;
   }
 
-  private rebuildIndexUnlocked(scopeSpec: MemoryScopeSpec, scopeRoot: string): void {
-    const entries = readEntriesUnlocked(scopeRoot, false);
+  private async rebuildIndexUnlockedAsync(
+    scopeSpec: MemoryScopeSpec,
+    scopeRoot: string,
+    onIndexWritten?: (content: string) => void,
+  ): Promise<void> {
+    const entries = await readEntriesAsync(scopeRoot, false);
     const lines = [`# ${titleCase(scopeSpec.scope)} Memory`, ""];
     if (entries.length) {
       lines.push("## Index", "");
@@ -253,7 +305,38 @@ export class MemoryStore implements IMemoryStore {
     } else {
       lines.push("暂无记忆。");
     }
-    atomicWriteFile(resolveEntryPath(scopeRoot, "MEMORY.md"), `${lines.join("\n").trim()}\n`);
+    const content = `${lines.join("\n").trim()}\n`;
+    await atomicWriteMemoryFile(path.join(scopeRoot, "MEMORY.md"), content);
+    onIndexWritten?.(content);
+  }
+
+  private async restoreMutation(
+    entryPath: string,
+    entryBefore: { exists: boolean; content?: string },
+    expectedEntry: string | undefined,
+    indexPath: string,
+    indexBefore: { exists: boolean; content?: string },
+    expectedIndex: string | undefined,
+    originalError: unknown,
+  ): Promise<void> {
+    try {
+      if (expectedEntry !== undefined) await restoreFileIfExpected(entryPath, entryBefore, expectedEntry);
+      if (expectedIndex !== undefined) await restoreFileIfExpected(indexPath, indexBefore, expectedIndex);
+    } catch (rollbackError) {
+      if (originalError instanceof Error) {
+        (originalError as Error & { rollbackError?: unknown }).rollbackError = rollbackError;
+      }
+    }
+  }
+
+  private async withScopeLock<T>(scopeRoot: string, operation: () => Promise<T>): Promise<T> {
+    try {
+      return await withLeaseLock(path.join(scopeRoot, ".memory-scope"), operation, { staleMs: 5 * 60_000, updateMs: 30_000, retries: 0 });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ELOCKED" || code === "ECOMPROMISED") throw Object.assign(new Error("memory entry busy"), { cause: error });
+      throw error;
+    }
   }
 }
 
@@ -323,35 +406,58 @@ function memoryFileName(input: SaveMemoryInput): string {
   return `${memoryType}_${slugify(input.name)}.md`;
 }
 
+
+async function readEntryAsync(filePath: string): Promise<MemoryEntry | null> {
+  if (path.basename(filePath) === "MEMORY.md") return null;
+  let text: string;
+  try {
+    text = await fs.promises.readFile(filePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  const match = FRONTMATTER_RE.exec(text);
+  if (!match) return null;
+  const metadata: Record<string, string> = {};
+  for (const line of (match[1] ?? "").split(/\r?\n/)) {
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex >= 0) metadata[line.slice(0, separatorIndex).trim()] = line.slice(separatorIndex + 1).trim();
+  }
+  return {
+    name: metadata.name ?? path.basename(filePath, path.extname(filePath)),
+    description: metadata.description ?? "",
+    scope: asMemoryScopeName(metadata.type), memory_type: metadata.memory_type ?? "fact",
+    status: metadata.status ?? "active", file_name: path.basename(filePath), file_path: filePath,
+    created_at: metadata.created_at ?? "", updated_at: metadata.updated_at ?? "", body: (match[2] ?? "").trim(),
+  };
+}
+
+async function readEntriesAsync(scopeRoot: string, includeArchived: boolean): Promise<MemoryEntry[]> {
+  const entries = (await fs.promises.readdir(scopeRoot, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md") && entry.name !== "MEMORY.md");
+  const output: MemoryEntry[] = [];
+  for (const entry of entries) {
+    try {
+      const parsed = await readEntryAsync(path.join(scopeRoot, entry.name));
+      if (parsed && (includeArchived || parsed.status === "active")) output.push(parsed);
+    } catch {
+      // Ignore malformed entries while rebuilding the derived index.
+    }
+  }
+  output.sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+  return output;
+}
+
 function readEntriesUnlocked(scopeRoot: string, includeArchived: boolean): MemoryEntry[] {
   const entries = fs.readdirSync(scopeRoot, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".md") && entry.name !== "MEMORY.md")
     .map((entry) => {
-      try {
-        return readEntry(resolveEntryPath(scopeRoot, entry.name));
-      } catch {
-        return null;
-      }
+      try { return readEntry(resolveEntryPath(scopeRoot, entry.name)); } catch { return null; }
     })
     .filter((entry): entry is MemoryEntry => Boolean(entry))
     .filter((entry) => includeArchived || entry.status === "active");
   entries.sort((left, right) => right.updated_at.localeCompare(left.updated_at));
   return entries;
-}
-
-function withScopeLock<T>(scopeRoot: string, operation: () => T): T {
-  try {
-    return withLeaseLockSync(path.join(scopeRoot, ".memory-scope"), operation, {
-      staleMs: 5 * 60_000,
-      updateMs: 30_000,
-    });
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ELOCKED" || code === "ECOMPROMISED") {
-      throw Object.assign(new Error("memory entry busy"), { cause: error });
-    }
-    throw error;
-  }
 }
 
 function slugify(value: string): string {
@@ -423,43 +529,10 @@ function isPathWithin(candidate: string, root: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-function migrateLegacyWorkspace(legacyRoot: string, userWorkspaceRoot: string): void {
+function migrateLegacyWorkspaceSync(legacyRoot: string, userWorkspaceRoot: string): void {
   if (!fs.existsSync(legacyRoot) || fs.existsSync(path.join(userWorkspaceRoot, "MEMORY.md"))) return;
   fs.mkdirSync(path.dirname(userWorkspaceRoot), { recursive: true });
   fs.cpSync(legacyRoot, userWorkspaceRoot, { recursive: true, force: false, errorOnExist: false });
-}
-
-function snapshotEntryFile(scopeRoot: string, fileName: string): { exists: boolean; content?: string } {
-  const filePath = resolveEntryPath(scopeRoot, fileName);
-  return fs.existsSync(filePath)
-    ? { exists: true, content: fs.readFileSync(filePath, "utf8") }
-    : { exists: false };
-}
-
-function restoreEntryFile(scopeRoot: string, fileName: string, snapshot: { exists: boolean; content?: string }, expectedContent: string): void {
-  const filePath = resolveEntryPath(scopeRoot, fileName);
-  if (fs.existsSync(filePath) && fs.readFileSync(filePath, "utf8") !== expectedContent) return;
-  if (snapshot.exists) {
-    atomicWriteFile(filePath, snapshot.content ?? "");
-  } else if (fs.existsSync(filePath)) {
-    fs.rmSync(filePath);
-  }
-}
-
-function atomicWriteFile(filePath: string, content: string): void {
-  const tempPath = path.join(path.dirname(filePath), `${path.basename(filePath)}.${randomUUID()}.tmp`);
-  let fd: number | null = null;
-  try {
-    fd = fs.openSync(tempPath, "wx", 0o600);
-    fs.writeFileSync(fd, content, "utf8");
-    fs.fsyncSync(fd);
-    fs.closeSync(fd);
-    fd = null;
-    fs.renameSync(tempPath, filePath);
-  } finally {
-    if (fd !== null) fs.closeSync(fd);
-    fs.rmSync(tempPath, { force: true });
-  }
 }
 
 function resolveEntryPath(scopeRoot: string, fileName: string): string {

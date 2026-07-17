@@ -31,7 +31,16 @@ export interface IMemoryStore {
   //   MemoryExecution 的 index_file_path 工具输出一起重新设计（或抽象为通用位置标识）。
   getIndexPath(scopeSpec: MemoryScopeSpec): string;
   readEntryFile(scopeSpec: MemoryScopeSpec, fileName: string): MemoryEntryFile | null;
-  saveMemory(input: SaveMemoryInput): SavedMemoryFile;
+  saveMemory(input: SaveMemoryInput): Promise<SavedMemoryFile>;
   listEntries(scopeSpec: MemoryScopeSpec, options?: { includeArchived?: boolean | undefined }): MemoryEntry[];
-  archiveMemory(scopeSpec: MemoryScopeSpec, fileName: string): boolean;
+  archiveMemory(scopeSpec: MemoryScopeSpec, fileName: string): Promise<boolean>;
+  saveMemoryWithCommit(
+    input: SaveMemoryInput,
+    commit: (saved: SavedMemoryFile) => boolean | Promise<boolean>,
+  ): Promise<SavedMemoryFile>;
+  archiveMemoryWithCommit(
+    scopeSpec: MemoryScopeSpec,
+    fileName: string,
+    commit: () => boolean | Promise<boolean>,
+  ): Promise<boolean>;
 }

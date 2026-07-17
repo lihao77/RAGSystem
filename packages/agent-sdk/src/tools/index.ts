@@ -19,7 +19,7 @@ export { executeToolCallRound } from "./tool-round-executor.js";
 export type { ToolRoundExecutorOptions } from "./tool-round-executor.js";
 // Observation 渲染
 export { buildLlmFacingToolResult, buildToolMediaModelContent, renderToolResultContent } from "./observation.js";
-export { withArtifactIndexLock, withLeaseLock, withLeaseLockSync } from "./artifact-index-lock.js";
+export { withArtifactIndexLock, withLeaseLock } from "./artifact-index-lock.js";
 export type { ArtifactIndexLockOptions, LeaseLockOptions } from "./artifact-index-lock.js";
 // 工具引用/错误
 export { resolveToolArgumentReferences, collectResultPlaceholders, collectResultReferenceIndexes, materializeToolResult, buildToolReferenceErrorResult, buildToolExecutionErrorResult } from "./tool-references.js";

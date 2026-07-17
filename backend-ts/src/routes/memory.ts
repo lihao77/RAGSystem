@@ -98,11 +98,11 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
     if (candidate.operation === "archive") {
       try {
         if (!candidate.target_file_name) throw new HttpError(400, "invalid_request", "归档申请缺少目标文件");
-        const archived = request.container.memoryStore.archiveMemoryWithCommit({
+        const archived = await request.container.memoryStore.archiveMemoryWithCommit({
           scope,
           team_name: candidate.team_name,
           agent_name: candidate.agent_name ?? undefined,
-        }, candidate.target_file_name, () => request.container.conversationStore.reviewMemoryCandidate({
+        }, candidate.target_file_name, async () => request.container.conversationStore.reviewMemoryCandidate({
           id,
           status: "approved",
           reviewerUserId: request.identity.userId,
@@ -126,7 +126,7 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
     const publishedDescription = input.description ?? candidate.description;
     const publishedContent = input.content ?? candidate.content;
     try {
-      request.container.memoryStore.saveMemoryWithCommit({
+      await request.container.memoryStore.saveMemoryWithCommit({
         scope,
         team_name: candidate.team_name,
         agent_name: candidate.agent_name ?? undefined,
@@ -139,7 +139,7 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
         source_run_id: candidate.source_run_id,
         source_message_id: candidate.source_message_id,
         status: "active",
-      }, (saved) => request.container.conversationStore.reviewMemoryCandidate({
+      }, async (saved) => request.container.conversationStore.reviewMemoryCandidate({
         id,
         status: "approved",
         reviewerUserId: request.identity.userId,

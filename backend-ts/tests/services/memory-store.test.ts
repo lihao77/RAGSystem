@@ -31,17 +31,17 @@ describe("MemoryStore", () => {
     expect(fs.existsSync(path.join(legacyRoot, "fact_old.md"))).toBe(true);
   });
 
-  it("restores the shared scope when publish state commit fails", () => {
+  it("restores the shared scope when publish state commit fails", async () => {
     const dataRoot = makeTempDataRoot();
     const store = new MemoryStore({ dataRoot });
     const scope = { scope: "team" as const, team_name: "default" };
-    store.saveMemory({ ...scope, name: "Existing", description: "existing", memory_type: "fact", content: "old" });
+    await store.saveMemory({ ...scope, name: "Existing", description: "existing", memory_type: "fact", content: "old" });
     const before = store.loadIndexHead(scope);
 
-    expect(() => store.saveMemoryWithCommit(
+    await expect(store.saveMemoryWithCommit(
       { ...scope, name: "Candidate", description: "candidate", memory_type: "fact", content: "new" },
       () => false,
-    )).toThrow("memory publish state changed before commit");
+    )).rejects.toThrow("memory publish state changed before commit");
     expect(store.loadIndexHead(scope)).toBe(before);
     expect(fs.existsSync(path.join(dataRoot, "memory", "teams", "default", "fact_Candidate.md"))).toBe(false);
   });
@@ -136,11 +136,11 @@ describe("MemoryStore", () => {
     });
   });
 
-  it("writes Python-compatible memory markdown and rebuilds active index entries", () => {
+  it("writes Python-compatible memory markdown and rebuilds active index entries", async () => {
     const dataRoot = makeTempDataRoot();
     const store = new MemoryStore({ dataRoot });
 
-    const saved = store.saveMemory({
+    const saved = await store.saveMemory({
       scope: "session",
       session_id: "s1",
       name: "Alpha Preference",
@@ -170,10 +170,10 @@ describe("MemoryStore", () => {
     );
   });
 
-  it("archives memory by status flag and removes it from MEMORY.md", () => {
+  it("archives memory by status flag and removes it from MEMORY.md", async () => {
     const dataRoot = makeTempDataRoot();
     const store = new MemoryStore({ dataRoot });
-    const saved = store.saveMemory({
+    const saved = await store.saveMemory({
       scope: "session",
       session_id: "s1",
       name: "Temporary Fact",
@@ -182,10 +182,10 @@ describe("MemoryStore", () => {
       content: "temporary fact",
     });
 
-    expect(store.archiveMemory({ scope: "session", session_id: "s1" }, saved.file_name)).toBe(true);
+    expect(await store.archiveMemory({ scope: "session", session_id: "s1" }, saved.file_name)).toBe(true);
     expect(fs.readFileSync(saved.file_path, "utf8")).toContain("status: archived");
     expect(store.loadIndexHead({ scope: "session", session_id: "s1" })).toBe("# Session Memory\n\n暂无记忆。");
-    expect(store.archiveMemory({ scope: "session", session_id: "s1" }, saved.file_name)).toBe(false);
+    expect(await store.archiveMemory({ scope: "session", session_id: "s1" }, saved.file_name)).toBe(false);
   });
 
   it("uses the same workspace memory key normalization as Python", () => {

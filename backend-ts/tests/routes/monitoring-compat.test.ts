@@ -248,7 +248,7 @@ describe("monitoring compatibility routes", () => {
       sessionId: "memory-preview",
       metadata: { team: "default" },
     });
-    harness.container.memoryStore.saveMemory({
+    await harness.container.memoryStore.saveMemory({
       scope: "user",
       user_id: "usr_local",
       name: "User preference",

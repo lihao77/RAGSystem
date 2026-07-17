@@ -152,10 +152,10 @@ export class MemoryToolService {
     });
   }
 
-  writeMemory(
+  async writeMemory(
     input: WriteMemoryInput,
     context: MemoryToolRuntimeContext,
-  ): ToolExecutionResult {
+  ): Promise<ToolExecutionResult> {
     const toolName = "write_memory";
     const setup = this.resolveMemoryScope(input, context, toolName);
     if ("error" in setup) {
@@ -194,7 +194,7 @@ export class MemoryToolService {
           },
         );
       }
-      const saved = this.memoryStore.saveMemory({
+        const saved = await this.memoryStore.saveMemory({
         ...setup.scopeSpec,
         name: input.name,
         description: input.description,
@@ -226,10 +226,10 @@ export class MemoryToolService {
     }
   }
 
-  archiveMemory(
+  async archiveMemory(
     input: ArchiveMemoryInput,
     context: MemoryToolRuntimeContext,
-  ): ToolExecutionResult {
+  ): Promise<ToolExecutionResult> {
     const toolName = "archive_memory";
     const setup = this.resolveMemoryScope(input, context, toolName);
     if ("error" in setup) {
@@ -264,7 +264,7 @@ export class MemoryToolService {
           metadata: { scope: setup.scopeSpec.scope, operation: "archive" },
         });
       }
-      const archived = this.memoryStore.archiveMemory(setup.scopeSpec, input.fileName);
+      const archived = await this.memoryStore.archiveMemory(setup.scopeSpec, input.fileName);
       if (!archived) {
         return toolError(
           toolName,
