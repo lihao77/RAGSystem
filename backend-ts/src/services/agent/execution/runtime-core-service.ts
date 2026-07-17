@@ -1,3 +1,4 @@
+import { isRecord, normalizeString } from "../../../utils/guards.js";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { RuntimeCoreReadiness, RuntimeCoreRequirement } from "../../../contracts/runtime-core.js";
 import type { ModelProviderConfig, ModelMapValue } from "../../../contracts/model-adapter.js";
@@ -275,14 +276,3 @@ function hasSystemPrompt(agent: AgentConfig | null): boolean {
   return Boolean(normalizeString(prompt.system_prompt));
 }
 
-function normalizeString(value: unknown): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const normalized = value.trim();
-  return normalized ? normalized : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}

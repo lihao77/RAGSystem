@@ -1,3 +1,4 @@
+import { normalizeString, asRecord } from "../../utils/guards.js";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -373,17 +374,13 @@ export function readCodeExecutionArguments(value: Record<string, unknown> | unde
   };
 }
 
-function normalizeString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+
 
 function asInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) ? value : null;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
+
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

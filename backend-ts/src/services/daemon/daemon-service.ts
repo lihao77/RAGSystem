@@ -1,3 +1,4 @@
+import { isRecord } from "../../utils/guards.js";
 import { randomUUID } from "node:crypto";
 
 import type { BotConfig, BotCronTask, BotCronTaskCreate, BotCronTaskUpdate, PlatformType } from "../../contracts/bot.js";
@@ -660,6 +661,4 @@ function safeSessionPart(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 80) || "default";
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+

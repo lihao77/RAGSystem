@@ -1,3 +1,5 @@
+import { isRecord } from "../../../utils/guards.js";
+export { isRecord };
 import type { AgentConfig, AgentInfo, CreateAgentRequest } from "../../../contracts/agent-config.js";
 import { stripConfigManagedToolNames } from "./tools.js";
 
@@ -204,9 +206,7 @@ export function deepMerge(base: unknown, patch: unknown): unknown {
   return merged;
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+
 
 function buildSystemAgentConfig(input: {
   agent_name: string;

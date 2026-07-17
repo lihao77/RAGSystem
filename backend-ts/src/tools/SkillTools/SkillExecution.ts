@@ -1,3 +1,4 @@
+import { isRecord, normalizeString, asString, asRecord } from "../../utils/guards.js";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -969,21 +970,13 @@ function readStringArray(value: unknown): string[] | null {
   return value.map((item) => String(item));
 }
 
-function normalizeString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
-function asString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+
+
+
+
 
 function toJsonValue(value: unknown): JsonValue {
   if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {

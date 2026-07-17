@@ -1,3 +1,4 @@
+import { asString } from "../../../utils/guards.js";
 /**
  * Runtime 适配器—— 组装投影 + ToolRegistry + createRuntime，跑 SDK 事件循环 + 落库 + 翻译推流 + terminal。
  *
@@ -571,9 +572,7 @@ function toHostToolExecutionResult(toolName: string, resolution: DelegationResol
   };
 }
 
-function asString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+
 
 /** 沿 runs.parent_run_id 解析当前 run 所属执行树的根 run。 */
 function resolveRootRunId(store: ConversationStore, input: SdkExecuteRunInput): string {

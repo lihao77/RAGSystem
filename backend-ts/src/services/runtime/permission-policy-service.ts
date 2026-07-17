@@ -1,3 +1,4 @@
+import { asString } from "../../utils/guards.js";
 import type { PermissionMode, PermissionPolicy, RiskLevel } from "../../contracts/permissions.js";
 import type { ISessionStore } from "../../contracts/conversation-store/index.js";
 
@@ -156,9 +157,7 @@ function matchGlob(value: string, pattern: string): boolean {
   return new RegExp(source).test(value);
 }
 
-function asString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+
 
 function normalizeSessionId(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;

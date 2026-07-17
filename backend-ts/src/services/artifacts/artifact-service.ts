@@ -1,3 +1,4 @@
+import { isRecord, normalizeString } from "../../utils/guards.js";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -374,9 +375,7 @@ function normalizeIndexEntry(value: Record<string, unknown>): VisualizationIndex
   };
 }
 
-function normalizeString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+
 
 function nowSeconds(): number {
   return Date.now() / 1000;
@@ -434,9 +433,7 @@ function asNumber(value: unknown): number | null {
   return Number.isFinite(numberValue) ? numberValue : null;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+
 
 function isPathUnder(candidate: string, root: string): boolean {
   const relative = path.relative(path.resolve(root), path.resolve(candidate));

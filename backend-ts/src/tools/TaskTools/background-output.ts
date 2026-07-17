@@ -1,3 +1,5 @@
+import { asString } from "../../utils/guards.js";
+export { asString };
 export function buildBackgroundOutputContent(snapshot: Record<string, unknown>, rawOutput: string | null): Record<string, unknown> {
   const resultType = asString(snapshot.result_type);
   let parsedOutput: unknown = null;
@@ -50,9 +52,7 @@ export function isBackgroundTerminalStatus(status: string): boolean {
   return status === "completed" || status === "failed" || status === "cancelled";
 }
 
-export function asString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+
 
 function backgroundTaskSummary(taskId: string, status: string, timeout: boolean): string {
   if (status === "missing") {

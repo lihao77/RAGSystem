@@ -1,3 +1,4 @@
+import { isRecord } from "../utils/guards.js";
 import path from "node:path";
 
 import { z } from "zod";
@@ -182,6 +183,4 @@ function stripWrappedQuotes(value: string): string {
   return normalized;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+

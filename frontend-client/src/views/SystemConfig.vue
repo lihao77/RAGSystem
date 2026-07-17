@@ -48,6 +48,7 @@ import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import SchemaForm from '../components/SchemaForm.vue';
 import { Button } from '../components/ui/button';
 import { useToast } from '../composables/useToast.js';
+import { showToast as showToastMessage } from '../utils/toast.js';
 import {
   getSystemConfigSchema,
   getSystemConfig,
@@ -62,11 +63,7 @@ const saving = ref(false);
 const error = ref('');
 const toast = useToast();
 
-function showToast(message, type = 'error') {
-  if (type === 'success') toast.success(message);
-  else if (type === 'warning') toast.warning(message);
-  else toast.error(message);
-}
+const showToast = (message, type = 'error') => showToastMessage(toast, message, type);
 
 async function loadData() {
   loading.value = true;

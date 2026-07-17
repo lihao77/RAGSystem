@@ -1,3 +1,4 @@
+import { isRecord } from "../../utils/guards.js";
 /**
  * Embedding client(OpenAI 兼容 /embeddings)。
  *
@@ -130,6 +131,4 @@ function extractErrorMessage(body: unknown): string | null {
   return typeof body.message === "string" ? body.message : null;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+

@@ -1,11 +1,11 @@
 import { z } from "zod";
+import {
+  PermissionModeSchema,
+  type PermissionMode,
+} from "@ragsystem/api-contracts";
 
-export const PermissionModeSchema = z.enum([
-  "strict",
-  "standard",
-  "relaxed",
-  "dangerously_skip_permissions",
-]);
+export { PermissionModeSchema };
+export type { PermissionMode };
 
 export const RiskLevelSchema = z.enum(["low", "medium", "high"]);
 
@@ -32,7 +32,6 @@ export const PermissionPolicySchema = z.object({
   skip_all_approvals: z.boolean().optional().default(false),
 });
 
-export type PermissionMode = z.infer<typeof PermissionModeSchema>;
 export type RiskLevel = z.infer<typeof RiskLevelSchema>;
 export type AutoAcceptPattern = z.infer<typeof AutoAcceptPatternSchema>;
 export type ToolPermission = z.infer<typeof ToolPermissionSchema>;

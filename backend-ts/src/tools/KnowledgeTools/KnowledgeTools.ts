@@ -1,3 +1,4 @@
+import { asRecord } from "../../utils/guards.js";
 import { z } from "zod";
 
 import type { VectorSearchResult } from "../../contracts/knowledge-base.js";
@@ -196,6 +197,4 @@ function formatSearchResults(results: VectorSearchResult[]): string {
   }).join("\n\n");
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
+

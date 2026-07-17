@@ -1,4 +1,5 @@
 import type { ServerToClientEnvelope } from '@ragsystem/agent-protocol/wire';
+import type { SessionMessage as ContractSessionMessage } from '@ragsystem/api-contracts';
 
 export type OpenRecord = Record<string, any>;
 export type SessionEnvelope = Omit<ServerToClientEnvelope, 'payload'> & OpenRecord & {
@@ -14,7 +15,7 @@ export interface RefLike<T> {
   value: T;
 }
 
-export interface SessionMessage extends OpenRecord {
+export interface SessionMessage extends Omit<Partial<ContractSessionMessage>, 'role' | 'content' | 'metadata'>, OpenRecord {
   role: string;
   content: string;
   metadata: OpenRecord;

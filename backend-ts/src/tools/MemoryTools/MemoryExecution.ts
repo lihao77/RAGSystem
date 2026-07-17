@@ -1,3 +1,4 @@
+import { normalizeString } from "../../utils/guards.js";
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { SessionInfo } from "../../contracts/session.js";
 import type { ToolAccessDecision, ToolExecutionResult } from "@ragsystem/agent-sdk";
@@ -376,6 +377,4 @@ function normalizeMemoryScope(value: string): MemoryScopeName | null {
   return null;
 }
 
-function normalizeString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+

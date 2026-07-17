@@ -1,3 +1,4 @@
+import { asRecord } from "../../../utils/guards.js";
 /**
  * 上下文预算 / 压缩设置的纯函数（供 AgentContextService.resolveContextBudget 与 monitoring 快照用）。
  *
@@ -59,6 +60,4 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
+

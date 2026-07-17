@@ -1,3 +1,4 @@
+import { isRecord } from "../../utils/guards.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -151,6 +152,4 @@ function pushUnique(items: string[], value: string): void {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+

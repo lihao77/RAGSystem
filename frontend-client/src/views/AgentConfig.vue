@@ -698,6 +698,8 @@ import {
   exportAgentConfig
 } from '../api/agentConfig';
 import { useDictionariesStore } from '../stores/dictionaries.js';
+import { normalizeModelList } from '../utils/modelList.js';
+import { showToast as showToastMessage } from '../utils/toast.js';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import NumberInput from '../components/NumberInput.vue';
 import { Switch } from '../components/ui/switch';
@@ -893,11 +895,7 @@ const error = ref('');
 const toast = useToast();
 const dictStore = useDictionariesStore();
 
-function showToast(message, type = 'error') {
-  if (type === 'success') toast.success(message);
-  else if (type === 'warning') toast.warning(message);
-  else toast.error(message);
-}
+const showToast = (message, type = 'error') => showToastMessage(toast, message, type);
 
 const agents = ref([]);
 const agentDisplayMap = ref({});
@@ -931,12 +929,6 @@ const memoryScopeMeta = ref([]);
 
 const configForm = ref(createEmptyForm());
 const rawConfig = ref(createEmptyForm());
-
-function normalizeModelList(value) {
-  if (Array.isArray(value)) return value.map(item => String(item || '').trim()).filter(Boolean);
-  const model = String(value || '').trim();
-  return model ? [model] : [];
-}
 
 function getProviderModels(provider) {
   if (!provider) return [];

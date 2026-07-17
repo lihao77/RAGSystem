@@ -1,3 +1,4 @@
+import { normalizeString } from "../../utils/guards.js";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -462,6 +463,4 @@ function clampPositiveInt(value: unknown, fallback: number, min: number, max: nu
   return Math.max(min, Math.min(max, positiveInt(value, fallback)));
 }
 
-function normalizeString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+

@@ -1,3 +1,4 @@
+import { isRecord } from "../../../utils/guards.js";
 export function toYaml(value: unknown): string {
   return `${yamlValue(value, 0)}\n`;
 }
@@ -54,6 +55,4 @@ function yamlScalar(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+

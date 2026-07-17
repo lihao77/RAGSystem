@@ -3,6 +3,7 @@
  */
 
 import { http } from './http.js';
+import { normalizeModelList } from '../utils/modelList.js';
 
 const API_BASE = '/api/model-adapter'
 
@@ -19,12 +20,6 @@ export async function getProviders() {
     console.error('Error fetching providers:', error)
     throw error
   }
-}
-
-function normalizeModelList(value) {
-  if (Array.isArray(value)) return value.map(item => String(item || '').trim()).filter(Boolean)
-  const model = String(value || '').trim()
-  return model ? [model] : []
 }
 
 function collectProviderModels(provider, task = 'chat') {

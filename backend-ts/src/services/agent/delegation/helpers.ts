@@ -1,3 +1,5 @@
+import { normalizeString } from "../../../utils/guards.js";
+export { normalizeString };
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { ChildAgentInfo } from "../../../contracts/conversation-store/index.js";
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
@@ -48,6 +50,3 @@ export function clampInteger(value: number | null, min: number, max: number): nu
   return Math.min(max, Math.max(min, integer));
 }
 
-export function normalizeString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}

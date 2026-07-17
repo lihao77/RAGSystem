@@ -1,3 +1,4 @@
+import { asString, asRecord } from "../../../utils/guards.js";
 import type { BashExecutionInput } from "../../../tools/BashTool/BashExecution.js";
 import { readCodeExecutionArguments } from "../../../tools/CodeExecutionTool/CodeExecution.js";
 import { readSkillToolArguments } from "../../../tools/SkillTools/SkillExecution.js";
@@ -389,9 +390,7 @@ export function readOptions(value: Record<string, unknown> | undefined): string[
   return value.options.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 }
 
-function asString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+
 
 function asProvidedString(value: Record<string, unknown> | undefined, ...keys: string[]): string | null | undefined {
   if (!value) {
@@ -416,6 +415,4 @@ function asStringArray(value: unknown): string[] | null {
   return value.map((item) => String(item)).filter((item) => item.trim().length > 0);
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
+

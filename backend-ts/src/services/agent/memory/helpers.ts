@@ -1,3 +1,5 @@
+import { isRecord, asRecord } from "../../../utils/guards.js";
+export { isRecord, asRecord };
 /**
  * memory-prefix 辅助纯函数（随 memory 模块从 SDK 内核迁回 backend）。
  * scope 判断、heading 常量、指纹 stringify、字符串数组/记录归一——memory 业务专用。
@@ -42,12 +44,4 @@ export function stringRecord(value: unknown): Record<string, string> {
 
 export function getString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-export function asRecord(value: unknown): Record<string, unknown> | null {
-  return isRecord(value) ? value : null;
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

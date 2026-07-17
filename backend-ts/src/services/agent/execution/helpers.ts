@@ -1,3 +1,5 @@
+import { isRecord, asString } from "../../../utils/guards.js";
+export { isRecord, asString };
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { ExecutionObservability, ExecutionTaskStatus } from "../../../contracts/execution.js";
 import type { BackgroundTaskNotificationPayload } from "../../runtime/session-notification-queue.js";
@@ -114,9 +116,7 @@ export function applySessionAgentOverrides(agent: AgentConfig, sessionMetadata: 
   };
 }
 
-export function asString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+
 
 function escapeXmlText(value: string): string {
   return value
@@ -125,6 +125,3 @@ function escapeXmlText(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}

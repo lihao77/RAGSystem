@@ -1,3 +1,5 @@
+import { asRecord, normalizeString } from "../../../utils/guards.js";
+
 /**
  * 投影层（设计稿 §3）—— AgentConfig → AgentProfile 的唯一解析点。
  *
@@ -229,16 +231,4 @@ function requireNumber(primary: unknown, fallback: number): number {
 
 function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function normalizeString(value: unknown): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const normalized = value.trim();
-  return normalized ? normalized : null;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }

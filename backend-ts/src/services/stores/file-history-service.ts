@@ -1,3 +1,4 @@
+import { isRecord } from "../../utils/guards.js";
 import fs from "node:fs";
 import path from "node:path";
 import crypto, { randomUUID } from "node:crypto";
@@ -280,9 +281,7 @@ function isSnapshot(value: unknown): value is FileHistorySnapshot {
   );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+
 
 function isTrackedFileEntry(entry: [string, unknown]): entry is [string, FileHistoryTrackedFile] {
   const [, value] = entry;

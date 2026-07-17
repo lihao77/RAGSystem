@@ -223,9 +223,6 @@ function feishuLabel(bot) {
   return bot.feishuReceiveMode === 'long_connection' ? '已接入长连接' : '已接入 Webhook';
 }
 
-function formatDateTime(value) {
-  return value ? new Date(value).toLocaleString() : '—';
-}
-
 onMounted(loadDirectory);
 </script>
+import { formatDateTime } from '../utils/datetime.js';

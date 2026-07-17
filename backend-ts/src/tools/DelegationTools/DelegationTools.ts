@@ -1,3 +1,4 @@
+import { isRecord } from "../../utils/guards.js";
 import { z } from "zod";
 
 import {
@@ -239,9 +240,7 @@ function normalizeUseCases(value: unknown): string {
   return "";
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+
 
 /** 给带 agent_name 参数的工具补 enum（限定为当前可委派 agent 名）。 */
 function withAgentNameEnum(definition: RuntimeToolDefinition, agentNames: string[]): RuntimeToolDefinition {

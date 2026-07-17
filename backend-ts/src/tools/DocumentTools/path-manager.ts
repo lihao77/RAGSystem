@@ -1,3 +1,5 @@
+import { normalizeString } from "../../utils/guards.js";
+export { normalizeString };
 import fs from "node:fs";
 import path from "node:path";
 
@@ -299,9 +301,7 @@ export class LocalDocumentPathManager {
   }
 }
 
-export function normalizeString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+
 
 function randomSuffix(): string {
   return Math.random().toString(16).slice(2, 14).padEnd(12, "0");

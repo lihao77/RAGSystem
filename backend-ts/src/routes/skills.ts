@@ -1,3 +1,4 @@
+import { isRecord } from "../utils/guards.js";
 import path from "node:path";
 import type { FastifyPluginAsync } from "fastify";
 
@@ -109,9 +110,7 @@ export const registerSkillRoutes: FastifyPluginAsync<RouteOptions> = async (app,
   });
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+
 
 function asString(value: unknown): string | null {
   return typeof value === "string" ? value : null;

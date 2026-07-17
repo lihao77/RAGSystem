@@ -15,7 +15,7 @@ import { extractText } from "@ragsystem/agent-llm";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import { requireTenantAdmin, requireTenantMember } from "../tenant-role.js";
-import { isRecord } from "../../utils/guards.js";
+import { isRecord, normalizeString } from "../../utils/guards.js";
 
 interface ContextSnapshotQuery {
   session_id?: string;
@@ -382,9 +382,7 @@ function asString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function normalizeString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+
 
 function parseOutboxStatuses(value: string | undefined): OutboxStatus[] {
   if (!value?.trim()) {

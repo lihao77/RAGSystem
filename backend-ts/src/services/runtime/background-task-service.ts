@@ -1,3 +1,4 @@
+import { isRecord, normalizeString, asString } from "../../utils/guards.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -383,14 +384,8 @@ function positiveIntOrNull(value: unknown): number | null {
   return Number.isInteger(value) && Number(value) >= 1 ? Number(value) : null;
 }
 
-function normalizeString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
-function asString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+
+
+

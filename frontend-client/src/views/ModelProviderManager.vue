@@ -204,6 +204,7 @@
 
 <script setup>
 import { ref, computed, onMounted, h } from 'vue';
+import { normalizeModelList } from '../utils/modelList.js';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import { Switch } from '../components/ui/switch';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
@@ -288,11 +289,6 @@ const kpiItems = computed(() => [
 ]);
 
 function getProviderKey(provider) { return provider.key || `${provider.name}_${provider.provider_type}`; }
-function normalizeModelList(value) {
-  if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean);
-  const model = String(value || '').trim();
-  return model ? [model] : [];
-}
 function hasModelMapValue(value) { return normalizeModelList(value).length > 0; }
 function isSameProviderOrder(left, right) {
   if (left.length !== right.length) return false;

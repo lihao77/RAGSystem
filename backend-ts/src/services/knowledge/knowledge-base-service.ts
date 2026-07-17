@@ -1,3 +1,4 @@
+import { asString } from "../../utils/guards.js";
 import fs from "node:fs";
 
 import type {
@@ -1010,9 +1011,7 @@ function hitToSearchResult(hit: VectorSearchHit): VectorSearchResult {
   };
 }
 
-function asString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};

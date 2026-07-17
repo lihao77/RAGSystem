@@ -117,6 +117,7 @@ export const SessionWsTicketResponseSchema = z.object({
 }).strict();
 
 export type CreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>;
+export type PermissionMode = z.infer<typeof PermissionModeSchema>;
 export type UpdateSessionPermissionModeRequest = z.infer<typeof UpdateSessionPermissionModeRequestSchema>;
 export type CreatedSession = z.infer<typeof CreatedSessionSchema>;
 export type SessionDetail = z.infer<typeof SessionDetailSchema>;

@@ -1,3 +1,4 @@
+import { isRecord } from "../../utils/guards.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -754,6 +755,4 @@ function providerCircuitKey(provider: ModelProviderConfig): string {
   return `provider:${provider.key ?? provider.name ?? provider.provider_type}`;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+

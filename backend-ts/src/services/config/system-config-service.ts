@@ -1,3 +1,4 @@
+import { isRecord } from "../../utils/guards.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -360,9 +361,7 @@ function isSensitiveKey(key: string): boolean {
   return SENSITIVE_FIELD_NAMES.has(normalized) || SENSITIVE_FIELD_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+
 
 function positiveIntOrDefault(value: unknown, defaultValue: number): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : defaultValue;

@@ -1,3 +1,4 @@
+import { isRecord, normalizeString } from "../../utils/guards.js";
 import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
@@ -463,13 +464,9 @@ function toPortableRelative(root: string, filePath: string): string {
   return path.relative(root, filePath).split(path.sep).join("/");
 }
 
-function normalizeString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+
+
 
 function isPathUnder(candidate: string, root: string): boolean {
   const relative = path.relative(path.resolve(root), path.resolve(candidate));

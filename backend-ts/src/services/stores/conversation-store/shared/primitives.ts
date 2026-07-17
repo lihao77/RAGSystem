@@ -1,3 +1,5 @@
+import { isRecord } from "../../../../utils/guards.js";
+export { isRecord };
 /** 会话存储通用纯函数（迁移自 conversation-store.ts 模块级 helper）。 */
 
 export function numericCount(value: number | null | undefined): number {
@@ -26,9 +28,7 @@ export function normalizeNonEmptyString(value: string | null | undefined): strin
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+
 
 export function deepMergeRecords(base: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
   const output: Record<string, unknown> = { ...base };
