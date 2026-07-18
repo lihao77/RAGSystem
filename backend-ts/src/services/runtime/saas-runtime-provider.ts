@@ -12,7 +12,6 @@ import {
 import type { RuntimeMemorySessionPort } from "../../tools/MemoryTools/MemoryExecution.js";
 import type { SessionMetadataPort } from "../agent/context/types.js";
 import type { MemoryRuntimeBindings } from "../agent/memory/runtime-bindings.js";
-import type { RuntimeLease, RuntimeRegistry } from "./tenant-runtime-registry.js";
 
 /**
  * The first SaaS runtime surface is intentionally memory-only. It must not be
@@ -31,50 +30,27 @@ export interface SaaSRuntime {
   createMemoryBindings(sessions: RuntimeMemorySessionPort & SessionMetadataPort): MemoryRuntimeBindings;
 }
 
-export type SaaSRuntimeLease = RuntimeLease<SaaSRuntime>;
+export interface SaaSMemoryApplicationProvider {
+  memoryForTenant(tenantId: string): MemoryApplication;
+}
 
 /**
- * Creates tenant-bound facades over shared SaaS infrastructure. The provider
- * does not own the repository (or its connection pool), so clearing runtime
- * facades never closes shared database resources.
+ * Creates tenant-bound facades over shared SaaS infrastructure. Facades are
+ * deliberately not cached: they own no resources and naturally follow the
+ * lifetime of the route or runtime bindings that consume them.
  */
-export class SaaSRuntimeProvider implements RuntimeRegistry<SaaSRuntime> {
-  private readonly runtimes = new Map<TenantId, SaaSRuntime>();
-
+export class SaaSRuntimeProvider implements SaaSMemoryApplicationProvider {
   constructor(private readonly memoryRepository: TransactionalMemoryRepository) {}
 
-  async acquire(rawTenantId: string): Promise<SaaSRuntimeLease> {
-    const tenantId = createTenantId(rawTenantId);
-    const runtime = this.getOrCreateRuntime(tenantId);
-    let released = false;
-
-    return {
-      tenantId,
-      runtime,
-      release: () => {
-        if (released) return;
-        released = true;
-      },
-    };
-  }
-
-  async closeTenant(rawTenantId: string): Promise<void> {
-    this.runtimes.delete(createTenantId(rawTenantId));
-  }
-
-  async closeAll(): Promise<void> {
-    this.runtimes.clear();
+  memoryForTenant(rawTenantId: string): MemoryApplication {
+    return this.createRuntime(createTenantId(rawTenantId)).memory;
   }
 
   createMemoryBindings(
     rawTenantId: string,
     sessions: RuntimeMemorySessionPort & SessionMetadataPort,
   ): MemoryRuntimeBindings {
-    return this.getOrCreateRuntime(createTenantId(rawTenantId)).createMemoryBindings(sessions);
-  }
-
-  private getOrCreateRuntime(tenantId: TenantId): SaaSRuntime {
-    return this.runtimes.get(tenantId) ?? this.createRuntime(tenantId);
+    return this.createRuntime(createTenantId(rawTenantId)).createMemoryBindings(sessions);
   }
 
   private createRuntime(tenantId: TenantId): SaaSRuntime {
@@ -103,7 +79,6 @@ export class SaaSRuntimeProvider implements RuntimeRegistry<SaaSRuntime> {
         ),
       }),
     };
-    this.runtimes.set(tenantId, runtime);
     return runtime;
   }
 }

@@ -34,15 +34,16 @@ export async function createSaaSMemoryRuntime(options: SaaSMemoryRuntimeOptions)
     if (options.runMigrations !== false) await runPostgresMemoryMigrations(executor);
     const repository = new PostgresMemoryRepository(executor);
     const provider = new SaaSRuntimeProvider(repository);
-    let closed = false;
+    let closePromise: Promise<void> | null = null;
+    const closeResources = async (): Promise<void> => {
+      if (ownsPool) await pool.end();
+    };
     return {
       provider,
       repository,
-      close: async () => {
-        if (closed) return;
-        closed = true;
-        await provider.closeAll();
-        if (ownsPool) await pool.end();
+      close: () => {
+        closePromise ??= closeResources();
+        return closePromise;
       },
     };
   } catch (error) {

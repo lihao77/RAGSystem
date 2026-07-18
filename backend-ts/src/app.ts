@@ -47,6 +47,11 @@ export interface BuildAppOptions {
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
+  if (options.saasMemoryRuntime && (options.registry || options.resolveMemoryApplication)) {
+    throw new Error(
+      "saasMemoryRuntime must own Memory composition; custom registry/resolveMemoryApplication would split Memory backends",
+    );
+  }
   const app = Fastify({
     logger: {
       level: options.env.logLevel,

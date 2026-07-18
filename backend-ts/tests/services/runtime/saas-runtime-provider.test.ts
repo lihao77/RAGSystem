@@ -32,60 +32,40 @@ function repository(): TransactionalMemoryRepository {
 }
 
 describe("SaaSRuntimeProvider", () => {
-  it("caches a lightweight tenant facade without creating per-tenant infrastructure", async () => {
+  it("creates lightweight tenant facades without retaining per-tenant infrastructure", () => {
     const store = repository();
     const provider = new SaaSRuntimeProvider(store);
 
-    const first = await provider.acquire(" tnt_alpha ");
-    const second = await provider.acquire("tnt_alpha");
+    const first = provider.memoryForTenant(" tnt_alpha ");
+    const second = provider.memoryForTenant("tnt_alpha");
 
-    expect(first.tenantId).toBe("tnt_alpha");
-    expect(first.runtime).toBe(second.runtime);
-    expect(first.runtime).toEqual(expect.objectContaining({
-      tenantId: "tnt_alpha",
-      memory: expect.objectContaining({ query: expect.anything(), commands: expect.anything(), governance: expect.anything() }),
-      createMemoryTools: expect.any(Function),
-      createMemoryContextSource: expect.any(Function),
+    expect(first).not.toBe(second);
+    expect(first).toEqual(expect.objectContaining({
+      query: expect.anything(),
+      commands: expect.anything(),
+      governance: expect.anything(),
     }));
-    expect(first.runtime).not.toHaveProperty("dataRoot");
-    expect(first.runtime).not.toHaveProperty("dbPath");
-
-    first.release();
-    first.release();
-    second.release();
+    expect(first).not.toHaveProperty("dataRoot");
+    expect(first).not.toHaveProperty("dbPath");
   });
 
-  it("binds each memory application to its acquired tenant", async () => {
+  it("binds each memory application to its requested tenant", async () => {
     const store = repository();
     const provider = new SaaSRuntimeProvider(store);
-    const alpha = await provider.acquire("tnt_alpha");
-    const beta = await provider.acquire("tnt_beta");
+    const alpha = provider.memoryForTenant("tnt_alpha");
+    const beta = provider.memoryForTenant("tnt_beta");
 
-    await alpha.runtime.memory.query.getEntry("memory-1");
-    await beta.runtime.memory.query.getEntry("memory-1");
+    await alpha.query.getEntry("memory-1");
+    await beta.query.getEntry("memory-1");
 
     expect(store.getEntry).toHaveBeenNthCalledWith(1, "tnt_alpha", "memory-1");
     expect(store.getEntry).toHaveBeenNthCalledWith(2, "tnt_beta", "memory-1");
-    expect(alpha.runtime).not.toBe(beta.runtime);
+    expect(alpha).not.toBe(beta);
   });
 
-  it("evicts facades without closing the shared repository", async () => {
-    const store = repository();
-    const provider = new SaaSRuntimeProvider(store);
-    const first = await provider.acquire("tnt_alpha");
-
-    await provider.closeTenant("tnt_alpha");
-    const second = await provider.acquire("tnt_alpha");
-    expect(second.runtime).not.toBe(first.runtime);
-
-    await provider.closeAll();
-    const third = await provider.acquire("tnt_alpha");
-    expect(third.runtime).not.toBe(second.runtime);
-  });
-
-  it("rejects invalid tenant identifiers before creating a facade", async () => {
+  it("rejects invalid tenant identifiers before creating a facade", () => {
     const provider = new SaaSRuntimeProvider(repository());
-    await expect(provider.acquire("tenant-alpha")).rejects.toThrow("无效租户 ID");
+    expect(() => provider.memoryForTenant("tenant-alpha")).toThrow("无效租户 ID");
   });
 
   it("creates tenant-bound bindings for the shared agent runtime", () => {

@@ -1,14 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { buildApp } from "../../src/app.js";
+import { buildApp, type BuildAppOptions } from "../../src/app.js";
 import type { TransactionalMemoryRepository } from "../../src/contracts/memory-store/index.js";
-import { createTenantId } from "../../src/identity/types.js";
 import { SaaSMemoryContextSource } from "../../src/services/agent/memory/saas-memory-context-source.js";
 import type { MemoryApplication } from "../../src/services/memory/index.js";
 import type { SaaSMemoryRuntimeHandle } from "../../src/services/runtime/saas-memory-runtime.js";
 import { SaaSRuntimeProvider } from "../../src/services/runtime/saas-runtime-provider.js";
 import { SaaSMemoryToolService } from "../../src/tools/MemoryTools/SaaSMemoryExecution.js";
-import { buildTestHarness, testEnv } from "../helpers/app.js";
+import { testEnv } from "../helpers/app.js";
 import { makeTempRoot } from "../helpers/temp-db.js";
 
 describe("SaaS memory application composition", () => {
@@ -22,33 +21,37 @@ describe("SaaS memory application composition", () => {
       } as unknown as MemoryApplication["governance"],
     };
     const provider = new SaaSRuntimeProvider({} as TransactionalMemoryRepository);
-    const acquire = vi.spyOn(provider, "acquire").mockResolvedValue({
-      tenantId: createTenantId("tnt_local"),
-      runtime: {
-        tenantId: "tnt_local",
-        memory,
-      } as Awaited<ReturnType<SaaSRuntimeProvider["acquire"]>>["runtime"],
-      release: vi.fn(),
-    });
+    const memoryForTenant = vi.spyOn(provider, "memoryForTenant").mockReturnValue(memory);
     const close = vi.fn(async () => undefined);
     const handle = {
       provider,
       repository: {} as SaaSMemoryRuntimeHandle["repository"],
       close,
     } satisfies SaaSMemoryRuntimeHandle;
-    const harness = await buildTestHarness({ saasMemoryRuntime: handle });
+    const root = makeTempRoot();
+    const app = await buildApp({
+      env: {
+        ...testEnv,
+        dataRoot: root,
+        systemRoot: `${root}/system`,
+        tenantsRoot: `${root}/tenants`,
+      },
+      saasMemoryRuntime: handle,
+      tenantMigrator: { migrate: () => ({ status: "skipped", reason: "no_legacy_data", directories: [] }) },
+    });
+    await app.ready();
     try {
-      const response = await harness.app.inject({
+      const response = await app.inject({
         method: "GET",
         url: "/api/memory/candidates?target_scope=team",
       });
 
       expect(response.statusCode).toBe(200);
-      expect(acquire).toHaveBeenCalledWith("tnt_local");
+      expect(memoryForTenant).toHaveBeenCalledWith("tnt_local");
       expect(memory.governance.countCandidates).toHaveBeenCalled();
       expect(memory.governance.listCandidates).toHaveBeenCalled();
     } finally {
-      await harness.app.close();
+      await app.close();
     }
     expect(close).toHaveBeenCalledOnce();
   });
@@ -98,5 +101,25 @@ describe("SaaS memory application composition", () => {
       await app.close();
     }
     expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("rejects custom composition that could split route and Agent memory backends", async () => {
+    const provider = new SaaSRuntimeProvider({} as TransactionalMemoryRepository);
+    const handle = {
+      provider,
+      repository: {} as SaaSMemoryRuntimeHandle["repository"],
+      close: vi.fn(async () => undefined),
+    } satisfies SaaSMemoryRuntimeHandle;
+
+    await expect(buildApp({
+      env: testEnv,
+      saasMemoryRuntime: handle,
+      registry: {} as NonNullable<BuildAppOptions["registry"]>,
+    })).rejects.toThrow("split Memory backends");
+    await expect(buildApp({
+      env: testEnv,
+      saasMemoryRuntime: handle,
+      resolveMemoryApplication: async () => undefined,
+    })).rejects.toThrow("split Memory backends");
   });
 });
