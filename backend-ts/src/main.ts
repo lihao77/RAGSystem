@@ -5,6 +5,7 @@ import { createSaaSControlRuntime, type SaaSControlRuntimeHandle } from "./servi
 import { createSaaSConversationRuntime, type SaaSConversationRuntimeHandle } from "./services/runtime/saas-conversation-runtime.js";
 import { createSaaSObjectStorage } from "./services/runtime/saas-object-storage.js";
 import type { ObjectStorage } from "./contracts/object-storage.js";
+import { TenantKnowledgeMarkdownPipeline } from "./contracts/knowledge/async-knowledge-markdown-pipeline.js";
 
 const env = loadEnv(process.env);
 let saasMemoryRuntime: SaaSMemoryRuntimeHandle | undefined;
@@ -44,6 +45,12 @@ try {
     env,
     ...(saasMemoryRuntime ? { saasMemoryRuntime } : {}),
     ...(saasConversationRuntime ? { saasConversationRuntime } : {}),
+    ...(saasConversationRuntime && saasObjectStorage ? {
+      resolveKnowledgeFileStore: (request) => saasConversationRuntime!.createKnowledgeFileStorage(request.identity.tenantId),
+      resolveKnowledgeMarkdownPipeline: (request) => new TenantKnowledgeMarkdownPipeline(
+        saasConversationRuntime!.createKnowledgeFileStorage(request.identity.tenantId),
+      ),
+    } : {}),
     ...(saasControlRuntime ? { controlRuntime: saasControlRuntime } : {}),
   });
 } catch (error) {
