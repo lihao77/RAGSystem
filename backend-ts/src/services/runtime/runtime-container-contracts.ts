@@ -41,6 +41,7 @@ import type { PendingInteractionService } from "./pending-interaction-service.js
 import type { PermissionPolicyService } from "./permission-policy-service.js";
 import type { RealtimeEventHub } from "./realtime-event-hub.js";
 import type { SessionNotificationQueue } from "./session-notification-queue.js";
+import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../agent/sdk/async-event-persister.js";
 
 export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = MemoryStore> {
   readonly conversationStore: ConversationStore;
@@ -96,6 +97,7 @@ export interface LocalRuntimeContainerOptions {
   hooks?: ((registry: HookRegistry) => void) | undefined;
   embedderFactory?: KnowledgeBaseEmbedderFactory | undefined;
   memoryBindingsFactory?: MemoryRuntimeBindingsFactory | undefined;
+  asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
 }
 
 export interface MemoryRuntimeBindingsFactoryInput<TMemoryRepository extends MemoryRepository = MemoryRepository> {
@@ -124,6 +126,7 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   memoryConfig: MemoryConfig;
   logger?: AgentExecutionLogger | undefined;
   hooks?: ((registry: HookRegistry) => void) | undefined;
+  asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
   conversationStore: ConversationStore;
   sessionApplication: AgentSessionApplication;
   realtimeEvents: RealtimeEventHub;

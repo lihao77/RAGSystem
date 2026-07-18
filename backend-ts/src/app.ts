@@ -36,6 +36,7 @@ import { createSaaSMemoryApplicationResolver } from "./app/saas-memory-resolver.
 import type { RouteOptions } from "./routes/route-options.js";
 import type { SaaSMemoryRuntimeHandle } from "./services/runtime/saas-memory-runtime.js";
 import type { SaaSConversationRuntimeHandle } from "./services/runtime/saas-conversation-runtime.js";
+import { AsyncKernelEventPersister } from "./services/agent/sdk/async-event-persister.js";
 import type { SaaSControlRuntimeHandle } from "./services/runtime/saas-control-runtime.js";
 import { SaaSExecutionWriteBridge } from "./services/runtime/saas-execution-write-bridge.js";
 
@@ -134,9 +135,24 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               input.tenantId,
               input.sessions,
             ),
+            ...(options.saasConversationRuntime ? {
+              asyncEventPersisterFactory: (context: import("./services/agent/sdk/async-event-persister.js").AsyncPersisterRunContext) => new AsyncKernelEventPersister(
+                options.saasConversationRuntime!.conversation,
+                options.saasConversationRuntime!.runs,
+                context,
+              ),
+            } : {}),
           },
         }
-      : {},
+      : options.saasConversationRuntime
+        ? { runtimeOptions: {
+            asyncEventPersisterFactory: (context: import("./services/agent/sdk/async-event-persister.js").AsyncPersisterRunContext) => new AsyncKernelEventPersister(
+              options.saasConversationRuntime!.conversation,
+              options.saasConversationRuntime!.runs,
+              context,
+            ),
+          } }
+        : {},
   );
   const resolveMemoryApplication = options.resolveMemoryApplication
     ?? (options.saasMemoryRuntime

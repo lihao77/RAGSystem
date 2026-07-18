@@ -22,6 +22,7 @@ import type { DelegationPendingService } from "../../runtime/delegation-pending-
 import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
+import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../sdk/async-event-persister.js";
 import type { IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
@@ -50,6 +51,7 @@ function asRecord(value: unknown): Record<string, unknown> {
  */
 export class AgentRunEngine {
   constructor(
+    private readonly tenantId: AsyncPersisterRunContext["tenantId"],
     private readonly sessions: AgentSessionApplication,
     private readonly conversationStore: IRunStore & IMessageStore & ISessionStore,
     private readonly dataRoot: string,
@@ -74,6 +76,7 @@ export class AgentRunEngine {
     private readonly hooks: ((registry: HookRegistry) => void) | null,
     private readonly metricsCollector: AgentMetricsCollector | null = null,
     private readonly compressionService: AgentCompressionService | null = null,
+    private readonly asyncEventPersisterFactory: ((context: AsyncPersisterRunContext) => AsyncKernelEventPersister) | null = null,
   ) {}
 
   startRun(input: {
@@ -351,6 +354,8 @@ export class AgentRunEngine {
 
       const result = await executeRunWithSdk(
        {
+          ...(this.asyncEventPersisterFactory ? { tenantId: this.tenantId } : {}),
+          ...(this.asyncEventPersisterFactory ? { asyncEventPersisterFactory: this.asyncEventPersisterFactory } : {}),
           // run-engine 的 conversationStore 实际是完整 ConversationStore（构造时传入窄类型）。
           conversationStore: this.conversationStore as unknown as ConversationStore,
           toolsDeps: this.toolsDeps ?? emptyToolsDeps,

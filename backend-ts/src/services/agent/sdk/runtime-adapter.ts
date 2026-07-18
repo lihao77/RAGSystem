@@ -26,6 +26,7 @@ import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
 import { KernelEventPersister } from "./event-persister.js";
+import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "./async-event-persister.js";
 import { buildBackendAgentContext, HISTORY_SCAN_LIMIT, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import { memoryBaselineKey } from "../memory/index.js";
@@ -36,6 +37,9 @@ import type { DelegationPendingService, DelegationResolution } from "../../runti
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 
 export interface SdkRuntimeAdapterDeps {
+  tenantId?: AsyncPersisterRunContext["tenantId"];
+  /** SaaS async persistence boundary; omitted for the Local synchronous store. */
+  asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
   conversationStore: ConversationStore;
   /** 工具依赖集合（service + getAgentDelegation；agent/teamName 由 per-run 提供）。 */
   toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName">;
@@ -336,7 +340,24 @@ export async function executeRunWithSdk(
   }
 
   // KernelEvent 落库（B1：从 SDK Dispatcher 迁回 backend）：createRun + 增量事件落库 + 终态合一全在此。
-  const persister = new KernelEventPersister(deps.conversationStore, {
+  const persister = deps.asyncEventPersisterFactory
+    ? deps.asyncEventPersisterFactory({
+      tenantId: deps.tenantId!,
+      sessionId: input.sessionId,
+      runId: input.runId,
+      threadKey: input.threadKey,
+      agentName: input.agent.agent_name,
+      ...(input.provider.provider_type ? { providerType: input.provider.provider_type } : {}),
+      ...(input.executionKind ? { executionKind: input.executionKind } : {}),
+      taskSummary: input.task.slice(0, 200),
+      ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
+      ...(input.userId !== undefined ? { userId: input.userId } : {}),
+      ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
+      ...(input.parentCallId !== undefined ? { parentCallId: input.parentCallId } : {}),
+      ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
+      ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
+    })
+    : new KernelEventPersister(deps.conversationStore, {
     sessionId: input.sessionId,
     runId: input.runId,
     threadKey: input.threadKey,
@@ -355,8 +376,10 @@ export async function executeRunWithSdk(
     ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
     ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
   });
-  if (!deps.conversationStore.getRun(input.sessionId, input.runId)) {
+  if (!deps.asyncEventPersisterFactory && !deps.conversationStore.getRun(input.sessionId, input.runId)) {
     persister.startRun();
+  } else if (deps.asyncEventPersisterFactory) {
+    await persister.startRun();
   }
   const runtime = createRuntime(runtimeOpts);
   const handle = runtime.run({
@@ -376,7 +399,7 @@ export async function executeRunWithSdk(
       if (event.type === "tool_call") {
         toolCalls[event.toolName] = (toolCalls[event.toolName] ?? 0) + 1;
       }
-      persister.persist(event);
+      await persister.persist(event);
       for (const envelope of translateKernelEvent(event, wireCtx)) {
         deps.eventPublisher.publishEnvelope(envelope);
       }
@@ -389,7 +412,7 @@ export async function executeRunWithSdk(
   } catch (error) {
     await consumeEvents.catch(() => undefined);
     if (error instanceof RecoverableInterrupt) {
-      persister.finalize("suspended", null);
+      await persister.finalize("suspended", null);
       runtime.close();
       if (input.runId !== error.rootRunId) {
         throw error;
@@ -411,7 +434,7 @@ export async function executeRunWithSdk(
     runtime.close();
     const interrupted = input.signal.aborted;
     // 终态合一落库：failed/interrupted 更新 run 状态；interrupted 补悬空 tool observation。
-    persister.finalize(interrupted ? "interrupted" : "failed", null);
+    await persister.finalize(interrupted ? "interrupted" : "failed", null);
     if (input.runId === rootRunId) deps.pendingInteractions.finalizeRoot(input.sessionId, rootRunId, false);
     recordTerminal(deps, input, interrupted ? "interrupted" : "failed", null, error);
     const message = error instanceof Error ? error.message : String(error);
@@ -422,9 +445,9 @@ export async function executeRunWithSdk(
   runtime.close();
 
   // completed：终态合一落库（最终 assistant message + Envelope 关联 + updateRunStatus）。
-  persister.finalize("completed", { content: result.content });
+  await persister.finalize("completed", { content: result.content });
   if (input.runId === rootRunId) deps.pendingInteractions.finalizeRoot(input.sessionId, rootRunId, true);
-  const finalMessage = persister.resolveFinalMessage();
+  const finalMessage = await persister.resolveFinalMessage();
   recordTerminal(deps, input, "completed", finalMessage, null);
   return { content: result.content, success: true, tokenUsage, toolCalls };
 }

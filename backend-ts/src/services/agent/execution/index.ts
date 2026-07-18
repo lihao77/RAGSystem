@@ -36,6 +36,7 @@ import type { AgentCompressionService } from "../context-compression/compression
 import type { TenantId } from "../../../identity/types.js";
 import type { MemoryConfig } from "../../../contracts/system-config.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
+import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../sdk/async-event-persister.js";
 import {
   createLaunchers,
   type RollbackRetryInput,
@@ -102,7 +103,9 @@ export interface AgentExecutionServiceParams {
  metricsCollector?: AgentMetricsCollector | null;
  logger?: AgentExecutionLogger | null | undefined;
  /** backend 压缩服务（slash /compact + run 内 round.before 共用）；A3 压缩外移。 */
- compressionService?: AgentCompressionService;
+  compressionService?: AgentCompressionService;
+  /** SaaS async run/message persister factory; Local leaves this unset. */
+  asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
 }
 
 /**
@@ -134,6 +137,7 @@ export function createAgentExecutionService(
     params.clientEvents,
   );
   const runEngine = new AgentRunEngine(
+    params.tenantId,
     params.sessions,
     params.conversationStore,
     params.dataRoot,
@@ -157,6 +161,7 @@ export function createAgentExecutionService(
     params.hooks ?? null,
     params.metricsCollector ?? null,
     params.compressionService ?? null,
+    params.asyncEventPersisterFactory ?? null,
   );
   const launchers = createLaunchers({
     tenantId: params.tenantId,

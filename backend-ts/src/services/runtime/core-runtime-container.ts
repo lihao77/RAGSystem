@@ -93,6 +93,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
       systemConfig,
     ),
     ...(dependencies.hooks ? { hooks: dependencies.hooks } : {}),
+    ...(dependencies.asyncEventPersisterFactory ? { asyncEventPersisterFactory: dependencies.asyncEventPersisterFactory } : {}),
   });
   const resumeExecutor = createResumeExecutor({
     runEngine: agentExecution.runEngine,
