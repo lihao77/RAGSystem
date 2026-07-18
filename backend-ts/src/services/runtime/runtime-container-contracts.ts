@@ -2,6 +2,7 @@ import type { HookRegistry } from "@ragsystem/agent-sdk";
 
 import type { IFileHistoryStore } from "../../contracts/file-history-store/index.js";
 import type { IFileIndexStore } from "../../contracts/file-index-store/index.js";
+import type { MemoryRepository } from "../../contracts/memory-store/index.js";
 import type { MemoryConfig } from "../../contracts/system-config.js";
 import type { TenantId } from "../../identity/types.js";
 import type { LocalBashToolService } from "../../tools/BashTool/BashExecution.js";
@@ -39,7 +40,7 @@ import type { PermissionPolicyService } from "./permission-policy-service.js";
 import type { RealtimeEventHub } from "./realtime-event-hub.js";
 import type { SessionNotificationQueue } from "./session-notification-queue.js";
 
-export interface RuntimeContainer {
+export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = MemoryStore> {
   readonly conversationStore: ConversationStore;
   readonly sessionApplication: AgentSessionApplication;
   readonly realtimeEvents: RealtimeEventHub;
@@ -57,7 +58,7 @@ export interface RuntimeContainer {
   readonly artifacts: ArtifactService;
   readonly transientArtifacts: TransientArtifactService;
   readonly embeddingModels: EmbeddingModelService;
-  readonly memoryStore: MemoryStore;
+  readonly memoryStore: TMemoryRepository;
   readonly memoryTools: MemoryToolService;
   readonly documentTools: LocalDocumentToolService;
   readonly codeExecutionTools: CodeExecutionToolService;
@@ -99,10 +100,10 @@ export type RuntimeContainerOptions = LocalRuntimeContainerOptions;
 
 /**
  * Services prepared by a deployment adapter before the shared agent runtime is assembled.
- * This is intentionally concrete for the first extraction; individual services can move to
- * ports without changing either composition root.
+ * Infrastructure services are narrowed to ports as their deployment-specific implementations
+ * are extracted. The memory dependency is the first such boundary.
  */
-export interface CoreRuntimeDependencies {
+export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryRepository = MemoryRepository> {
   tenantId: TenantId;
   dataRoot: string;
   memoryConfig: MemoryConfig;
@@ -122,7 +123,7 @@ export interface CoreRuntimeDependencies {
   artifacts: ArtifactService;
   transientArtifacts: TransientArtifactService;
   embeddingModels: EmbeddingModelService;
-  memoryStore: MemoryStore;
+  memoryStore: TMemoryRepository;
   memoryTools: MemoryToolService;
   documentTools: LocalDocumentToolService;
   codeExecutionTools: CodeExecutionToolService;

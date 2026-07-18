@@ -3,8 +3,13 @@ import type { AgentConfig } from "../../contracts/agent-config.js";
 import type { SessionInfo } from "../../contracts/session.js";
 import type { ToolAccessDecision, ToolExecutionResult } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
-import { getWorkspaceMemoryKey } from "../../services/stores/memory-store.js";
-import type { IMemoryStore, MemoryScopeName, MemoryScopeSpec } from "../../contracts/memory-store/index.js";
+import {
+  getWorkspaceMemoryKey,
+  type MemoryRepository,
+  type MemoryRepositoryLocationProvider,
+  type MemoryScopeName,
+  type MemoryScopeSpec,
+} from "../../contracts/memory-store/index.js";
 import type { IMemoryCandidateStore } from "../../contracts/conversation-store/index.js";
 
 export interface RuntimeMemorySessionPort {
@@ -57,7 +62,7 @@ interface ResolvedMemoryScopeInputs {
 
 export class MemoryToolService {
   constructor(
-    private readonly memoryStore: IMemoryStore,
+    private readonly memoryStore: MemoryRepository & Partial<MemoryRepositoryLocationProvider>,
     private readonly sessions: RuntimeMemorySessionPort,
     private readonly candidates?: IMemoryCandidateStore,
     private readonly tenantId?: string,
@@ -117,13 +122,14 @@ export class MemoryToolService {
     }
 
     const content = this.memoryStore.loadIndexHead(setup.scopeSpec);
+    const indexPath = this.memoryStore.getIndexPath?.(setup.scopeSpec);
     return toolSuccess(content, {
       toolName,
       summary: `已读取 ${setup.scopeSpec.scope} MEMORY 索引`,
       outputType: "text",
       metadata: {
         scope: setup.scopeSpec.scope,
-        index_file_path: this.memoryStore.getIndexPath(setup.scopeSpec),
+        ...(indexPath ? { index_file_path: indexPath } : {}),
       },
     });
   }
@@ -376,5 +382,4 @@ function normalizeMemoryScope(value: string): MemoryScopeName | null {
   }
   return null;
 }
-
 

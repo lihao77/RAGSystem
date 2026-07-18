@@ -1,17 +1,23 @@
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
+import type { MemoryRepository } from "../../../src/contracts/memory-store/index.js";
 import { createTenantId } from "../../../src/identity/types.js";
 import { HashFallbackEmbedder } from "../../../src/services/integrations/embedder-registry.js";
 import {
   createLocalRuntimeContainer,
   createRuntimeContainer,
+  type CoreRuntimeDependencies,
   type LocalRuntimeContainerOptions,
 } from "../../../src/services/runtime/runtime-container.js";
 import { makeTempRoot } from "../../helpers/temp-db.js";
 
 describe("runtime composition roots", () => {
+  it("keeps the core memory dependency deployment-independent", () => {
+    expectTypeOf<CoreRuntimeDependencies["memoryStore"]>().toEqualTypeOf<MemoryRepository>();
+  });
+
   it.each([
     ["legacy", createRuntimeContainer],
     ["local", createLocalRuntimeContainer],

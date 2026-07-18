@@ -9,6 +9,7 @@ import type { RuntimeMemorySessionPort } from "../../src/tools/MemoryTools/Memor
 import { MemoryToolService } from "../../src/tools/MemoryTools/MemoryExecution.js";
 import { MemoryStore } from "../../src/services/stores/memory-store.js";
 import type { CreateMemoryCandidateInput, MemoryCandidateRecord } from "../../src/contracts/conversation-store/index.js";
+import type { MemoryRepository } from "../../src/contracts/memory-store/index.js";
 
 const tempRoots: string[] = [];
 
@@ -27,6 +28,32 @@ class InMemorySessions implements RuntimeMemorySessionPort {
 }
 
 describe("MemoryToolService", () => {
+  it("accepts a deployment-neutral repository without Local path capabilities", () => {
+    const repository: MemoryRepository = {
+      loadIndexHead: () => "# Remote Memory",
+      readEntryFile: () => null,
+      saveMemory: async () => ({ file_name: "entry", file_path: "entry", scope: "session" }),
+      listEntries: () => [],
+      archiveMemory: async () => false,
+      saveMemoryWithCommit: async (input, commit) => {
+        const saved = { file_name: input.name, file_path: input.name, scope: input.scope };
+        await commit(saved);
+        return saved;
+      },
+      archiveMemoryWithCommit: async () => false,
+    };
+    const service = new MemoryToolService(repository, new InMemorySessions({ s1: {} }));
+
+    expect(service.listMemoryIndex(
+      { scope: "session" },
+      { agent: minimalAgent(["session"]), sessionId: "s1" },
+    )).toMatchObject({
+      success: true,
+      content: "# Remote Memory",
+      metadata: { scope: "session" },
+    });
+  });
+
   it("writes user memory beneath the current user identity", async () => {
     const dataRoot = makeTempDataRoot();
     const service = new MemoryToolService(new MemoryStore({ dataRoot }), new InMemorySessions({ s1: {} }));

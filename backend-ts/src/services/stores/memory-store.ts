@@ -20,6 +20,7 @@ import type {
   SaveMemoryInput,
   SavedMemoryFile,
 } from "../../contracts/memory-store/index.js";
+import { getWorkspaceMemoryKey } from "../../contracts/memory-store/index.js";
 import { SaveMemoryInputSchema } from "../../contracts/memory-store/types.js";
 
 const DEFAULT_INDEX_MAX_LINES = 200;
@@ -340,22 +341,8 @@ export class MemoryStore implements IMemoryStore {
   }
 }
 
-export function getWorkspaceMemoryKey(workspaceRoot: string | null): string | null {
-  if (!workspaceRoot) {
-    return null;
-  }
-  const raw = workspaceRoot.trim();
-  if (!raw) {
-    return null;
-  }
-  const normalized = raw
-    .replace(/\\/g, "-")
-    .replace(/\//g, "-")
-    .replace(/:/g, "")
-    .replace(/[^a-zA-Z0-9._-]+/g, "-")
-    .replace(/^[-._]+|[-._]+$/g, "");
-  return normalized || "workspace";
-}
+// Local callers historically imported this helper from the concrete store.
+export { getWorkspaceMemoryKey };
 
 function readEntry(filePath: string): MemoryEntry | null {
   if (!fs.existsSync(filePath) || path.basename(filePath) === "MEMORY.md") {

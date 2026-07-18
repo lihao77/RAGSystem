@@ -12,12 +12,10 @@
  */
 import crypto from "node:crypto";
 
-import type { IMemoryStore, MemoryScopeSpec, MemoryStoreOptions } from "../../../contracts/memory-store/index.js";
-import { MemoryStore } from "../../stores/memory-store.js";
+import type { MemoryIndexReader, MemoryScopeSpec } from "../../../contracts/memory-store/index.js";
 import type { AgentContextContribution, AgentContextSource, ResolvedAgentContextRequest, SessionMetadataPort } from "../context/types.js";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { IMemoryCandidateStore, MemoryCandidateRecord } from "../../../contracts/conversation-store/index.js";
-import type { MemoryConfig as SystemMemoryConfig } from "../../../contracts/system-config.js";
 import {
   buildMemoryPrefixFingerprint,
   buildMemoryScopeCapabilities,
@@ -33,26 +31,18 @@ import {
 type MemoryConfig = AgentConfig["memory"];
 
 export interface MemoryIndexContextSourceOptions {
-  dataRoot?: string;
-  memoryStore?: IMemoryStore;
+  memoryRepository?: MemoryIndexReader;
+  /** @deprecated Use memoryRepository. */
+  memoryStore?: MemoryIndexReader;
   indexMaxLines?: number;
   indexMaxChars?: number;
 }
 
-export function buildMemoryIndexContextSourceOptions(
-  memoryConfig: SystemMemoryConfig,
-  dataRoot: string,
-): MemoryIndexContextSourceOptions {
-  return {
-    dataRoot,
-    indexMaxLines: memoryConfig.index_max_lines,
-    indexMaxChars: memoryConfig.index_max_chars,
-  };
-}
+export { buildMemoryIndexContextSourceOptions } from "./memory-index-options.js";
 
 export class MemoryIndexContextSource implements AgentContextSource {
   readonly name = "memory";
-  private readonly memoryStore: IMemoryStore;
+  private readonly memoryStore: MemoryIndexReader;
   private readonly indexMaxLines: number;
   private readonly indexMaxChars: number;
 
@@ -62,9 +52,11 @@ export class MemoryIndexContextSource implements AgentContextSource {
     private readonly agentName: string,
     options: MemoryIndexContextSourceOptions = {},
   ) {
-    const storeOptions: MemoryStoreOptions = {};
-    if (options.dataRoot) { storeOptions.dataRoot = options.dataRoot; }
-    this.memoryStore = options.memoryStore ?? new MemoryStore(storeOptions);
+    const memoryRepository = options.memoryStore ?? options.memoryRepository;
+    if (!memoryRepository) {
+      throw new Error("MemoryIndexContextSource requires a memoryRepository");
+    }
+    this.memoryStore = memoryRepository;
     this.indexMaxLines = options.indexMaxLines ?? 200;
     this.indexMaxChars = options.indexMaxChars ?? 25600;
   }

@@ -1,3 +1,4 @@
+import type { MemoryRepository } from "../../contracts/memory-store/index.js";
 import { AgentCompressionService } from "../agent/context-compression/compression-service.js";
 import { AgentDelegationService } from "../agent/delegation/index.js";
 import { createAgentExecutionService } from "../agent/execution/index.js";
@@ -7,7 +8,9 @@ import { AgentMetricsCollector } from "../agent/metrics/metrics-collector.js";
 import type { CoreRuntimeDependencies, RuntimeContainer } from "./runtime-container-contracts.js";
 
 /** Assemble deployment-provided services into the shared agent runtime. */
-export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies): RuntimeContainer {
+export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepository>(
+  dependencies: CoreRuntimeDependencies<TMemoryRepository>,
+): RuntimeContainer<TMemoryRepository> {
   const {
     tenantId,
     dataRoot,

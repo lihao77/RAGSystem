@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { IMemoryStore, MemoryScopeSpec, SaveMemoryInput } from "../../src/contracts/memory-store/index.js";
+import type { IMemoryStore, MemoryRepository, MemoryScopeSpec, SaveMemoryInput } from "../../src/contracts/memory-store/index.js";
 import { SaveMemoryInputSchema } from "../../src/contracts/memory-store/types.js";
 import { MemoryStore } from "../../src/services/stores/memory-store.js";
 
@@ -29,7 +29,7 @@ afterEach(() => {
   fs.rmSync(dataRoot, { recursive: true, force: true });
 });
 
-const build = (): IMemoryStore => new MemoryStore({ dataRoot });
+const build = (): MemoryRepository => new MemoryStore({ dataRoot });
 
 const sessionScope = (sessionId: string): MemoryScopeSpec => ({ scope: "session", session_id: sessionId });
 
@@ -116,10 +116,51 @@ describe("IMemoryStore 契约", () => {
     expect(store.listEntries(sessionScope("s1"), { includeArchived: true })).toHaveLength(1);
   });
 
+  it("saveMemoryWithCommit 在 commit 成功后发布条目", async () => {
+    const store = build();
+    const commit = vi.fn(() => true);
+    const saved = await store.saveMemoryWithCommit(baseSave("s1", "committed"), commit);
+
+    expect(commit).toHaveBeenCalledWith(saved);
+    expect(store.readEntryFile(sessionScope("s1"), saved.file_name)?.content).toContain("body");
+    expect(store.loadIndexHead(sessionScope("s1"))).toContain("committed");
+  });
+
+  it("saveMemoryWithCommit 在 commit 失败时回滚条目和索引", async () => {
+    const store = build();
+    await expect(store.saveMemoryWithCommit(baseSave("s1", "rejected"), () => false)).rejects.toThrow(
+      "memory publish state changed before commit",
+    );
+
+    expect(store.listEntries(sessionScope("s1"))).toHaveLength(0);
+    expect(store.loadIndexHead(sessionScope("s1"))).not.toContain("rejected");
+  });
+
+  it("archiveMemoryWithCommit 成功归档，commit 失败则恢复 active", async () => {
+    const store = build();
+    const first = await store.saveMemory(baseSave("s1", "keep-active"));
+    await expect(store.archiveMemoryWithCommit(sessionScope("s1"), first.file_name, () => false)).rejects.toThrow(
+      "memory archive state changed before commit",
+    );
+    expect(store.listEntries(sessionScope("s1"))).toHaveLength(1);
+
+    const commit = vi.fn(() => true);
+    expect(await store.archiveMemoryWithCommit(sessionScope("s1"), first.file_name, commit)).toBe(true);
+    expect(commit).toHaveBeenCalledOnce();
+    expect(store.listEntries(sessionScope("s1"))).toHaveLength(0);
+    expect(store.listEntries(sessionScope("s1"), { includeArchived: true })[0]?.status).toBe("archived");
+  });
+
   it("saveMemory 非白名单 memory_type 抛错（深合约前置条件）", async () => {
     const store = build();
     await expect(store.saveMemory({ ...baseSave("s1", "m1"), memory_type: "invalid" })).rejects.toThrow();
   });
+});
+
+const buildLegacy = (): IMemoryStore => new MemoryStore({ dataRoot });
+
+it("IMemoryStore legacy contract remains assignable", () => {
+  expect(buildLegacy().getIndexPath(sessionScope("s1"))).toContain("MEMORY.md");
 });
 
 describe("输入边界 zod 契约", () => {

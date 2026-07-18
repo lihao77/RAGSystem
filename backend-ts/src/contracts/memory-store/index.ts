@@ -15,6 +15,7 @@ import type {
 } from "./types.js";
 
 export * from "./types.js";
+export { getWorkspaceMemoryKey } from "./scope.js";
 
 /**
  * memory-store 对外能力（文件系统持久化的多作用域记忆）。
@@ -25,11 +26,12 @@ export * from "./types.js";
  * - saveMemory 幂等（同名文件覆盖 + 重建 MEMORY.md 索引）；memory_type 非白名单抛错；
  * - listEntries 按 updated_at 降序，默认仅 active。
  */
-export interface IMemoryStore {
+export interface MemoryIndexReader {
   loadIndexHead(scopeSpec: MemoryScopeSpec, options?: MemoryIndexReadOptions): string;
-  // TODO 文件系统后端耦合：返回 MEMORY.md 物理路径，换 KV/DB 后端时无意义。届时应连同
-  //   MemoryExecution 的 index_file_path 工具输出一起重新设计（或抽象为通用位置标识）。
-  getIndexPath(scopeSpec: MemoryScopeSpec): string;
+}
+
+/** 部署无关的 memory 持久化能力；消费者应优先依赖此接口。 */
+export interface MemoryRepository extends MemoryIndexReader {
   readEntryFile(scopeSpec: MemoryScopeSpec, fileName: string): MemoryEntryFile | null;
   saveMemory(input: SaveMemoryInput): Promise<SavedMemoryFile>;
   listEntries(scopeSpec: MemoryScopeSpec, options?: { includeArchived?: boolean | undefined }): MemoryEntry[];
@@ -44,3 +46,11 @@ export interface IMemoryStore {
     commit: () => boolean | Promise<boolean>,
   ): Promise<boolean>;
 }
+
+/** Local 文件实现提供的可选诊断位置，不属于 memory 领域能力。 */
+export interface MemoryRepositoryLocationProvider {
+  getIndexPath(scopeSpec: MemoryScopeSpec): string;
+}
+
+/** @deprecated 新消费者使用 MemoryRepository；保留给现有 Local 调用方兼容。 */
+export interface IMemoryStore extends MemoryRepository, MemoryRepositoryLocationProvider {}

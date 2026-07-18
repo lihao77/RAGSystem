@@ -4,8 +4,7 @@
  * 字段对齐 backend AgentConfig.memory（snake_case）。
  */
 import crypto from "node:crypto";
-import type { MemoryScopeSpec } from "../../../contracts/memory-store/index.js";
-import { getWorkspaceMemoryKey } from "../../stores/memory-store.js";
+import { getWorkspaceMemoryKey, type MemoryScopeSpec } from "../../../contracts/memory-store/index.js";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import {
   asRecord,
