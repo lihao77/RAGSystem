@@ -76,10 +76,10 @@
             <span class="field-label-text">{{ field.label }}</span>
             <Input
               :type="field.type === 'password' ? 'password' : 'text'"
-              :model-value="getFieldValue(group.key, field.key) ?? ''"
+              :model-value="getFieldInputValue(field, getFieldValue(group.key, field.key))"
               :disabled="disabled"
               :placeholder="field.placeholder || ''"
-              @update:model-value="setFieldValue(group.key, field.key, $event)"
+              @update:model-value="setFieldValue(group.key, field.key, $event, field)"
             />
             <small v-if="field.help" class="field-hint">{{ field.help }}</small>
           </label>
@@ -97,6 +97,7 @@ import { Switch } from './ui/switch'
 import { Input } from './ui/input'
 import { Textarea } from './ui/textarea'
 import IconChevronDown from './icons/IconChevronDown.vue'
+import { getFieldInputValue, normalizeFieldValue } from './schemaFormValues.js'
 
 const props = defineProps({
   schema: { type: Object, required: true },      // { groups: [...] }
@@ -131,11 +132,6 @@ function getFieldValue(groupKey, fieldKey) {
 /**
  * 设置嵌套对象中的值，触发 update:modelValue。
  */
-function normalizeFieldValue(field, value) {
-  if (field?.type === 'select' && field?.nullable && value === '') return null
-  return value
-}
-
 function setFieldValue(groupKey, fieldKey, value, field = null) {
   const updated = JSON.parse(JSON.stringify(props.modelValue))
   const parts = groupKey && groupKey !== '_root' ? groupKey.split('.') : []

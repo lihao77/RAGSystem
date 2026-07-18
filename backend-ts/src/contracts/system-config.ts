@@ -12,7 +12,7 @@ export interface SystemConfigFieldOption {
 export interface SystemConfigField {
   key: string;
   label: string;
-  type: "boolean" | "number" | "password" | "select" | "text" | "textarea";
+  type: "boolean" | "number" | "password" | "select" | "string_list" | "text" | "textarea";
   default?: unknown;
   help?: string;
   nullable?: boolean;

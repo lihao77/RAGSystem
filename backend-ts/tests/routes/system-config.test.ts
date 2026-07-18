@@ -37,6 +37,14 @@ describe("system config compatibility routes", () => {
     expect(schema.json().data.groups.map((group: { key: string }) => group.key)).not.toEqual(
       expect.arrayContaining(["llm", "embedding", "waiting", "reflection"]),
     );
+    const cliGroup = schema.json().data.groups.find(
+      (group: { key: string }) => group.key === "document_extraction.cli",
+    );
+    expect(cliGroup.fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "applies_to", type: "string_list", default: [] }),
+      ]),
+    );
 
     const config = await app.inject({
       method: "GET",

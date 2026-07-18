@@ -159,7 +159,7 @@ function buildSystemConfigSchema(): SystemConfigSchema {
         fields: [
           textField("command", "Command", "命令模板，支持 {input}/{output}；MinerU 示例：mineru -p {input} -o {output}", ""),
           numberField("timeout", "Timeout", "命令超时（秒）", 120, { min: 1, step: 1 }),
-          textField("applies_to", "Applies To", "适用类型，逗号分隔；留空表示全部", ""),
+          stringListField("applies_to", "Applies To", "适用类型，逗号分隔；留空表示全部", []),
         ],
       },
       {
@@ -169,7 +169,7 @@ function buildSystemConfigSchema(): SystemConfigSchema {
         fields: [
           textField("endpoint", "Endpoint", "文档解析服务地址", ""),
           numberField("timeout", "Timeout", "请求超时（秒）", 120, { min: 1, step: 1 }),
-          textField("applies_to", "Applies To", "适用类型，逗号分隔；留空表示全部", ""),
+          stringListField("applies_to", "Applies To", "适用类型，逗号分隔；留空表示全部", []),
         ],
       },
       {
@@ -228,6 +228,10 @@ function buildSystemConfigSchema(): SystemConfigSchema {
 
 function textField(key: string, label: string, help: string, defaultValue: string) {
   return { key, label, type: "text" as const, default: defaultValue, help };
+}
+
+function stringListField(key: string, label: string, help: string, defaultValue: string[]) {
+  return { key, label, type: "string_list" as const, default: defaultValue, help };
 }
 
 function booleanField(key: string, label: string, help: string, defaultValue: boolean) {
