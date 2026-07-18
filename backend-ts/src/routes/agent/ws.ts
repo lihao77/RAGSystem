@@ -61,7 +61,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
         }
       },
     },
-    (socket: unknown, request) => {
+    async (socket: unknown, request) => {
       const ws = socket as WebSocketLike;
       const sessionId = request.params.sessionId;
       const lease = request.tenantRuntimeLease;
@@ -97,7 +97,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
           };
           request.userId = request.identity.userId;
         }
-        assertSessionOwner(request, session);
+        await assertSessionOwner(request, session);
       } catch {
         wsActivity.release();
         lease.release();

@@ -21,6 +21,10 @@ import {
 import { HttpError, formatError } from "./utils/errors.js";
 import { createControlStore, type ControlStore } from "./services/stores/control-store/index.js";
 import { SqliteControlPlaneAdapter } from "./adapters/local/sqlite-control-plane-adapter.js";
+import { SqliteBotRepository } from "./adapters/local/sqlite-bot-repository.js";
+import { SqliteWidgetCredentialAdapter } from "./adapters/local/sqlite-widget-credential-adapter.js";
+import type { BotRepository } from "./contracts/bot-repository.js";
+import type { WidgetCredentialRepository } from "./contracts/widget-credentials.js";
 import { createWidgetCredentialStore, type WidgetCredentialStore } from "./services/stores/widget-credential-store/index.js";
 import { createWidgetAuthService, type WidgetAuthService } from "./services/runtime/jwt-service.js";
 import { createSessionTokenService, type SessionTokenService } from "./services/runtime/session-token-service.js";
@@ -42,7 +46,9 @@ export interface BuildAppOptions {
   controlPlane?: ControlPlane;
   identityProvider?: IdentityProvider;
   tenantMigrator?: Pick<TenantMigrator, "migrate">;
+  botRepository?: BotRepository;
   widgetCredentialStore?: WidgetCredentialStore;
+  widgetCredentials?: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
   sessionTokens?: SessionTokenService;
   botEngine?: DaemonService;
@@ -74,6 +80,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
   const controlStore = options.controlStore ?? createControlStore(options.env.systemRoot);
   const controlPlane = options.controlPlane ?? new SqliteControlPlaneAdapter(controlStore);
+  const botRepository = options.botRepository ?? new SqliteBotRepository(controlStore);
   const tenantMigrator = options.tenantMigrator ?? createTenantMigrator(options.env);
   tenantMigrator.migrate();
   const initialProfile = resolveProfileFromSettings(await controlPlane.settings.getAll(), options.env);
@@ -103,11 +110,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const routedIdentityProvider: IdentityProvider = {
     resolve: (request, scope) => runtime.identityProvider.resolve(request, scope),
   };
-  const widgetCredentialStore = options.widgetCredentialStore ?? createWidgetCredentialStore(controlStore.db);
+  const widgetCredentialStore = options.widgetCredentialStore
+    ?? (options.widgetCredentials ? undefined : createWidgetCredentialStore(controlStore.db));
+  const widgetCredentials = options.widgetCredentials
+    ?? new SqliteWidgetCredentialAdapter(widgetCredentialStore!);
   const widgetAuth = options.widgetAuth ?? (options.env.widgetJwtSecret
-    ? createWidgetAuthService(options.env.widgetJwtSecret, widgetCredentialStore.ops)
+    ? createWidgetAuthService(options.env.widgetJwtSecret, widgetCredentials)
     : undefined);
-  const widgetIdentityProvider = widgetAuth ? new WidgetIdentityProvider(widgetAuth, widgetCredentialStore) : undefined;
+  const widgetIdentityProvider = widgetAuth ? new WidgetIdentityProvider(widgetAuth, widgetCredentials) : undefined;
   const registry = options.registry ?? new DefaultTenantRuntimeRegistry(
     options.env,
     controlPlane.tenants,
@@ -129,7 +139,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       : undefined);
   const wsTickets = options.wsTickets ?? createWsTicketService();
   const botEngine = options.botEngine ?? new DaemonService({
-    controlStore,
+    botRepository,
     registry,
     runAgentTask: async (input) => {
       const lease = await registry.acquire(input.tenantId);
@@ -212,10 +222,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       }
     },
   });
-  botEngine.start();
+  await botEngine.start();
   app.decorate("botEngine", botEngine);
-  app.decorate("controlStore", controlStore);
-  widgetCredentialStore.startPruning();
+  app.decorate("botRepository", botRepository);
+  await widgetCredentials.startPruning();
   app.decorateRequest("identity");
   app.decorateRequest("userId");
   app.decorateRequest("tenantId");
@@ -231,7 +241,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     botEngine.close();
     await registry.closeAll();
     await options.saasMemoryRuntime?.close();
-    widgetCredentialStore.close();
+    await widgetCredentials.close();
+    widgetCredentialStore?.close();
     wsTickets.close();
     await controlPlane.close();
     if (!(controlPlane instanceof SqliteControlPlaneAdapter && controlPlane.ownsStore)) {
@@ -335,7 +346,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await registerSharedBusinessRoutes(app, {
     registry,
     identityProvider: routedIdentityProvider,
-    widgetCredentialStore,
+    botRepository,
+    widgetCredentialStore: widgetCredentials,
     wsTickets,
     registerPublicAgui: !widgetIdentityProvider,
     ...(resolveMemoryApplication ? { resolveMemoryApplication } : {}),
@@ -345,13 +357,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     controlPlane,
     registry,
     identityProvider: routedIdentityProvider,
-    widgetCredentialStore,
+    botRepository,
+    widgetCredentialStore: widgetCredentials,
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await registerWidgetAndRealtimeRoutes(app, {
     registry,
     identityProvider: routedIdentityProvider,
-    widgetCredentialStore,
+    botRepository,
+    widgetCredentialStore: widgetCredentials,
     wsTickets,
     ...(widgetIdentityProvider ? { widgetIdentityProvider } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),

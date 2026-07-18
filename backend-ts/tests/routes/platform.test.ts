@@ -95,7 +95,7 @@ describe("平台控制面", () => {
     const bot = harness.controlStore.createBot({ tenantId: createTenantId("tnt_default"), ownerId: owner.id, displayName: "Reload Bot" });
     const humanId = createUserId("usr_status_human");
     harness.controlStore.createUser({ id: humanId, displayName: "Status Human" });
-    const reloadSpy = vi.spyOn(harness.app.botEngine, "reloadBot").mockImplementation(() => {});
+    const reloadSpy = vi.spyOn(harness.app.botEngine, "reloadBot").mockResolvedValue();
 
     const disabled = await harness.app.inject({
       method: "PATCH",

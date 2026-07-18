@@ -15,6 +15,7 @@ export const registerAgentRoutes: FastifyPluginAsync<AgentRouteOptions> = async 
   const routeOptions: AgentRouteOptions = {
     registry: options.registry,
     identityProvider: options.identityProvider,
+    botRepository: options.botRepository,
     wsTickets: options.wsTickets,
     ...(options.widgetCredentialStore ? { widgetCredentialStore: options.widgetCredentialStore } : {}),
     ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),

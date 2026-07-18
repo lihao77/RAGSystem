@@ -22,7 +22,7 @@ export const registerAguiRoutes: FastifyPluginAsync<RouteOptions> = async (app, 
     // 可选鉴权：配了 widgetAuth 才校验 Bearer。
     if (options.widgetAuth) {
       try {
-        options.widgetAuth.requireBearer(request);
+        await options.widgetAuth.requireBearer(request);
       } catch (error) {
         if (error instanceof WidgetAuthError) {
           throw new HttpError(401, "unauthorized", error.message);
@@ -32,7 +32,7 @@ export const registerAguiRoutes: FastifyPluginAsync<RouteOptions> = async (app, 
     }
 
     const input = parseRunAgentInput(request.body);
-    assertOwnedSessionIfExists(request, input.threadId);
+    await assertOwnedSessionIfExists(request, input.threadId);
     const gateway = new AguiGateway(request.container, request.identity.userId);
     await gateway.handle(input, reply);
     // hijack 后响应由 gateway 管理，handler 不再返回体。

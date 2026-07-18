@@ -4,6 +4,7 @@ import type { FastifyPluginAsync } from "fastify";
 
 import { ok } from "../contracts/common.js";
 import { WidgetCreateSessionRequestSchema, WidgetTokenRequestSchema } from "../contracts/widget.js";
+import type { TenantId } from "../identity/types.js";
 import { WidgetAuthError, type WidgetAuthService } from "../services/runtime/jwt-service.js";
 import { HttpError } from "../utils/errors.js";
 import { widgetUserId } from "../identity/widget-user-id.js";
@@ -45,16 +46,16 @@ export const registerWidgetRoutes: FastifyPluginAsync<AgentRouteOptions> = async
 
   app.post("/auth/token", { config: { auth: "public" } }, async (request) => {
     const body = WidgetTokenRequestSchema.parse(request.body);
-    const widgetApp = auth.verifyAppCredentials(body.app_key, body.secret);
+    const widgetApp = await auth.verifyAppCredentials(body.app_key, body.secret);
     if (!widgetApp) {
       throw new HttpError(401, "unauthorized", "app_key 或 secret 无效");
     }
-    const { token, expires_at } = auth.issueToken(widgetApp);
+    const { token, expires_at } = await auth.issueToken(widgetApp);
     return ok({ token, expires_at, token_type: "Bearer" }, "widget token 签发成功");
   });
 
   app.post("/sessions", async (request) => {
-    const { appKey, tenantId, createdVia } = resolveWidgetCredential(request, auth);
+    const { appKey, tenantId, createdVia } = await resolveWidgetCredential(request, auth);
     const body = WidgetCreateSessionRequestSchema.parse(request.body);
     const sessionId = randomUUID();
     const metadata = {
@@ -75,7 +76,7 @@ export const registerWidgetRoutes: FastifyPluginAsync<AgentRouteOptions> = async
   });
 
   app.post<{ Params: WidgetSessionParams }>("/sessions/:sessionId/ws-ticket", async (request) => {
-    const { appKey, tenantId } = resolveWidgetCredential(request, auth);
+    const { appKey, tenantId } = await resolveWidgetCredential(request, auth);
     const session = request.container.sessionApplication.getSession(request.params.sessionId);
     const widgetMeta = session?.metadata?.widget as { app_key?: unknown } | undefined;
     if (!session || session.tenant_id !== tenantId || widgetMeta?.app_key !== appKey) {
@@ -85,18 +86,18 @@ export const registerWidgetRoutes: FastifyPluginAsync<AgentRouteOptions> = async
   });
 };
 
-function resolveWidgetCredential(
+async function resolveWidgetCredential(
   request: Parameters<WidgetAuthService["requireBearer"]>[0],
   auth: WidgetAuthService,
-): { appKey: string; tenantId: ReturnType<WidgetAuthService["requireBearer"]>["tenant_id"]; createdVia: "widget" | "widget_public" } {
+): Promise<{ appKey: string; tenantId: TenantId; createdVia: "widget" | "widget_public" }> {
   try {
     if (request.headers.authorization) {
-      const claims = auth.requireBearer(request);
+      const claims = await auth.requireBearer(request);
       return { appKey: claims.sub, tenantId: claims.tenant_id, createdVia: "widget" };
     }
     const publishableKey = request.headers["x-widget-key"];
     if (typeof publishableKey !== "string" || !publishableKey) throw new WidgetAuthError("missing widget credentials");
-    const widgetApp = auth.verifyPublishableSession({ appKey: publishableKey, origin: request.headers.origin });
+    const widgetApp = await auth.verifyPublishableSession({ appKey: publishableKey, origin: request.headers.origin });
     return { appKey: widgetApp.app_key, tenantId: widgetApp.tenant_id, createdVia: "widget_public" };
   } catch (error) {
     if (error instanceof WidgetAuthError) throw new HttpError(401, "unauthorized", error.message);

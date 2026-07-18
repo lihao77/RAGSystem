@@ -6,7 +6,7 @@ import { DaemonOutgoingMessageSchema, DaemonTestMessageSchema } from "../contrac
 import { createUserId, type UserId } from "../identity/types.js";
 import { DaemonServiceError } from "../services/daemon/daemon-service.js";
 import { HttpError, httpErrorFrom } from "../utils/errors.js";
-import type { RouteOptions } from "./route-options.js";
+import type { BotRouteOptions } from "./route-options.js";
 import { requireTenantMember } from "./tenant-role.js";
 
 interface BotParams { botId: string; }
@@ -18,29 +18,29 @@ const BotCreateSchema = z.object({ display_name: z.string().trim().min(1) });
 const BotUpdateSchema = z.object({ display_name: z.string().trim().min(1) });
 const BotIdSchema = z.string().regex(/^usr_[a-z0-9]+(?:_[a-z0-9]+)*$/);
 
-export const registerBotRoutes: FastifyPluginAsync<RouteOptions> = async (app) => {
+export const registerBotRoutes: FastifyPluginAsync<BotRouteOptions> = async (app, options) => {
   app.addHook("preHandler", async (request) => {
     const pathname = request.url.split("?", 1)[0] ?? request.url;
     if (pathname.includes("/webhook/")) return;
     requireTenantMember(request);
     const botId = readBotId(request);
-    if (botId) assertOwnedTenantBot(request, botId);
+    if (botId) await assertOwnedTenantBot(request, options, botId);
   });
 
   app.get<{ Querystring: BotListQuery }>("/", async (request) => {
     if (String(request.query.tenant ?? "") === "1") {
-      return { bots: app.controlStore.listBotsByTenant(request.identity.tenantId) };
+      return { bots: await options.botRepository.listByTenant(request.identity.tenantId) };
     }
     return {
-      bots: app.controlStore.listBotsWithConfig(request.identity.userId)
+      bots: (await options.botRepository.listWithConfigByOwner(request.identity.userId))
         .filter((bot) => bot.config.tenant_id === request.identity.tenantId),
     };
   });
 
   app.post("/", async (request) => {
     const input = BotCreateSchema.parse(request.body);
-    const bot = app.controlStore.createBot({ tenantId: request.identity.tenantId, ownerId: request.identity.userId, displayName: input.display_name });
-    return { bot: { ...bot, config: app.controlStore.getBotConfig(bot.id) } };
+    const bot = await options.botRepository.create({ tenantId: request.identity.tenantId, ownerId: request.identity.userId, displayName: input.display_name });
+    return { bot: { ...bot, config: await options.botRepository.getConfig(bot.id) } };
   });
 
   app.post<{ Params: { platform: string; routeToken: string } }>("/webhook/:platform/:routeToken", {
@@ -56,34 +56,34 @@ export const registerBotRoutes: FastifyPluginAsync<RouteOptions> = async (app) =
 
   app.get<{ Params: BotParams }>("/:botId", async (request) => {
     const botId = parseBotId(request.params.botId);
-    return { bot: app.controlStore.getBot(botId), config: app.controlStore.getBotConfig(botId) };
+    return { bot: await options.botRepository.get(botId), config: await options.botRepository.getConfig(botId) };
   });
 
   app.put<{ Params: BotParams }>("/:botId", async (request) => {
     const botId = parseBotId(request.params.botId);
     const input = BotUpdateSchema.parse(request.body);
-    app.controlStore.updateUser(botId, input.display_name);
-    return { bot: app.controlStore.getBot(botId), config: app.controlStore.getBotConfig(botId) };
+    await options.botRepository.rename(botId, input.display_name);
+    return { bot: await options.botRepository.get(botId), config: await options.botRepository.getConfig(botId) };
   });
 
   app.delete<{ Params: BotParams }>("/:botId", async (request) => {
     const botId = parseBotId(request.params.botId);
-    if (!app.controlStore.deleteBot(botId)) throw new HttpError(404, "not_found", "bot 不存在");
-    app.botEngine.reloadBot(botId);
+    if (!await options.botRepository.delete(botId)) throw new HttpError(404, "not_found", "bot 不存在");
+    await app.botEngine.reloadBot(botId);
     return { status: "ok" };
   });
 
   app.get<{ Params: BotParams }>("/:botId/config", async (request) => {
-    const config = app.controlStore.getBotConfig(parseBotId(request.params.botId));
+    const config = await options.botRepository.getConfig(parseBotId(request.params.botId));
     if (!config) throw new HttpError(404, "not_found", "bot 配置不存在");
     return config;
   });
 
   app.put<{ Params: BotParams }>("/:botId/config", async (request) => {
     const botId = parseBotId(request.params.botId);
-    app.controlStore.updateBotConfig(botId, BotConfigUpdateSchema.parse(request.body));
-    app.botEngine.reloadBot(botId);
-    return app.controlStore.getBotConfig(botId);
+    await options.botRepository.updateConfig(botId, BotConfigUpdateSchema.parse(request.body));
+    await app.botEngine.reloadBot(botId);
+    return options.botRepository.getConfig(botId);
   });
 
   app.post<{ Params: BotParams }>("/:botId/test", async (request) => {
@@ -102,20 +102,20 @@ export const registerBotRoutes: FastifyPluginAsync<RouteOptions> = async (app) =
 
   app.post<{ Params: BotParams }>("/:botId/cron/tasks", async (request) => {
     try {
-      return app.botEngine.createBotCronTask(parseBotId(request.params.botId), BotCronTaskCreateSchema.parse(request.body));
+      return await app.botEngine.createBotCronTask(parseBotId(request.params.botId), BotCronTaskCreateSchema.parse(request.body));
     } catch (error) {
       throw toHttpError(error);
     }
   });
 
   app.put<{ Params: BotCronParams }>("/:botId/cron/tasks/:taskId", async (request) => {
-    const updated = app.botEngine.updateBotCronTask(parseBotId(request.params.botId), request.params.taskId, BotCronTaskUpdateSchema.parse(request.body));
+    const updated = await app.botEngine.updateBotCronTask(parseBotId(request.params.botId), request.params.taskId, BotCronTaskUpdateSchema.parse(request.body));
     if (!updated) throw new HttpError(404, "not_found", `任务不存在: ${request.params.taskId}`);
     return updated;
   });
 
   app.delete<{ Params: BotCronParams }>("/:botId/cron/tasks/:taskId", async (request) => {
-    if (!app.botEngine.deleteBotCronTask(parseBotId(request.params.botId), request.params.taskId)) {
+    if (!await app.botEngine.deleteBotCronTask(parseBotId(request.params.botId), request.params.taskId)) {
       throw new HttpError(404, "not_found", `任务不存在: ${request.params.taskId}`);
     }
     return { status: "ok" };
@@ -133,7 +133,7 @@ export const registerBotRoutes: FastifyPluginAsync<RouteOptions> = async (app) =
     const limit = Number(request.query.limit ?? 20);
     return {
       task_id: request.params.taskId,
-      history: app.botEngine.getBotCronHistory(parseBotId(request.params.botId), request.params.taskId, Number.isFinite(limit) ? limit : 20),
+      history: await app.botEngine.getBotCronHistory(parseBotId(request.params.botId), request.params.taskId, Number.isFinite(limit) ? limit : 20),
     };
   });
 };
@@ -147,14 +147,10 @@ function parseBotId(value: string): UserId {
   return createUserId(BotIdSchema.parse(value));
 }
 
-function assertOwnedTenantBot(request: FastifyRequest, botId: UserId): void {
-  appControlStore(request).assertBotOwner(botId, request.identity.userId);
-  const config = appControlStore(request).getBotRuntimeConfig(botId);
+async function assertOwnedTenantBot(request: FastifyRequest, options: BotRouteOptions, botId: UserId): Promise<void> {
+  await options.botRepository.assertOwner(botId, request.identity.userId);
+  const config = await options.botRepository.getRuntimeConfig(botId);
   if (!config || config.tenant_id !== request.identity.tenantId) throw new HttpError(404, "not_found", "bot 不存在");
-}
-
-function appControlStore(request: FastifyRequest) {
-  return request.server.controlStore;
 }
 
 function toHttpError(error: unknown): HttpError {

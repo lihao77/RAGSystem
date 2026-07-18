@@ -4,7 +4,7 @@ import type { SessionInfo } from "../contracts/session.js";
 import { LOCAL_USER_ID } from "../services/identity/local-identity-provider.js";
 import { HttpError } from "../utils/errors.js";
 
-export function assertSessionOwner(request: FastifyRequest, session: SessionInfo): void {
+export async function assertSessionOwner(request: FastifyRequest, session: SessionInfo): Promise<void> {
   const identity = request.identity;
   if (session.tenant_id !== identity.tenantId) {
     throw new HttpError(404, "not_found", "会话不存在");
@@ -12,37 +12,37 @@ export function assertSessionOwner(request: FastifyRequest, session: SessionInfo
   if (identity.userId === LOCAL_USER_ID) {
     return;
   }
-  if (session.user_id !== identity.userId && !request.server.controlStore.isBotOwnedBy(session.user_id ?? "", identity.userId)) {
+  if (session.user_id !== identity.userId && !await request.server.botRepository.isOwnedBy(session.user_id ?? "", identity.userId)) {
     throw new HttpError(403, "forbidden", "无权访问该会话");
   }
 }
 
-export function loadOwnedSession(request: FastifyRequest, sessionId: string): SessionInfo {
+export async function loadOwnedSession(request: FastifyRequest, sessionId: string): Promise<SessionInfo> {
   const session = request.container.sessionApplication.getSession(sessionId);
   if (!session) {
     throw new HttpError(404, "not_found", "会话不存在");
   }
-  assertSessionOwner(request, session);
+  await assertSessionOwner(request, session);
   return session;
 }
 
-export function assertOwnedSessionIfExists(request: FastifyRequest, sessionId: string | null | undefined): void {
+export async function assertOwnedSessionIfExists(request: FastifyRequest, sessionId: string | null | undefined): Promise<void> {
   if (!sessionId) {
     return;
   }
   const session = request.container.sessionApplication.getSession(sessionId);
   if (session) {
-    assertSessionOwner(request, session);
+    await assertSessionOwner(request, session);
   }
 }
 
-export function loadOwnedSessionForResource(
+export async function loadOwnedSessionForResource(
   request: FastifyRequest,
   sessionId: string | null | undefined,
   resourceNotFoundMessage: string,
-): SessionInfo {
+): Promise<SessionInfo> {
   if (!sessionId) {
     throw new HttpError(404, "not_found", resourceNotFoundMessage);
   }
-  return loadOwnedSession(request, sessionId);
+  return await loadOwnedSession(request, sessionId);
 }

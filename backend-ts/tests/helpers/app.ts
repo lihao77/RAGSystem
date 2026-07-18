@@ -9,6 +9,7 @@ import { HashFallbackEmbedder } from "../../src/services/integrations/embedder-r
 import { makeTempRoot } from "./temp-db.js";
 import { createControlStore } from "../../src/services/stores/control-store/index.js";
 import { SqliteControlPlaneAdapter } from "../../src/adapters/local/sqlite-control-plane-adapter.js";
+import { SqliteWidgetCredentialAdapter } from "../../src/adapters/local/sqlite-widget-credential-adapter.js";
 import { createWidgetCredentialStore } from "../../src/services/stores/widget-credential-store/index.js";
 import { createWidgetAuthService } from "../../src/services/runtime/jwt-service.js";
 import { LocalIdentityProvider } from "../../src/services/identity/index.js";
@@ -79,8 +80,9 @@ export async function buildTestHarness(
   const identityProvider = options.identityProvider
     ?? (options.autoIdentityProvider ? undefined : new LocalIdentityProvider(controlPlane));
   const widgetCredentialStore = createWidgetCredentialStore(controlStore.db);
+  const widgetCredentials = new SqliteWidgetCredentialAdapter(widgetCredentialStore);
   const widgetAuth = options.widgetJwtSecret
-    ? createWidgetAuthService(options.widgetJwtSecret, widgetCredentialStore.ops)
+    ? createWidgetAuthService(options.widgetJwtSecret, widgetCredentials)
     : undefined;
   const env = {
     ...testEnv,
@@ -108,5 +110,5 @@ export async function buildTestHarness(
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await app.ready();
-  return { app, container, registry, controlStore, controlPlane, widgetCredentialStore, widgetAuth, root: tempRoot };
+  return { app, container, registry, controlStore, controlPlane, widgetCredentialStore, widgetCredentials, widgetAuth, root: tempRoot };
 }

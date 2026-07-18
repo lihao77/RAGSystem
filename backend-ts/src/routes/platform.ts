@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 
+import type { BotRepository } from "../contracts/bot-repository.js";
 import { createTenantId, createUserId, type TenantId } from "../identity/types.js";
 import type {
   ControlPlane,
@@ -14,6 +15,7 @@ import { requirePlatformAdmin } from "./platform-guard.js";
 
 interface PlatformRouteOptions {
   controlPlane: ControlPlane;
+  botRepository: BotRepository;
   registry: TenantRuntimeRegistry;
 }
 
@@ -82,7 +84,7 @@ export const registerPlatformRoutes: FastifyPluginAsync<PlatformRouteOptions> = 
 
   app.get("/bots", async (request) => {
     const actor = await requirePlatformAdmin(request, options.controlPlane);
-    const bots = app.controlStore.listAllBots();
+    const bots = await options.botRepository.listAll();
     await options.controlPlane.audit.record({ actorUserId: actor.id, action: "list_bots", targetResource: "bots" });
     return { success: true, bots };
   });
@@ -99,7 +101,7 @@ export const registerPlatformRoutes: FastifyPluginAsync<PlatformRouteOptions> = 
     if (!user) {
       throw new HttpError(404, "not_found", "用户不存在");
     }
-    if (app.controlStore.getBot(userId)) app.botEngine.reloadBot(userId);
+    if (await options.botRepository.get(userId)) await app.botEngine.reloadBot(userId);
     return { success: true, user };
   });
 

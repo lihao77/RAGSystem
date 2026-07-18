@@ -15,7 +15,7 @@ interface SessionQuery {
 
 export const registerArtifactRoutes: FastifyPluginAsync<RouteOptions> = async (app) => {
   app.get<{ Params: ArtifactParams }>("/visualizations/:artifactId", async (request) => {
-    loadOwnedSessionForResource(
+    await loadOwnedSessionForResource(
       request,
       request.container.artifacts.getVisualizationSessionId(request.params.artifactId),
       `未找到可视化 artifact: ${request.params.artifactId}`,
@@ -32,12 +32,12 @@ export const registerArtifactRoutes: FastifyPluginAsync<RouteOptions> = async (a
     if (!sessionId) {
       throw new HttpError(400, "invalid_request", "session_id is required");
     }
-    loadOwnedSession(request, sessionId);
+    await loadOwnedSession(request, sessionId);
     return request.container.artifacts.listVisualizations(sessionId);
   });
 
   app.delete<{ Params: ArtifactParams }>("/visualizations/:artifactId", async (request) => {
-    loadOwnedSessionForResource(
+    await loadOwnedSessionForResource(
       request,
       request.container.artifacts.getVisualizationSessionId(request.params.artifactId),
       `未找到可视化 artifact: ${request.params.artifactId}`,
@@ -57,7 +57,7 @@ export const registerArtifactRoutes: FastifyPluginAsync<RouteOptions> = async (a
     if (!sessionId) {
       throw new HttpError(400, "invalid_request", "session_id is required");
     }
-    loadOwnedSession(request, sessionId);
+    await loadOwnedSession(request, sessionId);
     return {
       deleted_count: request.container.artifacts.deleteSessionVisualizations(sessionId),
       session_id: sessionId,

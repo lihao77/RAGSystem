@@ -1,9 +1,12 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { FastifyRequest } from "fastify";
 
+import type {
+  WidgetAppCredential,
+  WidgetCredentialRepository,
+} from "../../contracts/widget-credentials.js";
 import { createTenantId, type TenantId } from "../../identity/types.js";
 import { AuthError } from "../identity/auth-error.js";
-import type { WidgetCredentialOps, WidgetApp } from "../stores/widget-credential-store/widget-credential-ops.js";
 
 /** widget 短时 token 的 TTL（秒）。 */
 const TOKEN_TTL_SECONDS = 15 * 60;
@@ -36,10 +39,10 @@ export interface WidgetTokenClaims {
  */
 export interface WidgetAuthService {
   /** 校验 app_key + secret；命中未吊销且 hash 匹配返回 app，否则 null。 */
-  verifyAppCredentials(app_key: string, secret: string): WidgetApp | null;
-  issueToken(app: WidgetApp): { token: string; expires_at: number };
-  requireBearer(request: FastifyRequest): WidgetTokenClaims;
-  verifyPublishableSession(input: { appKey: string; origin: string | undefined }): WidgetApp;
+  verifyAppCredentials(app_key: string, secret: string): Promise<WidgetAppCredential | null>;
+  issueToken(app: WidgetAppCredential): Promise<{ token: string; expires_at: number }>;
+  requireBearer(request: FastifyRequest): Promise<WidgetTokenClaims>;
+  verifyPublishableSession(input: { appKey: string; origin: string | undefined }): Promise<WidgetAppCredential>;
 }
 
 /** 鉴权失败错误；路由层 catch 后转 HttpError(401)。 */
@@ -50,7 +53,7 @@ export class WidgetAuthError extends AuthError {
   }
 }
 
-export function createWidgetAuthService(secret: string, credentialOps: WidgetCredentialOps): WidgetAuthService {
+export function createWidgetAuthService(secret: string, credentials: WidgetCredentialRepository): WidgetAuthService {
   if (!secret || secret.length < 32) {
     throw new Error("WIDGET_JWT_SECRET 至少需 32 字符");
   }
@@ -64,7 +67,7 @@ export function createWidgetAuthService(secret: string, credentialOps: WidgetCre
     return `${signingInput}.${signature}`;
   };
 
-  const verify = (token: string): WidgetTokenClaims => {
+  const verify = async (token: string): Promise<WidgetTokenClaims> => {
     const parts = token.split(".");
     if (parts.length !== 3) {
       throw new WidgetAuthError("malformed token");
@@ -91,14 +94,14 @@ export function createWidgetAuthService(secret: string, credentialOps: WidgetCre
       throw new WidgetAuthError("invalid claims");
     }
     const tenantId = createTenantId(claims.tenant_id);
-    const resolvedTenantId = credentialOps.resolveTenantId(claims.sub);
+    const resolvedTenantId = await credentials.apps.resolveTenantId(claims.sub);
     if (!resolvedTenantId || resolvedTenantId !== tenantId) {
       throw new WidgetAuthError("invalid tenant");
     }
-    if (credentialOps.isTokenRevoked(tenantId, claims.jti)) {
+    if (await credentials.tokens.isRevoked(tenantId, claims.jti)) {
       throw new WidgetAuthError("token revoked");
     }
-    const app = credentialOps.getApp(tenantId, claims.sub);
+    const app = await credentials.apps.get(tenantId, claims.sub);
     if (!app || app.revoked_at) {
       throw new WidgetAuthError("app revoked");
     }
@@ -106,11 +109,11 @@ export function createWidgetAuthService(secret: string, credentialOps: WidgetCre
   };
 
   return {
-    verifyAppCredentials(app_key, secret) {
-      const tenantId = credentialOps.resolveTenantId(app_key);
-      return tenantId ? credentialOps.verifySecret(tenantId, app_key, secret) : null;
+    async verifyAppCredentials(app_key, secret) {
+      const tenantId = await credentials.apps.resolveTenantId(app_key);
+      return tenantId ? await credentials.apps.verifySecret(tenantId, app_key, secret) : null;
     },
-    issueToken(app) {
+    async issueToken(app) {
       const now = Math.floor(Date.now() / 1000);
       const claims: WidgetTokenClaims = {
         sub: app.app_key,
@@ -120,7 +123,7 @@ export function createWidgetAuthService(secret: string, credentialOps: WidgetCre
         exp: now + TOKEN_TTL_SECONDS,
         scope: "widget",
       };
-      credentialOps.recordToken({
+      await credentials.tokens.record({
         tenantId: app.tenant_id,
         jti: claims.jti,
         app_key: app.app_key,
@@ -129,17 +132,17 @@ export function createWidgetAuthService(secret: string, credentialOps: WidgetCre
       });
       return { token: sign(claims), expires_at: claims.exp };
     },
-    requireBearer(request) {
+    async requireBearer(request) {
       const header = request.headers.authorization ?? "";
       const match = /^Bearer\s+(.+)$/i.exec(header);
       if (!match || !match[1]) {
         throw new WidgetAuthError("missing bearer token");
       }
-      return verify(match[1]);
+      return await verify(match[1]);
     },
-    verifyPublishableSession(input) {
-      const tenantId = credentialOps.resolveTenantId(input.appKey);
-      const app = tenantId ? credentialOps.getApp(tenantId, input.appKey) : null;
+    async verifyPublishableSession(input) {
+      const tenantId = await credentials.apps.resolveTenantId(input.appKey);
+      const app = tenantId ? await credentials.apps.get(tenantId, input.appKey) : null;
       if (!app) throw new WidgetAuthError("publishable key 无效");
       if (app.revoked_at) throw new WidgetAuthError("app revoked");
       const origins = app.allowed_origins.split(",").map((origin) => origin.trim()).filter(Boolean);

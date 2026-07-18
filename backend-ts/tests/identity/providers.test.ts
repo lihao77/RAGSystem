@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createControlStore } from "../../src/services/stores/control-store/index.js";
 import { SqliteControlPlaneAdapter } from "../../src/adapters/local/sqlite-control-plane-adapter.js";
+import { SqliteWidgetCredentialAdapter } from "../../src/adapters/local/sqlite-widget-credential-adapter.js";
 import { createWidgetCredentialStore } from "../../src/services/stores/widget-credential-store/index.js";
 import { createWidgetAuthService } from "../../src/services/runtime/jwt-service.js";
 import {
@@ -37,10 +38,11 @@ describe("IdentityProvider", () => {
     const controlStore = createControlStore(makeTempRoot());
     await new LocalIdentityProvider(new SqliteControlPlaneAdapter(controlStore)).resolve({} as never);
     const store = createWidgetCredentialStore(controlStore.db);
-    const auth = createWidgetAuthService(secret, store.ops);
+    const credentials = new SqliteWidgetCredentialAdapter(store);
+    const auth = createWidgetAuthService(secret, credentials);
     const app = store.ops.createApp({ tenantId: LOCAL_TENANT_ID, display_name: "widget" });
-    const token = auth.issueToken(store.ops.getApp(LOCAL_TENANT_ID, app.app_key)!).token;
-    const provider = new WidgetIdentityProvider(auth, store);
+    const token = (await auth.issueToken(store.ops.getApp(LOCAL_TENANT_ID, app.app_key)!)).token;
+    const provider = new WidgetIdentityProvider(auth, credentials);
     const identity = await provider.resolve({ headers: { authorization: `Bearer ${token}` } } as never);
 
     expect(identity.tenantId).toBe(LOCAL_TENANT_ID);

@@ -42,7 +42,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
 
   app.post("/execute", async (request) => {
     const payload = ExecuteRequestSchema.parse(request.body);
-    assertOwnedSessionIfExists(request, payload.session_id);
+    await assertOwnedSessionIfExists(request, payload.session_id);
     return executeSynchronously(
       request.container,
       { ...payload, userId: request.identity.userId },
@@ -55,7 +55,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
       ...(isRecord(request.body) ? request.body : {}),
       agent: request.params.agentName,
     });
-    assertOwnedSessionIfExists(request, payload.session_id);
+    await assertOwnedSessionIfExists(request, payload.session_id);
     return executeSynchronously(
       request.container,
       { ...payload, userId: request.identity.userId },
@@ -65,7 +65,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
 
   app.post("/collaborate", async (request) => {
     const payload = parseCollaborateRequest(request.body);
-    assertOwnedSessionIfExists(request, payload.session_id);
+    await assertOwnedSessionIfExists(request, payload.session_id);
     if (payload.mode !== "sequential") {
       throw new HttpError(400, "invalid_request", "并行模式尚未实现");
     }

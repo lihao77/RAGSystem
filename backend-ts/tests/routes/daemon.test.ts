@@ -46,6 +46,7 @@ import type { IdentityProvider } from "../../src/services/identity/index.js";
 import { LOCAL_TENANT_ID, LOCAL_USER_ID } from "../../src/services/identity/index.js";
 import type { TenantRuntimeRegistry } from "../../src/services/runtime/tenant-runtime-registry.js";
 import { createControlStore, type ControlStore } from "../../src/services/stores/control-store/index.js";
+import { SqliteBotRepository } from "../../src/adapters/local/sqlite-bot-repository.js";
 import { buildTestHarness } from "../helpers/app.js";
 import { makeTempRoot } from "../helpers/temp-db.js";
 
@@ -131,7 +132,7 @@ describe("bot 自动化执行引擎", () => {
     app = harness.app;
     const bot = harness.controlStore.createBot({ tenantId: LOCAL_TENANT_ID, ownerId: LOCAL_USER_ID, displayName: "Webhook Bot" });
     configureFeishu(harness.controlStore, bot.id, "webhook");
-    app.botEngine.reloadBot(bot.id);
+    await app.botEngine.reloadBot(bot.id);
     const token = harness.controlStore.getBotRuntimeConfig(bot.id)!.feishu.route_token!;
     expect(harness.registry.resolveRouteToken(token)).toEqual({ tenantId: LOCAL_TENANT_ID, botId: bot.id });
     const response = await app.inject({ method: "POST", url: `/api/bots/webhook/feishu/${token}`, payload: { type: "url_verification", challenge: "ok" } });
@@ -148,7 +149,7 @@ describe("bot 自动化执行引擎", () => {
       harness.container.sessionApplication.createSession({ tenantId: LOCAL_TENANT_ID, sessionId: request.session_id!, userId: request.userId });
       return { success: true, answer: "reply", agent_name: "orchestrator_agent", execution_time: 0, tool_calls: [], metadata: {}, session_id: request.session_id!, run_id: "run", task_id: "task", error: null };
     });
-    app.botEngine.reloadBot(bot.id);
+    await app.botEngine.reloadBot(bot.id);
     const token = harness.controlStore.getBotRuntimeConfig(bot.id)!.feishu.route_token!;
     await app.botEngine.handleIncomingMessage(token, feishuMessage("om_runtime"));
     await vi.waitFor(() => expect(execute).toHaveBeenCalledWith(expect.objectContaining({
@@ -200,7 +201,7 @@ describe("bot 自动化执行引擎", () => {
         error: "任务已挂起",
       };
     });
-    app.botEngine.reloadBot(bot.id);
+    await app.botEngine.reloadBot(bot.id);
     const token = harness.controlStore.getBotRuntimeConfig(bot.id)!.feishu.route_token!;
 
     await app.botEngine.handleIncomingMessage(token, feishuMessage("om_suspended"));
@@ -218,7 +219,7 @@ describe("bot 自动化执行引擎", () => {
     app = harness.app;
     const bot = harness.controlStore.createBot({ tenantId: LOCAL_TENANT_ID, ownerId: LOCAL_USER_ID, displayName: "Approval Bot" });
     configureFeishu(harness.controlStore, bot.id, "webhook");
-    app.botEngine.reloadBot(bot.id);
+    await app.botEngine.reloadBot(bot.id);
     const sessionId = "feishu-card-session";
     harness.container.conversationStore.createSession(LOCAL_TENANT_ID, sessionId, bot.id, { chatId: "oc_resume" });
     const suspended = harness.container.pendingInteractions.waitForApproval({
@@ -276,42 +277,55 @@ describe("bot 自动化执行引擎", () => {
       task_id: "task",
       error: null,
     });
-    app.botEngine.reloadBot(bot.id);
+    await app.botEngine.reloadBot(bot.id);
     const token = harness.controlStore.getBotRuntimeConfig(bot.id)!.feishu.route_token!;
     await app.botEngine.handleIncomingMessage(token, feishuMessage("om_existing_policy"));
     await vi.waitFor(() => expect(execute).toHaveBeenCalled());
     await vi.waitFor(() => expect(harness.container.conversationStore.getSession(sessionId)?.permission_mode).toBe("standard"));
   });
 
-  it("reloadBot 在 bot 禁用时卸载长连接，恢复后重建", () => {
-    const harness = createEngineHarness(async () => completed("ok"));
+  it("reloadBot 在 bot 禁用时卸载长连接，恢复后重建", async () => {
+    const harness = await createEngineHarness(async () => completed("ok"));
     configureFeishu(harness.controlStore, harness.botId, "long_connection");
-    harness.engine.reloadBot(harness.botId);
+    await harness.engine.reloadBot(harness.botId);
     expect(feishuMock.longStarts).toBe(1);
     harness.controlStore.setUserStatus(harness.botId, "disabled");
-    harness.engine.reloadBot(harness.botId);
+    await harness.engine.reloadBot(harness.botId);
     expect(feishuMock.longCloses).toBe(1);
     expect(feishuMock.longStarts).toBe(1);
-    expect(() => harness.engine.listBotCronTasks(harness.botId)).toThrow("bot 已禁用");
+    await expect(harness.engine.listBotCronTasks(harness.botId)).rejects.toThrow("bot 已禁用");
     harness.controlStore.setUserStatus(harness.botId, "active");
-    harness.engine.reloadBot(harness.botId);
+    await harness.engine.reloadBot(harness.botId);
     expect(feishuMock.longStarts).toBe(2);
     harness.close();
   });
 
-  it("reloadBot 在 bot 禁用时注销 routeToken，恢复后重新注册", () => {
-    const harness = createEngineHarness(async () => completed("ok"));
+  it("reloadBot 在 bot 禁用时注销 routeToken，恢复后重新注册", async () => {
+    const harness = await createEngineHarness(async () => completed("ok"));
     configureFeishu(harness.controlStore, harness.botId, "webhook");
-    harness.engine.reloadBot(harness.botId);
+    await harness.engine.reloadBot(harness.botId);
     const routeToken = harness.controlStore.getBotRuntimeConfig(harness.botId)!.feishu.route_token!;
     expect(harness.registry.resolveRouteToken(routeToken)).toEqual({ tenantId: harness.tenantId, botId: harness.botId });
     harness.controlStore.setUserStatus(harness.botId, "disabled");
-    harness.engine.reloadBot(harness.botId);
+    await harness.engine.reloadBot(harness.botId);
     expect(harness.registry.resolveRouteToken(routeToken)).toBeNull();
     harness.controlStore.setUserStatus(harness.botId, "active");
-    harness.engine.reloadBot(harness.botId);
+    await harness.engine.reloadBot(harness.botId);
     expect(harness.registry.resolveRouteToken(routeToken)).toEqual({ tenantId: harness.tenantId, botId: harness.botId });
     harness.close();
+  });
+
+  it("并发 reloadBot 只保留一个飞书 runtime", async () => {
+    const harness = await createEngineHarness(async () => completed("ok"), false);
+    configureFeishu(harness.controlStore, harness.botId, "long_connection");
+    await Promise.all([
+      harness.engine.reloadBot(harness.botId),
+      harness.engine.reloadBot(harness.botId),
+    ]);
+    expect(feishuMock.longStarts).toBe(2);
+    expect(feishuMock.longCloses).toBe(1);
+    harness.close();
+    expect(feishuMock.longCloses).toBe(2);
   });
 
   it("长连接不随 tenant runtime idle 回收", async () => {
@@ -319,7 +333,7 @@ describe("bot 自动化执行引擎", () => {
     app = harness.app;
     const bot = harness.controlStore.createBot({ tenantId: LOCAL_TENANT_ID, ownerId: LOCAL_USER_ID, displayName: "Persistent Bot" });
     configureFeishu(harness.controlStore, bot.id, "long_connection");
-    app.botEngine.reloadBot(bot.id);
+    await app.botEngine.reloadBot(bot.id);
     expect(feishuMock.longStarts).toBe(1);
     await harness.registry.closeTenant(LOCAL_TENANT_ID);
     expect(feishuMock.longCloses).toBe(0);
@@ -327,8 +341,8 @@ describe("bot 自动化执行引擎", () => {
 
   it("bot Cron CRUD 落 control-store 并以 botId trigger", async () => {
     const runAgentTask = vi.fn(async () => completed("cron result"));
-    const harness = createEngineHarness(runAgentTask);
-    const created = harness.engine.createBotCronTask(harness.botId, {
+    const harness = await createEngineHarness(runAgentTask);
+    const created = await harness.engine.createBotCronTask(harness.botId, {
       task_id: "daily",
       cron: "0 9 * * *",
       task: "daily report",
@@ -343,13 +357,13 @@ describe("bot 自动化执行引擎", () => {
     expect(triggered.result).toBe("cron result");
     expect(runAgentTask).toHaveBeenCalledWith(expect.objectContaining({ botId: harness.botId, task: "daily report", source: "daemon.cron" }));
     expect(harness.controlStore.getBotCronTask(harness.botId, "daily")?.last_result).toBe("cron result");
-    expect(harness.engine.deleteBotCronTask(harness.botId, "daily")).toBe(true);
+    await expect(harness.engine.deleteBotCronTask(harness.botId, "daily")).resolves.toBe(true);
     expect(harness.controlStore.getBotCronTask(harness.botId, "daily")).toBeNull();
     harness.close();
   });
 
   it("daemon run 挂起时向 default_chat_id 发送审批卡片且不抛错重试", async () => {
-    const harness = createEngineHarness(async (input) => ({
+    const harness = await createEngineHarness(async (input) => ({
       suspended: true,
       content: "",
       interaction: {
@@ -365,7 +379,7 @@ describe("bot 自动化执行引擎", () => {
     }));
     configureFeishu(harness.controlStore, harness.botId, "webhook");
     harness.controlStore.updateBotConfig(harness.botId, { feishu: { default_chat_id: "oc_default" } });
-    harness.engine.reloadBot(harness.botId);
+    await harness.engine.reloadBot(harness.botId);
     harness.controlStore.createBotCronTask(harness.botId, {
       task_id: "suspended",
       cron: "* * * * *",
@@ -387,7 +401,7 @@ describe("bot 自动化执行引擎", () => {
   });
 
   it("daemon 同批多审批一次发送全部卡片", async () => {
-    const harness = createEngineHarness(async (input) => {
+    const harness = await createEngineHarness(async (input) => {
       const interactions = ["approval-1", "approval-2"].map((approvalId, index) => ({
         approvalId,
         sessionId: input.sessionId,
@@ -402,7 +416,7 @@ describe("bot 自动化执行引擎", () => {
     });
     configureFeishu(harness.controlStore, harness.botId, "webhook");
     harness.controlStore.updateBotConfig(harness.botId, { feishu: { default_chat_id: "oc_batch" } });
-    harness.engine.reloadBot(harness.botId);
+    await harness.engine.reloadBot(harness.botId);
 
     await harness.engine.testMessage(harness.botId, { platform: "feishu", chat_id: "oc_batch", content: "批量审批" });
 
@@ -426,7 +440,7 @@ describe("bot 自动化执行引擎", () => {
       activeExecutions -= 1;
       return completed(`result:${task}`);
     });
-    const harness = createEngineHarness(runAgentTask);
+    const harness = await createEngineHarness(runAgentTask);
     const now = 1_700_000_000;
     for (const [taskId, enabled, nextRun] of [
       ["due-a", true, now - 2],
@@ -467,7 +481,7 @@ describe("bot 自动化执行引擎", () => {
       return completed("ok");
     });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const harness = createEngineHarness(runAgentTask);
+    const harness = await createEngineHarness(runAgentTask);
     const now = 1_700_000_000;
     for (const taskId of ["a-fail", "b-ok"]) {
       harness.controlStore.createBotCronTask(harness.botId, {
@@ -493,16 +507,16 @@ describe("bot 自动化执行引擎", () => {
     harness.close();
   });
 
-  it("start 遍历 control-store 中已启用飞书 bot", () => {
-    const harness = createEngineHarness(async () => completed("ok"), false);
+  it("start 遍历 control-store 中已启用飞书 bot", async () => {
+    const harness = await createEngineHarness(async () => completed("ok"), false);
     configureFeishu(harness.controlStore, harness.botId, "long_connection");
-    harness.engine.start();
+    await harness.engine.start();
     expect(feishuMock.longStarts).toBe(1);
     harness.close();
   });
 });
 
-function createEngineHarness(runAgentTask: DaemonRunAgentTask, start = true) {
+async function createEngineHarness(runAgentTask: DaemonRunAgentTask, start = true) {
   const root = makeTempRoot();
   const controlStore = createControlStore(path.join(root, "system"));
   const tenantId = createTenantId("tnt_test");
@@ -517,8 +531,8 @@ function createEngineHarness(runAgentTask: DaemonRunAgentTask, start = true) {
     unregisterRouteToken: (routeToken: string) => routeIndex.delete(routeToken),
     resolveRouteToken: (routeToken: string) => routeIndex.get(routeToken) ?? null,
   } as unknown as TenantRuntimeRegistry;
-  const engine = new DaemonService({ controlStore, registry, runAgentTask });
-  if (start) engine.start();
+  const engine = new DaemonService({ botRepository: new SqliteBotRepository(controlStore), registry, runAgentTask });
+  if (start) await engine.start();
   return { tenantId, botId, controlStore, engine, registry, close: () => { engine.close(); controlStore.close(); } };
 }
 

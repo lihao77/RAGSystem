@@ -17,6 +17,8 @@ import { createRuntimeContainer } from "../src/services/runtime/runtime-containe
 import { HashFallbackEmbedder } from "../src/services/integrations/embedder-registry.js";
 import { createControlStore } from "../src/services/stores/control-store/index.js";
 import { createWidgetCredentialStore } from "../src/services/stores/widget-credential-store/index.js";
+import { SqliteControlPlaneAdapter } from "../src/adapters/local/sqlite-control-plane-adapter.js";
+import { SqliteWidgetCredentialAdapter } from "../src/adapters/local/sqlite-widget-credential-adapter.js";
 import { createWidgetAuthService } from "../src/services/runtime/jwt-service.js";
 import { LOCAL_TENANT_ID, LocalIdentityProvider } from "../src/services/identity/index.js";
 import { DefaultTenantRuntimeRegistry } from "../src/services/runtime/tenant-runtime-registry.js";
@@ -44,13 +46,24 @@ async function buildHarness(widgetJwtSecret: string) {
     embedderFactory: () => new HashFallbackEmbedder(),
   });
   const controlStore = createControlStore(env.systemRoot);
-  const identityProvider = new LocalIdentityProvider(controlStore);
+  const controlPlane = new SqliteControlPlaneAdapter(controlStore);
+  const identityProvider = new LocalIdentityProvider(controlPlane);
   const widgetCredentialStore = createWidgetCredentialStore(controlStore.db);
-  const widgetAuth = createWidgetAuthService(widgetJwtSecret, widgetCredentialStore.ops);
-  const registry = new DefaultTenantRuntimeRegistry(env, controlStore, undefined, { runtimeFactory: () => container });
-  const app = await buildApp({ env, registry, controlStore, identityProvider, widgetCredentialStore, widgetAuth });
+  const widgetCredentials = new SqliteWidgetCredentialAdapter(widgetCredentialStore);
+  const widgetAuth = createWidgetAuthService(widgetJwtSecret, widgetCredentials);
+  const registry = new DefaultTenantRuntimeRegistry(env, controlPlane.tenants, undefined, { runtimeFactory: () => container });
+  const app = await buildApp({
+    env,
+    registry,
+    controlStore,
+    controlPlane,
+    identityProvider,
+    widgetCredentialStore,
+    widgetCredentials,
+    widgetAuth,
+  });
   await app.ready();
-  return { app, container, widgetCredentialStore, widgetAuth };
+  return { app, container, widgetCredentials, widgetAuth };
 }
 
 const SECRET = "demo-widget-secret-0123456789abcdef0123456789abcdef";
@@ -64,13 +77,13 @@ const info = (s: string) => console.log(`  · ${s}`);
 async function main() {
   const harness = await buildHarness(SECRET);
   const { app, container } = harness;
-  const ops = harness.widgetCredentialStore.ops;
+  const apps = harness.widgetCredentials.apps;
   const meta = (id: string) =>
     (container.sessionApplication.getSession(id)?.metadata as { widget?: { created_via?: string } } | undefined)?.widget;
 
   try {
     H("准备：建 widget app（控制台 POST /api/widget/apps 的等价操作）");
-    const demo = ops.createApp({ tenantId: LOCAL_TENANT_ID, display_name: "demo 站点", allowed_origins: [ORIGIN] });
+    const demo = await apps.create({ tenantId: LOCAL_TENANT_ID, display_name: "demo 站点", allowed_origins: [ORIGIN] });
     info(`publishable key (app_key): ${demo.app_key}`);
     info(`secret (仅此一次):          ${demo.secret}`);
     info(`allowed_origins:            [${ORIGIN}]`);
@@ -99,7 +112,7 @@ async function main() {
     });
     if (r.statusCode === 401) bad(`无 Origin → 401  ${r.json().message}`);
 
-    const empty = ops.createApp({ tenantId: LOCAL_TENANT_ID, display_name: "空白名单" });
+    const empty = await apps.create({ tenantId: LOCAL_TENANT_ID, display_name: "空白名单" });
     r = await app.inject({
       method: "POST", url: "/api/widget/sessions",
       headers: { "x-widget-key": empty.app_key, origin: ORIGIN }, payload: {},
@@ -132,8 +145,8 @@ async function main() {
 
     // ========== 吊销联动 ==========
     H("吊销联动：revokeApp 后两条路径都断");
-    ops.revokeApp(LOCAL_TENANT_ID, demo.app_key);
-    info(`ops.revokeApp(${demo.app_key}) 已执行（事务：app.revoked_at + 该 app token 全 revoked）`);
+    await apps.revoke(LOCAL_TENANT_ID, demo.app_key);
+    info(`apps.revoke(${demo.app_key}) 已执行（事务：app.revoked_at + 该 app token 全 revoked）`);
 
     r = await app.inject({
       method: "POST", url: "/api/widget/sessions",
@@ -149,7 +162,7 @@ async function main() {
 
     // ========== WS 双路径 ==========
     H("WS 鉴权双路径（按 created_via 分流）");
-    const wsApp = ops.createApp({ tenantId: LOCAL_TENANT_ID, display_name: "ws-demo", allowed_origins: [ORIGIN] });
+    const wsApp = await apps.create({ tenantId: LOCAL_TENANT_ID, display_name: "ws-demo", allowed_origins: [ORIGIN] });
 
     r = await app.inject({
       method: "POST", url: "/api/widget/sessions",

@@ -1,12 +1,12 @@
 import { isRecord } from "../../utils/guards.js";
 import { randomUUID } from "node:crypto";
 
+import type { BotRepository } from "../../contracts/bot-repository.js";
 import type { BotConfig, BotCronTask, BotCronTaskCreate, BotCronTaskUpdate, PlatformType } from "../../contracts/bot.js";
 import type { DaemonOutgoingMessage, DaemonTestMessage } from "../../contracts/daemon.js";
 import type { TenantId, UserId } from "../../identity/types.js";
 import type { PermissionMode } from "../../contracts/permissions.js";
 import type { TenantRuntimeRegistry } from "../runtime/tenant-runtime-registry.js";
-import type { ControlStore } from "../stores/control-store/index.js";
 import type { ApprovalMeta } from "../runtime/pending-interaction-service.js";
 import {
   buildApprovalCard,
@@ -81,39 +81,61 @@ interface BotRuntimeState {
 }
 
 export interface DaemonServiceOptions {
-  controlStore: ControlStore;
+  botRepository: BotRepository;
   registry: TenantRuntimeRegistry;
   runAgentTask: DaemonRunAgentTask;
 }
 
 export class DaemonService {
   private readonly states = new Map<UserId, BotRuntimeState>();
-  private started = false;
+  private readonly stateInitializations = new Map<UserId, Promise<BotRuntimeState>>();
+  private readonly reloads = new Map<UserId, Promise<void>>();
+  private startPromise: Promise<void> | null = null;
   private schedulerTimer: NodeJS.Timeout | null = null;
   private schedulerRunning = false;
 
   constructor(private readonly options: DaemonServiceOptions) {}
 
-  start(): void {
-    if (this.started) return;
-    this.started = true;
-    for (const config of this.options.controlStore.getAllEnabledFeishuBots()) this.rebuildBot(config);
-    this.startScheduler();
+  async start(): Promise<void> {
+    this.startPromise ??= this.initialize();
+    await this.startPromise;
   }
 
-  reloadBot(botId: UserId): void {
+  private async initialize(): Promise<void> {
+    try {
+      for (const config of await this.options.botRepository.listAllEnabledFeishu()) await this.rebuildBot(config);
+      this.startScheduler();
+    } catch (error) {
+      this.close();
+      throw error;
+    }
+  }
+
+  async reloadBot(botId: UserId): Promise<void> {
+    const previous = this.reloads.get(botId) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(() => this.reloadBotNow(botId));
+    this.reloads.set(botId, current);
+    try {
+      await current;
+    } finally {
+      if (this.reloads.get(botId) === current) this.reloads.delete(botId);
+    }
+  }
+
+  private async reloadBotNow(botId: UserId): Promise<void> {
+    await this.stateInitializations.get(botId)?.catch(() => undefined);
     const existing = this.states.get(botId);
     if (existing) this.disposeState(existing);
     this.states.delete(botId);
-    const bot = this.options.controlStore.getBot(botId);
+    const bot = await this.options.botRepository.get(botId);
     if (!bot || bot.status !== "active") return;
-    const config = this.options.controlStore.getBotRuntimeConfig(botId);
+    const config = await this.options.botRepository.getRuntimeConfig(botId);
     if (!config) return;
-    this.rebuildBot(config, existing?.cronHistory);
+    await this.rebuildBot(config, existing?.cronHistory);
   }
 
   async testMessage(botId: UserId, input: DaemonTestMessage): Promise<{ status: "ok"; message: string; session_id: string; result: string }> {
-    const state = this.ensureState(botId);
+    const state = await this.ensureState(botId);
     const sessionId = resolveSessionId(state.config, input.platform, input.chat_id);
     const sessionMetadata = { chatId: input.chat_id };
     const result = await this.runAgent(state, input.content, sessionId, `daemon.${input.platform}.test`, state.config.entry_agent, sessionMetadata);
@@ -124,7 +146,7 @@ export class DaemonService {
   }
 
   async sendMessage(botId: UserId, input: DaemonOutgoingMessage): Promise<{ status: "ok" | "failed"; message_id?: string; error?: string }> {
-    const state = this.ensureState(botId);
+    const state = await this.ensureState(botId);
     return this.sendFeishuMessage(state, input.chat_id, "chat_id", input.content);
   }
 
@@ -141,39 +163,39 @@ export class DaemonService {
     return (await invokeWebhook(state.feishuRuntime.dispatcher, body)) ?? { code: 0 };
   }
 
-  listBotCronTasks(botId: UserId): BotCronTask[] {
-    this.requireBotConfig(botId);
-    return this.options.controlStore.listBotCronTasks(botId);
+  async listBotCronTasks(botId: UserId): Promise<BotCronTask[]> {
+    await this.requireBotConfig(botId);
+    return this.options.botRepository.listCronTasks(botId);
   }
 
-  createBotCronTask(botId: UserId, task: BotCronTaskCreate): BotCronTask {
-    this.requireBotConfig(botId);
-    if (this.options.controlStore.getBotCronTask(botId, task.task_id)) throw new DaemonServiceError(400, `任务已存在: ${task.task_id}`);
-    const created = this.options.controlStore.createBotCronTask(botId, { ...task, next_run: task.enabled ? computeNextRun(task.cron) : null });
-    this.ensureState(botId).cronHistory.set(task.task_id, []);
+  async createBotCronTask(botId: UserId, task: BotCronTaskCreate): Promise<BotCronTask> {
+    await this.requireBotConfig(botId);
+    if (await this.options.botRepository.getCronTask(botId, task.task_id)) throw new DaemonServiceError(400, `任务已存在: ${task.task_id}`);
+    const created = await this.options.botRepository.createCronTask(botId, { ...task, next_run: task.enabled ? computeNextRun(task.cron) : null });
+    (await this.ensureState(botId)).cronHistory.set(task.task_id, []);
     return created;
   }
 
-  updateBotCronTask(botId: UserId, taskId: string, patch: BotCronTaskUpdate): BotCronTask | null {
-    const current = this.options.controlStore.getBotCronTask(botId, taskId);
+  async updateBotCronTask(botId: UserId, taskId: string, patch: BotCronTaskUpdate): Promise<BotCronTask | null> {
+    const current = await this.options.botRepository.getCronTask(botId, taskId);
     if (!current) return null;
     const cron = patch.cron ?? current.cron;
     const enabled = patch.enabled ?? current.enabled;
-    return this.options.controlStore.updateBotCronTask(botId, taskId, {
+    return this.options.botRepository.updateCronTask(botId, taskId, {
       ...compactCronPatch(patch),
       next_run: enabled ? computeNextRun(cron) : null,
     });
   }
 
-  deleteBotCronTask(botId: UserId, taskId: string): boolean {
-    const deleted = this.options.controlStore.deleteBotCronTask(botId, taskId);
+  async deleteBotCronTask(botId: UserId, taskId: string): Promise<boolean> {
+    const deleted = await this.options.botRepository.deleteCronTask(botId, taskId);
     if (deleted) this.states.get(botId)?.cronHistory.delete(taskId);
     return deleted;
   }
 
   async triggerBotCronTask(botId: UserId, taskId: string): Promise<{ status: "ok"; result: string | null }> {
-    const state = this.ensureState(botId);
-    const task = this.options.controlStore.getBotCronTask(botId, taskId);
+    const state = await this.ensureState(botId);
+    const task = await this.options.botRepository.getCronTask(botId, taskId);
     if (!task || !task.enabled) throw new DaemonServiceError(404, `任务不存在或未启用: ${taskId}`);
     const startedAt = Date.now();
     try {
@@ -184,7 +206,7 @@ export class DaemonService {
       if (result.suspended) {
         if (!result.interactionsDelivered) await this.sendSuspendedCards(state, suspendedInteractions(result), sessionMetadata, task);
       }
-      this.options.controlStore.updateBotCronTask(botId, taskId, {
+      await this.options.botRepository.updateCronTask(botId, taskId, {
         last_run: now,
         next_run: computeNextRun(task.cron),
         last_result: result.suspended ? "SUSPENDED" : result.content.slice(0, 200),
@@ -198,7 +220,7 @@ export class DaemonService {
     } catch (error) {
       const now = Date.now() / 1000;
       const message = error instanceof Error ? error.message : String(error);
-      this.options.controlStore.updateBotCronTask(botId, taskId, {
+      await this.options.botRepository.updateCronTask(botId, taskId, {
         last_run: now,
         next_run: computeNextRun(task.cron),
         last_result: `ERROR: ${message}`,
@@ -208,8 +230,8 @@ export class DaemonService {
     }
   }
 
-  getBotCronHistory(botId: UserId, taskId: string, limit: number): Array<Record<string, unknown>> {
-    return (this.ensureState(botId).cronHistory.get(taskId) ?? []).slice(0, Math.max(0, Math.floor(limit)));
+  async getBotCronHistory(botId: UserId, taskId: string, limit: number): Promise<Array<Record<string, unknown>>> {
+    return ((await this.ensureState(botId)).cronHistory.get(taskId) ?? []).slice(0, Math.max(0, Math.floor(limit)));
   }
 
   close(): void {
@@ -218,11 +240,13 @@ export class DaemonService {
     this.schedulerRunning = false;
     for (const state of this.states.values()) this.disposeState(state);
     this.states.clear();
-    this.started = false;
+    this.stateInitializations.clear();
+    this.reloads.clear();
+    this.startPromise = null;
   }
 
   private async runDueTasks(now: number): Promise<void> {
-    const tasks = this.options.controlStore.listDueCronTasks(now);
+    const tasks = await this.options.botRepository.listDueCronTasks(now);
     for (const { botId, taskId } of tasks) {
       try {
         await this.triggerBotCronTask(botId, taskId);
@@ -244,28 +268,35 @@ export class DaemonService {
     this.schedulerTimer.unref();
   }
 
-  private ensureState(botId: UserId): BotRuntimeState {
+  private async ensureState(botId: UserId): Promise<BotRuntimeState> {
     const existing = this.states.get(botId);
     if (existing) return existing;
-    const config = this.requireBotConfig(botId);
-    return this.rebuildBot(config);
+    const pending = this.stateInitializations.get(botId);
+    if (pending) return pending;
+    const initialization = this.requireBotConfig(botId).then((config) => this.rebuildBot(config));
+    this.stateInitializations.set(botId, initialization);
+    try {
+      return await initialization;
+    } finally {
+      if (this.stateInitializations.get(botId) === initialization) this.stateInitializations.delete(botId);
+    }
   }
 
-  private requireBotConfig(botId: UserId): BotConfig {
-    const bot = this.options.controlStore.getBot(botId);
+  private async requireBotConfig(botId: UserId): Promise<BotConfig> {
+    const bot = await this.options.botRepository.get(botId);
     if (!bot) throw new DaemonServiceError(404, "bot 不存在");
     if (bot.status !== "active") throw new DaemonServiceError(409, "bot 已禁用");
-    const config = this.options.controlStore.getBotRuntimeConfig(botId);
+    const config = await this.options.botRepository.getRuntimeConfig(botId);
     if (!config) throw new DaemonServiceError(404, "bot 配置不存在");
     return config;
   }
 
-  private rebuildBot(config: BotConfig, priorHistory?: Map<string, Array<Record<string, unknown>>>): BotRuntimeState {
-    const bot = this.options.controlStore.getBot(config.bot_id);
+  private async rebuildBot(config: BotConfig, priorHistory?: Map<string, Array<Record<string, unknown>>>): Promise<BotRuntimeState> {
+    const bot = await this.options.botRepository.get(config.bot_id);
     let resolvedConfig = config;
     if (config.enabled && config.feishu.enabled && config.feishu.receive_mode === "webhook" && !config.feishu.route_token) {
-      this.options.controlStore.updateBotConfig(config.bot_id, { feishu: { route_token: randomUUID().replaceAll("-", "") } });
-      resolvedConfig = this.requireBotConfig(config.bot_id);
+      await this.options.botRepository.updateConfig(config.bot_id, { feishu: { route_token: randomUUID().replaceAll("-", "") } });
+      resolvedConfig = await this.requireBotConfig(config.bot_id);
     }
     const state: BotRuntimeState = {
       botId: resolvedConfig.bot_id,
@@ -660,5 +691,3 @@ function addRange(values: Set<number>, start: number, end: number, step: number)
 function safeSessionPart(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 80) || "default";
 }
-
-

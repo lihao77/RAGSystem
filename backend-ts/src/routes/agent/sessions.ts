@@ -58,9 +58,10 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
     const query = request.query as { limit?: string; offset?: string };
     const limit = clampInt(query.limit, 20, 1, 200);
     const offset = clampInt(query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
-    const botIds = app.controlStore.listBotsByOwner(request.identity.userId)
-      .filter((bot) => app.controlStore.getMembership(bot.id, request.identity.tenantId))
-      .map((bot) => bot.id);
+    const botIds = await options.botRepository.listOwnedBotIdsForTenant(
+      request.identity.userId,
+      request.identity.tenantId,
+    );
     const sessions = request.container.sessionApplication.listSessions({
       tenantId: request.identity.tenantId,
       limit,
@@ -71,12 +72,12 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId", async (request) => {
-    const session = loadOwnedSession(request, request.params.sessionId);
+    const session = await loadOwnedSession(request, request.params.sessionId);
     return validateResponse(SessionDetailResponseSchema, ok(session, "获取会话成功"));
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/ws-ticket", async (request) => {
-    loadOwnedSession(request, request.params.sessionId);
+    await loadOwnedSession(request, request.params.sessionId);
     return validateResponse(
       SessionWsTicketResponseSchema,
       ok(options.wsTickets.issue(request.identity, request.params.sessionId), "WebSocket ticket 已签发"),
@@ -84,7 +85,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/permissions", async (request) => {
-    const session = loadOwnedSession(request, request.params.sessionId);
+    const session = await loadOwnedSession(request, request.params.sessionId);
     return validateResponse(
       SessionPermissionResponseSchema,
       ok({ mode: session.permission_mode ?? "standard" }, "获取会话权限成功"),
@@ -92,7 +93,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.patch<{ Params: SessionParams }>("/sessions/:sessionId/permissions", async (request) => {
-    loadOwnedSession(request, request.params.sessionId);
+    await loadOwnedSession(request, request.params.sessionId);
     const payload = UpdateSessionPermissionModeRequestSchema.parse(request.body);
     const updated = request.container.conversationStore.updateSessionPermissionMode(request.params.sessionId, payload.mode);
     if (!updated) throw new HttpError(404, "not_found", "会话不存在");
@@ -103,7 +104,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.delete<{ Params: SessionParams }>("/sessions/:sessionId", async (request) => {
-    loadOwnedSession(request, request.params.sessionId);
+    await loadOwnedSession(request, request.params.sessionId);
     const deleted = request.container.sessionApplication.deleteSession(request.params.sessionId);
     if (!deleted) {
       throw new HttpError(404, "not_found", "会话不存在");
@@ -112,7 +113,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/messages", async (request) => {
-    loadOwnedSession(request, request.params.sessionId);
+    await loadOwnedSession(request, request.params.sessionId);
     const query = request.query as { limit?: string; offset?: string };
     const limit = clampInt(query.limit, 20, 1, 1000);
     const offset = clampInt(query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
@@ -125,7 +126,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/export", async (request, reply) => {
-    loadOwnedSession(request, request.params.sessionId);
+    await loadOwnedSession(request, request.params.sessionId);
     try {
       const data = request.container.sessionApplication.exportSession(request.params.sessionId);
       const safeSessionId = sanitizeExportSessionId(request.params.sessionId);
@@ -141,7 +142,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   app.get<{ Params: MessageParams }>(
     "/sessions/:sessionId/messages/:messageId/run-steps",
     async (request) => {
-      loadOwnedSession(request, request.params.sessionId);
+      await loadOwnedSession(request, request.params.sessionId);
       try {
         const query = request.query as { limit?: string; offset?: string };
         const data = request.container.sessionApplication.listMessageRunSteps({
@@ -162,7 +163,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   );
 
   app.patch<{ Params: MessageParams }>("/sessions/:sessionId/messages/:messageId", async (request) => {
-    loadOwnedSession(request, request.params.sessionId);
+    await loadOwnedSession(request, request.params.sessionId);
     const payload = UpdateMessageRequestSchema.parse(request.body);
     const updated = request.container.sessionApplication.updateUserMessage({
       sessionId: request.params.sessionId,
@@ -176,7 +177,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/rollback", async (request) => {
-    loadOwnedSession(request, request.params.sessionId);
+    await loadOwnedSession(request, request.params.sessionId);
     const payload = RollbackRequestSchema.parse(request.body);
     if (payload.after_seq == null && !payload.after_message_id) {
       throw new HttpError(400, "invalid_request", "请提供 after_seq 或 after_message_id");
@@ -195,7 +196,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/rollback-and-retry", async (request) => {
-    loadOwnedSession(request, request.params.sessionId);
+    await loadOwnedSession(request, request.params.sessionId);
     const payload = parseRollbackAndRetryRequest(request.body);
     if (payload.after_seq == null && !payload.after_message_id) {
       throw new HttpError(400, "invalid_request", "请提供 after_seq 或 after_message_id");

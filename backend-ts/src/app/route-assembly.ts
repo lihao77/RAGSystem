@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 
 import type { AppEnv } from "../config/env.js";
 import type { ControlPlane } from "../contracts/control-plane/index.js";
+import type { BotRepository } from "../contracts/bot-repository.js";
+import type { WidgetCredentialRepository } from "../contracts/widget-credentials.js";
 import type { DeploymentProfile } from "../identity/types.js";
 import { registerAdminRoutes } from "../routes/admin.js";
 import { registerAgentConfigRoutes } from "../routes/agent-config.js";
@@ -29,7 +31,6 @@ import type { WidgetAuthService } from "../services/runtime/jwt-service.js";
 import type { SessionTokenService } from "../services/runtime/session-token-service.js";
 import type { TenantRuntimeRegistry } from "../services/runtime/tenant-runtime-registry.js";
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
-import type { WidgetCredentialStore } from "../services/stores/widget-credential-store/index.js";
 import { HttpError } from "../utils/errors.js";
 
 export interface AuthRuntime {
@@ -74,7 +75,8 @@ export async function registerPublicAndAuthRoutes(
 export interface SharedBusinessRouteAssemblyOptions {
   registry: TenantRuntimeRegistry;
   identityProvider: IdentityProvider;
-  widgetCredentialStore: WidgetCredentialStore;
+  botRepository: BotRepository;
+  widgetCredentialStore: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
   wsTickets: WsTicketService;
   registerPublicAgui: boolean;
@@ -87,7 +89,11 @@ export async function registerSharedBusinessRoutes(
 ): Promise<void> {
   await app.register(async (scope) => {
     installIdentityScope(scope, { identityProvider: options.identityProvider, registry: options.registry });
-    const routeOptions = { registry: options.registry, identityProvider: options.identityProvider };
+    const routeOptions = {
+      registry: options.registry,
+      identityProvider: options.identityProvider,
+      botRepository: options.botRepository,
+    };
     await scope.register(registerHealthRoutes, { prefix: "/api", ...routeOptions });
     await scope.register(registerArtifactRoutes, { prefix: "/api/artifacts", ...routeOptions });
     await scope.register(registerAgentConfigRoutes, { prefix: "/api/agent-config", ...routeOptions });
@@ -125,7 +131,8 @@ interface ManagementRouteAssemblyOptions {
   controlPlane: ControlPlane;
   registry: TenantRuntimeRegistry;
   identityProvider: IdentityProvider;
-  widgetCredentialStore: WidgetCredentialStore;
+  botRepository: BotRepository;
+  widgetCredentialStore: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
 }
 
@@ -140,6 +147,7 @@ export async function registerManagementAndPlatformRoutes(
       prefix: "/api/bots",
       registry: options.registry,
       identityProvider: options.identityProvider,
+      botRepository: options.botRepository,
     });
     await scope.register(registerWidgetAppsRoutes, {
       prefix: "/api/widget/apps",
@@ -154,6 +162,7 @@ export async function registerManagementAndPlatformRoutes(
     await scope.register(registerPlatformRoutes, {
       prefix: "/api/platform",
       controlPlane: options.controlPlane,
+      botRepository: options.botRepository,
       registry: options.registry,
     });
   });
@@ -163,7 +172,8 @@ interface WidgetRouteAssemblyOptions {
   registry: TenantRuntimeRegistry;
   identityProvider: IdentityProvider;
   widgetIdentityProvider?: IdentityProvider;
-  widgetCredentialStore: WidgetCredentialStore;
+  botRepository: BotRepository;
+  widgetCredentialStore: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
   wsTickets: WsTicketService;
 }
@@ -190,6 +200,7 @@ export async function registerWidgetAndRealtimeRoutes(
         prefix: "/api/widget",
         registry: options.registry,
         identityProvider: options.identityProvider,
+        botRepository: options.botRepository,
         widgetCredentialStore: options.widgetCredentialStore,
         wsTickets: options.wsTickets,
         widgetAuth: options.widgetAuth!,
@@ -200,6 +211,7 @@ export async function registerWidgetAndRealtimeRoutes(
       prefix: "/api/widget",
       registry: options.registry,
       identityProvider: options.identityProvider,
+      botRepository: options.botRepository,
       widgetCredentialStore: options.widgetCredentialStore,
       wsTickets: options.wsTickets,
     });
@@ -209,6 +221,7 @@ export async function registerWidgetAndRealtimeRoutes(
     prefix: "/api/agent",
     registry: options.registry,
     identityProvider: options.identityProvider,
+    botRepository: options.botRepository,
     widgetCredentialStore: options.widgetCredentialStore,
     wsTickets: options.wsTickets,
     ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),

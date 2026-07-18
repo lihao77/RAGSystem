@@ -215,7 +215,9 @@ backend-ts/src/
 - SQLite/PostgreSQL 运行同一套参数化 contract tests，并通过 PostgreSQL 重开持久化与双实例可见性 E2E；
 - `CONTROL_STORAGE_MODE` / `CONTROL_DATABASE_URL` 与 Memory 配置解耦；当前 composition 继续 fail-fast，不允许 core PG 与 legacy Bot/Widget SQLite 混用。
 
-当前生产数据源仍未切换：Control Plane、Bot 和 Widget 凭证继续位于同一个 `control.db`。PostgreSQL core adapter 已可独立验证，但 Bot 用户、membership、bot config 和 widget app 之间仍存在 SQLite 外键与同步调用关系，因此不能只把 human user/tenant 切到 PostgreSQL。
+当前生产数据源仍未切换：Control Plane、Bot 和 Widget 凭证继续位于同一个 `control.db`。PostgreSQL core adapter 已可独立验证；Bot/Widget 消费者也已抽为异步 ports 并由 SQLite adapters 保持兼容，但 PostgreSQL Bot/Widget adapters、secret envelope 和数据导入尚未实现，因此 composition 仍不能切换。
+
+直接消费者清单、Bot/Widget ports 之后仍存在的多实例分歧、secret envelope 约束和 PostgreSQL v2 migration 边界见 [Control Plane v2 审计与边界](./control-plane-v2-audit)。
 
 工作项：
 
@@ -223,8 +225,9 @@ backend-ts/src/
 2. ~~保留 SQLite Control adapter；增加 PostgreSQL Control core adapter 和事务 migration。~~
 3. 将 tenant provisioning 设计为幂等状态机：creating -> active -> suspended -> deleting。
 4. password/OIDC identity 统一映射到 tenant membership；所有控制面操作写审计记录。
-5. ~~在 PostgreSQL core 中实现 session revocation 和系统设置。~~ 抽取 Bot/Widget ports，迁移 bot config 与 widget credential，第三方密钥只存引用或密文。
-6. `/readyz` 检查 control DB schema、连接和 migration 状态。
+5. ~~在 PostgreSQL core 中实现 session revocation 和系统设置；抽取 Bot/Widget 异步 ports 并保留 SQLite adapters。~~ 迁移 bot config 与 widget credential，第三方密钥只存引用或 authenticated envelope 密文。
+6. 增加 Daemon cron claim/lease 或单 leader 门禁、共享 Widget JWT key ring 和 route-token 跨实例解析；否则 Bot/Widget 数据迁入 PG 后仍不能开放多实例写入。
+7. `/readyz` 检查 control DB schema、连接、数据导入 checkpoint 和 secret resolver 状态。
 
 验收：两个后端实例能看到一致的租户、用户和撤销状态；不存在通过扫描本地 tenant 目录发现租户的 SaaS 路径。
 
@@ -425,7 +428,7 @@ inventory -> preflight -> snapshot -> bulk copy -> checksum
 1. Memory 并发/故障 E2E 与 SQLite candidate importer。
 2. ~~Control/Identity ports 和 SQLite adapter 回归，不切换生产路径。~~
 3. ~~PostgreSQL Control core adapter、tenant provisioning、并发约束和审计。~~
-4. 抽取 Bot/Widget 异步 ports，设计第三方密钥 envelope，并将完整 Control 关系域迁入 PostgreSQL。
+4. ~~抽取 Bot/Widget 异步 ports，并设计第三方密钥 envelope 边界。~~ 实现 secret resolver、PostgreSQL Bot/Widget adapters、v2 migration 与 SQLite importer。
 5. Conversation contracts 拆分与 Local adapter contract tests。
 6. PostgreSQL session/message/run/outbox 首个纵向切片。
 
