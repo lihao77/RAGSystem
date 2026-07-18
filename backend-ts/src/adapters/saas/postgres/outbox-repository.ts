@@ -1,19 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type {
   AppendOutboxInput,
+  AsyncOutboxStore,
   ClaimOutboxInput,
   OutboxRow,
 } from "../../../contracts/conversation-store/index.js";
 import { AppendOutboxInputSchema } from "../../../contracts/conversation-store/types.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
-
-export interface AsyncOutboxStore {
-  appendOutbox(input: AppendOutboxInput): Promise<OutboxRow>;
-  claimPendingOutbox(input?: ClaimOutboxInput): Promise<OutboxRow[]>;
-  markOutboxDelivered(id: number): Promise<boolean>;
-  markOutboxRetrying(id: number, error: string, availableAt: string): Promise<boolean>;
-  markOutboxFailed(id: number, error: string): Promise<boolean>;
-}
 
 const iso = (v: unknown): string => new Date(String(v)).toISOString();
 const row = (r: Record<string, unknown>): OutboxRow => ({

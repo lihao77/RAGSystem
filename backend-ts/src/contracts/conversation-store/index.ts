@@ -199,6 +199,15 @@ export interface IOutboxStore {
   getOutboxStats(): EventOutboxStats;
 }
 
+/** Promise-based outbox port used by multi-instance SaaS runtimes. */
+export interface AsyncOutboxStore {
+  appendOutbox(input: AppendOutboxInput): Promise<OutboxRow>;
+  claimPendingOutbox(input?: ClaimOutboxInput): Promise<OutboxRow[]>;
+  markOutboxDelivered(id: number): Promise<boolean>;
+  markOutboxRetrying(id: number, error: string, availableAt: string): Promise<boolean>;
+  markOutboxFailed(id: number, error: string): Promise<boolean>;
+}
+
 /** resources + step_resources 聚合根 + 执行投影。 */
 export interface IResourceStore {
   getPersistedExecutionOverview(activeOnly: boolean, limit?: number): ExecutionOverview;
