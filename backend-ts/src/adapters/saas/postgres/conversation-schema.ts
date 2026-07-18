@@ -33,4 +33,33 @@ export const POSTGRES_CONVERSATION_MIGRATIONS: PostgresConversationMigration[] =
     CREATE INDEX IF NOT EXISTS conversation_messages_session_thread_seq_idx
       ON conversation_messages(session_id, thread_key, seq);
   `,
+}, {
+  version: 2,
+  name: "provider_continuations",
+  sql: `
+    ALTER TABLE conversation_sessions
+      ADD CONSTRAINT conversation_sessions_tenant_session_unique
+      UNIQUE (tenant_id, session_id);
+    ALTER TABLE conversation_messages
+      ADD CONSTRAINT conversation_messages_session_message_unique
+      UNIQUE (session_id, id);
+    CREATE TABLE provider_continuations (
+      tenant_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      thread_key TEXT NOT NULL,
+      provider_type TEXT NOT NULL,
+      tool_call_ids JSONB NOT NULL,
+      state JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (tenant_id, message_id),
+      FOREIGN KEY (tenant_id, session_id)
+        REFERENCES conversation_sessions(tenant_id, session_id) ON DELETE CASCADE,
+      FOREIGN KEY (session_id, message_id)
+        REFERENCES conversation_messages(session_id, id) ON DELETE CASCADE,
+      CHECK (jsonb_typeof(tool_call_ids) = 'array')
+    );
+    CREATE INDEX provider_continuations_tenant_session_thread_idx
+      ON provider_continuations(tenant_id, session_id, thread_key, created_at);
+  `,
 }];

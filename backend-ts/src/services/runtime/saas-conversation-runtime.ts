@@ -5,10 +5,13 @@ import {
   PostgresConversationRepository,
   PostgresKnowledgeFileMetadataRepository,
   PostgresOutboxRepository,
+  PostgresProviderContinuationRepository,
+  PostgresPendingInteractionRepository,
   PostgresRunRepository,
   runPostgresConversationMigrations,
   runPostgresKnowledgeFileMigrations,
   runPostgresOutboxMigrations,
+  runPostgresPendingInteractionMigrations,
   runPostgresRunMigrations,
 } from "../../adapters/saas/postgres/index.js";
 
@@ -24,7 +27,9 @@ export interface SaaSConversationRuntimeHandle {
   conversation: PostgresConversationRepository;
   runs: PostgresRunRepository;
   outbox: PostgresOutboxRepository;
+  providerContinuations: PostgresProviderContinuationRepository;
   knowledgeFiles: PostgresKnowledgeFileMetadataRepository;
+  pendingInteractions: PostgresPendingInteractionRepository;
   close(): Promise<void>;
 }
 
@@ -42,17 +47,22 @@ export async function createSaaSConversationRuntime(
       await runPostgresRunMigrations(executor);
       await runPostgresOutboxMigrations(executor);
       await runPostgresKnowledgeFileMigrations(executor);
+      await runPostgresPendingInteractionMigrations(executor);
     }
     const conversation = new PostgresConversationRepository(executor);
     const runs = new PostgresRunRepository(executor);
     const outbox = new PostgresOutboxRepository(executor);
+    const providerContinuations = new PostgresProviderContinuationRepository(executor);
     const knowledgeFiles = new PostgresKnowledgeFileMetadataRepository(executor);
+    const pendingInteractions = new PostgresPendingInteractionRepository(executor);
     let closePromise: Promise<void> | null = null;
     return {
       conversation,
       runs,
       outbox,
+      providerContinuations,
       knowledgeFiles,
+      pendingInteractions,
       close: () => {
         closePromise ??= ownsPool ? pool.end() : Promise.resolve();
         return closePromise;

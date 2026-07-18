@@ -17,7 +17,7 @@ class FakeExecutor implements PostgresMemoryExecutor {
 
 describe("PostgreSQL conversation slice", () => {
   it("defines tenant-scoped session/message schema", () => {
-    expect(POSTGRES_CONVERSATION_MIGRATIONS).toHaveLength(1);
+    expect(POSTGRES_CONVERSATION_MIGRATIONS).toHaveLength(2);
     expect(POSTGRES_CONVERSATION_MIGRATIONS[0]?.sql).toContain("conversation_sessions");
     expect(POSTGRES_CONVERSATION_MIGRATIONS[0]?.sql).toContain("tenant_id TEXT NOT NULL");
     expect(POSTGRES_CONVERSATION_MIGRATIONS[0]?.sql).toContain("conversation_messages");
