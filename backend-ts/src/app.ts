@@ -37,6 +37,7 @@ import type { RouteOptions } from "./routes/route-options.js";
 import type { SaaSMemoryRuntimeHandle } from "./services/runtime/saas-memory-runtime.js";
 import type { SaaSConversationRuntimeHandle } from "./services/runtime/saas-conversation-runtime.js";
 import type { SaaSControlRuntimeHandle } from "./services/runtime/saas-control-runtime.js";
+import { SaaSExecutionWriteBridge } from "./services/runtime/saas-execution-write-bridge.js";
 
 export interface BuildAppOptions {
   env: AppEnv;
@@ -188,6 +189,20 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
             executionKind: input.source,
             onInteractionRequired,
           }, randomUUID());
+          if (options.saasConversationRuntime && result.run_id) {
+            await new SaaSExecutionWriteBridge(
+              options.saasConversationRuntime.conversation,
+              options.saasConversationRuntime.runs,
+            ).record({
+              tenantId: input.tenantId,
+              sessionId: input.sessionId,
+              runId: result.run_id,
+              userId: input.botId,
+              taskSummary: input.task,
+              status: result.suspended ? "suspended" : result.success ? "completed" : "failed",
+              answer: result.answer ?? null,
+            });
+          }
           if (!result.success && !result.suspended) throw new Error(result.error ?? "agent 执行失败");
           if (result.suspended) {
             const rootRunId = result.rootRunId ?? result.run_id ?? "";
