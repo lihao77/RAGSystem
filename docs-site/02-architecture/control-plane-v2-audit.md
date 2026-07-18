@@ -45,7 +45,7 @@ Widget app secret 当前只存 SHA-256 hash，这是不可逆凭证，迁移时�
 6. Widget token pruning timer 在每个实例运行。迁移后应使用数据库批量 claim/delete 或独立 worker，不能依赖单进程定时器语义。
 7. Provider API key、MCP environment secret、reranker API key 和 Bot 第三方凭证分散在 YAML、tenant SQLite 和 control SQLite，尚无统一审计或轮换边界。
 
-因此解除 `CONTROL_STORAGE_MODE=postgres` 门禁至少要求：Bot/Widget 单一 PG 数据源、Daemon leader/lease 或 durable job、共享 JWT key ring，以及 composition 中不存在 legacy SQLite fallback。Conversation 等迁移可后续进行，但部署必须继续标记为 Hybrid，并明确需要 sticky/单实例限制。
+因此生产开放 `CONTROL_STORAGE_MODE=postgres` 至少要求：完成 SQLite importer/checkpoint、Daemon leader/lease 或 durable job、共享 JWT key ring，以及 composition 中不存在 legacy SQLite fallback。当前 runtime 已满足单一 PG Bot/Widget composition，但 Conversation 等迁移可后续进行，部署仍必须标记为 Hybrid 并明确 sticky/单实例限制。
 
 ## 3. Third-party secret envelope
 
@@ -114,4 +114,4 @@ SQLite 导入流程要求：
 - 两实例立即看到 Bot/Widget revoke；同一 cron 只有一个 claim；webhook 任意实例可解析 route digest；
 - readiness 只有在 schema v2、数据导入完成且 secret resolver 可用时才 ready。
 
-完成这些测试前，`CONTROL_STORAGE_MODE=postgres` 应继续 fail-fast。
+完成这些测试前，生产部署应继续把 `CONTROL_STORAGE_MODE=postgres` 视为未完成切换，不得仅凭 schema readiness 宣称迁移完成。

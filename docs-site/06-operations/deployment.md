@@ -49,7 +49,7 @@ docker compose up --build
 
 当前可通过 `STORAGE_MODE=postgres` 和 `DATABASE_URL`（或 `POSTGRES_URL`）启用 PostgreSQL Memory。该模式只替换 Memory，Control、Conversation、Run、Outbox、Knowledge 和文件仍依赖 SQLite/本地目录，因此是单节点 Hybrid，不是完整 SaaS 存储。
 
-Control Plane 使用独立的 `CONTROL_STORAGE_MODE` 和 `CONTROL_DATABASE_URL`，不会隐式复用 Memory 的连接配置。当前 `docker-compose.saas.yml` 明确默认 `CONTROL_STORAGE_MODE=sqlite`。虽然 PostgreSQL Control Plane adapter 与 migration 已具备独立入口，但 Bot config、Widget credential 仍与 SQLite `control.db` 同域；后端会拒绝 `CONTROL_STORAGE_MODE=postgres`，避免产生 split-brain。这是迁移门禁，不是数据库连接故障。
+Control Plane 使用独立的 `CONTROL_STORAGE_MODE`、`CONTROL_DATABASE_URL` 和 `CONTROL_SECRET_MASTER_KEY`，不会隐式复用 Memory 的连接配置。当前 `docker-compose.saas.yml` 明确默认 `CONTROL_STORAGE_MODE=sqlite`。PostgreSQL Control v2 已包含 Bot/Widget adapter 与 envelope，但 importer、cron lease、JWT key ring 和多实例 readiness 仍是切换前门禁；缺少 URL 或 32-byte master key 时启动会 fail-fast。
 
 仓库提供独立的 Hybrid SaaS 测试 compose。它使用独立的 Local 数据卷和 PostgreSQL 数据卷，不与默认 Local compose 混用：
 
@@ -91,7 +91,7 @@ Password: ragsystem
 
 不要只备份其中一个 volume。
 
-Compose 会传入 `CONTROL_DATABASE_URL` 作为后续迁移配置，但默认不会使用它。不要在当前版本把 `CONTROL_STORAGE_MODE` 改成 `postgres`；启动会按设计 fail-fast。
+Compose 会传入 `CONTROL_DATABASE_URL` 和可选的 `CONTROL_SECRET_MASTER_KEY`。当前 runtime 已支持 PostgreSQL Control v2，但生产切换仍必须先完成 SQLite importer/checkpoint 和多实例门禁；缺少 master key 时会启动失败，单独设置 `CONTROL_STORAGE_MODE=postgres` 不代表已有 Local 数据已导入。
 
 #### 导入 Local Memory 文件
 

@@ -78,6 +78,105 @@ export const POSTGRES_CONTROL_MIGRATIONS: readonly PostgresControlMigration[] = 
         ON control_platform_audit(created_at DESC, id DESC);
     `,
   },
+  {
+    version: 2,
+    name: "bot-widget-and-secret-storage",
+    sql: `
+      CREATE TABLE control_secret_envelopes (
+        tenant_id TEXT NOT NULL REFERENCES control_tenants(id) ON DELETE CASCADE,
+        purpose TEXT NOT NULL CHECK (length(purpose) > 0),
+        resource_id TEXT NOT NULL CHECK (length(resource_id) > 0),
+        field TEXT NOT NULL CHECK (length(field) > 0),
+        envelope_version INTEGER NOT NULL DEFAULT 1 CHECK (envelope_version > 0),
+        nonce BYTEA NOT NULL CHECK (octet_length(nonce) = 12),
+        auth_tag BYTEA NOT NULL CHECK (octet_length(auth_tag) = 16),
+        ciphertext BYTEA NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (tenant_id, purpose, resource_id, field)
+      );
+
+      CREATE INDEX control_secret_envelopes_resource_idx
+        ON control_secret_envelopes(tenant_id, purpose, resource_id);
+
+      CREATE TABLE control_bot_configs (
+        bot_id TEXT PRIMARY KEY REFERENCES control_users(id) ON DELETE CASCADE,
+        tenant_id TEXT NOT NULL REFERENCES control_tenants(id) ON DELETE CASCADE,
+        enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        entry_agent TEXT,
+        session_id TEXT,
+        default_session_ttl INTEGER NOT NULL DEFAULT 86400 CHECK (default_session_ttl > 0),
+        permission_mode TEXT NOT NULL DEFAULT 'relaxed',
+        feishu_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        feishu_app_id TEXT,
+        feishu_receive_mode TEXT NOT NULL DEFAULT 'webhook' CHECK (feishu_receive_mode IN ('webhook', 'long_connection')),
+        route_token_digest TEXT,
+        feishu_default_chat_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (tenant_id, bot_id)
+      );
+
+      CREATE INDEX control_bot_configs_tenant_idx ON control_bot_configs(tenant_id);
+      CREATE INDEX control_bot_configs_enabled_idx ON control_bot_configs(enabled, feishu_enabled);
+      CREATE UNIQUE INDEX control_bot_configs_route_digest_idx
+        ON control_bot_configs(route_token_digest)
+        WHERE route_token_digest IS NOT NULL;
+
+      CREATE TABLE control_bot_cron_tasks (
+        bot_id TEXT NOT NULL REFERENCES control_bot_configs(bot_id) ON DELETE CASCADE,
+        task_id TEXT NOT NULL,
+        cron TEXT NOT NULL,
+        task TEXT NOT NULL,
+        entry_agent TEXT,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        push_platform TEXT CHECK (push_platform IS NULL OR push_platform = 'feishu'),
+        push_chat_id TEXT,
+        next_run DOUBLE PRECISION,
+        last_run DOUBLE PRECISION,
+        last_result TEXT,
+        PRIMARY KEY (bot_id, task_id)
+      );
+
+      CREATE INDEX control_bot_cron_due_idx
+        ON control_bot_cron_tasks(enabled, next_run);
+
+      CREATE TABLE control_widget_apps (
+        app_key TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL REFERENCES control_tenants(id) ON DELETE CASCADE,
+        secret_hash TEXT NOT NULL,
+        secret_prefix TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        allowed_origins TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        revoked_at TIMESTAMPTZ
+      );
+
+      CREATE INDEX control_widget_apps_tenant_idx ON control_widget_apps(tenant_id);
+
+      CREATE TABLE control_widget_tokens (
+        jti TEXT PRIMARY KEY,
+        app_key TEXT NOT NULL REFERENCES control_widget_apps(app_key) ON DELETE CASCADE,
+        issued_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        revoked BOOLEAN NOT NULL DEFAULT FALSE
+      );
+
+      CREATE INDEX control_widget_tokens_app_idx ON control_widget_tokens(app_key, issued_at DESC);
+      CREATE INDEX control_widget_tokens_expiry_idx ON control_widget_tokens(expires_at);
+
+      CREATE TABLE control_widget_audit (
+        id BIGSERIAL PRIMARY KEY,
+        app_key TEXT NOT NULL REFERENCES control_widget_apps(app_key) ON DELETE CASCADE,
+        action TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        detail_json JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX control_widget_audit_app_idx ON control_widget_audit(app_key, id DESC);
+
+    `,
+  },
 ];
 
 export const POSTGRES_CONTROL_LATEST_SCHEMA_VERSION = POSTGRES_CONTROL_MIGRATIONS.length;

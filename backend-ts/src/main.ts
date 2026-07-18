@@ -1,9 +1,11 @@
 import { buildApp } from "./app.js";
 import { loadEnv } from "./config/env.js";
 import { createSaaSMemoryRuntime, type SaaSMemoryRuntimeHandle } from "./services/runtime/saas-memory-runtime.js";
+import { createSaaSControlRuntime, type SaaSControlRuntimeHandle } from "./services/runtime/saas-control-runtime.js";
 
 const env = loadEnv(process.env);
 let saasMemoryRuntime: SaaSMemoryRuntimeHandle | undefined;
+let saasControlRuntime: SaaSControlRuntimeHandle | undefined;
 let app;
 try {
   if (env.storageMode === "postgres") {
@@ -13,12 +15,24 @@ try {
       poolMax: env.postgresPoolMax,
     });
   }
+  if (env.controlStorageMode === "postgres") {
+    if (!env.controlDatabaseUrl || !env.controlSecretMasterKey) {
+      throw new Error("CONTROL_STORAGE_MODE=postgres requires CONTROL_DATABASE_URL and CONTROL_SECRET_MASTER_KEY");
+    }
+    saasControlRuntime = await createSaaSControlRuntime({
+      connectionString: env.controlDatabaseUrl,
+      masterKey: env.controlSecretMasterKey,
+      poolMax: env.postgresPoolMax,
+    });
+  }
   app = await buildApp({
     env,
     ...(saasMemoryRuntime ? { saasMemoryRuntime } : {}),
+    ...(saasControlRuntime ? { controlRuntime: saasControlRuntime } : {}),
   });
 } catch (error) {
   await saasMemoryRuntime?.close().catch(() => undefined);
+  await saasControlRuntime?.close().catch(() => undefined);
   throw error;
 }
 

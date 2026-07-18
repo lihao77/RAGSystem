@@ -429,7 +429,7 @@ export class PostgresControlPlaneAdapter implements ControlPlane {
 }
 
 export interface CreatePostgresControlPlaneAdapterOptions {
-  connectionString: string;
+  connectionString?: string;
   pool?: Pool;
   poolMax?: number;
   runMigrations?: boolean;
@@ -439,6 +439,9 @@ export async function createPostgresControlPlaneAdapter(
   options: CreatePostgresControlPlaneAdapterOptions,
 ): Promise<PostgresControlPlaneAdapter> {
   const ownsPool = options.pool === undefined;
+  if (!options.pool && !options.connectionString) {
+    throw new Error("Postgres Control Plane requires connectionString when pool is not supplied");
+  }
   const pool = options.pool ?? new Pool({ connectionString: options.connectionString, max: options.poolMax ?? 10 });
   try {
     if (options.runMigrations !== false) await runPostgresControlMigrations(pool);

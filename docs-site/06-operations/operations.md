@@ -13,7 +13,7 @@ npm -w @ragsystem/backend-ts run start
 
 负载均衡器使用 `GET /readyz` 判断是否接流量；容器存活使用 `GET /livez`。`GET /api/health` 需要租户身份，不应作为匿名探针。
 
-`/readyz` 的 `control_database` 和 `control_schema_version` 表示当前装配的 Control Plane 连接及 migration 状态。Memory PostgreSQL 与 Control Plane PostgreSQL 使用不同环境变量，排障时分别检查 `DATABASE_URL` 与 `CONTROL_DATABASE_URL`。当前生产装配仍要求 `CONTROL_STORAGE_MODE=sqlite`；设置为 `postgres` 会在启动期 fail-fast，防止 Bot/Widget 与核心身份数据分裂到两个数据库。
+`/readyz` 的 `control_database` 和 `control_schema_version` 表示当前装配的 Control Plane 连接及 migration 状态。Memory PostgreSQL 与 Control Plane PostgreSQL 使用不同环境变量，排障时分别检查 `DATABASE_URL` 与 `CONTROL_DATABASE_URL`。Compose 默认仍为 `CONTROL_STORAGE_MODE=sqlite`；切换到 `postgres` 前必须完成 importer/checkpoint、共享 JWT key ring 和多实例 Daemon 门禁。
 
 ## 数据与备份
 

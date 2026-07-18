@@ -213,7 +213,7 @@ backend-ts/src/
 - 实现 `PostgresControlPlaneAdapter`，覆盖 tenant、human user、membership、settings、auth session、audit、health、provisioning 和原子 commands；
 - install、最后 owner 和最后 active platform admin 约束支持跨实例并发；
 - SQLite/PostgreSQL 运行同一套参数化 contract tests，并通过 PostgreSQL 重开持久化与双实例可见性 E2E；
-- `CONTROL_STORAGE_MODE` / `CONTROL_DATABASE_URL` 与 Memory 配置解耦；当前 composition 继续 fail-fast，不允许 core PG 与 legacy Bot/Widget SQLite 混用。
+- `CONTROL_STORAGE_MODE` / `CONTROL_DATABASE_URL` 与 Memory 配置解耦；PostgreSQL Control runtime 已能组合 core、Bot、Widget 和 envelope，默认 Compose 仍保持 SQLite，避免未导入数据直接切换。
 
 当前生产数据源仍未切换：Control Plane、Bot 和 Widget 凭证继续位于同一个 `control.db`。PostgreSQL core adapter 已可独立验证；Bot/Widget 消费者也已抽为异步 ports 并由 SQLite adapters 保持兼容，但 PostgreSQL Bot/Widget adapters、secret envelope 和数据导入尚未实现，因此 composition 仍不能切换。
 

@@ -42,6 +42,7 @@ const EnvSchema = z.object({
   POSTGRES_URL: z.string().optional(),
   POSTGRES_POOL_MAX: z.string().optional(),
   CONTROL_DATABASE_URL: z.string().optional(),
+  CONTROL_SECRET_MASTER_KEY: z.string().optional(),
 });
 
 export interface AppEnv {
@@ -62,6 +63,7 @@ export interface AppEnv {
   allowUnsafeLocalExecution: boolean;
   databaseUrl?: string | undefined;
   controlDatabaseUrl?: string | undefined;
+  controlSecretMasterKey?: Buffer | undefined;
   postgresPoolMax: number;
   /** widget JWT 签名密钥；未设则 widget 鉴权不启用。 */
   widgetJwtSecret?: string | undefined;
@@ -113,6 +115,7 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     allowUnsafeLocalExecution: parseBooleanFlag(env.ALLOW_UNSAFE_LOCAL_EXECUTION),
     databaseUrl: env.DATABASE_URL?.trim() || env.POSTGRES_URL?.trim() || undefined,
     controlDatabaseUrl: env.CONTROL_DATABASE_URL?.trim() || undefined,
+    controlSecretMasterKey: parseSecretMasterKey(env.CONTROL_SECRET_MASTER_KEY),
     postgresPoolMax: parsePositiveInteger(env.POSTGRES_POOL_MAX, 10, "POSTGRES_POOL_MAX"),
     widgetJwtSecret: env.WIDGET_JWT_SECRET?.trim() || undefined,
     sessionJwtSecret: env.SESSION_JWT_SECRET?.trim() || undefined,
@@ -123,6 +126,9 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
   }
   if (appEnv.controlStorageMode === "postgres" && !appEnv.controlDatabaseUrl) {
     throw new Error("CONTROL_STORAGE_MODE=postgres requires CONTROL_DATABASE_URL");
+  }
+  if (appEnv.controlStorageMode === "postgres" && !appEnv.controlSecretMasterKey) {
+    throw new Error("CONTROL_STORAGE_MODE=postgres requires CONTROL_SECRET_MASTER_KEY (base64 encoded 32-byte key)");
   }
   resolveDeploymentProfile(appEnv);
   return appEnv;
@@ -184,6 +190,16 @@ function parsePositiveInteger(rawValue: string | undefined, fallback: number, na
   const value = parsePositiveNumber(rawValue, fallback, name);
   if (!Number.isInteger(value)) throw new Error(`${name} 必须为正整数`);
   return value;
+}
+
+function parseSecretMasterKey(rawValue: string | undefined): Buffer | undefined {
+  if (!rawValue?.trim()) return undefined;
+  const normalized = rawValue.trim();
+  const key = Buffer.from(normalized, "base64");
+  if (key.length !== 32 || key.toString("base64").replace(/=+$/, "") !== normalized.replace(/=+$/, "")) {
+    throw new Error("CONTROL_SECRET_MASTER_KEY must be a valid base64 encoded 32-byte key");
+  }
+  return key;
 }
 
 function validateDeploymentProfile(profile: DeploymentProfile, allowUnsafeLocalExecution: boolean): void {

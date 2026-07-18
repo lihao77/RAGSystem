@@ -4,6 +4,8 @@ import { Pool } from "pg";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { createPostgresControlPlaneAdapter } from "../../src/adapters/saas/postgres/control-plane-adapter.js";
+import { PostgresBotRepository } from "../../src/adapters/saas/postgres/bot-repository.js";
+import type { SecretCoordinates, SecretMutation, SecretResolver } from "../../src/contracts/secret-resolver.js";
 import type { ControlPlane } from "../../src/contracts/control-plane/index.js";
 import { createTenantId, createUserId } from "../../src/identity/types.js";
 import { runControlPlaneContract } from "../contracts/control-plane-contract.js";
@@ -130,7 +132,67 @@ describe.skipIf(!postgresEnabled)("PostgreSQL ControlPlane", () => {
       await Promise.allSettled([first.close(), second.close()]);
     }
   }, 30_000);
+
+  it("persists Bot config, resolver-backed secrets and cron tasks in Control v2", async () => {
+    const suffix = idSuffix();
+    const connectionString = await createIsolatedConnectionString();
+    const control = await openPostgresControlPlane(connectionString);
+    const tenantId = createTenantId(`tnt_bot_${suffix}`);
+    const ownerId = createUserId(`usr_bot_owner_${suffix}`);
+    const secrets = new TestSecretResolver();
+    const bots = new PostgresBotRepository((control as unknown as { pool: Pool }).pool, secrets);
+    try {
+      await control.provisioning.install({
+        tenant: { id: tenantId, displayName: "Bot Tenant" },
+        admin: { id: ownerId, displayName: "Bot Owner", username: `bot-owner-${suffix}`, passwordHash: "hash" },
+        settings: {},
+      });
+      const bot = await bots.create({ tenantId, ownerId, displayName: "Feishu Bot" });
+      const updated = await bots.updateConfig(bot.id, {
+        enabled: true,
+        feishu: {
+          enabled: true,
+          app_id: "cli_app",
+          app_secret: "app-secret",
+          token: "verify-token",
+          encoding_aes_key: "aes-key",
+          route_token: "route-token",
+          receive_mode: "webhook",
+        },
+      });
+      expect(updated).toMatchObject({ enabled: true, feishu: { app_secret: "***", token: "***", encoding_aes_key: "***" } });
+      await expect(bots.getRuntimeConfig(bot.id)).resolves.toMatchObject({
+        feishu: { app_secret: "app-secret", token: "verify-token", encoding_aes_key: "aes-key", route_token: "route-token" },
+      });
+      const task = await bots.createCronTask(bot.id, {
+        task_id: "hourly", cron: "0 * * * *", task: "run", entry_agent: null, enabled: true, push_platform: null, push_chat_id: null, next_run: 1,
+      });
+      expect(task).toMatchObject({ bot_id: bot.id, task_id: "hourly" });
+      await expect(bots.listDueCronTasks(2)).resolves.toEqual([{ botId: bot.id, taskId: "hourly" }]);
+      expect(await bots.listByTenant(tenantId)).toHaveLength(1);
+      expect(await bots.delete(bot.id)).toBe(true);
+      expect(await bots.get(bot.id)).toBeNull();
+      expect(secrets.values.size).toBe(0);
+    } finally {
+      await control.close();
+    }
+  }, 30_000);
 });
+
+class TestSecretResolver implements SecretResolver {
+  readonly values = new Map<string, string>();
+  async resolve(coordinates: SecretCoordinates): Promise<string | null> { return this.values.get(key(coordinates)) ?? null; }
+  async mutate(coordinates: SecretCoordinates, mutation: SecretMutation): Promise<void> {
+    const id = key(coordinates);
+    if (mutation.kind === "clear") this.values.delete(id);
+    if (mutation.kind === "set") this.values.set(id, mutation.value);
+  }
+  async close(): Promise<void> {}
+}
+
+function key(coordinates: SecretCoordinates): string {
+  return `${coordinates.tenantId}:${coordinates.purpose}:${coordinates.resourceId}:${coordinates.field}`;
+}
 
 async function createIsolatedConnectionString(): Promise<string> {
   if (databaseUrl == null || adminPool == null) throw new Error("DATABASE_URL is required");

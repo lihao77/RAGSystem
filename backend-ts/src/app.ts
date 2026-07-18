@@ -36,6 +36,7 @@ import { DaemonService, type DaemonSuspendedInteraction } from "./services/daemo
 import { createSaaSMemoryApplicationResolver } from "./app/saas-memory-resolver.js";
 import type { RouteOptions } from "./routes/route-options.js";
 import type { SaaSMemoryRuntimeHandle } from "./services/runtime/saas-memory-runtime.js";
+import type { SaaSControlRuntimeHandle } from "./services/runtime/saas-control-runtime.js";
 
 export interface BuildAppOptions {
   env: AppEnv;
@@ -44,6 +45,7 @@ export interface BuildAppOptions {
   registry?: TenantRuntimeRegistry;
   controlStore?: ControlStore;
   controlPlane?: ControlPlane;
+  controlRuntime?: SaaSControlRuntimeHandle;
   identityProvider?: IdentityProvider;
   tenantMigrator?: Pick<TenantMigrator, "migrate">;
   botRepository?: BotRepository;
@@ -56,7 +58,7 @@ export interface BuildAppOptions {
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
-  if (options.env.controlStorageMode === "postgres") {
+  if (options.env.controlStorageMode === "postgres" && !options.controlRuntime) {
     throw new Error(
       "CONTROL_STORAGE_MODE=postgres is not enabled in app composition until Bot and Widget storage leave SQLite control.db",
     );
@@ -66,7 +68,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       "saasMemoryRuntime must own Memory composition; custom registry/resolveMemoryApplication would split Memory backends",
     );
   }
-  if (options.controlPlane && (
+  if (options.controlRuntime && (options.controlStore || options.controlPlane || options.botRepository || options.widgetCredentials || options.widgetCredentialStore)) {
+    throw new Error("controlRuntime owns Control, Bot and Widget composition; do not provide legacy stores");
+  }
+  if (options.controlPlane && !options.controlRuntime && (
     !options.controlStore
     || !(options.controlPlane instanceof SqliteControlPlaneAdapter)
     || options.controlPlane.store !== options.controlStore
@@ -78,11 +83,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       level: options.env.logLevel,
     },
   });
-  const controlStore = options.controlStore ?? createControlStore(options.env.systemRoot);
-  const controlPlane = options.controlPlane ?? new SqliteControlPlaneAdapter(controlStore);
-  const botRepository = options.botRepository ?? new SqliteBotRepository(controlStore);
-  const tenantMigrator = options.tenantMigrator ?? createTenantMigrator(options.env);
-  tenantMigrator.migrate();
+  const controlStore = options.controlStore ?? (options.controlRuntime ? undefined : createControlStore(options.env.systemRoot));
+  const controlPlane = options.controlRuntime?.controlPlane ?? options.controlPlane ?? new SqliteControlPlaneAdapter(controlStore!);
+  const botRepository = options.controlRuntime?.botRepository ?? options.botRepository ?? new SqliteBotRepository(controlStore!);
+  if (!options.controlRuntime) (options.tenantMigrator ?? createTenantMigrator(options.env)).migrate();
   const initialProfile = resolveProfileFromSettings(await controlPlane.settings.getAll(), options.env);
   const initialSessionTokens = options.sessionTokens ?? createSessionTokens(initialProfile.auth, options.env, controlPlane);
   const runtime: AuthRuntime = {
@@ -111,8 +115,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     resolve: (request, scope) => runtime.identityProvider.resolve(request, scope),
   };
   const widgetCredentialStore = options.widgetCredentialStore
-    ?? (options.widgetCredentials ? undefined : createWidgetCredentialStore(controlStore.db));
-  const widgetCredentials = options.widgetCredentials
+    ?? (options.widgetCredentials || options.controlRuntime ? undefined : createWidgetCredentialStore(controlStore!.db));
+  const widgetCredentials = options.controlRuntime?.widgetCredentials
+    ?? options.widgetCredentials
     ?? new SqliteWidgetCredentialAdapter(widgetCredentialStore!);
   const widgetAuth = options.widgetAuth ?? (options.env.widgetJwtSecret
     ? createWidgetAuthService(options.env.widgetJwtSecret, widgetCredentials)
@@ -241,12 +246,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     botEngine.close();
     await registry.closeAll();
     await options.saasMemoryRuntime?.close();
-    await widgetCredentials.close();
-    widgetCredentialStore?.close();
     wsTickets.close();
-    await controlPlane.close();
-    if (!(controlPlane instanceof SqliteControlPlaneAdapter && controlPlane.ownsStore)) {
-      controlStore.close();
+    if (options.controlRuntime) {
+      await options.controlRuntime.close();
+    } else {
+      await widgetCredentials.close();
+      widgetCredentialStore?.close();
+      await controlPlane.close();
+      if (!(controlPlane instanceof SqliteControlPlaneAdapter && controlPlane.ownsStore)) controlStore?.close();
     }
   });
 

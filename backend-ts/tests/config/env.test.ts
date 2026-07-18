@@ -71,10 +71,12 @@ describe("deployment profile", () => {
       DATABASE_URL: "postgres://memory/database",
       CONTROL_STORAGE_MODE: "postgres",
       CONTROL_DATABASE_URL: "postgres://control/database",
+      CONTROL_SECRET_MASTER_KEY: Buffer.alloc(32, 1).toString("base64"),
     });
     expect(env.databaseUrl).toBe("postgres://memory/database");
     expect(env.controlStorageMode).toBe("postgres");
     expect(env.controlDatabaseUrl).toBe("postgres://control/database");
+    expect(env.controlSecretMasterKey).toEqual(Buffer.alloc(32, 1));
   });
 
   it("requires the independent Control Plane URL in PostgreSQL mode", () => {
@@ -83,5 +85,13 @@ describe("deployment profile", () => {
       DATABASE_URL: "postgres://memory/database",
       CONTROL_STORAGE_MODE: "postgres",
     })).toThrow("CONTROL_STORAGE_MODE=postgres requires CONTROL_DATABASE_URL");
+  });
+
+  it("requires an independent 32-byte Control secret key in PostgreSQL mode", () => {
+    expect(() => loadEnv({
+      RAG_DATA_ROOT: path.join(process.cwd(), ".test-data", "env-control-secret-required"),
+      CONTROL_STORAGE_MODE: "postgres",
+      CONTROL_DATABASE_URL: "postgres://control/database",
+    })).toThrow("CONTROL_STORAGE_MODE=postgres requires CONTROL_SECRET_MASTER_KEY");
   });
 });
