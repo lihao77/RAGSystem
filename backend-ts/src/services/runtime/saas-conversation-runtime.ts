@@ -19,6 +19,8 @@ import {
   runPostgresProviderMcpMigrations,
   runPostgresRunMigrations,
 } from "../../adapters/saas/postgres/index.js";
+import type { ObjectStorage } from "../../contracts/object-storage.js";
+import { SaaSArtifactService } from "../artifacts/saas-artifact-service.js";
 
 export interface SaaSConversationRuntimeOptions {
   connectionString: string;
@@ -26,6 +28,7 @@ export interface SaaSConversationRuntimeOptions {
   pool?: Pool;
   runMigrations?: boolean;
   secretResolver?: SecretResolver;
+  objectStorage?: ObjectStorage;
 }
 
 /** Shared PostgreSQL lifecycle for the async SaaS conversation/run repositories. */
@@ -37,6 +40,8 @@ export interface SaaSConversationRuntimeHandle {
   knowledgeFiles: PostgresKnowledgeFileMetadataRepository;
   pendingInteractions: PostgresPendingInteractionRepository;
   artifacts: PostgresArtifactMetadataRepository;
+  /** Tenant-bound blob facade; requires objectStorage in the composition root. */
+  createArtifactService(tenantId: string): SaaSArtifactService;
   providerMcp: PostgresProviderMcpRepository;
   close(): Promise<void>;
 }
@@ -76,6 +81,10 @@ export async function createSaaSConversationRuntime(
       knowledgeFiles,
       pendingInteractions,
       artifacts,
+      createArtifactService: (tenantId) => {
+        if (!options.objectStorage) throw new Error("SaaS artifact service requires ObjectStorage");
+        return new SaaSArtifactService(tenantId, artifacts, options.objectStorage);
+      },
       providerMcp,
       close: () => {
         closePromise ??= ownsPool ? pool.end() : Promise.resolve();
