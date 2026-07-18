@@ -73,10 +73,14 @@ export function buildMemoryScopeSpecs(input: {
   agentName: string;
   sessionMetadata: Record<string, unknown>;
   userId?: string | null;
+  /** Overrides Local's workspace_root-derived key for deployments with stable workspace IDs. */
+  workspaceKey?: string | null;
 }): MemoryScopeSpec[] {
   const allowedScopes = new Set(input.memory.allowed_scopes);
   const teamName = getString(input.sessionMetadata.team);
-  const workspaceKey = getWorkspaceMemoryKey(getString(input.sessionMetadata.workspace_root));
+  const workspaceKey = input.workspaceKey === undefined
+    ? getWorkspaceMemoryKey(getString(input.sessionMetadata.workspace_root))
+    : input.workspaceKey?.trim() || null;
   const scopeSpecs: MemoryScopeSpec[] = [];
   if (allowedScopes.has("team") && teamName) {
     scopeSpecs.push({ scope: "team", team_name: teamName });

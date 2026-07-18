@@ -39,10 +39,12 @@ describe("SaaSRuntimeProvider", () => {
 
     expect(first.tenantId).toBe("tnt_alpha");
     expect(first.runtime).toBe(second.runtime);
-    expect(first.runtime).toEqual({
+    expect(first.runtime).toEqual(expect.objectContaining({
       tenantId: "tnt_alpha",
       memory: expect.objectContaining({ query: expect.anything(), commands: expect.anything(), governance: expect.anything() }),
-    });
+      createMemoryTools: expect.any(Function),
+      createMemoryContextSource: expect.any(Function),
+    }));
     expect(first.runtime).not.toHaveProperty("dataRoot");
     expect(first.runtime).not.toHaveProperty("dbPath");
 

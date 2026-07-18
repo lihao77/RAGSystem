@@ -55,12 +55,30 @@ export interface ArchiveMemoryInput extends ListMemoryIndexInput {
   fileName: string;
 }
 
+export interface MemoryToolOperations {
+  checkMemoryScopeAccess(
+    input: ListMemoryIndexInput,
+    context: MemoryToolRuntimeContext,
+    mode: "read" | "write" | "archive",
+  ): ToolAccessDecision;
+  listMemoryIndex(
+    input: ListMemoryIndexInput,
+    context: MemoryToolRuntimeContext,
+  ): ToolExecutionResult | Promise<ToolExecutionResult>;
+  readMemoryEntry(
+    input: ReadMemoryEntryInput,
+    context: MemoryToolRuntimeContext,
+  ): ToolExecutionResult | Promise<ToolExecutionResult>;
+  writeMemory(input: WriteMemoryInput, context: MemoryToolRuntimeContext): Promise<ToolExecutionResult>;
+  archiveMemory(input: ArchiveMemoryInput, context: MemoryToolRuntimeContext): Promise<ToolExecutionResult>;
+}
+
 interface ResolvedMemoryScopeInputs {
   scopeSpec: MemoryScopeSpec;
   currentAgentName: string | null;
 }
 
-export class MemoryToolService {
+export class MemoryToolService implements MemoryToolOperations {
   constructor(
     private readonly memoryStore: MemoryRepository & Partial<MemoryRepositoryLocationProvider>,
     private readonly sessions: RuntimeMemorySessionPort,
@@ -382,4 +400,3 @@ function normalizeMemoryScope(value: string): MemoryScopeName | null {
   }
   return null;
 }
-

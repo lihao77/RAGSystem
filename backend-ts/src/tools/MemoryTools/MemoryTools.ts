@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { AgentConfig } from "../../contracts/agent-config.js";
-import type { MemoryToolService } from "./MemoryExecution.js";
+import type { MemoryToolOperations } from "./MemoryExecution.js";
 import {
   readArchiveMemoryArguments,
   readListMemoryIndexArguments,
@@ -22,7 +22,7 @@ import {
 import { metadataFrom, optionalString } from "../schema-helpers.js";
 
 interface MemoryToolDeps {
-  memoryTools: MemoryToolService;
+  memoryTools: MemoryToolOperations;
   agent: AgentConfig;
 }
 

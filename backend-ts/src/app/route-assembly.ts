@@ -22,6 +22,7 @@ import { registerSkillRoutes } from "../routes/skills.js";
 import { registerSystemConfigRoutes } from "../routes/system-config.js";
 import { registerWidgetAppsRoutes } from "../routes/widget-apps.js";
 import { registerWidgetRoutes } from "../routes/widget.js";
+import type { RouteOptions } from "../routes/route-options.js";
 import { AuthError, type IdentityProvider } from "../services/identity/index.js";
 import type { WidgetAuthService } from "../services/runtime/jwt-service.js";
 import type { SessionTokenService } from "../services/runtime/session-token-service.js";
@@ -68,13 +69,14 @@ export async function registerPublicAndAuthRoutes(
   });
 }
 
-interface SharedBusinessRouteAssemblyOptions {
+export interface SharedBusinessRouteAssemblyOptions {
   registry: TenantRuntimeRegistry;
   identityProvider: IdentityProvider;
   widgetCredentialStore: WidgetCredentialStore;
   widgetAuth?: WidgetAuthService;
   wsTickets: WsTicketService;
   registerPublicAgui: boolean;
+  resolveMemoryApplication?: RouteOptions["resolveMemoryApplication"];
 }
 
 export async function registerSharedBusinessRoutes(
@@ -87,7 +89,13 @@ export async function registerSharedBusinessRoutes(
     await scope.register(registerHealthRoutes, { prefix: "/api", ...routeOptions });
     await scope.register(registerArtifactRoutes, { prefix: "/api/artifacts", ...routeOptions });
     await scope.register(registerAgentConfigRoutes, { prefix: "/api/agent-config", ...routeOptions });
-    await scope.register(registerMemoryRoutes, { prefix: "/api/memory", ...routeOptions });
+    await scope.register(registerMemoryRoutes, {
+      prefix: "/api/memory",
+      ...routeOptions,
+      ...(options.resolveMemoryApplication
+        ? { resolveMemoryApplication: options.resolveMemoryApplication }
+        : {}),
+    });
     await scope.register(registerSkillRoutes, { prefix: "/api/skills", ...routeOptions });
     await scope.register(registerModelAdapterRoutes, { prefix: "/api/model-adapter", ...routeOptions });
     await scope.register(registerSystemConfigRoutes, { prefix: "/api/system-config", ...routeOptions });

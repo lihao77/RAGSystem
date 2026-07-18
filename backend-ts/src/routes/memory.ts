@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { MemoryScopeNameSchema } from "../contracts/memory-store/types.js";
 import type { MemoryCandidateStatus } from "../contracts/conversation-store/index.js";
+import type { MemoryApplication } from "../services/memory/index.js";
 import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
@@ -16,23 +17,78 @@ const CandidateQuerySchema = z.object({
   operation: z.enum(["publish", "archive"]).optional(),
 });
 const UpdateCandidateSchema = z.object({
+  expected_version: z.number().int().positive().optional(),
   name: z.string().min(1).optional(),
   description: z.string().optional(),
   content: z.string().min(1).optional(),
   why: z.string().nullable().optional(),
   how_to_apply: z.string().nullable().optional(),
-}).refine((value) => Object.keys(value).length > 0, "至少提供一个修改字段");
+}).refine(
+  (value) => value.name !== undefined
+    || value.description !== undefined
+    || value.content !== undefined
+    || value.why !== undefined
+    || value.how_to_apply !== undefined,
+  "至少提供一个修改字段",
+);
 const ReviewCandidateSchema = z.object({
+  expected_version: z.number().int().positive().optional(),
+  review_claim_token: z.string().min(1).optional(),
   comment: z.string().nullable().optional(),
   name: z.string().min(1).optional(),
   description: z.string().optional(),
   content: z.string().min(1).optional(),
 });
-export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app) => {
+const MutationCandidateSchema = z.object({
+  expected_version: z.number().int().positive().optional(),
+});
+const ClaimCandidateSchema = z.object({
+  expected_version: z.number().int().positive(),
+  claim_ttl_seconds: z.number().int().min(1).max(86_400).optional(),
+});
+
+function requireExpectedVersion(value: number | undefined): number {
+  if (value === undefined) {
+    throw new HttpError(400, "invalid_request", "SaaS memory 操作需要 expected_version");
+  }
+  return value;
+}
+
+function mutationResult<T extends { outcome: string; candidate?: unknown }>(
+  result: T,
+  notFoundMessage: string,
+): unknown {
+  if (result.outcome === "applied") return result.candidate;
+  if (result.outcome === "not_found") throw new HttpError(404, "not_found", notFoundMessage);
+  throw new HttpError(409, "conflict", "memory 状态已变化，请刷新后重试");
+}
+
+async function resolveMemoryApplication(
+  options: RouteOptions,
+  request: Parameters<NonNullable<RouteOptions["resolveMemoryApplication"]>>[0],
+): Promise<MemoryApplication | undefined> {
+  return options.resolveMemoryApplication?.(request);
+}
+
+export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.addHook("preHandler", async (request) => { requireTenantMember(request); });
 
   app.get("/candidates", async (request) => {
     const query = CandidateQuerySchema.parse(request.query);
+    const memory = await resolveMemoryApplication(options, request);
+    if (memory) {
+      const filter = {
+        owner_user_id: request.identity.userId,
+        ...(query.status ? { statuses: [query.status] } : {}),
+        ...(query.target_scope ? { scope: query.target_scope } : {}),
+        ...(query.operation ? { operation: query.operation } : {}),
+      };
+      const [total, items] = await Promise.all([
+        memory.governance.countCandidates(filter),
+        memory.governance.listCandidates({ ...filter, limit: query.limit, offset: query.offset }),
+      ]);
+      return { success: true, data: { items, total, limit: query.limit, offset: query.offset, has_more: query.offset + items.length < total } };
+    }
     const filter = {
       ownerUserId: request.identity.userId,
       ...(query.status ? { statuses: [query.status] } : {}),
@@ -47,6 +103,20 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
   app.patch<{ Params: { id: string } }>("/candidates/:id", async (request) => {
     const { id } = CandidateParamsSchema.parse(request.params);
     const input = UpdateCandidateSchema.parse(request.body);
+    const memory = await resolveMemoryApplication(options, request);
+    if (memory) {
+      const result = await memory.commands.updateCandidate({
+        candidate_id: id,
+        owner_user_id: request.identity.userId,
+        expected_version: requireExpectedVersion(input.expected_version),
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        ...(input.content !== undefined ? { content: input.content } : {}),
+        ...(input.why !== undefined ? { why: input.why } : {}),
+        ...(input.how_to_apply !== undefined ? { how_to_apply: input.how_to_apply } : {}),
+      });
+      return { success: true, data: mutationResult(result, "memory 不存在或不可修改") };
+    }
     const update = {
       id,
       ownerUserId: request.identity.userId,
@@ -63,6 +133,17 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
 
   app.delete<{ Params: { id: string } }>("/candidates/:id", async (request) => {
     const { id } = CandidateParamsSchema.parse(request.params);
+    const input = MutationCandidateSchema.parse(request.body ?? {});
+    const memory = await resolveMemoryApplication(options, request);
+    if (memory) {
+      const result = await memory.commands.withdrawCandidate({
+        candidate_id: id,
+        owner_user_id: request.identity.userId,
+        expected_version: requireExpectedVersion(input.expected_version),
+      });
+      mutationResult(result, "memory 不存在或不可撤回");
+      return { success: true };
+    }
     const withdrawn = request.container.conversationStore.withdrawMemoryCandidate(id, request.identity.userId);
     if (!withdrawn) throw new HttpError(404, "not_found", "memory 不存在或不可撤回");
     return { success: true };
@@ -72,6 +153,19 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
     requireTenantAdmin(request);
     const query = CandidateQuerySchema.parse(request.query);
     const statuses: MemoryCandidateStatus[] = query.status ? [query.status] : ["candidate"];
+    const memory = await resolveMemoryApplication(options, request);
+    if (memory) {
+      const filter = {
+        statuses,
+        ...(query.target_scope ? { scope: query.target_scope } : {}),
+        ...(query.operation ? { operation: query.operation } : {}),
+      };
+      const [total, items] = await Promise.all([
+        memory.governance.countCandidates(filter),
+        memory.governance.listCandidates({ ...filter, limit: query.limit, offset: query.offset }),
+      ]);
+      return { success: true, data: { items, total, limit: query.limit, offset: query.offset, has_more: query.offset + items.length < total } };
+    }
     const filter = {
       statuses,
       ...(query.target_scope ? { targetScope: query.target_scope } : {}),
@@ -82,10 +176,96 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
     return { success: true, data: { items, total, limit: query.limit, offset: query.offset, has_more: query.offset + items.length < total } };
   });
 
+  app.post<{ Params: { id: string } }>("/admin/candidates/:id/claim", async (request) => {
+    requireTenantAdmin(request);
+    const { id } = CandidateParamsSchema.parse(request.params);
+    const input = ClaimCandidateSchema.parse(request.body ?? {});
+    const memory = await resolveMemoryApplication(options, request);
+    if (!memory) throw new HttpError(404, "not_found", "Local memory 不提供独立 claim 接口");
+    const result = await memory.governance.claimCandidate({
+      candidate_id: id,
+      reviewer_user_id: request.identity.userId,
+      expected_version: input.expected_version,
+      ...(input.claim_ttl_seconds !== undefined ? { claim_ttl_seconds: input.claim_ttl_seconds } : {}),
+    });
+    if (result.outcome === "not_found") throw new HttpError(404, "not_found", "待审核 memory 不存在");
+    if (result.outcome === "state_conflict") throw new HttpError(409, "conflict", "memory 正在被其他管理员处理或版本已变化");
+    return { success: true, data: result };
+  });
+
   app.post<{ Params: { id: string } }>("/admin/candidates/:id/approve", async (request) => {
     requireTenantAdmin(request);
     const { id } = CandidateParamsSchema.parse(request.params);
     const input = ReviewCandidateSchema.parse(request.body ?? {});
+    const memory = await resolveMemoryApplication(options, request);
+    if (memory) {
+      let candidate = await memory.governance.getCandidate(id);
+      if (!candidate || candidate.status !== "candidate") throw new HttpError(404, "not_found", "待审核 memory 不存在");
+      let expectedVersion = requireExpectedVersion(input.expected_version);
+      let claimToken = input.review_claim_token;
+      let claimedByThisRequest = false;
+      if ((input.name !== undefined || input.description !== undefined || input.content !== undefined)) {
+        if (claimToken) throw new HttpError(400, "invalid_request", "已领取的 memory 不能在批准时修改内容");
+        const updated = await memory.commands.updateCandidate({
+          candidate_id: id,
+          owner_user_id: candidate.owner_user_id,
+          expected_version: expectedVersion,
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.description !== undefined ? { description: input.description } : {}),
+          ...(input.content !== undefined ? { content: input.content } : {}),
+        });
+        candidate = mutationResult(updated, "待审核 memory 不存在") as typeof candidate;
+        expectedVersion = candidate.version;
+      }
+      if (!claimToken) {
+        const claimed = await memory.governance.claimCandidate({
+          candidate_id: id,
+          reviewer_user_id: request.identity.userId,
+          expected_version: expectedVersion,
+        });
+        if (claimed.outcome === "not_found") throw new HttpError(404, "not_found", "待审核 memory 不存在");
+        if (claimed.outcome === "state_conflict") throw new HttpError(409, "conflict", "memory 正在被其他管理员处理或版本已变化");
+        if (claimed.outcome !== "claimed") {
+          throw new HttpError(409, "conflict", "memory 正在被其他管理员处理或版本已变化");
+        }
+        claimToken = claimed.review_claim_token;
+        expectedVersion = claimed.candidate.version;
+        claimedByThisRequest = true;
+      }
+      if (!claimToken) throw new HttpError(409, "conflict", "memory 审核领取已失效");
+      let approved;
+      try {
+        approved = await memory.governance.approveCandidate({
+          candidate_id: id,
+          reviewer_user_id: request.identity.userId,
+          expected_version: expectedVersion,
+          review_claim_token: claimToken,
+          ...(input.comment !== undefined ? { review_comment: input.comment } : {}),
+        });
+      } catch (error) {
+        if (claimedByThisRequest) {
+          await memory.governance.releaseCandidate({
+            candidate_id: id,
+            reviewer_user_id: request.identity.userId,
+            review_claim_token: claimToken,
+          }).catch(() => undefined);
+        }
+        throw error;
+      }
+      if (claimedByThisRequest && approved.outcome !== "published" && approved.outcome !== "archived") {
+        await memory.governance.releaseCandidate({
+          candidate_id: id,
+          reviewer_user_id: request.identity.userId,
+          review_claim_token: claimToken,
+        }).catch(() => undefined);
+      }
+      if (approved.outcome === "not_found") throw new HttpError(404, "not_found", "待审核 memory 不存在");
+      if (approved.outcome === "target_not_found") throw new HttpError(404, "not_found", "目标共享 memory 不存在或已归档");
+      if (approved.outcome !== "published" && approved.outcome !== "archived") {
+        throw new HttpError(409, "conflict", "memory 状态已变化，请刷新后重试");
+      }
+      return { success: true, data: approved.candidate };
+    }
     const candidate = request.container.conversationStore.getMemoryCandidate(id);
     if (!candidate || candidate.tenant_id !== request.identity.tenantId || candidate.status !== "candidate") {
       throw new HttpError(404, "not_found", "待审核 memory 不存在");
@@ -166,7 +346,58 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
   app.post<{ Params: { id: string } }>("/admin/candidates/:id/reject", async (request) => {
     requireTenantAdmin(request);
     const { id } = CandidateParamsSchema.parse(request.params);
-    const input = z.object({ comment: z.string().nullable().optional() }).parse(request.body ?? {});
+    const input = z.object({
+      comment: z.string().nullable().optional(),
+      expected_version: z.number().int().positive().optional(),
+      review_claim_token: z.string().min(1).optional(),
+    }).parse(request.body ?? {});
+    const memory = await resolveMemoryApplication(options, request);
+    if (memory) {
+      const expectedVersion = requireExpectedVersion(input.expected_version);
+      let claimToken = input.review_claim_token;
+      let claimedByThisRequest = false;
+      if (!claimToken) {
+        const claimed = await memory.governance.claimCandidate({
+          candidate_id: id,
+          reviewer_user_id: request.identity.userId,
+          expected_version: expectedVersion,
+        });
+        if (claimed.outcome === "not_found") throw new HttpError(404, "not_found", "待审核 memory 不存在");
+        if (claimed.outcome === "state_conflict") throw new HttpError(409, "conflict", "memory 正在被其他管理员处理或版本已变化");
+        if (claimed.outcome !== "claimed") {
+          throw new HttpError(409, "conflict", "memory 正在被其他管理员处理或版本已变化");
+        }
+        claimToken = claimed.review_claim_token;
+        claimedByThisRequest = true;
+      }
+      if (!claimToken) throw new HttpError(409, "conflict", "memory 审核领取已失效");
+      let rejected;
+      try {
+        rejected = await memory.governance.rejectCandidate({
+          candidate_id: id,
+          reviewer_user_id: request.identity.userId,
+          review_claim_token: claimToken,
+          ...(input.comment !== undefined ? { review_comment: input.comment } : {}),
+        });
+      } catch (error) {
+        if (claimedByThisRequest) {
+          await memory.governance.releaseCandidate({
+            candidate_id: id,
+            reviewer_user_id: request.identity.userId,
+            review_claim_token: claimToken,
+          }).catch(() => undefined);
+        }
+        throw error;
+      }
+      if (claimedByThisRequest && rejected.outcome !== "applied") {
+        await memory.governance.releaseCandidate({
+          candidate_id: id,
+          reviewer_user_id: request.identity.userId,
+          review_claim_token: claimToken,
+        }).catch(() => undefined);
+      }
+      return { success: true, data: mutationResult(rejected, "待审核 memory 不存在") };
+    }
     const candidate = request.container.conversationStore.getMemoryCandidate(id);
     if (!candidate || candidate.tenant_id !== request.identity.tenantId || candidate.status !== "candidate") {
       throw new HttpError(404, "not_found", "待审核 memory 不存在");
