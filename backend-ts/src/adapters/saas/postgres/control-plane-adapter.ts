@@ -452,9 +452,6 @@ export async function createPostgresControlPlaneAdapter(
   }
 }
 
-/** Primary composition factory; the Adapter suffix remains as a compatibility alias. */
-export const createPostgresControlPlane = createPostgresControlPlaneAdapter;
-
 const TENANT_SELECT = "SELECT id, display_name, created_at, status FROM control_tenants";
 const USER_COLUMNS = "id, display_name, created_at, username, platform_role, status, type, owner_id";
 const USER_SELECT = `SELECT ${USER_COLUMNS} FROM control_users`;
