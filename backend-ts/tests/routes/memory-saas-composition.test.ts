@@ -37,7 +37,6 @@ describe("SaaS memory application composition", () => {
         tenantsRoot: `${root}/tenants`,
       },
       saasMemoryRuntime: handle,
-      tenantMigrator: { migrate: () => ({ status: "skipped", reason: "no_legacy_data", directories: [] }) },
     });
     await app.ready();
     try {
@@ -74,7 +73,6 @@ describe("SaaS memory application composition", () => {
         tenantsRoot: `${root}/tenants`,
       },
       saasMemoryRuntime: handle,
-      tenantMigrator: { migrate: () => ({ status: "skipped", reason: "no_legacy_data", directories: [] }) },
     });
     await app.ready();
     try {

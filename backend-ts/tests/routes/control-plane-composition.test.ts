@@ -36,7 +36,6 @@ describe("Control Plane composition", () => {
       env: { ...testEnv, dataRoot: root, systemRoot: path.join(root, "system"), tenantsRoot: path.join(root, "tenants") },
       controlStore,
       controlPlane,
-      tenantMigrator: { migrate: () => ({ status: "skipped", reason: "no_legacy_data", directories: [] }) },
     });
     await app.ready();
     await expect(app.close()).resolves.toBeUndefined();

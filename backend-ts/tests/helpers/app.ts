@@ -104,7 +104,6 @@ export async function buildTestHarness(
     controlStore,
     controlPlane,
     ...(identityProvider ? { identityProvider } : {}),
-    tenantMigrator: { migrate: () => ({ status: "skipped", reason: "no_legacy_data", directories: [] }) },
     widgetCredentialStore,
     ...(options.saasMemoryRuntime ? { saasMemoryRuntime: options.saasMemoryRuntime } : {}),
     ...(options.resolveMemoryApplication ? { resolveMemoryApplication: options.resolveMemoryApplication } : {}),

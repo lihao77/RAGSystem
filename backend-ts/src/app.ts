@@ -31,7 +31,6 @@ import { createSessionTokenService, type SessionTokenService } from "./services/
 import { createWsTicketService, type WsTicketService } from "./services/runtime/ws-ticket-service.js";
 import { AuthError, LocalIdentityProvider, PasswordIdentityProvider, WidgetIdentityProvider, type IdentityProvider } from "./services/identity/index.js";
 import { DefaultTenantRuntimeRegistry, type TenantRuntimeRegistry } from "./services/runtime/tenant-runtime-registry.js";
-import { createTenantMigrator, type TenantMigrator } from "./services/runtime/tenant-migrator.js";
 import { DaemonService, type DaemonSuspendedInteraction } from "./services/daemon/daemon-service.js";
 import { createSaaSMemoryApplicationResolver } from "./app/saas-memory-resolver.js";
 import type { RouteOptions } from "./routes/route-options.js";
@@ -47,7 +46,6 @@ export interface BuildAppOptions {
   controlPlane?: ControlPlane;
   controlRuntime?: SaaSControlRuntimeHandle;
   identityProvider?: IdentityProvider;
-  tenantMigrator?: Pick<TenantMigrator, "migrate">;
   botRepository?: BotRepository;
   widgetCredentialStore?: WidgetCredentialStore;
   widgetCredentials?: WidgetCredentialRepository;
@@ -86,7 +84,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const controlStore = options.controlStore ?? (options.controlRuntime ? undefined : createControlStore(options.env.systemRoot));
   const controlPlane = options.controlRuntime?.controlPlane ?? options.controlPlane ?? new SqliteControlPlaneAdapter(controlStore!);
   const botRepository = options.controlRuntime?.botRepository ?? options.botRepository ?? new SqliteBotRepository(controlStore!);
-  if (!options.controlRuntime) (options.tenantMigrator ?? createTenantMigrator(options.env)).migrate();
   const initialProfile = resolveProfileFromSettings(await controlPlane.settings.getAll(), options.env);
   const initialSessionTokens = options.sessionTokens ?? createSessionTokens(initialProfile.auth, options.env, controlPlane);
   const runtime: AuthRuntime = {
