@@ -17,12 +17,15 @@ import {
   runPostgresPendingInteractionMigrations,
   runPostgresArtifactMigrations,
   runPostgresProviderMcpMigrations,
+  runPostgresVectorIndexMigrations,
+  PostgresKnowledgeVectorIndexRepository,
   runPostgresRunMigrations,
 } from "../../adapters/saas/postgres/index.js";
 import type { ObjectStorage } from "../../contracts/object-storage.js";
 import { SaaSArtifactService } from "../artifacts/saas-artifact-service.js";
 import { SaaSKnowledgeFileStorage } from "../../adapters/saas/object-storage/knowledge-file-storage.js";
 import type { AsyncKnowledgeFileStore } from "../../contracts/knowledge/async-knowledge-file-store.js";
+import { SaaSProviderMcpApplication } from "./saas-provider-mcp-application.js";
 
 export interface SaaSConversationRuntimeOptions {
   connectionString: string;
@@ -46,7 +49,9 @@ export interface SaaSConversationRuntimeHandle {
   createArtifactService(tenantId: string): SaaSArtifactService;
   /** Tenant-bound asynchronous knowledge metadata/blob facade. */
   createKnowledgeFileStorage(tenantId: string): AsyncKnowledgeFileStore;
+  vectorIndex: PostgresKnowledgeVectorIndexRepository;
   providerMcp: PostgresProviderMcpRepository;
+  providerMcpApplication: SaaSProviderMcpApplication;
   close(): Promise<void>;
 }
 
@@ -67,6 +72,7 @@ export async function createSaaSConversationRuntime(
       await runPostgresPendingInteractionMigrations(executor);
       await runPostgresArtifactMigrations(executor);
       await runPostgresProviderMcpMigrations(executor);
+      await runPostgresVectorIndexMigrations(executor);
     }
     const conversation = new PostgresConversationRepository(executor);
     const runs = new PostgresRunRepository(executor);
@@ -76,6 +82,7 @@ export async function createSaaSConversationRuntime(
     const pendingInteractions = new PostgresPendingInteractionRepository(executor);
     const artifacts = new PostgresArtifactMetadataRepository(executor);
     const providerMcp = new PostgresProviderMcpRepository(executor, options.secretResolver);
+    const vectorIndex = new PostgresKnowledgeVectorIndexRepository(executor);
     let closePromise: Promise<void> | null = null;
     return {
       conversation,
@@ -94,6 +101,8 @@ export async function createSaaSConversationRuntime(
         return new SaaSKnowledgeFileStorage(tenantId, knowledgeFiles, options.objectStorage);
       },
       providerMcp,
+      providerMcpApplication: new SaaSProviderMcpApplication(providerMcp),
+      vectorIndex,
       close: () => {
         closePromise ??= ownsPool ? pool.end() : Promise.resolve();
         return closePromise;
