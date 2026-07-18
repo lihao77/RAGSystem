@@ -254,7 +254,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       return;
     }
 
-    app.log.error({ error }, "unhandled request error");
+    app.log.error({ err: error }, "unhandled request error");
     reply.code(500).send({
       success: false,
       message: "internal server error",

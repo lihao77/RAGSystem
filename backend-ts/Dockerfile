@@ -8,7 +8,9 @@ RUN npm ci \
     && npm -w @ragsystem/agent-sdk run build \
     && npm -w @ragsystem/backend-ts run build \
     && npm prune --omit=dev \
-    && mkdir -p backend-ts/node_modules
+    && mkdir -p backend-ts/node_modules \
+    && cd backend-ts \
+    && node -e "import('sqlite-vec').then(({ getLoadablePath }) => getLoadablePath())"
 
 FROM node:24-bookworm-slim AS runtime
 
