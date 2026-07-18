@@ -22,6 +22,7 @@ export interface AsyncPersisterRunContext {
   parentCallId?: string | null;
   childAgentId?: string | null;
   messageMetadata?: Record<string, unknown> | null;
+  initialUserMessage?: { id: string; content: string; metadata?: Record<string, unknown> | null };
 }
 
 export interface AsyncFinalMessageInput { id?: string; content: string; metadata?: Record<string, unknown> }
@@ -38,6 +39,16 @@ export class AsyncKernelEventPersister {
 
   async startRun(): Promise<void> {
     await this.conversation.createSession(this.ctxTenant(), this.ctx.sessionId, this.ctx.userId ?? null);
+    if (this.ctx.initialUserMessage && !await this.conversation.getMessageById(this.ctx.sessionId, this.ctx.initialUserMessage.id)) {
+      await this.conversation.addMessage({
+        messageId: this.ctx.initialUserMessage.id,
+        sessionId: this.ctx.sessionId,
+        role: "user",
+        content: this.ctx.initialUserMessage.content,
+        threadKey: this.ctx.threadKey,
+        metadata: this.ctx.initialUserMessage.metadata ?? {},
+      });
+    }
     await this.runs.createRun({
       runId: this.ctx.runId, sessionId: this.ctx.sessionId, status: "running", agentName: this.ctx.agentName,
       threadKey: this.ctx.threadKey, ...(this.ctx.executionKind ? { entrypoint: this.ctx.executionKind } : {}),

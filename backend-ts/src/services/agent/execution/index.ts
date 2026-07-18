@@ -38,6 +38,7 @@ import type { MemoryConfig } from "../../../contracts/system-config.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../sdk/async-event-persister.js";
 import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
+import type { AsyncConversationRepository } from "../../../adapters/saas/postgres/conversation-repository.js";
 import {
   createLaunchers,
   type RollbackRetryInput,
@@ -107,6 +108,7 @@ export interface AgentExecutionServiceParams {
   compressionService?: AgentCompressionService;
   /** SaaS async run/message persister factory; Local leaves this unset. */
   asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
+  asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages">;
   asyncClientEvents?: AsyncDurableClientEventPublisher;
 }
 
@@ -164,6 +166,7 @@ export function createAgentExecutionService(
     params.metricsCollector ?? null,
     params.compressionService ?? null,
     params.asyncEventPersisterFactory ?? null,
+    params.asyncConversationHistory ?? null,
     params.asyncClientEvents ?? null,
   );
   const launchers = createLaunchers({

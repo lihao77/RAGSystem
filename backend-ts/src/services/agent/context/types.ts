@@ -9,7 +9,7 @@ import type { MessageInfo } from "../../../contracts/session.js";
 
 /** 历史读取端口(委托 conversationStore.listMessages)。 */
 export interface ConversationHistoryPort {
-  getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): MessageInfo[];
+  getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): MessageInfo[] | Promise<MessageInfo[]>;
   /** Private lookup; omitted by read-only projections that must not expose provider state. */
   getProviderContinuation?(sessionId: string, messageId: string): { state: ProviderContinuationState } | null;
 }

@@ -149,6 +149,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
                 options.saasConversationRuntime!.runs,
                 context,
               ),
+              asyncConversationHistory: options.saasConversationRuntime!.conversation,
               asyncClientEventsFactory: (realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }) => new AsyncDurableClientEventPublisher(
                 options.saasConversationRuntime!.outbox,
                 new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents as ConstructorParameters<typeof AsyncOutboxDispatcher>[1]),
@@ -163,6 +164,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               options.saasConversationRuntime!.runs,
               context,
             ),
+            asyncConversationHistory: options.saasConversationRuntime!.conversation,
             asyncClientEventsFactory: (realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }) => new AsyncDurableClientEventPublisher(
               options.saasConversationRuntime!.outbox,
               new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents as ConstructorParameters<typeof AsyncOutboxDispatcher>[1]),

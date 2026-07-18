@@ -21,4 +21,38 @@ describe("AsyncKernelEventPersister", () => {
     await persister.finalize("completed", { content: "answer" });
     expect(await persister.resolveFinalMessage()).toMatchObject({ content: "answer" });
   });
+
+  it("mirrors the initial user turn once for future SaaS context reads", async () => {
+    const messages = new Map<string, { id: string; seq: number; content: string }>();
+    let addCount = 0;
+    const conversation = {
+      createSession: async () => undefined,
+      addMessage: async (input: { messageId?: string; content: string }) => {
+        addCount += 1;
+        const value = { id: input.messageId ?? `m-${messages.size + 1}`, seq: messages.size + 1, content: input.content };
+        messages.set(value.id, value);
+        return value;
+      },
+      getMessageById: async (_session: string, id: string) => messages.get(id) ?? null,
+    } as never;
+    const runStore = {
+      createRun: async (input: { runId: string }) => ({ run_id: input.runId }),
+      updateRunStatus: async () => true,
+      getRun: async () => null,
+    } as never;
+    const context = {
+      tenantId: LOCAL_TENANT_ID,
+      sessionId: "s",
+      runId: "r",
+      threadKey: "root",
+      agentName: "a",
+      initialUserMessage: { id: "user-1", content: "question" },
+    };
+
+    await new AsyncKernelEventPersister(conversation, runStore, context).startRun();
+    await new AsyncKernelEventPersister(conversation, runStore, context).startRun();
+
+    expect(messages.get("user-1")).toMatchObject({ content: "question" });
+    expect(addCount).toBe(1);
+  });
 });

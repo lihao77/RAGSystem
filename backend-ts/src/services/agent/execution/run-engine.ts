@@ -24,6 +24,7 @@ import type { AgentCompressionService } from "../context-compression/compression
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../sdk/async-event-persister.js";
 import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
+import type { AsyncConversationRepository } from "../../../adapters/saas/postgres/conversation-repository.js";
 import type { IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
@@ -78,6 +79,7 @@ export class AgentRunEngine {
     private readonly metricsCollector: AgentMetricsCollector | null = null,
     private readonly compressionService: AgentCompressionService | null = null,
     private readonly asyncEventPersisterFactory: ((context: AsyncPersisterRunContext) => AsyncKernelEventPersister) | null = null,
+    private readonly asyncConversationHistory: Pick<AsyncConversationRepository, "getRecentMessages"> | null = null,
     private readonly asyncClientEvents: AsyncDurableClientEventPublisher | null = null,
   ) {}
 
@@ -358,6 +360,7 @@ export class AgentRunEngine {
        {
           ...(this.asyncEventPersisterFactory ? { tenantId: this.tenantId } : {}),
           ...(this.asyncEventPersisterFactory ? { asyncEventPersisterFactory: this.asyncEventPersisterFactory } : {}),
+          ...(this.asyncConversationHistory ? { asyncConversationHistory: this.asyncConversationHistory } : {}),
           ...(this.asyncClientEvents ? { asyncClientEvents: this.asyncClientEvents } : {}),
           // run-engine 的 conversationStore 实际是完整 ConversationStore（构造时传入窄类型）。
           conversationStore: this.conversationStore as unknown as ConversationStore,
@@ -394,7 +397,8 @@ export class AgentRunEngine {
          sessionMetadata,
           ...(input.executionKind !== undefined ? { executionKind } : {}),
           ...(input.rootTask !== undefined ? { rootTask: input.rootTask } : {}),
-          ...(input.userId !== undefined ? { userId: input.userId } : {}),
+         ...(input.userId !== undefined ? { userId: input.userId } : {}),
+         ...(input.userMessageId ? { userMessageId: input.userMessageId } : {}),
         signal: input.abortController.signal,
          selectedLlm: input.selectedLlm ?? null,
          // 最终 assistant 消息的调用点元数据：execution_kind + finalMetadataExtra（retry_of_* 等）。

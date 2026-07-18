@@ -43,6 +43,7 @@ import type { RealtimeEventHub } from "./realtime-event-hub.js";
 import type { SessionNotificationQueue } from "./session-notification-queue.js";
 import type { AsyncDurableClientEventPublisher } from "./event-outbox/async-client-event-publisher.js";
 import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../agent/sdk/async-event-persister.js";
+import type { AsyncConversationRepository } from "../../adapters/saas/postgres/conversation-repository.js";
 
 export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = MemoryStore> {
   readonly conversationStore: ConversationStore;
@@ -99,6 +100,7 @@ export interface LocalRuntimeContainerOptions {
   embedderFactory?: KnowledgeBaseEmbedderFactory | undefined;
   memoryBindingsFactory?: MemoryRuntimeBindingsFactory | undefined;
   asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
+  asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages">;
   asyncClientEventsFactory?: (realtimeEvents: RealtimeEventHub) => AsyncDurableClientEventPublisher;
 }
 
@@ -129,6 +131,7 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   logger?: AgentExecutionLogger | undefined;
   hooks?: ((registry: HookRegistry) => void) | undefined;
   asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
+  asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages">;
   asyncClientEvents?: AsyncDurableClientEventPublisher;
   conversationStore: ConversationStore;
   sessionApplication: AgentSessionApplication;

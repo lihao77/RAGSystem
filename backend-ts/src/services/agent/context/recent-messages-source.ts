@@ -33,7 +33,7 @@ export class RecentMessagesContextSource implements AgentContextSource {
   ) {}
 
   async build(request: ResolvedAgentContextRequest): Promise<AgentContextContribution> {
-    const messages = this.history.getRecentMessages(request.sessionId, HISTORY_SCAN_LIMIT, request.threadKey);
+    const messages = await this.history.getRecentMessages(request.sessionId, HISTORY_SCAN_LIMIT, request.threadKey);
     const filteredMessages = filterHistoryMessages(messages);
     const compressionView = resolveCompressionViewDetailed(filteredMessages);
     const historyMessages = compressionView.messages;

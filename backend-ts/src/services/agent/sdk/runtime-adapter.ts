@@ -36,11 +36,14 @@ import { PathApprovalService } from "../../../services/runtime/path-service.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService, DelegationResolution } from "../../runtime/delegation-pending-service.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
+import type { AsyncConversationRepository } from "../../../adapters/saas/postgres/conversation-repository.js";
 
 export interface SdkRuntimeAdapterDeps {
   tenantId?: AsyncPersisterRunContext["tenantId"];
   /** SaaS async persistence boundary; omitted for the Local synchronous store. */
   asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
+  /** SaaS history read boundary; omitted for Local so its synchronous store remains authoritative. */
+  asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages">;
   conversationStore: ConversationStore;
   /** 工具依赖集合（service + getAgentDelegation；agent/teamName 由 per-run 提供）。 */
   toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName">;
@@ -98,6 +101,7 @@ export interface SdkExecuteRunInput {
    * 投影点把 execution_kind / retry_of_* 等调用点元数据在这里打好（无值不影响默认）。
    */
   messageMetadata?: Record<string, unknown> | null;
+  userMessageId?: string;
   onInteractionRequired?: ((notice: InteractionRequiredNotice) => void) | undefined;
 }
 
@@ -212,7 +216,9 @@ export async function executeRunWithSdk(
   // memory source 读 session metadata（team/workspace scope 解析）。
   const historyPort: ConversationHistoryPort & SessionMetadataPort & Pick<ConversationStore, "listMemoryCandidates"> = {
     getRecentMessages: (sid: string, limit: number | undefined, tk: string | null | undefined) =>
-      deps.conversationStore.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
+      deps.asyncConversationHistory
+        ? deps.asyncConversationHistory.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root")
+        : deps.conversationStore.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
     getProviderContinuation: (sid: string, messageId: string) =>
       deps.conversationStore.getProviderContinuation(sid, messageId),
     getSession: (sid: string) => sessionMetadata.getSession(sid),
@@ -239,7 +245,9 @@ export async function executeRunWithSdk(
     refresh: async (ctx) => {
       const sid = ctx.session.sessionId;
       const tk = ctx.session.threadKey;
-      const recent = deps.conversationStore.getRecentMessages(sid, HISTORY_SCAN_LIMIT, tk);
+      const recent = deps.asyncConversationHistory
+        ? await deps.asyncConversationHistory.getRecentMessages(sid, HISTORY_SCAN_LIMIT, tk)
+        : deps.conversationStore.getRecentMessages(sid, HISTORY_SCAN_LIMIT, tk);
       const newer = recent
         .filter((m) => typeof m.seq === "number" && m.seq > lastSeq && m.role === "user")
         .sort((a, b) => (a.seq as number) - (b.seq as number));
@@ -358,6 +366,19 @@ export async function executeRunWithSdk(
       ...(input.parentCallId !== undefined ? { parentCallId: input.parentCallId } : {}),
       ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
       ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
+      ...(input.userMessageId ? {
+        initialUserMessage: {
+          id: input.userMessageId,
+          content: input.task,
+          metadata: {
+            agent_name: input.agent.agent_name,
+            run_id: input.runId,
+            task_id: input.taskId,
+            request_id: input.requestId,
+            execution_kind: input.executionKind ?? "agent_stream",
+          },
+        },
+      } : {}),
     })
     : new KernelEventPersister(deps.conversationStore, {
     sessionId: input.sessionId,

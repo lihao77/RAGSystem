@@ -140,6 +140,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     logger: options.logger,
     ...(options.hooks ? { hooks: options.hooks } : {}),
     ...(options.asyncEventPersisterFactory ? { asyncEventPersisterFactory: options.asyncEventPersisterFactory } : {}),
+    ...(options.asyncConversationHistory ? { asyncConversationHistory: options.asyncConversationHistory } : {}),
     ...(asyncClientEvents ? { asyncClientEvents } : {}),
     conversationStore,
     sessionApplication,
