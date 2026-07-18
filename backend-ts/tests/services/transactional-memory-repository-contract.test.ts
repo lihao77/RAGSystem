@@ -3,13 +3,22 @@ import { describe, expect, it } from "vitest";
 
 import type {
   ApprovePersistedMemoryCandidateInput,
+  ClaimPersistedMemoryCandidateInput,
   CreatePersistedMemoryCandidateInput,
   MemoryPartition,
   PersistedMemoryCandidate,
   PersistedMemoryCandidateApprovalResult,
+  PersistedMemoryCandidateClaimResult,
+  PersistedMemoryCandidateCountOptions,
+  PersistedMemoryCandidateListOptions,
+  PersistedMemoryCandidateMutationResult,
   PersistedMemoryEntry,
   PersistedMemoryListOptions,
+  RejectPersistedMemoryCandidateInput,
+  ReleasePersistedMemoryCandidateInput,
   TransactionalMemoryRepository,
+  UpdatePersistedMemoryCandidateInput,
+  WithdrawPersistedMemoryCandidateInput,
 } from "../../src/contracts/memory-store/index.js";
 import { MemoryPartitionSchema, PersistedMemoryStatusSchema } from "../../src/contracts/memory-store/index.js";
 
@@ -69,6 +78,85 @@ class InMemoryTransactionalMemoryRepository implements TransactionalMemoryReposi
   async getCandidate(tenantId: string, candidateId: string): Promise<PersistedMemoryCandidate | null> {
     const candidate = this.candidates.get(candidateId);
     return candidate?.tenant_id === tenantId ? candidate : null;
+  }
+
+  async listCandidates(options: PersistedMemoryCandidateListOptions): Promise<PersistedMemoryCandidate[]> {
+    const rows = [...this.candidates.values()].filter((candidate) =>
+      candidate.tenant_id === options.tenant_id
+      && (options.owner_user_id == null || candidate.owner_user_id === options.owner_user_id)
+      && (!options.statuses?.length || options.statuses.includes(candidate.status))
+      && (options.scope == null || candidate.scope === options.scope)
+      && (options.scope_id == null || candidate.scope_id === options.scope_id)
+      && (options.operation == null || candidate.operation === options.operation));
+    return rows.slice(options.offset ?? 0, (options.offset ?? 0) + (options.limit ?? rows.length));
+  }
+
+  async countCandidates(options: PersistedMemoryCandidateCountOptions): Promise<number> {
+    return (await this.listCandidates(options)).length;
+  }
+
+  private mutateCandidate(
+    tenantId: string,
+    candidateId: string,
+    update: (current: PersistedMemoryCandidate) => PersistedMemoryCandidate | null,
+  ): PersistedMemoryCandidateMutationResult {
+    const current = this.candidates.get(candidateId);
+    if (!current || current.tenant_id !== tenantId) return { outcome: "not_found" };
+    const next = update(current);
+    if (!next) return { outcome: "state_conflict" };
+    this.candidates.set(candidateId, next);
+    return { outcome: "applied", candidate: next };
+  }
+
+  async updateCandidate(input: UpdatePersistedMemoryCandidateInput): Promise<PersistedMemoryCandidateMutationResult> {
+    return this.mutateCandidate(input.tenant_id, input.candidate_id, (current) =>
+      current.owner_user_id === input.owner_user_id && current.status === "candidate"
+        && current.version === input.expected_version && !current.review_claim_token
+        ? { ...current, name: input.name ?? current.name, description: input.description ?? current.description,
+            content: input.content ?? current.content, why: input.why === undefined ? current.why : input.why,
+            how_to_apply: input.how_to_apply === undefined ? current.how_to_apply : input.how_to_apply,
+            version: current.version + 1, updated_at: new Date().toISOString() }
+        : null);
+  }
+
+  async withdrawCandidate(input: WithdrawPersistedMemoryCandidateInput): Promise<PersistedMemoryCandidateMutationResult> {
+    return this.mutateCandidate(input.tenant_id, input.candidate_id, (current) =>
+      current.owner_user_id === input.owner_user_id && current.status === "candidate"
+        && current.version === input.expected_version && !current.review_claim_token
+        ? { ...current, status: "withdrawn", version: current.version + 1, updated_at: new Date().toISOString() }
+        : null);
+  }
+
+  async claimCandidate(input: ClaimPersistedMemoryCandidateInput): Promise<PersistedMemoryCandidateClaimResult> {
+    const token = randomUUID();
+    const current = await this.getCandidate(input.tenant_id, input.candidate_id);
+    if (!current) return { outcome: "not_found" };
+    if (current.status !== "candidate" || current.version !== input.expected_version || current.review_claim_token) {
+      return { outcome: "state_conflict" };
+    }
+    const claimed = { ...current, reviewer_user_id: input.reviewer_user_id, review_claim_token: token,
+      review_claimed_at: new Date().toISOString(), version: current.version + 1, updated_at: new Date().toISOString() };
+    this.candidates.set(current.id, claimed);
+    return { outcome: "claimed", candidate: claimed, review_claim_token: token };
+  }
+
+  async releaseCandidate(input: ReleasePersistedMemoryCandidateInput): Promise<PersistedMemoryCandidateMutationResult> {
+    return this.mutateCandidate(input.tenant_id, input.candidate_id, (current) =>
+      current.status === "candidate" && current.reviewer_user_id === input.reviewer_user_id
+        && current.review_claim_token === input.review_claim_token
+        ? { ...current, reviewer_user_id: null, review_claim_token: null, review_claimed_at: null,
+            version: current.version + 1, updated_at: new Date().toISOString() }
+        : null);
+  }
+
+  async rejectCandidate(input: RejectPersistedMemoryCandidateInput): Promise<PersistedMemoryCandidateMutationResult> {
+    return this.mutateCandidate(input.tenant_id, input.candidate_id, (current) =>
+      current.status === "candidate" && current.reviewer_user_id === input.reviewer_user_id
+        && current.review_claim_token === input.review_claim_token
+        ? { ...current, status: "rejected", review_comment: input.review_comment ?? null,
+            review_claim_token: null, review_claimed_at: null, reviewed_at: new Date().toISOString(),
+            version: current.version + 1, updated_at: new Date().toISOString() }
+        : null);
   }
 
   async approveCandidate(input: ApprovePersistedMemoryCandidateInput): Promise<PersistedMemoryCandidateApprovalResult> {
@@ -162,5 +250,52 @@ describe("TransactionalMemoryRepository contract", () => {
     expect(await store.listEntries(partition("tenant-a"))).toHaveLength(0);
     expect((await store.listEntries(partition("tenant-a"), { include_archived: true }))[0]?.status).toBe("archived");
     expect(await store.getScopeRevision(partition("tenant-a"))).toBe(2);
+  });
+
+  it("lists and counts candidates within the requested tenant", async () => {
+    const store = new InMemoryTransactionalMemoryRepository();
+    await store.createCandidate(publishInput("tenant-a"));
+    await store.createCandidate(publishInput("tenant-b"));
+
+    expect(await store.countCandidates({ tenant_id: "tenant-a", statuses: ["candidate"] })).toBe(1);
+    expect(await store.listCandidates({ tenant_id: "tenant-b", owner_user_id: "owner-1" }))
+      .toHaveLength(1);
+  });
+
+  it("protects owner edits and withdrawal with an optimistic version", async () => {
+    const store = new InMemoryTransactionalMemoryRepository();
+    const created = await store.createCandidate(publishInput("tenant-a"));
+    const stale = await store.updateCandidate({ tenant_id: "tenant-a", candidate_id: created.id,
+      owner_user_id: "owner-1", expected_version: 2, content: "changed" });
+    expect(stale.outcome).toBe("state_conflict");
+
+    const updated = await store.updateCandidate({ tenant_id: "tenant-a", candidate_id: created.id,
+      owner_user_id: "owner-1", expected_version: 1, content: "changed" });
+    expect(updated.outcome).toBe("applied");
+    const withdrawn = await store.withdrawCandidate({ tenant_id: "tenant-a", candidate_id: created.id,
+      owner_user_id: "owner-1", expected_version: 2 });
+    expect(withdrawn.outcome).toBe("applied");
+    expect((await store.getCandidate("tenant-a", created.id))?.status).toBe("withdrawn");
+  });
+
+  it("requires the active claim token to release or reject a candidate", async () => {
+    const store = new InMemoryTransactionalMemoryRepository();
+    const created = await store.createCandidate(publishInput("tenant-a"));
+    const claimed = await store.claimCandidate({ tenant_id: "tenant-a", candidate_id: created.id,
+      reviewer_user_id: "reviewer-1", expected_version: 1 });
+    expect(claimed.outcome).toBe("claimed");
+    if (claimed.outcome !== "claimed") throw new Error("claim failed");
+
+    expect((await store.releaseCandidate({ tenant_id: "tenant-a", candidate_id: created.id,
+      reviewer_user_id: "reviewer-2", review_claim_token: claimed.review_claim_token })).outcome)
+      .toBe("state_conflict");
+    expect((await store.rejectCandidate({ tenant_id: "tenant-b", candidate_id: created.id,
+      reviewer_user_id: "reviewer-1", review_claim_token: claimed.review_claim_token })).outcome)
+      .toBe("not_found");
+    const rejected = await store.rejectCandidate({ tenant_id: "tenant-a", candidate_id: created.id,
+      reviewer_user_id: "reviewer-1", review_claim_token: claimed.review_claim_token,
+      review_comment: "not suitable" });
+    expect(rejected.outcome).toBe("applied");
+    expect(rejected.outcome === "applied" && rejected.candidate.status).toBe("rejected");
   });
 });

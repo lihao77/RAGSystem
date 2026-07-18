@@ -159,7 +159,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       listMemoryCandidates: (candidateQuery) => request.container.conversationStore.listMemoryCandidates(candidateQuery),
     };
     const snapshot = sessionId
-      ? previewBackendAgentContext(agent, profile, historyPort, registry, {
+      ? await previewBackendAgentContext(agent, profile, historyPort, registry, {
           memoryConfig: request.container.systemConfig.getMemoryConfig(),
           dataRoot: request.container.dataRoot,
           sessionId,

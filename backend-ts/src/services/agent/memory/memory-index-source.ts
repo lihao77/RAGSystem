@@ -68,7 +68,7 @@ export class MemoryIndexContextSource implements AgentContextSource {
     this.indexMaxChars = options.indexMaxChars ?? 25600;
   }
 
-  build(request: ResolvedAgentContextRequest): AgentContextContribution {
+  async build(request: ResolvedAgentContextRequest): Promise<AgentContextContribution> {
     const memory = this.memory;
     const scopeCapabilities = buildMemoryScopeCapabilities(memory);
     const memoryEnabled = Boolean(

@@ -54,7 +54,7 @@ export interface AgentContextContribution {
 
 export interface AgentContextSource {
   readonly name: string;
-  build(request: ResolvedAgentContextRequest): AgentContextContribution;
+  build(request: ResolvedAgentContextRequest): Promise<AgentContextContribution>;
 }
 
 export interface ResolvedAgentContextRequest {

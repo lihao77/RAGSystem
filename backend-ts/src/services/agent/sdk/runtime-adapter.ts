@@ -212,7 +212,7 @@ export async function executeRunWithSdk(
       sessionMetadata.updateSessionMetadata?.(sid, patch) ?? null,
     listMemoryCandidates: (query) => deps.conversationStore.listMemoryCandidates(query),
   };
-  const { built, contextBuilder, cacheTracker } = buildBackendAgentContext(input.agent, profile, historyPort, {
+  const { built, contextBuilder, cacheTracker } = await buildBackendAgentContext(input.agent, profile, historyPort, {
     memoryConfig: deps.memoryConfig,
     dataRoot: deps.dataRoot,
     sessionId: input.sessionId,
@@ -261,7 +261,7 @@ export async function executeRunWithSdk(
           // systemPromptTokens = buildFullSystemPrompt(base+tools) + memory prefix;budget = window×0.9 − 此值。
           const mode = resolveToolInstructionMode(profile.llmTiers.default?.provider);
           const systemPromptBase = buildFullSystemPrompt(profile, { tools: registry.listDefinitions() }, mode);
-          const tokenContext = contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true }, { touch: false });
+          const tokenContext = await contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true }, { touch: false });
           const memoryPrefix = tokenContext.conversation
             .filter((m) => m.role === "system")
             .map((m) => (typeof m.content === "string" ? m.content : ""))
@@ -283,7 +283,7 @@ export async function executeRunWithSdk(
             const baselineKey = memoryBaselineKey(input.threadKey, input.agent.agent_name);
             historyPort.updateSessionMetadata?.(input.sessionId, { memory_prefix_states: { [baselineKey]: null } });
             cacheTracker.invalidate(input.sessionId, input.threadKey);
-            const rebuilt = contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true }).conversation;
+            const rebuilt = (await contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true })).conversation;
             // 恢复首轮修复:replaceAll 从 store 重读会丢 SDK 工作副本里本轮(通用开始契约重执行)追加但 store 尚未落库的 tool observation。按 tool_call_id 回补配对,避免 assistant tool_use 无 tool_result(Anthropic 400 insufficient tool messages)。
             const rebuiltToolCallIds = new Set(rebuilt.filter((m) => m.role === "tool").map((m) => m.tool_call_id).filter((id): id is string => Boolean(id)));
             const lostObservations = hookInput.ctx.messages.filter(

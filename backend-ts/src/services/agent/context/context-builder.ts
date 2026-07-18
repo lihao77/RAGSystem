@@ -24,7 +24,7 @@ export class AgentContextBuilder {
     private readonly cacheTracker?: ProviderCacheTracker,
   ) {}
 
-  buildContext(request: AgentContextRequest, options?: { touch?: boolean }): AgentContext {
+  async buildContext(request: AgentContextRequest, options?: { touch?: boolean }): Promise<AgentContext> {
     const touch = options?.touch ?? true;
     const now = Date.now() / 1000;
     const threadKey = request.threadKey?.trim() || DEFAULT_THREAD_KEY;
@@ -34,7 +34,7 @@ export class AgentContextBuilder {
     const rawMessages: (MessageInfo | null)[] = [];
     const sourceMetadata: AgentContext["metadata"]["sources"] = [];
     for (const source of this.sources) {
-      const contribution = source.build(resolved);
+      const contribution = await source.build(resolved);
       const messages = contribution.conversation ?? [];
       conversation.push(...messages);
       if (contribution.rawMessages) {

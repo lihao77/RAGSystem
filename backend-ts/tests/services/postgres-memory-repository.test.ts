@@ -42,4 +42,67 @@ describe("PostgresMemoryRepository", () => {
     expect(result.outcome).toBe("published");
     expect(result.outcome === "published" && result.scope_revision).toBe(1);
   });
+
+  it("keeps candidate listing and counting tenant scoped", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
+    const executor: PostgresMemoryExecutor = {
+      async query<Row extends Record<string, unknown>>(sql: string, params?: readonly unknown[]) {
+        calls.push({ sql, params });
+        return { rows: (sql.startsWith("SELECT COUNT") ? [{ total: "3" }] : [candidateRow]) as unknown as Row[] };
+      },
+      async transaction<T>(fn: (executor: PostgresMemoryExecutor) => Promise<T>) { return fn(this); },
+    };
+    const repository = new PostgresMemoryRepository(executor);
+    expect(await repository.listCandidates({ tenant_id: "tenant-a", statuses: ["candidate"], limit: 20 }))
+      .toHaveLength(1);
+    expect(await repository.countCandidates({ tenant_id: "tenant-a", scope: "team" })).toBe(3);
+    expect(calls.every((call) => call.sql.includes("tenant_id = $1") && call.params?.[0] === "tenant-a"))
+      .toBe(true);
+  });
+
+  it("uses versions for mutation and a token for the review claim", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
+    const executor: PostgresMemoryExecutor = {
+      async query<Row extends Record<string, unknown>>(sql: string, params?: readonly unknown[]) {
+        calls.push({ sql, params });
+        if (sql.includes("SET reviewer_user_id = $1, review_claim_token")) {
+          return { rows: [{ ...candidateRow, reviewer_user_id: params?.[0], review_claim_token: params?.[1], review_claimed_at: dates.updated_at, version: 2 } as unknown as Row] };
+        }
+        if (sql.includes("SET status = 'rejected'")) {
+          return { rows: [{ ...candidateRow, status: "rejected", reviewer_user_id: "admin", review_claim_token: null, version: 3 } as unknown as Row] };
+        }
+        return { rows: [] };
+      },
+      async transaction<T>(fn: (executor: PostgresMemoryExecutor) => Promise<T>) { return fn(this); },
+    };
+    const repository = new PostgresMemoryRepository(executor);
+    const claimed = await repository.claimCandidate({ tenant_id: "t1", candidate_id: "c1",
+      reviewer_user_id: "admin", expected_version: 1 });
+    expect(claimed.outcome).toBe("claimed");
+    if (claimed.outcome !== "claimed") throw new Error("claim failed");
+    const rejected = await repository.rejectCandidate({ tenant_id: "t1", candidate_id: "c1",
+      reviewer_user_id: "admin", review_claim_token: claimed.review_claim_token });
+    expect(rejected.outcome).toBe("applied");
+    expect(calls[0]?.sql).toContain("version = $5");
+    expect(calls[1]?.sql).toContain("review_claim_token = $5");
+    expect(calls[1]?.params?.[4]).toBe(claimed.review_claim_token);
+  });
+
+  it("does not publish a claimed candidate without its claim token", async () => {
+    const calls: string[] = [];
+    const executor: PostgresMemoryExecutor = {
+      async query<Row extends Record<string, unknown>>(sql: string) {
+        calls.push(sql);
+        return { rows: (sql.includes("FOR UPDATE")
+          ? [{ ...candidateRow, reviewer_user_id: "admin", review_claim_token: "claim-1", version: 2 }]
+          : []) as unknown as Row[] };
+      },
+      async transaction<T>(fn: (executor: PostgresMemoryExecutor) => Promise<T>) { return fn(this); },
+    };
+    const repository = new PostgresMemoryRepository(executor);
+    const result = await repository.approveCandidate({ tenant_id: "t1", candidate_id: "c1",
+      reviewer_user_id: "admin", expected_version: 2 });
+    expect(result.outcome).toBe("state_conflict");
+    expect(calls.some((sql) => sql.startsWith("INSERT INTO memory_entries"))).toBe(false);
+  });
 });

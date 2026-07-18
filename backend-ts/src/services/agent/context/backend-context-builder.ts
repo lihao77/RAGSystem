@@ -21,7 +21,7 @@ export interface BuildBackendAgentContextOptions {
   touch?: boolean;
 }
 
-export function buildBackendAgentContext(
+export async function buildBackendAgentContext(
   agent: AgentConfig,
   profile: AgentProfile,
   historyPort: ConversationHistoryPort & SessionMetadataPort,
@@ -52,8 +52,8 @@ export function buildBackendAgentContext(
     microcompact: true,
   };
   const built = options.touch === undefined
-    ? contextBuilder.buildContext(request)
-    : contextBuilder.buildContext(request, { touch: options.touch });
+    ? await contextBuilder.buildContext(request)
+    : await contextBuilder.buildContext(request, { touch: options.touch });
 
   return { built, contextBuilder, memorySources, recentSource, cacheTracker };
 }

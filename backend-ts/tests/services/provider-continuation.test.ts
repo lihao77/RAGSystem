@@ -38,7 +38,7 @@ describe("provider continuation persistence", () => {
     store.close();
   });
 
-  it("restores state only when its assistant tool call is the active history tail", () => {
+  it("restores state only when its assistant tool call is the active history tail", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     store.addMessage({ sessionId: "s1", role: "user", content: "search", threadKey: "root" });
     const assistant = store.addMessage({
@@ -57,11 +57,11 @@ describe("provider continuation persistence", () => {
       state: continuation,
     });
     const source = new RecentMessagesContextSource(store, false, new ProjectionRegistry());
-    const pending = source.build(request());
+    const pending = await source.build(request());
     expect(pending.conversation?.[1]?.provider_continuation).toEqual(continuation);
 
     store.addMessage({ sessionId: "s1", role: "user", content: "new task", threadKey: "root" });
-    const newTurn = source.build(request());
+    const newTurn = await source.build(request());
     expect(newTurn.conversation?.some((message) => message.provider_continuation !== undefined)).toBe(false);
     store.close();
   });

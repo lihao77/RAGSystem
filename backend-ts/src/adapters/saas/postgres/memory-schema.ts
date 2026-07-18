@@ -85,6 +85,21 @@ export const POSTGRES_MEMORY_MIGRATIONS: readonly MemoryMigration[] = [
       );
     `,
   },
+  {
+    version: 3,
+    name: "memory-candidate-review-claims",
+    sql: `
+      ALTER TABLE memory_candidates
+        ADD COLUMN IF NOT EXISTS review_claim_token TEXT,
+        ADD COLUMN IF NOT EXISTS review_claimed_at TIMESTAMPTZ;
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_memory_candidates_review_claim_token
+        ON memory_candidates (tenant_id, review_claim_token)
+        WHERE review_claim_token IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS ix_memory_candidates_review_claim
+        ON memory_candidates (tenant_id, status, review_claimed_at)
+        WHERE status = 'candidate';
+    `,
+  },
 ];
 
 export const SAAS_MEMORY_MIGRATIONS = POSTGRES_MEMORY_MIGRATIONS;

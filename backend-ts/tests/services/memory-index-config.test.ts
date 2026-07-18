@@ -8,7 +8,7 @@ import {
 import type { IMemoryStore } from "../../src/contracts/memory-store/index.js";
 
 describe("memory index system config assembly", () => {
-  it("passes configured index limits through to loadIndexHead", () => {
+  it("passes configured index limits through to loadIndexHead", async () => {
     const systemConfig = new SystemConfigService({ configPath: "" });
     systemConfig.updateConfig({ memory: { index_max_lines: 50, index_max_chars: 6400 } });
     const loadIndexHead = vi.fn(() => "# Session Memory");
@@ -20,7 +20,7 @@ describe("memory index system config assembly", () => {
       { ...buildMemoryIndexContextSourceOptions(systemConfig.getMemoryConfig(), "."), memoryStore },
     );
 
-    source.build({
+    await source.build({
       sessionId: "session",
       threadKey: "root",
       microcompact: false,
@@ -35,7 +35,7 @@ describe("memory index system config assembly", () => {
     );
   });
 
-  it("injects only the current user's private team candidates", () => {
+  it("injects only the current user's private team candidates", async () => {
     const source = new MemoryIndexContextSource(
       {
         getSession: () => ({ metadata: { team: "default" }, user_id: "usr_alice" }),
@@ -75,7 +75,7 @@ describe("memory index system config assembly", () => {
       { memoryStore: { loadIndexHead: () => "" } as unknown as IMemoryStore },
     );
 
-    const result = source.build({
+    const result = await source.build({
       sessionId: "session",
       threadKey: "root",
       microcompact: false,
@@ -91,7 +91,7 @@ describe("memory index system config assembly", () => {
     expect(fingerprint.private_candidate_revision).toMatch(/^[a-f0-9]{24}$/);
   });
 
-  it("prioritizes agent candidates over team candidates within the shared character budget", () => {
+  it("prioritizes agent candidates over team candidates within the shared character budget", async () => {
     const records = (scope: "team" | "agent") => [{
       id: scope,
       tenant_id: "tnt_alpha",
@@ -119,11 +119,11 @@ describe("memory index system config assembly", () => {
       "agent",
       { memoryStore: { loadIndexHead: () => "" } as unknown as IMemoryStore },
     );
-    const result = source.build({ sessionId: "s1", threadKey: "root", microcompact: false, microcompactKeepRecentTools: 5, cacheAlive: false, touch: false });
+    const result = await source.build({ sessionId: "s1", threadKey: "root", microcompact: false, microcompactKeepRecentTools: 5, cacheAlive: false, touch: false });
     expect(result.conversation?.[0]?.content).toContain("agent-specific-content");
   });
 
-  it("rebuilds an active provider-cache snapshot when the scope revision changes", () => {
+  it("rebuilds an active provider-cache snapshot when the scope revision changes", async () => {
     let metadata: Record<string, unknown> = {};
     let revision = 1;
     let index = "first index";
@@ -145,10 +145,10 @@ describe("memory index system config assembly", () => {
     );
     const request = { sessionId: "session", threadKey: "root", microcompact: false, microcompactKeepRecentTools: 5, cacheAlive: true, touch: false };
 
-    const first = source.build(request);
+    const first = await source.build(request);
     index = "second index";
     revision = 2;
-    const second = source.build(request);
+    const second = await source.build(request);
 
     expect(first.conversation?.[0]?.content).toContain("first index");
     expect(second.conversation?.[0]?.content).toContain("second index");
@@ -158,7 +158,7 @@ describe("memory index system config assembly", () => {
     ]);
   });
 
-  it("preserves active provider-cache reuse when no scope revision reader is configured", () => {
+  it("preserves active provider-cache reuse when no scope revision reader is configured", async () => {
     let metadata: Record<string, unknown> = {};
     let index = "first index";
     const loadIndexHead = vi.fn(() => index);
@@ -176,9 +176,9 @@ describe("memory index system config assembly", () => {
     );
     const request = { sessionId: "session", threadKey: "root", microcompact: false, microcompactKeepRecentTools: 5, cacheAlive: true, touch: false };
 
-    const first = source.build(request);
+    const first = await source.build(request);
     index = "second index";
-    const second = source.build(request);
+    const second = await source.build(request);
 
     expect(first.conversation?.[0]?.content).toContain("first index");
     expect(second.conversation?.[0]?.content).toContain("first index");

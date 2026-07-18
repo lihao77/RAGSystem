@@ -9,9 +9,17 @@ import {
 
 describe("PostgreSQL memory schema", () => {
   it("has immutable contiguous migrations", () => {
-    expect(POSTGRES_MEMORY_MIGRATIONS.map((migration) => migration.version)).toEqual([1, 2]);
-    expect(POSTGRES_MEMORY_LATEST_SCHEMA_VERSION).toBe(2);
-    expect(getPendingPostgresMemoryMigrations(1).map((migration) => migration.name)).toEqual(["memory-candidates"]);
+    expect(POSTGRES_MEMORY_MIGRATIONS.map((migration) => migration.version)).toEqual([1, 2, 3]);
+    expect(POSTGRES_MEMORY_LATEST_SCHEMA_VERSION).toBe(3);
+    expect(getPendingPostgresMemoryMigrations(1).map((migration) => migration.name))
+      .toEqual(["memory-candidates", "memory-candidate-review-claims"]);
+  });
+
+  it("adds tenant-scoped review claim columns and indexes", () => {
+    const sql = POSTGRES_MEMORY_MIGRATIONS[2]?.sql.toLowerCase() ?? "";
+    expect(sql).toContain("review_claim_token");
+    expect(sql).toContain("review_claimed_at");
+    expect(sql).toContain("(tenant_id, review_claim_token)");
   });
 
   it("keeps tenant in identities, foreign keys, and query indexes", () => {

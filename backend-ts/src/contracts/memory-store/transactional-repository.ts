@@ -1,11 +1,20 @@
 import type {
   ApprovePersistedMemoryCandidateInput,
+  ClaimPersistedMemoryCandidateInput,
   CreatePersistedMemoryCandidateInput,
   MemoryPartition,
   PersistedMemoryCandidate,
   PersistedMemoryCandidateApprovalResult,
+  PersistedMemoryCandidateClaimResult,
+  PersistedMemoryCandidateCountOptions,
+  PersistedMemoryCandidateListOptions,
+  PersistedMemoryCandidateMutationResult,
   PersistedMemoryEntry,
   PersistedMemoryListOptions,
+  RejectPersistedMemoryCandidateInput,
+  ReleasePersistedMemoryCandidateInput,
+  UpdatePersistedMemoryCandidateInput,
+  WithdrawPersistedMemoryCandidateInput,
 } from "./persistence-types.js";
 
 /**
@@ -25,6 +34,13 @@ export interface TransactionalMemoryRepository {
 
   createCandidate(input: CreatePersistedMemoryCandidateInput): Promise<PersistedMemoryCandidate>;
   getCandidate(tenantId: string, candidateId: string): Promise<PersistedMemoryCandidate | null>;
+  listCandidates(options: PersistedMemoryCandidateListOptions): Promise<PersistedMemoryCandidate[]>;
+  countCandidates(options: PersistedMemoryCandidateCountOptions): Promise<number>;
+  updateCandidate(input: UpdatePersistedMemoryCandidateInput): Promise<PersistedMemoryCandidateMutationResult>;
+  withdrawCandidate(input: WithdrawPersistedMemoryCandidateInput): Promise<PersistedMemoryCandidateMutationResult>;
+  claimCandidate(input: ClaimPersistedMemoryCandidateInput): Promise<PersistedMemoryCandidateClaimResult>;
+  releaseCandidate(input: ReleasePersistedMemoryCandidateInput): Promise<PersistedMemoryCandidateMutationResult>;
+  rejectCandidate(input: RejectPersistedMemoryCandidateInput): Promise<PersistedMemoryCandidateMutationResult>;
 
   /**
    * Atomically approves either candidate operation:

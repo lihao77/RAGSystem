@@ -5,7 +5,7 @@ import type { MemoryConfig } from "../../../contracts/system-config.js";
 import { buildBackendAgentContext } from "./backend-context-builder.js";
 import type { ConversationHistoryPort, SessionMetadataPort } from "./types.js";
 
-export function previewBackendAgentContext(
+export async function previewBackendAgentContext(
   agent: AgentConfig,
   profile: AgentProfile,
   historyPort: ConversationHistoryPort & SessionMetadataPort,
@@ -16,8 +16,8 @@ export function previewBackendAgentContext(
     sessionId: string;
     threadKey?: string | null;
   },
-): ReturnType<typeof buildBackendAgentContext> & { preview: PreviewResult } {
-  const context = buildBackendAgentContext(agent, profile, historyPort, {
+): Promise<Awaited<ReturnType<typeof buildBackendAgentContext>> & { preview: PreviewResult }> {
+  const context = await buildBackendAgentContext(agent, profile, historyPort, {
     ...options,
     touch: false,
   });

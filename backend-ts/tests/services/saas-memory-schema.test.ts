@@ -5,10 +5,11 @@ import { getSaasMemoryMigrations } from "../../src/adapters/saas/postgres/memory
 describe("SaaS memory PostgreSQL schema", () => {
   it("contains ordered tenant-scoped entry, candidate, and revision migrations", () => {
     const migrations = getSaasMemoryMigrations();
-    expect(migrations.map((item) => item.version)).toEqual([1, 2]);
+    expect(migrations.map((item) => item.version)).toEqual([1, 2, 3]);
     expect(migrations.map((item) => item.name)).toEqual([
       "memory-entries",
       "memory-candidates",
+      "memory-candidate-review-claims",
     ]);
     const sql = migrations.map((item) => item.sql).join("\n");
     expect(sql).toContain("tenant_id TEXT NOT NULL");
