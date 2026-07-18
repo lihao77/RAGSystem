@@ -5,6 +5,7 @@ import type { BotRepository } from "../contracts/bot-repository.js";
 import type { IdentityProvider } from "../services/identity/index.js";
 import type { MemoryApplication } from "../services/memory/index.js";
 import type { AsyncKnowledgeFileStore } from "../contracts/knowledge/async-knowledge-file-store.js";
+import type { AsyncKnowledgeMarkdownPipeline } from "../contracts/knowledge/async-knowledge-markdown-pipeline.js";
 import type { WidgetAuthService } from "../services/runtime/jwt-service.js";
 import type { TenantRuntimeRegistry } from "../services/runtime/tenant-runtime-registry.js";
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
@@ -19,6 +20,9 @@ export interface RouteOptions {
   resolveKnowledgeFileStore?: (
     request: FastifyRequest,
   ) => AsyncKnowledgeFileStore | undefined | Promise<AsyncKnowledgeFileStore | undefined>;
+  resolveKnowledgeMarkdownPipeline?: (
+    request: FastifyRequest,
+  ) => AsyncKnowledgeMarkdownPipeline | undefined | Promise<AsyncKnowledgeMarkdownPipeline | undefined>;
   widgetCredentialStore?: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
 }

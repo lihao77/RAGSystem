@@ -16,6 +16,7 @@ import { HttpError, httpErrorFrom, statusHttpError } from "../utils/errors.js";
 import { matchesFileFilters } from "../utils/file-filter.js";
 import type { RouteOptions } from "./route-options.js";
 import type { AsyncKnowledgeFileStore } from "../contracts/knowledge/async-knowledge-file-store.js";
+import type { AsyncKnowledgeMarkdownPipeline } from "../contracts/knowledge/async-knowledge-markdown-pipeline.js";
 import { isRecord } from "../utils/guards.js";
 import { collectMultipartFiles, parseCsvList, sendFileDownload } from "./file-route-utils.js";
 import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
@@ -38,6 +39,8 @@ interface DocsQuery { collection?: string; }
 export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   const resolveAsyncStore = async (request: Parameters<NonNullable<RouteOptions["resolveKnowledgeFileStore"]>>[0]): Promise<AsyncKnowledgeFileStore | undefined> =>
     options.resolveKnowledgeFileStore?.(request);
+  const resolveAsyncMarkdown = async (request: Parameters<NonNullable<RouteOptions["resolveKnowledgeMarkdownPipeline"]>>[0]): Promise<AsyncKnowledgeMarkdownPipeline | undefined> =>
+    options.resolveKnowledgeMarkdownPipeline?.(request);
   app.addHook("preHandler", async (request) => {
     requireTenantMember(request);
     const pathname = request.url.split("?", 1)[0] ?? request.url;
@@ -58,7 +61,11 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
       const parts = await collectMultipartFiles(request);
       const files: KnowledgeFile[] = [];
       for (const part of parts) files.push(await asyncStore.addKnowledgeFile({ originalName: part.filename, buffer: part.buffer, mime: part.mime }));
-      return { success: true, files };
+      const pipeline = await resolveAsyncMarkdown(request);
+      if (pipeline) for (const file of files) {
+        try { await pipeline.generateMarkdownForFile(file.id); } catch (error) { request.log.warn({ err: error, file_id: file.id }, "SaaS Markdown generation failed"); }
+      }
+      return { success: true, files: pipeline ? (await Promise.all(files.map((file) => asyncStore.getKnowledgeFile(file.id)))).filter((file): file is KnowledgeFile => Boolean(file)) : files };
     }
     const knowledgeBase = request.container.knowledgeBase;
     const store = request.container.knowledgeBase.knowledgeFileStore;
@@ -95,11 +102,13 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
 
   app.get<{ Params: FileParams }>("/files/:fileId/md", async (request) => {
     const asyncStore = await resolveAsyncStore(request);
+    const pipeline = await resolveAsyncMarkdown(request);
     const store = request.container.knowledgeBase.knowledgeFileStore;
     const file = asyncStore ? await asyncStore.getKnowledgeFile(request.params.fileId) : store.getKnowledgeFile(request.params.fileId);
     if (!file) throw new HttpError(404, "not_found", "文件不存在");
     if (!file.md_blob_hash) throw new HttpError(409, "markdown_not_ready", "文件尚未生成 Markdown，请先完成索引");
     try {
+      if (pipeline) return await pipeline.readMarkdownForFile(file.id);
       return { markdown: asyncStore ? await asyncStore.readKnowledgeMarkdown(file.md_blob_hash) : store.readKnowledgeMarkdown(file.md_blob_hash), md_blob_hash: file.md_blob_hash };
     } catch (error) {
       request.log.error({ err: error, file_id: file.id, md_blob_hash: file.md_blob_hash }, "读取知识库 Markdown 失败");
@@ -110,10 +119,11 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   app.put<{ Params: FileParams }>("/files/:fileId/md", async (request) => {
     const payload = UpdateMarkdownRequestSchema.parse(request.body);
     const asyncStore = await resolveAsyncStore(request);
+    const pipeline = await resolveAsyncMarkdown(request);
     if (asyncStore) {
       const file = await asyncStore.getKnowledgeFile(request.params.fileId);
       if (!file) throw new HttpError(404, "not_found", "文件不存在");
-      return ok(await asyncStore.putKnowledgeMarkdown(file.id, payload.content));
+      return ok(pipeline ? await pipeline.updateMarkdown(file.id, payload.content) : await asyncStore.putKnowledgeMarkdown(file.id, payload.content));
     }
     try { return ok(await request.container.knowledgeBase.updateMarkdown(request.params.fileId, payload.content)); } catch (error) { throw toHttpError(error); }
   });

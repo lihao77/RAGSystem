@@ -48,6 +48,7 @@ export interface BuildAppOptions {
   saasConversationRuntime?: SaaSConversationRuntimeHandle;
   resolveMemoryApplication?: RouteOptions["resolveMemoryApplication"];
   resolveKnowledgeFileStore?: RouteOptions["resolveKnowledgeFileStore"];
+  resolveKnowledgeMarkdownPipeline?: RouteOptions["resolveKnowledgeMarkdownPipeline"];
   registry?: TenantRuntimeRegistry;
   controlStore?: ControlStore;
   controlPlane?: ControlPlane;
@@ -401,6 +402,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     registerPublicAgui: !widgetIdentityProvider,
     ...(resolveMemoryApplication ? { resolveMemoryApplication } : {}),
     ...(options.resolveKnowledgeFileStore ? { resolveKnowledgeFileStore: options.resolveKnowledgeFileStore } : {}),
+    ...(options.resolveKnowledgeMarkdownPipeline ? { resolveKnowledgeMarkdownPipeline: options.resolveKnowledgeMarkdownPipeline } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await registerManagementAndPlatformRoutes(app, {
