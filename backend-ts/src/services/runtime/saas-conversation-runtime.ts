@@ -3,8 +3,10 @@ import { Pool } from "pg";
 import {
   PgPoolMemoryExecutor,
   PostgresConversationRepository,
+  PostgresOutboxRepository,
   PostgresRunRepository,
   runPostgresConversationMigrations,
+  runPostgresOutboxMigrations,
   runPostgresRunMigrations,
 } from "../../adapters/saas/postgres/index.js";
 
@@ -19,6 +21,7 @@ export interface SaaSConversationRuntimeOptions {
 export interface SaaSConversationRuntimeHandle {
   conversation: PostgresConversationRepository;
   runs: PostgresRunRepository;
+  outbox: PostgresOutboxRepository;
   close(): Promise<void>;
 }
 
@@ -34,13 +37,16 @@ export async function createSaaSConversationRuntime(
     if (options.runMigrations !== false) {
       await runPostgresConversationMigrations(executor);
       await runPostgresRunMigrations(executor);
+      await runPostgresOutboxMigrations(executor);
     }
     const conversation = new PostgresConversationRepository(executor);
     const runs = new PostgresRunRepository(executor);
+    const outbox = new PostgresOutboxRepository(executor);
     let closePromise: Promise<void> | null = null;
     return {
       conversation,
       runs,
+      outbox,
       close: () => {
         closePromise ??= ownsPool ? pool.end() : Promise.resolve();
         return closePromise;
