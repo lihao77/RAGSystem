@@ -124,7 +124,8 @@ export function createSessionEnvelopeDispatcher({
   /** @param {AnyRecord | null | undefined} target @param {AnyRecord} eventData @param {string} sessionId */
   const applyMessageSaved = (target, eventData, sessionId) => {
     if (!target) return;
-    if (eventData.id != null) target.id = eventData.id;
+    const messageId = eventData.message_id ?? eventData.id;
+    if (messageId != null) target.id = messageId;
     if (eventData.seq != null) target.seq = eventData.seq;
     target.metadata = {
       ...(target.metadata || {}),

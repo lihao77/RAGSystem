@@ -112,6 +112,10 @@ export function createSessionCommandController({
   stopExecution = stopStream,
 }) {
   const lastFailedSendContent = ref('');
+  /** @type {Promise<void>} */
+  let sendQueue = Promise.resolve();
+  /** @returns {void} */
+  const settleSendQueue = () => {};
 
   const stop = async () => {
     if (!currentSessionId.value) return;
@@ -133,7 +137,7 @@ export function createSessionCommandController({
   };
 
   /** @param {{ content?: string, attachments?: AnyRecord[] } | null} [payload] */
-  const send = async (payload = null) => {
+  const sendNow = async (payload = null) => {
     const content = (payload?.content ?? deps.inputMessage.value).trim();
     const draftAttachments = Array.isArray(payload?.attachments)
       ? payload.attachments.slice()
@@ -249,12 +253,7 @@ export function createSessionCommandController({
         ...userMetadata,
         ...(roundIndex != null ? { round_index: roundIndex } : {}),
       });
-      const insertIndex = activeRun.assistantMsgIndex >= 0
-        ? Math.min(activeRun.assistantMsgIndex, messages.value.length)
-        : messages.value.length;
-      messages.value.splice(insertIndex, 0, followupMessage);
-      followupMsgIndex = insertIndex;
-      if (activeRun.assistantMsgIndex >= insertIndex) activeRun.assistantMsgIndex += 1;
+      followupMsgIndex = messages.value.push(followupMessage) - 1;
       deps.inputMessage.value = '';
       deps.clearComposerAttachments();
       deps.cacheMessages(sessionId, messages.value);
@@ -344,6 +343,13 @@ export function createSessionCommandController({
         send();
       });
     }
+  };
+
+  /** @param {{ content?: string, attachments?: AnyRecord[] } | null} [payload] @returns {Promise<void>} */
+  const send = (payload = null) => {
+    const pending = sendQueue.then(() => sendNow(payload));
+    sendQueue = pending.then(settleSendQueue, settleSendQueue);
+    return pending;
   };
 
   return { send, stop };

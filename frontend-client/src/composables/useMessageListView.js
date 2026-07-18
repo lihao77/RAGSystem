@@ -1,5 +1,5 @@
 import { computed } from 'vue';
-import { copyToClipboard } from '../utils/clipboard';
+import { copyToClipboard } from '../utils/clipboard.js';
 
 /**
  * run 内注入消息来源(进 executionTree 的 injection 节点)。
@@ -42,35 +42,44 @@ export function useMessageListView({ messages, showToast }) {
     const list = messages.value;
     if (!list.length) return [];
 
-    // 注入吸收判定:注入消息的 run_id 对应的 assistant 在列表里 → 被 executionTree 吸收,顶层不渲染。
-    // 兜底:run_id 缺失 / 对应 assistant 不在(run 结束后才到的迟到通知)→ 不吸收,顶层显示。
-    const assistantRunIds = new Set();
+    // Assistant 通常在 run 结束时才落库，因此 followup 的 seq 可能排在它之前。
+    // 顶层仍需显示这些用户消息，并稳定放到对应 assistant 后面。
+    const assistantsByRunId = new Map();
     for (const m of list) {
       if (m.role === 'assistant') {
         const rid = m.run_id || m.metadata?.run_id;
-        if (rid) assistantRunIds.add(rid);
+        if (rid) assistantsByRunId.set(rid, m);
       }
     }
-    const isAbsorbedInjection = (m) => {
+    const followupsByAssistant = new Map();
+    const movedFollowups = new Set();
+    for (const m of list) {
       const source = m.metadata?.source;
-      if (!source || !INJECTION_SOURCES.has(source)) return false;
+      if (!source || !INJECTION_SOURCES.has(source)) continue;
       const rid = m.metadata?.run_id;
-      return Boolean(rid && assistantRunIds.has(rid));
-    };
+      const assistant = rid ? assistantsByRunId.get(rid) : null;
+      if (!assistant) continue;
+      const group = followupsByAssistant.get(assistant) || [];
+      group.push(m);
+      followupsByAssistant.set(assistant, group);
+      movedFollowups.add(m);
+    }
+    const reordered = list.flatMap((m) => {
+      if (movedFollowups.has(m)) return [];
+      return [m, ...(followupsByAssistant.get(m) || [])];
+    });
 
-    const filtered = list.filter((m) => !isAbsorbedInjection(m));
-
-    // compression 摘要折叠(对注入过滤后的列表)
-    const withSeq = filtered.filter((message) => message.seq != null);
+    // compression 摘要折叠(对 followup 重排后的列表)
+    const withSeq = reordered.filter((message) => message.seq != null);
     const summaryMsg = withSeq
       .filter((message) => message.metadata?.msg_type === 'context_compression_summary')
       .sort((a, b) => b.seq - a.seq)[0];
 
-    if (!summaryMsg) return filtered;
+    if (!summaryMsg) return reordered;
 
     const replacesUpTo = summaryMsg.metadata?.replaces_up_to_seq;
     const cutoff = replacesUpTo != null ? replacesUpTo : summaryMsg.seq;
-    const rest = filtered.filter((message) => (
+    const rest = reordered.filter((message) => (
       message.seq == null
       || (message.metadata?.msg_type !== 'context_compression_summary' && message.seq > cutoff)
     ));

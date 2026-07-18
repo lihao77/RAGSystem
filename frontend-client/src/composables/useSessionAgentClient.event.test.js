@@ -224,6 +224,7 @@ test('state_sync(message_saved) 会按 request_id 合并运行中 followup 的 i
   const { deps, calls } = createDeps();
   deps.messages.value = [
     { role: 'user', content: '原始任务', metadata: {}, attachments: [] },
+    createAssistantMessage({ content: 'partial answer' }),
     {
       role: 'user',
       content: '运行中补充',
@@ -235,10 +236,9 @@ test('state_sync(message_saved) 会按 request_id 合并运行中 followup 的 i
       },
       attachments: [],
     },
-    createAssistantMessage({ content: 'partial answer' }),
   ];
   deps.activeRun.active = true;
-  deps.activeRun.assistantMsgIndex = 2;
+  deps.activeRun.assistantMsgIndex = 1;
 
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
@@ -246,7 +246,7 @@ test('state_sync(message_saved) 会按 request_id 合并运行中 followup 的 i
     payload: {
       category: 'message_saved',
       ref: {
-        id: 'msg-followup',
+        message_id: 'msg-followup',
         seq: 12,
         role: 'user',
         request_id: 'req-followup',
@@ -257,11 +257,11 @@ test('state_sync(message_saved) 会按 request_id 合并运行中 followup 的 i
   }, 'session-1');
 
   assert.equal(deps.messages.value[0].id, undefined);
-  assert.equal(deps.messages.value[1].id, 'msg-followup');
-  assert.equal(deps.messages.value[1].seq, 12);
-  assert.equal(deps.messages.value[1].metadata.persistence_status, undefined);
-  assert.equal(deps.messages.value[1].metadata.run_id, 'run-1');
-  assert.equal(deps.messages.value[1].metadata.task_id, 'task-1');
+  assert.equal(deps.messages.value[2].id, 'msg-followup');
+  assert.equal(deps.messages.value[2].seq, 12);
+  assert.equal(deps.messages.value[2].metadata.persistence_status, undefined);
+  assert.equal(deps.messages.value[2].metadata.run_id, 'run-1');
+  assert.equal(deps.messages.value[2].metadata.task_id, 'task-1');
   assert.deepEqual(calls.cacheMessages, [['session-1', deps.messages.value]]);
 });
 
