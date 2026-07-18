@@ -142,6 +142,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     ...(options.hooks ? { hooks: options.hooks } : {}),
     ...(options.asyncEventPersisterFactory ? { asyncEventPersisterFactory: options.asyncEventPersisterFactory } : {}),
     ...(options.asyncConversationHistory ? { asyncConversationHistory: options.asyncConversationHistory } : {}),
+    ...(options.asyncProviderContinuations ? { asyncProviderContinuations: options.asyncProviderContinuations } : {}),
     ...(asyncClientEvents ? { asyncClientEvents } : {}),
     ...(asyncSuspendedSessionControl ? { asyncSuspendedSessionControl } : {}),
     conversationStore,

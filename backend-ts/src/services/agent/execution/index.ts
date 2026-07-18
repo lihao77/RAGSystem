@@ -40,6 +40,7 @@ import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../sdk
 import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
 import type { AsyncConversationRepository } from "../../../adapters/saas/postgres/conversation-repository.js";
 import type { AsyncSuspendedSessionControl } from "../../runtime/saas-session-control-application.js";
+import type { AsyncProviderContinuationRepository } from "../../../adapters/saas/postgres/provider-continuation-repository.js";
 import {
   createLaunchers,
   type RollbackRetryInput,
@@ -110,6 +111,7 @@ export interface AgentExecutionServiceParams {
   /** SaaS async run/message persister factory; Local leaves this unset. */
   asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
   asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage">;
+  asyncProviderContinuations?: Pick<AsyncProviderContinuationRepository, "getProviderContinuation">;
   asyncClientEvents?: AsyncDurableClientEventPublisher;
   asyncSuspendedSessionControl?: AsyncSuspendedSessionControl;
 }
@@ -169,6 +171,7 @@ export function createAgentExecutionService(
     params.compressionService ?? null,
     params.asyncEventPersisterFactory ?? null,
     params.asyncConversationHistory ?? null,
+    params.asyncProviderContinuations ?? null,
     params.asyncClientEvents ?? null,
   );
   const launchers = createLaunchers({

@@ -152,6 +152,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
                 context,
               ),
               asyncConversationHistory: options.saasConversationRuntime!.conversation,
+              asyncProviderContinuations: options.saasConversationRuntime!.providerContinuations,
               asyncSuspendedSessionControlFactory: (tenantId) => new SaaSSessionControlApplication(
                 tenantId,
                 options.saasConversationRuntime!.conversation,
@@ -173,6 +174,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               context,
             ),
             asyncConversationHistory: options.saasConversationRuntime!.conversation,
+            asyncProviderContinuations: options.saasConversationRuntime!.providerContinuations,
             asyncSuspendedSessionControlFactory: (tenantId) => new SaaSSessionControlApplication(
               tenantId,
               options.saasConversationRuntime!.conversation,

@@ -97,6 +97,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     ...(dependencies.hooks ? { hooks: dependencies.hooks } : {}),
     ...(dependencies.asyncEventPersisterFactory ? { asyncEventPersisterFactory: dependencies.asyncEventPersisterFactory } : {}),
     ...(dependencies.asyncConversationHistory ? { asyncConversationHistory: dependencies.asyncConversationHistory } : {}),
+    ...(dependencies.asyncProviderContinuations ? { asyncProviderContinuations: dependencies.asyncProviderContinuations } : {}),
     ...(dependencies.asyncClientEvents ? { asyncClientEvents: dependencies.asyncClientEvents } : {}),
     ...(dependencies.asyncSuspendedSessionControl ? { asyncSuspendedSessionControl: dependencies.asyncSuspendedSessionControl } : {}),
   });

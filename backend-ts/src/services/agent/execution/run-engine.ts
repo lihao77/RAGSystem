@@ -25,6 +25,7 @@ import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../sdk/async-event-persister.js";
 import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
 import type { AsyncConversationRepository } from "../../../adapters/saas/postgres/conversation-repository.js";
+import type { AsyncProviderContinuationRepository } from "../../../adapters/saas/postgres/provider-continuation-repository.js";
 import type { IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
@@ -80,6 +81,7 @@ export class AgentRunEngine {
     private readonly compressionService: AgentCompressionService | null = null,
     private readonly asyncEventPersisterFactory: ((context: AsyncPersisterRunContext) => AsyncKernelEventPersister) | null = null,
     private readonly asyncConversationHistory: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage"> | null = null,
+    private readonly asyncProviderContinuations: Pick<AsyncProviderContinuationRepository, "getProviderContinuation"> | null = null,
     private readonly asyncClientEvents: AsyncDurableClientEventPublisher | null = null,
   ) {}
 
@@ -361,6 +363,7 @@ export class AgentRunEngine {
           ...(this.asyncEventPersisterFactory ? { tenantId: this.tenantId } : {}),
           ...(this.asyncEventPersisterFactory ? { asyncEventPersisterFactory: this.asyncEventPersisterFactory } : {}),
           ...(this.asyncConversationHistory ? { asyncConversationHistory: this.asyncConversationHistory } : {}),
+          ...(this.asyncProviderContinuations ? { asyncProviderContinuations: this.asyncProviderContinuations } : {}),
           ...(this.asyncClientEvents ? { asyncClientEvents: this.asyncClientEvents } : {}),
           // run-engine 的 conversationStore 实际是完整 ConversationStore（构造时传入窄类型）。
           conversationStore: this.conversationStore as unknown as ConversationStore,

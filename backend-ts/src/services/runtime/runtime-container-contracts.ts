@@ -45,6 +45,7 @@ import type { AsyncDurableClientEventPublisher } from "./event-outbox/async-clie
 import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../agent/sdk/async-event-persister.js";
 import type { AsyncConversationRepository } from "../../adapters/saas/postgres/conversation-repository.js";
 import type { AsyncSuspendedSessionControl } from "./saas-session-control-application.js";
+import type { AsyncProviderContinuationRepository } from "../../adapters/saas/postgres/provider-continuation-repository.js";
 
 export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = MemoryStore> {
   readonly conversationStore: ConversationStore;
@@ -102,6 +103,7 @@ export interface LocalRuntimeContainerOptions {
   memoryBindingsFactory?: MemoryRuntimeBindingsFactory | undefined;
   asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
   asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage">;
+  asyncProviderContinuations?: Pick<AsyncProviderContinuationRepository, "getProviderContinuation">;
   asyncClientEventsFactory?: (realtimeEvents: RealtimeEventHub) => AsyncDurableClientEventPublisher;
   asyncSuspendedSessionControlFactory?: (tenantId: TenantId) => AsyncSuspendedSessionControl;
 }
@@ -134,6 +136,7 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   hooks?: ((registry: HookRegistry) => void) | undefined;
   asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
   asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage">;
+  asyncProviderContinuations?: Pick<AsyncProviderContinuationRepository, "getProviderContinuation">;
   asyncClientEvents?: AsyncDurableClientEventPublisher;
   asyncSuspendedSessionControl?: AsyncSuspendedSessionControl;
   conversationStore: ConversationStore;
