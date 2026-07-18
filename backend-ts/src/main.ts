@@ -2,15 +2,21 @@ import { buildApp } from "./app.js";
 import { loadEnv } from "./config/env.js";
 import { createSaaSMemoryRuntime, type SaaSMemoryRuntimeHandle } from "./services/runtime/saas-memory-runtime.js";
 import { createSaaSControlRuntime, type SaaSControlRuntimeHandle } from "./services/runtime/saas-control-runtime.js";
+import { createSaaSConversationRuntime, type SaaSConversationRuntimeHandle } from "./services/runtime/saas-conversation-runtime.js";
 
 const env = loadEnv(process.env);
 let saasMemoryRuntime: SaaSMemoryRuntimeHandle | undefined;
 let saasControlRuntime: SaaSControlRuntimeHandle | undefined;
+let saasConversationRuntime: SaaSConversationRuntimeHandle | undefined;
 let app;
 try {
   if (env.storageMode === "postgres") {
     if (!env.databaseUrl) throw new Error("STORAGE_MODE=postgres requires DATABASE_URL");
     saasMemoryRuntime = await createSaaSMemoryRuntime({
+      connectionString: env.databaseUrl,
+      poolMax: env.postgresPoolMax,
+    });
+    saasConversationRuntime = await createSaaSConversationRuntime({
       connectionString: env.databaseUrl,
       poolMax: env.postgresPoolMax,
     });
@@ -28,10 +34,12 @@ try {
   app = await buildApp({
     env,
     ...(saasMemoryRuntime ? { saasMemoryRuntime } : {}),
+    ...(saasConversationRuntime ? { saasConversationRuntime } : {}),
     ...(saasControlRuntime ? { controlRuntime: saasControlRuntime } : {}),
   });
 } catch (error) {
   await saasMemoryRuntime?.close().catch(() => undefined);
+  await saasConversationRuntime?.close().catch(() => undefined);
   await saasControlRuntime?.close().catch(() => undefined);
   throw error;
 }

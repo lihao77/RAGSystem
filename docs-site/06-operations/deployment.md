@@ -47,7 +47,7 @@ docker compose up --build
 
 多租户、password/OIDC、docker/remote execution、显式 CORS、强 session secret；生产不使用宿主机代码执行。
 
-当前可通过 `STORAGE_MODE=postgres` 和 `DATABASE_URL` 启用 PostgreSQL Memory。该模式只替换 Memory，Control、Conversation、Run、Outbox、Knowledge 和文件仍依赖 SQLite/本地目录，因此是单节点 Hybrid，不是完整 SaaS 存储。
+当前可通过 `STORAGE_MODE=postgres` 和 `DATABASE_URL` 启用 PostgreSQL Memory、Conversation、Run 和 Outbox schema/runtime foundation。Agent 执行链仍在逐步接入这些异步 repository，Knowledge、文件和部分 Local runtime 仍依赖 SQLite/本地目录，因此尚不是完整无状态 SaaS。
 
 Control Plane 使用独立的 `CONTROL_STORAGE_MODE`、`CONTROL_DATABASE_URL` 和 `CONTROL_SECRET_MASTER_KEY`，不会隐式复用 Memory 的连接配置。当前 `docker-compose.saas.yml` 明确默认 `CONTROL_STORAGE_MODE=sqlite`。PostgreSQL Control runtime 已包含 Bot/Widget adapter、secret envelope、cron lease 和共享 JWT key ring；缺少 URL 或 32-byte master key 时启动会 fail-fast。
 

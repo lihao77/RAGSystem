@@ -35,11 +35,13 @@ import { DaemonService, type DaemonSuspendedInteraction } from "./services/daemo
 import { createSaaSMemoryApplicationResolver } from "./app/saas-memory-resolver.js";
 import type { RouteOptions } from "./routes/route-options.js";
 import type { SaaSMemoryRuntimeHandle } from "./services/runtime/saas-memory-runtime.js";
+import type { SaaSConversationRuntimeHandle } from "./services/runtime/saas-conversation-runtime.js";
 import type { SaaSControlRuntimeHandle } from "./services/runtime/saas-control-runtime.js";
 
 export interface BuildAppOptions {
   env: AppEnv;
   saasMemoryRuntime?: SaaSMemoryRuntimeHandle;
+  saasConversationRuntime?: SaaSConversationRuntimeHandle;
   resolveMemoryApplication?: RouteOptions["resolveMemoryApplication"];
   registry?: TenantRuntimeRegistry;
   controlStore?: ControlStore;
@@ -243,6 +245,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     botEngine.close();
     await registry.closeAll();
     await options.saasMemoryRuntime?.close();
+    await options.saasConversationRuntime?.close();
     wsTickets.close();
     if (options.controlRuntime) {
       await options.controlRuntime.close();
