@@ -11,11 +11,11 @@ class FakeExecutor implements PostgresMemoryExecutor {
   transactions = 0;
   async query<Row extends Record<string, unknown> = Record<string, unknown>>(sql: string, _params?: readonly unknown[]): Promise<PostgresQueryResult<Row>> {
     this.calls.push(sql);
-    if (sql.startsWith("INSERT INTO memory_candidates")) return { rows: [candidateRow as Row] };
-    if (sql.includes("FROM memory_candidates") && sql.includes("FOR UPDATE")) return { rows: [candidateRow as Row] };
-    if (sql.startsWith("INSERT INTO memory_entries")) return { rows: [memoryRow as Row] };
-    if (sql.startsWith("UPDATE memory_candidates")) return { rows: [{ ...candidateRow, status: "approved", version: 2, published_memory_id: "m1", reviewer_user_id: "admin" } as Row] };
-    if (sql.startsWith("INSERT INTO memory_scope_revisions")) return { rows: [{ revision: 1 } as Row] };
+    if (sql.startsWith("INSERT INTO memory_candidates")) return { rows: [candidateRow as unknown as Row] };
+    if (sql.includes("FROM memory_candidates") && sql.includes("FOR UPDATE")) return { rows: [candidateRow as unknown as Row] };
+    if (sql.startsWith("INSERT INTO memory_entries")) return { rows: [memoryRow as unknown as Row] };
+    if (sql.startsWith("UPDATE memory_candidates")) return { rows: [{ ...candidateRow, status: "approved", version: 2, published_memory_id: "m1", reviewer_user_id: "admin" } as unknown as Row] };
+    if (sql.startsWith("INSERT INTO memory_scope_revisions")) return { rows: [{ revision: 1 } as unknown as Row] };
     return { rows: [] };
   }
   async transaction<T>(fn: (executor: PostgresMemoryExecutor) => Promise<T>): Promise<T> {
