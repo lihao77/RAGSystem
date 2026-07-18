@@ -24,7 +24,7 @@ import { HttpError } from "../../utils/errors.js";
 import type { AgentRouteOptions } from "../route-options.js";
 import { ZodError } from "zod";
 import { WorkspaceRootValidationError } from "../../services/sessions/index.js";
-import { loadOwnedSession } from "../session-owner.js";
+import { assertSessionOwner, loadOwnedSession } from "../session-owner.js";
 
 interface SessionParams {
   sessionId: string;
@@ -38,7 +38,11 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   app.post("/sessions", async (request) => {
     const payload = CreateSessionRequestSchema.parse(request.body);
     try {
-      const session = request.container.sessionApplication.createSession({
+      const saas = await options.resolveSaaSSessionApplication?.(request);
+      const session = saas ? await saas.createSession({
+        sessionId: payload.session_id?.trim() || randomUUID(), userId: request.identity.userId,
+        permissionMode: payload.permission_mode ?? null, ...(payload.metadata ? { metadata: payload.metadata } : {}),
+      }) : request.container.sessionApplication.createSession({
         tenantId: request.identity.tenantId,
         sessionId: payload.session_id?.trim() || randomUUID(),
         userId: request.identity.userId,
@@ -62,7 +66,10 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
       request.identity.userId,
       request.identity.tenantId,
     );
-    const sessions = request.container.sessionApplication.listSessions({
+    const saas = await options.resolveSaaSSessionApplication?.(request);
+    const sessions = saas ? await saas.listSessions({
+      limit, offset, userIds: [request.identity.userId, ...botIds],
+    }) : request.container.sessionApplication.listSessions({
       tenantId: request.identity.tenantId,
       limit,
       offset,
@@ -72,7 +79,10 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId", async (request) => {
-    const session = await loadOwnedSession(request, request.params.sessionId);
+    const saas = await options.resolveSaaSSessionApplication?.(request);
+    const session = saas ? await saas.getSession(request.params.sessionId) : request.container.sessionApplication.getSession(request.params.sessionId);
+    if (!session) throw new HttpError(404, "not_found", "会话不存在");
+    await assertSessionOwner(request, session);
     return validateResponse(SessionDetailResponseSchema, ok(session, "获取会话成功"));
   });
 
@@ -104,8 +114,11 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.delete<{ Params: SessionParams }>("/sessions/:sessionId", async (request) => {
-    await loadOwnedSession(request, request.params.sessionId);
-    const deleted = request.container.sessionApplication.deleteSession(request.params.sessionId);
+    const saas = await options.resolveSaaSSessionApplication?.(request);
+    const session = saas ? await saas.getSession(request.params.sessionId) : request.container.sessionApplication.getSession(request.params.sessionId);
+    if (!session) throw new HttpError(404, "not_found", "会话不存在");
+    await assertSessionOwner(request, session);
+    const deleted = saas ? await saas.deleteSession(request.params.sessionId) : request.container.sessionApplication.deleteSession(request.params.sessionId);
     if (!deleted) {
       throw new HttpError(404, "not_found", "会话不存在");
     }
@@ -113,15 +126,19 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/messages", async (request) => {
-    await loadOwnedSession(request, request.params.sessionId);
+    const saas = await options.resolveSaaSSessionApplication?.(request);
+    const session = saas ? await saas.getSession(request.params.sessionId) : request.container.sessionApplication.getSession(request.params.sessionId);
+    if (!session) throw new HttpError(404, "not_found", "会话不存在");
+    await assertSessionOwner(request, session);
     const query = request.query as { limit?: string; offset?: string };
     const limit = clampInt(query.limit, 20, 1, 1000);
     const offset = clampInt(query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
-    const messages = request.container.sessionApplication.listMessages({
+    const messages = saas ? await saas.listMessages({ sessionId: request.params.sessionId, limit, offset }) : request.container.sessionApplication.listMessages({
       sessionId: request.params.sessionId,
       limit,
       offset,
     });
+    if (!messages) throw new HttpError(404, "not_found", "会话不存在");
     return validateResponse(SessionMessageListResponseSchema, ok(messages, "获取对话记录成功"));
   });
 

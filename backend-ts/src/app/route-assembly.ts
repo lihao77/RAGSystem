@@ -85,6 +85,7 @@ export interface SharedBusinessRouteAssemblyOptions {
   resolveKnowledgeMarkdownPipeline?: RouteOptions["resolveKnowledgeMarkdownPipeline"];
   resolveKnowledgeVectorApplication?: RouteOptions["resolveKnowledgeVectorApplication"];
   resolveProviderMcp?: RouteOptions["resolveProviderMcp"];
+  resolveSaaSSessionApplication?: RouteOptions["resolveSaaSSessionApplication"];
 }
 
 export async function registerSharedBusinessRoutes(
@@ -131,6 +132,7 @@ export async function registerSharedBusinessRoutes(
       widgetCredentialStore: options.widgetCredentialStore,
       wsTickets: options.wsTickets,
       ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
+      ...(options.resolveSaaSSessionApplication ? { resolveSaaSSessionApplication: options.resolveSaaSSessionApplication } : {}),
     });
     if (options.registerPublicAgui) {
       await scope.register(registerAguiRoutes, {

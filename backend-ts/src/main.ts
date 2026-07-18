@@ -7,6 +7,8 @@ import { createSaaSObjectStorage } from "./services/runtime/saas-object-storage.
 import type { ObjectStorage } from "./contracts/object-storage.js";
 import { TenantKnowledgeMarkdownPipeline } from "./contracts/knowledge/async-knowledge-markdown-pipeline.js";
 import { SaaSKnowledgeVectorApplication } from "./services/runtime/saas-knowledge-vector-application.js";
+import { SaaSSessionApplication } from "./services/runtime/saas-session-application.js";
+import type { FastifyRequest } from "fastify";
 
 const env = loadEnv(process.env);
 let saasMemoryRuntime: SaaSMemoryRuntimeHandle | undefined;
@@ -64,6 +66,7 @@ try {
     } : {}),
     ...(saasConversationRuntime ? {
       resolveProviderMcp: (request) => saasConversationRuntime!.providerMcpApplication,
+      resolveSaaSSessionApplication: (request: FastifyRequest) => new SaaSSessionApplication(request.identity.tenantId, saasConversationRuntime!.conversation),
     } : {}),
     ...(saasControlRuntime ? { controlRuntime: saasControlRuntime } : {}),
   });
