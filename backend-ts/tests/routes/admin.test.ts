@@ -27,10 +27,18 @@ describe("多租户管理 API", () => {
     const platformAdminId = platformAdminLogin.json().user.id as string;
     expect(harness.controlStore.getMembership(createUserId(platformAdminId), createTenantId(tenantId))?.role).toBe("owner");
 
-    const invited = await harness.app.inject({
+    const crossTenantDenied = await harness.app.inject({
       method: "POST",
       url: `/api/admin/tenants/${tenantId}/members`,
       headers: bearer(platformAdminToken),
+      payload: { username: "tenant-owner", password: "password456", role: "owner" },
+    });
+    expect(crossTenantDenied.statusCode).toBe(403);
+    const switched = await switchTenant(harness.app, platformAdminToken, tenantId);
+    const invited = await harness.app.inject({
+      method: "POST",
+      url: `/api/admin/tenants/${tenantId}/members`,
+      headers: bearer(switched.json().token as string),
       payload: { username: "tenant-owner", password: "password456", role: "owner" },
     });
     expect(invited.statusCode).toBe(200);
@@ -65,11 +73,14 @@ describe("多租户管理 API", () => {
     const tenantId = created.json().tenant.id as string;
     expect(tenantId).toMatch(/^tnt_[a-z0-9]+$/);
     expect(created.json().tenant.role).toBe("owner");
+    const tenantOwnerSwitch = await switchTenant(harness.app, ownerToken, tenantId);
+    expect(tenantOwnerSwitch.statusCode).toBe(200);
+    const tenantOwnerToken = tenantOwnerSwitch.json().token as string;
 
     const tenants = await harness.app.inject({
       method: "GET",
       url: "/api/admin/tenants",
-      headers: bearer(ownerToken),
+      headers: bearer(tenantOwnerToken),
     });
     expect(tenants.statusCode).toBe(200);
     expect(tenants.json().tenants).toEqual(expect.arrayContaining([
@@ -79,7 +90,7 @@ describe("多租户管理 API", () => {
     const invited = await harness.app.inject({
       method: "POST",
       url: `/api/admin/tenants/${tenantId}/members`,
-      headers: bearer(ownerToken),
+      headers: bearer(tenantOwnerToken),
       payload: { username: "alice", password: "password456", displayName: "Alice" },
     });
     expect(invited.statusCode).toBe(200);
@@ -89,7 +100,7 @@ describe("多租户管理 API", () => {
     const members = await harness.app.inject({
       method: "GET",
       url: `/api/admin/tenants/${tenantId}/members`,
-      headers: bearer(ownerToken),
+      headers: bearer(tenantOwnerToken),
     });
     expect(members.statusCode).toBe(200);
     expect(members.json().members).toEqual(expect.arrayContaining([
@@ -120,7 +131,7 @@ describe("多租户管理 API", () => {
     const promoted = await harness.app.inject({
       method: "PATCH",
       url: `/api/admin/tenants/${tenantId}/members/${aliceId}`,
-      headers: bearer(ownerToken),
+      headers: bearer(tenantOwnerToken),
       payload: { role: "admin" },
     });
     expect(promoted.statusCode).toBe(200);
@@ -161,7 +172,7 @@ describe("多租户管理 API", () => {
     const uniqueOwnerDemotionDenied = await harness.app.inject({
       method: "PATCH",
       url: `/api/admin/tenants/${tenantId}/members/${ownerId}`,
-      headers: bearer(ownerToken),
+      headers: bearer(tenantOwnerToken),
       payload: { role: "admin" },
     });
     expect(uniqueOwnerDemotionDenied.statusCode).toBe(403);
@@ -176,14 +187,14 @@ describe("多租户管理 API", () => {
     const selfRemovalDenied = await harness.app.inject({
       method: "DELETE",
       url: `/api/admin/tenants/${tenantId}/members/${ownerId}`,
-      headers: bearer(ownerToken),
+      headers: bearer(tenantOwnerToken),
     });
     expect(selfRemovalDenied.statusCode).toBe(403);
 
     const removed = await harness.app.inject({
       method: "DELETE",
       url: `/api/admin/tenants/${tenantId}/members/${aliceId}`,
-      headers: bearer(ownerToken),
+      headers: bearer(tenantOwnerToken),
     });
     expect(removed.statusCode).toBe(200);
     expect(harness.controlStore.getMembership(createUserId(aliceId), createTenantId(tenantId))).toBeNull();

@@ -1,9 +1,9 @@
 import path from "node:path";
 
 import type { AppEnv } from "../../config/env.js";
+import type { TenantDirectory } from "../../contracts/control-plane/index.js";
 import { createTenantId, type TenantId, type UserId } from "../../identity/types.js";
 import type { AgentExecutionLogger } from "../agent/execution/index.js";
-import type { ControlStore } from "../stores/control-store/index.js";
 import { createRuntimeContainer, type RuntimeContainer, type RuntimeContainerOptions } from "./runtime-container.js";
 import { TenantPaths } from "./tenant-paths.js";
 
@@ -65,6 +65,7 @@ export type TenantRuntimeRegistryOptions = LocalTenantRuntimeRegistryOptions;
  * filesystem/runtime-container details.
  */
 export interface TenantRuntimeRegistry extends RuntimeRegistry<RuntimeContainer> {
+  acquireForInspection(tenantId: string): Promise<TenantRuntimeLease>;
   acquireForSession(sessionId: string): Promise<TenantRuntimeLease | null>;
   forTenant(tenantId: string): RuntimeContainer;
   trackWebSocket(tenantId: string): TenantRuntimeActivityLease;
@@ -104,7 +105,7 @@ export class LocalTenantRuntimeRegistry implements TenantRuntimeRegistry {
 
   constructor(
     private readonly env: AppEnv,
-    private readonly controlStore?: ControlStore,
+    private readonly tenantDirectory?: TenantDirectory,
     private readonly logger?: AgentExecutionLogger,
     options: LocalTenantRuntimeRegistryOptions = {},
   ) {
@@ -117,10 +118,18 @@ export class LocalTenantRuntimeRegistry implements TenantRuntimeRegistry {
   }
 
   async acquire(rawTenantId: string): Promise<TenantRuntimeLease> {
+    return this.acquireInternal(rawTenantId, false);
+  }
+
+  async acquireForInspection(rawTenantId: string): Promise<TenantRuntimeLease> {
+    return this.acquireInternal(rawTenantId, true);
+  }
+
+  private async acquireInternal(rawTenantId: string, allowSuspended: boolean): Promise<TenantRuntimeLease> {
     if (this.closingAll) {
       throw new Error("租户运行时注册表正在关闭");
     }
-    const tenantId = this.validateTenant(rawTenantId);
+    const tenantId = await this.validateTenant(rawTenantId, allowSuspended);
     const entry = this.entries.get(tenantId) ?? this.createEntry(tenantId);
     const runtime = await entry.initPromise;
     if (entry.state !== "ready" || entry.container !== runtime) {
@@ -143,7 +152,9 @@ export class LocalTenantRuntimeRegistry implements TenantRuntimeRegistry {
   }
 
   async acquireForSession(sessionId: string): Promise<TenantRuntimeLease | null> {
-    const tenantIds = this.controlStore?.listTenants().map((tenant) => tenant.id) ?? [...this.entries.keys()];
+    const tenantIds = this.tenantDirectory
+      ? (await this.tenantDirectory.list()).filter((tenant) => tenant.status === "active").map((tenant) => tenant.id)
+      : [...this.entries.keys()];
     for (const tenantId of tenantIds) {
       const lease = await this.acquire(tenantId);
       if (lease.runtime.sessionApplication.getSession(sessionId)) return lease;
@@ -217,10 +228,12 @@ export class LocalTenantRuntimeRegistry implements TenantRuntimeRegistry {
       : null;
   }
 
-  private validateTenant(rawTenantId: string): TenantId {
+  private async validateTenant(rawTenantId: string, allowSuspended: boolean): Promise<TenantId> {
     const tenantId = createTenantId(rawTenantId);
-    if (this.controlStore && !this.controlStore.getTenant(tenantId)) {
-      throw new Error(`租户不存在: ${tenantId}`);
+    if (this.tenantDirectory) {
+      const tenant = await this.tenantDirectory.get(tenantId);
+      if (!tenant) throw new Error(`租户不存在: ${tenantId}`);
+      if (!allowSuspended && tenant.status !== "active") throw new Error(`租户已暂停: ${tenantId}`);
     }
     return tenantId;
   }

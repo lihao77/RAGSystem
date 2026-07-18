@@ -11,6 +11,8 @@
 | GET | `/api/bootstrap` | 公开 | 安装/初始化状态 |
 | POST | `/api/install` | 一次性 | 初始化本地实例 |
 
+`/readyz` 会通过 Control Plane health port 检查数据库连接和实际 schema version。成功响应的 `checks` 包含 `control_database`、`migrations` 和 `control_schema_version`；连接失败或 schema 版本落后时返回 `503`。
+
 ## 认证 `/api/auth`
 
 `POST /login`、`POST /install`、`POST /switch-tenant`、`GET /me`、`POST /logout`。具体可用动作由 `AUTH_MODE` 决定；password 模式需要 `SESSION_JWT_SECRET`。

@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 
 import type { AppEnv } from "../config/env.js";
+import type { ControlPlane } from "../contracts/control-plane/index.js";
 import type { DeploymentProfile } from "../identity/types.js";
 import { registerAdminRoutes } from "../routes/admin.js";
 import { registerAgentConfigRoutes } from "../routes/agent-config.js";
@@ -28,7 +29,6 @@ import type { WidgetAuthService } from "../services/runtime/jwt-service.js";
 import type { SessionTokenService } from "../services/runtime/session-token-service.js";
 import type { TenantRuntimeRegistry } from "../services/runtime/tenant-runtime-registry.js";
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
-import type { ControlStore } from "../services/stores/control-store/index.js";
 import type { WidgetCredentialStore } from "../services/stores/widget-credential-store/index.js";
 import { HttpError } from "../utils/errors.js";
 
@@ -40,31 +40,33 @@ export interface AuthRuntime {
 
 interface PublicRouteAssemblyOptions {
   env: AppEnv;
-  controlStore: ControlStore;
+  controlPlane: ControlPlane;
   runtime: AuthRuntime;
-  refreshProfile: () => DeploymentProfile;
+  refreshProfile: () => Promise<DeploymentProfile>;
+  validateProfileSettings: (settings: Readonly<Record<string, string>>) => void;
 }
 
 export async function registerPublicAndAuthRoutes(
   app: FastifyInstance,
   options: PublicRouteAssemblyOptions,
 ): Promise<void> {
-  await app.register(registerProbeRoutes, { controlStore: options.controlStore });
+  await app.register(registerProbeRoutes, { controlPlane: options.controlPlane });
   await app.register(registerBootstrapRoutes, {
     prefix: "/api",
     env: options.env,
-    controlStore: options.controlStore,
+    controlPlane: options.controlPlane,
     runtime: options.runtime,
   });
   await app.register(registerInstallRoutes, {
     prefix: "/api",
-    controlStore: options.controlStore,
+    controlPlane: options.controlPlane,
     runtime: options.runtime,
     refreshProfile: options.refreshProfile,
+    validateProfileSettings: options.validateProfileSettings,
   });
   await app.register(registerAuthRoutes, {
     prefix: "/api/auth",
-    controlStore: options.controlStore,
+    controlPlane: options.controlPlane,
     runtime: options.runtime,
   });
 }
@@ -120,7 +122,7 @@ export async function registerSharedBusinessRoutes(
 }
 
 interface ManagementRouteAssemblyOptions {
-  controlStore: ControlStore;
+  controlPlane: ControlPlane;
   registry: TenantRuntimeRegistry;
   identityProvider: IdentityProvider;
   widgetCredentialStore: WidgetCredentialStore;
@@ -133,12 +135,7 @@ export async function registerManagementAndPlatformRoutes(
 ): Promise<void> {
   await app.register(async (scope) => {
     installIdentityScope(scope, { identityProvider: options.identityProvider });
-    await scope.register(registerAdminRoutes, { prefix: "/api/admin", controlStore: options.controlStore });
-    await scope.register(registerPlatformRoutes, {
-      prefix: "/api/platform",
-      controlStore: options.controlStore,
-      registry: options.registry,
-    });
+    await scope.register(registerAdminRoutes, { prefix: "/api/admin", controlPlane: options.controlPlane });
     await scope.register(registerBotRoutes, {
       prefix: "/api/bots",
       registry: options.registry,
@@ -150,6 +147,14 @@ export async function registerManagementAndPlatformRoutes(
       identityProvider: options.identityProvider,
       widgetCredentialStore: options.widgetCredentialStore,
       ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
+    });
+  });
+  await app.register(async (scope) => {
+    installIdentityScope(scope, { identityProvider: options.identityProvider, identityScope: "platform" });
+    await scope.register(registerPlatformRoutes, {
+      prefix: "/api/platform",
+      controlPlane: options.controlPlane,
+      registry: options.registry,
     });
   });
 }
@@ -214,6 +219,7 @@ interface IdentityScopeOptions {
   identityProvider: IdentityProvider;
   registry?: TenantRuntimeRegistry;
   mapAllIdentityErrorsToUnauthorized?: boolean;
+  identityScope?: "tenant" | "platform";
 }
 
 function installIdentityScope(app: FastifyInstance, options: IdentityScopeOptions): void {
@@ -221,7 +227,7 @@ function installIdentityScope(app: FastifyInstance, options: IdentityScopeOption
     if (request.method === "OPTIONS" || isExplicitPublicRoute(request)) return;
     let identity;
     try {
-      identity = options.identityProvider.resolve(request);
+      identity = await options.identityProvider.resolve(request, options.identityScope ?? "tenant");
     } catch (error) {
       if (error instanceof AuthError || options.mapAllIdentityErrorsToUnauthorized) {
         throw new HttpError(401, "unauthorized", error instanceof Error ? error.message : "认证失败");

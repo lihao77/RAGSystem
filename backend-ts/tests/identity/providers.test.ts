@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createControlStore } from "../../src/services/stores/control-store/index.js";
+import { SqliteControlPlaneAdapter } from "../../src/adapters/local/sqlite-control-plane-adapter.js";
 import { createWidgetCredentialStore } from "../../src/services/stores/widget-credential-store/index.js";
 import { createWidgetAuthService } from "../../src/services/runtime/jwt-service.js";
 import {
@@ -14,10 +15,10 @@ import { makeTempRoot } from "../helpers/temp-db.js";
 const secret = "identity-provider-secret-0123456789abcdef";
 
 describe("IdentityProvider", () => {
-  it("Local provider 初始化默认身份与 membership", () => {
+  it("Local provider 初始化默认身份与 membership", async () => {
     const controlStore = createControlStore(makeTempRoot());
-    const provider = new LocalIdentityProvider(controlStore);
-    const identity = provider.resolve({} as never);
+    const provider = new LocalIdentityProvider(new SqliteControlPlaneAdapter(controlStore));
+    const identity = await provider.resolve({} as never);
 
     expect(identity).toEqual({
       userId: LOCAL_USER_ID,
@@ -32,15 +33,15 @@ describe("IdentityProvider", () => {
     controlStore.close();
   });
 
-  it("Widget provider 从 bearer claims 解析租户", () => {
+  it("Widget provider 从 bearer claims 解析租户", async () => {
     const controlStore = createControlStore(makeTempRoot());
-    new LocalIdentityProvider(controlStore);
+    await new LocalIdentityProvider(new SqliteControlPlaneAdapter(controlStore)).resolve({} as never);
     const store = createWidgetCredentialStore(controlStore.db);
     const auth = createWidgetAuthService(secret, store.ops);
     const app = store.ops.createApp({ tenantId: LOCAL_TENANT_ID, display_name: "widget" });
     const token = auth.issueToken(store.ops.getApp(LOCAL_TENANT_ID, app.app_key)!).token;
     const provider = new WidgetIdentityProvider(auth, store);
-    const identity = provider.resolve({ headers: { authorization: `Bearer ${token}` } } as never);
+    const identity = await provider.resolve({ headers: { authorization: `Bearer ${token}` } } as never);
 
     expect(identity.tenantId).toBe(LOCAL_TENANT_ID);
     expect(identity.role).toBe("widget");

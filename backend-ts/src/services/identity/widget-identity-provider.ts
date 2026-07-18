@@ -12,7 +12,7 @@ export class WidgetIdentityProvider implements IdentityProvider {
     private readonly store: WidgetCredentialStore,
   ) {}
 
-  resolve(request: FastifyRequest): RequestIdentity {
+  async resolve(request: FastifyRequest): Promise<RequestIdentity> {
     const claims = request.headers.authorization
       ? this.auth.requireBearer(request)
       : this.resolveFromAppKey(request);

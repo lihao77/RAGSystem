@@ -16,15 +16,15 @@ export interface SessionTokenClaims {
 }
 
 export interface SessionOps {
-  isSessionRevoked(tenantId: TenantId, jti: string): boolean;
-  revokeSession(jti: string): boolean;
+  isSessionRevoked(tenantId: TenantId, jti: string): boolean | Promise<boolean>;
+  revokeSession(jti: string): boolean | Promise<boolean>;
 }
 
 export interface SessionTokenService {
   issueToken(user: { userId: UserId; tenantId: TenantId; role: string; platformRole?: "admin" }): { token: string; expires_at: number; claims: SessionTokenClaims };
-  verifyToken(token: string): SessionTokenClaims;
-  requireBearer(request: FastifyRequest): SessionTokenClaims;
-  revoke(jti: string): boolean;
+  verifyToken(token: string): Promise<SessionTokenClaims>;
+  requireBearer(request: FastifyRequest): Promise<SessionTokenClaims>;
+  revoke(jti: string): Promise<boolean>;
 }
 
 export function createSessionTokenService(secret: string, sessionOps: SessionOps, ttlHours = 168): SessionTokenService {
@@ -41,7 +41,7 @@ export function createSessionTokenService(secret: string, sessionOps: SessionOps
     return `${signingInput}.${signature}`;
   };
 
-  const verifyToken = (token: string): SessionTokenClaims => {
+  const verifyToken = async (token: string): Promise<SessionTokenClaims> => {
     const parts = token.split(".");
     if (parts.length !== 3) throw new AuthError("malformed token");
     const [headerSegment, payloadSegment, signatureSegment] = parts;
@@ -67,7 +67,7 @@ export function createSessionTokenService(secret: string, sessionOps: SessionOps
       sub: createUserId(claims.sub),
       tenant_id: createTenantId(claims.tenant_id),
     } as SessionTokenClaims;
-    if (sessionOps.isSessionRevoked(normalized.tenant_id, normalized.jti)) throw new AuthError("token revoked");
+    if (await sessionOps.isSessionRevoked(normalized.tenant_id, normalized.jti)) throw new AuthError("token revoked");
     return normalized;
   };
 
@@ -87,13 +87,13 @@ export function createSessionTokenService(secret: string, sessionOps: SessionOps
       return { token: sign(claims), expires_at: claims.exp, claims };
     },
     verifyToken,
-    requireBearer(request) {
+    async requireBearer(request) {
       const match = /^Bearer\s+(.+)$/i.exec(request.headers.authorization ?? "");
       if (!match?.[1]) throw new AuthError("missing bearer token");
-      return verifyToken(match[1]);
+      return await verifyToken(match[1]);
     },
-    revoke(jti) {
-      return sessionOps.revokeSession(jti);
+    async revoke(jti) {
+      return await sessionOps.revokeSession(jti);
     },
   };
 }

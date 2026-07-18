@@ -5,18 +5,19 @@ import {
   createUserId,
   type RequestIdentity,
 } from "../../identity/types.js";
-import type { ControlStore } from "../stores/control-store/index.js";
+import type { ControlPlane } from "../../contracts/control-plane/index.js";
 import type { IdentityProvider } from "./identity-provider.js";
 
 export const LOCAL_TENANT_ID = createTenantId("tnt_local");
 export const LOCAL_USER_ID = createUserId("usr_local");
 
 export class LocalIdentityProvider implements IdentityProvider {
-  constructor(private readonly controlStore: ControlStore) {
-    this.initializeDefaults();
-  }
+  private initialization: Promise<void> | null = null;
 
-  resolve(_request: FastifyRequest): RequestIdentity {
+  constructor(private readonly controlPlane: ControlPlane) {}
+
+  async resolve(_request: FastifyRequest): Promise<RequestIdentity> {
+    await this.initialize();
     return {
       userId: LOCAL_USER_ID,
       tenantId: LOCAL_TENANT_ID,
@@ -26,19 +27,15 @@ export class LocalIdentityProvider implements IdentityProvider {
     };
   }
 
-  private initializeDefaults(): void {
-    if (!this.controlStore.getTenant(LOCAL_TENANT_ID)) {
-      this.controlStore.createTenant({ id: LOCAL_TENANT_ID, displayName: "Local" });
-    }
-    if (!this.controlStore.getUser(LOCAL_USER_ID)) {
-      this.controlStore.createUser({ id: LOCAL_USER_ID, displayName: "Local User", platform_role: "admin" });
-    } else {
-      this.controlStore.setUserStatus(LOCAL_USER_ID, "active");
-      this.controlStore.setUserPlatformRole(LOCAL_USER_ID, "admin");
-    }
-    this.controlStore.upsertMembership({
-      userId: LOCAL_USER_ID,
-      tenantId: LOCAL_TENANT_ID,
+  async initialize(): Promise<void> {
+    this.initialization ??= this.initializeDefaults();
+    await this.initialization;
+  }
+
+  private async initializeDefaults(): Promise<void> {
+    await this.controlPlane.provisioning.ensureLocalIdentity({
+      tenant: { id: LOCAL_TENANT_ID, displayName: "Local" },
+      user: { id: LOCAL_USER_ID, displayName: "Local User", platformRole: "admin" },
       role: "owner",
     });
   }

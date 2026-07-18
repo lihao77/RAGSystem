@@ -1,11 +1,11 @@
 import type { FastifyPluginAsync } from "fastify";
 
 import { ok } from "../contracts/common.js";
-import type { ControlStore } from "../services/stores/control-store/index.js";
+import type { ControlPlane } from "../contracts/control-plane/index.js";
 import type { RouteOptions } from "./route-options.js";
 
 interface ProbeRouteOptions {
-  controlStore: ControlStore;
+  controlPlane: ControlPlane;
 }
 
 export const registerProbeRoutes: FastifyPluginAsync<ProbeRouteOptions> = async (app, options) => {
@@ -15,14 +15,15 @@ export const registerProbeRoutes: FastifyPluginAsync<ProbeRouteOptions> = async 
 
   app.get("/readyz", async (_request, reply) => {
     try {
-      const row = options.controlStore.db.prepare("SELECT 1 AS ready").get() as { ready?: number } | undefined;
-      if (row?.ready !== 1) throw new Error("control database probe returned an unexpected result");
+      const readiness = await options.controlPlane.health.checkReadiness();
+      if (!readiness.ready) throw new Error("control database is not ready");
       return {
         status: "ready",
         service: "ragsystem-backend",
         checks: {
           control_database: "ok",
           migrations: "ok",
+          control_schema_version: readiness.currentSchemaVersion,
         },
       };
     } catch {

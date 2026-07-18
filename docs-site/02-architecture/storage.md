@@ -12,6 +12,7 @@
 | 文件索引 | （共享 dbPath） | `IFileIndexStore` | `file-index-service` |
 | 文件历史 | （dataRoot 下纯文件） | `IFileHistoryStore` | `file-history-service` |
 | 记忆 | Local：dataRoot 下文件；Hybrid：PostgreSQL | `MemoryRepository` | `MemoryStore` / `PostgresMemoryRepository` |
+| Control/Identity | `<RAG_DATA_ROOT>/system/control.db` | `ControlPlane` 组合 ports | `SqliteControlPlaneAdapter` |
 | widget 凭证 | （共享 dbPath） | `WidgetCredentialStore` | `widget-credential-store` |
 
 ::: tip 无 ORM
@@ -24,6 +25,7 @@
 
 ```
 contracts/
+├── control-plane/          # tenant/user/membership/settings/session/audit 异步端口
 ├── conversation-store/     # 会话存储（含消息/任务/metrics 操作接口）
 ├── file-history-store/     # 文件历史
 ├── file-index-store/       # 文件索引
@@ -35,6 +37,8 @@ contracts/
 ```
 
 这种设计使存储实现可替换——例如 `vector-store` 通过 `driver-registry` 支持多驱动，当前唯一实现是 `sqlite-vec`。
+
+Control Plane 消费者统一使用异步端口。当前 `SqliteControlPlaneAdapter` 包装现有 `ControlStore`，路由不再访问 `.db`；这只是 PostgreSQL adapter 的前置边界，不代表 Control 数据已经离开 SQLite。Bot 和 Widget 仍共享 `control.db` 的外键关系，后续切库必须作为同一关系域处理或先正式拆分端口。
 
 ## SQLite 句柄管理
 

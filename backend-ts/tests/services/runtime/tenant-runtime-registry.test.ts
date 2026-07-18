@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { AppEnv } from "../../../src/config/env.js";
+import { SqliteControlPlaneAdapter } from "../../../src/adapters/local/sqlite-control-plane-adapter.js";
 import { createTenantId, createUserId } from "../../../src/identity/types.js";
 import { LOCAL_TENANT_ID } from "../../../src/services/identity/index.js";
 import { createRuntimeContainer, type RuntimeContainerOptions } from "../../../src/services/runtime/runtime-container.js";
@@ -16,6 +17,16 @@ const TENANT_A = createTenantId("tnt_a");
 const TENANT_B = createTenantId("tnt_b");
 
 describe("TenantRuntimeRegistry 多租户隔离", () => {
+  it("拒绝 suspended tenant 的业务 acquire，但允许平台只读检查", async () => {
+    const harness = createRegistryHarness();
+    harness.controlStore.setTenantStatus(TENANT_A, "suspended");
+    await expect(harness.registry.acquire(TENANT_A)).rejects.toThrow("租户已暂停");
+    const inspection = await harness.registry.acquireForInspection(TENANT_A);
+    inspection.release();
+    await harness.registry.closeAll();
+    harness.controlStore.close();
+  });
+
   it("全局反查并注销 daemon routeToken", async () => {
     const harness = createRegistryHarness();
     const botId = createUserId("usr_bot_route");
@@ -144,9 +155,10 @@ function createRegistryHarness(options: {
     postgresPoolMax: 10,
   };
   const controlStore = createControlStore(env.systemRoot);
+  const controlPlane = new SqliteControlPlaneAdapter(controlStore);
   const tenantIds = options.localOnly ? [LOCAL_TENANT_ID] : [TENANT_A, TENANT_B];
   for (const tenantId of tenantIds) controlStore.createTenant({ id: tenantId, displayName: tenantId });
-  const registry = new DefaultTenantRuntimeRegistry(env, controlStore, undefined, {
+  const registry = new DefaultTenantRuntimeRegistry(env, controlPlane.tenants, undefined, {
     idleTimeoutMs: options.idleTimeoutMs ?? 60_000,
     sweepIntervalMs: 5,
     runtimeFactory: options.runtimeFactory ?? createTestRuntime,

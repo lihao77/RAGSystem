@@ -1,7 +1,7 @@
 # TS 后端分层
 
 ::: tip 鉴权封装域
-`buildApp()` 按身份与 Runtime 需求注册 Fastify 子域：普通租户业务使用 session identity + Tenant Runtime，控制面只解析 session identity，Widget 业务使用 widget identity + Tenant Runtime。公开 webhook/token 必须通过 `config.auth = "public"` 显式声明；Session WebSocket 独立消费单次 ticket。路由归属不再由 URL 字符串白名单推断。
+`buildApp()` 按身份与 Runtime 需求注册 Fastify 子域：普通租户业务使用 tenant session identity + Tenant Runtime，平台路由显式请求 platform identity，Widget 业务使用 widget identity + Tenant Runtime。公开 webhook/token 必须通过 `config.auth = "public"` 显式声明；Session WebSocket 独立消费单次 ticket。Identity Provider 不再检查 URL 来推断平台路由。
 :::
 
 本章拆解 `backend-ts` 的内部分层与请求流转。所有结论基于 `backend-ts/src/` 的实际目录结构与 `app.ts` / `runtime-container.ts` 的装配逻辑。
@@ -18,6 +18,7 @@ backend-ts/src/
 │   └── widget-app.ts        # widget CLI
 ├── contracts/               # 共享契约层（接口抽象，按存储域分包）
 │   ├── conversation-store/
+│   ├── control-plane/      # 异步 tenant/user/membership/settings/session/audit ports
 │   ├── file-history-store/
 │   ├── file-index-store/
 │   ├── memory-store/

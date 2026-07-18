@@ -1,46 +1,32 @@
 import { randomUUID } from "node:crypto";
 
 import type { BotConfig, BotConfigUpdate, BotCronTask, BotCronTaskCreate, BotSummary, TenantBotSummary } from "../../../contracts/bot.js";
-import type { Bot, Membership, UserType } from "../../../contracts/user.js";
+import type { Bot, UserType } from "../../../contracts/user.js";
+import type {
+  ControlMembership,
+  ControlTenant,
+  ControlUser,
+  ControlUserWithCredentials,
+  PaginatedControlResult,
+  PlatformRole,
+  TenantStatus,
+  UserStatus,
+} from "../../../contracts/control-plane/index.js";
 import type { TenantId, UserId } from "../../../identity/types.js";
 import { createUserId } from "../../../identity/types.js";
 import { HttpError } from "../../../utils/errors.js";
 import { createControlDb, type ControlDb } from "./db.js";
 
-export interface ControlTenant {
-  id: TenantId;
-  displayName: string;
-  createdAt: string;
-  status: TenantStatus;
-}
-
-export interface ControlUser {
-  id: UserId;
-  displayName: string;
-  createdAt: string;
-  username?: string;
-  platformRole?: PlatformRole;
-  status: UserStatus;
-  type: UserType;
-  owner_id: UserId | null;
-}
-
-export type PlatformRole = "admin";
-export type UserStatus = "active" | "disabled";
-export type TenantStatus = "active" | "suspended";
-
-export interface PaginatedControlResult<T> {
-  items: T[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
-export interface ControlUserWithCredentials extends ControlUser {
-  passwordHash: string | null;
-}
-
-export type ControlMembership = Membership;
+export type {
+  ControlMembership,
+  ControlTenant,
+  ControlUser,
+  ControlUserWithCredentials,
+  PaginatedControlResult,
+  PlatformRole,
+  TenantStatus,
+  UserStatus,
+} from "../../../contracts/control-plane/index.js";
 
 export type BotWithConfig = Bot & { config: BotConfig };
 
@@ -438,6 +424,10 @@ export class ControlStore {
     if (Number(row.count) < 1) {
       throw new HttpError(409, "last_platform_admin", "至少需要保留一个 active 平台管理员");
     }
+  }
+
+  transaction<T>(operation: () => T): T {
+    return this.inImmediateTransaction(operation);
   }
 
   private inImmediateTransaction<T>(operation: () => T): T {

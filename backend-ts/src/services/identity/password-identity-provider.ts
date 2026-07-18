@@ -1,22 +1,22 @@
 import type { FastifyRequest } from "fastify";
 
 import type { RequestIdentity } from "../../identity/types.js";
+import type { ControlPlane } from "../../contracts/control-plane/index.js";
 import type { SessionTokenService } from "../runtime/session-token-service.js";
-import type { ControlStore } from "../stores/control-store/index.js";
 import { AuthError } from "./auth-error.js";
 import type { IdentityProvider } from "./identity-provider.js";
 
 export class PasswordIdentityProvider implements IdentityProvider {
   constructor(
-    private readonly controlStore: ControlStore,
+    private readonly controlPlane: ControlPlane,
     private readonly sessionTokens: SessionTokenService,
   ) {}
 
-  resolve(request: FastifyRequest): RequestIdentity {
-    const claims = this.sessionTokens.requireBearer(request);
-    const user = this.controlStore.getUser(claims.sub);
+  async resolve(request: FastifyRequest, scope: "tenant" | "platform" = "tenant"): Promise<RequestIdentity> {
+    const claims = await this.sessionTokens.requireBearer(request);
+    const user = await this.controlPlane.users.get(claims.sub);
     if (!user || user.status === "disabled") throw new AuthError("用户已被禁用");
-    if (isPlatformRequest(request.url)) {
+    if (scope === "platform") {
       return {
         userId: user.id,
         tenantId: claims.tenant_id,
@@ -25,9 +25,9 @@ export class PasswordIdentityProvider implements IdentityProvider {
         ...(user.platformRole ? { platformRole: user.platformRole } : {}),
       };
     }
-    const tenant = this.controlStore.getTenant(claims.tenant_id);
+    const tenant = await this.controlPlane.tenants.get(claims.tenant_id);
     if (!tenant || tenant.status === "suspended") throw new AuthError("租户已暂停");
-    const membership = this.controlStore.getMembership(claims.sub, claims.tenant_id);
+    const membership = await this.controlPlane.memberships.get(claims.sub, claims.tenant_id);
     if (!membership || membership.role !== claims.role) throw new AuthError("session identity 无效");
     return {
       userId: user.id,
@@ -37,9 +37,4 @@ export class PasswordIdentityProvider implements IdentityProvider {
       ...(user.platformRole ? { platformRole: user.platformRole } : {}),
     };
   }
-}
-
-function isPlatformRequest(url: string): boolean {
-  const pathname = url.split("?", 1)[0] ?? url;
-  return pathname === "/api/platform" || pathname.startsWith("/api/platform/");
 }

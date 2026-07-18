@@ -9,7 +9,7 @@ verified_at: 2026-07-18
 
 | 数据域 | Local | Hybrid SaaS |
 |---|---|---|
-| Control、身份、租户设置 | `<RAG_DATA_ROOT>/system/control.db` | 同左，仍是 SQLite |
+| Control、身份、租户设置 | `<RAG_DATA_ROOT>/system/control.db`，经异步 `ControlPlane` ports | 同左，仍是 SQLite |
 | conversation/session/run/outbox | tenant `db/ragsystem.db` | 同左，仍是 SQLite |
 | Agent/Team/Provider/MCP 配置 | tenant 数据目录和配置文件 | 同左，仍是本地持久化 |
 | Memory entries/candidates/revisions | 文件系统和 SQLite candidates | PostgreSQL |

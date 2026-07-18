@@ -21,7 +21,7 @@ afterEach(async () => {
 describe("session ownership", () => {
   it("returns 403 when another user in the same tenant accesses the session", async () => {
     const identityProvider: IdentityProvider = {
-      resolve(request: FastifyRequest): RequestIdentity {
+      async resolve(request: FastifyRequest): Promise<RequestIdentity> {
         const userId = request.headers["x-test-user"] === "b" ? USER_B : USER_A;
         return { userId, tenantId: LOCAL_TENANT_ID, role: "member", permissions: [] };
       },
@@ -121,7 +121,7 @@ describe("session ownership", () => {
 
 async function buildOwnershipHarness() {
   const identityProvider: IdentityProvider = {
-    resolve(request: FastifyRequest): RequestIdentity {
+    async resolve(request: FastifyRequest): Promise<RequestIdentity> {
       const userId = request.headers["x-test-user"] === "b" ? USER_B : USER_A;
       return { userId, tenantId: LOCAL_TENANT_ID, role: "member", permissions: [] };
     },

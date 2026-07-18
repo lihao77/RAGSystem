@@ -8,6 +8,7 @@ import type { HookRegistry } from "@ragsystem/agent-sdk";
 import { HashFallbackEmbedder } from "../../src/services/integrations/embedder-registry.js";
 import { makeTempRoot } from "./temp-db.js";
 import { createControlStore } from "../../src/services/stores/control-store/index.js";
+import { SqliteControlPlaneAdapter } from "../../src/adapters/local/sqlite-control-plane-adapter.js";
 import { createWidgetCredentialStore } from "../../src/services/stores/widget-credential-store/index.js";
 import { createWidgetAuthService } from "../../src/services/runtime/jwt-service.js";
 import { LocalIdentityProvider } from "../../src/services/identity/index.js";
@@ -73,9 +74,10 @@ export async function buildTestHarness(
     embedderFactory: () => new HashFallbackEmbedder(),
   });
   const controlStore = createControlStore(path.join(tempRoot, "system"));
+  const controlPlane = new SqliteControlPlaneAdapter(controlStore);
   for (const [key, value] of Object.entries(options.settings ?? {})) controlStore.setSetting(key, value);
   const identityProvider = options.identityProvider
-    ?? (options.autoIdentityProvider ? undefined : new LocalIdentityProvider(controlStore));
+    ?? (options.autoIdentityProvider ? undefined : new LocalIdentityProvider(controlPlane));
   const widgetCredentialStore = createWidgetCredentialStore(controlStore.db);
   const widgetAuth = options.widgetJwtSecret
     ? createWidgetAuthService(options.widgetJwtSecret, widgetCredentialStore.ops)
@@ -90,13 +92,14 @@ export async function buildTestHarness(
     ...(options.sessionTokenTtlHours ? { sessionTokenTtlHours: options.sessionTokenTtlHours } : {}),
     ...options.env,
   };
-  const registry = new DefaultTenantRuntimeRegistry(env, controlStore, options.logger, {
+  const registry = new DefaultTenantRuntimeRegistry(env, controlPlane.tenants, options.logger, {
     runtimeFactory: () => container,
   });
   const app = await buildApp({
     env,
     registry,
     controlStore,
+    controlPlane,
     ...(identityProvider ? { identityProvider } : {}),
     tenantMigrator: { migrate: () => ({ status: "skipped", reason: "no_legacy_data", directories: [] }) },
     widgetCredentialStore,
@@ -105,5 +108,5 @@ export async function buildTestHarness(
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await app.ready();
-  return { app, container, registry, controlStore, widgetCredentialStore, widgetAuth, root: tempRoot };
+  return { app, container, registry, controlStore, controlPlane, widgetCredentialStore, widgetAuth, root: tempRoot };
 }

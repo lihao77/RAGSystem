@@ -9,6 +9,21 @@ afterEach(async () => {
 });
 
 describe("认证路由", () => {
+  it("缺少 session secret 时在提交安装前拒绝 SaaS profile", async () => {
+    const harness = await buildTestHarness();
+    close.push(() => harness.app.close());
+    const response = await harness.app.inject({
+      method: "POST",
+      url: "/api/install",
+      payload: { deployment: "saas", admin: { username: "admin", password: "password123" } },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: "invalid_configuration" });
+    expect(harness.controlStore.getSetting("installed")).toBeNull();
+    expect(harness.controlStore.getTenant("tnt_default" as never)).toBeNull();
+  });
+
   it("首次安装成功，重复安装返回 409", async () => {
     const harness = await buildTestHarness({ sessionJwtSecret: secret });
     close.push(() => harness.app.close());

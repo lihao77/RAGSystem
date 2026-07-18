@@ -47,7 +47,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
           } else {
             // local profile 和受信任的非浏览器客户端仍可由 identity provider 直接解析；
             // 浏览器 password profile 必须先走 HTTP 签发 ticket，不再接受长期 JWT query。
-            const identity = options.identityProvider.resolve(request);
+            const identity = await options.identityProvider.resolve(request);
             request.identity = identity;
             request.userId = identity.userId;
             lease = await options.registry.acquire(identity.tenantId);

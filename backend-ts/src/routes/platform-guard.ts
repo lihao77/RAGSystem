@@ -1,10 +1,10 @@
 import type { FastifyRequest } from "fastify";
 
-import type { ControlStore } from "../services/stores/control-store/index.js";
+import type { ControlPlane } from "../contracts/control-plane/index.js";
 import { HttpError } from "../utils/errors.js";
 
-export function requirePlatformAdmin(request: FastifyRequest, controlStore: ControlStore) {
-  const user = controlStore.getUser(request.identity.userId);
+export async function requirePlatformAdmin(request: FastifyRequest, controlPlane: ControlPlane) {
+  const user = await controlPlane.users.get(request.identity.userId);
   if (!user || user.status !== "active" || user.platformRole !== "admin") {
     throw new HttpError(403, "forbidden", "需要 active 平台管理员权限");
   }

@@ -101,7 +101,7 @@ describe("bot 自动化执行引擎", () => {
     const USER_A = createUserId("usr_owner_a");
     const USER_B = createUserId("usr_owner_b");
     const identityProvider: IdentityProvider = {
-      resolve(request: FastifyRequest): RequestIdentity {
+      async resolve(request: FastifyRequest): Promise<RequestIdentity> {
         return { userId: request.headers["x-test-user"] === "b" ? USER_B : USER_A, tenantId: LOCAL_TENANT_ID, role: "member", permissions: [] };
       },
     };

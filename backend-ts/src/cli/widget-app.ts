@@ -12,11 +12,12 @@
  * create 成功后 secret 仅显示一次——后端只存 SHA-256 hash，无法找回，请立即保存。
  */
 import { loadEnv } from "../config/env.js";
+import { SqliteControlPlaneAdapter } from "../adapters/local/sqlite-control-plane-adapter.js";
 import { LOCAL_TENANT_ID, LocalIdentityProvider } from "../services/identity/index.js";
 import { createControlStore } from "../services/stores/control-store/index.js";
 import { createWidgetCredentialStore } from "../services/stores/widget-credential-store/index.js";
 
-function main(): void {
+async function main(): Promise<void> {
   const [, , command, ...rest] = process.argv;
   if (!["create", "revoke", "list", "rotate", "update-origin"].includes(command ?? "")) {
     usage();
@@ -25,7 +26,7 @@ function main(): void {
 
   const env = loadEnv(process.env);
   const controlStore = createControlStore(env.systemRoot);
-  new LocalIdentityProvider(controlStore);
+  await new LocalIdentityProvider(new SqliteControlPlaneAdapter(controlStore)).initialize();
   const store = createWidgetCredentialStore(controlStore.db);
   try {
     if (command === "create") {
@@ -81,4 +82,4 @@ function usage(): void {
   );
 }
 
-main();
+void main();

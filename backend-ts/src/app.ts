@@ -9,6 +9,7 @@ import { ZodError } from "zod";
 import "./fastify-context.js";
 
 import { resolveProfileFromSettings, type AppEnv } from "./config/env.js";
+import type { ControlPlane } from "./contracts/control-plane/index.js";
 import type { DeploymentProfile } from "./identity/types.js";
 import {
   registerManagementAndPlatformRoutes,
@@ -19,6 +20,7 @@ import {
 } from "./app/route-assembly.js";
 import { HttpError, formatError } from "./utils/errors.js";
 import { createControlStore, type ControlStore } from "./services/stores/control-store/index.js";
+import { SqliteControlPlaneAdapter } from "./adapters/local/sqlite-control-plane-adapter.js";
 import { createWidgetCredentialStore, type WidgetCredentialStore } from "./services/stores/widget-credential-store/index.js";
 import { createWidgetAuthService, type WidgetAuthService } from "./services/runtime/jwt-service.js";
 import { createSessionTokenService, type SessionTokenService } from "./services/runtime/session-token-service.js";
@@ -37,6 +39,7 @@ export interface BuildAppOptions {
   resolveMemoryApplication?: RouteOptions["resolveMemoryApplication"];
   registry?: TenantRuntimeRegistry;
   controlStore?: ControlStore;
+  controlPlane?: ControlPlane;
   identityProvider?: IdentityProvider;
   tenantMigrator?: Pick<TenantMigrator, "migrate">;
   widgetCredentialStore?: WidgetCredentialStore;
@@ -52,30 +55,48 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       "saasMemoryRuntime must own Memory composition; custom registry/resolveMemoryApplication would split Memory backends",
     );
   }
+  if (options.controlPlane && (
+    !options.controlStore
+    || !(options.controlPlane instanceof SqliteControlPlaneAdapter)
+    || options.controlPlane.store !== options.controlStore
+  )) {
+    throw new Error("custom controlPlane must wrap the same SQLite controlStore until Bot and Widget leave control.db");
+  }
   const app = Fastify({
     logger: {
       level: options.env.logLevel,
     },
   });
   const controlStore = options.controlStore ?? createControlStore(options.env.systemRoot);
+  const controlPlane = options.controlPlane ?? new SqliteControlPlaneAdapter(controlStore);
   const tenantMigrator = options.tenantMigrator ?? createTenantMigrator(options.env);
   tenantMigrator.migrate();
-  const initialProfile = resolveProfileFromSettings(controlStore.getAllSettings(), options.env);
-  const initialSessionTokens = options.sessionTokens ?? createSessionTokens(initialProfile.auth, options.env, controlStore);
+  const initialProfile = resolveProfileFromSettings(await controlPlane.settings.getAll(), options.env);
+  const initialSessionTokens = options.sessionTokens ?? createSessionTokens(initialProfile.auth, options.env, controlPlane);
   const runtime: AuthRuntime = {
     profile: initialProfile,
     sessionTokens: initialSessionTokens,
-    identityProvider: options.identityProvider ?? createIdentityProvider(initialProfile.auth, controlStore, initialSessionTokens),
+    identityProvider: options.identityProvider ?? createIdentityProvider(initialProfile.auth, controlPlane, initialSessionTokens),
   };
-  const refreshProfile = (): DeploymentProfile => {
-    const profile = resolveProfileFromSettings(controlStore.getAllSettings(), options.env);
-    const sessionTokens = createSessionTokens(profile.auth, options.env, controlStore);
-    const identityProvider = createIdentityProvider(profile.auth, controlStore, sessionTokens);
+  if (runtime.identityProvider instanceof LocalIdentityProvider) await runtime.identityProvider.initialize();
+  const refreshProfile = async (): Promise<DeploymentProfile> => {
+    const profile = resolveProfileFromSettings(await controlPlane.settings.getAll(), options.env);
+    const sessionTokens = createSessionTokens(profile.auth, options.env, controlPlane);
+    const identityProvider = createIdentityProvider(profile.auth, controlPlane, sessionTokens);
+    if (identityProvider instanceof LocalIdentityProvider) await identityProvider.initialize();
     Object.assign(runtime, { profile, sessionTokens, identityProvider });
     return profile;
   };
+  const validateProfileSettings = (settings: Readonly<Record<string, string>>): void => {
+    const profile = resolveProfileFromSettings(settings, options.env);
+    try {
+      createSessionTokens(profile.auth, options.env, controlPlane);
+    } catch (error) {
+      throw new HttpError(400, "invalid_configuration", error instanceof Error ? error.message : "目标 profile 配置无效");
+    }
+  };
   const routedIdentityProvider: IdentityProvider = {
-    resolve: (request) => runtime.identityProvider.resolve(request),
+    resolve: (request, scope) => runtime.identityProvider.resolve(request, scope),
   };
   const widgetCredentialStore = options.widgetCredentialStore ?? createWidgetCredentialStore(controlStore.db);
   const widgetAuth = options.widgetAuth ?? (options.env.widgetJwtSecret
@@ -84,7 +105,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const widgetIdentityProvider = widgetAuth ? new WidgetIdentityProvider(widgetAuth, widgetCredentialStore) : undefined;
   const registry = options.registry ?? new DefaultTenantRuntimeRegistry(
     options.env,
-    controlStore,
+    controlPlane.tenants,
     app.log,
     options.saasMemoryRuntime
       ? {
@@ -207,7 +228,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     await options.saasMemoryRuntime?.close();
     widgetCredentialStore.close();
     wsTickets.close();
-    controlStore.close();
+    await controlPlane.close();
+    if (!(controlPlane instanceof SqliteControlPlaneAdapter && controlPlane.ownsStore)) {
+      controlStore.close();
+    }
   });
 
   app.setErrorHandler((error, _request, reply) => {
@@ -296,7 +320,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
   await app.register(websocket);
 
-  await registerPublicAndAuthRoutes(app, { env: options.env, controlStore, runtime, refreshProfile });
+  await registerPublicAndAuthRoutes(app, {
+    env: options.env,
+    controlPlane,
+    runtime,
+    refreshProfile,
+    validateProfileSettings,
+  });
   await registerSharedBusinessRoutes(app, {
     registry,
     identityProvider: routedIdentityProvider,
@@ -307,7 +337,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await registerManagementAndPlatformRoutes(app, {
-    controlStore,
+    controlPlane,
     registry,
     identityProvider: routedIdentityProvider,
     widgetCredentialStore,
@@ -327,25 +357,25 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   return app;
 }
 
-function createSessionTokens(authMode: string, env: AppEnv, controlStore: ControlStore): SessionTokenService | undefined {
+function createSessionTokens(authMode: string, env: AppEnv, controlPlane: ControlPlane): SessionTokenService | undefined {
   if (authMode !== "password") return undefined;
   const secret = env.sessionJwtSecret ?? (env.widgetJwtSecret
     ? createHash("sha256").update(`ragsystem-session:${env.widgetJwtSecret}`).digest("hex")
     : undefined);
   if (!secret) throw new Error("password 模式必须配置 SESSION_JWT_SECRET，或配置 WIDGET_JWT_SECRET 用于派生");
   return createSessionTokenService(secret, {
-    isSessionRevoked: (tenantId, jti) => controlStore.isSessionRevoked(tenantId, jti),
-    revokeSession: (jti) => controlStore.revokeSession(jti),
+    isSessionRevoked: (tenantId, jti) => controlPlane.sessions.isRevoked(tenantId, jti),
+    revokeSession: (jti) => controlPlane.sessions.revoke(jti),
   }, env.sessionTokenTtlHours ?? 168);
 }
 
 function createIdentityProvider(
   authMode: string,
-  controlStore: ControlStore,
+  controlPlane: ControlPlane,
   sessionTokens: SessionTokenService | undefined,
 ): IdentityProvider {
-  if (authMode === "local") return new LocalIdentityProvider(controlStore);
-  if (authMode === "password" && sessionTokens) return new PasswordIdentityProvider(controlStore, sessionTokens);
+  if (authMode === "local") return new LocalIdentityProvider(controlPlane);
+  if (authMode === "password" && sessionTokens) return new PasswordIdentityProvider(controlPlane, sessionTokens);
   if (authMode === "oidc") throw new Error("oidc 身份认证尚未实现");
   throw new Error(`无法创建身份 provider: ${authMode}`);
 }

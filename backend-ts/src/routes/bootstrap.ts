@@ -1,12 +1,12 @@
 import type { FastifyPluginAsync } from "fastify";
 
 import type { AppEnv } from "../config/env.js";
+import type { ControlPlane } from "../contracts/control-plane/index.js";
 import type { DeploymentProfile } from "../identity/types.js";
-import type { ControlStore } from "../services/stores/control-store/index.js";
 
 interface BootstrapOptions {
   env: AppEnv;
-  controlStore: ControlStore;
+  controlPlane: ControlPlane;
   runtime: { profile: DeploymentProfile };
 }
 
@@ -21,7 +21,7 @@ export const registerBootstrapRoutes: FastifyPluginAsync<BootstrapOptions> = asy
       execution: profile.execution,
       storage: profile.storage,
       ui: profile.ui,
-      installed: options.controlStore.getSetting("installed") === "true",
+      installed: await options.controlPlane.settings.get("installed") === "true",
       ...(isLocal ? { platformRole: "admin" as const } : {}),
       capabilities: {
         login: !isLocal && profile.auth !== "local",

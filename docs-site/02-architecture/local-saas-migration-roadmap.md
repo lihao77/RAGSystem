@@ -131,7 +131,7 @@ backend-ts/src/
 | 数据域 | 当前来源 | SaaS 目标 | 顺序 | 切换单位 |
 |---|---|---|---:|---|
 | Memory | 文件；Hybrid 可用 PostgreSQL | PostgreSQL | 已开始 | tenant |
-| Control/Identity | 系统 SQLite | PostgreSQL control plane | 2 | deployment |
+| Control/Identity | 系统 SQLite（已置于异步 port 后） | PostgreSQL control plane | 2，进行中 | deployment |
 | Session/Conversation | tenant SQLite | PostgreSQL | 3 | tenant |
 | Run/Interaction/Outbox | tenant SQLite | PostgreSQL + worker | 3-4 | tenant |
 | Realtime/Background | 进程内 | durable queue + pub/sub | 4 | deployment |
@@ -192,10 +192,27 @@ backend-ts/src/
 
 目标：移除 SaaS 启动对单机 ControlStore 的依赖，为多实例提供统一租户来源。
 
+已完成的第一批：
+
+- 建立异步 `ControlPlane` 组合 ports，覆盖 tenant、human user、membership、settings、auth session、audit、health 和 provisioning；
+- SQLite adapter 保持当前生产数据源，并为安装、创建租户、邀请成员和移除成员提供原子操作；
+- IdentityProvider、Session token 撤销检查、HTTP hook 和 WebSocket 预校验已异步化；
+- auth/admin/platform/bootstrap/readyz 不再直接访问 `ControlStore.db` 或控制 SQLite 事务；
+- tenant runtime registry 通过 `TenantDirectory` 验证和枚举租户；
+- 平台身份由路由 composition 显式选择，不再由 provider 检查 URL；
+- tenant 管理路由强制 path tenant 与当前身份 tenant 一致，跨租户请求必须先切换租户；
+- readiness 校验实际 Control schema version，而不是固定报告 migration 正常。
+- 安装在提交前验证目标认证 profile，避免缺少 session secret 时留下半安装状态；
+- 平台状态修改与 audit 在同一 SQLite 事务内提交，Local 默认身份初始化也使用幂等原子 provisioning；
+- suspended tenant 的普通 Runtime acquire 被拒绝，平台检查使用独立的 privileged acquire；
+- 非同源 ControlPlane/legacy Bot-Widget store 组合启动即失败，并明确资源关闭所有权。
+
+当前仍未切换的数据源：Control Plane、Bot 和 Widget 凭证继续位于同一个 `control.db`。Bot 用户、membership、bot config 和 widget app 之间存在外键关系，因此不能只把 human user/tenant 单独切到 PostgreSQL。
+
 工作项：
 
-1. 从 ControlStore 抽出 tenant、user、membership、role、settings、session revocation ports。
-2. 保留 SQLite Control adapter，增加 PostgreSQL Control adapter 和事务 migration。
+1. ~~从 ControlStore 抽出 tenant、user、membership、role、settings、session revocation ports。~~
+2. ~~保留 SQLite Control adapter。~~ 增加 PostgreSQL Control adapter 和事务 migration。
 3. 将 tenant provisioning 设计为幂等状态机：creating -> active -> suspended -> deleting。
 4. password/OIDC identity 统一映射到 tenant membership；所有控制面操作写审计记录。
 5. 迁移 widget credential、session revocation 和系统设置，密钥只存引用或密文。
@@ -398,8 +415,8 @@ inventory -> preflight -> snapshot -> bulk copy -> checksum
 为保持改动可审查，接下来按以下批次推进：
 
 1. Memory 并发/故障 E2E 与 SQLite candidate importer。
-2. Control/Identity ports 和 SQLite adapter 回归，不切换生产路径。
-3. PostgreSQL Control adapter、tenant provisioning 和审计。
+2. ~~Control/Identity ports 和 SQLite adapter 回归，不切换生产路径。~~
+3. PostgreSQL Control adapter、tenant provisioning、Bot/Widget 关系域和审计。
 4. Conversation contracts 拆分与 Local adapter contract tests。
 5. PostgreSQL session/message/run/outbox 首个纵向切片。
 

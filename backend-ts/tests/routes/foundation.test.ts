@@ -30,6 +30,7 @@ describe("foundation routes", () => {
       checks: {
         control_database: "ok",
         migrations: "ok",
+        control_schema_version: expect.any(Number),
       },
     });
     expect(acquire).not.toHaveBeenCalled();
