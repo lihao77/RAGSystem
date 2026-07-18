@@ -1,6 +1,6 @@
 # 存储模型
 
-Object Storage 使用独立的 `ObjectStorage` port：Local 由 filesystem adapter 实现，SaaS 由 S3-compatible adapter 实现。PostgreSQL 只保存文件元数据、租户归属和 `storage_key`，不保存大文件本体。当前 S3 transport 仍需在 SaaS composition root 注入，Knowledge/Artifact 的历史物理文件尚未全部切换。
+Object Storage 使用独立的 `ObjectStorage` port：Local 由 filesystem adapter 实现，SaaS 由 S3-compatible adapter 实现。PostgreSQL 只保存文件元数据、租户归属和 `storage_key`，不保存大文件本体。SaaS Artifact 已通过 `SaaSConversationRuntime.createArtifactService(tenantId)` 使用该边界；SaaS composition root 仍需注入真实 S3/MinIO transport。Knowledge 文件已有独立的异步 metadata/blob adapter，业务路由仍在逐步接线。
 
 本章梳理 RAGSystem 的当前存储架构。Local 模式以 SQLite、sqlite-vec 和文件系统为主；`STORAGE_MODE=postgres` 已可将 Memory 切换到 PostgreSQL，但其他数据域仍使用 Local 存储，因此属于 Hybrid 模式。项目不使用传统 ORM。
 
@@ -10,7 +10,8 @@ Object Storage 使用独立的 `ObjectStorage` port：Local 由 filesystem adapt
 |--------|------|-----------|------|
 | 会话/消息/任务/metrics/widget_tokens | `<dataRoot>/db/ragsystem.db` | `IConversationStore` | `conversation-store/` |
 | 向量 + 知识库配置 + 知识库文件元数据 | `<dataRoot>/db/knowledge.db` | `IVectorStore` + `IKnowledgeConfig` | `sqlite-vec-driver` |
-| 上传源文件 blob | `<dataRoot>/db/knowledge-uploads/` | 知识库文件面 | `sqlite-vec-driver` |
+| 上传源文件 blob | `<dataRoot>/db/knowledge-uploads/` | `KnowledgeFileStore` | Local `sqlite-vec-driver` |
+| SaaS 上传源文件 blob | S3-compatible Object Storage | tenant-scoped async knowledge file port | `SaaSKnowledgeFileStorage` |
 | 文件索引 | （共享 dbPath） | `IFileIndexStore` | `file-index-service` |
 | 文件历史 | （dataRoot 下纯文件） | `IFileHistoryStore` | `file-history-service` |
 | 记忆 | Local：dataRoot 下文件；Hybrid：PostgreSQL | `MemoryRepository` | `MemoryStore` / `PostgresMemoryRepository` |
@@ -65,7 +66,7 @@ Local `memoryStore` 和 `fileHistory` 为纯文件存储，无 SQLite 句柄。P
 
 当 `STORAGE_MODE=postgres` 时，启动必须提供 `DATABASE_URL`。后端执行 Memory schema migration，并将同一个 tenant-bound SaaS provider 注入治理路由、Memory tools 和 Agent context。
 
-此配置不会迁移 ControlStore、conversation、run、outbox、knowledge、vector 或文件存储，也不提供完整多实例 SaaS。完整演进顺序见 [Local 与 SaaS 分离迁移路线](./local-saas-migration-roadmap)。
+此配置不会迁移 ControlStore、conversation、run、outbox、knowledge、vector 或文件存储，也不提供完整多实例 SaaS。当前 SaaS 已具备 Conversation/Run/Outbox、Provider/MCP metadata、Artifact metadata 及对象存储 adapter 的基础，但仍需完成 Knowledge/vector 和无状态 runtime 接线。完整演进顺序见 [Local 与 SaaS 分离迁移路线](./local-saas-migration-roadmap)。
 
 当前 PostgreSQL Memory schema version 为 4，覆盖：
 
