@@ -10,6 +10,7 @@ import { SaaSKnowledgeVectorApplication } from "./services/runtime/saas-knowledg
 import { SaaSSessionApplication } from "./services/runtime/saas-session-application.js";
 import { SaaSAgentReadApplication } from "./services/runtime/saas-agent-read-application.js";
 import { SaaSInteractionRecoveryApplication } from "./services/runtime/saas-interaction-recovery-application.js";
+import { SaaSAnalyticsApplication } from "./services/runtime/saas-analytics-application.js";
 import type { FastifyRequest } from "fastify";
 
 const env = loadEnv(process.env);
@@ -80,6 +81,10 @@ try {
         saasConversationRuntime!.conversation,
         saasConversationRuntime!.pendingInteractions,
         saasConversationRuntime!.providerContinuations,
+      ),
+      resolveSaaSAnalytics: (request: FastifyRequest) => new SaaSAnalyticsApplication(
+        request.identity.tenantId,
+        saasConversationRuntime!.analytics,
       ),
     } : {}),
     ...(saasControlRuntime ? { controlRuntime: saasControlRuntime } : {}),

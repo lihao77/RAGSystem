@@ -56,6 +56,7 @@ export interface BuildAppOptions {
   resolveSaaSSessionApplication?: RouteOptions["resolveSaaSSessionApplication"];
   resolveSaaSAgentReadApplication?: RouteOptions["resolveSaaSAgentReadApplication"];
   resolveSaaSInteractionRecovery?: RouteOptions["resolveSaaSInteractionRecovery"];
+  resolveSaaSAnalytics?: RouteOptions["resolveSaaSAnalytics"];
   registry?: TenantRuntimeRegistry;
   controlStore?: ControlStore;
   controlPlane?: ControlPlane;
@@ -468,6 +469,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ...(options.resolveSaaSSessionApplication ? { resolveSaaSSessionApplication: options.resolveSaaSSessionApplication } : {}),
     ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
     ...(options.resolveSaaSInteractionRecovery ? { resolveSaaSInteractionRecovery: options.resolveSaaSInteractionRecovery } : {}),
+    ...(options.resolveSaaSAnalytics ? { resolveSaaSAnalytics: options.resolveSaaSAnalytics } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await registerManagementAndPlatformRoutes(app, {

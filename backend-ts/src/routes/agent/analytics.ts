@@ -49,31 +49,44 @@ export const registerAnalyticsRoutes: FastifyPluginAsync<RouteOptions> = async (
     if (bucket !== "day" && bucket !== "hour") {
       throw new HttpError(400, "invalid_request", "bucket 必须是 day 或 hour");
     }
-    const rows = request.container.conversationStore.aggregateTokenTrend({
-      since: daysToSince(days),
-      bucket,
-    });
+    const input: { since: string; bucket: "day" | "hour" } = { since: daysToSince(days), bucket };
+    const saas = await options.resolveSaaSAnalytics?.(request);
+    const rows = saas
+      ? await saas.aggregateTokenTrend(input)
+      : request.container.conversationStore.aggregateTokenTrend(input);
     return ok(rows, "获取 token 趋势成功");
   });
 
   app.get("/analytics/model-usage", async (request) => {
     const query = request.query as RangeQuery;
     const days = parseDays(query.days, DEFAULT_MODEL_DAYS);
-    const rows = request.container.conversationStore.aggregateModelUsage({ since: daysToSince(days) });
+    const input = { since: daysToSince(days) };
+    const saas = await options.resolveSaaSAnalytics?.(request);
+    const rows = saas
+      ? await saas.aggregateModelUsage(input)
+      : request.container.conversationStore.aggregateModelUsage(input);
     return ok(rows, "获取模型用量成功");
   });
 
   app.get("/analytics/activity-heatmap", async (request) => {
     const query = request.query as RangeQuery;
     const days = parseDays(query.days, DEFAULT_HEATMAP_DAYS);
-    const rows = request.container.conversationStore.aggregateActivityHeatmap({ since: daysToSince(days) });
+    const input = { since: daysToSince(days) };
+    const saas = await options.resolveSaaSAnalytics?.(request);
+    const rows = saas
+      ? await saas.aggregateActivityHeatmap(input)
+      : request.container.conversationStore.aggregateActivityHeatmap(input);
     return ok(rows, "获取活跃热力图成功");
   });
 
   app.get("/analytics/daily-activity", async (request) => {
     const query = request.query as RangeQuery;
     const days = parseDays(query.days, DEFAULT_DAILY_DAYS);
-    const rows = request.container.conversationStore.aggregateDailyActivity({ since: daysToSince(days) });
+    const input = { since: daysToSince(days) };
+    const saas = await options.resolveSaaSAnalytics?.(request);
+    const rows = saas
+      ? await saas.aggregateDailyActivity(input)
+      : request.container.conversationStore.aggregateDailyActivity(input);
     return ok(rows, "获取每日活跃度成功");
   });
 };
