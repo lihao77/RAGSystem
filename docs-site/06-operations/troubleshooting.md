@@ -11,7 +11,7 @@ verified_at: 2026-07-18
 | 进程存活但不能接流量 | `/readyz`、启动迁移、控制库 |
 | 知识库启动失败 | sqlite-vec ABI、`knowledge.db`、Embedding Provider |
 | Agent 无事件 | outbox pending/failed、dispatcher、WebSocket ticket |
-| Widget 503 | `WIDGET_JWT_SECRET` 是否设置 |
+| Widget 503 | `WIDGET_JWT_KEY_RING` 是否设置 |
 | 跨域失败 | `CORS_ORIGINS` 和 Widget allowed origins |
 | 工具被拒绝 | tenant role、PermissionPolicy、path approval |
 | `POST /api/agent/stream` 立即 400 | 查看错误 body；请求只能包含当前严格 schema 字段，旧 `use_v2` 已移除 |

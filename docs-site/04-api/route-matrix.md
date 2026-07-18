@@ -41,7 +41,7 @@
 
 ### Widget
 
-启用 `WIDGET_JWT_SECRET` 后：`POST /api/widget/auth/token` 用 app secret 换短期 JWT，`POST /api/widget/sessions` 创建会话，`POST /api/widget/sessions/:id/ws-ticket` 签发一次性 WS ticket；`/api/widget/apps` 管理 app、secret、token 和 audit。
+启用 `WIDGET_JWT_KEY_RING` 后：`POST /api/widget/auth/token` 用 app secret 换短期 JWT，`POST /api/widget/sessions` 创建会话，`POST /api/widget/sessions/:id/ws-ticket` 签发一次性 WS ticket；`/api/widget/apps` 管理 app、secret、token 和 audit。
 
 ## 维护规则
 

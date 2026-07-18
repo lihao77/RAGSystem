@@ -5,6 +5,7 @@ import { SqliteControlPlaneAdapter } from "../../src/adapters/local/sqlite-contr
 import { SqliteWidgetCredentialAdapter } from "../../src/adapters/local/sqlite-widget-credential-adapter.js";
 import { createWidgetCredentialStore } from "../../src/services/stores/widget-credential-store/index.js";
 import { createWidgetAuthService } from "../../src/services/runtime/jwt-service.js";
+import { createJwtKeyRing } from "../../src/services/runtime/jwt-key-ring.js";
 import {
   LOCAL_TENANT_ID,
   LOCAL_USER_ID,
@@ -39,7 +40,7 @@ describe("IdentityProvider", () => {
     await new LocalIdentityProvider(new SqliteControlPlaneAdapter(controlStore)).resolve({} as never);
     const store = createWidgetCredentialStore(controlStore.db);
     const credentials = new SqliteWidgetCredentialAdapter(store);
-    const auth = createWidgetAuthService(secret, credentials);
+    const auth = createWidgetAuthService(createJwtKeyRing({ active: { kid: "test", secret } }), credentials);
     const app = store.ops.createApp({ tenantId: LOCAL_TENANT_ID, display_name: "widget" });
     const token = (await auth.issueToken(store.ops.getApp(LOCAL_TENANT_ID, app.app_key)!)).token;
     const provider = new WidgetIdentityProvider(auth, credentials);

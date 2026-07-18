@@ -64,7 +64,7 @@
 | POST | `/api/widget/sessions/:id/ws-ticket` | 签发 60 秒单次 WS ticket |
 | POST | `/api/agui` | AG-UI SSE/interrupt 网关 |
 
-未配置 `WIDGET_JWT_SECRET` 时 Widget 端点返回 `503 widget_disabled`。
+未配置 `WIDGET_JWT_KEY_RING` 时 Widget 端点返回 `503 widget_disabled`。
 
 ## 不再提供的旧路径
 

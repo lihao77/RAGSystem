@@ -103,7 +103,7 @@ Agent 运行时的内核实现，被 `backend-ts` 的 `services/agent/sdk/` 层�
 | `utils/` | 工具 |
 
 ::: tip widget 鉴权
-`backend-ts` 通过 `WIDGET_JWT_SECRET` 环境变量启用 widget 第三方嵌入鉴权（`jwt-service.ts`）。未配置时 widget 鉴权不启用。详见 [配置](/03-guides/configuration)。
+`backend-ts` 通过 `WIDGET_JWT_KEY_RING` 环境变量启用 widget 第三方嵌入鉴权（`jwt-service.ts`）。未配置时 widget 鉴权不启用。详见 [配置](/03-guides/configuration)。
 :::
 
 ## 依赖拓扑与构建顺序

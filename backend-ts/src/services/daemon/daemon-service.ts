@@ -247,28 +247,17 @@ export class DaemonService {
   }
 
   private async runDueTasks(now: number): Promise<void> {
-    if (this.options.botRepository.claimDueCronTasks) {
-      const claims = await this.options.botRepository.claimDueCronTasks({
-        now,
-        leaseOwner: this.cronLeaseOwner,
-      });
-      for (const claim of claims) {
-        try {
-          await this.triggerBotCronTask(claim.botId, claim.taskId, claim.claimToken);
-          await this.options.botRepository.completeCronTaskClaim?.({ botId: claim.botId, taskId: claim.taskId, claimToken: claim.claimToken });
-        } catch (error) {
-          await this.options.botRepository.releaseCronTaskClaim?.({ botId: claim.botId, taskId: claim.taskId, claimToken: claim.claimToken });
-          console.error(`[daemon][cron][${claim.botId}/${claim.taskId}] 自动调度失败`, error);
-        }
-      }
-      return;
-    }
-    const tasks = await this.options.botRepository.listDueCronTasks(now);
-    for (const { botId, taskId } of tasks) {
+    const claims = await this.options.botRepository.claimDueCronTasks({
+      now,
+      leaseOwner: this.cronLeaseOwner,
+    });
+    for (const claim of claims) {
       try {
-        await this.triggerBotCronTask(botId, taskId);
+        await this.triggerBotCronTask(claim.botId, claim.taskId, claim.claimToken);
+        await this.options.botRepository.completeCronTaskClaim({ botId: claim.botId, taskId: claim.taskId, claimToken: claim.claimToken });
       } catch (error) {
-        console.error(`[daemon][cron][${botId}/${taskId}] 自动调度失败`, error);
+        await this.options.botRepository.releaseCronTaskClaim({ botId: claim.botId, taskId: claim.taskId, claimToken: claim.claimToken });
+        console.error(`[daemon][cron][${claim.botId}/${claim.taskId}] 自动调度失败`, error);
       }
     }
   }

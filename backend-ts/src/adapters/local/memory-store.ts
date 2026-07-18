@@ -4,7 +4,6 @@ import { createHash } from "node:crypto";
 import { withLeaseLock } from "@ragsystem/agent-sdk";
 import {
   atomicWriteFile as atomicWriteMemoryFile,
-  migrateLegacyWorkspace as migrateLegacyWorkspaceAsync,
   readFileIfExists,
   restoreFileIfExpected,
   snapshotFile,
@@ -101,10 +100,6 @@ export class MemoryStore implements IMemoryStore {
   ensureScope(scopeSpec: MemoryScopeSpec): string {
     const scopeRoot = this.getScopeRoot(scopeSpec);
     fs.mkdirSync(scopeRoot, { recursive: true });
-    if (scopeSpec.scope === "workspace") {
-      const memoryRoot = path.join(this.dataRoot, "memory");
-      migrateLegacyWorkspaceSync(resolveScopePath(memoryRoot, "workspaces", scopeSpec.workspace_key!), scopeRoot);
-    }
     const indexPath = path.join(scopeRoot, "MEMORY.md");
     try {
       fs.writeFileSync(indexPath, `# ${titleCase(scopeSpec.scope)} Memory\n\n`, { encoding: "utf8", flag: "wx" });
@@ -116,11 +111,6 @@ export class MemoryStore implements IMemoryStore {
 
   private async ensureScopeUnlocked(scopeSpec: MemoryScopeSpec, scopeRoot: string): Promise<void> {
     await fs.promises.mkdir(scopeRoot, { recursive: true });
-    if (scopeSpec.scope === "workspace") {
-      const memoryRoot = path.join(this.dataRoot, "memory");
-      const legacyRoot = resolveScopePath(memoryRoot, "workspaces", scopeSpec.workspace_key!);
-      await migrateLegacyWorkspaceAsync(legacyRoot, scopeRoot);
-    }
     try {
       await fs.promises.writeFile(path.join(scopeRoot, "MEMORY.md"), `# ${titleCase(scopeSpec.scope)} Memory\n\n`, { encoding: "utf8", flag: "wx" });
     } catch (error) {
@@ -614,12 +604,6 @@ function nearestExistingAncestor(candidate: string): string {
 function isPathWithin(candidate: string, root: string): boolean {
   const relative = path.relative(root, candidate);
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-}
-
-function migrateLegacyWorkspaceSync(legacyRoot: string, userWorkspaceRoot: string): void {
-  if (!fs.existsSync(legacyRoot) || fs.existsSync(path.join(userWorkspaceRoot, "MEMORY.md"))) return;
-  fs.mkdirSync(path.dirname(userWorkspaceRoot), { recursive: true });
-  fs.cpSync(legacyRoot, userWorkspaceRoot, { recursive: true, force: false, errorOnExist: false });
 }
 
 function resolveEntryPath(scopeRoot: string, fileName: string): string {

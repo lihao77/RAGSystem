@@ -68,8 +68,6 @@ describe.skipIf(databaseUrl == null)("PostgreSQL BotRepository", () => {
         push_chat_id: null,
         next_run: 10,
       });
-      expect(await bots.listDueCronTasks(11)).toEqual([{ botId: bot.id, taskId: task.task_id }]);
-
       const second = new PostgresBotRepository(pool, secrets);
       const claims = await Promise.all([
         bots.claimDueCronTasks!({ now: 11, leaseOwner: "worker-a", leaseSeconds: 60 }),

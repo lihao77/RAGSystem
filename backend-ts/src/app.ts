@@ -4,7 +4,7 @@ import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import fs from "node:fs";
 import path from "node:path";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { ZodError } from "zod";
 import "./fastify-context.js";
 
@@ -119,9 +119,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const widgetCredentials = options.controlRuntime?.widgetCredentials
     ?? options.widgetCredentials
     ?? new SqliteWidgetCredentialAdapter(widgetCredentialStore!);
-  const widgetJwtCredential = options.env.widgetJwtKeyRing ?? options.env.widgetJwtSecret;
-  const widgetAuth = options.widgetAuth ?? (widgetJwtCredential
-    ? createWidgetAuthService(widgetJwtCredential, widgetCredentials)
+  const widgetAuth = options.widgetAuth ?? (options.env.widgetJwtKeyRing
+    ? createWidgetAuthService(options.env.widgetJwtKeyRing, widgetCredentials)
     : undefined);
   const widgetIdentityProvider = widgetAuth ? new WidgetIdentityProvider(widgetAuth, widgetCredentials) : undefined;
   const registry = options.registry ?? new DefaultTenantRuntimeRegistry(
@@ -386,10 +385,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
 function createSessionTokens(authMode: string, env: AppEnv, controlPlane: ControlPlane): SessionTokenService | undefined {
   if (authMode !== "password") return undefined;
-  const secret = env.sessionJwtSecret ?? (env.widgetJwtSecret
-    ? createHash("sha256").update(`ragsystem-session:${env.widgetJwtSecret}`).digest("hex")
-    : undefined);
-  if (!secret) throw new Error("password 模式必须配置 SESSION_JWT_SECRET，或配置 WIDGET_JWT_SECRET 用于派生");
+  const secret = env.sessionJwtSecret;
+  if (!secret) throw new Error("password 模式必须配置 SESSION_JWT_SECRET");
   return createSessionTokenService(secret, {
     isSessionRevoked: (tenantId, jti) => controlPlane.sessions.isRevoked(tenantId, jti),
     revokeSession: (jti) => controlPlane.sessions.revoke(jti),

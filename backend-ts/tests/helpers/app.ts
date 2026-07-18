@@ -12,6 +12,7 @@ import { SqliteControlPlaneAdapter } from "../../src/adapters/local/sqlite-contr
 import { SqliteWidgetCredentialAdapter } from "../../src/adapters/local/sqlite-widget-credential-adapter.js";
 import { createWidgetCredentialStore } from "../../src/services/stores/widget-credential-store/index.js";
 import { createWidgetAuthService } from "../../src/services/runtime/jwt-service.js";
+import { createJwtKeyRing } from "../../src/services/runtime/jwt-key-ring.js";
 import { LocalIdentityProvider } from "../../src/services/identity/index.js";
 import { DefaultTenantRuntimeRegistry } from "../../src/services/runtime/tenant-runtime-registry.js";
 import type { IdentityProvider } from "../../src/services/identity/index.js";
@@ -82,14 +83,14 @@ export async function buildTestHarness(
   const widgetCredentialStore = createWidgetCredentialStore(controlStore.db);
   const widgetCredentials = new SqliteWidgetCredentialAdapter(widgetCredentialStore);
   const widgetAuth = options.widgetJwtSecret
-    ? createWidgetAuthService(options.widgetJwtSecret, widgetCredentials)
+    ? createWidgetAuthService(createJwtKeyRing({ active: { kid: "test", secret: options.widgetJwtSecret } }), widgetCredentials)
     : undefined;
   const env = {
     ...testEnv,
     dataRoot: tempRoot,
     systemRoot: path.join(tempRoot, "system"),
     tenantsRoot: path.join(tempRoot, "tenants"),
-    ...(options.widgetJwtSecret ? { widgetJwtSecret: options.widgetJwtSecret } : {}),
+    ...(options.widgetJwtSecret ? { widgetJwtKeyRing: createJwtKeyRing({ active: { kid: "test", secret: options.widgetJwtSecret } }) } : {}),
     ...(options.sessionJwtSecret ? { sessionJwtSecret: options.sessionJwtSecret } : {}),
     ...(options.sessionTokenTtlHours ? { sessionTokenTtlHours: options.sessionTokenTtlHours } : {}),
     ...options.env,

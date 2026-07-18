@@ -13,7 +13,7 @@ npm -w @ragsystem/backend-ts run start
 
 负载均衡器使用 `GET /readyz` 判断是否接流量；容器存活使用 `GET /livez`。`GET /api/health` 需要租户身份，不应作为匿名探针。
 
-`/readyz` 的 `control_database` 和 `control_schema_version` 表示当前装配的 Control Plane 连接及 migration 状态。Memory PostgreSQL 与 Control Plane PostgreSQL 使用不同环境变量，排障时分别检查 `DATABASE_URL` 与 `CONTROL_DATABASE_URL`。Compose 默认仍为 `CONTROL_STORAGE_MODE=sqlite`；切换到 `postgres` 前必须完成 importer/checkpoint、共享 JWT key ring 和多实例 Daemon 门禁。
+`/readyz` 的 `control_database` 和 `control_schema_version` 表示当前装配的 Control Plane 连接及 schema 状态。Memory PostgreSQL 与 Control Plane PostgreSQL 使用不同环境变量，排障时分别检查 `DATABASE_URL` 与 `CONTROL_DATABASE_URL`。系统开发阶段直接使用当前目标 schema，不提供 Local 数据导入或兼容切换流程。
 
 ## 数据与备份
 
@@ -33,6 +33,6 @@ npm -w @ragsystem/backend-ts run start
 ## 安全基线
 
 - 生产环境显式设置 `CORS_ORIGINS`，不要依赖默认全开。
-- Widget 使用高熵 `WIDGET_JWT_SECRET`，secret 只在服务端保存；publishable key 仅配合 Origin 白名单。
+- Widget 使用共享 `WIDGET_JWT_KEY_RING`，密钥只在服务端保存；publishable key 仅配合 Origin 白名单。
 - 限制 `RAG_DATA_ROOT` 权限，上传文件按 basename 处理并禁止路径穿越。
 - 外部 MCP/LLM 连接设置网络出口和超时策略，权限模式默认保持人工审批。

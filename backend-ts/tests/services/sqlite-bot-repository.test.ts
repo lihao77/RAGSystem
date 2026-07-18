@@ -60,7 +60,6 @@ describe("SqliteBotRepository", () => {
         next_run: 10,
       });
       expect(await bots.listCronTasks(bot.id)).toEqual([task]);
-      expect(await bots.listDueCronTasks(11)).toEqual([{ botId: bot.id, taskId: "daily" }]);
       expect(await bots.updateCronTask(bot.id, "daily", { last_result: "ok" })).toMatchObject({ last_result: "ok" });
       expect(await bots.deleteCronTask(bot.id, "daily")).toBe(true);
       expect(await bots.getCronTask(bot.id, "daily")).toBeNull();

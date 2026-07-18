@@ -11,7 +11,7 @@ describe("PostgreSQL Control Plane migrations", () => {
     expect(POSTGRES_CONTROL_MIGRATIONS.map((migration) => [migration.version, migration.name])).toEqual([
       [1, "control-plane-core"],
       [2, "bot-widget-and-secret-storage"],
-      [3, "control-import-checkpoints-and-cron-lease"],
+      [3, "control-cron-lease"],
     ]);
     const sql = POSTGRES_CONTROL_MIGRATIONS[1]?.sql ?? "";
     for (const table of [
@@ -32,6 +32,6 @@ describe("PostgreSQL Control Plane migrations", () => {
     expect(leaseSql).toContain("last_attempt_id");
     expect(leaseSql).toContain("attempt_count");
     expect(leaseSql).toContain("control_bot_cron_attempt_idx");
-    expect(leaseSql).toContain("control_import_checkpoints");
+    expect(leaseSql).not.toContain("control_import_checkpoints");
   });
 });

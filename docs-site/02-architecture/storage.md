@@ -61,7 +61,7 @@ Local `memoryStore` 和 `fileHistory` 为纯文件存储，无 SQLite 句柄。P
 
 ## PostgreSQL Memory Hybrid
 
-当 `STORAGE_MODE=postgres` 时，启动必须提供 `DATABASE_URL` 或 `POSTGRES_URL`。后端执行 Memory schema migration，并将同一个 tenant-bound SaaS provider 注入治理路由、Memory tools 和 Agent context。
+当 `STORAGE_MODE=postgres` 时，启动必须提供 `DATABASE_URL`。后端执行 Memory schema migration，并将同一个 tenant-bound SaaS provider 注入治理路由、Memory tools 和 Agent context。
 
 此配置不会迁移 ControlStore、conversation、run、outbox、knowledge、vector 或文件存储，也不提供完整多实例 SaaS。完整演进顺序见 [Local 与 SaaS 分离迁移路线](./local-saas-migration-roadmap)。
 
@@ -122,7 +122,7 @@ const vectorStore = createVectorStoreFromConfig(resolvedVectorStoreConfig, optio
 
 ## widget 凭证存储
 
-`widgetCredentialStore`（`runtime-container.ts:119-121`）仅在配置 `WIDGET_JWT_SECRET` 时实例化：
+`widgetCredentialStore`（`runtime-container.ts:119-121`）仅在配置 `WIDGET_JWT_KEY_RING` 时实例化：
 
 - 复用同一 `dbPath`，独立句柄
 - 存储 widget token，带周期清理（`startPruning()`，跟随 outboxDispatcher 生命周期）

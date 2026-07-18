@@ -63,19 +63,3 @@ export async function restoreFileIfExpected(
     await fs.promises.rm(filePath, { force: true });
   }
 }
-
-export async function migrateLegacyWorkspace(legacyRoot: string, userWorkspaceRoot: string): Promise<void> {
-  if (!(await exists(legacyRoot)) || await exists(path.join(userWorkspaceRoot, "MEMORY.md"))) return;
-  await fs.promises.mkdir(path.dirname(userWorkspaceRoot), { recursive: true });
-  await fs.promises.cp(legacyRoot, userWorkspaceRoot, { recursive: true, force: false, errorOnExist: false });
-}
-
-async function exists(filePath: string): Promise<boolean> {
-  try {
-    await fs.promises.lstat(filePath);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw error;
-  }
-}

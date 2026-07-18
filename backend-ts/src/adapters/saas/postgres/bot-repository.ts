@@ -200,17 +200,6 @@ export class PostgresBotRepository implements BotRepository {
     return result.rows.map(mapCronTask);
   }
 
-  async listDueCronTasks(now: number): Promise<Array<{ botId: UserId; taskId: string }>> {
-    const result = await this.pool.query<{ bot_id: string; task_id: string }>(`
-      SELECT task.bot_id, task.task_id FROM control_bot_cron_tasks task
-      JOIN control_users u ON u.id=task.bot_id
-      WHERE task.enabled=TRUE AND task.next_run IS NOT NULL AND task.next_run <= $1
-        AND u.type='bot' AND u.status='active'
-      ORDER BY task.bot_id, task.task_id
-    `, [now]);
-    return result.rows.map((row) => ({ botId: createUserId(row.bot_id), taskId: row.task_id }));
-  }
-
   async claimDueCronTasks(input: {
     now: number;
     leaseOwner: string;

@@ -13,7 +13,7 @@ interface AuditQuery { limit?: string; offset?: string; }
 export const registerWidgetAppsRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   const store = options.widgetCredentialStore;
   if (!options.widgetAuth || !store) {
-    const disabled = async () => { throw new HttpError(503, "widget_disabled", "未配置 WIDGET_JWT_SECRET，widget 接入未启用"); };
+    const disabled = async () => { throw new HttpError(503, "widget_disabled", "未配置 WIDGET_JWT_KEY_RING，widget 接入未启用"); };
     app.all("/", disabled);
     app.all("/*", disabled);
     return;

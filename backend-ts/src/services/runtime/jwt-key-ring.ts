@@ -53,11 +53,6 @@ export function createJwtKeyRing(options: InMemoryJwtKeyRingOptions): JwtKeyRing
   return new InMemoryJwtKeyRing(options);
 }
 
-export function createLegacyJwtKeyRing(secret: string, kid = "legacy"): JwtKeyRing {
-  if (!secret || secret.length < 32) throw new Error("JWT secret 至少需 32 字符");
-  return createJwtKeyRing({ active: { kid, secret } });
-}
-
 function normalizeKey(input: JwtKeyInput): JwtSigningKey {
   const kid = input.kid.trim();
   if (!kid || !/^[A-Za-z0-9._-]+$/.test(kid)) throw new Error("JWT key kid 格式无效");

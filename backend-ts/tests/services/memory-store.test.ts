@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 describe("MemoryStore", () => {
-  it("copies legacy workspace memory into each user's isolated workspace on first access", () => {
+  it("does not read the removed shared workspace layout", () => {
     const dataRoot = makeTempDataRoot();
     const legacyRoot = path.join(dataRoot, "memory", "workspaces", "demo");
     fs.mkdirSync(legacyRoot, { recursive: true });
@@ -25,9 +25,9 @@ describe("MemoryStore", () => {
     const store = new MemoryStore({ dataRoot });
 
     expect(store.loadIndexHead({ scope: "workspace", workspace_key: "demo", user_id: "usr_alice" }))
-      .toBe("# Legacy Workspace");
-    expect(fs.readFileSync(path.join(dataRoot, "memory", "users", "usr_alice", "workspaces", "demo", "fact_old.md"), "utf8"))
-      .toBe("legacy body");
+      .toBe("# Workspace Memory");
+    expect(fs.existsSync(path.join(dataRoot, "memory", "users", "usr_alice", "workspaces", "demo", "fact_old.md")))
+      .toBe(false);
     expect(fs.existsSync(path.join(legacyRoot, "fact_old.md"))).toBe(true);
   });
 

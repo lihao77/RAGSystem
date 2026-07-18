@@ -157,6 +157,6 @@ PostgreSQL Memory schema version 4 会幂等迁移旧策略留下的 session、u
 - Memory 管理页的 Active Entry 查询面向 PostgreSQL Memory；
 - 还不能把当前形态视为无状态、可横向扩容的完整 SaaS。
 
-Local 模式的 Memory 管理页已经可以列出个人和共享的正式条目、查看历史、直接归档个人条目，以及为 team/agent 创建归档审核候选。Local 数据仍以 Markdown 和 SQLite 为准，不会自动写入 PostgreSQL；只有使用 filesystem importer 执行迁移时才会导入 SaaS Memory。
+Local 模式的 Memory 管理页已经可以列出个人和共享的正式条目、查看历史、直接归档个人条目，以及为 team/agent 创建归档审核候选。Local 与 SaaS 使用各自的 runtime 和存储，不提供跨模式数据导入兼容。
 
 API 请求和响应见 [Memory API](/04-api/memory)，部署边界见 [部署模式与多租户](/06-operations/deployment)。

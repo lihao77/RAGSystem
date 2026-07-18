@@ -22,7 +22,7 @@ process.env（最高）
 | `BACKEND_TS_LOG_LEVEL` | `info` | pino level | 日志级别 |
 | `CORS_ORIGINS` | 空=全开 | 逗号分隔 URL | CORS 白名单 |
 | `RAG_DATA_ROOT` | `~/.ragsystem` | 绝对/相对路径 | 数据、配置、上传和租户根目录 |
-| `WIDGET_JWT_SECRET` | 未启用 | 高熵 secret | 启用 Widget app/JWT |
+| `WIDGET_JWT_KEY_RING` | 未启用 | JSON key ring | 启用 Widget app/JWT |
 | `SESSION_JWT_SECRET` | 未启用 | secret | `AUTH_MODE=password` 的 session token |
 | `SESSION_TOKEN_TTL_HOURS` | `168` | 正数 | session JWT TTL |
 | `DEPLOYMENT_MODE` | `local` | local/saas/enterprise | 部署 profile |
@@ -34,7 +34,7 @@ process.env（最高）
 | `CONTROL_DATABASE_URL` | 无 | PostgreSQL connection URL | `CONTROL_STORAGE_MODE=postgres` 的独立连接串，不复用 Memory 配置 |
 | `CONTROL_SECRET_MASTER_KEY` | 无 | base64 encoded 32-byte key | PostgreSQL Control v2 envelope 的独立主密钥；不得由数据库密码或 JWT secret 派生 |
 | `WIDGET_JWT_KEY_RING` | 无 | JSON key ring | 可选的共享 Widget JWT active/previous key 配置；签发使用 active，验证允许未过期 previous |
-| `DATABASE_URL` / `POSTGRES_URL` | 无 | PostgreSQL connection URL | PostgreSQL Memory 连接串 |
+| `DATABASE_URL` | 无 | PostgreSQL connection URL | PostgreSQL Memory 连接串 |
 | `POSTGRES_POOL_MAX` | `10` | 正整数 | PostgreSQL Memory pool 上限 |
 | `UI_MODE` | `local` | local/saas | 前端运行模式 |
 | `ALLOW_UNSAFE_LOCAL_EXECUTION` | `false` | true/false | 允许 SaaS profile 使用宿主机执行 |
@@ -45,9 +45,9 @@ process.env（最高）
 
 `CONTROL_STORAGE_MODE` 与 `STORAGE_MODE` 是两个独立选择轴。前者只控制 tenant/user/membership/settings/auth session/audit 等 Control Plane 数据，后者当前控制 Memory。Local 未设置 `CONTROL_STORAGE_MODE` 时始终使用 SQLite。
 
-PostgreSQL Control Plane 的 schema、migration、Bot/Widget adapter 和 AES-GCM envelope 已有独立边界。启用 `CONTROL_STORAGE_MODE=postgres` 时必须同时提供 `CONTROL_DATABASE_URL` 与独立的 `CONTROL_SECRET_MASTER_KEY`；当前仍需经过 importer、cron lease、JWT key ring 和多实例 readiness 验证，生产切换前不要修改 Compose 默认的 sqlite。
+PostgreSQL Control Plane 的 schema、Bot/Widget adapter、cron lease 和 AES-GCM envelope 已有独立边界。启用 `CONTROL_STORAGE_MODE=postgres` 时必须同时提供 `CONTROL_DATABASE_URL` 与独立的 `CONTROL_SECRET_MASTER_KEY`。系统开发阶段不提供 Local 数据导入兼容，使用 PostgreSQL 时直接初始化当前 schema。
 
-设置 `WIDGET_JWT_KEY_RING` 后，格式为 `{"active":{"kid":"v2","secret":"..."},"previous":[{"kid":"v1","secret":"...","expiresAt":4102444800}]}`。所有实例必须使用同一 ring；旧的 `WIDGET_JWT_SECRET` 仍兼容为单一 `legacy` key。
+设置 `WIDGET_JWT_KEY_RING` 后，格式为 `{"active":{"kid":"v2","secret":"..."},"previous":[{"kid":"v1","secret":"...","expiresAt":4102444800}]}`。所有实例必须使用同一 ring。
 
 ## 3. 常用配置组合
 
@@ -74,7 +74,7 @@ EXECUTION_MODE=docker
 STORAGE_MODE=sqlite-per-tenant
 CONTROL_STORAGE_MODE=sqlite
 SESSION_JWT_SECRET=replace-with-random-secret
-WIDGET_JWT_SECRET=replace-with-another-secret
+WIDGET_JWT_KEY_RING={"active":{"kid":"v1","secret":"replace-with-a-32-byte-secret"},"previous":[]}
 CORS_ORIGINS=https://console.example.com
 ```
 
@@ -102,4 +102,4 @@ CORS_ORIGINS=https://console.example.com
 
 ## 6. Secret 与安全
 
-不要把 `SESSION_JWT_SECRET`、`WIDGET_JWT_SECRET`、Provider API key 写入仓库或 YAML 明文。CORS 默认全开只适合本机；生产必须设置白名单。Widget 的 publishable key 可暴露，但 secret、JWT 签发和 WS ticket 必须留在服务端。
+不要把 `SESSION_JWT_SECRET`、`WIDGET_JWT_KEY_RING`、Provider API key 写入仓库或 YAML 明文。CORS 默认全开只适合本机；生产必须设置白名单。Widget 的 publishable key 可暴露，但 secret、JWT 签发和 WS ticket 必须留在服务端。

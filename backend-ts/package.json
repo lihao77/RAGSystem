@@ -14,8 +14,6 @@
     "typecheck:scripts": "tsc -p tsconfig.scripts.json --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run",
-    "migrate:memory-postgres": "tsx scripts/import-memory-to-postgres.ts",
-    "migrate:control-postgres": "tsx scripts/import-control-to-postgres.ts",
     "smoke:outbox-live": "tsx scripts/outbox-live-smoke.ts"
   },
   "dependencies": {

@@ -203,18 +203,15 @@ export class ControlStore {
     return rows.map(mapBotCronTask);
   }
 
-  listDueCronTasks(now: number): Array<{ botId: UserId; taskId: string }> {
+  findDueCronTasks(now: number): Array<{ botId: UserId; taskId: string }> {
     const rows = this.db.prepare(`
       SELECT bot_cron_tasks.bot_id AS bot_id, bot_cron_tasks.task_id AS task_id
       FROM bot_cron_tasks
       JOIN users ON users.id=bot_cron_tasks.bot_id
-      WHERE bot_cron_tasks.enabled=1
-        AND bot_cron_tasks.next_run IS NOT NULL
-        AND bot_cron_tasks.next_run <= ?
-        AND users.type='bot'
-        AND users.status='active'
+      WHERE bot_cron_tasks.enabled=1 AND bot_cron_tasks.next_run IS NOT NULL
+        AND bot_cron_tasks.next_run <= ? AND users.type='bot' AND users.status='active'
       ORDER BY bot_cron_tasks.bot_id, bot_cron_tasks.task_id
-    `).all(now) as unknown as DueCronTaskRow[];
+    `).all(now) as Array<{ bot_id: UserId; task_id: string }>;
     return rows.map((row) => ({ botId: row.bot_id, taskId: row.task_id }));
   }
 
@@ -548,7 +545,6 @@ interface BotCronTaskRow {
   last_run: number | null;
   last_result: string | null;
 }
-interface DueCronTaskRow { bot_id: UserId; task_id: string; }
 
 function mapTenant(row: TenantRow): ControlTenant {
   return { id: row.id, displayName: row.display_name, createdAt: row.created_at, status: assertTenantStatus(row.status) };

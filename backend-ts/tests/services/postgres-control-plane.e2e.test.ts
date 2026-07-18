@@ -168,7 +168,6 @@ describe.skipIf(!postgresEnabled)("PostgreSQL ControlPlane", () => {
         task_id: "hourly", cron: "0 * * * *", task: "run", entry_agent: null, enabled: true, push_platform: null, push_chat_id: null, next_run: 1,
       });
       expect(task).toMatchObject({ bot_id: bot.id, task_id: "hourly" });
-      await expect(bots.listDueCronTasks(2)).resolves.toEqual([{ botId: bot.id, taskId: "hourly" }]);
       expect(await bots.listByTenant(tenantId)).toHaveLength(1);
       expect(await bots.delete(bot.id)).toBe(true);
       expect(await bots.get(bot.id)).toBeNull();

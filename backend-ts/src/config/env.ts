@@ -29,7 +29,6 @@ const EnvSchema = z.object({
   CORS_ORIGINS: z.string().optional(),
   PORT: z.string().optional(),
   RAG_DATA_ROOT: z.string().optional(),
-  WIDGET_JWT_SECRET: z.string().optional(),
   WIDGET_JWT_KEY_RING: z.string().optional(),
   SESSION_JWT_SECRET: z.string().optional(),
   SESSION_TOKEN_TTL_HOURS: z.string().optional(),
@@ -42,7 +41,6 @@ const EnvSchema = z.object({
   UI_MODE: UiModeSchema.optional(),
   ALLOW_UNSAFE_LOCAL_EXECUTION: z.string().optional(),
   DATABASE_URL: z.string().optional(),
-  POSTGRES_URL: z.string().optional(),
   POSTGRES_POOL_MAX: z.string().optional(),
   CONTROL_DATABASE_URL: z.string().optional(),
   CONTROL_SECRET_MASTER_KEY: z.string().optional(),
@@ -68,8 +66,6 @@ export interface AppEnv {
   controlDatabaseUrl?: string | undefined;
   controlSecretMasterKey?: Buffer | undefined;
   postgresPoolMax: number;
-  /** widget JWT 签名密钥；未设则 widget 鉴权不启用。 */
-  widgetJwtSecret?: string | undefined;
   widgetJwtKeyRing?: JwtKeyRing | undefined;
   /** 用户 session JWT 签名密钥；password 模式必须可解析。 */
   sessionJwtSecret?: string | undefined;
@@ -117,17 +113,16 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     controlStorageMode: env.CONTROL_STORAGE_MODE ?? "sqlite",
     uiMode: env.UI_MODE,
     allowUnsafeLocalExecution: parseBooleanFlag(env.ALLOW_UNSAFE_LOCAL_EXECUTION),
-    databaseUrl: env.DATABASE_URL?.trim() || env.POSTGRES_URL?.trim() || undefined,
+    databaseUrl: env.DATABASE_URL?.trim() || undefined,
     controlDatabaseUrl: env.CONTROL_DATABASE_URL?.trim() || undefined,
     controlSecretMasterKey: parseSecretMasterKey(env.CONTROL_SECRET_MASTER_KEY),
     postgresPoolMax: parsePositiveInteger(env.POSTGRES_POOL_MAX, 10, "POSTGRES_POOL_MAX"),
-    widgetJwtSecret: env.WIDGET_JWT_SECRET?.trim() || undefined,
     widgetJwtKeyRing: parseWidgetJwtKeyRing(env.WIDGET_JWT_KEY_RING),
     sessionJwtSecret: env.SESSION_JWT_SECRET?.trim() || undefined,
     sessionTokenTtlHours: parsePositiveNumber(env.SESSION_TOKEN_TTL_HOURS, 168, "SESSION_TOKEN_TTL_HOURS"),
   };
   if (appEnv.storageMode === "postgres" && !appEnv.databaseUrl) {
-    throw new Error("STORAGE_MODE=postgres requires DATABASE_URL (or POSTGRES_URL)");
+    throw new Error("STORAGE_MODE=postgres requires DATABASE_URL");
   }
   if (appEnv.controlStorageMode === "postgres" && !appEnv.controlDatabaseUrl) {
     throw new Error("CONTROL_STORAGE_MODE=postgres requires CONTROL_DATABASE_URL");

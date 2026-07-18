@@ -9,7 +9,7 @@ let saasControlRuntime: SaaSControlRuntimeHandle | undefined;
 let app;
 try {
   if (env.storageMode === "postgres") {
-    if (!env.databaseUrl) throw new Error("STORAGE_MODE=postgres requires DATABASE_URL (or POSTGRES_URL)");
+    if (!env.databaseUrl) throw new Error("STORAGE_MODE=postgres requires DATABASE_URL");
     saasMemoryRuntime = await createSaaSMemoryRuntime({
       connectionString: env.databaseUrl,
       poolMax: env.postgresPoolMax,

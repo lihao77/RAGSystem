@@ -179,19 +179,8 @@ export const POSTGRES_CONTROL_MIGRATIONS: readonly PostgresControlMigration[] = 
   },
   {
     version: 3,
-    name: "control-import-checkpoints-and-cron-lease",
+    name: "control-cron-lease",
     sql: `
-      CREATE TABLE control_import_checkpoints (
-        import_id TEXT PRIMARY KEY CHECK (length(import_id) > 0),
-        source_path TEXT NOT NULL,
-        source_checksum TEXT NOT NULL CHECK (source_checksum ~ '^[0-9a-f]{64}$'),
-        row_counts JSONB NOT NULL,
-        completed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE INDEX control_import_checkpoints_completed_idx
-        ON control_import_checkpoints(completed_at DESC);
-
       ALTER TABLE control_bot_cron_tasks
         ADD COLUMN lease_owner TEXT,
         ADD COLUMN lease_token TEXT,

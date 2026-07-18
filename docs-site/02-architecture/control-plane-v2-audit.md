@@ -77,7 +77,7 @@ Envelope 行至少包含：
 
 Secret API 必须使用 `set` / `clear` / `unchanged` 三态，不能继续把 `***` 当作存储协议。读 API 只返回 `configured`、reference kind、key version 和更新时间；任何列表、audit detail、exception、日志或 metrics 都不得返回 ciphertext 之外的秘密材料。Resolver 应按 tenant、resource、purpose 授权，解密值只在调用栈内短暂存在；如需缓存，必须有短 TTL、容量上限和 rotation 主动失效。
 
-外部 secret manager reference 是 SaaS 首选。数据库 envelope 是兼容部署路径，但必须要求独立 master key/KMS；不能用 `SESSION_JWT_SECRET`、`WIDGET_JWT_SECRET` 或数据库连接密码派生 KEK。
+外部 secret manager reference 是 SaaS 首选。数据库 envelope 是兼容部署路径，但必须要求独立 master key/KMS；不能用 `SESSION_JWT_SECRET`、`WIDGET_JWT_KEY_RING` 或数据库连接密码派生 KEK。
 
 ## 4. PostgreSQL migration v2 边界
 

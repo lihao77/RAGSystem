@@ -38,17 +38,15 @@ export interface BotRepository {
   listAllEnabledFeishu(): Promise<BotConfig[]>;
 
   listCronTasks(botId: UserId): Promise<BotCronTask[]>;
-  /** Read-only compatibility query. Multi-instance schedulers must use claimDueCronTasks. */
-  listDueCronTasks(now: number): Promise<Array<{ botId: UserId; taskId: string }>>;
   /** Atomically claims due tasks with SKIP LOCKED semantics; an expired lease is reclaimable. */
-  claimDueCronTasks?(input: {
+  claimDueCronTasks(input: {
     now: number;
     leaseOwner: string;
     leaseSeconds?: number;
     limit?: number;
   }): Promise<BotCronTaskClaim[]>;
-  completeCronTaskClaim?(input: { botId: UserId; taskId: string; claimToken: string }): Promise<boolean>;
-  releaseCronTaskClaim?(input: { botId: UserId; taskId: string; claimToken: string }): Promise<boolean>;
+  completeCronTaskClaim(input: { botId: UserId; taskId: string; claimToken: string }): Promise<boolean>;
+  releaseCronTaskClaim(input: { botId: UserId; taskId: string; claimToken: string }): Promise<boolean>;
   getCronTask(botId: UserId, taskId: string): Promise<BotCronTask | null>;
   createCronTask(botId: UserId, input: BotCronTaskCreate & { next_run?: number | null }): Promise<BotCronTask>;
   updateCronTask(

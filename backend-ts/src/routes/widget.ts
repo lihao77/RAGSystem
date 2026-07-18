@@ -28,7 +28,7 @@ interface WidgetSessionParams {
  *   保证 Origin 真实）。通过 HTTP 校验 Origin 后签发 session-scoped WS ticket。防跨站滥用，不防定向攻击
  *   （非浏览器可伪造 Origin），定向防护用 secret 路径。
  *
- * 仅当全局 WidgetAuthService 存在（配了 WIDGET_JWT_SECRET）时启用；否则整组端点返回 503，
+ * 仅当全局 WidgetAuthService 存在（配置了 Widget key ring）时启用；否则整组端点返回 503，
  * 默认部署完全不受影响。鉴权只挂在本 plugin 内，不污染既有 /api/agent/* 零鉴权路由。
  */
 export const registerWidgetRoutes: FastifyPluginAsync<AgentRouteOptions> = async (app, options) => {
@@ -36,7 +36,7 @@ export const registerWidgetRoutes: FastifyPluginAsync<AgentRouteOptions> = async
 
   if (!auth) {
     const disabled = async (): Promise<never> => {
-      throw new HttpError(503, "widget_disabled", "未配置 WIDGET_JWT_SECRET，widget 接入未启用");
+      throw new HttpError(503, "widget_disabled", "未配置 WIDGET_JWT_KEY_RING，widget 接入未启用");
     };
     app.post("/auth/token", { config: { auth: "public" } }, disabled);
     app.post("/sessions", disabled);

@@ -8,7 +8,6 @@ import type {
 import type { JwtKeyRing, JwtSigningKey } from "../../contracts/jwt-key-ring.js";
 import { createTenantId, type TenantId } from "../../identity/types.js";
 import { AuthError } from "../identity/auth-error.js";
-import { createLegacyJwtKeyRing } from "./jwt-key-ring.js";
 
 /** widget 短时 token 的 TTL（秒）。 */
 const TOKEN_TTL_SECONDS = 15 * 60;
@@ -55,13 +54,7 @@ export class WidgetAuthError extends AuthError {
   }
 }
 
-export function createWidgetAuthService(secretOrKeyRing: string | JwtKeyRing, credentials: WidgetCredentialRepository): WidgetAuthService {
-  if (typeof secretOrKeyRing === "string" && (!secretOrKeyRing || secretOrKeyRing.length < 32)) {
-    throw new Error("WIDGET_JWT_SECRET 至少需 32 字符");
-  }
-  const keyRing = typeof secretOrKeyRing === "string"
-    ? createLegacyJwtKeyRing(secretOrKeyRing, "widget-legacy")
-    : secretOrKeyRing;
+export function createWidgetAuthService(keyRing: JwtKeyRing, credentials: WidgetCredentialRepository): WidgetAuthService {
 
   const sign = (claims: WidgetTokenClaims, key: JwtSigningKey): string => {
     const headerSegment = base64urlJson({ alg: "HS256", typ: "JWT", kid: key.kid });

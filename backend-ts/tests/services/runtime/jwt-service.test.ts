@@ -21,7 +21,7 @@ function makeService(secret: string = SECRET) {
   controlStore.createTenant({ id: tenantId, displayName: "Widget" });
   const store = createWidgetCredentialStore(controlStore.db);
   const credentials = new SqliteWidgetCredentialAdapter(store);
-  const service = createWidgetAuthService(secret, credentials);
+  const service = createWidgetAuthService(createJwtKeyRing({ active: { kid: "test", secret } }), credentials);
   return { service, store, credentials, controlStore };
 }
 
@@ -52,7 +52,7 @@ describe("WidgetAuthService", () => {
     const { token } = await service.issueToken((await credentials.apps.get(tenantId, app.app_key))!);
     await expect(service.requireBearer(bearerRequest(`${token.slice(0, -4)}aaaa`))).rejects.toThrow(WidgetAuthError);
     await expect(service.requireBearer(bearerRequest())).rejects.toThrow(WidgetAuthError);
-    const other = createWidgetAuthService("another-secret-0123456789abcdef0123456789", credentials);
+    const other = createWidgetAuthService(createJwtKeyRing({ active: { kid: "other", secret: "another-secret-0123456789abcdef0123456789" } }), credentials);
     await expect(other.requireBearer(bearerRequest(token))).rejects.toThrow(WidgetAuthError);
     store.close();
     controlStore.close();
@@ -110,7 +110,7 @@ describe("WidgetAuthService", () => {
 
   it("拒绝过短密钥", () => {
     const { store, credentials, controlStore } = makeService();
-    expect(() => createWidgetAuthService("short", credentials)).toThrow();
+    expect(() => createJwtKeyRing({ active: { kid: "short", secret: "short" } })).toThrow();
     store.close();
     controlStore.close();
   });

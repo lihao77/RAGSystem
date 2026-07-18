@@ -11,7 +11,7 @@ import { assertOwnedSessionIfExists } from "../session-owner.js";
  * AG-UI 对接入面（prefix /api/agui）。
  *
  * POST /：标准 AG-UI server 端点。body = RunAgentInput，Accept: text/event-stream，响应 SSE 流。
- * 鉴权可选：配了 WIDGET_JWT_SECRET（options.widgetAuth 存在）时要求 Bearer token，否则放行
+ * 鉴权可选：配置 Widget key ring（options.widgetAuth 存在）时要求 Bearer token，否则放行
  * （默认部署零鉴权，与 /api/agent/* 一致；对外暴露时建议配 secret）。
  *
  * 端点形态对齐 AG-UI 官方 server 契约：客户端（@ag-ui/client HttpAgent / CopilotKit Runtime）
