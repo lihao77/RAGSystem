@@ -39,7 +39,6 @@ import type { SaaSConversationRuntimeHandle } from "./services/runtime/saas-conv
 import { AsyncKernelEventPersister } from "./services/agent/sdk/async-event-persister.js";
 import { AsyncOutboxDispatcher } from "./services/runtime/event-outbox/async-dispatcher.js";
 import { AsyncDurableClientEventPublisher } from "./services/runtime/event-outbox/async-client-event-publisher.js";
-import type { RealtimeEventHub } from "./services/runtime/realtime-event-hub.js";
 import type { SaaSControlRuntimeHandle } from "./services/runtime/saas-control-runtime.js";
 import { SaaSExecutionWriteBridge } from "./services/runtime/saas-execution-write-bridge.js";
 
@@ -144,9 +143,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
                 options.saasConversationRuntime!.runs,
                 context,
               ),
-              asyncClientEventsFactory: (realtimeEvents: RealtimeEventHub) => new AsyncDurableClientEventPublisher(
+              asyncClientEventsFactory: (realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }) => new AsyncDurableClientEventPublisher(
                 options.saasConversationRuntime!.outbox,
-                new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents),
+                new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents as ConstructorParameters<typeof AsyncOutboxDispatcher>[1]),
               ),
             } : {}),
           },
@@ -158,9 +157,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               options.saasConversationRuntime!.runs,
               context,
             ),
-            asyncClientEventsFactory: (realtimeEvents: RealtimeEventHub) => new AsyncDurableClientEventPublisher(
+            asyncClientEventsFactory: (realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }) => new AsyncDurableClientEventPublisher(
               options.saasConversationRuntime!.outbox,
-              new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents),
+              new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents as ConstructorParameters<typeof AsyncOutboxDispatcher>[1]),
             ),
           } }
         : {},
