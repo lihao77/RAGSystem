@@ -1,6 +1,34 @@
 name: ragsystem-saas
 
 services:
+  minio:
+    image: minio/minio:latest
+    container_name: ragsystem-saas-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${OBJECT_STORAGE_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:-minioadmin}
+    volumes:
+      - ragsystem-saas-object-storage:/data
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: ["/bin/sh", "-c"]
+    command: >-
+      "until mc alias set local http://minio:9000 ${OBJECT_STORAGE_ACCESS_KEY_ID:-minioadmin} ${OBJECT_STORAGE_SECRET_ACCESS_KEY:-minioadmin}; do sleep 1; done;
+      mc mb --ignore-existing local/${OBJECT_STORAGE_BUCKET:-ragsystem}"
+
   postgres:
     image: postgres:17-alpine
     container_name: ragsystem-saas-postgres
@@ -38,7 +66,11 @@ services:
       # in the composition root before starting the backend.
       OBJECT_STORAGE_MODE: ${OBJECT_STORAGE_MODE:-s3}
       OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ragsystem}
-      OBJECT_STORAGE_ENDPOINT: ${OBJECT_STORAGE_ENDPOINT:-}
+      OBJECT_STORAGE_ENDPOINT: ${OBJECT_STORAGE_ENDPOINT:-http://minio:9000}
+      OBJECT_STORAGE_ACCESS_KEY_ID: ${OBJECT_STORAGE_ACCESS_KEY_ID:-minioadmin}
+      OBJECT_STORAGE_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:-minioadmin}
+      OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
+      OBJECT_STORAGE_FORCE_PATH_STYLE: ${OBJECT_STORAGE_FORCE_PATH_STYLE:-true}
       # PostgreSQL Control Plane is configuration-ready but remains disabled until
       # Bot and Widget state no longer depend on SQLite control.db.
       CONTROL_STORAGE_MODE: ${CONTROL_STORAGE_MODE:-sqlite}
@@ -56,6 +88,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      minio:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   frontend:
@@ -73,3 +109,4 @@ services:
 volumes:
   ragsystem-saas-data:
   ragsystem-saas-postgres:
+  ragsystem-saas-object-storage:

@@ -3,11 +3,14 @@ import { loadEnv } from "./config/env.js";
 import { createSaaSMemoryRuntime, type SaaSMemoryRuntimeHandle } from "./services/runtime/saas-memory-runtime.js";
 import { createSaaSControlRuntime, type SaaSControlRuntimeHandle } from "./services/runtime/saas-control-runtime.js";
 import { createSaaSConversationRuntime, type SaaSConversationRuntimeHandle } from "./services/runtime/saas-conversation-runtime.js";
+import { createSaaSObjectStorage } from "./services/runtime/saas-object-storage.js";
+import type { ObjectStorage } from "./contracts/object-storage.js";
 
 const env = loadEnv(process.env);
 let saasMemoryRuntime: SaaSMemoryRuntimeHandle | undefined;
 let saasControlRuntime: SaaSControlRuntimeHandle | undefined;
 let saasConversationRuntime: SaaSConversationRuntimeHandle | undefined;
+let saasObjectStorage: ObjectStorage | undefined;
 let app;
 try {
   if (env.storageMode === "postgres") {
@@ -16,6 +19,7 @@ try {
       connectionString: env.databaseUrl,
       poolMax: env.postgresPoolMax,
     });
+    saasObjectStorage = createSaaSObjectStorage({ mode: "s3", bucket: env.objectStorageBucket!, endpoint: env.objectStorageEndpoint!, accessKeyId: env.objectStorageAccessKeyId!, secretAccessKey: env.objectStorageSecretAccessKey!, region: env.objectStorageRegion, forcePathStyle: env.objectStorageForcePathStyle });
   }
   if (env.controlStorageMode === "postgres") {
     if (!env.controlDatabaseUrl || !env.controlSecretMasterKey) {
@@ -33,6 +37,7 @@ try {
       connectionString: env.databaseUrl,
       poolMax: env.postgresPoolMax,
       ...(saasControlRuntime ? { secretResolver: saasControlRuntime.secretResolver } : {}),
+      ...(saasObjectStorage ? { objectStorage: saasObjectStorage } : {}),
     });
   }
   app = await buildApp({

@@ -48,6 +48,10 @@ const EnvSchema = z.object({
   OBJECT_STORAGE_MODE: ObjectStorageModeSchema.optional(),
   OBJECT_STORAGE_BUCKET: z.string().optional(),
   OBJECT_STORAGE_ENDPOINT: z.string().optional(),
+  OBJECT_STORAGE_ACCESS_KEY_ID: z.string().optional(),
+  OBJECT_STORAGE_SECRET_ACCESS_KEY: z.string().optional(),
+  OBJECT_STORAGE_REGION: z.string().optional(),
+  OBJECT_STORAGE_FORCE_PATH_STYLE: z.string().optional(),
 });
 
 export interface AppEnv {
@@ -74,6 +78,10 @@ export interface AppEnv {
   objectStorageMode: "filesystem" | "s3";
   objectStorageBucket?: string | undefined;
   objectStorageEndpoint?: string | undefined;
+  objectStorageAccessKeyId?: string | undefined;
+  objectStorageSecretAccessKey?: string | undefined;
+  objectStorageRegion: string;
+  objectStorageForcePathStyle: boolean;
   widgetJwtKeyRing?: JwtKeyRing | undefined;
   /** 用户 session JWT 签名密钥；password 模式必须可解析。 */
   sessionJwtSecret?: string | undefined;
@@ -128,6 +136,10 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     objectStorageMode: env.OBJECT_STORAGE_MODE ?? "filesystem",
     objectStorageBucket: env.OBJECT_STORAGE_BUCKET?.trim() || undefined,
     objectStorageEndpoint: env.OBJECT_STORAGE_ENDPOINT?.trim() || undefined,
+    objectStorageAccessKeyId: env.OBJECT_STORAGE_ACCESS_KEY_ID?.trim() || undefined,
+    objectStorageSecretAccessKey: env.OBJECT_STORAGE_SECRET_ACCESS_KEY?.trim() || undefined,
+    objectStorageRegion: env.OBJECT_STORAGE_REGION?.trim() || "us-east-1",
+    objectStorageForcePathStyle: env.OBJECT_STORAGE_FORCE_PATH_STYLE === undefined ? true : parseBooleanFlag(env.OBJECT_STORAGE_FORCE_PATH_STYLE),
     widgetJwtKeyRing: parseWidgetJwtKeyRing(env.WIDGET_JWT_KEY_RING),
     sessionJwtSecret: env.SESSION_JWT_SECRET?.trim() || undefined,
     sessionTokenTtlHours: parsePositiveNumber(env.SESSION_TOKEN_TTL_HOURS, 168, "SESSION_TOKEN_TTL_HOURS"),
@@ -147,6 +159,9 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     }
     if (!appEnv.objectStorageBucket) {
       throw new Error("OBJECT_STORAGE_MODE=s3 requires OBJECT_STORAGE_BUCKET");
+    }
+    if (!appEnv.objectStorageEndpoint || !appEnv.objectStorageAccessKeyId || !appEnv.objectStorageSecretAccessKey) {
+      throw new Error("OBJECT_STORAGE_MODE=s3 requires OBJECT_STORAGE_ENDPOINT, OBJECT_STORAGE_ACCESS_KEY_ID and OBJECT_STORAGE_SECRET_ACCESS_KEY");
     }
   }
   resolveDeploymentProfile(appEnv);
