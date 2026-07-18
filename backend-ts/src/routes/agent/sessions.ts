@@ -180,13 +180,17 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   );
 
   app.patch<{ Params: MessageParams }>("/sessions/:sessionId/messages/:messageId", async (request) => {
-    await loadOwnedSession(request, request.params.sessionId);
+    const saas = await options.resolveSaaSSessionApplication?.(request);
+    await loadOwnedSession(request, request.params.sessionId, saas);
     const payload = UpdateMessageRequestSchema.parse(request.body);
-    const updated = request.container.sessionApplication.updateUserMessage({
+    const input = {
       sessionId: request.params.sessionId,
       messageId: request.params.messageId,
       content: payload.content,
-    });
+    };
+    const updated = saas
+      ? await saas.updateUserMessage(input)
+      : request.container.sessionApplication.updateUserMessage(input);
     if (!updated) {
       throw new HttpError(404, "not_found", "消息不存在或不可编辑");
     }
@@ -194,7 +198,8 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/rollback", async (request) => {
-    await loadOwnedSession(request, request.params.sessionId);
+    const saas = await options.resolveSaaSSessionApplication?.(request);
+    await loadOwnedSession(request, request.params.sessionId, saas);
     const payload = RollbackRequestSchema.parse(request.body);
     if (payload.after_seq == null && !payload.after_message_id) {
       throw new HttpError(400, "invalid_request", "请提供 after_seq 或 after_message_id");
@@ -208,7 +213,9 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
     if (payload.after_message_id !== undefined) {
       rollbackInput.afterMessageId = payload.after_message_id;
     }
-    const deleted = request.container.sessionApplication.rollbackMessages(rollbackInput);
+    const deleted = saas
+      ? await saas.rollbackMessages(rollbackInput)
+      : request.container.sessionApplication.rollbackMessages(rollbackInput);
     return ok({ deleted }, "回退成功");
   });
 

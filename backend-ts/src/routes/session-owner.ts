@@ -1,6 +1,7 @@
 import type { FastifyRequest } from "fastify";
 
 import type { SessionInfo } from "../contracts/session.js";
+import type { SaaSSessionApplication } from "../services/runtime/saas-session-application.js";
 import { LOCAL_USER_ID } from "../services/identity/local-identity-provider.js";
 import { HttpError } from "../utils/errors.js";
 
@@ -17,8 +18,14 @@ export async function assertSessionOwner(request: FastifyRequest, session: Sessi
   }
 }
 
-export async function loadOwnedSession(request: FastifyRequest, sessionId: string): Promise<SessionInfo> {
-  const session = request.container.sessionApplication.getSession(sessionId);
+export async function loadOwnedSession(
+  request: FastifyRequest,
+  sessionId: string,
+  saas?: SaaSSessionApplication,
+): Promise<SessionInfo> {
+  const session = saas
+    ? await saas.getSession(sessionId)
+    : request.container.sessionApplication.getSession(sessionId);
   if (!session) {
     throw new HttpError(404, "not_found", "会话不存在");
   }
@@ -26,11 +33,17 @@ export async function loadOwnedSession(request: FastifyRequest, sessionId: strin
   return session;
 }
 
-export async function assertOwnedSessionIfExists(request: FastifyRequest, sessionId: string | null | undefined): Promise<void> {
+export async function assertOwnedSessionIfExists(
+  request: FastifyRequest,
+  sessionId: string | null | undefined,
+  saas?: SaaSSessionApplication,
+): Promise<void> {
   if (!sessionId) {
     return;
   }
-  const session = request.container.sessionApplication.getSession(sessionId);
+  const session = saas
+    ? await saas.getSessionForExecutionValidation(sessionId)
+    : request.container.sessionApplication.getSession(sessionId);
   if (session) {
     await assertSessionOwner(request, session);
   }

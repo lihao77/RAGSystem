@@ -10,6 +10,7 @@ import { PathApprovalService } from "../../src/services/runtime/path-service.js"
 import { toolContext } from "../helpers/tool-context.js";
 import { mockLlm } from "../helpers/llm-fetch-mock.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
+import { SaaSSessionApplication } from "../../src/services/runtime/saas-session-application.js";
 
 let app: FastifyInstance | null = null;
 
@@ -22,6 +23,43 @@ afterEach(async () => {
 });
 
 describe("session message mutation routes", () => {
+  it("routes message update and rollback through the SaaS conversation repository", async () => {
+    const session = {
+      session_id: "saas-session",
+      tenant_id: LOCAL_TENANT_ID,
+      user_id: "usr_local",
+      permission_mode: null,
+      metadata: {},
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    };
+    const repository = {
+      getSession: vi.fn().mockResolvedValue(session),
+      updateMessage: vi.fn().mockResolvedValue(true),
+      deleteMessagesAfter: vi.fn().mockResolvedValue(3),
+    };
+    const saas = new SaaSSessionApplication(LOCAL_TENANT_ID, repository as never);
+    const harness = await buildTestHarness({ resolveSaaSSessionApplication: () => saas });
+    app = harness.app;
+
+    const updated = await app.inject({
+      method: "PATCH",
+      url: "/api/agent/sessions/saas-session/messages/message-1",
+      payload: { content: "new task" },
+    });
+    const rolledBack = await app.inject({
+      method: "POST",
+      url: "/api/agent/sessions/saas-session/rollback",
+      payload: { after_message_id: "message-1" },
+    });
+
+    expect(updated.statusCode).toBe(200);
+    expect(rolledBack.json()).toMatchObject({ success: true, data: { deleted: 3 } });
+    expect(repository.updateMessage).toHaveBeenCalledWith({ sessionId: "saas-session", messageId: "message-1", content: "new task", roleFilter: "user" });
+    expect(repository.deleteMessagesAfter).toHaveBeenCalledWith("saas-session", { afterSeq: null, afterMessageId: "message-1" });
+    expect(harness.container.sessionApplication.getSession("saas-session")).toBeNull();
+  });
+
   it("updates only editable user messages", async () => {
     const harness = await buildTestHarness();
     app = harness.app;

@@ -51,6 +51,7 @@ export interface BuildAppOptions {
   resolveKnowledgeMarkdownPipeline?: RouteOptions["resolveKnowledgeMarkdownPipeline"];
   resolveKnowledgeVectorApplication?: RouteOptions["resolveKnowledgeVectorApplication"];
   resolveProviderMcp?: RouteOptions["resolveProviderMcp"];
+  resolveSaaSSessionApplication?: RouteOptions["resolveSaaSSessionApplication"];
   resolveSaaSAgentReadApplication?: RouteOptions["resolveSaaSAgentReadApplication"];
   resolveSaaSInteractionRecovery?: RouteOptions["resolveSaaSInteractionRecovery"];
   registry?: TenantRuntimeRegistry;
@@ -411,6 +412,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ...(options.resolveKnowledgeMarkdownPipeline ? { resolveKnowledgeMarkdownPipeline: options.resolveKnowledgeMarkdownPipeline } : {}),
     ...(options.resolveKnowledgeVectorApplication ? { resolveKnowledgeVectorApplication: options.resolveKnowledgeVectorApplication } : {}),
     ...(options.resolveProviderMcp ? { resolveProviderMcp: options.resolveProviderMcp } : {}),
+    ...(options.resolveSaaSSessionApplication ? { resolveSaaSSessionApplication: options.resolveSaaSSessionApplication } : {}),
     ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
     ...(options.resolveSaaSInteractionRecovery ? { resolveSaaSInteractionRecovery: options.resolveSaaSInteractionRecovery } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),

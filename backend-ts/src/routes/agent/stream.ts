@@ -32,7 +32,8 @@ interface InteractionParams {
 export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.post("/stream", async (request) => {
     const payload = StreamExecuteRequestSchema.parse(request.body);
-    await assertOwnedSessionIfExists(request, payload.session_id);
+    const saas = await options.resolveSaaSSessionApplication?.(request);
+    await assertOwnedSessionIfExists(request, payload.session_id, saas);
     const requestId = request.headers["x-request-id"]?.toString() ?? randomUUID();
     const result = await request.container.agentExecution.startStream(
       { ...payload, userId: request.identity.userId },

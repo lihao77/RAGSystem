@@ -57,6 +57,7 @@ export async function buildTestHarness(
     identityProvider?: IdentityProvider;
     saasMemoryRuntime?: BuildAppOptions["saasMemoryRuntime"];
     resolveMemoryApplication?: BuildAppOptions["resolveMemoryApplication"];
+    resolveSaaSSessionApplication?: BuildAppOptions["resolveSaaSSessionApplication"];
     env?: Partial<AppEnv>;
   } = {},
 ) {
@@ -107,6 +108,7 @@ export async function buildTestHarness(
     widgetCredentialStore,
     ...(options.saasMemoryRuntime ? { saasMemoryRuntime: options.saasMemoryRuntime } : {}),
     ...(options.resolveMemoryApplication ? { resolveMemoryApplication: options.resolveMemoryApplication } : {}),
+    ...(options.resolveSaaSSessionApplication ? { resolveSaaSSessionApplication: options.resolveSaaSSessionApplication } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await app.ready();

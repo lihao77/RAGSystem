@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 
 import { buildTestApp, buildTestHarness } from "../helpers/app.js";
+import { SaaSSessionApplication } from "../../src/services/runtime/saas-session-application.js";
+import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 let app: FastifyInstance | null = null;
 
@@ -120,6 +122,34 @@ describe("foundation routes", () => {
       success: false,
       code: "invalid_request",
     });
+  });
+
+  it("validates stream session ownership against the SaaS conversation repository", async () => {
+    const repository = {
+      getSession: vi.fn().mockResolvedValue({
+        session_id: "other-tenant-session",
+        tenant_id: "tenant-other",
+        user_id: "user-other",
+        permission_mode: null,
+        metadata: {},
+        created_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-01T00:00:00.000Z",
+      }),
+    };
+    const saas = new SaaSSessionApplication(LOCAL_TENANT_ID, repository as never);
+    const harness = await buildTestHarness({ resolveSaaSSessionApplication: () => saas });
+    app = harness.app;
+    const startStream = vi.spyOn(harness.container.agentExecution, "startStream");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/agent/stream",
+      payload: { task: "hello", session_id: "other-tenant-session" },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(repository.getSession).toHaveBeenCalledWith("other-tenant-session");
+    expect(startStream).not.toHaveBeenCalled();
   });
 
   it("rejects empty stream requests before starting runtime execution", async () => {

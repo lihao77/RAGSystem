@@ -18,8 +18,17 @@ export class SaaSSessionApplication {
     return this.repository.listSessions(this.tenantId, input.limit ?? 20, input.offset ?? 0, input.userIds ?? null);
   }
   async getSession(sessionId: string): Promise<SessionInfo | null> { const row = await this.repository.getSession(sessionId); return row?.tenant_id === this.tenantId ? row : null; }
+  /** Returns the raw row so route ownership validation can reject a cross-tenant session id. */
+  getSessionForExecutionValidation(sessionId: string): Promise<SessionInfo | null> { return this.repository.getSession(sessionId); }
   async updateSessionPermissionMode(sessionId: string, mode: PermissionMode): Promise<boolean> { return (await this.getSession(sessionId)) ? this.repository.updateSessionPermissionMode(sessionId, mode) : false; }
   async deleteSession(sessionId: string): Promise<boolean> { return (await this.getSession(sessionId)) ? this.repository.deleteSession(sessionId) : false; }
   async listMessages(input: { sessionId: string; limit?: number; offset?: number }): Promise<PaginatedResult<MessageInfo> | null> { if (!(await this.getSession(input.sessionId))) return null; return this.repository.listMessages(input.sessionId, input.limit ?? 20, input.offset ?? 0); }
   async updateUserMessage(input: { sessionId: string; messageId: string; content: string }): Promise<boolean> { if (!(await this.getSession(input.sessionId))) return false; return this.repository.updateMessage({ sessionId: input.sessionId, messageId: input.messageId, content: input.content, roleFilter: "user" }); }
+  async rollbackMessages(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<number> {
+    if (!(await this.getSession(input.sessionId))) return 0;
+    return this.repository.deleteMessagesAfter(input.sessionId, {
+      afterSeq: input.afterSeq ?? null,
+      afterMessageId: input.afterMessageId ?? null,
+    });
+  }
 }
