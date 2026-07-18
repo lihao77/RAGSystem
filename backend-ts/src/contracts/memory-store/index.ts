@@ -15,6 +15,8 @@ import type {
 } from "./types.js";
 
 export * from "./types.js";
+export * from "./persistence-types.js";
+export type { TransactionalMemoryRepository } from "./transactional-repository.js";
 export { getWorkspaceMemoryKey } from "./scope.js";
 
 /**
