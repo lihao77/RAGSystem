@@ -6,12 +6,17 @@ import type { MessageInfo, SessionInfo, SessionListItem } from "../../contracts/
 import { normalizeSessionMetadata } from "../../contracts/session.js";
 import { assertSafeSessionId } from "../../contracts/session-id.js";
 import type { AsyncFileHistoryStore } from "../../contracts/file-history-store/index.js";
+import type { AsyncRunStore } from "../../adapters/saas/postgres/run-repository.js";
+import type { RunInfo } from "../../contracts/conversation-store/index.js";
+import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
+import { EXECUTION_ENVELOPE_STEP_TYPE } from "./event-outbox/execution-envelope-archive.js";
 
 export class SaaSSessionApplication {
   constructor(
     private readonly tenantId: TenantId,
     private readonly repository: AsyncConversationRepository,
     private readonly fileHistory: AsyncFileHistoryStore | null = null,
+    private readonly runs: AsyncRunStore | null = null,
   ) {}
   async createSession(input: { sessionId: string; userId: string; metadata?: Record<string, unknown>; permissionMode?: PermissionMode | null }) {
     assertSafeSessionId(input.sessionId);
@@ -32,6 +37,58 @@ export class SaaSSessionApplication {
     return this.repository.deleteSession(sessionId);
   }
   async listMessages(input: { sessionId: string; limit?: number; offset?: number }): Promise<PaginatedResult<MessageInfo> | null> { if (!(await this.getSession(input.sessionId))) return null; return this.repository.listMessages(input.sessionId, input.limit ?? 20, input.offset ?? 0); }
+  async listMessageRunSteps(input: {
+    sessionId: string;
+    messageId: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ message_id: string; items: Envelope[]; total: number; limit: number; offset: number; has_more: boolean }> {
+    if (!(await this.getSession(input.sessionId))) {
+      throw new Error(`会话不存在: ${input.sessionId}`);
+    }
+    const message = await this.repository.getMessageById(input.sessionId, input.messageId);
+    if (!message || !isVisibleRootMessage(message)) {
+      throw new Error(`消息不存在: ${input.messageId}`);
+    }
+    if (message.role !== "assistant") {
+      throw new Error("仅 assistant 消息支持查询 execution steps");
+    }
+    if (!this.runs) {
+      throw new Error("SaaS run repository 未配置");
+    }
+
+    const limit = input.limit ?? 500;
+    const offset = input.offset ?? 0;
+    const rootRunId = message.metadata.run_id ? String(message.metadata.run_id) : null;
+    let steps;
+    if (!rootRunId) {
+      steps = await this.runs.listRunSteps({
+        messageId: input.messageId,
+        sessionId: input.sessionId,
+        limit: limit + offset,
+      });
+    } else {
+      const allRuns = (await this.runs.listRuns(input.sessionId, 1000)).items;
+      const runIds = collectRunTreeRunIds(allRuns, rootRunId);
+      const groups = await Promise.all(runIds.map((runId) => this.runs!.listRunSteps({
+        runId,
+        sessionId: input.sessionId,
+        limit: limit + offset,
+      })));
+      steps = groups.flat();
+    }
+    const envelopes = steps
+      .filter((step) => step.step_type === EXECUTION_ENVELOPE_STEP_TYPE)
+      .map((step) => EnvelopeSchema.parse(step.payload) as Envelope);
+    return {
+      message_id: input.messageId,
+      items: envelopes.slice(offset, offset + limit),
+      total: envelopes.length,
+      limit,
+      offset,
+      has_more: offset + limit < envelopes.length,
+    };
+  }
   async updateUserMessage(input: { sessionId: string; messageId: string; content: string }): Promise<boolean> { if (!(await this.getSession(input.sessionId))) return false; return this.repository.updateMessage({ sessionId: input.sessionId, messageId: input.messageId, content: input.content, roleFilter: "user" }); }
   async rollbackMessages(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<number> {
     if (!(await this.getSession(input.sessionId))) return 0;
@@ -50,4 +107,29 @@ export class SaaSSessionApplication {
       afterMessageId: input.afterMessageId ?? null,
     });
   }
+}
+
+function isVisibleRootMessage(message: MessageInfo): boolean {
+  return !message.metadata.react_intermediate
+    && message.metadata.visible_to_user !== false
+    && message.metadata.conversation_scope !== "child"
+    && (!message.thread_key || message.thread_key === "root");
+}
+
+function collectRunTreeRunIds(allRuns: RunInfo[], rootRunId: string): string[] {
+  const idSet = new Set<string>([rootRunId]);
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const run of allRuns) {
+      if (run.parent_run_id && idSet.has(run.parent_run_id) && !idSet.has(run.run_id)) {
+        idSet.add(run.run_id);
+        changed = true;
+      }
+    }
+  }
+  const descendants = allRuns
+    .filter((run) => idSet.has(run.run_id) && run.run_id !== rootRunId)
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+    .map((run) => run.run_id);
+  return [rootRunId, ...descendants];
 }

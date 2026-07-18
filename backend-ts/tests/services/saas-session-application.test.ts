@@ -69,4 +69,96 @@ describe("SaaSSessionApplication", () => {
     expect(fileHistory.rewind).toHaveBeenCalledWith("session-1", 7);
     expect(calls).toEqual(["files", "messages"]);
   });
+
+  it("loads root and child run envelopes from the SaaS run repository", async () => {
+    const repository = {
+      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-a" }),
+      getMessageById: vi.fn().mockResolvedValue({
+        id: "message-1",
+        role: "assistant",
+        metadata: { run_id: "root-run" },
+        thread_key: "root",
+      }),
+    };
+    const runs = {
+      listRuns: vi.fn().mockResolvedValue({
+        total: 3,
+        items: [
+          { run_id: "unrelated-run", parent_run_id: null, created_at: "2026-01-01T00:00:00.000Z" },
+          { run_id: "child-run", parent_run_id: "root-run", created_at: "2026-01-01T00:00:02.000Z" },
+          { run_id: "grandchild-run", parent_run_id: "child-run", created_at: "2026-01-01T00:00:03.000Z" },
+        ],
+      }),
+      listRunSteps: vi.fn(async ({ runId }: { runId: string }) => [{
+        step_type: "protocol.envelope.v1",
+        payload: executionEnvelope(runId),
+      }]),
+    };
+    const application = new SaaSSessionApplication("tenant-a", repository as never, null, runs as never);
+
+    await expect(application.listMessageRunSteps({ sessionId: "session-1", messageId: "message-1" })).resolves.toMatchObject({
+      message_id: "message-1",
+      total: 3,
+      items: [
+        { type: "run_started", run_id: "root-run" },
+        { type: "run_started", run_id: "child-run" },
+        { type: "run_started", run_id: "grandchild-run" },
+      ],
+    });
+    expect(runs.listRunSteps.mock.calls.map(([input]) => input.runId)).toEqual([
+      "root-run",
+      "child-run",
+      "grandchild-run",
+    ]);
+  });
+
+  it("falls back to message-bound steps when the assistant message has no run id", async () => {
+    const repository = {
+      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-a" }),
+      getMessageById: vi.fn().mockResolvedValue({ id: "message-1", role: "assistant", metadata: {}, thread_key: "root" }),
+    };
+    const runs = {
+      listRuns: vi.fn(),
+      listRunSteps: vi.fn().mockResolvedValue([
+        { step_type: "internal.step", payload: {} },
+        { step_type: "protocol.envelope.v1", payload: executionEnvelope("fallback-run") },
+      ]),
+    };
+    const application = new SaaSSessionApplication("tenant-a", repository as never, null, runs as never);
+
+    const result = await application.listMessageRunSteps({ sessionId: "session-1", messageId: "message-1" });
+
+    expect(result.items).toHaveLength(1);
+    expect(runs.listRuns).not.toHaveBeenCalled();
+    expect(runs.listRunSteps).toHaveBeenCalledWith({
+      messageId: "message-1",
+      sessionId: "session-1",
+      limit: 500,
+    });
+  });
+
+  it("does not query messages or runs for another tenant's session", async () => {
+    const repository = {
+      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-b" }),
+      getMessageById: vi.fn(),
+    };
+    const runs = { listRuns: vi.fn(), listRunSteps: vi.fn() };
+    const application = new SaaSSessionApplication("tenant-a", repository as never, null, runs as never);
+
+    await expect(application.listMessageRunSteps({ sessionId: "session-1", messageId: "message-1" }))
+      .rejects.toThrow("会话不存在");
+    expect(repository.getMessageById).not.toHaveBeenCalled();
+    expect(runs.listRuns).not.toHaveBeenCalled();
+    expect(runs.listRunSteps).not.toHaveBeenCalled();
+  });
 });
+
+function executionEnvelope(runId: string) {
+  return {
+    type: "run_started",
+    protocol_version: "1.0",
+    session_id: "session-1",
+    run_id: runId,
+    payload: {},
+  };
+}

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildExecutionTree, type Envelope } from "@ragsystem/agent-protocol";
 
@@ -15,6 +15,44 @@ afterEach(async () => {
 });
 
 describe("session run step routes", () => {
+  it("uses the SaaS application for PG-only sessions", async () => {
+    const saas = {
+      getSession: vi.fn().mockResolvedValue({
+        session_id: "saas-session",
+        tenant_id: LOCAL_TENANT_ID,
+        user_id: "usr_local",
+        permission_mode: null,
+        metadata: {},
+        created_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-01T00:00:00.000Z",
+      }),
+      listMessageRunSteps: vi.fn().mockResolvedValue({
+        message_id: "assistant-message",
+        items: [],
+        total: 0,
+        limit: 500,
+        offset: 0,
+        has_more: false,
+      }),
+    };
+    const harness = await buildTestHarness({ resolveSaaSSessionApplication: () => saas as never });
+    app = harness.app;
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/agent/sessions/saas-session/messages/assistant-message/run-steps",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toMatchObject({ message_id: "assistant-message", items: [] });
+    expect(saas.listMessageRunSteps).toHaveBeenCalledWith({
+      sessionId: "saas-session",
+      messageId: "assistant-message",
+      limit: 500,
+      offset: 0,
+    });
+  });
+
   it("keeps message payloads lean and returns protocol envelopes from the run-steps sidecar", async () => {
     const harness = await buildTestHarness();
     app = harness.app;

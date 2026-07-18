@@ -159,15 +159,19 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   app.get<{ Params: MessageParams }>(
     "/sessions/:sessionId/messages/:messageId/run-steps",
     async (request) => {
-      await loadOwnedSession(request, request.params.sessionId);
+      const saas = await options.resolveSaaSSessionApplication?.(request);
+      await loadOwnedSession(request, request.params.sessionId, saas);
       try {
         const query = request.query as { limit?: string; offset?: string };
-        const data = request.container.sessionApplication.listMessageRunSteps({
+        const input = {
           sessionId: request.params.sessionId,
           messageId: request.params.messageId,
           limit: clampInt(query.limit, 500, 1, 2000),
           offset: clampInt(query.offset, 0, 0, Number.MAX_SAFE_INTEGER),
-        });
+        };
+        const data = saas
+          ? await saas.listMessageRunSteps(input)
+          : request.container.sessionApplication.listMessageRunSteps(input);
         return validateResponse(SessionMessageRunStepsResponseSchema, ok(data, "获取执行步骤成功"));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
