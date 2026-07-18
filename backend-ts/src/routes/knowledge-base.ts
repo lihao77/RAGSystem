@@ -41,6 +41,8 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
     options.resolveKnowledgeFileStore?.(request);
   const resolveAsyncMarkdown = async (request: Parameters<NonNullable<RouteOptions["resolveKnowledgeMarkdownPipeline"]>>[0]): Promise<AsyncKnowledgeMarkdownPipeline | undefined> =>
     options.resolveKnowledgeMarkdownPipeline?.(request);
+  const resolveVectorApplication = async (request: Parameters<NonNullable<RouteOptions["resolveKnowledgeVectorApplication"]>>[0]) =>
+    options.resolveKnowledgeVectorApplication?.(request);
   app.addHook("preHandler", async (request) => {
     requireTenantMember(request);
     const pathname = request.url.split("?", 1)[0] ?? request.url;
@@ -140,6 +142,12 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   });
 
   app.delete<{ Params: FileParams }>("/files/:fileId", async (request) => {
+    const vectorApplication = await resolveVectorApplication(request);
+    if (vectorApplication) {
+      const result = await vectorApplication.deleteKnowledgeFile(request.params.fileId);
+      if (!result) throw new HttpError(404, "not_found", "文件不存在");
+      return { success: true, deleted_chunks: result.deleted_chunks };
+    }
     const asyncStore = await resolveAsyncStore(request);
     if (asyncStore) {
       const deleted = await asyncStore.deleteKnowledgeFile(request.params.fileId);
@@ -176,7 +184,8 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   app.post("/index-file", async (request) => {
     const payload = IndexFileRequestSchema.parse(request.body);
     try {
-      return ok(await request.container.knowledgeBase.indexFile(payload));
+      const application = await resolveVectorApplication(request);
+      return ok(await (application ? application.indexFile(payload) : request.container.knowledgeBase.indexFile(payload)));
     } catch (error) {
       throw toHttpError(error);
     }
@@ -286,7 +295,8 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   app.post("/search", async (request) => {
     const payload = SearchVectorsRequestSchema.parse(request.body);
     try {
-      return ok(await request.container.knowledgeBase.search(payload));
+      const application = await resolveVectorApplication(request);
+      return ok(await (application ? application.search(payload) : request.container.knowledgeBase.search(payload)));
     } catch (error) {
       throw toHttpError(error);
     }
@@ -303,10 +313,14 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
 
   app.delete<{ Params: DocumentParams }>("/documents/:collectionName/:documentId", async (request) => {
     try {
-      const result = await request.container.knowledgeBase.deleteDocument(
+      const application = await resolveVectorApplication(request);
+      const result = await (application ? application.deleteDocument(
         request.params.collectionName,
         request.params.documentId,
-      );
+      ) : request.container.knowledgeBase.deleteDocument(
+        request.params.collectionName,
+        request.params.documentId,
+      ));
       return {
         success: true,
         data: result,

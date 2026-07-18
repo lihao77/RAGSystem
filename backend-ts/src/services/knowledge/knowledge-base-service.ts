@@ -85,6 +85,35 @@ export class KnowledgeBaseService {
     this.vectorStore?.close();
   }
 
+  /** Create a tenant-bound SaaS orchestration view while preserving Local configuration and embedder selection. */
+  withAsyncVectorStore(asyncVectorStore: AsyncKnowledgeVectorStore, tenantId: string): KnowledgeBaseService {
+    return new KnowledgeBaseService(this.modelAdapter, {
+      asyncVectorStore,
+      tenantId,
+      knowledgeConfig: this.knowledgeConfig,
+      knowledgeFileStore: this.knowledgeFileStore,
+      embedderFactory: this.embedderFactory,
+      documentExtractDispatcher: this.documentExtractDispatcher,
+      rerankerFactory: this.rerankerFactory,
+    });
+  }
+
+  async indexExternalFile(input: IndexFileRequest, file: KnowledgeFile, markdown: string): Promise<Record<string, unknown>> {
+    const collection = input.collection.trim();
+    const vectorizer = this.getStoredVectorizer(input.vectorizer_key.trim());
+    if (!vectorizer) throw new KnowledgeBaseError(`向量化器不存在: ${input.vectorizer_key}`, 404);
+    const result = await this.indexTextDocument({
+      collection,
+      documentId: file.id,
+      markdown,
+      metadata: { source: file.original_name, source_file: file.original_name, file_id: file.id, original_filename: file.original_name, mime: file.mime },
+      vectorizer,
+      chunkSize: readPositiveInteger((input as Record<string, unknown>).chunk_size, 500),
+      overlap: readNonNegativeInteger((input as Record<string, unknown>).overlap, 50),
+    });
+    return { collection, file_id: file.id, vectorizer_key: vectorizer.vectorizer_key, indexed_chunks: result.chunkCount, message: `成功索引文件，生成 ${result.chunkCount} 个分块` };
+  }
+
   async fileStatus(): Promise<VectorFileStatusResponse> {
     const vectorizers = await this.listFileStatusVectorizers();
     // driver 唯一源:vec_documents 跨 collection 聚合出每个 document_id 的位置 + chunk 数,
@@ -406,6 +435,10 @@ export class KnowledgeBaseService {
   }
 
   async deleteDocument(collectionName: string, documentId: string): Promise<Record<string, unknown>> {
+    if (this.asyncVectorStore) {
+      const deleted_chunks = await this.asyncVectorStore.deleteChunks({ tenant_id: this.requireTenantId(), collection: collectionName, document_id: documentId });
+      return { message: `文档 ${documentId} 已从集合 ${collectionName} 中删除`, collection: collectionName, document_id: documentId, deleted_chunks };
+    }
     if (!this.vectorStore) {
       return {
         message: `文档 ${documentId} 已从集合 ${collectionName} 中删除`,

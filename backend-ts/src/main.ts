@@ -6,6 +6,7 @@ import { createSaaSConversationRuntime, type SaaSConversationRuntimeHandle } fro
 import { createSaaSObjectStorage } from "./services/runtime/saas-object-storage.js";
 import type { ObjectStorage } from "./contracts/object-storage.js";
 import { TenantKnowledgeMarkdownPipeline } from "./contracts/knowledge/async-knowledge-markdown-pipeline.js";
+import { SaaSKnowledgeVectorApplication } from "./services/runtime/saas-knowledge-vector-application.js";
 
 const env = loadEnv(process.env);
 let saasMemoryRuntime: SaaSMemoryRuntimeHandle | undefined;
@@ -50,6 +51,16 @@ try {
       resolveKnowledgeMarkdownPipeline: (request) => new TenantKnowledgeMarkdownPipeline(
         saasConversationRuntime!.createKnowledgeFileStorage(request.identity.tenantId),
       ),
+      resolveKnowledgeVectorApplication: (request) => {
+        const files = saasConversationRuntime!.createKnowledgeFileStorage(request.identity.tenantId);
+        return new SaaSKnowledgeVectorApplication(
+          request.identity.tenantId,
+          request.container.knowledgeBase,
+          files,
+          new TenantKnowledgeMarkdownPipeline(files),
+          saasConversationRuntime!.vectorStore,
+        );
+      },
     } : {}),
     ...(saasConversationRuntime ? {
       resolveProviderMcp: (request) => saasConversationRuntime!.providerMcpApplication,

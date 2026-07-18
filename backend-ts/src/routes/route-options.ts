@@ -10,6 +10,7 @@ import type { WidgetAuthService } from "../services/runtime/jwt-service.js";
 import type { TenantRuntimeRegistry } from "../services/runtime/tenant-runtime-registry.js";
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
 import type { SaaSProviderMcpApplication } from "../services/runtime/saas-provider-mcp-application.js";
+import type { SaaSKnowledgeVectorApplication } from "../services/runtime/saas-knowledge-vector-application.js";
 
 export interface RouteOptions {
   registry: TenantRuntimeRegistry;
@@ -24,6 +25,7 @@ export interface RouteOptions {
   resolveKnowledgeMarkdownPipeline?: (
     request: FastifyRequest,
   ) => AsyncKnowledgeMarkdownPipeline | undefined | Promise<AsyncKnowledgeMarkdownPipeline | undefined>;
+  resolveKnowledgeVectorApplication?: (request: FastifyRequest) => SaaSKnowledgeVectorApplication | undefined | Promise<SaaSKnowledgeVectorApplication | undefined>;
   resolveProviderMcp?: (request: FastifyRequest) => SaaSProviderMcpApplication | undefined | Promise<SaaSProviderMcpApplication | undefined>;
   widgetCredentialStore?: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
