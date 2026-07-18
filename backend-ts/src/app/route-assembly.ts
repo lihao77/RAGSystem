@@ -89,6 +89,7 @@ export interface SharedBusinessRouteAssemblyOptions {
   resolveSaaSAgentReadApplication?: RouteOptions["resolveSaaSAgentReadApplication"];
   resolveSaaSInteractionRecovery?: RouteOptions["resolveSaaSInteractionRecovery"];
   resolveSaaSAnalytics?: RouteOptions["resolveSaaSAnalytics"];
+  resolveSaaSMonitoringApplication?: RouteOptions["resolveSaaSMonitoringApplication"];
 }
 
 export async function registerSharedBusinessRoutes(
@@ -139,6 +140,7 @@ export async function registerSharedBusinessRoutes(
       ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
       ...(options.resolveSaaSInteractionRecovery ? { resolveSaaSInteractionRecovery: options.resolveSaaSInteractionRecovery } : {}),
       ...(options.resolveSaaSAnalytics ? { resolveSaaSAnalytics: options.resolveSaaSAnalytics } : {}),
+      ...(options.resolveSaaSMonitoringApplication ? { resolveSaaSMonitoringApplication: options.resolveSaaSMonitoringApplication } : {}),
     });
     if (options.registerPublicAgui) {
       await scope.register(registerAguiRoutes, {

@@ -59,21 +59,24 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
 
   app.get("/event-outbox", async (request) => {
     const query = request.query as OutboxListQuery;
+    const input = {
+      statuses: parseOutboxStatuses(query.status),
+      sessionId: normalizeString(query.session_id),
+      runId: normalizeString(query.run_id),
+      limit: parseIntegerQuery(query.limit, "limit", { defaultValue: 100, min: 1, max: 500 }),
+      offset: parseIntegerQuery(query.offset, "offset", { defaultValue: 0, min: 0, max: 100_000 }),
+    };
+    const saas = await options.resolveSaaSMonitoringApplication?.(request);
     return ok(
-      request.container.conversationStore.listOutbox({
-        statuses: parseOutboxStatuses(query.status),
-        sessionId: normalizeString(query.session_id),
-        runId: normalizeString(query.run_id),
-        limit: parseIntegerQuery(query.limit, "limit", { defaultValue: 100, min: 1, max: 500 }),
-        offset: parseIntegerQuery(query.offset, "offset", { defaultValue: 0, min: 0, max: 100_000 }),
-      }),
+      saas ? await saas.listOutbox(input) : request.container.conversationStore.listOutbox(input),
       "获取 outbox 事件成功",
     );
   });
 
   app.get<{ Params: { id: string } }>("/event-outbox/:id", async (request) => {
     const id = parsePositiveInteger(request.params.id, "id");
-    const row = request.container.conversationStore.getOutboxRow(id);
+    const saas = await options.resolveSaaSMonitoringApplication?.(request);
+    const row = saas ? await saas.getOutboxRow(id) : request.container.conversationStore.getOutboxRow(id);
     if (!row) {
       throw new HttpError(404, "not_found", "outbox 事件不存在");
     }
@@ -82,7 +85,8 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
 
   app.post<{ Params: { id: string } }>("/event-outbox/:id/retry", async (request) => {
     const id = parsePositiveInteger(request.params.id, "id");
-    const retried = request.container.conversationStore.retryOutbox(id);
+    const saas = await options.resolveSaaSMonitoringApplication?.(request);
+    const retried = saas ? await saas.retryOutbox(id) : request.container.conversationStore.retryOutbox(id);
     if (!retried) {
       throw new HttpError(409, "outbox_not_retryable", "outbox 事件不存在或当前状态不可重试");
     }
@@ -93,21 +97,25 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const body = isRecord(request.body) ? request.body : {};
     const ids = parseIdArray(body.ids);
     const statuses = parseOutboxStatuses(typeof body.status === "string" ? body.status : undefined);
-    const result = request.container.conversationStore.retryOutboxBatch({
+    const input = {
       ids,
       statuses: statuses.length > 0 ? statuses : undefined,
       limit: parseIntegerValue(body.limit, "limit", { defaultValue: 100, min: 1, max: 500 }),
-    });
+    };
+    const saas = await options.resolveSaaSMonitoringApplication?.(request);
+    const result = saas ? await saas.retryOutboxBatch(input) : request.container.conversationStore.retryOutboxBatch(input);
     return ok(result, "outbox 事件已批量重新入队");
   });
 
   app.delete("/event-outbox/delivered", async (request) => {
     const query = request.query as OutboxCleanupQuery;
     const before = parseCleanupBefore(query);
-    const deleted = request.container.conversationStore.deleteDeliveredOutbox({
+    const input = {
       before,
       limit: parseIntegerQuery(query.limit, "limit", { defaultValue: 1000, min: 1, max: 10_000 }),
-    });
+    };
+    const saas = await options.resolveSaaSMonitoringApplication?.(request);
+    const deleted = saas ? await saas.deleteDeliveredOutbox(input) : request.container.conversationStore.deleteDeliveredOutbox(input);
     return ok({ deleted, before }, "已清理 delivered outbox 事件");
   });
 

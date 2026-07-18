@@ -11,6 +11,7 @@ import { SaaSSessionApplication } from "./services/runtime/saas-session-applicat
 import { SaaSAgentReadApplication } from "./services/runtime/saas-agent-read-application.js";
 import { SaaSInteractionRecoveryApplication } from "./services/runtime/saas-interaction-recovery-application.js";
 import { SaaSAnalyticsApplication } from "./services/runtime/saas-analytics-application.js";
+import { SaaSMonitoringApplication } from "./services/runtime/saas-monitoring-application.js";
 import type { FastifyRequest } from "fastify";
 
 const env = loadEnv(process.env);
@@ -85,6 +86,10 @@ try {
       resolveSaaSAnalytics: (request: FastifyRequest) => new SaaSAnalyticsApplication(
         request.identity.tenantId,
         saasConversationRuntime!.analytics,
+      ),
+      resolveSaaSMonitoringApplication: (request: FastifyRequest) => new SaaSMonitoringApplication(
+        request.identity.tenantId,
+        saasConversationRuntime!.outbox,
       ),
     } : {}),
     ...(saasControlRuntime ? { controlRuntime: saasControlRuntime } : {}),

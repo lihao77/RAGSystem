@@ -207,6 +207,11 @@ export interface AsyncOutboxStore {
   markOutboxDelivered(id: number): Promise<boolean>;
   markOutboxRetrying(id: number, error: string, availableAt: string): Promise<boolean>;
   markOutboxFailed(id: number, error: string): Promise<boolean>;
+  getOutboxRow(tenantId: string, id: number): Promise<OutboxRow | null>;
+  listOutbox(tenantId: string, input?: ListOutboxInput): Promise<PaginatedResult<OutboxRow>>;
+  retryOutbox(tenantId: string, id: number, availableAt?: string): Promise<boolean>;
+  retryOutboxBatch(tenantId: string, input?: RetryOutboxBatchInput): Promise<RetryOutboxResult>;
+  deleteDeliveredOutbox(tenantId: string, input: DeleteDeliveredOutboxInput): Promise<number>;
 }
 
 /** resources + step_resources 聚合根 + 执行投影。 */

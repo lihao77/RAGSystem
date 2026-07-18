@@ -3,8 +3,13 @@ import type {
   AppendOutboxInput,
   AsyncOutboxStore,
   ClaimOutboxInput,
+  DeleteDeliveredOutboxInput,
+  ListOutboxInput,
   OutboxRow,
+  RetryOutboxBatchInput,
+  RetryOutboxResult,
 } from "../../../contracts/conversation-store/index.js";
+import type { PaginatedResult } from "../../../contracts/common.js";
 import { AppendOutboxInputSchema } from "../../../contracts/conversation-store/types.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
 
@@ -79,4 +84,60 @@ export class PostgresOutboxRepository implements AsyncOutboxStore {
   async markOutboxDelivered(id: number): Promise<boolean> { const r = await this.executor.query("UPDATE event_outbox SET status='delivered',delivered_at=CURRENT_TIMESTAMP,locked_at=NULL WHERE id=$1 AND status IN ('pending','retrying')", [id]); return Number(r.rowCount ?? 0) > 0; }
   async markOutboxRetrying(id: number, error: string, availableAt: string): Promise<boolean> { const r = await this.executor.query("UPDATE event_outbox SET status='retrying',attempts=attempts+1,last_error=$2,available_at=$3::timestamptz,locked_at=NULL WHERE id=$1 AND status IN ('pending','retrying')", [id, error, availableAt]); return Number(r.rowCount ?? 0) > 0; }
   async markOutboxFailed(id: number, error: string): Promise<boolean> { const r = await this.executor.query("UPDATE event_outbox SET status='failed',attempts=attempts+1,last_error=$2,locked_at=NULL WHERE id=$1 AND status IN ('pending','retrying')", [id, error]); return Number(r.rowCount ?? 0) > 0; }
+
+  async getOutboxRow(tenantId: string, id: number): Promise<OutboxRow | null> {
+    const result = await this.executor.query(`SELECT ${SELECT} FROM event_outbox WHERE tenant_id=$1 AND id=$2`, [tenantId, id]);
+    return result.rows[0] ? row(result.rows[0]) : null;
+  }
+
+  async listOutbox(tenantId: string, input: ListOutboxInput = {}): Promise<PaginatedResult<OutboxRow>> {
+    const clauses = ["tenant_id=$1"];
+    const params: unknown[] = [tenantId];
+    if (input.statuses?.length) { params.push(input.statuses); clauses.push(`status=ANY($${params.length}::text[])`); }
+    if (input.sessionId) { params.push(input.sessionId); clauses.push(`session_id=$${params.length}`); }
+    if (input.runId) { params.push(input.runId); clauses.push(`run_id=$${params.length}`); }
+    const where = clauses.join(" AND ");
+    const count = await this.executor.query(`SELECT COUNT(*) AS total FROM event_outbox WHERE ${where}`, params);
+    const total = Number(count.rows[0]?.total ?? 0);
+    const limit = Math.max(1, Math.min(500, Math.trunc(input.limit ?? 100)));
+    const offset = Math.max(0, Math.trunc(input.offset ?? 0));
+    params.push(limit, offset);
+    const result = await this.executor.query(`SELECT ${SELECT} FROM event_outbox WHERE ${where} ORDER BY id ASC LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
+    return { items: result.rows.map(row), total, limit, offset, has_more: offset + limit < total };
+  }
+
+  async retryOutbox(tenantId: string, id: number, availableAt = new Date().toISOString()): Promise<boolean> {
+    const result = await this.executor.query("UPDATE event_outbox SET status='pending',available_at=$3::timestamptz,locked_at=NULL,delivered_at=NULL,last_error=NULL WHERE tenant_id=$1 AND id=$2 AND status IN ('failed','retrying')", [tenantId, id, availableAt]);
+    return Number(result.rowCount ?? 0) > 0;
+  }
+
+  async retryOutboxBatch(tenantId: string, input: RetryOutboxBatchInput = {}): Promise<RetryOutboxResult> {
+    const statuses = input.statuses?.length ? input.statuses.filter((status) => status === "failed" || status === "retrying") : ["failed", "retrying"];
+    if (!statuses.length) return { matched: 0, retried: 0, ids: [] };
+    const clauses = ["tenant_id=$1", "status=ANY($2::text[])"];
+    const params: unknown[] = [tenantId, statuses];
+    if (input.ids) {
+      if (!input.ids.length) return { matched: 0, retried: 0, ids: [] };
+      params.push(input.ids);
+      clauses.push(`id=ANY($${params.length}::bigint[])`);
+    }
+    params.push(Math.max(1, Math.min(500, Math.trunc(input.limit ?? 100))));
+    const limitParam = params.length;
+    params.push(input.availableAt ?? new Date().toISOString());
+    const availableParam = params.length;
+    const result = await this.executor.query(
+      `WITH picked AS (SELECT id FROM event_outbox WHERE ${clauses.join(" AND ")} ORDER BY id FOR UPDATE SKIP LOCKED LIMIT $${limitParam}) UPDATE event_outbox e SET status='pending',available_at=$${availableParam}::timestamptz,locked_at=NULL,delivered_at=NULL,last_error=NULL FROM picked WHERE e.id=picked.id RETURNING e.id`,
+      params,
+    );
+    const ids = result.rows.map((item) => Number(item.id));
+    return { matched: ids.length, retried: ids.length, ids };
+  }
+
+  async deleteDeliveredOutbox(tenantId: string, input: DeleteDeliveredOutboxInput): Promise<number> {
+    const result = await this.executor.query(
+      "WITH picked AS (SELECT id FROM event_outbox WHERE tenant_id=$1 AND status='delivered' AND COALESCE(delivered_at,created_at)<$2::timestamptz ORDER BY id LIMIT $3) DELETE FROM event_outbox e USING picked WHERE e.id=picked.id",
+      [tenantId, input.before, Math.max(1, Math.min(10_000, Math.trunc(input.limit ?? 1000)))],
+    );
+    return Number(result.rowCount ?? 0);
+  }
 }

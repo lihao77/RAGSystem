@@ -49,4 +49,37 @@ describe("PostgresOutboxRepository", () => {
     await expect(repo.markOutboxRetrying(1, "temporary", "2026-01-01T00:00:00Z")).resolves.toBe(true);
     await expect(repo.markOutboxFailed(1, "fatal")).resolves.toBe(true);
   });
+
+  it("tenant-scopes operations list and detail queries", async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [{ total: "1" }] })
+      .mockResolvedValueOnce({ rows: [base] })
+      .mockResolvedValueOnce({ rows: [base] });
+    const repository = new PostgresOutboxRepository({ query } as never);
+
+    const listed = await repository.listOutbox("tenant-a", { statuses: ["failed"], sessionId: "s1", limit: 10 });
+    const detail = await repository.getOutboxRow("tenant-a", 1);
+
+    expect(listed).toMatchObject({ total: 1, limit: 10, items: [expect.objectContaining({ id: 1 })] });
+    expect(detail?.id).toBe(1);
+    expect(query.mock.calls[0]?.[0]).toContain("tenant_id=$1");
+    expect(query.mock.calls[0]?.[1]).toEqual(["tenant-a", ["failed"], "s1", 10, 0]);
+    expect(query.mock.calls[2]?.[1]).toEqual(["tenant-a", 1]);
+  });
+
+  it("tenant-scopes retry and delivered cleanup mutations", async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: "3" }, { id: "4" }], rowCount: 2 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 2 });
+    const repository = new PostgresOutboxRepository({ query } as never);
+
+    await expect(repository.retryOutbox("tenant-a", 2, "2026-01-01T00:00:00Z")).resolves.toBe(true);
+    await expect(repository.retryOutboxBatch("tenant-a", { ids: [3, 4], statuses: ["failed"] })).resolves.toEqual({ matched: 2, retried: 2, ids: [3, 4] });
+    await expect(repository.deleteDeliveredOutbox("tenant-a", { before: "2026-02-01T00:00:00Z", limit: 50 })).resolves.toBe(2);
+
+    expect(query.mock.calls[0]?.[0]).toContain("tenant_id=$1");
+    expect(query.mock.calls[1]?.[0]).toContain("tenant_id=$1");
+    expect(query.mock.calls[2]?.[0]).toContain("tenant_id=$1");
+  });
 });

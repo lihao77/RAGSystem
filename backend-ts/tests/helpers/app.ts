@@ -58,6 +58,7 @@ export async function buildTestHarness(
     saasMemoryRuntime?: BuildAppOptions["saasMemoryRuntime"];
     resolveMemoryApplication?: BuildAppOptions["resolveMemoryApplication"];
     resolveSaaSSessionApplication?: BuildAppOptions["resolveSaaSSessionApplication"];
+    resolveSaaSMonitoringApplication?: BuildAppOptions["resolveSaaSMonitoringApplication"];
     env?: Partial<AppEnv>;
   } = {},
 ) {
@@ -109,6 +110,7 @@ export async function buildTestHarness(
     ...(options.saasMemoryRuntime ? { saasMemoryRuntime: options.saasMemoryRuntime } : {}),
     ...(options.resolveMemoryApplication ? { resolveMemoryApplication: options.resolveMemoryApplication } : {}),
     ...(options.resolveSaaSSessionApplication ? { resolveSaaSSessionApplication: options.resolveSaaSSessionApplication } : {}),
+    ...(options.resolveSaaSMonitoringApplication ? { resolveSaaSMonitoringApplication: options.resolveSaaSMonitoringApplication } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await app.ready();

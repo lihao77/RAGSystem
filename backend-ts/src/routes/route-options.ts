@@ -15,6 +15,7 @@ import type { SaaSSessionApplication } from "../services/runtime/saas-session-ap
 import type { SaaSAgentReadApplication } from "../services/runtime/saas-agent-read-application.js";
 import type { SaaSInteractionRecoveryApplication } from "../services/runtime/saas-interaction-recovery-application.js";
 import type { SaaSAnalyticsApplication } from "../services/runtime/saas-analytics-application.js";
+import type { SaaSMonitoringApplication } from "../services/runtime/saas-monitoring-application.js";
 
 export interface RouteOptions {
   registry: TenantRuntimeRegistry;
@@ -35,6 +36,7 @@ export interface RouteOptions {
   resolveSaaSAgentReadApplication?: (request: FastifyRequest) => SaaSAgentReadApplication | undefined | Promise<SaaSAgentReadApplication | undefined>;
   resolveSaaSInteractionRecovery?: (request: FastifyRequest) => SaaSInteractionRecoveryApplication | undefined | Promise<SaaSInteractionRecoveryApplication | undefined>;
   resolveSaaSAnalytics?: (request: FastifyRequest) => SaaSAnalyticsApplication | undefined | Promise<SaaSAnalyticsApplication | undefined>;
+  resolveSaaSMonitoringApplication?: (request: FastifyRequest) => SaaSMonitoringApplication | undefined | Promise<SaaSMonitoringApplication | undefined>;
   widgetCredentialStore?: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
 }
