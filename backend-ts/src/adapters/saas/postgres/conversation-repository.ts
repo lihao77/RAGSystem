@@ -35,7 +35,13 @@ export interface AsyncConversationRepository {
 
 export class PostgresConversationRepository implements AsyncConversationRepository {
   constructor(private readonly executor: PostgresMemoryExecutor) {}
-  async createSession(tenantId: TenantId, sessionId: string, userId: string | null, metadata: Record<string, unknown> = {}, permissionMode: PermissionMode | null = null): Promise<void> { await this.executor.query("INSERT INTO conversation_sessions(session_id,tenant_id,user_id,metadata,permission_mode) VALUES($1,$2,$3,$4::jsonb,$5) ON CONFLICT(session_id) DO UPDATE SET user_id=COALESCE(EXCLUDED.user_id,conversation_sessions.user_id), metadata=conversation_sessions.metadata || EXCLUDED.metadata, permission_mode=COALESCE(EXCLUDED.permission_mode,conversation_sessions.permission_mode), updated_at=CURRENT_TIMESTAMP", [sessionId, tenantId, userId, JSON.stringify(metadata), permissionMode]); }
+  async createSession(tenantId: TenantId, sessionId: string, userId: string | null, metadata: Record<string, unknown> = {}, permissionMode: PermissionMode | null = null): Promise<void> {
+    const result = await this.executor.query(
+      "INSERT INTO conversation_sessions(session_id,tenant_id,user_id,metadata,permission_mode) VALUES($1,$2,$3,$4::jsonb,$5) ON CONFLICT(session_id) DO UPDATE SET user_id=COALESCE(EXCLUDED.user_id,conversation_sessions.user_id), metadata=conversation_sessions.metadata || EXCLUDED.metadata, permission_mode=COALESCE(EXCLUDED.permission_mode,conversation_sessions.permission_mode), updated_at=CURRENT_TIMESTAMP WHERE conversation_sessions.tenant_id=EXCLUDED.tenant_id RETURNING tenant_id",
+      [sessionId, tenantId, userId, JSON.stringify(metadata), permissionMode],
+    );
+    if (!result.rows[0]) throw new Error(`session id is already owned by another tenant: ${sessionId}`);
+  }
   async getSession(sessionId: string): Promise<SessionInfo | null> { const r = await this.executor.query("SELECT * FROM conversation_sessions WHERE session_id=$1", [sessionId]); return r.rows[0] ? session(r.rows[0]) : null; }
   async updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null> {
     return this.executor.transaction(async (executor) => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { POSTGRES_CONVERSATION_MIGRATIONS } from "../../src/adapters/saas/postgres/conversation-schema.js";
 import { PostgresConversationRepository } from "../../src/adapters/saas/postgres/conversation-repository.js";
 import type { PostgresMemoryExecutor, PostgresQueryResult } from "../../src/adapters/saas/postgres/memory-repository.js";
+import { createTenantId } from "../../src/identity/types.js";
 
 class FakeExecutor implements PostgresMemoryExecutor {
   readonly calls: string[] = [];
@@ -40,5 +41,11 @@ describe("PostgreSQL conversation slice", () => {
     await expect(repository.updateSessionMetadata("s1", { cache: { root: 2 } })).resolves.toEqual({
       cache: { child: 1, root: 2 },
     });
+  });
+
+  it("rejects a session id already owned by another tenant", async () => {
+    const repository = new PostgresConversationRepository(new FakeExecutor());
+    await expect(repository.createSession(createTenantId("tnt_b"), "shared-session", "user-b"))
+      .rejects.toThrow("session id is already owned by another tenant");
   });
 });
