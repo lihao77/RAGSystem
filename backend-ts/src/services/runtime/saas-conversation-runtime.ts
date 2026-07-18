@@ -40,6 +40,8 @@ import { SaaSFileHistoryStorage } from "../../adapters/saas/object-storage/file-
 import type { AsyncFileHistoryStore } from "../../contracts/file-history-store/index.js";
 import { SaaSSessionFileStorage } from "../../adapters/saas/object-storage/session-file-storage.js";
 import type { AsyncSessionFileStorage } from "../../contracts/session-file-storage.js";
+import { SaaSWorkspaceBlobStorage } from "../../adapters/saas/object-storage/workspace-blob-storage.js";
+import type { WorkspaceBlobStorage } from "../../contracts/workspace-blob-storage.js";
 
 export interface SaaSConversationRuntimeOptions {
   connectionString: string;
@@ -73,6 +75,7 @@ export interface SaaSConversationRuntimeHandle {
   fileHistory: PostgresFileHistoryMetadataRepository;
   createFileHistoryStorage(tenantId: string): AsyncFileHistoryStore;
   createSessionFileStorage(tenantId: string): AsyncSessionFileStorage;
+  createWorkspaceBlobStorage(tenantId: string): WorkspaceBlobStorage;
   close(): Promise<void>;
 }
 
@@ -146,6 +149,10 @@ export async function createSaaSConversationRuntime(
       createSessionFileStorage: (tenantId) => {
         if (!options.objectStorage) throw new Error("SaaS session file storage requires ObjectStorage");
         return new SaaSSessionFileStorage(tenantId, sessionFiles, options.objectStorage);
+      },
+      createWorkspaceBlobStorage: (tenantId) => {
+        if (!options.objectStorage) throw new Error("SaaS workspace blob storage requires ObjectStorage");
+        return new SaaSWorkspaceBlobStorage(tenantId, options.objectStorage);
       },
       close: () => {
         providerMcpApplication.close();
