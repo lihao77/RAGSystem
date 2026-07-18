@@ -13,6 +13,7 @@ import type {
 } from "./types.js";
 
 export * from "./types.js";
+export * from "./async.js";
 
 /**
  * file-history-store 对外能力（agent 编辑文件的快照与回退，支撑 rollback/retry）。

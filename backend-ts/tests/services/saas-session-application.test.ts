@@ -52,4 +52,21 @@ describe("SaaSSessionApplication", () => {
     expect(repository.updateMessage).toHaveBeenCalledWith({ sessionId: "session-1", messageId: "message-1", content: "changed", roleFilter: "user" });
     expect(repository.deleteMessagesAfter).toHaveBeenCalledWith("session-1", { afterSeq: null, afterMessageId: "message-1" });
   });
+
+  it("rewinds async file history before deleting SaaS messages", async () => {
+    const calls: string[] = [];
+    const repository = {
+      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-a" }),
+      deleteMessagesAfter: vi.fn(async () => { calls.push("messages"); return 3; }),
+    };
+    const fileHistory = {
+      hasSnapshots: vi.fn().mockResolvedValue(true),
+      rewind: vi.fn(async () => { calls.push("files"); return { success: true, message: "ok", reverted_files: 1 }; }),
+    };
+    const application = new SaaSSessionApplication("tenant-a", repository as never, fileHistory as never);
+
+    await expect(application.rollbackMessages({ sessionId: "session-1", afterSeq: 7 })).resolves.toBe(3);
+    expect(fileHistory.rewind).toHaveBeenCalledWith("session-1", 7);
+    expect(calls).toEqual(["files", "messages"]);
+  });
 });

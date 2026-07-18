@@ -11,6 +11,8 @@
 export interface FileHistoryTrackedFile {
   backup_hash: string | null;
   action: "modified" | "created";
+  /** Original object content type. Used by async SaaS restore; Local may omit it. */
+  content_type?: string | null;
 }
 
 export interface FileHistorySnapshot {
