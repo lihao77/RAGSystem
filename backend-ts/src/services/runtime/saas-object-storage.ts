@@ -23,7 +23,9 @@ export function createSaaSObjectStorage(
   const bucket = config.bucket.trim();
   if (!bucket) throw new Error("SaaS object storage requires a bucket");
   if (!transport) {
-    if (!config.endpoint || !config.accessKeyId || !config.secretAccessKey) throw new Error("SaaS object storage requires endpoint and credentials");
+    if (!config.endpoint || !config.accessKeyId || !config.secretAccessKey) {
+      throw new Error("SaaS object storage transport is not configured; inject an S3-compatible transport or provide endpoint and credentials");
+    }
     transport = new S3HttpTransport({ endpoint: config.endpoint, accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey, ...(config.region ? { region: config.region } : {}), ...(config.forcePathStyle !== undefined ? { forcePathStyle: config.forcePathStyle } : {}) });
   }
   return new S3ObjectStorage(transport, bucket);
