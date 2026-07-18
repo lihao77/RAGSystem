@@ -81,6 +81,7 @@ export interface SharedBusinessRouteAssemblyOptions {
   wsTickets: WsTicketService;
   registerPublicAgui: boolean;
   resolveMemoryApplication?: RouteOptions["resolveMemoryApplication"];
+  resolveKnowledgeFileStore?: RouteOptions["resolveKnowledgeFileStore"];
 }
 
 export async function registerSharedBusinessRoutes(
@@ -102,6 +103,9 @@ export async function registerSharedBusinessRoutes(
       ...routeOptions,
       ...(options.resolveMemoryApplication
         ? { resolveMemoryApplication: options.resolveMemoryApplication }
+        : {}),
+      ...(options.resolveKnowledgeFileStore
+        ? { resolveKnowledgeFileStore: options.resolveKnowledgeFileStore }
         : {}),
     });
     await scope.register(registerSkillRoutes, { prefix: "/api/skills", ...routeOptions });

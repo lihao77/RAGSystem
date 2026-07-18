@@ -47,6 +47,7 @@ export interface BuildAppOptions {
   saasMemoryRuntime?: SaaSMemoryRuntimeHandle;
   saasConversationRuntime?: SaaSConversationRuntimeHandle;
   resolveMemoryApplication?: RouteOptions["resolveMemoryApplication"];
+  resolveKnowledgeFileStore?: RouteOptions["resolveKnowledgeFileStore"];
   registry?: TenantRuntimeRegistry;
   controlStore?: ControlStore;
   controlPlane?: ControlPlane;
@@ -399,6 +400,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     wsTickets,
     registerPublicAgui: !widgetIdentityProvider,
     ...(resolveMemoryApplication ? { resolveMemoryApplication } : {}),
+    ...(options.resolveKnowledgeFileStore ? { resolveKnowledgeFileStore: options.resolveKnowledgeFileStore } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await registerManagementAndPlatformRoutes(app, {

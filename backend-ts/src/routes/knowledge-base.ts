@@ -15,6 +15,7 @@ import type { KnowledgeFile } from "../contracts/vector-store/index.js";
 import { HttpError, httpErrorFrom, statusHttpError } from "../utils/errors.js";
 import { matchesFileFilters } from "../utils/file-filter.js";
 import type { RouteOptions } from "./route-options.js";
+import type { AsyncKnowledgeFileStore } from "../contracts/knowledge/async-knowledge-file-store.js";
 import { isRecord } from "../utils/guards.js";
 import { collectMultipartFiles, parseCsvList, sendFileDownload } from "./file-route-utils.js";
 import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
@@ -35,6 +36,8 @@ interface KeyParams { key: string; }
 interface DocsQuery { collection?: string; }
 
 export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
+  const resolveAsyncStore = async (request: Parameters<NonNullable<RouteOptions["resolveKnowledgeFileStore"]>>[0]): Promise<AsyncKnowledgeFileStore | undefined> =>
+    options.resolveKnowledgeFileStore?.(request);
   app.addHook("preHandler", async (request) => {
     requireTenantMember(request);
     const pathname = request.url.split("?", 1)[0] ?? request.url;
@@ -50,6 +53,13 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   });
 
   app.post("/files/upload", async (request) => {
+    const asyncStore = await resolveAsyncStore(request);
+    if (asyncStore) {
+      const parts = await collectMultipartFiles(request);
+      const files: KnowledgeFile[] = [];
+      for (const part of parts) files.push(await asyncStore.addKnowledgeFile({ originalName: part.filename, buffer: part.buffer, mime: part.mime }));
+      return { success: true, files };
+    }
     const knowledgeBase = request.container.knowledgeBase;
     const store = request.container.knowledgeBase.knowledgeFileStore;
     const parts = await collectMultipartFiles(request);
@@ -67,18 +77,16 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
     return { success: true, files };
   });
 
-  app.get<{ Querystring: FileListQuery }>("/files", async (request) => ({
-    success: true,
-    files: filterKnowledgeFiles(
-      request.container.knowledgeBase.knowledgeFileStore.listKnowledgeFiles(),
-      parseCsvList(request.query.extensions),
-      parseCsvList(request.query.mime_types),
-    ),
-  }));
+  app.get<{ Querystring: FileListQuery }>("/files", async (request) => {
+    const asyncStore = await resolveAsyncStore(request);
+    const files = asyncStore ? await asyncStore.listKnowledgeFiles() : request.container.knowledgeBase.knowledgeFileStore.listKnowledgeFiles();
+    return { success: true, files: filterKnowledgeFiles(files, parseCsvList(request.query.extensions), parseCsvList(request.query.mime_types)) };
+  });
 
   app.get<{ Params: FileParams }>("/files/:fileId", async (request) => {
+    const asyncStore = await resolveAsyncStore(request);
     const store = request.container.knowledgeBase.knowledgeFileStore;
-    const file = store.getKnowledgeFile(request.params.fileId);
+    const file = asyncStore ? await asyncStore.getKnowledgeFile(request.params.fileId) : store.getKnowledgeFile(request.params.fileId);
     if (!file) {
       throw new HttpError(404, "not_found", "文件不存在");
     }
@@ -86,12 +94,13 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   });
 
   app.get<{ Params: FileParams }>("/files/:fileId/md", async (request) => {
+    const asyncStore = await resolveAsyncStore(request);
     const store = request.container.knowledgeBase.knowledgeFileStore;
-    const file = store.getKnowledgeFile(request.params.fileId);
+    const file = asyncStore ? await asyncStore.getKnowledgeFile(request.params.fileId) : store.getKnowledgeFile(request.params.fileId);
     if (!file) throw new HttpError(404, "not_found", "文件不存在");
     if (!file.md_blob_hash) throw new HttpError(409, "markdown_not_ready", "文件尚未生成 Markdown，请先完成索引");
     try {
-      return { markdown: store.readKnowledgeMarkdown(file.md_blob_hash), md_blob_hash: file.md_blob_hash };
+      return { markdown: asyncStore ? await asyncStore.readKnowledgeMarkdown(file.md_blob_hash) : store.readKnowledgeMarkdown(file.md_blob_hash), md_blob_hash: file.md_blob_hash };
     } catch (error) {
       request.log.error({ err: error, file_id: file.id, md_blob_hash: file.md_blob_hash }, "读取知识库 Markdown 失败");
       throw new HttpError(500, "markdown_blob_missing", "Markdown 文件缺失或损坏");
@@ -100,6 +109,12 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
 
   app.put<{ Params: FileParams }>("/files/:fileId/md", async (request) => {
     const payload = UpdateMarkdownRequestSchema.parse(request.body);
+    const asyncStore = await resolveAsyncStore(request);
+    if (asyncStore) {
+      const file = await asyncStore.getKnowledgeFile(request.params.fileId);
+      if (!file) throw new HttpError(404, "not_found", "文件不存在");
+      return ok(await asyncStore.putKnowledgeMarkdown(file.id, payload.content));
+    }
     try { return ok(await request.container.knowledgeBase.updateMarkdown(request.params.fileId, payload.content)); } catch (error) { throw toHttpError(error); }
   });
 
@@ -115,6 +130,12 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   });
 
   app.delete<{ Params: FileParams }>("/files/:fileId", async (request) => {
+    const asyncStore = await resolveAsyncStore(request);
+    if (asyncStore) {
+      const deleted = await asyncStore.deleteKnowledgeFile(request.params.fileId);
+      if (!deleted) throw new HttpError(404, "not_found", "文件不存在");
+      return { success: true, deleted_chunks: 0 };
+    }
     const result = await request.container.knowledgeBase.deleteKnowledgeFileWithVectors(request.params.fileId);
     if (!result) {
       throw new HttpError(404, "not_found", "文件不存在");
@@ -123,6 +144,16 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync<RouteOptions> = asy
   });
 
   app.get<{ Params: FileParams }>("/files/:fileId/download", async (request, reply) => {
+    const asyncStore = await resolveAsyncStore(request);
+    if (asyncStore) {
+      const file = await asyncStore.getKnowledgeFile(request.params.fileId);
+      if (!file) throw new HttpError(404, "not_found", "文件不存在");
+      const source = await asyncStore.getSource(file.id);
+      if (!source) throw new HttpError(404, "not_found", "文件内容不存在");
+      reply.header("content-type", source.contentType || file.mime || "application/octet-stream");
+      reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.original_name)}`);
+      return reply.send(Buffer.from(source.body));
+    }
     const store = request.container.knowledgeBase.knowledgeFileStore;
     const file = store.getKnowledgeFile(request.params.fileId);
     if (!file) {
