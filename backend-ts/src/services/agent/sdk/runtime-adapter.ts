@@ -37,13 +37,14 @@ import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService, DelegationResolution } from "../../runtime/delegation-pending-service.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { AsyncConversationRepository } from "../../../adapters/saas/postgres/conversation-repository.js";
+import { resolveSessionMetadataPort } from "../context/async-session-metadata-resolver.js";
 
 export interface SdkRuntimeAdapterDeps {
   tenantId?: AsyncPersisterRunContext["tenantId"];
   /** SaaS async persistence boundary; omitted for the Local synchronous store. */
   asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
-  /** SaaS history read boundary; omitted for Local so its synchronous store remains authoritative. */
-  asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages">;
+  /** SaaS conversation state boundary; omitted for Local so its synchronous store remains authoritative. */
+  asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage">;
   conversationStore: ConversationStore;
   /** 工具依赖集合（service + getAgentDelegation；agent/teamName 由 per-run 提供）。 */
   toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName">;
@@ -140,14 +141,11 @@ export async function executeRunWithSdk(
   const rootRunId = resolveRootRunId(deps.conversationStore, input);
   // session metadata 端口：委托真实 ConversationStore，让 memory 源能读到 team/workspace_root，
   // 解析出 team/agent/workspace scope（否则只 session scope 存活，其余静默丢弃）。
-  const sessionMetadata: SessionMetadataPort = {
-    getSession: (sessionId: string) => {
-      const session = deps.conversationStore.getSession(sessionId);
-      return session ? { metadata: session.metadata ?? {}, user_id: session.user_id } : null;
-    },
-    updateSessionMetadata: (sessionId: string, patch: Record<string, unknown>) =>
-      deps.conversationStore.updateSessionMetadata(sessionId, patch),
-  };
+  const sessionMetadata = await resolveSessionMetadataPort(
+    input.sessionId,
+    deps.conversationStore,
+    deps.asyncConversationHistory,
+  );
 
   // per-run 构建工具集合：后端工具 + 前端委托工具（source=host，其 Tool.call 转发宿主执行 + 等回传）。
   const teamName = asString(input.sessionMetadata.team);
@@ -233,6 +231,7 @@ export async function executeRunWithSdk(
     threadKey: input.threadKey,
     ...(deps.memoryContextSourceFactory ? { memoryContextSourceFactory: deps.memoryContextSourceFactory } : {}),
   });
+  await sessionMetadata.flush();
   const conversation = built.conversation;
   // refresh 水位线:本 run 启动前 store 最后一条消息的 seq;refresh 每轮拉 seq > lastSeq 的新 user 消息(followup 等)。
   let lastSeq = built.rawMessages.reduce(
@@ -279,6 +278,7 @@ export async function executeRunWithSdk(
           const mode = resolveToolInstructionMode(profile.llmTiers.default?.provider);
           const systemPromptBase = buildFullSystemPrompt(profile, { tools: registry.listDefinitions() }, mode);
           const tokenContext = await contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true }, { touch: false });
+          await sessionMetadata.flush();
           const memoryPrefix = tokenContext.conversation
             .filter((m) => m.role === "system")
             .map((m) => (typeof m.content === "string" ? m.content : ""))
@@ -301,6 +301,7 @@ export async function executeRunWithSdk(
             historyPort.updateSessionMetadata?.(input.sessionId, { memory_prefix_states: { [baselineKey]: null } });
             cacheTracker.invalidate(input.sessionId, input.threadKey);
             const rebuilt = (await contextBuilder.buildContext({ sessionId: input.sessionId, threadKey: input.threadKey, microcompact: true })).conversation;
+            await sessionMetadata.flush();
             // 恢复首轮修复:replaceAll 从 store 重读会丢 SDK 工作副本里本轮(通用开始契约重执行)追加但 store 尚未落库的 tool observation。按 tool_call_id 回补配对,避免 assistant tool_use 无 tool_result(Anthropic 400 insufficient tool messages)。
             const rebuiltToolCallIds = new Set(rebuilt.filter((m) => m.role === "tool").map((m) => m.tool_call_id).filter((id): id is string => Boolean(id)));
             const lostObservations = hookInput.ctx.messages.filter(

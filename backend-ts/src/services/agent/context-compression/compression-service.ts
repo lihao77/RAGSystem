@@ -58,6 +58,18 @@ export interface CompressInput {
   systemPromptTokens: number;
 }
 
+export interface AsyncCompressionHistoryPort {
+  getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;
+  insertCompressionMessage(input: {
+    sessionId: string;
+    summaryContent: string;
+    replacesUpToSeq?: number | null;
+    threadKey?: string;
+    childAgentId?: string | null;
+    metadata?: Record<string, unknown>;
+  }): Promise<MessageInfo>;
+}
+
 interface LoadedHistory {
   profile: ReturnType<typeof projectAgentProfile>;
   settings: ContextCompressionSettings;
@@ -75,13 +87,14 @@ export class AgentCompressionService {
     private readonly providersProvider: () => ModelProviderConfig[],
     private readonly systemConfig: SystemConfigService,
     llm?: LlmClient,
+    private readonly asyncHistory?: AsyncCompressionHistoryPort,
   ) {
     this.llm = llm ?? new OpenAiCompatibleClient();
   }
 
   /** 阈值门控压缩（run 内 round.before 触发）。 */
   async compressIfNeeded(input: CompressInput): Promise<CompressionResult> {
-    const loaded = this.loadHistory(input);
+    const loaded = await this.loadHistory(input);
     const thresholdTokens = Math.floor(loaded.budgetTokens * loaded.settings.compressionTriggerRatio);
     if (loaded.historyTokens < thresholdTokens) {
       return skipped("below_threshold", loaded.budgetTokens, loaded.historyTokens, thresholdTokens);
@@ -91,7 +104,7 @@ export class AgentCompressionService {
 
   /** 手动强制压缩（/compact,无阈值门控）。幂等——压缩视图已归并,已压缩区间不重复压。 */
   async forceCompact(input: CompressInput): Promise<CompressionResult> {
-    const loaded = this.loadHistory(input);
+    const loaded = await this.loadHistory(input);
     const thresholdTokens = Math.floor(loaded.budgetTokens * loaded.settings.compressionTriggerRatio);
     return this.runCompact(input, loaded, thresholdTokens, true);
   }
@@ -116,14 +129,17 @@ export class AgentCompressionService {
     if (summaryContent === null) {
       return skipped("summary_unavailable", loaded.budgetTokens, loaded.historyTokens, thresholdTokens);
     }
-    const summaryMessage = this.conversationStore.insertCompressionMessage({
+    const compressionInput = {
       sessionId: input.sessionId,
       summaryContent,
       replacesUpToSeq: selected.replacesUpToSeq,
       threadKey: loaded.threadKey,
       ...(input.childAgentId !== undefined && input.childAgentId !== null ? { childAgentId: input.childAgentId } : {}),
       metadata: compressionMetadata(input, selected.segment.length, loaded.historyTokens, thresholdTokens, loaded.budgetTokens, forced),
-    });
+    };
+    const summaryMessage = this.asyncHistory
+      ? await this.asyncHistory.insertCompressionMessage(compressionInput)
+      : this.conversationStore.insertCompressionMessage(compressionInput);
     return {
       status: "success",
       reason: "success",
@@ -136,14 +152,15 @@ export class AgentCompressionService {
     };
   }
 
-  private loadHistory(input: CompressInput): LoadedHistory {
+  private async loadHistory(input: CompressInput): Promise<LoadedHistory> {
     const threadKey = input.threadKey?.trim() || "root";
     const profile = projectAgentProfile({ agent: input.agent, providers: this.providersProvider() });
     const settings = resolveContextCompressionSettings(input.agent, this.systemConfig.getConfig());
     const budgetTokens = resolveContextBudget(profile.llmTiers, input.systemPromptTokens, profile.behavior.budget);
-    const rawMessages = this.conversationStore
-      .getRecentMessages(input.sessionId, HISTORY_SCAN_LIMIT, threadKey)
-      .filter(isCompressibleHistoryMessage);
+    const persistedMessages = this.asyncHistory
+      ? await this.asyncHistory.getRecentMessages(input.sessionId, HISTORY_SCAN_LIMIT, threadKey)
+      : this.conversationStore.getRecentMessages(input.sessionId, HISTORY_SCAN_LIMIT, threadKey);
+    const rawMessages = persistedMessages.filter(isCompressibleHistoryMessage);
     const historyResolved = resolveCompressionView(rawMessages);
     const historyTokens = countMessagesTokens(historyResolved);
     return { profile, settings, budgetTokens, historyResolved, historyTokens, threadKey };

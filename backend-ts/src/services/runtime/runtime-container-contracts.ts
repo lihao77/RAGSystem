@@ -100,7 +100,7 @@ export interface LocalRuntimeContainerOptions {
   embedderFactory?: KnowledgeBaseEmbedderFactory | undefined;
   memoryBindingsFactory?: MemoryRuntimeBindingsFactory | undefined;
   asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
-  asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages">;
+  asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage">;
   asyncClientEventsFactory?: (realtimeEvents: RealtimeEventHub) => AsyncDurableClientEventPublisher;
 }
 
@@ -131,7 +131,7 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   logger?: AgentExecutionLogger | undefined;
   hooks?: ((registry: HookRegistry) => void) | undefined;
   asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
-  asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages">;
+  asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage">;
   asyncClientEvents?: AsyncDurableClientEventPublisher;
   conversationStore: ConversationStore;
   sessionApplication: AgentSessionApplication;

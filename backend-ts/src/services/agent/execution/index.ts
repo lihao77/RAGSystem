@@ -108,7 +108,7 @@ export interface AgentExecutionServiceParams {
   compressionService?: AgentCompressionService;
   /** SaaS async run/message persister factory; Local leaves this unset. */
   asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
-  asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages">;
+  asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage">;
   asyncClientEvents?: AsyncDurableClientEventPublisher;
 }
 

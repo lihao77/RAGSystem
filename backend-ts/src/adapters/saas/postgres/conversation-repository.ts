@@ -37,7 +37,15 @@ export class PostgresConversationRepository implements AsyncConversationReposito
   constructor(private readonly executor: PostgresMemoryExecutor) {}
   async createSession(tenantId: TenantId, sessionId: string, userId: string | null, metadata: Record<string, unknown> = {}, permissionMode: PermissionMode | null = null): Promise<void> { await this.executor.query("INSERT INTO conversation_sessions(session_id,tenant_id,user_id,metadata,permission_mode) VALUES($1,$2,$3,$4::jsonb,$5) ON CONFLICT(session_id) DO UPDATE SET user_id=COALESCE(EXCLUDED.user_id,conversation_sessions.user_id), metadata=conversation_sessions.metadata || EXCLUDED.metadata, permission_mode=COALESCE(EXCLUDED.permission_mode,conversation_sessions.permission_mode), updated_at=CURRENT_TIMESTAMP", [sessionId, tenantId, userId, JSON.stringify(metadata), permissionMode]); }
   async getSession(sessionId: string): Promise<SessionInfo | null> { const r = await this.executor.query("SELECT * FROM conversation_sessions WHERE session_id=$1", [sessionId]); return r.rows[0] ? session(r.rows[0]) : null; }
-  async updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null> { const r = await this.executor.query("UPDATE conversation_sessions SET metadata=metadata || $1::jsonb,updated_at=CURRENT_TIMESTAMP WHERE session_id=$2 RETURNING metadata", [JSON.stringify(patch), sessionId]); return r.rows[0] ? (r.rows[0].metadata as Record<string, unknown>) : null; }
+  async updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+    return this.executor.transaction(async (executor) => {
+      const current = await executor.query("SELECT metadata FROM conversation_sessions WHERE session_id=$1 FOR UPDATE", [sessionId]);
+      if (!current.rows[0]) return null;
+      const metadata = deepMergeRecords((current.rows[0].metadata ?? {}) as Record<string, unknown>, patch);
+      const updated = await executor.query("UPDATE conversation_sessions SET metadata=$1::jsonb,updated_at=CURRENT_TIMESTAMP WHERE session_id=$2 RETURNING metadata", [JSON.stringify(metadata), sessionId]);
+      return updated.rows[0] ? (updated.rows[0].metadata as Record<string, unknown>) : metadata;
+    });
+  }
   async updateSessionPermissionMode(sessionId: string, mode: PermissionMode): Promise<boolean> { const r = await this.executor.query("UPDATE conversation_sessions SET permission_mode=$1,updated_at=CURRENT_TIMESTAMP WHERE session_id=$2", [mode, sessionId]); return Number(r.rowCount ?? 0) > 0; }
   async deleteSession(sessionId: string): Promise<boolean> { const r = await this.executor.query("DELETE FROM conversation_sessions WHERE session_id=$1", [sessionId]); return Number(r.rowCount ?? 0) > 0; }
   async listSessions(tenantId: TenantId, limit = 20, offset = 0, userIds?: readonly string[] | null): Promise<PaginatedResult<SessionListItem>> { const params: unknown[] = [tenantId]; let where = "s.tenant_id=$1"; if (userIds) { if (!userIds.length) return { items: [], total: 0, limit, offset, has_more: false }; params.push(userIds); where += ` AND s.user_id=ANY($${params.length}::text[])`; } const total = await this.executor.query(`SELECT COUNT(*) AS total FROM conversation_sessions s WHERE ${where}`, params); params.push(limit, offset); const rows = await this.executor.query(`SELECT s.*, (SELECT content FROM conversation_messages m WHERE m.session_id=s.session_id ORDER BY seq DESC LIMIT 1) AS last_content, (SELECT created_at FROM conversation_messages m WHERE m.session_id=s.session_id ORDER BY seq DESC LIMIT 1) AS last_created_at, (SELECT content FROM conversation_messages m WHERE m.session_id=s.session_id ORDER BY seq ASC LIMIT 1) AS first_content FROM conversation_sessions s WHERE ${where} ORDER BY s.updated_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`, params); return { items: rows.rows.map((r) => ({ ...session(r), title: String(r.first_content ?? ""), last_message: String(r.last_content ?? ""), last_message_at: r.last_created_at ? iso(r.last_created_at) : "", first_message: String(r.first_content ?? ""), unread_count: 0 })), total: Number(total.rows[0]?.total ?? 0), limit, offset, has_more: offset + limit < Number(total.rows[0]?.total ?? 0) }; }
@@ -52,4 +60,17 @@ export class PostgresConversationRepository implements AsyncConversationReposito
   async deleteMessagesAfter(sessionId: string, input: { afterSeq?: number | null; afterMessageId?: string | null }): Promise<number> { let seq = input.afterSeq ?? null; if (seq == null && input.afterMessageId) { const r = await this.executor.query("SELECT seq FROM conversation_messages WHERE session_id=$1 AND id=$2", [sessionId, input.afterMessageId]); seq = r.rows[0] ? Number(r.rows[0].seq) : null; } if (seq == null) return 0; const r = await this.executor.query("DELETE FROM conversation_messages WHERE session_id=$1 AND seq>$2", [sessionId, seq]); return Number(r.rowCount ?? 0); }
   async updateMessage(input: { messageId: string; content?: string | null; metadata?: Record<string, unknown> | null; sessionId?: string | null; roleFilter?: MessageInfo["role"] | null }): Promise<boolean> { const sets: string[] = []; const p: unknown[] = []; if (input.content != null) { p.push(input.content); sets.push(`content=$${p.length}`); } if (input.metadata != null) { p.push(JSON.stringify(input.metadata)); sets.push(`metadata=$${p.length}::jsonb`); } if (!sets.length) return false; p.push(input.messageId); let where = `id=$${p.length}`; if (input.sessionId != null) { p.push(input.sessionId); where += ` AND session_id=$${p.length}`; } if (input.roleFilter != null) { p.push(input.roleFilter); where += ` AND role=$${p.length}`; } const r = await this.executor.query(`UPDATE conversation_messages SET ${sets.join(", ")} WHERE ${where}`, p); return Number(r.rowCount ?? 0) > 0; }
   async insertCompressionMessage(input: { sessionId: string; summaryContent: string; replacesUpToSeq?: number | null; threadKey?: string; childAgentId?: string | null; metadata?: Record<string, unknown> }): Promise<MessageInfo> { return this.addMessage({ sessionId: input.sessionId, role: "assistant", content: input.summaryContent, metadata: { ...(input.metadata ?? {}), ...(input.replacesUpToSeq == null ? {} : { replaces_up_to_seq: input.replacesUpToSeq }) }, threadKey: input.threadKey, childAgentId: input.childAgentId }); }
+}
+
+function deepMergeRecords(current: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
+  const output = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    const existing = output[key];
+    output[key] = isRecord(existing) && isRecord(value) ? deepMergeRecords(existing, value) : value;
+  }
+  return output;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

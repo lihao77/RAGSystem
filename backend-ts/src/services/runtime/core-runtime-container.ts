@@ -91,6 +91,8 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
       conversationStore,
       () => modelAdapter.listProviders(),
       systemConfig,
+      undefined,
+      dependencies.asyncConversationHistory,
     ),
     ...(dependencies.hooks ? { hooks: dependencies.hooks } : {}),
     ...(dependencies.asyncEventPersisterFactory ? { asyncEventPersisterFactory: dependencies.asyncEventPersisterFactory } : {}),

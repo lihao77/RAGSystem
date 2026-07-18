@@ -79,7 +79,7 @@ export class AgentRunEngine {
     private readonly metricsCollector: AgentMetricsCollector | null = null,
     private readonly compressionService: AgentCompressionService | null = null,
     private readonly asyncEventPersisterFactory: ((context: AsyncPersisterRunContext) => AsyncKernelEventPersister) | null = null,
-    private readonly asyncConversationHistory: Pick<AsyncConversationRepository, "getRecentMessages"> | null = null,
+    private readonly asyncConversationHistory: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage"> | null = null,
     private readonly asyncClientEvents: AsyncDurableClientEventPublisher | null = null,
   ) {}
 
