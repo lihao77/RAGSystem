@@ -23,9 +23,13 @@ interface SessionFileParams extends SessionParams {
 export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   const resolveAsyncStore = async (request: Parameters<NonNullable<RouteOptions["resolveSessionFileStorage"]>>[0]) =>
     options.resolveSessionFileStorage?.(request);
+  const loadOwned = async (request: Parameters<NonNullable<RouteOptions["resolveSaaSSessionApplication"]>>[0], sessionId: string) => {
+    const saas = await options.resolveSaaSSessionApplication?.(request);
+    return loadOwnedSession(request, sessionId, saas);
+  };
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/files", async (request) => {
-    await loadOwnedSession(request, request.params.sessionId);
+    await loadOwned(request, request.params.sessionId);
     const asyncStore = await resolveAsyncStore(request);
     return {
       success: true,
@@ -37,7 +41,7 @@ export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/files/validate", async (request) => {
-    await loadOwnedSession(request, request.params.sessionId);
+    await loadOwned(request, request.params.sessionId);
     const payload = ValidateFilesRequestSchema.parse(request.body);
     const asyncStore = await resolveAsyncStore(request);
     if (asyncStore) {
@@ -56,7 +60,7 @@ export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/files/upload", async (request) => {
-    await loadOwnedSession(request, request.params.sessionId);
+    await loadOwned(request, request.params.sessionId);
     const parts = await collectMultipartFiles(request);
     const sessionId = request.params.sessionId;
     const asyncStore = await resolveAsyncStore(request);
@@ -77,7 +81,7 @@ export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async
   });
 
   app.get<{ Params: SessionFileParams }>("/sessions/:sessionId/files/:fileId", async (request) => {
-    await loadOwnedSession(request, request.params.sessionId);
+    await loadOwned(request, request.params.sessionId);
     const asyncStore = await resolveAsyncStore(request);
     const record = asyncStore
       ? await asyncStore.get(request.params.sessionId, request.params.fileId)
@@ -89,7 +93,7 @@ export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async
   });
 
   app.delete<{ Params: SessionFileParams }>("/sessions/:sessionId/files/:fileId", async (request) => {
-    await loadOwnedSession(request, request.params.sessionId);
+    await loadOwned(request, request.params.sessionId);
     const asyncStore = await resolveAsyncStore(request);
     const record = asyncStore
       ? await asyncStore.delete(request.params.sessionId, request.params.fileId)
@@ -102,7 +106,7 @@ export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async
   });
 
   app.get<{ Params: SessionFileParams }>("/sessions/:sessionId/files/:fileId/download", async (request, reply) => {
-    await loadOwnedSession(request, request.params.sessionId);
+    await loadOwned(request, request.params.sessionId);
     const asyncStore = await resolveAsyncStore(request);
     const record = asyncStore
       ? await asyncStore.get(request.params.sessionId, request.params.fileId)

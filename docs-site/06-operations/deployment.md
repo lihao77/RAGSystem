@@ -64,7 +64,7 @@ docker compose -f docker-compose.saas.yml up --build
 docker compose -f docker-compose.saas.yml down
 ```
 
-提交前可运行自动化 Compose 验收。脚本使用独立 project、随机密钥和空闲端口，验证 health/readiness、双租户会话隔离，以及 backend 重启后的 PostgreSQL 持久性；成功或失败后默认删除测试 volume：
+提交前可运行自动化 Compose 验收。脚本使用独立 project、随机密钥和空闲端口，验证 health/readiness、双租户会话与 Memory 隔离、附件上传下载与 ObjectStorage 隔离，以及 backend 重启后的 PostgreSQL/MinIO 持久性；成功或失败后默认删除测试 volume：
 
 ```bash
 npm run e2e:saas-compose

@@ -75,6 +75,22 @@ try {
   await expectStatus(baseUrl, `/api/agent/sessions/${defaultSessionId}`, 404, secondToken);
   console.log("[saas-e2e] tenant isolation passed");
 
+  const defaultMemoryMarker = `memory-default-${randomUUID()}`;
+  const secondMemoryMarker = `memory-isolated-${randomUUID()}`;
+  await seedMemoryEntry("tnt_default", initialLogin.userId, defaultMemoryMarker);
+  await seedMemoryEntry(secondTenantId, initialLogin.userId, secondMemoryMarker);
+  await expectMemoryVisible(baseUrl, defaultToken, defaultMemoryMarker);
+  await expectMemoryVisible(baseUrl, secondToken, secondMemoryMarker);
+  await expectMemoryHidden(baseUrl, defaultToken, secondMemoryMarker);
+  await expectMemoryHidden(baseUrl, secondToken, defaultMemoryMarker);
+  console.log("[saas-e2e] PostgreSQL memory read and tenant isolation passed");
+
+  const attachmentBody = `SaaS ObjectStorage persistence ${randomUUID()}\n`;
+  const attachment = await uploadSessionFile(baseUrl, defaultToken, defaultSessionId, attachmentBody);
+  await expectDownloadedFile(baseUrl, defaultToken, defaultSessionId, attachment.id, attachmentBody);
+  await expectStatus(baseUrl, `/api/agent/sessions/${defaultSessionId}/files/${attachment.id}/download`, 404, secondToken);
+  console.log("[saas-e2e] ObjectStorage attachment upload, download and tenant isolation passed");
+
   await compose(["restart", "backend"]);
   await waitForReady(baseUrl, options.timeoutMs);
   const afterRestartLogin = await login(baseUrl, adminUsername, adminPassword);
@@ -82,6 +98,10 @@ try {
   const afterRestartSecondToken = await tokenForTenant(baseUrl, afterRestartLogin, secondTenantId);
   await expectStatus(baseUrl, `/api/agent/sessions/${defaultSessionId}`, 200, afterRestartDefaultToken);
   await expectStatus(baseUrl, `/api/agent/sessions/${secondSessionId}`, 200, afterRestartSecondToken);
+  await expectMemoryVisible(baseUrl, afterRestartDefaultToken, defaultMemoryMarker);
+  await expectMemoryVisible(baseUrl, afterRestartSecondToken, secondMemoryMarker);
+  await expectDownloadedFile(baseUrl, afterRestartDefaultToken, defaultSessionId, attachment.id, attachmentBody);
+  await expectStatus(baseUrl, `/api/agent/sessions/${defaultSessionId}/files/${attachment.id}/download`, 404, afterRestartSecondToken);
   console.log("[saas-e2e] restart persistence passed");
   console.log("[saas-e2e] PASS");
 } catch (error) {
@@ -145,6 +165,7 @@ async function login(url, username, password) {
   return {
     token: requireString(result?.token, "login token"),
     tenantId: requireString(result?.tenantId, "login tenant id"),
+    userId: requireString(result?.user?.id, "login user id"),
   };
 }
 
@@ -164,6 +185,49 @@ async function createSession(url, token, sessionId) {
     token,
     body: { session_id: sessionId },
   });
+}
+
+async function seedMemoryEntry(tenantId, userId, marker) {
+  const id = randomUUID();
+  const values = [id, tenantId, userId, marker].map(sqlLiteral);
+  const sql = `INSERT INTO memory_entries(id,tenant_id,scope,scope_id,name,description,memory_type,content) VALUES(${values[0]},${values[1]},'user',${values[2]},${values[3]},'SaaS Compose E2E fixture','fact',${values[3]})`;
+  await compose(["exec", "-T", "postgres", "psql", "-v", "ON_ERROR_STOP=1", "-U", "ragsystem", "-d", "ragsystem", "-c", sql]);
+}
+
+async function expectMemoryVisible(url, token, marker) {
+  const result = await requestJson(url, `/api/memory/entries?scope=user&status=active&search=${encodeURIComponent(marker)}`, { token });
+  const items = Array.isArray(result?.data?.items) ? result.data.items : [];
+  assert(items.some((item) => item?.name === marker && item?.content === marker), `memory ${marker} was not visible`);
+}
+
+async function expectMemoryHidden(url, token, marker) {
+  const result = await requestJson(url, `/api/memory/entries?scope=user&status=active&search=${encodeURIComponent(marker)}`, { token });
+  const items = Array.isArray(result?.data?.items) ? result.data.items : [];
+  assert(items.length === 0, `memory ${marker} leaked across tenants`);
+}
+
+async function uploadSessionFile(url, token, sessionId, body) {
+  const form = new FormData();
+  form.append("files", new Blob([body], { type: "text/plain" }), "saas-e2e.txt");
+  const response = await fetch(`${url}/api/agent/sessions/${sessionId}/files/upload`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`attachment upload failed with HTTP ${response.status}: ${text.slice(0, 500)}`);
+  const result = JSON.parse(text);
+  const file = Array.isArray(result?.files) ? result.files[0] : null;
+  return { id: requireString(file?.id, "uploaded attachment id") };
+}
+
+async function expectDownloadedFile(url, token, sessionId, fileId, expectedBody) {
+  const response = await fetch(`${url}/api/agent/sessions/${sessionId}/files/${fileId}/download`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const body = await response.text();
+  if (!response.ok) throw new Error(`attachment download failed with HTTP ${response.status}: ${body.slice(0, 500)}`);
+  assert(body === expectedBody, `attachment content mismatch: expected ${expectedBody.length} bytes, received ${body.length}`);
 }
 
 async function expectStatus(url, path, expected, token) {
@@ -205,6 +269,10 @@ async function findFreePort() {
 function requireString(value, label) {
   if (typeof value !== "string" || !value) throw new Error(`${label} is missing`);
   return value;
+}
+
+function sqlLiteral(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
 }
 
 function assert(condition, message) {
