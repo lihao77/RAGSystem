@@ -15,7 +15,9 @@ services:
     restart: unless-stopped
 
   frontend:
-    build: ./frontend-client
+    build:
+      context: .
+      dockerfile: frontend-client/Dockerfile
     container_name: ragsystem-frontend
     ports:
       - "8080:80"

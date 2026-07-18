@@ -1,12 +1,9 @@
-# 前端 Nginx 生产镜像
-FROM node:20-alpine AS build
+# 前端 Nginx 生产镜像。构建必须从 monorepo 根执行，以解析本地 workspace 包。
+FROM node:24-alpine AS build
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci
-
 COPY . .
-RUN npm run build
+RUN npm ci && npm run build:frontend
 
 FROM nginx:1.27-alpine
 WORKDIR /usr/share/nginx/html
@@ -15,10 +12,10 @@ WORKDIR /usr/share/nginx/html
 RUN rm -rf ./*
 
 # 使用自定义 nginx 配置，将 /api 代理到 backend 服务
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend-client/nginx.conf /etc/nginx/conf.d/default.conf
 
 # 拷贝 Vite 构建产物
-COPY --from=build /app/dist/ ./
+COPY --from=build /app/frontend-client/dist/ ./
 
 EXPOSE 80
 
