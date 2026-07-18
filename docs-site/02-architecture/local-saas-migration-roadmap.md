@@ -1,11 +1,13 @@
 ---
-status: planned
+status: historical-reference
 audience: architect, developer, operator
 source: backend-ts/src/main.ts, backend-ts/src/app.ts, backend-ts/src/services/runtime, backend-ts/src/adapters
 verified_at: 2026-07-18
 ---
 
-# Local 与 SaaS 分离迁移路线
+# Local 与 SaaS 分离路线（历史参考）
+
+> 系统处于开发阶段，不提供 Local 到 SaaS 的数据迁移或兼容流程。本文保留架构演进背景；当前实现以代码、当前配置文档和各 runtime 说明为准。
 
 本文给出从当前 Local-first/Memory Hybrid 后端迁移到“共享核心 + Local 运行时 + SaaS 运行时”的完整路线。它描述的是实施基线，不把计划中的能力当成已经上线的事实。
 

@@ -1,5 +1,7 @@
 # Control Plane v2 审计与边界
 
+> 本文中的 importer、回滚和迁移门禁属于历史设计记录。当前开发策略不考虑 Local 数据迁移，SaaS 直接初始化当前 PostgreSQL schema。
+
 本文记录 PostgreSQL Control Plane core 完成后的剩余依赖、Bot/Widget 迁移边界和 secret 设计。它是实施门禁，不表示 PostgreSQL Bot/Widget 或多实例 Daemon 已经上线。
 
 本页第 1 节保留 ports 抽取前的消费者基线，便于检查迁移覆盖面。当前这些服务器消费者已改用 `BotRepository` 或 `WidgetCredentialRepository`，Local 通过 SQLite adapters 兼容；只允许 composition root、Local adapters 和 Local CLI 创建 legacy stores。
