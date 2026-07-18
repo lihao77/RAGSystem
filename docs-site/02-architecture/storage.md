@@ -1,6 +1,6 @@
 # 存储模型
 
-Object Storage 使用独立的 `ObjectStorage` port：Local 由 filesystem adapter 实现，SaaS 由 S3-compatible adapter 实现。PostgreSQL 只保存文件元数据、租户归属和 `storage_key`，不保存大文件本体。SaaS Artifact 已通过 `SaaSConversationRuntime.createArtifactService(tenantId)` 使用该边界；SaaS composition root 仍需注入真实 S3/MinIO transport。Knowledge 文件已有独立的异步 metadata/blob adapter，业务路由仍在逐步接线。
+Object Storage 使用独立的 `ObjectStorage` port：Local 由 filesystem adapter 实现，SaaS 由 S3-compatible adapter 实现。PostgreSQL 只保存文件元数据、租户归属和 `storage_key`，不保存大文件本体。SaaS compose 已提供 MinIO、bucket 初始化和 SigV4 transport；生产环境可替换为 AWS S3。Knowledge 文件和 Markdown 路由已使用 tenant-scoped 异步 adapter。
 
 本章梳理 RAGSystem 的当前存储架构。Local 模式以 SQLite、sqlite-vec 和文件系统为主；`STORAGE_MODE=postgres` 已可将 Memory 切换到 PostgreSQL，但其他数据域仍使用 Local 存储，因此属于 Hybrid 模式。项目不使用传统 ORM。
 
@@ -12,6 +12,8 @@ Object Storage 使用独立的 `ObjectStorage` port：Local 由 filesystem adapt
 | 向量 + 知识库配置 + 知识库文件元数据 | `<dataRoot>/db/knowledge.db` | `IVectorStore` + `IKnowledgeConfig` | `sqlite-vec-driver` |
 | 上传源文件 blob | `<dataRoot>/db/knowledge-uploads/` | `KnowledgeFileStore` | Local `sqlite-vec-driver` |
 | SaaS 上传源文件 blob | S3-compatible Object Storage | tenant-scoped async knowledge file port | `SaaSKnowledgeFileStorage` |
+| SaaS Knowledge 索引状态 | PostgreSQL | tenant-scoped async vector index port | `PostgresKnowledgeVectorIndexRepository` |
+| SaaS Provider/MCP 配置读取 | PostgreSQL JSONB + secret resolver | tenant-scoped application facade | `SaaSProviderMcpApplication` |
 | 文件索引 | （共享 dbPath） | `IFileIndexStore` | `file-index-service` |
 | 文件历史 | （dataRoot 下纯文件） | `IFileHistoryStore` | `file-history-service` |
 | 记忆 | Local：dataRoot 下文件；Hybrid：PostgreSQL | `MemoryRepository` | `MemoryStore` / `PostgresMemoryRepository` |
