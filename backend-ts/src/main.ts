@@ -16,10 +16,6 @@ try {
       connectionString: env.databaseUrl,
       poolMax: env.postgresPoolMax,
     });
-    saasConversationRuntime = await createSaaSConversationRuntime({
-      connectionString: env.databaseUrl,
-      poolMax: env.postgresPoolMax,
-    });
   }
   if (env.controlStorageMode === "postgres") {
     if (!env.controlDatabaseUrl || !env.controlSecretMasterKey) {
@@ -29,6 +25,14 @@ try {
       connectionString: env.controlDatabaseUrl,
       masterKey: env.controlSecretMasterKey,
       poolMax: env.postgresPoolMax,
+    });
+  }
+  if (env.storageMode === "postgres") {
+    if (!env.databaseUrl) throw new Error("STORAGE_MODE=postgres requires DATABASE_URL");
+    saasConversationRuntime = await createSaaSConversationRuntime({
+      connectionString: env.databaseUrl,
+      poolMax: env.postgresPoolMax,
+      ...(saasControlRuntime ? { secretResolver: saasControlRuntime.secretResolver } : {}),
     });
   }
   app = await buildApp({

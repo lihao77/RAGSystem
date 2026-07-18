@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import type { SecretResolver } from "../../contracts/secret-resolver.js";
 
 import {
   PgPoolMemoryExecutor,
@@ -24,6 +25,7 @@ export interface SaaSConversationRuntimeOptions {
   poolMax?: number;
   pool?: Pool;
   runMigrations?: boolean;
+  secretResolver?: SecretResolver;
 }
 
 /** Shared PostgreSQL lifecycle for the async SaaS conversation/run repositories. */
@@ -64,7 +66,7 @@ export async function createSaaSConversationRuntime(
     const knowledgeFiles = new PostgresKnowledgeFileMetadataRepository(executor);
     const pendingInteractions = new PostgresPendingInteractionRepository(executor);
     const artifacts = new PostgresArtifactMetadataRepository(executor);
-    const providerMcp = new PostgresProviderMcpRepository(executor);
+    const providerMcp = new PostgresProviderMcpRepository(executor, options.secretResolver);
     let closePromise: Promise<void> | null = null;
     return {
       conversation,
