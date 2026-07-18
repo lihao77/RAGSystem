@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { IMemoryStore, MemoryRepository, MemoryScopeSpec, SaveMemoryInput } from "../../src/contracts/memory-store/index.js";
 import { SaveMemoryInputSchema } from "../../src/contracts/memory-store/types.js";
-import { MemoryStore } from "../../src/services/stores/memory-store.js";
+import { MemoryStore } from "../../src/adapters/local/memory-store.js";
 
 /**
  * memory-store 契约测试样本（路线图④替换验证雏形）。

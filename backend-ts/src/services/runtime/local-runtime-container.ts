@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 
+import { MemoryStore } from "../../adapters/local/memory-store.js";
 import { LocalBashToolService } from "../../tools/BashTool/BashExecution.js";
 import { CodeExecutionToolService } from "../../tools/CodeExecutionTool/CodeExecution.js";
 import { LocalDocumentToolService } from "../../tools/DocumentTools/DocumentExecution.js";
@@ -22,7 +23,6 @@ import { SkillLibraryService } from "../skills/skill-library-service.js";
 import { createConversationStore } from "../stores/conversation-store/index.js";
 import { FileHistoryService } from "../stores/file-history-service.js";
 import { FileIndexService } from "../stores/file-index-service.js";
-import { MemoryStore } from "../stores/memory-store.js";
 import { createVectorStoreFromConfig } from "../vector-store/vector-store-factory.js";
 import { BackgroundTaskService } from "./background-task-service.js";
 import { createCoreRuntimeContainer } from "./core-runtime-container.js";

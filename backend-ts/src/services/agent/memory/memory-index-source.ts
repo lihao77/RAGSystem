@@ -12,7 +12,11 @@
  */
 import crypto from "node:crypto";
 
-import type { MemoryIndexReader, MemoryScopeSpec } from "../../../contracts/memory-store/index.js";
+import type {
+  MemoryIndexReader,
+  MemoryScopeRevisionReader,
+  MemoryScopeSpec,
+} from "../../../contracts/memory-store/index.js";
 import type { AgentContextContribution, AgentContextSource, ResolvedAgentContextRequest, SessionMetadataPort } from "../context/types.js";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { IMemoryCandidateStore, MemoryCandidateRecord } from "../../../contracts/conversation-store/index.js";
@@ -34,6 +38,7 @@ export interface MemoryIndexContextSourceOptions {
   memoryRepository?: MemoryIndexReader;
   /** @deprecated Use memoryRepository. */
   memoryStore?: MemoryIndexReader;
+  scopeRevisionReader?: MemoryScopeRevisionReader;
   indexMaxLines?: number;
   indexMaxChars?: number;
 }
@@ -45,6 +50,7 @@ export class MemoryIndexContextSource implements AgentContextSource {
   private readonly memoryStore: MemoryIndexReader;
   private readonly indexMaxLines: number;
   private readonly indexMaxChars: number;
+  private readonly scopeRevisionReader: MemoryScopeRevisionReader | undefined;
 
   constructor(
     private readonly sessions: SessionMetadataPort & Partial<IMemoryCandidateStore>,
@@ -57,6 +63,7 @@ export class MemoryIndexContextSource implements AgentContextSource {
       throw new Error("MemoryIndexContextSource requires a memoryRepository");
     }
     this.memoryStore = memoryRepository;
+    this.scopeRevisionReader = options.scopeRevisionReader;
     this.indexMaxLines = options.indexMaxLines ?? 200;
     this.indexMaxChars = options.indexMaxChars ?? 25600;
   }
@@ -86,12 +93,20 @@ export class MemoryIndexContextSource implements AgentContextSource {
       ? []
       : this.loadPrivateCandidates(userId, sessionMetadata, scopeCapabilities.allowed_scopes);
     const privateCandidateRevision = fingerprintCandidates(privateCandidates);
+    const revisionReader = this.scopeRevisionReader;
+    const scopeRevisions = revisionReader
+      ? scopeSpecs.map((scopeSpec) => ({
+          scopeSpec,
+          revision: String(revisionReader.getScopeRevision(scopeSpec)),
+        }))
+      : undefined;
     const fingerprint = buildMemoryPrefixFingerprint({
       memory,
       scopeCapabilities,
       scopeSpecs,
       agentName: this.agentName,
       privateCandidateRevision,
+      ...(scopeRevisions ? { scopeRevisions } : {}),
     });
     const baselineKey = memoryBaselineKey(request.threadKey, this.agentName);
     const existingSnapshot = readMemoryPrefixSnapshot(sessionMetadata, baselineKey);

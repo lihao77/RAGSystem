@@ -1,5 +1,5 @@
 import type { MemoryConfig as SystemMemoryConfig } from "../../../contracts/system-config.js";
-import { MemoryStore } from "../../stores/memory-store.js";
+import { MemoryStore } from "../../../adapters/local/memory-store.js";
 import type { MemoryIndexContextSourceOptions } from "./memory-index-source.js";
 
 /** Local compatibility builder. SaaS composition should inject its repository directly. */

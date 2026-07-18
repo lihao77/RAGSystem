@@ -30,6 +30,15 @@ export interface MemoryIndexReader {
   loadIndexHead(scopeSpec: MemoryScopeSpec, options?: MemoryIndexReadOptions): string;
 }
 
+/**
+ * 可选的 scope 版本读取能力，用于让上下文缓存感知 memory 变更。
+ *
+ * revision 只要求在同一 scope 内容变化后改变；具体实现可使用递增整数、时间戳或 opaque token。
+ */
+export interface MemoryScopeRevisionReader {
+  getScopeRevision(scopeSpec: MemoryScopeSpec): string | number;
+}
+
 /** 部署无关的 memory 持久化能力；消费者应优先依赖此接口。 */
 export interface MemoryRepository extends MemoryIndexReader {
   readEntryFile(scopeSpec: MemoryScopeSpec, fileName: string): MemoryEntryFile | null;

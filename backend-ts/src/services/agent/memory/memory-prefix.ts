@@ -38,6 +38,7 @@ export interface MemoryPrefixFingerprint {
   archive_scopes: string[];
   scope_specs: Array<{ scope_name: string; scope_spec: MemoryScopeSpec }>;
   private_candidate_revision: string;
+  scope_revisions?: Array<{ scope_name: string; scope_spec: MemoryScopeSpec; revision: string }>;
   fingerprint: string;
 }
 
@@ -101,6 +102,7 @@ export function buildMemoryPrefixFingerprint(input: {
   scopeSpecs: MemoryScopeSpec[];
   agentName: string;
   privateCandidateRevision?: string;
+  scopeRevisions?: Array<{ scopeSpec: MemoryScopeSpec; revision: string }>;
 }): MemoryPrefixFingerprint {
   const payload = {
     agent_name: input.agentName.trim() || null,
@@ -110,6 +112,15 @@ export function buildMemoryPrefixFingerprint(input: {
     archive_scopes: [...input.scopeCapabilities.archive_scopes].sort(),
     scope_specs: input.scopeSpecs.map((scopeSpec) => ({ scope_name: scopeSpec.scope, scope_spec: { ...scopeSpec } })),
     private_candidate_revision: input.privateCandidateRevision ?? "",
+    ...(input.scopeRevisions
+      ? {
+          scope_revisions: input.scopeRevisions.map(({ scopeSpec, revision }) => ({
+            scope_name: scopeSpec.scope,
+            scope_spec: { ...scopeSpec },
+            revision,
+          })),
+        }
+      : {}),
   };
   return { ...payload, fingerprint: crypto.createHash("sha256").update(pythonStableJsonStringify(payload), "utf8").digest("hex").slice(0, 16) };
 }
@@ -165,6 +176,9 @@ export function readMemoryPrefixSnapshot(
       archive_scopes: stringArray(fingerprint?.archive_scopes),
       scope_specs: readFingerprintScopeSpecs(fingerprint?.scope_specs),
       private_candidate_revision: getString(fingerprint?.private_candidate_revision) ?? "",
+      ...(Array.isArray(fingerprint?.scope_revisions)
+        ? { scope_revisions: readFingerprintScopeRevisions(fingerprint.scope_revisions) }
+        : {}),
       fingerprint: fingerprintValue,
     },
     scope_capabilities: readScopeCapabilities(snapshot.scope_capabilities),
@@ -172,6 +186,18 @@ export function readMemoryPrefixSnapshot(
     rendered_block: renderedBlock,
     rebased_reason: getString(snapshot.rebased_reason) ?? "loaded",
   };
+}
+
+function readFingerprintScopeRevisions(value: unknown): NonNullable<MemoryPrefixFingerprint["scope_revisions"]> {
+  if (!Array.isArray(value)) { return []; }
+  return value
+    .map((item) => {
+      const record = asRecord(item);
+      const revision = getString(record?.revision);
+      const [scope] = readFingerprintScopeSpecs(record ? [{ scope_name: record.scope_name, scope_spec: record.scope_spec }] : []);
+      return scope && revision !== null ? { ...scope, revision } : null;
+    })
+    .filter((item): item is NonNullable<MemoryPrefixFingerprint["scope_revisions"]>[number] => Boolean(item));
 }
 
 function readFingerprintScopeSpecs(value: unknown): MemoryPrefixFingerprint["scope_specs"] {

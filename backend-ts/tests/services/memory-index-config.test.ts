@@ -122,4 +122,67 @@ describe("memory index system config assembly", () => {
     const result = source.build({ sessionId: "s1", threadKey: "root", microcompact: false, microcompactKeepRecentTools: 5, cacheAlive: false, touch: false });
     expect(result.conversation?.[0]?.content).toContain("agent-specific-content");
   });
+
+  it("rebuilds an active provider-cache snapshot when the scope revision changes", () => {
+    let metadata: Record<string, unknown> = {};
+    let revision = 1;
+    let index = "first index";
+    const loadIndexHead = vi.fn(() => index);
+    const source = new MemoryIndexContextSource(
+      {
+        getSession: () => ({ metadata }),
+        updateSessionMetadata: (_sessionId, patch) => {
+          metadata = { ...metadata, ...patch };
+          return null;
+        },
+      },
+      { auto_inject: true, allowed_scopes: ["session"], write_scopes: [], archive_scopes: [] },
+      "agent",
+      {
+        memoryRepository: { loadIndexHead },
+        scopeRevisionReader: { getScopeRevision: () => revision },
+      },
+    );
+    const request = { sessionId: "session", threadKey: "root", microcompact: false, microcompactKeepRecentTools: 5, cacheAlive: true, touch: false };
+
+    const first = source.build(request);
+    index = "second index";
+    revision = 2;
+    const second = source.build(request);
+
+    expect(first.conversation?.[0]?.content).toContain("first index");
+    expect(second.conversation?.[0]?.content).toContain("second index");
+    expect(loadIndexHead).toHaveBeenCalledTimes(2);
+    expect((second.metadata?.snapshot as { fingerprint: { scope_revisions: unknown[] } }).fingerprint.scope_revisions).toEqual([
+      { scope_name: "session", scope_spec: { scope: "session", session_id: "session" }, revision: "2" },
+    ]);
+  });
+
+  it("preserves active provider-cache reuse when no scope revision reader is configured", () => {
+    let metadata: Record<string, unknown> = {};
+    let index = "first index";
+    const loadIndexHead = vi.fn(() => index);
+    const source = new MemoryIndexContextSource(
+      {
+        getSession: () => ({ metadata }),
+        updateSessionMetadata: (_sessionId, patch) => {
+          metadata = { ...metadata, ...patch };
+          return null;
+        },
+      },
+      { auto_inject: true, allowed_scopes: ["session"], write_scopes: [], archive_scopes: [] },
+      "agent",
+      { memoryRepository: { loadIndexHead } },
+    );
+    const request = { sessionId: "session", threadKey: "root", microcompact: false, microcompactKeepRecentTools: 5, cacheAlive: true, touch: false };
+
+    const first = source.build(request);
+    index = "second index";
+    const second = source.build(request);
+
+    expect(first.conversation?.[0]?.content).toContain("first index");
+    expect(second.conversation?.[0]?.content).toContain("first index");
+    expect(loadIndexHead).toHaveBeenCalledTimes(1);
+    expect((second.metadata?.snapshot as { fingerprint: Record<string, unknown> }).fingerprint).not.toHaveProperty("scope_revisions");
+  });
 });

@@ -1,5 +1,6 @@
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 
+import type { MemoryStore } from "../../adapters/local/memory-store.js";
 import type { IFileHistoryStore } from "../../contracts/file-history-store/index.js";
 import type { IFileIndexStore } from "../../contracts/file-index-store/index.js";
 import type { MemoryRepository } from "../../contracts/memory-store/index.js";
@@ -28,7 +29,6 @@ import type { EmbeddingModelService } from "../knowledge/embedding-model-service
 import type { KnowledgeBaseEmbedderFactory, KnowledgeBaseService } from "../knowledge/knowledge-base-service.js";
 import type { AgentSessionApplication } from "../sessions/index.js";
 import type { ConversationStore } from "../stores/conversation-store/index.js";
-import type { MemoryStore } from "../stores/memory-store.js";
 import type { SkillLibraryService } from "../skills/skill-library-service.js";
 import type { BackgroundTaskService } from "./background-task-service.js";
 import type { DelegationPendingService } from "./delegation-pending-service.js";
