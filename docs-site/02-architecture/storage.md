@@ -40,6 +40,8 @@ contracts/
 
 Control Plane 消费者统一使用异步端口。当前 `SqliteControlPlaneAdapter` 包装现有 `ControlStore`，路由不再访问 `.db`；这只是 PostgreSQL adapter 的前置边界，不代表 Control 数据已经离开 SQLite。Bot 和 Widget 仍共享 `control.db` 的外键关系，后续切库必须作为同一关系域处理或先正式拆分端口。
 
+Control Plane 的存储配置与 Memory 分离：`CONTROL_STORAGE_MODE` / `CONTROL_DATABASE_URL` 只属于控制面，`STORAGE_MODE` / `DATABASE_URL` 只属于 Memory。当前 Local 与 SaaS Hybrid 都实际使用 SQLite Control Plane。PostgreSQL schema、migration、repository adapter 可以独立验证，但 app composition 在 Bot config 和 Widget credential 完成同源迁移前拒绝启用 PostgreSQL Control Plane。
+
 ## SQLite 句柄管理
 
 `createRuntimeContainer` 创建多个独立 SQLite 句柄，**共享同一 `dbPath`**（WAL 模式允许并发连接）：

@@ -9,6 +9,16 @@ import { makeTempRoot } from "../helpers/temp-db.js";
 import { testEnv } from "../helpers/app.js";
 
 describe("Control Plane composition", () => {
+  it("rejects PostgreSQL Control composition until Bot and Widget leave SQLite", async () => {
+    await expect(buildApp({
+      env: {
+        ...testEnv,
+        controlStorageMode: "postgres",
+        controlDatabaseUrl: "postgres://control/database",
+      },
+    })).rejects.toThrow("Bot and Widget storage leave SQLite control.db");
+  });
+
   it("rejects a Control Plane that is not backed by the legacy Bot/Widget store", async () => {
     const controlPlane = createSqliteControlPlaneAdapter(makeTempRoot());
     try {

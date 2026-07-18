@@ -11,6 +11,7 @@
 | tenancy | `single` / `multi` | `TENANCY_MODE` |
 | execution | `local` / `docker` / `remote` | `EXECUTION_MODE` |
 | storage | `sqlite` / `sqlite-per-tenant` / `postgres` | `STORAGE_MODE` |
+| control storage | `sqlite` / `postgres` | `CONTROL_STORAGE_MODE` |
 | ui | `local` / `saas` | `UI_MODE` |
 
 配置先由环境变量 seed，再由系统配置覆盖，最终通过 `resolveDeploymentProfile()` 校验。`saas + local execution` 默认拒绝，除非显式允许不安全执行。
@@ -47,6 +48,8 @@ docker compose up --build
 多租户、password/OIDC、docker/remote execution、显式 CORS、强 session secret；生产不使用宿主机代码执行。
 
 当前可通过 `STORAGE_MODE=postgres` 和 `DATABASE_URL`（或 `POSTGRES_URL`）启用 PostgreSQL Memory。该模式只替换 Memory，Control、Conversation、Run、Outbox、Knowledge 和文件仍依赖 SQLite/本地目录，因此是单节点 Hybrid，不是完整 SaaS 存储。
+
+Control Plane 使用独立的 `CONTROL_STORAGE_MODE` 和 `CONTROL_DATABASE_URL`，不会隐式复用 Memory 的连接配置。当前 `docker-compose.saas.yml` 明确默认 `CONTROL_STORAGE_MODE=sqlite`。虽然 PostgreSQL Control Plane adapter 与 migration 已具备独立入口，但 Bot config、Widget credential 仍与 SQLite `control.db` 同域；后端会拒绝 `CONTROL_STORAGE_MODE=postgres`，避免产生 split-brain。这是迁移门禁，不是数据库连接故障。
 
 仓库提供独立的 Hybrid SaaS 测试 compose。它使用独立的 Local 数据卷和 PostgreSQL 数据卷，不与默认 Local compose 混用：
 
@@ -87,6 +90,8 @@ Password: ragsystem
 | `ragsystem-saas-data` | Control SQLite、tenant SQLite、配置、知识库和文件 |
 
 不要只备份其中一个 volume。
+
+Compose 会传入 `CONTROL_DATABASE_URL` 作为后续迁移配置，但默认不会使用它。不要在当前版本把 `CONTROL_STORAGE_MODE` 改成 `postgres`；启动会按设计 fail-fast。
 
 #### 导入 Local Memory 文件
 

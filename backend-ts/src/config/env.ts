@@ -17,6 +17,7 @@ const AuthModeSchema = z.enum(["local", "password", "oidc"]);
 const TenancyModeSchema = z.enum(["single", "multi"]);
 const ExecutionModeSchema = z.enum(["local", "docker", "remote"]);
 const StorageModeSchema = z.enum(["sqlite", "sqlite-per-tenant", "postgres"]);
+const ControlStorageModeSchema = z.enum(["sqlite", "postgres"]);
 const UiModeSchema = z.enum(["local", "saas"]);
 
 const EnvSchema = z.object({
@@ -34,11 +35,13 @@ const EnvSchema = z.object({
   TENANCY_MODE: TenancyModeSchema.optional(),
   EXECUTION_MODE: ExecutionModeSchema.optional(),
   STORAGE_MODE: StorageModeSchema.optional(),
+  CONTROL_STORAGE_MODE: ControlStorageModeSchema.optional(),
   UI_MODE: UiModeSchema.optional(),
   ALLOW_UNSAFE_LOCAL_EXECUTION: z.string().optional(),
   DATABASE_URL: z.string().optional(),
   POSTGRES_URL: z.string().optional(),
   POSTGRES_POOL_MAX: z.string().optional(),
+  CONTROL_DATABASE_URL: z.string().optional(),
 });
 
 export interface AppEnv {
@@ -54,9 +57,11 @@ export interface AppEnv {
   tenancyMode?: TenancyMode | undefined;
   executionMode?: ExecutionMode | undefined;
   storageMode?: StorageMode | undefined;
+  controlStorageMode?: "sqlite" | "postgres" | undefined;
   uiMode?: UiMode | undefined;
   allowUnsafeLocalExecution: boolean;
   databaseUrl?: string | undefined;
+  controlDatabaseUrl?: string | undefined;
   postgresPoolMax: number;
   /** widget JWT 签名密钥；未设则 widget 鉴权不启用。 */
   widgetJwtSecret?: string | undefined;
@@ -103,9 +108,11 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     tenancyMode: env.TENANCY_MODE,
     executionMode: env.EXECUTION_MODE,
     storageMode: env.STORAGE_MODE,
+    controlStorageMode: env.CONTROL_STORAGE_MODE ?? "sqlite",
     uiMode: env.UI_MODE,
     allowUnsafeLocalExecution: parseBooleanFlag(env.ALLOW_UNSAFE_LOCAL_EXECUTION),
     databaseUrl: env.DATABASE_URL?.trim() || env.POSTGRES_URL?.trim() || undefined,
+    controlDatabaseUrl: env.CONTROL_DATABASE_URL?.trim() || undefined,
     postgresPoolMax: parsePositiveInteger(env.POSTGRES_POOL_MAX, 10, "POSTGRES_POOL_MAX"),
     widgetJwtSecret: env.WIDGET_JWT_SECRET?.trim() || undefined,
     sessionJwtSecret: env.SESSION_JWT_SECRET?.trim() || undefined,
@@ -113,6 +120,9 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
   };
   if (appEnv.storageMode === "postgres" && !appEnv.databaseUrl) {
     throw new Error("STORAGE_MODE=postgres requires DATABASE_URL (or POSTGRES_URL)");
+  }
+  if (appEnv.controlStorageMode === "postgres" && !appEnv.controlDatabaseUrl) {
+    throw new Error("CONTROL_STORAGE_MODE=postgres requires CONTROL_DATABASE_URL");
   }
   resolveDeploymentProfile(appEnv);
   return appEnv;

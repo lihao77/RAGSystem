@@ -34,8 +34,12 @@ services:
       TENANCY_MODE: multi
       EXECUTION_MODE: remote
       STORAGE_MODE: postgres
+      # PostgreSQL Control Plane is configuration-ready but remains disabled until
+      # Bot and Widget state no longer depend on SQLite control.db.
+      CONTROL_STORAGE_MODE: ${CONTROL_STORAGE_MODE:-sqlite}
       UI_MODE: saas
       DATABASE_URL: ${DATABASE_URL:-postgres://ragsystem:ragsystem@postgres:5432/ragsystem}
+      CONTROL_DATABASE_URL: ${CONTROL_DATABASE_URL:-postgres://ragsystem:ragsystem@postgres:5432/ragsystem}
       POSTGRES_POOL_MAX: ${POSTGRES_POOL_MAX:-10}
       SESSION_JWT_SECRET: ${SESSION_JWT_SECRET:?SESSION_JWT_SECRET must be set}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}

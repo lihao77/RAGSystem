@@ -3,7 +3,16 @@ import { describe, expect, it } from "vitest";
 import { createSqliteControlPlaneAdapter } from "../../src/adapters/local/sqlite-control-plane-adapter.js";
 import { createTenantId, createUserId } from "../../src/identity/types.js";
 import { CONTROL_LATEST_SCHEMA_VERSION } from "../../src/services/stores/control-store/index.js";
+import { runControlPlaneContract } from "../contracts/control-plane-contract.js";
 import { makeTempRoot } from "../helpers/temp-db.js";
+
+runControlPlaneContract("SQLite", async () => {
+  const systemRoot = makeTempRoot();
+  return {
+    controlPlane: createSqliteControlPlaneAdapter(systemRoot),
+    reopen: async () => createSqliteControlPlaneAdapter(systemRoot),
+  };
+});
 
 describe("SqliteControlPlaneAdapter", () => {
   it("implements the tenant, user, membership, settings and session contracts", async () => {

@@ -15,6 +15,8 @@ describe("deployment profile", () => {
     });
     expect(env.tenantsRoot).toBe(path.join(env.dataRoot, "tenants"));
     expect(env.systemRoot).toBe(path.join(env.dataRoot, "system"));
+    expect(env.controlStorageMode).toBe("sqlite");
+    expect(env.controlDatabaseUrl).toBeUndefined();
   });
 
   it("拒绝 SaaS 使用本地执行", () => {
@@ -61,5 +63,25 @@ describe("deployment profile", () => {
       RAG_DATA_ROOT: path.join(process.cwd(), ".test-data", "env-postgres-required"),
       STORAGE_MODE: "postgres",
     })).toThrow("STORAGE_MODE=postgres requires DATABASE_URL");
+  });
+
+  it("keeps PostgreSQL Control Plane configuration independent from Memory", () => {
+    const env = loadEnv({
+      RAG_DATA_ROOT: path.join(process.cwd(), ".test-data", "env-control-postgres"),
+      DATABASE_URL: "postgres://memory/database",
+      CONTROL_STORAGE_MODE: "postgres",
+      CONTROL_DATABASE_URL: "postgres://control/database",
+    });
+    expect(env.databaseUrl).toBe("postgres://memory/database");
+    expect(env.controlStorageMode).toBe("postgres");
+    expect(env.controlDatabaseUrl).toBe("postgres://control/database");
+  });
+
+  it("requires the independent Control Plane URL in PostgreSQL mode", () => {
+    expect(() => loadEnv({
+      RAG_DATA_ROOT: path.join(process.cwd(), ".test-data", "env-control-postgres-required"),
+      DATABASE_URL: "postgres://memory/database",
+      CONTROL_STORAGE_MODE: "postgres",
+    })).toThrow("CONTROL_STORAGE_MODE=postgres requires CONTROL_DATABASE_URL");
   });
 });

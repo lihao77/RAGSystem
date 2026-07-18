@@ -30,12 +30,20 @@ process.env（最高）
 | `TENANCY_MODE` | `single` | single/multi | 单租户/多租户 |
 | `EXECUTION_MODE` | `local` | local/docker/remote | 工具/代码执行位置 |
 | `STORAGE_MODE` | `sqlite` | sqlite/sqlite-per-tenant/postgres | 存储 profile |
+| `CONTROL_STORAGE_MODE` | `sqlite` | sqlite/postgres | Control Plane 存储选择；当前 app composition 仅开放 sqlite |
+| `CONTROL_DATABASE_URL` | 无 | PostgreSQL connection URL | `CONTROL_STORAGE_MODE=postgres` 的独立连接串，不复用 Memory 配置 |
+| `DATABASE_URL` / `POSTGRES_URL` | 无 | PostgreSQL connection URL | PostgreSQL Memory 连接串 |
+| `POSTGRES_POOL_MAX` | `10` | 正整数 | PostgreSQL Memory pool 上限 |
 | `UI_MODE` | `local` | local/saas | 前端运行模式 |
 | `ALLOW_UNSAFE_LOCAL_EXECUTION` | `false` | true/false | 允许 SaaS profile 使用宿主机执行 |
 
 ### Profile 约束
 
 `DEPLOYMENT_MODE=saas` 且 `EXECUTION_MODE=local` 时，如果没有显式设置 `ALLOW_UNSAFE_LOCAL_EXECUTION=true`，启动会失败。这是安全门禁，不是建议项。
+
+`CONTROL_STORAGE_MODE` 与 `STORAGE_MODE` 是两个独立选择轴。前者只控制 tenant/user/membership/settings/auth session/audit 等 Control Plane 数据，后者当前控制 Memory。Local 未设置 `CONTROL_STORAGE_MODE` 时始终使用 SQLite。
+
+PostgreSQL Control Plane 的 schema、migration 和 adapter 已有独立边界，但 Bot config 与 Widget credential 仍依赖 SQLite `control.db`。为避免同一控制域 split-brain，当前 app composition 对 `CONTROL_STORAGE_MODE=postgres` fail-fast。只有这些关联数据完成同源迁移后才会开放该模式；不要通过同时挂载 SQLite 和 PostgreSQL 绕过门禁。
 
 ## 3. 常用配置组合
 
@@ -49,6 +57,7 @@ AUTH_MODE=local
 TENANCY_MODE=single
 EXECUTION_MODE=local
 STORAGE_MODE=sqlite
+CONTROL_STORAGE_MODE=sqlite
 ```
 
 ### SaaS 最小基线
@@ -59,6 +68,7 @@ AUTH_MODE=password
 TENANCY_MODE=multi
 EXECUTION_MODE=docker
 STORAGE_MODE=sqlite-per-tenant
+CONTROL_STORAGE_MODE=sqlite
 SESSION_JWT_SECRET=replace-with-random-secret
 WIDGET_JWT_SECRET=replace-with-another-secret
 CORS_ORIGINS=https://console.example.com

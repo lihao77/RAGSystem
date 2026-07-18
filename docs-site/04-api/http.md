@@ -11,7 +11,7 @@
 | GET | `/api/bootstrap` | 公开 | 安装/初始化状态 |
 | POST | `/api/install` | 一次性 | 初始化本地实例 |
 
-`/readyz` 会通过 Control Plane health port 检查数据库连接和实际 schema version。成功响应的 `checks` 包含 `control_database`、`migrations` 和 `control_schema_version`；连接失败或 schema 版本落后时返回 `503`。
+`/readyz` 会通过 Control Plane health port 检查数据库连接和实际 schema version。成功响应的 `checks` 包含 `control_database`、`migrations` 和 `control_schema_version`；连接失败或 schema 版本落后时返回 `503`。Control Plane driver 由 app composition 决定，不能从 Memory 的 `STORAGE_MODE` 推断。
 
 ## 认证 `/api/auth`
 

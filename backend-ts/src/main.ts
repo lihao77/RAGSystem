@@ -32,6 +32,7 @@ try {
 app.log.info({
   address,
   storageMode: env.storageMode ?? "sqlite",
+  controlStorageMode: env.controlStorageMode ?? "sqlite",
   memoryStorage: saasMemoryRuntime ? "postgres" : "local",
   runtimeProfile: saasMemoryRuntime ? "hybrid" : "local",
 }, "backend-ts listening");

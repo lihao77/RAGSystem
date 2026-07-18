@@ -207,15 +207,23 @@ backend-ts/src/
 - suspended tenant 的普通 Runtime acquire 被拒绝，平台检查使用独立的 privileged acquire；
 - 非同源 ControlPlane/legacy Bot-Widget store 组合启动即失败，并明确资源关闭所有权。
 
-当前仍未切换的数据源：Control Plane、Bot 和 Widget 凭证继续位于同一个 `control.db`。Bot 用户、membership、bot config 和 widget app 之间存在外键关系，因此不能只把 human user/tenant 单独切到 PostgreSQL。
+已完成的第二批（PostgreSQL core）：
+
+- 增加独立的 PostgreSQL Control migration 表、advisory migration lock 和 schema history 校验；
+- 实现 `PostgresControlPlaneAdapter`，覆盖 tenant、human user、membership、settings、auth session、audit、health、provisioning 和原子 commands；
+- install、最后 owner 和最后 active platform admin 约束支持跨实例并发；
+- SQLite/PostgreSQL 运行同一套参数化 contract tests，并通过 PostgreSQL 重开持久化与双实例可见性 E2E；
+- `CONTROL_STORAGE_MODE` / `CONTROL_DATABASE_URL` 与 Memory 配置解耦；当前 composition 继续 fail-fast，不允许 core PG 与 legacy Bot/Widget SQLite 混用。
+
+当前生产数据源仍未切换：Control Plane、Bot 和 Widget 凭证继续位于同一个 `control.db`。PostgreSQL core adapter 已可独立验证，但 Bot 用户、membership、bot config 和 widget app 之间仍存在 SQLite 外键与同步调用关系，因此不能只把 human user/tenant 切到 PostgreSQL。
 
 工作项：
 
 1. ~~从 ControlStore 抽出 tenant、user、membership、role、settings、session revocation ports。~~
-2. ~~保留 SQLite Control adapter。~~ 增加 PostgreSQL Control adapter 和事务 migration。
+2. ~~保留 SQLite Control adapter；增加 PostgreSQL Control core adapter 和事务 migration。~~
 3. 将 tenant provisioning 设计为幂等状态机：creating -> active -> suspended -> deleting。
 4. password/OIDC identity 统一映射到 tenant membership；所有控制面操作写审计记录。
-5. 迁移 widget credential、session revocation 和系统设置，密钥只存引用或密文。
+5. ~~在 PostgreSQL core 中实现 session revocation 和系统设置。~~ 抽取 Bot/Widget ports，迁移 bot config 与 widget credential，第三方密钥只存引用或密文。
 6. `/readyz` 检查 control DB schema、连接和 migration 状态。
 
 验收：两个后端实例能看到一致的租户、用户和撤销状态；不存在通过扫描本地 tenant 目录发现租户的 SaaS 路径。
@@ -416,8 +424,9 @@ inventory -> preflight -> snapshot -> bulk copy -> checksum
 
 1. Memory 并发/故障 E2E 与 SQLite candidate importer。
 2. ~~Control/Identity ports 和 SQLite adapter 回归，不切换生产路径。~~
-3. PostgreSQL Control adapter、tenant provisioning、Bot/Widget 关系域和审计。
-4. Conversation contracts 拆分与 Local adapter contract tests。
-5. PostgreSQL session/message/run/outbox 首个纵向切片。
+3. ~~PostgreSQL Control core adapter、tenant provisioning、并发约束和审计。~~
+4. 抽取 Bot/Widget 异步 ports，设计第三方密钥 envelope，并将完整 Control 关系域迁入 PostgreSQL。
+5. Conversation contracts 拆分与 Local adapter contract tests。
+6. PostgreSQL session/message/run/outbox 首个纵向切片。
 
 每批只迁移一个明确边界并独立提交；不在同一批同时移动目录、改协议和切换数据源。

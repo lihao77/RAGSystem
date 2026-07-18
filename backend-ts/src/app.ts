@@ -50,6 +50,11 @@ export interface BuildAppOptions {
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
+  if (options.env.controlStorageMode === "postgres") {
+    throw new Error(
+      "CONTROL_STORAGE_MODE=postgres is not enabled in app composition until Bot and Widget storage leave SQLite control.db",
+    );
+  }
   if (options.saasMemoryRuntime && (options.registry || options.resolveMemoryApplication)) {
     throw new Error(
       "saasMemoryRuntime must own Memory composition; custom registry/resolveMemoryApplication would split Memory backends",
