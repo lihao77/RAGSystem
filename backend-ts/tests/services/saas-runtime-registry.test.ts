@@ -21,6 +21,19 @@ describe("SaaSRuntimeRegistry", () => {
     expect(registry.snapshot("tenant-a")?.references).toBe(0);
   });
 
+  it("deduplicates concurrent tenant initialization", async () => {
+    let resolve!: (value: SaaSTenantRuntimeHandle) => void;
+    const pending = new Promise<SaaSTenantRuntimeHandle>((r) => { resolve = r; });
+    const create = vi.fn(() => pending);
+    const registry = new SaaSRuntimeRegistry({ create });
+    const first = registry.acquire("tenant-a");
+    const second = registry.acquire("tenant-a");
+    resolve(handle("tenant-a"));
+    const leases = await Promise.all([first, second]);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(leases[0].runtime).toBe(leases[1].runtime);
+  });
+
   it("closes tenant resources and rejects new leases after closeAll", async () => {
     const close = vi.fn();
     const registry = new SaaSRuntimeRegistry({ create: async (tenantId) => handle(tenantId, close) });
