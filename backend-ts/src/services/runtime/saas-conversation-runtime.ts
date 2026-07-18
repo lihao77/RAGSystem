@@ -22,6 +22,8 @@ import {
   runPostgresPgVectorMigrations,
   PostgresPgVectorRepository,
   runPostgresRunMigrations,
+  runPostgresBackgroundTaskMigrations,
+  PostgresBackgroundTaskRepository,
 } from "../../adapters/saas/postgres/index.js";
 import type { ObjectStorage } from "../../contracts/object-storage.js";
 import { SaaSArtifactService } from "../artifacts/saas-artifact-service.js";
@@ -56,6 +58,7 @@ export interface SaaSConversationRuntimeHandle {
   vectorStore: PostgresPgVectorRepository;
   providerMcp: PostgresProviderMcpRepository;
   providerMcpApplication: SaaSProviderMcpApplication;
+  backgroundTasks: PostgresBackgroundTaskRepository;
   close(): Promise<void>;
 }
 
@@ -78,6 +81,7 @@ export async function createSaaSConversationRuntime(
       await runPostgresProviderMcpMigrations(executor);
       await runPostgresVectorIndexMigrations(executor);
       await runPostgresPgVectorMigrations(executor);
+      await runPostgresBackgroundTaskMigrations(executor);
     }
     const conversation = new PostgresConversationRepository(executor);
     const runs = new PostgresRunRepository(executor);
@@ -89,6 +93,7 @@ export async function createSaaSConversationRuntime(
     const providerMcp = new PostgresProviderMcpRepository(executor, options.secretResolver);
     const vectorIndex = new PostgresKnowledgeVectorIndexRepository(executor);
     const vectorStore = new PostgresPgVectorRepository(executor);
+    const backgroundTasks = new PostgresBackgroundTaskRepository(executor);
     let closePromise: Promise<void> | null = null;
     const providerMcpApplication = new SaaSProviderMcpApplication(providerMcp);
     return {
@@ -111,6 +116,7 @@ export async function createSaaSConversationRuntime(
       providerMcpApplication,
       vectorIndex,
       vectorStore,
+      backgroundTasks,
       close: () => {
         providerMcpApplication.close();
         closePromise ??= ownsPool ? pool.end() : Promise.resolve();

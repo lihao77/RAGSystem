@@ -46,6 +46,7 @@ import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../age
 import type { AsyncConversationRepository } from "../../adapters/saas/postgres/conversation-repository.js";
 import type { AsyncSuspendedSessionControl } from "./saas-session-control-application.js";
 import type { AsyncProviderContinuationRepository } from "../../adapters/saas/postgres/provider-continuation-repository.js";
+import type { AsyncBackgroundTaskRepository } from "../../contracts/background-task-repository.js";
 
 export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = MemoryStore> {
   readonly conversationStore: ConversationStore;
@@ -106,6 +107,7 @@ export interface LocalRuntimeContainerOptions {
   asyncProviderContinuations?: Pick<AsyncProviderContinuationRepository, "getProviderContinuation">;
   asyncClientEventsFactory?: (realtimeEvents: RealtimeEventHub) => AsyncDurableClientEventPublisher;
   asyncSuspendedSessionControlFactory?: (tenantId: TenantId) => AsyncSuspendedSessionControl;
+  asyncBackgroundTasks?: AsyncBackgroundTaskRepository;
 }
 
 export interface MemoryRuntimeBindingsFactoryInput<TMemoryRepository extends MemoryRepository = MemoryRepository> {

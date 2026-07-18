@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import type { AsyncBackgroundTaskRepository, DurableBackgroundTaskRecord } from "../../contracts/background-task-repository.js";
 
 import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 import { SessionNotificationQueue } from "./session-notification-queue.js";
@@ -58,18 +59,52 @@ export interface RunCallableInput {
 export class BackgroundTaskService {
   private readonly tasks = new Map<string, BackgroundTask>();
   private readonly processes = new Map<string, ChildProcess>();
+  private readonly ownedTaskIds = new Set<string>();
   private readonly retentionSeconds: number;
   private readonly notificationQueue: SessionNotificationQueue;
   private readonly triggeringSessions = new Set<string>();
   private readonly pendingTriggers = new Set<ReturnType<typeof setTimeout>>();
+  private readonly repository: AsyncBackgroundTaskRepository | null;
+  private readonly tenantId: string | null;
+  private readonly instanceId = randomUUID();
+  private readonly leaseSeconds: number;
+  private readonly heartbeatTimer: ReturnType<typeof setInterval> | null;
+  private persistence = Promise.resolve();
   private onTaskCompleted: ((sessionId: string) => void) | null = null;
 
   constructor(options: {
     retentionSeconds?: number | undefined;
     notificationQueue?: SessionNotificationQueue | undefined;
+    repository?: AsyncBackgroundTaskRepository | null | undefined;
+    tenantId?: string | null | undefined;
+    leaseSeconds?: number | undefined;
   } = {}) {
     this.retentionSeconds = positiveInt(options.retentionSeconds, 2 * 60 * 60);
     this.notificationQueue = options.notificationQueue ?? new SessionNotificationQueue();
+    this.repository = options.repository ?? null;
+    this.tenantId = normalizeString(options.tenantId);
+    this.leaseSeconds = positiveInt(options.leaseSeconds, 30);
+    if (this.repository && !this.tenantId) {
+      throw new Error("durable BackgroundTaskService requires tenantId");
+    }
+    this.heartbeatTimer = this.repository
+      ? setInterval(() => this.persistRunningTasks(), Math.max(1_000, Math.floor(this.leaseSeconds * 500)))
+      : null;
+    this.heartbeatTimer?.unref();
+  }
+
+  async initialize(): Promise<void> {
+    if (!this.repository || !this.tenantId) return;
+    const now = nowSeconds();
+    await this.repository.failExpiredRunning(this.tenantId, now, "background task owner lease expired after runtime restart");
+    await this.repository.deleteExpired(this.tenantId, now);
+    for (const record of await this.repository.listActive(this.tenantId, now)) {
+      this.tasks.set(record.task_id, fromDurableRecord(record));
+    }
+  }
+
+  async waitForPersistence(): Promise<void> {
+    await this.persistence;
   }
 
   /** 注入"后台完成 → 自动触发 system run"回调（runtime-container lazy 绑定 triggerBgNotificationRun）。 */
@@ -107,6 +142,7 @@ export class BackgroundTaskService {
     }
     this.pendingTriggers.clear();
     this.triggeringSessions.clear();
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
   }
 
   spawnBash(input: SpawnBashInput): BackgroundTask {
@@ -131,6 +167,8 @@ export class BackgroundTaskService {
       cancel_supported: true,
     };
     this.tasks.set(taskId, task);
+    this.ownedTaskIds.add(taskId);
+    this.persistTask(task);
 
     const output = fs.createWriteStream(outputPath, { encoding: "utf8" });
     const env = {
@@ -174,6 +212,7 @@ export class BackgroundTaskService {
           current.error = error.message;
           current.completed_at = nowSeconds();
           current.result_type = "bash_output";
+          this.persistTask(current);
         }
       });
       proc.on("close", (code) => {
@@ -187,6 +226,7 @@ export class BackgroundTaskService {
           current.status = current.return_code === 0 ? "completed" : "failed";
           current.result_type = "bash_output";
           current.completed_at = nowSeconds();
+          this.persistTask(current);
         }
         output.end(() => {
           const snapshot = this.getTask(taskId);
@@ -201,6 +241,7 @@ export class BackgroundTaskService {
       task.error = error instanceof Error ? error.message : String(error);
       task.result_type = "bash_output";
       task.completed_at = nowSeconds();
+      this.persistTask(task);
     }
 
     return { ...task };
@@ -228,6 +269,8 @@ export class BackgroundTaskService {
       cancel_supported: false,
     };
     this.tasks.set(taskId, task);
+    this.ownedTaskIds.add(taskId);
+    this.persistTask(task);
 
     void this.executeCallableTask(taskId, outputPath, input.run);
     return { ...task };
@@ -278,7 +321,7 @@ export class BackgroundTaskService {
   cancel(taskId: string): boolean {
     const task = this.tasks.get(taskId);
     const proc = this.processes.get(taskId);
-    if (!task || isDone(task.status) || !task.cancel_supported) {
+    if (!task || !this.ownedTaskIds.has(taskId) || isDone(task.status) || !task.cancel_supported) {
       return false;
     }
     if (proc) {
@@ -287,6 +330,7 @@ export class BackgroundTaskService {
     }
     task.status = "cancelled";
     task.completed_at = nowSeconds();
+    this.persistTask(task);
     return true;
   }
 
@@ -340,6 +384,7 @@ export class BackgroundTaskService {
       task.error = message;
       task.completed_at = nowSeconds();
     }
+    this.persistTask(task);
     const snapshot = this.getTask(taskId);
     if (snapshot) {
       this.publishCompleted(snapshot);
@@ -366,6 +411,35 @@ export class BackgroundTaskService {
       this.scheduleAutoTrigger(task.session_id);
     }
   }
+
+  private persistRunningTasks(): void {
+    for (const task of this.tasks.values()) {
+      if (task.status === "running" && this.ownedTaskIds.has(task.task_id)) this.persistTask(task);
+    }
+  }
+
+  private persistTask(task: BackgroundTask): void {
+    if (!this.repository || !this.tenantId) return;
+    const snapshot: DurableBackgroundTaskRecord = {
+      tenant_id: this.tenantId,
+      ...task,
+      owner_instance_id: task.status === "running" ? this.instanceId : null,
+      lease_expires_at: task.status === "running" ? nowSeconds() + this.leaseSeconds : null,
+    };
+    this.persistence = this.persistence.catch(() => undefined).then(() => this.repository!.upsert(snapshot));
+    void this.persistence.catch(() => undefined);
+  }
+}
+
+function fromDurableRecord(record: DurableBackgroundTaskRecord): BackgroundTask {
+  return {
+    task_id: record.task_id, description: record.description, output_path: record.output_path,
+    started_at: record.started_at, status: record.status, return_code: record.return_code,
+    error: record.error, expires_at: record.expires_at, run_id: record.run_id,
+    owner_task_id: record.owner_task_id, session_id: record.session_id,
+    completed_at: record.completed_at, result_type: record.result_type, kind: record.kind,
+    cancel_supported: record.cancel_supported,
+  };
 }
 
 function isDone(status: BackgroundTaskStatus): boolean {
@@ -383,8 +457,6 @@ function positiveInt(value: unknown, fallback: number): number {
 function positiveIntOrNull(value: unknown): number | null {
   return Number.isInteger(value) && Number(value) >= 1 ? Number(value) : null;
 }
-
-
 
 
 

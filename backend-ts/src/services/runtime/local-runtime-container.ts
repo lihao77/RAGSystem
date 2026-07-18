@@ -103,7 +103,10 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
   };
   const documentTools = new LocalDocumentToolService({ dataRoot: options.dataRoot, fileHistory });
   const notificationQueue = new SessionNotificationQueue();
-  const backgroundTasks = new BackgroundTaskService({ notificationQueue });
+  const backgroundTasks = new BackgroundTaskService({
+    notificationQueue,
+    ...(options.asyncBackgroundTasks ? { repository: options.asyncBackgroundTasks, tenantId: options.tenantId } : {}),
+  });
   const toolsConfig = systemConfig.getToolsConfig();
   const codeExecutionTools = new CodeExecutionToolService({
     dataRoot: options.dataRoot,

@@ -259,6 +259,9 @@ export class LocalTenantRuntimeRegistry implements TenantRuntimeRegistry {
           dataRoot: paths.dataRoot,
           ...(this.logger ? { logger: this.logger } : {}),
         });
+        return container.backgroundTasks.initialize().then(() => container);
+      })
+      .then((container) => {
         container.backgroundTasks.setOnTaskCompleted((sessionId) => {
           this.forTenant(tenantId).agentExecution.triggerBgNotificationRun(sessionId);
         });
