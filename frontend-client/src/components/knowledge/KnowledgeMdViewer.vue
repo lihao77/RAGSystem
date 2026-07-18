@@ -1,7 +1,10 @@
 <template>
   <Dialog :open="open" @update:open="requestClose">
-    <DialogContent class="flex h-[92vh] max-w-[1200px] flex-col overflow-hidden" :aria-describedby="undefined">
-      <DialogHeader><DialogTitle>{{ fileName || 'Markdown 文件' }}<span v-if="dirty" class="ml-2 text-sm text-amber-600">未保存</span></DialogTitle></DialogHeader>
+    <DialogContent class="flex h-[92vh] max-w-[1200px] flex-col overflow-hidden">
+      <DialogHeader>
+        <DialogTitle>{{ fileName || 'Markdown 文件' }}<span v-if="dirty" class="ml-2 text-sm text-amber-600">未保存</span></DialogTitle>
+        <DialogDescription class="sr-only">预览、编辑并检查 Markdown 文件切片</DialogDescription>
+      </DialogHeader>
       <div class="flex items-center justify-between gap-3">
         <div class="inline-flex items-center gap-1 rounded-lg border border-border bg-muted p-1">
           <Button
@@ -29,7 +32,7 @@
   </Dialog>
 </template>
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'; import MarkdownContent from '../chat/MarkdownContent.vue'; import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog'; import { getFileMd, updateFileMd } from '../../api/knowledgeBase.js'; import MarkdownEditor from './MarkdownEditor.vue'; import ChunkWorkbench from './ChunkWorkbench.vue'; import { Button } from '../ui/button'; import IconSave from '../icons/IconSave.vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue'; import MarkdownContent from '../chat/MarkdownContent.vue'; import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'; import { getFileMd, updateFileMd } from '../../api/knowledgeBase.js'; import MarkdownEditor from './MarkdownEditor.vue'; import ChunkWorkbench from './ChunkWorkbench.vue'; import { Button } from '../ui/button'; import IconSave from '../icons/IconSave.vue';
 const props=defineProps({open:Boolean,fileId:{type:String,default:''},fileName:{type:String,default:''},initialView:{type:String,default:'preview'},initialCharStart:{type:Number,default:undefined},initialHeading:{type:String,default:''}}); const emit=defineEmits(['update:open','notify','citation-click']); const views=[{value:'preview',label:'预览'},{value:'edit',label:'编辑'},{value:'chunks',label:'切片'}]; const loading=ref(false);const saving=ref(false);const markdown=ref('');const draft=ref('');const error=ref('');const viewMode=ref('preview');const dirty=computed(()=>draft.value!==markdown.value);
 const handleNotify=(payload)=>emit('notify',payload); const confirmLeave=()=>!dirty.value||window.confirm('Markdown 尚未保存，确定离开吗？'); const requestClose=(value)=>{if(!value&&!confirmLeave())return;emit('update:open',value);}; const beforeUnload=(event)=>{if(!dirty.value)return;event.preventDefault();event.returnValue='';};
 const load=async()=>{if(!props.open||!props.fileId)return;loading.value=true;error.value='';viewMode.value=props.initialView;try{const result=await getFileMd(props.fileId);markdown.value=result.markdown||'';draft.value=markdown.value;}catch(e){error.value=e.message||'Markdown 加载失败';}finally{loading.value=false;}};

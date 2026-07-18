@@ -212,6 +212,7 @@ import { useAuthStore } from '../stores/auth.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import { inviteMember, listMembers, removeMember, updateMemberRole } from '../api/admin.js';
 import { listTenantBots } from '../api/bots.js';
+import { formatDateTime } from '../utils/datetime.js';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -364,4 +365,3 @@ function feishuLabel(bot) {
 onMounted(refreshDirectory);
 watch(() => authStore.tenantId, refreshDirectory);
 </script>
-import { formatDateTime } from '../utils/datetime.js';

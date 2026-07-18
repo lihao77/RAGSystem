@@ -119,6 +119,7 @@ import { useRouter } from 'vue-router';
 import { listPlatformBots, listPlatformUsers, setPlatformUserRole, setPlatformUserStatus } from '../api/platform.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import { useAuthStore } from '../stores/auth.js';
+import { formatDateTime } from '../utils/datetime.js';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -225,4 +226,3 @@ function feishuLabel(bot) {
 
 onMounted(loadDirectory);
 </script>
-import { formatDateTime } from '../utils/datetime.js';
