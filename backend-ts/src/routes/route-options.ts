@@ -16,6 +16,7 @@ import type { SaaSAgentReadApplication } from "../services/runtime/saas-agent-re
 import type { SaaSInteractionRecoveryApplication } from "../services/runtime/saas-interaction-recovery-application.js";
 import type { SaaSAnalyticsApplication } from "../services/runtime/saas-analytics-application.js";
 import type { SaaSMonitoringApplication } from "../services/runtime/saas-monitoring-application.js";
+import type { AsyncSessionFileStorage } from "../contracts/session-file-storage.js";
 
 export interface RouteOptions {
   registry: TenantRuntimeRegistry;
@@ -37,6 +38,7 @@ export interface RouteOptions {
   resolveSaaSInteractionRecovery?: (request: FastifyRequest) => SaaSInteractionRecoveryApplication | undefined | Promise<SaaSInteractionRecoveryApplication | undefined>;
   resolveSaaSAnalytics?: (request: FastifyRequest) => SaaSAnalyticsApplication | undefined | Promise<SaaSAnalyticsApplication | undefined>;
   resolveSaaSMonitoringApplication?: (request: FastifyRequest) => SaaSMonitoringApplication | undefined | Promise<SaaSMonitoringApplication | undefined>;
+  resolveSessionFileStorage?: (request: FastifyRequest) => AsyncSessionFileStorage | undefined | Promise<AsyncSessionFileStorage | undefined>;
   widgetCredentialStore?: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
 }

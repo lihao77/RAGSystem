@@ -117,6 +117,17 @@ export async function sendFileDownload(input: {
   return input.reply.send(fs.createReadStream(storedPath));
 }
 
+export function sendBufferedFileDownload(input: {
+  body: Uint8Array;
+  filename: string;
+  mime?: string | null;
+  reply: FastifyReply;
+}): FastifyReply {
+  input.reply.header("content-type", resolveContentType(input.mime));
+  input.reply.header("content-disposition", buildContentDisposition(input.filename));
+  return input.reply.send(Buffer.from(input.body));
+}
+
 /**
  * content-type：仅接受无参数的 type/subtype（RFC 7231 token 形式）。mime 来自上传 multipart（客户端可控），
  * 含 CRLF/非 ASCII/畸形 token 会触发 node ERR_INVALID_CHAR → 500，非法一律回退 octet-stream。

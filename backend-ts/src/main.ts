@@ -54,6 +54,7 @@ try {
     ...(saasConversationRuntime ? { saasConversationRuntime } : {}),
     ...(saasConversationRuntime && saasObjectStorage ? {
       resolveKnowledgeFileStore: (request) => saasConversationRuntime!.createKnowledgeFileStorage(request.identity.tenantId),
+      resolveSessionFileStorage: (request) => saasConversationRuntime!.createSessionFileStorage(request.identity.tenantId),
       resolveKnowledgeMarkdownPipeline: (request) => new TenantKnowledgeMarkdownPipeline(
         saasConversationRuntime!.createKnowledgeFileStorage(request.identity.tenantId),
       ),
