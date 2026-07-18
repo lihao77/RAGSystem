@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { RecentMessagesContextSource } from "../../src/services/agent/context/recent-messages-source.js";
 import { ProjectionRegistry } from "../../src/services/agent/context/extensions/index.js";
@@ -63,6 +63,29 @@ describe("provider continuation persistence", () => {
     store.addMessage({ sessionId: "s1", role: "user", content: "new task", threadKey: "root" });
     const newTurn = await source.build(request());
     expect(newTurn.conversation?.some((message) => message.provider_continuation !== undefined)).toBe(false);
+    store.close();
+  });
+
+  it("awaits an asynchronous private continuation lookup", async () => {
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    store.addMessage({ sessionId: "s1", role: "user", content: "search", threadKey: "root" });
+    const assistant = store.addMessage({
+      sessionId: "s1",
+      role: "assistant",
+      content: "working",
+      threadKey: "root",
+      toolCalls: [{ id: "tool-1", type: "function", function: { name: "search", arguments: "{}" } }],
+    });
+    const lookup = vi.fn().mockResolvedValue({ state: continuation });
+    const source = new RecentMessagesContextSource({
+      getRecentMessages: async (sessionId, limit, threadKey) => store.getRecentMessages(sessionId, limit, threadKey),
+      getProviderContinuation: lookup,
+    }, false, new ProjectionRegistry());
+
+    const built = await source.build(request());
+
+    expect(lookup).toHaveBeenCalledWith("s1", assistant.id);
+    expect(built.conversation?.[1]?.provider_continuation).toEqual(continuation);
     store.close();
   });
 });

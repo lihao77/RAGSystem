@@ -11,7 +11,10 @@ import type { MessageInfo } from "../../../contracts/session.js";
 export interface ConversationHistoryPort {
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): MessageInfo[] | Promise<MessageInfo[]>;
   /** Private lookup; omitted by read-only projections that must not expose provider state. */
-  getProviderContinuation?(sessionId: string, messageId: string): { state: ProviderContinuationState } | null;
+  getProviderContinuation?(sessionId: string, messageId: string):
+    | { state: ProviderContinuationState }
+    | null
+    | Promise<{ state: ProviderContinuationState } | null>;
 }
 
 /** 会话元数据读写端口(conversationStore 装配侧实现)。 */

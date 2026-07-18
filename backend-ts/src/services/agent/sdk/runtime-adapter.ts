@@ -37,6 +37,7 @@ import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService, DelegationResolution } from "../../runtime/delegation-pending-service.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { AsyncConversationRepository } from "../../../adapters/saas/postgres/conversation-repository.js";
+import type { AsyncProviderContinuationRepository } from "../../../adapters/saas/postgres/provider-continuation-repository.js";
 import { resolveSessionMetadataPort } from "../context/async-session-metadata-resolver.js";
 
 export interface SdkRuntimeAdapterDeps {
@@ -45,6 +46,8 @@ export interface SdkRuntimeAdapterDeps {
   asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
   /** SaaS conversation state boundary; omitted for Local so its synchronous store remains authoritative. */
   asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage">;
+  /** SaaS private provider state; tenant id is supplied by the bound runtime. */
+  asyncProviderContinuations?: Pick<AsyncProviderContinuationRepository, "getProviderContinuation">;
   conversationStore: ConversationStore;
   /** 工具依赖集合（service + getAgentDelegation；agent/teamName 由 per-run 提供）。 */
   toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName">;
@@ -218,7 +221,9 @@ export async function executeRunWithSdk(
         ? deps.asyncConversationHistory.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root")
         : deps.conversationStore.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
     getProviderContinuation: (sid: string, messageId: string) =>
-      deps.conversationStore.getProviderContinuation(sid, messageId),
+      deps.asyncProviderContinuations && deps.tenantId
+        ? deps.asyncProviderContinuations.getProviderContinuation(deps.tenantId, sid, messageId)
+        : deps.conversationStore.getProviderContinuation(sid, messageId),
     getSession: (sid: string) => sessionMetadata.getSession(sid),
     updateSessionMetadata: (sid: string, patch: Record<string, unknown>) =>
       sessionMetadata.updateSessionMetadata?.(sid, patch) ?? null,
