@@ -215,9 +215,9 @@ backend-ts/src/
 - 实现 `PostgresControlPlaneAdapter`，覆盖 tenant、human user、membership、settings、auth session、audit、health、provisioning 和原子 commands；
 - install、最后 owner 和最后 active platform admin 约束支持跨实例并发；
 - SQLite/PostgreSQL 运行同一套参数化 contract tests，并通过 PostgreSQL 重开持久化与双实例可见性 E2E；
-- `CONTROL_STORAGE_MODE` / `CONTROL_DATABASE_URL` 与 Memory 配置解耦；PostgreSQL Control runtime 已能组合 core、Bot、Widget 和 envelope，默认 Compose 仍保持 SQLite，避免未导入数据直接切换。
+- `CONTROL_STORAGE_MODE` / `CONTROL_DATABASE_URL` 与 Memory 配置解耦；PostgreSQL Control runtime 已能组合 core、Bot、Widget 和 envelope，SaaS compose 默认启用 PostgreSQL（开发阶段不提供旧数据导入兼容）。
 
-当前生产数据源仍未切换：Control Plane、Bot 和 Widget 凭证继续位于同一个 `control.db`。PostgreSQL core adapter 已可独立验证；Bot/Widget 消费者也已抽为异步 ports 并由 SQLite adapters 保持兼容，但 PostgreSQL Bot/Widget adapters、secret envelope 和数据导入尚未实现，因此 composition 仍不能切换。
+Local 数据源仍位于 `control.db`；SaaS composition 已切换到 PostgreSQL Control、Bot 和 Widget 凭证。PostgreSQL adapters 与 secret envelope 通过同一 runtime 注入，开发阶段不提供旧数据导入兼容。
 
 直接消费者清单、Bot/Widget ports 之后仍存在的多实例分歧、secret envelope 约束和 PostgreSQL v2 migration 边界见 [Control Plane v2 审计与边界](./control-plane-v2-audit)。
 

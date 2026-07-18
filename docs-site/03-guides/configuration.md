@@ -30,7 +30,7 @@ process.env（最高）
 | `TENANCY_MODE` | `single` | single/multi | 单租户/多租户 |
 | `EXECUTION_MODE` | `local` | local/docker/remote | 工具/代码执行位置 |
 | `STORAGE_MODE` | `sqlite` | sqlite/sqlite-per-tenant/postgres | 存储 profile |
-| `CONTROL_STORAGE_MODE` | `sqlite` | sqlite/postgres | Control Plane 存储选择；当前 app composition 仅开放 sqlite |
+| `CONTROL_STORAGE_MODE` | `sqlite`（Local）/`postgres`（SaaS compose） | sqlite/postgres | Control Plane 存储选择 |
 | `CONTROL_DATABASE_URL` | 无 | PostgreSQL connection URL | `CONTROL_STORAGE_MODE=postgres` 的独立连接串，不复用 Memory 配置 |
 | `CONTROL_SECRET_MASTER_KEY` | 无 | base64 encoded 32-byte key | PostgreSQL Control v2 envelope 的独立主密钥；不得由数据库密码或 JWT secret 派生 |
 | `WIDGET_JWT_KEY_RING` | 无 | JSON key ring | 可选的共享 Widget JWT active/previous key 配置；签发使用 active，验证允许未过期 previous |
@@ -72,7 +72,9 @@ AUTH_MODE=password
 TENANCY_MODE=multi
 EXECUTION_MODE=docker
 STORAGE_MODE=sqlite-per-tenant
-CONTROL_STORAGE_MODE=sqlite
+CONTROL_STORAGE_MODE=postgres
+CONTROL_DATABASE_URL=postgres://ragsystem:ragsystem@localhost:5432/ragsystem
+CONTROL_SECRET_MASTER_KEY=replace-with-base64-32-byte-key
 SESSION_JWT_SECRET=replace-with-random-secret
 WIDGET_JWT_KEY_RING={"active":{"kid":"v1","secret":"replace-with-a-32-byte-secret"},"previous":[]}
 CORS_ORIGINS=https://console.example.com
