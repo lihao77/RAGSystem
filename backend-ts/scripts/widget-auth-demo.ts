@@ -30,6 +30,7 @@ async function buildHarness(widgetJwtSecret: string) {
     tenantsRoot: path.join(tempRoot, "tenants"),
     systemRoot: path.join(tempRoot, "system"),
     allowUnsafeLocalExecution: false,
+    postgresPoolMax: 10,
   };
   const container = createRuntimeContainer({
     tenantId: LOCAL_TENANT_ID,

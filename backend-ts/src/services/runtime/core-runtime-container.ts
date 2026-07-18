@@ -30,7 +30,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     transientArtifacts,
     embeddingModels,
     memoryStore,
-    memoryTools,
+    memoryBindings,
     documentTools,
     codeExecutionTools,
     skillTools,
@@ -50,7 +50,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
   const runtimeCore = new RuntimeCoreService(agentConfig, modelAdapter);
   const agentDelegation = new AgentDelegationService(conversationStore, runtimeCore, clientEvents);
   const toolsDeps = {
-    memoryTools,
+    memoryTools: memoryBindings.tools,
     pendingInteractions,
     documentTools,
     bashTools,
@@ -71,6 +71,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     runtimeCore,
     dataRoot,
     memoryConfig,
+    memoryContextSourceFactory: memoryBindings.createContextSource,
     toolsDeps,
     codeExecutionTools,
     taskTools,
@@ -128,7 +129,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     transientArtifacts,
     embeddingModels,
     memoryStore,
-    memoryTools,
+    memoryTools: memoryBindings.tools,
     documentTools,
     codeExecutionTools,
     skillTools,

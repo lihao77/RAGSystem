@@ -35,6 +35,7 @@ import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { MemoryConfig } from "../../../contracts/system-config.js";
+import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import {
   createLaunchers,
   type RollbackRetryInput,
@@ -74,6 +75,7 @@ export interface AgentExecutionServiceParams {
   runtimeCore: RuntimeExecutionConfigResolver;
   dataRoot: string;
   memoryConfig: MemoryConfig;
+  memoryContextSourceFactory?: MemoryRuntimeBindings["createContextSource"];
   /** per-agent 工具依赖（runtime-adapter per-run 构建 Tool[] 用）。 */
   toolsDeps?: Omit<import("../../../tools/registry.js").BackendToolsDeps, "agent" | "teamName"> | null;
   codeExecutionTools?: import("../../../tools/CodeExecutionTool/CodeExecution.js").CodeExecutionToolService | null;
@@ -136,6 +138,7 @@ export function createAgentExecutionService(
     params.conversationStore,
     params.dataRoot,
     params.memoryConfig,
+    params.memoryContextSourceFactory ?? null,
    params.toolsDeps ?? null,
    params.codeExecutionTools ?? null,
    params.taskTools ?? null,

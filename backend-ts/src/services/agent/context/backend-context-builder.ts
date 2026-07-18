@@ -12,6 +12,7 @@ import { createDefaultProjectionRegistry } from "./extensions/index.js";
 import { DEFAULT_PROVIDER_CACHE_TTL_SECONDS, ProviderCacheTracker } from "./provider-cache-tracker.js";
 import { RecentMessagesContextSource } from "./recent-messages-source.js";
 import type { ConversationHistoryPort, SessionMetadataPort } from "./types.js";
+import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 
 export interface BuildBackendAgentContextOptions {
   memoryConfig: MemoryConfig;
@@ -19,6 +20,7 @@ export interface BuildBackendAgentContextOptions {
   sessionId: string;
   threadKey?: string | null;
   touch?: boolean;
+  memoryContextSourceFactory?: MemoryRuntimeBindings["createContextSource"];
 }
 
 export async function buildBackendAgentContext(
@@ -28,12 +30,20 @@ export async function buildBackendAgentContext(
   options: BuildBackendAgentContextOptions,
 ) {
   const memorySources = isMemoryEnabled(agent.memory)
-    ? [new MemoryIndexContextSource(
-        historyPort,
-        agent.memory,
-        agent.agent_name,
-        buildMemoryIndexContextSourceOptions(options.memoryConfig, options.dataRoot),
-      )]
+    ? [options.memoryContextSourceFactory
+        ? options.memoryContextSourceFactory({
+            sessions: historyPort,
+            memory: agent.memory,
+            agentName: agent.agent_name,
+            memoryConfig: options.memoryConfig,
+            dataRoot: options.dataRoot,
+          })
+        : new MemoryIndexContextSource(
+            historyPort,
+            agent.memory,
+            agent.agent_name,
+            buildMemoryIndexContextSourceOptions(options.memoryConfig, options.dataRoot),
+          )]
     : [];
   const extensionRegistry = createDefaultProjectionRegistry();
   const recentSource = new RecentMessagesContextSource(

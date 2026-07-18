@@ -27,9 +27,14 @@ import { AuthError, LocalIdentityProvider, PasswordIdentityProvider, WidgetIdent
 import { DefaultTenantRuntimeRegistry, type TenantRuntimeRegistry } from "./services/runtime/tenant-runtime-registry.js";
 import { createTenantMigrator, type TenantMigrator } from "./services/runtime/tenant-migrator.js";
 import { DaemonService, type DaemonSuspendedInteraction } from "./services/daemon/daemon-service.js";
+import { createSaaSMemoryApplicationResolver } from "./app/saas-memory-resolver.js";
+import type { RouteOptions } from "./routes/route-options.js";
+import type { SaaSMemoryRuntimeHandle } from "./services/runtime/saas-memory-runtime.js";
 
 export interface BuildAppOptions {
   env: AppEnv;
+  saasMemoryRuntime?: SaaSMemoryRuntimeHandle;
+  resolveMemoryApplication?: RouteOptions["resolveMemoryApplication"];
   registry?: TenantRuntimeRegistry;
   controlStore?: ControlStore;
   identityProvider?: IdentityProvider;
@@ -72,7 +77,25 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ? createWidgetAuthService(options.env.widgetJwtSecret, widgetCredentialStore.ops)
     : undefined);
   const widgetIdentityProvider = widgetAuth ? new WidgetIdentityProvider(widgetAuth, widgetCredentialStore) : undefined;
-  const registry = options.registry ?? new DefaultTenantRuntimeRegistry(options.env, controlStore, app.log);
+  const registry = options.registry ?? new DefaultTenantRuntimeRegistry(
+    options.env,
+    controlStore,
+    app.log,
+    options.saasMemoryRuntime
+      ? {
+          runtimeOptions: {
+            memoryBindingsFactory: (input) => options.saasMemoryRuntime!.provider.createMemoryBindings(
+              input.tenantId,
+              input.sessions,
+            ),
+          },
+        }
+      : {},
+  );
+  const resolveMemoryApplication = options.resolveMemoryApplication
+    ?? (options.saasMemoryRuntime
+      ? createSaaSMemoryApplicationResolver(options.saasMemoryRuntime.provider)
+      : undefined);
   const wsTickets = options.wsTickets ?? createWsTicketService();
   const botEngine = options.botEngine ?? new DaemonService({
     controlStore,
@@ -176,6 +199,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.addHook("onClose", async () => {
     botEngine.close();
     await registry.closeAll();
+    await options.saasMemoryRuntime?.close();
     widgetCredentialStore.close();
     wsTickets.close();
     controlStore.close();
@@ -274,6 +298,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     widgetCredentialStore,
     wsTickets,
     registerPublicAgui: !widgetIdentityProvider,
+    ...(resolveMemoryApplication ? { resolveMemoryApplication } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await registerManagementAndPlatformRoutes(app, {

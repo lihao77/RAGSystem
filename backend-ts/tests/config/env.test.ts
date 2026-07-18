@@ -55,4 +55,11 @@ describe("deployment profile", () => {
     expect(env.postgresPoolMax).toBe(10);
     expect(() => loadEnv({ POSTGRES_POOL_MAX: "1.5" })).toThrow("POSTGRES_POOL_MAX");
   });
+
+  it("requires a database URL when PostgreSQL storage is selected", () => {
+    expect(() => loadEnv({
+      RAG_DATA_ROOT: path.join(process.cwd(), ".test-data", "env-postgres-required"),
+      STORAGE_MODE: "postgres",
+    })).toThrow("STORAGE_MODE=postgres requires DATABASE_URL");
+  });
 });

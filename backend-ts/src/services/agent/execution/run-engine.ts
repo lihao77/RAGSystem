@@ -21,6 +21,7 @@ import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService } from "../../runtime/delegation-pending-service.js";
 import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
+import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
@@ -53,6 +54,7 @@ export class AgentRunEngine {
     private readonly conversationStore: IRunStore & IMessageStore & ISessionStore,
     private readonly dataRoot: string,
     private readonly memoryConfig: MemoryConfig,
+    private readonly memoryContextSourceFactory: MemoryRuntimeBindings["createContextSource"] | null,
    private readonly toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName"> | null,
    private readonly codeExecutionTools: CodeExecutionToolService | null,
    private readonly taskTools: TaskToolService | null,
@@ -359,6 +361,7 @@ export class AgentRunEngine {
           providers: this.providersProvider(),
           dataRoot: this.dataRoot,
           memoryConfig: this.memoryConfig,
+          ...(this.memoryContextSourceFactory ? { memoryContextSourceFactory: this.memoryContextSourceFactory } : {}),
           permissionPolicy: this.permissionPolicy,
           pendingInteractions: this.pendingInteractions,
           hostToolRegistry: this.hostToolRegistry,

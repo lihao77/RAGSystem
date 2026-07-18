@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type { MemoryRepository } from "../../../src/contracts/memory-store/index.js";
+import type { MemoryToolOperations } from "../../../src/tools/MemoryTools/MemoryExecution.js";
 import { createTenantId } from "../../../src/identity/types.js";
 import { HashFallbackEmbedder } from "../../../src/services/integrations/embedder-registry.js";
 import {
@@ -43,6 +44,39 @@ describe("runtime composition roots", () => {
     } finally {
       runtime.close();
       expect(() => runtime.close()).not.toThrow();
+    }
+  });
+
+  it("uses deployment-provided memory bindings without changing the local repository", () => {
+    const dataRoot = makeTempRoot();
+    const memoryTools = { marker: "postgres" } as unknown as MemoryToolOperations;
+    let boundTenantId = "";
+    const runtime = createLocalRuntimeContainer({
+      tenantId: createTenantId("tnt_runtime_memory_bindings"),
+      dbPath: ":memory:",
+      dataRoot,
+      modelAdapterProvidersConfigPath: "",
+      mcpConfigPath: "",
+      systemConfigPath: "",
+      startOutboxDispatcher: false,
+      embedderFactory: () => new HashFallbackEmbedder(),
+      memoryBindingsFactory: (input) => {
+        boundTenantId = input.tenantId;
+        return {
+          tools: memoryTools,
+          createContextSource: () => ({
+            name: "memory",
+            build: async () => ({ conversation: [] }),
+          }),
+        };
+      },
+    });
+    try {
+      expect(boundTenantId).toBe("tnt_runtime_memory_bindings");
+      expect(runtime.memoryTools).toBe(memoryTools);
+      expect(runtime.memoryStore).toBeDefined();
+    } finally {
+      runtime.close();
     }
   });
 });

@@ -6,6 +6,8 @@ export { createLocalRuntimeContainer } from "./local-runtime-container.js";
 export type {
   CoreRuntimeDependencies,
   LocalRuntimeContainerOptions,
+  MemoryRuntimeBindingsFactory,
+  MemoryRuntimeBindingsFactoryInput,
   RuntimeContainer,
   RuntimeContainerOptions,
 } from "./runtime-container-contracts.js";

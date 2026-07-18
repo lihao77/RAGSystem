@@ -11,6 +11,7 @@ import {
 } from "../../tools/MemoryTools/SaaSMemoryExecution.js";
 import type { RuntimeMemorySessionPort } from "../../tools/MemoryTools/MemoryExecution.js";
 import type { SessionMetadataPort } from "../agent/context/types.js";
+import type { MemoryRuntimeBindings } from "../agent/memory/runtime-bindings.js";
 import type { RuntimeLease, RuntimeRegistry } from "./tenant-runtime-registry.js";
 
 /**
@@ -27,6 +28,7 @@ export interface SaaSRuntime {
     agentName: string,
     options?: SaaSMemoryContextSourceOptions,
   ): SaaSMemoryContextSource;
+  createMemoryBindings(sessions: RuntimeMemorySessionPort & SessionMetadataPort): MemoryRuntimeBindings;
 }
 
 export type SaaSRuntimeLease = RuntimeLease<SaaSRuntime>;
@@ -43,7 +45,7 @@ export class SaaSRuntimeProvider implements RuntimeRegistry<SaaSRuntime> {
 
   async acquire(rawTenantId: string): Promise<SaaSRuntimeLease> {
     const tenantId = createTenantId(rawTenantId);
-    const runtime = this.runtimes.get(tenantId) ?? this.createRuntime(tenantId);
+    const runtime = this.getOrCreateRuntime(tenantId);
     let released = false;
 
     return {
@@ -64,19 +66,42 @@ export class SaaSRuntimeProvider implements RuntimeRegistry<SaaSRuntime> {
     this.runtimes.clear();
   }
 
+  createMemoryBindings(
+    rawTenantId: string,
+    sessions: RuntimeMemorySessionPort & SessionMetadataPort,
+  ): MemoryRuntimeBindings {
+    return this.getOrCreateRuntime(createTenantId(rawTenantId)).createMemoryBindings(sessions);
+  }
+
+  private getOrCreateRuntime(tenantId: TenantId): SaaSRuntime {
+    return this.runtimes.get(tenantId) ?? this.createRuntime(tenantId);
+  }
+
   private createRuntime(tenantId: TenantId): SaaSRuntime {
     const memory = createMemoryApplication(tenantId, this.memoryRepository);
+    const createMemoryContextSource: SaaSRuntime["createMemoryContextSource"] = (
+      sessions,
+      memoryConfig,
+      agentName,
+      options,
+    ) => new SaaSMemoryContextSource(sessions, memory.query, memoryConfig, agentName, options);
     const runtime: SaaSRuntime = {
       tenantId,
       memory,
       createMemoryTools: (sessions) => new SaaSMemoryToolService(memory, sessions),
-      createMemoryContextSource: (sessions, memoryConfig, agentName, options) => new SaaSMemoryContextSource(
-        sessions,
-        memory.query,
-        memoryConfig,
-        agentName,
-        options,
-      ),
+      createMemoryContextSource,
+      createMemoryBindings: (sessions) => ({
+        tools: new SaaSMemoryToolService(memory, sessions),
+        createContextSource: (input) => createMemoryContextSource(
+          input.sessions,
+          input.memory,
+          input.agentName,
+          {
+            indexMaxLines: input.memoryConfig.index_max_lines,
+            indexMaxChars: input.memoryConfig.index_max_chars,
+          },
+        ),
+      }),
     };
     this.runtimes.set(tenantId, runtime);
     return runtime;

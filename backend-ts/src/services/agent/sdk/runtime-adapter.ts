@@ -33,6 +33,7 @@ import { registerGateHook } from "./gate-hook.js";
 import { PathApprovalService } from "../../../services/runtime/path-service.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService, DelegationResolution } from "../../runtime/delegation-pending-service.js";
+import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 
 export interface SdkRuntimeAdapterDeps {
   conversationStore: ConversationStore;
@@ -48,6 +49,7 @@ export interface SdkRuntimeAdapterDeps {
   providers: ModelProviderConfig[];
   dataRoot: string;
   memoryConfig: MemoryConfig;
+  memoryContextSourceFactory?: MemoryRuntimeBindings["createContextSource"];
   /** 权限策略服务（SDK 审批编排判定端口用）。 */
   permissionPolicy: PermissionPolicyService;
   /** 审批交互服务（SDK 审批编排阻塞等待端口用）。 */
@@ -217,6 +219,7 @@ export async function executeRunWithSdk(
     dataRoot: deps.dataRoot,
     sessionId: input.sessionId,
     threadKey: input.threadKey,
+    ...(deps.memoryContextSourceFactory ? { memoryContextSourceFactory: deps.memoryContextSourceFactory } : {}),
   });
   const conversation = built.conversation;
   // refresh 水位线:本 run 启动前 store 最后一条消息的 seq;refresh 每轮拉 seq > lastSeq 的新 user 消息(followup 等)。

@@ -111,6 +111,9 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     sessionJwtSecret: env.SESSION_JWT_SECRET?.trim() || undefined,
     sessionTokenTtlHours: parsePositiveNumber(env.SESSION_TOKEN_TTL_HOURS, 168, "SESSION_TOKEN_TTL_HOURS"),
   };
+  if (appEnv.storageMode === "postgres" && !appEnv.databaseUrl) {
+    throw new Error("STORAGE_MODE=postgres requires DATABASE_URL (or POSTGRES_URL)");
+  }
   resolveDeploymentProfile(appEnv);
   return appEnv;
 }

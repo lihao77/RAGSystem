@@ -10,6 +10,7 @@ import { MemoryToolService } from "../../tools/MemoryTools/MemoryExecution.js";
 import { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
 import { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
 import { AgentConfigService } from "../agent/config/index.js";
+import { MemoryIndexContextSource } from "../agent/memory/index.js";
 import { ArtifactService } from "../artifacts/artifact-service.js";
 import { TransientArtifactService } from "../artifacts/transient-artifact-service.js";
 import { SystemConfigService } from "../config/system-config-service.js";
@@ -80,7 +81,25 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   const embeddingModels = new EmbeddingModelService(knowledgeBase);
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
-  const memoryTools = new MemoryToolService(memoryStore, conversationStore, conversationStore, options.tenantId);
+  const memoryBindings = options.memoryBindingsFactory?.({
+    tenantId: options.tenantId,
+    dataRoot,
+    memoryConfig,
+    memoryRepository: memoryStore,
+    sessions: conversationStore,
+  }) ?? {
+    tools: new MemoryToolService(memoryStore, conversationStore, conversationStore, options.tenantId),
+    createContextSource: (input) => new MemoryIndexContextSource(
+      input.sessions,
+      input.memory,
+      input.agentName,
+      {
+        memoryRepository: memoryStore,
+        indexMaxLines: input.memoryConfig.index_max_lines,
+        indexMaxChars: input.memoryConfig.index_max_chars,
+      },
+    ),
+  };
   const documentTools = new LocalDocumentToolService({ dataRoot: options.dataRoot, fileHistory });
   const notificationQueue = new SessionNotificationQueue();
   const backgroundTasks = new BackgroundTaskService({ notificationQueue });
@@ -134,7 +153,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     transientArtifacts,
     embeddingModels,
     memoryStore,
-    memoryTools,
+    memoryBindings,
     documentTools,
     codeExecutionTools,
     skillTools,

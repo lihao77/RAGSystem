@@ -14,6 +14,7 @@ import { LocalIdentityProvider } from "../../src/services/identity/index.js";
 import { DefaultTenantRuntimeRegistry } from "../../src/services/runtime/tenant-runtime-registry.js";
 import type { IdentityProvider } from "../../src/services/identity/index.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
+import type { BuildAppOptions } from "../../src/app.js";
 
 /**
  * 当前测试 dataRoot(buildTestHarness 每次更新)。artifact 等需直接写文件的 fixture
@@ -51,6 +52,8 @@ export async function buildTestHarness(
     settings?: Record<string, string>;
     autoIdentityProvider?: boolean;
     identityProvider?: IdentityProvider;
+    saasMemoryRuntime?: BuildAppOptions["saasMemoryRuntime"];
+    resolveMemoryApplication?: BuildAppOptions["resolveMemoryApplication"];
   } = {},
 ) {
   const tempRoot = options.root ?? makeTempRoot();
@@ -95,9 +98,10 @@ export async function buildTestHarness(
     ...(identityProvider ? { identityProvider } : {}),
     tenantMigrator: { migrate: () => ({ status: "skipped", reason: "no_legacy_data", directories: [] }) },
     widgetCredentialStore,
+    ...(options.saasMemoryRuntime ? { saasMemoryRuntime: options.saasMemoryRuntime } : {}),
+    ...(options.resolveMemoryApplication ? { resolveMemoryApplication: options.resolveMemoryApplication } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await app.ready();
   return { app, container, registry, controlStore, widgetCredentialStore, widgetAuth, root: tempRoot };
 }
-

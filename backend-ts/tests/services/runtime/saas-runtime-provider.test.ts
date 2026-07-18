@@ -7,6 +7,8 @@ import type {
   TransactionalMemoryRepository,
 } from "../../../src/contracts/memory-store/index.js";
 import { SaaSRuntimeProvider } from "../../../src/services/runtime/saas-runtime-provider.js";
+import { SaaSMemoryContextSource } from "../../../src/services/agent/memory/saas-memory-context-source.js";
+import { SaaSMemoryToolService } from "../../../src/tools/MemoryTools/SaaSMemoryExecution.js";
 
 function repository(): TransactionalMemoryRepository {
   const mutation: PersistedMemoryCandidateMutationResult = { outcome: "not_found" };
@@ -84,5 +86,25 @@ describe("SaaSRuntimeProvider", () => {
   it("rejects invalid tenant identifiers before creating a facade", async () => {
     const provider = new SaaSRuntimeProvider(repository());
     await expect(provider.acquire("tenant-alpha")).rejects.toThrow("无效租户 ID");
+  });
+
+  it("creates tenant-bound bindings for the shared agent runtime", () => {
+    const provider = new SaaSRuntimeProvider(repository());
+    const sessions = {
+      getSession: () => ({ metadata: {}, user_id: "usr_alpha" }),
+      updateSessionMetadata: () => ({}),
+    };
+
+    const bindings = provider.createMemoryBindings("tnt_alpha", sessions);
+    const source = bindings.createContextSource({
+      sessions,
+      memory: { auto_inject: true, allowed_scopes: ["session"], write_scopes: [], archive_scopes: [] },
+      agentName: "assistant",
+      memoryConfig: { index_max_lines: 25, index_max_chars: 4096 },
+      dataRoot: "unused-in-saas",
+    });
+
+    expect(bindings.tools).toBeInstanceOf(SaaSMemoryToolService);
+    expect(source).toBeInstanceOf(SaaSMemoryContextSource);
   });
 });

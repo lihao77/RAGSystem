@@ -9,7 +9,7 @@ import type { TenantId } from "../../identity/types.js";
 import type { LocalBashToolService } from "../../tools/BashTool/BashExecution.js";
 import type { CodeExecutionToolService } from "../../tools/CodeExecutionTool/CodeExecution.js";
 import type { LocalDocumentToolService } from "../../tools/DocumentTools/DocumentExecution.js";
-import type { MemoryToolService } from "../../tools/MemoryTools/MemoryExecution.js";
+import type { MemoryToolOperations, RuntimeMemorySessionPort } from "../../tools/MemoryTools/MemoryExecution.js";
 import type { LocalSearchToolService } from "../../tools/LocalSearchTools/SearchExecution.js";
 import type { SkillToolService } from "../../tools/SkillTools/SkillExecution.js";
 import type { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
@@ -20,6 +20,8 @@ import type { AgentExecutionLogger, AgentExecutionService } from "../agent/execu
 import type { ResumeExecutor } from "../agent/execution/resume-executor.js";
 import type { RuntimeCoreService } from "../agent/execution/runtime-core-service.js";
 import type { AgentMetricsCollector } from "../agent/metrics/metrics-collector.js";
+import type { MemoryRuntimeBindings } from "../agent/memory/runtime-bindings.js";
+import type { SessionMetadataPort } from "../agent/context/types.js";
 import type { ArtifactService } from "../artifacts/artifact-service.js";
 import type { TransientArtifactService } from "../artifacts/transient-artifact-service.js";
 import type { SystemConfigService } from "../config/system-config-service.js";
@@ -59,7 +61,7 @@ export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = M
   readonly transientArtifacts: TransientArtifactService;
   readonly embeddingModels: EmbeddingModelService;
   readonly memoryStore: TMemoryRepository;
-  readonly memoryTools: MemoryToolService;
+  readonly memoryTools: MemoryToolOperations;
   readonly documentTools: LocalDocumentToolService;
   readonly codeExecutionTools: CodeExecutionToolService;
   readonly skillTools: SkillToolService;
@@ -93,7 +95,20 @@ export interface LocalRuntimeContainerOptions {
   outboxDispatcherIntervalMs?: number | undefined;
   hooks?: ((registry: HookRegistry) => void) | undefined;
   embedderFactory?: KnowledgeBaseEmbedderFactory | undefined;
+  memoryBindingsFactory?: MemoryRuntimeBindingsFactory | undefined;
 }
+
+export interface MemoryRuntimeBindingsFactoryInput<TMemoryRepository extends MemoryRepository = MemoryRepository> {
+  tenantId: TenantId;
+  dataRoot: string;
+  memoryConfig: MemoryConfig;
+  memoryRepository: TMemoryRepository;
+  sessions: RuntimeMemorySessionPort & SessionMetadataPort;
+}
+
+export type MemoryRuntimeBindingsFactory<TMemoryRepository extends MemoryRepository = MemoryRepository> = (
+  input: MemoryRuntimeBindingsFactoryInput<TMemoryRepository>,
+) => MemoryRuntimeBindings;
 
 /** Backwards-compatible name for callers that still use the original factory. */
 export type RuntimeContainerOptions = LocalRuntimeContainerOptions;
@@ -124,7 +139,7 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   transientArtifacts: TransientArtifactService;
   embeddingModels: EmbeddingModelService;
   memoryStore: TMemoryRepository;
-  memoryTools: MemoryToolService;
+  memoryBindings: MemoryRuntimeBindings;
   documentTools: LocalDocumentToolService;
   codeExecutionTools: CodeExecutionToolService;
   skillTools: SkillToolService;
