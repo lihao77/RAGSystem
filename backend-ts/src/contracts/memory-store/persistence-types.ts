@@ -134,6 +134,30 @@ export type PersistedMemoryManagementCountOptions = Omit<
   "limit" | "offset"
 >;
 
+export interface PersistedMemoryManagementArchiveInput {
+  tenant_id: string;
+  memory_id: string;
+  expected_version: number;
+  viewer_user_id: string;
+  viewer_session_ids: string[];
+}
+
+export type PersistedMemoryManagementLookupInput = Omit<
+  PersistedMemoryManagementArchiveInput,
+  "expected_version"
+>;
+
+export interface PersistedMemoryManagementResolvedEntry {
+  memory: PersistedMemoryEntry;
+  scope_spec: import("./types.js").MemoryScopeSpec;
+  storage_key: string;
+}
+
+export type PersistedMemoryManagementArchiveResult =
+  | { outcome: "archived"; memory: PersistedMemoryEntry }
+  | { outcome: "not_found" }
+  | { outcome: "state_conflict" };
+
 export interface PersistedMemoryCandidateListOptions {
   tenant_id: string;
   owner_user_id?: string | undefined;

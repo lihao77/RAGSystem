@@ -1,12 +1,14 @@
 <template>
   <PageLayout title="Memory 管理" subtitle="个人、共享与治理记录" mobile-title="Memory">
-    <div class="flex flex-col gap-4">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <UiTabs v-model="activeView" :tabs="views" />
-        <div class="flex flex-wrap items-center gap-2">
-          <Input v-model="searchQuery" class="min-w-[220px] flex-1 sm:flex-none" placeholder="搜索名称或内容" aria-label="搜索 Memory" />
+    <div class="memory-manager">
+      <div class="section-toolbar">
+        <div class="toolbar-left">
+          <UiTabs v-model="activeView" :tabs="views" />
+        </div>
+        <div class="toolbar-right">
+          <Input v-model="searchQuery" class="memory-search-input" placeholder="搜索名称或内容" aria-label="搜索 Memory" />
           <Select v-model="scopeFilter">
-            <SelectTrigger class="w-[140px]" aria-label="Scope 筛选">
+            <SelectTrigger class="scope-select" aria-label="Scope 筛选">
               <SelectValue placeholder="全部 Scope" />
             </SelectTrigger>
             <SelectContent>
@@ -17,15 +19,29 @@
               </SelectGroup>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="icon" :disabled="loading" title="刷新" aria-label="刷新" @click="loadCurrentView">
+          <Button variant="secondary" size="icon" :disabled="loading" title="刷新" aria-label="刷新" @click="loadCurrentView">
             <RefreshCw data-icon :class="cn({ 'animate-spin': loading })" />
           </Button>
         </div>
       </div>
 
-      <div class="overflow-hidden rounded-lg border bg-background">
-        <div class="overflow-x-auto">
-          <Table>
+      <div class="data-table-wrapper glass-card">
+        <div v-if="loading" class="g-table-loading">
+          <div class="g-skeleton-rows" aria-busy="true">
+            <div v-for="n in 5" :key="n" class="g-skeleton-row">
+              <div class="g-skeleton-bar g-skeleton-bar--title" />
+              <div class="g-skeleton-bar g-skeleton-bar--sub" />
+            </div>
+          </div>
+        </div>
+        <div v-else-if="error" class="empty-state adm-state adm-state--empty">
+          <p>{{ error }}</p>
+          <Button variant="outline" size="sm" @click="loadCurrentView">重试</Button>
+        </div>
+        <div v-else-if="filteredItems.length === 0" class="empty-state adm-state adm-state--empty">
+          <p>暂无记录</p>
+        </div>
+        <Table v-else class="memory-table">
             <TableHeader>
               <TableRow>
                 <TableHead>名称</TableHead>
@@ -37,36 +53,28 @@
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableEmpty v-if="loading" :colspan="columnCount">正在加载...</TableEmpty>
-              <TableEmpty v-else-if="error" :colspan="columnCount">
-                <div class="flex flex-col items-center gap-3">
-                  <span>{{ error }}</span>
-                  <Button variant="outline" size="sm" @click="loadCurrentView">重试</Button>
-                </div>
-              </TableEmpty>
-              <TableEmpty v-else-if="filteredItems.length === 0" :colspan="columnCount">暂无记录</TableEmpty>
-              <TableRow v-for="item in filteredItems" v-else :key="`${itemKind(item)}-${item.id}`">
-                <TableCell class="min-w-[260px] max-w-[460px]">
+              <TableRow v-for="item in filteredItems" :key="`${itemKind(item)}-${item.id}`">
+                <TableCell class="memory-name-cell">
                   <div class="flex flex-col gap-1">
                     <div class="flex items-center gap-2">
                       <span class="truncate font-medium" :title="item.name">{{ item.name || '未命名 Memory' }}</span>
-                      <Badge v-if="isCandidate(item)" variant="outline">{{ operationLabel(item.operation) }}</Badge>
+                      <UiBadge v-if="isCandidate(item)" size="sm" tone="neutral">{{ operationLabel(item.operation) }}</UiBadge>
                     </div>
-                    <span class="line-clamp-2 text-xs text-muted-foreground" :title="item.description || item.content">
+                    <span class="memory-description" :title="item.description || item.content">
                       {{ item.description || item.content || '-' }}
                     </span>
                   </div>
                 </TableCell>
-                <TableCell><Badge variant="secondary">{{ scopeOf(item) }}</Badge></TableCell>
+                <TableCell><UiBadge size="sm" :tone="scopeTone(scopeOf(item))">{{ scopeOf(item) }}</UiBadge></TableCell>
                 <TableCell>{{ typeLabel(item.memory_type) }}</TableCell>
-                <TableCell><Badge :variant="statusVariant(item.status)">{{ statusLabel(item.status) }}</Badge></TableCell>
-                <TableCell class="whitespace-nowrap text-muted-foreground">{{ formatDate(item.updated_at || item.created_at) }}</TableCell>
-                <TableCell v-if="showActions" class="text-right">
-                  <div class="flex justify-end gap-1">
+                <TableCell><UiBadge class="status-badge" size="sm" :tone="statusTone(item.status)">{{ statusLabel(item.status) }}</UiBadge></TableCell>
+                <TableCell class="cell-secondary memory-time-cell">{{ formatDate(item.updated_at || item.created_at) }}</TableCell>
+                <TableCell v-if="showActions" class="cell-actions">
+                  <div class="row-actions">
                     <template v-if="!isCandidate(item) && (activeView === 'mine' || activeView === 'shared')">
                       <Button
-                        variant="ghost"
-                        size="icon"
+                        variant="action-neutral"
+                        size="action"
                         title="查看详情"
                         aria-label="查看详情"
                         @click="openDetails(item)"
@@ -75,8 +83,8 @@
                       </Button>
                       <Button
                         v-if="activeView === 'mine' || canReview"
-                        variant="ghost"
-                        size="icon"
+                        variant="action-warning"
+                        size="action"
                         :title="activeView === 'shared' ? '发起归档申请' : '归档'"
                         :aria-label="activeView === 'shared' ? '发起归档申请' : '归档'"
                         :disabled="busyId === item.id"
@@ -88,8 +96,8 @@
                     <template v-if="activeView === 'pending' && isCandidate(item) && item.status === 'candidate'">
                       <Button
                         v-if="isOwnedByCurrentUser(item)"
-                        variant="ghost"
-                        size="icon"
+                        variant="action-neutral"
+                        size="action"
                         title="编辑"
                         aria-label="编辑"
                         @click="openEdit(item)"
@@ -98,8 +106,8 @@
                       </Button>
                       <Button
                         v-if="isOwnedByCurrentUser(item)"
-                        variant="ghost"
-                        size="icon"
+                        variant="action-warning"
+                        size="action"
                         title="撤回"
                         aria-label="撤回"
                         :disabled="busyId === item.id"
@@ -109,8 +117,8 @@
                       </Button>
                       <Button
                         v-if="canReview"
-                        variant="ghost"
-                        size="icon"
+                        variant="action-success"
+                        size="action"
                         title="审核"
                         aria-label="审核"
                         @click="openReview(item)"
@@ -123,8 +131,7 @@
               </TableRow>
             </TableBody>
           </Table>
-        </div>
-        <div v-if="!loading && !error" class="flex items-center justify-between border-t px-4 py-3 text-xs text-muted-foreground">
+        <div v-if="!loading && !error && filteredItems.length > 0" class="table-footer">
           <span>共 {{ filteredItems.length }} 条</span>
           <span v-if="total > items.length">已加载 {{ items.length }} / {{ total }}</span>
         </div>
@@ -223,13 +230,12 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { Archive, Check, ClipboardCheck, Eye, Pencil, RefreshCw, Undo2, X } from 'lucide-vue-next';
 import PageLayout from '../components/PageLayout.vue';
-import { UiTabs } from '../components/ui';
-import { Badge } from '../components/ui/badge';
+import { UiBadge, UiTabs } from '../components/ui';
 import { Button } from '../components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '../components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Textarea } from '../components/ui/textarea';
 import { useConfirm } from '../composables/useConfirm.js';
 import { useToast } from '../composables/useToast.js';
@@ -288,7 +294,6 @@ const editForm = reactive({ name: '', description: '', content: '' });
 
 const canReview = computed(() => authStore.role === 'admin' || authStore.role === 'owner');
 const showActions = computed(() => activeView.value === 'mine' || activeView.value === 'shared' || activeView.value === 'pending');
-const columnCount = computed(() => showActions.value ? 6 : 5);
 const filteredItems = computed(() => {
   const query = searchQuery.value.trim().toLowerCase();
   return items.value.filter((item) => {
@@ -334,11 +339,15 @@ function operationLabel(operation) {
   return operation === 'archive' ? '归档申请' : '发布申请';
 }
 
-function statusVariant(status) {
-  if (status === 'active' || status === 'approved') return 'default';
-  if (status === 'candidate') return 'secondary';
-  if (status === 'rejected') return 'destructive';
-  return 'outline';
+function scopeTone(scope) {
+  return sharedScopes.has(scope) ? 'info' : 'neutral';
+}
+
+function statusTone(status) {
+  if (status === 'active' || status === 'approved') return 'success';
+  if (status === 'candidate') return 'warning';
+  if (status === 'rejected') return 'error';
+  return 'neutral';
 }
 
 function formatDate(value) {
@@ -496,3 +505,167 @@ watch(activeView, () => {
 watch(() => authStore.tenantId, loadCurrentView);
 onMounted(loadCurrentView);
 </script>
+
+<style scoped>
+.memory-manager {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.section-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--spacing-md);
+}
+
+.toolbar-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+.memory-search-input {
+  min-width: 220px;
+}
+
+.scope-select {
+  width: 140px;
+}
+
+.data-table-wrapper {
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
+  overflow: hidden;
+}
+
+.memory-table :deep(thead th) {
+  height: 38px;
+  padding: 0 var(--spacing-md);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.memory-table :deep(tbody td) {
+  padding: var(--spacing-sm) var(--spacing-md);
+  vertical-align: middle;
+}
+
+.memory-name-cell {
+  min-width: 260px;
+  max-width: 460px;
+}
+
+.memory-description {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.memory-time-cell,
+.status-badge {
+  white-space: nowrap;
+}
+
+.cell-secondary {
+  color: var(--color-text-secondary);
+}
+
+.cell-actions {
+  text-align: right;
+}
+
+.row-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: var(--spacing-xs);
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  padding: var(--spacing-xl);
+  gap: var(--spacing-md);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.table-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+@media (max-width: 720px) {
+  .section-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--spacing-sm);
+  }
+
+  .toolbar-right {
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--spacing-xs);
+  }
+
+  .memory-search-input {
+    flex: 1 1 220px;
+  }
+
+  .memory-table :deep(thead th),
+  .memory-table :deep(tbody td) {
+    padding: 8px 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .toolbar-right {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    justify-content: stretch;
+  }
+
+  .memory-search-input,
+  .scope-select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .memory-search-input {
+    grid-column: 1 / -1;
+  }
+
+  .memory-table :deep(thead th),
+  .memory-table :deep(tbody td) {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+}
+</style>

@@ -84,10 +84,6 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
 
   app.get("/entries", async (request) => {
     const query = EntryQuerySchema.parse(request.query);
-    const memory = await resolveMemoryApplication(options, request);
-    if (!memory) {
-      return { success: true, data: { items: [], total: 0, limit: query.limit, offset: query.offset, has_more: false } };
-    }
     const scopes = parseEntryScopes(query.scope);
     const ownedSessionIds = request.container.sessionApplication.listSessions({
       tenantId: request.identity.tenantId,
@@ -95,6 +91,23 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
       limit: 10_000,
       offset: 0,
     }).items.map((session) => session.session_id);
+    const memory = await resolveMemoryApplication(options, request);
+    if (!memory) {
+      const filter = {
+        tenant_id: request.identity.tenantId,
+        ...(scopes ? { scopes } : {}),
+        ...(query.status ? { statuses: [query.status] } : {}),
+        ...(query.search ? { search: query.search } : {}),
+        viewer_user_id: request.identity.userId,
+        viewer_session_ids: ownedSessionIds,
+      };
+      const total = request.container.memoryStore.countManagedEntries(filter);
+      const items = request.container.memoryStore.listManagedEntries({ ...filter, limit: query.limit, offset: query.offset });
+      return {
+        success: true,
+        data: { items, total, limit: query.limit, offset: query.offset, has_more: query.offset + items.length < total },
+      };
+    }
     const filter = {
       ...(scopes ? { scopes } : {}),
       ...(query.status ? { statuses: [query.status] } : {}),
@@ -122,7 +135,51 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
     const { id } = EntryParamsSchema.parse(request.params);
     const input = EntryArchiveSchema.parse(request.body);
     const memory = await resolveMemoryApplication(options, request);
-    if (!memory) throw new HttpError(404, "not_found", "memory 不存在");
+    if (!memory) {
+      const ownedSessionIds = request.container.sessionApplication.listSessions({
+        tenantId: request.identity.tenantId,
+        userIds: [request.identity.userId],
+        limit: 10_000,
+        offset: 0,
+      }).items.map((session) => session.session_id);
+      const lookup = {
+        tenant_id: request.identity.tenantId,
+        memory_id: id,
+        viewer_user_id: request.identity.userId,
+        viewer_session_ids: ownedSessionIds,
+      };
+      const resolved = request.container.memoryStore.getManagedEntry(lookup);
+      if (!resolved || resolved.memory.status !== "active") {
+        throw new HttpError(404, "not_found", "memory 不存在或无权归档");
+      }
+      if (resolved.memory.version !== input.expected_version) {
+        throw new HttpError(409, "conflict", "memory 状态已变化，请刷新后重试");
+      }
+      if (resolved.memory.scope === "team" || resolved.memory.scope === "agent") {
+        requireTenantAdmin(request);
+        const candidate = request.container.conversationStore.createMemoryCandidate({
+          tenantId: request.identity.tenantId,
+          ownerUserId: request.identity.userId,
+          targetScope: resolved.memory.scope,
+          operation: "archive",
+          targetFileName: resolved.storage_key,
+          teamName: resolved.scope_spec.team_name ?? "default",
+          ...(resolved.scope_spec.agent_name ? { agentName: resolved.scope_spec.agent_name } : {}),
+          name: `Archive ${resolved.memory.name}`,
+          description: resolved.memory.description,
+          memoryType: resolved.memory.memory_type,
+          content: "",
+        });
+        return { success: true, data: { status: "candidate", candidate } };
+      }
+      const result = await request.container.memoryStore.archiveManagedEntry({
+        ...lookup,
+        expected_version: input.expected_version,
+      });
+      if (result.outcome === "state_conflict") throw new HttpError(409, "conflict", "memory 状态已变化，请刷新后重试");
+      if (result.outcome === "not_found") throw new HttpError(404, "not_found", "memory 不存在或无权归档");
+      return { success: true, data: { status: "archived", entry: result.memory } };
+    }
     const entry = await memory.query.getEntry(id);
     if (!entry || entry.status !== "active" || !canManageEntry(request, entry.scope, entry.scope_id)) {
       throw new HttpError(404, "not_found", "memory 不存在或无权归档");
@@ -253,7 +310,7 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
     }
     const filter = {
       statuses,
-      ...(query.target_scope ? { targetScope: query.target_scope } : {}),
+      targetScopes: query.target_scope ? [query.target_scope] : ["team", "agent"] as Array<"team" | "agent">,
       ...(query.operation ? { operation: query.operation } : {}),
     };
     const total = request.container.conversationStore.countMemoryCandidates(filter);
@@ -358,6 +415,7 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
     if (!candidate || candidate.tenant_id !== request.identity.tenantId || candidate.status !== "candidate") {
       throw new HttpError(404, "not_found", "待审核 memory 不存在");
     }
+    requireLocalGovernedCandidate(candidate.target_scope);
     const claim = request.container.conversationStore.claimMemoryCandidate(id, request.identity.userId);
     if (!claim) {
       throw new HttpError(409, "conflict", "memory 正在被其他管理员处理");
@@ -492,6 +550,7 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
     if (!candidate || candidate.tenant_id !== request.identity.tenantId || candidate.status !== "candidate") {
       throw new HttpError(404, "not_found", "待审核 memory 不存在");
     }
+    requireLocalGovernedCandidate(candidate.target_scope);
     const claim = request.container.conversationStore.claimMemoryCandidate(id, request.identity.userId);
     if (!claim) {
       throw new HttpError(409, "conflict", "memory 正在被其他管理员处理");
@@ -540,6 +599,12 @@ function requireGovernedCandidate(
     throw new HttpError(404, "not_found", "待审核 memory 不存在");
   }
   if (candidate.scope !== "team" && candidate.scope !== "agent") {
+    throw new HttpError(400, "invalid_request", "个人 memory 不进入管理员审核");
+  }
+}
+
+function requireLocalGovernedCandidate(scope: string): void {
+  if (scope !== "team" && scope !== "agent") {
     throw new HttpError(400, "invalid_request", "个人 memory 不进入管理员审核");
   }
 }

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { withLeaseLock } from "@ragsystem/agent-sdk";
 import {
   atomicWriteFile as atomicWriteMemoryFile,
@@ -14,9 +15,17 @@ import type {
   MemoryEntry,
   MemoryEntryFile,
   MemoryIndexReadOptions,
+  MemoryPartition,
   MemoryScopeName,
   MemoryScopeSpec,
   MemoryStoreOptions,
+  PersistedMemoryEntry,
+  PersistedMemoryManagementArchiveInput,
+  PersistedMemoryManagementArchiveResult,
+  PersistedMemoryManagementCountOptions,
+  PersistedMemoryManagementListOptions,
+  PersistedMemoryManagementLookupInput,
+  PersistedMemoryManagementResolvedEntry,
   SaveMemoryInput,
   SavedMemoryFile,
 } from "../../contracts/memory-store/index.js";
@@ -234,6 +243,97 @@ export class MemoryStore implements IMemoryStore {
 
   listEntries(scopeSpec: MemoryScopeSpec, options: { includeArchived?: boolean | undefined } = {}): MemoryEntry[] {
     return readEntriesUnlocked(this.ensureScope(scopeSpec), options.includeArchived === true);
+  }
+
+  listManagedEntries(options: PersistedMemoryManagementListOptions): PersistedMemoryEntry[] {
+    const records = this.collectManagedEntries(options)
+      .filter((entry) => !options.scopes?.length || options.scopes.includes(entry.scope))
+      .filter((entry) => !options.statuses?.length || options.statuses.includes(entry.status))
+      .filter((entry) => matchesManagedSearch(entry, options.search))
+      .sort((left, right) => right.updated_at.localeCompare(left.updated_at) || right.id.localeCompare(left.id));
+    const offset = Math.max(0, options.offset ?? 0);
+    const limit = Math.max(1, Math.min(options.limit ?? (records.length || 1), 500));
+    return records.slice(offset, offset + limit);
+  }
+
+  countManagedEntries(options: PersistedMemoryManagementCountOptions): number {
+    return this.collectManagedEntries(options)
+      .filter((entry) => !options.scopes?.length || options.scopes.includes(entry.scope))
+      .filter((entry) => !options.statuses?.length || options.statuses.includes(entry.status))
+      .filter((entry) => matchesManagedSearch(entry, options.search)).length;
+  }
+
+  getManagedEntry(input: PersistedMemoryManagementLookupInput): PersistedMemoryManagementResolvedEntry | null {
+    return this.collectManagedResolvedEntries({
+      tenant_id: input.tenant_id,
+      viewer_user_id: input.viewer_user_id,
+      viewer_session_ids: input.viewer_session_ids,
+    }).find((entry) => entry.memory.id === input.memory_id) ?? null;
+  }
+
+  async archiveManagedEntry(input: PersistedMemoryManagementArchiveInput): Promise<PersistedMemoryManagementArchiveResult> {
+    const resolved = this.getManagedEntry({
+      tenant_id: input.tenant_id,
+      memory_id: input.memory_id,
+      viewer_user_id: input.viewer_user_id,
+      viewer_session_ids: input.viewer_session_ids,
+    });
+    if (!resolved || resolved.memory.status !== "active") return { outcome: "not_found" };
+    const visible = resolved.memory;
+    if (visible.version !== input.expected_version) return { outcome: "state_conflict" };
+    const archived = await this.archiveMemory(resolved.scope_spec, resolved.storage_key);
+    if (!archived) return { outcome: "not_found" };
+    return {
+      outcome: "archived",
+      memory: { ...visible, status: "archived", archived_at: visible.updated_at },
+    };
+  }
+
+  private collectManagedEntries(options: PersistedMemoryManagementCountOptions): PersistedMemoryEntry[] {
+    return this.collectManagedResolvedEntries(options).map((entry) => entry.memory);
+  }
+
+  private collectManagedResolvedEntries(
+    options: PersistedMemoryManagementCountOptions,
+  ): PersistedMemoryManagementResolvedEntry[] {
+    const memoryRoot = path.join(this.dataRoot, "memory");
+    if (!fs.existsSync(memoryRoot)) return [];
+    const partitions: Array<{ spec: MemoryScopeSpec; partition: Omit<MemoryPartition, "tenant_id"> }> = [];
+    const teamsRoot = path.join(memoryRoot, "teams");
+    for (const teamName of listChildDirectories(teamsRoot)) {
+      partitions.push({ spec: { scope: "team", team_name: teamName }, partition: { scope: "team", scope_id: teamName } });
+      const agentsRoot = path.join(teamsRoot, teamName, "agents");
+      for (const agentName of listChildDirectories(agentsRoot)) {
+        partitions.push({
+          spec: { scope: "agent", team_name: teamName, agent_name: agentName },
+          partition: { scope: "agent", scope_id: JSON.stringify([teamName, agentName]) },
+        });
+      }
+    }
+    for (const sessionId of options.viewer_session_ids ?? []) {
+      if (fs.existsSync(path.join(memoryRoot, "sessions", sessionId))) {
+        partitions.push({ spec: { scope: "session", session_id: sessionId }, partition: { scope: "session", scope_id: sessionId } });
+      }
+    }
+    const userId = options.viewer_user_id;
+    if (userId) {
+      const userRoot = path.join(memoryRoot, "users", userId);
+      if (fs.existsSync(userRoot)) {
+        partitions.push({ spec: { scope: "user", user_id: userId }, partition: { scope: "user", scope_id: userId } });
+      }
+      for (const workspaceKey of listChildDirectories(path.join(userRoot, "workspaces"))) {
+        partitions.push({
+          spec: { scope: "workspace", user_id: userId, workspace_key: workspaceKey },
+          partition: { scope: "workspace", scope_id: JSON.stringify([userId, workspaceKey]) },
+        });
+      }
+    }
+    return partitions.flatMap(({ spec, partition }) => this.listEntries(spec, { includeArchived: true })
+      .map((entry) => ({
+        memory: toPersistedLocalEntry(options.tenant_id, spec, partition, entry),
+        scope_spec: spec,
+        storage_key: entry.file_name,
+      })));
   }
 
   async archiveMemory(scopeSpec: MemoryScopeSpec, fileName: string): Promise<boolean> {
@@ -544,4 +644,54 @@ function resolveEntryPath(scopeRoot: string, fileName: string): string {
 
 function asMemoryScopeName(value: string | undefined): MemoryScopeName {
   return value === "team" || value === "agent" || value === "workspace" || value === "user" ? value : "session";
+}
+
+function listChildDirectories(root: string): string[] {
+  try {
+    return fs.readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+      .map((entry) => entry.name);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+function toPersistedLocalEntry(
+  tenantId: string,
+  scopeSpec: MemoryScopeSpec,
+  partition: Omit<MemoryPartition, "tenant_id">,
+  entry: MemoryEntry,
+): PersistedMemoryEntry {
+  const status = entry.status === "archived" ? "archived" : "active";
+  return {
+    id: encodeLocalManagedId(scopeSpec, entry.file_name),
+    tenant_id: tenantId,
+    ...partition,
+    name: entry.name,
+    description: entry.description,
+    memory_type: entry.memory_type,
+    content: entry.body,
+    why: null,
+    how_to_apply: null,
+    status,
+    source_run_id: null,
+    source_message_id: null,
+    version: 1,
+    created_at: entry.created_at,
+    updated_at: entry.updated_at,
+    archived_at: status === "archived" ? entry.updated_at : null,
+  };
+}
+
+function encodeLocalManagedId(scopeSpec: MemoryScopeSpec, fileName: string): string {
+  const hex = createHash("sha256").update(JSON.stringify({ scopeSpec, fileName })).digest("hex").slice(0, 32);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20)}`;
+}
+
+function matchesManagedSearch(entry: PersistedMemoryEntry, search: string | undefined): boolean {
+  const query = search?.trim().toLocaleLowerCase();
+  if (!query) return true;
+  return [entry.name, entry.description, entry.content]
+    .some((value) => value.toLocaleLowerCase().includes(query));
 }

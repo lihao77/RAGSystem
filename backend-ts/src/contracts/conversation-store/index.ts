@@ -283,6 +283,7 @@ export interface IMemoryCandidateStore {
     ownerUserId?: string | null;
     statuses?: MemoryCandidateStatus[];
     targetScope?: "team" | "agent" | null;
+    targetScopes?: Array<"team" | "agent">;
     teamName?: string | null;
     agentName?: string | null;
     operation?: "publish" | "archive" | null;
@@ -294,6 +295,7 @@ export interface IMemoryCandidateStore {
     ownerUserId?: string | null;
     statuses?: MemoryCandidateStatus[];
     targetScope?: "team" | "agent" | null;
+    targetScopes?: Array<"team" | "agent">;
     teamName?: string | null;
     agentName?: string | null;
     operation?: "publish" | "archive" | null;

@@ -28,6 +28,15 @@ http://localhost:8080/memory
 
 页面支持名称/内容搜索、scope 筛选、详情查看、候选编辑/撤回和归档。管理员或所有者可以批准、拒绝共享候选，并发起共享 Memory 的归档申请。
 
+管理页面同时支持两种部署模式：
+
+| 模式 | 正式 Memory 来源 | 候选与审核来源 |
+|---|---|---|
+| Local | `dataRoot/memory` 下的 Markdown 文件 | Local SQLite |
+| SaaS | PostgreSQL `memory_entries` | PostgreSQL `memory_candidates` |
+
+前端使用同一组 `/api/memory` 接口。后端通过部署适配器列出和归档正式 Memory，不会让页面直接读取文件系统或数据库。
+
 ## 个人与共享
 
 | 分类 | Scope | 可见范围 | 写入行为 |
@@ -90,6 +99,8 @@ write_memory(team/agent)
 
 归档操作携带 entry 的 `expected_version`，避免从旧页面覆盖已经变化的数据。
 
+Local 模式返回短的 opaque entry ID。该 ID 只用于管理 API 定位当前用户可见的 Markdown 条目，不是文件名或文件路径。服务端会再次校验 user/session 可见性；其他用户的个人 Memory 不会因为知道 ID 而变得可访问。
+
 ## PostgreSQL 中的数据
 
 Hybrid SaaS 模式下，Memory 位于 PostgreSQL：
@@ -145,5 +156,7 @@ PostgreSQL Memory schema version 4 会幂等迁移旧策略留下的 session、u
 - Control、身份、会话、消息、配置、知识库和文件仍主要使用租户 SQLite/本地目录；
 - Memory 管理页的 Active Entry 查询面向 PostgreSQL Memory；
 - 还不能把当前形态视为无状态、可横向扩容的完整 SaaS。
+
+Local 模式的 Memory 管理页已经可以列出个人和共享的正式条目、查看历史、直接归档个人条目，以及为 team/agent 创建归档审核候选。Local 数据仍以 Markdown 和 SQLite 为准，不会自动写入 PostgreSQL；只有使用 filesystem importer 执行迁移时才会导入 SaaS Memory。
 
 API 请求和响应见 [Memory API](/04-api/memory)，部署边界见 [部署模式与多租户](/06-operations/deployment)。

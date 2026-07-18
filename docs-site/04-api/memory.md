@@ -30,6 +30,8 @@ Memory API 前缀为 `/api/memory`。所有路由要求 tenant identity；普通
 
 列出当前用户可见的正式 Memory。
 
+该接口在两种部署模式下保持同一响应结构：SaaS 从 PostgreSQL 查询，Local 从当前 `dataRoot` 的 Memory 文件读取。Local 返回的 `id` 是稳定 opaque ID，调用方不应解析或将其当作文件名。
+
 | Query | 类型 | 默认值 | 说明 |
 |---|---|---:|---|
 | `scope` | string | 全部 | 逗号分隔：`session,user,workspace,team,agent` |
@@ -69,6 +71,8 @@ Authorization: Bearer <session-token>
 - team/agent：仅 admin/owner 可发起，返回 `data.status = "candidate"`；
 - entry 版本不匹配返回 `409 conflict`；
 - 不存在或无权访问统一返回 `404`。
+
+Local 模式会把个人归档写回 Markdown，并在 team/agent 归档时创建 SQLite candidate；SaaS 模式在 PostgreSQL 中执行对应操作。路径参数 `:id` 在两种模式下都是 opaque ID，客户端必须使用列表响应原样返回的值。
 
 ## 创建者候选
 
@@ -114,6 +118,8 @@ Authorization: Bearer <session-token>
 ## 管理员审核
 
 管理员接口只处理 team/agent 候选，个人 Memory 不进入管理员审核。
+
+这一限制同时适用于 Local 的 SQLite candidate 队列和 SaaS 的 PostgreSQL candidate 队列。历史遗留的个人 candidate 不会出现在管理员审核列表中，也不能通过管理员批准/拒绝接口处理。
 
 ### GET /api/memory/admin/candidates
 

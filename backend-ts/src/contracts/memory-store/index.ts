@@ -13,6 +13,15 @@ import type {
   SaveMemoryInput,
   SavedMemoryFile,
 } from "./types.js";
+import type {
+  PersistedMemoryEntry,
+  PersistedMemoryManagementArchiveInput,
+  PersistedMemoryManagementArchiveResult,
+  PersistedMemoryManagementCountOptions,
+  PersistedMemoryManagementListOptions,
+  PersistedMemoryManagementLookupInput,
+  PersistedMemoryManagementResolvedEntry,
+} from "./persistence-types.js";
 
 export * from "./types.js";
 export * from "./persistence-types.js";
@@ -41,6 +50,14 @@ export interface MemoryScopeRevisionReader {
   getScopeRevision(scopeSpec: MemoryScopeSpec): string | number;
 }
 
+/** Deployment-neutral management listing used by the Memory manager UI. */
+export interface MemoryManagementReader {
+  listManagedEntries(options: PersistedMemoryManagementListOptions): PersistedMemoryEntry[];
+  countManagedEntries(options: PersistedMemoryManagementCountOptions): number;
+  getManagedEntry(input: PersistedMemoryManagementLookupInput): PersistedMemoryManagementResolvedEntry | null;
+  archiveManagedEntry(input: PersistedMemoryManagementArchiveInput): Promise<PersistedMemoryManagementArchiveResult>;
+}
+
 /** 部署无关的 memory 持久化能力；消费者应优先依赖此接口。 */
 export interface MemoryRepository extends MemoryIndexReader {
   readEntryFile(scopeSpec: MemoryScopeSpec, fileName: string): MemoryEntryFile | null;
@@ -64,4 +81,4 @@ export interface MemoryRepositoryLocationProvider {
 }
 
 /** @deprecated 新消费者使用 MemoryRepository；保留给现有 Local 调用方兼容。 */
-export interface IMemoryStore extends MemoryRepository, MemoryRepositoryLocationProvider {}
+export interface IMemoryStore extends MemoryRepository, MemoryRepositoryLocationProvider, MemoryManagementReader {}

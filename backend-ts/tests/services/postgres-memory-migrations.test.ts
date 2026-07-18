@@ -32,8 +32,8 @@ describe("PostgreSQL memory migration runner", () => {
 
     await expect(runPostgresMemoryMigrations(executor)).resolves.toEqual({
       previous_version: 1,
-      current_version: 3,
-      applied_versions: [2, 3],
+      current_version: 4,
+      applied_versions: [2, 3, 4],
     });
     expect(executor.transactions).toBe(1);
     expect(executor.calls[0]?.sql).toBe("SELECT pg_advisory_xact_lock($1)");
@@ -42,6 +42,7 @@ describe("PostgreSQL memory migration runner", () => {
     expect(inserts.map((call) => call.params)).toEqual([
       [2, "memory-candidates"],
       [3, "memory-candidate-review-claims"],
+      [4, "publish-existing-personal-memory-candidates"],
     ]);
   });
 
@@ -50,6 +51,7 @@ describe("PostgreSQL memory migration runner", () => {
       { version: 1, name: "memory-entries" },
       { version: 2, name: "memory-candidates" },
       { version: 3, name: "memory-candidate-review-claims" },
+      { version: 4, name: "publish-existing-personal-memory-candidates" },
     ]);
 
     const migrated = await runPostgresMemoryMigrations(executor);

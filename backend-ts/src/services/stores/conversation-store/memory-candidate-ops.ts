@@ -45,6 +45,7 @@ export class MemoryCandidateOps implements IMemoryCandidateStore {
     ownerUserId?: string | null;
     statuses?: MemoryCandidateStatus[];
     targetScope?: "team" | "agent" | null;
+    targetScopes?: Array<"team" | "agent">;
     teamName?: string | null;
     agentName?: string | null;
     operation?: "publish" | "archive" | null;
@@ -70,6 +71,7 @@ export class MemoryCandidateOps implements IMemoryCandidateStore {
     ownerUserId?: string | null;
     statuses?: MemoryCandidateStatus[];
     targetScope?: "team" | "agent" | null;
+    targetScopes?: Array<"team" | "agent">;
     teamName?: string | null;
     agentName?: string | null;
     operation?: "publish" | "archive" | null;
@@ -176,6 +178,7 @@ function buildCandidateWhere(input: {
   ownerUserId?: string | null;
   statuses?: MemoryCandidateStatus[];
   targetScope?: "team" | "agent" | null;
+  targetScopes?: Array<"team" | "agent">;
   teamName?: string | null;
   agentName?: string | null;
   operation?: "publish" | "archive" | null;
@@ -188,6 +191,10 @@ function buildCandidateWhere(input: {
     params.push(...input.statuses);
   }
   if (input.targetScope) { clauses.push("target_scope=?"); params.push(input.targetScope); }
+  if (input.targetScopes?.length) {
+    clauses.push(`target_scope IN (${input.targetScopes.map(() => "?").join(",")})`);
+    params.push(...input.targetScopes);
+  }
   if (input.teamName) { clauses.push("team_name=?"); params.push(input.teamName); }
   if (input.agentName) { clauses.push("agent_name=?"); params.push(input.agentName); }
   if (input.operation) { clauses.push("operation=?"); params.push(input.operation); }

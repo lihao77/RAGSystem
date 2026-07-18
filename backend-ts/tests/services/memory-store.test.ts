@@ -188,6 +188,40 @@ describe("MemoryStore", () => {
     expect(await store.archiveMemory({ scope: "session", session_id: "s1" }, saved.file_name)).toBe(false);
   });
 
+  it("lists only visible managed scopes and resolves opaque ids for archive", async () => {
+    const store = new MemoryStore({ dataRoot: makeTempDataRoot() });
+    await Promise.all([
+      store.saveMemory({ scope: "team", team_name: "alpha", name: "Shared", description: "team", memory_type: "fact", content: "shared" }),
+      store.saveMemory({ scope: "user", user_id: "alice", name: "Mine", description: "personal", memory_type: "preference", content: "mine" }),
+      store.saveMemory({ scope: "user", user_id: "bob", name: "Hidden", description: "other", memory_type: "fact", content: "hidden" }),
+      store.saveMemory({ scope: "workspace", user_id: "alice", workspace_key: "demo", name: "Workspace", description: "project", memory_type: "goal", content: "workspace" }),
+      store.saveMemory({ scope: "session", session_id: "owned-session", name: "Owned session", description: "owned", memory_type: "fact", content: "owned" }),
+      store.saveMemory({ scope: "session", session_id: "other-session", name: "Hidden session", description: "other", memory_type: "fact", content: "hidden" }),
+    ]);
+    const options = {
+      tenant_id: "tnt_local",
+      viewer_user_id: "alice",
+      viewer_session_ids: ["owned-session"],
+      statuses: ["active" as const],
+    };
+
+    const entries = store.listManagedEntries(options);
+    expect(entries.map((entry) => entry.name).sort()).toEqual(["Mine", "Owned session", "Shared", "Workspace"]);
+    expect(entries.every((entry) => /^[0-9a-f-]{36}$/.test(entry.id))).toBe(true);
+    expect(store.countManagedEntries({ ...options, search: "personal" })).toBe(1);
+
+    const mine = entries.find((entry) => entry.name === "Mine");
+    expect(mine).toBeDefined();
+    const resolved = store.getManagedEntry({ ...options, memory_id: mine!.id });
+    expect(resolved).toMatchObject({ memory: { name: "Mine", scope: "user" }, storage_key: expect.stringMatching(/\.md$/) });
+    await expect(store.archiveManagedEntry({ ...options, memory_id: mine!.id, expected_version: mine!.version }))
+      .resolves.toMatchObject({ outcome: "archived", memory: { status: "archived" } });
+    expect(store.listManagedEntries(options).map((entry) => entry.name)).not.toContain("Mine");
+    expect(store.listManagedEntries({ ...options, statuses: ["archived"] })).toEqual([
+      expect.objectContaining({ name: "Mine", status: "archived" }),
+    ]);
+  });
+
   it("uses the same workspace memory key normalization as Python", () => {
     expect(getWorkspaceMemoryKey("E:/Python/RAGSystem/workspaces/demo workspace")).toBe(
       "E-Python-RAGSystem-workspaces-demo-workspace",
