@@ -19,6 +19,8 @@ import {
   runPostgresProviderMcpMigrations,
   runPostgresVectorIndexMigrations,
   PostgresKnowledgeVectorIndexRepository,
+  runPostgresPgVectorMigrations,
+  PostgresPgVectorRepository,
   runPostgresRunMigrations,
 } from "../../adapters/saas/postgres/index.js";
 import type { ObjectStorage } from "../../contracts/object-storage.js";
@@ -50,6 +52,8 @@ export interface SaaSConversationRuntimeHandle {
   /** Tenant-bound asynchronous knowledge metadata/blob facade. */
   createKnowledgeFileStorage(tenantId: string): AsyncKnowledgeFileStore;
   vectorIndex: PostgresKnowledgeVectorIndexRepository;
+  /** Tenant-scoped vector data-plane backed by PostgreSQL pgvector. */
+  vectorStore: PostgresPgVectorRepository;
   providerMcp: PostgresProviderMcpRepository;
   providerMcpApplication: SaaSProviderMcpApplication;
   close(): Promise<void>;
@@ -73,6 +77,7 @@ export async function createSaaSConversationRuntime(
       await runPostgresArtifactMigrations(executor);
       await runPostgresProviderMcpMigrations(executor);
       await runPostgresVectorIndexMigrations(executor);
+      await runPostgresPgVectorMigrations(executor);
     }
     const conversation = new PostgresConversationRepository(executor);
     const runs = new PostgresRunRepository(executor);
@@ -83,6 +88,7 @@ export async function createSaaSConversationRuntime(
     const artifacts = new PostgresArtifactMetadataRepository(executor);
     const providerMcp = new PostgresProviderMcpRepository(executor, options.secretResolver);
     const vectorIndex = new PostgresKnowledgeVectorIndexRepository(executor);
+    const vectorStore = new PostgresPgVectorRepository(executor);
     let closePromise: Promise<void> | null = null;
     return {
       conversation,
@@ -103,6 +109,7 @@ export async function createSaaSConversationRuntime(
       providerMcp,
       providerMcpApplication: new SaaSProviderMcpApplication(providerMcp),
       vectorIndex,
+      vectorStore,
       close: () => {
         closePromise ??= ownsPool ? pool.end() : Promise.resolve();
         return closePromise;

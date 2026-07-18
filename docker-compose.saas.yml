@@ -30,7 +30,7 @@ services:
       mc mb --ignore-existing local/${OBJECT_STORAGE_BUCKET:-ragsystem}"
 
   postgres:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg17
     container_name: ragsystem-saas-postgres
     environment:
       POSTGRES_DB: ragsystem
