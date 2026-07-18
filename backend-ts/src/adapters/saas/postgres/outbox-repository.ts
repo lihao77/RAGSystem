@@ -41,6 +41,9 @@ export class PostgresOutboxRepository implements AsyncOutboxStore {
       const tenantId = session.rows[0]?.tenant_id;
       if (!tenantId) throw new Error(`session missing tenant: ${normalized.sessionId}`);
       const seq = normalized.sessionSeq ?? Number((await tx.query("INSERT INTO session_event_seq(session_id,next_seq) VALUES($1,2) ON CONFLICT(session_id) DO UPDATE SET next_seq=session_event_seq.next_seq+1 RETURNING next_seq-1 AS seq", [normalized.sessionId])).rows[0]?.seq ?? 1);
+      if (normalized.sessionSeq != null) {
+        await tx.query("INSERT INTO session_event_seq(session_id,next_seq) VALUES($1,$2) ON CONFLICT(session_id) DO UPDATE SET next_seq=GREATEST(session_event_seq.next_seq,EXCLUDED.next_seq)", [normalized.sessionId, seq + 1]);
+      }
       const inserted = await tx.query(`INSERT INTO event_outbox(event_id,session_id,tenant_id,run_id,session_seq,event_type,aggregate_type,aggregate_id,payload,available_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,COALESCE($10::timestamptz,CURRENT_TIMESTAMP)) ON CONFLICT(session_id,session_seq) DO NOTHING RETURNING ${SELECT}`,
         [eventId, normalized.sessionId, tenantId, normalized.runId ?? null, seq, normalized.eventType, normalized.aggregateType, normalized.aggregateId, JSON.stringify(normalized.payload), normalized.availableAt ?? null]);
       if (inserted.rows[0]) return row(inserted.rows[0]);
