@@ -7,11 +7,27 @@ import type { ControlStore } from "../stores/control-store/index.js";
 import { createRuntimeContainer, type RuntimeContainer, type RuntimeContainerOptions } from "./runtime-container.js";
 import { TenantPaths } from "./tenant-paths.js";
 
-export interface TenantRuntimeLease {
+/**
+ * A runtime lease is deployment-agnostic. Implementations decide how a
+ * runtime is located and provisioned; callers only own/release the lease.
+ */
+export interface RuntimeLease<TRuntime> {
   readonly tenantId: TenantId;
-  readonly runtime: RuntimeContainer;
+  readonly runtime: TRuntime;
   release(): void;
 }
+
+export interface RuntimeProvider<TRuntime> {
+  acquire(tenantId: string): Promise<RuntimeLease<TRuntime>>;
+}
+
+export interface RuntimeRegistry<TRuntime> extends RuntimeProvider<TRuntime> {
+  closeTenant(tenantId: string): Promise<void>;
+  closeAll(): Promise<void>;
+}
+
+/** Local runtime lease retained as the public tenant-runtime contract. */
+export type TenantRuntimeLease = RuntimeLease<RuntimeContainer>;
 
 export interface TenantRuntimeActivityLease {
   release(): void;
@@ -32,15 +48,23 @@ export interface DaemonRouteTarget {
   botId: UserId;
 }
 
-export interface TenantRuntimeRegistryOptions {
+/** Options for the local, filesystem-backed runtime registry. */
+export interface LocalTenantRuntimeRegistryOptions {
   idleTimeoutMs?: number;
   sweepIntervalMs?: number;
   runtimeOptions?: Omit<RuntimeContainerOptions, "tenantId" | "dbPath" | "dataRoot" | "logger">;
   runtimeFactory?: (options: RuntimeContainerOptions) => RuntimeContainer;
 }
 
-export interface TenantRuntimeRegistry {
-  acquire(tenantId: string): Promise<TenantRuntimeLease>;
+/** @deprecated Use LocalTenantRuntimeRegistryOptions for local deployments. */
+export type TenantRuntimeRegistryOptions = LocalTenantRuntimeRegistryOptions;
+
+/**
+ * Local registry extensions used by the HTTP/daemon routes. SaaS registries
+ * can implement RuntimeRegistry without taking a dependency on these
+ * filesystem/runtime-container details.
+ */
+export interface TenantRuntimeRegistry extends RuntimeRegistry<RuntimeContainer> {
   acquireForSession(sessionId: string): Promise<TenantRuntimeLease | null>;
   forTenant(tenantId: string): RuntimeContainer;
   trackWebSocket(tenantId: string): TenantRuntimeActivityLease;
@@ -53,7 +77,7 @@ export interface TenantRuntimeRegistry {
   closeAll(): Promise<void>;
 }
 
-type RuntimeEntryState = "initializing" | "ready" | "closing" | "closed" | "failed";
+export type RuntimeEntryState = "initializing" | "ready" | "closing" | "closed" | "failed";
 
 interface RuntimeEntry {
   tenantId: TenantId;
@@ -69,7 +93,7 @@ interface RuntimeEntry {
 
 const DEFAULT_IDLE_TIMEOUT_MS = 60_000;
 
-export class DefaultTenantRuntimeRegistry implements TenantRuntimeRegistry {
+export class LocalTenantRuntimeRegistry implements TenantRuntimeRegistry {
   private readonly entries = new Map<TenantId, RuntimeEntry>();
   private readonly routeTokenIndex = new Map<string, DaemonRouteTarget>();
   private readonly idleTimeoutMs: number;
@@ -82,7 +106,7 @@ export class DefaultTenantRuntimeRegistry implements TenantRuntimeRegistry {
     private readonly env: AppEnv,
     private readonly controlStore?: ControlStore,
     private readonly logger?: AgentExecutionLogger,
-    options: TenantRuntimeRegistryOptions = {},
+    options: LocalTenantRuntimeRegistryOptions = {},
   ) {
     this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     this.runtimeFactory = options.runtimeFactory ?? createRuntimeContainer;
@@ -288,3 +312,10 @@ export class DefaultTenantRuntimeRegistry implements TenantRuntimeRegistry {
     }
   }
 }
+
+/**
+ * Backwards-compatible name used by existing Local-mode composition roots.
+ * New code should select the deployment explicitly with
+ * LocalTenantRuntimeRegistry.
+ */
+export { LocalTenantRuntimeRegistry as DefaultTenantRuntimeRegistry };

@@ -10,26 +10,13 @@ import "./fastify-context.js";
 
 import { resolveProfileFromSettings, type AppEnv } from "./config/env.js";
 import type { DeploymentProfile } from "./identity/types.js";
-import { registerAgentConfigRoutes } from "./routes/agent-config.js";
-import { registerMemoryRoutes } from "./routes/memory.js";
-import { registerArtifactRoutes } from "./routes/artifacts.js";
-import { registerBotRoutes } from "./routes/bots.js";
-import { registerEmbeddingModelRoutes } from "./routes/embedding-models.js";
-import { registerMcpRoutes } from "./routes/mcp.js";
-import { registerModelAdapterRoutes } from "./routes/model-adapter.js";
-import { registerSkillRoutes } from "./routes/skills.js";
-import { registerSystemConfigRoutes } from "./routes/system-config.js";
-import { registerKnowledgeBaseRoutes } from "./routes/knowledge-base.js";
-import { registerAgentRoutes } from "./routes/agent/index.js";
-import { registerSessionWebSocketRoute } from "./routes/agent/ws.js";
-import { registerAguiRoutes } from "./routes/agent/agui.js";
-import { registerHealthRoutes, registerProbeRoutes } from "./routes/health.js";
-import { registerWidgetRoutes } from "./routes/widget.js";
-import { registerWidgetAppsRoutes } from "./routes/widget-apps.js";
-import { registerBootstrapRoutes } from "./routes/bootstrap.js";
-import { registerAuthRoutes, registerInstallRoutes } from "./routes/auth.js";
-import { registerAdminRoutes } from "./routes/admin.js";
-import { registerPlatformRoutes } from "./routes/platform.js";
+import {
+  registerManagementAndPlatformRoutes,
+  registerPublicAndAuthRoutes,
+  registerSharedBusinessRoutes,
+  registerWidgetAndRealtimeRoutes,
+  type AuthRuntime,
+} from "./app/route-assembly.js";
 import { HttpError, formatError } from "./utils/errors.js";
 import { createControlStore, type ControlStore } from "./services/stores/control-store/index.js";
 import { createWidgetCredentialStore, type WidgetCredentialStore } from "./services/stores/widget-credential-store/index.js";
@@ -280,138 +267,34 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
   await app.register(websocket);
 
-  await app.register(registerProbeRoutes, { controlStore });
-  await app.register(registerBootstrapRoutes, { prefix: "/api", env: options.env, controlStore, runtime });
-  await app.register(registerInstallRoutes, { prefix: "/api", controlStore, runtime, refreshProfile });
-  await app.register(registerAuthRoutes, { prefix: "/api/auth", controlStore, runtime });
-
-  await app.register(async (scope) => {
-    installIdentityScope(scope, { identityProvider: routedIdentityProvider, registry });
-    const routeOptions = { registry, identityProvider: routedIdentityProvider };
-    await scope.register(registerHealthRoutes, { prefix: "/api", ...routeOptions });
-    await scope.register(registerArtifactRoutes, { prefix: "/api/artifacts", ...routeOptions });
-    await scope.register(registerAgentConfigRoutes, { prefix: "/api/agent-config", ...routeOptions });
-    await scope.register(registerMemoryRoutes, { prefix: "/api/memory", ...routeOptions });
-    await scope.register(registerSkillRoutes, { prefix: "/api/skills", ...routeOptions });
-    await scope.register(registerModelAdapterRoutes, { prefix: "/api/model-adapter", ...routeOptions });
-    await scope.register(registerSystemConfigRoutes, { prefix: "/api/system-config", ...routeOptions });
-    await scope.register(registerMcpRoutes, { prefix: "/api/mcp", ...routeOptions });
-    await scope.register(registerKnowledgeBaseRoutes, { prefix: "/api/knowledge-bases", ...routeOptions });
-    await scope.register(registerEmbeddingModelRoutes, { prefix: "/api/embedding-models", ...routeOptions });
-    await scope.register(registerAgentRoutes, {
-      prefix: "/api/agent",
-      ...routeOptions,
-      widgetCredentialStore,
-      wsTickets,
-      ...(widgetAuth ? { widgetAuth } : {}),
-    });
-    if (!widgetIdentityProvider) {
-      await scope.register(registerAguiRoutes, {
-        prefix: "/api/agui",
-        ...routeOptions,
-        widgetCredentialStore,
-      });
-    }
-  });
-
-  await app.register(async (scope) => {
-    installIdentityScope(scope, { identityProvider: routedIdentityProvider });
-    await scope.register(registerAdminRoutes, { prefix: "/api/admin", controlStore });
-    await scope.register(registerPlatformRoutes, { prefix: "/api/platform", controlStore, registry });
-    await scope.register(registerBotRoutes, {
-      prefix: "/api/bots",
-      registry,
-      identityProvider: routedIdentityProvider,
-    });
-    await scope.register(registerWidgetAppsRoutes, {
-      prefix: "/api/widget/apps",
-      registry,
-      identityProvider: routedIdentityProvider,
-      widgetCredentialStore,
-      ...(widgetAuth ? { widgetAuth } : {}),
-    });
-  });
-
-  if (widgetIdentityProvider && widgetAuth) {
-    await app.register(async (scope) => {
-      installIdentityScope(scope, { identityProvider: widgetIdentityProvider, registry, mapAllIdentityErrorsToUnauthorized: true });
-      await scope.register(registerAguiRoutes, {
-        prefix: "/api/agui",
-        registry,
-        identityProvider: routedIdentityProvider,
-        widgetCredentialStore,
-        widgetAuth,
-      });
-      await scope.register(registerWidgetRoutes, {
-        prefix: "/api/widget",
-        registry,
-        identityProvider: routedIdentityProvider,
-        widgetCredentialStore,
-        wsTickets,
-        widgetAuth,
-      });
-    });
-  } else {
-    await app.register(registerWidgetRoutes, {
-      prefix: "/api/widget",
-      registry,
-      identityProvider: routedIdentityProvider,
-      widgetCredentialStore,
-      wsTickets,
-    });
-  }
-
-  await app.register(registerSessionWebSocketRoute, {
-    prefix: "/api/agent",
+  await registerPublicAndAuthRoutes(app, { env: options.env, controlStore, runtime, refreshProfile });
+  await registerSharedBusinessRoutes(app, {
     registry,
     identityProvider: routedIdentityProvider,
     widgetCredentialStore,
     wsTickets,
+    registerPublicAgui: !widgetIdentityProvider,
+    ...(widgetAuth ? { widgetAuth } : {}),
+  });
+  await registerManagementAndPlatformRoutes(app, {
+    controlStore,
+    registry,
+    identityProvider: routedIdentityProvider,
+    widgetCredentialStore,
+    ...(widgetAuth ? { widgetAuth } : {}),
+  });
+  await registerWidgetAndRealtimeRoutes(app, {
+    registry,
+    identityProvider: routedIdentityProvider,
+    widgetCredentialStore,
+    wsTickets,
+    ...(widgetIdentityProvider ? { widgetIdentityProvider } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
   });
 
   registerFrontendFallback(app);
 
   return app;
-}
-
-interface IdentityScopeOptions {
-  identityProvider: IdentityProvider;
-  registry?: TenantRuntimeRegistry;
-  mapAllIdentityErrorsToUnauthorized?: boolean;
-}
-
-function installIdentityScope(app: FastifyInstance, options: IdentityScopeOptions): void {
-  app.addHook("onRequest", async (request) => {
-    if (request.method === "OPTIONS" || isExplicitPublicRoute(request)) return;
-    let identity;
-    try {
-      identity = options.identityProvider.resolve(request);
-    } catch (error) {
-      if (error instanceof AuthError || options.mapAllIdentityErrorsToUnauthorized) {
-        throw new HttpError(401, "unauthorized", error instanceof Error ? error.message : "认证失败");
-      }
-      throw error;
-    }
-    request.identity = identity;
-    request.userId = identity.userId;
-    request.tenantId = identity.tenantId;
-    if (!options.registry) return;
-    const lease = await options.registry.acquire(identity.tenantId);
-    request.container = lease.runtime;
-    request.tenantRuntimeLease = lease;
-  });
-}
-
-function isExplicitPublicRoute(request: FastifyRequest): boolean {
-  const config = request.routeOptions.config as { auth?: unknown };
-  return config.auth === "public";
-}
-
-interface AuthRuntime {
-  profile: DeploymentProfile;
-  sessionTokens: SessionTokenService | undefined;
-  identityProvider: IdentityProvider;
 }
 
 function createSessionTokens(authMode: string, env: AppEnv, controlStore: ControlStore): SessionTokenService | undefined {

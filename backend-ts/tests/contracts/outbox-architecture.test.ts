@@ -11,7 +11,8 @@ describe("outbox event architecture", () => {
     const realtimeHubImportAllowed = new Set([
       normalize("src/services/runtime/realtime-event-hub.ts"),
       normalize("src/services/runtime/event-outbox/dispatcher.ts"),
-      normalize("src/services/runtime/runtime-container.ts"),
+      normalize("src/services/runtime/local-runtime-container.ts"),
+      normalize("src/services/runtime/runtime-container-contracts.ts"),
     ]);
     const directPublishAllowed = new Set([
       normalize("src/services/runtime/event-outbox/dispatcher.ts"),
