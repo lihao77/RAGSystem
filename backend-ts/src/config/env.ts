@@ -21,6 +21,7 @@ const ExecutionModeSchema = z.enum(["local", "docker", "remote"]);
 const StorageModeSchema = z.enum(["sqlite", "sqlite-per-tenant", "postgres"]);
 const ControlStorageModeSchema = z.enum(["sqlite", "postgres"]);
 const UiModeSchema = z.enum(["local", "saas"]);
+const ObjectStorageModeSchema = z.enum(["filesystem", "s3"]);
 
 const EnvSchema = z.object({
   BACKEND_TS_HOST: z.string().optional(),
@@ -44,6 +45,9 @@ const EnvSchema = z.object({
   POSTGRES_POOL_MAX: z.string().optional(),
   CONTROL_DATABASE_URL: z.string().optional(),
   CONTROL_SECRET_MASTER_KEY: z.string().optional(),
+  OBJECT_STORAGE_MODE: ObjectStorageModeSchema.optional(),
+  OBJECT_STORAGE_BUCKET: z.string().optional(),
+  OBJECT_STORAGE_ENDPOINT: z.string().optional(),
 });
 
 export interface AppEnv {
@@ -66,6 +70,10 @@ export interface AppEnv {
   controlDatabaseUrl?: string | undefined;
   controlSecretMasterKey?: Buffer | undefined;
   postgresPoolMax: number;
+  /** Blob storage selected by the composition root. SaaS must use s3. */
+  objectStorageMode: "filesystem" | "s3";
+  objectStorageBucket?: string | undefined;
+  objectStorageEndpoint?: string | undefined;
   widgetJwtKeyRing?: JwtKeyRing | undefined;
   /** 用户 session JWT 签名密钥；password 模式必须可解析。 */
   sessionJwtSecret?: string | undefined;
@@ -117,6 +125,9 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     controlDatabaseUrl: env.CONTROL_DATABASE_URL?.trim() || undefined,
     controlSecretMasterKey: parseSecretMasterKey(env.CONTROL_SECRET_MASTER_KEY),
     postgresPoolMax: parsePositiveInteger(env.POSTGRES_POOL_MAX, 10, "POSTGRES_POOL_MAX"),
+    objectStorageMode: env.OBJECT_STORAGE_MODE ?? "filesystem",
+    objectStorageBucket: env.OBJECT_STORAGE_BUCKET?.trim() || undefined,
+    objectStorageEndpoint: env.OBJECT_STORAGE_ENDPOINT?.trim() || undefined,
     widgetJwtKeyRing: parseWidgetJwtKeyRing(env.WIDGET_JWT_KEY_RING),
     sessionJwtSecret: env.SESSION_JWT_SECRET?.trim() || undefined,
     sessionTokenTtlHours: parsePositiveNumber(env.SESSION_TOKEN_TTL_HOURS, 168, "SESSION_TOKEN_TTL_HOURS"),
@@ -129,6 +140,14 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
   }
   if (appEnv.controlStorageMode === "postgres" && !appEnv.controlSecretMasterKey) {
     throw new Error("CONTROL_STORAGE_MODE=postgres requires CONTROL_SECRET_MASTER_KEY (base64 encoded 32-byte key)");
+  }
+  if (appEnv.storageMode === "postgres") {
+    if (appEnv.objectStorageMode !== "s3") {
+      throw new Error("STORAGE_MODE=postgres requires OBJECT_STORAGE_MODE=s3");
+    }
+    if (!appEnv.objectStorageBucket) {
+      throw new Error("OBJECT_STORAGE_MODE=s3 requires OBJECT_STORAGE_BUCKET");
+    }
   }
   resolveDeploymentProfile(appEnv);
   return appEnv;

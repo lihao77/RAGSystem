@@ -34,6 +34,11 @@ services:
       TENANCY_MODE: multi
       EXECUTION_MODE: remote
       STORAGE_MODE: postgres
+      # SaaS blobs are external to PostgreSQL. Provide an S3/MinIO transport
+      # in the composition root before starting the backend.
+      OBJECT_STORAGE_MODE: ${OBJECT_STORAGE_MODE:-s3}
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-ragsystem}
+      OBJECT_STORAGE_ENDPOINT: ${OBJECT_STORAGE_ENDPOINT:-}
       # PostgreSQL Control Plane is configuration-ready but remains disabled until
       # Bot and Widget state no longer depend on SQLite control.db.
       CONTROL_STORAGE_MODE: ${CONTROL_STORAGE_MODE:-sqlite}

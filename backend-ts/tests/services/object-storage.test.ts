@@ -4,6 +4,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { FilesystemObjectStorage } from "../../src/adapters/local/filesystem-object-storage.js";
 import { S3ObjectStorage } from "../../src/adapters/saas/object-storage/s3-object-storage.js";
+import { createSaaSObjectStorage } from "../../src/services/runtime/saas-object-storage.js";
 
 describe("ObjectStorage adapters", () => {
   it("keeps filesystem objects tenant-key scoped and blocks traversal", async () => {
@@ -27,5 +28,11 @@ describe("ObjectStorage adapters", () => {
     expect((await storage.get("k"))?.metadata.contentLength).toBe(1);
     expect(await storage.delete("k")).toBe(true);
     expect(calls).toEqual(["put:k", "delete:k"]);
+  });
+
+  it("requires an injected transport at the SaaS composition boundary", () => {
+    expect(() => createSaaSObjectStorage({ mode: "s3", bucket: "bucket" })).toThrow(
+      "inject an S3-compatible transport",
+    );
   });
 });
