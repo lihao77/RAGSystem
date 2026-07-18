@@ -42,6 +42,7 @@ import { AsyncDurableClientEventPublisher } from "./services/runtime/event-outbo
 import type { SaaSControlRuntimeHandle } from "./services/runtime/saas-control-runtime.js";
 import { SaaSExecutionWriteBridge } from "./services/runtime/saas-execution-write-bridge.js";
 import { SaaSSessionControlApplication } from "./services/runtime/saas-session-control-application.js";
+import { SaaSDaemonState } from "./services/daemon/saas-daemon-state.js";
 
 export interface BuildAppOptions {
   env: AppEnv;
@@ -152,6 +153,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
                 context,
               ),
               asyncConversationHistory: options.saasConversationRuntime!.conversation,
+              asyncBackgroundTasks: options.saasConversationRuntime!.backgroundTasks,
               asyncProviderContinuations: options.saasConversationRuntime!.providerContinuations,
               asyncSuspendedSessionControlFactory: (tenantId) => new SaaSSessionControlApplication(
                 tenantId,
@@ -174,6 +176,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               context,
             ),
             asyncConversationHistory: options.saasConversationRuntime!.conversation,
+            asyncBackgroundTasks: options.saasConversationRuntime!.backgroundTasks,
             asyncProviderContinuations: options.saasConversationRuntime!.providerContinuations,
             asyncSuspendedSessionControlFactory: (tenantId) => new SaaSSessionControlApplication(
               tenantId,
@@ -193,6 +196,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       ? createSaaSMemoryApplicationResolver(options.saasMemoryRuntime.provider)
       : undefined);
   const wsTickets = options.wsTickets ?? createWsTicketService();
+  const saasDaemonState = options.saasConversationRuntime
+    ? new SaaSDaemonState(
+        options.saasConversationRuntime.conversation,
+        options.saasConversationRuntime.pendingInteractions,
+      )
+    : null;
   const botEngine = options.botEngine ?? new DaemonService({
     botRepository,
     registry,
@@ -200,7 +209,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       const lease = await registry.acquire(input.tenantId);
       try {
         try {
-          if (!lease.runtime.conversationStore.getSession(input.sessionId)) {
+          if (saasDaemonState) {
+            await saasDaemonState.ensureSession({
+              tenantId: input.tenantId,
+              sessionId: input.sessionId,
+              botId: input.botId,
+              ...(input.sessionMetadata ? { metadata: input.sessionMetadata } : {}),
+              permissionMode: input.permissionMode,
+            });
+          } else if (!lease.runtime.conversationStore.getSession(input.sessionId)) {
             lease.runtime.conversationStore.createSession(
               input.tenantId,
               input.sessionId,
@@ -213,23 +230,33 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           const onInteractionRequired = (notice: { rootRunId: string; batchId: string }): void => {
             if (scheduledBatches.has(notice.batchId)) return;
             scheduledBatches.add(notice.batchId);
-            queueMicrotask(() => {
+            queueMicrotask(() => void (async () => {
               scheduledBatches.delete(notice.batchId);
-              const metas = lease.runtime.pendingInteractions.listPendingApprovalMeta(notice.rootRunId, input.sessionId);
+              const metas = saasDaemonState
+                ? await saasDaemonState.listSuspendedInteractions({
+                    tenantId: input.tenantId,
+                    sessionId: input.sessionId,
+                    rootRunId: notice.rootRunId,
+                    botId: input.botId,
+                  })
+                : lease.runtime.pendingInteractions.listPendingApprovalMeta(notice.rootRunId, input.sessionId)
+                    .map((item): DaemonSuspendedInteraction => ({
+                      approvalId: item.approvalId,
+                      sessionId: item.sessionId,
+                      botId: input.botId,
+                      rootRunId: item.rootRunId,
+                      kind: item.kind,
+                      ...(item.toolName ? { toolName: item.toolName } : {}),
+                      ...(item.riskLevel ? { riskLevel: item.riskLevel } : {}),
+                      ...(item.reason ? { reason: item.reason } : {}),
+                      ...(item.prompt ? { prompt: item.prompt } : {}),
+                      ...(item.options ? { options: item.options } : {}),
+                    }));
               if (metas.length === 0) return;
-              input.onInteractionRequired?.(metas.map((item): DaemonSuspendedInteraction => ({
-                approvalId: item.approvalId,
-                sessionId: item.sessionId,
-                botId: input.botId,
-                rootRunId: item.rootRunId,
-                kind: item.kind,
-                ...(item.toolName ? { toolName: item.toolName } : {}),
-                ...(item.riskLevel ? { riskLevel: item.riskLevel } : {}),
-                ...(item.reason ? { reason: item.reason } : {}),
-                ...(item.prompt ? { prompt: item.prompt } : {}),
-                ...(item.options ? { options: item.options } : {}),
-              })));
-            });
+              input.onInteractionRequired?.(metas);
+            })().catch((error: unknown) => {
+              app.log.error({ error, sessionId: input.sessionId }, "failed to load daemon pending interactions");
+            }));
           };
           const result = await lease.runtime.agentExecution.executeSynchronously({
             task: input.task,
@@ -256,7 +283,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           if (!result.success && !result.suspended) throw new Error(result.error ?? "agent 执行失败");
           if (result.suspended) {
             const rootRunId = result.rootRunId ?? result.run_id ?? "";
-            const metas = lease.runtime.pendingInteractions.listPendingApprovalMeta(rootRunId, input.sessionId);
+            const metas = saasDaemonState
+              ? await saasDaemonState.listSuspendedInteractions({
+                  tenantId: input.tenantId,
+                  sessionId: input.sessionId,
+                  rootRunId,
+                  botId: input.botId,
+                })
+              : lease.runtime.pendingInteractions.listPendingApprovalMeta(rootRunId, input.sessionId);
             const meta = metas[0];
             if (!meta) {
               throw new Error("Agent 已挂起，但未找到待处理交互");
@@ -283,7 +317,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           return { suspended: false, content: result.answer ?? "" };
         } finally {
           if (input.sessionMetadata) {
-            lease.runtime.conversationStore.updateSessionMetadata(input.sessionId, input.sessionMetadata);
+            if (saasDaemonState) {
+              await saasDaemonState.updateMetadata(input.tenantId, input.sessionId, input.sessionMetadata);
+            } else {
+              lease.runtime.conversationStore.updateSessionMetadata(input.sessionId, input.sessionMetadata);
+            }
           }
         }
       } finally {
