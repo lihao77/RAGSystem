@@ -3,7 +3,7 @@ FROM node:24-bookworm-slim AS build
 WORKDIR /app
 COPY . .
 RUN npm ci \
-    && npm -w @ragsystem/agent-protocol run build \
+    && npm run build:contracts \
     && npm -w @ragsystem/agent-llm run build \
     && npm -w @ragsystem/agent-sdk run build \
     && npm -w @ragsystem/backend-ts run build \
@@ -22,6 +22,8 @@ COPY --from=build /app/packages/agent-llm/package.json ./packages/agent-llm/pack
 COPY --from=build /app/packages/agent-llm/dist ./packages/agent-llm/dist
 COPY --from=build /app/packages/agent-sdk/package.json ./packages/agent-sdk/package.json
 COPY --from=build /app/packages/agent-sdk/dist ./packages/agent-sdk/dist
+COPY --from=build /app/packages/api-contracts/package.json ./packages/api-contracts/package.json
+COPY --from=build /app/packages/api-contracts/dist ./packages/api-contracts/dist
 COPY --from=build /app/backend-ts/package.json ./backend-ts/package.json
 COPY --from=build /app/backend-ts/dist ./backend-ts/dist
 COPY --from=build /app/backend-ts/skills ./backend-ts/skills
