@@ -105,7 +105,32 @@ npm run dev
 
 The frontend runs on `http://localhost:5174` by default and proxies `/api` plus WebSocket traffic to `http://localhost:5002`. Configure `VITE_DEV_PORT` and `VITE_API_PROXY_TARGET` in `frontend-client/.env` when needed.
 
-### 5. Build a Windows Installer
+### 5. Start with Docker
+
+Use the default compose file for Local mode:
+
+```bash
+docker compose up --build
+```
+
+Use the standalone compose file for the Hybrid SaaS test profile. Set a long random session secret before startup:
+
+```powershell
+$env:SESSION_JWT_SECRET="replace-with-a-long-random-secret"
+docker compose -f docker-compose.saas.yml up --build
+```
+
+Open `http://localhost:8080` and use the installation wizard to create the initial administrator and default tenant. The SaaS compose uses separate `ragsystem-saas-data` and `ragsystem-saas-postgres` volumes, so it does not read data from the default Local compose.
+
+Stop the stack while preserving its data:
+
+```bash
+docker compose -f docker-compose.saas.yml down
+```
+
+This profile currently stores only Memory in PostgreSQL. Control, Conversation, Run, Outbox, Knowledge, and files still use SQLite or directories under the container's `/data`, so this is not yet a complete multi-instance SaaS deployment.
+
+### 6. Build a Windows Installer
 
 The Electron installer uses the same TypeScript backend as browser development. Its build creates a standalone backend bundle and verifies Electron's `node:sqlite` plus `sqlite-vec` support before packaging.
 

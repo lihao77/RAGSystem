@@ -107,7 +107,32 @@ npm run dev
 
 默认开发地址为 `http://localhost:5174`，并通过 Vite 代理 `/api` 与 WebSocket 到 `http://localhost:5002`。可在 `frontend-client/.env` 中配置 `VITE_DEV_PORT` 与 `VITE_API_PROXY_TARGET`。
 
-### 5. 构建 Windows 安装包
+### 5. 使用 Docker 启动
+
+Local 模式使用默认 compose：
+
+```bash
+docker compose up --build
+```
+
+Hybrid SaaS 测试模式使用独立 compose。启动前必须设置足够长的随机 session 密钥：
+
+```powershell
+$env:SESSION_JWT_SECRET="replace-with-a-long-random-secret"
+docker compose -f docker-compose.saas.yml up --build
+```
+
+前端地址为 `http://localhost:8080`，首次访问通过安装向导创建管理员和默认租户。SaaS compose 使用独立的 `ragsystem-saas-data` 和 `ragsystem-saas-postgres` volumes，不会读取默认 Local compose 的数据。
+
+停止但保留数据：
+
+```bash
+docker compose -f docker-compose.saas.yml down
+```
+
+该模式当前仅将 Memory 存入 PostgreSQL；Control、Conversation、Run、Outbox、Knowledge 和文件仍使用容器 `/data` 下的 SQLite/目录，因此不能作为完整多实例 SaaS 部署。
+
+### 6. 构建 Windows 安装包
 
 Electron 安装包与浏览器开发使用同一套 TypeScript 后端。构建过程会生成独立 backend bundle，并用 Electron 自身的 Node 运行时验证 `node:sqlite` 与 `sqlite-vec` 后再打包。
 

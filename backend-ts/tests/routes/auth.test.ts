@@ -64,6 +64,43 @@ describe("认证路由", () => {
     expect(health.statusCode).toBe(200);
   });
 
+  it("保留启动时显式配置的 PostgreSQL SaaS profile", async () => {
+    const harness = await buildTestHarness({
+      autoIdentityProvider: true,
+      sessionJwtSecret: secret,
+      env: {
+        deploymentMode: "saas",
+        authMode: "password",
+        tenancyMode: "multi",
+        executionMode: "remote",
+        storageMode: "postgres",
+        uiMode: "saas",
+        databaseUrl: "postgres://example/ragsystem",
+      },
+    });
+    close.push(() => harness.app.close());
+    const installed = await harness.app.inject({
+      method: "POST",
+      url: "/api/install",
+      payload: {
+        deployment: "saas",
+        tenancy: "multi",
+        admin: { username: "admin", password: "password123" },
+      },
+    });
+
+    expect(installed.statusCode).toBe(200);
+    expect(installed.json()).toMatchObject({
+      deployment: "saas",
+      auth: "password",
+      tenancy: "multi",
+      execution: "remote",
+      storage: "postgres",
+      ui: "saas",
+    });
+    expect(harness.controlStore.getSetting("storage_mode")).toBe("postgres");
+  });
+
   it("single 安装后热刷新仍保持 local provider", async () => {
     const harness = await buildTestHarness();
     close.push(() => harness.app.close());

@@ -1,0 +1,63 @@
+name: ragsystem-saas
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: ragsystem-saas-postgres
+    environment:
+      POSTGRES_DB: ragsystem
+      POSTGRES_USER: ragsystem
+      POSTGRES_PASSWORD: ragsystem
+    volumes:
+      - ragsystem-saas-postgres:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ragsystem -d ragsystem"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend-ts/Dockerfile
+    container_name: ragsystem-saas-backend
+    environment:
+      BACKEND_TS_HOST: 0.0.0.0
+      BACKEND_TS_PORT: 5002
+      BACKEND_TS_LOG_LEVEL: ${BACKEND_TS_LOG_LEVEL:-info}
+      RAG_DATA_ROOT: /data
+      DEPLOYMENT_MODE: saas
+      AUTH_MODE: password
+      TENANCY_MODE: multi
+      EXECUTION_MODE: remote
+      STORAGE_MODE: postgres
+      UI_MODE: saas
+      DATABASE_URL: ${DATABASE_URL:-postgres://ragsystem:ragsystem@postgres:5432/ragsystem}
+      POSTGRES_POOL_MAX: ${POSTGRES_POOL_MAX:-10}
+      SESSION_JWT_SECRET: ${SESSION_JWT_SECRET:?SESSION_JWT_SECRET must be set}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+    volumes:
+      - ragsystem-saas-data:/data
+    ports:
+      - "${SAAS_BACKEND_PORT:-5002}:5002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend-client
+    container_name: ragsystem-saas-frontend
+    ports:
+      - "${SAAS_FRONTEND_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  ragsystem-saas-data:
+  ragsystem-saas-postgres:

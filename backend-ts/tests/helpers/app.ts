@@ -54,6 +54,7 @@ export async function buildTestHarness(
     identityProvider?: IdentityProvider;
     saasMemoryRuntime?: BuildAppOptions["saasMemoryRuntime"];
     resolveMemoryApplication?: BuildAppOptions["resolveMemoryApplication"];
+    env?: Partial<AppEnv>;
   } = {},
 ) {
   const tempRoot = options.root ?? makeTempRoot();
@@ -87,6 +88,7 @@ export async function buildTestHarness(
     ...(options.widgetJwtSecret ? { widgetJwtSecret: options.widgetJwtSecret } : {}),
     ...(options.sessionJwtSecret ? { sessionJwtSecret: options.sessionJwtSecret } : {}),
     ...(options.sessionTokenTtlHours ? { sessionTokenTtlHours: options.sessionTokenTtlHours } : {}),
+    ...options.env,
   };
   const registry = new DefaultTenantRuntimeRegistry(env, controlStore, options.logger, {
     runtimeFactory: () => container,

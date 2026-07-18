@@ -42,6 +42,15 @@ export const registerInstallRoutes: FastifyPluginAsync<InstallRouteOptions> = as
     const deploymentMode = input.deployment === "single" ? "local" : "saas";
     const authMode = input.deployment === "single" ? "local" : "password";
     const tenancyMode = input.deployment === "single" ? "single" : (input.tenancy ?? "single");
+    const configuredSaaSProfile = options.runtime.profile.deployment === "saas"
+      ? options.runtime.profile
+      : null;
+    const executionMode = input.deployment === "single"
+      ? "local"
+      : configuredSaaSProfile?.execution ?? "remote";
+    const storageMode = input.deployment === "single"
+      ? "sqlite"
+      : configuredSaaSProfile?.storage ?? "sqlite-per-tenant";
     const tenantId = createTenantId(input.deployment === "single" ? "tnt_local" : "tnt_default");
     const tenantName = input.tenantDisplayName ?? (input.deployment === "single" ? "Local" : "Default");
 
@@ -64,8 +73,8 @@ export const registerInstallRoutes: FastifyPluginAsync<InstallRouteOptions> = as
       options.controlStore.setSetting("deployment_mode", deploymentMode);
       options.controlStore.setSetting("auth_mode", authMode);
       options.controlStore.setSetting("tenancy_mode", tenancyMode);
-      options.controlStore.setSetting("execution_mode", input.deployment === "single" ? "local" : "remote");
-      options.controlStore.setSetting("storage_mode", input.deployment === "single" ? "sqlite" : "sqlite-per-tenant");
+      options.controlStore.setSetting("execution_mode", executionMode);
+      options.controlStore.setSetting("storage_mode", storageMode);
       options.controlStore.setSetting("ui_mode", input.deployment === "single" ? "local" : "saas");
       options.controlStore.setSetting("installed", "true");
       options.controlStore.db.exec("COMMIT");
