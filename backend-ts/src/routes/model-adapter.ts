@@ -38,6 +38,11 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
   app.post("/providers", async (request) => {
     const payload = ProviderPayloadSchema.parse(request.body);
     try {
+      const providerMcp = await options.resolveProviderMcp?.(request);
+      if (providerMcp) {
+        const providerKey = await providerMcp.createProvider(request.identity.tenantId, payload);
+        return { ...ok({ provider_key: providerKey }, "Provider 创建成功"), provider_key: providerKey };
+      }
       const providerKey = request.container.modelAdapter.createProvider(payload);
       return {
         ...ok({ provider_key: providerKey }, "Provider 创建成功"),
@@ -51,6 +56,11 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
   app.put("/providers/order", async (request) => {
     const payload = ReorderProvidersRequestSchema.parse(request.body);
     try {
+      const providerMcp = await options.resolveProviderMcp?.(request);
+      if (providerMcp) {
+        const providerKeys = await providerMcp.reorderProviders(request.identity.tenantId, payload.provider_keys);
+        return { ...ok({ provider_keys: providerKeys }, "Provider 顺序更新成功"), provider_keys: providerKeys };
+      }
       const providerKeys = request.container.modelAdapter.reorderProviders(payload);
       return {
         ...ok({ provider_keys: providerKeys }, "Provider 顺序更新成功"),
@@ -64,6 +74,11 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
   app.put<{ Params: ProviderParams }>("/providers/:providerKey", async (request) => {
     const payload = ProviderPayloadSchema.parse(request.body);
     try {
+      const providerMcp = await options.resolveProviderMcp?.(request);
+      if (providerMcp) {
+        const providerKey = await providerMcp.updateProvider(request.identity.tenantId, request.params.providerKey, payload);
+        return { ...ok({ provider_key: providerKey }, "Provider 更新成功"), provider_key: providerKey };
+      }
       const providerKey = request.container.modelAdapter.updateProvider(request.params.providerKey, payload);
       return {
         ...ok({ provider_key: providerKey }, "Provider 更新成功"),
@@ -76,6 +91,11 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
 
   app.delete<{ Params: ProviderParams }>("/providers/:providerKey", async (request) => {
     try {
+      const providerMcp = await options.resolveProviderMcp?.(request);
+      if (providerMcp) {
+        await providerMcp.deleteProvider(request.identity.tenantId, request.params.providerKey);
+        return ok(undefined, "Provider 删除成功");
+      }
       request.container.modelAdapter.deleteProvider(request.params.providerKey);
       return ok(undefined, "Provider 删除成功");
     } catch (error) {

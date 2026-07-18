@@ -9,10 +9,19 @@ const server = (row: Record<string, unknown>): SaaSMcpServerRecord => ({ tenant_
 
 export class PostgresProviderMcpRepository {
   constructor(private readonly executor: PostgresMemoryExecutor, private readonly secrets?: SecretResolver) {}
-  async listProviders(tenantId: TenantId): Promise<SaaSProviderConfigRecord[]> { const r = await this.executor.query("SELECT * FROM saas_provider_configs WHERE tenant_id=$1 ORDER BY provider_key", [tenantId]); return Promise.all(r.rows.map((row) => this.hydrateProvider(record(row)))); }
+  async listProviders(tenantId: TenantId): Promise<SaaSProviderConfigRecord[]> { const r = await this.executor.query("SELECT * FROM saas_provider_configs WHERE tenant_id=$1 ORDER BY COALESCE((config->>'provider_order')::int, 2147483647), provider_key", [tenantId]); return Promise.all(r.rows.map((row) => this.hydrateProvider(record(row)))); }
   async getProvider(tenantId: TenantId, key: string): Promise<SaaSProviderConfigRecord | null> { const r = await this.executor.query("SELECT * FROM saas_provider_configs WHERE tenant_id=$1 AND provider_key=$2", [tenantId, key]); return r.rows[0] ? this.hydrateProvider(record(r.rows[0])) : null; }
   async upsertProvider(tenantId: TenantId, key: string, config: Record<string, unknown>): Promise<SaaSProviderConfigRecord> { const prepared = await this.prepare(tenantId, "provider", key, config); const r = await this.executor.query("INSERT INTO saas_provider_configs(tenant_id,provider_key,config) VALUES($1,$2,$3::jsonb) ON CONFLICT (tenant_id,provider_key) DO UPDATE SET config=EXCLUDED.config,updated_at=CURRENT_TIMESTAMP RETURNING *", [tenantId, key, JSON.stringify(prepared)]); return this.hydrateProvider(record(r.rows[0]!)); }
   async deleteProvider(tenantId: TenantId, key: string): Promise<boolean> { const r = await this.executor.query("DELETE FROM saas_provider_configs WHERE tenant_id=$1 AND provider_key=$2", [tenantId, key]); return Number(r.rowCount ?? 0) > 0; }
+  async reorderProviders(tenantId: TenantId, keys: string[]): Promise<boolean> {
+    return this.executor.transaction(async (tx) => {
+      for (const [order, key] of keys.entries()) {
+        const result = await tx.query("UPDATE saas_provider_configs SET config=jsonb_set(config, '{provider_order}', to_jsonb($3::int), true), updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1 AND provider_key=$2", [tenantId, key, order]);
+        if (Number(result.rowCount ?? 0) === 0) return false;
+      }
+      return true;
+    });
+  }
   async listMcpServers(tenantId: TenantId): Promise<SaaSMcpServerRecord[]> { const r = await this.executor.query("SELECT * FROM saas_mcp_servers WHERE tenant_id=$1 ORDER BY server_name", [tenantId]); return Promise.all(r.rows.map((row) => this.hydrateMcp(server(row)))); }
   async getMcpServer(tenantId: TenantId, name: string): Promise<SaaSMcpServerRecord | null> { const r = await this.executor.query("SELECT * FROM saas_mcp_servers WHERE tenant_id=$1 AND server_name=$2", [tenantId, name]); return r.rows[0] ? this.hydrateMcp(server(r.rows[0])) : null; }
   async upsertMcpServer(tenantId: TenantId, name: string, config: Record<string, unknown>): Promise<SaaSMcpServerRecord> { const prepared = await this.prepare(tenantId, "mcp", name, config); const r = await this.executor.query("INSERT INTO saas_mcp_servers(tenant_id,server_name,config) VALUES($1,$2,$3::jsonb) ON CONFLICT (tenant_id,server_name) DO UPDATE SET config=EXCLUDED.config,updated_at=CURRENT_TIMESTAMP RETURNING *", [tenantId, name, JSON.stringify(prepared)]); return this.hydrateMcp(server(r.rows[0]!)); }

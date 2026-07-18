@@ -75,6 +75,8 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
     }
     const payload = McpServerCreateSchema.parse(request.body);
     try {
+      const providerMcp = await options.resolveProviderMcp?.(request);
+      if (providerMcp) return ok(await providerMcp.createMcpServer(request.identity.tenantId, payload), "MCP Server 添加成功");
       return ok(await request.container.mcp.addServer(payload), "MCP Server 添加成功");
     } catch (error) {
       throw toHttpError(error);
@@ -84,6 +86,8 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
   app.put<{ Params: ServerParams }>("/servers/:serverName", async (request) => {
     const payload = McpServerPayloadSchema.parse(request.body);
     try {
+      const providerMcp = await options.resolveProviderMcp?.(request);
+      if (providerMcp) return ok(await providerMcp.updateMcpServer(request.identity.tenantId, request.params.serverName, payload), "MCP Server configuration updated");
       const status = await request.container.mcp.updateServer(request.params.serverName, payload);
       return ok(normalizeServerStatus(request.params.serverName, status as unknown as Record<string, unknown>), "MCP Server configuration updated and applied");
     } catch (error) {
@@ -93,6 +97,11 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.delete<{ Params: ServerParams }>("/servers/:serverName", async (request) => {
     try {
+      const providerMcp = await options.resolveProviderMcp?.(request);
+      if (providerMcp) {
+        await providerMcp.deleteMcpServer(request.identity.tenantId, request.params.serverName);
+        return ok(undefined, "MCP Server 已删除");
+      }
       request.container.mcp.deleteServer(request.params.serverName);
       return ok(undefined, "MCP Server 已删除");
     } catch (error) {
