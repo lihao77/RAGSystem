@@ -41,6 +41,7 @@ import { AsyncOutboxDispatcher } from "./services/runtime/event-outbox/async-dis
 import { AsyncDurableClientEventPublisher } from "./services/runtime/event-outbox/async-client-event-publisher.js";
 import type { SaaSControlRuntimeHandle } from "./services/runtime/saas-control-runtime.js";
 import { SaaSExecutionWriteBridge } from "./services/runtime/saas-execution-write-bridge.js";
+import { SaaSSessionControlApplication } from "./services/runtime/saas-session-control-application.js";
 
 export interface BuildAppOptions {
   env: AppEnv;
@@ -151,6 +152,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
                 context,
               ),
               asyncConversationHistory: options.saasConversationRuntime!.conversation,
+              asyncSuspendedSessionControlFactory: (tenantId) => new SaaSSessionControlApplication(
+                tenantId,
+                options.saasConversationRuntime!.conversation,
+                options.saasConversationRuntime!.runs,
+                options.saasConversationRuntime!.pendingInteractions,
+              ),
               asyncClientEventsFactory: (realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }) => new AsyncDurableClientEventPublisher(
                 options.saasConversationRuntime!.outbox,
                 new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents as ConstructorParameters<typeof AsyncOutboxDispatcher>[1]),
@@ -166,6 +173,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               context,
             ),
             asyncConversationHistory: options.saasConversationRuntime!.conversation,
+            asyncSuspendedSessionControlFactory: (tenantId) => new SaaSSessionControlApplication(
+              tenantId,
+              options.saasConversationRuntime!.conversation,
+              options.saasConversationRuntime!.runs,
+              options.saasConversationRuntime!.pendingInteractions,
+            ),
             asyncClientEventsFactory: (realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }) => new AsyncDurableClientEventPublisher(
               options.saasConversationRuntime!.outbox,
               new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents as ConstructorParameters<typeof AsyncOutboxDispatcher>[1]),

@@ -573,7 +573,11 @@ export class PendingInteractionService {
     };
   }
 
-  cancelSession(sessionId: string, reason = "request_user_input cancelled"): void {
+  cancelSession(
+    sessionId: string,
+    reason = "request_user_input cancelled",
+    options: { persist?: boolean } = {},
+  ): void {
     for (const [inputId, entry] of this.pendingInputs.entries()) {
       if (entry.sessionId !== sessionId) {
         continue;
@@ -601,7 +605,7 @@ export class PendingInteractionService {
         this.approvalMeta.delete(approvalId);
       }
     }
-    this.durableStore?.cancelPendingInteractions(sessionId);
+    if (options.persist !== false) this.durableStore?.cancelPendingInteractions(sessionId);
   }
 
   isUserInputPending(sessionId: string, inputId: string): boolean {

@@ -130,6 +130,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
   });
   const taskTools = new TaskToolService(backgroundTasks, notificationQueue, { dataRoot: options.dataRoot });
   const pendingInteractions = new PendingInteractionService(clientEvents, conversationStore);
+  const asyncSuspendedSessionControl = options.asyncSuspendedSessionControlFactory?.(options.tenantId);
   const hostToolRegistry = new HostToolRegistry();
   const delegationPending = new DelegationPendingService();
 
@@ -142,6 +143,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     ...(options.asyncEventPersisterFactory ? { asyncEventPersisterFactory: options.asyncEventPersisterFactory } : {}),
     ...(options.asyncConversationHistory ? { asyncConversationHistory: options.asyncConversationHistory } : {}),
     ...(asyncClientEvents ? { asyncClientEvents } : {}),
+    ...(asyncSuspendedSessionControl ? { asyncSuspendedSessionControl } : {}),
     conversationStore,
     sessionApplication,
     realtimeEvents,

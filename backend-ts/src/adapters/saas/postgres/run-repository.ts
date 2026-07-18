@@ -24,6 +24,7 @@ export interface AsyncRunStore {
   updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null): Promise<boolean>;
   getRun(sessionId: string, runId: string): Promise<RunInfo | null>;
   listRuns(sessionId: string, limit?: number): Promise<{ items: RunInfo[]; total: number }>;
+  interruptSuspendedRuns(sessionId: string): Promise<RunInfo[]>;
   addRunStep(input: AddRunStepInput): Promise<RunStepRecord>;
   updateRunStepsMessageId(sessionId: string, runId: string, messageId: string): Promise<number>;
   listRunSteps(input: { runId?: string | null; messageId?: string | null; sessionId?: string | null; limit?: number }): Promise<RunStepInfo[]>;
@@ -63,6 +64,14 @@ export class PostgresRunRepository implements AsyncRunStore {
       this.executor.query(`SELECT ${runColumns} FROM saas_runs WHERE session_id=$1 ORDER BY created_at DESC LIMIT $2`, [sessionId, bounded]),
     ]);
     return { items: rows.rows.map(run), total: Number(count.rows[0]?.count ?? 0) };
+  }
+
+  async interruptSuspendedRuns(sessionId: string): Promise<RunInfo[]> {
+    const result = await this.executor.query(`UPDATE saas_runs
+      SET status='interrupted', final_message_id=NULL, updated_at=CURRENT_TIMESTAMP
+      WHERE session_id=$1 AND status='suspended'
+      RETURNING ${runColumns}`, [sessionId]);
+    return result.rows.map(run);
   }
 
   async addRunStep(input: AddRunStepInput): Promise<RunStepRecord> {

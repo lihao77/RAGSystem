@@ -7,6 +7,8 @@ import type { AgentExecutionEventPublisher } from "./event-publisher.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { IRunStore } from "../../../contracts/conversation-store/index.js";
 import type { PendingInteractionService } from "../../runtime/pending-interaction-service.js";
+import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
+import type { AsyncSuspendedSessionControl } from "../../runtime/saas-session-control-application.js";
 
 export interface SessionControlApi {
   stopSession(sessionId: string): Promise<boolean>;
@@ -21,6 +23,8 @@ export interface SessionControlDeps {
   eventPublisher: AgentExecutionEventPublisher;
   conversationStore: IRunStore;
   pendingInteractions: PendingInteractionService;
+  asyncSuspendedSessionControl?: AsyncSuspendedSessionControl;
+  asyncClientEvents?: Pick<AsyncDurableClientEventPublisher, "publish">;
   /** collaborateSequentially 顺序复用 executeSynchronously（由 launchers 提供，注入打破环）。 */
   executeSynchronously: (request: ExecuteRequest, requestId: string) => Promise<AgentExecuteResult>;
 }
@@ -31,6 +35,20 @@ export function createSessionControl(deps: SessionControlDeps): SessionControlAp
     async stopSession(sessionId) {
       const handle = deps.statusTracker.getRunningHandleBySession(sessionId);
       if (!handle) {
+        if (deps.asyncSuspendedSessionControl) {
+          const interruptedRuns = await deps.asyncSuspendedSessionControl.interruptSuspendedSession(sessionId);
+          if (interruptedRuns.length === 0) return false;
+          deps.pendingInteractions.cancelSession(sessionId, "suspended run cancelled", { persist: false });
+          await Promise.all(interruptedRuns
+            .filter((run) => !run.parentRunId)
+            .map((run) => deps.asyncClientEvents?.publish(sessionId, {
+              type: "run_ended",
+              session_id: sessionId,
+              run_id: run.runId,
+              payload: { status: "interrupted" },
+            }, { runId: run.runId, aggregateType: "run", aggregateId: run.runId })));
+          return true;
+        }
         const suspendedRuns = deps.conversationStore.listRuns(sessionId, 1000).items
           .filter((run) => run.status === "suspended");
         if (suspendedRuns.length === 0) return false;

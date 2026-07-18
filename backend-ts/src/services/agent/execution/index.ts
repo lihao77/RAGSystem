@@ -39,6 +39,7 @@ import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../sdk/async-event-persister.js";
 import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
 import type { AsyncConversationRepository } from "../../../adapters/saas/postgres/conversation-repository.js";
+import type { AsyncSuspendedSessionControl } from "../../runtime/saas-session-control-application.js";
 import {
   createLaunchers,
   type RollbackRetryInput,
@@ -110,6 +111,7 @@ export interface AgentExecutionServiceParams {
   asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
   asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage">;
   asyncClientEvents?: AsyncDurableClientEventPublisher;
+  asyncSuspendedSessionControl?: AsyncSuspendedSessionControl;
 }
 
 /**
@@ -186,6 +188,8 @@ export function createAgentExecutionService(
     eventPublisher,
     conversationStore: params.conversationStore,
     pendingInteractions: params.pendingInteractions,
+    ...(params.asyncSuspendedSessionControl ? { asyncSuspendedSessionControl: params.asyncSuspendedSessionControl } : {}),
+    ...(params.asyncClientEvents ? { asyncClientEvents: params.asyncClientEvents } : {}),
     executeSynchronously: launchers.executeSynchronously,
   });
   const query = createExecutionQueryService(statusTracker);

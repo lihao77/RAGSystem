@@ -55,4 +55,40 @@ describe("SessionControl", () => {
     ]));
     store.close();
   });
+
+  it("SaaS 停止挂起 session 时使用异步持久化端口和 durable outbox", async () => {
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    const realtimeEvents = new RealtimeEventHub();
+    const clientEvents = new DurableClientEventPublisher(
+      store,
+      new OutboxDispatcher(store, realtimeEvents),
+    );
+    const asyncSuspendedSessionControl = {
+      interruptSuspendedSession: vi.fn().mockResolvedValue([
+        { runId: "run-root", parentRunId: null },
+        { runId: "run-child", parentRunId: "run-root" },
+      ]),
+    };
+    const asyncClientEvents = { publish: vi.fn().mockResolvedValue({}) };
+    const control = createSessionControl({
+      statusTracker: new AgentExecutionStatusTracker(),
+      eventPublisher: new AgentExecutionEventPublisher(clientEvents),
+      conversationStore: store,
+      pendingInteractions: new PendingInteractionService(clientEvents, store),
+      asyncSuspendedSessionControl,
+      asyncClientEvents,
+      executeSynchronously: vi.fn(),
+    });
+
+    await expect(control.stopSession("session-saas-stop")).resolves.toBe(true);
+    expect(asyncSuspendedSessionControl.interruptSuspendedSession).toHaveBeenCalledWith("session-saas-stop");
+    expect(asyncClientEvents.publish).toHaveBeenCalledTimes(1);
+    expect(asyncClientEvents.publish).toHaveBeenCalledWith(
+      "session-saas-stop",
+      expect.objectContaining({ type: "run_ended", run_id: "run-root" }),
+      expect.objectContaining({ runId: "run-root" }),
+    );
+    expect(store.listOutbox({ limit: 10 }).items).toHaveLength(0);
+    store.close();
+  });
 });

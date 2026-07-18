@@ -44,6 +44,7 @@ import type { SessionNotificationQueue } from "./session-notification-queue.js";
 import type { AsyncDurableClientEventPublisher } from "./event-outbox/async-client-event-publisher.js";
 import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../agent/sdk/async-event-persister.js";
 import type { AsyncConversationRepository } from "../../adapters/saas/postgres/conversation-repository.js";
+import type { AsyncSuspendedSessionControl } from "./saas-session-control-application.js";
 
 export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = MemoryStore> {
   readonly conversationStore: ConversationStore;
@@ -102,6 +103,7 @@ export interface LocalRuntimeContainerOptions {
   asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
   asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage">;
   asyncClientEventsFactory?: (realtimeEvents: RealtimeEventHub) => AsyncDurableClientEventPublisher;
+  asyncSuspendedSessionControlFactory?: (tenantId: TenantId) => AsyncSuspendedSessionControl;
 }
 
 export interface MemoryRuntimeBindingsFactoryInput<TMemoryRepository extends MemoryRepository = MemoryRepository> {
@@ -133,6 +135,7 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
   asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage">;
   asyncClientEvents?: AsyncDurableClientEventPublisher;
+  asyncSuspendedSessionControl?: AsyncSuspendedSessionControl;
   conversationStore: ConversationStore;
   sessionApplication: AgentSessionApplication;
   realtimeEvents: RealtimeEventHub;
