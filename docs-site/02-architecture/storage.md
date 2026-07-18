@@ -1,5 +1,7 @@
 # 存储模型
 
+Object Storage 使用独立的 `ObjectStorage` port：Local 由 filesystem adapter 实现，SaaS 由 S3-compatible adapter 实现。PostgreSQL 只保存文件元数据、租户归属和 `storage_key`，不保存大文件本体。当前 S3 transport 仍需在 SaaS composition root 注入，Knowledge/Artifact 的历史物理文件尚未全部切换。
+
 本章梳理 RAGSystem 的当前存储架构。Local 模式以 SQLite、sqlite-vec 和文件系统为主；`STORAGE_MODE=postgres` 已可将 Memory 切换到 PostgreSQL，但其他数据域仍使用 Local 存储，因此属于 Hybrid 模式。项目不使用传统 ORM。
 
 ## 存储总览
