@@ -20,6 +20,7 @@
     "check:backend": "npm run build:contracts && npm -w @ragsystem/agent-llm run build && npm -w @ragsystem/agent-sdk run build && npm -w @ragsystem/backend-ts run typecheck && npm -w @ragsystem/backend-ts run typecheck:scripts && npm -w @ragsystem/backend-ts run typecheck:test && npm -w @ragsystem/backend-ts run test && npm -w @ragsystem/backend-ts run build",
     "check:frontend": "npm run build:contracts && npm -w frontend-client run check",
     "check:widget": "npm -w @ragsystem/agent-widget run typecheck && npm -w @ragsystem/agent-widget run typecheck:test && npm -w @ragsystem/agent-widget run build",
+    "e2e:saas-compose": "node scripts/saas-compose-e2e.mjs",
     "demo": "npm -w @ragsystem/demo-app run start"
   },
   "engines": {

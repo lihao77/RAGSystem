@@ -51,7 +51,7 @@ docker compose up --build
 
 Control Plane 使用独立的 `CONTROL_STORAGE_MODE`、`CONTROL_DATABASE_URL` 和 `CONTROL_SECRET_MASTER_KEY`，不会隐式复用 Memory 的连接配置。`docker-compose.saas.yml` 默认 `CONTROL_STORAGE_MODE=postgres`。PostgreSQL Control runtime 已包含 Bot/Widget adapter、secret envelope、cron lease 和共享 JWT key ring；缺少 URL 或 32-byte master key 时启动会 fail-fast。
 
-仓库提供独立的 Hybrid SaaS 测试 compose。它使用独立的 Local 数据卷和 PostgreSQL 数据卷，不与默认 Local compose 混用：
+仓库提供独立的 SaaS 测试 compose。它使用 PostgreSQL、pgvector 和 MinIO，不与默认 Local compose 混用：
 
 ```powershell
 $env:SESSION_JWT_SECRET="replace-with-a-long-random-secret"
@@ -64,10 +64,18 @@ docker compose -f docker-compose.saas.yml up --build
 docker compose -f docker-compose.saas.yml down
 ```
 
+提交前可运行自动化 Compose 验收。脚本使用独立 project、随机密钥和空闲端口，验证 health/readiness、双租户会话隔离，以及 backend 重启后的 PostgreSQL 持久性；成功或失败后默认删除测试 volume：
+
+```bash
+npm run e2e:saas-compose
+```
+
+复用已构建镜像可添加 `-- --no-build`，需要保留失败现场时添加 `-- --keep`。
+
 Memory 管理页面为 `http://localhost:8080/memory`。查看 PostgreSQL：
 
 ```powershell
-docker exec -it ragsystem-saas-postgres psql -U ragsystem -d ragsystem
+docker compose -f docker-compose.saas.yml exec postgres psql -U ragsystem -d ragsystem
 ```
 
 `docker-compose.saas.yml` 的开发默认连接参数：
@@ -86,8 +94,9 @@ Password: ragsystem
 
 | Volume | 内容 |
 |---|---|
-| `ragsystem-saas-postgres` | PostgreSQL Memory |
-| `ragsystem-saas-data` | Control SQLite、tenant SQLite、配置、知识库和文件 |
+| `ragsystem-saas-postgres` | PostgreSQL Control、Memory、Conversation、Run、Outbox、Knowledge metadata 和向量 |
+| `ragsystem-saas-object-storage` | MinIO 中的 Knowledge、Artifact、附件、File History 和 workspace blob |
+| `ragsystem-saas-data` | 容器运行期数据；不作为 SaaS 业务数据的持久化主存储 |
 
 不要只备份其中一个 volume。
 
