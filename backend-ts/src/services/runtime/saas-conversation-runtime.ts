@@ -4,14 +4,18 @@ import {
   PgPoolMemoryExecutor,
   PostgresConversationRepository,
   PostgresKnowledgeFileMetadataRepository,
+  PostgresArtifactMetadataRepository,
   PostgresOutboxRepository,
   PostgresProviderContinuationRepository,
   PostgresPendingInteractionRepository,
+  PostgresProviderMcpRepository,
   PostgresRunRepository,
   runPostgresConversationMigrations,
   runPostgresKnowledgeFileMigrations,
   runPostgresOutboxMigrations,
   runPostgresPendingInteractionMigrations,
+  runPostgresArtifactMigrations,
+  runPostgresProviderMcpMigrations,
   runPostgresRunMigrations,
 } from "../../adapters/saas/postgres/index.js";
 
@@ -30,6 +34,8 @@ export interface SaaSConversationRuntimeHandle {
   providerContinuations: PostgresProviderContinuationRepository;
   knowledgeFiles: PostgresKnowledgeFileMetadataRepository;
   pendingInteractions: PostgresPendingInteractionRepository;
+  artifacts: PostgresArtifactMetadataRepository;
+  providerMcp: PostgresProviderMcpRepository;
   close(): Promise<void>;
 }
 
@@ -48,6 +54,8 @@ export async function createSaaSConversationRuntime(
       await runPostgresOutboxMigrations(executor);
       await runPostgresKnowledgeFileMigrations(executor);
       await runPostgresPendingInteractionMigrations(executor);
+      await runPostgresArtifactMigrations(executor);
+      await runPostgresProviderMcpMigrations(executor);
     }
     const conversation = new PostgresConversationRepository(executor);
     const runs = new PostgresRunRepository(executor);
@@ -55,6 +63,8 @@ export async function createSaaSConversationRuntime(
     const providerContinuations = new PostgresProviderContinuationRepository(executor);
     const knowledgeFiles = new PostgresKnowledgeFileMetadataRepository(executor);
     const pendingInteractions = new PostgresPendingInteractionRepository(executor);
+    const artifacts = new PostgresArtifactMetadataRepository(executor);
+    const providerMcp = new PostgresProviderMcpRepository(executor);
     let closePromise: Promise<void> | null = null;
     return {
       conversation,
@@ -63,6 +73,8 @@ export async function createSaaSConversationRuntime(
       providerContinuations,
       knowledgeFiles,
       pendingInteractions,
+      artifacts,
+      providerMcp,
       close: () => {
         closePromise ??= ownsPool ? pool.end() : Promise.resolve();
         return closePromise;

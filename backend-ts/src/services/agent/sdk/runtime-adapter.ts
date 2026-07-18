@@ -18,6 +18,7 @@ import type { ConversationStore } from "../../../contracts/conversation-store/in
 import type { DelegatedToolDeclarationWire, Envelope } from "../../../contracts/events.js";
 import type { AgentExecutionEventPublisher } from "../execution/event-publisher.js";
 import type { DurableClientEventPublisher, RecordedClientEvent } from "../../runtime/event-outbox/client-event-publisher.js";
+import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
 import type { InteractionRequiredNotice, PendingInteractionService } from "../../runtime/pending-interaction-service.js";
 import type { BackendToolsDeps } from "../../../tools/registry.js";
@@ -49,6 +50,7 @@ export interface SdkRuntimeAdapterDeps {
   taskTools: TaskToolService | null;
   eventPublisher: AgentExecutionEventPublisher;
   clientEvents: DurableClientEventPublisher;
+  asyncClientEvents?: AsyncDurableClientEventPublisher;
   /** 已加载的全部 provider（投影层解析 tier.provider 引用用）。 */
   providers: ModelProviderConfig[];
   dataRoot: string;
@@ -436,7 +438,8 @@ export async function executeRunWithSdk(
     // 终态合一落库：failed/interrupted 更新 run 状态；interrupted 补悬空 tool observation。
     await persister.finalize(interrupted ? "interrupted" : "failed", null);
     if (input.runId === rootRunId) deps.pendingInteractions.finalizeRoot(input.sessionId, rootRunId, false);
-    recordTerminal(deps, input, interrupted ? "interrupted" : "failed", null, error);
+    if (deps.asyncClientEvents) await recordTerminalAsync(deps.asyncClientEvents, input, interrupted ? "interrupted" : "failed", null, error);
+    else recordTerminal(deps, input, interrupted ? "interrupted" : "failed", null, error);
     const message = error instanceof Error ? error.message : String(error);
     return { content: message, success: false, tokenUsage, toolCalls };
   }
@@ -448,8 +451,35 @@ export async function executeRunWithSdk(
   await persister.finalize("completed", { content: result.content });
   if (input.runId === rootRunId) deps.pendingInteractions.finalizeRoot(input.sessionId, rootRunId, true);
   const finalMessage = await persister.resolveFinalMessage();
-  recordTerminal(deps, input, "completed", finalMessage, null);
+  if (deps.asyncClientEvents) await recordTerminalAsync(deps.asyncClientEvents, input, "completed", finalMessage, null);
+  else recordTerminal(deps, input, "completed", finalMessage, null);
   return { content: result.content, success: true, tokenUsage, toolCalls };
+}
+
+async function recordTerminalAsync(
+  publisher: AsyncDurableClientEventPublisher,
+  input: SdkExecuteRunInput,
+  status: "completed" | "failed" | "interrupted",
+  finalMessage: { id: string; seq: number; content: string } | null,
+  error: unknown,
+): Promise<void> {
+  if (input.childAgentId) return;
+  const events: Envelope[] = [];
+  if (status === "completed" && finalMessage) {
+    events.push(
+      { type: "stream_output", session_id: input.sessionId, run_id: input.runId, call_id: input.rootCallId, agent_id: input.agent.agent_name, payload: { phase: "final", content: finalMessage.content } },
+      { type: "state_sync", session_id: input.sessionId, run_id: input.runId, payload: { category: "message_saved", ref: { message_id: finalMessage.id, seq: finalMessage.seq } } },
+      { type: "agent_ended", session_id: input.sessionId, run_id: input.runId, call_id: input.rootCallId, agent_id: input.agent.agent_name, payload: { phase: "end", result: finalMessage.content.slice(0, 500), success: true } },
+      { type: "run_ended", session_id: input.sessionId, run_id: input.runId, payload: { status: "completed" } },
+    );
+  } else {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    events.push(
+      { type: "agent_ended", session_id: input.sessionId, run_id: input.runId, call_id: input.rootCallId, agent_id: input.agent.agent_name, payload: { phase: "end", result: status === "interrupted" ? "[已停止生成]" : errorMessage.slice(0, 500), success: false } },
+      { type: "run_ended", session_id: input.sessionId, run_id: input.runId, payload: { status, ...(status !== "interrupted" ? { reason: errorMessage } : {}) } },
+    );
+  }
+  for (const event of events) await publisher.publish(input.sessionId, event, { runId: input.runId, aggregateType: "run", aggregateId: input.runId });
 }
 
 /**

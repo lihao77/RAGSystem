@@ -37,6 +37,9 @@ import type { RouteOptions } from "./routes/route-options.js";
 import type { SaaSMemoryRuntimeHandle } from "./services/runtime/saas-memory-runtime.js";
 import type { SaaSConversationRuntimeHandle } from "./services/runtime/saas-conversation-runtime.js";
 import { AsyncKernelEventPersister } from "./services/agent/sdk/async-event-persister.js";
+import { AsyncOutboxDispatcher } from "./services/runtime/event-outbox/async-dispatcher.js";
+import { AsyncDurableClientEventPublisher } from "./services/runtime/event-outbox/async-client-event-publisher.js";
+import type { RealtimeEventHub } from "./services/runtime/realtime-event-hub.js";
 import type { SaaSControlRuntimeHandle } from "./services/runtime/saas-control-runtime.js";
 import { SaaSExecutionWriteBridge } from "./services/runtime/saas-execution-write-bridge.js";
 
@@ -141,6 +144,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
                 options.saasConversationRuntime!.runs,
                 context,
               ),
+              asyncClientEventsFactory: (realtimeEvents: RealtimeEventHub) => new AsyncDurableClientEventPublisher(
+                options.saasConversationRuntime!.outbox,
+                new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents),
+              ),
             } : {}),
           },
         }
@@ -150,6 +157,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               options.saasConversationRuntime!.conversation,
               options.saasConversationRuntime!.runs,
               context,
+            ),
+            asyncClientEventsFactory: (realtimeEvents: RealtimeEventHub) => new AsyncDurableClientEventPublisher(
+              options.saasConversationRuntime!.outbox,
+              new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents),
             ),
           } }
         : {},

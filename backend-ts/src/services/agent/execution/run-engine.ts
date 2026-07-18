@@ -23,6 +23,7 @@ import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../sdk/async-event-persister.js";
+import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
 import type { IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
@@ -77,6 +78,7 @@ export class AgentRunEngine {
     private readonly metricsCollector: AgentMetricsCollector | null = null,
     private readonly compressionService: AgentCompressionService | null = null,
     private readonly asyncEventPersisterFactory: ((context: AsyncPersisterRunContext) => AsyncKernelEventPersister) | null = null,
+    private readonly asyncClientEvents: AsyncDurableClientEventPublisher | null = null,
   ) {}
 
   startRun(input: {
@@ -356,6 +358,7 @@ export class AgentRunEngine {
        {
           ...(this.asyncEventPersisterFactory ? { tenantId: this.tenantId } : {}),
           ...(this.asyncEventPersisterFactory ? { asyncEventPersisterFactory: this.asyncEventPersisterFactory } : {}),
+          ...(this.asyncClientEvents ? { asyncClientEvents: this.asyncClientEvents } : {}),
           // run-engine 的 conversationStore 实际是完整 ConversationStore（构造时传入窄类型）。
           conversationStore: this.conversationStore as unknown as ConversationStore,
           toolsDeps: this.toolsDeps ?? emptyToolsDeps,
