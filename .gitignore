@@ -92,8 +92,7 @@ desktop-electron/build/*
 !desktop-electron/build/icon.svg
 dist/
 
-# VitePress documentation site (local only)
-/docs-site/
+# VitePress documentation source is versioned; generated files are ignored by docs-site/.gitignore.
 
 /mcp-config-doc/
 
