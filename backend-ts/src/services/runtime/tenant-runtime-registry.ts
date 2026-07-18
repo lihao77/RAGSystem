@@ -54,6 +54,7 @@ export interface LocalTenantRuntimeRegistryOptions {
   sweepIntervalMs?: number;
   runtimeOptions?: Omit<RuntimeContainerOptions, "tenantId" | "dbPath" | "dataRoot" | "logger">;
   runtimeFactory?: (options: RuntimeContainerOptions) => RuntimeContainer;
+  prepareRuntime?: (tenantId: TenantId, runtime: RuntimeContainer) => Promise<void>;
 }
 
 /** @deprecated Use LocalTenantRuntimeRegistryOptions for local deployments. */
@@ -100,6 +101,7 @@ export class LocalTenantRuntimeRegistry implements TenantRuntimeRegistry {
   private readonly idleTimeoutMs: number;
   private readonly runtimeFactory: (options: RuntimeContainerOptions) => RuntimeContainer;
   private readonly runtimeOptions: Omit<RuntimeContainerOptions, "tenantId" | "dbPath" | "dataRoot" | "logger">;
+  private readonly prepareRuntime: LocalTenantRuntimeRegistryOptions["prepareRuntime"];
   private readonly sweepTimer: NodeJS.Timeout;
   private closingAll = false;
 
@@ -112,6 +114,7 @@ export class LocalTenantRuntimeRegistry implements TenantRuntimeRegistry {
     this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     this.runtimeFactory = options.runtimeFactory ?? createRuntimeContainer;
     this.runtimeOptions = options.runtimeOptions ?? {};
+    this.prepareRuntime = options.prepareRuntime;
     const sweepIntervalMs = options.sweepIntervalMs ?? Math.max(1_000, Math.min(this.idleTimeoutMs, 30_000));
     this.sweepTimer = setInterval(() => void this.closeIdleEntries(), sweepIntervalMs);
     this.sweepTimer.unref();
@@ -132,6 +135,7 @@ export class LocalTenantRuntimeRegistry implements TenantRuntimeRegistry {
     const tenantId = await this.validateTenant(rawTenantId, allowSuspended);
     const entry = this.entries.get(tenantId) ?? this.createEntry(tenantId);
     const runtime = await entry.initPromise;
+    await this.prepareRuntime?.(tenantId, runtime);
     if (entry.state !== "ready" || entry.container !== runtime) {
       throw new Error(`租户运行时不可用: ${tenantId}`);
     }

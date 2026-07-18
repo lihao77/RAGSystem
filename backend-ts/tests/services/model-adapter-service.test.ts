@@ -16,6 +16,30 @@ afterEach(() => {
 });
 
 describe("ModelAdapterService provider file compatibility", () => {
+  it("replaces the runtime provider snapshot without writing providers.yaml", () => {
+    const dataRoot = makeTempDataRoot();
+    const service = new ModelAdapterService({ dataRoot });
+
+    service.replaceRuntimeProviders([{
+      key: "cloud_openai_chat",
+      name: "cloud",
+      provider_type: "openai_chat",
+      api_key: "sk-runtime",
+      model_map: { chat: "gpt-runtime" },
+      models: [],
+      is_loaded: true,
+    }]);
+
+    expect(service.listProviders()).toEqual([
+      expect.objectContaining({
+        key: "cloud_openai_chat",
+        api_key: "sk-runtime",
+        models: ["gpt-runtime"],
+      }),
+    ]);
+    expect(fs.existsSync(path.join(dataRoot, "config", "model_adapter", "providers.yaml"))).toBe(false);
+  });
+
   it("loads Python-compatible providers.yaml from the shared data root", () => {
     const dataRoot = makeTempDataRoot();
     const providersPath = writeProvidersYaml(dataRoot, {

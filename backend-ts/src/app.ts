@@ -144,6 +144,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     app.log,
     options.saasMemoryRuntime
       ? {
+          ...(options.saasConversationRuntime ? {
+            prepareRuntime: async (tenantId: import("./identity/types.js").TenantId, runtime: import("./services/runtime/runtime-container.js").RuntimeContainer) => {
+              runtime.modelAdapter.replaceRuntimeProviders(
+                await options.saasConversationRuntime!.providerMcpApplication.listProviders(tenantId),
+              );
+            },
+          } : {}),
           runtimeOptions: {
             memoryBindingsFactory: (input) => options.saasMemoryRuntime!.provider.createMemoryBindings(
               input.tenantId,
@@ -172,7 +179,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           },
         }
       : options.saasConversationRuntime
-        ? { runtimeOptions: {
+        ? {
+          prepareRuntime: async (tenantId: import("./identity/types.js").TenantId, runtime: import("./services/runtime/runtime-container.js").RuntimeContainer) => {
+            runtime.modelAdapter.replaceRuntimeProviders(
+              await options.saasConversationRuntime!.providerMcpApplication.listProviders(tenantId),
+            );
+          },
+          runtimeOptions: {
             asyncEventPersisterFactory: (context: import("./services/agent/sdk/async-event-persister.js").AsyncPersisterRunContext) => new AsyncKernelEventPersister(
               options.saasConversationRuntime!.conversation,
               options.saasConversationRuntime!.runs,

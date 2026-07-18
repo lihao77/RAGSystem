@@ -23,7 +23,7 @@ describe("SaaSProviderMcpApplication", () => {
 
     const app = new SaaSProviderMcpApplication(repository as never);
     await expect(app.listProviders("tenant-a")).resolves.toMatchObject([
-      { key: "openai-main", model_map: { chat: "gpt-4o" }, models: ["gpt-4o"] },
+      { key: "openai-main", api_key: "secret", model_map: { chat: "gpt-4o" }, models: ["gpt-4o"] },
     ]);
     await expect(app.listMcpServers("tenant-a")).resolves.toMatchObject([
       { name: "docs", transport: "streamable_http", url: "https://mcp.example.test" },

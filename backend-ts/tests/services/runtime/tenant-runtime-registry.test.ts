@@ -108,6 +108,49 @@ describe("TenantRuntimeRegistry 多租户隔离", () => {
     harness.controlStore.close();
   });
 
+  it("prepares the tenant runtime before every lease is returned", async () => {
+    let prepareCount = 0;
+    const harness = createRegistryHarness({
+      prepareRuntime: async (tenantId, runtime) => {
+        prepareCount += 1;
+        runtime.modelAdapter.replaceRuntimeProviders([{
+          key: `${tenantId}_openai_chat`,
+          name: tenantId,
+          provider_type: "openai_chat",
+          api_key: "sk-runtime",
+          model_map: { chat: "gpt-runtime" },
+          models: ["gpt-runtime"],
+          is_loaded: true,
+        }]);
+      },
+    });
+    const first = await harness.registry.acquire(TENANT_A);
+    expect(first.runtime.modelAdapter.listProviders()[0]).toMatchObject({
+      key: "tnt_a_openai_chat",
+      api_key: "sk-runtime",
+      models: ["gpt-runtime"],
+    });
+    const projected = first.runtime.runtimeCore.resolveExecutionConfig({
+      selectedLlm: "tnt_a|openai_chat|gpt-runtime",
+    });
+    expect(projected.provider).toMatchObject({
+      key: "tnt_a_openai_chat",
+      api_key: "sk-runtime",
+      model_map: { chat: "gpt-runtime" },
+    });
+    expect(projected.readiness.provider).toMatchObject({
+      configured: true,
+      model_available: true,
+      api_key_configured: true,
+    });
+    first.release();
+    const second = await harness.registry.acquire(TENANT_A);
+    second.release();
+    expect(prepareCount).toBe(2);
+    await harness.registry.closeAll();
+    harness.controlStore.close();
+  });
+
   it("RealtimeEventHub 与事件历史不跨租户", async () => {
     const harness = createRegistryHarness();
     const leaseA = await harness.registry.acquire(TENANT_A);
@@ -140,6 +183,7 @@ function createRegistryHarness(options: {
   idleTimeoutMs?: number;
   localOnly?: boolean;
   runtimeFactory?: (options: RuntimeContainerOptions) => ReturnType<typeof createRuntimeContainer>;
+  prepareRuntime?: import("../../../src/services/runtime/tenant-runtime-registry.js").LocalTenantRuntimeRegistryOptions["prepareRuntime"];
 } = {}) {
   const dataRoot = makeTempRoot();
   const env: AppEnv = {
@@ -162,6 +206,7 @@ function createRegistryHarness(options: {
     idleTimeoutMs: options.idleTimeoutMs ?? 60_000,
     sweepIntervalMs: 5,
     runtimeFactory: options.runtimeFactory ?? createTestRuntime,
+    prepareRuntime: options.prepareRuntime,
   });
   return { env, controlStore, registry };
 }

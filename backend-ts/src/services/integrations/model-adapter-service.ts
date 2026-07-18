@@ -79,6 +79,25 @@ export class ModelAdapterService {
     );
   }
 
+  /** Replace the in-memory provider snapshot supplied by a deployment runtime. */
+  replaceRuntimeProviders(providers: readonly ModelProviderConfig[]): void {
+    const next = new Map<string, ModelProviderConfig>();
+    for (const value of providers) {
+      const config = cloneProviderConfig(value);
+      config.name = String(config.name ?? "").trim();
+      config.provider_type = String(config.provider_type ?? "").trim().toLowerCase();
+      const providerKey = String(value.key ?? "").trim() || makeProviderKey(config);
+      if (!providerKey || !config.name || !PROVIDER_TYPE_SET.has(config.provider_type)) {
+        throw new ModelAdapterServiceError(`无效的运行时 Provider 配置: ${providerKey || config.name || "unknown"}`, 500);
+      }
+      rebuildModelsFromModelMap(config);
+      this.ensureProviderRuntimeShape(config);
+      next.set(providerKey, config);
+    }
+    this.providers.clear();
+    for (const [providerKey, config] of next) this.providers.set(providerKey, config);
+  }
+
   hasProvider(providerKey: string): boolean {
     return this.providers.has(providerKey);
   }
@@ -754,5 +773,4 @@ function normalizeProviderRef(value: string): string {
 function providerCircuitKey(provider: ModelProviderConfig): string {
   return `provider:${provider.key ?? provider.name ?? provider.provider_type}`;
 }
-
 
