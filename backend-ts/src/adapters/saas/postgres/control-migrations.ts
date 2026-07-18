@@ -177,6 +177,36 @@ export const POSTGRES_CONTROL_MIGRATIONS: readonly PostgresControlMigration[] = 
 
     `,
   },
+  {
+    version: 3,
+    name: "control-import-checkpoints-and-cron-lease",
+    sql: `
+      CREATE TABLE control_import_checkpoints (
+        import_id TEXT PRIMARY KEY CHECK (length(import_id) > 0),
+        source_path TEXT NOT NULL,
+        source_checksum TEXT NOT NULL CHECK (source_checksum ~ '^[0-9a-f]{64}$'),
+        row_counts JSONB NOT NULL,
+        completed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX control_import_checkpoints_completed_idx
+        ON control_import_checkpoints(completed_at DESC);
+
+      ALTER TABLE control_bot_cron_tasks
+        ADD COLUMN lease_owner TEXT,
+        ADD COLUMN lease_token TEXT,
+        ADD COLUMN lease_expires_at DOUBLE PRECISION,
+        ADD COLUMN last_attempt_id TEXT,
+        ADD COLUMN attempt_count BIGINT NOT NULL DEFAULT 0;
+
+      CREATE UNIQUE INDEX control_bot_cron_attempt_idx
+        ON control_bot_cron_tasks(last_attempt_id)
+        WHERE last_attempt_id IS NOT NULL;
+
+      CREATE INDEX control_bot_cron_claimable_idx
+        ON control_bot_cron_tasks(enabled, next_run, lease_expires_at);
+    `,
+  },
 ];
 
 export const POSTGRES_CONTROL_LATEST_SCHEMA_VERSION = POSTGRES_CONTROL_MIGRATIONS.length;

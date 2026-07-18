@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { Pool, type QueryResultRow } from "pg";
+import { Pool, type QueryResult, type QueryResultRow } from "pg";
 
 import type {
   SecretCoordinates,
@@ -16,17 +16,21 @@ const ENVELOPE_VERSION = 1;
 const NONCE_BYTES = 12;
 const MASTER_KEY_BYTES = 32;
 
+interface SecretQueryable {
+  query<Row extends QueryResultRow = QueryResultRow>(sql: string, params?: unknown[]): Promise<QueryResult<Row>>;
+}
+
 export class PostgresSecretEnvelopeRepository implements SecretEnvelopeRepository {
   private closed = false;
 
   constructor(
-    readonly pool: Pool,
+    readonly database: SecretQueryable,
     private readonly ownsPool = false,
   ) {}
 
   async get(coordinates: SecretCoordinates): Promise<SecretEnvelopeRecord | null> {
     this.assertOpen();
-    const result = await this.pool.query<SecretEnvelopeRow>(`
+    const result = await this.database.query<SecretEnvelopeRow>(`
       SELECT tenant_id, purpose, resource_id, field, envelope_version,
              nonce, auth_tag, ciphertext, updated_at
       FROM control_secret_envelopes
@@ -51,7 +55,7 @@ export class PostgresSecretEnvelopeRepository implements SecretEnvelopeRepositor
 
   async put(record: SecretEnvelopeRecord): Promise<void> {
     this.assertOpen();
-    await this.pool.query(`
+    await this.database.query(`
       INSERT INTO control_secret_envelopes(
         tenant_id, purpose, resource_id, field, envelope_version,
         nonce, auth_tag, ciphertext, updated_at
@@ -73,14 +77,14 @@ export class PostgresSecretEnvelopeRepository implements SecretEnvelopeRepositor
 
   async delete(coordinates: SecretCoordinates): Promise<boolean> {
     this.assertOpen();
-    const result = await this.pool.query("DELETE FROM control_secret_envelopes WHERE tenant_id=$1 AND purpose=$2 AND resource_id=$3 AND field=$4", coordinateParams(coordinates));
+    const result = await this.database.query("DELETE FROM control_secret_envelopes WHERE tenant_id=$1 AND purpose=$2 AND resource_id=$3 AND field=$4", coordinateParams(coordinates));
     return (result.rowCount ?? 0) > 0;
   }
 
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    if (this.ownsPool) await this.pool.end();
+    if (this.ownsPool) await (this.database as Pool).end();
   }
 
   private assertOpen(): void {

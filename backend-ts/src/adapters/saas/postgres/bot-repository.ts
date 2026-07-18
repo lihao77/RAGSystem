@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 
-import type { BotRepository, BotWithConfig } from "../../../contracts/bot-repository.js";
+import type { BotCronTaskClaim, BotRepository, BotWithConfig } from "../../../contracts/bot-repository.js";
 import type {
   BotConfig,
   BotConfigUpdate,
@@ -211,6 +211,56 @@ export class PostgresBotRepository implements BotRepository {
     return result.rows.map((row) => ({ botId: createUserId(row.bot_id), taskId: row.task_id }));
   }
 
+  async claimDueCronTasks(input: {
+    now: number;
+    leaseOwner: string;
+    leaseSeconds?: number;
+    limit?: number;
+  }): Promise<BotCronTaskClaim[]> {
+    const leaseSeconds = Math.max(5, Math.min(Math.trunc(input.leaseSeconds ?? 300), 86_400));
+    const limit = Math.max(1, Math.min(Math.trunc(input.limit ?? 100), 500));
+    return this.transaction(async (client) => {
+      const due = await client.query<{ bot_id: string; task_id: string }>(`
+        SELECT task.bot_id, task.task_id
+        FROM control_bot_cron_tasks task
+        JOIN control_users u ON u.id=task.bot_id
+        WHERE task.enabled=TRUE AND task.next_run IS NOT NULL AND task.next_run <= $1
+          AND (task.lease_expires_at IS NULL OR task.lease_expires_at <= $1)
+          AND u.type='bot' AND u.status='active'
+        ORDER BY task.bot_id, task.task_id
+        FOR UPDATE OF task SKIP LOCKED
+        LIMIT $2
+      `, [input.now, limit]);
+      const claimed: BotCronTaskClaim[] = [];
+      for (const row of due.rows) {
+        const claimToken = randomUUID();
+        const attemptId = randomUUID();
+        const leaseExpiresAt = input.now + leaseSeconds;
+        const updated = await client.query(`
+          UPDATE control_bot_cron_tasks
+          SET lease_owner=$1, lease_token=$2, lease_expires_at=$3,
+              last_attempt_id=$4, attempt_count=attempt_count+1
+          WHERE bot_id=$5 AND task_id=$6
+        `, [input.leaseOwner, claimToken, leaseExpiresAt, attemptId, row.bot_id, row.task_id]);
+        if ((updated.rowCount ?? 0) === 0) continue;
+        claimed.push({ botId: createUserId(row.bot_id), taskId: row.task_id, claimToken, attemptId, leaseOwner: input.leaseOwner, leaseExpiresAt });
+      }
+      return claimed;
+    });
+  }
+
+  async completeCronTaskClaim(input: { botId: UserId; taskId: string; claimToken: string }): Promise<boolean> {
+    return changed(await this.pool.query(`
+      UPDATE control_bot_cron_tasks
+      SET lease_owner=NULL, lease_token=NULL, lease_expires_at=NULL
+      WHERE bot_id=$1 AND task_id=$2 AND lease_token=$3
+    `, [input.botId, input.taskId, input.claimToken]));
+  }
+
+  async releaseCronTaskClaim(input: { botId: UserId; taskId: string; claimToken: string }): Promise<boolean> {
+    return this.completeCronTaskClaim(input);
+  }
+
   async getCronTask(botId: UserId, taskId: string): Promise<BotCronTask | null> {
     const result = await this.pool.query<BotCronTaskRow>(`${BOT_CRON_SELECT} WHERE bot_id=$1 AND task_id=$2`, [botId, taskId]);
     return result.rows[0] ? mapCronTask(result.rows[0]) : null;
@@ -227,16 +277,16 @@ export class PostgresBotRepository implements BotRepository {
     return mapCronTask(requiredRow(result));
   }
 
-  async updateCronTask(botId: UserId, taskId: string, patch: Parameters<BotRepository["updateCronTask"]>[2]): Promise<BotCronTask | null> {
+  async updateCronTask(botId: UserId, taskId: string, patch: Parameters<BotRepository["updateCronTask"]>[2], options?: Parameters<BotRepository["updateCronTask"]>[3]): Promise<BotCronTask | null> {
     const current = await this.getCronTask(botId, taskId);
     if (!current) return null;
     const next = { ...current, ...defined(patch) };
     const result = await this.pool.query<BotCronTaskRow>(`
       UPDATE control_bot_cron_tasks SET cron=$1, task=$2, entry_agent=$3, enabled=$4,
         push_platform=$5, push_chat_id=$6, next_run=$7, last_run=$8, last_result=$9
-      WHERE bot_id=$10 AND task_id=$11 RETURNING ${BOT_CRON_COLUMNS}
+      WHERE bot_id=$10 AND task_id=$11 AND ($12::text IS NULL OR lease_token=$12) RETURNING ${BOT_CRON_COLUMNS}
     `, [next.cron, next.task, next.entry_agent, next.enabled, next.push_platform, next.push_chat_id,
-      next.next_run, next.last_run, next.last_result, botId, taskId]);
+      next.next_run, next.last_run, next.last_result, botId, taskId, options?.claimToken ?? null]);
     return result.rows[0] ? mapCronTask(result.rows[0]) : null;
   }
 

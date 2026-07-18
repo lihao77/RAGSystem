@@ -5,8 +5,10 @@ import type {
   WidgetAppCredential,
   WidgetCredentialRepository,
 } from "../../contracts/widget-credentials.js";
+import type { JwtKeyRing, JwtSigningKey } from "../../contracts/jwt-key-ring.js";
 import { createTenantId, type TenantId } from "../../identity/types.js";
 import { AuthError } from "../identity/auth-error.js";
+import { createLegacyJwtKeyRing } from "./jwt-key-ring.js";
 
 /** widget 短时 token 的 TTL（秒）。 */
 const TOKEN_TTL_SECONDS = 15 * 60;
@@ -53,17 +55,19 @@ export class WidgetAuthError extends AuthError {
   }
 }
 
-export function createWidgetAuthService(secret: string, credentials: WidgetCredentialRepository): WidgetAuthService {
-  if (!secret || secret.length < 32) {
+export function createWidgetAuthService(secretOrKeyRing: string | JwtKeyRing, credentials: WidgetCredentialRepository): WidgetAuthService {
+  if (typeof secretOrKeyRing === "string" && (!secretOrKeyRing || secretOrKeyRing.length < 32)) {
     throw new Error("WIDGET_JWT_SECRET 至少需 32 字符");
   }
-  const key = Buffer.from(secret, "utf8");
+  const keyRing = typeof secretOrKeyRing === "string"
+    ? createLegacyJwtKeyRing(secretOrKeyRing, "widget-legacy")
+    : secretOrKeyRing;
 
-  const sign = (claims: WidgetTokenClaims): string => {
-    const headerSegment = base64urlJson({ alg: "HS256", typ: "JWT" });
+  const sign = (claims: WidgetTokenClaims, key: JwtSigningKey): string => {
+    const headerSegment = base64urlJson({ alg: "HS256", typ: "JWT", kid: key.kid });
     const payloadSegment = base64urlJson(claims);
     const signingInput = `${headerSegment}.${payloadSegment}`;
-    const signature = createHmac("sha256", key).update(signingInput).digest().toString("base64url");
+    const signature = createHmac("sha256", key.secret).update(signingInput).digest().toString("base64url");
     return `${signingInput}.${signature}`;
   };
 
@@ -77,7 +81,18 @@ export function createWidgetAuthService(secret: string, credentials: WidgetCrede
       throw new WidgetAuthError("malformed token");
     }
     const signingInput = `${headerSegment}.${payloadSegment}`;
-    const expected = createHmac("sha256", key).update(signingInput).digest();
+    let header: { alg?: unknown; kid?: unknown };
+    try {
+      header = parseBase64urlJson(headerSegment) as { alg?: unknown; kid?: unknown };
+    } catch {
+      throw new WidgetAuthError("invalid header");
+    }
+    if (header.alg !== "HS256" || (header.kid !== undefined && typeof header.kid !== "string")) {
+      throw new WidgetAuthError("invalid header");
+    }
+    const verificationKey = keyRing.getVerificationKey(header.kid as string | undefined);
+    if (!verificationKey) throw new WidgetAuthError("unknown or expired signing key");
+    const expected = createHmac("sha256", verificationKey.secret).update(signingInput).digest();
     const actual = Buffer.from(signatureSegment, "base64url");
     if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
       throw new WidgetAuthError("invalid signature");
@@ -130,7 +145,7 @@ export function createWidgetAuthService(secret: string, credentials: WidgetCrede
         issued_at: claims.iat,
         expires_at: claims.exp,
       });
-      return { token: sign(claims), expires_at: claims.exp };
+      return { token: sign(claims, keyRing.getActiveSigningKey(now)), expires_at: claims.exp };
     },
     async requireBearer(request) {
       const header = request.headers.authorization ?? "";

@@ -88,6 +88,7 @@ export interface DaemonServiceOptions {
 
 export class DaemonService {
   private readonly states = new Map<UserId, BotRuntimeState>();
+  private readonly cronLeaseOwner = randomUUID();
   private readonly stateInitializations = new Map<UserId, Promise<BotRuntimeState>>();
   private readonly reloads = new Map<UserId, Promise<void>>();
   private startPromise: Promise<void> | null = null;
@@ -193,7 +194,7 @@ export class DaemonService {
     return deleted;
   }
 
-  async triggerBotCronTask(botId: UserId, taskId: string): Promise<{ status: "ok"; result: string | null }> {
+  async triggerBotCronTask(botId: UserId, taskId: string, claimToken?: string): Promise<{ status: "ok"; result: string | null }> {
     const state = await this.ensureState(botId);
     const task = await this.options.botRepository.getCronTask(botId, taskId);
     if (!task || !task.enabled) throw new DaemonServiceError(404, `任务不存在或未启用: ${taskId}`);
@@ -210,7 +211,7 @@ export class DaemonService {
         last_run: now,
         next_run: computeNextRun(task.cron),
         last_result: result.suspended ? "SUSPENDED" : result.content.slice(0, 200),
-      });
+      }, claimToken ? { claimToken } : undefined);
       this.recordCronHistory(state, taskId, { timestamp: now, success: true, result: result.suspended ? "SUSPENDED" : result.content.slice(0, 200), error: null, elapsed: (Date.now() - startedAt) / 1000 });
       if (!result.suspended && task.push_platform && task.push_chat_id) {
         const sent = await this.sendMessage(botId, { platform: task.push_platform, chat_id: task.push_chat_id, content: result.content, message_type: "text" });
@@ -224,7 +225,7 @@ export class DaemonService {
         last_run: now,
         next_run: computeNextRun(task.cron),
         last_result: `ERROR: ${message}`,
-      });
+      }, claimToken ? { claimToken } : undefined);
       this.recordCronHistory(state, taskId, { timestamp: now, success: false, result: "", error: message, elapsed: (Date.now() - startedAt) / 1000 });
       throw new DaemonServiceError(400, message);
     }
@@ -246,6 +247,22 @@ export class DaemonService {
   }
 
   private async runDueTasks(now: number): Promise<void> {
+    if (this.options.botRepository.claimDueCronTasks) {
+      const claims = await this.options.botRepository.claimDueCronTasks({
+        now,
+        leaseOwner: this.cronLeaseOwner,
+      });
+      for (const claim of claims) {
+        try {
+          await this.triggerBotCronTask(claim.botId, claim.taskId, claim.claimToken);
+          await this.options.botRepository.completeCronTaskClaim?.({ botId: claim.botId, taskId: claim.taskId, claimToken: claim.claimToken });
+        } catch (error) {
+          await this.options.botRepository.releaseCronTaskClaim?.({ botId: claim.botId, taskId: claim.taskId, claimToken: claim.claimToken });
+          console.error(`[daemon][cron][${claim.botId}/${claim.taskId}] 自动调度失败`, error);
+        }
+      }
+      return;
+    }
     const tasks = await this.options.botRepository.listDueCronTasks(now);
     for (const { botId, taskId } of tasks) {
       try {

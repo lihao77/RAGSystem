@@ -70,6 +70,18 @@ describe.skipIf(databaseUrl == null)("PostgreSQL BotRepository", () => {
       });
       expect(await bots.listDueCronTasks(11)).toEqual([{ botId: bot.id, taskId: task.task_id }]);
 
+      const second = new PostgresBotRepository(pool, secrets);
+      const claims = await Promise.all([
+        bots.claimDueCronTasks!({ now: 11, leaseOwner: "worker-a", leaseSeconds: 60 }),
+        second.claimDueCronTasks!({ now: 11, leaseOwner: "worker-b", leaseSeconds: 60 }),
+      ]);
+      expect(claims.filter((items) => items.length === 1)).toHaveLength(1);
+      expect(claims.flat()).toHaveLength(1);
+      const claim = claims.flat()[0]!;
+      expect(claim.attemptId).toBeTruthy();
+      expect(await bots.completeCronTaskClaim!({ botId: bot.id, taskId: task.task_id, claimToken: claim.claimToken })).toBe(true);
+      expect(await second.completeCronTaskClaim!({ botId: bot.id, taskId: task.task_id, claimToken: claim.claimToken })).toBe(false);
+
       expect(await pool.query("SELECT COUNT(*)::int AS count FROM control_secret_envelopes WHERE resource_id=$1", [bot.id])).toMatchObject({ rows: [{ count: 4 }] });
       expect(await bots.delete(bot.id)).toBe(true);
       expect(await pool.query("SELECT COUNT(*)::int AS count FROM control_secret_envelopes WHERE resource_id=$1", [bot.id])).toMatchObject({ rows: [{ count: 0 }] });

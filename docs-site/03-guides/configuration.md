@@ -33,6 +33,7 @@ process.env（最高）
 | `CONTROL_STORAGE_MODE` | `sqlite` | sqlite/postgres | Control Plane 存储选择；当前 app composition 仅开放 sqlite |
 | `CONTROL_DATABASE_URL` | 无 | PostgreSQL connection URL | `CONTROL_STORAGE_MODE=postgres` 的独立连接串，不复用 Memory 配置 |
 | `CONTROL_SECRET_MASTER_KEY` | 无 | base64 encoded 32-byte key | PostgreSQL Control v2 envelope 的独立主密钥；不得由数据库密码或 JWT secret 派生 |
+| `WIDGET_JWT_KEY_RING` | 无 | JSON key ring | 可选的共享 Widget JWT active/previous key 配置；签发使用 active，验证允许未过期 previous |
 | `DATABASE_URL` / `POSTGRES_URL` | 无 | PostgreSQL connection URL | PostgreSQL Memory 连接串 |
 | `POSTGRES_POOL_MAX` | `10` | 正整数 | PostgreSQL Memory pool 上限 |
 | `UI_MODE` | `local` | local/saas | 前端运行模式 |
@@ -45,6 +46,8 @@ process.env（最高）
 `CONTROL_STORAGE_MODE` 与 `STORAGE_MODE` 是两个独立选择轴。前者只控制 tenant/user/membership/settings/auth session/audit 等 Control Plane 数据，后者当前控制 Memory。Local 未设置 `CONTROL_STORAGE_MODE` 时始终使用 SQLite。
 
 PostgreSQL Control Plane 的 schema、migration、Bot/Widget adapter 和 AES-GCM envelope 已有独立边界。启用 `CONTROL_STORAGE_MODE=postgres` 时必须同时提供 `CONTROL_DATABASE_URL` 与独立的 `CONTROL_SECRET_MASTER_KEY`；当前仍需经过 importer、cron lease、JWT key ring 和多实例 readiness 验证，生产切换前不要修改 Compose 默认的 sqlite。
+
+设置 `WIDGET_JWT_KEY_RING` 后，格式为 `{"active":{"kid":"v2","secret":"..."},"previous":[{"kid":"v1","secret":"...","expiresAt":4102444800}]}`。所有实例必须使用同一 ring；旧的 `WIDGET_JWT_SECRET` 仍兼容为单一 `legacy` key。
 
 ## 3. 常用配置组合
 

@@ -6,11 +6,12 @@ import {
 } from "../../src/adapters/saas/postgres/control-migrations.js";
 
 describe("PostgreSQL Control Plane migrations", () => {
-  it("keeps v2 as the Bot/Widget and secret boundary", () => {
-    expect(POSTGRES_CONTROL_LATEST_SCHEMA_VERSION).toBe(2);
+  it("keeps v2 as the Bot/Widget and v3 as the lease boundary", () => {
+    expect(POSTGRES_CONTROL_LATEST_SCHEMA_VERSION).toBe(3);
     expect(POSTGRES_CONTROL_MIGRATIONS.map((migration) => [migration.version, migration.name])).toEqual([
       [1, "control-plane-core"],
       [2, "bot-widget-and-secret-storage"],
+      [3, "control-import-checkpoints-and-cron-lease"],
     ]);
     const sql = POSTGRES_CONTROL_MIGRATIONS[1]?.sql ?? "";
     for (const table of [
@@ -26,5 +27,11 @@ describe("PostgreSQL Control Plane migrations", () => {
     expect(sql).toContain("control_bot_configs_route_digest_idx");
     expect(sql).toContain("REFERENCES control_tenants(id) ON DELETE CASCADE");
     expect(sql).toContain("REFERENCES control_users(id) ON DELETE CASCADE");
+    const leaseSql = POSTGRES_CONTROL_MIGRATIONS[2]?.sql ?? "";
+    expect(leaseSql).toContain("lease_token");
+    expect(leaseSql).toContain("last_attempt_id");
+    expect(leaseSql).toContain("attempt_count");
+    expect(leaseSql).toContain("control_bot_cron_attempt_idx");
+    expect(leaseSql).toContain("control_import_checkpoints");
   });
 });

@@ -225,8 +225,8 @@ backend-ts/src/
 2. ~~保留 SQLite Control adapter；增加 PostgreSQL Control core adapter 和事务 migration。~~
 3. 将 tenant provisioning 设计为幂等状态机：creating -> active -> suspended -> deleting。
 4. password/OIDC identity 统一映射到 tenant membership；所有控制面操作写审计记录。
-5. ~~在 PostgreSQL core 中实现 session revocation 和系统设置；抽取 Bot/Widget 异步 ports 并保留 SQLite adapters。~~ 迁移 bot config 与 widget credential，第三方密钥只存引用或 authenticated envelope 密文。
-6. 增加 Daemon cron claim/lease 或单 leader 门禁、共享 Widget JWT key ring 和 route-token 跨实例解析；否则 Bot/Widget 数据迁入 PG 后仍不能开放多实例写入。
+5. ~~在 PostgreSQL core 中实现 session revocation 和系统设置；抽取 Bot/Widget 异步 ports 并保留 SQLite adapters；迁移 bot config 与 widget credential，第三方密钥只存引用或 authenticated envelope 密文。~~
+6. ~~增加 Daemon cron claim/lease、共享 Widget JWT key ring 和 Control importer/checkpoint。~~ route-token 跨实例解析与 Conversation/Run 等运行事实仍需后续迁移，否则不能宣称完整 SaaS。
 7. `/readyz` 检查 control DB schema、连接、数据导入 checkpoint 和 secret resolver 状态。
 
 验收：两个后端实例能看到一致的租户、用户和撤销状态；不存在通过扫描本地 tenant 目录发现租户的 SaaS 路径。
@@ -428,7 +428,7 @@ inventory -> preflight -> snapshot -> bulk copy -> checksum
 1. Memory 并发/故障 E2E 与 SQLite candidate importer。
 2. ~~Control/Identity ports 和 SQLite adapter 回归，不切换生产路径。~~
 3. ~~PostgreSQL Control core adapter、tenant provisioning、并发约束和审计。~~
-4. ~~抽取 Bot/Widget 异步 ports，并设计第三方密钥 envelope 边界。~~ 实现 secret resolver、PostgreSQL Bot/Widget adapters、v2 migration 与 SQLite importer。
+4. ~~抽取 Bot/Widget 异步 ports，设计 secret envelope，增加 PostgreSQL v2 adapters、cron lease、JWT key ring 和 SQLite Control importer。~~ 完成 route-token 跨实例解析与导入后 readiness 门禁。
 5. Conversation contracts 拆分与 Local adapter contract tests。
 6. PostgreSQL session/message/run/outbox 首个纵向切片。
 

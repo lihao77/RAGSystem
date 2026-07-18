@@ -9,3 +9,4 @@ export * from "./bot-repository.js";
 export * from "./widget-credential-repository.js";
 export * from "./control-secret-migrations.js";
 export * from "./control-secret-resolver.js";
+export * from "./control-importer.js";

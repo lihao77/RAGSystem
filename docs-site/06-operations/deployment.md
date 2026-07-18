@@ -93,6 +93,20 @@ Password: ragsystem
 
 Compose 会传入 `CONTROL_DATABASE_URL` 和可选的 `CONTROL_SECRET_MASTER_KEY`。当前 runtime 已支持 PostgreSQL Control v2，但生产切换仍必须先完成 SQLite importer/checkpoint 和多实例门禁；缺少 master key 时会启动失败，单独设置 `CONTROL_STORAGE_MODE=postgres` 不代表已有 Local 数据已导入。
 
+#### 导入 Local Control 数据
+
+Control 数据必须使用固定 `import-id` 导入。命令会读取 `<source-data-root>/system/control.db`（也接受直接传入 `system` 目录），在同一 PostgreSQL 事务中导入 tenant、user、membership、session、Bot、Widget 和 audit，并将 Bot 可恢复密钥写入 envelope：
+
+```powershell
+npm -w @ragsystem/backend-ts run migrate:control-postgres -- `
+  --source-data-root D:\backup\ragsystem `
+  --database-url $env:CONTROL_DATABASE_URL `
+  --master-key $env:CONTROL_SECRET_MASTER_KEY `
+  --import-id local-control-2026-07-18
+```
+
+相同 `import-id` 和 checksum 会幂等返回；源快照变化或目标唯一键冲突会失败。导入完成后再切换 `CONTROL_STORAGE_MODE=postgres`，并核对 `/readyz`、cron claim 和 Widget key ring。
+
 #### 导入 Local Memory 文件
 
 来源 `dataRoot` 可以与当前后端的 `RAG_DATA_ROOT` 不同，必须显式指定：

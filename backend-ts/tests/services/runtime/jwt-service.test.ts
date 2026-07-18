@@ -4,6 +4,7 @@ import type { FastifyRequest } from "fastify";
 import { SqliteWidgetCredentialAdapter } from "../../../src/adapters/local/sqlite-widget-credential-adapter.js";
 import { createTenantId } from "../../../src/identity/types.js";
 import { createWidgetAuthService, WidgetAuthError } from "../../../src/services/runtime/jwt-service.js";
+import { createJwtKeyRing } from "../../../src/services/runtime/jwt-key-ring.js";
 import { createControlStore } from "../../../src/services/stores/control-store/index.js";
 import { createWidgetCredentialStore } from "../../../src/services/stores/widget-credential-store/index.js";
 import { makeTempRoot } from "../../helpers/temp-db.js";
@@ -75,6 +76,34 @@ describe("WidgetAuthService", () => {
     expect(settled).toBe(false);
     release();
     await expect(verification).resolves.toMatchObject({ sub: app.app_key });
+    store.close();
+    controlStore.close();
+  });
+
+  it("uses active kid for signing and previous kid only for verification", async () => {
+    const { store, credentials, controlStore } = makeService();
+    const app = await credentials.apps.create({ tenantId, display_name: "rotate" });
+    const storedApp = (await credentials.apps.get(tenantId, app.app_key))!;
+    const oldSecret = "widget-old-key-0123456789abcdef0123456789";
+    const newSecret = "widget-new-key-0123456789abcdef0123456789";
+    const oldService = createWidgetAuthService(createJwtKeyRing({ active: { kid: "widget-v1", secret: oldSecret } }), credentials);
+    const oldToken = (await oldService.issueToken(storedApp)).token;
+    const rotatedService = createWidgetAuthService(createJwtKeyRing({
+      active: { kid: "widget-v2", secret: newSecret },
+      previous: [{ kid: "widget-v1", secret: oldSecret }],
+    }), credentials);
+
+    await expect(rotatedService.requireBearer(bearerRequest(oldToken))).resolves.toMatchObject({ sub: app.app_key });
+    const newToken = (await rotatedService.issueToken(storedApp)).token;
+    const header = JSON.parse(Buffer.from(newToken.split(".")[0]!, "base64url").toString("utf8")) as { kid: string };
+    expect(header.kid).toBe("widget-v2");
+    await expect(oldService.requireBearer(bearerRequest(newToken))).rejects.toThrow("unknown or expired signing key");
+
+    const expiredPrevious = createWidgetAuthService(createJwtKeyRing({
+      active: { kid: "widget-v2", secret: newSecret },
+      previous: [{ kid: "widget-v1", secret: oldSecret, expiresAt: 1 }],
+    }), credentials);
+    await expect(expiredPrevious.requireBearer(bearerRequest(oldToken))).rejects.toThrow("unknown or expired signing key");
     store.close();
     controlStore.close();
   });

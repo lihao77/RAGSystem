@@ -119,8 +119,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const widgetCredentials = options.controlRuntime?.widgetCredentials
     ?? options.widgetCredentials
     ?? new SqliteWidgetCredentialAdapter(widgetCredentialStore!);
-  const widgetAuth = options.widgetAuth ?? (options.env.widgetJwtSecret
-    ? createWidgetAuthService(options.env.widgetJwtSecret, widgetCredentials)
+  const widgetJwtCredential = options.env.widgetJwtKeyRing ?? options.env.widgetJwtSecret;
+  const widgetAuth = options.widgetAuth ?? (widgetJwtCredential
+    ? createWidgetAuthService(widgetJwtCredential, widgetCredentials)
     : undefined);
   const widgetIdentityProvider = widgetAuth ? new WidgetIdentityProvider(widgetAuth, widgetCredentials) : undefined;
   const registry = options.registry ?? new DefaultTenantRuntimeRegistry(

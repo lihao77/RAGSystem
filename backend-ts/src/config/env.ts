@@ -11,6 +11,8 @@ import type {
   TenancyMode,
   UiMode,
 } from "../identity/types.js";
+import type { JwtKeyRing } from "../contracts/jwt-key-ring.js";
+import { createJwtKeyRing } from "../services/runtime/jwt-key-ring.js";
 
 const DeploymentModeSchema = z.enum(["local", "saas", "enterprise"]);
 const AuthModeSchema = z.enum(["local", "password", "oidc"]);
@@ -28,6 +30,7 @@ const EnvSchema = z.object({
   PORT: z.string().optional(),
   RAG_DATA_ROOT: z.string().optional(),
   WIDGET_JWT_SECRET: z.string().optional(),
+  WIDGET_JWT_KEY_RING: z.string().optional(),
   SESSION_JWT_SECRET: z.string().optional(),
   SESSION_TOKEN_TTL_HOURS: z.string().optional(),
   DEPLOYMENT_MODE: DeploymentModeSchema.optional(),
@@ -67,6 +70,7 @@ export interface AppEnv {
   postgresPoolMax: number;
   /** widget JWT 签名密钥；未设则 widget 鉴权不启用。 */
   widgetJwtSecret?: string | undefined;
+  widgetJwtKeyRing?: JwtKeyRing | undefined;
   /** 用户 session JWT 签名密钥；password 模式必须可解析。 */
   sessionJwtSecret?: string | undefined;
   sessionTokenTtlHours?: number | undefined;
@@ -118,6 +122,7 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     controlSecretMasterKey: parseSecretMasterKey(env.CONTROL_SECRET_MASTER_KEY),
     postgresPoolMax: parsePositiveInteger(env.POSTGRES_POOL_MAX, 10, "POSTGRES_POOL_MAX"),
     widgetJwtSecret: env.WIDGET_JWT_SECRET?.trim() || undefined,
+    widgetJwtKeyRing: parseWidgetJwtKeyRing(env.WIDGET_JWT_KEY_RING),
     sessionJwtSecret: env.SESSION_JWT_SECRET?.trim() || undefined,
     sessionTokenTtlHours: parsePositiveNumber(env.SESSION_TOKEN_TTL_HOURS, 168, "SESSION_TOKEN_TTL_HOURS"),
   };
@@ -200,6 +205,28 @@ function parseSecretMasterKey(rawValue: string | undefined): Buffer | undefined 
     throw new Error("CONTROL_SECRET_MASTER_KEY must be a valid base64 encoded 32-byte key");
   }
   return key;
+}
+
+function parseWidgetJwtKeyRing(rawValue: string | undefined): JwtKeyRing | undefined {
+  if (!rawValue?.trim()) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawValue);
+  } catch {
+    throw new Error("WIDGET_JWT_KEY_RING must be valid JSON");
+  }
+  if (typeof parsed !== "object" || parsed === null) throw new Error("WIDGET_JWT_KEY_RING must be an object");
+  const value = parsed as { active?: unknown; previous?: unknown };
+  if (value.active === undefined || !Array.isArray(value.previous ?? [])) {
+    throw new Error("WIDGET_JWT_KEY_RING requires active and previous[]");
+  }
+  const ring = createJwtKeyRing({
+    active: value.active as { kid: string; secret: string; expiresAt?: number },
+    previous: value.previous as Array<{ kid: string; secret: string; expiresAt?: number }>,
+  });
+  const readiness = ring.readiness();
+  if (!readiness.ready) throw new Error(`WIDGET_JWT_KEY_RING is not ready: ${readiness.reason ?? "unknown"}`);
+  return ring;
 }
 
 function validateDeploymentProfile(profile: DeploymentProfile, allowUnsafeLocalExecution: boolean): void {

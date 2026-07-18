@@ -94,4 +94,19 @@ describe("deployment profile", () => {
       CONTROL_DATABASE_URL: "postgres://control/database",
     })).toThrow("CONTROL_STORAGE_MODE=postgres requires CONTROL_SECRET_MASTER_KEY");
   });
+
+  it("parses a shared Widget JWT key ring and rejects an expired active key", () => {
+    const env = loadEnv({
+      RAG_DATA_ROOT: path.join(process.cwd(), ".test-data", "env-widget-key-ring"),
+      WIDGET_JWT_KEY_RING: JSON.stringify({
+        active: { kid: "v2", secret: "a".repeat(32) },
+        previous: [{ kid: "v1", secret: "b".repeat(32), expiresAt: 4_102_444_800 }],
+      }),
+    });
+    expect(env.widgetJwtKeyRing?.readiness()).toMatchObject({ ready: true, activeKid: "v2", verificationKids: ["v1", "v2"] });
+    expect(() => loadEnv({
+      RAG_DATA_ROOT: path.join(process.cwd(), ".test-data", "env-widget-key-ring-expired"),
+      WIDGET_JWT_KEY_RING: JSON.stringify({ active: { kid: "expired", secret: "a".repeat(32), expiresAt: 1 } }),
+    })).toThrow("WIDGET_JWT_KEY_RING is not ready");
+  });
 });
