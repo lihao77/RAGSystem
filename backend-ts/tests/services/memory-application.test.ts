@@ -70,6 +70,8 @@ function repository(): TransactionalMemoryRepository {
   return {
     getEntry: vi.fn(async () => entry),
     listEntries: vi.fn(async () => [entry]),
+    listManagedEntries: vi.fn(async () => [entry]),
+    countManagedEntries: vi.fn(async () => 1),
     getScopeRevision: vi.fn(async () => 7),
     createCandidate: vi.fn(async () => candidate),
     getCandidate: vi.fn(async () => candidate),

@@ -282,7 +282,6 @@ export function createSessionCommandController({
       const body = {
         task: content,
         session_id: sessionId,
-        use_v2: true,
         attachments: attachments.map(serializeAttachmentForSend),
       };
       const selectedLlm = deps.getCurrentSelectedLlm();

@@ -12,6 +12,8 @@ import type {
   PersistedMemoryCandidateListOptions,
   PersistedMemoryCandidateMutationResult,
   PersistedMemoryEntry,
+  PersistedMemoryManagementCountOptions,
+  PersistedMemoryManagementListOptions,
   PersistedMemoryListOptions,
   RejectPersistedMemoryCandidateInput,
   ReleasePersistedMemoryCandidateInput,
@@ -65,8 +67,43 @@ function candidateWhere(options: PersistedMemoryCandidateCountOptions): { sql: s
     clauses.push(`status = ANY($${params.length}::text[])`);
   }
   if (options.scope != null) add("scope =", options.scope);
+  if (options.scopes?.length) {
+    params.push(options.scopes);
+    clauses.push(`scope = ANY($${params.length}::text[])`);
+  }
   if (options.scope_id != null) add("scope_id =", options.scope_id);
   if (options.operation != null) add("operation =", options.operation);
+  return { sql: clauses.join(" AND "), params };
+}
+
+function managedEntryWhere(options: PersistedMemoryManagementCountOptions): { sql: string; params: unknown[] } {
+  const clauses = ["tenant_id = $1"];
+  const params: unknown[] = [options.tenant_id];
+  if (options.scopes?.length) {
+    params.push(options.scopes);
+    clauses.push(`scope = ANY($${params.length}::text[])`);
+  }
+  if (options.statuses?.length) {
+    params.push(options.statuses);
+    clauses.push(`status = ANY($${params.length}::text[])`);
+  }
+  const search = options.search?.trim();
+  if (search) {
+    params.push(`%${search}%`);
+    clauses.push(`(name ILIKE $${params.length} OR description ILIKE $${params.length} OR content ILIKE $${params.length})`);
+  }
+  if (options.viewer_user_id) {
+    params.push(options.viewer_user_id);
+    const userParam = `$${params.length}`;
+    params.push(options.viewer_session_ids ?? []);
+    const sessionsParam = `$${params.length}`;
+    clauses.push(`(
+      scope IN ('team', 'agent')
+      OR (scope = 'user' AND scope_id = ${userParam})
+      OR (CASE WHEN scope = 'workspace' THEN (scope_id::jsonb ->> 0) = ${userParam} ELSE FALSE END)
+      OR (scope = 'session' AND scope_id = ANY(${sessionsParam}::text[]))
+    )`);
+  }
   return { sql: clauses.join(" AND "), params };
 }
 
@@ -100,6 +137,30 @@ export class PostgresMemoryRepository implements TransactionalMemoryRepository {
     if (options.offset != null) { params.push(options.offset); sql += ` OFFSET $${params.length}`; }
     const result = await this.executor.query(sql, params);
     return result.rows.map(entry);
+  }
+
+  async listManagedEntries(options: PersistedMemoryManagementListOptions): Promise<PersistedMemoryEntry[]> {
+    const where = managedEntryWhere(options);
+    let sql = `SELECT * FROM memory_entries WHERE ${where.sql} ORDER BY updated_at DESC, id DESC`;
+    if (options.limit != null) {
+      where.params.push(Math.max(1, Math.min(options.limit, 500)));
+      sql += ` LIMIT $${where.params.length}`;
+    }
+    if (options.offset != null) {
+      where.params.push(Math.max(0, options.offset));
+      sql += ` OFFSET $${where.params.length}`;
+    }
+    const result = await this.executor.query(sql, where.params);
+    return result.rows.map(entry);
+  }
+
+  async countManagedEntries(options: PersistedMemoryManagementCountOptions): Promise<number> {
+    const where = managedEntryWhere(options);
+    const result = await this.executor.query(
+      `SELECT COUNT(*) AS total FROM memory_entries WHERE ${where.sql}`,
+      where.params,
+    );
+    return Number(result.rows[0]?.total ?? 0);
   }
 
   async getScopeRevision(partition: MemoryPartition): Promise<number> {

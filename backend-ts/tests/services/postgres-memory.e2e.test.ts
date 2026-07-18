@@ -76,9 +76,16 @@ describe.skipIf(databaseUrl == null)("PostgreSQL Memory E2E", () => {
       runId: "run-e2e",
     });
     expect(written.success).toBe(true);
-    const candidateId = String((written.content as Record<string, unknown>).candidate_id);
+    expect(written.content).toMatchObject({ published: true });
+    const writtenContent = written.content as Record<string, unknown>;
+    const candidateId = String(writtenContent.candidate_id);
+    const memoryId = String(writtenContent.memory_id);
     const candidate = await memoryA.governance.getCandidate(candidateId);
     if (!candidate) throw new Error("memory candidate was not written by the tool");
+    expect(candidate).toMatchObject({
+      status: "approved",
+      published_memory_id: memoryId,
+    });
 
     await expect(memoryB.governance.getCandidate(candidate.id)).resolves.toBeNull();
     await expect(memoryB.governance.approveCandidate({
@@ -87,16 +94,8 @@ describe.skipIf(databaseUrl == null)("PostgreSQL Memory E2E", () => {
       expected_version: candidate.version,
     })).resolves.toEqual({ outcome: "not_found" });
 
-    const approved = await memoryA.governance.approveCandidate({
-      candidate_id: candidate.id,
-      reviewer_user_id: "reviewer-1",
-      expected_version: candidate.version,
-      review_comment: "E2E approved",
-    });
-    expect(approved.outcome).toBe("published");
-    if (approved.outcome !== "published") throw new Error("memory publish failed");
-    expect(approved.scope_revision).toBe(1);
-    expect(approved.memory).toMatchObject({
+    const published = await memoryA.query.getEntry(memoryId);
+    expect(published).toMatchObject({
       tenant_id: tenantA,
       status: "active",
       content: "Use PostgreSQL for SaaS memory.",
@@ -120,7 +119,7 @@ describe.skipIf(databaseUrl == null)("PostgreSQL Memory E2E", () => {
       touch: false,
     });
     expect(contribution.conversation?.[0]?.content).toContain("E2E policy");
-    expect(contribution.conversation?.[0]?.content).toContain(approved.memory.id);
+    expect(contribution.conversation?.[0]?.content).toContain(memoryId);
 
     await firstRuntime.close();
 
@@ -131,8 +130,8 @@ describe.skipIf(databaseUrl == null)("PostgreSQL Memory E2E", () => {
       pool,
     });
     const restartedMemory = secondRuntime.provider.memoryForTenant(tenantA);
-    await expect(restartedMemory.query.getEntry(approved.memory.id)).resolves.toMatchObject({
-      id: approved.memory.id,
+    await expect(restartedMemory.query.getEntry(memoryId)).resolves.toMatchObject({
+      id: memoryId,
       tenant_id: tenantA,
       content: "Use PostgreSQL for SaaS memory.",
     });

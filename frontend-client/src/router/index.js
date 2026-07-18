@@ -20,6 +20,7 @@ const Login = () => import('../views/Login.vue');
 const InstallWizard = () => import('../views/InstallWizard.vue');
 const PlatformTenants = () => import('../views/PlatformTenants.vue');
 const PlatformUsers = () => import('../views/PlatformUsers.vue');
+const MemoryManager = () => import('../views/MemoryManager.vue');
 
 const shellMeta = {
   depth: 0,
@@ -60,6 +61,7 @@ const routes = [
       { path: 'skill-library', component: SkillLibrary, meta: adminPageMeta('skill-library', 4, 6) },
       { path: 'model-providers', component: ModelProviderManager, meta: adminPageMeta('model-providers', 5, 2) },
       { path: 'bots', component: Bots, meta: adminPageMeta('bots', 6, 6, 'member') },
+      { path: 'memory', component: MemoryManager, meta: adminPageMeta('memory', 6, 7, 'member') },
       { path: 'system-config', component: SystemConfig, meta: adminPageMeta('system-config', 7, 7, 'owner') },
       { path: 'widget-credentials', component: WidgetConsole, meta: adminPageMeta('widget-credentials', 8, 8, 'owner') },
       { path: 'members', component: MembersManager, meta: adminPageMeta('members', 8, 9, 'admin') },

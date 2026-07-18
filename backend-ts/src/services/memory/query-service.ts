@@ -1,5 +1,7 @@
 import type {
   PersistedMemoryEntry,
+  PersistedMemoryManagementCountOptions,
+  PersistedMemoryManagementListOptions,
   PersistedMemoryListOptions,
   TransactionalMemoryRepository,
 } from "../../contracts/memory-store/index.js";
@@ -13,6 +15,8 @@ export interface MemoryQueryService {
     options?: PersistedMemoryListOptions,
   ): Promise<PersistedMemoryEntry[]>;
   getScopeRevision(partition: MemoryScopePartition): Promise<number>;
+  listManagedEntries(options: Omit<PersistedMemoryManagementListOptions, "tenant_id">): Promise<PersistedMemoryEntry[]>;
+  countManagedEntries(options: Omit<PersistedMemoryManagementCountOptions, "tenant_id">): Promise<number>;
 }
 
 export class TenantMemoryQueryService implements MemoryQueryService {
@@ -45,5 +49,12 @@ export class TenantMemoryQueryService implements MemoryQueryService {
   getScopeRevision(partition: MemoryScopePartition): Promise<number> {
     return this.repository.getScopeRevision(bindMemoryPartition(this.tenantId, partition));
   }
-}
 
+  listManagedEntries(options: Omit<PersistedMemoryManagementListOptions, "tenant_id">): Promise<PersistedMemoryEntry[]> {
+    return this.repository.listManagedEntries({ ...options, tenant_id: this.tenantId });
+  }
+
+  countManagedEntries(options: Omit<PersistedMemoryManagementCountOptions, "tenant_id">): Promise<number> {
+    return this.repository.countManagedEntries({ ...options, tenant_id: this.tenantId });
+  }
+}

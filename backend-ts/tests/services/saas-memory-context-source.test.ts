@@ -45,7 +45,7 @@ describe("SaaSMemoryContextSource", () => {
   it("maps allowed scopes to tenant-bound query partitions", async () => {
     const listEntries = vi.fn(async (_partition: MemoryScopePartition) => [entry()]);
     const getScopeRevision = vi.fn(async (_partition: MemoryScopePartition) => 4);
-    const query = { listEntries, getScopeRevision, getEntry: vi.fn() } satisfies MemoryQueryService;
+    const query = { listEntries, getScopeRevision, getEntry: vi.fn(), listManagedEntries: vi.fn(), countManagedEntries: vi.fn() } satisfies MemoryQueryService;
     const source = new SaaSMemoryContextSource(
       {
         getSession: () => ({
@@ -87,6 +87,8 @@ describe("SaaSMemoryContextSource", () => {
       getEntry: vi.fn(),
       listEntries,
       getScopeRevision: vi.fn(async () => revision),
+      listManagedEntries: vi.fn(),
+      countManagedEntries: vi.fn(),
     } satisfies MemoryQueryService;
     const source = new SaaSMemoryContextSource(
       {
@@ -118,6 +120,8 @@ describe("SaaSMemoryContextSource", () => {
       getEntry: vi.fn(),
       listEntries: vi.fn(async () => [entry()]),
       getScopeRevision: vi.fn(async () => 0),
+      listManagedEntries: vi.fn(),
+      countManagedEntries: vi.fn(),
     } satisfies MemoryQueryService;
     const source = new SaaSMemoryContextSource(
       { getSession: () => ({ metadata: {} }) },

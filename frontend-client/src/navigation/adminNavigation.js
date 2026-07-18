@@ -1,4 +1,5 @@
 import { h } from 'vue';
+import { BrainCircuit } from 'lucide-vue-next';
 
 const createAdminIcon = (children) => ({
   render() {
@@ -202,6 +203,17 @@ export const managementNavItems = [
       { tag: 'path', attrs: { d: 'M2 17l10 5 10-5' } },
       { tag: 'path', attrs: { d: 'M2 12l10 5 10-5' } },
     ]),
+  },
+  {
+    key: 'memory',
+    mainView: 'memory',
+    path: '/memory',
+    label: 'Memory',
+    title: 'Memory 管理',
+    description: '查看个人与共享记忆，处理候选、审核和历史记录。',
+    group: 'agent-runtime',
+    requireTenantRole: 'member',
+    icon: BrainCircuit,
   },
   {
     key: 'system-config',

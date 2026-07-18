@@ -118,11 +118,28 @@ export interface PersistedMemoryListOptions {
   offset?: number | undefined;
 }
 
+export interface PersistedMemoryManagementListOptions {
+  tenant_id: string;
+  scopes?: MemoryPartition["scope"][] | undefined;
+  statuses?: PersistedMemoryStatus[] | undefined;
+  search?: string | undefined;
+  viewer_user_id?: string | undefined;
+  viewer_session_ids?: string[] | undefined;
+  limit?: number | undefined;
+  offset?: number | undefined;
+}
+
+export type PersistedMemoryManagementCountOptions = Omit<
+  PersistedMemoryManagementListOptions,
+  "limit" | "offset"
+>;
+
 export interface PersistedMemoryCandidateListOptions {
   tenant_id: string;
   owner_user_id?: string | undefined;
   statuses?: PersistedMemoryCandidateStatus[] | undefined;
   scope?: MemoryPartition["scope"] | undefined;
+  scopes?: MemoryPartition["scope"][] | undefined;
   scope_id?: string | undefined;
   operation?: PersistedMemoryCandidateOperation | undefined;
   limit?: number | undefined;

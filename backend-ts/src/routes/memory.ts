@@ -9,6 +9,15 @@ import type { RouteOptions } from "./route-options.js";
 import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
 
 const CandidateParamsSchema = z.object({ id: z.string().uuid() });
+const EntryParamsSchema = z.object({ id: z.string().uuid() });
+const EntryArchiveSchema = z.object({ expected_version: z.number().int().positive() });
+const EntryQuerySchema = z.object({
+  scope: z.string().optional(),
+  status: z.enum(["active", "archived"]).optional(),
+  search: z.string().trim().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
 const CandidateQuerySchema = z.object({
   status: z.enum(["candidate", "approved", "rejected", "withdrawn"]).optional(),
   target_scope: z.enum(["team", "agent"]).optional(),
@@ -72,6 +81,80 @@ async function resolveMemoryApplication(
 
 export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.addHook("preHandler", async (request) => { requireTenantMember(request); });
+
+  app.get("/entries", async (request) => {
+    const query = EntryQuerySchema.parse(request.query);
+    const memory = await resolveMemoryApplication(options, request);
+    if (!memory) {
+      return { success: true, data: { items: [], total: 0, limit: query.limit, offset: query.offset, has_more: false } };
+    }
+    const scopes = parseEntryScopes(query.scope);
+    const ownedSessionIds = request.container.sessionApplication.listSessions({
+      tenantId: request.identity.tenantId,
+      userIds: [request.identity.userId],
+      limit: 10_000,
+      offset: 0,
+    }).items.map((session) => session.session_id);
+    const filter = {
+      ...(scopes ? { scopes } : {}),
+      ...(query.status ? { statuses: [query.status] } : {}),
+      ...(query.search ? { search: query.search } : {}),
+      viewer_user_id: request.identity.userId,
+      viewer_session_ids: ownedSessionIds,
+    };
+    const [total, items] = await Promise.all([
+      memory.query.countManagedEntries(filter),
+      memory.query.listManagedEntries({ ...filter, limit: query.limit, offset: query.offset }),
+    ]);
+    return {
+      success: true,
+      data: {
+        items,
+        total,
+        limit: query.limit,
+        offset: query.offset,
+        has_more: query.offset + items.length < total,
+      },
+    };
+  });
+
+  app.post<{ Params: { id: string } }>("/entries/:id/archive", async (request) => {
+    const { id } = EntryParamsSchema.parse(request.params);
+    const input = EntryArchiveSchema.parse(request.body);
+    const memory = await resolveMemoryApplication(options, request);
+    if (!memory) throw new HttpError(404, "not_found", "memory 不存在");
+    const entry = await memory.query.getEntry(id);
+    if (!entry || entry.status !== "active" || !canManageEntry(request, entry.scope, entry.scope_id)) {
+      throw new HttpError(404, "not_found", "memory 不存在或无权归档");
+    }
+    if (entry.version !== input.expected_version) {
+      throw new HttpError(409, "conflict", "memory 状态已变化，请刷新后重试");
+    }
+    const candidate = await memory.commands.createCandidate({
+      scope: entry.scope,
+      scope_id: entry.scope_id,
+      operation: "archive",
+      owner_user_id: request.identity.userId,
+      target_memory_id: entry.id,
+    });
+    if (entry.scope === "team" || entry.scope === "agent") {
+      requireTenantAdmin(request);
+      return { success: true, data: { status: "candidate", candidate } };
+    }
+    const archived = await memory.governance.approveCandidate({
+      candidate_id: candidate.id,
+      reviewer_user_id: request.identity.userId,
+      expected_version: candidate.version,
+      review_comment: "personal scope archive from Memory manager",
+    });
+    if (archived.outcome === "target_not_found" || archived.outcome === "not_found") {
+      throw new HttpError(404, "not_found", "memory 不存在");
+    }
+    if (archived.outcome !== "archived") {
+      throw new HttpError(409, "conflict", "memory 状态已变化，请刷新后重试");
+    }
+    return { success: true, data: { status: "archived", entry: archived.memory } };
+  });
 
   app.get("/candidates", async (request) => {
     const query = CandidateQuerySchema.parse(request.query);
@@ -157,7 +240,9 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
     if (memory) {
       const filter = {
         statuses,
-        ...(query.target_scope ? { scope: query.target_scope } : {}),
+        scopes: query.target_scope
+          ? ensureGovernedScopes([query.target_scope])
+          : ["team", "agent"] satisfies Array<"team" | "agent">,
         ...(query.operation ? { operation: query.operation } : {}),
       };
       const [total, items] = await Promise.all([
@@ -182,6 +267,8 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
     const input = ClaimCandidateSchema.parse(request.body ?? {});
     const memory = await resolveMemoryApplication(options, request);
     if (!memory) throw new HttpError(404, "not_found", "Local memory 不提供独立 claim 接口");
+    const candidate = await memory.governance.getCandidate(id);
+    requireGovernedCandidate(candidate);
     const result = await memory.governance.claimCandidate({
       candidate_id: id,
       reviewer_user_id: request.identity.userId,
@@ -201,6 +288,7 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
     if (memory) {
       let candidate = await memory.governance.getCandidate(id);
       if (!candidate || candidate.status !== "candidate") throw new HttpError(404, "not_found", "待审核 memory 不存在");
+      requireGovernedCandidate(candidate);
       let expectedVersion = requireExpectedVersion(input.expected_version);
       let claimToken = input.review_claim_token;
       let claimedByThisRequest = false;
@@ -353,6 +441,8 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
     }).parse(request.body ?? {});
     const memory = await resolveMemoryApplication(options, request);
     if (memory) {
+      const candidate = await memory.governance.getCandidate(id);
+      requireGovernedCandidate(candidate);
       const expectedVersion = requireExpectedVersion(input.expected_version);
       let claimToken = input.review_claim_token;
       let claimedByThisRequest = false;
@@ -426,3 +516,50 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
   });
 
 };
+
+function parseEntryScopes(value: string | undefined): Array<z.infer<typeof MemoryScopeNameSchema>> | undefined {
+  if (!value?.trim()) return undefined;
+  const scopes = [...new Set(value.split(",").map((scope) => MemoryScopeNameSchema.parse(scope.trim())))];
+  return scopes.length ? scopes : undefined;
+}
+
+function ensureGovernedScopes(
+  scopes: Array<z.infer<typeof MemoryScopeNameSchema>>,
+): Array<"team" | "agent"> {
+  const governed = scopes.filter((scope): scope is "team" | "agent" => scope === "team" || scope === "agent");
+  if (governed.length !== scopes.length) {
+    throw new HttpError(400, "invalid_request", "只有 team 和 agent memory 需要管理员审核");
+  }
+  return governed;
+}
+
+function requireGovernedCandidate(
+  candidate: Awaited<ReturnType<MemoryApplication["governance"]["getCandidate"]>>,
+): asserts candidate is NonNullable<typeof candidate> {
+  if (!candidate || candidate.status !== "candidate") {
+    throw new HttpError(404, "not_found", "待审核 memory 不存在");
+  }
+  if (candidate.scope !== "team" && candidate.scope !== "agent") {
+    throw new HttpError(400, "invalid_request", "个人 memory 不进入管理员审核");
+  }
+}
+
+function canManageEntry(
+  request: Parameters<typeof requireTenantMember>[0],
+  scope: z.infer<typeof MemoryScopeNameSchema>,
+  scopeId: string,
+): boolean {
+  if (scope === "team" || scope === "agent") {
+    return request.identity.role === "admin" || request.identity.role === "owner";
+  }
+  if (scope === "user") return scopeId === request.identity.userId;
+  if (scope === "session") {
+    return request.container.sessionApplication.getSession(scopeId)?.user_id === request.identity.userId;
+  }
+  try {
+    const parts = JSON.parse(scopeId) as unknown;
+    return Array.isArray(parts) && parts[0] === request.identity.userId;
+  } catch {
+    return false;
+  }
+}

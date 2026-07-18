@@ -186,9 +186,9 @@ const WRITE_MEMORY_TOOL: RuntimeToolDefinition = {
   category: "memory",
   riskLevel: "low",
   allowed_callers: ["direct"],
-  description: "Save one memory entry in an allowed scope. Team and agent memories remain personal to the current user unless later published by an administrator.",
+  description: "Save one memory entry in an allowed scope. Session, user, and workspace memories publish immediately; team and agent memories remain private to the current user until approved for sharing.",
   returns: {
-    description: "返回保存状态和目标 scope；team/agent 保存不会立即发布为租户共享记忆。",
+    description: "返回保存状态和目标 scope；个人 scope 直接发布，team/agent 保存为等待共享审核的私人候选。",
     shape: {
       content: "object",
       metadata: {
@@ -200,6 +200,7 @@ const WRITE_MEMORY_TOOL: RuntimeToolDefinition = {
     "写入记忆前应确保 scope 允许写入。",
     "team、session、agent、workspace、user 等定位信息由运行时上下文自动注入，Agent 不应手工构造。",
     "team 和 agent scope 的保存结果仅对当前用户生效，不代表已经发布为租户共享记忆。",
+    "session、user 和 workspace scope 直接发布，不需要租户管理员审核。",
     "不要根据保存结果声称 team/agent memory 已对其他用户生效。",
   ],
   parameters: {

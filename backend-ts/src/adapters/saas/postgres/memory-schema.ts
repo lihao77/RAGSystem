@@ -100,6 +100,58 @@ export const POSTGRES_MEMORY_MIGRATIONS: readonly MemoryMigration[] = [
         WHERE status = 'candidate';
     `,
   },
+  {
+    version: 4,
+    name: "publish-existing-personal-memory-candidates",
+    sql: `
+      WITH promoted AS (
+        INSERT INTO memory_entries (
+          id, tenant_id, scope, scope_id, name, description, memory_type, content,
+          why, how_to_apply, source_run_id, source_message_id, created_at, updated_at
+        )
+        SELECT
+          id, tenant_id, scope, scope_id, name, description, memory_type, content,
+          why, how_to_apply, source_run_id, source_message_id, created_at, updated_at
+        FROM memory_candidates
+        WHERE status = 'candidate'
+          AND operation = 'publish'
+          AND scope IN ('session', 'user', 'workspace')
+        ON CONFLICT DO NOTHING
+        RETURNING tenant_id, scope, scope_id
+      ),
+      revision_increments AS (
+        SELECT tenant_id, scope, scope_id, COUNT(*)::BIGINT AS increment
+        FROM promoted
+        GROUP BY tenant_id, scope, scope_id
+      )
+      INSERT INTO memory_scope_revisions (tenant_id, scope, scope_id, revision)
+      SELECT tenant_id, scope, scope_id, increment
+      FROM revision_increments
+      ON CONFLICT (tenant_id, scope, scope_id)
+      DO UPDATE SET
+        revision = memory_scope_revisions.revision + EXCLUDED.revision,
+        updated_at = CURRENT_TIMESTAMP;
+
+      UPDATE memory_candidates AS candidate
+      SET
+        status = 'approved',
+        reviewer_user_id = candidate.owner_user_id,
+        review_comment = 'personal scope auto-published by migration',
+        published_memory_id = candidate.id,
+        version = candidate.version + 1,
+        reviewed_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE candidate.status = 'candidate'
+        AND candidate.operation = 'publish'
+        AND candidate.scope IN ('session', 'user', 'workspace')
+        AND EXISTS (
+          SELECT 1
+          FROM memory_entries AS entry
+          WHERE entry.tenant_id = candidate.tenant_id
+            AND entry.id = candidate.id
+        );
+    `,
+  },
 ];
 
 export const SAAS_MEMORY_MIGRATIONS = POSTGRES_MEMORY_MIGRATIONS;

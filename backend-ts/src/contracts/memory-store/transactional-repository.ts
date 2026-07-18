@@ -10,6 +10,8 @@ import type {
   PersistedMemoryCandidateListOptions,
   PersistedMemoryCandidateMutationResult,
   PersistedMemoryEntry,
+  PersistedMemoryManagementCountOptions,
+  PersistedMemoryManagementListOptions,
   PersistedMemoryListOptions,
   RejectPersistedMemoryCandidateInput,
   ReleasePersistedMemoryCandidateInput,
@@ -30,6 +32,8 @@ export interface TransactionalMemoryRepository {
     partition: MemoryPartition,
     options?: PersistedMemoryListOptions,
   ): Promise<PersistedMemoryEntry[]>;
+  listManagedEntries(options: PersistedMemoryManagementListOptions): Promise<PersistedMemoryEntry[]>;
+  countManagedEntries(options: PersistedMemoryManagementCountOptions): Promise<number>;
   getScopeRevision(partition: MemoryPartition): Promise<number>;
 
   createCandidate(input: CreatePersistedMemoryCandidateInput): Promise<PersistedMemoryCandidate>;

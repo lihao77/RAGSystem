@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { PersistedMemoryManagementCountOptions } from "../../src/contracts/memory-store/index.js";
 import { PostgresMemoryRepository, type PostgresMemoryExecutor, type PostgresQueryResult } from "../../src/adapters/saas/postgres/memory-repository.js";
 
 const dates = { created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z", reviewed_at: null, archived_at: null };
@@ -58,6 +59,41 @@ describe("PostgresMemoryRepository", () => {
     expect(await repository.countCandidates({ tenant_id: "tenant-a", scope: "team" })).toBe(3);
     expect(calls.every((call) => call.sql.includes("tenant_id = $1") && call.params?.[0] === "tenant-a"))
       .toBe(true);
+  });
+
+  it("filters managed entries by tenant, owner partitions, shared scopes, and search", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
+    const executor: PostgresMemoryExecutor = {
+      async query<Row extends Record<string, unknown>>(sql: string, params?: readonly unknown[]) {
+        calls.push({ sql, params });
+        return { rows: (sql.startsWith("SELECT COUNT") ? [{ total: "1" }] : [memoryRow]) as unknown as Row[] };
+      },
+      async transaction<T>(fn: (executor: PostgresMemoryExecutor) => Promise<T>) { return fn(this); },
+    };
+    const repository = new PostgresMemoryRepository(executor);
+    const visibility = {
+      tenant_id: "tenant-a",
+      scopes: ["user", "workspace", "session", "team", "agent"],
+      statuses: ["active"],
+      search: "policy",
+      viewer_user_id: "user-a",
+      viewer_session_ids: ["session-a"],
+    } satisfies PersistedMemoryManagementCountOptions;
+
+    await repository.listManagedEntries({ ...visibility, limit: 20, offset: 5 });
+    expect(await repository.countManagedEntries(visibility)).toBe(1);
+    expect(calls).toHaveLength(2);
+    for (const call of calls) {
+      expect(call.sql).toContain("tenant_id = $1");
+      expect(call.sql).toContain("scope IN ('team', 'agent')");
+      expect(call.sql).toContain("scope = 'user' AND scope_id =");
+      expect(call.sql).toContain("scope = 'workspace'");
+      expect(call.sql).toContain("scope = 'session'");
+      expect(call.sql).toContain("ILIKE");
+      expect(call.params?.[0]).toBe("tenant-a");
+      expect(call.params).toContain("user-a");
+      expect(call.params).toContainEqual(["session-a"]);
+    }
   });
 
   it("uses versions for mutation and a token for the review claim", async () => {

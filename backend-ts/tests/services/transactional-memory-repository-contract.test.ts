@@ -14,6 +14,8 @@ import type {
   PersistedMemoryCandidateMutationResult,
   PersistedMemoryEntry,
   PersistedMemoryListOptions,
+  PersistedMemoryManagementCountOptions,
+  PersistedMemoryManagementListOptions,
   RejectPersistedMemoryCandidateInput,
   ReleasePersistedMemoryCandidateInput,
   TransactionalMemoryRepository,
@@ -45,6 +47,15 @@ class InMemoryTransactionalMemoryRepository implements TransactionalMemoryReposi
 
   async getScopeRevision(partition: MemoryPartition): Promise<number> {
     return this.revisions.get(partitionKey(partition)) ?? 0;
+  }
+
+  async listManagedEntries(options: PersistedMemoryManagementListOptions): Promise<PersistedMemoryEntry[]> {
+    const rows = [...this.entries.values()].filter((entry) => entry.tenant_id === options.tenant_id);
+    return rows.slice(options.offset ?? 0, (options.offset ?? 0) + (options.limit ?? rows.length));
+  }
+
+  async countManagedEntries(options: PersistedMemoryManagementCountOptions): Promise<number> {
+    return (await this.listManagedEntries(options)).length;
   }
 
   async createCandidate(input: CreatePersistedMemoryCandidateInput): Promise<PersistedMemoryCandidate> {

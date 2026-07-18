@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
-import type { PersistedMemoryEntry } from "../../src/contracts/memory-store/index.js";
+import type {
+  PersistedMemoryCandidate,
+  PersistedMemoryEntry,
+} from "../../src/contracts/memory-store/index.js";
 import type { MemoryApplication } from "../../src/services/memory/index.js";
 import { SaaSMemoryToolService } from "../../src/tools/MemoryTools/SaaSMemoryExecution.js";
 
@@ -38,41 +41,146 @@ describe("SaaSMemoryToolService", () => {
     });
   });
 
-  it("creates publish and archive candidates without mutating entries directly", async () => {
-    const entry = memoryEntry({ scope: "user", scope_id: "usr-1" });
-    const createCandidate = vi.fn(async (input: Record<string, unknown>) => ({ id: input.operation === "archive" ? "cand-2" : "cand-1" }));
+  it.each([
+    ["session", "session-1"],
+    ["user", "usr-1"],
+    ["workspace", JSON.stringify(["usr-1", "workspace-a"])],
+  ] as const)("publishes %s memory immediately and makes it readable", async (scope, scopeId) => {
+    const entry = memoryEntry({ scope, scope_id: scopeId });
+    const candidate = memoryCandidate({ scope, scope_id: scopeId });
+    const createCandidate = vi.fn(async () => candidate);
+    const approveCandidate = vi.fn(async () => ({
+      outcome: "published" as const,
+      candidate: { ...candidate, status: "approved" as const, published_memory_id: entry.id },
+      memory: entry,
+      scope_revision: 1,
+    }));
+    const listEntries = vi.fn(async () => [entry]);
     const service = new SaaSMemoryToolService(application({
-      getEntry: vi.fn(async () => entry),
       createCandidate,
+      approveCandidate,
+      listEntries,
     }), sessions());
-    const context = runtimeContext({ allowed: ["user"], write: ["user"], archive: ["user"] });
+    const context = runtimeContext({ allowed: [scope], write: [scope], archive: [scope] });
 
     await expect(service.writeMemory({
-      scope: "user",
+      scope,
+      ...(scope === "workspace" ? { workspaceKey: "workspace-a" } : {}),
       name: "Preference",
       description: "Answer preference",
       memoryType: "preference",
       content: "Be concise",
     }, context)).resolves.toMatchObject({
       success: true,
-      content: { saved: true, candidate_id: "cand-1", scope: "user" },
     });
-    expect(createCandidate).toHaveBeenNthCalledWith(1, expect.objectContaining({
+    expect(createCandidate).toHaveBeenCalledWith(expect.objectContaining({
       operation: "publish",
       owner_user_id: "usr-1",
-      scope: "user",
-      scope_id: "usr-1",
+      scope,
+      scope_id: scopeId,
     }));
+    expect(approveCandidate).toHaveBeenCalledWith(expect.objectContaining({
+      candidate_id: candidate.id,
+      reviewer_user_id: "usr-1",
+      expected_version: candidate.version,
+    }));
+
+    await expect(service.listMemoryIndex({
+      scope,
+      ...(scope === "workspace" ? { workspaceKey: "workspace-a" } : {}),
+    }, context)).resolves.toMatchObject({
+      success: true,
+      content: expect.stringContaining("[Answer style](mem-1)"),
+    });
+    expect(listEntries).toHaveBeenCalledWith({ scope, scope_id: scopeId });
+  });
+
+  it("archives personal memory immediately", async () => {
+    const entry = memoryEntry({ scope: "user", scope_id: "usr-1" });
+    const candidate = memoryCandidate({ operation: "archive", target_memory_id: entry.id });
+    const createCandidate = vi.fn(async () => candidate);
+    const approveCandidate = vi.fn(async () => ({
+      outcome: "archived" as const,
+      candidate: { ...candidate, status: "approved" as const, published_memory_id: entry.id },
+      memory: { ...entry, status: "archived" as const },
+      scope_revision: 2,
+    }));
+    const service = new SaaSMemoryToolService(application({
+      getEntry: vi.fn(async () => entry),
+      createCandidate,
+      approveCandidate,
+    }), sessions());
+    const context = runtimeContext({ allowed: ["user"], write: ["user"], archive: ["user"] });
 
     await expect(service.archiveMemory({ scope: "user", fileName: "mem-1" }, context)).resolves.toMatchObject({
       success: true,
-      content: { saved: true, candidate_id: "cand-2", memory_id: "mem-1" },
     });
-    expect(createCandidate).toHaveBeenNthCalledWith(2, expect.objectContaining({
+    expect(createCandidate).toHaveBeenCalledWith(expect.objectContaining({
       operation: "archive",
       owner_user_id: "usr-1",
       target_memory_id: "mem-1",
     }));
+    expect(approveCandidate).toHaveBeenCalledWith(expect.objectContaining({
+      candidate_id: candidate.id,
+      reviewer_user_id: "usr-1",
+      expected_version: candidate.version,
+    }));
+  });
+
+  it.each(["team", "agent"] as const)("keeps %s writes as review candidates", async (scope) => {
+    const candidate = memoryCandidate({
+      scope,
+      scope_id: scope === "team" ? "alpha" : JSON.stringify(["alpha", "orchestrator_agent"]),
+    });
+    const createCandidate = vi.fn(async () => candidate);
+    const approveCandidate = vi.fn();
+    const service = new SaaSMemoryToolService(application({ createCandidate, approveCandidate }), sessions());
+    const context = runtimeContext({ allowed: [scope], write: [scope], archive: [scope] });
+
+    await expect(service.writeMemory({
+      scope,
+      name: "Policy",
+      description: "Shared policy",
+      memoryType: "fact",
+      content: "Use citations",
+    }, context)).resolves.toMatchObject({
+      success: true,
+      content: expect.objectContaining({ candidate_id: candidate.id }),
+    });
+    expect(createCandidate).toHaveBeenCalledOnce();
+    expect(approveCandidate).not.toHaveBeenCalled();
+  });
+
+  it("lets the owner list and read a private shared-memory candidate", async () => {
+    const candidate = memoryCandidate({
+      scope: "team",
+      scope_id: "alpha",
+      name: "Draft policy",
+      description: "Private until approved",
+      content: "Use citations",
+    });
+    const listCandidates = vi.fn(async () => [candidate]);
+    const getCandidate = vi.fn(async () => candidate);
+    const service = new SaaSMemoryToolService(application({ listCandidates, getCandidate }), sessions());
+    const context = runtimeContext({ allowed: ["team"], write: ["team"], archive: ["team"] });
+
+    await expect(service.listMemoryIndex({ scope: "team" }, context)).resolves.toMatchObject({
+      success: true,
+      content: expect.stringContaining("[Draft policy](cand-1)"),
+    });
+    expect(listCandidates).toHaveBeenCalledWith(expect.objectContaining({
+      owner_user_id: "usr-1",
+      statuses: ["candidate"],
+      scope: "team",
+      scope_id: "alpha",
+      operation: "publish",
+    }));
+
+    await expect(service.readMemoryEntry({ scope: "team", fileName: candidate.id }, context)).resolves.toMatchObject({
+      success: true,
+      content: expect.stringContaining("Use citations"),
+      metadata: expect.objectContaining({ candidate_id: candidate.id, pending_review: true }),
+    });
   });
 
   it("keeps configured scope permissions for SaaS candidate operations", () => {
@@ -89,19 +197,62 @@ function application(overrides: {
   listEntries?: (...args: any[]) => Promise<any>;
   getEntry?: (...args: any[]) => Promise<any>;
   createCandidate?: (...args: any[]) => Promise<any>;
+  approveCandidate?: (...args: any[]) => Promise<any>;
+  listCandidates?: (...args: any[]) => Promise<any>;
+  getCandidate?: (...args: any[]) => Promise<any>;
 }): MemoryApplication {
   return {
     query: {
       listEntries: overrides.listEntries ?? (async () => []),
       getEntry: overrides.getEntry ?? (async () => null),
       getScopeRevision: async () => 0,
+      listManagedEntries: async () => [],
+      countManagedEntries: async () => 0,
     },
     commands: {
       createCandidate: overrides.createCandidate ?? (async () => { throw new Error("unexpected candidate"); }),
       updateCandidate: async () => ({ outcome: "not_found" }),
       withdrawCandidate: async () => ({ outcome: "not_found" }),
     },
-    governance: {} as MemoryApplication["governance"],
+    governance: {
+      getCandidate: overrides.getCandidate ?? (async () => null),
+      listCandidates: overrides.listCandidates ?? (async () => []),
+      countCandidates: async () => 0,
+      claimCandidate: async () => ({ outcome: "not_found" }),
+      releaseCandidate: async () => ({ outcome: "not_found" }),
+      rejectCandidate: async () => ({ outcome: "not_found" }),
+      approveCandidate: overrides.approveCandidate ?? (async () => { throw new Error("unexpected approval"); }),
+    },
+  };
+}
+
+function memoryCandidate(overrides: Partial<PersistedMemoryCandidate> = {}): PersistedMemoryCandidate {
+  return {
+    id: "cand-1",
+    tenant_id: "tenant-1",
+    scope: "user",
+    scope_id: "usr-1",
+    owner_user_id: "usr-1",
+    operation: "publish",
+    target_memory_id: null,
+    name: "Answer style",
+    description: "Preferred response style",
+    memory_type: "preference",
+    content: "Use concise answers",
+    why: null,
+    how_to_apply: null,
+    status: "candidate",
+    source_session_id: "session-1",
+    source_run_id: "run-1",
+    source_message_id: null,
+    reviewer_user_id: null,
+    review_comment: null,
+    published_memory_id: null,
+    version: 1,
+    created_at: "2026-07-18T00:00:00.000Z",
+    updated_at: "2026-07-18T00:00:00.000Z",
+    reviewed_at: null,
+    ...overrides,
   };
 }
 
