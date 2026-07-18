@@ -8,6 +8,7 @@ import type { ObjectStorage } from "./contracts/object-storage.js";
 import { TenantKnowledgeMarkdownPipeline } from "./contracts/knowledge/async-knowledge-markdown-pipeline.js";
 import { SaaSKnowledgeVectorApplication } from "./services/runtime/saas-knowledge-vector-application.js";
 import { SaaSSessionApplication } from "./services/runtime/saas-session-application.js";
+import { SaaSAgentReadApplication } from "./services/runtime/saas-agent-read-application.js";
 import type { FastifyRequest } from "fastify";
 
 const env = loadEnv(process.env);
@@ -67,6 +68,12 @@ try {
     ...(saasConversationRuntime ? {
       resolveProviderMcp: (request) => saasConversationRuntime!.providerMcpApplication,
       resolveSaaSSessionApplication: (request: FastifyRequest) => new SaaSSessionApplication(request.identity.tenantId, saasConversationRuntime!.conversation),
+      resolveSaaSAgentReadApplication: (request: FastifyRequest) => new SaaSAgentReadApplication(
+        request.identity.tenantId,
+        saasConversationRuntime!.conversation,
+        saasConversationRuntime!.runs,
+        saasConversationRuntime!.outbox,
+      ),
     } : {}),
     ...(saasControlRuntime ? { controlRuntime: saasControlRuntime } : {}),
   });

@@ -51,6 +51,7 @@ export interface BuildAppOptions {
   resolveKnowledgeMarkdownPipeline?: RouteOptions["resolveKnowledgeMarkdownPipeline"];
   resolveKnowledgeVectorApplication?: RouteOptions["resolveKnowledgeVectorApplication"];
   resolveProviderMcp?: RouteOptions["resolveProviderMcp"];
+  resolveSaaSAgentReadApplication?: RouteOptions["resolveSaaSAgentReadApplication"];
   registry?: TenantRuntimeRegistry;
   controlStore?: ControlStore;
   controlPlane?: ControlPlane;
@@ -407,6 +408,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ...(options.resolveKnowledgeMarkdownPipeline ? { resolveKnowledgeMarkdownPipeline: options.resolveKnowledgeMarkdownPipeline } : {}),
     ...(options.resolveKnowledgeVectorApplication ? { resolveKnowledgeVectorApplication: options.resolveKnowledgeVectorApplication } : {}),
     ...(options.resolveProviderMcp ? { resolveProviderMcp: options.resolveProviderMcp } : {}),
+    ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await registerManagementAndPlatformRoutes(app, {
@@ -416,6 +418,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     botRepository,
     widgetCredentialStore: widgetCredentials,
     ...(widgetAuth ? { widgetAuth } : {}),
+    ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
   });
   await registerWidgetAndRealtimeRoutes(app, {
     registry,

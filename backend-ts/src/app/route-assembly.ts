@@ -86,6 +86,7 @@ export interface SharedBusinessRouteAssemblyOptions {
   resolveKnowledgeVectorApplication?: RouteOptions["resolveKnowledgeVectorApplication"];
   resolveProviderMcp?: RouteOptions["resolveProviderMcp"];
   resolveSaaSSessionApplication?: RouteOptions["resolveSaaSSessionApplication"];
+  resolveSaaSAgentReadApplication?: RouteOptions["resolveSaaSAgentReadApplication"];
 }
 
 export async function registerSharedBusinessRoutes(
@@ -133,6 +134,7 @@ export async function registerSharedBusinessRoutes(
       wsTickets: options.wsTickets,
       ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
       ...(options.resolveSaaSSessionApplication ? { resolveSaaSSessionApplication: options.resolveSaaSSessionApplication } : {}),
+      ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
     });
     if (options.registerPublicAgui) {
       await scope.register(registerAguiRoutes, {
@@ -193,6 +195,7 @@ interface WidgetRouteAssemblyOptions {
   widgetCredentialStore: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
   wsTickets: WsTicketService;
+  resolveSaaSAgentReadApplication?: RouteOptions["resolveSaaSAgentReadApplication"];
 }
 
 export async function registerWidgetAndRealtimeRoutes(
@@ -242,6 +245,7 @@ export async function registerWidgetAndRealtimeRoutes(
     widgetCredentialStore: options.widgetCredentialStore,
     wsTickets: options.wsTickets,
     ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
+    ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
   });
 }
 

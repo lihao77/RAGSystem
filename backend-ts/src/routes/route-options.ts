@@ -12,6 +12,7 @@ import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
 import type { SaaSProviderMcpApplication } from "../services/runtime/saas-provider-mcp-application.js";
 import type { SaaSKnowledgeVectorApplication } from "../services/runtime/saas-knowledge-vector-application.js";
 import type { SaaSSessionApplication } from "../services/runtime/saas-session-application.js";
+import type { SaaSAgentReadApplication } from "../services/runtime/saas-agent-read-application.js";
 
 export interface RouteOptions {
   registry: TenantRuntimeRegistry;
@@ -29,6 +30,7 @@ export interface RouteOptions {
   resolveKnowledgeVectorApplication?: (request: FastifyRequest) => SaaSKnowledgeVectorApplication | undefined | Promise<SaaSKnowledgeVectorApplication | undefined>;
   resolveProviderMcp?: (request: FastifyRequest) => SaaSProviderMcpApplication | undefined | Promise<SaaSProviderMcpApplication | undefined>;
   resolveSaaSSessionApplication?: (request: FastifyRequest) => SaaSSessionApplication | undefined | Promise<SaaSSessionApplication | undefined>;
+  resolveSaaSAgentReadApplication?: (request: FastifyRequest) => SaaSAgentReadApplication | undefined | Promise<SaaSAgentReadApplication | undefined>;
   widgetCredentialStore?: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
 }
