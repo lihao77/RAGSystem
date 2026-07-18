@@ -30,6 +30,7 @@ export const testEnv: AppEnv = {
   tenantsRoot: path.join(".test-data", "tenants"),
   systemRoot: path.join(".test-data", "system"),
   allowUnsafeLocalExecution: false,
+  postgresPoolMax: 10,
   sessionTokenTtlHours: 168,
 };
 
@@ -99,5 +100,4 @@ export async function buildTestHarness(
   await app.ready();
   return { app, container, registry, controlStore, widgetCredentialStore, widgetAuth, root: tempRoot };
 }
-
 

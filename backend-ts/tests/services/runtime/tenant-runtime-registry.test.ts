@@ -141,6 +141,7 @@ function createRegistryHarness(options: {
     systemRoot: path.join(dataRoot, "system"),
     tenancyMode: options.localOnly ? "single" : "multi",
     allowUnsafeLocalExecution: false,
+    postgresPoolMax: 10,
   };
   const controlStore = createControlStore(env.systemRoot);
   const tenantIds = options.localOnly ? [LOCAL_TENANT_ID] : [TENANT_A, TENANT_B];

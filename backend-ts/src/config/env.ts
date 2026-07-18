@@ -36,6 +36,9 @@ const EnvSchema = z.object({
   STORAGE_MODE: StorageModeSchema.optional(),
   UI_MODE: UiModeSchema.optional(),
   ALLOW_UNSAFE_LOCAL_EXECUTION: z.string().optional(),
+  DATABASE_URL: z.string().optional(),
+  POSTGRES_URL: z.string().optional(),
+  POSTGRES_POOL_MAX: z.string().optional(),
 });
 
 export interface AppEnv {
@@ -53,6 +56,8 @@ export interface AppEnv {
   storageMode?: StorageMode | undefined;
   uiMode?: UiMode | undefined;
   allowUnsafeLocalExecution: boolean;
+  databaseUrl?: string | undefined;
+  postgresPoolMax: number;
   /** widget JWT 签名密钥；未设则 widget 鉴权不启用。 */
   widgetJwtSecret?: string | undefined;
   /** 用户 session JWT 签名密钥；password 模式必须可解析。 */
@@ -100,6 +105,8 @@ export function loadEnv(source: NodeJS.ProcessEnv): AppEnv {
     storageMode: env.STORAGE_MODE,
     uiMode: env.UI_MODE,
     allowUnsafeLocalExecution: parseBooleanFlag(env.ALLOW_UNSAFE_LOCAL_EXECUTION),
+    databaseUrl: env.DATABASE_URL?.trim() || env.POSTGRES_URL?.trim() || undefined,
+    postgresPoolMax: parsePositiveInteger(env.POSTGRES_POOL_MAX, 10, "POSTGRES_POOL_MAX"),
     widgetJwtSecret: env.WIDGET_JWT_SECRET?.trim() || undefined,
     sessionJwtSecret: env.SESSION_JWT_SECRET?.trim() || undefined,
     sessionTokenTtlHours: parsePositiveNumber(env.SESSION_TOKEN_TTL_HOURS, 168, "SESSION_TOKEN_TTL_HOURS"),
@@ -157,6 +164,12 @@ function parsePositiveNumber(rawValue: string | undefined, fallback: number, nam
   if (!rawValue?.trim()) return fallback;
   const value = Number(rawValue);
   if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} 必须为正数`);
+  return value;
+}
+
+function parsePositiveInteger(rawValue: string | undefined, fallback: number, name: string): number {
+  const value = parsePositiveNumber(rawValue, fallback, name);
+  if (!Number.isInteger(value)) throw new Error(`${name} 必须为正整数`);
   return value;
 }
 

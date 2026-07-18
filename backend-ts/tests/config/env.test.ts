@@ -34,4 +34,25 @@ describe("deployment profile", () => {
     });
     expect(resolveDeploymentProfile(env).execution).toBe("local");
   });
+
+  it("loads PostgreSQL pool settings and prefers DATABASE_URL", () => {
+    const env = loadEnv({
+      RAG_DATA_ROOT: path.join(process.cwd(), ".test-data", "env-postgres"),
+      DATABASE_URL: "postgres://primary/database",
+      POSTGRES_URL: "postgres://alias/database",
+      POSTGRES_POOL_MAX: "24",
+    });
+    expect(env.databaseUrl).toBe("postgres://primary/database");
+    expect(env.postgresPoolMax).toBe(24);
+  });
+
+  it("accepts POSTGRES_URL as an alias and validates pool size", () => {
+    const env = loadEnv({
+      RAG_DATA_ROOT: path.join(process.cwd(), ".test-data", "env-postgres-alias"),
+      POSTGRES_URL: "postgres://alias/database",
+    });
+    expect(env.databaseUrl).toBe("postgres://alias/database");
+    expect(env.postgresPoolMax).toBe(10);
+    expect(() => loadEnv({ POSTGRES_POOL_MAX: "1.5" })).toThrow("POSTGRES_POOL_MAX");
+  });
 });
