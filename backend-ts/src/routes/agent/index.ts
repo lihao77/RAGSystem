@@ -19,6 +19,8 @@ export const registerAgentRoutes: FastifyPluginAsync<AgentRouteOptions> = async 
     wsTickets: options.wsTickets,
     ...(options.widgetCredentialStore ? { widgetCredentialStore: options.widgetCredentialStore } : {}),
     ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
+    ...(options.resolveSaaSSessionApplication ? { resolveSaaSSessionApplication: options.resolveSaaSSessionApplication } : {}),
+    ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
   };
   await app.register(registerAgentManagementRoutes, routeOptions);
   await app.register(registerExecutionRoutes, routeOptions);

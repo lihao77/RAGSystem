@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PostgresOutboxRepository } from "../../../../src/adapters/saas/postgres/outbox-repository.js";
 import type { PostgresMemoryExecutor, PostgresQueryResult } from "../../../../src/adapters/saas/postgres/memory-repository.js";
 
@@ -18,6 +18,19 @@ class FakeExecutor implements PostgresMemoryExecutor {
 }
 
 describe("PostgresOutboxRepository", () => {
+  it("scopes durable replay by tenant, session and sequence cursor", async () => {
+    const query = vi.fn(async () => ({ rows: [], rowCount: 0 }));
+    const repository = new PostgresOutboxRepository({ query } as never);
+
+    await repository.listOutboxForReplay({ tenantId: "tenant-a", sessionId: "s1", afterSeq: 4, limit: 20 });
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("tenant_id=$1 AND session_id=$2"),
+      ["tenant-a", "s1", 4, 20],
+    );
+    expect(query.mock.calls[0]?.[0]).toContain("session_seq>$3");
+  });
+
   it("allocates a per-session sequence and appends JSON payload", async () => {
     const db = new FakeExecutor();
     const result = await new PostgresOutboxRepository(db).appendOutbox({ sessionId: "s1", eventId: "evt-1", eventType: "client.delta", aggregateType: "session", aggregateId: "s1", payload: { text: "ok" } });

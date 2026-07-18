@@ -90,6 +90,7 @@ export async function createSaaSConversationRuntime(
     const vectorIndex = new PostgresKnowledgeVectorIndexRepository(executor);
     const vectorStore = new PostgresPgVectorRepository(executor);
     let closePromise: Promise<void> | null = null;
+    const providerMcpApplication = new SaaSProviderMcpApplication(providerMcp);
     return {
       conversation,
       runs,
@@ -107,10 +108,11 @@ export async function createSaaSConversationRuntime(
         return new SaaSKnowledgeFileStorage(tenantId, knowledgeFiles, options.objectStorage);
       },
       providerMcp,
-      providerMcpApplication: new SaaSProviderMcpApplication(providerMcp),
+      providerMcpApplication,
       vectorIndex,
       vectorStore,
       close: () => {
+        providerMcpApplication.close();
         closePromise ??= ownsPool ? pool.end() : Promise.resolve();
         return closePromise;
       },

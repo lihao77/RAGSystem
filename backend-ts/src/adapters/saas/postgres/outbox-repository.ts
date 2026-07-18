@@ -56,6 +56,26 @@ export class PostgresOutboxRepository implements AsyncOutboxStore {
     });
   }
 
+  async listOutboxForReplay(input: { tenantId: string; sessionId: string; runIds?: readonly string[] | null; afterSeq?: number; limit?: number }): Promise<OutboxRow[]> {
+    const clauses = ["tenant_id=$1", "session_id=$2", "event_type LIKE 'client.%'"];
+    const params: unknown[] = [input.tenantId, input.sessionId];
+    if (input.runIds) {
+      if (input.runIds.length === 0) return [];
+      params.push(input.runIds);
+      clauses.push(`run_id=ANY($${params.length}::text[])`);
+    }
+    if (input.afterSeq !== undefined) {
+      params.push(input.afterSeq);
+      clauses.push(`session_seq>$${params.length}`);
+    }
+    params.push(Math.max(1, Math.min(500, Math.trunc(input.limit ?? 500))));
+    const result = await this.executor.query(
+      `SELECT ${SELECT} FROM event_outbox WHERE ${clauses.join(" AND ")} ORDER BY session_seq ASC LIMIT $${params.length}`,
+      params,
+    );
+    return result.rows.map(row);
+  }
+
   async markOutboxDelivered(id: number): Promise<boolean> { const r = await this.executor.query("UPDATE event_outbox SET status='delivered',delivered_at=CURRENT_TIMESTAMP,locked_at=NULL WHERE id=$1 AND status IN ('pending','retrying')", [id]); return Number(r.rowCount ?? 0) > 0; }
   async markOutboxRetrying(id: number, error: string, availableAt: string): Promise<boolean> { const r = await this.executor.query("UPDATE event_outbox SET status='retrying',attempts=attempts+1,last_error=$2,available_at=$3::timestamptz,locked_at=NULL WHERE id=$1 AND status IN ('pending','retrying')", [id, error, availableAt]); return Number(r.rowCount ?? 0) > 0; }
   async markOutboxFailed(id: number, error: string): Promise<boolean> { const r = await this.executor.query("UPDATE event_outbox SET status='failed',attempts=attempts+1,last_error=$2,locked_at=NULL WHERE id=$1 AND status IN ('pending','retrying')", [id, error]); return Number(r.rowCount ?? 0) > 0; }

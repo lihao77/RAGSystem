@@ -59,7 +59,10 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.get("/servers", async (request) => {
     const providerMcp = await options.resolveProviderMcp?.(request);
-    const servers = providerMcp
+    const mcp = await providerMcp?.resolveMcpRuntime(request.identity.tenantId);
+    const servers = mcp
+      ? mcp.listServers()
+      : providerMcp
       ? await providerMcp.listMcpServers(request.identity.tenantId)
       : request.container.mcp.listServers();
     return ok(servers.map((server) => normalizeServerListItem(
@@ -111,7 +114,9 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.post<{ Params: ServerParams }>("/servers/:serverName/connect", async (request) => {
     try {
-      return ok(await request.container.mcp.connectServer(request.params.serverName), "连接成功");
+      const providerMcp = await options.resolveProviderMcp?.(request);
+      const mcp = await providerMcp?.resolveMcpRuntime(request.identity.tenantId) ?? request.container.mcp;
+      return ok(await mcp.connectServer(request.params.serverName), "连接成功");
     } catch (error) {
       throw toHttpError(error);
     }
@@ -119,7 +124,9 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.post<{ Params: ServerParams }>("/servers/:serverName/disconnect", async (request) => {
     try {
-      request.container.mcp.disconnectServer(request.params.serverName, { manual: true });
+      const providerMcp = await options.resolveProviderMcp?.(request);
+      const mcp = await providerMcp?.resolveMcpRuntime(request.identity.tenantId) ?? request.container.mcp;
+      mcp.disconnectServer(request.params.serverName, { manual: true });
       return ok(undefined, "已断开连接");
     } catch (error) {
       throw toHttpError(error);
@@ -128,7 +135,9 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.post<{ Params: ServerParams }>("/servers/:serverName/test", async (request) => {
     try {
-      const result = await request.container.mcp.testServer(request.params.serverName);
+      const providerMcp = await options.resolveProviderMcp?.(request);
+      const mcp = await providerMcp?.resolveMcpRuntime(request.identity.tenantId) ?? request.container.mcp;
+      const result = await mcp.testServer(request.params.serverName);
       return ok(result, result.message);
     } catch (error) {
       if (error instanceof McpServiceError && error.statusCode === 404) {
@@ -140,7 +149,9 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
 
   app.get<{ Params: ServerParams }>("/servers/:serverName/tools", async (request) => {
     try {
-      return ok(normalizeToolsResponse(request.container.mcp.listServerTools(request.params.serverName)));
+      const providerMcp = await options.resolveProviderMcp?.(request);
+      const mcp = await providerMcp?.resolveMcpRuntime(request.identity.tenantId) ?? request.container.mcp;
+      return ok(normalizeToolsResponse(mcp.listServerTools(request.params.serverName)));
     } catch (error) {
       if (error instanceof McpServiceError && error.statusCode === 404) {
         return ok({ server_name: request.params.serverName, tool_count: 0, tools: [] });
@@ -150,7 +161,16 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
   });
 
   app.get("/tools", async (request) => {
-    return ok(normalizeToolsResponse(request.container.mcp.listAllTools()));
+    const providerMcp = await options.resolveProviderMcp?.(request);
+    const mcp = await providerMcp?.resolveMcpRuntime(request.identity.tenantId) ?? request.container.mcp;
+    return ok(normalizeToolsResponse(mcp.listAllTools()));
+  });
+
+  app.post<{ Params: ServerParams & { toolName: string } }>("/servers/:serverName/tools/:toolName/call", async (request) => {
+    const providerMcp = await options.resolveProviderMcp?.(request);
+    const mcp = await providerMcp?.resolveMcpRuntime(request.identity.tenantId) ?? request.container.mcp;
+    const args = isRecord(request.body) && isRecord(request.body.arguments) ? request.body.arguments : {};
+    return ok(await mcp.callTool(request.params.serverName, request.params.toolName, args));
   });
 
   app.get("/prompts", async (request) => {

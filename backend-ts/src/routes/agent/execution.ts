@@ -89,9 +89,12 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
     );
   });
 
-  app.get<{ Params: SessionExecutionParams }>("/sessions/:sessionId/task-status", async (request) =>
-    ok(request.container.agentExecution.getSessionTaskStatus(request.params.sessionId)),
-  );
+  app.get<{ Params: SessionExecutionParams }>("/sessions/:sessionId/task-status", async (request) => {
+    const saas = await options.resolveSaaSAgentReadApplication?.(request);
+    return ok(saas
+      ? await saas.getSessionTaskStatus(request.params.sessionId)
+      : request.container.agentExecution.getSessionTaskStatus(request.params.sessionId));
+  });
 
   app.get<{ Params: SessionExecutionParams }>("/sessions/:sessionId/execution-diagnostics", async (request) =>
     ok(request.container.agentExecution.getSessionExecutionDiagnostics(request.params.sessionId)),

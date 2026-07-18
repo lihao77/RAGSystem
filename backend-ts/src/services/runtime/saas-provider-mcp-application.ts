@@ -6,10 +6,22 @@ import type {
   SaaSMcpServerRecord,
   SaaSProviderConfigRecord,
 } from "../../adapters/saas/postgres/provider-mcp-repository.js";
+import type { McpService } from "../integrations/mcp-service.js";
+import { SaaSMcpRuntimeRegistry } from "./saas-mcp-runtime.js";
 
 /** Tenant-scoped application facade for SaaS provider/MCP config. */
 export class SaaSProviderMcpApplication {
+  private readonly runtimes = new SaaSMcpRuntimeRegistry(this);
+
   constructor(private readonly repository: PostgresProviderMcpRepository) {}
+
+  resolveMcpRuntime(tenantId: TenantId): Promise<McpService> {
+    return this.runtimes.resolve(tenantId);
+  }
+
+  close(): void {
+    this.runtimes.close();
+  }
 
   async listProviders(tenantId: TenantId): Promise<ModelProviderConfig[]> {
     const records = await this.repository.listProviders(tenantId);
