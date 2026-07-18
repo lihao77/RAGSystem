@@ -26,6 +26,8 @@ import {
   PostgresBackgroundTaskRepository,
   runPostgresAnalyticsMigrations,
   PostgresAnalyticsRepository,
+  runPostgresFileHistoryMigrations,
+  PostgresFileHistoryMetadataRepository,
   PostgresSessionFileMetadataRepository,
   runPostgresSessionFileMigrations,
 } from "../../adapters/saas/postgres/index.js";
@@ -34,6 +36,8 @@ import { SaaSArtifactService } from "../artifacts/saas-artifact-service.js";
 import { SaaSKnowledgeFileStorage } from "../../adapters/saas/object-storage/knowledge-file-storage.js";
 import type { AsyncKnowledgeFileStore } from "../../contracts/knowledge/async-knowledge-file-store.js";
 import { SaaSProviderMcpApplication } from "./saas-provider-mcp-application.js";
+import { SaaSFileHistoryStorage } from "../../adapters/saas/object-storage/file-history-storage.js";
+import type { AsyncFileHistoryStore } from "../../contracts/file-history-store/index.js";
 import { SaaSSessionFileStorage } from "../../adapters/saas/object-storage/session-file-storage.js";
 import type { AsyncSessionFileStorage } from "../../contracts/session-file-storage.js";
 
@@ -66,8 +70,10 @@ export interface SaaSConversationRuntimeHandle {
   providerMcpApplication: SaaSProviderMcpApplication;
   backgroundTasks: PostgresBackgroundTaskRepository;
   analytics: PostgresAnalyticsRepository;
-  close(): Promise<void>;
+  fileHistory: PostgresFileHistoryMetadataRepository;
+  createFileHistoryStorage(tenantId: string): AsyncFileHistoryStore;
   createSessionFileStorage(tenantId: string): AsyncSessionFileStorage;
+  close(): Promise<void>;
 }
 
 export async function createSaaSConversationRuntime(
@@ -91,8 +97,9 @@ export async function createSaaSConversationRuntime(
       await runPostgresPgVectorMigrations(executor);
       await runPostgresBackgroundTaskMigrations(executor);
       await runPostgresAnalyticsMigrations(executor);
-    }
+      await runPostgresFileHistoryMigrations(executor);
       await runPostgresSessionFileMigrations(executor);
+    }
     const conversation = new PostgresConversationRepository(executor);
     const runs = new PostgresRunRepository(executor);
     const outbox = new PostgresOutboxRepository(executor);
@@ -105,8 +112,9 @@ export async function createSaaSConversationRuntime(
     const vectorStore = new PostgresPgVectorRepository(executor);
     const backgroundTasks = new PostgresBackgroundTaskRepository(executor);
     const analytics = new PostgresAnalyticsRepository(executor);
-    let closePromise: Promise<void> | null = null;
+    const fileHistory = new PostgresFileHistoryMetadataRepository(executor);
     const sessionFiles = new PostgresSessionFileMetadataRepository(executor);
+    let closePromise: Promise<void> | null = null;
     const providerMcpApplication = new SaaSProviderMcpApplication(providerMcp);
     return {
       conversation,
@@ -130,11 +138,16 @@ export async function createSaaSConversationRuntime(
       vectorStore,
       backgroundTasks,
       analytics,
-      close: () => {
+      fileHistory,
+      createFileHistoryStorage: (tenantId) => {
+        if (!options.objectStorage) throw new Error("SaaS file history requires ObjectStorage");
+        return new SaaSFileHistoryStorage(tenantId, fileHistory, options.objectStorage);
+      },
       createSessionFileStorage: (tenantId) => {
         if (!options.objectStorage) throw new Error("SaaS session file storage requires ObjectStorage");
         return new SaaSSessionFileStorage(tenantId, sessionFiles, options.objectStorage);
       },
+      close: () => {
         providerMcpApplication.close();
         closePromise ??= ownsPool ? pool.end() : Promise.resolve();
         return closePromise;

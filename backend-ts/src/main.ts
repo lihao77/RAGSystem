@@ -71,7 +71,11 @@ try {
     } : {}),
     ...(saasConversationRuntime ? {
       resolveProviderMcp: (request) => saasConversationRuntime!.providerMcpApplication,
-      resolveSaaSSessionApplication: (request: FastifyRequest) => new SaaSSessionApplication(request.identity.tenantId, saasConversationRuntime!.conversation),
+      resolveSaaSSessionApplication: (request: FastifyRequest) => new SaaSSessionApplication(
+        request.identity.tenantId,
+        saasConversationRuntime!.conversation,
+        saasConversationRuntime!.createFileHistoryStorage(request.identity.tenantId),
+      ),
       resolveSaaSAgentReadApplication: (request: FastifyRequest) => new SaaSAgentReadApplication(
         request.identity.tenantId,
         saasConversationRuntime!.conversation,
