@@ -13,6 +13,7 @@ import type { SaaSProviderMcpApplication } from "../services/runtime/saas-provid
 import type { SaaSKnowledgeVectorApplication } from "../services/runtime/saas-knowledge-vector-application.js";
 import type { SaaSSessionApplication } from "../services/runtime/saas-session-application.js";
 import type { SaaSAgentReadApplication } from "../services/runtime/saas-agent-read-application.js";
+import type { SaaSInteractionRecoveryApplication } from "../services/runtime/saas-interaction-recovery-application.js";
 
 export interface RouteOptions {
   registry: TenantRuntimeRegistry;
@@ -31,6 +32,7 @@ export interface RouteOptions {
   resolveProviderMcp?: (request: FastifyRequest) => SaaSProviderMcpApplication | undefined | Promise<SaaSProviderMcpApplication | undefined>;
   resolveSaaSSessionApplication?: (request: FastifyRequest) => SaaSSessionApplication | undefined | Promise<SaaSSessionApplication | undefined>;
   resolveSaaSAgentReadApplication?: (request: FastifyRequest) => SaaSAgentReadApplication | undefined | Promise<SaaSAgentReadApplication | undefined>;
+  resolveSaaSInteractionRecovery?: (request: FastifyRequest) => SaaSInteractionRecoveryApplication | undefined | Promise<SaaSInteractionRecoveryApplication | undefined>;
   widgetCredentialStore?: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
 }

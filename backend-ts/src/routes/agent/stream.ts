@@ -59,11 +59,18 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
     async (request) => {
       await loadOwnedSession(request, request.params.sessionId);
       const payload = ApprovalRequestSchema.parse(request.body);
-      const result = request.container.pendingInteractions.respondApproval(
+      let result = request.container.pendingInteractions.respondApproval(
         request.params.sessionId,
         request.params.approvalId,
         payload,
       );
+      if (!result.resolved) {
+        const recovery = await options.resolveSaaSInteractionRecovery?.(request);
+        result = await recovery?.respondApproval(request.params.sessionId, request.params.approvalId, {
+          approved: payload.approved,
+          message: payload.message ?? "",
+        }) ?? result;
+      }
       if (!result.resolved) {
         throw new HttpError(404, "not_found", "未找到对应的审批请求，可能已被取消或不存在");
       }
@@ -89,11 +96,17 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
   app.post<{ Params: InputParams }>("/sessions/:sessionId/inputs/:inputId/respond", async (request) => {
     await loadOwnedSession(request, request.params.sessionId);
     const payload = UserInputRequestSchema.parse(request.body);
-    const result = request.container.pendingInteractions.respondUserInput(
+    let result = request.container.pendingInteractions.respondUserInput(
       request.params.sessionId,
       request.params.inputId,
       payload,
     );
+    if (!result.resolved) {
+      const recovery = await options.resolveSaaSInteractionRecovery?.(request);
+      result = await recovery?.respondUserInput(request.params.sessionId, request.params.inputId, {
+        value: payload.value ?? "",
+      }) ?? result;
+    }
     if (!result.resolved) {
       throw new HttpError(404, "not_found", "未找到对应的输入请求，可能已被取消或不存在");
     }
@@ -112,11 +125,30 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
     async (request) => {
       await loadOwnedSession(request, request.params.sessionId);
       const payload = InteractionRequestSchema.parse(request.body);
-      const result = request.container.pendingInteractions.respondInteraction(
+      let result = request.container.pendingInteractions.respondInteraction(
         request.params.sessionId,
         request.params.interactionId,
         payload,
       );
+      if (!result.resolved) {
+        const recovery = await options.resolveSaaSInteractionRecovery?.(request);
+        const recovered = payload.kind === "approval"
+          ? await recovery?.respondApproval(request.params.sessionId, request.params.interactionId, {
+              approved: payload.approved ?? false,
+              message: payload.message ?? "",
+            })
+          : await recovery?.respondUserInput(request.params.sessionId, request.params.interactionId, {
+              value: payload.value ?? "",
+            });
+        if (recovered) {
+          result = {
+            ...recovered,
+            ...(payload.kind === "approval"
+              ? { approved: payload.approved ?? false, message: payload.message ?? "" }
+              : {}),
+          };
+        }
+      }
       if (!result.resolved) {
         throw new HttpError(404, "not_found", result.error ?? "未找到对应的交互请求，可能已被取消或不存在");
       }

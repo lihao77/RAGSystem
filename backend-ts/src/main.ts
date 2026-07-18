@@ -9,6 +9,7 @@ import { TenantKnowledgeMarkdownPipeline } from "./contracts/knowledge/async-kno
 import { SaaSKnowledgeVectorApplication } from "./services/runtime/saas-knowledge-vector-application.js";
 import { SaaSSessionApplication } from "./services/runtime/saas-session-application.js";
 import { SaaSAgentReadApplication } from "./services/runtime/saas-agent-read-application.js";
+import { SaaSInteractionRecoveryApplication } from "./services/runtime/saas-interaction-recovery-application.js";
 import type { FastifyRequest } from "fastify";
 
 const env = loadEnv(process.env);
@@ -73,6 +74,12 @@ try {
         saasConversationRuntime!.conversation,
         saasConversationRuntime!.runs,
         saasConversationRuntime!.outbox,
+      ),
+      resolveSaaSInteractionRecovery: (request: FastifyRequest) => new SaaSInteractionRecoveryApplication(
+        request.identity.tenantId,
+        saasConversationRuntime!.conversation,
+        saasConversationRuntime!.pendingInteractions,
+        saasConversationRuntime!.providerContinuations,
       ),
     } : {}),
     ...(saasControlRuntime ? { controlRuntime: saasControlRuntime } : {}),
