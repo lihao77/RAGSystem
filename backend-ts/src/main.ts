@@ -51,6 +51,9 @@ try {
         saasConversationRuntime!.createKnowledgeFileStorage(request.identity.tenantId),
       ),
     } : {}),
+    ...(saasConversationRuntime ? {
+      resolveProviderMcp: (request) => saasConversationRuntime!.providerMcpApplication,
+    } : {}),
     ...(saasControlRuntime ? { controlRuntime: saasControlRuntime } : {}),
   });
 } catch (error) {

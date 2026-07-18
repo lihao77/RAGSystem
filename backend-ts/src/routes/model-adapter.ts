@@ -24,7 +24,10 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
   app.get("/provider-types", async (request) => ok(request.container.modelAdapter.listProviderTypes(), "获取成功"));
 
   app.get("/providers", async (request) => {
-    const providers = request.container.modelAdapter.listProviders()
+    const providerMcp = await options.resolveProviderMcp?.(request);
+    const providers = (providerMcp
+      ? await providerMcp.listProviders(request.identity.tenantId)
+      : request.container.modelAdapter.listProviders())
       .map((provider) => request.identity.role === "member" ? redactProviderSecrets(provider) : provider);
     return {
       ...ok(providers, "Provider 列表获取成功"),

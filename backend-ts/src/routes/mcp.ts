@@ -58,7 +58,11 @@ export const registerMcpRoutes: FastifyPluginAsync<RouteOptions> = async (app, o
   });
 
   app.get("/servers", async (request) => {
-    return ok(request.container.mcp.listServers().map((server) => normalizeServerListItem(
+    const providerMcp = await options.resolveProviderMcp?.(request);
+    const servers = providerMcp
+      ? await providerMcp.listMcpServers(request.identity.tenantId)
+      : request.container.mcp.listServers();
+    return ok(servers.map((server) => normalizeServerListItem(
       request.identity.role === "member" ? redactServerSecrets(server) : server,
     )));
   });

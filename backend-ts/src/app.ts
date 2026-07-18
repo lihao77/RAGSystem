@@ -49,6 +49,7 @@ export interface BuildAppOptions {
   resolveMemoryApplication?: RouteOptions["resolveMemoryApplication"];
   resolveKnowledgeFileStore?: RouteOptions["resolveKnowledgeFileStore"];
   resolveKnowledgeMarkdownPipeline?: RouteOptions["resolveKnowledgeMarkdownPipeline"];
+  resolveProviderMcp?: RouteOptions["resolveProviderMcp"];
   registry?: TenantRuntimeRegistry;
   controlStore?: ControlStore;
   controlPlane?: ControlPlane;
@@ -403,6 +404,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ...(resolveMemoryApplication ? { resolveMemoryApplication } : {}),
     ...(options.resolveKnowledgeFileStore ? { resolveKnowledgeFileStore: options.resolveKnowledgeFileStore } : {}),
     ...(options.resolveKnowledgeMarkdownPipeline ? { resolveKnowledgeMarkdownPipeline: options.resolveKnowledgeMarkdownPipeline } : {}),
+    ...(options.resolveProviderMcp ? { resolveProviderMcp: options.resolveProviderMcp } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await registerManagementAndPlatformRoutes(app, {

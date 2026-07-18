@@ -83,6 +83,7 @@ export interface SharedBusinessRouteAssemblyOptions {
   resolveMemoryApplication?: RouteOptions["resolveMemoryApplication"];
   resolveKnowledgeFileStore?: RouteOptions["resolveKnowledgeFileStore"];
   resolveKnowledgeMarkdownPipeline?: RouteOptions["resolveKnowledgeMarkdownPipeline"];
+  resolveProviderMcp?: RouteOptions["resolveProviderMcp"];
 }
 
 export async function registerSharedBusinessRoutes(
@@ -113,9 +114,9 @@ export async function registerSharedBusinessRoutes(
         : {}),
     });
     await scope.register(registerSkillRoutes, { prefix: "/api/skills", ...routeOptions });
-    await scope.register(registerModelAdapterRoutes, { prefix: "/api/model-adapter", ...routeOptions });
+    await scope.register(registerModelAdapterRoutes, { prefix: "/api/model-adapter", ...routeOptions, ...(options.resolveProviderMcp ? { resolveProviderMcp: options.resolveProviderMcp } : {}) });
     await scope.register(registerSystemConfigRoutes, { prefix: "/api/system-config", ...routeOptions });
-    await scope.register(registerMcpRoutes, { prefix: "/api/mcp", ...routeOptions });
+    await scope.register(registerMcpRoutes, { prefix: "/api/mcp", ...routeOptions, ...(options.resolveProviderMcp ? { resolveProviderMcp: options.resolveProviderMcp } : {}) });
     await scope.register(registerKnowledgeBaseRoutes, { prefix: "/api/knowledge-bases", ...routeOptions });
     await scope.register(registerEmbeddingModelRoutes, { prefix: "/api/embedding-models", ...routeOptions });
     await scope.register(registerAgentRoutes, {
