@@ -71,13 +71,13 @@ services:
       OBJECT_STORAGE_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:-minioadmin}
       OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
       OBJECT_STORAGE_FORCE_PATH_STYLE: ${OBJECT_STORAGE_FORCE_PATH_STYLE:-true}
-      # PostgreSQL Control Plane is configuration-ready but remains disabled until
-      # Bot and Widget state no longer depend on SQLite control.db.
-      CONTROL_STORAGE_MODE: ${CONTROL_STORAGE_MODE:-sqlite}
+      # SaaS Control, Bot, Widget and Identity state are PostgreSQL-backed.
+      # Override only when running an explicitly local-compatible composition.
+      CONTROL_STORAGE_MODE: ${CONTROL_STORAGE_MODE:-postgres}
       UI_MODE: saas
       DATABASE_URL: ${DATABASE_URL:-postgres://ragsystem:ragsystem@postgres:5432/ragsystem}
       CONTROL_DATABASE_URL: ${CONTROL_DATABASE_URL:-postgres://ragsystem:ragsystem@postgres:5432/ragsystem}
-      CONTROL_SECRET_MASTER_KEY: ${CONTROL_SECRET_MASTER_KEY:-}
+      CONTROL_SECRET_MASTER_KEY: ${CONTROL_SECRET_MASTER_KEY:?CONTROL_SECRET_MASTER_KEY must be set to a base64-encoded 32-byte key}
       POSTGRES_POOL_MAX: ${POSTGRES_POOL_MAX:-10}
       SESSION_JWT_SECRET: ${SESSION_JWT_SECRET:?SESSION_JWT_SECRET must be set}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}

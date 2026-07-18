@@ -67,7 +67,7 @@ export interface BuildAppOptions {
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   if (options.env.controlStorageMode === "postgres" && !options.controlRuntime) {
     throw new Error(
-      "CONTROL_STORAGE_MODE=postgres is not enabled in app composition until Bot and Widget storage leave SQLite control.db",
+      "CONTROL_STORAGE_MODE=postgres requires SaaSControlRuntime (PostgreSQL Control, Bot, Widget and Identity repositories)",
     );
   }
   if (options.saasMemoryRuntime && (options.registry || options.resolveMemoryApplication)) {
@@ -83,7 +83,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     || !(options.controlPlane instanceof SqliteControlPlaneAdapter)
     || options.controlPlane.store !== options.controlStore
   )) {
-    throw new Error("custom controlPlane must wrap the same SQLite controlStore until Bot and Widget leave control.db");
+    throw new Error("custom controlPlane must wrap the same SQLite controlStore in local mode");
   }
   const app = Fastify({
     logger: {

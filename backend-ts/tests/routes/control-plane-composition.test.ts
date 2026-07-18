@@ -9,14 +9,14 @@ import { makeTempRoot } from "../helpers/temp-db.js";
 import { testEnv } from "../helpers/app.js";
 
 describe("Control Plane composition", () => {
-  it("rejects PostgreSQL Control composition until Bot and Widget leave SQLite", async () => {
+  it("requires the SaaS Control runtime for PostgreSQL mode", async () => {
     await expect(buildApp({
       env: {
         ...testEnv,
         controlStorageMode: "postgres",
         controlDatabaseUrl: "postgres://control/database",
       },
-    })).rejects.toThrow("Bot and Widget storage leave SQLite control.db");
+    })).rejects.toThrow("requires SaaSControlRuntime");
   });
 
   it("rejects a Control Plane that is not backed by the legacy Bot/Widget store", async () => {
