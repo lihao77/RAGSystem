@@ -137,6 +137,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     embeddingModels,
     memoryStore,
     memoryTools: memoryBindings.tools,
+    memoryContextSourceFactory: memoryBindings.createContextSource,
     documentTools,
     codeExecutionTools,
     skillTools,

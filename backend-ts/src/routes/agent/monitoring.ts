@@ -15,6 +15,7 @@ import { extractText } from "@ragsystem/agent-llm";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import { requireTenantAdmin, requireTenantMember } from "../tenant-role.js";
+import { assertSessionOwner } from "../session-owner.js";
 import { isRecord, normalizeString } from "../../utils/guards.js";
 
 interface ContextSnapshotQuery {
@@ -122,7 +123,14 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
   app.get("/context-snapshot", async (request) => {
     const query = request.query as ContextSnapshotQuery;
     const sessionId = normalizeString(query.session_id);
-    const sessionMetadata = sessionId ? request.container.conversationStore.getSession(sessionId)?.metadata ?? {} : {};
+    const saasSession = await options.resolveSaaSSessionApplication?.(request);
+    const saasSessionInfo = sessionId && saasSession ? await saasSession.getSession(sessionId) : null;
+    if (sessionId && saasSession) {
+      if (!saasSessionInfo) throw new HttpError(404, "not_found", "会话不存在");
+      await assertSessionOwner(request, saasSessionInfo);
+    }
+    const sessionMetadata = saasSessionInfo?.metadata
+      ?? (sessionId ? request.container.conversationStore.getSession(sessionId)?.metadata ?? {} : {});
     const resolved = request.container.runtimeCore.resolveExecutionConfig({
       agentName: normalizeSessionEntryAgent(sessionMetadata.entry_agent),
       teamName: normalizeString(sessionMetadata.team),
@@ -157,14 +165,18 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     // backend 组装 context（memory + recent）—— 与 run 路径同源（runtime-adapter 同一套 builder + source）。
     // conversation 注入 preview（组 LLM request）；rawMessages/sources 由 backend 自组，preview 不再返回 context。
     const threadKey = normalizeString(query.thread_key);
-    const historyPort: ConversationHistoryPort & SessionMetadataPort & Pick<typeof request.container.conversationStore, "listMemoryCandidates"> = {
-      getRecentMessages: (sid, limit, tk) => request.container.conversationStore.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
+    const historyPort: ConversationHistoryPort & SessionMetadataPort & Partial<Pick<typeof request.container.conversationStore, "listMemoryCandidates">> = {
+      getRecentMessages: (sid, limit, tk) => saasSession
+        ? saasSession.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root")
+        : request.container.conversationStore.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
       getSession: (sid) => {
-        const s = request.container.conversationStore.getSession(sid);
+        const s = saasSessionInfo && sid === sessionId
+          ? saasSessionInfo
+          : request.container.conversationStore.getSession(sid);
         return s ? { metadata: s.metadata ?? {}, user_id: s.user_id } : null;
       },
-      updateSessionMetadata: (sid, patch) => request.container.conversationStore.updateSessionMetadata(sid, patch),
-      listMemoryCandidates: (candidateQuery) => request.container.conversationStore.listMemoryCandidates(candidateQuery),
+      ...(saasSession ? {} : { updateSessionMetadata: (sid: string, patch: Record<string, unknown>) => request.container.conversationStore.updateSessionMetadata(sid, patch) }),
+      ...(saasSession ? {} : { listMemoryCandidates: (candidateQuery: Parameters<typeof request.container.conversationStore.listMemoryCandidates>[0]) => request.container.conversationStore.listMemoryCandidates(candidateQuery) }),
     };
     const snapshot = sessionId
       ? await previewBackendAgentContext(agent, profile, historyPort, registry, {
@@ -172,6 +184,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
           dataRoot: request.container.dataRoot,
           sessionId,
           threadKey,
+          ...(saasSession ? { memoryContextSourceFactory: request.container.memoryContextSourceFactory } : {}),
         })
       : null;
     const built = snapshot?.built ?? null;

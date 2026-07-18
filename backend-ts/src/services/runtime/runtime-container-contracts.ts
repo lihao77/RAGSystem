@@ -68,6 +68,7 @@ export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = M
   readonly embeddingModels: EmbeddingModelService;
   readonly memoryStore: TMemoryRepository;
   readonly memoryTools: MemoryToolOperations;
+  readonly memoryContextSourceFactory: MemoryRuntimeBindings["createContextSource"];
   readonly documentTools: LocalDocumentToolService;
   readonly codeExecutionTools: CodeExecutionToolService;
   readonly skillTools: SkillToolService;

@@ -36,7 +36,18 @@ export class SaaSSessionApplication {
     await this.fileHistory?.cleanup(sessionId);
     return this.repository.deleteSession(sessionId);
   }
-  async listMessages(input: { sessionId: string; limit?: number; offset?: number }): Promise<PaginatedResult<MessageInfo> | null> { if (!(await this.getSession(input.sessionId))) return null; return this.repository.listMessages(input.sessionId, input.limit ?? 20, input.offset ?? 0); }
+  async listMessages(input: { sessionId: string; limit?: number; offset?: number }): Promise<PaginatedResult<MessageInfo> | null> {
+    if (!(await this.getSession(input.sessionId))) return null;
+    const data = await this.repository.listVisibleRootMessages(input.sessionId, input.limit ?? 20, input.offset ?? 0);
+    data.items = data.items.map((item) => item.role === "assistant"
+      ? { ...item, has_execution: Boolean(item.metadata.run_id) && item.metadata.execution_history_discarded !== true }
+      : item);
+    return data;
+  }
+  async getRecentMessages(sessionId: string, limit = 10_000, threadKey?: string | null): Promise<MessageInfo[]> {
+    if (!(await this.getSession(sessionId))) return [];
+    return this.repository.getRecentMessages(sessionId, limit, threadKey ?? "root");
+  }
   async listMessageRunSteps(input: {
     sessionId: string;
     messageId: string;

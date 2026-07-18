@@ -55,4 +55,48 @@ describe("AsyncKernelEventPersister", () => {
     expect(messages.get("user-1")).toMatchObject({ content: "question" });
     expect(addCount).toBe(1);
   });
+
+  it("marks intent and observation messages as intermediate but not the final answer", async () => {
+    const added: Array<Record<string, unknown>> = [];
+    const conversation = {
+      createSession: async () => undefined,
+      addMessage: async (input: Record<string, unknown>) => {
+        added.push(input);
+        return { id: `m-${added.length}`, seq: added.length, content: input.content };
+      },
+      getMessageById: async () => null,
+    } as never;
+    const runStore = {
+      createRun: async () => ({ run_id: "run-1" }),
+      updateRunStatus: async () => true,
+      getRun: async () => null,
+    } as never;
+    const persister = new AsyncKernelEventPersister(conversation, runStore, {
+      tenantId: LOCAL_TENANT_ID,
+      sessionId: "session-1",
+      runId: "run-1",
+      threadKey: "root",
+      agentName: "agent-1",
+    });
+
+    await persister.persist({
+      type: "assistant_intermediate",
+      message: { role: "assistant", content: "intent" },
+      round: 0,
+    } as never);
+    await persister.persist({
+      type: "tool_result",
+      observation: "result",
+      toolCallId: "call-1",
+      toolName: "read_file",
+      round: 0,
+    } as never);
+    await persister.finalize("completed", { content: "final" });
+
+    expect(added.map((input) => input.role)).toEqual(["assistant", "tool", "assistant"]);
+    expect(added[0]?.metadata).toMatchObject({ msg_type: "intent", react_intermediate: true });
+    expect(added[1]?.metadata).toMatchObject({ msg_type: "observation", react_intermediate: true });
+    expect(added[2]?.metadata).toMatchObject({ msg_type: "assistant_final" });
+    expect(added[2]?.metadata).not.toHaveProperty("react_intermediate");
+  });
 });

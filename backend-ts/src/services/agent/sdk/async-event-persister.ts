@@ -91,7 +91,16 @@ export class AsyncKernelEventPersister {
   }
 
   private messageMeta(round: number, msgType: string): Record<string, unknown> {
-    return { agent_name: this.ctx.agentName, run_id: this.ctx.runId, thread_key: this.ctx.threadKey, execution_kind: this.ctx.executionKind, round: round + 1, msg_type: msgType, visible_to_user: true };
+    return {
+      agent_name: this.ctx.agentName,
+      run_id: this.ctx.runId,
+      thread_key: this.ctx.threadKey,
+      execution_kind: this.ctx.executionKind,
+      round: round + 1,
+      msg_type: msgType,
+      visible_to_user: true,
+      ...(msgType === MSG_TYPE.INTENT || msgType === MSG_TYPE.OBSERVATION ? { react_intermediate: true } : {}),
+    };
   }
 
   private ctxTenant() {

@@ -95,7 +95,8 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/permissions", async (request) => {
-    const session = await loadOwnedSession(request, request.params.sessionId);
+    const saas = await options.resolveSaaSSessionApplication?.(request);
+    const session = await loadOwnedSession(request, request.params.sessionId, saas);
     return validateResponse(
       SessionPermissionResponseSchema,
       ok({ mode: session.permission_mode ?? "standard" }, "获取会话权限成功"),
@@ -103,9 +104,12 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.patch<{ Params: SessionParams }>("/sessions/:sessionId/permissions", async (request) => {
-    await loadOwnedSession(request, request.params.sessionId);
+    const saas = await options.resolveSaaSSessionApplication?.(request);
+    await loadOwnedSession(request, request.params.sessionId, saas);
     const payload = UpdateSessionPermissionModeRequestSchema.parse(request.body);
-    const updated = request.container.conversationStore.updateSessionPermissionMode(request.params.sessionId, payload.mode);
+    const updated = saas
+      ? await saas.updateSessionPermissionMode(request.params.sessionId, payload.mode)
+      : request.container.conversationStore.updateSessionPermissionMode(request.params.sessionId, payload.mode);
     if (!updated) throw new HttpError(404, "not_found", "会话不存在");
     return validateResponse(
       SessionPermissionResponseSchema,

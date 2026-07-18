@@ -21,7 +21,7 @@ describe("SaaSSessionApplication", () => {
     const repository = {
       getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-b" }),
       deleteSession: vi.fn(),
-      listMessages: vi.fn(),
+      listVisibleRootMessages: vi.fn(),
       updateMessage: vi.fn(),
       deleteMessagesAfter: vi.fn(),
     };
@@ -33,7 +33,7 @@ describe("SaaSSessionApplication", () => {
     await expect(application.updateUserMessage({ sessionId: "session-1", messageId: "message-1", content: "changed" })).resolves.toBe(false);
     await expect(application.rollbackMessages({ sessionId: "session-1", afterSeq: 1 })).resolves.toBe(0);
     expect(repository.deleteSession).not.toHaveBeenCalled();
-    expect(repository.listMessages).not.toHaveBeenCalled();
+    expect(repository.listVisibleRootMessages).not.toHaveBeenCalled();
     expect(repository.updateMessage).not.toHaveBeenCalled();
     expect(repository.deleteMessagesAfter).not.toHaveBeenCalled();
   });
@@ -51,6 +51,31 @@ describe("SaaSSessionApplication", () => {
 
     expect(repository.updateMessage).toHaveBeenCalledWith({ sessionId: "session-1", messageId: "message-1", content: "changed", roleFilter: "user" });
     expect(repository.deleteMessagesAfter).toHaveBeenCalledWith("session-1", { afterSeq: null, afterMessageId: "message-1" });
+  });
+
+  it("returns only repository-filtered root messages and marks final assistant execution", async () => {
+    const repository = {
+      getSession: vi.fn().mockResolvedValue({ session_id: "session-1", tenant_id: "tenant-a" }),
+      listVisibleRootMessages: vi.fn().mockResolvedValue({
+        items: [
+          { id: "user-1", role: "user", metadata: {} },
+          { id: "assistant-1", role: "assistant", metadata: { run_id: "run-1" } },
+        ],
+        total: 2,
+        limit: 20,
+        offset: 0,
+        has_more: false,
+      }),
+    };
+    const application = new SaaSSessionApplication("tenant-a", repository as never);
+
+    const result = await application.listMessages({ sessionId: "session-1" });
+
+    expect(repository.listVisibleRootMessages).toHaveBeenCalledWith("session-1", 20, 0);
+    expect(result?.items).toEqual([
+      { id: "user-1", role: "user", metadata: {} },
+      { id: "assistant-1", role: "assistant", metadata: { run_id: "run-1" }, has_execution: true },
+    ]);
   });
 
   it("rewinds async file history before deleting SaaS messages", async () => {

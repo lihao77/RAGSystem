@@ -36,6 +36,20 @@ describe("PostgreSQL conversation slice", () => {
     expect(executor.calls.some((sql) => sql.includes("conversation_messages"))).toBe(true);
   });
 
+  it("filters tool and intermediate records in the chat-history query", async () => {
+    const executor = new FakeExecutor();
+    const repository = new PostgresConversationRepository(executor);
+
+    await repository.listVisibleRootMessages("s1", 20, 0);
+
+    const sql = executor.calls.join("\n");
+    expect(sql).toContain("role IN ('user','assistant','system')");
+    expect(sql).toContain("react_intermediate");
+    expect(sql).toContain("visible_to_user");
+    expect(sql).toContain("conversation_scope");
+    expect(sql).toContain("NOT IN ('intent','observation')");
+  });
+
   it("deep-merges session metadata like the Local store", async () => {
     const repository = new PostgresConversationRepository(new FakeExecutor());
     await expect(repository.updateSessionMetadata("s1", { cache: { root: 2 } })).resolves.toEqual({
