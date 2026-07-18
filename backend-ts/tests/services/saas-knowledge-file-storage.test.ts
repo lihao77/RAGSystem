@@ -27,6 +27,10 @@ class MemoryMetadata implements KnowledgeFileMetadataRepository {
 }
 
 describe("SaaSKnowledgeFileStorage", () => {
+  it("requires a tenant scope", () => {
+    expect(() => new SaaSKnowledgeFileStorage("", new MemoryMetadata(), new MemoryObjects())).toThrow("tenant id");
+  });
+
   it("stores bytes under tenant-scoped object keys and round-trips markdown", async () => {
     const objects = new MemoryObjects();
     const store = new SaaSKnowledgeFileStorage("tenant-a", new MemoryMetadata(), objects);

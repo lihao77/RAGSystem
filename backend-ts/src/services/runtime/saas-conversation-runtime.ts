@@ -21,6 +21,8 @@ import {
 } from "../../adapters/saas/postgres/index.js";
 import type { ObjectStorage } from "../../contracts/object-storage.js";
 import { SaaSArtifactService } from "../artifacts/saas-artifact-service.js";
+import { SaaSKnowledgeFileStorage } from "../../adapters/saas/object-storage/knowledge-file-storage.js";
+import type { AsyncKnowledgeFileStore } from "../../contracts/knowledge/async-knowledge-file-store.js";
 
 export interface SaaSConversationRuntimeOptions {
   connectionString: string;
@@ -42,6 +44,8 @@ export interface SaaSConversationRuntimeHandle {
   artifacts: PostgresArtifactMetadataRepository;
   /** Tenant-bound blob facade; requires objectStorage in the composition root. */
   createArtifactService(tenantId: string): SaaSArtifactService;
+  /** Tenant-bound asynchronous knowledge metadata/blob facade. */
+  createKnowledgeFileStorage(tenantId: string): AsyncKnowledgeFileStore;
   providerMcp: PostgresProviderMcpRepository;
   close(): Promise<void>;
 }
@@ -84,6 +88,10 @@ export async function createSaaSConversationRuntime(
       createArtifactService: (tenantId) => {
         if (!options.objectStorage) throw new Error("SaaS artifact service requires ObjectStorage");
         return new SaaSArtifactService(tenantId, artifacts, options.objectStorage);
+      },
+      createKnowledgeFileStorage: (tenantId) => {
+        if (!options.objectStorage) throw new Error("SaaS knowledge file storage requires ObjectStorage");
+        return new SaaSKnowledgeFileStorage(tenantId, knowledgeFiles, options.objectStorage);
       },
       providerMcp,
       close: () => {

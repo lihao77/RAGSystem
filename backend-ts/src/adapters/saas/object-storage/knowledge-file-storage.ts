@@ -7,6 +7,7 @@ import type {
   KnowledgeFileMetadata,
   KnowledgeFileMetadataRepository,
 } from "../../../contracts/knowledge/knowledge-file-repository.js";
+import type { AsyncKnowledgeFileStore } from "../../../contracts/knowledge/async-knowledge-file-store.js";
 
 /**
  * SaaS knowledge-file persistence.
@@ -15,12 +16,14 @@ import type {
  * object keys, never by container-local filesystem paths. The `stored_path`
  * field exposed by the legacy file DTO is therefore the source object's key.
  */
-export class SaaSKnowledgeFileStorage {
+export class SaaSKnowledgeFileStorage implements AsyncKnowledgeFileStore {
   constructor(
     private readonly tenantId: string,
     private readonly metadata: KnowledgeFileMetadataRepository,
     private readonly objects: ObjectStorage,
-  ) {}
+  ) {
+    if (!tenantId.trim()) throw new Error("SaaS knowledge file storage requires a tenant id");
+  }
 
   async listKnowledgeFiles(): Promise<KnowledgeFile[]> {
     const rows = await this.metadata.list(this.tenantId);
