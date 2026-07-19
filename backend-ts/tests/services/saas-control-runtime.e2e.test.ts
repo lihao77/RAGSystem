@@ -6,8 +6,8 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { buildApp } from "../../src/app.js";
 import { loadEnv } from "../../src/config/env.js";
-import { createSaaSControlRuntime } from "../../src/services/runtime/saas-control-runtime.js";
-import { createSaaSMemoryRuntime } from "../../src/services/runtime/saas-memory-runtime.js";
+import { createSaaSControlRuntime } from "../../src/app/composition/saas/saas-control-runtime.js";
+import { createSaaSMemoryRuntime } from "../../src/app/composition/saas/saas-memory-runtime.js";
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
 const adminPool = databaseUrl == null ? null : new Pool({ connectionString: databaseUrl, max: 2 });

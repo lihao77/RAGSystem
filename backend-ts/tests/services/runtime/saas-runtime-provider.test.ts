@@ -6,7 +6,7 @@ import type {
   PersistedMemoryCandidateMutationResult,
   TransactionalMemoryRepository,
 } from "../../../src/contracts/memory-store/index.js";
-import { SaaSRuntimeProvider } from "../../../src/services/runtime/saas-runtime-provider.js";
+import { SaaSRuntimeProvider } from "../../../src/app/composition/saas/saas-runtime-provider.js";
 import { SaaSMemoryContextSource } from "../../../src/services/agent/memory/saas-memory-context-source.js";
 import { SaaSMemoryToolService } from "../../../src/tools/MemoryTools/SaaSMemoryExecution.js";
 

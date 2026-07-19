@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { SaaSRuntimeRegistry, type SaaSTenantRuntimeHandle } from "../../src/services/runtime/saas-runtime-registry.js";
+import { SaaSRuntimeRegistry, type SaaSTenantRuntimeHandle } from "../../src/app/composition/saas/saas-runtime-registry.js";
 
 const handle = (tenantId: string, close = vi.fn()): SaaSTenantRuntimeHandle => ({
   tenantId: tenantId as SaaSTenantRuntimeHandle["tenantId"],

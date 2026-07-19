@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { SaaSMcpRuntimeRegistry } from "../../src/services/runtime/saas-mcp-runtime.js";
+import { SaaSMcpRuntimeRegistry } from "../../src/app/composition/saas/saas-mcp-runtime.js";
 
 describe("SaaSMcpRuntimeRegistry", () => {
   it("hydrates isolated tenant runtimes from the SaaS config application", async () => {
