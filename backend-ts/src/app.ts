@@ -32,7 +32,7 @@ import { createWsTicketService, type WsTicketService } from "./services/runtime/
 import { AuthError, LocalIdentityProvider, PasswordIdentityProvider, WidgetIdentityProvider, type IdentityProvider } from "./services/identity/index.js";
 import { DefaultTenantRuntimeRegistry, type TenantRuntimeRegistry } from "./adapters/local/tenant-runtime-registry.js";
 import { DaemonService, type DaemonSuspendedInteraction } from "./services/daemon/daemon-service.js";
-import { createSaaSMemoryApplicationResolver } from "./app/saas-memory-resolver.js";
+import { createSaaSMemoryApplicationResolver } from "./adapters/saas/composition/saas-memory-resolver.js";
 import type { RouteOptions } from "./routes/route-options.js";
 import type { SaaSMemoryRuntimeHandle } from "./adapters/saas/composition/saas-memory-runtime.js";
 import type { SaaSConversationRuntimeHandle } from "./adapters/saas/composition/saas-conversation-runtime.js";

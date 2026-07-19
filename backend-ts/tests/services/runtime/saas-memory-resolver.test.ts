@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createSaaSMemoryApplicationResolver } from "../../../src/app/saas-memory-resolver.js";
+import { createSaaSMemoryApplicationResolver } from "../../../src/adapters/saas/composition/saas-memory-resolver.js";
 
 describe("createSaaSMemoryApplicationResolver", () => {
   it("resolves a resource-free facade for the request tenant", async () => {
