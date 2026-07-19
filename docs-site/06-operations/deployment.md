@@ -122,3 +122,17 @@ RAG_DATA_ROOT/
 ## 明确的非目标
 
 当前代码不保证跨进程共享内存事件 hub，也不自动提供 Kubernetes 编排。PostgreSQL/Object Storage 是持久化事实来源；Cron 与 BackgroundTask 已使用租约防止重复领取，Daemon 使用 PostgreSQL advisory leader lease 保证只有一个实例启动 scheduler 与飞书连接，并由 standby 定时尝试接管。Agent 执行 runtime、实时连接投影和 webhook route token 解析仍有进程内状态。上线前应以 `/readyz`、备份恢复、租户隔离和多实例执行测试作为验收条件。
+
+## SaaS E2E 验收记录
+
+2026-07-19 使用当前源码运行 `node scripts/saas-compose-e2e.mjs --keep`，随后检查日志并清理临时 compose 项目。以下项目通过：
+
+- backend Docker 镜像从 workspace 完整构建；
+- PostgreSQL、MinIO、backend readiness；
+- 安装、密码登录和 tenant 切换；
+- 两个 tenant 的 Session 互相不可见；
+- PostgreSQL Memory 读与 tenant 隔离；
+- Object Storage 附件上传、下载与 tenant 隔离；
+- backend 重启后 Session、Memory 和附件仍可读取。
+
+该记录验收的是单 active backend 数据持久化与租户隔离。Realtime pub/sub、跨实例运行接管和任意 API 实例处理 Feishu webhook 仍不在本次通过范围内。
