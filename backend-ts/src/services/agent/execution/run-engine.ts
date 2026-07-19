@@ -230,6 +230,7 @@ export class AgentRunEngine {
     runId: string | null;
     taskId: string | null;
     agentName: string;
+    outcome?: { content: string; success: boolean; suspended?: boolean };
   }): AgentExecuteResult {
     if (!input.runId) {
       return {
@@ -246,6 +247,21 @@ export class AgentRunEngine {
       };
     }
     const run = this.conversationStore.getRun(input.sessionId, input.runId);
+    if (!run && input.outcome) {
+      return {
+        success: input.outcome.success,
+        ...(input.outcome.suspended ? { suspended: true, rootRunId: input.runId } : {}),
+        answer: input.outcome.success ? input.outcome.content : null,
+        agent_name: input.agentName,
+        execution_time: null,
+        tool_calls: [],
+        metadata: { run_id: input.runId, thread_key: "root", child_agent_id: null },
+        session_id: input.sessionId,
+        run_id: input.runId,
+        task_id: input.taskId,
+        error: input.outcome.success ? null : input.outcome.content || "任务执行失败",
+      };
+    }
     const finalMessage = run?.final_message_id
       ? this.conversationStore.getMessageById(input.sessionId, run.final_message_id)
       : null;

@@ -306,12 +306,13 @@ class AgentLaunchers {
         },
       },
     });
-    await started.promise;
+    const outcome = await started.promise;
     return this.runEngine.buildSynchronousResult({
       sessionId,
       runId: started.run_id ?? null,
       taskId: started.task_id ?? null,
       agentName: runtimeAgent.agent_name,
+      outcome,
     });
   }
 

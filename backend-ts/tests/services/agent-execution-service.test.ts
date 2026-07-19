@@ -234,6 +234,28 @@ describe("AgentExecutionService (baseline regression)", () => {
     store.close();
   });
 
+  it("builds synchronous results from the direct outcome when persistence is asynchronous", () => {
+    const { service, store } = buildHarness({ mode: "ok" });
+    const runEngine = (service as AgentExecutionService & {
+      runEngine: { buildSynchronousResult(input: Record<string, unknown>): ReturnType<AgentExecutionService["executeSynchronously"]> extends Promise<infer T> ? T : never };
+    }).runEngine;
+    expect(runEngine.buildSynchronousResult({
+      sessionId: "saas-session",
+      runId: "saas-run",
+      taskId: "saas-task",
+      agentName: "orchestrator_agent",
+      outcome: { content: "async answer", success: true },
+    })).toMatchObject({ success: true, answer: "async answer", error: null, run_id: "saas-run" });
+    expect(runEngine.buildSynchronousResult({
+      sessionId: "saas-session",
+      runId: "failed-run",
+      taskId: "failed-task",
+      agentName: "orchestrator_agent",
+      outcome: { content: "provider rejected request", success: false },
+    })).toMatchObject({ success: false, answer: null, error: "provider rejected request" });
+    store.close();
+  });
+
   it("handles the /help slash command via the slash handler", async () => {
     const { service, store } = buildHarness({ mode: "ok" });
     const result = await service.startStream({ task: "/help", attachments: [], userId: LOCAL_USER_ID }, "req-1");
