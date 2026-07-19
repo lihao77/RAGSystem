@@ -13,7 +13,7 @@ describe("outbox event architecture", () => {
       normalize("src/services/runtime/event-outbox/dispatcher.ts"),
       normalize("src/services/runtime/event-outbox/async-dispatcher.ts"),
       normalize("src/adapters/local/runtime-container.ts"),
-      normalize("src/contracts/runtime-container.ts"),
+      normalize("src/contracts/runtime/runtime-container.ts"),
     ]);
     const directPublishAllowed = new Set([
       normalize("src/services/runtime/event-outbox/dispatcher.ts"),
@@ -23,7 +23,7 @@ describe("outbox event architecture", () => {
       normalize("src/services/runtime/realtime-event-hub.ts"),
     ]);
     const subscribeAllowed = new Set([
-      normalize("src/contracts/realtime-event-bus.ts"),
+      normalize("src/contracts/runtime/realtime-event-bus.ts"),
       normalize("src/services/runtime/realtime-event-hub.ts"),
       normalize("src/routes/agent/ws.ts"),
       normalize("src/services/agui-gateway/agui-handler.ts"),
