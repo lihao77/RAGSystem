@@ -239,7 +239,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
                   message: payload.message,
                 });
                 if (result.needsResume) {
-                  container.resumeExecutor.resumeRun({
+                  applications.execution.resumeRun({
                     sessionId,
                     approvalId: message.call_id,
                     resolution: { approved: payload.approved ?? false, message: payload.message ?? "" },
@@ -249,7 +249,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
               } else {
                 const result = container.pendingInteractions.respondUserInput(sessionId, message.call_id, { value: payload.value });
                 if (result.needsResume) {
-                  container.resumeExecutor.resumeRun({
+                  applications.execution.resumeRun({
                     sessionId,
                     approvalId: message.call_id,
                     resolution: { value: payload.value ?? "" },
