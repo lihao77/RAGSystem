@@ -107,17 +107,9 @@ GET /api/artifacts/visualizations/:id
 
 会话 owner 校验在读取 Artifact 内容前执行。
 
-## 当前仍需收口的边界
+## 请求级 Application Composition
 
-当前业务数据面已经完成主要分流，但后端还不是完全无状态的多实例 SaaS：
-
-- `RuntimeContainer` 仍暴露若干 Local 具体类型；
-- Agent 执行、实时事件 hub、部分后台任务仍有进程内状态；
-- `routes` 中部分 Local fallback wrapper 尚未全部搬入独立 composition；
-- 若干共享 Agent service 仍引用具体 SaaS repository 类型，应继续收窄为 ports；
-- `main.ts` 和 `app.ts` 仍共同承担较多 composition 责任。
-
-下一步目标是建立请求级 `applications` 集合，并拆分明确的 Local/SaaS composition：
+普通租户 HTTP 请求在 identity 解析和 tenant runtime acquire 后创建一次应用集合：
 
 ```ts
 request.applications = {
@@ -126,9 +118,19 @@ request.applications = {
   artifacts,
   analytics,
   monitoring,
-  execution,
 };
 ```
 
-届时 route 不再逐个解析 resolver，Local/SaaS 的选择只发生一次。
+路由通过 `ensureRequestApplications()` 读取同一集合。直接注册单个 route 的测试或嵌入场景没有安装父级 hook 时，该函数会 lazy 创建并缓存集合，因此不会恢复分散的部署判断。
 
+## 当前仍需收口的边界
+
+当前业务数据面已经完成主要分流，但后端还不是完全无状态的多实例 SaaS：
+
+- `RuntimeContainer` 仍暴露若干 Local 具体类型；
+- Agent 执行、实时事件 hub、部分后台任务仍有进程内状态；
+- Execution、Interaction Recovery、Knowledge 与文件 storage resolver 尚未全部并入 `request.applications`；
+- 若干共享 Agent service 仍引用具体 SaaS repository 类型，应继续收窄为 ports；
+- `main.ts` 和 `app.ts` 仍共同承担较多 composition 责任。
+
+下一步继续把 Execution、Interaction、Knowledge 和文件能力加入请求级集合，并拆分明确的 Local/SaaS composition entry。
