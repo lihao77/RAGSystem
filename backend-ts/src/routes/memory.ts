@@ -8,6 +8,7 @@ import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 import { resolveSessionApplication } from "./session-application.js";
 import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
+import { LocalMemoryApplication } from "../services/memory/local-memory-application.js";
 
 const CandidateParamsSchema = z.object({ id: z.string().uuid() });
 const EntryParamsSchema = z.object({ id: z.string().uuid() });
@@ -76,8 +77,9 @@ function mutationResult<T extends { outcome: string; candidate?: unknown }>(
 async function resolveMemoryApplication(
   options: RouteOptions,
   request: Parameters<NonNullable<RouteOptions["resolveMemoryApplication"]>>[0],
-): Promise<MemoryApplication | undefined> {
-  return options.resolveMemoryApplication?.(request);
+): Promise<MemoryApplication> {
+  return await options.resolveMemoryApplication?.(request)
+    ?? new LocalMemoryApplication(request.identity.tenantId, request.container.memoryStore, request.container.conversationStore);
 }
 
 export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
