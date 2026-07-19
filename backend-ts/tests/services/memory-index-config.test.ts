@@ -1,10 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { SystemConfigService } from "../../src/services/config/system-config-service.js";
-import {
-  buildMemoryIndexContextSourceOptions,
-  MemoryIndexContextSource,
-} from "../../src/services/agent/memory/memory-index-source.js";
+import { MemoryIndexContextSource } from "../../src/services/agent/memory/memory-index-source.js";
+import { buildMemoryIndexContextSourceOptions } from "../../src/adapters/local/memory-index-options.js";
 import type { IMemoryStore } from "../../src/contracts/memory-store/index.js";
 
 describe("memory index system config assembly", () => {

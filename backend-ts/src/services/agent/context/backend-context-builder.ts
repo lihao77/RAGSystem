@@ -2,11 +2,7 @@ import type { AgentProfile } from "@ragsystem/agent-sdk";
 
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { MemoryConfig } from "../../../contracts/system-config.js";
-import {
-  buildMemoryIndexContextSourceOptions,
-  MemoryIndexContextSource,
-  isMemoryEnabled,
-} from "../memory/index.js";
+import { isMemoryEnabled } from "../memory/index.js";
 import { AgentContextBuilder } from "./context-builder.js";
 import { createDefaultProjectionRegistry } from "./extensions/index.js";
 import { DEFAULT_PROVIDER_CACHE_TTL_SECONDS, ProviderCacheTracker } from "./provider-cache-tracker.js";
@@ -38,12 +34,7 @@ export async function buildBackendAgentContext(
             memoryConfig: options.memoryConfig,
             dataRoot: options.dataRoot,
           })
-        : new MemoryIndexContextSource(
-            historyPort,
-            agent.memory,
-            agent.agent_name,
-            buildMemoryIndexContextSourceOptions(options.memoryConfig, options.dataRoot),
-          )]
+        : (() => { throw new Error("Memory context source factory is required for the selected runtime"); })()]
     : [];
   const extensionRegistry = createDefaultProjectionRegistry();
   const recentSource = new RecentMessagesContextSource(

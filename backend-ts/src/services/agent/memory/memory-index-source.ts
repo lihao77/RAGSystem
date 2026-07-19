@@ -43,8 +43,6 @@ export interface MemoryIndexContextSourceOptions {
   indexMaxChars?: number;
 }
 
-export { buildMemoryIndexContextSourceOptions } from "./memory-index-options.js";
-
 export class MemoryIndexContextSource implements AgentContextSource {
   readonly name = "memory";
   private readonly memoryStore: MemoryIndexReader;
