@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PostgresConversationRepository } from "../../src/adapters/saas/postgres/conversation-repository.js";
 import type { PostgresPendingInteractionRepository } from "../../src/adapters/saas/postgres/pending-interaction-repository.js";
 import { createTenantId, createUserId } from "../../src/identity/types.js";
-import { SaaSDaemonState } from "../../src/app/composition/saas/saas-daemon-state.js";
+import { SaaSDaemonState } from "../../src/adapters/saas/composition/saas-daemon-state.js";
 
 const tenantId = createTenantId("tnt_a");
 const botId = createUserId("usr_bot_a");

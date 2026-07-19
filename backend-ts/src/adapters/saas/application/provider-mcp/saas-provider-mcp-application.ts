@@ -3,7 +3,7 @@ import type { ModelProviderConfig, ProviderPayload } from "../../../../contracts
 import type { TenantId } from "../../../../identity/types.js";
 import type { McpServerRecord, ProviderConfigRecord, ProviderMcpRepository } from "../../../../contracts/provider-mcp-repository.js";
 import type { McpService } from "../../../../services/integrations/mcp-service.js";
-import { SaaSMcpRuntimeRegistry } from "../../../../app/composition/saas/saas-mcp-runtime.js";
+import { SaaSMcpRuntimeRegistry } from "../../composition/saas-mcp-runtime.js";
 
 /** Tenant-scoped application facade for SaaS provider/MCP config. */
 export class SaaSProviderMcpApplication {

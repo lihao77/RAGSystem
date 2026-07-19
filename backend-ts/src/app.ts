@@ -34,15 +34,15 @@ import { DefaultTenantRuntimeRegistry, type TenantRuntimeRegistry } from "./adap
 import { DaemonService, type DaemonSuspendedInteraction } from "./services/daemon/daemon-service.js";
 import { createSaaSMemoryApplicationResolver } from "./app/saas-memory-resolver.js";
 import type { RouteOptions } from "./routes/route-options.js";
-import type { SaaSMemoryRuntimeHandle } from "./app/composition/saas/saas-memory-runtime.js";
-import type { SaaSConversationRuntimeHandle } from "./app/composition/saas/saas-conversation-runtime.js";
+import type { SaaSMemoryRuntimeHandle } from "./adapters/saas/composition/saas-memory-runtime.js";
+import type { SaaSConversationRuntimeHandle } from "./adapters/saas/composition/saas-conversation-runtime.js";
 import { AsyncKernelEventPersister } from "./services/agent/sdk/async-event-persister.js";
 import { AsyncOutboxDispatcher } from "./services/runtime/event-outbox/async-dispatcher.js";
 import { AsyncDurableClientEventPublisher } from "./services/runtime/event-outbox/async-client-event-publisher.js";
-import type { SaaSControlRuntimeHandle } from "./app/composition/saas/saas-control-runtime.js";
+import type { SaaSControlRuntimeHandle } from "./adapters/saas/composition/saas-control-runtime.js";
 import { SaaSExecutionWriteBridge } from "./adapters/saas/application/execution/saas-execution-write-bridge.js";
 import { SaaSSessionControlApplication } from "./adapters/saas/application/execution/saas-session-control-application.js";
-import { SaaSDaemonState } from "./app/composition/saas/saas-daemon-state.js";
+import { SaaSDaemonState } from "./adapters/saas/composition/saas-daemon-state.js";
 import { createPostgresExecutionStorage } from "./adapters/saas/postgres/postgres-execution-storage.js";
 
 export interface BuildAppOptions {

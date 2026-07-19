@@ -4,7 +4,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { FilesystemObjectStorage } from "../../src/adapters/local/filesystem-object-storage.js";
 import { S3ObjectStorage } from "../../src/adapters/saas/object-storage/s3-object-storage.js";
-import { createSaaSObjectStorage } from "../../src/app/composition/saas/saas-object-storage.js";
+import { createSaaSObjectStorage } from "../../src/adapters/saas/composition/saas-object-storage.js";
 
 describe("ObjectStorage adapters", () => {
   it("keeps filesystem objects tenant-key scoped and blocks traversal", async () => {

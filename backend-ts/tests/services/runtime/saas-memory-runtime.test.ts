@@ -12,7 +12,7 @@ const pg = vi.hoisted(() => {
 
 vi.mock("pg", () => ({ Pool: pg.Pool }));
 
-import { createSaaSMemoryRuntime } from "../../../src/app/composition/saas/saas-memory-runtime.js";
+import { createSaaSMemoryRuntime } from "../../../src/adapters/saas/composition/saas-memory-runtime.js";
 
 describe("createSaaSMemoryRuntime", () => {
   beforeEach(() => {

@@ -1,9 +1,9 @@
 import { buildApp } from "./app.js";
 import { loadEnv } from "./config/env.js";
-import { createSaaSMemoryRuntime, type SaaSMemoryRuntimeHandle } from "./app/composition/saas/saas-memory-runtime.js";
-import { createSaaSControlRuntime, type SaaSControlRuntimeHandle } from "./app/composition/saas/saas-control-runtime.js";
-import { createSaaSConversationRuntime, type SaaSConversationRuntimeHandle } from "./app/composition/saas/saas-conversation-runtime.js";
-import { createSaaSObjectStorage } from "./app/composition/saas/saas-object-storage.js";
+import { createSaaSMemoryRuntime, type SaaSMemoryRuntimeHandle } from "./adapters/saas/composition/saas-memory-runtime.js";
+import { createSaaSControlRuntime, type SaaSControlRuntimeHandle } from "./adapters/saas/composition/saas-control-runtime.js";
+import { createSaaSConversationRuntime, type SaaSConversationRuntimeHandle } from "./adapters/saas/composition/saas-conversation-runtime.js";
+import { createSaaSObjectStorage } from "./adapters/saas/composition/saas-object-storage.js";
 import type { ObjectStorage } from "./contracts/object-storage.js";
 import { TenantKnowledgeMarkdownPipeline } from "./contracts/knowledge/async-knowledge-markdown-pipeline.js";
 import { SaaSKnowledgeVectorApplication } from "./adapters/saas/application/knowledge/saas-knowledge-vector-application.js";
