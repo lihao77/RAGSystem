@@ -1,9 +1,8 @@
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 
-import type { MemoryStore } from "../../adapters/local/memory-store.js";
 import type { IFileHistoryStore } from "../../contracts/file-history-store/index.js";
 import type { IFileIndexStore } from "../../contracts/file-index-store/index.js";
-import type { MemoryRepository } from "../../contracts/memory-store/index.js";
+import type { IMemoryStore, MemoryRepository } from "../../contracts/memory-store/index.js";
 import type { MemoryConfig } from "../../contracts/system-config.js";
 import type { TenantId } from "../../identity/types.js";
 import type { LocalBashToolService } from "../../tools/BashTool/BashExecution.js";
@@ -37,22 +36,20 @@ import type { DelegationPendingService } from "./delegation-pending-service.js";
 import type { DurableClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 import type { OutboxDispatcher } from "./event-outbox/dispatcher.js";
 import type { HostToolRegistry } from "./host-tool-registry.js";
-import type { PendingInteractionService } from "./pending-interaction-service.js";
+import type { PendingInteractionPort } from "../../contracts/pending-interactions.js";
 import type { PermissionPolicyService } from "./permission-policy-service.js";
-import type { RealtimeEventHub } from "./realtime-event-hub.js";
+import type { RealtimeEventBus } from "../../contracts/realtime-event-bus.js";
 import type { SessionNotificationQueue } from "./session-notification-queue.js";
 import type { AsyncDurableClientEventPublisher } from "./event-outbox/async-client-event-publisher.js";
 import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../agent/sdk/async-event-persister.js";
-import type { AsyncConversationRepository } from "../../adapters/saas/postgres/conversation-repository.js";
-import type { AsyncSuspendedSessionControl } from "./saas-session-control-application.js";
-import type { AsyncProviderContinuationRepository } from "../../adapters/saas/postgres/provider-continuation-repository.js";
+import type { AsyncConversationHistoryPort, AsyncProviderContinuationLookupPort, SuspendedSessionControlPort } from "../../contracts/runtime-async-ports.js";
 import type { AsyncBackgroundTaskRepository } from "../../contracts/background-task-repository.js";
 import type { KnowledgeQueryPort } from "../../contracts/knowledge/query-port.js";
 
-export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = MemoryStore> {
+export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = IMemoryStore> {
   readonly conversationStore: ConversationStore;
   readonly sessionApplication: AgentSessionApplication;
-  readonly realtimeEvents: RealtimeEventHub;
+  readonly realtimeEvents: RealtimeEventBus;
   readonly agentExecution: AgentExecutionService;
   readonly resumeExecutor: ResumeExecutor;
   readonly metricsCollector: AgentMetricsCollector;
@@ -79,7 +76,7 @@ export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = M
   readonly bashTools: LocalBashToolService;
   readonly backgroundTasks: BackgroundTaskService;
   readonly taskTools: TaskToolService;
-  readonly pendingInteractions: PendingInteractionService;
+  readonly pendingInteractions: PendingInteractionPort;
   readonly hostToolRegistry: HostToolRegistry;
   readonly delegationPending: DelegationPendingService;
   readonly toolsDeps: Omit<import("../../tools/registry.js").BackendToolsDeps, "agent" | "teamName">;
@@ -106,10 +103,10 @@ export interface LocalRuntimeContainerOptions {
   embedderFactory?: KnowledgeBaseEmbedderFactory | undefined;
   memoryBindingsFactory?: MemoryRuntimeBindingsFactory | undefined;
   asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
-  asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage">;
-  asyncProviderContinuations?: Pick<AsyncProviderContinuationRepository, "getProviderContinuation">;
-  asyncClientEventsFactory?: (realtimeEvents: RealtimeEventHub) => AsyncDurableClientEventPublisher;
-  asyncSuspendedSessionControlFactory?: (tenantId: TenantId) => AsyncSuspendedSessionControl;
+  asyncConversationHistory?: AsyncConversationHistoryPort;
+  asyncProviderContinuations?: AsyncProviderContinuationLookupPort;
+  asyncClientEventsFactory?: (realtimeEvents: RealtimeEventBus) => AsyncDurableClientEventPublisher;
+  asyncSuspendedSessionControlFactory?: (tenantId: TenantId) => SuspendedSessionControlPort;
   asyncBackgroundTasks?: AsyncBackgroundTaskRepository;
   knowledgeQueryFactory?: KnowledgeRuntimeQueryFactory;
 }
@@ -148,13 +145,13 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   logger?: AgentExecutionLogger | undefined;
   hooks?: ((registry: HookRegistry) => void) | undefined;
   asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
-  asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage">;
-  asyncProviderContinuations?: Pick<AsyncProviderContinuationRepository, "getProviderContinuation">;
+  asyncConversationHistory?: AsyncConversationHistoryPort;
+  asyncProviderContinuations?: AsyncProviderContinuationLookupPort;
   asyncClientEvents?: AsyncDurableClientEventPublisher;
-  asyncSuspendedSessionControl?: AsyncSuspendedSessionControl;
+  asyncSuspendedSessionControl?: SuspendedSessionControlPort;
   conversationStore: ConversationStore;
   sessionApplication: AgentSessionApplication;
-  realtimeEvents: RealtimeEventHub;
+  realtimeEvents: RealtimeEventBus;
   permissionPolicy: PermissionPolicyService;
   agentConfig: AgentConfigService;
   modelAdapter: ModelAdapterService;
@@ -163,9 +160,9 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   fileHistory: IFileHistoryStore;
   fileIndex: IFileIndexStore;
   knowledgeBase: KnowledgeBaseService;
+  knowledge: KnowledgeQueryPort;
   artifacts: ArtifactService;
   transientArtifacts: TransientArtifactService;
-  knowledge: KnowledgeQueryPort;
   embeddingModels: EmbeddingModelService;
   memoryStore: TMemoryRepository;
   memoryBindings: MemoryRuntimeBindings;
@@ -178,7 +175,7 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   backgroundTasks: BackgroundTaskService;
   taskTools: TaskToolService;
   notificationQueue: SessionNotificationQueue;
-  pendingInteractions: PendingInteractionService;
+  pendingInteractions: PendingInteractionPort;
   hostToolRegistry: HostToolRegistry;
   delegationPending: DelegationPendingService;
   outboxDispatcher: OutboxDispatcher;

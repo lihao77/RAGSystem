@@ -167,6 +167,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               asyncConversationHistory: options.saasConversationRuntime!.conversation,
               asyncBackgroundTasks: options.saasConversationRuntime!.backgroundTasks,
               asyncProviderContinuations: options.saasConversationRuntime!.providerContinuations,
+              knowledgeQueryFactory: ({ tenantId, baseKnowledge }) => options.saasConversationRuntime!.createKnowledgeQuery(tenantId, baseKnowledge),
               asyncSuspendedSessionControlFactory: (tenantId) => new SaaSSessionControlApplication(
                 tenantId,
                 options.saasConversationRuntime!.conversation,
@@ -197,6 +198,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
             asyncConversationHistory: options.saasConversationRuntime!.conversation,
             asyncBackgroundTasks: options.saasConversationRuntime!.backgroundTasks,
             asyncProviderContinuations: options.saasConversationRuntime!.providerContinuations,
+            knowledgeQueryFactory: ({ tenantId, baseKnowledge }) => options.saasConversationRuntime!.createKnowledgeQuery(tenantId, baseKnowledge),
             asyncSuspendedSessionControlFactory: (tenantId) => new SaaSSessionControlApplication(
               tenantId,
               options.saasConversationRuntime!.conversation,

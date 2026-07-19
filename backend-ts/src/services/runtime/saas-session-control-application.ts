@@ -2,15 +2,14 @@ import type { PostgresConversationRepository } from "../../adapters/saas/postgre
 import type { PostgresPendingInteractionRepository } from "../../adapters/saas/postgres/pending-interaction-repository.js";
 import type { PostgresRunRepository } from "../../adapters/saas/postgres/run-repository.js";
 import type { TenantId } from "../../identity/types.js";
+import type { SuspendedSessionControlPort } from "../../contracts/runtime-async-ports.js";
 
 export interface InterruptedSuspendedRun {
   runId: string;
   parentRunId: string | null;
 }
 
-export interface AsyncSuspendedSessionControl {
-  interruptSuspendedSession(sessionId: string): Promise<InterruptedSuspendedRun[]>;
-}
+export type AsyncSuspendedSessionControl = SuspendedSessionControlPort;
 
 /** Tenant-bound cancellation boundary for durable executions without a live process handle. */
 export class SaaSSessionControlApplication implements AsyncSuspendedSessionControl {
