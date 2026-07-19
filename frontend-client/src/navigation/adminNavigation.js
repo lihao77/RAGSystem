@@ -239,6 +239,9 @@ const capabilityByNavigationKey = {
 
 export function filterManagementNavItems(capabilities = {}, context = {}) {
   return managementNavItems.filter((item) => {
+    if (context.isLocal && (item.requiresPlatformAdmin || item.key === 'members')) {
+      return false;
+    }
     if (item.requiresPlatformAdmin && !context.isPlatformAdmin) {
       return false;
     }

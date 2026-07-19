@@ -112,6 +112,10 @@ router.beforeEach(async (to) => {
   if (to.meta.requiresPlatformAdmin && !authStore.isPlatformAdmin) {
     return { path: '/' };
   }
+  const isLocalMode = bootstrapStore.profile.ui === 'local' || bootstrapStore.profile.deployment === 'local';
+  if (isLocalMode && (to.meta.requiresPlatformAdmin || to.path === '/members')) {
+    return { path: '/' };
+  }
   if (to.meta.requireTenantRole && !authStore.hasTenantRole(to.meta.requireTenantRole)) {
     return { path: '/' };
   }

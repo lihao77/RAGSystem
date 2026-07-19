@@ -220,6 +220,7 @@ const isPageActive = (mainView) => (route.meta?.mainView || 'chat') === mainView
 const visibleManagementNavItems = computed(() => filterManagementNavItems(bootstrapStore.capabilities, {
   isAuthenticated: authStore.isAuthenticated,
   authMode: bootstrapStore.profile.auth,
+  isLocal: bootstrapStore.profile.ui === 'local' || bootstrapStore.profile.deployment === 'local',
   isPlatformAdmin: isPlatformAdmin.value,
   hasTenantRole,
 }));
