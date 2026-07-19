@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import type { RuntimeMemorySessionPort } from "../../src/tools/MemoryTools/MemoryExecution.js";
 import { MemoryToolService } from "../../src/tools/MemoryTools/MemoryExecution.js";
-import { MemoryStore } from "../../src/services/stores/memory-store.js";
+import { MemoryStore } from "../../src/adapters/local/memory-store.js";
 import type { CreateMemoryCandidateInput, MemoryCandidateRecord } from "../../src/contracts/conversation-store/index.js";
 import type { MemoryRepository } from "../../src/contracts/memory-store/index.js";
 

@@ -42,7 +42,7 @@ import { AsyncDurableClientEventPublisher } from "./services/runtime/event-outbo
 import type { SaaSControlRuntimeHandle } from "./app/composition/saas/saas-control-runtime.js";
 import { SaaSExecutionWriteBridge } from "./application/execution/saas-execution-write-bridge.js";
 import { SaaSSessionControlApplication } from "./application/execution/saas-session-control-application.js";
-import { SaaSDaemonState } from "./services/daemon/saas-daemon-state.js";
+import { SaaSDaemonState } from "./app/composition/saas/saas-daemon-state.js";
 import { createPostgresExecutionStorage } from "./adapters/saas/postgres/postgres-execution-storage.js";
 
 export interface BuildAppOptions {

@@ -4,7 +4,7 @@ import type { ObjectStorage } from "../../contracts/object-storage.js";
 import type { ArtifactMetadata, ArtifactMetadataRepository } from "../../contracts/artifact-repository.js";
 import type { VisualizationConfig, VisualizationSummary } from "../../contracts/artifacts.js";
 import type { ArtifactApplication, ArtifactRecord } from "../../contracts/artifact-application.js";
-import { ArtifactServiceError } from "./artifact-service.js";
+import { ArtifactServiceError } from "../../services/artifacts/artifact-service.js";
 
 /** Async tenant-scoped artifact service for SaaS deployments. Metadata lives in PostgreSQL; blobs live in ObjectStorage. */
 export class SaaSArtifactService implements ArtifactApplication {

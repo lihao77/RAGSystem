@@ -1,17 +1,16 @@
-import type { PostgresConversationRepository } from "../../adapters/saas/postgres/conversation-repository.js";
-import type { PostgresPendingInteractionRepository } from "../../adapters/saas/postgres/pending-interaction-repository.js";
-import type { PermissionMode } from "../../contracts/permissions.js";
-import type { TenantId, UserId } from "../../identity/types.js";
-import type { DaemonSuspendedInteraction } from "./daemon-service.js";
+import type { AsyncConversationRepository, AsyncPendingInteractionStore } from "../../../contracts/async-persistence-ports.js";
+import type { PermissionMode } from "../../../contracts/permissions.js";
+import type { TenantId, UserId } from "../../../identity/types.js";
+import type { DaemonSuspendedInteraction } from "../../../services/daemon/daemon-service.js";
 
 /** Tenant-safe async state boundary used by daemon execution in SaaS mode. */
 export class SaaSDaemonState {
   constructor(
     private readonly conversations: Pick<
-      PostgresConversationRepository,
+      AsyncConversationRepository,
       "createSession" | "getSession" | "updateSessionMetadata"
     >,
-    private readonly pending: Pick<PostgresPendingInteractionRepository, "listPendingInteractions">,
+    private readonly pending: Pick<AsyncPendingInteractionStore, "listPendingInteractions">,
   ) {}
 
   async ensureSession(input: {

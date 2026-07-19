@@ -32,7 +32,7 @@ import {
   runPostgresSessionFileMigrations,
 } from "../../../adapters/saas/postgres/index.js";
 import type { ObjectStorage } from "../../../contracts/object-storage.js";
-import { SaaSArtifactService } from "../../../services/artifacts/saas-artifact-service.js";
+import { SaaSArtifactService } from "../../../application/artifacts/saas-artifact-application.js";
 import { SaaSKnowledgeFileStorage } from "../../../adapters/saas/object-storage/knowledge-file-storage.js";
 import type { AsyncKnowledgeFileStore } from "../../../contracts/knowledge/async-knowledge-file-store.js";
 import { SaaSProviderMcpApplication } from "../../../application/provider-mcp/saas-provider-mcp-application.js";

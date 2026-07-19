@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SaaSArtifactService } from "../../src/services/artifacts/saas-artifact-service.js";
+import { SaaSArtifactService } from "../../src/application/artifacts/saas-artifact-application.js";
 import type { ArtifactMetadata, ArtifactMetadataRepository } from "../../src/contracts/artifact-repository.js";
 import type { ObjectMetadata, ObjectStorage } from "../../src/contracts/object-storage.js";
 
