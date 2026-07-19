@@ -11,7 +11,7 @@ import type {
   TenancyMode,
   UiMode,
 } from "../identity/types.js";
-import type { JwtKeyRing } from "../contracts/jwt-key-ring.js";
+import type { JwtKeyRing } from "../contracts/runtime/jwt-key-ring.js";
 import { createJwtKeyRing } from "../services/runtime/jwt-key-ring.js";
 
 const DeploymentModeSchema = z.enum(["local", "saas", "enterprise"]);

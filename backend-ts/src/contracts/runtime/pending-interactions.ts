@@ -1,5 +1,5 @@
-import type { ApprovalRequest, UserInputRequest } from "./execution.js";
-import type { InteractionKind, InteractionResponsePayload } from "./interactions.js";
+import type { ApprovalRequest, UserInputRequest } from "../execution.js";
+import type { InteractionKind, InteractionResponsePayload } from "../interactions.js";
 
 export interface PendingUserInputRequest {
   sessionId: string; runId: string; rootRunId: string; parentRunId: string | null; parentCallId: string | null;

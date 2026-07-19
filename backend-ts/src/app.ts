@@ -164,7 +164,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     options.saasMemoryRuntime
       ? {
           ...(options.saasConversationRuntime ? {
-            prepareRuntime: async (tenantId: import("./identity/types.js").TenantId, runtime: import("./contracts/runtime-container.js").RuntimeContainer) => {
+            prepareRuntime: async (tenantId: import("./identity/types.js").TenantId, runtime: import("./contracts/runtime/runtime-container.js").RuntimeContainer) => {
               runtime.modelAdapter.replaceRuntimeProviders(
                 await options.saasConversationRuntime!.providerMcpApplication.listProviders(tenantId),
               );
@@ -203,7 +203,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         }
       : options.saasConversationRuntime
         ? {
-          prepareRuntime: async (tenantId: import("./identity/types.js").TenantId, runtime: import("./contracts/runtime-container.js").RuntimeContainer) => {
+          prepareRuntime: async (tenantId: import("./identity/types.js").TenantId, runtime: import("./contracts/runtime/runtime-container.js").RuntimeContainer) => {
             runtime.modelAdapter.replaceRuntimeProviders(
               await options.saasConversationRuntime!.providerMcpApplication.listProviders(tenantId),
             );

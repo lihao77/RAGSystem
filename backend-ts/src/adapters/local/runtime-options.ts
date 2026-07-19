@@ -8,13 +8,13 @@ import type { SessionMetadataPort } from "../../services/agent/context/types.js"
 import type { RuntimeMemorySessionPort } from "../../tools/MemoryTools/MemoryExecution.js";
 import type { AgentExecutionLogger } from "../../services/agent/execution/index.js";
 import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../../services/agent/sdk/async-event-persister.js";
-import type { AsyncConversationHistoryPort, AsyncProviderContinuationLookupPort, SuspendedSessionControlPort } from "../../contracts/runtime-async-ports.js";
+import type { AsyncConversationHistoryPort, AsyncProviderContinuationLookupPort, SuspendedSessionControlPort } from "../../contracts/runtime/runtime-async-ports.js";
 import type { AsyncBackgroundTaskRepository } from "../../contracts/background-task-repository.js";
-import type { RealtimeEventBus } from "../../contracts/realtime-event-bus.js";
+import type { RealtimeEventBus } from "../../contracts/runtime/realtime-event-bus.js";
 import type { AsyncDurableClientEventPublisher } from "../../services/runtime/event-outbox/async-client-event-publisher.js";
 import type { ExecutionStorage } from "../../contracts/execution-storage.js";
 import type { KnowledgeQueryPort } from "../../contracts/knowledge/query-port.js";
-import type { PathAccessPolicy } from "../../contracts/path-access-policy.js";
+import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
 
 export interface LocalRuntimeContainerOptions {
   tenantId: TenantId;

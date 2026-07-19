@@ -20,10 +20,10 @@ import type { DelegatedToolDeclarationWire, Envelope } from "../../../contracts/
 import type { AgentExecutionEventPublisher } from "../execution/event-publisher.js";
 import type { DurableClientEventPublisher, RecordedClientEvent } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
-import type { InteractionRequiredNotice, PendingInteractionPort } from "../../../contracts/pending-interactions.js";
+import type { InteractionRequiredNotice, PendingInteractionPort } from "../../../contracts/runtime/pending-interactions.js";
 import type { BackendToolsDeps } from "../../../tools/registry.js";
 import { createBackendTools } from "../../../tools/registry.js";
-import type { CodeExecutionPort } from "../../../contracts/tool-ports.js";
+import type { CodeExecutionPort } from "../../../contracts/runtime/tool-ports.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
 import { KernelEventPersister } from "./event-persister.js";
@@ -31,7 +31,7 @@ import { buildBackendAgentContext, HISTORY_SCAN_LIMIT, type ConversationHistoryP
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import { memoryBaselineKey } from "../memory/index.js";
 import { registerGateHook } from "./gate-hook.js";
-import type { PathAccessPolicy } from "../../../contracts/path-access-policy.js";
+import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService, DelegationResolution } from "../../runtime/delegation-pending-service.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";

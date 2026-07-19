@@ -6,7 +6,7 @@ import type { ApprovalRequest, UserInputRequest } from "../../contracts/executio
 import type { InteractionKind, InteractionResponsePayload } from "../../contracts/interactions.js";
 import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 import type { IPendingInteractionStore, PendingInteractionRecord } from "../../contracts/conversation-store/index.js";
-import type { PendingInteractionPort } from "../../contracts/pending-interactions.js";
+import type { PendingInteractionPort } from "../../contracts/runtime/pending-interactions.js";
 
 export interface PendingUserInputRequest {
   sessionId: string;

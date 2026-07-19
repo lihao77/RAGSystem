@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyReply } from "fastify";
 import type { UserId } from "../../identity/types.js";
 
-import type { RuntimeContainer } from "../../contracts/runtime-container.js";
+import type { RuntimeContainer } from "../../contracts/runtime/runtime-container.js";
 import type { ExecutionApplication } from "../../contracts/execution-application.js";
 import type { InteractionRecoveryApplication } from "../../contracts/interaction-recovery-application.js";
 import { AguiTranslator } from "./agui-translator.js";

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
-import type { ApprovalCacheResolution, PendingInteractionPort } from "../../../contracts/pending-interactions.js";
+import type { ApprovalCacheResolution, PendingInteractionPort } from "../../../contracts/runtime/pending-interactions.js";
 import { asString } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
 import type { AgentRunEngine } from "./run-engine.js";

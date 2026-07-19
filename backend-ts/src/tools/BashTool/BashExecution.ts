@@ -18,7 +18,7 @@ import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk"
 import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { throwIfAborted } from "@ragsystem/agent-protocol";
-import type { PathAccessPolicy } from "../../contracts/path-access-policy.js";
+import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
 import { terminateProcessTree } from "../../services/runtime/process-tree.js";
 
 const TOOL_NAME = "execute_bash";

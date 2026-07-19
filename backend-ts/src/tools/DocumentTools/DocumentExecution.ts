@@ -13,7 +13,7 @@ import {
   readPreviewLimit,
 } from "./preview.js";
 import { LocalDocumentPathManager, normalizeString } from "./path-manager.js";
-import type { PathAccessPolicy } from "../../contracts/path-access-policy.js";
+import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
 
 const DEFAULT_READ_MAX_LINES = 2000;
 

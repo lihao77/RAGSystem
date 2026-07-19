@@ -6,9 +6,9 @@ import type {
 import type { AgentExecutionEventPublisher } from "./event-publisher.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { IRunStore } from "../../../contracts/conversation-store/index.js";
-import type { PendingInteractionPort } from "../../../contracts/pending-interactions.js";
+import type { PendingInteractionPort } from "../../../contracts/runtime/pending-interactions.js";
 import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
-import type { SuspendedSessionControlPort } from "../../../contracts/runtime-async-ports.js";
+import type { SuspendedSessionControlPort } from "../../../contracts/runtime/runtime-async-ports.js";
 
 export interface SessionControlApi {
   stopSession(sessionId: string): Promise<boolean>;

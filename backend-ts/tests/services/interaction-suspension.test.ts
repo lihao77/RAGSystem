@@ -4,7 +4,7 @@ import { RecoverableInterrupt } from "@ragsystem/agent-protocol";
 import { createHookRegistry, type ToolExecContext } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import { registerGateHook } from "../../src/services/agent/sdk/gate-hook.js";
-import type { PathAccessPolicy } from "../../src/contracts/path-access-policy.js";
+import type { PathAccessPolicy } from "../../src/contracts/runtime/path-access-policy.js";
 import type { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
 import type { PermissionPolicyService } from "../../src/services/runtime/permission-policy-service.js";
 import { createRequestUserInputTools } from "../../src/tools/RequestUserInputTool/RequestUserInputTool.js";

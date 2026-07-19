@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { PathAccessPolicy } from "../../contracts/path-access-policy.js";
+import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
 
 export class PathApprovalService implements PathAccessPolicy {
   private readonly approved: string[] = [];

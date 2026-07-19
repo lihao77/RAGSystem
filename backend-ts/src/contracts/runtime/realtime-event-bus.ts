@@ -1,4 +1,4 @@
-import type { Envelope } from "./events.js";
+import type { Envelope } from "../events.js";
 
 export type RealtimeEventHandler = (event: Envelope) => void;
 

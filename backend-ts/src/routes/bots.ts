@@ -2,7 +2,7 @@ import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
 
 import { BotConfigUpdateSchema, BotCronTaskCreateSchema, BotCronTaskUpdateSchema } from "../contracts/bot.js";
-import { DaemonOutgoingMessageSchema, DaemonTestMessageSchema } from "../contracts/daemon.js";
+import { DaemonOutgoingMessageSchema, DaemonTestMessageSchema } from "../contracts/runtime/daemon.js";
 import { createUserId, type UserId } from "../identity/types.js";
 import { DaemonServiceError } from "../services/daemon/daemon-service.js";
 import { HttpError, httpErrorFrom } from "../utils/errors.js";

@@ -1,6 +1,6 @@
 import type { Envelope } from "../../contracts/events.js";
-import type { RealtimeEventBus, RealtimeEventHandler } from "../../contracts/realtime-event-bus.js";
-export type { RealtimeEventHandler } from "../../contracts/realtime-event-bus.js";
+import type { RealtimeEventBus, RealtimeEventHandler } from "../../contracts/runtime/realtime-event-bus.js";
+export type { RealtimeEventHandler } from "../../contracts/runtime/realtime-event-bus.js";
 
 interface SessionStream {
   events: Envelope[];

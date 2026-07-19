@@ -1,6 +1,6 @@
 import type { Envelope } from "../../../contracts/events.js";
 import type { AsyncOutboxStore, OutboxRow } from "../../../contracts/conversation-store/index.js";
-import type { RealtimeEventBus } from "../../../contracts/realtime-event-bus.js";
+import type { RealtimeEventBus } from "../../../contracts/runtime/realtime-event-bus.js";
 import { EnvelopeProjector } from "./projector.js";
 import type { OutboxDispatcherMetrics, OutboxDispatcherOptions } from "./dispatcher.js";
 

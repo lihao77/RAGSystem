@@ -1,4 +1,4 @@
-import type { JwtKeyRing, JwtKeyRingReadiness, JwtSigningKey } from "../../contracts/jwt-key-ring.js";
+import type { JwtKeyRing, JwtKeyRingReadiness, JwtSigningKey } from "../../contracts/runtime/jwt-key-ring.js";
 
 export interface JwtKeyInput {
   kid: string;

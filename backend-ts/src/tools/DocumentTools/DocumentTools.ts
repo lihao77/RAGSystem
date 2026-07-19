@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { DocumentToolPort } from "../../contracts/tool-ports.js";
+import type { DocumentToolPort } from "../../contracts/runtime/tool-ports.js";
 import {
   editFileArguments,
   previewDataStructureArguments,
@@ -15,7 +15,7 @@ import {
 } from "../../services/runtime/runtime-tool-bridge/registry.js";
 import type { RuntimeToolDefinition, Tool, ToolAccessDecision, ToolExecContext } from "@ragsystem/agent-sdk";
 import { buildTool } from "@ragsystem/agent-sdk";
-import type { PathAccessPolicy } from "../../contracts/path-access-policy.js";
+import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { optionalInteger, optionalString, metadataFrom } from "../schema-helpers.js";
 

@@ -5,7 +5,7 @@ import { createAgentExecutionService } from "../agent/execution/index.js";
 import { createResumeExecutor } from "../agent/execution/resume-executor.js";
 import { RuntimeCoreService } from "../agent/execution/runtime-core-service.js";
 import { AgentMetricsCollector } from "../agent/metrics/metrics-collector.js";
-import type { CoreRuntimeDependencies, RuntimeContainer } from "../../contracts/runtime-container.js";
+import type { CoreRuntimeDependencies, RuntimeContainer } from "../../contracts/runtime/runtime-container.js";
 
 /** Assemble deployment-provided services into the shared agent runtime. */
 export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepository>(

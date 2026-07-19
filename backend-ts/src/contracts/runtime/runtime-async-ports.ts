@@ -1,6 +1,6 @@
-import type { MessageInfo, SessionInfo } from "./session.js";
-import type { ProviderContinuationRecord } from "./conversation-store/index.js";
-import type { TenantId } from "../identity/types.js";
+import type { MessageInfo, SessionInfo } from "../session.js";
+import type { ProviderContinuationRecord } from "../conversation-store/index.js";
+import type { TenantId } from "../../identity/types.js";
 
 export interface AsyncConversationHistoryPort {
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;

@@ -1,6 +1,6 @@
 import type { InteractionRecoveryApplication, InteractionRecoveryResult } from "../../../../contracts/interaction-recovery-application.js";
 import type { ConversationStore, ProviderContinuationRecord } from "../../../../contracts/conversation-store/index.js";
-import type { PendingInteractionPort } from "../../../../contracts/pending-interactions.js";
+import type { PendingInteractionPort } from "../../../../contracts/runtime/pending-interactions.js";
 
 export class LocalInteractionRecoveryApplication implements InteractionRecoveryApplication {
   constructor(

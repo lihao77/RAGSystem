@@ -9,7 +9,7 @@ import { createPostgresControlPlaneAdapter } from "../../../adapters/saas/postgr
 import { createPostgresSecretResolver } from "../../../adapters/saas/postgres/control-secret-resolver.js";
 import { PostgresWidgetCredentialRepository } from "../../../adapters/saas/postgres/widget-credential-repository.js";
 import { PostgresDaemonLeaderLease } from "../../../adapters/saas/postgres/daemon-leader-lease.js";
-import type { DaemonLeaderLease } from "../../../contracts/daemon-leader-lease.js";
+import type { DaemonLeaderLease } from "../../../contracts/runtime/daemon-leader-lease.js";
 
 export interface SaaSControlRuntimeHandle {
   readonly controlPlane: ControlPlane;

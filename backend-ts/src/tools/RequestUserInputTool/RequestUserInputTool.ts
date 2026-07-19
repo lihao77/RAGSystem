@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { isAbortError, RecoverableInterrupt } from "@ragsystem/agent-protocol";
-import { resolveInteractionDeadlineMs, type PendingInteractionPort } from "../../contracts/pending-interactions.js";
+import { resolveInteractionDeadlineMs, type PendingInteractionPort } from "../../contracts/runtime/pending-interactions.js";
 import {
   readInputType,
   readOptions,

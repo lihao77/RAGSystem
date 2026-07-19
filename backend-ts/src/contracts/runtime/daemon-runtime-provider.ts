@@ -1,4 +1,4 @@
-import type { TenantId } from "../identity/types.js";
+import type { TenantId } from "../../identity/types.js";
 import type { ApprovalCacheResolution, PendingInteractionPort } from "./pending-interactions.js";
 
 export interface DaemonRuntime {

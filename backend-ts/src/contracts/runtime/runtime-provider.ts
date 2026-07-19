@@ -1,4 +1,4 @@
-import type { TenantId } from "../identity/types.js";
+import type { TenantId } from "../../identity/types.js";
 
 export interface RuntimeLease<TRuntime> {
   readonly tenantId: TenantId;

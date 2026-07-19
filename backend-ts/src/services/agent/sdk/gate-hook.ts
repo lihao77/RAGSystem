@@ -13,8 +13,8 @@ import type { HookRegistry, ToolExecContext } from "@ragsystem/agent-sdk";
 import { isAbortError, RecoverableInterrupt, throwIfAborted } from "@ragsystem/agent-protocol";
 import type { RiskLevel } from "../../../contracts/permissions.js";
 import type { PermissionPolicyService, RuntimeToolApprovalInput } from "../../runtime/permission-policy-service.js";
-import { resolveInteractionDeadlineMs, type PendingInteractionPort, type PendingApprovalRequest } from "../../../contracts/pending-interactions.js";
-import type { PathAccessPolicy } from "../../../contracts/path-access-policy.js";
+import { resolveInteractionDeadlineMs, type PendingInteractionPort, type PendingApprovalRequest } from "../../../contracts/runtime/pending-interactions.js";
+import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
 
 export interface GateHookDeps {
   permissionPolicy: PermissionPolicyService;

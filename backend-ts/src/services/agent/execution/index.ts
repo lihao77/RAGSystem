@@ -21,7 +21,7 @@ import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js"
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
-import type { PendingInteractionPort } from "../../../contracts/pending-interactions.js";
+import type { PendingInteractionPort } from "../../../contracts/runtime/pending-interactions.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService } from "../../runtime/delegation-pending-service.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
@@ -37,8 +37,8 @@ import type { AgentCompressionService } from "../context-compression/compression
 import type { TenantId } from "../../../identity/types.js";
 import type { MemoryConfig } from "../../../contracts/system-config.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
-import type { PathAccessPolicy } from "../../../contracts/path-access-policy.js";
-import type { SuspendedSessionControlPort } from "../../../contracts/runtime-async-ports.js";
+import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
+import type { SuspendedSessionControlPort } from "../../../contracts/runtime/runtime-async-ports.js";
 import {
   createLaunchers,
   type RollbackRetryInput,
@@ -82,7 +82,7 @@ export interface AgentExecutionServiceParams {
   memoryContextSourceFactory?: MemoryRuntimeBindings["createContextSource"];
   /** per-agent 工具依赖（runtime-adapter per-run 构建 Tool[] 用）。 */
   toolsDeps?: Omit<import("../../../tools/registry.js").BackendToolsDeps, "agent" | "teamName"> | null;
-  codeExecutionTools?: import("../../../contracts/tool-ports.js").CodeExecutionPort | null;
+  codeExecutionTools?: import("../../../contracts/runtime/tool-ports.js").CodeExecutionPort | null;
   taskTools?: TaskToolService | null;
   backgroundTasks?: BackgroundTaskService | null;
   /** 后台通知暂存队列（单例，注入 launchers.triggerBgNotificationRun；与 backgroundTasks 共用同一实例）。 */
