@@ -21,6 +21,7 @@ import { DurableClientEventPublisher } from "../../src/services/runtime/event-ou
 import { HostToolRegistry } from "../../src/services/runtime/host-tool-registry.js";
 import { DelegationPendingService } from "../../src/services/runtime/delegation-pending-service.js";
 import { PermissionPolicyService } from "../../src/services/runtime/permission-policy-service.js";
+import { PathApprovalService } from "../../src/adapters/local/path-approval-service.js";
 import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
 import type { RuntimeExecutionConfigResolver } from "../../src/services/agent/execution/runtime-core-service.js";
 import { createLocalExecutionStorage } from "../../src/adapters/local/local-execution-storage.js";
@@ -158,7 +159,8 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
    clientEvents,
    hostToolRegistry,
    delegationPending,
-   permissionPolicy,
+    permissionPolicy,
+    pathAccessPolicyFactory: () => new PathApprovalService(),
    pendingInteractions,
     logger: logger ?? null,
   });
