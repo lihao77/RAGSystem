@@ -541,7 +541,11 @@ export class KnowledgeBaseService {
 
   async listCollections(): Promise<Array<Record<string, unknown>>> {
     // driver 唯一源:vec_documents 跨 collection 聚合。collections 表分支(主库从不建)已删。
-    const collections = this.vectorStore ? await this.vectorStore.listCollections() : [];
+    const collections = this.asyncVectorStore
+      ? await this.asyncVectorStore.listCollections(this.requireTenantId())
+      : this.vectorStore
+        ? await this.vectorStore.listCollections()
+        : [];
     const active = this.resolveActiveVectorizer();
     return collections.map((row) => ({
       name: row.name,
@@ -579,7 +583,7 @@ export class KnowledgeBaseService {
     }
     const vectorizer = this.resolveActiveVectorizer();
     // driver 唯一源:sqlite-vec 必须可用(runtime 启动校验);未注入时返空候选(仅防御,生产不触达)。
-    const candidates = this.vectorStore
+    const candidates = this.vectorStore || this.asyncVectorStore
       ? await this.searchViaDriver(collectionName, query, topK, searchMode, vectorizer, input)
       : [];
     const activeReranker = this.knowledgeConfig.listRerankers().find((stored) => stored.is_active) ?? null;

@@ -36,6 +36,7 @@ import { PermissionPolicyService } from "./permission-policy-service.js";
 import { RealtimeEventHub } from "./realtime-event-hub.js";
 import type { LocalRuntimeContainerOptions, RuntimeContainer } from "./runtime-container-contracts.js";
 import { SessionNotificationQueue } from "./session-notification-queue.js";
+import { LocalKnowledgeQueryAdapter } from "../../adapters/local/local-knowledge-query-adapter.js";
 
 /** Create the filesystem, SQLite, and host-tool backed runtime used by local deployments. */
 export function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): RuntimeContainer {
@@ -79,6 +80,8 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     documentExtractDispatcher,
     ...(options.embedderFactory ? { embedderFactory: options.embedderFactory } : {}),
   });
+  const knowledge = options.knowledgeQueryFactory?.({ tenantId: options.tenantId, baseKnowledge: knowledgeBase })
+    ?? new LocalKnowledgeQueryAdapter(knowledgeBase);
   const artifacts = new ArtifactService({ dataRoot: options.dataRoot });
   const embeddingModels = new EmbeddingModelService(knowledgeBase);
   const memoryStore = new MemoryStore({ dataRoot: options.dataRoot });
@@ -159,6 +162,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     fileHistory,
     fileIndex,
     knowledgeBase,
+    knowledge,
     artifacts,
     transientArtifacts,
     embeddingModels,

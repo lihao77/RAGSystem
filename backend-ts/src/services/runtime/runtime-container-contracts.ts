@@ -47,6 +47,7 @@ import type { AsyncConversationRepository } from "../../adapters/saas/postgres/c
 import type { AsyncSuspendedSessionControl } from "./saas-session-control-application.js";
 import type { AsyncProviderContinuationRepository } from "../../adapters/saas/postgres/provider-continuation-repository.js";
 import type { AsyncBackgroundTaskRepository } from "../../contracts/background-task-repository.js";
+import type { KnowledgeQueryPort } from "../../contracts/knowledge/query-port.js";
 
 export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = MemoryStore> {
   readonly conversationStore: ConversationStore;
@@ -63,6 +64,7 @@ export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = M
   readonly fileHistory: IFileHistoryStore;
   readonly fileIndex: IFileIndexStore;
   readonly knowledgeBase: KnowledgeBaseService;
+  readonly knowledge: KnowledgeQueryPort;
   readonly artifacts: ArtifactService;
   readonly transientArtifacts: TransientArtifactService;
   readonly embeddingModels: EmbeddingModelService;
@@ -109,7 +111,15 @@ export interface LocalRuntimeContainerOptions {
   asyncClientEventsFactory?: (realtimeEvents: RealtimeEventHub) => AsyncDurableClientEventPublisher;
   asyncSuspendedSessionControlFactory?: (tenantId: TenantId) => AsyncSuspendedSessionControl;
   asyncBackgroundTasks?: AsyncBackgroundTaskRepository;
+  knowledgeQueryFactory?: KnowledgeRuntimeQueryFactory;
 }
+
+export interface KnowledgeRuntimeQueryFactoryInput {
+  tenantId: TenantId;
+  baseKnowledge: KnowledgeBaseService;
+}
+
+export type KnowledgeRuntimeQueryFactory = (input: KnowledgeRuntimeQueryFactoryInput) => KnowledgeQueryPort;
 
 export interface MemoryRuntimeBindingsFactoryInput<TMemoryRepository extends MemoryRepository = MemoryRepository> {
   tenantId: TenantId;
@@ -155,6 +165,7 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   knowledgeBase: KnowledgeBaseService;
   artifacts: ArtifactService;
   transientArtifacts: TransientArtifactService;
+  knowledge: KnowledgeQueryPort;
   embeddingModels: EmbeddingModelService;
   memoryStore: TMemoryRepository;
   memoryBindings: MemoryRuntimeBindings;

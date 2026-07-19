@@ -2,7 +2,7 @@ import { asRecord } from "../../utils/guards.js";
 import { z } from "zod";
 
 import type { VectorSearchResult } from "../../contracts/knowledge-base.js";
-import type { KnowledgeBaseService } from "../../services/knowledge/knowledge-base-service.js";
+import type { KnowledgeQueryPort } from "../../contracts/knowledge/query-port.js";
 import {
   LIST_KNOWLEDGE_COLLECTIONS_TOOL_NAME,
   SEARCH_KNOWLEDGE_BASE_TOOL_NAME,
@@ -14,7 +14,7 @@ import type { AgentConfig } from "../../contracts/agent-config.js";
 import { metadataFrom, optionalBoolean, optionalInteger, optionalRecord, optionalString } from "../schema-helpers.js";
 
 export interface KnowledgeToolDeps {
-  knowledgeBase: KnowledgeBaseService | null;
+  knowledge: KnowledgeQueryPort | null;
   agent: AgentConfig;
 }
 
@@ -91,8 +91,8 @@ const KNOWLEDGE_TOOLS: RuntimeToolDefinition[] = [
 ];
 
 export function createKnowledgeTools(deps: KnowledgeToolDeps): Tool[] {
-  const knowledgeBase = deps.knowledgeBase;
-  if (!knowledgeBase) {
+  const knowledge = deps.knowledge;
+  if (!knowledge) {
     return [];
   }
   const agent = deps.agent;
@@ -114,7 +114,7 @@ export function createKnowledgeTools(deps: KnowledgeToolDeps): Tool[] {
         const topK = input.top_k ?? input.topK ?? kbConfig.default_top_k ?? 5;
         const rerank = input.rerank ?? kbConfig.default_rerank ?? false;
         try {
-          const search = await knowledgeBase.search({
+          const search = await knowledge.search({
             query: input.query,
             collection,
             top_k: topK,
@@ -152,7 +152,7 @@ export function createKnowledgeTools(deps: KnowledgeToolDeps): Tool[] {
       isConcurrencySafe: () => true,
       call: async (_input, _ctx: ToolExecContext) => {
         try {
-          const collections = await knowledgeBase.listCollections();
+          const collections = await knowledge.listCollections();
           const content = collections.length
             ? collections.map((collection) => {
                 const name = String(collection.name ?? "");
@@ -196,5 +196,4 @@ function formatSearchResults(results: VectorSearchResult[]): string {
     return `${header}\n${item.content.trim()}`;
   }).join("\n\n");
 }
-
 

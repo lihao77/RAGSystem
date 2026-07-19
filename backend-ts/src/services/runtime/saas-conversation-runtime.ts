@@ -42,6 +42,9 @@ import { SaaSSessionFileStorage } from "../../adapters/saas/object-storage/sessi
 import type { AsyncSessionFileStorage } from "../../contracts/session-file-storage.js";
 import { SaaSWorkspaceBlobStorage } from "../../adapters/saas/object-storage/workspace-blob-storage.js";
 import type { WorkspaceBlobStorage } from "../../contracts/workspace-blob-storage.js";
+import type { KnowledgeQueryPort } from "../../contracts/knowledge/query-port.js";
+import type { KnowledgeBaseService } from "../knowledge/knowledge-base-service.js";
+import { PostgresKnowledgeQueryAdapter } from "../../adapters/saas/postgres/knowledge-query-adapter.js";
 
 export interface SaaSConversationRuntimeOptions {
   connectionString: string;
@@ -68,6 +71,8 @@ export interface SaaSConversationRuntimeHandle {
   vectorIndex: PostgresKnowledgeVectorIndexRepository;
   /** Tenant-scoped vector data-plane backed by PostgreSQL pgvector. */
   vectorStore: PostgresPgVectorRepository;
+  /** Tenant-bound Agent knowledge query port backed by PostgreSQL pgvector. */
+  createKnowledgeQuery(tenantId: string, baseKnowledge: KnowledgeBaseService): KnowledgeQueryPort;
   providerMcp: PostgresProviderMcpRepository;
   providerMcpApplication: SaaSProviderMcpApplication;
   backgroundTasks: PostgresBackgroundTaskRepository;
@@ -139,6 +144,11 @@ export async function createSaaSConversationRuntime(
       providerMcpApplication,
       vectorIndex,
       vectorStore,
+      createKnowledgeQuery: (tenantId, baseKnowledge) => new PostgresKnowledgeQueryAdapter(
+        tenantId,
+        baseKnowledge,
+        vectorStore,
+      ),
       backgroundTasks,
       analytics,
       fileHistory,

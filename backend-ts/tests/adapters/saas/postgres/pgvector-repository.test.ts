@@ -25,4 +25,16 @@ describe("Postgres pgvector adapter", () => {
     expect(String(call?.[0])).toContain("tenant_id=$1");
     expect(call?.[1]).toEqual(["t1", "docs", 4]);
   });
+  it("lists collection summaries only for the requested tenant", async () => {
+    const db = executor([{ name: "docs", document_count: 2, chunk_count: 7, embedding_dimension: null }]);
+    const collections = await new PostgresPgVectorRepository(db).listCollections("t1");
+    expect(collections).toEqual([{
+      name: "docs",
+      document_count: 2,
+      chunk_count: 7,
+      total_chunks: 7,
+      embedding_dimension: null,
+    }]);
+    expect((db.query as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toEqual(["t1"]);
+  });
 });

@@ -8,7 +8,7 @@ describe("SaaSKnowledgeVectorApplication", () => {
     const base = { withAsyncVectorStore: vi.fn().mockReturnValue({ indexExternalFile }) } as unknown as KnowledgeBaseService;
     const files = { getKnowledgeFile: vi.fn().mockResolvedValue({ id: "file-1", original_name: "a.md" }) };
     const markdown = { readMarkdownForFile: vi.fn().mockResolvedValue({ markdown: "# A", md_blob_hash: "hash" }) };
-    const vectors = { deleteChunks: vi.fn(), upsertChunks: vi.fn(), search: vi.fn() };
+    const vectors = { deleteChunks: vi.fn(), upsertChunks: vi.fn(), search: vi.fn(), listCollections: vi.fn() };
     const application = new SaaSKnowledgeVectorApplication("tenant-1", base, files as never, markdown as never, vectors);
 
     await expect(application.indexFile({ file_id: "file-1", collection: "docs", vectorizer_key: "embed" })).resolves.toEqual({ indexed_chunks: 2 });
@@ -19,7 +19,7 @@ describe("SaaSKnowledgeVectorApplication", () => {
   it("deletes tenant vectors before deleting the file", async () => {
     const base = { withAsyncVectorStore: vi.fn().mockReturnValue({}) } as unknown as KnowledgeBaseService;
     const files = { getKnowledgeFile: vi.fn().mockResolvedValue({ id: "file-1" }), deleteKnowledgeFile: vi.fn().mockResolvedValue({ id: "file-1" }) };
-    const vectors = { deleteChunks: vi.fn().mockResolvedValue(3), upsertChunks: vi.fn(), search: vi.fn() };
+    const vectors = { deleteChunks: vi.fn().mockResolvedValue(3), upsertChunks: vi.fn(), search: vi.fn(), listCollections: vi.fn() };
     const application = new SaaSKnowledgeVectorApplication("tenant-1", base, files as never, {} as never, vectors);
 
     await expect(application.deleteKnowledgeFile("file-1")).resolves.toEqual({ deleted_chunks: 3 });

@@ -1,0 +1,25 @@
+import type {
+  KnowledgeCollectionSummary,
+  KnowledgeQueryPort,
+  KnowledgeSearchResponse,
+} from "../../../contracts/knowledge/query-port.js";
+import type { AsyncKnowledgeVectorStore } from "../../../contracts/knowledge/async-vector-store.js";
+import type { SearchVectorsRequest } from "../../../contracts/knowledge-base.js";
+import type { KnowledgeBaseService } from "../../../services/knowledge/knowledge-base-service.js";
+
+/** Tenant-bound Agent knowledge queries backed by PostgreSQL/pgvector. */
+export class PostgresKnowledgeQueryAdapter implements KnowledgeQueryPort {
+  private readonly knowledge: KnowledgeBaseService;
+
+  constructor(tenantId: string, baseKnowledge: KnowledgeBaseService, vectors: AsyncKnowledgeVectorStore) {
+    this.knowledge = baseKnowledge.withAsyncVectorStore(vectors, tenantId);
+  }
+
+  async search(input: SearchVectorsRequest): Promise<KnowledgeSearchResponse> {
+    return await this.knowledge.search(input) as unknown as KnowledgeSearchResponse;
+  }
+
+  async listCollections(): Promise<KnowledgeCollectionSummary[]> {
+    return await this.knowledge.listCollections() as unknown as KnowledgeCollectionSummary[];
+  }
+}
