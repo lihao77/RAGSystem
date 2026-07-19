@@ -6,6 +6,7 @@ import type { ApprovalRequest, UserInputRequest } from "../../contracts/executio
 import type { InteractionKind, InteractionResponsePayload } from "../../contracts/interactions.js";
 import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 import type { IPendingInteractionStore, PendingInteractionRecord } from "../../contracts/conversation-store/index.js";
+import type { PendingInteractionPort } from "../../contracts/pending-interactions.js";
 
 export interface PendingUserInputRequest {
   sessionId: string;
@@ -131,13 +132,6 @@ export interface PendingInteractionRespondResult {
   toolCallId?: string | undefined;
 }
 
-export const DEFAULT_INTERACTION_DEADLINE_MS = 120_000;
-
-/** 所有入口统一等待交互；宿主适配器通过 required 通知发送自己的交互 UI。 */
-export function resolveInteractionDeadlineMs(_executionKind: string | null | undefined): number {
-  return DEFAULT_INTERACTION_DEADLINE_MS;
-}
-
 interface PendingInputEntry {
   sessionId: string;
   inputId: string;
@@ -158,7 +152,7 @@ interface PendingApprovalEntry {
   reject(error: Error): void;
 }
 
-export class PendingInteractionService {
+export class PendingInteractionService implements PendingInteractionPort {
   private readonly pendingInputs = new Map<string, PendingInputEntry>();
   private readonly pendingApprovals = new Map<string, PendingApprovalEntry>();
   private readonly approvalCache = new Map<string, ApprovalCacheResolution>();

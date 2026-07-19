@@ -16,7 +16,7 @@ import type { LocalSearchToolService } from "./LocalSearchTools/SearchExecution.
 import type { MemoryToolOperations } from "./MemoryTools/MemoryExecution.js";
 import type { SkillToolService } from "./SkillTools/SkillExecution.js";
 import type { TaskToolService } from "./TaskTools/TaskExecution.js";
-import type { PendingInteractionService } from "../services/runtime/pending-interaction-service.js";
+import type { PendingInteractionPort } from "../contracts/pending-interactions.js";
 import type { PathApprovalService } from "../services/runtime/path-service.js";
 import { createBashTools } from "./BashTool/BashTool.js";
 import { createCodeExecutionTools } from "./CodeExecutionTool/CodeExecutionTool.js";
@@ -33,7 +33,7 @@ import { createTaskTools } from "./TaskTools/TaskTools.js";
 export interface BackendToolsDeps {
   agent: AgentConfig;
   memoryTools: MemoryToolOperations;
-  pendingInteractions: PendingInteractionService | null;
+  pendingInteractions: PendingInteractionPort | null;
   documentTools: LocalDocumentToolService | null;
   bashTools: LocalBashToolService | null;
   taskTools: TaskToolService | null;

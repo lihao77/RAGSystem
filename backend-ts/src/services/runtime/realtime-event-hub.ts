@@ -1,6 +1,6 @@
 import type { Envelope } from "../../contracts/events.js";
-
-export type RealtimeEventHandler = (event: Envelope) => void;
+import type { RealtimeEventBus, RealtimeEventHandler } from "../../contracts/realtime-event-bus.js";
+export type { RealtimeEventHandler } from "../../contracts/realtime-event-bus.js";
 
 interface SessionStream {
   events: Envelope[];
@@ -8,7 +8,7 @@ interface SessionStream {
   deliveredIds: Set<string>;
 }
 
-export class RealtimeEventHub {
+export class RealtimeEventHub implements RealtimeEventBus {
   private readonly subscribers = new Map<string, Set<RealtimeEventHandler>>();
   private readonly streams = new Map<string, SessionStream>();
   private readonly maxHistory: number;

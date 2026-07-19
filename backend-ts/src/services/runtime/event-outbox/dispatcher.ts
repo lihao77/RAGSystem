@@ -1,6 +1,6 @@
 import type { Envelope } from "../../../contracts/events.js";
 import type { IOutboxStore, OutboxRow } from "../../../contracts/conversation-store/index.js";
-import type { RealtimeEventHub } from "../realtime-event-hub.js";
+import type { RealtimeEventBus } from "../../../contracts/realtime-event-bus.js";
 import { EnvelopeProjector } from "./projector.js";
 
 export interface OutboxDispatcherMetrics {
@@ -36,7 +36,7 @@ export class OutboxDispatcher {
 
   constructor(
     private readonly conversationStore: IOutboxStore,
-    private readonly realtimeEvents: RealtimeEventHub,
+    private readonly realtimeEvents: RealtimeEventBus,
     private readonly projector = new EnvelopeProjector(),
     options: OutboxDispatcherOptions = {},
   ) {

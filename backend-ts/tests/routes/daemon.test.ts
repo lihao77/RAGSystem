@@ -134,7 +134,8 @@ describe("bot 自动化执行引擎", () => {
     configureFeishu(harness.controlStore, bot.id, "webhook");
     await app.botEngine.reloadBot(bot.id);
     const token = harness.controlStore.getBotRuntimeConfig(bot.id)!.feishu.route_token!;
-    expect(harness.registry.resolveRouteToken(token)).toEqual({ tenantId: LOCAL_TENANT_ID, botId: bot.id });
+    await expect(new SqliteBotRepository(harness.controlStore).resolveWebhookTarget(token))
+      .resolves.toEqual({ tenantId: LOCAL_TENANT_ID, botId: bot.id });
     const response = await app.inject({ method: "POST", url: `/api/bots/webhook/feishu/${token}`, payload: { type: "url_verification", challenge: "ok" } });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ challenge: "ok" });
@@ -300,18 +301,18 @@ describe("bot 自动化执行引擎", () => {
     harness.close();
   });
 
-  it("reloadBot 在 bot 禁用时注销 routeToken，恢复后重新注册", async () => {
+  it("repository 仅解析启用 bot 的 routeToken", async () => {
     const harness = await createEngineHarness(async () => completed("ok"));
     configureFeishu(harness.controlStore, harness.botId, "webhook");
     await harness.engine.reloadBot(harness.botId);
     const routeToken = harness.controlStore.getBotRuntimeConfig(harness.botId)!.feishu.route_token!;
-    expect(harness.registry.resolveRouteToken(routeToken)).toEqual({ tenantId: harness.tenantId, botId: harness.botId });
+    await expect(harness.botRepository.resolveWebhookTarget(routeToken)).resolves.toEqual({ tenantId: harness.tenantId, botId: harness.botId });
     harness.controlStore.setUserStatus(harness.botId, "disabled");
     await harness.engine.reloadBot(harness.botId);
-    expect(harness.registry.resolveRouteToken(routeToken)).toBeNull();
+    await expect(harness.botRepository.resolveWebhookTarget(routeToken)).resolves.toBeNull();
     harness.controlStore.setUserStatus(harness.botId, "active");
     await harness.engine.reloadBot(harness.botId);
-    expect(harness.registry.resolveRouteToken(routeToken)).toEqual({ tenantId: harness.tenantId, botId: harness.botId });
+    await expect(harness.botRepository.resolveWebhookTarget(routeToken)).resolves.toEqual({ tenantId: harness.tenantId, botId: harness.botId });
     harness.close();
   });
 
@@ -531,9 +532,10 @@ async function createEngineHarness(runAgentTask: DaemonRunAgentTask, start = tru
     unregisterRouteToken: (routeToken: string) => routeIndex.delete(routeToken),
     resolveRouteToken: (routeToken: string) => routeIndex.get(routeToken) ?? null,
   } as unknown as TenantRuntimeRegistry;
-  const engine = new DaemonService({ botRepository: new SqliteBotRepository(controlStore), registry, runAgentTask });
+  const botRepository = new SqliteBotRepository(controlStore);
+  const engine = new DaemonService({ botRepository, registry, runAgentTask });
   if (start) await engine.start();
-  return { tenantId, botId, controlStore, engine, registry, close: () => { engine.close(); controlStore.close(); } };
+  return { tenantId, botId, controlStore, botRepository, engine, registry, close: () => { engine.close(); controlStore.close(); } };
 }
 
 function completed(content: string) {

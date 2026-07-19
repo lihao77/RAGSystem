@@ -1,6 +1,6 @@
 import type { Envelope } from "../../../contracts/events.js";
 import type { AsyncOutboxStore, OutboxRow } from "../../../contracts/conversation-store/index.js";
-import type { RealtimeEventHub } from "../realtime-event-hub.js";
+import type { RealtimeEventBus } from "../../../contracts/realtime-event-bus.js";
 import { EnvelopeProjector } from "./projector.js";
 import type { OutboxDispatcherMetrics, OutboxDispatcherOptions } from "./dispatcher.js";
 
@@ -16,7 +16,7 @@ export class AsyncOutboxDispatcher {
 
   constructor(
     private readonly outbox: AsyncOutboxStore,
-    private readonly realtimeEvents: RealtimeEventHub,
+    private readonly realtimeEvents: RealtimeEventBus,
     private readonly projector = new EnvelopeProjector(),
     options: OutboxDispatcherOptions = {},
   ) {

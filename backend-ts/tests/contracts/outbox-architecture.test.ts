@@ -23,6 +23,7 @@ describe("outbox event architecture", () => {
       normalize("src/services/runtime/realtime-event-hub.ts"),
     ]);
     const subscribeAllowed = new Set([
+      normalize("src/contracts/realtime-event-bus.ts"),
       normalize("src/services/runtime/realtime-event-hub.ts"),
       normalize("src/routes/agent/ws.ts"),
       normalize("src/services/agui-gateway/agui-handler.ts"),

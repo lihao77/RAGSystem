@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
-import type { ApprovalCacheResolution, PendingInteractionService } from "../../runtime/pending-interaction-service.js";
+import type { ApprovalCacheResolution, PendingInteractionPort } from "../../../contracts/pending-interactions.js";
 import { asString } from "./helpers.js";
 import { resolveReadyAgent } from "./readiness.js";
 import type { AgentRunEngine } from "./run-engine.js";
@@ -28,7 +28,7 @@ export interface ResumeExecutor {
 export function createResumeExecutor(deps: {
   runEngine: AgentRunEngine;
   conversationStore: ConversationStore;
-  pendingInteractions: PendingInteractionService;
+  pendingInteractions: PendingInteractionPort;
   runtimeCore: RuntimeExecutionConfigResolver;
 }): ResumeExecutor {
   return {

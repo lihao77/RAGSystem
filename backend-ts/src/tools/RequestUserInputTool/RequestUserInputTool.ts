@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { isAbortError, RecoverableInterrupt } from "@ragsystem/agent-protocol";
-import { resolveInteractionDeadlineMs, type PendingInteractionService } from "../../services/runtime/pending-interaction-service.js";
+import { resolveInteractionDeadlineMs, type PendingInteractionPort } from "../../contracts/pending-interactions.js";
 import {
   readInputType,
   readOptions,
@@ -13,7 +13,7 @@ import type { AgentConfig } from "../../contracts/agent-config.js";
 import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
 
 interface RequestUserInputToolDeps {
-  pendingInteractions: PendingInteractionService | null;
+  pendingInteractions: PendingInteractionPort | null;
   agent: AgentConfig;
 }
 

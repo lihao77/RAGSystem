@@ -27,6 +27,11 @@ export class SqliteBotRepository implements BotRepository {
   async getRuntimeConfig(botId: Parameters<BotRepository["getRuntimeConfig"]>[0]) { return this.store.getBotRuntimeConfig(botId); }
   async updateConfig(botId: Parameters<BotRepository["updateConfig"]>[0], patch: Parameters<BotRepository["updateConfig"]>[1]) { return this.store.updateBotConfig(botId, patch); }
   async listAllEnabledFeishu() { return this.store.getAllEnabledFeishuBots(); }
+  async resolveWebhookTarget(routeToken: string) {
+    const config = this.store.getAllEnabledFeishuBots().find((candidate) =>
+      candidate.feishu.receive_mode === "webhook" && candidate.feishu.route_token === routeToken);
+    return config ? { tenantId: config.tenant_id, botId: config.bot_id } : null;
+  }
   async listCronTasks(botId: Parameters<BotRepository["listCronTasks"]>[0]) { return this.store.listBotCronTasks(botId); }
   async claimDueCronTasks(input: Parameters<BotRepository["claimDueCronTasks"]>[0]): Promise<BotCronTaskClaim[]> {
     const leaseSeconds = Math.max(5, Math.min(Math.trunc(input.leaseSeconds ?? 300), 86_400));

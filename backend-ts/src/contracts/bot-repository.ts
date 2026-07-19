@@ -10,6 +10,7 @@ import type { Bot } from "./user.js";
 import type { TenantId, UserId } from "../identity/types.js";
 
 export type BotWithConfig = Bot & { config: BotConfig };
+export interface BotWebhookTarget { tenantId: TenantId; botId: UserId }
 export interface BotCronTaskClaim {
   botId: UserId;
   taskId: string;
@@ -36,6 +37,7 @@ export interface BotRepository {
   getRuntimeConfig(botId: UserId): Promise<BotConfig | null>;
   updateConfig(botId: UserId, patch: BotConfigUpdate): Promise<BotConfig>;
   listAllEnabledFeishu(): Promise<BotConfig[]>;
+  resolveWebhookTarget(routeToken: string): Promise<BotWebhookTarget | null>;
 
   listCronTasks(botId: UserId): Promise<BotCronTask[]>;
   /** Atomically claims due tasks with SKIP LOCKED semantics; an expired lease is reclaimable. */

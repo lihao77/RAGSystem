@@ -7,7 +7,7 @@ import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
-import { resolveInteractionDeadlineMs } from "../../src/services/runtime/pending-interaction-service.js";
+import { resolveInteractionDeadlineMs } from "../../src/contracts/pending-interactions.js";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 import { makeTempRoot } from "../helpers/temp-db.js";

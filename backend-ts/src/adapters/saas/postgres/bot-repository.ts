@@ -195,6 +195,20 @@ export class PostgresBotRepository implements BotRepository {
     return configs.filter((config): config is BotConfig => config !== null);
   }
 
+  async resolveWebhookTarget(routeToken: string) {
+    if (!routeToken) return null;
+    const result = await this.pool.query<{ bot_id: string; tenant_id: string }>(`
+      SELECT bc.bot_id, bc.tenant_id
+      FROM control_bot_configs bc
+      JOIN control_users u ON u.id=bc.bot_id
+      WHERE bc.route_token_digest=$1 AND bc.enabled=TRUE AND bc.feishu_enabled=TRUE
+        AND bc.feishu_receive_mode='webhook' AND u.type='bot' AND u.status='active'
+      LIMIT 1
+    `, [digest(routeToken)]);
+    const row = result.rows[0];
+    return row ? { tenantId: createTenantId(row.tenant_id), botId: createUserId(row.bot_id) } : null;
+  }
+
   async listCronTasks(botId: UserId): Promise<BotCronTask[]> {
     const result = await this.pool.query<BotCronTaskRow>(`${BOT_CRON_SELECT} WHERE bot_id=$1 ORDER BY task_id`, [botId]);
     return result.rows.map(mapCronTask);

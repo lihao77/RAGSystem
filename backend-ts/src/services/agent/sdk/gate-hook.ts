@@ -13,12 +13,12 @@ import type { HookRegistry, ToolExecContext } from "@ragsystem/agent-sdk";
 import { isAbortError, RecoverableInterrupt, throwIfAborted } from "@ragsystem/agent-protocol";
 import type { RiskLevel } from "../../../contracts/permissions.js";
 import type { PermissionPolicyService, RuntimeToolApprovalInput } from "../../runtime/permission-policy-service.js";
-import { resolveInteractionDeadlineMs, type PendingInteractionService, type PendingApprovalRequest } from "../../runtime/pending-interaction-service.js";
+import { resolveInteractionDeadlineMs, type PendingInteractionPort, type PendingApprovalRequest } from "../../../contracts/pending-interactions.js";
 import type { PathApprovalService } from "../../runtime/path-service.js";
 
 export interface GateHookDeps {
   permissionPolicy: PermissionPolicyService;
-  pendingInteractions: PendingInteractionService;
+  pendingInteractions: PendingInteractionPort;
   pathService: PathApprovalService;
   agentName: string;
 }

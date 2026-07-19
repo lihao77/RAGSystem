@@ -6,9 +6,9 @@ import type { BotConfig, BotCronTask, BotCronTaskCreate, BotCronTaskUpdate, Plat
 import type { DaemonOutgoingMessage, DaemonTestMessage } from "../../contracts/daemon.js";
 import type { TenantId, UserId } from "../../identity/types.js";
 import type { PermissionMode } from "../../contracts/permissions.js";
-import type { TenantRuntimeRegistry } from "../runtime/tenant-runtime-registry.js";
+import type { DaemonRuntimeProvider } from "../../contracts/daemon-runtime-provider.js";
 import type { DaemonLeaderLease } from "../../contracts/daemon-leader-lease.js";
-import type { ApprovalMeta } from "../runtime/pending-interaction-service.js";
+import type { ApprovalMeta } from "../../contracts/pending-interactions.js";
 import {
   buildApprovalCard,
   buildUserInputCard,
@@ -83,7 +83,7 @@ interface BotRuntimeState {
 
 export interface DaemonServiceOptions {
   botRepository: BotRepository;
-  registry: TenantRuntimeRegistry;
+  registry: DaemonRuntimeProvider;
   runAgentTask: DaemonRunAgentTask;
   leaderLease?: DaemonLeaderLease;
 }
@@ -178,9 +178,9 @@ export class DaemonService {
   }
 
   async handleIncomingMessage(routeToken: string, body: unknown): Promise<unknown> {
-    const target = this.options.registry.resolveRouteToken(routeToken);
+    const target = await this.options.botRepository.resolveWebhookTarget(routeToken);
     if (!target) throw new DaemonServiceError(404, "无效的飞书 webhook routeToken");
-    const state = this.states.get(target.botId);
+    const state = this.states.get(target.botId) ?? await this.ensureState(target.botId);
     if (!state || state.tenantId !== target.tenantId || state.registeredRouteToken !== routeToken) {
       throw new DaemonServiceError(404, "无效的飞书 webhook routeToken");
     }
@@ -363,14 +363,12 @@ export class DaemonService {
     if (longConnection) void longConnection.started.catch((error: unknown) => console.error(`[daemon][feishu][${state.botId}] 长连接启动失败`, error));
     state.feishuRuntime = { client, dispatcher, ...(longConnection ? { longConnection } : {}) };
     if (connection.receive_mode === "webhook" && connection.route_token) {
-      this.options.registry.registerRouteToken(state.tenantId, state.botId, connection.route_token);
       state.registeredRouteToken = connection.route_token;
     }
   }
 
   private disposeState(state: BotRuntimeState): void {
     state.feishuRuntime?.longConnection?.close();
-    if (state.registeredRouteToken) this.options.registry.unregisterRouteToken(state.registeredRouteToken, state.tenantId);
     state.feishuRuntime = null;
     state.registeredRouteToken = null;
     state.processedMessageIds.clear();
