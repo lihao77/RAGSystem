@@ -5,9 +5,10 @@ import type { PostgresConversationRepository } from "../../adapters/saas/postgre
 import type { PostgresOutboxRepository } from "../../adapters/saas/postgres/outbox-repository.js";
 import type { PostgresRunRepository } from "../../adapters/saas/postgres/run-repository.js";
 import { buildObservability } from "../agent/execution/helpers.js";
+import type { ExecutionReadApplication } from "../../contracts/execution-read-application.js";
 
 /** Tenant-bound read facade used while the Agent execution path is still being made fully asynchronous. */
-export class SaaSAgentReadApplication {
+export class SaaSAgentReadApplication implements ExecutionReadApplication {
   constructor(
     private readonly tenantId: string,
     private readonly conversations: Pick<PostgresConversationRepository, "getSession">,

@@ -9,6 +9,7 @@ import { ZodError } from "zod";
 import { isRecord } from "../../utils/guards.js";
 import { assertOwnedSessionIfExists } from "../session-owner.js";
 import { resolveSessionApplication } from "../session-application.js";
+import { ensureRequestApplications } from "../../app/request-applications.js";
 
 interface ExecuteAgentParams {
   agentName: string;
@@ -96,43 +97,37 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
   app.get<{ Params: SessionExecutionParams }>("/sessions/:sessionId/task-status", async (request) => {
     const sessionApp = await resolveSessionApplication(options, request);
     await assertOwnedSessionIfExists(request, request.params.sessionId, sessionApp);
-    const saas = await options.resolveSaaSAgentReadApplication?.(request);
-    return ok(saas
-      ? await saas.getSessionTaskStatus(request.params.sessionId)
-      : request.container.agentExecution.getSessionTaskStatus(request.params.sessionId));
+    const reader = (await ensureRequestApplications(request, options)).executionRead;
+    return ok(await reader.getSessionTaskStatus(request.params.sessionId));
   });
 
   app.get<{ Params: SessionExecutionParams }>("/sessions/:sessionId/execution-diagnostics", async (request) => {
     const sessions = await resolveSessionApplication(options, request);
     await assertOwnedSessionIfExists(request, request.params.sessionId, sessions);
-    const reader = await options.resolveSaaSAgentReadApplication?.(request);
-    return ok(reader
-      ? await reader.getSessionExecutionDiagnostics(request.params.sessionId)
-      : request.container.agentExecution.getSessionExecutionDiagnostics(request.params.sessionId));
+    const reader = (await ensureRequestApplications(request, options)).executionRead;
+    return ok(await reader.getSessionExecutionDiagnostics(request.params.sessionId));
   });
 
   app.get<{ Params: TaskExecutionParams }>("/tasks/:taskId/status", async (request) => {
-    const reader = await options.resolveSaaSAgentReadApplication?.(request);
-    return ok(reader ? await reader.getTaskStatus(request.params.taskId) : request.container.agentExecution.getTaskStatus(request.params.taskId));
+    const reader = (await ensureRequestApplications(request, options)).executionRead;
+    return ok(await reader.getTaskStatus(request.params.taskId));
   });
 
   app.get<{ Params: TaskExecutionParams }>("/tasks/:taskId/execution-diagnostics", async (request) => {
-    const reader = await options.resolveSaaSAgentReadApplication?.(request);
-    return ok(reader ? await reader.getTaskExecutionDiagnostics(request.params.taskId) : request.container.agentExecution.getTaskExecutionDiagnostics(request.params.taskId));
+    const reader = (await ensureRequestApplications(request, options)).executionRead;
+    return ok(await reader.getTaskExecutionDiagnostics(request.params.taskId));
   });
 
   app.get("/tasks/running", async (request) => {
-    const reader = await options.resolveSaaSAgentReadApplication?.(request);
-    return ok(reader ? await reader.listRunningTasks() : request.container.agentExecution.listRunningTasks());
+    const reader = (await ensureRequestApplications(request, options)).executionRead;
+    return ok(await reader.listRunningTasks());
   });
 
   app.get("/execution/overview", async (request) => {
     const query = request.query as { active_only?: string };
     const activeOnly = parseActiveOnly(query.active_only);
-    const reader = await options.resolveSaaSAgentReadApplication?.(request);
-    const overview = reader ? await reader.getOverview(activeOnly) : request.container.agentExecution.getOverview(activeOnly);
-    const data = reader || overview.count > 0 ? overview : request.container.conversationStore.getPersistedExecutionOverview(activeOnly);
-    return ok(normalizeExecutionOverview(data));
+    const reader = (await ensureRequestApplications(request, options)).executionRead;
+    return ok(normalizeExecutionOverview(await reader.getOverview(activeOnly)));
   });
 };
 
