@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-import type { RiskLevel } from "../../contracts/permissions.js";
+import type { RiskLevel } from "../../contracts/runtime/permissions.js";
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import type { ClientEventPublisher } from "../../services/runtime/event-outbox/client-event-publisher.js";
 import {
@@ -16,7 +16,7 @@ import {
 import { BashPathResolver } from "./paths.js";
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
-import type { AgentConfig } from "../../contracts/agent-config.js";
+import type { AgentConfig } from "../../contracts/agent/agent-config.js";
 import { throwIfAborted } from "@ragsystem/agent-protocol";
 import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
 import { terminateProcessTree } from "../../services/runtime/process-tree.js";

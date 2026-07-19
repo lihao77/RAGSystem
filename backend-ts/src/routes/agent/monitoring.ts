@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 
-import type { AgentConfig } from "../../contracts/agent-config.js";
+import type { AgentConfig } from "../../contracts/agent/agent-config.js";
 import { ok } from "../../contracts/common.js";
 import type { OutboxStatus } from "../../contracts/conversation-store/index.js";
 import { MSG_TYPE } from "../../contracts/message-kinds.js";

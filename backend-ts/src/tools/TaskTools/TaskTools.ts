@@ -23,7 +23,7 @@ import {
   type RuntimeToolDefinition,
 } from "@ragsystem/agent-sdk";
 import { metadataFrom, nullableStringArray, optionalBoolean, optionalInteger, optionalRecord, optionalString } from "../schema-helpers.js";
-import type { AgentConfig } from "../../contracts/agent-config.js";
+import type { AgentConfig } from "../../contracts/agent/agent-config.js";
 
 interface TaskToolDeps {
   taskTools: TaskToolService | null;

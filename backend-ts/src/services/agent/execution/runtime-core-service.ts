@@ -1,5 +1,5 @@
 import { isRecord, normalizeString } from "../../../utils/guards.js";
-import type { AgentConfig } from "../../../contracts/agent-config.js";
+import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { RuntimeCoreReadiness, RuntimeCoreRequirement } from "../../../contracts/runtime/runtime-core.js";
 import type { ModelProviderConfig, ModelMapValue } from "../../../contracts/integrations/model-adapter.js";
 import { findProviderByRef, normalizeProviderKey } from "../../runtime/provider-lookup.js";

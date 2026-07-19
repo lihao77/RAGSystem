@@ -1,7 +1,7 @@
 import { isRecord } from "../../utils/guards.js";
 import { z } from "zod";
 
-import type { AgentConfig } from "../../contracts/agent-config.js";
+import type { AgentConfig } from "../../contracts/agent/agent-config.js";
 import type { SkillToolService } from "./SkillExecution.js";
 import { readSkillToolArguments } from "../../services/runtime/runtime-tool-bridge/arguments.js";
 import {

@@ -4,7 +4,7 @@ import type { TenantId } from "../../../identity/types.js";
 import type { MessageInfo, SessionInfo, SessionListItem } from "../../../contracts/session/session.js";
 import type { AddMessageInput } from "../../../contracts/conversation-store/index.js";
 import { AddMessageInputSchema } from "../../../contracts/conversation-store/types.js";
-import type { PermissionMode } from "../../../contracts/permissions.js";
+import type { PermissionMode } from "../../../contracts/runtime/permissions.js";
 import type { AsyncConversationRepository } from "../../../contracts/storage/async-persistence-ports.js";
 export type { AsyncConversationRepository } from "../../../contracts/storage/async-persistence-ports.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";

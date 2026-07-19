@@ -1,6 +1,6 @@
 import { isRecord } from "../../../utils/guards.js";
 export { isRecord };
-import type { AgentConfig, AgentInfo, CreateAgentRequest } from "../../../contracts/agent-config.js";
+import type { AgentConfig, AgentInfo, CreateAgentRequest } from "../../../contracts/agent/agent-config.js";
 import { stripConfigManagedToolNames } from "./tools.js";
 
 export type TeamConfigs = Map<string, AgentConfig>;

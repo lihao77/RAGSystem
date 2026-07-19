@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { AgentConfig } from "../../src/contracts/agent-config.js";
+import type { AgentConfig } from "../../src/contracts/agent/agent-config.js";
 import { buildTestHarness } from "../helpers/app.js";
 import { PathApprovalService } from "../../src/adapters/local/path-approval-service.js";
 import { toolContext } from "../helpers/tool-context.js";

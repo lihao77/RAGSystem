@@ -10,10 +10,10 @@ import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, es
 import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageRefresher } from "@ragsystem/agent-sdk";
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import { RecoverableInterrupt, translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
-import type { AgentConfig } from "../../../contracts/agent-config.js";
+import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
-import type { MemoryConfig } from "../../../contracts/system-config.js";
+import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { DurableExecutionClientEventPort, ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
 import type { DelegatedToolDeclarationWire, Envelope } from "../../../contracts/events.js";

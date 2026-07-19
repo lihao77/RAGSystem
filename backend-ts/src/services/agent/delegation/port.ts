@@ -1,5 +1,5 @@
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
-import type { AgentConfig } from "../../../contracts/agent-config.js";
+import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 
 /**
  * 委派能力契约(DelegationPort)。

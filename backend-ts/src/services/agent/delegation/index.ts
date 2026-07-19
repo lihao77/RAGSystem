@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { AgentRunEngine } from "../execution/run-engine.js";
-import type { AgentConfig } from "../../../contracts/agent-config.js";
+import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { ChildAgentInfo, IChildAgentStore, IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { RuntimeExecutionConfigResolver } from "../execution/runtime-core-service.js";

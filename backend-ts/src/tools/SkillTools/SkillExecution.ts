@@ -5,7 +5,7 @@ import path from "node:path";
 import YAML from "yaml";
 
 import type { JsonValue } from "../../contracts/common.js";
-import { AgentConfigSchema, type AgentConfig } from "../../contracts/agent-config.js";
+import { AgentConfigSchema, type AgentConfig } from "../../contracts/agent/agent-config.js";
 import type { AgentConfigService } from "../../services/agent/config/index.js";
 import type { ArtifactService } from "../../services/artifacts/artifact-service.js";
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";

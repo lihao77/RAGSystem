@@ -5,7 +5,7 @@
  */
 import crypto from "node:crypto";
 import { getWorkspaceMemoryKey, type MemoryScopeSpec } from "../../../contracts/memory-store/index.js";
-import type { AgentConfig } from "../../../contracts/agent-config.js";
+import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import {
   asRecord,
   getString,

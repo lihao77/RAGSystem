@@ -1,4 +1,4 @@
-import type { DocumentExtractionConfig } from "../../../contracts/system-config.js";
+import type { DocumentExtractionConfig } from "../../../contracts/runtime/system-config.js";
 import type { DocumentExtractor, ExtractInput, ExtractResult, ExtractorKind } from "../../../contracts/knowledge/document-extractor.js";
 import { KnowledgeBaseError } from "../../../contracts/knowledge/knowledge-base.js";
 import { getBuiltinExtractor } from "./builtin/index.js";

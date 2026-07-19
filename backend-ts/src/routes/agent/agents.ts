@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 
-import { CreateAgentRequestSchema } from "../../contracts/agent-config.js";
+import { CreateAgentRequestSchema } from "../../contracts/agent/agent-config.js";
 import { ok } from "../../contracts/common.js";
 import type { RouteOptions } from "../route-options.js";
 import { HttpError } from "../../utils/errors.js";

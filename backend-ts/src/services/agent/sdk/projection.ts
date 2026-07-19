@@ -17,7 +17,7 @@ import { asRecord, normalizeString } from "../../../utils/guards.js";
  */
 import type { AgentProfile, CompressionBudgetConfig, ResolvedTier, TierMap } from "@ragsystem/agent-sdk";
 import type { ProviderConfig } from "@ragsystem/agent-llm";
-import type { AgentConfig, AgentLlmConfig } from "../../../contracts/agent-config.js";
+import type { AgentConfig, AgentLlmConfig } from "../../../contracts/agent/agent-config.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import { findProviderByRef } from "../../runtime/provider-lookup.js";
 import { compactRecord } from "../llm-params.js";

@@ -1,7 +1,7 @@
 import type { McpServerConfig, McpServerCreate, McpServerPayload } from "../../../../contracts/integrations/mcp.js";
 import type { ModelProviderConfig, ProviderPayload } from "../../../../contracts/integrations/model-adapter.js";
 import type { TenantId } from "../../../../identity/types.js";
-import type { McpServerRecord, ProviderConfigRecord, ProviderMcpRepository } from "../../../../contracts/provider-mcp-repository.js";
+import type { McpServerRecord, ProviderConfigRecord, ProviderMcpRepository } from "../../../../contracts/integrations/provider-mcp-repository.js";
 import type { McpService } from "../../../../services/integrations/mcp-service.js";
 import { SaaSMcpRuntimeRegistry } from "../../composition/saas-mcp-runtime.js";
 

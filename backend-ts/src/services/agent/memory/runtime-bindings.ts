@@ -1,5 +1,5 @@
-import type { AgentConfig } from "../../../contracts/agent-config.js";
-import type { MemoryConfig } from "../../../contracts/system-config.js";
+import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
+import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
 import type { MemoryToolOperations } from "../../../tools/MemoryTools/MemoryExecution.js";
 import type { AgentContextSource, SessionMetadataPort } from "../context/types.js";
 

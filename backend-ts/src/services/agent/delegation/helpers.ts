@@ -1,6 +1,6 @@
 import { normalizeString } from "../../../utils/guards.js";
 export { normalizeString };
-import type { AgentConfig } from "../../../contracts/agent-config.js";
+import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { ChildAgentInfo } from "../../../contracts/conversation-store/index.js";
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
 

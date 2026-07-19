@@ -3,8 +3,8 @@ import path from "node:path";
 
 import YAML from "yaml";
 
-import type { AgentConfig } from "../../../contracts/agent-config.js";
-import { AgentConfigSchema } from "../../../contracts/agent-config.js";
+import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
+import { AgentConfigSchema } from "../../../contracts/agent/agent-config.js";
 import {
   configsToRecord,
   isRecord,

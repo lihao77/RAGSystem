@@ -35,7 +35,7 @@ import { AgentRunEngine, type AgentExecutionLogger } from "./run-engine.js";
 import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import type { TenantId } from "../../../identity/types.js";
-import type { MemoryConfig } from "../../../contracts/system-config.js";
+import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
 import type { SuspendedSessionControlPort } from "../../../contracts/runtime/runtime-async-ports.js";

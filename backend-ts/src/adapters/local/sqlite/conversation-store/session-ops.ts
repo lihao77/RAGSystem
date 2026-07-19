@@ -8,7 +8,7 @@ import { rowToSession, rowToSessionListItem } from "./mappers.js";
 import type { ISessionStore } from "../../../../contracts/conversation-store/index.js";
 import type { SessionListRow, SessionRow } from "./types.js";
 import type { TenantId } from "../../../../identity/types.js";
-import type { PermissionMode } from "../../../../contracts/permissions.js";
+import type { PermissionMode } from "../../../../contracts/runtime/permissions.js";
 
 /** sessions 聚合根操作（迁移自 ConversationStore，方法体零改动）。 */
 export class SessionOps implements ISessionStore {

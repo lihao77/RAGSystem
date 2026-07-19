@@ -5,8 +5,8 @@ import { asRecord } from "../../../utils/guards.js";
  * 执行链的 LLM 摘要压缩由 SDK 运行时内核承担：自动路径走 round.before compaction-hook（compressIfNeeded），
  * 手动 /compact 走 SDK compactSession（forceCompact）。backend 不再实现压缩摘要，本文件只剩"算预算/读设置"。
  */
-import type { AgentConfig } from "../../../contracts/agent-config.js";
-import type { SystemConfigData } from "../../../contracts/system-config.js";
+import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
+import type { SystemConfigData } from "../../../contracts/runtime/system-config.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import { resolveTierLlmParams } from "../llm-params.js";
 

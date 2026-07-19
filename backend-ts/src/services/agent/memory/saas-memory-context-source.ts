@@ -1,5 +1,5 @@
 import type { PersistedMemoryEntry } from "../../../contracts/memory-store/index.js";
-import type { AgentConfig } from "../../../contracts/agent-config.js";
+import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { MemoryQueryService } from "../../memory/query-service.js";
 import { toMemoryScopePartition } from "../../memory/scope-partition.js";
 import type { MemoryScopePartition } from "../../memory/types.js";

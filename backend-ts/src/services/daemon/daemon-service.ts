@@ -5,7 +5,7 @@ import type { BotRepository } from "../../contracts/control-plane/bot-repository
 import type { BotConfig, BotCronTask, BotCronTaskCreate, BotCronTaskUpdate, PlatformType } from "../../contracts/control-plane/bot.js";
 import type { DaemonOutgoingMessage, DaemonTestMessage } from "../../contracts/runtime/daemon.js";
 import type { TenantId, UserId } from "../../identity/types.js";
-import type { PermissionMode } from "../../contracts/permissions.js";
+import type { PermissionMode } from "../../contracts/runtime/permissions.js";
 import type { DaemonRuntimeProvider } from "../../contracts/runtime/daemon-runtime-provider.js";
 import type { DaemonLeaderLease } from "../../contracts/runtime/daemon-leader-lease.js";
 import type { ApprovalMeta } from "../../contracts/runtime/pending-interactions.js";

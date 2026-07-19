@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { AgentConfig } from "../../src/contracts/agent-config.js";
+import type { AgentConfig } from "../../src/contracts/agent/agent-config.js";
 import type { RuntimeMemorySessionPort } from "../../src/tools/MemoryTools/MemoryExecution.js";
 import { MemoryToolService } from "../../src/tools/MemoryTools/MemoryExecution.js";
 import { MemoryStore } from "../../src/adapters/local/memory-store.js";

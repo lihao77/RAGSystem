@@ -1,7 +1,7 @@
 import type { AgentProfile } from "@ragsystem/agent-sdk";
 
-import type { AgentConfig } from "../../../contracts/agent-config.js";
-import type { MemoryConfig } from "../../../contracts/system-config.js";
+import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
+import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
 import { isMemoryEnabled } from "../memory/index.js";
 import { AgentContextBuilder } from "./context-builder.js";
 import { createDefaultProjectionRegistry } from "./extensions/index.js";

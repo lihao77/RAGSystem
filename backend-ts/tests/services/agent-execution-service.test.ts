@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { AgentConfig } from "../../src/contracts/agent-config.js";
+import type { AgentConfig } from "../../src/contracts/agent/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/integrations/model-adapter.js";
 import {
   createAgentExecutionService,

@@ -5,7 +5,7 @@ import {
   type RuntimeToolDefinition,
   type Tool,
 } from "@ragsystem/agent-sdk";
-import type { AgentConfig } from "../../contracts/agent-config.js";
+import type { AgentConfig } from "../../contracts/agent/agent-config.js";
 import type { WorkspaceSearchPort } from "../../contracts/runtime/tool-ports.js";
 import {
   readGlobArguments,

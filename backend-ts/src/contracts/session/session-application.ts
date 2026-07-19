@@ -1,7 +1,7 @@
 import type { Envelope } from "@ragsystem/agent-protocol";
 
 import type { PaginatedResult } from "../common.js";
-import type { PermissionMode } from "../permissions.js";
+import type { PermissionMode } from "../runtime/permissions.js";
 import type { MessageInfo, SessionInfo, SessionListItem } from "../session/session.js";
 
 export type Awaitable<T> = T | Promise<T>;

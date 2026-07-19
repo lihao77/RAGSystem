@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { AgentConfig } from "../../src/contracts/agent-config.js";
+import type { AgentConfig } from "../../src/contracts/agent/agent-config.js";
 import type {
   PersistedMemoryCandidate,
   PersistedMemoryEntry,

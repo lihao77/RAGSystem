@@ -5,7 +5,7 @@
  * （可见性融入"是否返回"）。本函数聚合所有工厂 + 动态 MCP，返回 Tool[] 供 SDK createToolRegistry 使用。
  */
 import type { Tool } from "@ragsystem/agent-sdk";
-import type { AgentConfig } from "../contracts/agent-config.js";
+import type { AgentConfig } from "../contracts/agent/agent-config.js";
 import type { DelegationPort } from "../services/agent/delegation/port.js";
 import type { KnowledgeQueryPort } from "../contracts/knowledge/query-port.js";
 import type { McpService } from "../services/integrations/mcp-service.js";

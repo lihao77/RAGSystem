@@ -9,7 +9,7 @@ import { LocalDocumentToolService } from "../../src/tools/DocumentTools/Document
 import { createDocumentTools } from "../../src/tools/DocumentTools/DocumentTools.js";
 import { PathApprovalService } from "../../src/adapters/local/path-approval-service.js";
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
-import type { AgentConfig } from "../../src/contracts/agent-config.js";
+import type { AgentConfig } from "../../src/contracts/agent/agent-config.js";
 import { EXECUTE_BASH_TOOL_NAME, READ_FILE_TOOL_NAME } from "../../src/services/runtime/runtime-tool-bridge/registry.js";
 import { toolContext } from "../helpers/tool-context.js";
 

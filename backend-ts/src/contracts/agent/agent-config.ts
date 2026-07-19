@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MemoryScopeNameSchema } from "./memory-store/types.js";
+import { MemoryScopeNameSchema } from "../memory-store/types.js";
 
 export const AgentLlmConfigSchema = z.object({
   provider: z.string().nullable().optional(),

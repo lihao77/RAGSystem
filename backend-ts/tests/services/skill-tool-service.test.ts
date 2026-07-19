@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import YAML from "yaml";
 
-import type { AgentConfig } from "../../src/contracts/agent-config.js";
+import type { AgentConfig } from "../../src/contracts/agent/agent-config.js";
 import { AgentConfigService } from "../../src/services/agent/config/index.js";
 import { ArtifactService } from "../../src/services/artifacts/artifact-service.js";
 import { BackgroundTaskService } from "../../src/services/runtime/background-task-service.js";

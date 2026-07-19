@@ -18,7 +18,7 @@ import type {
   MemoryScopeSpec,
 } from "../../../contracts/memory-store/index.js";
 import type { AgentContextContribution, AgentContextSource, ResolvedAgentContextRequest, SessionMetadataPort } from "../context/types.js";
-import type { AgentConfig } from "../../../contracts/agent-config.js";
+import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { IMemoryCandidateStore, MemoryCandidateRecord } from "../../../contracts/conversation-store/index.js";
 import {
   buildMemoryPrefixFingerprint,

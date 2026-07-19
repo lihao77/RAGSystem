@@ -1,7 +1,7 @@
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { TenantId } from "../../identity/types.js";
 import type { MemoryRepository } from "../../contracts/memory-store/index.js";
-import type { MemoryConfig } from "../../contracts/system-config.js";
+import type { MemoryConfig } from "../../contracts/runtime/system-config.js";
 import type { KnowledgeBaseEmbedderFactory, KnowledgeBaseService } from "../../services/knowledge/knowledge-base-service.js";
 import type { MemoryRuntimeBindings } from "../../services/agent/memory/runtime-bindings.js";
 import type { SessionMetadataPort } from "../../services/agent/context/types.js";

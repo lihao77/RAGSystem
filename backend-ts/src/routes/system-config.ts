@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 
 import { ok } from "../contracts/common.js";
-import { SystemConfigUpdateSchema } from "../contracts/system-config.js";
+import { SystemConfigUpdateSchema } from "../contracts/runtime/system-config.js";
 import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 import { requireTenantMember, requireTenantOwner } from "./tenant-role.js";

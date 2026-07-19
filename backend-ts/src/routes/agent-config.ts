@@ -7,7 +7,7 @@ import {
   CopyAgentsRequestSchema,
   CreateTeamRequestSchema,
   RenameTeamRequestSchema,
-} from "../contracts/agent-config.js";
+} from "../contracts/agent/agent-config.js";
 import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";

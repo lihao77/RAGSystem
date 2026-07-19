@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AgentConfig } from "../../src/contracts/agent-config.js";
+import type { AgentConfig } from "../../src/contracts/agent/agent-config.js";
 import type { ModelProviderConfig } from "../../src/contracts/integrations/model-adapter.js";
 import { RuntimeCoreService, type RuntimeAgentConfigPort, type RuntimeModelProviderPort } from "../../src/services/agent/execution/runtime-core-service.js";
 

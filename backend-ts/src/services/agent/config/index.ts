@@ -7,7 +7,7 @@ import {
   type CreateAgentRequest,
   type TeamInfo,
   type TeamSummary,
-} from "../../../contracts/agent-config.js";
+} from "../../../contracts/agent/agent-config.js";
 import {
   agentConfigPresets,
   buildCustomAgentConfig,

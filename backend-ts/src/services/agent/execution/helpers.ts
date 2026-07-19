@@ -1,6 +1,6 @@
 import { isRecord, asString } from "../../../utils/guards.js";
 export { isRecord, asString };
-import type { AgentConfig } from "../../../contracts/agent-config.js";
+import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { ExecutionObservability, ExecutionTaskStatus } from "../../../contracts/execution/execution.js";
 import type { BackgroundTaskNotificationPayload } from "../../runtime/session-notification-queue.js";
 

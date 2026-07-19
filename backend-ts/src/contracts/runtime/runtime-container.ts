@@ -2,7 +2,7 @@
 import type { IFileHistoryStore } from "../file-history-store/index.js";
 import type { IFileIndexStore } from "../file-index-store/index.js";
 import type { IMemoryStore, MemoryRepository } from "../memory-store/index.js";
-import type { MemoryConfig } from "../system-config.js";
+import type { MemoryConfig } from "./system-config.js";
 import type { TenantId } from "../../identity/types.js";
 import type { CommandExecutionPort, CodeExecutionPort, DocumentToolPort, WorkspaceSearchPort } from "./tool-ports.js";
 import type { MemoryToolOperations, RuntimeMemorySessionPort } from "../../tools/MemoryTools/MemoryExecution.js";

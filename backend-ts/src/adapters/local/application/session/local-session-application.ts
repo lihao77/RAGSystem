@@ -1,4 +1,4 @@
-import type { PermissionMode } from "../../../../contracts/permissions.js";
+import type { PermissionMode } from "../../../../contracts/runtime/permissions.js";
 import type { SessionApplication } from "../../../../contracts/session/session-application.js";
 import type { TenantId } from "../../../../identity/types.js";
 import type { AgentSessionApplication } from "../../../../services/sessions/index.js";

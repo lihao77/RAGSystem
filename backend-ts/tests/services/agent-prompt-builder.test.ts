@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AgentConfig } from "../../src/contracts/agent-config.js";
+import type { AgentConfig } from "../../src/contracts/agent/agent-config.js";
 import { buildFullSystemPrompt, type AgentPromptContext, type RuntimeToolDefinition } from "@ragsystem/agent-sdk";
 import {
   GLOB_TOOL_NAME,

@@ -16,7 +16,7 @@ import type {
   PendingInteractionStatus,
 } from "../conversation-store/index.js";
 import type { DailyActivityPoint, HeatmapPoint, ModelUsagePoint, TokenTrendPoint } from "../conversation-store/index.js";
-import type { PermissionMode } from "../permissions.js";
+import type { PermissionMode } from "../runtime/permissions.js";
 import type { MessageInfo, SessionInfo, SessionListItem } from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
 

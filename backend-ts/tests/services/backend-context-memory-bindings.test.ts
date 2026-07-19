@@ -1,7 +1,7 @@
 import type { AgentProfile } from "@ragsystem/agent-sdk";
 import { describe, expect, it, vi } from "vitest";
 
-import { AgentConfigSchema } from "../../src/contracts/agent-config.js";
+import { AgentConfigSchema } from "../../src/contracts/agent/agent-config.js";
 import { buildBackendAgentContext } from "../../src/services/agent/context/backend-context-builder.js";
 
 describe("backend context memory bindings", () => {

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import type { AgentConfig } from "../../../contracts/agent-config.js";
-import type { MemoryConfig } from "../../../contracts/system-config.js";
+import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
+import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
 import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } from "../../../contracts/execution/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createTenantId, createUserId } from "../../identity/types.js";
 import { UserStatusSchema } from "./user.js";
-import { PermissionModeSchema } from "../permissions.js";
+import { PermissionModeSchema } from "../runtime/permissions.js";
 
 const UserIdSchema = z.string().transform(createUserId);
 const TenantIdSchema = z.string().transform(createTenantId);

@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { AgentConfig } from "../../src/contracts/agent-config.js";
+import type { AgentConfig } from "../../src/contracts/agent/agent-config.js";
 import { SkillToolService } from "../../src/tools/SkillTools/SkillExecution.js";
 import { createSkillTools } from "../../src/tools/SkillTools/SkillTools.js";
 import { createDelegationTools } from "../../src/tools/DelegationTools/DelegationTools.js";

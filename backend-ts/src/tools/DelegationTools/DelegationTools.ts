@@ -7,7 +7,7 @@ import {
   type Tool,
   type ToolExecContext,
 } from "@ragsystem/agent-sdk";
-import type { AgentConfig } from "../../contracts/agent-config.js";
+import type { AgentConfig } from "../../contracts/agent/agent-config.js";
 import type { DelegationPort } from "../../services/agent/delegation/port.js";
 import {
   readCallAgentArguments,

@@ -33,7 +33,7 @@ import type {
   McpServerStatus,
   McpToolMetrics,
 } from "../../../contracts/integrations/mcp.js";
-import type { RiskLevel } from "../../../contracts/permissions.js";
+import type { RiskLevel } from "../../../contracts/runtime/permissions.js";
 import type { ToolExecutionResult, ToolResultMedia } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "../../agent/sdk/tool-results.js";
 import { resolveSpawnCommand } from "./config-normalization.js";

@@ -8,7 +8,7 @@ import {
 } from "@ragsystem/api-contracts";
 
 import { AttachmentRefSchema } from "../execution/execution.js";
-import { PermissionModeSchema, type PermissionMode } from "../permissions.js";
+import { PermissionModeSchema, type PermissionMode } from "../runtime/permissions.js";
 import { OptionalSessionIdSchema } from "./session-id.js";
 import type { TenantId } from "../../identity/types.js";
 

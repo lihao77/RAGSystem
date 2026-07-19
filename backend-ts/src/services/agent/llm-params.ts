@@ -1,4 +1,4 @@
-import type { AgentConfig, AgentLlmConfig } from "../../contracts/agent-config.js";
+import type { AgentConfig, AgentLlmConfig } from "../../contracts/agent/agent-config.js";
 import type { ModelProviderConfig } from "../../contracts/integrations/model-adapter.js";
 import { normalizeProviderKey } from "../runtime/provider-lookup.js";
 

@@ -13,7 +13,7 @@ import type { PaginatedResult, RunStepInfo } from "../common.js";
 import type { TenantId } from "../../identity/types.js";
 import type { ExecutionOverview } from "../execution/execution.js";
 import type { MessageInfo, SessionInfo, SessionListItem } from "../session/session.js";
-import type { PermissionMode } from "../permissions.js";
+import type { PermissionMode } from "../runtime/permissions.js";
 import type {
   AddMessageInput,
   AddRunStepInput,

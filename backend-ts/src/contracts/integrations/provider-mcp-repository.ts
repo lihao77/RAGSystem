@@ -1,5 +1,5 @@
-import type { TenantId } from "../identity/types.js";
-import type { SecretResolver } from "./integrations/secret-resolver.js";
+import type { TenantId } from "../../identity/types.js";
+import type { SecretResolver } from "./secret-resolver.js";
 
 export interface ProviderConfigRecord {
   tenant_id: TenantId;

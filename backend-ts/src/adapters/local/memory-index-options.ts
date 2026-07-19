@@ -1,4 +1,4 @@
-import type { MemoryConfig as SystemMemoryConfig } from "../../contracts/system-config.js";
+import type { MemoryConfig as SystemMemoryConfig } from "../../contracts/runtime/system-config.js";
 import type { MemoryIndexContextSourceOptions } from "../../services/agent/memory/memory-index-source.js";
 
 /** Local-only defaults for the filesystem memory context adapter. */

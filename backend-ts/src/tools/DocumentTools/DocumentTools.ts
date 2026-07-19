@@ -16,7 +16,7 @@ import {
 import type { RuntimeToolDefinition, Tool, ToolAccessDecision, ToolExecContext } from "@ragsystem/agent-sdk";
 import { buildTool } from "@ragsystem/agent-sdk";
 import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
-import type { AgentConfig } from "../../contracts/agent-config.js";
+import type { AgentConfig } from "../../contracts/agent/agent-config.js";
 import { optionalInteger, optionalString, metadataFrom } from "../schema-helpers.js";
 
 interface DocumentToolDeps {

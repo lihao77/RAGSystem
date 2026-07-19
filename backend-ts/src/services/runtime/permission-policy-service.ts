@@ -1,5 +1,5 @@
 import { asString } from "../../utils/guards.js";
-import type { PermissionMode, PermissionPolicy, RiskLevel } from "../../contracts/permissions.js";
+import type { PermissionMode, PermissionPolicy, RiskLevel } from "../../contracts/runtime/permissions.js";
 import type { ISessionStore } from "../../contracts/conversation-store/index.js";
 
 export interface RuntimeToolApprovalInput {

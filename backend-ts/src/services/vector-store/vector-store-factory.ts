@@ -9,7 +9,7 @@
  */
 import path from "node:path";
 
-import type { VectorStoreConfig } from "../../contracts/system-config.js";
+import type { VectorStoreConfig } from "../../contracts/runtime/system-config.js";
 import type { IKnowledgeFileStore, IVectorStore, IKnowledgeConfig } from "../../contracts/vector-store/index.js";
 import { createVectorStore } from "./registry.js";
 import "./sqlite-vec/sqlite-vec-driver.js";

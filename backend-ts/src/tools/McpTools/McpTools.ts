@@ -1,4 +1,4 @@
-import type { AgentConfig } from "../../contracts/agent-config.js";
+import type { AgentConfig } from "../../contracts/agent/agent-config.js";
 import type { McpService } from "../../services/integrations/mcp-service.js";
 import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";

@@ -15,7 +15,7 @@ import type {
   SystemGroupConfig,
   ToolsConfig,
   VectorStoreConfig,
-} from "../../contracts/system-config.js";
+} from "../../contracts/runtime/system-config.js";
 
 const REDACTED_VALUE = "********";
 const SENSITIVE_FIELD_NAMES = new Set([

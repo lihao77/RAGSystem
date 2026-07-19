@@ -1,5 +1,5 @@
 import { normalizeString } from "../../utils/guards.js";
-import type { AgentConfig } from "../../contracts/agent-config.js";
+import type { AgentConfig } from "../../contracts/agent/agent-config.js";
 import type { SessionInfo } from "../../contracts/session/session.js";
 import type { ToolAccessDecision, ToolExecutionResult } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";

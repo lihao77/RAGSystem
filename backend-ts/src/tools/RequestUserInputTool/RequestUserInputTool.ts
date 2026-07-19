@@ -9,7 +9,7 @@ import {
 } from "../../services/runtime/runtime-tool-bridge/arguments.js";
 import { REQUEST_USER_INPUT_TOOL_NAME } from "../../services/runtime/runtime-tool-bridge/registry.js";
 import { buildTool, type Tool, type ToolAccessDecision, type ToolExecContext } from "@ragsystem/agent-sdk";
-import type { AgentConfig } from "../../contracts/agent-config.js";
+import type { AgentConfig } from "../../contracts/agent/agent-config.js";
 import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
 
 interface RequestUserInputToolDeps {

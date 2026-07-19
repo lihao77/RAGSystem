@@ -10,7 +10,7 @@ import { EXECUTION_ENVELOPE_STEP_TYPE } from "../runtime/event-outbox/execution-
 import type { TransientArtifactService } from "../artifacts/transient-artifact-service.js";
 import { assertSafeSessionId } from "../../contracts/session/session-id.js";
 import type { TenantId } from "../../identity/types.js";
-import type { PermissionMode } from "../../contracts/permissions.js";
+import type { PermissionMode } from "../../contracts/runtime/permissions.js";
 
 export class WorkspaceRootValidationError extends Error {
   constructor(workspaceRoot: string) {
