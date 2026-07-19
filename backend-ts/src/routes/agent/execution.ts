@@ -42,7 +42,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
 
   app.post("/execute", async (request) => {
     const payload = ExecuteRequestSchema.parse(request.body);
-    const saas = await options.resolveSaaSSessionApplication?.(request);
+    const saas = await options.resolveSessionApplication?.(request);
     await assertOwnedSessionIfExists(request, payload.session_id, saas);
     return executeSynchronously(
       request.container,
@@ -56,7 +56,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
       ...(isRecord(request.body) ? request.body : {}),
       agent: request.params.agentName,
     });
-    const saas = await options.resolveSaaSSessionApplication?.(request);
+    const saas = await options.resolveSessionApplication?.(request);
     await assertOwnedSessionIfExists(request, payload.session_id, saas);
     return executeSynchronously(
       request.container,
@@ -67,7 +67,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
 
   app.post("/collaborate", async (request) => {
     const payload = parseCollaborateRequest(request.body);
-    const saas = await options.resolveSaaSSessionApplication?.(request);
+    const saas = await options.resolveSessionApplication?.(request);
     await assertOwnedSessionIfExists(request, payload.session_id, saas);
     if (payload.mode !== "sequential") {
       throw new HttpError(400, "invalid_request", "并行模式尚未实现");
@@ -93,7 +93,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
   });
 
   app.get<{ Params: SessionExecutionParams }>("/sessions/:sessionId/task-status", async (request) => {
-    const sessionApp = await options.resolveSaaSSessionApplication?.(request);
+    const sessionApp = await options.resolveSessionApplication?.(request);
     await assertOwnedSessionIfExists(request, request.params.sessionId, sessionApp);
     const saas = await options.resolveSaaSAgentReadApplication?.(request);
     return ok(saas
@@ -102,26 +102,35 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
   });
 
   app.get<{ Params: SessionExecutionParams }>("/sessions/:sessionId/execution-diagnostics", async (request) => {
-    const saas = await options.resolveSaaSSessionApplication?.(request);
+    const saas = await options.resolveSessionApplication?.(request);
     await assertOwnedSessionIfExists(request, request.params.sessionId, saas);
-    return ok(request.container.agentExecution.getSessionExecutionDiagnostics(request.params.sessionId));
+    const reader = await options.resolveSaaSAgentReadApplication?.(request);
+    return ok(reader
+      ? await reader.getSessionExecutionDiagnostics(request.params.sessionId)
+      : request.container.agentExecution.getSessionExecutionDiagnostics(request.params.sessionId));
   });
 
-  app.get<{ Params: TaskExecutionParams }>("/tasks/:taskId/status", async (request) =>
-    ok(request.container.agentExecution.getTaskStatus(request.params.taskId)),
-  );
+  app.get<{ Params: TaskExecutionParams }>("/tasks/:taskId/status", async (request) => {
+    const reader = await options.resolveSaaSAgentReadApplication?.(request);
+    return ok(reader ? await reader.getTaskStatus(request.params.taskId) : request.container.agentExecution.getTaskStatus(request.params.taskId));
+  });
 
-  app.get<{ Params: TaskExecutionParams }>("/tasks/:taskId/execution-diagnostics", async (request) =>
-    ok(request.container.agentExecution.getTaskExecutionDiagnostics(request.params.taskId)),
-  );
+  app.get<{ Params: TaskExecutionParams }>("/tasks/:taskId/execution-diagnostics", async (request) => {
+    const reader = await options.resolveSaaSAgentReadApplication?.(request);
+    return ok(reader ? await reader.getTaskExecutionDiagnostics(request.params.taskId) : request.container.agentExecution.getTaskExecutionDiagnostics(request.params.taskId));
+  });
 
-  app.get("/tasks/running", async (request) => ok(request.container.agentExecution.listRunningTasks()));
+  app.get("/tasks/running", async (request) => {
+    const reader = await options.resolveSaaSAgentReadApplication?.(request);
+    return ok(reader ? await reader.listRunningTasks() : request.container.agentExecution.listRunningTasks());
+  });
 
   app.get("/execution/overview", async (request) => {
     const query = request.query as { active_only?: string };
     const activeOnly = parseActiveOnly(query.active_only);
-    const overview = request.container.agentExecution.getOverview(activeOnly);
-    const data = overview.count > 0 ? overview : request.container.conversationStore.getPersistedExecutionOverview(activeOnly);
+    const reader = await options.resolveSaaSAgentReadApplication?.(request);
+    const overview = reader ? await reader.getOverview(activeOnly) : request.container.agentExecution.getOverview(activeOnly);
+    const data = reader || overview.count > 0 ? overview : request.container.conversationStore.getPersistedExecutionOverview(activeOnly);
     return ok(normalizeExecutionOverview(data));
   });
 };

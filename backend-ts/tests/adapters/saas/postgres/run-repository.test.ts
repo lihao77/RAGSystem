@@ -29,7 +29,7 @@ describe("PostgresRunRepository tenant isolation", () => {
       return { rows: [], rowCount: 1 };
     };
     const executor = { query, transaction: async <T>(operation: (tx: { query: typeof query }) => Promise<T>) => operation({ query }) };
-    const repo = new PostgresRunRepository(executor);
+    const repo = new PostgresRunRepository(executor as never);
 
     await repo.createRun({ tenantId: "tenant-a", runId: "r1", sessionId: "s1" });
     await repo.updateRunStatus("tenant-a", "r1", "s1", "completed");
@@ -39,8 +39,11 @@ describe("PostgresRunRepository tenant isolation", () => {
     await repo.addRunStep({ tenantId: "tenant-a", runId: "r1", sessionId: "s1", stepType: "event", payload: {} });
     await repo.updateRunStepsMessageId("tenant-a", "s1", "r1", "m1");
     await repo.listRunSteps({ tenantId: "tenant-a", sessionId: "s1", runId: "r1" });
+    await repo.getTenantRun("tenant-a", "r1");
+    await repo.listTenantRuns("tenant-a", true);
 
     expect(calls.filter((call) => /saas_runs|saas_run_steps/.test(call.sql)).every((call) =>
       call.sql.includes("tenant_id") && call.params.includes("tenant-a"))).toBe(true);
+    expect(calls.some((call) => call.sql.includes("status='running'") && call.params[0] === "tenant-a")).toBe(true);
   });
 });

@@ -28,6 +28,8 @@ export interface AsyncRunStore {
   addRunStep(input: AddRunStepInput & { tenantId: string }): Promise<RunStepRecord>;
   updateRunStepsMessageId(tenantId: string, sessionId: string, runId: string, messageId: string): Promise<number>;
   listRunSteps(input: { tenantId: string; runId?: string | null; messageId?: string | null; sessionId?: string | null; limit?: number }): Promise<RunStepInfo[]>;
+  getTenantRun(tenantId: string, runId: string): Promise<RunInfo | null>;
+  listTenantRuns(tenantId: string, activeOnly: boolean): Promise<RunInfo[]>;
 }
 
 export class PostgresRunRepository implements AsyncRunStore {
@@ -97,5 +99,18 @@ export class PostgresRunRepository implements AsyncRunStore {
     params.push(Math.max(1, Math.min(1000, Math.trunc(input.limit ?? 500))));
     const result = await this.executor.query<Record<string, unknown>>(`SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at FROM saas_run_steps WHERE ${clauses.join(" AND ")} ORDER BY step_order ASC LIMIT $${params.length}`, params);
     return result.rows.map((row) => ({ id: Number(row.id), run_id: String(row.run_id), session_id: String(row.session_id), message_id: textOrNull(row.message_id), step_order: Number(row.step_order), step_type: String(row.step_type), payload: typeof row.payload === "string" ? JSON.parse(row.payload) as Record<string, unknown> : (row.payload as Record<string, unknown> ?? {}), created_at: new Date(String(row.created_at)).toISOString(), resource_refs: [] }));
+  }
+
+  async getTenantRun(tenantId: string, runId: string): Promise<RunInfo | null> {
+    const result = await this.executor.query(`SELECT ${runColumns} FROM saas_runs WHERE tenant_id=$1 AND run_id=$2`, [tenantId, runId]);
+    return result.rows[0] ? run(result.rows[0]) : null;
+  }
+
+  async listTenantRuns(tenantId: string, activeOnly: boolean): Promise<RunInfo[]> {
+    const result = await this.executor.query(
+      `SELECT ${runColumns} FROM saas_runs WHERE tenant_id=$1${activeOnly ? " AND status='running'" : ""} ORDER BY created_at DESC, run_id DESC`,
+      [tenantId],
+    );
+    return result.rows.map(run);
   }
 }
