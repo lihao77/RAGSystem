@@ -191,7 +191,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
           dataRoot: request.container.dataRoot,
           sessionId,
           threadKey,
-          ...(saasSession ? { memoryContextSourceFactory: request.container.memoryContextSourceFactory } : {}),
+          memoryContextSourceFactory: request.container.memoryContextSourceFactory,
         })
       : null;
     const built = snapshot?.built ?? null;
