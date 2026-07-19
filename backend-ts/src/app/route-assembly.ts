@@ -29,7 +29,7 @@ import type { RouteOptions } from "../routes/route-options.js";
 import { AuthError, type IdentityProvider } from "../services/identity/index.js";
 import type { WidgetAuthService } from "../services/runtime/jwt-service.js";
 import type { SessionTokenService } from "../services/runtime/session-token-service.js";
-import type { TenantRuntimeRegistry } from "../services/runtime/tenant-runtime-registry.js";
+import type { TenantRuntimeRegistry } from "../adapters/local/tenant-runtime-registry.js";
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
 import { HttpError } from "../utils/errors.js";
 import { createRequestApplications } from "./request-applications.js";

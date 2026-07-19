@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { TenantPaths } from "../../../src/services/runtime/tenant-paths.js";
+import { TenantPaths } from "../../../src/adapters/local/tenant-paths.js";
 
 const tempRoots: string[] = [];
 

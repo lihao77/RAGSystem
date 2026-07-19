@@ -9,7 +9,7 @@ import type {
   TenantStatus,
   UserStatus,
 } from "../contracts/control-plane/index.js";
-import type { TenantRuntimeRegistry } from "../services/runtime/tenant-runtime-registry.js";
+import type { TenantRuntimeRegistry } from "../adapters/local/tenant-runtime-registry.js";
 import { HttpError } from "../utils/errors.js";
 import { requirePlatformAdmin } from "./platform-guard.js";
 

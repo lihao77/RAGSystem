@@ -14,7 +14,7 @@ import { createWidgetCredentialStore } from "../../src/services/stores/widget-cr
 import { createWidgetAuthService } from "../../src/services/runtime/jwt-service.js";
 import { createJwtKeyRing } from "../../src/services/runtime/jwt-key-ring.js";
 import { LocalIdentityProvider } from "../../src/services/identity/index.js";
-import { DefaultTenantRuntimeRegistry } from "../../src/services/runtime/tenant-runtime-registry.js";
+import { DefaultTenantRuntimeRegistry } from "../../src/adapters/local/tenant-runtime-registry.js";
 import type { IdentityProvider } from "../../src/services/identity/index.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 import type { BuildAppOptions } from "../../src/app.js";

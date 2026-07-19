@@ -13,7 +13,7 @@ const coreFiles = [
   "src/services/identity/local-identity-provider.ts",
   "src/services/identity/password-identity-provider.ts",
   "src/services/runtime/session-token-service.ts",
-  "src/services/runtime/tenant-runtime-registry.ts",
+  "src/adapters/local/tenant-runtime-registry.ts",
   "src/app/route-assembly.ts",
 ];
 

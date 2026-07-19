@@ -30,7 +30,7 @@ import { createWidgetAuthService, type WidgetAuthService } from "./services/runt
 import { createSessionTokenService, type SessionTokenService } from "./services/runtime/session-token-service.js";
 import { createWsTicketService, type WsTicketService } from "./services/runtime/ws-ticket-service.js";
 import { AuthError, LocalIdentityProvider, PasswordIdentityProvider, WidgetIdentityProvider, type IdentityProvider } from "./services/identity/index.js";
-import { DefaultTenantRuntimeRegistry, type TenantRuntimeRegistry } from "./services/runtime/tenant-runtime-registry.js";
+import { DefaultTenantRuntimeRegistry, type TenantRuntimeRegistry } from "./adapters/local/tenant-runtime-registry.js";
 import { DaemonService, type DaemonSuspendedInteraction } from "./services/daemon/daemon-service.js";
 import { createSaaSMemoryApplicationResolver } from "./app/saas-memory-resolver.js";
 import type { RouteOptions } from "./routes/route-options.js";

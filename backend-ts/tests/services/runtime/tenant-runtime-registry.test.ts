@@ -9,7 +9,7 @@ import { createTenantId, createUserId } from "../../../src/identity/types.js";
 import { LOCAL_TENANT_ID } from "../../../src/services/identity/index.js";
 import { createLocalRuntimeContainer } from "../../../src/adapters/local/runtime-container.js";
 import type { RuntimeContainerOptions } from "../../../src/adapters/local/runtime-options.js";
-import { DefaultTenantRuntimeRegistry } from "../../../src/services/runtime/tenant-runtime-registry.js";
+import { DefaultTenantRuntimeRegistry } from "../../../src/adapters/local/tenant-runtime-registry.js";
 import { createControlStore } from "../../../src/services/stores/control-store/index.js";
 import { HashFallbackEmbedder } from "../../../src/services/integrations/embedder-registry.js";
 import { makeTempRoot } from "../../helpers/temp-db.js";
@@ -184,7 +184,7 @@ function createRegistryHarness(options: {
   idleTimeoutMs?: number;
   localOnly?: boolean;
   runtimeFactory?: (options: RuntimeContainerOptions) => ReturnType<typeof createLocalRuntimeContainer>;
-  prepareRuntime?: import("../../../src/services/runtime/tenant-runtime-registry.js").LocalTenantRuntimeRegistryOptions["prepareRuntime"];
+  prepareRuntime?: import("../../../src/adapters/local/tenant-runtime-registry.js").LocalTenantRuntimeRegistryOptions["prepareRuntime"];
 } = {}) {
   const dataRoot = makeTempRoot();
   const env: AppEnv = {

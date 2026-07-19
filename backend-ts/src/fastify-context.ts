@@ -1,6 +1,6 @@
 import type { RequestIdentity, TenantId, UserId } from "./identity/types.js";
 import type { RuntimeContainer } from "./contracts/runtime-container.js";
-import type { TenantRuntimeLease } from "./services/runtime/tenant-runtime-registry.js";
+import type { TenantRuntimeLease } from "./adapters/local/tenant-runtime-registry.js";
 import type { DaemonService } from "./services/daemon/daemon-service.js";
 import type { BotRepository } from "./contracts/bot-repository.js";
 import type { RequestApplications } from "./app/request-applications.js";
