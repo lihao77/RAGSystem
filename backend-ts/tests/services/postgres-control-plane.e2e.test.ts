@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { createPostgresControlPlaneAdapter } from "../../src/adapters/saas/postgres/control-plane-adapter.js";
 import { PostgresBotRepository } from "../../src/adapters/saas/postgres/bot-repository.js";
-import type { SecretCoordinates, SecretMutation, SecretResolver } from "../../src/contracts/secret-resolver.js";
+import type { SecretCoordinates, SecretMutation, SecretResolver } from "../../src/contracts/integrations/secret-resolver.js";
 import type { ControlPlane } from "../../src/contracts/control-plane/index.js";
 import { createTenantId, createUserId } from "../../src/identity/types.js";
 import { runControlPlaneContract } from "../contracts/control-plane-contract.js";

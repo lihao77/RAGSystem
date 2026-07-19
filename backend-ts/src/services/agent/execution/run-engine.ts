@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { MemoryConfig } from "../../../contracts/system-config.js";
 import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } from "../../../contracts/execution.js";
-import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
+import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import { EnvelopeSchema, RecoverableInterrupt } from "@ragsystem/agent-protocol";

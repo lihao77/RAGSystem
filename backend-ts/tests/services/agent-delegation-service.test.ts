@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { toolContext } from "../helpers/tool-context.js";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
-import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
+import type { ModelProviderConfig } from "../../src/contracts/integrations/model-adapter.js";
 import { AgentDelegationService } from "../../src/services/agent/delegation/index.js";
 import type { AgentRunEngine } from "../../src/services/agent/execution/run-engine.js";
 import type { RuntimeExecutionConfigResolver } from "../../src/services/agent/execution/runtime-core-service.js";

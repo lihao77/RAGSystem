@@ -1,4 +1,4 @@
-import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
+import type { ModelProviderConfig } from "../../contracts/integrations/model-adapter.js";
 
 /**
  * provider 引用三元组：tier 配置 / 系统配置里描述一个 LLM 目标的最小形态。

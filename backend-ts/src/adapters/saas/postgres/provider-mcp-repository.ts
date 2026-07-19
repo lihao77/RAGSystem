@@ -1,4 +1,4 @@
-import type { SecretResolver } from "../../../contracts/secret-resolver.js";
+import type { SecretResolver } from "../../../contracts/integrations/secret-resolver.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { McpServerRecord, ProviderConfigRecord, ProviderMcpRepository } from "../../../contracts/provider-mcp-repository.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";

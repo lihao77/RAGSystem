@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { McpServerCreate } from "../../src/contracts/mcp.js";
+import type { McpServerCreate } from "../../src/contracts/integrations/mcp.js";
 import { McpService, type RuntimeMcpToolDefinition } from "../../src/services/integrations/mcp-service.js";
 
 const tempRoots: string[] = [];

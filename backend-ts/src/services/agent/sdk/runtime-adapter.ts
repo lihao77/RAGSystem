@@ -12,7 +12,7 @@ import type { ChatMessage } from "@ragsystem/agent-llm";
 import { RecoverableInterrupt, translateKernelEvent, type WireTranslationContext } from "@ragsystem/agent-protocol";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
-import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
+import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { MemoryConfig } from "../../../contracts/system-config.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { DurableExecutionClientEventPort, ExecutionStorage } from "../../../contracts/execution-storage.js";

@@ -7,8 +7,8 @@ import type {
   SecretEnvelopeRepository,
   SecretMutation,
   SecretResolver,
-} from "../../../contracts/secret-resolver.js";
-import { SecretIntegrityError } from "../../../contracts/secret-resolver.js";
+} from "../../../contracts/integrations/secret-resolver.js";
+import { SecretIntegrityError } from "../../../contracts/integrations/secret-resolver.js";
 import type { TenantId } from "../../../identity/types.js";
 import { runPostgresSecretMigrations } from "./control-secret-migrations.js";
 

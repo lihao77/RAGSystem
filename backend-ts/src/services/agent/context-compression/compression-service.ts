@@ -12,7 +12,7 @@
 import { OpenAiCompatibleClient, extractText, type ChatMessage, type LlmClient, type LlmRequest } from "@ragsystem/agent-llm";
 import { countMessagesTokens, readTierParams, resolveContextBudget, resolveSummaryTierCandidates } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../../contracts/agent-config.js";
-import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
+import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import type { MessageInfo } from "../../../contracts/session.js";
 import type { SystemConfigService } from "../../config/system-config-service.js";

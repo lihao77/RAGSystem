@@ -9,7 +9,7 @@
  *   Batch 5 编排层切换后,旧 embedText 废弃,本实现成为唯一 hash 来源。
  */
 import type { IEmbedder } from "../../contracts/vector-store/index.js";
-import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
+import type { ModelProviderConfig } from "../../contracts/integrations/model-adapter.js";
 import { OpenAiCompatibleEmbeddingClient, type EmbeddingClient } from "./embedding-client.js";
 
 export interface EmbedderFactory {

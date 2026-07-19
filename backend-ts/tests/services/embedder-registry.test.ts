@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
+import type { ModelProviderConfig } from "../../src/contracts/integrations/model-adapter.js";
 import type { EmbeddingClient } from "../../src/services/integrations/embedding-client.js";
 import {
   createEmbedder,

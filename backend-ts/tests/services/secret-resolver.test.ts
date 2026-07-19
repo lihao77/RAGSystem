@@ -7,8 +7,8 @@ import type {
   SecretCoordinates,
   SecretEnvelopeRecord,
   SecretEnvelopeRepository,
-} from "../../src/contracts/secret-resolver.js";
-import { SecretIntegrityError } from "../../src/contracts/secret-resolver.js";
+} from "../../src/contracts/integrations/secret-resolver.js";
+import { SecretIntegrityError } from "../../src/contracts/integrations/secret-resolver.js";
 import { createTenantId } from "../../src/identity/types.js";
 
 class MemorySecretRepository implements SecretEnvelopeRepository {

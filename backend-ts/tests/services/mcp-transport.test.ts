@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { externalCallPolicy } from "@ragsystem/agent-llm";
 
-import type { McpServerCreate } from "../../src/contracts/mcp.js";
+import type { McpServerCreate } from "../../src/contracts/integrations/mcp.js";
 import { McpService } from "../../src/services/integrations/mcp-service.js";
 
 const tempRoots: string[] = [];

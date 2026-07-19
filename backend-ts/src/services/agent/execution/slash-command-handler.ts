@@ -4,7 +4,7 @@ import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
-import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
+import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import { buildFullSystemPrompt, estimateTokens, resolveToolInstructionMode } from "@ragsystem/agent-sdk";
 import { projectAgentProfile } from "../sdk/projection.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";

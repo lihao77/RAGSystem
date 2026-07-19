@@ -1,5 +1,5 @@
 import { Pool } from "pg";
-import type { SecretResolver } from "../../../contracts/secret-resolver.js";
+import type { SecretResolver } from "../../../contracts/integrations/secret-resolver.js";
 
 import {
   PgPoolMemoryExecutor,

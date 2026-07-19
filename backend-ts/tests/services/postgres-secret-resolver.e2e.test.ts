@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { createPostgresSecretResolver } from "../../src/adapters/saas/postgres/control-secret-resolver.js";
 import { createPostgresControlPlaneAdapter } from "../../src/adapters/saas/postgres/control-plane-adapter.js";
-import { SecretIntegrityError } from "../../src/contracts/secret-resolver.js";
+import { SecretIntegrityError } from "../../src/contracts/integrations/secret-resolver.js";
 import { createTenantId } from "../../src/identity/types.js";
 
 const databaseUrl = process.env.DATABASE_URL?.trim();

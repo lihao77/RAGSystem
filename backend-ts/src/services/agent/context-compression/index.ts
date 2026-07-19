@@ -7,7 +7,7 @@ import { asRecord } from "../../../utils/guards.js";
  */
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { SystemConfigData } from "../../../contracts/system-config.js";
-import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
+import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import { resolveTierLlmParams } from "../llm-params.js";
 
 export interface ContextCompressionSettings {

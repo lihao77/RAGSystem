@@ -11,7 +11,7 @@ import { isRecord } from "../../utils/guards.js";
  * - api_key 与 api_endpoint 支持 ${ENV_VAR} 占位符(resolveEnvPlaceholder),敏感值不落盘明文;
  * - HTTP 非 2xx 抛异常(携带响应 message),非静默。
  */
-import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
+import type { ModelProviderConfig } from "../../contracts/integrations/model-adapter.js";
 import {
   externalCallPolicy,
   isRetryableHttpStatus,

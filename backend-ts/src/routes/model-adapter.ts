@@ -4,7 +4,7 @@ import {
   ProviderPayloadSchema,
   ReorderProvidersRequestSchema,
   TestProviderRequestSchema,
-} from "../contracts/model-adapter.js";
+} from "../contracts/integrations/model-adapter.js";
 import { ok } from "../contracts/common.js";
 import { ModelAdapterServiceError } from "../services/integrations/model-adapter-service.js";
 import { HttpError, httpErrorFrom } from "../utils/errors.js";

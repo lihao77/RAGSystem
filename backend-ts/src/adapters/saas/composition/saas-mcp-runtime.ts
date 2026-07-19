@@ -1,6 +1,6 @@
 import type { TenantId } from "../../../identity/types.js";
 import { McpService } from "../../../services/integrations/mcp-service.js";
-import type { McpServerConfig } from "../../../contracts/mcp.js";
+import type { McpServerConfig } from "../../../contracts/integrations/mcp.js";
 
 interface SaaSMcpConfigSource {
   listMcpServers(tenantId: TenantId): Promise<McpServerConfig[]>;

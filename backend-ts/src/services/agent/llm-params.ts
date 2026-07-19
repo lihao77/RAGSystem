@@ -1,5 +1,5 @@
 import type { AgentConfig, AgentLlmConfig } from "../../contracts/agent-config.js";
-import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
+import type { ModelProviderConfig } from "../../contracts/integrations/model-adapter.js";
 import { normalizeProviderKey } from "../runtime/provider-lookup.js";
 
 export interface RequestLlmParams {

@@ -17,7 +17,7 @@ import type {
 } from "../../contracts/knowledge-base.js";
 import type { IEmbedder, IKnowledgeConfig, IKnowledgeFileStore, IVectorStore, KnowledgeFile, StoredChunk, StoredReranker, StoredVectorizer, VectorRecord, VectorSearchHit } from "../../contracts/vector-store/index.js";
 import type { AsyncKnowledgeVectorStore } from "../../contracts/knowledge/async-vector-store.js";
-import type { ModelProviderConfig } from "../../contracts/model-adapter.js";
+import type { ModelProviderConfig } from "../../contracts/integrations/model-adapter.js";
 import type { DocumentExtractor } from "../../contracts/knowledge/document-extractor.js";
 import type { ModelAdapterService } from "../integrations/model-adapter-service.js";
 import { createEmbedder } from "../integrations/embedder-registry.js";

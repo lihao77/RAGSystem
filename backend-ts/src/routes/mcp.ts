@@ -4,7 +4,7 @@ import {
   McpRegistryInstallSchema,
   McpServerCreateSchema,
   McpServerPayloadSchema,
-} from "../contracts/mcp.js";
+} from "../contracts/integrations/mcp.js";
 import { ok } from "../contracts/common.js";
 import { McpServiceError } from "../services/integrations/mcp-service.js";
 import { HttpError, httpErrorFrom } from "../utils/errors.js";

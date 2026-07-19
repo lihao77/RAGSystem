@@ -11,7 +11,7 @@ import type {
   SessionTaskStatus,
   StreamExecuteRequest,
 } from "../../../contracts/execution.js";
-import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
+import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { externalCallPolicy } from "@ragsystem/agent-llm";
 
-import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
+import type { ModelProviderConfig } from "../../src/contracts/integrations/model-adapter.js";
 import { OpenAiCompatibleEmbeddingClient } from "../../src/services/integrations/embedding-client.js";
 
 /**

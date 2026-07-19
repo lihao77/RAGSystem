@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
-import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
+import type { ModelProviderConfig } from "../../src/contracts/integrations/model-adapter.js";
 import { createResumeExecutor } from "../../src/services/agent/execution/resume-executor.js";
 import type { AgentRunEngine } from "../../src/services/agent/execution/run-engine.js";
 import type { RuntimeExecutionConfigResolver } from "../../src/services/agent/execution/runtime-core-service.js";

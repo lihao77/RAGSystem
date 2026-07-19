@@ -10,7 +10,7 @@ import type {
   BotSummary,
   TenantBotSummary,
 } from "../../../contracts/bot.js";
-import type { SecretCoordinates, SecretMutation, SecretResolver } from "../../../contracts/secret-resolver.js";
+import type { SecretCoordinates, SecretMutation, SecretResolver } from "../../../contracts/integrations/secret-resolver.js";
 import type { Bot } from "../../../contracts/user.js";
 import { createTenantId, createUserId, type TenantId, type UserId } from "../../../identity/types.js";
 import { HttpError } from "../../../utils/errors.js";

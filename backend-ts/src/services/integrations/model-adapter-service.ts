@@ -11,7 +11,7 @@ import type {
   ProviderPayload,
   ProviderTypeInfo,
   TestProviderRequest,
-} from "../../contracts/model-adapter.js";
+} from "../../contracts/integrations/model-adapter.js";
 import {
   externalCallPolicy,
   OpenAiCompatibleClient,
