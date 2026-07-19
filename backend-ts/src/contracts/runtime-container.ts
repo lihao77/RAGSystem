@@ -1,4 +1,3 @@
-import type { HookRegistry } from "@ragsystem/agent-sdk";
 
 import type { IFileHistoryStore } from "./file-history-store/index.js";
 import type { IFileIndexStore } from "./file-index-store/index.js";
@@ -19,14 +18,14 @@ import type { ResumeExecutor } from "../services/agent/execution/resume-executor
 import type { RuntimeCoreService } from "../services/agent/execution/runtime-core-service.js";
 import type { AgentMetricsCollector } from "../services/agent/metrics/metrics-collector.js";
 import type { MemoryRuntimeBindings } from "../services/agent/memory/runtime-bindings.js";
-import type { SessionMetadataPort } from "../services/agent/context/types.js";
+import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../services/agent/sdk/async-event-persister.js";
 import type { ArtifactService } from "../services/artifacts/artifact-service.js";
 import type { TransientArtifactService } from "../services/artifacts/transient-artifact-service.js";
 import type { SystemConfigService } from "../services/config/system-config-service.js";
 import type { McpService } from "../services/integrations/mcp-service.js";
 import type { ModelAdapterService } from "../services/integrations/model-adapter-service.js";
 import type { EmbeddingModelService } from "../services/knowledge/embedding-model-service.js";
-import type { KnowledgeBaseEmbedderFactory, KnowledgeBaseService } from "../services/knowledge/knowledge-base-service.js";
+import type { KnowledgeBaseService } from "../services/knowledge/knowledge-base-service.js";
 import type { AgentSessionApplication } from "../services/sessions/index.js";
 import type { ConversationStore } from "../services/stores/conversation-store/index.js";
 import type { SkillLibraryService } from "../services/skills/skill-library-service.js";
@@ -40,9 +39,7 @@ import type { PermissionPolicyService } from "../services/runtime/permission-pol
 import type { RealtimeEventBus } from "./realtime-event-bus.js";
 import type { SessionNotificationQueue } from "../services/runtime/session-notification-queue.js";
 import type { AsyncDurableClientEventPublisher } from "../services/runtime/event-outbox/async-client-event-publisher.js";
-import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../services/agent/sdk/async-event-persister.js";
 import type { AsyncConversationHistoryPort, AsyncProviderContinuationLookupPort, SuspendedSessionControlPort } from "./runtime-async-ports.js";
-import type { AsyncBackgroundTaskRepository } from "./background-task-repository.js";
 import type { KnowledgeQueryPort } from "./knowledge/query-port.js";
 import type { ExecutionStorage } from "./execution-storage.js";
 
@@ -87,56 +84,6 @@ export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = I
   readonly dataRoot: string;
   close(): void;
 }
-
-export interface LocalRuntimeContainerOptions {
-  tenantId: TenantId;
-  dbPath: string;
-  dataRoot?: string | undefined;
-  logger?: AgentExecutionLogger | undefined;
-  modelAdapterProvidersConfigPath?: string | undefined;
-  mcpConfigPath?: string | undefined;
-  systemConfigPath?: string | undefined;
-  agentConfigRoot?: string | undefined;
-  startOutboxDispatcher?: boolean | undefined;
-  outboxDispatcherIntervalMs?: number | undefined;
-  hooks?: ((registry: HookRegistry) => void) | undefined;
-  embedderFactory?: KnowledgeBaseEmbedderFactory | undefined;
-  memoryBindingsFactory?: MemoryRuntimeBindingsFactory | undefined;
-  asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
-  asyncConversationHistory?: AsyncConversationHistoryPort;
-  asyncProviderContinuations?: AsyncProviderContinuationLookupPort;
-  asyncClientEventsFactory?: (realtimeEvents: RealtimeEventBus) => AsyncDurableClientEventPublisher;
-  asyncSuspendedSessionControlFactory?: (tenantId: TenantId) => SuspendedSessionControlPort;
-  asyncBackgroundTasks?: AsyncBackgroundTaskRepository;
-  knowledgeQueryFactory?: KnowledgeRuntimeQueryFactory;
-  executionStorage?: ExecutionStorage;
-  executionStorageFactory?: (input: {
-    tenantId: TenantId;
-    asyncClientEvents?: AsyncDurableClientEventPublisher;
-  }) => ExecutionStorage;
-}
-
-export interface KnowledgeRuntimeQueryFactoryInput {
-  tenantId: TenantId;
-  baseKnowledge: KnowledgeBaseService;
-}
-
-export type KnowledgeRuntimeQueryFactory = (input: KnowledgeRuntimeQueryFactoryInput) => KnowledgeQueryPort;
-
-export interface MemoryRuntimeBindingsFactoryInput<TMemoryRepository extends MemoryRepository = MemoryRepository> {
-  tenantId: TenantId;
-  dataRoot: string;
-  memoryConfig: MemoryConfig;
-  memoryRepository: TMemoryRepository;
-  sessions: RuntimeMemorySessionPort & SessionMetadataPort;
-}
-
-export type MemoryRuntimeBindingsFactory<TMemoryRepository extends MemoryRepository = MemoryRepository> = (
-  input: MemoryRuntimeBindingsFactoryInput<TMemoryRepository>,
-) => MemoryRuntimeBindings;
-
-/** Backwards-compatible name for callers that still use the original factory. */
-export type RuntimeContainerOptions = LocalRuntimeContainerOptions;
 
 /**
  * Services prepared by a deployment adapter before the shared agent runtime is assembled.
@@ -188,3 +135,4 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   clientEvents: DurableClientEventPublisher;
   closeInfrastructure(): void;
 }
+import type { HookRegistry } from "@ragsystem/agent-sdk";

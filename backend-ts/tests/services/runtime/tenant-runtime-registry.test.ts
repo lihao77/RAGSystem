@@ -8,7 +8,7 @@ import { SqliteControlPlaneAdapter } from "../../../src/adapters/local/sqlite-co
 import { createTenantId, createUserId } from "../../../src/identity/types.js";
 import { LOCAL_TENANT_ID } from "../../../src/services/identity/index.js";
 import { createLocalRuntimeContainer } from "../../../src/adapters/local/runtime-container.js";
-import type { RuntimeContainerOptions } from "../../../src/contracts/runtime-container.js";
+import type { RuntimeContainerOptions } from "../../../src/adapters/local/runtime-options.js";
 import { DefaultTenantRuntimeRegistry } from "../../../src/services/runtime/tenant-runtime-registry.js";
 import { createControlStore } from "../../../src/services/stores/control-store/index.js";
 import { HashFallbackEmbedder } from "../../../src/services/integrations/embedder-registry.js";
