@@ -40,6 +40,7 @@ import type { AsyncConversationHistoryPort, AsyncProviderContinuationLookupPort,
 import type { KnowledgeQueryPort } from "../knowledge/query-port.js";
 import type { ExecutionStorage } from "../execution/execution-storage.js";
 import type { PathAccessPolicy } from "./path-access-policy.js";
+import type { AsyncAnalyticsRepository } from "../storage/async-persistence-ports.js";
 
 export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = IMemoryStore> {
   readonly conversationStore: ConversationStore;
@@ -99,6 +100,7 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   asyncProviderContinuations?: AsyncProviderContinuationLookupPort;
   asyncClientEvents?: AsyncDurableClientEventPublisher;
   asyncSuspendedSessionControl?: SuspendedSessionControlPort;
+  asyncAnalytics?: AsyncAnalyticsRepository;
   conversationStore: ConversationStore;
   sessionApplication: AgentSessionApplication;
   realtimeEvents: RealtimeEventBus;

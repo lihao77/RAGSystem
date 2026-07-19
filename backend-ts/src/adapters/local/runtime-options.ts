@@ -15,6 +15,7 @@ import type { AsyncDurableClientEventPublisher } from "../../services/runtime/ev
 import type { ExecutionStorage } from "../../contracts/execution/execution-storage.js";
 import type { KnowledgeQueryPort } from "../../contracts/knowledge/query-port.js";
 import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
+import type { AsyncAnalyticsRepository } from "../../contracts/storage/async-persistence-ports.js";
 
 export interface LocalRuntimeContainerOptions {
   tenantId: TenantId;
@@ -36,6 +37,7 @@ export interface LocalRuntimeContainerOptions {
   asyncClientEventsFactory?: (realtimeEvents: RealtimeEventBus) => AsyncDurableClientEventPublisher;
   asyncSuspendedSessionControlFactory?: (tenantId: TenantId) => SuspendedSessionControlPort;
   asyncBackgroundTasks?: AsyncBackgroundTaskRepository;
+  asyncAnalytics?: AsyncAnalyticsRepository;
   knowledgeQueryFactory?: KnowledgeRuntimeQueryFactory;
   executionStorage?: ExecutionStorage;
   executionStorageFactory?: (input: { tenantId: TenantId; asyncClientEvents?: AsyncDurableClientEventPublisher }) => ExecutionStorage;

@@ -84,12 +84,21 @@ export class AsyncKernelEventPersister {
   }
 
   async finalize(status: "completed" | "failed" | "interrupted" | "suspended", finalMessage: AsyncFinalMessageInput | null): Promise<void> {
+    let finalMessageSeq: number | null = null;
     if (status === "completed" && finalMessage) {
       const message = await this.conversation.addMessage({ sessionId: this.ctx.sessionId, role: "assistant", content: finalMessage.content, threadKey: this.ctx.threadKey, ...(finalMessage.id ? { messageId: finalMessage.id } : {}), metadata: { ...this.messageMeta(0, MSG_TYPE.ASSISTANT_FINAL), ...(this.ctx.messageMetadata ?? {}), ...(finalMessage.metadata ?? {}) } });
       this.finalMessageId = message.id;
-      await this.fileHistory?.makeSnapshot(this.ctx.sessionId, message.seq);
+      finalMessageSeq = message.seq;
     }
+    // Run 状态是工作台终态的权威来源，不能被非核心的文件历史快照失败阻断。
     await this.runs.updateRunStatus(this.ctx.tenantId, this.ctx.runId, this.ctx.sessionId, status, this.finalMessageId);
+    if (status === "completed" && finalMessage && finalMessageSeq !== null) {
+      try {
+        await this.fileHistory?.makeSnapshot(this.ctx.sessionId, finalMessageSeq);
+      } catch {
+        // 文件历史是旁路能力，快照失败不应把已完成的 Agent run 重新变成 running。
+      }
+    }
   }
 
   async resolveFinalMessage(): Promise<{ id: string; seq: number; content: string } | null> {

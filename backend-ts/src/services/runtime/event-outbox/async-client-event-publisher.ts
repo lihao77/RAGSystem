@@ -5,15 +5,28 @@ import type { AsyncOutboxDispatcher } from "./async-dispatcher.js";
 
 /** Durable client-event publisher for async SaaS repositories. */
 export class AsyncDurableClientEventPublisher {
+  private readonly sessionTails = new Map<string, Promise<void>>();
+
   constructor(
     private readonly outbox: Pick<AsyncOutboxStore, "appendOutbox">,
     private readonly dispatcher: Pick<AsyncOutboxDispatcher, "dispatchRows">,
   ) {}
 
   async publish(sessionId: string, event: Envelope, options: ClientEventPublishOptions = {}): Promise<OutboxRow> {
-    const row = await this.outbox.appendOutbox(this.toOutboxInput(sessionId, event, options));
-    await this.dispatcher.dispatchRows([row]);
-    return row;
+    // AgentExecutionEventPublisher is intentionally fire-and-forget. Serialize
+    // per-session writes so concurrent envelopes cannot race session_seq allocation.
+    const previous = this.sessionTails.get(sessionId) ?? Promise.resolve();
+    const operation = previous.then(async () => {
+      const row = await this.outbox.appendOutbox(this.toOutboxInput(sessionId, event, options));
+      await this.dispatcher.dispatchRows([row]);
+      return row;
+    });
+    const tail = operation.then(() => undefined, () => undefined);
+    this.sessionTails.set(sessionId, tail);
+    void tail.finally(() => {
+      if (this.sessionTails.get(sessionId) === tail) this.sessionTails.delete(sessionId);
+    });
+    return operation;
   }
 
   async record(sessionId: string, event: Envelope, options: ClientEventPublishOptions = {}): Promise<OutboxRow> {

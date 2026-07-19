@@ -155,6 +155,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     ...(options.asyncProviderContinuations ? { asyncProviderContinuations: options.asyncProviderContinuations } : {}),
     ...(asyncClientEvents ? { asyncClientEvents } : {}),
     ...(asyncSuspendedSessionControl ? { asyncSuspendedSessionControl } : {}),
+    ...(options.asyncAnalytics ? { asyncAnalytics: options.asyncAnalytics } : {}),
     conversationStore,
     sessionApplication,
     realtimeEvents,

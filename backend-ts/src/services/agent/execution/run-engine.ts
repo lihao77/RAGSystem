@@ -25,6 +25,7 @@ import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
+import type { AsyncAnalyticsRepository } from "../../../contracts/storage/async-persistence-ports.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import {
   asString,
@@ -76,6 +77,7 @@ export class AgentRunEngine {
     private readonly logger: AgentExecutionLogger | null,
     private readonly hooks: ((registry: HookRegistry) => void) | null,
     private readonly metricsCollector: AgentMetricsCollector | null = null,
+    private readonly asyncAnalytics: AsyncAnalyticsRepository | null = null,
     private readonly compressionService: AgentCompressionService | null = null,
   ) {}
 
@@ -337,17 +339,14 @@ export class AgentRunEngine {
   }): Promise<{ content: string; success: boolean; suspended?: boolean }> {
     // 性能监控落库:统一在此处采集(root/child 都走 executeRun),不挂 onTerminal——
     // child run 不绑 onTerminal,挂那里会漏采子智能体/委托调用。token/工具用量来自 executeRunWithSdk 返回值。
-    const recordMetric = (
+    const recordMetric = async (
       finalStatus: string,
       tokenUsage: { inputTokens: number; outputTokens: number },
       toolCalls: Record<string, number>,
       errorType: string | null,
-    ): void => {
-      if (!this.metricsCollector) {
-        return;
-      }
+    ): Promise<void> => {
       const finishedAt = new Date();
-      this.metricsCollector.recordRun({
+      const metric = {
         agentName: input.agent.agent_name,
         model: input.modelName,
         sessionId: input.sessionId,
@@ -362,7 +361,13 @@ export class AgentRunEngine {
         errorType,
         startedAt: input.startedAt.toISOString(),
         finishedAt: finishedAt.toISOString(),
-      });
+      };
+      this.metricsCollector?.recordRun(metric);
+      try {
+        await this.asyncAnalytics?.insertMetric(this.tenantId, metric);
+      } catch (error) {
+        this.logger?.error({ tenant_id: this.tenantId, run_id: input.runId, error: error instanceof Error ? error.message : String(error) }, "failed to persist SaaS agent metric");
+      }
     };
     try {
       const sessionMetadata = this.sessions.getSession(input.sessionId)?.metadata ?? {};
@@ -419,7 +424,7 @@ export class AgentRunEngine {
      );
 
       if (result.suspended) {
-        recordMetric("suspended", result.tokenUsage, result.toolCalls, null);
+        await recordMetric("suspended", result.tokenUsage, result.toolCalls, null);
         input.onTerminal?.("suspended");
         return result;
       }
@@ -442,7 +447,7 @@ export class AgentRunEngine {
             `agent runtime execution failed: ${result.content}`,
           );
         }
-        recordMetric(
+        await recordMetric(
           interrupted ? "interrupted" : "failed",
           result.tokenUsage,
           result.toolCalls,
@@ -451,7 +456,7 @@ export class AgentRunEngine {
         input.onTerminal?.(interrupted ? "interrupted" : "failed");
         return result;
       }
-      recordMetric("completed", result.tokenUsage, result.toolCalls, null);
+      await recordMetric("completed", result.tokenUsage, result.toolCalls, null);
       input.onTerminal?.("completed");
       return result;
     } catch (error) {
@@ -477,7 +482,7 @@ export class AgentRunEngine {
           execution_kind: executionKind,
         }, "agent runtime execution failed");
       }
-      recordMetric(finalStatus, { inputTokens: 0, outputTokens: 0 }, {}, interrupted ? null : errorMessage);
+      await recordMetric(finalStatus, { inputTokens: 0, outputTokens: 0 }, {}, interrupted ? null : errorMessage);
      input.onTerminal?.(finalStatus);
      return { content: errorMessage, success: false };
     }

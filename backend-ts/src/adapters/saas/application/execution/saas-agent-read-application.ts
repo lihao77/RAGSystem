@@ -27,7 +27,7 @@ export class SaaSAgentReadApplication implements ExecutionReadApplication {
 
   async getSessionTaskStatus(sessionId: string): Promise<SessionTaskStatus> {
     if (!(await this.getSession(sessionId))) return idleStatus(sessionId);
-    const latest = (await this.runs.listRuns(this.tenantId, sessionId, 500)).items[0] ?? null;
+    const latest = latestRootRun((await this.runs.listRuns(this.tenantId, sessionId, 500)).items);
     if (!latest) return idleStatus(sessionId);
     const task = toTaskStatus(latest);
     return {
@@ -52,7 +52,7 @@ export class SaaSAgentReadApplication implements ExecutionReadApplication {
 
   async getSessionExecutionDiagnostics(sessionId: string): Promise<ScopedExecutionDiagnostics> {
     if (!(await this.getSession(sessionId))) return missingDiagnostics("session_id", sessionId);
-    const latest = (await this.runs.listRuns(this.tenantId, sessionId, 1)).items[0] ?? null;
+    const latest = latestRootRun((await this.runs.listRuns(this.tenantId, sessionId, 500)).items);
     return latest ? runDiagnostics("session_id", sessionId, latest) : missingDiagnostics("session_id", sessionId);
   }
 
@@ -93,6 +93,11 @@ export class SaaSAgentReadApplication implements ExecutionReadApplication {
 
 function idleStatus(sessionId: string): SessionTaskStatus {
   return { session_id: sessionId, has_running_task: false, has_active_system_command: false, task_info: null, observability: null, diagnostics: null };
+}
+
+function latestRootRun(runs: RunInfo[]): RunInfo | null {
+  const root = runs.filter((run) => !run.parent_run_id && !run.child_agent_id);
+  return (root.length ? root : runs)[0] ?? null;
 }
 
 function toTaskStatus(run: RunInfo): ExecutionTaskStatus {

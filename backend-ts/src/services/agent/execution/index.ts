@@ -39,6 +39,7 @@ import type { MemoryConfig } from "../../../contracts/runtime/system-config.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
 import type { SuspendedSessionControlPort } from "../../../contracts/runtime/runtime-async-ports.js";
+import type { AsyncAnalyticsRepository } from "../../../contracts/storage/async-persistence-ports.js";
 import {
   createLaunchers,
   type RollbackRetryInput,
@@ -105,6 +106,7 @@ export interface AgentExecutionServiceParams {
  hooks?: (registry: HookRegistry) => void;
  /** 性能指标采集器（透传 AgentRunEngine 终态落库用）。 */
  metricsCollector?: AgentMetricsCollector | null;
+ asyncAnalytics?: AsyncAnalyticsRepository | null;
  logger?: AgentExecutionLogger | null | undefined;
  /** backend 压缩服务（slash /compact + run 内 round.before 共用）；A3 压缩外移。 */
   compressionService?: AgentCompressionService;
@@ -166,6 +168,7 @@ export function createAgentExecutionService(
     params.logger ?? null,
     params.hooks ?? null,
     params.metricsCollector ?? null,
+    params.asyncAnalytics ?? null,
     params.compressionService ?? null,
   );
   const launchers = createLaunchers({

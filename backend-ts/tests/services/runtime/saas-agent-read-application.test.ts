@@ -72,7 +72,7 @@ describe("SaaSAgentReadApplication", () => {
     expect(getTenantRun).toHaveBeenCalledWith("tenant-a", "run-foreign");
     expect(listTenantRuns).toHaveBeenCalledWith("tenant-a", true);
     expect(listTenantRuns).toHaveBeenCalledWith("tenant-a", false);
-    expect(listRuns).toHaveBeenCalledWith("tenant-a", "session-a", 1);
+    expect(listRuns).toHaveBeenCalledWith("tenant-a", "session-a", 500);
   });
 });
 

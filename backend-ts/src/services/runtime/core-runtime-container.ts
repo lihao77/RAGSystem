@@ -90,6 +90,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     delegationPending,
     logger: dependencies.logger,
     metricsCollector,
+    ...(dependencies.asyncAnalytics ? { asyncAnalytics: dependencies.asyncAnalytics } : {}),
     compressionService: new AgentCompressionService(
       conversationStore,
       () => modelAdapter.listProviders(),
