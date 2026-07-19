@@ -1,7 +1,7 @@
-import type { JsonValue } from "../../contracts/common.js";
-import type { ArtifactApplication, ArtifactRecord } from "../../contracts/artifact-application.js";
-import type { VisualizationConfig, VisualizationSummary } from "../../contracts/artifacts.js";
-import { ArtifactService } from "../../services/artifacts/artifact-service.js";
+import type { JsonValue } from "../../../../contracts/common.js";
+import type { ArtifactApplication, ArtifactRecord } from "../../../../contracts/artifact-application.js";
+import type { VisualizationConfig, VisualizationSummary } from "../../../../contracts/artifacts.js";
+import { ArtifactService } from "../../../../services/artifacts/artifact-service.js";
 
 export class LocalArtifactApplication implements ArtifactApplication {
   constructor(private readonly service: ArtifactService) {}

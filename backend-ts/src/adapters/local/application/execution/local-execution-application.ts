@@ -1,6 +1,6 @@
-import type { ExecutionApplication } from "../../contracts/execution-application.js";
-import type { AgentExecutionServiceApi } from "../../services/agent/execution/index.js";
-import type { ResumeExecutor } from "../../services/agent/execution/resume-executor.js";
+import type { ExecutionApplication } from "../../../../contracts/execution-application.js";
+import type { AgentExecutionServiceApi } from "../../../../services/agent/execution/index.js";
+import type { ResumeExecutor } from "../../../../services/agent/execution/resume-executor.js";
 
 /** Adapter over the shared execution core assembled for the current tenant runtime. */
 export class LocalExecutionApplication implements ExecutionApplication {
