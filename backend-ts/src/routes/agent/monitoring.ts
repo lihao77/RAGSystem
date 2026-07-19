@@ -42,13 +42,16 @@ interface OutboxCleanupQuery {
 export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.addHook("preHandler", async (request) => {
     requireTenantMember(request);
-    if (request.method !== "GET" || request.url.includes("/event-outbox")) requireTenantAdmin(request);
+    if (request.method !== "GET" || request.url.includes("/event-outbox") || request.url.includes("/metrics")) requireTenantAdmin(request);
   });
 
   app.get("/metrics", async (request) => {
     const query = request.query as { agent_name?: string };
     const agentName = query.agent_name?.trim() || null;
-    return ok(request.container.metricsCollector.getSystemMetrics(agentName), "获取系统指标成功");
+    return ok({
+      ...request.container.metricsCollector.getSystemMetrics(agentName),
+      scope: "node",
+    }, "获取节点指标成功");
   });
 
   app.post("/metrics/reset", async (request) => {

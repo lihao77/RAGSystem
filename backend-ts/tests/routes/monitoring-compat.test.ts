@@ -25,8 +25,9 @@ describe("monitoring compatibility routes", () => {
     expect(metrics.statusCode).toBe(200);
     expect(metrics.json()).toMatchObject({
       success: true,
-      message: "获取系统指标成功",
+      message: "获取节点指标成功",
       data: {
+        scope: "node",
         total_agents: 0,
         total_calls: 0,
         avg_duration_ms: 0,

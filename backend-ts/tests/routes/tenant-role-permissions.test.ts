@@ -40,6 +40,7 @@ describe("管理中心租户角色权限", () => {
     await expectStatus(harness, memberToken, "GET", "/api/skills", 200);
     await expectStatus(harness, memberToken, "GET", "/api/bots", 200);
     await expectStatus(harness, memberToken, "GET", "/api/agent/analytics/token-trend", 403);
+    await expectStatus(harness, memberToken, "GET", "/api/agent/metrics", 403);
     await expectStatus(harness, memberToken, "GET", "/api/widget/apps", 403);
 
     const search = await harness.app.inject({
@@ -61,6 +62,7 @@ describe("管理中心租户角色权限", () => {
     await expectStatus(harness, adminToken, "POST", "/api/agent/agents/reload", 200, {});
     await expectStatus(harness, adminToken, "GET", "/api/bots", 200);
     await expectStatus(harness, adminToken, "GET", "/api/agent/analytics/token-trend", 200);
+    await expectStatus(harness, adminToken, "GET", "/api/agent/metrics", 200);
     await expectStatus(harness, adminToken, "PATCH", "/api/system-config", 403, {});
 
     await expectStatus(harness, adminToken, "POST", "/api/model-adapter/providers", 200, {

@@ -82,6 +82,8 @@ export interface SharedBusinessRouteAssemblyOptions {
   registerPublicAgui: boolean;
   resolveMemoryApplication?: RouteOptions["resolveMemoryApplication"];
   resolveKnowledgeFileStore?: RouteOptions["resolveKnowledgeFileStore"];
+  resolveSessionFileStorage?: RouteOptions["resolveSessionFileStorage"];
+  resolveFileHistoryStorage?: RouteOptions["resolveFileHistoryStorage"];
   resolveKnowledgeMarkdownPipeline?: RouteOptions["resolveKnowledgeMarkdownPipeline"];
   resolveKnowledgeVectorApplication?: RouteOptions["resolveKnowledgeVectorApplication"];
   resolveProviderMcp?: RouteOptions["resolveProviderMcp"];
@@ -104,7 +106,11 @@ export async function registerSharedBusinessRoutes(
       identityProvider: options.identityProvider,
       botRepository: options.botRepository,
     };
-    await scope.register(registerHealthRoutes, { prefix: "/api", ...routeOptions });
+    await scope.register(registerHealthRoutes, {
+      prefix: "/api",
+      ...routeOptions,
+      ...(options.resolveSaaSSessionApplication ? { resolveSaaSSessionApplication: options.resolveSaaSSessionApplication } : {}),
+    });
     await scope.register(registerArtifactRoutes, { prefix: "/api/artifacts", ...routeOptions, ...(options.resolveSaaSArtifactService ? { resolveSaaSArtifactService: options.resolveSaaSArtifactService } : {}), ...(options.resolveSaaSSessionApplication ? { resolveSaaSSessionApplication: options.resolveSaaSSessionApplication } : {}) });
     await scope.register(registerAgentConfigRoutes, { prefix: "/api/agent-config", ...routeOptions });
     await scope.register(registerMemoryRoutes, {
@@ -142,6 +148,8 @@ export async function registerSharedBusinessRoutes(
       ...(options.resolveSaaSInteractionRecovery ? { resolveSaaSInteractionRecovery: options.resolveSaaSInteractionRecovery } : {}),
       ...(options.resolveSaaSAnalytics ? { resolveSaaSAnalytics: options.resolveSaaSAnalytics } : {}),
       ...(options.resolveSaaSMonitoringApplication ? { resolveSaaSMonitoringApplication: options.resolveSaaSMonitoringApplication } : {}),
+      ...(options.resolveSessionFileStorage ? { resolveSessionFileStorage: options.resolveSessionFileStorage } : {}),
+      ...(options.resolveFileHistoryStorage ? { resolveFileHistoryStorage: options.resolveFileHistoryStorage } : {}),
     });
     if (options.registerPublicAgui) {
       await scope.register(registerAguiRoutes, {
