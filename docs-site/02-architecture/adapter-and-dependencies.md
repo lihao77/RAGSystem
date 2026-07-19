@@ -120,6 +120,7 @@ request.applications = {
   monitoring,
   executionRead,
   interactions,
+  execution,
 };
 ```
 
@@ -131,8 +132,9 @@ request.applications = {
 
 - `RuntimeContainer` 仍暴露若干 Local 具体类型；
 - Agent 执行、实时事件 hub、部分后台任务仍有进程内状态；
-- Execution 写入口、Knowledge 与文件 storage resolver 尚未并入 `request.applications`；
+- Knowledge 与文件 storage resolver 尚未并入 `request.applications`；
+- Daemon、后台任务和租户 runtime registry 继续直接依赖 runtime container，这是后台生命周期边界，不是 HTTP request composition；
 - 若干共享 Agent service 仍引用具体 SaaS repository 类型，应继续收窄为 ports；
 - `main.ts` 和 `app.ts` 仍共同承担较多 composition 责任。
 
-下一步继续收口 Execution 写入口；Knowledge 和文件能力属于异步资源生命周期，后续应统一到独立的 `request.resources`，并拆分明确的 Local/SaaS composition entry。
+下一步继续整理 Knowledge 和文件能力的独立 `request.resources` 边界；后台 Daemon、任务触发和 runtime registry 则按多实例部署模型单独治理。

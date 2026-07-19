@@ -3,6 +3,8 @@ import type { FastifyReply } from "fastify";
 import type { UserId } from "../../identity/types.js";
 
 import type { RuntimeContainer } from "../runtime/runtime-container.js";
+import type { ExecutionApplication } from "../../contracts/execution-application.js";
+import type { InteractionRecoveryApplication } from "../../contracts/interaction-recovery-application.js";
 import { AguiTranslator } from "./agui-translator.js";
 import { InterruptMachine, type InterruptRecord } from "./interrupt-machine.js";
 import { openAguiSse, type AguiSseStream } from "./sse-stream.js";
@@ -27,6 +29,8 @@ export class AguiGateway {
   constructor(
     private readonly container: RuntimeContainer,
     private readonly userId: UserId,
+    private readonly execution: ExecutionApplication,
+    private readonly interactions: InteractionRecoveryApplication,
   ) {}
 
   async handle(input: RunAgentInput, reply: FastifyReply): Promise<void> {
@@ -95,7 +99,7 @@ export class AguiGateway {
       unsubscribe();
     });
 
-    const started = await this.container.agentExecution.startStream(
+    const started = await this.execution.startStream(
       { task, session_id: threadId, userId: this.userId, attachments: [] },
       externalRunId,
     );
@@ -191,7 +195,7 @@ export class AguiGateway {
   }
 
   /** 按 interrupt kind 把 resume 翻译成内部 resolve/respond；cancelled 视为拒绝以唤醒 run（不挂死）。 */
-  private applyResume(record: InterruptRecord, item: AguiResumeItem): void {
+  private async applyResume(record: InterruptRecord, item: AguiResumeItem): Promise<void> {
     const sessionId = record.threadId;
     const callId = record.callId;
     const resolved = item.status === "resolved";
@@ -215,9 +219,9 @@ export class AguiGateway {
         approved: resolved && payload.approved === true,
         message: str(payload.message) ?? "",
       };
-      const result = this.container.pendingInteractions.respondApproval(sessionId, callId, resolution);
+      const result = await this.interactions.respondApproval(sessionId, callId, resolution);
       if (result.needsResume) {
-        this.container.resumeExecutor.resumeRun({ sessionId, approvalId: callId, resolution });
+        this.execution.resumeRun({ sessionId, approvalId: callId, resolution });
       }
       return;
     }
@@ -225,9 +229,9 @@ export class AguiGateway {
     const resolution = {
       value: resolved ? (str(payload.value) ?? "") : "",
     };
-    const result = this.container.pendingInteractions.respondUserInput(sessionId, callId, resolution);
+    const result = await this.interactions.respondUserInput(sessionId, callId, resolution);
     if (result.needsResume) {
-      this.container.resumeExecutor.resumeRun({ sessionId, approvalId: callId, resolution });
+      this.execution.resumeRun({ sessionId, approvalId: callId, resolution });
     }
   }
 }

@@ -6,6 +6,7 @@ import { WidgetAuthError } from "../../services/runtime/jwt-service.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import { assertOwnedSessionIfExists } from "../session-owner.js";
+import { ensureRequestApplications } from "../../app/request-applications.js";
 
 /**
  * AG-UI 对接入面（prefix /api/agui）。
@@ -33,7 +34,8 @@ export const registerAguiRoutes: FastifyPluginAsync<RouteOptions> = async (app, 
 
     const input = parseRunAgentInput(request.body);
     await assertOwnedSessionIfExists(request, input.threadId);
-    const gateway = new AguiGateway(request.container, request.identity.userId);
+    const applications = await ensureRequestApplications(request, options);
+    const gateway = new AguiGateway(request.container, request.identity.userId, applications.execution, applications.interactions);
     await gateway.handle(input, reply);
     // hijack 后响应由 gateway 管理，handler 不再返回体。
   });
