@@ -4,7 +4,7 @@ import type { FastifyPluginAsync } from "fastify";
 
 import { ClientToServerEnvelopeSchema, type Envelope } from "../../contracts/events.js";
 import { EnvelopeProjector } from "../../services/runtime/event-outbox/projector.js";
-import type { RuntimeContainer } from "../../services/runtime/runtime-container-contracts.js";
+import type { RuntimeContainer } from "../../contracts/runtime-container.js";
 import type { AgentRouteOptions } from "../route-options.js";
 import { isRecord } from "../../utils/guards.js";
 import { widgetUserId } from "../../identity/widget-user-id.js";

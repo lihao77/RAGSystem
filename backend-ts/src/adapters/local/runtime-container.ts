@@ -34,7 +34,7 @@ import { HostToolRegistry } from "../../services/runtime/host-tool-registry.js";
 import { PendingInteractionService } from "../../services/runtime/pending-interaction-service.js";
 import { PermissionPolicyService } from "../../services/runtime/permission-policy-service.js";
 import { RealtimeEventHub } from "../../services/runtime/realtime-event-hub.js";
-import type { LocalRuntimeContainerOptions, RuntimeContainer } from "../../services/runtime/runtime-container-contracts.js";
+import type { LocalRuntimeContainerOptions, RuntimeContainer } from "../../contracts/runtime-container.js";
 import { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
 import { LocalKnowledgeQueryAdapter } from "./local-knowledge-query-adapter.js";
 import { createLocalExecutionStorage } from "./local-execution-storage.js";

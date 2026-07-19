@@ -5,7 +5,7 @@ import type { TenantDirectory } from "../../contracts/control-plane/index.js";
 import { createTenantId, type TenantId, type UserId } from "../../identity/types.js";
 import type { AgentExecutionLogger } from "../agent/execution/index.js";
 import { createLocalRuntimeContainer } from "../../adapters/local/runtime-container.js";
-import type { RuntimeContainer, RuntimeContainerOptions } from "./runtime-container-contracts.js";
+import type { RuntimeContainer, RuntimeContainerOptions } from "../../contracts/runtime-container.js";
 import { TenantPaths } from "./tenant-paths.js";
 
 /**

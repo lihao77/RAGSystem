@@ -13,7 +13,7 @@ describe("outbox event architecture", () => {
       normalize("src/services/runtime/event-outbox/dispatcher.ts"),
       normalize("src/services/runtime/event-outbox/async-dispatcher.ts"),
       normalize("src/adapters/local/runtime-container.ts"),
-      normalize("src/services/runtime/runtime-container-contracts.ts"),
+      normalize("src/contracts/runtime-container.ts"),
     ]);
     const directPublishAllowed = new Set([
       normalize("src/services/runtime/event-outbox/dispatcher.ts"),

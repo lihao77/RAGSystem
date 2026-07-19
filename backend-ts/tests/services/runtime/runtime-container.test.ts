@@ -9,7 +9,7 @@ import { HashFallbackEmbedder } from "../../../src/services/integrations/embedde
 import {
   createLocalRuntimeContainer,
 } from "../../../src/adapters/local/runtime-container.js";
-import type { CoreRuntimeDependencies, LocalRuntimeContainerOptions } from "../../../src/services/runtime/runtime-container-contracts.js";
+import type { CoreRuntimeDependencies, LocalRuntimeContainerOptions } from "../../../src/contracts/runtime-container.js";
 import { makeTempRoot } from "../../helpers/temp-db.js";
 
 describe("runtime composition roots", () => {
