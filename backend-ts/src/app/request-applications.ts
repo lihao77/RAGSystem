@@ -14,7 +14,7 @@ import type { SessionApplication } from "../contracts/session-application.js";
 import type { ExecutionReadApplication } from "../contracts/execution-read-application.js";
 import type { InteractionRecoveryApplication } from "../contracts/interaction-recovery-application.js";
 import type { ExecutionApplication } from "../contracts/execution-application.js";
-import { LocalMemoryApplication } from "../services/memory/local-memory-application.js";
+import { LocalMemoryApplication } from "../adapters/local/local-memory-application.js";
 import type { MemoryApplication } from "../services/memory/index.js";
 import type { RouteOptions } from "../routes/route-options.js";
 

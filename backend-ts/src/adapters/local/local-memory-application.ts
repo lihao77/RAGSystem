@@ -1,10 +1,10 @@
-import type { MemoryApplication } from "./memory-application.js";
+import type { MemoryApplication } from "../../services/memory/memory-application.js";
 import type { IMemoryStore } from "../../contracts/memory-store/index.js";
 import type { ConversationStore, MemoryCandidateRecord } from "../../contracts/conversation-store/index.js";
 import type { PersistedMemoryCandidate, PersistedMemoryEntry } from "../../contracts/memory-store/index.js";
-import { TenantMemoryQueryService, type MemoryQueryService } from "./query-service.js";
-import type { MemoryCommandService } from "./command-service.js";
-import type { MemoryGovernanceService } from "./governance-service.js";
+import { TenantMemoryQueryService, type MemoryQueryService } from "../../services/memory/query-service.js";
+import type { MemoryCommandService } from "../../services/memory/command-service.js";
+import type { MemoryGovernanceService } from "../../services/memory/governance-service.js";
 import type { MemoryScopeSpec } from "../../contracts/memory-store/types.js";
 import type { JsonValue } from "../../contracts/common.js";
 

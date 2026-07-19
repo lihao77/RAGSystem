@@ -1,13 +1,14 @@
 import type { SecretResolver } from "../../../contracts/secret-resolver.js";
 import type { TenantId } from "../../../identity/types.js";
+import type { McpServerRecord, ProviderConfigRecord, ProviderMcpRepository } from "../../../contracts/provider-mcp-repository.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
 
-export interface SaaSProviderConfigRecord { tenant_id: TenantId; provider_key: string; config: Record<string, unknown>; created_at: string; updated_at: string; }
-export interface SaaSMcpServerRecord { tenant_id: TenantId; server_name: string; config: Record<string, unknown>; created_at: string; updated_at: string; }
-const record = (row: Record<string, unknown>): SaaSProviderConfigRecord => ({ tenant_id: row.tenant_id as TenantId, provider_key: String(row.provider_key), config: (row.config ?? {}) as Record<string, unknown>, created_at: new Date(String(row.created_at)).toISOString(), updated_at: new Date(String(row.updated_at)).toISOString() });
-const server = (row: Record<string, unknown>): SaaSMcpServerRecord => ({ tenant_id: row.tenant_id as TenantId, server_name: String(row.server_name), config: (row.config ?? {}) as Record<string, unknown>, created_at: new Date(String(row.created_at)).toISOString(), updated_at: new Date(String(row.updated_at)).toISOString() });
+export type SaaSProviderConfigRecord = ProviderConfigRecord;
+export type SaaSMcpServerRecord = McpServerRecord;
+const record = (row: Record<string, unknown>): ProviderConfigRecord => ({ tenant_id: row.tenant_id as TenantId, provider_key: String(row.provider_key), config: (row.config ?? {}) as Record<string, unknown>, created_at: new Date(String(row.created_at)).toISOString(), updated_at: new Date(String(row.updated_at)).toISOString() });
+const server = (row: Record<string, unknown>): McpServerRecord => ({ tenant_id: row.tenant_id as TenantId, server_name: String(row.server_name), config: (row.config ?? {}) as Record<string, unknown>, created_at: new Date(String(row.created_at)).toISOString(), updated_at: new Date(String(row.updated_at)).toISOString() });
 
-export class PostgresProviderMcpRepository {
+export class PostgresProviderMcpRepository implements ProviderMcpRepository {
   constructor(private readonly executor: PostgresMemoryExecutor, private readonly secrets?: SecretResolver) {}
   async listProviders(tenantId: TenantId): Promise<SaaSProviderConfigRecord[]> { const r = await this.executor.query("SELECT * FROM saas_provider_configs WHERE tenant_id=$1 ORDER BY COALESCE((config->>'provider_order')::int, 2147483647), provider_key", [tenantId]); return Promise.all(r.rows.map((row) => this.hydrateProvider(record(row)))); }
   async getProvider(tenantId: TenantId, key: string): Promise<SaaSProviderConfigRecord | null> { const r = await this.executor.query("SELECT * FROM saas_provider_configs WHERE tenant_id=$1 AND provider_key=$2", [tenantId, key]); return r.rows[0] ? this.hydrateProvider(record(r.rows[0])) : null; }

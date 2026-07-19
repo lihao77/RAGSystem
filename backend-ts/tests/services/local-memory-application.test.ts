@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MemoryStore } from "../../src/adapters/local/memory-store.js";
 import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
-import { LocalMemoryApplication } from "../../src/services/memory/local-memory-application.js";
+import { LocalMemoryApplication } from "../../src/adapters/local/local-memory-application.js";
 import { makeTempDb, makeTempRoot } from "../helpers/temp-db.js";
 import { createTenantId } from "../../src/identity/types.js";
 

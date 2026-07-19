@@ -1,11 +1,7 @@
 import type { McpServerConfig, McpServerCreate, McpServerPayload } from "../../contracts/mcp.js";
 import type { ModelProviderConfig, ProviderPayload } from "../../contracts/model-adapter.js";
 import type { TenantId } from "../../identity/types.js";
-import type {
-  PostgresProviderMcpRepository,
-  SaaSMcpServerRecord,
-  SaaSProviderConfigRecord,
-} from "../../adapters/saas/postgres/provider-mcp-repository.js";
+import type { McpServerRecord, ProviderConfigRecord, ProviderMcpRepository } from "../../contracts/provider-mcp-repository.js";
 import type { McpService } from "../../services/integrations/mcp-service.js";
 import { SaaSMcpRuntimeRegistry } from "../../app/composition/saas/saas-mcp-runtime.js";
 
@@ -13,7 +9,7 @@ import { SaaSMcpRuntimeRegistry } from "../../app/composition/saas/saas-mcp-runt
 export class SaaSProviderMcpApplication {
   private readonly runtimes = new SaaSMcpRuntimeRegistry(this);
 
-  constructor(private readonly repository: PostgresProviderMcpRepository) {}
+  constructor(private readonly repository: ProviderMcpRepository) {}
 
   resolveMcpRuntime(tenantId: TenantId): Promise<McpService> {
     return this.runtimes.resolve(tenantId);
@@ -86,7 +82,7 @@ export class SaaSProviderMcpApplication {
   }
 }
 
-function toModelProviderConfig(record: SaaSProviderConfigRecord): ModelProviderConfig {
+function toModelProviderConfig(record: ProviderConfigRecord): ModelProviderConfig {
   const config = { ...record.config } as Record<string, unknown>;
   const modelMap = isRecord(config.model_map) ? config.model_map : {};
   const models = Array.isArray(config.models)
@@ -104,7 +100,7 @@ function toModelProviderConfig(record: SaaSProviderConfigRecord): ModelProviderC
   };
 }
 
-function toMcpServerConfig(record: SaaSMcpServerRecord): McpServerConfig {
+function toMcpServerConfig(record: McpServerRecord): McpServerConfig {
   const config = record.config;
   return {
     ...config,
