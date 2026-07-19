@@ -85,12 +85,7 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
   app.get("/entries", async (request) => {
     const query = EntryQuerySchema.parse(request.query);
     const scopes = parseEntryScopes(query.scope);
-    const ownedSessionIds = request.container.sessionApplication.listSessions({
-      tenantId: request.identity.tenantId,
-      userIds: [request.identity.userId],
-      limit: 10_000,
-      offset: 0,
-    }).items.map((session) => session.session_id);
+    const ownedSessionIds = await listOwnedSessionIds(options, request);
     const memory = await resolveMemoryApplication(options, request);
     if (!memory) {
       const filter = {
@@ -136,12 +131,7 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
     const input = EntryArchiveSchema.parse(request.body);
     const memory = await resolveMemoryApplication(options, request);
     if (!memory) {
-      const ownedSessionIds = request.container.sessionApplication.listSessions({
-        tenantId: request.identity.tenantId,
-        userIds: [request.identity.userId],
-        limit: 10_000,
-        offset: 0,
-      }).items.map((session) => session.session_id);
+      const ownedSessionIds = await listOwnedSessionIds(options, request);
       const lookup = {
         tenant_id: request.identity.tenantId,
         memory_id: id,
@@ -181,7 +171,7 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
       return { success: true, data: { status: "archived", entry: result.memory } };
     }
     const entry = await memory.query.getEntry(id);
-    if (!entry || entry.status !== "active" || !canManageEntry(request, entry.scope, entry.scope_id)) {
+    if (!entry || entry.status !== "active" || !await canManageEntry(options, request, entry.scope, entry.scope_id)) {
       throw new HttpError(404, "not_found", "memory 不存在或无权归档");
     }
     if (entry.version !== input.expected_version) {
@@ -609,17 +599,26 @@ function requireLocalGovernedCandidate(scope: string): void {
   }
 }
 
-function canManageEntry(
+async function listOwnedSessionIds(options: RouteOptions, request: Parameters<typeof requireTenantMember>[0]): Promise<string[]> {
+  const saas = await options.resolveSaaSSessionApplication?.(request);
+  if (saas) return (await saas.listSessions({ userIds: [request.identity.userId], limit: 10_000, offset: 0 })).items.map((session) => session.session_id);
+  return request.container.sessionApplication.listSessions({ tenantId: request.identity.tenantId, userIds: [request.identity.userId], limit: 10_000, offset: 0 }).items.map((session) => session.session_id);
+}
+
+async function canManageEntry(
+  options: RouteOptions,
   request: Parameters<typeof requireTenantMember>[0],
   scope: z.infer<typeof MemoryScopeNameSchema>,
   scopeId: string,
-): boolean {
+): Promise<boolean> {
   if (scope === "team" || scope === "agent") {
     return request.identity.role === "admin" || request.identity.role === "owner";
   }
   if (scope === "user") return scopeId === request.identity.userId;
   if (scope === "session") {
-    return request.container.sessionApplication.getSession(scopeId)?.user_id === request.identity.userId;
+    const saas = await options.resolveSaaSSessionApplication?.(request);
+    const session = saas ? await saas.getSession(scopeId) : request.container.sessionApplication.getSession(scopeId);
+    return session?.user_id === request.identity.userId;
   }
   try {
     const parts = JSON.parse(scopeId) as unknown;
