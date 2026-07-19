@@ -2,8 +2,8 @@ import { extractText } from "@ragsystem/agent-llm";
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import type { KernelEvent } from "@ragsystem/agent-sdk";
 import type { AddMessageInput } from "../../../contracts/conversation-store/types.js";
-import type { AsyncConversationRepository } from "../../../adapters/saas/postgres/conversation-repository.js";
-import type { AsyncRunStore } from "../../../adapters/saas/postgres/run-repository.js";
+import type { MessageInfo } from "../../../contracts/session.js";
+import type { IRunStore, RunInfo } from "../../../contracts/conversation-store/index.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { AsyncFileHistoryStore } from "../../../contracts/file-history-store/index.js";
@@ -28,13 +28,25 @@ export interface AsyncPersisterRunContext {
 
 export interface AsyncFinalMessageInput { id?: string; content: string; metadata?: Record<string, unknown> }
 
+export interface AsyncEventConversationPort {
+  createSession(tenantId: TenantId, sessionId: string, userId: string | null): Promise<void>;
+  addMessage(input: AddMessageInput): Promise<MessageInfo>;
+  getMessageById(sessionId: string, messageId: string): Promise<MessageInfo | null>;
+}
+
+export interface AsyncEventRunPort {
+  createRun(input: Parameters<IRunStore["createRun"]>[0] & { tenantId: string }): Promise<ReturnType<IRunStore["createRun"]>>;
+  updateRunStatus(tenantId: string, runId: string, sessionId: string, status: string, finalMessageId?: string | null): Promise<boolean>;
+  getRun(tenantId: string, sessionId: string, runId: string): Promise<RunInfo | null>;
+}
+
 /** Async SaaS event persister. It is intentionally separate from Local's sync transaction persister. */
 export class AsyncKernelEventPersister {
   private finalMessageId: string | null = null;
 
   constructor(
-    private readonly conversation: Pick<AsyncConversationRepository, "createSession" | "addMessage" | "getMessageById">,
-    private readonly runs: Pick<AsyncRunStore, "createRun" | "updateRunStatus" | "getRun">,
+    private readonly conversation: AsyncEventConversationPort,
+    private readonly runs: AsyncEventRunPort,
     private readonly ctx: AsyncPersisterRunContext,
     private readonly fileHistory: AsyncFileHistoryStore | null = null,
   ) {}
