@@ -7,27 +7,13 @@ import type { AgentExecutionLogger } from "../../services/agent/execution/index.
 import { createLocalRuntimeContainer } from "./runtime-container.js";
 import type { RuntimeContainer } from "../../contracts/runtime-container.js";
 import type { RuntimeContainerOptions } from "../../adapters/local/runtime-options.js";
+import type { RuntimeLease, RuntimeRegistry } from "../../contracts/runtime-provider.js";
 import { TenantPaths } from "./tenant-paths.js";
 
 /**
  * A runtime lease is deployment-agnostic. Implementations decide how a
  * runtime is located and provisioned; callers only own/release the lease.
  */
-export interface RuntimeLease<TRuntime> {
-  readonly tenantId: TenantId;
-  readonly runtime: TRuntime;
-  release(): void;
-}
-
-export interface RuntimeProvider<TRuntime> {
-  acquire(tenantId: string): Promise<RuntimeLease<TRuntime>>;
-}
-
-export interface RuntimeRegistry<TRuntime> extends RuntimeProvider<TRuntime> {
-  closeTenant(tenantId: string): Promise<void>;
-  closeAll(): Promise<void>;
-}
-
 /** Local runtime lease retained as the public tenant-runtime contract. */
 export type TenantRuntimeLease = RuntimeLease<RuntimeContainer>;
 
@@ -58,9 +44,6 @@ export interface LocalTenantRuntimeRegistryOptions {
   runtimeFactory?: (options: RuntimeContainerOptions) => RuntimeContainer;
   prepareRuntime?: (tenantId: TenantId, runtime: RuntimeContainer) => Promise<void>;
 }
-
-/** @deprecated Use LocalTenantRuntimeRegistryOptions for local deployments. */
-export type TenantRuntimeRegistryOptions = LocalTenantRuntimeRegistryOptions;
 
 /**
  * Local registry extensions used by the HTTP/daemon routes. SaaS registries
