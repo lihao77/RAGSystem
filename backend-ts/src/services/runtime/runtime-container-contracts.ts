@@ -45,6 +45,7 @@ import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../age
 import type { AsyncConversationHistoryPort, AsyncProviderContinuationLookupPort, SuspendedSessionControlPort } from "../../contracts/runtime-async-ports.js";
 import type { AsyncBackgroundTaskRepository } from "../../contracts/background-task-repository.js";
 import type { KnowledgeQueryPort } from "../../contracts/knowledge/query-port.js";
+import type { ExecutionStorage } from "../../contracts/execution-storage.js";
 
 export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = IMemoryStore> {
   readonly conversationStore: ConversationStore;
@@ -109,6 +110,11 @@ export interface LocalRuntimeContainerOptions {
   asyncSuspendedSessionControlFactory?: (tenantId: TenantId) => SuspendedSessionControlPort;
   asyncBackgroundTasks?: AsyncBackgroundTaskRepository;
   knowledgeQueryFactory?: KnowledgeRuntimeQueryFactory;
+  executionStorage?: ExecutionStorage;
+  executionStorageFactory?: (input: {
+    tenantId: TenantId;
+    asyncClientEvents?: AsyncDurableClientEventPublisher;
+  }) => ExecutionStorage;
 }
 
 export interface KnowledgeRuntimeQueryFactoryInput {
@@ -166,6 +172,7 @@ export interface CoreRuntimeDependencies<TMemoryRepository extends MemoryReposit
   embeddingModels: EmbeddingModelService;
   memoryStore: TMemoryRepository;
   memoryBindings: MemoryRuntimeBindings;
+  executionStorage: ExecutionStorage;
   documentTools: LocalDocumentToolService;
   codeExecutionTools: CodeExecutionToolService;
   skillTools: SkillToolService;

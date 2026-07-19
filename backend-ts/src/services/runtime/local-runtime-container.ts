@@ -37,6 +37,7 @@ import { RealtimeEventHub } from "./realtime-event-hub.js";
 import type { LocalRuntimeContainerOptions, RuntimeContainer } from "./runtime-container-contracts.js";
 import { SessionNotificationQueue } from "./session-notification-queue.js";
 import { LocalKnowledgeQueryAdapter } from "../../adapters/local/local-knowledge-query-adapter.js";
+import { createLocalExecutionStorage } from "../../adapters/local/local-execution-storage.js";
 
 /** Create the filesystem, SQLite, and host-tool backed runtime used by local deployments. */
 export function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): RuntimeContainer {
@@ -168,6 +169,9 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     embeddingModels,
     memoryStore,
     memoryBindings,
+    executionStorage: options.executionStorage
+      ?? options.executionStorageFactory?.({ tenantId: options.tenantId, ...(asyncClientEvents ? { asyncClientEvents } : {}) })
+      ?? createLocalExecutionStorage(conversationStore),
     documentTools,
     codeExecutionTools,
     skillTools,

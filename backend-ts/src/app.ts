@@ -43,6 +43,7 @@ import type { SaaSControlRuntimeHandle } from "./services/runtime/saas-control-r
 import { SaaSExecutionWriteBridge } from "./services/runtime/saas-execution-write-bridge.js";
 import { SaaSSessionControlApplication } from "./services/runtime/saas-session-control-application.js";
 import { SaaSDaemonState } from "./services/daemon/saas-daemon-state.js";
+import { createPostgresExecutionStorage } from "./adapters/saas/postgres/postgres-execution-storage.js";
 
 export interface BuildAppOptions {
   env: AppEnv;
@@ -139,6 +140,23 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ? createWidgetAuthService(options.env.widgetJwtKeyRing, widgetCredentials)
     : undefined);
   const widgetIdentityProvider = widgetAuth ? new WidgetIdentityProvider(widgetAuth, widgetCredentials) : undefined;
+  const saasExecutionStorageFactory = options.saasConversationRuntime
+    ? (input: { tenantId: import("./identity/types.js").TenantId; asyncClientEvents?: AsyncDurableClientEventPublisher }) => {
+        if (!input.asyncClientEvents) throw new Error("SaaS execution storage requires durable client events");
+        return createPostgresExecutionStorage({
+          tenantId: input.tenantId,
+          conversation: options.saasConversationRuntime!.conversation,
+          providerContinuations: options.saasConversationRuntime!.providerContinuations,
+          clientEvents: input.asyncClientEvents,
+          createEventPersister: (context) => new AsyncKernelEventPersister(
+            options.saasConversationRuntime!.conversation,
+            options.saasConversationRuntime!.runs,
+            context,
+            options.saasConversationRuntime!.createFileHistoryStorage(context.tenantId),
+          ),
+        });
+      }
+    : undefined;
   const registry = options.registry ?? new DefaultTenantRuntimeRegistry(
     options.env,
     controlPlane.tenants,
@@ -157,6 +175,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               input.tenantId,
               input.sessions,
             ),
+            ...(saasExecutionStorageFactory ? { executionStorageFactory: saasExecutionStorageFactory } : {}),
             ...(options.saasConversationRuntime ? {
               asyncEventPersisterFactory: (context: import("./services/agent/sdk/async-event-persister.js").AsyncPersisterRunContext) => new AsyncKernelEventPersister(
                 options.saasConversationRuntime!.conversation,
@@ -189,6 +208,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
             );
           },
           runtimeOptions: {
+            ...(saasExecutionStorageFactory ? { executionStorageFactory: saasExecutionStorageFactory } : {}),
             asyncEventPersisterFactory: (context: import("./services/agent/sdk/async-event-persister.js").AsyncPersisterRunContext) => new AsyncKernelEventPersister(
               options.saasConversationRuntime!.conversation,
               options.saasConversationRuntime!.runs,
