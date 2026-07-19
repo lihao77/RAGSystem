@@ -32,6 +32,7 @@ import type { SessionTokenService } from "../services/runtime/session-token-serv
 import type { TenantRuntimeRegistry } from "../services/runtime/tenant-runtime-registry.js";
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
 import { HttpError } from "../utils/errors.js";
+import { createRequestApplications } from "./request-applications.js";
 
 export interface AuthRuntime {
   profile: DeploymentProfile;
@@ -106,6 +107,17 @@ export async function registerSharedBusinessRoutes(
       identityProvider: options.identityProvider,
       botRepository: options.botRepository,
     };
+    scope.addHook("preHandler", async (request) => {
+      if (isExplicitPublicRoute(request)) return;
+      request.applications = await createRequestApplications(request, {
+        ...routeOptions,
+        ...(options.resolveMemoryApplication ? { resolveMemoryApplication: options.resolveMemoryApplication } : {}),
+        ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
+        ...(options.resolveArtifactApplication ? { resolveArtifactApplication: options.resolveArtifactApplication } : {}),
+        ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
+        ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
+      });
+    });
     await scope.register(registerHealthRoutes, {
       prefix: "/api",
       ...routeOptions,

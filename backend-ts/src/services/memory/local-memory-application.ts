@@ -15,23 +15,26 @@ export class LocalMemoryApplication implements MemoryApplication {
   readonly commands: MemoryCommandService;
   readonly governance: MemoryGovernanceService;
 
-  constructor(private readonly tenantId: string, private readonly memory: MemoryStore, private readonly conversation: ConversationStore, private readonly viewerUserId = "", private readonly viewerSessionIds: readonly string[] = []) {
-    this.query = new LocalQueryService(tenantId, memory, viewerUserId, [...viewerSessionIds]);
-    this.commands = new LocalCommandService(tenantId, memory, conversation, viewerUserId, [...viewerSessionIds]);
-    this.governance = new LocalGovernanceService(tenantId, memory, conversation, viewerUserId, [...viewerSessionIds]);
+  constructor(private readonly tenantId: string, private readonly memory: MemoryStore, private readonly conversation: ConversationStore, private readonly viewerUserId = "", private readonly viewerSessionIds: ViewerSessionIds = []) {
+    this.query = new LocalQueryService(tenantId, memory, viewerUserId, viewerSessionIds);
+    this.commands = new LocalCommandService(tenantId, memory, conversation, viewerUserId, viewerSessionIds);
+    this.governance = new LocalGovernanceService(tenantId, memory, conversation, viewerUserId, viewerSessionIds);
   }
 }
 
+type ViewerSessionIds = readonly string[] | (() => Promise<readonly string[]>);
+async function resolveViewerSessionIds(source: ViewerSessionIds): Promise<string[]> { return [...(typeof source === "function" ? await source() : source)]; }
+
 class LocalQueryService extends TenantMemoryQueryService {
-  constructor(private readonly localTenantId: string, private readonly local: MemoryStore, private readonly viewerUserId: string, private readonly viewerSessionIds: readonly string[]) { super(localTenantId, local as never); }
+  constructor(private readonly localTenantId: string, private readonly local: MemoryStore, private readonly viewerUserId: string, private readonly viewerSessionIds: ViewerSessionIds) { super(localTenantId, local as never); }
   override async getEntry(memoryId: string): Promise<PersistedMemoryEntry | null> {
-    const rows = this.local.listManagedEntries({ tenant_id: this.localTenantId, viewer_user_id: this.viewerUserId, viewer_session_ids: [...this.viewerSessionIds] });
+    const rows = this.local.listManagedEntries({ tenant_id: this.localTenantId, viewer_user_id: this.viewerUserId, viewer_session_ids: await resolveViewerSessionIds(this.viewerSessionIds) });
     return rows.find((row) => row.id === memoryId) ?? null;
   }
 }
 
 class LocalCommandService implements MemoryCommandService {
-  constructor(private readonly tenantId: string, private readonly memory: MemoryStore, private readonly conversation: ConversationStore, private readonly viewerUserId: string, private readonly viewerSessionIds: readonly string[]) {}
+  constructor(private readonly tenantId: string, private readonly memory: MemoryStore, private readonly conversation: ConversationStore, private readonly viewerUserId: string, private readonly viewerSessionIds: ViewerSessionIds) {}
   async createCandidate(input: Parameters<MemoryCommandService["createCandidate"]>[0]): Promise<PersistedMemoryCandidate> {
     const value = input as any;
     if (value.scope === "user" || value.scope === "workspace" || value.scope === "session") {
@@ -45,7 +48,7 @@ class LocalCommandService implements MemoryCommandService {
         reviewed_at: null, review_claim_token: null, review_claimed_at: null,
       };
     }
-    const resolved = value.target_memory_id ? this.memory.getManagedEntry({ tenant_id: this.tenantId, memory_id: value.target_memory_id, viewer_user_id: this.viewerUserId, viewer_session_ids: [...this.viewerSessionIds] }) : null;
+    const resolved = value.target_memory_id ? this.memory.getManagedEntry({ tenant_id: this.tenantId, memory_id: value.target_memory_id, viewer_user_id: this.viewerUserId, viewer_session_ids: await resolveViewerSessionIds(this.viewerSessionIds) }) : null;
     const candidate = this.conversation.createMemoryCandidate({ tenantId: this.tenantId, ownerUserId: value.owner_user_id, targetScope: value.scope, operation: value.operation, teamName: value.scope_id, ...(value.name !== undefined ? { name: value.name } : { name: `Archive ${value.target_memory_id ?? "memory"}` }), description: value.description ?? "", memoryType: value.memory_type ?? "fact", content: value.content ?? "", ...(resolved?.storage_key ? { targetFileName: resolved.storage_key } : {}) });
     return toPersistedCandidate(candidate);
   }
@@ -54,7 +57,7 @@ class LocalCommandService implements MemoryCommandService {
 }
 
 class LocalGovernanceService implements MemoryGovernanceService {
-  constructor(private readonly tenantId: string, private readonly memory: MemoryStore, private readonly conversation: ConversationStore, private readonly viewerUserId: string, private readonly viewerSessionIds: readonly string[]) {}
+  constructor(private readonly tenantId: string, private readonly memory: MemoryStore, private readonly conversation: ConversationStore, private readonly viewerUserId: string, private readonly viewerSessionIds: ViewerSessionIds) {}
   async getCandidate(id: string) { const row = this.conversation.getMemoryCandidate(id); return row && row.tenant_id === this.tenantId ? toPersistedCandidate(row) : null; }
   async listCandidates(query: Parameters<MemoryGovernanceService["listCandidates"]>[0] = {}) { const q = query as any; return this.conversation.listMemoryCandidates({ ...(q.owner_user_id !== undefined ? { ownerUserId: q.owner_user_id } : {}), ...(q.statuses ? { statuses: q.statuses } : {}), ...(q.scope ? { targetScope: q.scope } : {}), ...(q.scopes ? { targetScopes: q.scopes.filter((s: string) => s === "team" || s === "agent") } : {}), ...(q.operation ? { operation: q.operation } : {}), ...(q.limit !== undefined ? { limit: q.limit } : {}), ...(q.offset !== undefined ? { offset: q.offset } : {}) }).filter((row) => row.tenant_id === this.tenantId).map(toPersistedCandidate); }
   async countCandidates(query: Parameters<MemoryGovernanceService["countCandidates"]>[0] = {}) { const q = query as any; return this.conversation.countMemoryCandidates({ ...(q.owner_user_id !== undefined ? { ownerUserId: q.owner_user_id } : {}), ...(q.statuses ? { statuses: q.statuses } : {}), ...(q.scope ? { targetScope: q.scope } : {}), ...(q.scopes ? { targetScopes: q.scopes.filter((s: string) => s === "team" || s === "agent") } : {}), ...(q.operation ? { operation: q.operation } : {}) }); }
@@ -64,7 +67,7 @@ class LocalGovernanceService implements MemoryGovernanceService {
   async approveCandidate(input: Parameters<MemoryGovernanceService["approveCandidate"]>[0]) {
     const row = this.conversation.getMemoryCandidate(input.candidate_id);
     if (!row) {
-      const resolved = this.memory.getManagedEntry({ tenant_id: this.tenantId, memory_id: input.candidate_id, viewer_user_id: this.viewerUserId, viewer_session_ids: [...this.viewerSessionIds] });
+      const resolved = this.memory.getManagedEntry({ tenant_id: this.tenantId, memory_id: input.candidate_id, viewer_user_id: this.viewerUserId, viewer_session_ids: await resolveViewerSessionIds(this.viewerSessionIds) });
       if (!resolved) return { outcome: "not_found" as const };
       const archived = await this.memory.archiveMemory(resolved.scope_spec, resolved.storage_key);
       if (!archived) return { outcome: "target_not_found" as const };

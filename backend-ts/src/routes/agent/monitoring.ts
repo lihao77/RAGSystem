@@ -15,7 +15,7 @@ import { extractText } from "@ragsystem/agent-llm";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import type { MonitoringApplication } from "../../contracts/monitoring-application.js";
-import { LocalMonitoringApplication } from "../../adapters/local/local-monitoring-application.js";
+import { ensureRequestApplications } from "../../app/request-applications.js";
 import { requireTenantAdmin, requireTenantMember } from "../tenant-role.js";
 import { assertSessionOwner } from "../session-owner.js";
 import { isRecord, normalizeString } from "../../utils/guards.js";
@@ -43,8 +43,7 @@ interface OutboxCleanupQuery {
 
 export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   const resolveMonitoring = async (request: FastifyRequest): Promise<MonitoringApplication> =>
-    await options.resolveMonitoringApplication?.(request)
-      ?? new LocalMonitoringApplication(request.container.conversationStore);
+    (await ensureRequestApplications(request, options)).monitoring;
   app.addHook("preHandler", async (request) => {
     requireTenantMember(request);
     if (request.method !== "GET" || request.url.includes("/event-outbox") || request.url.includes("/metrics")) requireTenantAdmin(request);

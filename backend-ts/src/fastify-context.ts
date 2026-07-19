@@ -3,6 +3,7 @@ import type { RuntimeContainer } from "./services/runtime/runtime-container.js";
 import type { TenantRuntimeLease } from "./services/runtime/tenant-runtime-registry.js";
 import type { DaemonService } from "./services/daemon/daemon-service.js";
 import type { BotRepository } from "./contracts/bot-repository.js";
+import type { RequestApplications } from "./app/request-applications.js";
 
 declare module "fastify" {
   interface FastifyContextConfig {
@@ -20,6 +21,7 @@ declare module "fastify" {
     tenantId: TenantId;
     container: RuntimeContainer;
     tenantRuntimeLease: TenantRuntimeLease | null;
+    applications?: RequestApplications;
   }
 }
 

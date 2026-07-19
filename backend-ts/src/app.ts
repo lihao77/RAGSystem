@@ -358,6 +358,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.decorateRequest("tenantId");
   app.decorateRequest("container");
   app.decorateRequest("tenantRuntimeLease", null);
+  app.decorateRequest("applications");
   const releaseRequestLease = (request: FastifyRequest): void => {
     request.tenantRuntimeLease?.release();
     request.tenantRuntimeLease = null;
