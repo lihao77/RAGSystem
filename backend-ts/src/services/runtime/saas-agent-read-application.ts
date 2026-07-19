@@ -21,7 +21,7 @@ export class SaaSAgentReadApplication {
 
   async getSessionTaskStatus(sessionId: string): Promise<SessionTaskStatus> {
     if (!(await this.getSession(sessionId))) return idleStatus(sessionId);
-    const latest = (await this.runs.listRuns(sessionId, 500)).items[0] ?? null;
+    const latest = (await this.runs.listRuns(this.tenantId, sessionId, 500)).items[0] ?? null;
     if (!latest) return idleStatus(sessionId);
     const task = toTaskStatus(latest);
     return {
@@ -36,7 +36,7 @@ export class SaaSAgentReadApplication {
 
   async listRuns(sessionId: string, limit = 500): Promise<RunInfo[]> {
     if (!(await this.getSession(sessionId))) return [];
-    return (await this.runs.listRuns(sessionId, limit)).items;
+    return (await this.runs.listRuns(this.tenantId, sessionId, limit)).items;
   }
 
   async listOutboxForReplay(input: { sessionId: string; runIds?: readonly string[]; afterSeq?: number; limit?: number }): Promise<OutboxRow[]> {

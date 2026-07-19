@@ -32,6 +32,7 @@ export class SaaSExecutionWriteBridge {
   async record(input: SaaSExecutionWriteBridgeInput): Promise<void> {
     await this.conversation.createSession(createTenantId(input.tenantId), input.sessionId, input.userId ?? null);
     await this.runs.createRun({
+      tenantId: input.tenantId,
       runId: input.runId,
       sessionId: input.sessionId,
       entrypoint: "agent",
@@ -56,6 +57,6 @@ export class SaaSExecutionWriteBridge {
       };
       await this.conversation.addMessage(message);
     }
-    await this.runs.updateRunStatus(input.runId, input.sessionId, input.status, finalMessageId);
+    await this.runs.updateRunStatus(input.tenantId, input.runId, input.sessionId, input.status, finalMessageId);
   }
 }

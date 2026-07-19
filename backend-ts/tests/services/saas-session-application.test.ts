@@ -156,6 +156,7 @@ describe("SaaSSessionApplication", () => {
     expect(result.items).toHaveLength(1);
     expect(runs.listRuns).not.toHaveBeenCalled();
     expect(runs.listRunSteps).toHaveBeenCalledWith({
+      tenantId: "tenant-a",
       messageId: "message-1",
       sessionId: "session-1",
       limit: 500,

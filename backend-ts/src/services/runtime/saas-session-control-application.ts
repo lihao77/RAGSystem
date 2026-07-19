@@ -25,7 +25,7 @@ export class SaaSSessionControlApplication implements AsyncSuspendedSessionContr
     const session = await this.conversations.getSession(sessionId);
     if (session?.tenant_id !== this.tenantId) return [];
 
-    const interrupted = await this.runs.interruptSuspendedRuns(sessionId);
+    const interrupted = await this.runs.interruptSuspendedRuns(this.tenantId, sessionId);
     if (interrupted.length === 0) return [];
     await this.pending.cancelPendingInteractions(sessionId);
     return interrupted.map((item) => ({ runId: item.run_id, parentRunId: item.parent_run_id }));

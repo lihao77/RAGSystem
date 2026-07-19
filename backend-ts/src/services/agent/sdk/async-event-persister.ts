@@ -52,7 +52,7 @@ export class AsyncKernelEventPersister {
       });
     }
     await this.runs.createRun({
-      runId: this.ctx.runId, sessionId: this.ctx.sessionId, status: "running", agentName: this.ctx.agentName,
+      tenantId: this.ctx.tenantId, runId: this.ctx.runId, sessionId: this.ctx.sessionId, status: "running", agentName: this.ctx.agentName,
       threadKey: this.ctx.threadKey, ...(this.ctx.executionKind ? { entrypoint: this.ctx.executionKind } : {}),
       ...(this.ctx.taskSummary !== undefined ? { taskSummary: this.ctx.taskSummary } : {}),
       ...(this.ctx.requestId !== undefined ? { requestId: this.ctx.requestId } : {}),
@@ -77,11 +77,11 @@ export class AsyncKernelEventPersister {
       this.finalMessageId = message.id;
       await this.fileHistory?.makeSnapshot(this.ctx.sessionId, message.seq);
     }
-    await this.runs.updateRunStatus(this.ctx.runId, this.ctx.sessionId, status, this.finalMessageId);
+    await this.runs.updateRunStatus(this.ctx.tenantId, this.ctx.runId, this.ctx.sessionId, status, this.finalMessageId);
   }
 
   async resolveFinalMessage(): Promise<{ id: string; seq: number; content: string } | null> {
-    const run = await this.runs.getRun(this.ctx.sessionId, this.ctx.runId);
+    const run = await this.runs.getRun(this.ctx.tenantId, this.ctx.sessionId, this.ctx.runId);
     if (!run?.final_message_id) return null;
     const message = await this.conversation.getMessageById(this.ctx.sessionId, run.final_message_id);
     return message ? { id: message.id, seq: message.seq, content: message.content } : null;

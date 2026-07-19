@@ -82,14 +82,16 @@ export class SaaSSessionApplication {
     let steps;
     if (!rootRunId) {
       steps = await this.runs.listRunSteps({
+        tenantId: this.tenantId,
         messageId: input.messageId,
         sessionId: input.sessionId,
         limit: limit + offset,
       });
     } else {
-      const allRuns = (await this.runs.listRuns(input.sessionId, 1000)).items;
+      const allRuns = (await this.runs.listRuns(this.tenantId, input.sessionId, 1000)).items;
       const runIds = collectRunTreeRunIds(allRuns, rootRunId);
       const groups = await Promise.all(runIds.map((runId) => this.runs!.listRunSteps({
+        tenantId: this.tenantId,
         runId,
         sessionId: input.sessionId,
         limit: limit + offset,

@@ -24,7 +24,7 @@ describe("SaaSSessionControlApplication", () => {
     await expect(application.interruptSuspendedSession("session-a")).resolves.toEqual([
       { runId: "run-root", parentRunId: null },
     ]);
-    expect(runs.interruptSuspendedRuns).toHaveBeenCalledWith("session-a");
+    expect(runs.interruptSuspendedRuns).toHaveBeenCalledWith("tnt_a", "session-a");
     expect(pending.cancelPendingInteractions).toHaveBeenCalledWith("session-a");
   });
 

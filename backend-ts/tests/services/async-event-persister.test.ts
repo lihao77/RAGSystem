@@ -13,8 +13,8 @@ describe("AsyncKernelEventPersister", () => {
     } as never;
     const runStore = {
       createRun: async (input: { runId: string }) => { runs.set(input.runId, { final_message_id: null }); return { run_id: input.runId, session_id: "s", status: "running", thread_key: "root", parent_run_id: null, parent_call_id: null, child_agent_id: null }; },
-      updateRunStatus: async (id: string, _session: string, _status: string, finalId?: string | null) => { const run = runs.get(id); if (run) run.final_message_id = finalId ?? null; return Boolean(run); },
-      getRun: async (_session: string, id: string) => { const run = runs.get(id); return run ? { final_message_id: run.final_message_id } : null; },
+      updateRunStatus: async (_tenant: string, id: string, _session: string, _status: string, finalId?: string | null) => { const run = runs.get(id); if (run) run.final_message_id = finalId ?? null; return Boolean(run); },
+      getRun: async (_tenant: string, _session: string, id: string) => { const run = runs.get(id); return run ? { final_message_id: run.final_message_id } : null; },
     } as never;
     const snapshots: Array<[string, number]> = [];
     const fileHistory = { makeSnapshot: async (sessionId: string, seq: number) => { snapshots.push([sessionId, seq]); return "snapshot"; } } as never;
@@ -26,7 +26,6 @@ describe("AsyncKernelEventPersister", () => {
   });
 
   it("mirrors the initial user turn once for future SaaS context reads", async () => {
-    expect(snapshots).toEqual([["s", 1]]);
     const messages = new Map<string, { id: string; seq: number; content: string }>();
     let addCount = 0;
     const conversation = {
