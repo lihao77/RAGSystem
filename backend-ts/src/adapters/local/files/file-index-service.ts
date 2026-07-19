@@ -3,7 +3,7 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 
-import type { UploadedFileRecord } from "../../contracts/files.js";
+import type { UploadedFileRecord } from "../../../contracts/files.js";
 import {
   AddFileInputSchema,
   ListFilesInputSchema,
@@ -12,8 +12,8 @@ import {
   type FileScopeType,
   type IFileIndexStore,
   type ListFilesInput,
-} from "../../contracts/file-index-store/index.js";
-import { matchesFileFilters, sanitizeFilename } from "../../utils/file-filter.js";
+} from "../../../contracts/file-index-store/index.js";
+import { matchesFileFilters, sanitizeFilename } from "../../../utils/file-filter.js";
 
 type SqlInputValue = string | number | bigint | Uint8Array | null;
 

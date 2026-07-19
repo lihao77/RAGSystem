@@ -6,7 +6,7 @@ import type { IKnowledgeConfig, IKnowledgeFileStore, IVectorStore, KnowledgeFile
 import type { DocumentExtractor } from "../../src/contracts/knowledge/document-extractor.js";
 import { ModelAdapterService } from "../../src/services/integrations/model-adapter-service.js";
 import { KnowledgeBaseService } from "../../src/services/knowledge/knowledge-base-service.js";
-import { FileIndexService } from "../../src/services/stores/file-index-service.js";
+import { FileIndexService } from "../../src/adapters/local/files/file-index-service.js";
 
 const documentExtractor: DocumentExtractor = { extract: async () => ({ text: "", markdown: "", kind: "text" }) };
 

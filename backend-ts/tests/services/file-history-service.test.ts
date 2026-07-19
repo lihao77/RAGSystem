@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { FileHistoryService } from "../../src/services/stores/file-history-service.js";
+import { FileHistoryService } from "../../src/adapters/local/files/file-history-service.js";
 
 describe("FileHistoryService", () => {
   it("tracks an existing file once and rewinds later snapshots", () => {

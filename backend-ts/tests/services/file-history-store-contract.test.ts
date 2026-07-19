@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { IFileHistoryStore } from "../../src/contracts/file-history-store/index.js";
-import { FileHistoryService } from "../../src/services/stores/file-history-service.js";
+import { FileHistoryService } from "../../src/adapters/local/files/file-history-service.js";
 
 /**
  * file-history-store 契约测试样本（路线图④替换验证雏形）。

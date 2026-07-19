@@ -1,4 +1,4 @@
-import { isRecord } from "../../utils/guards.js";
+import { isRecord } from "../../../utils/guards.js";
 import fs from "node:fs";
 import path from "node:path";
 import crypto, { randomUUID } from "node:crypto";
@@ -9,7 +9,7 @@ import type {
   FileHistoryStoreOptions,
   FileHistoryTrackedFile,
   IFileHistoryStore,
-} from "../../contracts/file-history-store/index.js";
+} from "../../../contracts/file-history-store/index.js";
 
 export class FileHistoryService implements IFileHistoryStore {
   private readonly dataRoot: string;

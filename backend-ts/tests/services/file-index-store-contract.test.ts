@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { IFileIndexStore } from "../../src/contracts/file-index-store/index.js";
-import { FileIndexService } from "../../src/services/stores/file-index-service.js";
+import { FileIndexService } from "../../src/adapters/local/files/file-index-service.js";
 
 /**
  * file-index-store 契约测试(session-only:知识库文件已独立到 driver kb_files,

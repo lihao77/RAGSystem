@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { AsyncFileChangeService, FileChangeService } from "../../src/services/sessions/file-change-service.js";
 import type { AsyncFileHistoryStore } from "../../src/contracts/file-history-store/index.js";
-import { FileHistoryService } from "../../src/services/stores/file-history-service.js";
+import { FileHistoryService } from "../../src/adapters/local/files/file-history-service.js";
 
 let dataRoot: string;
 let workDir: string;

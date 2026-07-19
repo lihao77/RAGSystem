@@ -22,8 +22,8 @@ import { KnowledgeBaseService } from "../../services/knowledge/knowledge-base-se
 import { AgentSessionApplication } from "../../services/sessions/index.js";
 import { SkillLibraryService } from "../../services/skills/skill-library-service.js";
 import { createConversationStore } from "../../services/stores/conversation-store/index.js";
-import { FileHistoryService } from "../../services/stores/file-history-service.js";
-import { FileIndexService } from "../../services/stores/file-index-service.js";
+import { FileHistoryService } from "./files/file-history-service.js";
+import { FileIndexService } from "./files/file-index-service.js";
 import { createVectorStoreFromConfig } from "../../services/vector-store/vector-store-factory.js";
 import { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
 import { createCoreRuntimeContainer } from "../../services/runtime/core-runtime-container.js";
