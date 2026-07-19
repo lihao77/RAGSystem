@@ -1,7 +1,7 @@
 ---
 status: current
 audience: developer, operator
-source: backend-ts/src/services/runtime/local-runtime-container.ts, backend-ts/src/services/runtime/saas-conversation-runtime.ts
+source: backend-ts/src/adapters/local/runtime-container.ts, backend-ts/src/app/composition/saas/saas-conversation-runtime.ts
 verified_at: 2026-07-19
 ---
 
