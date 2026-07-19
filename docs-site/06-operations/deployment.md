@@ -121,4 +121,4 @@ RAG_DATA_ROOT/
 
 ## 明确的非目标
 
-当前代码不保证跨进程共享内存事件 hub，也不自动提供 Kubernetes 编排。PostgreSQL/Object Storage 是持久化事实来源，但 Agent 执行 runtime、实时连接投影和部分后台任务仍需队列、租约或 pub/sub 才能支持任意多实例调度。上线前应以 `/readyz`、备份恢复、租户隔离和多实例执行测试作为验收条件。
+当前代码不保证跨进程共享内存事件 hub，也不自动提供 Kubernetes 编排。PostgreSQL/Object Storage 是持久化事实来源；Cron 与 BackgroundTask 已使用租约防止重复领取，但 Agent 执行 runtime、实时连接投影、飞书 webhook route token 和长连接仍有进程内状态。SaaS 部署在 route resolver、leader lease 和 pub/sub 完成前必须只运行一个 Daemon leader。上线前应以 `/readyz`、备份恢复、租户隔离和多实例执行测试作为验收条件。

@@ -39,7 +39,7 @@ Widget app secret 当前只存 SHA-256 hash，这是不可逆凭证，迁移时�
 
 上述 ports 已完成，但解除消费者对同步 SQLite API 的依赖不等于完整 SaaS：
 
-1. `DaemonService` 的 scheduler、cron history、消息去重、飞书长连接都在进程内。多实例会重复领取 cron、重复启动长连接并产生重复副作用。
+1. `DaemonService` 的 scheduler、cron history、消息去重、飞书长连接仍有进程内部分。Cron 领取已经通过 PostgreSQL lease/`SKIP LOCKED` 防止重复执行；飞书长连接与 webhook route token 仍依赖单个进程的 runtime registry，多实例部署必须只启用一个 Daemon leader，或先完成共享 route-token resolver 与长连接 leader lease。
 2. webhook `route_token -> tenant/bot` registry 是进程内映射。任意实例接收 webhook 时未必拥有相同 runtime state。
 3. Conversation、Run、Outbox、Knowledge、Provider/MCP 配置仍是 tenant 本地 SQLite/文件。Control PG 创建的 tenant 不会让这些数据跨实例可见。
 4. Bot 删除与 tenant SQLite 中既有 session/resource 不在同一事务，必须定义保留、软删除或异步清理策略。
@@ -91,7 +91,7 @@ v1 保持 core 表：tenant、user、membership、auth session、settings、plat
 - Bot config 中只保存 secret reference，route token 保存唯一查找 digest，并在需要恢复原 token 时保存独立 envelope reference；
 - tenant、owner、bot、widget app 的 FK 和唯一约束全部在 PG 内成立。
 
-v2 **不包含** Provider YAML、MCP config、Knowledge reranker key、Conversation/Run/Outbox。这些属于 tenant runtime migration，不能借 Control migration 偷渡。v2 也不自动解决 cron 多 worker claim；若同批开放多实例 Daemon，需增加 lease/attempt/idempotency schema，或继续只允许单 leader。
+v2 **不包含** Provider YAML、MCP config、Knowledge reranker key、Conversation/Run/Outbox。这些属于 tenant runtime migration，不能借 Control migration 偷渡。Cron 多 worker claim 已由 PostgreSQL lease/attempt 机制覆盖；但飞书 webhook route token 和长连接仍是 process-local，SaaS 部署在共享 route resolver/leader lease 完成前必须保持单 Daemon leader。
 
 SQLite 导入流程要求：
 

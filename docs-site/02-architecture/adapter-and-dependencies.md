@@ -146,8 +146,8 @@ Local 请求的这些字段可以为空，路由随后使用 runtime container �
 - `RuntimeContainer` 仍暴露若干 Local 具体类型；
 - Agent 执行、实时事件 hub、部分后台任务仍有进程内状态；
 - Knowledge 与文件 storage resolver 尚未并入 `request.applications`；
-- Daemon、后台任务和租户 runtime registry 继续直接依赖 runtime container，这是后台生命周期边界，不是 HTTP request composition；
+- Daemon、后台任务和租户 runtime registry 继续直接依赖 runtime container，这是后台生命周期边界，不是 HTTP request composition；Cron/BackgroundTask 已有数据库 lease，但 webhook route token 和长连接仍需单 leader；
 - 若干共享 Agent service 仍引用具体 SaaS repository 类型，应继续收窄为 ports；
 - `main.ts` 和 `app.ts` 仍共同承担较多 composition 责任。
 
-下一步继续整理 Knowledge 和文件能力的独立 `request.resources` 边界；后台 Daemon、任务触发和 runtime registry 则按多实例部署模型单独治理。
+下一步继续治理 Daemon 的共享 route resolver、长连接 leader lease 和 realtime pub/sub；在此之前 SaaS 只支持单 Daemon leader。Knowledge 和文件能力已通过独立 `request.resources` 边界完成请求级组合。
