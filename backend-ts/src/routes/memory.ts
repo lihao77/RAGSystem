@@ -65,6 +65,10 @@ function requireExpectedVersion(value: number | undefined): number {
   return value;
 }
 
+function expectedVersion(memory: MemoryApplication, value: number | undefined): number {
+  return value ?? (memory.requiresExpectedVersion ? requireExpectedVersion(value) : 1);
+}
+
 function mutationResult<T extends { outcome: string; candidate?: unknown }>(
   result: T,
   notFoundMessage: string,
@@ -78,8 +82,9 @@ async function resolveMemoryApplication(
   options: RouteOptions,
   request: Parameters<NonNullable<RouteOptions["resolveMemoryApplication"]>>[0],
 ): Promise<MemoryApplication> {
-  return await options.resolveMemoryApplication?.(request)
-    ?? new LocalMemoryApplication(request.identity.tenantId, request.container.memoryStore, request.container.conversationStore);
+  if (options.resolveMemoryApplication) return await options.resolveMemoryApplication(request) as MemoryApplication;
+  const sessionIds = await listOwnedSessionIds(options, request);
+  return new LocalMemoryApplication(request.identity.tenantId, request.container.memoryStore, request.container.conversationStore, request.identity.userId, sessionIds);
 }
 
 export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
@@ -241,7 +246,7 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
       const result = await memory.commands.updateCandidate({
         candidate_id: id,
         owner_user_id: request.identity.userId,
-        expected_version: requireExpectedVersion(input.expected_version),
+        expected_version: expectedVersion(memory, input.expected_version),
         ...(input.name !== undefined ? { name: input.name } : {}),
         ...(input.description !== undefined ? { description: input.description } : {}),
         ...(input.content !== undefined ? { content: input.content } : {}),
@@ -272,7 +277,7 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
       const result = await memory.commands.withdrawCandidate({
         candidate_id: id,
         owner_user_id: request.identity.userId,
-        expected_version: requireExpectedVersion(input.expected_version),
+        expected_version: expectedVersion(memory, input.expected_version),
       });
       mutationResult(result, "memory 不存在或不可撤回");
       return { success: true };
@@ -339,7 +344,7 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
       let candidate = await memory.governance.getCandidate(id);
       if (!candidate || candidate.status !== "candidate") throw new HttpError(404, "not_found", "待审核 memory 不存在");
       requireGovernedCandidate(candidate);
-      let expectedVersion = requireExpectedVersion(input.expected_version);
+      let expectedVersionValue = expectedVersion(memory, input.expected_version);
       let claimToken = input.review_claim_token;
       let claimedByThisRequest = false;
       if ((input.name !== undefined || input.description !== undefined || input.content !== undefined)) {
@@ -347,19 +352,19 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
         const updated = await memory.commands.updateCandidate({
           candidate_id: id,
           owner_user_id: candidate.owner_user_id,
-          expected_version: expectedVersion,
+          expected_version: expectedVersionValue,
           ...(input.name !== undefined ? { name: input.name } : {}),
           ...(input.description !== undefined ? { description: input.description } : {}),
           ...(input.content !== undefined ? { content: input.content } : {}),
         });
         candidate = mutationResult(updated, "待审核 memory 不存在") as typeof candidate;
-        expectedVersion = candidate.version;
+        expectedVersionValue = candidate.version;
       }
       if (!claimToken) {
         const claimed = await memory.governance.claimCandidate({
           candidate_id: id,
           reviewer_user_id: request.identity.userId,
-          expected_version: expectedVersion,
+          expected_version: expectedVersionValue,
         });
         if (claimed.outcome === "not_found") throw new HttpError(404, "not_found", "待审核 memory 不存在");
         if (claimed.outcome === "state_conflict") throw new HttpError(409, "conflict", "memory 正在被其他管理员处理或版本已变化");
@@ -367,7 +372,7 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
           throw new HttpError(409, "conflict", "memory 正在被其他管理员处理或版本已变化");
         }
         claimToken = claimed.review_claim_token;
-        expectedVersion = claimed.candidate.version;
+        expectedVersionValue = claimed.candidate.version;
         claimedByThisRequest = true;
       }
       if (!claimToken) throw new HttpError(409, "conflict", "memory 审核领取已失效");
@@ -376,7 +381,7 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
         approved = await memory.governance.approveCandidate({
           candidate_id: id,
           reviewer_user_id: request.identity.userId,
-          expected_version: expectedVersion,
+          expected_version: expectedVersionValue,
           review_claim_token: claimToken,
           ...(input.comment !== undefined ? { review_comment: input.comment } : {}),
         });
@@ -494,14 +499,14 @@ export const registerMemoryRoutes: FastifyPluginAsync<RouteOptions> = async (app
     if (memory) {
       const candidate = await memory.governance.getCandidate(id);
       requireGovernedCandidate(candidate);
-      const expectedVersion = requireExpectedVersion(input.expected_version);
+      const expectedVersionValue = expectedVersion(memory, input.expected_version);
       let claimToken = input.review_claim_token;
       let claimedByThisRequest = false;
       if (!claimToken) {
         const claimed = await memory.governance.claimCandidate({
           candidate_id: id,
           reviewer_user_id: request.identity.userId,
-          expected_version: expectedVersion,
+          expected_version: expectedVersionValue,
         });
         if (claimed.outcome === "not_found") throw new HttpError(404, "not_found", "待审核 memory 不存在");
         if (claimed.outcome === "state_conflict") throw new HttpError(409, "conflict", "memory 正在被其他管理员处理或版本已变化");
