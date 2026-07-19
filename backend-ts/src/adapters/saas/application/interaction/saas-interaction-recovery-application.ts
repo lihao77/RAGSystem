@@ -1,13 +1,13 @@
 import type {
   PendingInteractionRecord,
   ProviderContinuationRecord,
-} from "../../contracts/conversation-store/index.js";
-import type { AsyncConversationRepository, AsyncPendingInteractionStore, AsyncProviderContinuationStore } from "../../contracts/async-persistence-ports.js";
-import type { TenantId } from "../../identity/types.js";
+} from "../../../../contracts/conversation-store/index.js";
+import type { AsyncConversationRepository, AsyncPendingInteractionStore, AsyncProviderContinuationStore } from "../../../../contracts/async-persistence-ports.js";
+import type { TenantId } from "../../../../identity/types.js";
 import type {
   InteractionRecoveryApplication,
   InteractionRecoveryResult,
-} from "../../contracts/interaction-recovery-application.js";
+} from "../../../../contracts/interaction-recovery-application.js";
 
 /** Tenant-bound recovery facade for interactions that outlive the Local runtime process. */
 export class SaaSInteractionRecoveryApplication implements InteractionRecoveryApplication {

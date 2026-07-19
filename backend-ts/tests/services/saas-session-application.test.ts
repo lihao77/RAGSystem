@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { SaaSSessionApplication } from "../../src/application/session/saas-session-application.js";
+import { SaaSSessionApplication } from "../../src/adapters/saas/application/session/saas-session-application.js";
 
 describe("SaaSSessionApplication", () => {
   it("binds creates and lists to its tenant", async () => {

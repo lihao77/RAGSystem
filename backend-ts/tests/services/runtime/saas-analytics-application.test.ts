@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { SaaSAnalyticsApplication } from "../../../src/application/analytics/saas-analytics-application.js";
+import { SaaSAnalyticsApplication } from "../../../src/adapters/saas/application/analytics/saas-analytics-application.js";
 
 describe("SaaSAnalyticsApplication", () => {
   it("binds all analytics reads to its tenant", async () => {

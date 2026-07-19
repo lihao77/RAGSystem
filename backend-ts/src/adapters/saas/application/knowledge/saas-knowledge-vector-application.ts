@@ -1,9 +1,9 @@
-import type { IndexFileRequest, SearchVectorsRequest } from "../../contracts/knowledge-base.js";
-import type { AsyncKnowledgeFileStore } from "../../contracts/knowledge/async-knowledge-file-store.js";
-import type { AsyncKnowledgeMarkdownPipeline } from "../../contracts/knowledge/async-knowledge-markdown-pipeline.js";
-import type { AsyncKnowledgeVectorStore } from "../../contracts/knowledge/async-vector-store.js";
-import { KnowledgeBaseError } from "../../contracts/knowledge-base.js";
-import type { KnowledgeBaseService } from "../../services/knowledge/knowledge-base-service.js";
+import type { IndexFileRequest, SearchVectorsRequest } from "../../../../contracts/knowledge-base.js";
+import type { AsyncKnowledgeFileStore } from "../../../../contracts/knowledge/async-knowledge-file-store.js";
+import type { AsyncKnowledgeMarkdownPipeline } from "../../../../contracts/knowledge/async-knowledge-markdown-pipeline.js";
+import type { AsyncKnowledgeVectorStore } from "../../../../contracts/knowledge/async-vector-store.js";
+import { KnowledgeBaseError } from "../../../../contracts/knowledge-base.js";
+import type { KnowledgeBaseService } from "../../../../services/knowledge/knowledge-base-service.js";
 
 /** Tenant-bound bridge from HTTP knowledge workflows to PostgreSQL/S3 data planes. */
 export class SaaSKnowledgeVectorApplication {

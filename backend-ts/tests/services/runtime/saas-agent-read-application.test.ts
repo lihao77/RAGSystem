@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { SaaSAgentReadApplication } from "../../../src/application/execution/saas-agent-read-application.js";
+import { SaaSAgentReadApplication } from "../../../src/adapters/saas/application/execution/saas-agent-read-application.js";
 
 describe("SaaSAgentReadApplication", () => {
   it("maps the latest PostgreSQL run to session task status", async () => {

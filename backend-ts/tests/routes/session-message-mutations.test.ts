@@ -10,7 +10,7 @@ import { PathApprovalService } from "../../src/adapters/local/path-approval-serv
 import { toolContext } from "../helpers/tool-context.js";
 import { mockLlm } from "../helpers/llm-fetch-mock.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
-import { SaaSSessionApplication } from "../../src/application/session/saas-session-application.js";
+import { SaaSSessionApplication } from "../../src/adapters/saas/application/session/saas-session-application.js";
 
 let app: FastifyInstance | null = null;
 

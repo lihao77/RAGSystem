@@ -1,6 +1,6 @@
-import type { AsyncConversationRepository, AsyncPendingInteractionStore, AsyncRunStore } from "../../contracts/async-persistence-ports.js";
-import type { TenantId } from "../../identity/types.js";
-import type { SuspendedSessionControlPort } from "../../contracts/runtime-async-ports.js";
+import type { AsyncConversationRepository, AsyncPendingInteractionStore, AsyncRunStore } from "../../../../contracts/async-persistence-ports.js";
+import type { TenantId } from "../../../../identity/types.js";
+import type { SuspendedSessionControlPort } from "../../../../contracts/runtime-async-ports.js";
 
 export interface InterruptedSuspendedRun {
   runId: string;

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createTenantId } from "../../src/identity/types.js";
-import { SaaSInteractionRecoveryApplication } from "../../src/application/interaction/saas-interaction-recovery-application.js";
+import { SaaSInteractionRecoveryApplication } from "../../src/adapters/saas/application/interaction/saas-interaction-recovery-application.js";
 import type { PendingInteractionRecord } from "../../src/contracts/conversation-store/index.js";
 
 const tenantId = createTenantId("tnt_one");

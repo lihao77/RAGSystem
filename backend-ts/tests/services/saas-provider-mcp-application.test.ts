@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { SaaSProviderMcpApplication } from "../../src/application/provider-mcp/saas-provider-mcp-application.js";
+import { SaaSProviderMcpApplication } from "../../src/adapters/saas/application/provider-mcp/saas-provider-mcp-application.js";
 
 describe("SaaSProviderMcpApplication", () => {
   it("reads tenant-scoped provider and MCP records without filesystem config", async () => {

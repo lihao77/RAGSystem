@@ -40,8 +40,8 @@ import { AsyncKernelEventPersister } from "./services/agent/sdk/async-event-pers
 import { AsyncOutboxDispatcher } from "./services/runtime/event-outbox/async-dispatcher.js";
 import { AsyncDurableClientEventPublisher } from "./services/runtime/event-outbox/async-client-event-publisher.js";
 import type { SaaSControlRuntimeHandle } from "./app/composition/saas/saas-control-runtime.js";
-import { SaaSExecutionWriteBridge } from "./application/execution/saas-execution-write-bridge.js";
-import { SaaSSessionControlApplication } from "./application/execution/saas-session-control-application.js";
+import { SaaSExecutionWriteBridge } from "./adapters/saas/application/execution/saas-execution-write-bridge.js";
+import { SaaSSessionControlApplication } from "./adapters/saas/application/execution/saas-session-control-application.js";
 import { SaaSDaemonState } from "./app/composition/saas/saas-daemon-state.js";
 import { createPostgresExecutionStorage } from "./adapters/saas/postgres/postgres-execution-storage.js";
 

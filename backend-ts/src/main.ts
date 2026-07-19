@@ -6,12 +6,12 @@ import { createSaaSConversationRuntime, type SaaSConversationRuntimeHandle } fro
 import { createSaaSObjectStorage } from "./app/composition/saas/saas-object-storage.js";
 import type { ObjectStorage } from "./contracts/object-storage.js";
 import { TenantKnowledgeMarkdownPipeline } from "./contracts/knowledge/async-knowledge-markdown-pipeline.js";
-import { SaaSKnowledgeVectorApplication } from "./application/knowledge/saas-knowledge-vector-application.js";
-import { SaaSSessionApplication } from "./application/session/saas-session-application.js";
-import { SaaSAgentReadApplication } from "./application/execution/saas-agent-read-application.js";
-import { SaaSInteractionRecoveryApplication } from "./application/interaction/saas-interaction-recovery-application.js";
-import { SaaSAnalyticsApplication } from "./application/analytics/saas-analytics-application.js";
-import { SaaSMonitoringApplication } from "./application/monitoring/saas-monitoring-application.js";
+import { SaaSKnowledgeVectorApplication } from "./adapters/saas/application/knowledge/saas-knowledge-vector-application.js";
+import { SaaSSessionApplication } from "./adapters/saas/application/session/saas-session-application.js";
+import { SaaSAgentReadApplication } from "./adapters/saas/application/execution/saas-agent-read-application.js";
+import { SaaSInteractionRecoveryApplication } from "./adapters/saas/application/interaction/saas-interaction-recovery-application.js";
+import { SaaSAnalyticsApplication } from "./adapters/saas/application/analytics/saas-analytics-application.js";
+import { SaaSMonitoringApplication } from "./adapters/saas/application/monitoring/saas-monitoring-application.js";
 import type { FastifyRequest } from "fastify";
 
 const env = loadEnv(process.env);

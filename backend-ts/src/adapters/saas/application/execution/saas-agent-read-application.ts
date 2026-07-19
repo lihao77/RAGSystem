@@ -1,15 +1,15 @@
-import type { OutboxRow, RunInfo } from "../../contracts/conversation-store/index.js";
-import type { ExecutionOverview, ExecutionTaskStatus, RunningTasksResult, ScopedExecutionDiagnostics, ScopedTaskStatus, SessionTaskStatus } from "../../contracts/execution.js";
-import type { SessionInfo } from "../../contracts/session.js";
-import { buildObservability } from "../../services/agent/execution/helpers.js";
+import type { OutboxRow, RunInfo } from "../../../../contracts/conversation-store/index.js";
+import type { ExecutionOverview, ExecutionTaskStatus, RunningTasksResult, ScopedExecutionDiagnostics, ScopedTaskStatus, SessionTaskStatus } from "../../../../contracts/execution.js";
+import type { SessionInfo } from "../../../../contracts/session.js";
+import { buildObservability } from "../../../../services/agent/execution/helpers.js";
 import type {
   ExecutionReadApplication,
-} from "../../contracts/execution-read-application.js";
+} from "../../../../contracts/execution-read-application.js";
 import type {
   ExecutionReplayRepositoryPort,
   ExecutionRunReadRepositoryPort,
   ExecutionSessionReadRepositoryPort,
-} from "../../contracts/async-persistence-ports.js";
+} from "../../../../contracts/async-persistence-ports.js";
 
 /** Tenant-bound read facade used while the Agent execution path is still being made fully asynchronous. */
 export class SaaSAgentReadApplication implements ExecutionReadApplication {

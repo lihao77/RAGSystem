@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { KnowledgeBaseService } from "../../src/services/knowledge/knowledge-base-service.js";
-import { SaaSKnowledgeVectorApplication } from "../../src/application/knowledge/saas-knowledge-vector-application.js";
+import { SaaSKnowledgeVectorApplication } from "../../src/adapters/saas/application/knowledge/saas-knowledge-vector-application.js";
 
 describe("SaaSKnowledgeVectorApplication", () => {
   it("reads tenant file markdown before indexing through the async vector view", async () => {
