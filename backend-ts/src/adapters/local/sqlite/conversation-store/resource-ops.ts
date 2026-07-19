@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ExecutionOverview, ExecutionTaskStatus } from "../../../../contracts/execution.js";
+import type { ExecutionOverview, ExecutionTaskStatus } from "../../../../contracts/execution/execution.js";
 import type { ConversationDb } from "./shared/db.js";
 import type { SessionOps } from "./session-ops.js";
 import { stringifyJson } from "./helpers.js";

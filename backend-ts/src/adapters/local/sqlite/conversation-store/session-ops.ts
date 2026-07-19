@@ -1,5 +1,5 @@
 import type { PaginatedResult } from "../../../../contracts/common.js";
-import type { SessionInfo, SessionListItem } from "../../../../contracts/session.js";
+import type { SessionInfo, SessionListItem } from "../../../../contracts/session/session.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
 import { deepMergeRecords } from "./shared/primitives.js";

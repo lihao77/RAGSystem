@@ -10,10 +10,10 @@ import { LocalExecutionApplication } from "../adapters/local/application/executi
 import type { AnalyticsApplication } from "../contracts/analytics-application.js";
 import type { ArtifactApplication } from "../contracts/artifact-application.js";
 import type { MonitoringApplication } from "../contracts/monitoring-application.js";
-import type { SessionApplication } from "../contracts/session-application.js";
-import type { ExecutionReadApplication } from "../contracts/execution-read-application.js";
+import type { SessionApplication } from "../contracts/session/session-application.js";
+import type { ExecutionReadApplication } from "../contracts/execution/execution-read-application.js";
 import type { InteractionRecoveryApplication } from "../contracts/interaction-recovery-application.js";
-import type { ExecutionApplication } from "../contracts/execution-application.js";
+import type { ExecutionApplication } from "../contracts/execution/execution-application.js";
 import { LocalMemoryApplication } from "../adapters/local/application/memory/local-memory-application.js";
 import type { MemoryApplication } from "../services/memory/index.js";
 import type { RouteOptions } from "../routes/route-options.js";

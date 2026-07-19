@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveSessionMetadataPort } from "../../src/services/agent/context/async-session-metadata-resolver.js";
-import type { SessionInfo } from "../../src/contracts/session.js";
+import type { SessionInfo } from "../../src/contracts/session/session.js";
 
 describe("async session metadata resolver", () => {
   it("uses the SaaS snapshot and flushes queued metadata writes", async () => {

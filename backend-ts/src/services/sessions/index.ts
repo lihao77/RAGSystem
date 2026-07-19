@@ -1,14 +1,14 @@
 import fs from "node:fs";
 
 import type { PaginatedResult } from "../../contracts/common.js";
-import { normalizeSessionMetadata, type MessageInfo, type SessionInfo, type SessionListItem } from "../../contracts/session.js";
+import { normalizeSessionMetadata, type MessageInfo, type SessionInfo, type SessionListItem } from "../../contracts/session/session.js";
 import type { IMessageStore, IRunStore, ISessionStore, RunInfo } from "../../contracts/conversation-store/index.js";
 import type { IFileHistoryStore } from "../../contracts/file-history-store/index.js";
 import type { MessageExtension } from "../agent/context/extensions/kinds.js";
 import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "../runtime/event-outbox/execution-envelope-archive.js";
 import type { TransientArtifactService } from "../artifacts/transient-artifact-service.js";
-import { assertSafeSessionId } from "../../contracts/session-id.js";
+import { assertSafeSessionId } from "../../contracts/session/session-id.js";
 import type { TenantId } from "../../identity/types.js";
 import type { PermissionMode } from "../../contracts/permissions.js";
 

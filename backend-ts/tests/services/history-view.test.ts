@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { messagesToConversation } from "../../src/services/agent/context/history-view.js";
-import type { MessageInfo } from "../../src/contracts/session.js";
+import type { MessageInfo } from "../../src/contracts/session/session.js";
 
 const mk = (msg: object): MessageInfo => msg as unknown as MessageInfo;
 

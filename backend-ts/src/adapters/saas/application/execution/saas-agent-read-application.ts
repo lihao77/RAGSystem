@@ -1,10 +1,10 @@
 import type { OutboxRow, RunInfo } from "../../../../contracts/conversation-store/index.js";
-import type { ExecutionOverview, ExecutionTaskStatus, RunningTasksResult, ScopedExecutionDiagnostics, ScopedTaskStatus, SessionTaskStatus } from "../../../../contracts/execution.js";
-import type { SessionInfo } from "../../../../contracts/session.js";
+import type { ExecutionOverview, ExecutionTaskStatus, RunningTasksResult, ScopedExecutionDiagnostics, ScopedTaskStatus, SessionTaskStatus } from "../../../../contracts/execution/execution.js";
+import type { SessionInfo } from "../../../../contracts/session/session.js";
 import { buildObservability } from "../../../../services/agent/execution/helpers.js";
 import type {
   ExecutionReadApplication,
-} from "../../../../contracts/execution-read-application.js";
+} from "../../../../contracts/execution/execution-read-application.js";
 import type {
   ExecutionReplayRepositoryPort,
   ExecutionRunReadRepositoryPort,

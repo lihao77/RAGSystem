@@ -288,7 +288,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
 };
 
 async function buildDurableOutboxReplay(
-  reads: import("../../contracts/execution-read-application.js").ExecutionReadApplication,
+  reads: import("../../contracts/execution/execution-read-application.js").ExecutionReadApplication,
   sessionId: string,
   afterSeq: number | null,
 ): Promise<{ runId: string | null; events: Envelope[] } | null> {
@@ -311,7 +311,7 @@ async function buildDurableOutboxReplay(
 }
 
 async function buildActiveRunReplay(
-  reads: import("../../contracts/execution-read-application.js").ExecutionReadApplication,
+  reads: import("../../contracts/execution/execution-read-application.js").ExecutionReadApplication,
   container: RuntimeContainer,
   sessionId: string,
 ): Promise<{ runId: string; events: Envelope[] } | null> {

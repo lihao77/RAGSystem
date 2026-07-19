@@ -17,7 +17,7 @@ import type {
 } from "./conversation-store/index.js";
 import type { DailyActivityPoint, HeatmapPoint, ModelUsagePoint, TokenTrendPoint } from "./conversation-store/index.js";
 import type { PermissionMode } from "./permissions.js";
-import type { MessageInfo, SessionInfo, SessionListItem } from "./session.js";
+import type { MessageInfo, SessionInfo, SessionListItem } from "./session/session.js";
 import type { TenantId } from "../identity/types.js";
 
 export interface AsyncConversationRepository {

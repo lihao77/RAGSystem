@@ -13,7 +13,7 @@
 import { z } from "zod";
 import type { ProviderContinuationState } from "@ragsystem/agent-llm";
 
-import type { MessageInfo } from "../session.js";
+import type { MessageInfo } from "../session/session.js";
 
 // ────────────────────────────── 共享枚举 ──────────────────────────────
 

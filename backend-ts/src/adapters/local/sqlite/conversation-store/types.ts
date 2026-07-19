@@ -1,4 +1,4 @@
-import type { MessageInfo } from "../../../../contracts/session.js";
+import type { MessageInfo } from "../../../../contracts/session/session.js";
 import type { PermissionMode } from "../../../../contracts/permissions.js";
 import type { TenantId } from "../../../../identity/types.js";
 

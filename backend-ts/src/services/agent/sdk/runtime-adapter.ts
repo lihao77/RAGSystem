@@ -15,7 +15,7 @@ import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { MemoryConfig } from "../../../contracts/system-config.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
-import type { DurableExecutionClientEventPort, ExecutionStorage } from "../../../contracts/execution-storage.js";
+import type { DurableExecutionClientEventPort, ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
 import type { DelegatedToolDeclarationWire, Envelope } from "../../../contracts/events.js";
 import type { AgentExecutionEventPublisher } from "../execution/event-publisher.js";
 import type { DurableClientEventPublisher, RecordedClientEvent } from "../../runtime/event-outbox/client-event-publisher.js";

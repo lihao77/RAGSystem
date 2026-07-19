@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { randomUUID } from "node:crypto";
 
 import { ok } from "../../contracts/common.js";
-import { CollaborateRequestSchema, ExecuteRequestSchema, type ExecuteRequest } from "../../contracts/execution.js";
+import { CollaborateRequestSchema, ExecuteRequestSchema, type ExecuteRequest } from "../../contracts/execution/execution.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import { ZodError } from "zod";

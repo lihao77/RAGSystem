@@ -1,4 +1,4 @@
-import type { ApprovalRequest, UserInputRequest } from "../execution.js";
+import type { ApprovalRequest, UserInputRequest } from "../execution/execution.js";
 import type { InteractionKind, InteractionResponsePayload } from "../interactions.js";
 
 export interface PendingUserInputRequest {

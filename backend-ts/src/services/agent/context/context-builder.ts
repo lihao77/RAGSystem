@@ -7,7 +7,7 @@
  * (if touch)续期 last_used_at。source 层只读 request.cacheAlive,不自管时间戳。
  */
 import type { ChatMessage } from "@ragsystem/agent-llm";
-import type { MessageInfo } from "../../../contracts/session.js";
+import type { MessageInfo } from "../../../contracts/session/session.js";
 import type {
   AgentContext,
   AgentContextRequest,

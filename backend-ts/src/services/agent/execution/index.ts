@@ -10,7 +10,7 @@ import type {
   ScopedTaskStatus,
   SessionTaskStatus,
   StreamExecuteRequest,
-} from "../../../contracts/execution.js";
+} from "../../../contracts/execution/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { AgentSessionApplication } from "../../sessions/index.js";
@@ -25,7 +25,7 @@ import type { PendingInteractionPort } from "../../../contracts/runtime/pending-
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService } from "../../runtime/delegation-pending-service.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
-import type { DurableExecutionClientEventPort, ExecutionStorage } from "../../../contracts/execution-storage.js";
+import type { DurableExecutionClientEventPort, ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
 import type { IFileIndexStore } from "../../../contracts/file-index-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";

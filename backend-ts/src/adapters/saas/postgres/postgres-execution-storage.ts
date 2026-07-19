@@ -5,7 +5,7 @@ import type {
   ExecutionRunPersistenceContext,
   ExecutionStorage,
   ExecutionEventPersister,
-} from "../../../contracts/execution-storage.js";
+} from "../../../contracts/execution/execution-storage.js";
 import type { TenantId } from "../../../identity/types.js";
 
 export function createPostgresExecutionStorage(input: {

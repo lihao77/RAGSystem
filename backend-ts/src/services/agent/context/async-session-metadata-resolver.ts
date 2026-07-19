@@ -1,5 +1,5 @@
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
-import type { SessionInfo } from "../../../contracts/session.js";
+import type { SessionInfo } from "../../../contracts/session/session.js";
 import type { SessionMetadataPort } from "./types.js";
 
 export interface AsyncSessionMetadataRepository {

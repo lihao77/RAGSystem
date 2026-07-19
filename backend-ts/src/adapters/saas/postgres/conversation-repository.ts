@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { PaginatedResult } from "../../../contracts/common.js";
 import type { TenantId } from "../../../identity/types.js";
-import type { MessageInfo, SessionInfo, SessionListItem } from "../../../contracts/session.js";
+import type { MessageInfo, SessionInfo, SessionListItem } from "../../../contracts/session/session.js";
 import type { AddMessageInput } from "../../../contracts/conversation-store/index.js";
 import { AddMessageInputSchema } from "../../../contracts/conversation-store/types.js";
 import type { PermissionMode } from "../../../contracts/permissions.js";

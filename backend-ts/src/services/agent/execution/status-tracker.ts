@@ -6,7 +6,7 @@ import type {
   ScopedExecutionDiagnostics,
   ScopedTaskStatus,
   SessionTaskStatus,
-} from "../../../contracts/execution.js";
+} from "../../../contracts/execution/execution.js";
 import { buildObservability, cloneStatus } from "./helpers.js";
 
 export interface ExecutionHandle {

@@ -4,7 +4,7 @@ import type {
   ScopedExecutionDiagnostics,
   ScopedTaskStatus,
   SessionTaskStatus,
-} from "../../../contracts/execution.js";
+} from "../../../contracts/execution/execution.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 
 export interface ExecutionQueryApi {

@@ -1,6 +1,6 @@
-import type { OutboxRow, RunInfo } from "./conversation-store/index.js";
+import type { OutboxRow, RunInfo } from "../conversation-store/index.js";
 import type { ExecutionOverview, RunningTasksResult, ScopedExecutionDiagnostics, ScopedTaskStatus, SessionTaskStatus } from "./execution.js";
-import type { SessionInfo } from "./session.js";
+import type { SessionInfo } from "../session/session.js";
 
 /** Deployment-neutral read boundary for execution status HTTP endpoints. */
 export interface ExecutionReadApplication {

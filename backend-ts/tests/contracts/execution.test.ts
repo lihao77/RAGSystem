@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getSelectedLlm, ExecuteRequestSchema, StreamExecuteRequestSchema } from "../../src/contracts/execution.js";
+import { getSelectedLlm, ExecuteRequestSchema, StreamExecuteRequestSchema } from "../../src/contracts/execution/execution.js";
 
 describe("execution contracts", () => {
   it("keeps the selectedLLM alias used by the frontend", () => {

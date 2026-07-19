@@ -2,7 +2,7 @@ import type {
   AddSessionFileMetadataInput,
   SessionFileMetadata,
   SessionFileMetadataRepository,
-} from "../../../contracts/session-file-storage.js";
+} from "../../../contracts/session/session-file-storage.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
 
 function map(row: Record<string, unknown>): SessionFileMetadata {

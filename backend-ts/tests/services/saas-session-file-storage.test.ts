@@ -6,7 +6,7 @@ import type {
   AddSessionFileMetadataInput,
   SessionFileMetadata,
   SessionFileMetadataRepository,
-} from "../../src/contracts/session-file-storage.js";
+} from "../../src/contracts/session/session-file-storage.js";
 
 class MemoryObjects implements ObjectStorage {
   readonly values = new Map<string, Uint8Array>();

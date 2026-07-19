@@ -39,7 +39,7 @@ import { SaaSProviderMcpApplication } from "../../../adapters/saas/application/p
 import { SaaSFileHistoryStorage } from "../../../adapters/saas/object-storage/file-history-storage.js";
 import type { AsyncFileHistoryStore } from "../../../contracts/file-history-store/index.js";
 import { SaaSSessionFileStorage } from "../../../adapters/saas/object-storage/session-file-storage.js";
-import type { AsyncSessionFileStorage } from "../../../contracts/session-file-storage.js";
+import type { AsyncSessionFileStorage } from "../../../contracts/session/session-file-storage.js";
 import { SaaSWorkspaceBlobStorage } from "../../../adapters/saas/object-storage/workspace-blob-storage.js";
 import type { WorkspaceBlobStorage } from "../../../contracts/workspace-blob-storage.js";
 import type { KnowledgeQueryPort } from "../../../contracts/knowledge/query-port.js";

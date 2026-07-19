@@ -12,7 +12,7 @@ import type { AsyncConversationHistoryPort, AsyncProviderContinuationLookupPort,
 import type { AsyncBackgroundTaskRepository } from "../../contracts/background-task-repository.js";
 import type { RealtimeEventBus } from "../../contracts/runtime/realtime-event-bus.js";
 import type { AsyncDurableClientEventPublisher } from "../../services/runtime/event-outbox/async-client-event-publisher.js";
-import type { ExecutionStorage } from "../../contracts/execution-storage.js";
+import type { ExecutionStorage } from "../../contracts/execution/execution-storage.js";
 import type { KnowledgeQueryPort } from "../../contracts/knowledge/query-port.js";
 import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
 

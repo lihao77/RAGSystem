@@ -1,4 +1,4 @@
-import { isRecord } from "../utils/guards.js";
+import { isRecord } from "../../utils/guards.js";
 import path from "node:path";
 
 import { z } from "zod";
@@ -7,10 +7,10 @@ import {
   UpdateSessionPermissionModeRequestSchema,
 } from "@ragsystem/api-contracts";
 
-import { AttachmentRefSchema } from "./execution.js";
-import { PermissionModeSchema, type PermissionMode } from "./permissions.js";
+import { AttachmentRefSchema } from "../execution/execution.js";
+import { PermissionModeSchema, type PermissionMode } from "../permissions.js";
 import { OptionalSessionIdSchema } from "./session-id.js";
-import type { TenantId } from "../identity/types.js";
+import type { TenantId } from "../../identity/types.js";
 
 export const SessionMetadataSchema = z.unknown().optional().transform((value, context) => {
   try {

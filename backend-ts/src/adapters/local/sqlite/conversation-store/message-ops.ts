@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PaginatedResult } from "../../../../contracts/common.js";
-import type { MessageInfo } from "../../../../contracts/session.js";
+import type { MessageInfo } from "../../../../contracts/session/session.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
 import { asNullableString, asString, stringifyJson } from "./helpers.js";

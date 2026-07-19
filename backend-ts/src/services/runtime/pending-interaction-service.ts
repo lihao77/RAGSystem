@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { RecoverableInterrupt } from "@ragsystem/agent-protocol";
 import type { Envelope } from "../../contracts/events.js";
-import type { ApprovalRequest, UserInputRequest } from "../../contracts/execution.js";
+import type { ApprovalRequest, UserInputRequest } from "../../contracts/execution/execution.js";
 import type { InteractionKind, InteractionResponsePayload } from "../../contracts/interactions.js";
 import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 import type { IPendingInteractionStore, PendingInteractionRecord } from "../../contracts/conversation-store/index.js";

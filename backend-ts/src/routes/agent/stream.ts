@@ -9,7 +9,7 @@ import {
   StreamExecuteRequestSchema,
   StreamStopRequestSchema,
   UserInputRequestSchema,
-} from "../../contracts/execution.js";
+} from "../../contracts/execution/execution.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import { assertOwnedSessionIfExists, loadOwnedSession } from "../session-owner.js";

@@ -5,7 +5,7 @@ import type {
   AsyncSessionFileStorage,
   SessionFileMetadata,
   SessionFileMetadataRepository,
-} from "../../../contracts/session-file-storage.js";
+} from "../../../contracts/session/session-file-storage.js";
 import type { UploadedFileRecord } from "../../../contracts/files.js";
 
 export class SaaSSessionFileStorage implements AsyncSessionFileStorage {

@@ -2,7 +2,7 @@ import type {
   AgentExecuteResult,
   CollaborateRequest,
   ExecuteRequest,
-} from "../../../contracts/execution.js";
+} from "../../../contracts/execution/execution.js";
 import type { AgentExecutionEventPublisher } from "./event-publisher.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { IRunStore } from "../../../contracts/conversation-store/index.js";

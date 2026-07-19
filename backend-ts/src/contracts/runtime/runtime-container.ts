@@ -38,7 +38,7 @@ import type { SessionNotificationQueue } from "../../services/runtime/session-no
 import type { AsyncDurableClientEventPublisher } from "../../services/runtime/event-outbox/async-client-event-publisher.js";
 import type { AsyncConversationHistoryPort, AsyncProviderContinuationLookupPort, SuspendedSessionControlPort } from "./runtime-async-ports.js";
 import type { KnowledgeQueryPort } from "../knowledge/query-port.js";
-import type { ExecutionStorage } from "../execution-storage.js";
+import type { ExecutionStorage } from "../execution/execution-storage.js";
 import type { PathAccessPolicy } from "./path-access-policy.js";
 
 export interface RuntimeContainer<TMemoryRepository extends MemoryRepository = IMemoryStore> {

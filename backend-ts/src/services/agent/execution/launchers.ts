@@ -7,8 +7,8 @@ import type {
   ExecuteRequest,
   RollbackRetryStartResult,
   StreamExecuteRequest,
-} from "../../../contracts/execution.js";
-import { getSelectedLlm as resolveSelectedLlm } from "../../../contracts/execution.js";
+} from "../../../contracts/execution/execution.js";
+import { getSelectedLlm as resolveSelectedLlm } from "../../../contracts/execution/execution.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { IRunStore } from "../../../contracts/conversation-store/index.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";

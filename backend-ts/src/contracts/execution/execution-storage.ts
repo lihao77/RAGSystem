@@ -1,10 +1,10 @@
 import type { ProviderContinuationState } from "@ragsystem/agent-llm";
 import type { KernelEvent } from "@ragsystem/agent-sdk";
 
-import type { ConversationStore } from "./conversation-store/index.js";
-import type { Envelope } from "./events.js";
-import type { MessageInfo, SessionInfo } from "./session.js";
-import type { TenantId } from "../identity/types.js";
+import type { ConversationStore } from "../conversation-store/index.js";
+import type { Envelope } from "../events.js";
+import type { MessageInfo, SessionInfo } from "../session/session.js";
+import type { TenantId } from "../../identity/types.js";
 
 export interface ExecutionRunPersistenceContext {
   tenantId: TenantId;

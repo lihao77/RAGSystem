@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { MemoryConfig } from "../../../contracts/system-config.js";
-import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } from "../../../contracts/execution.js";
+import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } from "../../../contracts/execution/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
@@ -22,7 +22,7 @@ import type { DelegationPendingService } from "../../runtime/delegation-pending-
 import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
-import type { ExecutionStorage } from "../../../contracts/execution-storage.js";
+import type { ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";

@@ -13,13 +13,13 @@ import {
 } from "@ragsystem/api-contracts";
 
 import { ok, validateResponse } from "../../contracts/common.js";
-import type { AttachmentRef } from "../../contracts/execution.js";
+import type { AttachmentRef } from "../../contracts/execution/execution.js";
 import {
   CreateSessionRequestSchema,
   RollbackAndRetryRequestSchema,
   RollbackRequestSchema,
   UpdateMessageRequestSchema,
-} from "../../contracts/session.js";
+} from "../../contracts/session/session.js";
 import { HttpError } from "../../utils/errors.js";
 import { ensureRequestApplications } from "../../app/request-applications.js";
 import type { AgentRouteOptions } from "../route-options.js";

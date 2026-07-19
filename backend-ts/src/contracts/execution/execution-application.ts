@@ -6,8 +6,8 @@ import type {
   RollbackRetryStartResult,
   StreamExecuteRequest,
 } from "./execution.js";
-import type { RollbackRetryInput } from "../services/agent/execution/launchers.js";
-import type { ResumeRunInput, ResumeRunResult } from "../services/agent/execution/resume-executor.js";
+import type { RollbackRetryInput } from "../../services/agent/execution/launchers.js";
+import type { ResumeRunInput, ResumeRunResult } from "../../services/agent/execution/resume-executor.js";
 
 /** Deployment-neutral execution write boundary for HTTP and realtime transports. */
 export interface ExecutionApplication {

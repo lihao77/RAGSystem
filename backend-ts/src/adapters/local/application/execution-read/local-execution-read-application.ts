@@ -1,5 +1,5 @@
 import type { ConversationStore } from "../../../../contracts/conversation-store/index.js";
-import type { ExecutionReadApplication } from "../../../../contracts/execution-read-application.js";
+import type { ExecutionReadApplication } from "../../../../contracts/execution/execution-read-application.js";
 import type { AgentExecutionServiceApi } from "../../../../services/agent/execution/index.js";
 
 type LocalExecutionReader = Pick<AgentExecutionServiceApi,

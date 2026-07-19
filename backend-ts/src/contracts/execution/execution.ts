@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { AttachmentRefSchema } from "@ragsystem/agent-protocol";
 
-import { InteractionResponsePayloadSchema } from "./interactions.js";
-import { OptionalSessionIdSchema, RequiredSessionIdSchema } from "./session-id.js";
-import type { UserId } from "../identity/types.js";
+import { InteractionResponsePayloadSchema } from "../interactions.js";
+import { OptionalSessionIdSchema, RequiredSessionIdSchema } from "../session/session-id.js";
+import type { UserId } from "../../identity/types.js";
 
 export { AttachmentRefSchema } from "@ragsystem/agent-protocol";
 

@@ -1,6 +1,6 @@
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { Envelope, StateSyncPayload } from "../../../contracts/events.js";
-import type { ExecutionTaskStatus } from "../../../contracts/execution.js";
+import type { ExecutionTaskStatus } from "../../../contracts/execution/execution.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 
 interface ExecutionEventContext {

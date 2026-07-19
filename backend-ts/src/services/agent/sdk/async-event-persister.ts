@@ -2,7 +2,7 @@ import { extractText } from "@ragsystem/agent-llm";
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import type { KernelEvent } from "@ragsystem/agent-sdk";
 import type { AddMessageInput } from "../../../contracts/conversation-store/types.js";
-import type { MessageInfo } from "../../../contracts/session.js";
+import type { MessageInfo } from "../../../contracts/session/session.js";
 import type { IRunStore, RunInfo } from "../../../contracts/conversation-store/index.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 import type { TenantId } from "../../../identity/types.js";

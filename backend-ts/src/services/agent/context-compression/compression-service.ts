@@ -14,7 +14,7 @@ import { countMessagesTokens, readTierParams, resolveContextBudget, resolveSumma
 import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
-import type { MessageInfo } from "../../../contracts/session.js";
+import type { MessageInfo } from "../../../contracts/session/session.js";
 import type { SystemConfigService } from "../../config/system-config-service.js";
 import { HISTORY_SCAN_LIMIT, resolveCompressionView } from "../context/index.js";
 import { projectAgentProfile } from "../sdk/projection.js";

@@ -1,4 +1,4 @@
-import type { AttachmentRef } from "../../../contracts/execution.js";
+import type { AttachmentRef } from "../../../contracts/execution/execution.js";
 import type { IFileIndexStore } from "../../../contracts/file-index-store/index.js";
 
 export interface ResolvedAttachment {

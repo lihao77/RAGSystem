@@ -1,4 +1,4 @@
-import type { MessageInfo, SessionInfo } from "../session.js";
+import type { MessageInfo, SessionInfo } from "../session/session.js";
 import type { ProviderContinuationRecord } from "../conversation-store/index.js";
 import type { TenantId } from "../../identity/types.js";
 

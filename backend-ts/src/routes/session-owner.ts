@@ -1,7 +1,7 @@
 import type { FastifyRequest } from "fastify";
 
-import type { SessionInfo } from "../contracts/session.js";
-import type { SessionApplication } from "../contracts/session-application.js";
+import type { SessionInfo } from "../contracts/session/session.js";
+import type { SessionApplication } from "../contracts/session/session-application.js";
 import { LOCAL_USER_ID } from "../services/identity/local-identity-provider.js";
 import { HttpError } from "../utils/errors.js";
 

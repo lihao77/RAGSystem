@@ -1,6 +1,6 @@
 import type { FastifyRequest } from "fastify";
 
-import type { SessionApplication } from "../contracts/session-application.js";
+import type { SessionApplication } from "../contracts/session/session-application.js";
 import type { RouteOptions } from "./route-options.js";
 import { ensureRequestApplications } from "../app/request-applications.js";
 

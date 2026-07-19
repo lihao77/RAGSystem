@@ -1,4 +1,4 @@
-import type { AgentRunStartResult } from "../../../contracts/execution.js";
+import type { AgentRunStartResult } from "../../../contracts/execution/execution.js";
 import type { AgentSessionApplication } from "../../sessions/index.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";

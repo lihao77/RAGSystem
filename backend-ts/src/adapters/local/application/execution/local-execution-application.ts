@@ -1,4 +1,4 @@
-import type { ExecutionApplication } from "../../../../contracts/execution-application.js";
+import type { ExecutionApplication } from "../../../../contracts/execution/execution-application.js";
 import type { AgentExecutionServiceApi } from "../../../../services/agent/execution/index.js";
 import type { ResumeExecutor } from "../../../../services/agent/execution/resume-executor.js";
 
