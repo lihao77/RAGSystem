@@ -1,4 +1,4 @@
-import type { DailyActivityPoint, HeatmapPoint, ModelUsagePoint, TokenTrendPoint } from "./conversation-store/index.js";
+import type { DailyActivityPoint, HeatmapPoint, ModelUsagePoint, TokenTrendPoint } from "../conversation-store/index.js";
 
 export interface AnalyticsApplication {
   aggregateTokenTrend(input: { since: string; bucket: "day" | "hour" }): Promise<TokenTrendPoint[]>;

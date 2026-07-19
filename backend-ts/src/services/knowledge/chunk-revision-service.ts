@@ -1,4 +1,4 @@
-import { KnowledgeBaseError } from "../../contracts/knowledge-base.js";
+import { KnowledgeBaseError } from "../../contracts/knowledge/knowledge-base.js";
 import type { IVectorStore, StoredChunk, StoredVectorizer, VectorRecord } from "../../contracts/vector-store/index.js";
 
 export class ChunkRevisionService {

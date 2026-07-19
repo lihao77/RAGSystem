@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { BotFeishuConfig } from "../../src/contracts/bot.js";
+import type { BotFeishuConfig } from "../../src/contracts/control-plane/bot.js";
 import {
   buildApprovalCard,
   buildUserInputCard,

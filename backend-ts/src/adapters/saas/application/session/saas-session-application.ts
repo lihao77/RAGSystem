@@ -1,5 +1,5 @@
 import type { PaginatedResult } from "../../../../contracts/common.js";
-import type { AsyncConversationRepository, AsyncRunStore } from "../../../../contracts/async-persistence-ports.js";
+import type { AsyncConversationRepository, AsyncRunStore } from "../../../../contracts/storage/async-persistence-ports.js";
 import type { TenantId } from "../../../../identity/types.js";
 import type { PermissionMode } from "../../../../contracts/permissions.js";
 import type { MessageInfo, SessionInfo, SessionListItem } from "../../../../contracts/session/session.js";

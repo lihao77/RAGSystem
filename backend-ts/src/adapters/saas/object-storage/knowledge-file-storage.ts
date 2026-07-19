@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import type { KnowledgeFile } from "../../../contracts/vector-store/knowledge-file-store.js";
-import type { ObjectStorage } from "../../../contracts/object-storage.js";
+import type { ObjectStorage } from "../../../contracts/storage/object-storage.js";
 import type {
   AddKnowledgeFileMetadataInput,
   KnowledgeFileMetadata,

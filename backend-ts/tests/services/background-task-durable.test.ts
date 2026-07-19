@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type {
   AsyncBackgroundTaskRepository,
   DurableBackgroundTaskRecord,
-} from "../../src/contracts/background-task-repository.js";
+} from "../../src/contracts/storage/background-task-repository.js";
 import { BackgroundTaskService } from "../../src/services/runtime/background-task-service.js";
 
 const roots: string[] = [];

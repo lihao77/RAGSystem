@@ -31,7 +31,7 @@ import {
   PostgresSessionFileMetadataRepository,
   runPostgresSessionFileMigrations,
 } from "../../../adapters/saas/postgres/index.js";
-import type { ObjectStorage } from "../../../contracts/object-storage.js";
+import type { ObjectStorage } from "../../../contracts/storage/object-storage.js";
 import { SaaSArtifactService } from "../../../adapters/saas/application/artifacts/saas-artifact-application.js";
 import { SaaSKnowledgeFileStorage } from "../../../adapters/saas/object-storage/knowledge-file-storage.js";
 import type { AsyncKnowledgeFileStore } from "../../../contracts/knowledge/async-knowledge-file-store.js";
@@ -41,7 +41,7 @@ import type { AsyncFileHistoryStore } from "../../../contracts/file-history-stor
 import { SaaSSessionFileStorage } from "../../../adapters/saas/object-storage/session-file-storage.js";
 import type { AsyncSessionFileStorage } from "../../../contracts/session/session-file-storage.js";
 import { SaaSWorkspaceBlobStorage } from "../../../adapters/saas/object-storage/workspace-blob-storage.js";
-import type { WorkspaceBlobStorage } from "../../../contracts/workspace-blob-storage.js";
+import type { WorkspaceBlobStorage } from "../../../contracts/storage/workspace-blob-storage.js";
 import type { KnowledgeQueryPort } from "../../../contracts/knowledge/query-port.js";
 import type { KnowledgeBaseService } from "../../../services/knowledge/knowledge-base-service.js";
 import { PostgresKnowledgeQueryAdapter } from "../../../adapters/saas/postgres/knowledge-query-adapter.js";

@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 
-import type { BotRepository } from "../contracts/bot-repository.js";
+import type { BotRepository } from "../contracts/control-plane/bot-repository.js";
 import { createTenantId, createUserId, type TenantId } from "../identity/types.js";
 import type {
   ControlPlane,

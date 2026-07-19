@@ -5,7 +5,7 @@
  * rowToFileRecord / matchesFilters）是实现细节，不上契约。实现 FileIndexService implements IFileIndexStore，
  * 而非消费者依赖具体类。契约层零 import services。
  */
-import type { UploadedFileRecord } from "../files.js";
+import type { UploadedFileRecord } from "../storage/files.js";
 import type {
   AddFileInput,
   FileScopeType,
@@ -15,7 +15,7 @@ import type {
 
 export * from "./types.js";
 // 输出 DTO 复用通用 file 契约；re-export 便于消费者一处 import（store 接口 + DTO）。
-export { type UploadedFileRecord } from "../files.js";
+export { type UploadedFileRecord } from "../storage/files.js";
 
 /**
  * file-index-store 对外能力（上传文件元数据索引 + 物理 blob 存储）。

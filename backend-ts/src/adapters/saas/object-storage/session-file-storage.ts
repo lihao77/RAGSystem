@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 
-import type { ObjectStorage } from "../../../contracts/object-storage.js";
+import type { ObjectStorage } from "../../../contracts/storage/object-storage.js";
 import type {
   AsyncSessionFileStorage,
   SessionFileMetadata,
   SessionFileMetadataRepository,
 } from "../../../contracts/session/session-file-storage.js";
-import type { UploadedFileRecord } from "../../../contracts/files.js";
+import type { UploadedFileRecord } from "../../../contracts/storage/files.js";
 
 export class SaaSSessionFileStorage implements AsyncSessionFileStorage {
   constructor(

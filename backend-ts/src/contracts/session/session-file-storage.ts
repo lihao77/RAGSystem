@@ -1,4 +1,4 @@
-import type { UploadedFileRecord } from "../files.js";
+import type { UploadedFileRecord } from "../storage/files.js";
 
 export interface AddSessionFileMetadataInput extends UploadedFileRecord {
   tenant_id: string;

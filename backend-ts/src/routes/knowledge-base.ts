@@ -8,9 +8,9 @@ import {
   UpdateChunkRequestSchema,
   UpdateMarkdownRequestSchema,
   VectorizerCreateSchema,
-} from "../contracts/knowledge-base.js";
+} from "../contracts/knowledge/knowledge-base.js";
 import { ok } from "../contracts/common.js";
-import { KnowledgeBaseError } from "../contracts/knowledge-base.js";
+import { KnowledgeBaseError } from "../contracts/knowledge/knowledge-base.js";
 import type { KnowledgeFile } from "../contracts/vector-store/index.js";
 import { HttpError, httpErrorFrom, statusHttpError } from "../utils/errors.js";
 import { matchesFileFilters } from "../utils/file-filter.js";

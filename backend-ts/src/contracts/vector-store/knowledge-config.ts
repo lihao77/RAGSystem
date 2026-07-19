@@ -15,7 +15,7 @@
  * - listVectorizers/listRerankers 空表返 [] 不抛异常。
  */
 
-import type { RerankerMode } from "../knowledge-base.js";
+import type { RerankerMode } from "../knowledge/knowledge-base.js";
 
 /** reranker 模式:model=模型重排;lexical=词法重排(BM25 等);none=无重排透传。 */
 export type { RerankerMode };

@@ -7,8 +7,8 @@ import type {
   TokenTrendPoint,
 } from "../../../contracts/conversation-store/index.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
-import type { AsyncAnalyticsRepository } from "../../../contracts/async-persistence-ports.js";
-export type { AsyncAnalyticsRepository } from "../../../contracts/async-persistence-ports.js";
+import type { AsyncAnalyticsRepository } from "../../../contracts/storage/async-persistence-ports.js";
+export type { AsyncAnalyticsRepository } from "../../../contracts/storage/async-persistence-ports.js";
 
 function number(value: unknown): number {
   return Number(value ?? 0);

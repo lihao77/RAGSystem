@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { SaaSFileHistoryStorage } from "../../../../src/adapters/saas/object-storage/file-history-storage.js";
 import type { AsyncFileHistoryMetadataRepository, FileHistorySnapshot, FileHistoryTrackedFile } from "../../../../src/contracts/file-history-store/index.js";
-import type { ObjectMetadata, ObjectStorage } from "../../../../src/contracts/object-storage.js";
+import type { ObjectMetadata, ObjectStorage } from "../../../../src/contracts/storage/object-storage.js";
 
 describe("SaaSFileHistoryStorage", () => {
   it("stores backups in object storage and restores tenant objects on rewind", async () => {

@@ -1,4 +1,4 @@
-import type { ObjectStorage } from "../../../contracts/object-storage.js";
+import type { ObjectStorage } from "../../../contracts/storage/object-storage.js";
 import { S3ObjectStorage, S3HttpTransport, type S3ObjectTransport } from "../../../adapters/saas/object-storage/s3-object-storage.js";
 
 export interface SaaSObjectStorageConfig {

@@ -7,12 +7,12 @@ import { LocalSessionApplication } from "../adapters/local/application/session/l
 import { LocalExecutionReadApplication } from "../adapters/local/application/execution-read/local-execution-read-application.js";
 import { LocalInteractionRecoveryApplication } from "../adapters/local/application/interaction-recovery/local-interaction-recovery-application.js";
 import { LocalExecutionApplication } from "../adapters/local/application/execution/local-execution-application.js";
-import type { AnalyticsApplication } from "../contracts/analytics-application.js";
-import type { ArtifactApplication } from "../contracts/artifact-application.js";
-import type { MonitoringApplication } from "../contracts/monitoring-application.js";
+import type { AnalyticsApplication } from "../contracts/application/analytics-application.js";
+import type { ArtifactApplication } from "../contracts/artifacts/artifact-application.js";
+import type { MonitoringApplication } from "../contracts/application/monitoring-application.js";
 import type { SessionApplication } from "../contracts/session/session-application.js";
 import type { ExecutionReadApplication } from "../contracts/execution/execution-read-application.js";
-import type { InteractionRecoveryApplication } from "../contracts/interaction-recovery-application.js";
+import type { InteractionRecoveryApplication } from "../contracts/application/interaction-recovery-application.js";
 import type { ExecutionApplication } from "../contracts/execution/execution-application.js";
 import { LocalMemoryApplication } from "../adapters/local/application/memory/local-memory-application.js";
 import type { MemoryApplication } from "../services/memory/index.js";

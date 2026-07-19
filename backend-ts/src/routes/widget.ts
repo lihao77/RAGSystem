@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 
 import { ok } from "../contracts/common.js";
-import { WidgetCreateSessionRequestSchema, WidgetTokenRequestSchema } from "../contracts/widget.js";
+import { WidgetCreateSessionRequestSchema, WidgetTokenRequestSchema } from "../contracts/control-plane/widget.js";
 import type { TenantId } from "../identity/types.js";
 import { WidgetAuthError, type WidgetAuthService } from "../services/runtime/jwt-service.js";
 import { HttpError } from "../utils/errors.js";

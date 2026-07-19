@@ -9,7 +9,7 @@ import type {
   ExecutionReplayRepositoryPort,
   ExecutionRunReadRepositoryPort,
   ExecutionSessionReadRepositoryPort,
-} from "../../../../contracts/async-persistence-ports.js";
+} from "../../../../contracts/storage/async-persistence-ports.js";
 
 /** Tenant-bound read facade used while the Agent execution path is still being made fully asynchronous. */
 export class SaaSAgentReadApplication implements ExecutionReadApplication {

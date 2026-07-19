@@ -7,7 +7,7 @@ import type {
   WidgetAppCredential,
   WidgetCredentialRepository,
   WidgetSessionToken,
-} from "../../../contracts/widget-credentials.js";
+} from "../../../contracts/control-plane/widget-credentials.js";
 import { createTenantId, type TenantId } from "../../../identity/types.js";
 
 const PRUNE_INTERVAL_MS = 5 * 60 * 1000;

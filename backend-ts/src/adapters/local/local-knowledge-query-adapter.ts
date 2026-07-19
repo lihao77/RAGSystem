@@ -3,7 +3,7 @@ import type {
   KnowledgeQueryPort,
   KnowledgeSearchResponse,
 } from "../../contracts/knowledge/query-port.js";
-import type { SearchVectorsRequest } from "../../contracts/knowledge-base.js";
+import type { SearchVectorsRequest } from "../../contracts/knowledge/knowledge-base.js";
 import type { KnowledgeBaseService } from "../../services/knowledge/knowledge-base-service.js";
 
 /** Local knowledge query adapter backed by the configured vector driver. */

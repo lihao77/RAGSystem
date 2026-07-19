@@ -4,8 +4,8 @@ import type {
   OutboxRow,
   RetryOutboxBatchInput,
   RetryOutboxResult,
-} from "./conversation-store/index.js";
-import type { PaginatedResult } from "./common.js";
+} from "../conversation-store/index.js";
+import type { PaginatedResult } from "../common.js";
 
 /** Deployment-neutral outbox operations used by monitoring routes. */
 export interface MonitoringApplication {

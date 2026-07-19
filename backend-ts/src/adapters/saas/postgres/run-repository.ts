@@ -1,8 +1,8 @@
 import type { RunStepInfo } from "../../../contracts/common.js";
 import type { AddRunStepInput, IRunStore, RunInfo, RunStepRecord } from "../../../contracts/conversation-store/index.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
-import type { AsyncRunStore } from "../../../contracts/async-persistence-ports.js";
-export type { AsyncRunStore } from "../../../contracts/async-persistence-ports.js";
+import type { AsyncRunStore } from "../../../contracts/storage/async-persistence-ports.js";
+export type { AsyncRunStore } from "../../../contracts/storage/async-persistence-ports.js";
 
 const runColumns = `run_id, session_id, tenant_id, entrypoint, status, task_summary,
   request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,

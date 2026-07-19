@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 
-import { TenantRoleSchema } from "../contracts/user.js";
+import { TenantRoleSchema } from "../contracts/control-plane/user.js";
 import type { ControlPlane } from "../contracts/control-plane/index.js";
 import { createTenantId, createUserId, type TenantId } from "../identity/types.js";
 import { HttpError } from "../utils/errors.js";

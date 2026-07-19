@@ -1,6 +1,6 @@
 import type { ProviderContinuationState } from "@ragsystem/agent-llm";
 
-import type { PaginatedResult, RunStepInfo } from "./common.js";
+import type { PaginatedResult, RunStepInfo } from "../common.js";
 import type {
   AddMessageInput,
   AddRunStepInput,
@@ -14,11 +14,11 @@ import type {
   CreatePendingInteractionInput,
   PendingInteractionRecord,
   PendingInteractionStatus,
-} from "./conversation-store/index.js";
-import type { DailyActivityPoint, HeatmapPoint, ModelUsagePoint, TokenTrendPoint } from "./conversation-store/index.js";
-import type { PermissionMode } from "./permissions.js";
-import type { MessageInfo, SessionInfo, SessionListItem } from "./session/session.js";
-import type { TenantId } from "../identity/types.js";
+} from "../conversation-store/index.js";
+import type { DailyActivityPoint, HeatmapPoint, ModelUsagePoint, TokenTrendPoint } from "../conversation-store/index.js";
+import type { PermissionMode } from "../permissions.js";
+import type { MessageInfo, SessionInfo, SessionListItem } from "../session/session.js";
+import type { TenantId } from "../../identity/types.js";
 
 export interface AsyncConversationRepository {
   createSession(tenantId: TenantId, sessionId: string, userId: string | null, metadata?: Record<string, unknown>, permissionMode?: PermissionMode | null): Promise<void>;
@@ -54,8 +54,8 @@ export interface AsyncRunStore {
   listTenantRuns(tenantId: string, activeOnly: boolean): Promise<RunInfo[]>;
 }
 
-type AddRunInput = Parameters<import("./conversation-store/index.js").IRunStore["createRun"]>[0];
-type CreatedRun = ReturnType<import("./conversation-store/index.js").IRunStore["createRun"]>;
+type AddRunInput = Parameters<import("../conversation-store/index.js").IRunStore["createRun"]>[0];
+type CreatedRun = ReturnType<import("../conversation-store/index.js").IRunStore["createRun"]>;
 
 export interface AsyncAnalyticsRepository {
   insertMetric(tenantId: string, input: AnalyticsMetricInput): Promise<void>;
@@ -105,7 +105,7 @@ export interface AsyncProviderContinuationRepository {
 }
 
 export interface AsyncProviderContinuationStore {
-  getProviderContinuation(tenantId: TenantId, sessionId: string, messageId: string): Promise<import("./conversation-store/index.js").ProviderContinuationRecord | null>;
+  getProviderContinuation(tenantId: TenantId, sessionId: string, messageId: string): Promise<import("../conversation-store/index.js").ProviderContinuationRecord | null>;
 }
 
 export interface AsyncPendingInteractionStore {

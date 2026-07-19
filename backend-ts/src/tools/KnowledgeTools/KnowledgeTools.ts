@@ -1,7 +1,7 @@
 import { asRecord } from "../../utils/guards.js";
 import { z } from "zod";
 
-import type { VectorSearchResult } from "../../contracts/knowledge-base.js";
+import type { VectorSearchResult } from "../../contracts/knowledge/knowledge-base.js";
 import type { KnowledgeQueryPort } from "../../contracts/knowledge/query-port.js";
 import {
   LIST_KNOWLEDGE_COLLECTIONS_TOOL_NAME,

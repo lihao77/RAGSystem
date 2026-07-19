@@ -1,4 +1,4 @@
-import type { ArtifactMetadata, ArtifactMetadataRepository, CreateArtifactMetadataInput } from "../../../contracts/artifact-repository.js";
+import type { ArtifactMetadata, ArtifactMetadataRepository, CreateArtifactMetadataInput } from "../../../contracts/artifacts/artifact-repository.js";
 import type { JsonValue } from "../../../contracts/common.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
 

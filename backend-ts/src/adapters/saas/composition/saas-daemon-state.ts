@@ -1,4 +1,4 @@
-import type { AsyncConversationRepository, AsyncPendingInteractionStore } from "../../../contracts/async-persistence-ports.js";
+import type { AsyncConversationRepository, AsyncPendingInteractionStore } from "../../../contracts/storage/async-persistence-ports.js";
 import type { PermissionMode } from "../../../contracts/permissions.js";
 import type { TenantId, UserId } from "../../../identity/types.js";
 import type { DaemonSuspendedInteraction } from "../../../services/daemon/daemon-service.js";

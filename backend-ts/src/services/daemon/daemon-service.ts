@@ -1,8 +1,8 @@
 import { isRecord } from "../../utils/guards.js";
 import { randomUUID } from "node:crypto";
 
-import type { BotRepository } from "../../contracts/bot-repository.js";
-import type { BotConfig, BotCronTask, BotCronTaskCreate, BotCronTaskUpdate, PlatformType } from "../../contracts/bot.js";
+import type { BotRepository } from "../../contracts/control-plane/bot-repository.js";
+import type { BotConfig, BotCronTask, BotCronTaskCreate, BotCronTaskUpdate, PlatformType } from "../../contracts/control-plane/bot.js";
 import type { DaemonOutgoingMessage, DaemonTestMessage } from "../../contracts/runtime/daemon.js";
 import type { TenantId, UserId } from "../../identity/types.js";
 import type { PermissionMode } from "../../contracts/permissions.js";

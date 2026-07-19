@@ -5,8 +5,8 @@ import type { MessageInfo, SessionInfo, SessionListItem } from "../../../contrac
 import type { AddMessageInput } from "../../../contracts/conversation-store/index.js";
 import { AddMessageInputSchema } from "../../../contracts/conversation-store/types.js";
 import type { PermissionMode } from "../../../contracts/permissions.js";
-import type { AsyncConversationRepository } from "../../../contracts/async-persistence-ports.js";
-export type { AsyncConversationRepository } from "../../../contracts/async-persistence-ports.js";
+import type { AsyncConversationRepository } from "../../../contracts/storage/async-persistence-ports.js";
+export type { AsyncConversationRepository } from "../../../contracts/storage/async-persistence-ports.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
 import { decodeChatFields, encodeChatFields } from "../../../contracts/conversation-store/chat-message-codec.js";
 

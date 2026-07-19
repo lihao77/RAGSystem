@@ -1,8 +1,8 @@
 import type { FastifyPluginAsync } from "fastify";
 
-import { SyncEmbeddingModelRequestSchema } from "../contracts/embedding-models.js";
+import { SyncEmbeddingModelRequestSchema } from "../contracts/knowledge/embedding-models.js";
 import { EmbeddingModelServiceError } from "../services/knowledge/embedding-model-service.js";
-import { KnowledgeBaseError } from "../contracts/knowledge-base.js";
+import { KnowledgeBaseError } from "../contracts/knowledge/knowledge-base.js";
 import { HttpError, httpErrorFrom, statusHttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";

@@ -7,7 +7,7 @@ import type {
   VisualizationConfig,
   VisualizationIndexEntry,
   VisualizationSummary,
-} from "../../contracts/artifacts.js";
+} from "../../contracts/artifacts/artifacts.js";
 import type { JsonValue } from "../../contracts/common.js";
 
 export interface VisualizationRecord {

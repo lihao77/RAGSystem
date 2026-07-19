@@ -1,4 +1,4 @@
-import type { Membership, UserType } from "../user.js";
+import type { Membership, UserType } from "./user.js";
 import type { TenantId, UserId } from "../../identity/types.js";
 
 export type PlatformRole = "admin";

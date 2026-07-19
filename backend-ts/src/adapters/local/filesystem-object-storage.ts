@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { ObjectMetadata, ObjectStorage } from "../../contracts/object-storage.js";
+import type { ObjectMetadata, ObjectStorage } from "../../contracts/storage/object-storage.js";
 
 export class FilesystemObjectStorage implements ObjectStorage {
   constructor(private readonly root: string) {}

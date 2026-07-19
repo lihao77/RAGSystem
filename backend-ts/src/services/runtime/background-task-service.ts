@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { AsyncBackgroundTaskRepository, DurableBackgroundTaskRecord } from "../../contracts/background-task-repository.js";
+import type { AsyncBackgroundTaskRepository, DurableBackgroundTaskRecord } from "../../contracts/storage/background-task-repository.js";
 
 import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 import { SessionNotificationQueue } from "./session-notification-queue.js";

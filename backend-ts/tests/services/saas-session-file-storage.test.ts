@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { SaaSSessionFileStorage } from "../../src/adapters/saas/object-storage/session-file-storage.js";
-import type { ObjectMetadata, ObjectStorage } from "../../src/contracts/object-storage.js";
+import type { ObjectMetadata, ObjectStorage } from "../../src/contracts/storage/object-storage.js";
 import type {
   AddSessionFileMetadataInput,
   SessionFileMetadata,

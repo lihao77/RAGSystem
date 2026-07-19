@@ -1,6 +1,6 @@
 import * as lark from "@larksuiteoapi/node-sdk";
 
-import type { BotFeishuConfig } from "../../../contracts/bot.js";
+import type { BotFeishuConfig } from "../../../contracts/control-plane/bot.js";
 
 export interface FeishuMessageEvent {
   message?: {

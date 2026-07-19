@@ -9,7 +9,7 @@ import type { RuntimeMemorySessionPort } from "../../tools/MemoryTools/MemoryExe
 import type { AgentExecutionLogger } from "../../services/agent/execution/index.js";
 import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../../services/agent/sdk/async-event-persister.js";
 import type { AsyncConversationHistoryPort, AsyncProviderContinuationLookupPort, SuspendedSessionControlPort } from "../../contracts/runtime/runtime-async-ports.js";
-import type { AsyncBackgroundTaskRepository } from "../../contracts/background-task-repository.js";
+import type { AsyncBackgroundTaskRepository } from "../../contracts/storage/background-task-repository.js";
 import type { RealtimeEventBus } from "../../contracts/runtime/realtime-event-bus.js";
 import type { AsyncDurableClientEventPublisher } from "../../services/runtime/event-outbox/async-client-event-publisher.js";
 import type { ExecutionStorage } from "../../contracts/execution/execution-storage.js";

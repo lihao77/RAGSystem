@@ -1,4 +1,4 @@
-import type { JsonValue } from "./common.js";
+import type { JsonValue } from "../common.js";
 
 export interface ArtifactMetadata {
   tenant_id: string;

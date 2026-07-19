@@ -4,7 +4,7 @@ import type { FastifyRequest } from "fastify";
 import type {
   WidgetAppCredential,
   WidgetCredentialRepository,
-} from "../../contracts/widget-credentials.js";
+} from "../../contracts/control-plane/widget-credentials.js";
 import type { JwtKeyRing, JwtSigningKey } from "../../contracts/runtime/jwt-key-ring.js";
 import { createTenantId, type TenantId } from "../../identity/types.js";
 import { AuthError } from "../identity/auth-error.js";

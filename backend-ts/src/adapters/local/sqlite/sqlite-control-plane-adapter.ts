@@ -7,7 +7,7 @@ import type {
   TenantDirectory,
   UserDirectory,
 } from "../../../contracts/control-plane/index.js";
-import { TenantRoleSchema } from "../../../contracts/user.js";
+import { TenantRoleSchema } from "../../../contracts/control-plane/user.js";
 import { createTenantId } from "../../../identity/types.js";
 import {
   CONTROL_LATEST_SCHEMA_VERSION,

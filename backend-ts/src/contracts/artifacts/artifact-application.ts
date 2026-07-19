@@ -1,4 +1,4 @@
-import type { JsonValue } from "./common.js";
+import type { JsonValue } from "../common.js";
 import type { VisualizationConfig, VisualizationSummary } from "./artifacts.js";
 
 export interface ArtifactRecord {

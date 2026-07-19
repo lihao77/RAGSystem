@@ -1,7 +1,7 @@
 import type {
   AsyncBackgroundTaskRepository,
   DurableBackgroundTaskRecord,
-} from "../../../contracts/background-task-repository.js";
+} from "../../../contracts/storage/background-task-repository.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
 
 export class PostgresBackgroundTaskRepository implements AsyncBackgroundTaskRepository {

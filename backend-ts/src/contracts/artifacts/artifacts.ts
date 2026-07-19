@@ -1,4 +1,4 @@
-import type { JsonValue } from "./common.js";
+import type { JsonValue } from "../common.js";
 
 export interface VisualizationIndexEntry {
   artifact_id: string;

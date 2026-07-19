@@ -1,4 +1,4 @@
-import type { MonitoringApplication } from "../../../../contracts/monitoring-application.js";
+import type { MonitoringApplication } from "../../../../contracts/application/monitoring-application.js";
 import type { DeleteDeliveredOutboxInput, IOutboxStore, ListOutboxInput, RetryOutboxBatchInput } from "../../../../contracts/conversation-store/index.js";
 
 /** Async facade over Local's synchronous ConversationStore outbox operations. */

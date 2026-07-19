@@ -1,7 +1,7 @@
 import path from "node:path";
 
-import type { ObjectStorage } from "../../../contracts/object-storage.js";
-import type { DurableManagedSpace, WorkspaceBlobRef, WorkspaceBlobStorage } from "../../../contracts/workspace-blob-storage.js";
+import type { ObjectStorage } from "../../../contracts/storage/object-storage.js";
+import type { DurableManagedSpace, WorkspaceBlobRef, WorkspaceBlobStorage } from "../../../contracts/storage/workspace-blob-storage.js";
 import type { AsyncFileHistoryStore } from "../../../contracts/file-history-store/index.js";
 
 export class SaaSWorkspaceBlobStorage implements WorkspaceBlobStorage {

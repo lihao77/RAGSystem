@@ -7,7 +7,7 @@ import type {
   FileHistorySnapshot,
   FileHistoryTrackedFile,
 } from "../../../contracts/file-history-store/index.js";
-import type { ObjectStorage } from "../../../contracts/object-storage.js";
+import type { ObjectStorage } from "../../../contracts/storage/object-storage.js";
 
 /** Tenant-bound file history. Both backup and restored targets are ObjectStorage keys. */
 export class SaaSFileHistoryStorage implements AsyncFileHistoryStore {

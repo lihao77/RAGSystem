@@ -4,7 +4,7 @@ import { createSaaSMemoryRuntime, type SaaSMemoryRuntimeHandle } from "./adapter
 import { createSaaSControlRuntime, type SaaSControlRuntimeHandle } from "./adapters/saas/composition/saas-control-runtime.js";
 import { createSaaSConversationRuntime, type SaaSConversationRuntimeHandle } from "./adapters/saas/composition/saas-conversation-runtime.js";
 import { createSaaSObjectStorage } from "./adapters/saas/composition/saas-object-storage.js";
-import type { ObjectStorage } from "./contracts/object-storage.js";
+import type { ObjectStorage } from "./contracts/storage/object-storage.js";
 import { TenantKnowledgeMarkdownPipeline } from "./contracts/knowledge/async-knowledge-markdown-pipeline.js";
 import { SaaSKnowledgeVectorApplication } from "./adapters/saas/application/knowledge/saas-knowledge-vector-application.js";
 import { SaaSSessionApplication } from "./adapters/saas/application/session/saas-session-application.js";

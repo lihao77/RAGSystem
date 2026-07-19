@@ -2,16 +2,16 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 
-import type { BotCronTaskClaim, BotRepository, BotWithConfig } from "../../../contracts/bot-repository.js";
+import type { BotCronTaskClaim, BotRepository, BotWithConfig } from "../../../contracts/control-plane/bot-repository.js";
 import type {
   BotConfig,
   BotConfigUpdate,
   BotCronTask,
   BotSummary,
   TenantBotSummary,
-} from "../../../contracts/bot.js";
+} from "../../../contracts/control-plane/bot.js";
 import type { SecretCoordinates, SecretMutation, SecretResolver } from "../../../contracts/integrations/secret-resolver.js";
-import type { Bot } from "../../../contracts/user.js";
+import type { Bot } from "../../../contracts/control-plane/user.js";
 import { createTenantId, createUserId, type TenantId, type UserId } from "../../../identity/types.js";
 import { HttpError } from "../../../utils/errors.js";
 

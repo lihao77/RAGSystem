@@ -4,7 +4,7 @@ import type { UserId } from "../../identity/types.js";
 
 import type { RuntimeContainer } from "../../contracts/runtime/runtime-container.js";
 import type { ExecutionApplication } from "../../contracts/execution/execution-application.js";
-import type { InteractionRecoveryApplication } from "../../contracts/interaction-recovery-application.js";
+import type { InteractionRecoveryApplication } from "../../contracts/application/interaction-recovery-application.js";
 import { AguiTranslator } from "./agui-translator.js";
 import { InterruptMachine, type InterruptRecord } from "./interrupt-machine.js";
 import { openAguiSse, type AguiSseStream } from "./sse-stream.js";

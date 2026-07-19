@@ -1,4 +1,4 @@
-import type { InteractionRecoveryApplication, InteractionRecoveryResult } from "../../../../contracts/interaction-recovery-application.js";
+import type { InteractionRecoveryApplication, InteractionRecoveryResult } from "../../../../contracts/application/interaction-recovery-application.js";
 import type { ConversationStore, ProviderContinuationRecord } from "../../../../contracts/conversation-store/index.js";
 import type { PendingInteractionPort } from "../../../../contracts/runtime/pending-interactions.js";
 

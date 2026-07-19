@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 
-import { CreatedWidgetAppViewSchema, CreateWidgetAppRequestSchema, UpdateWidgetAppRequestSchema, WidgetAppViewSchema, WidgetAuditViewSchema, WidgetTokenViewSchema } from "../contracts/widget.js";
-import type { CreatedWidgetAppCredential, WidgetAppCredential } from "../contracts/widget-credentials.js";
+import { CreatedWidgetAppViewSchema, CreateWidgetAppRequestSchema, UpdateWidgetAppRequestSchema, WidgetAppViewSchema, WidgetAuditViewSchema, WidgetTokenViewSchema } from "../contracts/control-plane/widget.js";
+import type { CreatedWidgetAppCredential, WidgetAppCredential } from "../contracts/control-plane/widget-credentials.js";
 import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
 import { requireTenantAdmin, requireTenantOwner } from "./tenant-role.js";

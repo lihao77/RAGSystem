@@ -1,5 +1,5 @@
-import type { AnalyticsApplication } from "../../../../contracts/analytics-application.js";
-import type { AnalyticsRepositoryPort } from "../../../../contracts/async-persistence-ports.js";
+import type { AnalyticsApplication } from "../../../../contracts/application/analytics-application.js";
+import type { AnalyticsRepositoryPort } from "../../../../contracts/storage/async-persistence-ports.js";
 
 /** Tenant-bound analytics facade used by HTTP routes. */
 export class SaaSAnalyticsApplication implements AnalyticsApplication {

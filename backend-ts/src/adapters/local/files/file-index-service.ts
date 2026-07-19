@@ -3,7 +3,7 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 
-import type { UploadedFileRecord } from "../../../contracts/files.js";
+import type { UploadedFileRecord } from "../../../contracts/storage/files.js";
 import {
   AddFileInputSchema,
   ListFilesInputSchema,

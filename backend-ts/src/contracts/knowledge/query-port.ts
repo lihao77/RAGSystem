@@ -1,4 +1,4 @@
-import type { SearchVectorsRequest, VectorSearchResult } from "../knowledge-base.js";
+import type { SearchVectorsRequest, VectorSearchResult } from "./knowledge-base.js";
 
 export interface KnowledgeCollectionSummary {
   name: string;

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 
 import { buildTestHarness } from "../helpers/app.js";
-import type { MonitoringApplication } from "../../src/contracts/monitoring-application.js";
+import type { MonitoringApplication } from "../../src/contracts/application/monitoring-application.js";
 
 let app: FastifyInstance | null = null;
 

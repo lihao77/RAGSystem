@@ -11,7 +11,7 @@ import type {
   TenantDirectory,
   UserDirectory,
 } from "../../../contracts/control-plane/index.js";
-import { TenantRoleSchema, UserTypeSchema } from "../../../contracts/user.js";
+import { TenantRoleSchema, UserTypeSchema } from "../../../contracts/control-plane/user.js";
 import { createTenantId, createUserId, type TenantId, type UserId } from "../../../identity/types.js";
 import { HttpError } from "../../../utils/errors.js";
 import {

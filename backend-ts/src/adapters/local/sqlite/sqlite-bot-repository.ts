@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { BotRepository } from "../../../contracts/bot-repository.js";
-import type { BotCronTaskClaim } from "../../../contracts/bot-repository.js";
+import type { BotRepository } from "../../../contracts/control-plane/bot-repository.js";
+import type { BotCronTaskClaim } from "../../../contracts/control-plane/bot-repository.js";
 import type { ControlStore } from "./control-store/index.js";
 
 /** Async Bot boundary backed by the Local control SQLite database. */

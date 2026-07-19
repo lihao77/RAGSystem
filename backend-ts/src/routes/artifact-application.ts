@@ -1,5 +1,5 @@
 import type { FastifyRequest } from "fastify";
-import type { ArtifactApplication } from "../contracts/artifact-application.js";
+import type { ArtifactApplication } from "../contracts/artifacts/artifact-application.js";
 import type { RouteOptions } from "./route-options.js";
 import { ensureRequestApplications } from "../app/request-applications.js";
 

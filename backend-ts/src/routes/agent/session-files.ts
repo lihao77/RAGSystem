@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 
-import { ValidateFilesRequestSchema } from "../../contracts/files.js";
+import { ValidateFilesRequestSchema } from "../../contracts/storage/files.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import {

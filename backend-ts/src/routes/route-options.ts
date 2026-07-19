@@ -1,7 +1,7 @@
 import type { FastifyRequest } from "fastify";
 
-import type { WidgetCredentialRepository } from "../contracts/widget-credentials.js";
-import type { BotRepository } from "../contracts/bot-repository.js";
+import type { WidgetCredentialRepository } from "../contracts/control-plane/widget-credentials.js";
+import type { BotRepository } from "../contracts/control-plane/bot-repository.js";
 import type { IdentityProvider } from "../services/identity/index.js";
 import type { MemoryApplication } from "../services/memory/index.js";
 import type { AsyncKnowledgeFileStore } from "../contracts/knowledge/async-knowledge-file-store.js";
@@ -12,11 +12,11 @@ import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
 import type { SaaSProviderMcpApplication } from "../adapters/saas/application/provider-mcp/saas-provider-mcp-application.js";
 import type { SaaSKnowledgeVectorApplication } from "../adapters/saas/application/knowledge/saas-knowledge-vector-application.js";
 import type { SessionApplication } from "../contracts/session/session-application.js";
-import type { InteractionRecoveryApplication } from "../contracts/interaction-recovery-application.js";
-import type { AnalyticsApplication } from "../contracts/analytics-application.js";
-import type { MonitoringApplication } from "../contracts/monitoring-application.js";
+import type { InteractionRecoveryApplication } from "../contracts/application/interaction-recovery-application.js";
+import type { AnalyticsApplication } from "../contracts/application/analytics-application.js";
+import type { MonitoringApplication } from "../contracts/application/monitoring-application.js";
 import type { AsyncSessionFileStorage } from "../contracts/session/session-file-storage.js";
-import type { ArtifactApplication } from "../contracts/artifact-application.js";
+import type { ArtifactApplication } from "../contracts/artifacts/artifact-application.js";
 import type { AsyncFileHistoryStore } from "../contracts/file-history-store/index.js";
 
 export interface RouteOptions {

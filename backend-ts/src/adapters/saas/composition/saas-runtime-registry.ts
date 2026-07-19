@@ -1,5 +1,5 @@
 import type { TenantId } from "../../../identity/types.js";
-import type { AsyncConversationRepository, AsyncRunStore } from "../../../contracts/async-persistence-ports.js";
+import type { AsyncConversationRepository, AsyncRunStore } from "../../../contracts/storage/async-persistence-ports.js";
 
 /** The async, storage-only surface shared by SaaS request handlers. */
 export interface SaaSTenantRuntimeHandle {

@@ -1,4 +1,4 @@
-import type { AnalyticsApplication } from "../../../../contracts/analytics-application.js";
+import type { AnalyticsApplication } from "../../../../contracts/application/analytics-application.js";
 import type { ConversationStore } from "../../sqlite/conversation-store/index.js";
 
 /** Local adapter: exposes synchronous SQLite analytics through the shared async port. */

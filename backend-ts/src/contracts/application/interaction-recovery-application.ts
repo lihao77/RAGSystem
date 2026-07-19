@@ -1,5 +1,5 @@
-import type { ProviderContinuationRecord } from "./conversation-store/index.js";
-import type { InteractionKind } from "./interactions.js";
+import type { ProviderContinuationRecord } from "../conversation-store/index.js";
+import type { InteractionKind } from "../interactions.js";
 
 export interface InteractionRecoveryResult {
   resolved: boolean;

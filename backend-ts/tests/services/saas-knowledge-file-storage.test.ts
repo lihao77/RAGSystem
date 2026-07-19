@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SaaSKnowledgeFileStorage } from "../../src/adapters/saas/object-storage/knowledge-file-storage.js";
-import type { ObjectMetadata, ObjectStorage } from "../../src/contracts/object-storage.js";
+import type { ObjectMetadata, ObjectStorage } from "../../src/contracts/storage/object-storage.js";
 import type { AddKnowledgeFileMetadataInput, KnowledgeFileMetadata, KnowledgeFileMetadataRepository } from "../../src/contracts/knowledge/knowledge-file-repository.js";
 
 class MemoryObjects implements ObjectStorage {

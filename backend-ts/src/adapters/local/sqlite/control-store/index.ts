@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import type { BotConfig, BotConfigUpdate, BotCronTask, BotCronTaskCreate, BotSummary, TenantBotSummary } from "../../../../contracts/bot.js";
-import type { Bot, UserType } from "../../../../contracts/user.js";
+import type { BotConfig, BotConfigUpdate, BotCronTask, BotCronTaskCreate, BotSummary, TenantBotSummary } from "../../../../contracts/control-plane/bot.js";
+import type { Bot, UserType } from "../../../../contracts/control-plane/user.js";
 import type {
   ControlMembership,
   ControlTenant,

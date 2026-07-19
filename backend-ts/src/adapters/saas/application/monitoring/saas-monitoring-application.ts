@@ -6,8 +6,8 @@ import type {
   RetryOutboxResult,
 } from "../../../../contracts/conversation-store/index.js";
 import type { PaginatedResult } from "../../../../contracts/common.js";
-import type { MonitoringApplication } from "../../../../contracts/monitoring-application.js";
-import type { MonitoringRepositoryPort } from "../../../../contracts/async-persistence-ports.js";
+import type { MonitoringApplication } from "../../../../contracts/application/monitoring-application.js";
+import type { MonitoringRepositoryPort } from "../../../../contracts/storage/async-persistence-ports.js";
 
 export class SaaSMonitoringApplication implements MonitoringApplication {
   constructor(

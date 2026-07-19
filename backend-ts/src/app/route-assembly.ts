@@ -2,8 +2,8 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 
 import type { AppEnv } from "../config/env.js";
 import type { ControlPlane } from "../contracts/control-plane/index.js";
-import type { BotRepository } from "../contracts/bot-repository.js";
-import type { WidgetCredentialRepository } from "../contracts/widget-credentials.js";
+import type { BotRepository } from "../contracts/control-plane/bot-repository.js";
+import type { WidgetCredentialRepository } from "../contracts/control-plane/widget-credentials.js";
 import type { DeploymentProfile } from "../identity/types.js";
 import { registerAdminRoutes } from "../routes/admin.js";
 import { registerAgentConfigRoutes } from "../routes/agent-config.js";

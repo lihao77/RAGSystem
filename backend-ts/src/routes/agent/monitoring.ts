@@ -14,7 +14,7 @@ import type { ChatMessage, ChatToolCall } from "@ragsystem/agent-llm";
 import { extractText } from "@ragsystem/agent-llm";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
-import type { MonitoringApplication } from "../../contracts/monitoring-application.js";
+import type { MonitoringApplication } from "../../contracts/application/monitoring-application.js";
 import { ensureRequestApplications } from "../../app/request-applications.js";
 import { requireTenantAdmin, requireTenantMember } from "../tenant-role.js";
 import { assertSessionOwner } from "../session-owner.js";

@@ -1,6 +1,6 @@
 import type { FastifyRequest } from "fastify";
 
-import type { WidgetCredentialRepository } from "../../contracts/widget-credentials.js";
+import type { WidgetCredentialRepository } from "../../contracts/control-plane/widget-credentials.js";
 import type { RequestIdentity } from "../../identity/types.js";
 import { widgetUserId } from "../../identity/widget-user-id.js";
 import type { WidgetAuthService } from "../runtime/jwt-service.js";

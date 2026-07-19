@@ -3,7 +3,7 @@ import type {
   KnowledgeQueryPort,
   KnowledgeSearchResponse,
 } from "../../../contracts/knowledge/query-port.js";
-import type { SearchVectorsRequest } from "../../../contracts/knowledge-base.js";
+import type { SearchVectorsRequest } from "../../../contracts/knowledge/knowledge-base.js";
 
 /** Tenant-bound Agent knowledge queries backed by PostgreSQL/pgvector. */
 export class PostgresKnowledgeQueryAdapter implements KnowledgeQueryPort {

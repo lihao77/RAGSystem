@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { SaaSWorkspaceBlobStorage } from "../../src/adapters/saas/object-storage/workspace-blob-storage.js";
-import type { ObjectMetadata, ObjectStorage } from "../../src/contracts/object-storage.js";
-import { EPHEMERAL_WORKSPACE_POLICY } from "../../src/contracts/workspace-blob-storage.js";
+import type { ObjectMetadata, ObjectStorage } from "../../src/contracts/storage/object-storage.js";
+import { EPHEMERAL_WORKSPACE_POLICY } from "../../src/contracts/storage/workspace-blob-storage.js";
 import type { AsyncFileHistoryStore } from "../../src/contracts/file-history-store/index.js";
 
 class MemoryObjects implements ObjectStorage {

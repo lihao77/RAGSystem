@@ -1,9 +1,9 @@
 import { Pool } from "pg";
 
-import type { BotRepository } from "../../../contracts/bot-repository.js";
+import type { BotRepository } from "../../../contracts/control-plane/bot-repository.js";
 import type { ControlPlane } from "../../../contracts/control-plane/index.js";
 import type { SecretResolver } from "../../../contracts/integrations/secret-resolver.js";
-import type { WidgetCredentialRepository } from "../../../contracts/widget-credentials.js";
+import type { WidgetCredentialRepository } from "../../../contracts/control-plane/widget-credentials.js";
 import { PostgresBotRepository } from "../../../adapters/saas/postgres/bot-repository.js";
 import { createPostgresControlPlaneAdapter } from "../../../adapters/saas/postgres/control-plane-adapter.js";
 import { createPostgresSecretResolver } from "../../../adapters/saas/postgres/control-secret-resolver.js";

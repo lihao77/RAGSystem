@@ -1,4 +1,4 @@
-import type { ObjectMetadata, ObjectStorage } from "../../../contracts/object-storage.js";
+import type { ObjectMetadata, ObjectStorage } from "../../../contracts/storage/object-storage.js";
 import { createHash, createHmac } from "node:crypto";
 
 export interface S3ObjectTransport {

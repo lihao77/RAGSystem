@@ -7,7 +7,7 @@ import type {
   TenantBotSummary,
 } from "./bot.js";
 import type { Bot } from "./user.js";
-import type { TenantId, UserId } from "../identity/types.js";
+import type { TenantId, UserId } from "../../identity/types.js";
 
 export type BotWithConfig = Bot & { config: BotConfig };
 export interface BotWebhookTarget { tenantId: TenantId; botId: UserId }

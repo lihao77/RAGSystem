@@ -14,7 +14,7 @@ import type {
   VectorizerConfig,
   VectorizerCreate,
   VectorSearchResult,
-} from "../../contracts/knowledge-base.js";
+} from "../../contracts/knowledge/knowledge-base.js";
 import type { IEmbedder, IKnowledgeConfig, IKnowledgeFileStore, IVectorStore, KnowledgeFile, StoredChunk, StoredReranker, StoredVectorizer, VectorRecord, VectorSearchHit } from "../../contracts/vector-store/index.js";
 import type { AsyncKnowledgeVectorStore } from "../../contracts/knowledge/async-vector-store.js";
 import type { ModelProviderConfig } from "../../contracts/integrations/model-adapter.js";
@@ -25,7 +25,7 @@ import { createReranker, type IReranker } from "../integrations/reranker-registr
 import { lexicalRerank } from "./rerank/lexical-rerank.js";
 // 打分纯函数统一从 scoring.ts 复用(cosineSimilarity/tokenize 随 5h-2 降级路径删除,本地副本已无)。
 import { hybridScore, keywordOverlapScore } from "../vector-store/scoring.js";
-import { KnowledgeBaseError } from "../../contracts/knowledge-base.js";
+import { KnowledgeBaseError } from "../../contracts/knowledge/knowledge-base.js";
 import { ChunkRevisionService } from "./chunk-revision-service.js";
 
 export type KnowledgeBaseEmbedderFactory = (

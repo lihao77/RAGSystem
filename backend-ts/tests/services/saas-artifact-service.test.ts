@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SaaSArtifactService } from "../../src/adapters/saas/application/artifacts/saas-artifact-application.js";
-import type { ArtifactMetadata, ArtifactMetadataRepository } from "../../src/contracts/artifact-repository.js";
-import type { ObjectMetadata, ObjectStorage } from "../../src/contracts/object-storage.js";
+import type { ArtifactMetadata, ArtifactMetadataRepository } from "../../src/contracts/artifacts/artifact-repository.js";
+import type { ObjectMetadata, ObjectStorage } from "../../src/contracts/storage/object-storage.js";
 
 class MemoryObjects implements ObjectStorage {
   readonly values = new Map<string, Uint8Array>();

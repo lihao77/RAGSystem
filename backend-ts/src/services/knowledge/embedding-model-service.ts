@@ -3,7 +3,7 @@ import type {
   EmbeddingModelStats,
   EmbeddingSyncStatus,
   SyncEmbeddingModelRequest,
-} from "../../contracts/embedding-models.js";
+} from "../../contracts/knowledge/embedding-models.js";
 import type { KnowledgeBaseService } from "./knowledge-base-service.js";
 
 export class EmbeddingModelServiceError extends Error {
