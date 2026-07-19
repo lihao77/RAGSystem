@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 
 import { buildTestHarness } from "../helpers/app.js";
-import type { SaaSMonitoringApplication } from "../../src/services/runtime/saas-monitoring-application.js";
+import type { MonitoringApplication } from "../../src/contracts/monitoring-application.js";
 
 let app: FastifyInstance | null = null;
 
@@ -19,8 +19,8 @@ describe("SaaS monitoring routes", () => {
       retryOutbox: vi.fn(async () => true),
       retryOutboxBatch: vi.fn(async () => ({ matched: 1, retried: 1, ids: [7] })),
       deleteDeliveredOutbox: vi.fn(async () => 2),
-    } as unknown as SaaSMonitoringApplication;
-    const harness = await buildTestHarness({ resolveSaaSMonitoringApplication: () => operations });
+    } as unknown as MonitoringApplication;
+    const harness = await buildTestHarness({ resolveMonitoringApplication: () => operations });
     app = harness.app;
 
     expect((await app.inject({ method: "GET", url: "/api/agent/event-outbox?status=failed" })).statusCode).toBe(200);

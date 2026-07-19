@@ -15,7 +15,7 @@ import type { SessionApplication } from "../contracts/session-application.js";
 import type { SaaSAgentReadApplication } from "../services/runtime/saas-agent-read-application.js";
 import type { SaaSInteractionRecoveryApplication } from "../services/runtime/saas-interaction-recovery-application.js";
 import type { AnalyticsApplication } from "../contracts/analytics-application.js";
-import type { SaaSMonitoringApplication } from "../services/runtime/saas-monitoring-application.js";
+import type { MonitoringApplication } from "../contracts/monitoring-application.js";
 import type { AsyncSessionFileStorage } from "../contracts/session-file-storage.js";
 import type { ArtifactApplication } from "../contracts/artifact-application.js";
 import type { AsyncFileHistoryStore } from "../contracts/file-history-store/index.js";
@@ -39,7 +39,7 @@ export interface RouteOptions {
   resolveSaaSAgentReadApplication?: (request: FastifyRequest) => SaaSAgentReadApplication | undefined | Promise<SaaSAgentReadApplication | undefined>;
   resolveSaaSInteractionRecovery?: (request: FastifyRequest) => SaaSInteractionRecoveryApplication | undefined | Promise<SaaSInteractionRecoveryApplication | undefined>;
   resolveAnalytics?: (request: FastifyRequest) => AnalyticsApplication | undefined | Promise<AnalyticsApplication | undefined>;
-  resolveSaaSMonitoringApplication?: (request: FastifyRequest) => SaaSMonitoringApplication | undefined | Promise<SaaSMonitoringApplication | undefined>;
+  resolveMonitoringApplication?: (request: FastifyRequest) => MonitoringApplication | undefined | Promise<MonitoringApplication | undefined>;
   resolveSessionFileStorage?: (request: FastifyRequest) => AsyncSessionFileStorage | undefined | Promise<AsyncSessionFileStorage | undefined>;
   resolveFileHistoryStorage?: (request: FastifyRequest) => AsyncFileHistoryStore | undefined | Promise<AsyncFileHistoryStore | undefined>;
   resolveArtifactApplication?: (request: FastifyRequest) => ArtifactApplication | Promise<ArtifactApplication>;

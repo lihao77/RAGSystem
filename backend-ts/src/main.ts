@@ -95,7 +95,7 @@ try {
         request.identity.tenantId,
         saasConversationRuntime!.analytics,
       ),
-      resolveSaaSMonitoringApplication: (request: FastifyRequest) => new SaaSMonitoringApplication(
+      resolveMonitoringApplication: (request: FastifyRequest) => new SaaSMonitoringApplication(
         request.identity.tenantId,
         saasConversationRuntime!.outbox,
       ),

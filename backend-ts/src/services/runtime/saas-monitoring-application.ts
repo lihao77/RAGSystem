@@ -7,8 +7,9 @@ import type {
 } from "../../contracts/conversation-store/index.js";
 import type { PaginatedResult } from "../../contracts/common.js";
 import type { PostgresOutboxRepository } from "../../adapters/saas/postgres/outbox-repository.js";
+import type { MonitoringApplication } from "../../contracts/monitoring-application.js";
 
-export class SaaSMonitoringApplication {
+export class SaaSMonitoringApplication implements MonitoringApplication {
   constructor(
     private readonly tenantId: string,
     private readonly outbox: Pick<PostgresOutboxRepository, "getOutboxRow" | "listOutbox" | "retryOutbox" | "retryOutboxBatch" | "deleteDeliveredOutbox">,

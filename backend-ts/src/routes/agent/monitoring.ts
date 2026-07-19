@@ -14,6 +14,8 @@ import type { ChatMessage, ChatToolCall } from "@ragsystem/agent-llm";
 import { extractText } from "@ragsystem/agent-llm";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
+import type { MonitoringApplication } from "../../contracts/monitoring-application.js";
+import { LocalMonitoringApplication } from "../../services/runtime/local-monitoring-application.js";
 import { requireTenantAdmin, requireTenantMember } from "../tenant-role.js";
 import { assertSessionOwner } from "../session-owner.js";
 import { isRecord, normalizeString } from "../../utils/guards.js";
@@ -40,6 +42,9 @@ interface OutboxCleanupQuery {
 }
 
 export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
+  const resolveMonitoring = async (request: FastifyRequest): Promise<MonitoringApplication> =>
+    await options.resolveMonitoringApplication?.(request)
+      ?? new LocalMonitoringApplication(request.container.conversationStore);
   app.addHook("preHandler", async (request) => {
     requireTenantMember(request);
     if (request.method !== "GET" || request.url.includes("/event-outbox") || request.url.includes("/metrics")) requireTenantAdmin(request);
@@ -70,17 +75,17 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       limit: parseIntegerQuery(query.limit, "limit", { defaultValue: 100, min: 1, max: 500 }),
       offset: parseIntegerQuery(query.offset, "offset", { defaultValue: 0, min: 0, max: 100_000 }),
     };
-    const saas = await options.resolveSaaSMonitoringApplication?.(request);
+    const monitoring = await resolveMonitoring(request);
     return ok(
-      saas ? await saas.listOutbox(input) : request.container.conversationStore.listOutbox(input),
+      await monitoring.listOutbox(input),
       "获取 outbox 事件成功",
     );
   });
 
   app.get<{ Params: { id: string } }>("/event-outbox/:id", async (request) => {
     const id = parsePositiveInteger(request.params.id, "id");
-    const saas = await options.resolveSaaSMonitoringApplication?.(request);
-    const row = saas ? await saas.getOutboxRow(id) : request.container.conversationStore.getOutboxRow(id);
+    const monitoring = await resolveMonitoring(request);
+    const row = await monitoring.getOutboxRow(id);
     if (!row) {
       throw new HttpError(404, "not_found", "outbox 事件不存在");
     }
@@ -89,8 +94,8 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
 
   app.post<{ Params: { id: string } }>("/event-outbox/:id/retry", async (request) => {
     const id = parsePositiveInteger(request.params.id, "id");
-    const saas = await options.resolveSaaSMonitoringApplication?.(request);
-    const retried = saas ? await saas.retryOutbox(id) : request.container.conversationStore.retryOutbox(id);
+    const monitoring = await resolveMonitoring(request);
+    const retried = await monitoring.retryOutbox(id);
     if (!retried) {
       throw new HttpError(409, "outbox_not_retryable", "outbox 事件不存在或当前状态不可重试");
     }
@@ -106,8 +111,8 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       statuses: statuses.length > 0 ? statuses : undefined,
       limit: parseIntegerValue(body.limit, "limit", { defaultValue: 100, min: 1, max: 500 }),
     };
-    const saas = await options.resolveSaaSMonitoringApplication?.(request);
-    const result = saas ? await saas.retryOutboxBatch(input) : request.container.conversationStore.retryOutboxBatch(input);
+    const monitoring = await resolveMonitoring(request);
+    const result = await monitoring.retryOutboxBatch(input);
     return ok(result, "outbox 事件已批量重新入队");
   });
 
@@ -118,8 +123,8 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
       before,
       limit: parseIntegerQuery(query.limit, "limit", { defaultValue: 1000, min: 1, max: 10_000 }),
     };
-    const saas = await options.resolveSaaSMonitoringApplication?.(request);
-    const deleted = saas ? await saas.deleteDeliveredOutbox(input) : request.container.conversationStore.deleteDeliveredOutbox(input);
+    const monitoring = await resolveMonitoring(request);
+    const deleted = await monitoring.deleteDeliveredOutbox(input);
     return ok({ deleted, before }, "已清理 delivered outbox 事件");
   });
 
