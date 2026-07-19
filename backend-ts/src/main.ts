@@ -6,7 +6,7 @@ import { createSaaSConversationRuntime, type SaaSConversationRuntimeHandle } fro
 import { createSaaSObjectStorage } from "./services/runtime/saas-object-storage.js";
 import type { ObjectStorage } from "./contracts/object-storage.js";
 import { TenantKnowledgeMarkdownPipeline } from "./contracts/knowledge/async-knowledge-markdown-pipeline.js";
-import { SaaSKnowledgeVectorApplication } from "./services/runtime/saas-knowledge-vector-application.js";
+import { SaaSKnowledgeVectorApplication } from "./application/knowledge/saas-knowledge-vector-application.js";
 import { SaaSSessionApplication } from "./application/session/saas-session-application.js";
 import { SaaSAgentReadApplication } from "./application/execution/saas-agent-read-application.js";
 import { SaaSInteractionRecoveryApplication } from "./application/interaction/saas-interaction-recovery-application.js";

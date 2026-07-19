@@ -9,8 +9,8 @@ import type { AsyncKnowledgeMarkdownPipeline } from "../contracts/knowledge/asyn
 import type { WidgetAuthService } from "../services/runtime/jwt-service.js";
 import type { TenantRuntimeRegistry } from "../services/runtime/tenant-runtime-registry.js";
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
-import type { SaaSProviderMcpApplication } from "../services/runtime/saas-provider-mcp-application.js";
-import type { SaaSKnowledgeVectorApplication } from "../services/runtime/saas-knowledge-vector-application.js";
+import type { SaaSProviderMcpApplication } from "../application/provider-mcp/saas-provider-mcp-application.js";
+import type { SaaSKnowledgeVectorApplication } from "../application/knowledge/saas-knowledge-vector-application.js";
 import type { SessionApplication } from "../contracts/session-application.js";
 import type { InteractionRecoveryApplication } from "../contracts/interaction-recovery-application.js";
 import type { AnalyticsApplication } from "../contracts/analytics-application.js";

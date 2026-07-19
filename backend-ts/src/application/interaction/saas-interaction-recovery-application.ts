@@ -2,9 +2,7 @@ import type {
   PendingInteractionRecord,
   ProviderContinuationRecord,
 } from "../../contracts/conversation-store/index.js";
-import type { PostgresConversationRepository } from "../../adapters/saas/postgres/conversation-repository.js";
-import type { PostgresPendingInteractionRepository } from "../../adapters/saas/postgres/pending-interaction-repository.js";
-import type { PostgresProviderContinuationRepository } from "../../adapters/saas/postgres/provider-continuation-repository.js";
+import type { AsyncConversationRepository, AsyncPendingInteractionStore, AsyncProviderContinuationStore } from "../../contracts/async-persistence-ports.js";
 import type { TenantId } from "../../identity/types.js";
 import type {
   InteractionRecoveryApplication,
@@ -15,12 +13,12 @@ import type {
 export class SaaSInteractionRecoveryApplication implements InteractionRecoveryApplication {
   constructor(
     private readonly tenantId: TenantId,
-    private readonly conversations: Pick<PostgresConversationRepository, "getSession">,
+    private readonly conversations: Pick<AsyncConversationRepository, "getSession">,
     private readonly pending: Pick<
-      PostgresPendingInteractionRepository,
+      AsyncPendingInteractionStore,
       "getPendingInteraction" | "listPendingInteractions" | "updatePendingInteractionStatus"
     >,
-    private readonly continuations: Pick<PostgresProviderContinuationRepository, "getProviderContinuation">,
+    private readonly continuations: Pick<AsyncProviderContinuationStore, "getProviderContinuation">,
   ) {}
 
   async respondApproval(

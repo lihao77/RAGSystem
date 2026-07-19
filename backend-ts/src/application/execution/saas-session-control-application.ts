@@ -1,6 +1,4 @@
-import type { PostgresConversationRepository } from "../../adapters/saas/postgres/conversation-repository.js";
-import type { PostgresPendingInteractionRepository } from "../../adapters/saas/postgres/pending-interaction-repository.js";
-import type { PostgresRunRepository } from "../../adapters/saas/postgres/run-repository.js";
+import type { AsyncConversationRepository, AsyncPendingInteractionStore, AsyncRunStore } from "../../contracts/async-persistence-ports.js";
 import type { TenantId } from "../../identity/types.js";
 import type { SuspendedSessionControlPort } from "../../contracts/runtime-async-ports.js";
 
@@ -15,9 +13,9 @@ export type AsyncSuspendedSessionControl = SuspendedSessionControlPort;
 export class SaaSSessionControlApplication implements AsyncSuspendedSessionControl {
   constructor(
     private readonly tenantId: TenantId,
-    private readonly conversations: Pick<PostgresConversationRepository, "getSession">,
-    private readonly runs: Pick<PostgresRunRepository, "interruptSuspendedRuns">,
-    private readonly pending: Pick<PostgresPendingInteractionRepository, "cancelPendingInteractions">,
+    private readonly conversations: Pick<AsyncConversationRepository, "getSession">,
+    private readonly runs: Pick<AsyncRunStore, "interruptSuspendedRuns">,
+    private readonly pending: Pick<AsyncPendingInteractionStore, "cancelPendingInteractions">,
   ) {}
 
   async interruptSuspendedSession(sessionId: string): Promise<InterruptedSuspendedRun[]> {

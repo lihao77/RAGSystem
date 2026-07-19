@@ -1,6 +1,5 @@
 import type { AddMessageInput } from "../../contracts/conversation-store/types.js";
-import type { AsyncConversationRepository } from "../../adapters/saas/postgres/conversation-repository.js";
-import type { AsyncRunStore } from "../../adapters/saas/postgres/run-repository.js";
+import type { AsyncConversationRepository, AsyncRunStore } from "../../contracts/async-persistence-ports.js";
 import { createTenantId } from "../../identity/types.js";
 
 export interface SaaSExecutionWriteBridgeInput {

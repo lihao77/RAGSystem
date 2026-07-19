@@ -1,12 +1,11 @@
 import type { PaginatedResult } from "../../contracts/common.js";
-import type { AsyncConversationRepository } from "../../adapters/saas/postgres/conversation-repository.js";
+import type { AsyncConversationRepository, AsyncRunStore } from "../../contracts/async-persistence-ports.js";
 import type { TenantId } from "../../identity/types.js";
 import type { PermissionMode } from "../../contracts/permissions.js";
 import type { MessageInfo, SessionInfo, SessionListItem } from "../../contracts/session.js";
 import { normalizeSessionMetadata } from "../../contracts/session.js";
 import { assertSafeSessionId } from "../../contracts/session-id.js";
 import type { AsyncFileHistoryStore } from "../../contracts/file-history-store/index.js";
-import type { AsyncRunStore } from "../../adapters/saas/postgres/run-repository.js";
 import type { RunInfo } from "../../contracts/conversation-store/index.js";
 import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
 import { EXECUTION_ENVELOPE_STEP_TYPE } from "../../services/runtime/event-outbox/execution-envelope-archive.js";
