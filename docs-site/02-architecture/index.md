@@ -16,8 +16,9 @@ System Context
   用户 / 管理员 / Widget / LLM / MCP
         |
 Container
-  Vue frontend -> Fastify API -> Tenant Runtime
-                                  |-> SQLite/sqlite-vec
+  Vue frontend -> Fastify API -> Application contracts
+                                  |-> Local: SQLite/Filesystem
+                                  |-> SaaS: PostgreSQL/Object Storage
                                   |-> agent-sdk/agent-llm
                                   |-> MCP/Embedding
         |
@@ -32,6 +33,7 @@ Component
 - [数据与存储](./data-and-storage)
 - [Agent 运行时](./agent-runtime)
 - [TS 后端分层](./backend-ts-layer)
+- [Adapter 与后端依赖关系](./adapter-and-dependencies)
 - [前端架构](./frontend)
 - [工具系统](./tool-system)
 - [存储模型](./storage)

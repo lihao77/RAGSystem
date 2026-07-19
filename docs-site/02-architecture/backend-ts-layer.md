@@ -12,6 +12,9 @@
 backend-ts/src/
 ├── main.ts                  # 入口：loadEnv → buildApp → listen → 信号优雅关闭
 ├── app.ts                   # 应用装配：插件注册 + 路由前缀 + 错误处理 + 前端 fallback
+├── adapters/                # 部署基础设施实现
+│   ├── local/               # SQLite、Filesystem 与 Local application wrappers
+│   └── saas/                # PostgreSQL、pgvector 与 Object Storage
 ├── config/
 │   └── env.ts               # 环境变量解析（zod schema + .env 手动读取）
 ├── cli/
@@ -90,13 +93,15 @@ backend-ts/src/
 
 每个 store 契约定义了对应的 `I*Store` 接口，实现可替换（如 `vector-store` 支持 driver-registry 多驱动）。
 
+Application contracts 还包括 `SessionApplication`、`ArtifactApplication`、`AnalyticsApplication` 和 `MonitoringApplication`。路由依赖这些接口，而不是直接依赖 PostgreSQL 或 SQLite repository。
+
 ### 3. 路由层（`routes/`）
 
 Fastify 路由模块，每个 `register*Routes` 函数接收 `{ container }` 注入运行时容器。路由层**只做参数校验与调用转发**，业务逻辑全在 service 层。
 
 路由前缀在 `app.ts` 中集中注册，详见 [HTTP 路由清单](/04-api/http)。
 
-### 4. 服务层（`services/`）
+### 4. Application 与服务层（`services/`）
 
 核心业务逻辑。由 `runtime-container.ts` 统一装配为 DI 容器：
 
@@ -108,7 +113,17 @@ Fastify 路由模块，每个 `register*Routes` 函数接收 `{ container }` 注
 - `vector-store/` — `sqlite-vec-driver`、`registry`、`scoring`、`factory`
 - `agui-gateway/` — AG-UI 翻译/SSE/interrupt 状态机
 
-### 5. 工具层（`tools/`）
+明确属于某个部署的数据库、文件系统 wrapper 应位于 `adapters/local` 或 `adapters/saas`。共享业务规则、Agent execution 和上下文构建继续保留在 `services`。
+
+### 5. Adapter 层（`adapters/`）
+
+- `local/`：SQLite Control/Bot/Widget、Filesystem Object Storage、MemoryStore、Local Session/Artifact/Analytics/Monitoring application；
+- `saas/postgres/`：Control、Conversation、Run、Outbox、Memory、Knowledge、Artifact、Analytics、File History 等 repository 和 migration；
+- `saas/object-storage/`：Knowledge、Session File、Workspace Blob、File History 和 S3 transport。
+
+Adapter 只实现 contract，不决定 HTTP 行为。创建和选择由 `main.ts`、`app.ts` 与 runtime factory 完成。详见 [Adapter 与后端依赖关系](./adapter-and-dependencies)。
+
+### 6. 工具层（`tools/`）
 
 每个内置工具一个目录，含 Tool 定义 + Execution 服务。通过 `registry.ts` 注册，运行时由 `runtime-tool-bridge` 装配为 per-agent 工具集。详见 [工具系统](./tool-system)。
 
@@ -144,11 +159,11 @@ services/integrations/mcp-service.ts   # 业务层：McpService.callTool()
 
 ## DI 容器
 
-`createRuntimeContainer`（`runtime-container.ts:112`）是唯一的装配点：
+当前有两个主要装配入口：Local 使用 `createLocalRuntimeContainer()`；SaaS 由 `main.ts` 创建 Memory、Control、Conversation 和 Object Storage runtime，再将 tenant-bound application resolver 传给 `buildApp()`。
 
 - 接收 `{ dbPath, dataRoot, ... }`
 - 实例化全部 service 并互相注入
 - 返回 `RuntimeContainer`（含 30+ readonly 字段）
 - 注册 `onClose` hook 在应用关闭时逆序释放资源
 
-这是理解整个后端依赖关系的入口文件。详见 [Agent 运行时](./agent-runtime)。
+这是理解整个后端依赖关系的入口。详见 [Agent 运行时](./agent-runtime)和 [Adapter 与后端依赖关系](./adapter-and-dependencies)。

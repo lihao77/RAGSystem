@@ -22,7 +22,7 @@
 
 ## Runtime Registry
 
-多租户模式下 `TenantRuntimeRegistry` 按 tenant 获取或创建 `RuntimeContainer`。每个 Runtime 拥有自己的：
+Local 多租户模式下 `TenantRuntimeRegistry` 按 tenant 获取或创建 `RuntimeContainer`。每个 Runtime 拥有自己的：
 
 - SQLite conversation/file/memory 连接；
 - knowledge vector store（默认 `dataRoot/db/knowledge.db`，测试 `:memory:` 除外）；
@@ -47,7 +47,7 @@ docker compose up --build
 
 多租户、password/OIDC、docker/remote execution、显式 CORS、强 session secret；生产不使用宿主机代码执行。
 
-当前可通过 `STORAGE_MODE=postgres` 和 `DATABASE_URL` 启用 PostgreSQL Memory、Conversation、Run 和 Outbox schema/runtime foundation。Agent 执行链仍在逐步接入这些异步 repository，Knowledge、文件和部分 Local runtime 仍依赖 SQLite/本地目录，因此尚不是完整无状态 SaaS。
+`STORAGE_MODE=postgres` 和 `DATABASE_URL` 启用 PostgreSQL Memory、Conversation、Run、Run Steps、Outbox、Knowledge metadata、pgvector、Artifact metadata、Analytics、Session File metadata 和 File History metadata。大文件及可视化内容进入 S3-compatible Object Storage。会话历史、执行状态、Memory 管理和文件 API 已通过 tenant-bound application facade 使用这些数据源。
 
 Control Plane 使用独立的 `CONTROL_STORAGE_MODE`、`CONTROL_DATABASE_URL` 和 `CONTROL_SECRET_MASTER_KEY`，不会隐式复用 Memory 的连接配置。`docker-compose.saas.yml` 默认 `CONTROL_STORAGE_MODE=postgres`。PostgreSQL Control runtime 已包含 Bot/Widget adapter、secret envelope、cron lease 和共享 JWT key ring；缺少 URL 或 32-byte master key 时启动会 fail-fast。
 
@@ -121,4 +121,4 @@ RAG_DATA_ROOT/
 
 ## 明确的非目标
 
-当前代码不保证跨进程共享内存事件 hub，也不自动提供 Kubernetes 编排。`STORAGE_MODE=postgres` 只代表 PostgreSQL Memory driver 已启用，不能推导出其他数据域已经迁移。上线前应检查对应 service/factory，并以 `/readyz`、备份恢复和租户隔离测试作为验收条件。
+当前代码不保证跨进程共享内存事件 hub，也不自动提供 Kubernetes 编排。PostgreSQL/Object Storage 是持久化事实来源，但 Agent 执行 runtime、实时连接投影和部分后台任务仍需队列、租约或 pub/sub 才能支持任意多实例调度。上线前应以 `/readyz`、备份恢复、租户隔离和多实例执行测试作为验收条件。

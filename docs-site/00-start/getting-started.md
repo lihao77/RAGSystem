@@ -50,7 +50,7 @@ npm -w frontend-client run dev
 docker compose up -d --build
 ```
 
-## Docker 启动 Hybrid SaaS
+## Docker 启动 SaaS
 
 `docker-compose.saas.yml` 会启动 PostgreSQL、SaaS backend 和 frontend。必须先设置至少 32 字符的 session secret：
 
@@ -66,6 +66,8 @@ docker compose -f docker-compose.saas.yml up -d --build
 | 前端 | `http://localhost:8080` |
 | Backend | `http://localhost:5002` |
 | PostgreSQL | `localhost:5432` |
+| MinIO API | `http://localhost:9000` |
+| MinIO Console | `http://localhost:9001` |
 
 第一次打开前端时，通过安装向导创建管理员和默认租户。查看容器：
 
@@ -74,8 +76,8 @@ docker compose -f docker-compose.saas.yml ps
 docker logs --tail 200 ragsystem-saas-backend
 ```
 
-::: warning Hybrid 边界
-当前 SaaS compose 只有 Memory 使用 PostgreSQL；Control、会话、配置、知识库和文件仍使用 SQLite/本地数据卷，因此不是完整无状态 SaaS。
+::: warning 多实例边界
+SaaS compose 的主要业务数据已经使用 PostgreSQL、pgvector 和 MinIO，包括 Control、Memory、Conversation、Run、Outbox、Knowledge、Artifact、Session Files 和 File History。Agent 进程内 runtime、实时事件和部分后台任务仍有单节点语义，因此不能仅凭存储切换宣称已经支持任意水平扩容。
 :::
 
 ## 构建
