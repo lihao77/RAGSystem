@@ -2,7 +2,7 @@ import path from "node:path";
 
 import { buildApp } from "../../src/app.js";
 import type { AppEnv } from "../../src/config/env.js";
-import { createRuntimeContainer } from "../../src/services/runtime/runtime-container.js";
+import { createLocalRuntimeContainer } from "../../src/adapters/local/runtime-container.js";
 import type { AgentExecutionLogger } from "../../src/services/agent/execution/index.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import { HashFallbackEmbedder } from "../../src/services/integrations/embedder-registry.js";
@@ -65,7 +65,7 @@ export async function buildTestHarness(
 ) {
   const tempRoot = options.root ?? makeTempRoot();
   testDataRoot = tempRoot;
-  const container = createRuntimeContainer({
+  const container = createLocalRuntimeContainer({
     tenantId: LOCAL_TENANT_ID,
     dbPath: path.join(tempRoot, "test.db"),
     dataRoot: tempRoot,

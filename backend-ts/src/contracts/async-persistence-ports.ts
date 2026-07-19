@@ -11,6 +11,9 @@ import type {
   RetryOutboxResult,
   RunInfo,
   RunStepRecord,
+  CreatePendingInteractionInput,
+  PendingInteractionRecord,
+  PendingInteractionStatus,
 } from "./conversation-store/index.js";
 import type { DailyActivityPoint, HeatmapPoint, ModelUsagePoint, TokenTrendPoint } from "./conversation-store/index.js";
 import type { PermissionMode } from "./permissions.js";
@@ -99,4 +102,16 @@ export interface MonitoringRepositoryPort {
 
 export interface AsyncProviderContinuationRepository {
   getProviderContinuation(tenantId: TenantId, sessionId: string, messageId: string): Promise<{ state: ProviderContinuationState } | null>;
+}
+
+export interface AsyncProviderContinuationStore {
+  getProviderContinuation(tenantId: TenantId, sessionId: string, messageId: string): Promise<import("./conversation-store/index.js").ProviderContinuationRecord | null>;
+}
+
+export interface AsyncPendingInteractionStore {
+  getPendingInteraction(sessionId: string, interactionId: string): Promise<PendingInteractionRecord | null>;
+  listPendingInteractions(input: { sessionId: string; rootRunId?: string | null; batchId?: string | null; statuses?: PendingInteractionStatus[] }): Promise<PendingInteractionRecord[]>;
+  updatePendingInteractionStatus(input: { sessionId: string; interactionId: string; from?: PendingInteractionStatus[]; status: PendingInteractionStatus; resolution?: Record<string, unknown> | null }): Promise<boolean>;
+  cancelPendingInteractions(sessionId: string): Promise<number>;
+  createPendingInteraction?(input: CreatePendingInteractionInput): Promise<PendingInteractionRecord>;
 }

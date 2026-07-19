@@ -1,5 +1,5 @@
 import type { RouteOptions } from "../routes/route-options.js";
-import type { SaaSMemoryApplicationProvider } from "../services/runtime/saas-runtime-provider.js";
+import type { SaaSMemoryApplicationProvider } from "./composition/saas/saas-runtime-provider.js";
 
 /** Bridges Fastify identity context to the tenant-bound SaaS memory facade. */
 export function createSaaSMemoryApplicationResolver(

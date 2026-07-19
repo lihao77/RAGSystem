@@ -7,7 +7,8 @@ import type { AppEnv } from "../../../src/config/env.js";
 import { SqliteControlPlaneAdapter } from "../../../src/adapters/local/sqlite-control-plane-adapter.js";
 import { createTenantId, createUserId } from "../../../src/identity/types.js";
 import { LOCAL_TENANT_ID } from "../../../src/services/identity/index.js";
-import { createRuntimeContainer, type RuntimeContainerOptions } from "../../../src/services/runtime/runtime-container.js";
+import { createLocalRuntimeContainer } from "../../../src/adapters/local/runtime-container.js";
+import type { RuntimeContainerOptions } from "../../../src/services/runtime/runtime-container-contracts.js";
 import { DefaultTenantRuntimeRegistry } from "../../../src/services/runtime/tenant-runtime-registry.js";
 import { createControlStore } from "../../../src/services/stores/control-store/index.js";
 import { HashFallbackEmbedder } from "../../../src/services/integrations/embedder-registry.js";
@@ -182,7 +183,7 @@ describe("TenantRuntimeRegistry 多租户隔离", () => {
 function createRegistryHarness(options: {
   idleTimeoutMs?: number;
   localOnly?: boolean;
-  runtimeFactory?: (options: RuntimeContainerOptions) => ReturnType<typeof createRuntimeContainer>;
+  runtimeFactory?: (options: RuntimeContainerOptions) => ReturnType<typeof createLocalRuntimeContainer>;
   prepareRuntime?: import("../../../src/services/runtime/tenant-runtime-registry.js").LocalTenantRuntimeRegistryOptions["prepareRuntime"];
 } = {}) {
   const dataRoot = makeTempRoot();
@@ -212,7 +213,7 @@ function createRegistryHarness(options: {
 }
 
 function createTestRuntime(options: RuntimeContainerOptions) {
-  return createRuntimeContainer({
+  return createLocalRuntimeContainer({
     ...options,
     modelAdapterProvidersConfigPath: "",
     mcpConfigPath: "",

@@ -8,10 +8,8 @@ import { createTenantId } from "../../../src/identity/types.js";
 import { HashFallbackEmbedder } from "../../../src/services/integrations/embedder-registry.js";
 import {
   createLocalRuntimeContainer,
-  createRuntimeContainer,
-  type CoreRuntimeDependencies,
-  type LocalRuntimeContainerOptions,
-} from "../../../src/services/runtime/runtime-container.js";
+} from "../../../src/adapters/local/runtime-container.js";
+import type { CoreRuntimeDependencies, LocalRuntimeContainerOptions } from "../../../src/services/runtime/runtime-container-contracts.js";
 import { makeTempRoot } from "../../helpers/temp-db.js";
 
 describe("runtime composition roots", () => {
@@ -19,10 +17,8 @@ describe("runtime composition roots", () => {
     expectTypeOf<CoreRuntimeDependencies["memoryStore"]>().toEqualTypeOf<MemoryRepository>();
   });
 
-  it.each([
-    ["legacy", createRuntimeContainer],
-    ["local", createLocalRuntimeContainer],
-  ] as const)("%s entrypoint creates the same local runtime contract", (_name, factory) => {
+  it("local entrypoint creates the runtime contract", () => {
+    const factory = createLocalRuntimeContainer;
     const dataRoot = makeTempRoot();
     const options: LocalRuntimeContainerOptions = {
       tenantId: createTenantId("tnt_runtime_composition"),

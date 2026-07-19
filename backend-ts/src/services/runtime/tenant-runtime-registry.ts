@@ -4,7 +4,8 @@ import type { AppEnv } from "../../config/env.js";
 import type { TenantDirectory } from "../../contracts/control-plane/index.js";
 import { createTenantId, type TenantId, type UserId } from "../../identity/types.js";
 import type { AgentExecutionLogger } from "../agent/execution/index.js";
-import { createRuntimeContainer, type RuntimeContainer, type RuntimeContainerOptions } from "./runtime-container.js";
+import { createLocalRuntimeContainer } from "../../adapters/local/runtime-container.js";
+import type { RuntimeContainer, RuntimeContainerOptions } from "./runtime-container-contracts.js";
 import { TenantPaths } from "./tenant-paths.js";
 
 /**
@@ -112,7 +113,7 @@ export class LocalTenantRuntimeRegistry implements TenantRuntimeRegistry {
     options: LocalTenantRuntimeRegistryOptions = {},
   ) {
     this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
-    this.runtimeFactory = options.runtimeFactory ?? createRuntimeContainer;
+    this.runtimeFactory = options.runtimeFactory ?? createLocalRuntimeContainer;
     this.runtimeOptions = options.runtimeOptions ?? {};
     this.prepareRuntime = options.prepareRuntime;
     const sweepIntervalMs = options.sweepIntervalMs ?? Math.max(1_000, Math.min(this.idleTimeoutMs, 30_000));
