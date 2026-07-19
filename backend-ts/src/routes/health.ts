@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { ok } from "../contracts/common.js";
 import type { ControlPlane } from "../contracts/control-plane/index.js";
 import type { RouteOptions } from "./route-options.js";
+import { resolveSessionApplication } from "./session-application.js";
 
 interface ProbeRouteOptions {
   controlPlane: ControlPlane;
@@ -40,10 +41,8 @@ export const registerProbeRoutes: FastifyPluginAsync<ProbeRouteOptions> = async 
 
 export const registerHealthRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.get("/health", async (request) => {
-    const saas = await options.resolveSessionApplication?.(request);
-    const sessionsCount = saas
-      ? (await saas.listSessions({ limit: 1, offset: 0, userIds: null })).total
-      : request.container.sessionApplication.listSessions({ tenantId: request.identity.tenantId, limit: 1, offset: 0 }).total;
+    const sessions = await resolveSessionApplication(options, request);
+    const sessionsCount = (await sessions.listSessions({ limit: 1, offset: 0, userIds: null })).total;
     return ok(
       {
         status: "healthy",

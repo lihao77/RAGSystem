@@ -6,6 +6,7 @@ import type { MemoryCandidateStatus } from "../contracts/conversation-store/inde
 import type { MemoryApplication } from "../services/memory/index.js";
 import { HttpError } from "../utils/errors.js";
 import type { RouteOptions } from "./route-options.js";
+import { resolveSessionApplication } from "./session-application.js";
 import { requireTenantAdmin, requireTenantMember } from "./tenant-role.js";
 
 const CandidateParamsSchema = z.object({ id: z.string().uuid() });
@@ -600,9 +601,8 @@ function requireLocalGovernedCandidate(scope: string): void {
 }
 
 async function listOwnedSessionIds(options: RouteOptions, request: Parameters<typeof requireTenantMember>[0]): Promise<string[]> {
-  const saas = await options.resolveSessionApplication?.(request);
-  if (saas) return (await saas.listSessions({ userIds: [request.identity.userId], limit: 10_000, offset: 0 })).items.map((session) => session.session_id);
-  return request.container.sessionApplication.listSessions({ tenantId: request.identity.tenantId, userIds: [request.identity.userId], limit: 10_000, offset: 0 }).items.map((session) => session.session_id);
+  const sessions = await resolveSessionApplication(options, request);
+  return (await sessions.listSessions({ userIds: [request.identity.userId], limit: 10_000, offset: 0 })).items.map((session) => session.session_id);
 }
 
 async function canManageEntry(
@@ -616,8 +616,8 @@ async function canManageEntry(
   }
   if (scope === "user") return scopeId === request.identity.userId;
   if (scope === "session") {
-    const saas = await options.resolveSessionApplication?.(request);
-    const session = saas ? await saas.getSession(scopeId) : request.container.sessionApplication.getSession(scopeId);
+    const sessions = await resolveSessionApplication(options, request);
+    const session = await sessions.getSession(scopeId);
     return session?.user_id === request.identity.userId;
   }
   try {
