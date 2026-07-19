@@ -19,8 +19,8 @@ describe("createRequestApplications", () => {
       resolveArtifactApplication: vi.fn().mockResolvedValue(artifacts),
       resolveAnalytics: vi.fn().mockResolvedValue(analytics),
       resolveMonitoringApplication: vi.fn().mockResolvedValue(monitoring),
-      resolveSaaSAgentReadApplication: vi.fn().mockResolvedValue(executionRead),
-      resolveSaaSInteractionRecovery: vi.fn().mockResolvedValue(interactions),
+      resolveExecutionRead: vi.fn().mockResolvedValue(executionRead),
+      resolveInteractionRecovery: vi.fn().mockResolvedValue(interactions),
     };
 
     await expect(createRequestApplications({
@@ -35,7 +35,7 @@ describe("createRequestApplications", () => {
       interactions,
       execution: expect.anything(),
     });
-    expect(options.resolveSaaSAgentReadApplication).toHaveBeenCalledOnce();
-    expect(options.resolveSaaSInteractionRecovery).toHaveBeenCalledOnce();
+    expect(options.resolveExecutionRead).toHaveBeenCalledOnce();
+    expect(options.resolveInteractionRecovery).toHaveBeenCalledOnce();
   });
 });

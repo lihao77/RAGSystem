@@ -45,8 +45,8 @@ export async function createRequestApplications(
     options.resolveArtifactApplication?.(request),
     options.resolveAnalytics?.(request),
     options.resolveMonitoringApplication?.(request),
-    options.resolveSaaSAgentReadApplication?.(request),
-    options.resolveSaaSInteractionRecovery?.(request),
+    options.resolveExecutionRead?.(request),
+    options.resolveInteractionRecovery?.(request),
   ]);
   const memory = resolvedMemory
     ?? new LocalMemoryApplication(

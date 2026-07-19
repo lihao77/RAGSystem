@@ -56,8 +56,8 @@ export interface BuildAppOptions {
   resolveKnowledgeVectorApplication?: RouteOptions["resolveKnowledgeVectorApplication"];
   resolveProviderMcp?: RouteOptions["resolveProviderMcp"];
   resolveSessionApplication?: RouteOptions["resolveSessionApplication"];
-  resolveSaaSAgentReadApplication?: RouteOptions["resolveSaaSAgentReadApplication"];
-  resolveSaaSInteractionRecovery?: RouteOptions["resolveSaaSInteractionRecovery"];
+  resolveExecutionRead?: RouteOptions["resolveExecutionRead"];
+  resolveInteractionRecovery?: RouteOptions["resolveInteractionRecovery"];
   resolveAnalytics?: RouteOptions["resolveAnalytics"];
   resolveMonitoringApplication?: RouteOptions["resolveMonitoringApplication"];
   resolveArtifactApplication?: RouteOptions["resolveArtifactApplication"];
@@ -74,7 +74,6 @@ export interface BuildAppOptions {
   botEngine?: DaemonService;
   wsTickets?: WsTicketService;
 }
-
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   if (options.env.controlStorageMode === "postgres" && !options.controlRuntime) {
     throw new Error(
@@ -489,8 +488,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ...(options.resolveKnowledgeVectorApplication ? { resolveKnowledgeVectorApplication: options.resolveKnowledgeVectorApplication } : {}),
     ...(options.resolveProviderMcp ? { resolveProviderMcp: options.resolveProviderMcp } : {}),
     ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
-    ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
-    ...(options.resolveSaaSInteractionRecovery ? { resolveSaaSInteractionRecovery: options.resolveSaaSInteractionRecovery } : {}),
+    ...(options.resolveExecutionRead ? { resolveExecutionRead: options.resolveExecutionRead } : {}),
+    ...(options.resolveInteractionRecovery ? { resolveInteractionRecovery: options.resolveInteractionRecovery } : {}),
     ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
     ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
     ...(options.resolveArtifactApplication ? { resolveArtifactApplication: options.resolveArtifactApplication } : {}),
@@ -503,7 +502,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     botRepository,
     widgetCredentialStore: widgetCredentials,
     ...(widgetAuth ? { widgetAuth } : {}),
-    ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
+    ...(options.resolveExecutionRead ? { resolveExecutionRead: options.resolveExecutionRead } : {}),
   });
   await registerWidgetAndRealtimeRoutes(app, {
     registry,
@@ -625,3 +624,4 @@ function numericStatus(value: unknown): number | null {
   }
   return null;
 }
+

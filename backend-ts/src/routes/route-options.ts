@@ -12,7 +12,6 @@ import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
 import type { SaaSProviderMcpApplication } from "../services/runtime/saas-provider-mcp-application.js";
 import type { SaaSKnowledgeVectorApplication } from "../services/runtime/saas-knowledge-vector-application.js";
 import type { SessionApplication } from "../contracts/session-application.js";
-import type { SaaSAgentReadApplication } from "../services/runtime/saas-agent-read-application.js";
 import type { InteractionRecoveryApplication } from "../contracts/interaction-recovery-application.js";
 import type { AnalyticsApplication } from "../contracts/analytics-application.js";
 import type { MonitoringApplication } from "../contracts/monitoring-application.js";
@@ -36,8 +35,8 @@ export interface RouteOptions {
   resolveKnowledgeVectorApplication?: (request: FastifyRequest) => SaaSKnowledgeVectorApplication | undefined | Promise<SaaSKnowledgeVectorApplication | undefined>;
   resolveProviderMcp?: (request: FastifyRequest) => SaaSProviderMcpApplication | undefined | Promise<SaaSProviderMcpApplication | undefined>;
   resolveSessionApplication?: (request: FastifyRequest) => SessionApplication | undefined | Promise<SessionApplication | undefined>;
-  resolveSaaSAgentReadApplication?: (request: FastifyRequest) => SaaSAgentReadApplication | undefined | Promise<SaaSAgentReadApplication | undefined>;
-  resolveSaaSInteractionRecovery?: (request: FastifyRequest) => InteractionRecoveryApplication | undefined | Promise<InteractionRecoveryApplication | undefined>;
+  resolveExecutionRead?: (request: FastifyRequest) => import("../contracts/execution-read-application.js").ExecutionReadApplication | undefined | Promise<import("../contracts/execution-read-application.js").ExecutionReadApplication | undefined>;
+  resolveInteractionRecovery?: (request: FastifyRequest) => InteractionRecoveryApplication | undefined | Promise<InteractionRecoveryApplication | undefined>;
   resolveAnalytics?: (request: FastifyRequest) => AnalyticsApplication | undefined | Promise<AnalyticsApplication | undefined>;
   resolveMonitoringApplication?: (request: FastifyRequest) => MonitoringApplication | undefined | Promise<MonitoringApplication | undefined>;
   resolveSessionFileStorage?: (request: FastifyRequest) => AsyncSessionFileStorage | undefined | Promise<AsyncSessionFileStorage | undefined>;

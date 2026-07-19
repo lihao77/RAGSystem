@@ -79,13 +79,13 @@ try {
         saasConversationRuntime!.createFileHistoryStorage(request.identity.tenantId),
         saasConversationRuntime!.runs,
       ),
-      resolveSaaSAgentReadApplication: (request: FastifyRequest) => new SaaSAgentReadApplication(
+      resolveExecutionRead: (request: FastifyRequest) => new SaaSAgentReadApplication(
         request.identity.tenantId,
         saasConversationRuntime!.conversation,
         saasConversationRuntime!.runs,
         saasConversationRuntime!.outbox,
       ),
-      resolveSaaSInteractionRecovery: (request: FastifyRequest) => new SaaSInteractionRecoveryApplication(
+      resolveInteractionRecovery: (request: FastifyRequest) => new SaaSInteractionRecoveryApplication(
         request.identity.tenantId,
         saasConversationRuntime!.conversation,
         saasConversationRuntime!.pendingInteractions,

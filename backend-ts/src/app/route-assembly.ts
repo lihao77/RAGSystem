@@ -90,8 +90,8 @@ export interface SharedBusinessRouteAssemblyOptions {
   resolveKnowledgeVectorApplication?: RouteOptions["resolveKnowledgeVectorApplication"];
   resolveProviderMcp?: RouteOptions["resolveProviderMcp"];
   resolveSessionApplication?: RouteOptions["resolveSessionApplication"];
-  resolveSaaSAgentReadApplication?: RouteOptions["resolveSaaSAgentReadApplication"];
-  resolveSaaSInteractionRecovery?: RouteOptions["resolveSaaSInteractionRecovery"];
+  resolveExecutionRead?: RouteOptions["resolveExecutionRead"];
+  resolveInteractionRecovery?: RouteOptions["resolveInteractionRecovery"];
   resolveAnalytics?: RouteOptions["resolveAnalytics"];
   resolveMonitoringApplication?: RouteOptions["resolveMonitoringApplication"];
   resolveArtifactApplication?: RouteOptions["resolveArtifactApplication"];
@@ -107,7 +107,7 @@ export async function registerSharedBusinessRoutes(
       registry: options.registry,
       identityProvider: options.identityProvider,
       botRepository: options.botRepository,
-    };
+};
     scope.addHook("preHandler", async (request) => {
       if (isExplicitPublicRoute(request)) return;
       request.applications = await createRequestApplications(request, {
@@ -117,8 +117,8 @@ export async function registerSharedBusinessRoutes(
         ...(options.resolveArtifactApplication ? { resolveArtifactApplication: options.resolveArtifactApplication } : {}),
         ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
         ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
-        ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
-        ...(options.resolveSaaSInteractionRecovery ? { resolveSaaSInteractionRecovery: options.resolveSaaSInteractionRecovery } : {}),
+        ...(options.resolveExecutionRead ? { resolveExecutionRead: options.resolveExecutionRead } : {}),
+        ...(options.resolveInteractionRecovery ? { resolveInteractionRecovery: options.resolveInteractionRecovery } : {}),
       });
       request.resources = await createRequestResources(request, {
         ...routeOptions,
@@ -166,8 +166,8 @@ export async function registerSharedBusinessRoutes(
       wsTickets: options.wsTickets,
       ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
       ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
-      ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
-      ...(options.resolveSaaSInteractionRecovery ? { resolveSaaSInteractionRecovery: options.resolveSaaSInteractionRecovery } : {}),
+      ...(options.resolveExecutionRead ? { resolveExecutionRead: options.resolveExecutionRead } : {}),
+      ...(options.resolveInteractionRecovery ? { resolveInteractionRecovery: options.resolveInteractionRecovery } : {}),
       ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
       ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
       ...(options.resolveSessionFileStorage ? { resolveSessionFileStorage: options.resolveSessionFileStorage } : {}),
@@ -233,7 +233,7 @@ interface WidgetRouteAssemblyOptions {
   widgetAuth?: WidgetAuthService;
   wsTickets: WsTicketService;
   resolveSessionApplication?: RouteOptions["resolveSessionApplication"];
-  resolveSaaSAgentReadApplication?: RouteOptions["resolveSaaSAgentReadApplication"];
+  resolveExecutionRead?: RouteOptions["resolveExecutionRead"];
 }
 
 export async function registerWidgetAndRealtimeRoutes(
@@ -286,7 +286,7 @@ export async function registerWidgetAndRealtimeRoutes(
     wsTickets: options.wsTickets,
     ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
     ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
-    ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
+    ...(options.resolveExecutionRead ? { resolveExecutionRead: options.resolveExecutionRead } : {}),
   });
 }
 
@@ -323,3 +323,4 @@ function isExplicitPublicRoute(request: FastifyRequest): boolean {
   const config = request.routeOptions.config as { auth?: unknown };
   return config.auth === "public";
 }
+
