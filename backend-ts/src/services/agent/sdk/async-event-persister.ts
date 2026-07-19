@@ -6,6 +6,7 @@ import type { AsyncConversationRepository } from "../../../adapters/saas/postgre
 import type { AsyncRunStore } from "../../../adapters/saas/postgres/run-repository.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 import type { TenantId } from "../../../identity/types.js";
+import type { AsyncFileHistoryStore } from "../../../contracts/file-history-store/index.js";
 
 export interface AsyncPersisterRunContext {
   tenantId: TenantId;
@@ -35,6 +36,7 @@ export class AsyncKernelEventPersister {
     private readonly conversation: Pick<AsyncConversationRepository, "createSession" | "addMessage" | "getMessageById">,
     private readonly runs: Pick<AsyncRunStore, "createRun" | "updateRunStatus" | "getRun">,
     private readonly ctx: AsyncPersisterRunContext,
+    private readonly fileHistory: AsyncFileHistoryStore | null = null,
   ) {}
 
   async startRun(): Promise<void> {
@@ -73,6 +75,7 @@ export class AsyncKernelEventPersister {
     if (status === "completed" && finalMessage) {
       const message = await this.conversation.addMessage({ sessionId: this.ctx.sessionId, role: "assistant", content: finalMessage.content, threadKey: this.ctx.threadKey, ...(finalMessage.id ? { messageId: finalMessage.id } : {}), metadata: { ...this.messageMeta(0, MSG_TYPE.ASSISTANT_FINAL), ...(this.ctx.messageMetadata ?? {}), ...(finalMessage.metadata ?? {}) } });
       this.finalMessageId = message.id;
+      await this.fileHistory?.makeSnapshot(this.ctx.sessionId, message.seq);
     }
     await this.runs.updateRunStatus(this.ctx.runId, this.ctx.sessionId, status, this.finalMessageId);
   }

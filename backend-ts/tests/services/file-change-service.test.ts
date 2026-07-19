@@ -5,7 +5,8 @@ import { randomUUID } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { FileChangeService } from "../../src/services/sessions/file-change-service.js";
+import { AsyncFileChangeService, FileChangeService } from "../../src/services/sessions/file-change-service.js";
+import type { AsyncFileHistoryStore } from "../../src/contracts/file-history-store/index.js";
 import { FileHistoryService } from "../../src/services/stores/file-history-service.js";
 
 let dataRoot: string;
@@ -22,6 +23,36 @@ afterEach(() => {
 });
 
 describe("FileChangeService", () => {
+  it("reads SaaS current and backup contents through the async object history port", async () => {
+    const key = "tenants/tnt_a/sessions/s1/shared/workspace/note.txt";
+    const history: AsyncFileHistoryStore = {
+      listSnapshots: async () => [{ snapshot_id: "snap-1", message_seq: 7, created_at: "2026-01-01T00:00:00.000Z", tracked_files: { [key]: { action: "modified", backup_hash: "a".repeat(64) } } }],
+      getPendingTracked: async () => null,
+      readBackup: async () => Buffer.from("before\n"),
+      readCurrent: async () => Buffer.from("after\n"),
+      trackEdit: async () => undefined,
+      makeSnapshot: async () => null,
+      rewind: async () => ({ success: true, message: "", reverted_files: 0 }),
+      hasSnapshots: async () => true,
+      cleanup: async () => undefined,
+    };
+
+    await expect(new AsyncFileChangeService(history).getLatest("s1")).resolves.toEqual({
+      snapshot_id: "snap-1",
+      message_seq: 7,
+      files: [{
+        path: key,
+        action: "modified",
+        oldContent: "before\n",
+        newContent: "after\n",
+        diff: [
+          { type: "removed", content: "before", oldLine: 1, newLine: null },
+          { type: "added", content: "after", oldLine: null, newLine: 1 },
+        ],
+      }],
+    });
+  });
+
   it("合并最近 snapshot 与持久化 pending", () => {
     const history = new FileHistoryService({ dataRoot });
     const oldFile = path.join(workDir, "old.txt");

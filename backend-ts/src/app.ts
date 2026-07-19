@@ -51,6 +51,7 @@ export interface BuildAppOptions {
   resolveMemoryApplication?: RouteOptions["resolveMemoryApplication"];
   resolveKnowledgeFileStore?: RouteOptions["resolveKnowledgeFileStore"];
   resolveSessionFileStorage?: RouteOptions["resolveSessionFileStorage"];
+  resolveFileHistoryStorage?: RouteOptions["resolveFileHistoryStorage"];
   resolveKnowledgeMarkdownPipeline?: RouteOptions["resolveKnowledgeMarkdownPipeline"];
   resolveKnowledgeVectorApplication?: RouteOptions["resolveKnowledgeVectorApplication"];
   resolveProviderMcp?: RouteOptions["resolveProviderMcp"];
@@ -162,6 +163,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
                 options.saasConversationRuntime!.conversation,
                 options.saasConversationRuntime!.runs,
                 context,
+                options.saasConversationRuntime!.createFileHistoryStorage(context.tenantId),
               ),
               asyncConversationHistory: options.saasConversationRuntime!.conversation,
               asyncBackgroundTasks: options.saasConversationRuntime!.backgroundTasks,
@@ -191,6 +193,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               options.saasConversationRuntime!.conversation,
               options.saasConversationRuntime!.runs,
               context,
+              options.saasConversationRuntime!.createFileHistoryStorage(context.tenantId),
             ),
             asyncConversationHistory: options.saasConversationRuntime!.conversation,
             asyncBackgroundTasks: options.saasConversationRuntime!.backgroundTasks,
@@ -480,6 +483,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ...(resolveMemoryApplication ? { resolveMemoryApplication } : {}),
     ...(options.resolveKnowledgeFileStore ? { resolveKnowledgeFileStore: options.resolveKnowledgeFileStore } : {}),
     ...(options.resolveSessionFileStorage ? { resolveSessionFileStorage: options.resolveSessionFileStorage } : {}),
+    ...(options.resolveFileHistoryStorage ? { resolveFileHistoryStorage: options.resolveFileHistoryStorage } : {}),
     ...(options.resolveKnowledgeMarkdownPipeline ? { resolveKnowledgeMarkdownPipeline: options.resolveKnowledgeMarkdownPipeline } : {}),
     ...(options.resolveKnowledgeVectorApplication ? { resolveKnowledgeVectorApplication: options.resolveKnowledgeVectorApplication } : {}),
     ...(options.resolveProviderMcp ? { resolveProviderMcp: options.resolveProviderMcp } : {}),

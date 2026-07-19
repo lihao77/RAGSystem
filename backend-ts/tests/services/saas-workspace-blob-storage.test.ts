@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { SaaSWorkspaceBlobStorage } from "../../src/adapters/saas/object-storage/workspace-blob-storage.js";
 import type { ObjectMetadata, ObjectStorage } from "../../src/contracts/object-storage.js";
 import { EPHEMERAL_WORKSPACE_POLICY } from "../../src/contracts/workspace-blob-storage.js";
+import type { AsyncFileHistoryStore } from "../../src/contracts/file-history-store/index.js";
 
 class MemoryObjects implements ObjectStorage {
   readonly values = new Map<string, Uint8Array>();
@@ -28,6 +29,21 @@ describe("SaaSWorkspaceBlobStorage", () => {
     const store = new SaaSWorkspaceBlobStorage("tenant-a", new MemoryObjects());
     await expect(store.put({ sessionId: "s", space: "exports", relativePath: "../secret", body: Buffer.from("x") })).rejects.toThrow("escapes");
     await expect(store.put({ sessionId: "s", space: "exports", relativePath: "/secret", body: Buffer.from("x") })).rejects.toThrow("relative");
+  });
+
+  it("tracks the original object before overwriting a workspace blob", async () => {
+    const objects = new MemoryObjects();
+    const tracked: Array<{ fileKey: string; original: Uint8Array | null }> = [];
+    const history = {
+      trackEdit: async (input: { fileKey: string; original: Uint8Array | null }) => { tracked.push(input); },
+    } as AsyncFileHistoryStore;
+    const store = new SaaSWorkspaceBlobStorage("tenant-a", objects, history);
+    await store.put({ sessionId: "s1", space: "workspace", relativePath: "note.txt", body: Buffer.from("before") });
+    await store.put({ sessionId: "s1", space: "workspace", relativePath: "note.txt", body: Buffer.from("after") });
+
+    expect(tracked).toHaveLength(2);
+    expect(tracked[0]).toMatchObject({ fileKey: "tenants/tenant-a/sessions/s1/shared/workspace/note.txt", original: null });
+    expect(Buffer.from(tracked[1]!.original!).toString()).toBe("before");
   });
 
   it("declares transient files as restart-unsafe scratch space", () => {

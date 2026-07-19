@@ -152,7 +152,11 @@ export async function createSaaSConversationRuntime(
       },
       createWorkspaceBlobStorage: (tenantId) => {
         if (!options.objectStorage) throw new Error("SaaS workspace blob storage requires ObjectStorage");
-        return new SaaSWorkspaceBlobStorage(tenantId, options.objectStorage);
+        return new SaaSWorkspaceBlobStorage(
+          tenantId,
+          options.objectStorage,
+          new SaaSFileHistoryStorage(tenantId, fileHistory, options.objectStorage),
+        );
       },
       close: () => {
         providerMcpApplication.close();

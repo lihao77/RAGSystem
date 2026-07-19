@@ -5,6 +5,7 @@ import { createUserId, type RequestIdentity } from "../../src/identity/types.js"
 import type { IdentityProvider } from "../../src/services/identity/index.js";
 import { LOCAL_TENANT_ID, LOCAL_USER_ID } from "../../src/services/identity/index.js";
 import { buildTestHarness } from "../helpers/app.js";
+import type { AsyncFileHistoryStore } from "../../src/contracts/file-history-store/index.js";
 
 const USER_A = createUserId("usr_owner_a");
 const USER_B = createUserId("usr_owner_b");
@@ -76,6 +77,45 @@ describe("session ownership", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ data: { session_id: "legacy-local-null", user_id: null } });
     expect(LOCAL_USER_ID).toBe("usr_local");
+  });
+
+  it("reads SaaS file changes only after PostgreSQL session ownership succeeds", async () => {
+    const identityProvider: IdentityProvider = {
+      async resolve(request: FastifyRequest): Promise<RequestIdentity> {
+        return { userId: request.headers["x-test-user"] === "b" ? USER_B : USER_A, tenantId: LOCAL_TENANT_ID, role: "member", permissions: [] };
+      },
+    };
+    let reads = 0;
+    const history: AsyncFileHistoryStore = {
+      listSnapshots: async () => { reads += 1; return []; },
+      getPendingTracked: async () => ({ "tenants/tnt_local/workspace/new.txt": { action: "created", backup_hash: null } }),
+      readCurrent: async () => Buffer.from("created in object storage\n"),
+      readBackup: async () => null,
+      trackEdit: async () => undefined,
+      makeSnapshot: async () => null,
+      rewind: async () => ({ success: true, message: "", reverted_files: 0 }),
+      hasSnapshots: async () => true,
+      cleanup: async () => undefined,
+    };
+    const saas = {
+      getSession: async (sessionId: string) => ({ session_id: sessionId, tenant_id: LOCAL_TENANT_ID, user_id: USER_A, metadata: {}, permission_mode: null, created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z" }),
+    };
+    const harness = await buildTestHarness({
+      identityProvider,
+      resolveSaaSSessionApplication: () => saas as never,
+      resolveFileHistoryStorage: () => history,
+    });
+    app = harness.app;
+    harness.controlStore.createTenant({ id: LOCAL_TENANT_ID, displayName: "Local" });
+
+    const owner = await app.inject({ method: "GET", url: "/api/agent/sessions/saas-files/file-changes", headers: { "x-test-user": "a" } });
+    expect(owner.statusCode).toBe(200);
+    expect(owner.json()).toMatchObject({ files: [{ action: "created", newContent: "created in object storage\n" }] });
+    expect(reads).toBe(1);
+
+    const forbidden = await app.inject({ method: "GET", url: "/api/agent/sessions/saas-files/file-changes", headers: { "x-test-user": "b" } });
+    expect(forbidden.statusCode).toBe(403);
+    expect(reads).toBe(1);
   });
 
   it("bot owner 可查看 owned-bot 会话详情与列表", async () => {

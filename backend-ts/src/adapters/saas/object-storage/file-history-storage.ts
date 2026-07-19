@@ -97,6 +97,12 @@ export class SaaSFileHistoryStorage implements AsyncFileHistoryStore {
     return (await this.objects.get(this.backupKey(required(sessionId, "sessionId"), backupHash)))?.body ?? null;
   }
 
+  async readCurrent(fileKey: string): Promise<Uint8Array | null> {
+    fileKey = required(fileKey, "fileKey");
+    if (!fileKey.startsWith(this.tenantPrefix)) throw new Error("file history target must belong to the current tenant");
+    return (await this.objects.get(fileKey))?.body ?? null;
+  }
+
   async cleanup(sessionId: string): Promise<void> {
     sessionId = required(sessionId, "sessionId");
     const [snapshots, pending] = await Promise.all([

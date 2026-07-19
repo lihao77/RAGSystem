@@ -17,6 +17,7 @@ describe("SaaSFileHistoryStorage", () => {
     await history.trackEdit({ sessionId: "session-1", fileKey: createdKey, original: null, contentType: "text/plain" });
     await objects.put(modifiedKey, bytes("changed"), "text/plain");
     await objects.put(createdKey, bytes("created"), "text/plain");
+    expect(Buffer.from((await history.readCurrent(modifiedKey))!).toString("utf8")).toBe("changed");
     await expect(history.makeSnapshot("session-1", 11)).resolves.toMatch(/^[a-f0-9]{16}$/);
 
     await expect(history.rewind("session-1", 10)).resolves.toMatchObject({ success: true, reverted_files: 2 });

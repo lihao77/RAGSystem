@@ -2,14 +2,24 @@ import path from "node:path";
 
 import type { ObjectStorage } from "../../../contracts/object-storage.js";
 import type { DurableManagedSpace, WorkspaceBlobRef, WorkspaceBlobStorage } from "../../../contracts/workspace-blob-storage.js";
+import type { AsyncFileHistoryStore } from "../../../contracts/file-history-store/index.js";
 
 export class SaaSWorkspaceBlobStorage implements WorkspaceBlobStorage {
-  constructor(private readonly tenantId: string, private readonly objects: ObjectStorage) {
+  constructor(private readonly tenantId: string, private readonly objects: ObjectStorage, private readonly fileHistory: AsyncFileHistoryStore | null = null) {
     if (!tenantId.trim()) throw new Error("SaaS workspace blob storage requires a tenant id");
   }
 
   async put(input: { sessionId: string; runId?: string | null; space: DurableManagedSpace; relativePath: string; body: Uint8Array; contentType?: string | null }): Promise<WorkspaceBlobRef> {
     const ref = this.resolve(input);
+    if (this.fileHistory) {
+      const current = await this.objects.get(ref.key);
+      await this.fileHistory.trackEdit({
+        sessionId: ref.session_id,
+        fileKey: ref.key,
+        original: current?.body ?? null,
+        contentType: current?.metadata.contentType ?? input.contentType ?? null,
+      });
+    }
     const metadata = await this.objects.put(ref.key, input.body, input.contentType ?? null);
     return { ...ref, content_type: metadata.contentType, size: metadata.contentLength };
   }

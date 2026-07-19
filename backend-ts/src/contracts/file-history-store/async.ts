@@ -28,5 +28,7 @@ export interface AsyncFileHistoryStore {
   listSnapshots(sessionId: string): Promise<FileHistorySnapshot[]>;
   getPendingTracked(sessionId: string): Promise<Record<string, FileHistoryTrackedFile> | null>;
   readBackup(sessionId: string, backupHash: string): Promise<Uint8Array | null>;
+  /** Reads the current tracked object by its tenant-scoped object key. */
+  readCurrent(fileKey: string): Promise<Uint8Array | null>;
   cleanup(sessionId: string): Promise<void>;
 }

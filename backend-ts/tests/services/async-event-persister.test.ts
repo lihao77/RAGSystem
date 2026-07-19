@@ -16,13 +16,17 @@ describe("AsyncKernelEventPersister", () => {
       updateRunStatus: async (id: string, _session: string, _status: string, finalId?: string | null) => { const run = runs.get(id); if (run) run.final_message_id = finalId ?? null; return Boolean(run); },
       getRun: async (_session: string, id: string) => { const run = runs.get(id); return run ? { final_message_id: run.final_message_id } : null; },
     } as never;
-    const persister = new AsyncKernelEventPersister(conversation, runStore, { tenantId: LOCAL_TENANT_ID, sessionId: "s", runId: "r", threadKey: "root", agentName: "a" });
+    const snapshots: Array<[string, number]> = [];
+    const fileHistory = { makeSnapshot: async (sessionId: string, seq: number) => { snapshots.push([sessionId, seq]); return "snapshot"; } } as never;
+    const persister = new AsyncKernelEventPersister(conversation, runStore, { tenantId: LOCAL_TENANT_ID, sessionId: "s", runId: "r", threadKey: "root", agentName: "a" }, fileHistory);
     await persister.startRun();
     await persister.finalize("completed", { content: "answer" });
     expect(await persister.resolveFinalMessage()).toMatchObject({ content: "answer" });
+    expect(snapshots).toEqual([["s", 1]]);
   });
 
   it("mirrors the initial user turn once for future SaaS context reads", async () => {
+    expect(snapshots).toEqual([["s", 1]]);
     const messages = new Map<string, { id: string; seq: number; content: string }>();
     let addCount = 0;
     const conversation = {

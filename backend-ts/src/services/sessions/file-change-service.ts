@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { diffLines } from "diff";
 
-import type { FileHistorySnapshot, IFileHistoryStore } from "../../contracts/file-history-store/index.js";
+import type { AsyncFileHistoryStore, FileHistorySnapshot, IFileHistoryStore } from "../../contracts/file-history-store/index.js";
 
 export interface FileChangeLine {
   type: "added" | "removed" | "context";
@@ -62,6 +62,40 @@ export class FileChangeService {
   }
 }
 
+export class AsyncFileChangeService {
+  constructor(private readonly fileHistory: AsyncFileHistoryStore) {}
+
+  async getLatest(sessionId: string): Promise<LatestFileChanges> {
+    const [snapshots, pending] = await Promise.all([
+      this.fileHistory.listSnapshots(sessionId),
+      this.fileHistory.getPendingTracked(sessionId),
+    ]);
+    const snapshot = latestSnapshot(snapshots);
+    const trackedFiles = { ...(snapshot?.tracked_files ?? {}), ...(pending ?? {}) };
+    const files = await Promise.all(Object.entries(trackedFiles).map(async ([fileKey, tracked]) => {
+      const oldBytes = tracked.action === "modified" && tracked.backup_hash
+        ? await this.fileHistory.readBackup(sessionId, tracked.backup_hash)
+        : null;
+      const currentBytes = await this.fileHistory.readCurrent(fileKey);
+      const oldContent = decode(oldBytes);
+      const newContent = decode(currentBytes);
+      const item: FileChangeItem = {
+        path: fileKey,
+        action: tracked.action,
+        newContent,
+        diff: buildLineDiff(oldContent, newContent),
+      };
+      if (tracked.action === "modified") item.oldContent = oldContent;
+      return item;
+    }));
+    return {
+      snapshot_id: snapshot?.snapshot_id ?? null,
+      message_seq: snapshot?.message_seq ?? null,
+      files,
+    };
+  }
+}
+
 function latestSnapshot(snapshots: FileHistorySnapshot[]): FileHistorySnapshot | null {
   return snapshots.reduce<FileHistorySnapshot | null>((latest, snapshot) => {
     if (!latest || snapshot.message_seq > latest.message_seq) {
@@ -100,4 +134,8 @@ function buildLineDiff(oldContent: string, newContent: string): FileChangeLine[]
     }
   }
   return lines;
+}
+
+function decode(value: Uint8Array | null): string {
+  return value ? new TextDecoder().decode(value) : "";
 }

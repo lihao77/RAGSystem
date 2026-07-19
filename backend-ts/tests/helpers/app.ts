@@ -59,6 +59,7 @@ export async function buildTestHarness(
     resolveMemoryApplication?: BuildAppOptions["resolveMemoryApplication"];
     resolveSaaSSessionApplication?: BuildAppOptions["resolveSaaSSessionApplication"];
     resolveSaaSMonitoringApplication?: BuildAppOptions["resolveSaaSMonitoringApplication"];
+    resolveFileHistoryStorage?: BuildAppOptions["resolveFileHistoryStorage"];
     env?: Partial<AppEnv>;
   } = {},
 ) {
@@ -111,6 +112,7 @@ export async function buildTestHarness(
     ...(options.resolveMemoryApplication ? { resolveMemoryApplication: options.resolveMemoryApplication } : {}),
     ...(options.resolveSaaSSessionApplication ? { resolveSaaSSessionApplication: options.resolveSaaSSessionApplication } : {}),
     ...(options.resolveSaaSMonitoringApplication ? { resolveSaaSMonitoringApplication: options.resolveSaaSMonitoringApplication } : {}),
+    ...(options.resolveFileHistoryStorage ? { resolveFileHistoryStorage: options.resolveFileHistoryStorage } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await app.ready();
