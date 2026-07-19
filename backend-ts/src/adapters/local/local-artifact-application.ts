@@ -1,9 +1,8 @@
 import type { JsonValue } from "../../contracts/common.js";
 import type { ArtifactApplication, ArtifactRecord } from "../../contracts/artifact-application.js";
 import type { VisualizationConfig, VisualizationSummary } from "../../contracts/artifacts.js";
-import { ArtifactService } from "./artifact-service.js";
+import { ArtifactService } from "../../services/artifacts/artifact-service.js";
 
-/** Async tenant application facade over Local's filesystem ArtifactService. */
 export class LocalArtifactApplication implements ArtifactApplication {
   constructor(private readonly service: ArtifactService) {}
   async getVisualization(id: string): Promise<VisualizationConfig> { return this.service.getVisualization(id); }
