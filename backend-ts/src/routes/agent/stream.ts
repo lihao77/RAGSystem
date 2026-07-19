@@ -37,7 +37,7 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
     const sessions = await resolveSessionApplication(options, request);
     await assertOwnedSessionIfExists(request, payload.session_id, sessions);
     const requestId = request.headers["x-request-id"]?.toString() ?? randomUUID();
-    const result = await request.container.agentExecution.startStream(
+    const result = await (await ensureRequestApplications(request, options)).execution.startStream(
       { ...payload, userId: request.identity.userId },
       requestId,
     );
@@ -50,7 +50,7 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
   app.post("/stream/stop", async (request) => {
     const payload = StreamStopRequestSchema.parse(request.body);
     await loadOwnedSession(request, payload.session_id, await resolveSessionApplication(options, request));
-    const interrupted = await request.container.agentExecution.stopSession(payload.session_id);
+    const interrupted = await (await ensureRequestApplications(request, options)).execution.stopSession(payload.session_id);
     if (!interrupted) {
       throw new HttpError(404, "not_found", "该会话没有正在执行的任务");
     }
@@ -72,7 +72,7 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
         throw new HttpError(404, "not_found", "未找到对应的审批请求，可能已被取消或不存在");
       }
       if (result.needsResume) {
-        request.container.resumeExecutor.resumeRun({
+        (await ensureRequestApplications(request, options)).execution.resumeRun({
           sessionId: request.params.sessionId,
           approvalId: request.params.approvalId,
           resolution: { approved: payload.approved, message: payload.message ?? "" },
@@ -103,7 +103,7 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
       throw new HttpError(404, "not_found", "未找到对应的输入请求，可能已被取消或不存在");
     }
     if (result.needsResume) {
-      request.container.resumeExecutor.resumeRun({
+      (await ensureRequestApplications(request, options)).execution.resumeRun({
         sessionId: request.params.sessionId,
         approvalId: request.params.inputId,
         resolution: { value: payload.value ?? "" },
@@ -136,7 +136,7 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
         throw new HttpError(404, "not_found", result.error ?? "未找到对应的交互请求，可能已被取消或不存在");
       }
       if (result.needsResume) {
-        request.container.resumeExecutor.resumeRun({
+        (await ensureRequestApplications(request, options)).execution.resumeRun({
           sessionId: request.params.sessionId,
           approvalId: request.params.interactionId,
           resolution: result.kind === "approval"

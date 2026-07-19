@@ -6,12 +6,14 @@ import { LocalMonitoringApplication } from "../adapters/local/local-monitoring-a
 import { LocalSessionApplication } from "../adapters/local/local-session-application.js";
 import { LocalExecutionReadApplication } from "../adapters/local/local-execution-read-application.js";
 import { LocalInteractionRecoveryApplication } from "../adapters/local/local-interaction-recovery-application.js";
+import { LocalExecutionApplication } from "../adapters/local/local-execution-application.js";
 import type { AnalyticsApplication } from "../contracts/analytics-application.js";
 import type { ArtifactApplication } from "../contracts/artifact-application.js";
 import type { MonitoringApplication } from "../contracts/monitoring-application.js";
 import type { SessionApplication } from "../contracts/session-application.js";
 import type { ExecutionReadApplication } from "../contracts/execution-read-application.js";
 import type { InteractionRecoveryApplication } from "../contracts/interaction-recovery-application.js";
+import type { ExecutionApplication } from "../contracts/execution-application.js";
 import { LocalMemoryApplication } from "../services/memory/local-memory-application.js";
 import type { MemoryApplication } from "../services/memory/index.js";
 import type { RouteOptions } from "../routes/route-options.js";
@@ -24,6 +26,7 @@ export interface RequestApplications {
   monitoring: MonitoringApplication;
   executionRead: ExecutionReadApplication;
   interactions: InteractionRecoveryApplication;
+  execution: ExecutionApplication;
 }
 
 export async function ensureRequestApplications(request: FastifyRequest, options: RouteOptions): Promise<RequestApplications> {
@@ -60,5 +63,6 @@ export async function createRequestApplications(
   const interactions = resolvedInteractions
     ?? new LocalInteractionRecoveryApplication(request.container.pendingInteractions, request.container.conversationStore);
 
-  return { sessions, memory, artifacts, analytics, monitoring, executionRead, interactions };
+  const execution = new LocalExecutionApplication(request.container.agentExecution, request.container.resumeExecutor);
+  return { sessions, memory, artifacts, analytics, monitoring, executionRead, interactions, execution };
 }

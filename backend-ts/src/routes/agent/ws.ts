@@ -191,7 +191,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
           switch (message.type) {
             case "user_driven_change": {
               const payload = message.payload;
-              container.agentExecution
+              applications.execution
                 .startStream(
                   {
                     task: payload.task,
@@ -212,7 +212,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
               break;
             }
             case "abort":
-              container.agentExecution.stopSession(sessionId).catch(() => undefined);
+              applications.execution.stopSession(sessionId).catch(() => undefined);
               sendAck("stop", true);
               break;
             case "tools.register":

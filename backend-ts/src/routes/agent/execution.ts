@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync, FastifyRequest } from "fastify";
+import type { FastifyPluginAsync } from "fastify";
 import { randomUUID } from "node:crypto";
 
 import { ok } from "../../contracts/common.js";
@@ -24,8 +24,8 @@ interface TaskExecutionParams {
 }
 
 export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
-  const executeSynchronously = async (container: FastifyRequest["container"], payload: ExecuteRequest, requestId: string) => {
-    const result = await container.agentExecution.executeSynchronously(payload, requestId);
+  const executeSynchronously = async (execution: Awaited<ReturnType<typeof ensureRequestApplications>>["execution"], payload: ExecuteRequest, requestId: string) => {
+    const result = await execution.executeSynchronously(payload, requestId);
     if (!result.success) {
       throw new HttpError(500, "execution_failed", result.error ?? "任务执行失败");
     }
@@ -47,7 +47,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
     const sessions = await resolveSessionApplication(options, request);
     await assertOwnedSessionIfExists(request, payload.session_id, sessions);
     return executeSynchronously(
-      request.container,
+      (await ensureRequestApplications(request, options)).execution,
       { ...payload, userId: request.identity.userId },
       request.headers["x-request-id"]?.toString() ?? randomUUID(),
     );
@@ -61,7 +61,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
     const sessions = await resolveSessionApplication(options, request);
     await assertOwnedSessionIfExists(request, payload.session_id, sessions);
     return executeSynchronously(
-      request.container,
+      (await ensureRequestApplications(request, options)).execution,
       { ...payload, userId: request.identity.userId },
       request.headers["x-request-id"]?.toString() ?? randomUUID(),
     );
@@ -74,7 +74,7 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
     if (payload.mode !== "sequential") {
       throw new HttpError(400, "invalid_request", "并行模式尚未实现");
     }
-    const result = await request.container.agentExecution.collaborateSequentially(
+    const result = await (await ensureRequestApplications(request, options)).execution.collaborateSequentially(
       { ...payload, userId: request.identity.userId },
       request.headers["x-request-id"]?.toString() ?? randomUUID(),
     );

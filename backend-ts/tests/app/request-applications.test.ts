@@ -11,6 +11,8 @@ describe("createRequestApplications", () => {
     const monitoring = {};
     const executionRead = {};
     const interactions = {};
+    const executionCore = {};
+    const resumeExecutor = {};
     const options = {
       resolveSessionApplication: vi.fn().mockResolvedValue(sessions),
       resolveMemoryApplication: vi.fn().mockResolvedValue(memory),
@@ -21,7 +23,9 @@ describe("createRequestApplications", () => {
       resolveSaaSInteractionRecovery: vi.fn().mockResolvedValue(interactions),
     };
 
-    await expect(createRequestApplications({} as never, options as never)).resolves.toEqual({
+    await expect(createRequestApplications({
+      container: { agentExecution: executionCore, resumeExecutor },
+    } as never, options as never)).resolves.toEqual({
       sessions,
       memory,
       artifacts,
@@ -29,6 +33,7 @@ describe("createRequestApplications", () => {
       monitoring,
       executionRead,
       interactions,
+      execution: expect.anything(),
     });
     expect(options.resolveSaaSAgentReadApplication).toHaveBeenCalledOnce();
     expect(options.resolveSaaSInteractionRecovery).toHaveBeenCalledOnce();

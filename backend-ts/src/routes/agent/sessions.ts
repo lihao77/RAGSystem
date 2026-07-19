@@ -21,6 +21,7 @@ import {
   UpdateMessageRequestSchema,
 } from "../../contracts/session.js";
 import { HttpError } from "../../utils/errors.js";
+import { ensureRequestApplications } from "../../app/request-applications.js";
 import type { AgentRouteOptions } from "../route-options.js";
 import { ZodError } from "zod";
 import { WorkspaceRootValidationError } from "../../services/sessions/index.js";
@@ -250,7 +251,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
       if (payload.ui_context) {
         retryInput.uiContext = payload.ui_context;
       }
-      const result = await request.container.agentExecution.startRollbackRetry(retryInput);
+      const result = await (await ensureRequestApplications(request, options)).execution.startRollbackRetry(retryInput);
       if (!result.started) {
         throw new HttpError(400, "invalid_request", result.error ?? "重试启动失败");
       }
