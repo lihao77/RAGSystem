@@ -59,6 +59,7 @@ export interface BuildAppOptions {
   resolveSaaSInteractionRecovery?: RouteOptions["resolveSaaSInteractionRecovery"];
   resolveSaaSAnalytics?: RouteOptions["resolveSaaSAnalytics"];
   resolveSaaSMonitoringApplication?: RouteOptions["resolveSaaSMonitoringApplication"];
+  resolveSaaSArtifactService?: RouteOptions["resolveSaaSArtifactService"];
   registry?: TenantRuntimeRegistry;
   controlStore?: ControlStore;
   controlPlane?: ControlPlane;
@@ -487,6 +488,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ...(options.resolveSaaSInteractionRecovery ? { resolveSaaSInteractionRecovery: options.resolveSaaSInteractionRecovery } : {}),
     ...(options.resolveSaaSAnalytics ? { resolveSaaSAnalytics: options.resolveSaaSAnalytics } : {}),
     ...(options.resolveSaaSMonitoringApplication ? { resolveSaaSMonitoringApplication: options.resolveSaaSMonitoringApplication } : {}),
+    ...(options.resolveSaaSArtifactService ? { resolveSaaSArtifactService: options.resolveSaaSArtifactService } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await registerManagementAndPlatformRoutes(app, {

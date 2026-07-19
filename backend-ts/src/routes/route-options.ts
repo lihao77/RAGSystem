@@ -17,6 +17,7 @@ import type { SaaSInteractionRecoveryApplication } from "../services/runtime/saa
 import type { SaaSAnalyticsApplication } from "../services/runtime/saas-analytics-application.js";
 import type { SaaSMonitoringApplication } from "../services/runtime/saas-monitoring-application.js";
 import type { AsyncSessionFileStorage } from "../contracts/session-file-storage.js";
+import type { SaaSArtifactService } from "../services/artifacts/saas-artifact-service.js";
 
 export interface RouteOptions {
   registry: TenantRuntimeRegistry;
@@ -39,6 +40,7 @@ export interface RouteOptions {
   resolveSaaSAnalytics?: (request: FastifyRequest) => SaaSAnalyticsApplication | undefined | Promise<SaaSAnalyticsApplication | undefined>;
   resolveSaaSMonitoringApplication?: (request: FastifyRequest) => SaaSMonitoringApplication | undefined | Promise<SaaSMonitoringApplication | undefined>;
   resolveSessionFileStorage?: (request: FastifyRequest) => AsyncSessionFileStorage | undefined | Promise<AsyncSessionFileStorage | undefined>;
+  resolveSaaSArtifactService?: (request: FastifyRequest) => SaaSArtifactService | undefined | Promise<SaaSArtifactService | undefined>;
   widgetCredentialStore?: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
 }

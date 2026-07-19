@@ -44,6 +44,14 @@ export class SaaSSessionApplication {
       : item);
     return data;
   }
+  async exportSession(sessionId: string): Promise<{ version: number; exported_at: string; session: SessionInfo; messages: MessageInfo[]; message_count: number }> {
+    const session = await this.getSession(sessionId);
+    if (!session) throw new Error(`会话不存在: ${sessionId}`);
+    let page = await this.listMessages({ sessionId, limit: 1000, offset: 0 });
+    if (!page) throw new Error(`会话不存在: ${sessionId}`);
+    if (page.has_more) page = await this.listMessages({ sessionId, limit: Math.max(page.total, 1000), offset: 0 }) ?? page;
+    return { version: 2, exported_at: new Date().toISOString(), session, messages: page.items, message_count: page.items.length };
+  }
   async getRecentMessages(sessionId: string, limit = 10_000, threadKey?: string | null): Promise<MessageInfo[]> {
     if (!(await this.getSession(sessionId))) return [];
     return this.repository.getRecentMessages(sessionId, limit, threadKey ?? "root");

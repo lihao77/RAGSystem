@@ -90,6 +90,7 @@ export interface SharedBusinessRouteAssemblyOptions {
   resolveSaaSInteractionRecovery?: RouteOptions["resolveSaaSInteractionRecovery"];
   resolveSaaSAnalytics?: RouteOptions["resolveSaaSAnalytics"];
   resolveSaaSMonitoringApplication?: RouteOptions["resolveSaaSMonitoringApplication"];
+  resolveSaaSArtifactService?: RouteOptions["resolveSaaSArtifactService"];
 }
 
 export async function registerSharedBusinessRoutes(
@@ -104,7 +105,7 @@ export async function registerSharedBusinessRoutes(
       botRepository: options.botRepository,
     };
     await scope.register(registerHealthRoutes, { prefix: "/api", ...routeOptions });
-    await scope.register(registerArtifactRoutes, { prefix: "/api/artifacts", ...routeOptions });
+    await scope.register(registerArtifactRoutes, { prefix: "/api/artifacts", ...routeOptions, ...(options.resolveSaaSArtifactService ? { resolveSaaSArtifactService: options.resolveSaaSArtifactService } : {}), ...(options.resolveSaaSSessionApplication ? { resolveSaaSSessionApplication: options.resolveSaaSSessionApplication } : {}) });
     await scope.register(registerAgentConfigRoutes, { prefix: "/api/agent-config", ...routeOptions });
     await scope.register(registerMemoryRoutes, {
       prefix: "/api/memory",

@@ -53,9 +53,10 @@ export async function loadOwnedSessionForResource(
   request: FastifyRequest,
   sessionId: string | null | undefined,
   resourceNotFoundMessage: string,
+  saas?: SaaSSessionApplication,
 ): Promise<SessionInfo> {
   if (!sessionId) {
     throw new HttpError(404, "not_found", resourceNotFoundMessage);
   }
-  return await loadOwnedSession(request, sessionId);
+  return await loadOwnedSession(request, sessionId, saas);
 }

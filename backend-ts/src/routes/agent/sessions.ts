@@ -147,9 +147,12 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/export", async (request, reply) => {
-    await loadOwnedSession(request, request.params.sessionId);
+    const saas = await options.resolveSaaSSessionApplication?.(request);
+    await loadOwnedSession(request, request.params.sessionId, saas);
     try {
-      const data = request.container.sessionApplication.exportSession(request.params.sessionId);
+      const data = saas
+        ? await saas.exportSession(request.params.sessionId)
+        : request.container.sessionApplication.exportSession(request.params.sessionId);
       const safeSessionId = sanitizeExportSessionId(request.params.sessionId);
       reply.header("content-type", "application/json; charset=utf-8");
       reply.header("content-disposition", `attachment; filename="session_${safeSessionId}.json"`);
@@ -228,7 +231,8 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/rollback-and-retry", async (request) => {
-    await loadOwnedSession(request, request.params.sessionId);
+    const saas = await options.resolveSaaSSessionApplication?.(request);
+    await loadOwnedSession(request, request.params.sessionId, saas);
     const payload = parseRollbackAndRetryRequest(request.body);
     if (payload.after_seq == null && !payload.after_message_id) {
       throw new HttpError(400, "invalid_request", "请提供 after_seq 或 after_message_id");
