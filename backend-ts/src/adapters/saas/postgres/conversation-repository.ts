@@ -8,7 +8,7 @@ import type { PermissionMode } from "../../../contracts/permissions.js";
 import type { AsyncConversationRepository } from "../../../contracts/async-persistence-ports.js";
 export type { AsyncConversationRepository } from "../../../contracts/async-persistence-ports.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
-import { decodeChatFields, encodeChatFields } from "../../../services/stores/conversation-store/chat-message-codec.js";
+import { decodeChatFields, encodeChatFields } from "../../../contracts/conversation-store/chat-message-codec.js";
 
 const iso = (value: unknown) => new Date(String(value)).toISOString();
 const session = (row: Record<string, unknown>): SessionInfo => ({ session_id: String(row.session_id), tenant_id: row.tenant_id as TenantId, user_id: row.user_id == null ? null : String(row.user_id), permission_mode: row.permission_mode as PermissionMode | null, metadata: (row.metadata ?? {}) as Record<string, unknown>, created_at: iso(row.created_at), updated_at: iso(row.updated_at) });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { decodeChatFields, encodeChatFields } from "../../src/services/stores/conversation-store/chat-message-codec.js";
+import { decodeChatFields, encodeChatFields } from "../../src/contracts/conversation-store/chat-message-codec.js";
 
 const toolCall = {
   id: "call_1",
