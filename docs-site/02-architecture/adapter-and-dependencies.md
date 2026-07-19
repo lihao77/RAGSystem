@@ -143,11 +143,13 @@ Local 请求的这些字段可以为空，路由随后使用 runtime container �
 
 当前业务数据面已经完成主要分流，但后端还不是完全无状态的多实例 SaaS：
 
-- `RuntimeContainer` 仍暴露若干 Local 具体类型；
-- Agent 执行、实时事件 hub、部分后台任务仍有进程内状态；
+- Agent execution 通过互斥的 `ExecutionStorage` contract 选择 Local 或 PostgreSQL durable adapter；SaaS 执行不再回退 SQLite `ConversationStore`；
+- Agent Knowledge tools 通过 `KnowledgeQueryPort` 选择 Local 或 PostgreSQL/pgvector adapter；
+- Pending interaction、Realtime event 和 Daemon runtime 均依赖共享 ports，不再依赖 Local concrete service；
+- 实时事件 bus 的当前 SaaS 实现仍是进程内广播，跨实例 pub/sub transport 尚未提供；
 - Knowledge 与文件 storage resolver 尚未并入 `request.applications`；
 - Daemon、后台任务和租户 runtime registry 继续直接依赖 runtime container，这是后台生命周期边界，不是 HTTP request composition；Cron/BackgroundTask 已有数据库 lease，Daemon scheduler/飞书连接由 PostgreSQL leader lease 保证单 leader并支持 standby 接管；
-- 若干共享 Agent service 仍引用具体 SaaS repository 类型，应继续收窄为 ports；
+- shared Agent event persister、runtime container async history/provider continuation 已收窄为 contracts，不再引用具体 SaaS repository 类型；
 - `main.ts` 和 `app.ts` 仍共同承担较多 composition 责任。
 
 下一步继续治理 Daemon 的共享 route resolver、leader 连接健康监控和 realtime pub/sub。Knowledge 和文件能力已通过独立 `request.resources` 边界完成请求级组合。

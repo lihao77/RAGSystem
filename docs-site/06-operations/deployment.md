@@ -136,3 +136,5 @@ RAG_DATA_ROOT/
 - backend 重启后 Session、Memory 和附件仍可读取。
 
 该记录验收的是单 active backend 数据持久化与租户隔离。Realtime pub/sub、跨实例运行接管和任意 API 实例处理 Feishu webhook 仍不在本次通过范围内。
+
+2026-07-19 完成 runtime contract 剥离后再次运行同一 compose E2E，Docker build、双租户隔离、PostgreSQL Memory、Object Storage 和重启持久化全部通过。Agent execution 使用 `ExecutionStorage` 的 Local/PostgreSQL adapters，Agent Knowledge 查询使用 `KnowledgeQueryPort` 的 Local/pgvector adapters；Webhook route token 改由 Bot repository 解析，不再依赖进程内 route index。
