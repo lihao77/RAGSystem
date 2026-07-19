@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { PermissionMode, RiskLevel } from "../../src/contracts/permissions.js";
 import { LOCAL_TENANT_ID, LOCAL_USER_ID } from "../../src/services/identity/index.js";
 import { PermissionPolicyService } from "../../src/services/runtime/permission-policy-service.js";
-import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
+import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
 import { makeTempDb } from "../helpers/temp-db.js";
 
 describe("PermissionPolicyService", () => {

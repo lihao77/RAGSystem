@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Envelope } from "../../src/contracts/events.js";
 import type { OutboxRow } from "../../src/contracts/conversation-store/types.js";
-import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
+import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { EnvelopeProjector } from "../../src/services/runtime/event-outbox/projector.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";

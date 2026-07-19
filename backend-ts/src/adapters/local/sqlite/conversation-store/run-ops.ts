@@ -1,9 +1,9 @@
-import type { RunStepInfo } from "../../../contracts/common.js";
+import type { RunStepInfo } from "../../../../contracts/common.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
 import { stringifyJson } from "./helpers.js";
 import { rowToRun, rowToRunStep } from "./mappers.js";
-import type { AddRunStepInput, IRunStore, RunInfo, RunStepRecord } from "../../../contracts/conversation-store/index.js";
+import type { AddRunStepInput, IRunStore, RunInfo, RunStepRecord } from "../../../../contracts/conversation-store/index.js";
 import type { RunRow, RunStepRow } from "./types.js";
 
 const RUN_STEP_SELECT_COLUMNS = "id, run_id, session_id, message_id, step_order, step_type, payload, created_at";

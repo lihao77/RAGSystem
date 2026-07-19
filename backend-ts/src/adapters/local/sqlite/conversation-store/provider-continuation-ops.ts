@@ -3,7 +3,7 @@ import type {
   IProviderContinuationStore,
   ProviderContinuationRecord,
   PutProviderContinuationInput,
-} from "../../../contracts/conversation-store/index.js";
+} from "../../../../contracts/conversation-store/index.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
 

@@ -10,7 +10,7 @@ import { DurableClientEventPublisher } from "../../src/services/runtime/event-ou
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";
 import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
-import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
+import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
 
 describe("ResumeExecutor", () => {
   it("复用 rootRunId 恢复并在完成后回调", async () => {

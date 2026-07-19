@@ -1,7 +1,7 @@
 import { runInTransaction } from "./shared/transaction.js";
 import { BASELINE_SCHEMA_SQL } from "./schema.js";
-import { widgetUserId } from "../../../identity/widget-user-id.js";
-import { LOCAL_TENANT_ID, LOCAL_USER_ID } from "../../identity/local-identity-provider.js";
+import { widgetUserId } from "../../../../identity/widget-user-id.js";
+import { LOCAL_TENANT_ID, LOCAL_USER_ID } from "../../../../services/identity/local-identity-provider.js";
 
 export interface MigrationDatabase {
   exec: import("node:sqlite").DatabaseSync["exec"];

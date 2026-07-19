@@ -5,7 +5,7 @@ import type {
   IMemoryCandidateStore,
   MemoryCandidateRecord,
   MemoryCandidateStatus,
-} from "../../../contracts/conversation-store/index.js";
+} from "../../../../contracts/conversation-store/index.js";
 import type { ConversationDb } from "./shared/db.js";
 
 const SELECT_COLUMNS = `id, tenant_id, owner_user_id, target_scope, team_name, agent_name,

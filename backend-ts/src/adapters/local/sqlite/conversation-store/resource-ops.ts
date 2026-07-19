@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { ExecutionOverview, ExecutionTaskStatus } from "../../../contracts/execution.js";
+import type { ExecutionOverview, ExecutionTaskStatus } from "../../../../contracts/execution.js";
 import type { ConversationDb } from "./shared/db.js";
 import type { SessionOps } from "./session-ops.js";
 import { stringifyJson } from "./helpers.js";
 import { rowToResource } from "./mappers.js";
 import { inferResourceScope } from "./resource-scope.js";
-import type { IResourceStore, ResourceInfo } from "../../../contracts/conversation-store/index.js";
+import type { IResourceStore, ResourceInfo } from "../../../../contracts/conversation-store/index.js";
 import type { ResourceRow } from "./types.js";
 
 /** resources + step_resources 聚合根操作 + 执行投影（迁移自 ConversationStore，方法体零改动）。 */

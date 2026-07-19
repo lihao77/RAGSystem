@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
+import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 describe("ConversationStore", () => {

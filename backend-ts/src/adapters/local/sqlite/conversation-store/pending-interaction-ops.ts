@@ -3,7 +3,7 @@ import type {
   IPendingInteractionStore,
   PendingInteractionRecord,
   PendingInteractionStatus,
-} from "../../../contracts/conversation-store/index.js";
+} from "../../../../contracts/conversation-store/index.js";
 import type { ConversationDb } from "./shared/db.js";
 import { parseJsonObject, stringifyJson } from "./helpers.js";
 

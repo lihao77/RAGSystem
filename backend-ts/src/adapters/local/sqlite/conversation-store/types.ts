@@ -1,6 +1,6 @@
-import type { MessageInfo } from "../../../contracts/session.js";
-import type { PermissionMode } from "../../../contracts/permissions.js";
-import type { TenantId } from "../../../identity/types.js";
+import type { MessageInfo } from "../../../../contracts/session.js";
+import type { PermissionMode } from "../../../../contracts/permissions.js";
+import type { TenantId } from "../../../../identity/types.js";
 
 /**
  * conversation-store 实现层内部物理行映射（SQLite 行 ↔ 内存对象）。

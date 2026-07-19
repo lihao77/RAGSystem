@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { widgetUserId } from "../../src/identity/widget-user-id.js";
 import { LOCAL_TENANT_ID, LOCAL_USER_ID } from "../../src/services/identity/index.js";
-import { MIGRATIONS, runMigrations } from "../../src/services/stores/conversation-store/migrations.js";
+import { MIGRATIONS, runMigrations } from "../../src/adapters/local/sqlite/conversation-store/migrations.js";
 
 const requireModule = createRequire(import.meta.url);
 const sqlite = requireModule("node:sqlite") as typeof import("node:sqlite");

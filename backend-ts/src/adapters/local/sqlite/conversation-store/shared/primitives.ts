@@ -1,4 +1,4 @@
-import { isRecord } from "../../../../utils/guards.js";
+import { isRecord } from "../../../../../utils/guards.js";
 export { isRecord };
 /** 会话存储通用纯函数（迁移自 conversation-store.ts 模块级 helper）。 */
 

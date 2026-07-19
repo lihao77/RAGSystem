@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { RecentMessagesContextSource } from "../../src/services/agent/context/recent-messages-source.js";
 import { ProjectionRegistry } from "../../src/services/agent/context/extensions/index.js";
-import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
+import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
 
 const continuation = {
   protocol: "anthropic_messages" as const,

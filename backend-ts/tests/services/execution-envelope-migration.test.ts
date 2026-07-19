@@ -1,8 +1,8 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
-import { BASELINE_SCHEMA_SQL } from "../../src/services/stores/conversation-store/schema.js";
-import { LATEST_SCHEMA_VERSION, MIGRATIONS, runMigrations } from "../../src/services/stores/conversation-store/migrations.js";
+import { BASELINE_SCHEMA_SQL } from "../../src/adapters/local/sqlite/conversation-store/schema.js";
+import { LATEST_SCHEMA_VERSION, MIGRATIONS, runMigrations } from "../../src/adapters/local/sqlite/conversation-store/migrations.js";
 
 const requireModule = createRequire(import.meta.url);
 const sqlite = requireModule("node:sqlite") as typeof import("node:sqlite");

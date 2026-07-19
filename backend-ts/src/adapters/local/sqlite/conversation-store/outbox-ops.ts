@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { PaginatedResult } from "../../../contracts/common.js";
+import type { PaginatedResult } from "../../../../contracts/common.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
 import {
@@ -24,8 +24,8 @@ import type {
   OutboxStatus,
   RetryOutboxBatchInput,
   RetryOutboxResult,
-} from "../../../contracts/conversation-store/index.js";
-import { AppendOutboxInputSchema } from "../../../contracts/conversation-store/types.js";
+} from "../../../../contracts/conversation-store/index.js";
+import { AppendOutboxInputSchema } from "../../../../contracts/conversation-store/types.js";
 
 const OUTBOX_SELECT_COLUMNS = `
   id, event_id, session_id, tenant_id, run_id, session_seq, event_type, aggregate_type,

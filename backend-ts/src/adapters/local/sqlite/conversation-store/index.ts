@@ -14,7 +14,7 @@ import type {
   ConversationStore,
   ConversationStoreOptions,
   ConversationStoreTransaction,
-} from "../../../contracts/conversation-store/index.js";
+} from "../../../../contracts/conversation-store/index.js";
 
 // IXxxStore 窄契约与 DTO 已上移至 contracts/conversation-store/，消费者改向该处 import。
 // 本文件仅保留 ConversationStore 聚合类型转出（见末尾），供 runtime-container 组装使用。
@@ -169,4 +169,4 @@ export function createConversationStore(options: ConversationStoreOptions) {
 }
 
 /** 聚合类型转出（createConversationStore facade）；窄契约/DTO 见 contracts/conversation-store。 */
-export type { ConversationStore } from "../../../contracts/conversation-store/index.js";
+export type { ConversationStore } from "../../../../contracts/conversation-store/index.js";

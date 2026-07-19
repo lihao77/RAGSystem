@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
-import type { PaginatedResult } from "../../../contracts/common.js";
-import type { MessageInfo } from "../../../contracts/session.js";
+import type { PaginatedResult } from "../../../../contracts/common.js";
+import type { MessageInfo } from "../../../../contracts/session.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
 import { asNullableString, asString, stringifyJson } from "./helpers.js";
-import { decodeChatFields, encodeChatFields } from "../../../contracts/conversation-store/chat-message-codec.js";
+import { decodeChatFields, encodeChatFields } from "../../../../contracts/conversation-store/chat-message-codec.js";
 import { rowToMessage } from "./mappers.js";
-import type { AddMessageInput, IMessageStore } from "../../../contracts/conversation-store/index.js";
-import { AddMessageInputSchema } from "../../../contracts/conversation-store/types.js";
+import type { AddMessageInput, IMessageStore } from "../../../../contracts/conversation-store/index.js";
+import { AddMessageInputSchema } from "../../../../contracts/conversation-store/types.js";
 import type { MessageRow, SqlInputValue } from "./types.js";
 
 /**

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
-import { BASELINE_SCHEMA_SQL } from "../../src/services/stores/conversation-store/schema.js";
-import { MIGRATIONS } from "../../src/services/stores/conversation-store/migrations.js";
+import { BASELINE_SCHEMA_SQL } from "../../src/adapters/local/sqlite/conversation-store/schema.js";
+import { MIGRATIONS } from "../../src/adapters/local/sqlite/conversation-store/migrations.js";
 
 // node:sqlite 是实验性内置,vite 不识别其 ESM import,改用 require(与 src/shared/db.ts 一致)。
 const requireModule = createRequire(import.meta.url);

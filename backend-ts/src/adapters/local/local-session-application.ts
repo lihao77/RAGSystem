@@ -2,7 +2,7 @@ import type { PermissionMode } from "../../contracts/permissions.js";
 import type { SessionApplication } from "../../contracts/session-application.js";
 import type { TenantId } from "../../identity/types.js";
 import type { AgentSessionApplication } from "../../services/sessions/index.js";
-import type { ConversationStore } from "../../services/stores/conversation-store/index.js";
+import type { ConversationStore } from "./sqlite/conversation-store/index.js";
 
 /** Binds the synchronous Local session service to one request tenant. */
 export class LocalSessionApplication implements SessionApplication {

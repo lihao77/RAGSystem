@@ -1,14 +1,14 @@
-import type { PaginatedResult } from "../../../contracts/common.js";
-import type { SessionInfo, SessionListItem } from "../../../contracts/session.js";
+import type { PaginatedResult } from "../../../../contracts/common.js";
+import type { SessionInfo, SessionListItem } from "../../../../contracts/session.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
 import { deepMergeRecords } from "./shared/primitives.js";
 import { stringifyJson } from "./helpers.js";
 import { rowToSession, rowToSessionListItem } from "./mappers.js";
-import type { ISessionStore } from "../../../contracts/conversation-store/index.js";
+import type { ISessionStore } from "../../../../contracts/conversation-store/index.js";
 import type { SessionListRow, SessionRow } from "./types.js";
-import type { TenantId } from "../../../identity/types.js";
-import type { PermissionMode } from "../../../contracts/permissions.js";
+import type { TenantId } from "../../../../identity/types.js";
+import type { PermissionMode } from "../../../../contracts/permissions.js";
 
 /** sessions 聚合根操作（迁移自 ConversationStore，方法体零改动）。 */
 export class SessionOps implements ISessionStore {

@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { AgentSessionApplication } from "../../src/services/sessions/index.js";
-import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
+import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
 import { TransientArtifactService } from "../../src/services/artifacts/transient-artifact-service.js";
 import fs from "node:fs";
 import os from "node:os";

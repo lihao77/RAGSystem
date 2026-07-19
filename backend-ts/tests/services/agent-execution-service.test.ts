@@ -11,7 +11,7 @@ import type { ConversationStore } from "../../src/contracts/conversation-store/i
 import { AgentSessionApplication } from "../../src/services/sessions/index.js";
 import os from "node:os";
 import path from "node:path";
-import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
+import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
 import { mockLlm } from "../helpers/llm-fetch-mock.js";
 import { makeTempDb } from "../helpers/temp-db.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";

@@ -6,7 +6,7 @@ import type { ModelProviderConfig } from "../../src/contracts/model-adapter.js";
 import { AgentDelegationService } from "../../src/services/agent/delegation/index.js";
 import type { AgentRunEngine } from "../../src/services/agent/execution/run-engine.js";
 import type { RuntimeExecutionConfigResolver } from "../../src/services/agent/execution/runtime-core-service.js";
-import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
+import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
 import { RealtimeEventHub } from "../../src/services/runtime/realtime-event-hub.js";
 import { DurableClientEventPublisher } from "../../src/services/runtime/event-outbox/client-event-publisher.js";
 import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispatcher.js";

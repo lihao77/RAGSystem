@@ -1,7 +1,7 @@
 import type { ConversationDb } from "./shared/db.js";
 import { stringifyJson } from "./helpers.js";
 import { rowToChildAgent } from "./mappers.js";
-import type { ChildAgentInfo, IChildAgentStore } from "../../../contracts/conversation-store/index.js";
+import type { ChildAgentInfo, IChildAgentStore } from "../../../../contracts/conversation-store/index.js";
 import type { ChildAgentRow } from "./types.js";
 
 const CHILD_AGENT_SELECT_COLUMNS = `

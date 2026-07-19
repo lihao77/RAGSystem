@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ConversationDb } from "./shared/db.js";
 import { parseJsonObject, stringifyJson } from "./helpers.js";
-import type { AgentMetricSummary, DailyActivityPoint, HeatmapPoint, ModelUsagePoint, TokenTrendPoint } from "../../../contracts/conversation-store/index.js";
+import type { AgentMetricSummary, DailyActivityPoint, HeatmapPoint, ModelUsagePoint, TokenTrendPoint } from "../../../../contracts/conversation-store/index.js";
 
 /** agent_call_metrics 表行。 */
 export interface AgentCallMetricRow {

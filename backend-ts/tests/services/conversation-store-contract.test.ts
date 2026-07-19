@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createConversationStore } from "../../src/services/stores/conversation-store/index.js";
+import { createConversationStore } from "../../src/adapters/local/sqlite/conversation-store/index.js";
 import type {
   AddMessageInput,
   IConversationTransactionRunner,

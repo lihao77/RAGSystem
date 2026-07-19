@@ -21,7 +21,7 @@ import { EmbeddingModelService } from "../../services/knowledge/embedding-model-
 import { KnowledgeBaseService } from "../../services/knowledge/knowledge-base-service.js";
 import { AgentSessionApplication } from "../../services/sessions/index.js";
 import { SkillLibraryService } from "../../services/skills/skill-library-service.js";
-import { createConversationStore } from "../../services/stores/conversation-store/index.js";
+import { createConversationStore } from "./sqlite/conversation-store/index.js";
 import { FileHistoryService } from "./files/file-history-service.js";
 import { FileIndexService } from "./files/file-index-service.js";
 import { createVectorStoreFromConfig } from "../../services/vector-store/vector-store-factory.js";
