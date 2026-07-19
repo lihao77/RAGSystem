@@ -210,6 +210,7 @@ interface WidgetRouteAssemblyOptions {
   widgetCredentialStore: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
   wsTickets: WsTicketService;
+  resolveSessionApplication?: RouteOptions["resolveSessionApplication"];
   resolveSaaSAgentReadApplication?: RouteOptions["resolveSaaSAgentReadApplication"];
 }
 
@@ -239,6 +240,7 @@ export async function registerWidgetAndRealtimeRoutes(
         widgetCredentialStore: options.widgetCredentialStore,
         wsTickets: options.wsTickets,
         widgetAuth: options.widgetAuth!,
+        ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
       });
     });
   } else {
@@ -249,6 +251,7 @@ export async function registerWidgetAndRealtimeRoutes(
       botRepository: options.botRepository,
       widgetCredentialStore: options.widgetCredentialStore,
       wsTickets: options.wsTickets,
+      ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
     });
   }
 
@@ -260,6 +263,7 @@ export async function registerWidgetAndRealtimeRoutes(
     widgetCredentialStore: options.widgetCredentialStore,
     wsTickets: options.wsTickets,
     ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
+    ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
     ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
   });
 }

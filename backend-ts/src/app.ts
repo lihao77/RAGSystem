@@ -512,6 +512,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     wsTickets,
     ...(widgetIdentityProvider ? { widgetIdentityProvider } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
+    ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
   });
 
   registerFrontendFallback(app);

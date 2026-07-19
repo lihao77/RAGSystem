@@ -83,6 +83,39 @@ describe("widget auth routes", () => {
     });
   });
 
+  it("uses the deployment session application when SaaS session persistence is injected", async () => {
+    const createdRows: Array<Record<string, unknown>> = [];
+    const harness = await buildTestHarness({
+      widgetJwtSecret: TEST_SECRET,
+      resolveSessionApplication: async () => ({
+        createSession: async (input: Record<string, unknown>) => {
+          createdRows.push(input);
+          return { session_id: input.sessionId, user_id: input.userId, metadata: input.metadata };
+        },
+        getSession: async () => null,
+      }) as never,
+    });
+    app = harness.app;
+    const created = harness.widgetCredentialStore.ops.createApp({ tenantId: LOCAL_TENANT_ID, display_name: "SaaS widget" });
+    const tokenRes = await app.inject({
+      method: "POST",
+      url: "/api/widget/auth/token",
+      payload: { app_key: created.app_key, secret: created.secret },
+    });
+
+    const sessionRes = await app.inject({
+      method: "POST",
+      url: "/api/widget/sessions",
+      headers: { authorization: `Bearer ${tokenRes.json().data.token}` },
+      payload: {},
+    });
+
+    expect(sessionRes.statusCode).toBe(200);
+    expect(createdRows).toHaveLength(1);
+    expect(createdRows[0]).toMatchObject({ metadata: { widget: { app_key: created.app_key } } });
+    expect(harness.container.sessionApplication.getSession(sessionRes.json().data.session_id)).toBeNull();
+  });
+
   it("rejects widget session creation without Bearer token with 401", async () => {
     const harness = await buildTestHarness({ widgetJwtSecret: TEST_SECRET });
     app = harness.app;
