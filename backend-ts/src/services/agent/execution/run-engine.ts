@@ -24,6 +24,7 @@ import type { AgentCompressionService } from "../context-compression/compression
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 import type { ExecutionStorage } from "../../../contracts/execution-storage.js";
 import type { TenantId } from "../../../identity/types.js";
+import type { PathAccessPolicy } from "../../../contracts/path-access-policy.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import {
   asString,
@@ -68,6 +69,7 @@ export class AgentRunEngine {
     private readonly outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">,
     private readonly clientEvents: DurableClientEventPublisher,
     private readonly permissionPolicy: PermissionPolicyService,
+    private readonly pathAccessPolicyFactory: () => PathAccessPolicy,
     private readonly pendingInteractions: PendingInteractionPort,
     private readonly hostToolRegistry: HostToolRegistry,
     private readonly delegationPending: DelegationPendingService,
@@ -382,6 +384,7 @@ export class AgentRunEngine {
           memoryConfig: this.memoryConfig,
           ...(this.memoryContextSourceFactory ? { memoryContextSourceFactory: this.memoryContextSourceFactory } : {}),
           permissionPolicy: this.permissionPolicy,
+          pathAccessPolicyFactory: this.pathAccessPolicyFactory,
           pendingInteractions: this.pendingInteractions,
           hostToolRegistry: this.hostToolRegistry,
           delegationPending: this.delegationPending,

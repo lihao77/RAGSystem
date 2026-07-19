@@ -9,7 +9,7 @@ import { createToolRegistry, resolveContextBudget } from "@ragsystem/agent-sdk";
 import { projectAgentProfile } from "../../services/agent/sdk/projection.js";
 import { HISTORY_SCAN_LIMIT, previewBackendAgentContext, type ConversationHistoryPort, type SessionMetadataPort } from "../../services/agent/context/index.js";
 import { createBackendTools } from "../../tools/registry.js";
-import { PathApprovalService } from "../../services/runtime/path-service.js";
+import { PathApprovalService } from "../../adapters/local/path-approval-service.js";
 import type { ChatMessage, ChatToolCall } from "@ragsystem/agent-llm";
 import { extractText } from "@ragsystem/agent-llm";
 import { HttpError } from "../../utils/errors.js";

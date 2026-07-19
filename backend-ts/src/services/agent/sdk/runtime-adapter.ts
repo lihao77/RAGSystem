@@ -31,7 +31,7 @@ import { buildBackendAgentContext, HISTORY_SCAN_LIMIT, type ConversationHistoryP
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import { memoryBaselineKey } from "../memory/index.js";
 import { registerGateHook } from "./gate-hook.js";
-import { PathApprovalService } from "../../../services/runtime/path-service.js";
+import type { PathAccessPolicy } from "../../../contracts/path-access-policy.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService, DelegationResolution } from "../../runtime/delegation-pending-service.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
@@ -54,6 +54,7 @@ export interface SdkRuntimeAdapterDeps {
   memoryContextSourceFactory?: MemoryRuntimeBindings["createContextSource"];
   /** 权限策略服务（SDK 审批编排判定端口用）。 */
   permissionPolicy: PermissionPolicyService;
+  pathAccessPolicyFactory: () => PathAccessPolicy;
   /** 审批交互服务（SDK 审批编排阻塞等待端口用）。 */
   pendingInteractions: PendingInteractionPort;
   /** 前端委托工具声明注册表（per-session）；命中前端工具时构造 source=host 转发壳 Tool。 */
@@ -142,7 +143,7 @@ export async function executeRunWithSdk(
 
   // per-run 构建工具集合：后端工具 + 前端委托工具（source=host，其 Tool.call 转发宿主执行 + 等回传）。
   const teamName = asString(input.sessionMetadata.team);
-  const pathService = new PathApprovalService();
+  const pathService = deps.pathAccessPolicyFactory();
   const effectivePermission = deps.permissionPolicy.getEffectivePolicy(input.sessionId);
   pathService.setAllowUnapprovedExternalPaths(
     effectivePermission.mode === "dangerously_skip_permissions" || effectivePermission.skip_all_approvals,

@@ -37,6 +37,7 @@ import type { AgentCompressionService } from "../context-compression/compression
 import type { TenantId } from "../../../identity/types.js";
 import type { MemoryConfig } from "../../../contracts/system-config.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
+import type { PathAccessPolicy } from "../../../contracts/path-access-policy.js";
 import type { SuspendedSessionControlPort } from "../../../contracts/runtime-async-ports.js";
 import {
   createLaunchers,
@@ -92,7 +93,8 @@ export interface AgentExecutionServiceParams {
  /** 已加载的 provider 列表提供者（SDK 投影层解析 tier.provider 引用用）。 */
  providersProvider: () => ModelProviderConfig[];
  /** 权限策略服务（SDK 审批编排判定用）。 */
- permissionPolicy: PermissionPolicyService;
+  permissionPolicy: PermissionPolicyService;
+  pathAccessPolicyFactory: () => PathAccessPolicy;
  /** 审批交互服务（SDK 审批编排阻塞等待用）。 */
  pendingInteractions: PendingInteractionPort;
  /** 前端委托工具声明注册表（per-session）。 */
@@ -157,6 +159,7 @@ export function createAgentExecutionService(
     params.outboxDispatcher,
     params.clientEvents,
     params.permissionPolicy,
+    params.pathAccessPolicyFactory,
     params.pendingInteractions,
     params.hostToolRegistry,
     params.delegationPending,

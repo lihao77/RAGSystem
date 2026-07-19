@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
-import type { PathApprovalService } from "../../services/runtime/path-service.js";
+import type { PathAccessPolicy } from "../../contracts/path-access-policy.js";
 import { isAbsolutePathLike, isPathUnder, resolvePathLike } from "../shared/paths.js";
 
 const DISPLAY_PATH_PREFIX = "./data/";
@@ -24,7 +24,7 @@ export class LocalDocumentPathManager {
       suffix?: string | undefined;
       customParams?: { workspace_root?: string | null; default_output_space?: string | null } | null;
     },
-    pathService: PathApprovalService,
+    pathService: PathAccessPolicy,
   ): string {
     const rawPath = String(filePath ?? "").trim();
     if (!rawPath && input.operation === "read") {
@@ -118,7 +118,7 @@ export class LocalDocumentPathManager {
     toolName: string,
     args: Record<string, unknown> | undefined,
     context: ToolExecContext,
-    pathService: PathApprovalService,
+    pathService: PathAccessPolicy,
   ): string[] {
     const operation = documentOperationForTool(toolName);
     if (!operation) {
@@ -160,7 +160,7 @@ export class LocalDocumentPathManager {
       workspaceRoot: string | null;
       originalPath: string;
     },
-    pathService: PathApprovalService,
+    pathService: PathAccessPolicy,
   ): string {
     const allowedRoots = this.allowedRoots({
       sessionId: input.sessionId,

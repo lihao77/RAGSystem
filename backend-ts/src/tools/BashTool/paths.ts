@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
-import type { PathApprovalService } from "../../services/runtime/path-service.js";
+import type { PathAccessPolicy } from "../../contracts/path-access-policy.js";
 import { isAbsolutePathLike, isPathUnder, resolvePathLike } from "../shared/paths.js";
 
 const DISPLAY_PATH_PREFIX = "./data/";
@@ -16,7 +16,7 @@ export class BashPathResolver {
   getExternalCandidates(
     workingDir: string | null | undefined,
     context: ToolExecContext,
-    pathService: PathApprovalService,
+    pathService: PathAccessPolicy,
   ): string[] {
     const rawDir = normalizeString(workingDir);
     if (!rawDir || rawDir.startsWith(DISPLAY_PATH_PREFIX) || !isAbsolutePathLike(rawDir)) {
@@ -37,7 +37,7 @@ export class BashPathResolver {
     workingDir: string | null,
     workingDirSpace: string | null,
     context: ToolExecContext,
-    pathService: PathApprovalService,
+    pathService: PathAccessPolicy,
   ): string {
     const rawDir = normalizeString(workingDir) ?? ".";
     const displayMapped = this.fromDisplayPath(rawDir);
@@ -111,7 +111,7 @@ export class BashPathResolver {
     ]);
   }
 
-  private assertAllowedPath(candidatePath: string, context: ToolExecContext, originalPath: string, pathService: PathApprovalService): string {
+  private assertAllowedPath(candidatePath: string, context: ToolExecContext, originalPath: string, pathService: PathAccessPolicy): string {
     const allowedRoots = this.allowedRoots(context);
     return pathService.assertWithin(candidatePath, allowedRoots, originalPath);
   }
@@ -152,7 +152,6 @@ function dedupePaths(paths: Array<string | null | undefined>): string[] {
   }
   return output;
 }
-
 
 
 

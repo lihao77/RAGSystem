@@ -5,13 +5,13 @@ import { readBashArguments } from "../../services/runtime/runtime-tool-bridge/ar
 import { EXECUTE_BASH_TOOL_NAME } from "../../services/runtime/runtime-tool-bridge/registry.js";
 import { buildTool, type Tool, type ToolExecContext, type ToolAccessDecision } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../contracts/agent-config.js";
-import type { PathApprovalService } from "../../services/runtime/path-service.js";
+import type { PathAccessPolicy } from "../../contracts/path-access-policy.js";
 import { optionalBoolean, optionalInteger, optionalString } from "../schema-helpers.js";
 
 interface BashToolDeps {
   bashTools: LocalBashToolService | null;
   agent: AgentConfig;
-  pathService: PathApprovalService;
+  pathService: PathAccessPolicy;
 }
 
 const bashSchema = z.object({

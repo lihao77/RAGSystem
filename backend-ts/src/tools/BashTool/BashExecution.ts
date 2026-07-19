@@ -18,7 +18,7 @@ import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk"
 import { toolError, toolSuccess } from "../../services/agent/sdk/tool-results.js";
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { throwIfAborted } from "@ragsystem/agent-protocol";
-import type { PathApprovalService } from "../../services/runtime/path-service.js";
+import type { PathAccessPolicy } from "../../contracts/path-access-policy.js";
 import { terminateProcessTree } from "../../services/runtime/process-tree.js";
 
 const TOOL_NAME = "execute_bash";
@@ -179,7 +179,7 @@ export class LocalBashToolService {
     };
   }
 
-  prepareExecution(input: BashExecutionInput, context: ToolExecContext, agent: AgentConfig | null, pathService: PathApprovalService): BashExecutionPlanResult {
+  prepareExecution(input: BashExecutionInput, context: ToolExecContext, agent: AgentConfig | null, pathService: PathAccessPolicy): BashExecutionPlanResult {
     const classified = this.buildCommandClassification(input, agent);
     if (!classified.ok) {
       return classified;
@@ -235,7 +235,7 @@ export class LocalBashToolService {
     };
   }
 
-  getExternalCandidates(input: BashExecutionInput, context: ToolExecContext, pathService: PathApprovalService): string[] {
+  getExternalCandidates(input: BashExecutionInput, context: ToolExecContext, pathService: PathAccessPolicy): string[] {
     return this.paths.getExternalCandidates(input.workingDir, context, pathService);
   }
 
@@ -462,5 +462,4 @@ function positiveInt(value: unknown, fallback: number): number {
 function clampPositiveInt(value: unknown, fallback: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, positiveInt(value, fallback)));
 }
-
 

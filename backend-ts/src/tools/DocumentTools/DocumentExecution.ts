@@ -13,7 +13,7 @@ import {
   readPreviewLimit,
 } from "./preview.js";
 import { LocalDocumentPathManager, normalizeString } from "./path-manager.js";
-import type { PathApprovalService } from "../../services/runtime/path-service.js";
+import type { PathAccessPolicy } from "../../contracts/path-access-policy.js";
 
 const DEFAULT_READ_MAX_LINES = 2000;
 
@@ -40,7 +40,7 @@ export class LocalDocumentToolService {
     },
     context: ToolExecContext,
     agent: AgentConfig,
-    pathService: PathApprovalService,
+    pathService: PathAccessPolicy,
   ): ToolExecutionResult {
     const toolName = "read_file";
     try {
@@ -133,7 +133,7 @@ export class LocalDocumentToolService {
     },
     context: ToolExecContext,
     agent: AgentConfig,
-    pathService: PathApprovalService,
+    pathService: PathAccessPolicy,
   ): ToolExecutionResult {
     const toolName = "write_file";
     try {
@@ -184,7 +184,7 @@ export class LocalDocumentToolService {
     },
     context: ToolExecContext,
     agent: AgentConfig,
-    pathService: PathApprovalService,
+    pathService: PathAccessPolicy,
   ): ToolExecutionResult {
     const toolName = "edit_file";
     try {
@@ -263,7 +263,7 @@ export class LocalDocumentToolService {
     },
     context: ToolExecContext,
     agent: AgentConfig,
-    pathService: PathApprovalService,
+    pathService: PathAccessPolicy,
   ): ToolExecutionResult {
     const toolName = "preview_data_structure";
     try {
@@ -330,7 +330,7 @@ export class LocalDocumentToolService {
     toolName: string,
     args: Record<string, unknown> | undefined,
     context: ToolExecContext,
-    pathService: PathApprovalService,
+    pathService: PathAccessPolicy,
   ): string[] {
     return this.pathManager.getExternalCandidates(toolName, args, context, pathService);
   }

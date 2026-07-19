@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { LocalDocumentPathManager } from "../../src/tools/DocumentTools/path-manager.js";
-import { PathApprovalService } from "../../src/services/runtime/path-service.js";
+import { PathApprovalService } from "../../src/adapters/local/path-approval-service.js";
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
 import { toolContext } from "../helpers/tool-context.js";
 

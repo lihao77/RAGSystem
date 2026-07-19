@@ -70,6 +70,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     sessions: sessionApplication,
     conversationStore,
     executionStorage: dependencies.executionStorage,
+    pathAccessPolicyFactory: dependencies.pathAccessPolicyFactory,
     runtimeCore,
     dataRoot,
     memoryConfig,

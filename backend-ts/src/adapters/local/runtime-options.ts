@@ -14,6 +14,7 @@ import type { RealtimeEventBus } from "../../contracts/realtime-event-bus.js";
 import type { AsyncDurableClientEventPublisher } from "../../services/runtime/event-outbox/async-client-event-publisher.js";
 import type { ExecutionStorage } from "../../contracts/execution-storage.js";
 import type { KnowledgeQueryPort } from "../../contracts/knowledge/query-port.js";
+import type { PathAccessPolicy } from "../../contracts/path-access-policy.js";
 
 export interface LocalRuntimeContainerOptions {
   tenantId: TenantId;
@@ -39,6 +40,7 @@ export interface LocalRuntimeContainerOptions {
   executionStorage?: ExecutionStorage;
   executionStorageFactory?: (input: { tenantId: TenantId; asyncClientEvents?: AsyncDurableClientEventPublisher }) => ExecutionStorage;
   hostToolsEnabled?: boolean;
+  pathAccessPolicyFactory?: () => PathAccessPolicy;
 }
 
 export interface KnowledgeRuntimeQueryFactoryInput { tenantId: TenantId; baseKnowledge: KnowledgeBaseService; }

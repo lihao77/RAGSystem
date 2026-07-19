@@ -7,7 +7,7 @@ import { LocalBashToolService } from "../../src/tools/BashTool/BashExecution.js"
 import { createBashTools } from "../../src/tools/BashTool/BashTool.js";
 import { LocalDocumentToolService } from "../../src/tools/DocumentTools/DocumentExecution.js";
 import { createDocumentTools } from "../../src/tools/DocumentTools/DocumentTools.js";
-import { PathApprovalService } from "../../src/services/runtime/path-service.js";
+import { PathApprovalService } from "../../src/adapters/local/path-approval-service.js";
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import { EXECUTE_BASH_TOOL_NAME, READ_FILE_TOOL_NAME } from "../../src/services/runtime/runtime-tool-bridge/registry.js";

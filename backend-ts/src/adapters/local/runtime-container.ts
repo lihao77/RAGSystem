@@ -39,6 +39,7 @@ import type { LocalRuntimeContainerOptions } from "./runtime-options.js";
 import { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
 import { LocalKnowledgeQueryAdapter } from "./local-knowledge-query-adapter.js";
 import { createLocalExecutionStorage } from "./local-execution-storage.js";
+import { PathApprovalService } from "./path-approval-service.js";
 
 /** Create the filesystem, SQLite, and host-tool backed runtime used by local deployments. */
 export function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): RuntimeContainer {
@@ -174,6 +175,7 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
     executionStorage: options.executionStorage
       ?? options.executionStorageFactory?.({ tenantId: options.tenantId, ...(asyncClientEvents ? { asyncClientEvents } : {}) })
       ?? createLocalExecutionStorage(conversationStore),
+    pathAccessPolicyFactory: options.pathAccessPolicyFactory ?? (() => new PathApprovalService()),
     documentTools,
     codeExecutionTools,
     skillTools,

@@ -14,12 +14,12 @@ import { isAbortError, RecoverableInterrupt, throwIfAborted } from "@ragsystem/a
 import type { RiskLevel } from "../../../contracts/permissions.js";
 import type { PermissionPolicyService, RuntimeToolApprovalInput } from "../../runtime/permission-policy-service.js";
 import { resolveInteractionDeadlineMs, type PendingInteractionPort, type PendingApprovalRequest } from "../../../contracts/pending-interactions.js";
-import type { PathApprovalService } from "../../runtime/path-service.js";
+import type { PathAccessPolicy } from "../../../contracts/path-access-policy.js";
 
 export interface GateHookDeps {
   permissionPolicy: PermissionPolicyService;
   pendingInteractions: PendingInteractionPort;
-  pathService: PathApprovalService;
+  pathService: PathAccessPolicy;
   agentName: string;
 }
 

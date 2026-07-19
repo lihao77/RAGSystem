@@ -17,7 +17,7 @@ import type { MemoryToolOperations } from "./MemoryTools/MemoryExecution.js";
 import type { SkillToolService } from "./SkillTools/SkillExecution.js";
 import type { TaskToolService } from "./TaskTools/TaskExecution.js";
 import type { PendingInteractionPort } from "../contracts/pending-interactions.js";
-import type { PathApprovalService } from "../services/runtime/path-service.js";
+import type { PathAccessPolicy } from "../contracts/path-access-policy.js";
 import { createBashTools } from "./BashTool/BashTool.js";
 import { createCodeExecutionTools } from "./CodeExecutionTool/CodeExecutionTool.js";
 import { createDelegationTools, type DelegationAgentConfigLookup } from "./DelegationTools/DelegationTools.js";
@@ -56,7 +56,7 @@ export interface BackendToolsDeps {
  * 聚合所有工具工厂，返回 per-agent 的 SDK Tool[]。
  * 可见性由各工厂内部按 agent 配置决定（不满足条件的工具不返回）。
  */
-export function createBackendTools(deps: BackendToolsDeps, pathService: PathApprovalService): Tool[] {
+export function createBackendTools(deps: BackendToolsDeps, pathService: PathAccessPolicy): Tool[] {
   const { agent } = deps;
   return [
     ...createRequestUserInputTools({ pendingInteractions: deps.pendingInteractions, agent }),

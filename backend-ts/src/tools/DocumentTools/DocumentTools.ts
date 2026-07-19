@@ -15,14 +15,14 @@ import {
 } from "../../services/runtime/runtime-tool-bridge/registry.js";
 import type { RuntimeToolDefinition, Tool, ToolAccessDecision, ToolExecContext } from "@ragsystem/agent-sdk";
 import { buildTool } from "@ragsystem/agent-sdk";
-import type { PathApprovalService } from "../../services/runtime/path-service.js";
+import type { PathAccessPolicy } from "../../contracts/path-access-policy.js";
 import type { AgentConfig } from "../../contracts/agent-config.js";
 import { optionalInteger, optionalString, metadataFrom } from "../schema-helpers.js";
 
 interface DocumentToolDeps {
   documentTools: LocalDocumentToolService | null;
   agent: AgentConfig;
-  pathService: PathApprovalService;
+  pathService: PathAccessPolicy;
 }
 
 const readFileSchema = z.object({
@@ -396,7 +396,7 @@ function documentAccessDecision(
   toolName: string,
   input: Record<string, unknown>,
   ctx: ToolExecContext,
-  pathService: PathApprovalService,
+  pathService: PathAccessPolicy,
 ): ToolAccessDecision {
   const candidates = documentTools.getExternalCandidates(toolName, input, ctx, pathService);
   if (candidates.length) {

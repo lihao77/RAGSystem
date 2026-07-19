@@ -4,7 +4,7 @@ import { RecoverableInterrupt } from "@ragsystem/agent-protocol";
 import { createHookRegistry, type ToolExecContext } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../src/contracts/agent-config.js";
 import { registerGateHook } from "../../src/services/agent/sdk/gate-hook.js";
-import type { PathApprovalService } from "../../src/services/runtime/path-service.js";
+import type { PathAccessPolicy } from "../../src/contracts/path-access-policy.js";
 import type { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
 import type { PermissionPolicyService } from "../../src/services/runtime/permission-policy-service.js";
 import { createRequestUserInputTools } from "../../src/tools/RequestUserInputTool/RequestUserInputTool.js";
@@ -56,7 +56,7 @@ describe("交互工具挂起语义", () => {
         }),
       } as unknown as PermissionPolicyService,
       pendingInteractions: { waitForApproval } as unknown as PendingInteractionService,
-      pathService: { approve: vi.fn() } as unknown as PathApprovalService,
+      pathService: { approve: vi.fn() } as unknown as PathAccessPolicy,
       agentName: "worker",
     });
 
