@@ -55,6 +55,7 @@ try {
 
   const defaultSessionId = `e2e-default-${randomUUID()}`;
   await createSession(baseUrl, defaultToken, defaultSessionId);
+  await verifyManagementEndpoints(baseUrl, defaultToken);
 
   const tenantResult = await requestJson(baseUrl, "/api/admin/tenants", {
     method: "POST",
@@ -185,6 +186,31 @@ async function createSession(url, token, sessionId) {
     token,
     body: { session_id: sessionId },
   });
+}
+
+async function verifyManagementEndpoints(url, token) {
+  const providers = await requestJson(url, "/api/model-adapter/providers", { token });
+  assert(Array.isArray(providers?.providers), "providers response is not an array");
+  const agents = await requestJson(url, "/api/agent-config/configs", { token });
+  assert(agents?.data && typeof agents.data === "object" && !Array.isArray(agents.data), "agent configs response is not an object");
+  const teams = await requestJson(url, "/api/agent-config/teams", { token });
+  assert(teams?.data && typeof teams.data === "object", "teams response is invalid");
+  const mcp = await requestJson(url, "/api/mcp/servers", { token });
+  assert(Array.isArray(mcp?.data), "MCP servers response is not an array");
+  const overview = await requestJson(url, "/api/agent/execution/overview?active_only=true", { token });
+  assert(overview?.data && typeof overview.data === "object" && typeof overview.data.count === "number", "execution overview response is invalid");
+  for (const endpoint of [
+    "/api/agent/analytics/token-trend?days=7&bucket=day",
+    "/api/agent/analytics/model-usage?days=7",
+    "/api/agent/analytics/activity-heatmap?days=90",
+    "/api/agent/analytics/daily-activity?days=180",
+  ]) {
+    const result = await requestJson(url, endpoint, { token });
+    assert(Array.isArray(result?.data), `${endpoint} response is not an array`);
+  }
+  const outbox = await requestJson(url, "/api/agent/event-outbox?limit=10", { token });
+  assert(outbox?.data && Array.isArray(outbox.data.items), "event outbox response is invalid");
+  console.log("[saas-e2e] management endpoints passed");
 }
 
 async function seedMemoryEntry(tenantId, userId, marker) {
