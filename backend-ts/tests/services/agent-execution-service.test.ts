@@ -23,6 +23,7 @@ import { DelegationPendingService } from "../../src/services/runtime/delegation-
 import { PermissionPolicyService } from "../../src/services/runtime/permission-policy-service.js";
 import { PendingInteractionService } from "../../src/services/runtime/pending-interaction-service.js";
 import type { RuntimeExecutionConfigResolver } from "../../src/services/agent/execution/runtime-core-service.js";
+import { createLocalExecutionStorage } from "../../src/adapters/local/local-execution-storage.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -148,6 +149,7 @@ function buildHarness(opts: { mode?: RuntimeMode; ready?: boolean; logger?: bool
     tenantId: LOCAL_TENANT_ID,
     sessions,
     conversationStore: store,
+    executionStorage: createLocalExecutionStorage(store),
     runtimeCore: runtimeCoreStub(agent, ready, provider),
     dataRoot: os.tmpdir(),
     memoryConfig: { index_max_lines: 200, index_max_chars: 25600 },

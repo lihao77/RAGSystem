@@ -6,6 +6,8 @@ import { createResumeExecutor } from "../agent/execution/resume-executor.js";
 import { RuntimeCoreService } from "../agent/execution/runtime-core-service.js";
 import { AgentMetricsCollector } from "../agent/metrics/metrics-collector.js";
 import type { CoreRuntimeDependencies, RuntimeContainer } from "./runtime-container-contracts.js";
+import { createLocalExecutionStorage } from "../../adapters/local/local-execution-storage.js";
+import { createPostgresExecutionStorage } from "../../adapters/saas/postgres/postgres-execution-storage.js";
 
 /** Assemble deployment-provided services into the shared agent runtime. */
 export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepository>(
@@ -65,10 +67,23 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     agentConfig,
   };
   const metricsCollector = new AgentMetricsCollector(conversationStore);
+  const executionStorage = dependencies.asyncEventPersisterFactory
+    && dependencies.asyncConversationHistory
+    && dependencies.asyncProviderContinuations
+    && dependencies.asyncClientEvents
+    ? createPostgresExecutionStorage({
+        tenantId,
+        conversation: dependencies.asyncConversationHistory,
+        providerContinuations: dependencies.asyncProviderContinuations,
+        clientEvents: dependencies.asyncClientEvents,
+        createEventPersister: dependencies.asyncEventPersisterFactory,
+      })
+    : createLocalExecutionStorage(conversationStore);
   const agentExecution = createAgentExecutionService({
     tenantId,
     sessions: sessionApplication,
     conversationStore,
+    executionStorage,
     runtimeCore,
     dataRoot,
     memoryConfig,
@@ -96,9 +111,6 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
       dependencies.asyncConversationHistory,
     ),
     ...(dependencies.hooks ? { hooks: dependencies.hooks } : {}),
-    ...(dependencies.asyncEventPersisterFactory ? { asyncEventPersisterFactory: dependencies.asyncEventPersisterFactory } : {}),
-    ...(dependencies.asyncConversationHistory ? { asyncConversationHistory: dependencies.asyncConversationHistory } : {}),
-    ...(dependencies.asyncProviderContinuations ? { asyncProviderContinuations: dependencies.asyncProviderContinuations } : {}),
     ...(dependencies.asyncClientEvents ? { asyncClientEvents: dependencies.asyncClientEvents } : {}),
     ...(dependencies.asyncSuspendedSessionControl ? { asyncSuspendedSessionControl: dependencies.asyncSuspendedSessionControl } : {}),
   });

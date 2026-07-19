@@ -15,19 +15,18 @@ import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { ModelProviderConfig } from "../../../contracts/model-adapter.js";
 import type { MemoryConfig } from "../../../contracts/system-config.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
+import type { DurableExecutionClientEventPort, ExecutionStorage } from "../../../contracts/execution-storage.js";
 import type { DelegatedToolDeclarationWire, Envelope } from "../../../contracts/events.js";
 import type { AgentExecutionEventPublisher } from "../execution/event-publisher.js";
 import type { DurableClientEventPublisher, RecordedClientEvent } from "../../runtime/event-outbox/client-event-publisher.js";
-import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
-import type { InteractionRequiredNotice, PendingInteractionService } from "../../runtime/pending-interaction-service.js";
+import type { InteractionRequiredNotice, PendingInteractionPort } from "../../../contracts/pending-interactions.js";
 import type { BackendToolsDeps } from "../../../tools/registry.js";
 import { createBackendTools } from "../../../tools/registry.js";
 import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/CodeExecution.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
 import { KernelEventPersister } from "./event-persister.js";
-import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "./async-event-persister.js";
 import { buildBackendAgentContext, HISTORY_SCAN_LIMIT, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import { memoryBaselineKey } from "../memory/index.js";
@@ -36,19 +35,10 @@ import { PathApprovalService } from "../../../services/runtime/path-service.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService, DelegationResolution } from "../../runtime/delegation-pending-service.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
-import type { AsyncConversationRepository } from "../../../adapters/saas/postgres/conversation-repository.js";
-import type { AsyncProviderContinuationRepository } from "../../../adapters/saas/postgres/provider-continuation-repository.js";
 import { resolveSessionMetadataPort } from "../context/async-session-metadata-resolver.js";
 
 export interface SdkRuntimeAdapterDeps {
-  tenantId?: AsyncPersisterRunContext["tenantId"];
-  /** SaaS async persistence boundary; omitted for the Local synchronous store. */
-  asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
-  /** SaaS conversation state boundary; omitted for Local so its synchronous store remains authoritative. */
-  asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage">;
-  /** SaaS private provider state; tenant id is supplied by the bound runtime. */
-  asyncProviderContinuations?: Pick<AsyncProviderContinuationRepository, "getProviderContinuation">;
-  conversationStore: ConversationStore;
+  storage: ExecutionStorage;
   /** 工具依赖集合（service + getAgentDelegation；agent/teamName 由 per-run 提供）。 */
   toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName">;
   /** CodeExecution service——per-run 注入 callTool 回调用（execute_code 沙箱内工具互调）。 */
@@ -57,7 +47,6 @@ export interface SdkRuntimeAdapterDeps {
   taskTools: TaskToolService | null;
   eventPublisher: AgentExecutionEventPublisher;
   clientEvents: DurableClientEventPublisher;
-  asyncClientEvents?: AsyncDurableClientEventPublisher;
   /** 已加载的全部 provider（投影层解析 tier.provider 引用用）。 */
   providers: ModelProviderConfig[];
   dataRoot: string;
@@ -66,7 +55,7 @@ export interface SdkRuntimeAdapterDeps {
   /** 权限策略服务（SDK 审批编排判定端口用）。 */
   permissionPolicy: PermissionPolicyService;
   /** 审批交互服务（SDK 审批编排阻塞等待端口用）。 */
-  pendingInteractions: PendingInteractionService;
+  pendingInteractions: PendingInteractionPort;
   /** 前端委托工具声明注册表（per-session）；命中前端工具时构造 source=host 转发壳 Tool。 */
   hostToolRegistry: HostToolRegistry;
   /** 委托工具调用等待器（转发壳 Tool.call 注册等待 + 前端 tool_result 回传 resolve）。 */
@@ -141,13 +130,14 @@ export async function executeRunWithSdk(
     providers: deps.providers,
     ...(input.selectedLlm !== undefined ? { selectedLlm: input.selectedLlm } : {}),
   });
-  const rootRunId = resolveRootRunId(deps.conversationStore, input);
+  const localConversation = deps.storage.kind === "local" ? deps.storage.conversation : null;
+  const rootRunId = localConversation ? resolveRootRunId(localConversation, input) : input.parentRunId ?? input.runId;
   // session metadata 端口：委托真实 ConversationStore，让 memory 源能读到 team/workspace_root，
   // 解析出 team/agent/workspace scope（否则只 session scope 存活，其余静默丢弃）。
   const sessionMetadata = await resolveSessionMetadataPort(
     input.sessionId,
-    deps.conversationStore,
-    deps.asyncConversationHistory,
+    localConversation,
+    deps.storage.kind === "durable" ? deps.storage.conversation : undefined,
   );
 
   // per-run 构建工具集合：后端工具 + 前端委托工具（source=host，其 Tool.call 转发宿主执行 + 等回传）。
@@ -217,17 +207,17 @@ export async function executeRunWithSdk(
   // memory source 读 session metadata（team/workspace scope 解析）。
   const historyPort: ConversationHistoryPort & SessionMetadataPort & Pick<ConversationStore, "listMemoryCandidates"> = {
     getRecentMessages: (sid: string, limit: number | undefined, tk: string | null | undefined) =>
-      deps.asyncConversationHistory
-        ? deps.asyncConversationHistory.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root")
-        : deps.conversationStore.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
+      deps.storage.conversation.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
     getProviderContinuation: (sid: string, messageId: string) =>
-      deps.asyncProviderContinuations && deps.tenantId
-        ? deps.asyncProviderContinuations.getProviderContinuation(deps.tenantId, sid, messageId)
-        : deps.conversationStore.getProviderContinuation(sid, messageId),
+      deps.storage.kind === "durable"
+        ? deps.storage.providerContinuations.getProviderContinuation(deps.storage.tenantId, sid, messageId)
+        : deps.storage.conversation.getProviderContinuation(sid, messageId),
     getSession: (sid: string) => sessionMetadata.getSession(sid),
     updateSessionMetadata: (sid: string, patch: Record<string, unknown>) =>
       sessionMetadata.updateSessionMetadata?.(sid, patch) ?? null,
-    listMemoryCandidates: (query) => deps.conversationStore.listMemoryCandidates(query),
+    listMemoryCandidates: (query) => deps.storage.kind === "local"
+      ? deps.storage.conversation.listMemoryCandidates(query)
+      : [],
   };
   const { built, contextBuilder, cacheTracker } = await buildBackendAgentContext(input.agent, profile, historyPort, {
     memoryConfig: deps.memoryConfig,
@@ -249,9 +239,7 @@ export async function executeRunWithSdk(
     refresh: async (ctx) => {
       const sid = ctx.session.sessionId;
       const tk = ctx.session.threadKey;
-      const recent = deps.asyncConversationHistory
-        ? await deps.asyncConversationHistory.getRecentMessages(sid, HISTORY_SCAN_LIMIT, tk)
-        : deps.conversationStore.getRecentMessages(sid, HISTORY_SCAN_LIMIT, tk);
+      const recent = await deps.storage.conversation.getRecentMessages(sid, HISTORY_SCAN_LIMIT, tk);
       const newer = recent
         .filter((m) => typeof m.seq === "number" && m.seq > lastSeq && m.role === "user")
         .sort((a, b) => (a.seq as number) - (b.seq as number));
@@ -356,9 +344,9 @@ export async function executeRunWithSdk(
   }
 
   // KernelEvent 落库（B1：从 SDK Dispatcher 迁回 backend）：createRun + 增量事件落库 + 终态合一全在此。
-  const persister = deps.asyncEventPersisterFactory
-    ? deps.asyncEventPersisterFactory({
-      tenantId: deps.tenantId!,
+  const persister = deps.storage.kind === "durable"
+    ? deps.storage.createEventPersister({
+      tenantId: deps.storage.tenantId,
       sessionId: input.sessionId,
       runId: input.runId,
       threadKey: input.threadKey,
@@ -386,7 +374,7 @@ export async function executeRunWithSdk(
         },
       } : {}),
     })
-    : new KernelEventPersister(deps.conversationStore, {
+    : new KernelEventPersister(deps.storage.conversation, {
     sessionId: input.sessionId,
     runId: input.runId,
     threadKey: input.threadKey,
@@ -405,9 +393,9 @@ export async function executeRunWithSdk(
     ...(input.parentRunId !== undefined ? { parentRunId: input.parentRunId } : {}),
     ...(input.childAgentId !== undefined ? { childAgentId: input.childAgentId } : {}),
   });
-  if (!deps.asyncEventPersisterFactory && !deps.conversationStore.getRun(input.sessionId, input.runId)) {
+  if (deps.storage.kind === "local" && !deps.storage.conversation.getRun(input.sessionId, input.runId)) {
     persister.startRun();
-  } else if (deps.asyncEventPersisterFactory) {
+  } else if (deps.storage.kind === "durable") {
     await persister.startRun();
   }
   const runtime = createRuntime(runtimeOpts);
@@ -465,7 +453,7 @@ export async function executeRunWithSdk(
     // 终态合一落库：failed/interrupted 更新 run 状态；interrupted 补悬空 tool observation。
     await persister.finalize(interrupted ? "interrupted" : "failed", null);
     if (input.runId === rootRunId) deps.pendingInteractions.finalizeRoot(input.sessionId, rootRunId, false);
-    if (deps.asyncClientEvents) await recordTerminalAsync(deps.asyncClientEvents, input, interrupted ? "interrupted" : "failed", null, error);
+    if (deps.storage.kind === "durable") await recordTerminalAsync(deps.storage.clientEvents, input, interrupted ? "interrupted" : "failed", null, error);
     else recordTerminal(deps, input, interrupted ? "interrupted" : "failed", null, error);
     const message = error instanceof Error ? error.message : String(error);
     return { content: message, success: false, tokenUsage, toolCalls };
@@ -478,13 +466,13 @@ export async function executeRunWithSdk(
   await persister.finalize("completed", { content: result.content });
   if (input.runId === rootRunId) deps.pendingInteractions.finalizeRoot(input.sessionId, rootRunId, true);
   const finalMessage = await persister.resolveFinalMessage();
-  if (deps.asyncClientEvents) await recordTerminalAsync(deps.asyncClientEvents, input, "completed", finalMessage, null);
+  if (deps.storage.kind === "durable") await recordTerminalAsync(deps.storage.clientEvents, input, "completed", finalMessage, null);
   else recordTerminal(deps, input, "completed", finalMessage, null);
   return { content: result.content, success: true, tokenUsage, toolCalls };
 }
 
 async function recordTerminalAsync(
-  publisher: AsyncDurableClientEventPublisher,
+  publisher: DurableExecutionClientEventPort,
   input: SdkExecuteRunInput,
   status: "completed" | "failed" | "interrupted",
   finalMessage: { id: string; seq: number; content: string } | null,
@@ -520,12 +508,15 @@ function recordTerminal(
   finalMessage: { id: string; seq: number; content: string } | null,
   error: unknown,
 ): void {
+  if (deps.storage.kind !== "local") {
+    throw new Error("local terminal publisher requires local execution storage");
+  }
   const isRoot = !input.childAgentId;
 
   // 最终 message / run 状态由 KernelEventPersister.finalize 合一事务落库（caller 已调）。
   // 本函数只推终态 outbox envelope（root run 的 stream_output(final)/message_saved/agent_ended/run_ended）到实时流。
   const records: RecordedClientEvent[] = isRoot
-    ? deps.conversationStore.runInTransaction((tx): RecordedClientEvent[] => {
+    ? deps.storage.conversation.runInTransaction((tx): RecordedClientEvent[] => {
       const collected: RecordedClientEvent[] = [];
       if (status === "completed" && finalMessage) {
         collected.push(appendEnvelope(tx, deps.clientEvents, input, {

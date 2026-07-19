@@ -21,10 +21,11 @@ import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js"
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
-import type { PendingInteractionService } from "../../runtime/pending-interaction-service.js";
+import type { PendingInteractionPort } from "../../../contracts/pending-interactions.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService } from "../../runtime/delegation-pending-service.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
+import type { DurableExecutionClientEventPort, ExecutionStorage } from "../../../contracts/execution-storage.js";
 import type { IFileIndexStore } from "../../../contracts/file-index-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
@@ -36,11 +37,7 @@ import type { AgentCompressionService } from "../context-compression/compression
 import type { TenantId } from "../../../identity/types.js";
 import type { MemoryConfig } from "../../../contracts/system-config.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
-import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../sdk/async-event-persister.js";
-import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
-import type { AsyncConversationRepository } from "../../../adapters/saas/postgres/conversation-repository.js";
 import type { AsyncSuspendedSessionControl } from "../../runtime/saas-session-control-application.js";
-import type { AsyncProviderContinuationRepository } from "../../../adapters/saas/postgres/provider-continuation-repository.js";
 import {
   createLaunchers,
   type RollbackRetryInput,
@@ -77,6 +74,7 @@ export interface AgentExecutionServiceParams {
   tenantId: TenantId;
   sessions: AgentSessionApplication;
   conversationStore: ConversationStore;
+  executionStorage: ExecutionStorage;
   runtimeCore: RuntimeExecutionConfigResolver;
   dataRoot: string;
   memoryConfig: MemoryConfig;
@@ -96,7 +94,7 @@ export interface AgentExecutionServiceParams {
  /** 权限策略服务（SDK 审批编排判定用）。 */
  permissionPolicy: PermissionPolicyService;
  /** 审批交互服务（SDK 审批编排阻塞等待用）。 */
- pendingInteractions: PendingInteractionService;
+ pendingInteractions: PendingInteractionPort;
  /** 前端委托工具声明注册表（per-session）。 */
  hostToolRegistry: HostToolRegistry;
  /** 委托工具调用等待器（转发壳 Tool.call 注册等待 + 前端 tool_result resolve）。 */
@@ -108,11 +106,7 @@ export interface AgentExecutionServiceParams {
  logger?: AgentExecutionLogger | null | undefined;
  /** backend 压缩服务（slash /compact + run 内 round.before 共用）；A3 压缩外移。 */
   compressionService?: AgentCompressionService;
-  /** SaaS async run/message persister factory; Local leaves this unset. */
-  asyncEventPersisterFactory?: (context: AsyncPersisterRunContext) => AsyncKernelEventPersister;
-  asyncConversationHistory?: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage">;
-  asyncProviderContinuations?: Pick<AsyncProviderContinuationRepository, "getProviderContinuation">;
-  asyncClientEvents?: AsyncDurableClientEventPublisher;
+  asyncClientEvents?: DurableExecutionClientEventPort;
   asyncSuspendedSessionControl?: AsyncSuspendedSessionControl;
 }
 
@@ -134,6 +128,7 @@ export function createAgentExecutionService(
   const eventPublisher = new AgentExecutionEventPublisher(params.clientEvents);
   const attachmentResolver = new AttachmentResolver(params.fileIndex ?? null);
   const notificationQueue = params.notificationQueue ?? new SessionNotificationQueue();
+  const storage = params.executionStorage;
   const slashCommandHandler = new SlashCommandHandler(
     params.tenantId,
     params.sessions,
@@ -147,7 +142,7 @@ export function createAgentExecutionService(
   const runEngine = new AgentRunEngine(
     params.tenantId,
     params.sessions,
-    params.conversationStore,
+    storage,
     params.dataRoot,
     params.memoryConfig,
     params.memoryContextSourceFactory ?? null,
@@ -169,10 +164,6 @@ export function createAgentExecutionService(
     params.hooks ?? null,
     params.metricsCollector ?? null,
     params.compressionService ?? null,
-    params.asyncEventPersisterFactory ?? null,
-    params.asyncConversationHistory ?? null,
-    params.asyncProviderContinuations ?? null,
-    params.asyncClientEvents ?? null,
   );
   const launchers = createLaunchers({
     tenantId: params.tenantId,

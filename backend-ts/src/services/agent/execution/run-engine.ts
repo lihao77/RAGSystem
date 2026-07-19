@@ -16,18 +16,14 @@ import type { BackendToolsDeps } from "../../../tools/registry.js";
 import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/CodeExecution.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
-import type { InteractionRequiredNotice, PendingInteractionService } from "../../runtime/pending-interaction-service.js";
+import type { InteractionRequiredNotice, PendingInteractionPort } from "../../../contracts/pending-interactions.js";
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService } from "../../runtime/delegation-pending-service.js";
 import type { AgentMetricsCollector } from "../metrics/metrics-collector.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
-import type { AsyncKernelEventPersister, AsyncPersisterRunContext } from "../sdk/async-event-persister.js";
-import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
-import type { AsyncConversationRepository } from "../../../adapters/saas/postgres/conversation-repository.js";
-import type { AsyncProviderContinuationRepository } from "../../../adapters/saas/postgres/provider-continuation-repository.js";
-import type { IMessageStore, IRunStore, ISessionStore } from "../../../contracts/conversation-store/index.js";
-import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
+import type { ExecutionStorage } from "../../../contracts/execution-storage.js";
+import type { TenantId } from "../../../identity/types.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import {
   asString,
@@ -54,9 +50,9 @@ function asRecord(value: unknown): Record<string, unknown> {
  */
 export class AgentRunEngine {
   constructor(
-    private readonly tenantId: AsyncPersisterRunContext["tenantId"],
+    private readonly tenantId: TenantId,
     private readonly sessions: AgentSessionApplication,
-    private readonly conversationStore: IRunStore & IMessageStore & ISessionStore,
+    private readonly storage: ExecutionStorage,
     private readonly dataRoot: string,
     private readonly memoryConfig: MemoryConfig,
     private readonly memoryContextSourceFactory: MemoryRuntimeBindings["createContextSource"] | null,
@@ -72,17 +68,13 @@ export class AgentRunEngine {
     private readonly outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">,
     private readonly clientEvents: DurableClientEventPublisher,
     private readonly permissionPolicy: PermissionPolicyService,
-    private readonly pendingInteractions: PendingInteractionService,
+    private readonly pendingInteractions: PendingInteractionPort,
     private readonly hostToolRegistry: HostToolRegistry,
     private readonly delegationPending: DelegationPendingService,
     private readonly logger: AgentExecutionLogger | null,
     private readonly hooks: ((registry: HookRegistry) => void) | null,
     private readonly metricsCollector: AgentMetricsCollector | null = null,
     private readonly compressionService: AgentCompressionService | null = null,
-    private readonly asyncEventPersisterFactory: ((context: AsyncPersisterRunContext) => AsyncKernelEventPersister) | null = null,
-    private readonly asyncConversationHistory: Pick<AsyncConversationRepository, "getRecentMessages" | "getSession" | "updateSessionMetadata" | "insertCompressionMessage"> | null = null,
-    private readonly asyncProviderContinuations: Pick<AsyncProviderContinuationRepository, "getProviderContinuation"> | null = null,
-    private readonly asyncClientEvents: AsyncDurableClientEventPublisher | null = null,
   ) {}
 
   startRun(input: {
@@ -246,7 +238,10 @@ export class AgentRunEngine {
         error: "运行未启动",
       };
     }
-    const run = this.conversationStore.getRun(input.sessionId, input.runId);
+    if (this.storage.kind === "durable") {
+      return buildOutcomeOnly({ ...input, runId: input.runId });
+    }
+    const run = this.storage.conversation.getRun(input.sessionId, input.runId);
     if (!run && input.outcome) {
       return {
         success: input.outcome.success,
@@ -263,9 +258,9 @@ export class AgentRunEngine {
       };
     }
     const finalMessage = run?.final_message_id
-      ? this.conversationStore.getMessageById(input.sessionId, run.final_message_id)
+      ? this.storage.conversation.getMessageById(input.sessionId, run.final_message_id)
       : null;
-    const steps = this.conversationStore.listRunSteps({
+    const steps = this.storage.conversation.listRunSteps({
       sessionId: input.sessionId,
       runId: input.runId,
       limit: 1000,
@@ -372,17 +367,11 @@ export class AgentRunEngine {
       const executionKind = input.executionKind ?? "agent_stream";
       // 后台任务完成通知落库为 user 消息（系统注入的上下文）；SDK 从 store 读取对话历史时一并看到，
       // backend 不再组装消息数组传给 SDK。
-      this.persistBackgroundNotifications(input.sessionId, input.threadKey);
+      await this.persistBackgroundNotifications(input.sessionId, input.threadKey);
 
       const result = await executeRunWithSdk(
        {
-          ...(this.asyncEventPersisterFactory ? { tenantId: this.tenantId } : {}),
-          ...(this.asyncEventPersisterFactory ? { asyncEventPersisterFactory: this.asyncEventPersisterFactory } : {}),
-          ...(this.asyncConversationHistory ? { asyncConversationHistory: this.asyncConversationHistory } : {}),
-          ...(this.asyncProviderContinuations ? { asyncProviderContinuations: this.asyncProviderContinuations } : {}),
-          ...(this.asyncClientEvents ? { asyncClientEvents: this.asyncClientEvents } : {}),
-          // run-engine 的 conversationStore 实际是完整 ConversationStore（构造时传入窄类型）。
-          conversationStore: this.conversationStore as unknown as ConversationStore,
+          storage: this.storage,
           toolsDeps: this.toolsDeps ?? emptyToolsDeps,
           codeExecutionTools: this.codeExecutionTools,
           taskTools: this.taskTools,
@@ -491,14 +480,14 @@ export class AgentRunEngine {
     }
  }
 
-  private persistBackgroundNotifications(sessionId: string, threadKey: string): void {
+  private async persistBackgroundNotifications(sessionId: string, threadKey: string): Promise<void> {
     const payloads = this.notificationQueue.drain(sessionId, new Set());
     for (const payload of payloads) {
       const content = renderBackgroundNotification(payload);
       if (!content.trim()) {
         continue;
       }
-      this.conversationStore.addMessage({
+      if (this.storage.kind === "local") this.storage.conversation.addMessage({
         sessionId,
         role: "user",
         content,
@@ -507,6 +496,28 @@ export class AgentRunEngine {
       });
     }
   }
+}
+
+function buildOutcomeOnly(input: {
+  sessionId: string;
+  runId: string;
+  taskId: string | null;
+  agentName: string;
+  outcome?: { content: string; success: boolean; suspended?: boolean };
+}): AgentExecuteResult {
+  return {
+    success: input.outcome?.success ?? false,
+    ...(input.outcome?.suspended ? { suspended: true, rootRunId: input.runId } : {}),
+    answer: input.outcome?.success ? input.outcome.content : null,
+    agent_name: input.agentName,
+    execution_time: null,
+    tool_calls: [],
+    metadata: { run_id: input.runId, thread_key: "root", child_agent_id: null },
+    session_id: input.sessionId,
+    run_id: input.runId,
+    task_id: input.taskId,
+    error: input.outcome?.success ? null : input.outcome?.content || "任务执行失败",
+  };
 }
 
 function numberOrNull(value: unknown): number | null {

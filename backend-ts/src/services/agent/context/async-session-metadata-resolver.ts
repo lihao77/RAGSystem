@@ -18,10 +18,11 @@ export interface ResolvedSessionMetadataPort extends SessionMetadataPort {
  */
 export async function resolveSessionMetadataPort(
   sessionId: string,
-  local: Pick<ConversationStore, "getSession" | "updateSessionMetadata">,
+  local: Pick<ConversationStore, "getSession" | "updateSessionMetadata"> | null,
   asyncRepository?: AsyncSessionMetadataRepository,
 ): Promise<ResolvedSessionMetadataPort> {
   if (!asyncRepository) {
+    if (!local) throw new Error("local session metadata storage is required");
     return {
       getSession: (id) => local.getSession(id),
       updateSessionMetadata: (id, patch) => local.updateSessionMetadata(id, patch),
