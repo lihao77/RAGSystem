@@ -4,7 +4,7 @@ import { ok } from "../../contracts/common.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import { requireTenantAdmin } from "../tenant-role.js";
-import { LocalAnalyticsApplication } from "../../services/runtime/local-analytics-application.js";
+import { LocalAnalyticsApplication } from "../../adapters/local/local-analytics-application.js";
 
 /**
  * 管理中心数据分析端点。基于 agent_call_metrics 明细做时间序列 / 分组聚合,

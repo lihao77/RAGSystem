@@ -1,7 +1,7 @@
 import type { AnalyticsApplication } from "../../contracts/analytics-application.js";
-import type { ConversationStore } from "../stores/conversation-store/index.js";
+import type { ConversationStore } from "../../services/stores/conversation-store/index.js";
 
-/** Async facade over Local's synchronous analytics aggregation. */
+/** Local adapter: exposes synchronous SQLite analytics through the shared async port. */
 export class LocalAnalyticsApplication implements AnalyticsApplication {
   constructor(private readonly store: Pick<ConversationStore, "aggregateTokenTrend" | "aggregateModelUsage" | "aggregateActivityHeatmap" | "aggregateDailyActivity">) {}
   async aggregateTokenTrend(input: { since: string; bucket: "day" | "hour" }) { return this.store.aggregateTokenTrend(input); }
