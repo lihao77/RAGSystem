@@ -3,10 +3,11 @@ import { randomUUID } from "node:crypto";
 import type { ObjectStorage } from "../../contracts/object-storage.js";
 import type { ArtifactMetadata, ArtifactMetadataRepository } from "../../contracts/artifact-repository.js";
 import type { VisualizationConfig, VisualizationSummary } from "../../contracts/artifacts.js";
+import type { ArtifactApplication, ArtifactRecord } from "../../contracts/artifact-application.js";
 import { ArtifactServiceError } from "./artifact-service.js";
 
 /** Async tenant-scoped artifact service for SaaS deployments. Metadata lives in PostgreSQL; blobs live in ObjectStorage. */
-export class SaaSArtifactService {
+export class SaaSArtifactService implements ArtifactApplication {
   constructor(
     private readonly tenantId: string,
     private readonly metadata: ArtifactMetadataRepository,
@@ -32,15 +33,15 @@ export class SaaSArtifactService {
     return (await this.metadata.get(this.tenantId, artifactId))?.session_id ?? null;
   }
 
-  async createChart(input: { sessionId: string; chartConfig: JsonValue; chartType?: string | null; title?: string | null }): Promise<ArtifactMetadata> {
+  async createChart(input: { sessionId: string; chartConfig: JsonValue; chartType?: string | null; title?: string | null }): Promise<ArtifactRecord> {
     return this.create(input.sessionId, "chart", input.chartType ?? "bar", input.title ?? "", input.chartConfig);
   }
 
-  async createMap(input: { sessionId: string; mapData: JsonValue; mapType?: string | null; title?: string | null }): Promise<ArtifactMetadata> {
+  async createMap(input: { sessionId: string; mapData: JsonValue; mapType?: string | null; title?: string | null }): Promise<ArtifactRecord> {
     return this.create(input.sessionId, "map", input.mapType ?? "marker", input.title ?? "", input.mapData);
   }
 
-  async reviseVisualization(input: { artifactId: string; configPatch: JsonValue; replace?: boolean | null }): Promise<ArtifactMetadata> {
+  async reviseVisualization(input: { artifactId: string; configPatch: JsonValue; replace?: boolean | null }): Promise<ArtifactRecord> {
     const current = await this.require(input.artifactId);
     if (current.viz_type === "image") throw new ArtifactServiceError("图片类型的 artifact 不支持修改配置");
     const payload = await this.getVisualization(input.artifactId);
