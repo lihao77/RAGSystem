@@ -106,18 +106,19 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
       },
     ),
   };
-  const documentTools = new LocalDocumentToolService({ dataRoot: options.dataRoot, fileHistory });
+  const hostToolsEnabled = options.hostToolsEnabled !== false;
+  const documentTools = hostToolsEnabled ? new LocalDocumentToolService({ dataRoot: options.dataRoot, fileHistory }) : null;
   const notificationQueue = new SessionNotificationQueue();
   const backgroundTasks = new BackgroundTaskService({
     notificationQueue,
     ...(options.asyncBackgroundTasks ? { repository: options.asyncBackgroundTasks, tenantId: options.tenantId } : {}),
   });
   const toolsConfig = systemConfig.getToolsConfig();
-  const codeExecutionTools = new CodeExecutionToolService({
+  const codeExecutionTools = hostToolsEnabled ? new CodeExecutionToolService({
     dataRoot: options.dataRoot,
     defaultTimeoutSeconds: toolsConfig.code_default_timeout,
     maxTimeoutSeconds: toolsConfig.code_max_timeout,
-  });
+  }) : null;
   const skillTools = new SkillToolService({
     dataRoot: options.dataRoot,
     agentConfig,
@@ -127,15 +128,15 @@ export function createLocalRuntimeContainer(options: LocalRuntimeContainerOption
   });
   agentConfig.setSkillToolService(skillTools);
   const skillLibrary = new SkillLibraryService(skillTools);
-  const searchTools = new LocalSearchToolService({ dataRoot: options.dataRoot });
-  const bashTools = new LocalBashToolService({
+  const searchTools = hostToolsEnabled ? new LocalSearchToolService({ dataRoot: options.dataRoot }) : null;
+  const bashTools = hostToolsEnabled ? new LocalBashToolService({
     dataRoot: options.dataRoot,
     defaultTimeoutSeconds: toolsConfig.bash_default_timeout,
     maxTimeoutSeconds: toolsConfig.bash_max_timeout,
     maxOutputChars: toolsConfig.bash_max_output,
     backgroundTasks,
     clientEvents,
-  });
+  }) : null;
   const taskTools = new TaskToolService(backgroundTasks, notificationQueue, { dataRoot: options.dataRoot });
   const pendingInteractions = new PendingInteractionService(clientEvents, conversationStore);
   const asyncSuspendedSessionControl = options.asyncSuspendedSessionControlFactory?.(options.tenantId);

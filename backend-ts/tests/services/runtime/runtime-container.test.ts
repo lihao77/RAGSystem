@@ -76,4 +76,23 @@ describe("runtime composition roots", () => {
       runtime.close();
     }
   });
+
+  it("can disable host filesystem and process tools for SaaS composition", () => {
+    const dataRoot = makeTempRoot();
+    const runtime = createLocalRuntimeContainer({
+      tenantId: createTenantId("tnt_runtime_host_tools_disabled"),
+      dbPath: ":memory:",
+      dataRoot,
+      startOutboxDispatcher: false,
+      hostToolsEnabled: false,
+    });
+    try {
+      expect(runtime.bashTools).toBeNull();
+      expect(runtime.documentTools).toBeNull();
+      expect(runtime.codeExecutionTools).toBeNull();
+      expect(runtime.searchTools).toBeNull();
+    } finally {
+      runtime.close();
+    }
+  });
 });

@@ -171,6 +171,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
             },
           } : {}),
           runtimeOptions: {
+            hostToolsEnabled: false,
             memoryBindingsFactory: (input) => options.saasMemoryRuntime!.provider.createMemoryBindings(
               input.tenantId,
               input.sessions,
@@ -208,6 +209,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
             );
           },
           runtimeOptions: {
+            hostToolsEnabled: false,
             ...(saasExecutionStorageFactory ? { executionStorageFactory: saasExecutionStorageFactory } : {}),
             asyncEventPersisterFactory: (context: import("./services/agent/sdk/async-event-persister.js").AsyncPersisterRunContext) => new AsyncKernelEventPersister(
               options.saasConversationRuntime!.conversation,

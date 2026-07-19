@@ -38,6 +38,7 @@ export interface LocalRuntimeContainerOptions {
   knowledgeQueryFactory?: KnowledgeRuntimeQueryFactory;
   executionStorage?: ExecutionStorage;
   executionStorageFactory?: (input: { tenantId: TenantId; asyncClientEvents?: AsyncDurableClientEventPublisher }) => ExecutionStorage;
+  hostToolsEnabled?: boolean;
 }
 
 export interface KnowledgeRuntimeQueryFactoryInput { tenantId: TenantId; baseKnowledge: KnowledgeBaseService; }
