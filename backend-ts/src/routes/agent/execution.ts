@@ -42,7 +42,8 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
 
   app.post("/execute", async (request) => {
     const payload = ExecuteRequestSchema.parse(request.body);
-    await assertOwnedSessionIfExists(request, payload.session_id);
+    const saas = await options.resolveSaaSSessionApplication?.(request);
+    await assertOwnedSessionIfExists(request, payload.session_id, saas);
     return executeSynchronously(
       request.container,
       { ...payload, userId: request.identity.userId },
@@ -55,7 +56,8 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
       ...(isRecord(request.body) ? request.body : {}),
       agent: request.params.agentName,
     });
-    await assertOwnedSessionIfExists(request, payload.session_id);
+    const saas = await options.resolveSaaSSessionApplication?.(request);
+    await assertOwnedSessionIfExists(request, payload.session_id, saas);
     return executeSynchronously(
       request.container,
       { ...payload, userId: request.identity.userId },
@@ -65,7 +67,8 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
 
   app.post("/collaborate", async (request) => {
     const payload = parseCollaborateRequest(request.body);
-    await assertOwnedSessionIfExists(request, payload.session_id);
+    const saas = await options.resolveSaaSSessionApplication?.(request);
+    await assertOwnedSessionIfExists(request, payload.session_id, saas);
     if (payload.mode !== "sequential") {
       throw new HttpError(400, "invalid_request", "并行模式尚未实现");
     }
@@ -90,15 +93,19 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
   });
 
   app.get<{ Params: SessionExecutionParams }>("/sessions/:sessionId/task-status", async (request) => {
+    const sessionApp = await options.resolveSaaSSessionApplication?.(request);
+    await assertOwnedSessionIfExists(request, request.params.sessionId, sessionApp);
     const saas = await options.resolveSaaSAgentReadApplication?.(request);
     return ok(saas
       ? await saas.getSessionTaskStatus(request.params.sessionId)
       : request.container.agentExecution.getSessionTaskStatus(request.params.sessionId));
   });
 
-  app.get<{ Params: SessionExecutionParams }>("/sessions/:sessionId/execution-diagnostics", async (request) =>
-    ok(request.container.agentExecution.getSessionExecutionDiagnostics(request.params.sessionId)),
-  );
+  app.get<{ Params: SessionExecutionParams }>("/sessions/:sessionId/execution-diagnostics", async (request) => {
+    const saas = await options.resolveSaaSSessionApplication?.(request);
+    await assertOwnedSessionIfExists(request, request.params.sessionId, saas);
+    return ok(request.container.agentExecution.getSessionExecutionDiagnostics(request.params.sessionId));
+  });
 
   app.get<{ Params: TaskExecutionParams }>("/tasks/:taskId/status", async (request) =>
     ok(request.container.agentExecution.getTaskStatus(request.params.taskId)),

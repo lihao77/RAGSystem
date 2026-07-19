@@ -42,7 +42,7 @@ interface OutboxCleanupQuery {
 export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.addHook("preHandler", async (request) => {
     requireTenantMember(request);
-    if (request.method !== "GET") requireTenantAdmin(request);
+    if (request.method !== "GET" || request.url.includes("/event-outbox")) requireTenantAdmin(request);
   });
 
   app.get("/metrics", async (request) => {
