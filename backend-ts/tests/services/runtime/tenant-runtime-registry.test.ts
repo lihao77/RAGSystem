@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { AppEnv } from "../../../src/config/env.js";
-import { SqliteControlPlaneAdapter } from "../../../src/adapters/local/sqlite-control-plane-adapter.js";
+import { SqliteControlPlaneAdapter } from "../../../src/adapters/local/sqlite/sqlite-control-plane-adapter.js";
 import { createTenantId, createUserId } from "../../../src/identity/types.js";
 import { LOCAL_TENANT_ID } from "../../../src/services/identity/index.js";
 import { createLocalRuntimeContainer } from "../../../src/adapters/local/runtime-container.js";

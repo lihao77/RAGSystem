@@ -46,7 +46,7 @@ import type { IdentityProvider } from "../../src/services/identity/index.js";
 import { LOCAL_TENANT_ID, LOCAL_USER_ID } from "../../src/services/identity/index.js";
 import type { TenantRuntimeRegistry } from "../../src/adapters/local/tenant-runtime-registry.js";
 import { createControlStore, type ControlStore } from "../../src/adapters/local/sqlite/control-store/index.js";
-import { SqliteBotRepository } from "../../src/adapters/local/sqlite-bot-repository.js";
+import { SqliteBotRepository } from "../../src/adapters/local/sqlite/sqlite-bot-repository.js";
 import { buildTestHarness } from "../helpers/app.js";
 import { makeTempRoot } from "../helpers/temp-db.js";
 

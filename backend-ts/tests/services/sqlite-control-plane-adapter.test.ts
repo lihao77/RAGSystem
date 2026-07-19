@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createSqliteControlPlaneAdapter } from "../../src/adapters/local/sqlite-control-plane-adapter.js";
+import { createSqliteControlPlaneAdapter } from "../../src/adapters/local/sqlite/sqlite-control-plane-adapter.js";
 import { createTenantId, createUserId } from "../../src/identity/types.js";
 import { CONTROL_LATEST_SCHEMA_VERSION } from "../../src/adapters/local/sqlite/control-store/index.js";
 import { runControlPlaneContract } from "../contracts/control-plane-contract.js";

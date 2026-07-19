@@ -20,9 +20,9 @@ import {
 } from "./app/route-assembly.js";
 import { HttpError, formatError } from "./utils/errors.js";
 import { createControlStore, type ControlStore } from "./adapters/local/sqlite/control-store/index.js";
-import { SqliteControlPlaneAdapter } from "./adapters/local/sqlite-control-plane-adapter.js";
-import { SqliteBotRepository } from "./adapters/local/sqlite-bot-repository.js";
-import { SqliteWidgetCredentialAdapter } from "./adapters/local/sqlite-widget-credential-adapter.js";
+import { SqliteControlPlaneAdapter } from "./adapters/local/sqlite/sqlite-control-plane-adapter.js";
+import { SqliteBotRepository } from "./adapters/local/sqlite/sqlite-bot-repository.js";
+import { SqliteWidgetCredentialAdapter } from "./adapters/local/sqlite/sqlite-widget-credential-adapter.js";
 import type { BotRepository } from "./contracts/bot-repository.js";
 import type { WidgetCredentialRepository } from "./contracts/widget-credentials.js";
 import { createWidgetCredentialStore, type WidgetCredentialStore } from "./adapters/local/sqlite/widget-credential-store/index.js";

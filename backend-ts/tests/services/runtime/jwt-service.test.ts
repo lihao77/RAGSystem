@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FastifyRequest } from "fastify";
 
-import { SqliteWidgetCredentialAdapter } from "../../../src/adapters/local/sqlite-widget-credential-adapter.js";
+import { SqliteWidgetCredentialAdapter } from "../../../src/adapters/local/sqlite/sqlite-widget-credential-adapter.js";
 import { createTenantId } from "../../../src/identity/types.js";
 import { createWidgetAuthService, WidgetAuthError } from "../../../src/services/runtime/jwt-service.js";
 import { createJwtKeyRing } from "../../../src/services/runtime/jwt-key-ring.js";

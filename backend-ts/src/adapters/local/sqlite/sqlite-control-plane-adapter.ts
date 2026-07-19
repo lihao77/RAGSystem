@@ -6,15 +6,15 @@ import type {
   MembershipDirectory,
   TenantDirectory,
   UserDirectory,
-} from "../../contracts/control-plane/index.js";
-import { TenantRoleSchema } from "../../contracts/user.js";
-import { createTenantId } from "../../identity/types.js";
+} from "../../../contracts/control-plane/index.js";
+import { TenantRoleSchema } from "../../../contracts/user.js";
+import { createTenantId } from "../../../identity/types.js";
 import {
   CONTROL_LATEST_SCHEMA_VERSION,
   ControlStore,
   createControlStore,
-} from "./sqlite/control-store/index.js";
-import { HttpError } from "../../utils/errors.js";
+} from "./control-store/index.js";
+import { HttpError } from "../../../utils/errors.js";
 
 export interface SqliteControlPlaneAdapterOptions {
   closeStore?: boolean;
