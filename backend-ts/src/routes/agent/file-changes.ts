@@ -4,6 +4,7 @@ import { AsyncFileChangeService, FileChangeService } from "../../services/sessio
 import type { RouteOptions } from "../route-options.js";
 import { loadOwnedSession } from "../session-owner.js";
 import { resolveSessionApplication } from "../session-application.js";
+import { ensureRequestResources } from "../../app/request-resources.js";
 
 interface SessionParams {
   sessionId: string;
@@ -13,7 +14,7 @@ export const registerFileChangeRoutes: FastifyPluginAsync<RouteOptions> = async 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/file-changes", async (request) => {
     const sessions = await resolveSessionApplication(options, request);
     await loadOwnedSession(request, request.params.sessionId, sessions);
-    const asyncHistory = await options.resolveFileHistoryStorage?.(request);
+    const asyncHistory = (await ensureRequestResources(request, options)).fileHistoryStorage;
     if (asyncHistory) {
       const service = new AsyncFileChangeService(asyncHistory);
       return { success: true, ...await service.getLatest(request.params.sessionId) };

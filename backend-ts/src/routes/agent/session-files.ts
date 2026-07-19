@@ -12,6 +12,7 @@ import {
 } from "../file-route-utils.js";
 import { loadOwnedSession } from "../session-owner.js";
 import { resolveSessionApplication } from "../session-application.js";
+import { ensureRequestResources } from "../../app/request-resources.js";
 
 interface SessionParams {
   sessionId: string;
@@ -23,7 +24,7 @@ interface SessionFileParams extends SessionParams {
 
 export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   const resolveAsyncStore = async (request: Parameters<NonNullable<RouteOptions["resolveSessionFileStorage"]>>[0]) =>
-    options.resolveSessionFileStorage?.(request);
+    (await ensureRequestResources(request, options)).sessionFileStorage;
   const loadOwned = async (request: Parameters<NonNullable<RouteOptions["resolveSessionApplication"]>>[0], sessionId: string) => {
     const sessions = await resolveSessionApplication(options, request);
     return loadOwnedSession(request, sessionId, sessions);

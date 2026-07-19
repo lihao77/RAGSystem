@@ -126,6 +126,19 @@ request.applications = {
 
 路由通过 `ensureRequestApplications()` 读取同一集合。直接注册单个 route 的测试或嵌入场景没有安装父级 hook 时，该函数会 lazy 创建并缓存集合，因此不会恢复分散的部署判断。
 
+异步资源使用独立的请求级集合，避免在同一请求中重复创建对象存储或文件历史 adapter：
+
+```ts
+request.resources = {
+  knowledgeFileStore,
+  knowledgeMarkdownPipeline,
+  sessionFileStorage,
+  fileHistoryStorage,
+};
+```
+
+Local 请求的这些字段可以为空，路由随后使用 runtime container 中的本地文件实现；SaaS 请求由 composition root 注入租户绑定的 Object Storage 和 PostgreSQL-backed file history 实现。
+
 ## 当前仍需收口的边界
 
 当前业务数据面已经完成主要分流，但后端还不是完全无状态的多实例 SaaS：

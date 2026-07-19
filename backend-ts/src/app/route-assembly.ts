@@ -33,6 +33,7 @@ import type { TenantRuntimeRegistry } from "../services/runtime/tenant-runtime-r
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
 import { HttpError } from "../utils/errors.js";
 import { createRequestApplications } from "./request-applications.js";
+import { createRequestResources } from "./request-resources.js";
 
 export interface AuthRuntime {
   profile: DeploymentProfile;
@@ -118,6 +119,13 @@ export async function registerSharedBusinessRoutes(
         ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
         ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
         ...(options.resolveSaaSInteractionRecovery ? { resolveSaaSInteractionRecovery: options.resolveSaaSInteractionRecovery } : {}),
+      });
+      request.resources = await createRequestResources(request, {
+        ...routeOptions,
+        ...(options.resolveKnowledgeFileStore ? { resolveKnowledgeFileStore: options.resolveKnowledgeFileStore } : {}),
+        ...(options.resolveKnowledgeMarkdownPipeline ? { resolveKnowledgeMarkdownPipeline: options.resolveKnowledgeMarkdownPipeline } : {}),
+        ...(options.resolveSessionFileStorage ? { resolveSessionFileStorage: options.resolveSessionFileStorage } : {}),
+        ...(options.resolveFileHistoryStorage ? { resolveFileHistoryStorage: options.resolveFileHistoryStorage } : {}),
       });
     });
     await scope.register(registerHealthRoutes, {
