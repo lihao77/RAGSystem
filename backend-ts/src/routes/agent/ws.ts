@@ -9,6 +9,7 @@ import type { AgentRouteOptions } from "../route-options.js";
 import { isRecord } from "../../utils/guards.js";
 import { widgetUserId } from "../../identity/widget-user-id.js";
 import { assertSessionOwner } from "../session-owner.js";
+import { ensureRequestApplications } from "../../app/request-applications.js";
 
 interface SessionWsParams {
   sessionId: string;
@@ -72,10 +73,9 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
       request.tenantRuntimeLease = null;
       const container = request.container;
       const wsActivity = options.registry.trackWebSocket(lease.tenantId);
-      const saasReads = await options.resolveSaaSAgentReadApplication?.(request);
-      const session = saasReads
-        ? await saasReads.getSession(sessionId)
-        : container.sessionApplication.getSession(sessionId);
+      const applications = await ensureRequestApplications(request, options);
+      const executionRead = applications.executionRead;
+      const session = await applications.sessions.getSession(sessionId);
       const widgetMeta = (session?.metadata as { widget?: { app_key?: string } } | undefined)?.widget;
       if (widgetMeta?.app_key && request.identity.userId !== widgetUserId(widgetMeta.app_key)) {
         wsActivity.release();
@@ -164,9 +164,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
         });
       }, 20_000);
 
-      const durableReplay = saasReads
-        ? await buildSaaSDurableOutboxReplay(saasReads, sessionId, afterSeq)
-        : buildDurableOutboxReplay(container, sessionId, afterSeq);
+      const durableReplay = await buildDurableOutboxReplay(executionRead, sessionId, afterSeq);
       if (durableReplay) {
         boundRunId = durableReplay.runId;
         sendReconnect("start", durableReplay.events.length, durableReplay.runId, "durable_outbox");
@@ -176,9 +174,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
         sendReconnect("end", durableReplay.events.length, durableReplay.runId, "durable_outbox");
       }
 
-      const activeReplay = saasReads
-        ? await buildSaaSActiveRunReplay(saasReads, container, sessionId)
-        : buildActiveRunReplay(container, sessionId);
+      const activeReplay = await buildActiveRunReplay(executionRead, container, sessionId);
       if (activeReplay) {
         boundRunId = activeReplay.runId;
         sendReconnect("start", activeReplay.events.length, activeReplay.runId);
@@ -291,15 +287,15 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<AgentRouteOptions
   );
 };
 
-function buildDurableOutboxReplay(
-  container: RuntimeContainer,
+async function buildDurableOutboxReplay(
+  reads: import("../../contracts/execution-read-application.js").ExecutionReadApplication,
   sessionId: string,
   afterSeq: number | null,
-): { runId: string | null; events: Envelope[] } | null {
+): Promise<{ runId: string | null; events: Envelope[] } | null> {
   if (afterSeq === null) {
     return null;
   }
-  const rows = container.conversationStore.listOutboxForReplay({
+  const rows = await reads.listOutboxForReplay({
     sessionId,
     afterSeq,
     limit: 500,
@@ -314,51 +310,12 @@ function buildDurableOutboxReplay(
   };
 }
 
-async function buildSaaSDurableOutboxReplay(
-  reads: import("../../services/runtime/saas-agent-read-application.js").SaaSAgentReadApplication,
-  sessionId: string,
-  afterSeq: number | null,
-): Promise<{ runId: string | null; events: Envelope[] } | null> {
-  if (afterSeq === null) return null;
-  const rows = await reads.listOutboxForReplay({ sessionId, afterSeq, limit: 500 });
-  if (!rows.length) return null;
-  const projector = new EnvelopeProjector();
-  return {
-    runId: rows.find((row) => row.run_id)?.run_id ?? null,
-    events: rows.map((row) => projector.toEnvelope(row)).filter((event) => !isDelegateCallEvent(event)),
-  };
-}
-
-async function buildSaaSActiveRunReplay(
-  reads: import("../../services/runtime/saas-agent-read-application.js").SaaSAgentReadApplication,
+async function buildActiveRunReplay(
+  reads: import("../../contracts/execution-read-application.js").ExecutionReadApplication,
   container: RuntimeContainer,
   sessionId: string,
 ): Promise<{ runId: string; events: Envelope[] } | null> {
   const status = (await reads.getSessionTaskStatus(sessionId)).task_info;
-  if (!status || status.status !== "running" || !status.run_id) return null;
-  const allRuns = await reads.listRuns(sessionId, 500);
-  const runIds = new Set<string>([status.run_id]);
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const run of allRuns) {
-      if (run.parent_run_id && runIds.has(run.parent_run_id) && !runIds.has(run.run_id)) {
-        runIds.add(run.run_id);
-        changed = true;
-      }
-    }
-  }
-  const projector = new EnvelopeProjector();
-  const events = (await reads.listOutboxForReplay({ sessionId, runIds: [...runIds], limit: 500 }))
-    .map((row) => projector.toEnvelope(row))
-    .filter((event) => !isDelegateCallEvent(event) && isPendingInteractionReplayEvent(container, sessionId, event));
-  return { runId: status.run_id, events };
-}
-
-function buildActiveRunReplay(
-  container: RuntimeContainer,
-  sessionId: string,
-): { runId: string; events: Envelope[] } | null {
-  const status = container.agentExecution.getSessionTaskStatus(sessionId).task_info;
   if (!status || status.status !== "running" || !status.run_id) {
     return null;
   }
@@ -366,7 +323,7 @@ function buildActiveRunReplay(
   const runId = status.run_id;
   const startedAtMs = timestampToMilliseconds(status.started_at);
   // active run 树：root + 递归子孙 run。重放要含子 agent 事件，工作栏才看得到子 agent 步骤。
-  const allRuns = container.conversationStore.listRuns(sessionId, 1000).items;
+  const allRuns = await reads.listRuns(sessionId, 1000);
   const runIdSet = new Set<string>([runId]);
   for (let changed = true; changed; ) {
     changed = false;
@@ -378,11 +335,11 @@ function buildActiveRunReplay(
     }
   }
   const projector = new EnvelopeProjector();
-  const events = container.conversationStore.listOutboxForReplay({
+  const events = (await reads.listOutboxForReplay({
     sessionId,
     runIds: [...runIdSet],
     limit: 500,
-  }).map((row) => projector.toEnvelope(row)).filter((event) => {
+  })).map((row) => projector.toEnvelope(row)).filter((event) => {
     if (isDelegateCallEvent(event)) {
       return false;
     }

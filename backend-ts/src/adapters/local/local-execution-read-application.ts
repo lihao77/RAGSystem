@@ -10,9 +10,20 @@ type LocalExecutionReader = Pick<AgentExecutionServiceApi,
 export class LocalExecutionReadApplication implements ExecutionReadApplication {
   constructor(
     private readonly execution: LocalExecutionReader,
-    private readonly conversations: Pick<ConversationStore, "getPersistedExecutionOverview">,
+    private readonly conversations: Pick<ConversationStore,
+      "getPersistedExecutionOverview" | "getSession" | "listRuns" | "listOutboxForReplay">,
   ) {}
 
+  async getSession(sessionId: string) { return this.conversations.getSession(sessionId); }
+  async listRuns(sessionId: string, limit = 500) { return this.conversations.listRuns(sessionId, limit).items; }
+  async listOutboxForReplay(input: { sessionId: string; runIds?: readonly string[]; afterSeq?: number | null; limit?: number }) {
+    return this.conversations.listOutboxForReplay({
+      sessionId: input.sessionId,
+      ...(input.runIds ? { runIds: input.runIds } : {}),
+      ...(input.afterSeq !== null && input.afterSeq !== undefined ? { afterSeq: input.afterSeq } : {}),
+      ...(input.limit !== undefined ? { limit: input.limit } : {}),
+    });
+  }
   async getSessionTaskStatus(sessionId: string) { return this.execution.getSessionTaskStatus(sessionId); }
   async getSessionExecutionDiagnostics(sessionId: string) { return this.execution.getSessionExecutionDiagnostics(sessionId); }
   async getTaskStatus(taskId: string) { return this.execution.getTaskStatus(taskId); }
