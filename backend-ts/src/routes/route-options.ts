@@ -14,10 +14,10 @@ import type { SaaSKnowledgeVectorApplication } from "../services/runtime/saas-kn
 import type { SessionApplication } from "../contracts/session-application.js";
 import type { SaaSAgentReadApplication } from "../services/runtime/saas-agent-read-application.js";
 import type { SaaSInteractionRecoveryApplication } from "../services/runtime/saas-interaction-recovery-application.js";
-import type { SaaSAnalyticsApplication } from "../services/runtime/saas-analytics-application.js";
+import type { AnalyticsApplication } from "../contracts/analytics-application.js";
 import type { SaaSMonitoringApplication } from "../services/runtime/saas-monitoring-application.js";
 import type { AsyncSessionFileStorage } from "../contracts/session-file-storage.js";
-import type { SaaSArtifactService } from "../services/artifacts/saas-artifact-service.js";
+import type { ArtifactApplication } from "../contracts/artifact-application.js";
 import type { AsyncFileHistoryStore } from "../contracts/file-history-store/index.js";
 
 export interface RouteOptions {
@@ -38,11 +38,11 @@ export interface RouteOptions {
   resolveSessionApplication?: (request: FastifyRequest) => SessionApplication | undefined | Promise<SessionApplication | undefined>;
   resolveSaaSAgentReadApplication?: (request: FastifyRequest) => SaaSAgentReadApplication | undefined | Promise<SaaSAgentReadApplication | undefined>;
   resolveSaaSInteractionRecovery?: (request: FastifyRequest) => SaaSInteractionRecoveryApplication | undefined | Promise<SaaSInteractionRecoveryApplication | undefined>;
-  resolveSaaSAnalytics?: (request: FastifyRequest) => SaaSAnalyticsApplication | undefined | Promise<SaaSAnalyticsApplication | undefined>;
+  resolveAnalytics?: (request: FastifyRequest) => AnalyticsApplication | undefined | Promise<AnalyticsApplication | undefined>;
   resolveSaaSMonitoringApplication?: (request: FastifyRequest) => SaaSMonitoringApplication | undefined | Promise<SaaSMonitoringApplication | undefined>;
   resolveSessionFileStorage?: (request: FastifyRequest) => AsyncSessionFileStorage | undefined | Promise<AsyncSessionFileStorage | undefined>;
   resolveFileHistoryStorage?: (request: FastifyRequest) => AsyncFileHistoryStore | undefined | Promise<AsyncFileHistoryStore | undefined>;
-  resolveSaaSArtifactService?: (request: FastifyRequest) => SaaSArtifactService | undefined | Promise<SaaSArtifactService | undefined>;
+  resolveArtifactApplication?: (request: FastifyRequest) => ArtifactApplication | Promise<ArtifactApplication>;
   widgetCredentialStore?: WidgetCredentialRepository;
   widgetAuth?: WidgetAuthService;
 }

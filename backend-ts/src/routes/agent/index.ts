@@ -22,7 +22,7 @@ export const registerAgentRoutes: FastifyPluginAsync<AgentRouteOptions> = async 
     ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
     ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
     ...(options.resolveSaaSInteractionRecovery ? { resolveSaaSInteractionRecovery: options.resolveSaaSInteractionRecovery } : {}),
-    ...(options.resolveSaaSAnalytics ? { resolveSaaSAnalytics: options.resolveSaaSAnalytics } : {}),
+    ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
     ...(options.resolveSaaSMonitoringApplication ? { resolveSaaSMonitoringApplication: options.resolveSaaSMonitoringApplication } : {}),
     ...(options.resolveSessionFileStorage ? { resolveSessionFileStorage: options.resolveSessionFileStorage } : {}),
     ...(options.resolveFileHistoryStorage ? { resolveFileHistoryStorage: options.resolveFileHistoryStorage } : {}),

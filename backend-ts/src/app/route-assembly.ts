@@ -90,9 +90,9 @@ export interface SharedBusinessRouteAssemblyOptions {
   resolveSessionApplication?: RouteOptions["resolveSessionApplication"];
   resolveSaaSAgentReadApplication?: RouteOptions["resolveSaaSAgentReadApplication"];
   resolveSaaSInteractionRecovery?: RouteOptions["resolveSaaSInteractionRecovery"];
-  resolveSaaSAnalytics?: RouteOptions["resolveSaaSAnalytics"];
+  resolveAnalytics?: RouteOptions["resolveAnalytics"];
   resolveSaaSMonitoringApplication?: RouteOptions["resolveSaaSMonitoringApplication"];
-  resolveSaaSArtifactService?: RouteOptions["resolveSaaSArtifactService"];
+  resolveArtifactApplication?: RouteOptions["resolveArtifactApplication"];
 }
 
 export async function registerSharedBusinessRoutes(
@@ -111,7 +111,7 @@ export async function registerSharedBusinessRoutes(
       ...routeOptions,
       ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
     });
-    await scope.register(registerArtifactRoutes, { prefix: "/api/artifacts", ...routeOptions, ...(options.resolveSaaSArtifactService ? { resolveSaaSArtifactService: options.resolveSaaSArtifactService } : {}), ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}) });
+    await scope.register(registerArtifactRoutes, { prefix: "/api/artifacts", ...routeOptions, ...(options.resolveArtifactApplication ? { resolveArtifactApplication: options.resolveArtifactApplication } : {}), ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}) });
     await scope.register(registerAgentConfigRoutes, { prefix: "/api/agent-config", ...routeOptions });
     await scope.register(registerMemoryRoutes, {
       prefix: "/api/memory",
@@ -146,7 +146,7 @@ export async function registerSharedBusinessRoutes(
       ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
       ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
       ...(options.resolveSaaSInteractionRecovery ? { resolveSaaSInteractionRecovery: options.resolveSaaSInteractionRecovery } : {}),
-      ...(options.resolveSaaSAnalytics ? { resolveSaaSAnalytics: options.resolveSaaSAnalytics } : {}),
+      ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
       ...(options.resolveSaaSMonitoringApplication ? { resolveSaaSMonitoringApplication: options.resolveSaaSMonitoringApplication } : {}),
       ...(options.resolveSessionFileStorage ? { resolveSessionFileStorage: options.resolveSessionFileStorage } : {}),
       ...(options.resolveFileHistoryStorage ? { resolveFileHistoryStorage: options.resolveFileHistoryStorage } : {}),

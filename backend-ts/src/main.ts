@@ -70,7 +70,7 @@ try {
       },
     } : {}),
     ...(saasConversationRuntime ? {
-      resolveSaaSArtifactService: (request: FastifyRequest) => saasConversationRuntime!.createArtifactService(request.identity.tenantId),
+      resolveArtifactApplication: (request: FastifyRequest) => saasConversationRuntime!.createArtifactService(request.identity.tenantId),
       resolveFileHistoryStorage: (request: FastifyRequest) => saasConversationRuntime!.createFileHistoryStorage(request.identity.tenantId),
       resolveProviderMcp: (request) => saasConversationRuntime!.providerMcpApplication,
       resolveSessionApplication: (request: FastifyRequest) => new SaaSSessionApplication(
@@ -91,7 +91,7 @@ try {
         saasConversationRuntime!.pendingInteractions,
         saasConversationRuntime!.providerContinuations,
       ),
-      resolveSaaSAnalytics: (request: FastifyRequest) => new SaaSAnalyticsApplication(
+      resolveAnalytics: (request: FastifyRequest) => new SaaSAnalyticsApplication(
         request.identity.tenantId,
         saasConversationRuntime!.analytics,
       ),

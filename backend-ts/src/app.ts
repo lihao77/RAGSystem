@@ -58,9 +58,9 @@ export interface BuildAppOptions {
   resolveSessionApplication?: RouteOptions["resolveSessionApplication"];
   resolveSaaSAgentReadApplication?: RouteOptions["resolveSaaSAgentReadApplication"];
   resolveSaaSInteractionRecovery?: RouteOptions["resolveSaaSInteractionRecovery"];
-  resolveSaaSAnalytics?: RouteOptions["resolveSaaSAnalytics"];
+  resolveAnalytics?: RouteOptions["resolveAnalytics"];
   resolveSaaSMonitoringApplication?: RouteOptions["resolveSaaSMonitoringApplication"];
-  resolveSaaSArtifactService?: RouteOptions["resolveSaaSArtifactService"];
+  resolveArtifactApplication?: RouteOptions["resolveArtifactApplication"];
   registry?: TenantRuntimeRegistry;
   controlStore?: ControlStore;
   controlPlane?: ControlPlane;
@@ -490,9 +490,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
     ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
     ...(options.resolveSaaSInteractionRecovery ? { resolveSaaSInteractionRecovery: options.resolveSaaSInteractionRecovery } : {}),
-    ...(options.resolveSaaSAnalytics ? { resolveSaaSAnalytics: options.resolveSaaSAnalytics } : {}),
+    ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
     ...(options.resolveSaaSMonitoringApplication ? { resolveSaaSMonitoringApplication: options.resolveSaaSMonitoringApplication } : {}),
-    ...(options.resolveSaaSArtifactService ? { resolveSaaSArtifactService: options.resolveSaaSArtifactService } : {}),
+    ...(options.resolveArtifactApplication ? { resolveArtifactApplication: options.resolveArtifactApplication } : {}),
     ...(widgetAuth ? { widgetAuth } : {}),
   });
   await registerManagementAndPlatformRoutes(app, {
