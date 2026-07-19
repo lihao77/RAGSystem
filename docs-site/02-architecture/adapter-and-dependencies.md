@@ -118,6 +118,8 @@ request.applications = {
   artifacts,
   analytics,
   monitoring,
+  executionRead,
+  interactions,
 };
 ```
 
@@ -129,8 +131,8 @@ request.applications = {
 
 - `RuntimeContainer` 仍暴露若干 Local 具体类型；
 - Agent 执行、实时事件 hub、部分后台任务仍有进程内状态；
-- Execution、Interaction Recovery、Knowledge 与文件 storage resolver 尚未全部并入 `request.applications`；
+- Execution 写入口、Knowledge 与文件 storage resolver 尚未并入 `request.applications`；
 - 若干共享 Agent service 仍引用具体 SaaS repository 类型，应继续收窄为 ports；
 - `main.ts` 和 `app.ts` 仍共同承担较多 composition 责任。
 
-下一步继续把 Execution、Interaction、Knowledge 和文件能力加入请求级集合，并拆分明确的 Local/SaaS composition entry。
+下一步继续收口 Execution 写入口；Knowledge 和文件能力属于异步资源生命周期，后续应统一到独立的 `request.resources`，并拆分明确的 Local/SaaS composition entry。

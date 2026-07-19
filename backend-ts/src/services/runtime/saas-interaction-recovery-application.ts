@@ -6,18 +6,13 @@ import type { PostgresConversationRepository } from "../../adapters/saas/postgre
 import type { PostgresPendingInteractionRepository } from "../../adapters/saas/postgres/pending-interaction-repository.js";
 import type { PostgresProviderContinuationRepository } from "../../adapters/saas/postgres/provider-continuation-repository.js";
 import type { TenantId } from "../../identity/types.js";
-
-export interface SaaSInteractionResponseResult {
-  resolved: boolean;
-  needsResume: boolean;
-  kind: "approval" | "user_input";
-  interactionId: string;
-  rootRunId?: string;
-  toolCallId?: string;
-}
+import type {
+  InteractionRecoveryApplication,
+  InteractionRecoveryResult,
+} from "../../contracts/interaction-recovery-application.js";
 
 /** Tenant-bound recovery facade for interactions that outlive the Local runtime process. */
-export class SaaSInteractionRecoveryApplication {
+export class SaaSInteractionRecoveryApplication implements InteractionRecoveryApplication {
   constructor(
     private readonly tenantId: TenantId,
     private readonly conversations: Pick<PostgresConversationRepository, "getSession">,
@@ -32,7 +27,7 @@ export class SaaSInteractionRecoveryApplication {
     sessionId: string,
     interactionId: string,
     resolution: { approved: boolean; message: string },
-  ): Promise<SaaSInteractionResponseResult> {
+  ): Promise<InteractionRecoveryResult> {
     return this.respond(sessionId, interactionId, "approval", resolution);
   }
 
@@ -40,7 +35,7 @@ export class SaaSInteractionRecoveryApplication {
     sessionId: string,
     interactionId: string,
     resolution: { value: string },
-  ): Promise<SaaSInteractionResponseResult> {
+  ): Promise<InteractionRecoveryResult> {
     return this.respond(sessionId, interactionId, "user_input", resolution);
   }
 
@@ -57,7 +52,7 @@ export class SaaSInteractionRecoveryApplication {
     interactionId: string,
     kind: "approval" | "user_input",
     resolution: Record<string, unknown>,
-  ): Promise<SaaSInteractionResponseResult> {
+  ): Promise<InteractionRecoveryResult> {
     if (!(await this.ownsSession(sessionId))) return missing(kind, interactionId);
     const record = await this.pending.getPendingInteraction(sessionId, interactionId);
     if (!record || record.kind !== kind || record.status === "cancelled") return missing(kind, interactionId);
@@ -99,11 +94,11 @@ export class SaaSInteractionRecoveryApplication {
   }
 }
 
-function missing(kind: "approval" | "user_input", interactionId: string): SaaSInteractionResponseResult {
+function missing(kind: "approval" | "user_input", interactionId: string): InteractionRecoveryResult {
   return { resolved: false, needsResume: false, kind, interactionId };
 }
 
-function result(record: PendingInteractionRecord, needsResume: boolean): SaaSInteractionResponseResult {
+function result(record: PendingInteractionRecord, needsResume: boolean): InteractionRecoveryResult {
   return {
     resolved: true,
     needsResume,

@@ -116,6 +116,8 @@ export async function registerSharedBusinessRoutes(
         ...(options.resolveArtifactApplication ? { resolveArtifactApplication: options.resolveArtifactApplication } : {}),
         ...(options.resolveAnalytics ? { resolveAnalytics: options.resolveAnalytics } : {}),
         ...(options.resolveMonitoringApplication ? { resolveMonitoringApplication: options.resolveMonitoringApplication } : {}),
+        ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
+        ...(options.resolveSaaSInteractionRecovery ? { resolveSaaSInteractionRecovery: options.resolveSaaSInteractionRecovery } : {}),
       });
     });
     await scope.register(registerHealthRoutes, {

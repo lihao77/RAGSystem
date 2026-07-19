@@ -13,7 +13,7 @@ import type { SaaSProviderMcpApplication } from "../services/runtime/saas-provid
 import type { SaaSKnowledgeVectorApplication } from "../services/runtime/saas-knowledge-vector-application.js";
 import type { SessionApplication } from "../contracts/session-application.js";
 import type { SaaSAgentReadApplication } from "../services/runtime/saas-agent-read-application.js";
-import type { SaaSInteractionRecoveryApplication } from "../services/runtime/saas-interaction-recovery-application.js";
+import type { InteractionRecoveryApplication } from "../contracts/interaction-recovery-application.js";
 import type { AnalyticsApplication } from "../contracts/analytics-application.js";
 import type { MonitoringApplication } from "../contracts/monitoring-application.js";
 import type { AsyncSessionFileStorage } from "../contracts/session-file-storage.js";
@@ -37,7 +37,7 @@ export interface RouteOptions {
   resolveProviderMcp?: (request: FastifyRequest) => SaaSProviderMcpApplication | undefined | Promise<SaaSProviderMcpApplication | undefined>;
   resolveSessionApplication?: (request: FastifyRequest) => SessionApplication | undefined | Promise<SessionApplication | undefined>;
   resolveSaaSAgentReadApplication?: (request: FastifyRequest) => SaaSAgentReadApplication | undefined | Promise<SaaSAgentReadApplication | undefined>;
-  resolveSaaSInteractionRecovery?: (request: FastifyRequest) => SaaSInteractionRecoveryApplication | undefined | Promise<SaaSInteractionRecoveryApplication | undefined>;
+  resolveSaaSInteractionRecovery?: (request: FastifyRequest) => InteractionRecoveryApplication | undefined | Promise<InteractionRecoveryApplication | undefined>;
   resolveAnalytics?: (request: FastifyRequest) => AnalyticsApplication | undefined | Promise<AnalyticsApplication | undefined>;
   resolveMonitoringApplication?: (request: FastifyRequest) => MonitoringApplication | undefined | Promise<MonitoringApplication | undefined>;
   resolveSessionFileStorage?: (request: FastifyRequest) => AsyncSessionFileStorage | undefined | Promise<AsyncSessionFileStorage | undefined>;

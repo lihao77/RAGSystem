@@ -14,6 +14,7 @@ import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import { assertOwnedSessionIfExists, loadOwnedSession } from "../session-owner.js";
 import { resolveSessionApplication } from "../session-application.js";
+import { ensureRequestApplications } from "../../app/request-applications.js";
 
 interface ApprovalParams {
   sessionId: string;
@@ -61,18 +62,12 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
     async (request) => {
       await loadOwnedSession(request, request.params.sessionId, await resolveSessionApplication(options, request));
       const payload = ApprovalRequestSchema.parse(request.body);
-      let result = request.container.pendingInteractions.respondApproval(
+      const interactions = (await ensureRequestApplications(request, options)).interactions;
+      const result = await interactions.respondApproval(
         request.params.sessionId,
         request.params.approvalId,
-        payload,
+        { approved: payload.approved, message: payload.message ?? "" },
       );
-      if (!result.resolved) {
-        const recovery = await options.resolveSaaSInteractionRecovery?.(request);
-        result = await recovery?.respondApproval(request.params.sessionId, request.params.approvalId, {
-          approved: payload.approved,
-          message: payload.message ?? "",
-        }) ?? result;
-      }
       if (!result.resolved) {
         throw new HttpError(404, "not_found", "未找到对应的审批请求，可能已被取消或不存在");
       }
@@ -98,17 +93,12 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
   app.post<{ Params: InputParams }>("/sessions/:sessionId/inputs/:inputId/respond", async (request) => {
     await loadOwnedSession(request, request.params.sessionId, await resolveSessionApplication(options, request));
     const payload = UserInputRequestSchema.parse(request.body);
-    let result = request.container.pendingInteractions.respondUserInput(
+    const interactions = (await ensureRequestApplications(request, options)).interactions;
+    const result = await interactions.respondUserInput(
       request.params.sessionId,
       request.params.inputId,
-      payload,
+      { value: payload.value ?? "" },
     );
-    if (!result.resolved) {
-      const recovery = await options.resolveSaaSInteractionRecovery?.(request);
-      result = await recovery?.respondUserInput(request.params.sessionId, request.params.inputId, {
-        value: payload.value ?? "",
-      }) ?? result;
-    }
     if (!result.resolved) {
       throw new HttpError(404, "not_found", "未找到对应的输入请求，可能已被取消或不存在");
     }
@@ -127,30 +117,21 @@ export const registerStreamRoutes: FastifyPluginAsync<RouteOptions> = async (app
     async (request) => {
       await loadOwnedSession(request, request.params.sessionId, await resolveSessionApplication(options, request));
       const payload = InteractionRequestSchema.parse(request.body);
-      let result = request.container.pendingInteractions.respondInteraction(
-        request.params.sessionId,
-        request.params.interactionId,
-        payload,
-      );
-      if (!result.resolved) {
-        const recovery = await options.resolveSaaSInteractionRecovery?.(request);
-        const recovered = payload.kind === "approval"
-          ? await recovery?.respondApproval(request.params.sessionId, request.params.interactionId, {
+      const interactions = (await ensureRequestApplications(request, options)).interactions;
+      const recovered = payload.kind === "approval"
+          ? await interactions.respondApproval(request.params.sessionId, request.params.interactionId, {
               approved: payload.approved ?? false,
               message: payload.message ?? "",
             })
-          : await recovery?.respondUserInput(request.params.sessionId, request.params.interactionId, {
+          : await interactions.respondUserInput(request.params.sessionId, request.params.interactionId, {
               value: payload.value ?? "",
             });
-        if (recovered) {
-          result = {
-            ...recovered,
-            ...(payload.kind === "approval"
-              ? { approved: payload.approved ?? false, message: payload.message ?? "" }
-              : {}),
-          };
-        }
-      }
+      const result = {
+        ...recovered,
+        ...(payload.kind === "approval"
+          ? { approved: payload.approved ?? false, message: payload.message ?? "" }
+          : {}),
+      };
       if (!result.resolved) {
         throw new HttpError(404, "not_found", result.error ?? "未找到对应的交互请求，可能已被取消或不存在");
       }
