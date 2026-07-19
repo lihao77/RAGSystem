@@ -23,8 +23,8 @@ interface SessionFileParams extends SessionParams {
 export const registerSessionFileRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   const resolveAsyncStore = async (request: Parameters<NonNullable<RouteOptions["resolveSessionFileStorage"]>>[0]) =>
     options.resolveSessionFileStorage?.(request);
-  const loadOwned = async (request: Parameters<NonNullable<RouteOptions["resolveSaaSSessionApplication"]>>[0], sessionId: string) => {
-    const saas = await options.resolveSaaSSessionApplication?.(request);
+  const loadOwned = async (request: Parameters<NonNullable<RouteOptions["resolveSessionApplication"]>>[0], sessionId: string) => {
+    const saas = await options.resolveSessionApplication?.(request);
     return loadOwnedSession(request, sessionId, saas);
   };
 

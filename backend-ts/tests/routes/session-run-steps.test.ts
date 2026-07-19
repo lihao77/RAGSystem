@@ -35,7 +35,7 @@ describe("session run step routes", () => {
         has_more: false,
       }),
     };
-    const harness = await buildTestHarness({ resolveSaaSSessionApplication: () => saas as never });
+    const harness = await buildTestHarness({ resolveSessionApplication: () => saas as never });
     app = harness.app;
 
     const response = await app.inject({

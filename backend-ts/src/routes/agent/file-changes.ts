@@ -10,7 +10,7 @@ interface SessionParams {
 
 export const registerFileChangeRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/file-changes", async (request) => {
-    const saas = await options.resolveSaaSSessionApplication?.(request);
+    const saas = await options.resolveSessionApplication?.(request);
     await loadOwnedSession(request, request.params.sessionId, saas);
     const asyncHistory = await options.resolveFileHistoryStorage?.(request);
     if (asyncHistory) {

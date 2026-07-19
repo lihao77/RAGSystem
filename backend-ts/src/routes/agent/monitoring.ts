@@ -126,7 +126,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
   app.get("/context-snapshot", async (request) => {
     const query = request.query as ContextSnapshotQuery;
     const sessionId = normalizeString(query.session_id);
-    const saasSession = await options.resolveSaaSSessionApplication?.(request);
+    const saasSession = await options.resolveSessionApplication?.(request);
     const saasSessionInfo = sessionId && saasSession ? await saasSession.getSession(sessionId) : null;
     if (sessionId && saasSession) {
       if (!saasSessionInfo) throw new HttpError(404, "not_found", "会话不存在");

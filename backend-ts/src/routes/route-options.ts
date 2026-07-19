@@ -11,7 +11,7 @@ import type { TenantRuntimeRegistry } from "../services/runtime/tenant-runtime-r
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
 import type { SaaSProviderMcpApplication } from "../services/runtime/saas-provider-mcp-application.js";
 import type { SaaSKnowledgeVectorApplication } from "../services/runtime/saas-knowledge-vector-application.js";
-import type { SaaSSessionApplication } from "../services/runtime/saas-session-application.js";
+import type { SessionApplication } from "../contracts/session-application.js";
 import type { SaaSAgentReadApplication } from "../services/runtime/saas-agent-read-application.js";
 import type { SaaSInteractionRecoveryApplication } from "../services/runtime/saas-interaction-recovery-application.js";
 import type { SaaSAnalyticsApplication } from "../services/runtime/saas-analytics-application.js";
@@ -35,7 +35,7 @@ export interface RouteOptions {
   ) => AsyncKnowledgeMarkdownPipeline | undefined | Promise<AsyncKnowledgeMarkdownPipeline | undefined>;
   resolveKnowledgeVectorApplication?: (request: FastifyRequest) => SaaSKnowledgeVectorApplication | undefined | Promise<SaaSKnowledgeVectorApplication | undefined>;
   resolveProviderMcp?: (request: FastifyRequest) => SaaSProviderMcpApplication | undefined | Promise<SaaSProviderMcpApplication | undefined>;
-  resolveSaaSSessionApplication?: (request: FastifyRequest) => SaaSSessionApplication | undefined | Promise<SaaSSessionApplication | undefined>;
+  resolveSessionApplication?: (request: FastifyRequest) => SessionApplication | undefined | Promise<SessionApplication | undefined>;
   resolveSaaSAgentReadApplication?: (request: FastifyRequest) => SaaSAgentReadApplication | undefined | Promise<SaaSAgentReadApplication | undefined>;
   resolveSaaSInteractionRecovery?: (request: FastifyRequest) => SaaSInteractionRecoveryApplication | undefined | Promise<SaaSInteractionRecoveryApplication | undefined>;
   resolveSaaSAnalytics?: (request: FastifyRequest) => SaaSAnalyticsApplication | undefined | Promise<SaaSAnalyticsApplication | undefined>;

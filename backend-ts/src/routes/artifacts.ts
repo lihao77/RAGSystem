@@ -18,7 +18,7 @@ export const registerArtifactRoutes: FastifyPluginAsync<RouteOptions> = async (a
     const saas = await options.resolveSaaSArtifactService?.(request);
     if (saas) {
       const sessionId = await saas.getVisualizationSessionId(request.params.artifactId);
-      await loadOwnedSessionForResource(request, sessionId, `未找到可视化 artifact: ${request.params.artifactId}`, options.resolveSaaSSessionApplication ? await options.resolveSaaSSessionApplication(request) : undefined);
+      await loadOwnedSessionForResource(request, sessionId, `未找到可视化 artifact: ${request.params.artifactId}`, options.resolveSessionApplication ? await options.resolveSessionApplication(request) : undefined);
       try { return await saas.getVisualization(request.params.artifactId); } catch (error) { throw toHttpError(error); }
     }
     await loadOwnedSessionForResource(
@@ -39,7 +39,7 @@ export const registerArtifactRoutes: FastifyPluginAsync<RouteOptions> = async (a
       throw new HttpError(400, "invalid_request", "session_id is required");
     }
     const saas = await options.resolveSaaSArtifactService?.(request);
-    const sessionApp = saas && options.resolveSaaSSessionApplication ? await options.resolveSaaSSessionApplication(request) : undefined;
+    const sessionApp = saas && options.resolveSessionApplication ? await options.resolveSessionApplication(request) : undefined;
     await loadOwnedSession(request, sessionId, sessionApp);
     if (saas) return saas.listVisualizations(sessionId);
     return request.container.artifacts.listVisualizations(sessionId);
@@ -49,7 +49,7 @@ export const registerArtifactRoutes: FastifyPluginAsync<RouteOptions> = async (a
     const saas = await options.resolveSaaSArtifactService?.(request);
     if (saas) {
       const sessionId = await saas.getVisualizationSessionId(request.params.artifactId);
-      await loadOwnedSessionForResource(request, sessionId, `未找到可视化 artifact: ${request.params.artifactId}`, options.resolveSaaSSessionApplication ? await options.resolveSaaSSessionApplication(request) : undefined);
+      await loadOwnedSessionForResource(request, sessionId, `未找到可视化 artifact: ${request.params.artifactId}`, options.resolveSessionApplication ? await options.resolveSessionApplication(request) : undefined);
       const deleted = await saas.deleteVisualization(request.params.artifactId);
       if (!deleted) throw new HttpError(404, "not_found", `未找到可视化 artifact: ${request.params.artifactId}`);
       return { deleted: true, artifact_id: request.params.artifactId };
@@ -75,7 +75,7 @@ export const registerArtifactRoutes: FastifyPluginAsync<RouteOptions> = async (a
       throw new HttpError(400, "invalid_request", "session_id is required");
     }
     const saas = await options.resolveSaaSArtifactService?.(request);
-    const sessionApp = saas && options.resolveSaaSSessionApplication ? await options.resolveSaaSSessionApplication(request) : undefined;
+    const sessionApp = saas && options.resolveSessionApplication ? await options.resolveSessionApplication(request) : undefined;
     await loadOwnedSession(request, sessionId, sessionApp);
     if (saas) return { deleted_count: await saas.deleteSessionVisualizations(sessionId), session_id: sessionId };
     return {

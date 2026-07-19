@@ -39,7 +39,7 @@ describe("session message mutation routes", () => {
       deleteMessagesAfter: vi.fn().mockResolvedValue(3),
     };
     const saas = new SaaSSessionApplication(LOCAL_TENANT_ID, repository as never);
-    const harness = await buildTestHarness({ resolveSaaSSessionApplication: () => saas });
+    const harness = await buildTestHarness({ resolveSessionApplication: () => saas });
     app = harness.app;
 
     const updated = await app.inject({

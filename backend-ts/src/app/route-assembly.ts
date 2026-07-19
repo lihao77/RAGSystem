@@ -87,7 +87,7 @@ export interface SharedBusinessRouteAssemblyOptions {
   resolveKnowledgeMarkdownPipeline?: RouteOptions["resolveKnowledgeMarkdownPipeline"];
   resolveKnowledgeVectorApplication?: RouteOptions["resolveKnowledgeVectorApplication"];
   resolveProviderMcp?: RouteOptions["resolveProviderMcp"];
-  resolveSaaSSessionApplication?: RouteOptions["resolveSaaSSessionApplication"];
+  resolveSessionApplication?: RouteOptions["resolveSessionApplication"];
   resolveSaaSAgentReadApplication?: RouteOptions["resolveSaaSAgentReadApplication"];
   resolveSaaSInteractionRecovery?: RouteOptions["resolveSaaSInteractionRecovery"];
   resolveSaaSAnalytics?: RouteOptions["resolveSaaSAnalytics"];
@@ -109,9 +109,9 @@ export async function registerSharedBusinessRoutes(
     await scope.register(registerHealthRoutes, {
       prefix: "/api",
       ...routeOptions,
-      ...(options.resolveSaaSSessionApplication ? { resolveSaaSSessionApplication: options.resolveSaaSSessionApplication } : {}),
+      ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
     });
-    await scope.register(registerArtifactRoutes, { prefix: "/api/artifacts", ...routeOptions, ...(options.resolveSaaSArtifactService ? { resolveSaaSArtifactService: options.resolveSaaSArtifactService } : {}), ...(options.resolveSaaSSessionApplication ? { resolveSaaSSessionApplication: options.resolveSaaSSessionApplication } : {}) });
+    await scope.register(registerArtifactRoutes, { prefix: "/api/artifacts", ...routeOptions, ...(options.resolveSaaSArtifactService ? { resolveSaaSArtifactService: options.resolveSaaSArtifactService } : {}), ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}) });
     await scope.register(registerAgentConfigRoutes, { prefix: "/api/agent-config", ...routeOptions });
     await scope.register(registerMemoryRoutes, {
       prefix: "/api/memory",
@@ -143,7 +143,7 @@ export async function registerSharedBusinessRoutes(
       widgetCredentialStore: options.widgetCredentialStore,
       wsTickets: options.wsTickets,
       ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
-      ...(options.resolveSaaSSessionApplication ? { resolveSaaSSessionApplication: options.resolveSaaSSessionApplication } : {}),
+      ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
       ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
       ...(options.resolveSaaSInteractionRecovery ? { resolveSaaSInteractionRecovery: options.resolveSaaSInteractionRecovery } : {}),
       ...(options.resolveSaaSAnalytics ? { resolveSaaSAnalytics: options.resolveSaaSAnalytics } : {}),

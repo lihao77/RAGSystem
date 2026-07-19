@@ -19,7 +19,7 @@ export const registerAgentRoutes: FastifyPluginAsync<AgentRouteOptions> = async 
     wsTickets: options.wsTickets,
     ...(options.widgetCredentialStore ? { widgetCredentialStore: options.widgetCredentialStore } : {}),
     ...(options.widgetAuth ? { widgetAuth: options.widgetAuth } : {}),
-    ...(options.resolveSaaSSessionApplication ? { resolveSaaSSessionApplication: options.resolveSaaSSessionApplication } : {}),
+    ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
     ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
     ...(options.resolveSaaSInteractionRecovery ? { resolveSaaSInteractionRecovery: options.resolveSaaSInteractionRecovery } : {}),
     ...(options.resolveSaaSAnalytics ? { resolveSaaSAnalytics: options.resolveSaaSAnalytics } : {}),

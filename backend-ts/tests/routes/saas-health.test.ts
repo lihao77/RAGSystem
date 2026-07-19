@@ -14,7 +14,7 @@ describe("SaaS health route", () => {
   it("uses the tenant-bound PostgreSQL session application for the session count", async () => {
     const listSessions = vi.fn(async () => ({ items: [], total: 7, limit: 1, offset: 0, has_more: true }));
     const harness = await buildTestHarness({
-      resolveSaaSSessionApplication: async () => ({ listSessions }) as never,
+      resolveSessionApplication: async () => ({ listSessions }) as never,
     });
     app = harness.app;
 

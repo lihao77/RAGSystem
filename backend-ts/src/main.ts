@@ -73,7 +73,7 @@ try {
       resolveSaaSArtifactService: (request: FastifyRequest) => saasConversationRuntime!.createArtifactService(request.identity.tenantId),
       resolveFileHistoryStorage: (request: FastifyRequest) => saasConversationRuntime!.createFileHistoryStorage(request.identity.tenantId),
       resolveProviderMcp: (request) => saasConversationRuntime!.providerMcpApplication,
-      resolveSaaSSessionApplication: (request: FastifyRequest) => new SaaSSessionApplication(
+      resolveSessionApplication: (request: FastifyRequest) => new SaaSSessionApplication(
         request.identity.tenantId,
         saasConversationRuntime!.conversation,
         saasConversationRuntime!.createFileHistoryStorage(request.identity.tenantId),

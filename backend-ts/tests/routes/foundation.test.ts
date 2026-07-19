@@ -137,7 +137,7 @@ describe("foundation routes", () => {
       }),
     };
     const saas = new SaaSSessionApplication(LOCAL_TENANT_ID, repository as never);
-    const harness = await buildTestHarness({ resolveSaaSSessionApplication: () => saas });
+    const harness = await buildTestHarness({ resolveSessionApplication: () => saas });
     app = harness.app;
     const startStream = vi.spyOn(harness.container.agentExecution, "startStream");
 

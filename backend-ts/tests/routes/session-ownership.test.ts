@@ -102,7 +102,7 @@ describe("session ownership", () => {
     };
     const harness = await buildTestHarness({
       identityProvider,
-      resolveSaaSSessionApplication: () => saas as never,
+      resolveSessionApplication: () => saas as never,
       resolveFileHistoryStorage: () => history,
     });
     app = harness.app;

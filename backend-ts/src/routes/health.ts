@@ -40,7 +40,7 @@ export const registerProbeRoutes: FastifyPluginAsync<ProbeRouteOptions> = async 
 
 export const registerHealthRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.get("/health", async (request) => {
-    const saas = await options.resolveSaaSSessionApplication?.(request);
+    const saas = await options.resolveSessionApplication?.(request);
     const sessionsCount = saas
       ? (await saas.listSessions({ limit: 1, offset: 0, userIds: null })).total
       : request.container.sessionApplication.listSessions({ tenantId: request.identity.tenantId, limit: 1, offset: 0 }).total;

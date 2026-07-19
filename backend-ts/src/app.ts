@@ -55,7 +55,7 @@ export interface BuildAppOptions {
   resolveKnowledgeMarkdownPipeline?: RouteOptions["resolveKnowledgeMarkdownPipeline"];
   resolveKnowledgeVectorApplication?: RouteOptions["resolveKnowledgeVectorApplication"];
   resolveProviderMcp?: RouteOptions["resolveProviderMcp"];
-  resolveSaaSSessionApplication?: RouteOptions["resolveSaaSSessionApplication"];
+  resolveSessionApplication?: RouteOptions["resolveSessionApplication"];
   resolveSaaSAgentReadApplication?: RouteOptions["resolveSaaSAgentReadApplication"];
   resolveSaaSInteractionRecovery?: RouteOptions["resolveSaaSInteractionRecovery"];
   resolveSaaSAnalytics?: RouteOptions["resolveSaaSAnalytics"];
@@ -487,7 +487,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ...(options.resolveKnowledgeMarkdownPipeline ? { resolveKnowledgeMarkdownPipeline: options.resolveKnowledgeMarkdownPipeline } : {}),
     ...(options.resolveKnowledgeVectorApplication ? { resolveKnowledgeVectorApplication: options.resolveKnowledgeVectorApplication } : {}),
     ...(options.resolveProviderMcp ? { resolveProviderMcp: options.resolveProviderMcp } : {}),
-    ...(options.resolveSaaSSessionApplication ? { resolveSaaSSessionApplication: options.resolveSaaSSessionApplication } : {}),
+    ...(options.resolveSessionApplication ? { resolveSessionApplication: options.resolveSessionApplication } : {}),
     ...(options.resolveSaaSAgentReadApplication ? { resolveSaaSAgentReadApplication: options.resolveSaaSAgentReadApplication } : {}),
     ...(options.resolveSaaSInteractionRecovery ? { resolveSaaSInteractionRecovery: options.resolveSaaSInteractionRecovery } : {}),
     ...(options.resolveSaaSAnalytics ? { resolveSaaSAnalytics: options.resolveSaaSAnalytics } : {}),

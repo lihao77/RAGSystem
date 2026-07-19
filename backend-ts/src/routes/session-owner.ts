@@ -1,7 +1,7 @@
 import type { FastifyRequest } from "fastify";
 
 import type { SessionInfo } from "../contracts/session.js";
-import type { SaaSSessionApplication } from "../services/runtime/saas-session-application.js";
+import type { SessionApplication } from "../contracts/session-application.js";
 import { LOCAL_USER_ID } from "../services/identity/local-identity-provider.js";
 import { HttpError } from "../utils/errors.js";
 
@@ -21,10 +21,10 @@ export async function assertSessionOwner(request: FastifyRequest, session: Sessi
 export async function loadOwnedSession(
   request: FastifyRequest,
   sessionId: string,
-  saas?: SaaSSessionApplication,
+  sessions?: SessionApplication,
 ): Promise<SessionInfo> {
-  const session = saas
-    ? await saas.getSession(sessionId)
+  const session = sessions
+    ? await sessions.getSession(sessionId)
     : request.container.sessionApplication.getSession(sessionId);
   if (!session) {
     throw new HttpError(404, "not_found", "会话不存在");
@@ -36,13 +36,13 @@ export async function loadOwnedSession(
 export async function assertOwnedSessionIfExists(
   request: FastifyRequest,
   sessionId: string | null | undefined,
-  saas?: SaaSSessionApplication,
+  sessions?: SessionApplication,
 ): Promise<void> {
   if (!sessionId) {
     return;
   }
-  const session = saas
-    ? await saas.getSessionForExecutionValidation(sessionId)
+  const session = sessions
+    ? await sessions.getSessionForExecutionValidation(sessionId)
     : request.container.sessionApplication.getSession(sessionId);
   if (session) {
     await assertSessionOwner(request, session);
@@ -53,10 +53,10 @@ export async function loadOwnedSessionForResource(
   request: FastifyRequest,
   sessionId: string | null | undefined,
   resourceNotFoundMessage: string,
-  saas?: SaaSSessionApplication,
+  sessions?: SessionApplication,
 ): Promise<SessionInfo> {
   if (!sessionId) {
     throw new HttpError(404, "not_found", resourceNotFoundMessage);
   }
-  return await loadOwnedSession(request, sessionId, saas);
+  return await loadOwnedSession(request, sessionId, sessions);
 }

@@ -600,7 +600,7 @@ function requireLocalGovernedCandidate(scope: string): void {
 }
 
 async function listOwnedSessionIds(options: RouteOptions, request: Parameters<typeof requireTenantMember>[0]): Promise<string[]> {
-  const saas = await options.resolveSaaSSessionApplication?.(request);
+  const saas = await options.resolveSessionApplication?.(request);
   if (saas) return (await saas.listSessions({ userIds: [request.identity.userId], limit: 10_000, offset: 0 })).items.map((session) => session.session_id);
   return request.container.sessionApplication.listSessions({ tenantId: request.identity.tenantId, userIds: [request.identity.userId], limit: 10_000, offset: 0 }).items.map((session) => session.session_id);
 }
@@ -616,7 +616,7 @@ async function canManageEntry(
   }
   if (scope === "user") return scopeId === request.identity.userId;
   if (scope === "session") {
-    const saas = await options.resolveSaaSSessionApplication?.(request);
+    const saas = await options.resolveSessionApplication?.(request);
     const session = saas ? await saas.getSession(scopeId) : request.container.sessionApplication.getSession(scopeId);
     return session?.user_id === request.identity.userId;
   }
