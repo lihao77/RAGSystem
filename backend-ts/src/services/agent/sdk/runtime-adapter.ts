@@ -23,7 +23,7 @@ import type { PermissionPolicyService } from "../../runtime/permission-policy-se
 import type { InteractionRequiredNotice, PendingInteractionPort } from "../../../contracts/pending-interactions.js";
 import type { BackendToolsDeps } from "../../../tools/registry.js";
 import { createBackendTools } from "../../../tools/registry.js";
-import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/CodeExecution.js";
+import type { CodeExecutionPort } from "../../../contracts/tool-ports.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
 import { KernelEventPersister } from "./event-persister.js";
@@ -42,7 +42,7 @@ export interface SdkRuntimeAdapterDeps {
   /** 工具依赖集合（service + getAgentDelegation；agent/teamName 由 per-run 提供）。 */
   toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName">;
   /** CodeExecution service——per-run 注入 callTool 回调用（execute_code 沙箱内工具互调）。 */
-  codeExecutionTools: CodeExecutionToolService | null;
+  codeExecutionTools: CodeExecutionPort | null;
   /** 后台任务等待——从 taskTools 适配。 */
   taskTools: TaskToolService | null;
   eventPublisher: AgentExecutionEventPublisher;

@@ -3,16 +3,14 @@ import type {
   KnowledgeQueryPort,
   KnowledgeSearchResponse,
 } from "../../../contracts/knowledge/query-port.js";
-import type { AsyncKnowledgeVectorStore } from "../../../contracts/knowledge/async-vector-store.js";
 import type { SearchVectorsRequest } from "../../../contracts/knowledge-base.js";
-import type { KnowledgeBaseService } from "../../../services/knowledge/knowledge-base-service.js";
 
 /** Tenant-bound Agent knowledge queries backed by PostgreSQL/pgvector. */
 export class PostgresKnowledgeQueryAdapter implements KnowledgeQueryPort {
-  private readonly knowledge: KnowledgeBaseService;
+  private readonly knowledge: KnowledgeQueryPort;
 
-  constructor(tenantId: string, baseKnowledge: KnowledgeBaseService, vectors: AsyncKnowledgeVectorStore) {
-    this.knowledge = baseKnowledge.withAsyncVectorStore(vectors, tenantId);
+  constructor(knowledge: KnowledgeQueryPort) {
+    this.knowledge = knowledge;
   }
 
   async search(input: SearchVectorsRequest): Promise<KnowledgeSearchResponse> {

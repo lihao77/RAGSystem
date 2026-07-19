@@ -8,4 +8,14 @@ describe("runtime container architecture", () => {
     expect(source).not.toContain("adapters/local");
     expect(source).not.toContain("adapters/saas");
   });
+
+  it("keeps core runtime composition deployment-neutral", async () => {
+    const source = await readFile(resolve(process.cwd(), "src/services/runtime/core-runtime-container.ts"), "utf8");
+    expect(source).not.toMatch(/adapters\/(?:local|saas)/);
+    expect(source).not.toMatch(/create(?:Local|Postgres)ExecutionStorage/);
+    expect(source).not.toContain("CodeExecutionToolService");
+    expect(source).not.toContain("LocalBashToolService");
+    expect(source).not.toContain("LocalDocumentToolService");
+    expect(source).not.toContain("LocalSearchToolService");
+  });
 });

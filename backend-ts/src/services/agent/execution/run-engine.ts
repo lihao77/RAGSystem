@@ -13,7 +13,7 @@ import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
 import type { DurableClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js";
 import type { BackendToolsDeps } from "../../../tools/registry.js";
-import type { CodeExecutionToolService } from "../../../tools/CodeExecutionTool/CodeExecution.js";
+import type { CodeExecutionPort } from "../../../contracts/tool-ports.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
 import type { InteractionRequiredNotice, PendingInteractionPort } from "../../../contracts/pending-interactions.js";
@@ -58,7 +58,7 @@ export class AgentRunEngine {
     private readonly memoryConfig: MemoryConfig,
     private readonly memoryContextSourceFactory: MemoryRuntimeBindings["createContextSource"] | null,
    private readonly toolsDeps: Omit<BackendToolsDeps, "agent" | "teamName"> | null,
-   private readonly codeExecutionTools: CodeExecutionToolService | null,
+    private readonly codeExecutionTools: CodeExecutionPort | null,
    private readonly taskTools: TaskToolService | null,
    /** 已加载的 provider 列表提供者（投影层解析 tier.provider 引用用）。 */
    private readonly providersProvider: () => ModelProviderConfig[],

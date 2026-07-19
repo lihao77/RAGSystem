@@ -2,13 +2,13 @@ import { z } from "zod";
 
 import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../contracts/agent-config.js";
-import type { CodeExecutionToolService } from "./CodeExecution.js";
+import type { CodeExecutionPort } from "../../contracts/tool-ports.js";
 import { readCodeExecutionArguments } from "../../services/runtime/runtime-tool-bridge/arguments.js";
 import { EXECUTE_CODE_TOOL_NAME } from "../../services/runtime/runtime-tool-bridge/registry.js";
 import { optionalInteger, optionalString } from "../schema-helpers.js";
 
 interface CodeExecutionToolDeps {
-  codeExecutionTools: CodeExecutionToolService | null;
+  codeExecutionTools: CodeExecutionPort | null;
   agent: AgentConfig;
 }
 

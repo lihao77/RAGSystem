@@ -15,8 +15,8 @@ import { loadEnv } from "../config/env.js";
 import { SqliteControlPlaneAdapter } from "../adapters/local/sqlite-control-plane-adapter.js";
 import { SqliteWidgetCredentialAdapter } from "../adapters/local/sqlite-widget-credential-adapter.js";
 import { LOCAL_TENANT_ID, LocalIdentityProvider } from "../services/identity/index.js";
-import { createControlStore } from "../services/stores/control-store/index.js";
-import { createWidgetCredentialStore } from "../services/stores/widget-credential-store/index.js";
+import { createControlStore } from "../adapters/local/sqlite/control-store/index.js";
+import { createWidgetCredentialStore } from "../adapters/local/sqlite/widget-credential-store/index.js";
 
 async function main(): Promise<void> {
   const [, , command, ...rest] = process.argv;

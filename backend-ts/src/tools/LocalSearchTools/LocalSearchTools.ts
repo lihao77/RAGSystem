@@ -6,7 +6,7 @@ import {
   type Tool,
 } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "../../contracts/agent-config.js";
-import type { LocalSearchToolService } from "./SearchExecution.js";
+import type { WorkspaceSearchPort } from "../../contracts/tool-ports.js";
 import {
   readGlobArguments,
   readGrepArguments,
@@ -22,7 +22,7 @@ import {
 import { metadataFrom, optionalBoolean, optionalInteger, optionalString } from "../schema-helpers.js";
 
 interface LocalSearchToolDeps {
-  service: LocalSearchToolService | null;
+  service: WorkspaceSearchPort | null;
   agent: AgentConfig;
 }
 

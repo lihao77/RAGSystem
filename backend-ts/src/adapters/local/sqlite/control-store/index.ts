@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import type { BotConfig, BotConfigUpdate, BotCronTask, BotCronTaskCreate, BotSummary, TenantBotSummary } from "../../../contracts/bot.js";
-import type { Bot, UserType } from "../../../contracts/user.js";
+import type { BotConfig, BotConfigUpdate, BotCronTask, BotCronTaskCreate, BotSummary, TenantBotSummary } from "../../../../contracts/bot.js";
+import type { Bot, UserType } from "../../../../contracts/user.js";
 import type {
   ControlMembership,
   ControlTenant,
@@ -11,10 +11,10 @@ import type {
   PlatformRole,
   TenantStatus,
   UserStatus,
-} from "../../../contracts/control-plane/index.js";
-import type { TenantId, UserId } from "../../../identity/types.js";
-import { createUserId } from "../../../identity/types.js";
-import { HttpError } from "../../../utils/errors.js";
+} from "../../../../contracts/control-plane/index.js";
+import type { TenantId, UserId } from "../../../../identity/types.js";
+import { createUserId } from "../../../../identity/types.js";
+import { HttpError } from "../../../../utils/errors.js";
 import { createControlDb, type ControlDb } from "./db.js";
 
 export type {
@@ -26,7 +26,7 @@ export type {
   PlatformRole,
   TenantStatus,
   UserStatus,
-} from "../../../contracts/control-plane/index.js";
+} from "../../../../contracts/control-plane/index.js";
 
 export type BotWithConfig = Bot & { config: BotConfig };
 

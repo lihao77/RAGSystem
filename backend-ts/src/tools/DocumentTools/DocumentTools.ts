@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { LocalDocumentToolService } from "./DocumentExecution.js";
+import type { DocumentToolPort } from "../../contracts/tool-ports.js";
 import {
   editFileArguments,
   previewDataStructureArguments,
@@ -20,7 +20,7 @@ import type { AgentConfig } from "../../contracts/agent-config.js";
 import { optionalInteger, optionalString, metadataFrom } from "../schema-helpers.js";
 
 interface DocumentToolDeps {
-  documentTools: LocalDocumentToolService | null;
+  documentTools: DocumentToolPort | null;
   agent: AgentConfig;
   pathService: PathAccessPolicy;
 }
@@ -392,7 +392,7 @@ export function createDocumentTools(deps: DocumentToolDeps): Tool[] {
 
 /** 文档工具 checkAccess：越界路径作为候选信号交给 permission mode，工具本身保持 allow。 */
 function documentAccessDecision(
-  documentTools: LocalDocumentToolService,
+  documentTools: DocumentToolPort,
   toolName: string,
   input: Record<string, unknown>,
   ctx: ToolExecContext,

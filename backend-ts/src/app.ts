@@ -19,13 +19,13 @@ import {
   type AuthRuntime,
 } from "./app/route-assembly.js";
 import { HttpError, formatError } from "./utils/errors.js";
-import { createControlStore, type ControlStore } from "./services/stores/control-store/index.js";
+import { createControlStore, type ControlStore } from "./adapters/local/sqlite/control-store/index.js";
 import { SqliteControlPlaneAdapter } from "./adapters/local/sqlite-control-plane-adapter.js";
 import { SqliteBotRepository } from "./adapters/local/sqlite-bot-repository.js";
 import { SqliteWidgetCredentialAdapter } from "./adapters/local/sqlite-widget-credential-adapter.js";
 import type { BotRepository } from "./contracts/bot-repository.js";
 import type { WidgetCredentialRepository } from "./contracts/widget-credentials.js";
-import { createWidgetCredentialStore, type WidgetCredentialStore } from "./services/stores/widget-credential-store/index.js";
+import { createWidgetCredentialStore, type WidgetCredentialStore } from "./adapters/local/sqlite/widget-credential-store/index.js";
 import { createWidgetAuthService, type WidgetAuthService } from "./services/runtime/jwt-service.js";
 import { createSessionTokenService, type SessionTokenService } from "./services/runtime/session-token-service.js";
 import { createWsTicketService, type WsTicketService } from "./services/runtime/ws-ticket-service.js";

@@ -5,8 +5,8 @@ import { SqliteWidgetCredentialAdapter } from "../../../src/adapters/local/sqlit
 import { createTenantId } from "../../../src/identity/types.js";
 import { createWidgetAuthService, WidgetAuthError } from "../../../src/services/runtime/jwt-service.js";
 import { createJwtKeyRing } from "../../../src/services/runtime/jwt-key-ring.js";
-import { createControlStore } from "../../../src/services/stores/control-store/index.js";
-import { createWidgetCredentialStore } from "../../../src/services/stores/widget-credential-store/index.js";
+import { createControlStore } from "../../../src/adapters/local/sqlite/control-store/index.js";
+import { createWidgetCredentialStore } from "../../../src/adapters/local/sqlite/widget-credential-store/index.js";
 import { makeTempRoot } from "../../helpers/temp-db.js";
 
 const SECRET = "unit-test-secret-0123456789abcdef0123456789";

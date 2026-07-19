@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
-import { createTenantId, type TenantId } from "../../../identity/types.js";
+import { createTenantId, type TenantId } from "../../../../identity/types.js";
 import type { WidgetCredentialDb } from "./db.js";
 
 export interface WidgetApp {

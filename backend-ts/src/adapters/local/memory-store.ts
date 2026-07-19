@@ -7,7 +7,7 @@ import {
   readFileIfExists,
   restoreFileIfExpected,
   snapshotFile,
-} from "../../services/stores/memory-files.js";
+} from "./files/memory-files.js";
 
 import type {
   IMemoryStore,

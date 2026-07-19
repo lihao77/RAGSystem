@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SqliteWidgetCredentialAdapter } from "../../src/adapters/local/sqlite-widget-credential-adapter.js";
 import { createTenantId } from "../../src/identity/types.js";
-import { createControlStore } from "../../src/services/stores/control-store/index.js";
-import { createWidgetCredentialStore } from "../../src/services/stores/widget-credential-store/index.js";
+import { createControlStore } from "../../src/adapters/local/sqlite/control-store/index.js";
+import { createWidgetCredentialStore } from "../../src/adapters/local/sqlite/widget-credential-store/index.js";
 import { makeTempRoot } from "../helpers/temp-db.js";
 
 const tenantA = createTenantId("tnt_widget_adapter_a");

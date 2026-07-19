@@ -145,9 +145,7 @@ export async function createSaaSConversationRuntime(
       vectorIndex,
       vectorStore,
       createKnowledgeQuery: (tenantId, baseKnowledge) => new PostgresKnowledgeQueryAdapter(
-        tenantId,
-        baseKnowledge,
-        vectorStore,
+        baseKnowledge.withAsyncVectorStore(vectorStore, tenantId) as unknown as KnowledgeQueryPort,
       ),
       backgroundTasks,
       analytics,

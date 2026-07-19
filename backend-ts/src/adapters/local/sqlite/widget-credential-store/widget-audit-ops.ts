@@ -1,4 +1,4 @@
-import type { TenantId } from "../../../identity/types.js";
+import type { TenantId } from "../../../../identity/types.js";
 import type { WidgetCredentialDb } from "./db.js";
 
 export interface WidgetAudit {

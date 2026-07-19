@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { SqliteBotRepository } from "../../src/adapters/local/sqlite-bot-repository.js";
 import { createTenantId, createUserId } from "../../src/identity/types.js";
-import { createControlStore } from "../../src/services/stores/control-store/index.js";
+import { createControlStore } from "../../src/adapters/local/sqlite/control-store/index.js";
 import { makeTempRoot } from "../helpers/temp-db.js";
 
 describe("SqliteBotRepository", () => {

@@ -1,5 +1,5 @@
 import type { WidgetCredentialRepository } from "../../contracts/widget-credentials.js";
-import type { WidgetCredentialStore } from "../../services/stores/widget-credential-store/index.js";
+import type { WidgetCredentialStore } from "./sqlite/widget-credential-store/index.js";
 
 const PRUNE_INTERVAL_MS = 5 * 60 * 1000;
 

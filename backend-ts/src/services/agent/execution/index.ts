@@ -82,7 +82,7 @@ export interface AgentExecutionServiceParams {
   memoryContextSourceFactory?: MemoryRuntimeBindings["createContextSource"];
   /** per-agent 工具依赖（runtime-adapter per-run 构建 Tool[] 用）。 */
   toolsDeps?: Omit<import("../../../tools/registry.js").BackendToolsDeps, "agent" | "teamName"> | null;
-  codeExecutionTools?: import("../../../tools/CodeExecutionTool/CodeExecution.js").CodeExecutionToolService | null;
+  codeExecutionTools?: import("../../../contracts/tool-ports.js").CodeExecutionPort | null;
   taskTools?: TaskToolService | null;
   backgroundTasks?: BackgroundTaskService | null;
   /** 后台通知暂存队列（单例，注入 launchers.triggerBgNotificationRun；与 backgroundTasks 共用同一实例）。 */

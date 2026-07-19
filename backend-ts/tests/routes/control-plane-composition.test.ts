@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildApp } from "../../src/app.js";
 import { SqliteControlPlaneAdapter, createSqliteControlPlaneAdapter } from "../../src/adapters/local/sqlite-control-plane-adapter.js";
-import { createControlStore } from "../../src/services/stores/control-store/index.js";
+import { createControlStore } from "../../src/adapters/local/sqlite/control-store/index.js";
 import { makeTempRoot } from "../helpers/temp-db.js";
 import { testEnv } from "../helpers/app.js";
 

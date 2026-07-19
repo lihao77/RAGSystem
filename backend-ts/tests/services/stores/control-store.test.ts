@@ -7,7 +7,7 @@ import { createTenantId, createUserId } from "../../../src/identity/types.js";
 import {
   CONTROL_LATEST_SCHEMA_VERSION,
   createControlStore,
-} from "../../../src/services/stores/control-store/index.js";
+} from "../../../src/adapters/local/sqlite/control-store/index.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");

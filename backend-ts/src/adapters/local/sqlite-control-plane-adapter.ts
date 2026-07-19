@@ -13,7 +13,7 @@ import {
   CONTROL_LATEST_SCHEMA_VERSION,
   ControlStore,
   createControlStore,
-} from "../../services/stores/control-store/index.js";
+} from "./sqlite/control-store/index.js";
 import { HttpError } from "../../utils/errors.js";
 
 export interface SqliteControlPlaneAdapterOptions {

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { LocalBashToolService } from "./BashExecution.js";
+import type { CommandExecutionPort } from "../../contracts/tool-ports.js";
 import { readBashArguments } from "../../services/runtime/runtime-tool-bridge/arguments.js";
 import { EXECUTE_BASH_TOOL_NAME } from "../../services/runtime/runtime-tool-bridge/registry.js";
 import { buildTool, type Tool, type ToolExecContext, type ToolAccessDecision } from "@ragsystem/agent-sdk";
@@ -9,7 +9,7 @@ import type { PathAccessPolicy } from "../../contracts/path-access-policy.js";
 import { optionalBoolean, optionalInteger, optionalString } from "../schema-helpers.js";
 
 interface BashToolDeps {
-  bashTools: LocalBashToolService | null;
+  bashTools: CommandExecutionPort | null;
   agent: AgentConfig;
   pathService: PathAccessPolicy;
 }

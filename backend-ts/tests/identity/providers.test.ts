@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { createControlStore } from "../../src/services/stores/control-store/index.js";
+import { createControlStore } from "../../src/adapters/local/sqlite/control-store/index.js";
 import { SqliteControlPlaneAdapter } from "../../src/adapters/local/sqlite-control-plane-adapter.js";
 import { SqliteWidgetCredentialAdapter } from "../../src/adapters/local/sqlite-widget-credential-adapter.js";
-import { createWidgetCredentialStore } from "../../src/services/stores/widget-credential-store/index.js";
+import { createWidgetCredentialStore } from "../../src/adapters/local/sqlite/widget-credential-store/index.js";
 import { createWidgetAuthService } from "../../src/services/runtime/jwt-service.js";
 import { createJwtKeyRing } from "../../src/services/runtime/jwt-key-ring.js";
 import {
