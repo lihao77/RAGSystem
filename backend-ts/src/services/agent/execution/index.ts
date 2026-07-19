@@ -37,7 +37,7 @@ import type { AgentCompressionService } from "../context-compression/compression
 import type { TenantId } from "../../../identity/types.js";
 import type { MemoryConfig } from "../../../contracts/system-config.js";
 import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
-import type { AsyncSuspendedSessionControl } from "../../runtime/saas-session-control-application.js";
+import type { SuspendedSessionControlPort } from "../../../contracts/runtime-async-ports.js";
 import {
   createLaunchers,
   type RollbackRetryInput,
@@ -107,7 +107,7 @@ export interface AgentExecutionServiceParams {
  /** backend 压缩服务（slash /compact + run 内 round.before 共用）；A3 压缩外移。 */
   compressionService?: AgentCompressionService;
   asyncClientEvents?: DurableExecutionClientEventPort;
-  asyncSuspendedSessionControl?: AsyncSuspendedSessionControl;
+  asyncSuspendedSessionControl?: SuspendedSessionControlPort;
 }
 
 /**

@@ -8,7 +8,7 @@ import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { IRunStore } from "../../../contracts/conversation-store/index.js";
 import type { PendingInteractionPort } from "../../../contracts/pending-interactions.js";
 import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
-import type { AsyncSuspendedSessionControl } from "../../runtime/saas-session-control-application.js";
+import type { SuspendedSessionControlPort } from "../../../contracts/runtime-async-ports.js";
 
 export interface SessionControlApi {
   stopSession(sessionId: string): Promise<boolean>;
@@ -23,7 +23,7 @@ export interface SessionControlDeps {
   eventPublisher: AgentExecutionEventPublisher;
   conversationStore: IRunStore;
   pendingInteractions: PendingInteractionPort;
-  asyncSuspendedSessionControl?: AsyncSuspendedSessionControl;
+  asyncSuspendedSessionControl?: SuspendedSessionControlPort;
   asyncClientEvents?: Pick<AsyncDurableClientEventPublisher, "publish">;
   /** collaborateSequentially 顺序复用 executeSynchronously（由 launchers 提供，注入打破环）。 */
   executeSynchronously: (request: ExecuteRequest, requestId: string) => Promise<AgentExecuteResult>;

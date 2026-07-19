@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 
 import { buildTestApp, buildTestHarness } from "../helpers/app.js";
-import { SaaSSessionApplication } from "../../src/services/runtime/saas-session-application.js";
+import { SaaSSessionApplication } from "../../src/application/session/saas-session-application.js";
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 let app: FastifyInstance | null = null;

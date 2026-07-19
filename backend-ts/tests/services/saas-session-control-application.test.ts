@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createTenantId } from "../../src/identity/types.js";
-import { SaaSSessionControlApplication } from "../../src/services/runtime/saas-session-control-application.js";
+import { SaaSSessionControlApplication } from "../../src/application/execution/saas-session-control-application.js";
 
 describe("SaaSSessionControlApplication", () => {
   it("只中断当前租户的 suspended runs 并取消 durable interactions", async () => {

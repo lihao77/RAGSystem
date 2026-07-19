@@ -7,9 +7,9 @@ import { createSaaSObjectStorage } from "./services/runtime/saas-object-storage.
 import type { ObjectStorage } from "./contracts/object-storage.js";
 import { TenantKnowledgeMarkdownPipeline } from "./contracts/knowledge/async-knowledge-markdown-pipeline.js";
 import { SaaSKnowledgeVectorApplication } from "./services/runtime/saas-knowledge-vector-application.js";
-import { SaaSSessionApplication } from "./services/runtime/saas-session-application.js";
+import { SaaSSessionApplication } from "./application/session/saas-session-application.js";
 import { SaaSAgentReadApplication } from "./application/execution/saas-agent-read-application.js";
-import { SaaSInteractionRecoveryApplication } from "./services/runtime/saas-interaction-recovery-application.js";
+import { SaaSInteractionRecoveryApplication } from "./application/interaction/saas-interaction-recovery-application.js";
 import { SaaSAnalyticsApplication } from "./application/analytics/saas-analytics-application.js";
 import { SaaSMonitoringApplication } from "./application/monitoring/saas-monitoring-application.js";
 import type { FastifyRequest } from "fastify";
