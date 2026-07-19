@@ -4,6 +4,7 @@ import { ok } from "../../contracts/common.js";
 import { HttpError } from "../../utils/errors.js";
 import type { RouteOptions } from "../route-options.js";
 import { requireTenantAdmin } from "../tenant-role.js";
+import { LocalAnalyticsApplication } from "../../services/runtime/local-analytics-application.js";
 
 /**
  * 管理中心数据分析端点。基于 agent_call_metrics 明细做时间序列 / 分组聚合,
@@ -50,10 +51,8 @@ export const registerAnalyticsRoutes: FastifyPluginAsync<RouteOptions> = async (
       throw new HttpError(400, "invalid_request", "bucket 必须是 day 或 hour");
     }
     const input: { since: string; bucket: "day" | "hour" } = { since: daysToSince(days), bucket };
-    const saas = await options.resolveSaaSAnalytics?.(request);
-    const rows = saas
-      ? await saas.aggregateTokenTrend(input)
-      : request.container.conversationStore.aggregateTokenTrend(input);
+    const analytics = await options.resolveAnalytics?.(request) ?? new LocalAnalyticsApplication(request.container.conversationStore);
+    const rows = await analytics.aggregateTokenTrend(input);
     return ok(rows, "获取 token 趋势成功");
   });
 
@@ -61,10 +60,8 @@ export const registerAnalyticsRoutes: FastifyPluginAsync<RouteOptions> = async (
     const query = request.query as RangeQuery;
     const days = parseDays(query.days, DEFAULT_MODEL_DAYS);
     const input = { since: daysToSince(days) };
-    const saas = await options.resolveSaaSAnalytics?.(request);
-    const rows = saas
-      ? await saas.aggregateModelUsage(input)
-      : request.container.conversationStore.aggregateModelUsage(input);
+    const analytics = await options.resolveAnalytics?.(request) ?? new LocalAnalyticsApplication(request.container.conversationStore);
+    const rows = await analytics.aggregateModelUsage(input);
     return ok(rows, "获取模型用量成功");
   });
 
@@ -72,10 +69,8 @@ export const registerAnalyticsRoutes: FastifyPluginAsync<RouteOptions> = async (
     const query = request.query as RangeQuery;
     const days = parseDays(query.days, DEFAULT_HEATMAP_DAYS);
     const input = { since: daysToSince(days) };
-    const saas = await options.resolveSaaSAnalytics?.(request);
-    const rows = saas
-      ? await saas.aggregateActivityHeatmap(input)
-      : request.container.conversationStore.aggregateActivityHeatmap(input);
+    const analytics = await options.resolveAnalytics?.(request) ?? new LocalAnalyticsApplication(request.container.conversationStore);
+    const rows = await analytics.aggregateActivityHeatmap(input);
     return ok(rows, "获取活跃热力图成功");
   });
 
@@ -83,10 +78,8 @@ export const registerAnalyticsRoutes: FastifyPluginAsync<RouteOptions> = async (
     const query = request.query as RangeQuery;
     const days = parseDays(query.days, DEFAULT_DAILY_DAYS);
     const input = { since: daysToSince(days) };
-    const saas = await options.resolveSaaSAnalytics?.(request);
-    const rows = saas
-      ? await saas.aggregateDailyActivity(input)
-      : request.container.conversationStore.aggregateDailyActivity(input);
+    const analytics = await options.resolveAnalytics?.(request) ?? new LocalAnalyticsApplication(request.container.conversationStore);
+    const rows = await analytics.aggregateDailyActivity(input);
     return ok(rows, "获取每日活跃度成功");
   });
 };

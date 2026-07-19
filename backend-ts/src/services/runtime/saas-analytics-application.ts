@@ -1,7 +1,8 @@
 import type { AsyncAnalyticsRepository } from "../../adapters/saas/postgres/analytics-repository.js";
+import type { AnalyticsApplication } from "../../contracts/analytics-application.js";
 
 /** Tenant-bound analytics facade used by HTTP routes. */
-export class SaaSAnalyticsApplication {
+export class SaaSAnalyticsApplication implements AnalyticsApplication {
   constructor(
     private readonly tenantId: string,
     private readonly repository: AsyncAnalyticsRepository,
