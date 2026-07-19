@@ -8,12 +8,15 @@ import { PostgresBotRepository } from "../../adapters/saas/postgres/bot-reposito
 import { createPostgresControlPlaneAdapter } from "../../adapters/saas/postgres/control-plane-adapter.js";
 import { createPostgresSecretResolver } from "../../adapters/saas/postgres/control-secret-resolver.js";
 import { PostgresWidgetCredentialRepository } from "../../adapters/saas/postgres/widget-credential-repository.js";
+import { PostgresDaemonLeaderLease } from "../../adapters/saas/postgres/daemon-leader-lease.js";
+import type { DaemonLeaderLease } from "../../contracts/daemon-leader-lease.js";
 
 export interface SaaSControlRuntimeHandle {
   readonly controlPlane: ControlPlane;
   readonly botRepository: BotRepository;
   readonly widgetCredentials: WidgetCredentialRepository;
   readonly secretResolver: SecretResolver;
+  readonly daemonLeaderLease: DaemonLeaderLease;
   close(): Promise<void>;
 }
 
@@ -38,12 +41,14 @@ export async function createSaaSControlRuntime(
     });
     const botRepository = new PostgresBotRepository(pool, secretResolver);
     const widgetCredentials = new PostgresWidgetCredentialRepository(pool);
+    const daemonLeaderLease = new PostgresDaemonLeaderLease(pool);
     let closed = false;
     return {
       controlPlane,
       botRepository,
       widgetCredentials,
       secretResolver,
+      daemonLeaderLease,
       async close() {
         if (closed) return;
         closed = true;

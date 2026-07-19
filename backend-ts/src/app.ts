@@ -224,6 +224,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const botEngine = options.botEngine ?? new DaemonService({
     botRepository,
     registry,
+    ...(options.controlRuntime ? { leaderLease: options.controlRuntime.daemonLeaderLease } : {}),
     runAgentTask: async (input) => {
       const lease = await registry.acquire(input.tenantId);
       try {

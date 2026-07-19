@@ -7,6 +7,7 @@ import type { DaemonOutgoingMessage, DaemonTestMessage } from "../../contracts/d
 import type { TenantId, UserId } from "../../identity/types.js";
 import type { PermissionMode } from "../../contracts/permissions.js";
 import type { TenantRuntimeRegistry } from "../runtime/tenant-runtime-registry.js";
+import type { DaemonLeaderLease } from "../../contracts/daemon-leader-lease.js";
 import type { ApprovalMeta } from "../runtime/pending-interaction-service.js";
 import {
   buildApprovalCard,
@@ -84,6 +85,7 @@ export interface DaemonServiceOptions {
   botRepository: BotRepository;
   registry: TenantRuntimeRegistry;
   runAgentTask: DaemonRunAgentTask;
+  leaderLease?: DaemonLeaderLease;
 }
 
 export class DaemonService {
@@ -93,7 +95,9 @@ export class DaemonService {
   private readonly reloads = new Map<UserId, Promise<void>>();
   private startPromise: Promise<void> | null = null;
   private schedulerTimer: NodeJS.Timeout | null = null;
+  private leaderRetryTimer: NodeJS.Timeout | null = null;
   private schedulerRunning = false;
+  private leader = false;
 
   constructor(private readonly options: DaemonServiceOptions) {}
 
@@ -104,12 +108,34 @@ export class DaemonService {
 
   private async initialize(): Promise<void> {
     try {
-      for (const config of await this.options.botRepository.listAllEnabledFeishu()) await this.rebuildBot(config);
-      this.startScheduler();
+      if (this.options.leaderLease && !(this.leader = await this.options.leaderLease.acquire())) {
+        this.startLeaderRetry();
+        return;
+      }
+      await this.initializeLeader();
     } catch (error) {
       this.close();
       throw error;
     }
+  }
+
+  private async initializeLeader(): Promise<void> {
+    for (const config of await this.options.botRepository.listAllEnabledFeishu()) await this.rebuildBot(config);
+    this.startScheduler();
+  }
+
+  private startLeaderRetry(): void {
+    if (this.leaderRetryTimer || !this.options.leaderLease) return;
+    this.leaderRetryTimer = setInterval(() => {
+      void (async () => {
+        if (this.leader || !this.options.leaderLease || !(await this.options.leaderLease.acquire())) return;
+        this.leader = true;
+        if (this.leaderRetryTimer) clearInterval(this.leaderRetryTimer);
+        this.leaderRetryTimer = null;
+        await this.initializeLeader();
+      })().catch((error: unknown) => console.error("[daemon] leader lease retry failed", error));
+    }, 5_000);
+    this.leaderRetryTimer.unref();
   }
 
   async reloadBot(botId: UserId): Promise<void> {
@@ -238,6 +264,12 @@ export class DaemonService {
   close(): void {
     if (this.schedulerTimer) clearInterval(this.schedulerTimer);
     this.schedulerTimer = null;
+    if (this.leaderRetryTimer) clearInterval(this.leaderRetryTimer);
+    this.leaderRetryTimer = null;
+    if (this.leader) {
+      this.leader = false;
+      void this.options.leaderLease?.release();
+    }
     this.schedulerRunning = false;
     for (const state of this.states.values()) this.disposeState(state);
     this.states.clear();
