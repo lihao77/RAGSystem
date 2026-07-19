@@ -4,6 +4,7 @@ import type { AgentConfig } from "../../../contracts/agent-config.js";
 import type { MemoryConfig } from "../../../contracts/system-config.js";
 import { buildBackendAgentContext } from "./backend-context-builder.js";
 import type { ConversationHistoryPort, SessionMetadataPort } from "./types.js";
+import type { MemoryRuntimeBindings } from "../memory/runtime-bindings.js";
 
 export async function previewBackendAgentContext(
   agent: AgentConfig,
@@ -15,6 +16,7 @@ export async function previewBackendAgentContext(
     dataRoot: string;
     sessionId: string;
     threadKey?: string | null;
+    memoryContextSourceFactory?: MemoryRuntimeBindings["createContextSource"];
   },
 ): Promise<Awaited<ReturnType<typeof buildBackendAgentContext>> & { preview: PreviewResult }> {
   const context = await buildBackendAgentContext(agent, profile, historyPort, {
