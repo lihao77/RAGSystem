@@ -7,29 +7,8 @@ import type {
   TokenTrendPoint,
 } from "../../../contracts/conversation-store/index.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
-
-export interface AsyncAnalyticsRepository {
-  insertMetric(tenantId: string, input: {
-    agentName: string;
-    model?: string;
-    sessionId?: string | null;
-    runId?: string | null;
-    taskId?: string | null;
-    executionKind: string;
-    status: string;
-    durationMs: number;
-    tokenIn?: number;
-    tokenOut?: number;
-    toolUsage?: Record<string, number>;
-    errorType?: string | null;
-    startedAt: string;
-    finishedAt?: string | null;
-  }): Promise<void>;
-  aggregateTokenTrend(tenantId: string, input: { since: string; bucket: "day" | "hour" }): Promise<TokenTrendPoint[]>;
-  aggregateModelUsage(tenantId: string, input: { since: string }): Promise<ModelUsagePoint[]>;
-  aggregateActivityHeatmap(tenantId: string, input: { since: string }): Promise<HeatmapPoint[]>;
-  aggregateDailyActivity(tenantId: string, input: { since: string }): Promise<DailyActivityPoint[]>;
-}
+import type { AsyncAnalyticsRepository } from "../../../contracts/async-persistence-ports.js";
+export type { AsyncAnalyticsRepository } from "../../../contracts/async-persistence-ports.js";
 
 function number(value: unknown): number {
   return Number(value ?? 0);

@@ -1,11 +1,11 @@
-import type { AsyncAnalyticsRepository } from "../../adapters/saas/postgres/analytics-repository.js";
 import type { AnalyticsApplication } from "../../contracts/analytics-application.js";
+import type { AnalyticsRepositoryPort } from "../../contracts/async-persistence-ports.js";
 
 /** Tenant-bound analytics facade used by HTTP routes. */
 export class SaaSAnalyticsApplication implements AnalyticsApplication {
   constructor(
     private readonly tenantId: string,
-    private readonly repository: AsyncAnalyticsRepository,
+    private readonly repository: AnalyticsRepositoryPort,
   ) {}
 
   aggregateTokenTrend(input: { since: string; bucket: "day" | "hour" }) {

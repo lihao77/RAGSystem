@@ -5,34 +5,14 @@ import type { MessageInfo, SessionInfo, SessionListItem } from "../../../contrac
 import type { AddMessageInput } from "../../../contracts/conversation-store/index.js";
 import { AddMessageInputSchema } from "../../../contracts/conversation-store/types.js";
 import type { PermissionMode } from "../../../contracts/permissions.js";
+import type { AsyncConversationRepository } from "../../../contracts/async-persistence-ports.js";
+export type { AsyncConversationRepository } from "../../../contracts/async-persistence-ports.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
 import { decodeChatFields, encodeChatFields } from "../../../services/stores/conversation-store/chat-message-codec.js";
 
 const iso = (value: unknown) => new Date(String(value)).toISOString();
 const session = (row: Record<string, unknown>): SessionInfo => ({ session_id: String(row.session_id), tenant_id: row.tenant_id as TenantId, user_id: row.user_id == null ? null : String(row.user_id), permission_mode: row.permission_mode as PermissionMode | null, metadata: (row.metadata ?? {}) as Record<string, unknown>, created_at: iso(row.created_at), updated_at: iso(row.updated_at) });
 const message = (row: Record<string, unknown>): MessageInfo => { const metadata = (row.metadata ?? {}) as Record<string, unknown>; return { seq: Number(row.seq), id: String(row.id), session_id: String(row.session_id), role: row.role as MessageInfo["role"], content: String(row.content), metadata, thread_key: String(row.thread_key ?? "root"), child_agent_id: row.child_agent_id == null ? null : String(row.child_agent_id), created_at: iso(row.created_at), ...(decodeChatFields(metadata) as any) }; };
-
-/** Async SaaS port; the Local ConversationStore remains synchronous by design. */
-export interface AsyncConversationRepository {
-  createSession(...args: Parameters<PostgresConversationRepository["createSession"]>): Promise<void>;
-  getSession(sessionId: string): Promise<SessionInfo | null>;
-  updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;
-  updateSessionPermissionMode(sessionId: string, mode: PermissionMode): Promise<boolean>;
-  deleteSession(sessionId: string): Promise<boolean>;
-  listSessions(...args: Parameters<PostgresConversationRepository["listSessions"]>): Promise<PaginatedResult<SessionListItem>>;
-  addMessage(input: AddMessageInput): Promise<MessageInfo>;
-  listMessages(sessionId: string, limit?: number, offset?: number, threadKey?: string | null): Promise<PaginatedResult<MessageInfo>>;
-  listVisibleRootMessages(sessionId: string, limit?: number, offset?: number): Promise<PaginatedResult<MessageInfo>>;
-  getMessageBySeq(sessionId: string, seq: number): Promise<MessageInfo | null>;
-  getMessageById(sessionId: string, id: string): Promise<MessageInfo | null>;
-  getFirstMessageAfterSeq(sessionId: string, seq: number): Promise<MessageInfo | null>;
-  listMessagesAfterSeq(sessionId: string, seq: number, limit?: number): Promise<MessageInfo[]>;
-  listMessagesBeforeOrAtSeq(sessionId: string, seq: number, limit?: number): Promise<MessageInfo[]>;
-  getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;
-  deleteMessagesAfter(sessionId: string, input: { afterSeq?: number | null; afterMessageId?: string | null }): Promise<number>;
-  updateMessage(input: { messageId: string; content?: string | null; metadata?: Record<string, unknown> | null; sessionId?: string | null; roleFilter?: MessageInfo["role"] | null }): Promise<boolean>;
-  insertCompressionMessage(input: { sessionId: string; summaryContent: string; replacesUpToSeq?: number | null; threadKey?: string; childAgentId?: string | null; metadata?: Record<string, unknown> }): Promise<MessageInfo>;
-}
 
 export class PostgresConversationRepository implements AsyncConversationRepository {
   constructor(private readonly executor: PostgresMemoryExecutor) {}

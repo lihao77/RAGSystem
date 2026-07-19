@@ -1,6 +1,8 @@
 import type { RunStepInfo } from "../../../contracts/common.js";
 import type { AddRunStepInput, IRunStore, RunInfo, RunStepRecord } from "../../../contracts/conversation-store/index.js";
 import type { PostgresMemoryExecutor } from "./memory-repository.js";
+import type { AsyncRunStore } from "../../../contracts/async-persistence-ports.js";
+export type { AsyncRunStore } from "../../../contracts/async-persistence-ports.js";
 
 const runColumns = `run_id, session_id, tenant_id, entrypoint, status, task_summary,
   request_id, user_id, agent_name, thread_key, parent_run_id, parent_call_id,
@@ -16,20 +18,6 @@ function run(row: Record<string, unknown>): RunInfo {
     child_agent_id: textOrNull(row.child_agent_id), final_message_id: textOrNull(row.final_message_id),
     created_at: new Date(String(row.created_at)).toISOString(), updated_at: new Date(String(row.updated_at)).toISOString(),
   };
-}
-
-/** Async SaaS port. The existing local IRunStore is synchronous by design. */
-export interface AsyncRunStore {
-  createRun(input: Parameters<IRunStore["createRun"]>[0] & { tenantId: string }): Promise<ReturnType<IRunStore["createRun"]>>;
-  updateRunStatus(tenantId: string, runId: string, sessionId: string, status: string, finalMessageId?: string | null): Promise<boolean>;
-  getRun(tenantId: string, sessionId: string, runId: string): Promise<RunInfo | null>;
-  listRuns(tenantId: string, sessionId: string, limit?: number): Promise<{ items: RunInfo[]; total: number }>;
-  interruptSuspendedRuns(tenantId: string, sessionId: string): Promise<RunInfo[]>;
-  addRunStep(input: AddRunStepInput & { tenantId: string }): Promise<RunStepRecord>;
-  updateRunStepsMessageId(tenantId: string, sessionId: string, runId: string, messageId: string): Promise<number>;
-  listRunSteps(input: { tenantId: string; runId?: string | null; messageId?: string | null; sessionId?: string | null; limit?: number }): Promise<RunStepInfo[]>;
-  getTenantRun(tenantId: string, runId: string): Promise<RunInfo | null>;
-  listTenantRuns(tenantId: string, activeOnly: boolean): Promise<RunInfo[]>;
 }
 
 export class PostgresRunRepository implements AsyncRunStore {

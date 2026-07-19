@@ -6,13 +6,13 @@ import type {
   RetryOutboxResult,
 } from "../../contracts/conversation-store/index.js";
 import type { PaginatedResult } from "../../contracts/common.js";
-import type { PostgresOutboxRepository } from "../../adapters/saas/postgres/outbox-repository.js";
 import type { MonitoringApplication } from "../../contracts/monitoring-application.js";
+import type { MonitoringRepositoryPort } from "../../contracts/async-persistence-ports.js";
 
 export class SaaSMonitoringApplication implements MonitoringApplication {
   constructor(
     private readonly tenantId: string,
-    private readonly outbox: Pick<PostgresOutboxRepository, "getOutboxRow" | "listOutbox" | "retryOutbox" | "retryOutboxBatch" | "deleteDeliveredOutbox">,
+    private readonly outbox: MonitoringRepositoryPort,
   ) {}
 
   listOutbox(input?: ListOutboxInput): Promise<PaginatedResult<OutboxRow>> { return this.outbox.listOutbox(this.tenantId, input); }

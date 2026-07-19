@@ -1,19 +1,23 @@
 import type { OutboxRow, RunInfo } from "../../contracts/conversation-store/index.js";
 import type { ExecutionOverview, ExecutionTaskStatus, RunningTasksResult, ScopedExecutionDiagnostics, ScopedTaskStatus, SessionTaskStatus } from "../../contracts/execution.js";
 import type { SessionInfo } from "../../contracts/session.js";
-import type { PostgresConversationRepository } from "../../adapters/saas/postgres/conversation-repository.js";
-import type { PostgresOutboxRepository } from "../../adapters/saas/postgres/outbox-repository.js";
-import type { PostgresRunRepository } from "../../adapters/saas/postgres/run-repository.js";
 import { buildObservability } from "../agent/execution/helpers.js";
-import type { ExecutionReadApplication } from "../../contracts/execution-read-application.js";
+import type {
+  ExecutionReadApplication,
+} from "../../contracts/execution-read-application.js";
+import type {
+  ExecutionReplayRepositoryPort,
+  ExecutionRunReadRepositoryPort,
+  ExecutionSessionReadRepositoryPort,
+} from "../../contracts/async-persistence-ports.js";
 
 /** Tenant-bound read facade used while the Agent execution path is still being made fully asynchronous. */
 export class SaaSAgentReadApplication implements ExecutionReadApplication {
   constructor(
     private readonly tenantId: string,
-    private readonly conversations: Pick<PostgresConversationRepository, "getSession">,
-    private readonly runs: Pick<PostgresRunRepository, "listRuns" | "getTenantRun" | "listTenantRuns">,
-    private readonly outbox: Pick<PostgresOutboxRepository, "listOutboxForReplay">,
+    private readonly conversations: ExecutionSessionReadRepositoryPort,
+    private readonly runs: ExecutionRunReadRepositoryPort,
+    private readonly outbox: ExecutionReplayRepositoryPort,
   ) {}
 
   async getSession(sessionId: string): Promise<SessionInfo | null> {
