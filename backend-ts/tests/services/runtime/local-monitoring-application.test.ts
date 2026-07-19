@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { LocalMonitoringApplication } from "../../../src/adapters/local/local-monitoring-application.js";
+import { LocalMonitoringApplication } from "../../../src/adapters/local/application/monitoring/local-monitoring-application.js";
 
 describe("LocalMonitoringApplication", () => {
   it("adapts synchronous outbox operations to the monitoring contract", async () => {

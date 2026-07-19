@@ -1,12 +1,12 @@
 import type { FastifyRequest } from "fastify";
 
-import { LocalAnalyticsApplication } from "../adapters/local/local-analytics-application.js";
-import { LocalArtifactApplication } from "../adapters/local/local-artifact-application.js";
-import { LocalMonitoringApplication } from "../adapters/local/local-monitoring-application.js";
-import { LocalSessionApplication } from "../adapters/local/local-session-application.js";
-import { LocalExecutionReadApplication } from "../adapters/local/local-execution-read-application.js";
-import { LocalInteractionRecoveryApplication } from "../adapters/local/local-interaction-recovery-application.js";
-import { LocalExecutionApplication } from "../adapters/local/local-execution-application.js";
+import { LocalAnalyticsApplication } from "../adapters/local/application/analytics/local-analytics-application.js";
+import { LocalArtifactApplication } from "../adapters/local/application/artifact/local-artifact-application.js";
+import { LocalMonitoringApplication } from "../adapters/local/application/monitoring/local-monitoring-application.js";
+import { LocalSessionApplication } from "../adapters/local/application/session/local-session-application.js";
+import { LocalExecutionReadApplication } from "../adapters/local/application/execution-read/local-execution-read-application.js";
+import { LocalInteractionRecoveryApplication } from "../adapters/local/application/interaction-recovery/local-interaction-recovery-application.js";
+import { LocalExecutionApplication } from "../adapters/local/application/execution/local-execution-application.js";
 import type { AnalyticsApplication } from "../contracts/analytics-application.js";
 import type { ArtifactApplication } from "../contracts/artifact-application.js";
 import type { MonitoringApplication } from "../contracts/monitoring-application.js";
@@ -14,7 +14,7 @@ import type { SessionApplication } from "../contracts/session-application.js";
 import type { ExecutionReadApplication } from "../contracts/execution-read-application.js";
 import type { InteractionRecoveryApplication } from "../contracts/interaction-recovery-application.js";
 import type { ExecutionApplication } from "../contracts/execution-application.js";
-import { LocalMemoryApplication } from "../adapters/local/local-memory-application.js";
+import { LocalMemoryApplication } from "../adapters/local/application/memory/local-memory-application.js";
 import type { MemoryApplication } from "../services/memory/index.js";
 import type { RouteOptions } from "../routes/route-options.js";
 

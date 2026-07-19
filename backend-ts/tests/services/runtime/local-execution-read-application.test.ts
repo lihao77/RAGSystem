@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { LocalExecutionReadApplication } from "../../../src/adapters/local/local-execution-read-application.js";
+import { LocalExecutionReadApplication } from "../../../src/adapters/local/application/execution-read/local-execution-read-application.js";
 
 describe("LocalExecutionReadApplication", () => {
   it("adapts all in-process execution reads to the async contract", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { LocalAnalyticsApplication } from "../../../src/adapters/local/local-analytics-application.js";
+import { LocalAnalyticsApplication } from "../../../src/adapters/local/application/analytics/local-analytics-application.js";
 
 describe("LocalAnalyticsApplication", () => {
   it("adapts synchronous ConversationStore aggregation to async contract", async () => {

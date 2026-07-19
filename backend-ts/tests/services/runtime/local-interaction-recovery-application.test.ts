@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { LocalInteractionRecoveryApplication } from "../../../src/adapters/local/local-interaction-recovery-application.js";
+import { LocalInteractionRecoveryApplication } from "../../../src/adapters/local/application/interaction-recovery/local-interaction-recovery-application.js";
 
 describe("LocalInteractionRecoveryApplication", () => {
   it("adapts process-local interaction and continuation stores to the async contract", async () => {
