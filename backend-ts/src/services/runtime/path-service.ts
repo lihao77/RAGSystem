@@ -12,6 +12,11 @@ import path from "node:path";
 
 export class PathApprovalService {
   private readonly approved: string[] = [];
+  private allowUnapprovedExternalPaths = false;
+
+  setAllowUnapprovedExternalPaths(allow: boolean): void {
+    this.allowUnapprovedExternalPaths = allow;
+  }
 
   /** 记录审批通过的外部路径（gate handler 审批后调用）。 */
   approve(candidates: Array<string | null | undefined>): void {
@@ -42,7 +47,7 @@ export class PathApprovalService {
    */
   assertWithin(candidatePath: string, roots: string[], originalPath: string): string {
     const resolved = path.resolve(candidatePath);
-    if (roots.some((root) => isPathUnder(resolved, root)) || this.approved.some((root) => isPathUnder(resolved, root))) {
+    if (this.allowUnapprovedExternalPaths || roots.some((root) => isPathUnder(resolved, root)) || this.approved.some((root) => isPathUnder(resolved, root))) {
       return resolved;
     }
     throw new Error(`路径 '${originalPath}' 超出允许的受管目录范围，禁止访问`);

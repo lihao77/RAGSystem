@@ -50,7 +50,7 @@ describe("PermissionPolicyService", () => {
     store.close();
   });
 
-  it("超范围路径统一按 session mode 与工具风险决定是否审批", () => {
+  it("超范围路径在非 YOLO 模式下始终需要审批", () => {
     const dbPath = makeTempDb();
     const store = createConversationStore({ dbPath, dataRoot: path.dirname(dbPath) });
     const service = new PermissionPolicyService(store);
@@ -73,22 +73,22 @@ describe("PermissionPolicyService", () => {
         mode: "relaxed",
         riskLevel: "high",
         action: "ask",
-        reason: "宽松模式：高风险工具需要审批",
-        reasonCodes: ["ask-risk"],
+        reason: "工作目录外路径需要用户审批",
+        reasonCodes: ["external-path"],
       },
       {
         mode: "standard",
         riskLevel: "low",
-        action: "allow",
-        reason: "",
-        reasonCodes: [],
+        action: "ask",
+        reason: "工作目录外路径需要用户审批",
+        reasonCodes: ["external-path"],
       },
       {
         mode: "strict",
         riskLevel: "low",
         action: "ask",
-        reason: "严格模式：low 风险工具需要审批",
-        reasonCodes: ["ask-risk"],
+        reason: "工作目录外路径需要用户审批",
+        reasonCodes: ["external-path"],
       },
     ];
 

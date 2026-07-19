@@ -143,6 +143,10 @@ export async function executeRunWithSdk(
   // per-run 构建工具集合：后端工具 + 前端委托工具（source=host，其 Tool.call 转发宿主执行 + 等回传）。
   const teamName = asString(input.sessionMetadata.team);
   const pathService = new PathApprovalService();
+  const effectivePermission = deps.permissionPolicy.getEffectivePolicy(input.sessionId);
+  pathService.setAllowUnapprovedExternalPaths(
+    effectivePermission.mode === "dangerously_skip_permissions" || effectivePermission.skip_all_approvals,
+  );
   const hostTools = buildHostDelegateTools(deps.hostToolRegistry.get(input.sessionId), deps.delegationPending);
   const tools: Tool[] = [
     ...createBackendTools({

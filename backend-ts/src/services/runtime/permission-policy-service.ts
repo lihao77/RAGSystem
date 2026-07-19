@@ -76,6 +76,18 @@ export class PermissionPolicyService {
       };
     }
 
+    // External paths are a separate boundary from command risk. In every
+    // non-YOLO mode they require an explicit approval, including read-only
+    // operations that would otherwise be considered low risk.
+    if (externalPathCandidates.length && policy.mode !== "dangerously_skip_permissions") {
+      return {
+        ...base,
+        action: "ask",
+        reason: "工作目录外路径需要用户审批",
+        reasonCodes: ["external-path"],
+      };
+    }
+
     const autoAcceptReason = matchAutoAccept(toolName, riskLevel, input.arguments ?? {}, policy);
 
     let allowReason = "";
