@@ -14,7 +14,7 @@ interface PendingInteractionRow extends Omit<PendingInteractionRecord, "request_
 
 const SELECT_COLUMNS = `interaction_id, session_id, run_id, root_run_id, tool_call_id,
   batch_id, kind, status, request_payload, resolution_payload, created_at, updated_at,
-  responded_at, consumed_at, resume_claim_id`;
+  responded_at, consumed_at, resume_claim_id, resume_claim_expires_at`;
 
 export class PendingInteractionOps implements IPendingInteractionStore {
   constructor(private readonly db: ConversationDb) {}
@@ -86,6 +86,7 @@ export class PendingInteractionOps implements IPendingInteractionStore {
       input.status,
       input.status,
       input.status,
+      input.status,
       input.sessionId,
       input.interactionId,
       ...(input.from ?? []),
@@ -97,6 +98,7 @@ export class PendingInteractionOps implements IPendingInteractionStore {
           responded_at=CASE WHEN ?='resolved' THEN CURRENT_TIMESTAMP ELSE responded_at END,
           consumed_at=CASE WHEN ?='consumed' THEN CURRENT_TIMESTAMP ELSE consumed_at END,
           resume_claim_id=CASE WHEN ?='resuming' THEN resume_claim_id ELSE NULL END,
+          resume_claim_expires_at=CASE WHEN ?='resuming' THEN resume_claim_expires_at ELSE NULL END,
           updated_at=CURRENT_TIMESTAMP
       WHERE session_id=? AND interaction_id=?${fromClause}
     `).run(...params);
@@ -120,16 +122,16 @@ export class PendingInteractionOps implements IPendingInteractionStore {
   releasePendingBatch(sessionId: string, batchId: string): number {
     const result = this.db.prepare(`
       UPDATE pending_interactions
-      SET status='resolved', resume_claim_id=NULL, updated_at=CURRENT_TIMESTAMP
+      SET status='resolved', resume_claim_id=NULL, resume_claim_expires_at=NULL, updated_at=CURRENT_TIMESTAMP
       WHERE session_id=? AND batch_id=? AND status='resuming'
     `).run(sessionId, batchId);
     return Number(result.changes);
   }
 
-  claimPendingBatch(sessionId: string, batchId: string, claimId: string): number {
+  claimPendingBatch(sessionId: string, batchId: string, claimId: string, leaseMs = 120_000): number {
     const result = this.db.prepare(`
       UPDATE pending_interactions
-      SET status='resuming', resume_claim_id=?, updated_at=CURRENT_TIMESTAMP
+      SET status='resuming', resume_claim_id=?, resume_claim_expires_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || (? / 1000.0) || ' seconds'), updated_at=CURRENT_TIMESTAMP
       WHERE session_id=? AND batch_id=? AND status='resolved'
         AND NOT EXISTS (
           SELECT 1 FROM pending_interactions AS unresolved
@@ -143,16 +145,24 @@ export class PendingInteractionOps implements IPendingInteractionStore {
             AND claimed.batch_id=?
             AND claimed.status='resuming'
         )
-    `).run(claimId, sessionId, batchId, sessionId, batchId, sessionId, batchId);
+    `).run(claimId, leaseMs, sessionId, batchId, sessionId, batchId, sessionId, batchId);
     return Number(result.changes);
   }
 
   releasePendingClaim(sessionId: string, rootRunId: string, claimId: string): number {
     const result = this.db.prepare(`
       UPDATE pending_interactions
-      SET status='resolved', resume_claim_id=NULL, updated_at=CURRENT_TIMESTAMP
+      SET status='resolved', resume_claim_id=NULL, resume_claim_expires_at=NULL, updated_at=CURRENT_TIMESTAMP
       WHERE session_id=? AND root_run_id=? AND resume_claim_id=? AND status='resuming'
     `).run(sessionId, rootRunId, claimId);
+    return Number(result.changes);
+  }
+
+  renewPendingClaim(sessionId: string, rootRunId: string, claimId: string, leaseMs = 120_000): number {
+    const result = this.db.prepare(`UPDATE pending_interactions
+      SET resume_claim_expires_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || (? / 1000.0) || ' seconds'), updated_at=CURRENT_TIMESTAMP
+      WHERE session_id=? AND root_run_id=? AND resume_claim_id=? AND status='resuming'
+        AND resume_claim_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`).run(leaseMs, sessionId, rootRunId, claimId);
     return Number(result.changes);
   }
 
@@ -204,7 +214,7 @@ export class PendingInteractionOps implements IPendingInteractionStore {
   cancelPendingInteractions(sessionId: string): number {
     const result = this.db.prepare(`
       UPDATE pending_interactions
-      SET status='cancelled', resume_claim_id=NULL, updated_at=CURRENT_TIMESTAMP
+      SET status='cancelled', resume_claim_id=NULL, resume_claim_expires_at=NULL, updated_at=CURRENT_TIMESTAMP
       WHERE session_id=? AND status IN ('waiting', 'suspended', 'resolved', 'resuming')
     `).run(sessionId);
     return Number(result.changes);

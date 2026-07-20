@@ -129,8 +129,10 @@ describe("SqliteRuntimeStorage", () => {
       recordInteraction: expect.any(Function),
       resolveInteraction: expect.any(Function),
       claimResume: expect.any(Function),
+      renewResumeClaim: expect.any(Function),
       rollbackResume: expect.any(Function),
       interruptSession: expect.any(Function),
+      recoverExpiredResumeClaims: expect.any(Function),
       finalizeRun: expect.any(Function),
     });
     expect(storage).not.toHaveProperty("conversation");

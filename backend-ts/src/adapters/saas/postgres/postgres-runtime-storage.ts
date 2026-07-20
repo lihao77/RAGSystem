@@ -20,6 +20,10 @@ import type {
   RuntimeRecordEnvelopeResult,
   RuntimeRecordInteractionInput,
   RuntimeRecordInteractionResult,
+  RuntimeRecoverExpiredResumeClaimsInput,
+  RuntimeRecoverExpiredResumeClaimsResult,
+  RuntimeRenewResumeClaimInput,
+  RuntimeRenewResumeClaimResult,
   RuntimeResolveInteractionInput,
   RuntimeResolveInteractionResult,
   RuntimeRollbackResumeInput,
@@ -145,6 +149,8 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       claimResume: (input) => this.claimResume(input),
       rollbackResume: (input) => this.rollbackResume(input),
       interruptSession: (input) => this.interruptSession(input),
+      renewResumeClaim: (input) => this.renewResumeClaim(input),
+      recoverExpiredResumeClaims: (input) => this.recoverExpiredResumeClaims(input),
       finalizeRun: (input) => this.finalizeRun(input),
     };
   }
@@ -155,7 +161,12 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       assertSessionId(input.initialUserMessage.sessionId, input.session.sessionId, "initial user message");
     }
     return this.executor.transaction(async (transactionExecutor) => {
-      await lockAdvisoryKey(transactionExecutor, `session:${input.session.sessionId}`);
+      // Session lifecycle operations (start/stop/resolve/resume/finalize) share
+      // one tenant-scoped fence so a stop cannot race a new root run creation.
+      await lockAdvisoryKey(
+        transactionExecutor,
+        `session-control:${this.tenantId}:${input.session.sessionId}`,
+      );
       const sessionExists = await assertTenantSession(
         transactionExecutor,
         this.tenantId,
@@ -388,7 +399,12 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         return { claimed: false, reason: rootRun.status !== "running" ? "terminal" : "root_not_suspended" };
       }
       const repository = new PostgresPendingInteractionRepository(transactionExecutor);
-      const claimed = await repository.claimPendingBatch(input.sessionId, interaction.batch_id, claimId);
+      const claimed = await repository.claimPendingBatch(
+        input.sessionId,
+        interaction.batch_id,
+        claimId,
+        resumeLeaseMs(input.leaseMs),
+      );
       if (claimed !== batch.length) {
         throw new Error(`resume batch claim was partial: ${interaction.batch_id}`);
       }
@@ -461,7 +477,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       const runIds = new Set<string>();
       const activeRuns = await transactionExecutor.query<{ run_id: string; parent_run_id: string | null }>(
         `SELECT run_id, parent_run_id FROM saas_runs
-         WHERE tenant_id=$1 AND session_id=$2 AND status IN ('running','suspended')
+         WHERE tenant_id=$1 AND session_id=$2 AND status='suspended'
          ORDER BY run_id`,
         [this.tenantId, input.sessionId],
       );
@@ -481,6 +497,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           `interaction-root:${this.tenantId}:${input.sessionId}:${rootRunId}`,
         );
         const rootRun = await lockTenantRun(transactionExecutor, this.tenantId, rootRunId);
+        if (rootRun && rootRun.status !== "suspended") continue;
         const rootPending = activePending.filter((pending) => pending.root_run_id === rootRunId);
         cancelledInteractions += rootPending.length;
         await tx.pendingInteractions.finalizePendingInteractions(input.sessionId, rootRunId, "interrupted");
@@ -492,7 +509,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         const runId = String(row.run_id);
         const parentRunId = row.parent_run_id === null ? null : String(row.parent_run_id);
         const run = await lockTenantRun(transactionExecutor, this.tenantId, runId);
-        if (!run || run.session_id !== input.sessionId || (run.status !== "running" && run.status !== "suspended")) continue;
+        if (!run || run.session_id !== input.sessionId || run.status !== "suspended") continue;
         if (!await tx.runs.updateRunStatus(runId, input.sessionId, "interrupted", null)) {
           throw new Error(`run not found while interrupting session: ${runId}`);
         }
@@ -505,6 +522,100 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, normalized));
       }
       return { interruptedRuns, cancelledInteractions, records };
+    });
+  }
+
+  private async recoverExpiredResumeClaims(input: RuntimeRecoverExpiredResumeClaimsInput): Promise<RuntimeRecoverExpiredResumeClaimsResult> {
+    return this.executor.transaction(async (transactionExecutor) => {
+      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
+      const cutoffMs = input.now === undefined ? null : Date.parse(input.now);
+      if (cutoffMs !== null && !Number.isFinite(cutoffMs)) {
+        throw new Error("resume claim now must be a valid timestamp");
+      }
+      const cutoff = cutoffMs === null ? null : new Date(cutoffMs).toISOString();
+      const stale = (await transactionExecutor.query<{
+        interaction_id: string;
+        root_run_id: string;
+        batch_id: string;
+        resume_claim_id: string | null;
+        updated_at: string;
+      }>(
+        `SELECT interaction_id, root_run_id, batch_id, resume_claim_id, updated_at FROM pending_interactions
+         WHERE session_id=$1 AND status='resuming'
+           AND resume_claim_expires_at <= COALESCE($2::timestamptz, CURRENT_TIMESTAMP)
+         ORDER BY root_run_id, batch_id, interaction_id FOR UPDATE`,
+        [input.sessionId, cutoff],
+      )).rows.map((item) => ({
+        interaction_id: String(item.interaction_id),
+        root_run_id: String(item.root_run_id),
+        batch_id: String(item.batch_id),
+        resume_claim_id: item.resume_claim_id == null ? null : String(item.resume_claim_id),
+        updated_at: String(item.updated_at),
+      })).filter((item) => item.resume_claim_id);
+      const groups = new Map<string, typeof stale>();
+      for (const item of stale) {
+        const key = `${item.root_run_id}:${item.batch_id}:${item.resume_claim_id}`;
+        const group = groups.get(key) ?? [];
+        group.push(item);
+        groups.set(key, group);
+      }
+      const tx = createTransactionFacade(this.tenantId, transactionExecutor);
+      const recoveredClaimIds = new Set<string>();
+      const recoveredBatchIds = new Set<string>();
+      const suspendedRootRunIds = new Set<string>();
+      for (const group of [...groups.values()].sort((left, right) => left[0]!.root_run_id.localeCompare(right[0]!.root_run_id) || left[0]!.batch_id.localeCompare(right[0]!.batch_id))) {
+        const rootRunId = group[0]!.root_run_id;
+        await lockAdvisoryKey(transactionExecutor, `interaction-root:${this.tenantId}:${input.sessionId}:${rootRunId}`);
+        await lockAdvisoryKey(transactionExecutor, `interaction-batch:${this.tenantId}:${input.sessionId}:${group[0]!.batch_id}`);
+        const root = await lockTenantRun(transactionExecutor, this.tenantId, rootRunId);
+        if (!root || root.session_id !== input.sessionId) continue;
+        if (root.status !== "running") {
+          if (root.status === "completed" || root.status === "failed" || root.status === "interrupted" || root.status === "suspended") {
+            await tx.pendingInteractions.finalizePendingInteractions(input.sessionId, rootRunId, root.status);
+            recoveredClaimIds.add(group[0]!.resume_claim_id!);
+            recoveredBatchIds.add(group[0]!.batch_id);
+          }
+          continue;
+        }
+        const released = await new PostgresPendingInteractionRepository(transactionExecutor)
+          .releasePendingClaim(input.sessionId, rootRunId, group[0]!.resume_claim_id!);
+        if (released !== group.length) throw new Error(`resume claim recovery was partial: ${group[0]!.resume_claim_id}`);
+        recoveredClaimIds.add(group[0]!.resume_claim_id!);
+        recoveredBatchIds.add(group[0]!.batch_id);
+        suspendedRootRunIds.add(rootRunId);
+      }
+      for (const rootRunId of [...suspendedRootRunIds].sort()) {
+        if (!await tx.runs.updateRunStatus(rootRunId, input.sessionId, "suspended", null)) {
+          throw new Error(`resume root run recovery failed: ${rootRunId}`);
+        }
+      }
+      return {
+        recoveredClaimIds: [...recoveredClaimIds].sort(),
+        recoveredBatchIds: [...recoveredBatchIds].sort(),
+        suspendedRootRunIds: [...suspendedRootRunIds].sort(),
+      };
+    });
+  }
+
+  private async renewResumeClaim(input: RuntimeRenewResumeClaimInput): Promise<RuntimeRenewResumeClaimResult> {
+    return this.executor.transaction(async (transactionExecutor) => {
+      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
+      await lockAdvisoryKey(transactionExecutor, `interaction-root:${this.tenantId}:${input.sessionId}:${input.rootRunId}`);
+      const repository = new PostgresPendingInteractionRepository(transactionExecutor);
+      const renewed = await repository.renewPendingClaim(
+        input.sessionId,
+        input.rootRunId,
+        input.claimId,
+        resumeLeaseMs(input.leaseMs),
+      );
+      const record = (await repository.listPendingInteractions({
+        sessionId: input.sessionId,
+        rootRunId: input.rootRunId,
+        statuses: ["resuming"],
+      })).find((item) => item.resume_claim_id === input.claimId);
+      return { renewed: renewed > 0, expiresAt: record?.resume_claim_expires_at ?? null };
     });
   }
 
@@ -944,6 +1055,14 @@ function assertInteractionBatchRoot(
 
 function stringField(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+function resumeLeaseMs(value: number | undefined): number {
+  const leaseMs = value ?? 120_000;
+  if (!Number.isFinite(leaseMs) || leaseMs < 1 || leaseMs > 86_400_000) {
+    throw new Error("resume leaseMs must be between 1 and 86400000 milliseconds");
+  }
+  return Math.trunc(leaseMs);
 }
 
 function normalizeRecord(input: RuntimeRecordEnvelopeInput): RuntimeRecordEnvelopeInput {

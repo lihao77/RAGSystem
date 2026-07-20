@@ -42,4 +42,18 @@ export const POSTGRES_PENDING_INTERACTION_MIGRATIONS: PostgresPendingInteraction
       ON pending_interactions(session_id, root_run_id, resume_claim_id)
       WHERE resume_claim_id IS NOT NULL;
   `,
+}, {
+  version: 3,
+  name: "pending_interaction_resume_claim_expiry",
+  sql: `
+    ALTER TABLE pending_interactions
+      ADD COLUMN IF NOT EXISTS resume_claim_expires_at TIMESTAMPTZ;
+    UPDATE pending_interactions
+      SET resume_claim_expires_at = updated_at + INTERVAL '120 seconds'
+      WHERE status='resuming' AND resume_claim_id IS NOT NULL
+        AND resume_claim_expires_at IS NULL;
+    CREATE INDEX IF NOT EXISTS pending_interactions_resume_claim_expiry_idx
+      ON pending_interactions(session_id, status, resume_claim_expires_at)
+      WHERE status='resuming';
+  `,
 }];

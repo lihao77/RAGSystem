@@ -59,6 +59,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     releasePendingBatch: pendingInteractions.releasePendingBatch.bind(pendingInteractions),
     claimPendingBatch: pendingInteractions.claimPendingBatch.bind(pendingInteractions),
     releasePendingClaim: pendingInteractions.releasePendingClaim.bind(pendingInteractions),
+    renewPendingClaim: pendingInteractions.renewPendingClaim.bind(pendingInteractions),
     finalizePendingInteractions: pendingInteractions.finalizePendingInteractions.bind(pendingInteractions),
     nextSessionSeq: outbox.nextSessionSeqInTransaction.bind(outbox),
     appendOutbox: outbox.appendOutboxInTransaction.bind(outbox),

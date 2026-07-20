@@ -303,6 +303,20 @@ export const MIGRATIONS: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 18,
+    name: "pending_interaction_resume_claim_expiry",
+    up: (db) => {
+      addColumnIfMissing(db, "pending_interactions", "resume_claim_expires_at", "TEXT");
+      db.exec(`
+        UPDATE pending_interactions
+        SET resume_claim_expires_at = datetime(updated_at, '+120 seconds')
+        WHERE status='resuming' AND resume_claim_id IS NOT NULL
+          AND resume_claim_expires_at IS NULL;
+      `);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_pending_interactions_resume_claim_expiry ON pending_interactions(session_id, status, resume_claim_expires_at)");
+    },
+  },
 ];
 
 function addColumnIfMissing(db: MigrationDatabase, table: string, column: string, declaration: string): void {

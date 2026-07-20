@@ -25,6 +25,8 @@ import { RuntimeInteractionUnavailableError, type RuntimeFinalizeStatus, type Ru
 import { AsyncDurableClientEventPublisher } from "./event-outbox/async-client-event-publisher.js";
 import { buildExecutionEnvelopeRunStep } from "./event-outbox/execution-envelope-archive.js";
 
+const RESUME_LEASE_MS = 120_000;
+
 interface LiveInteractionWaiter {
   sessionId: string;
   meta: ApprovalMeta;
@@ -226,7 +228,13 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
 
   private async tryResume(sessionId: string, interactionId: string, callbacks?: InteractionResumeCallbacks): Promise<"none" | "started" | "deferred" | "already_started"> {
     if (!this.resumeStarter) return "none";
-    const claim = await this.runtimeStorage.operations.claimResume({ sessionId, interactionId, claimId: randomUUID() });
+    await this.runtimeStorage.operations.recoverExpiredResumeClaims({ sessionId });
+    const claim = await this.runtimeStorage.operations.claimResume({
+      sessionId,
+      interactionId,
+      claimId: randomUUID(),
+      leaseMs: RESUME_LEASE_MS,
+    });
     if (!claim.claimed) {
       if (claim.reason === "root_not_suspended") {
         const rootRunId = this.pendingMeta.get(interactionId)?.rootRunId;
@@ -245,7 +253,34 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
     for (const item of claim.resolutions) this.setApprovalCache(sessionId, item.toolCallId, item.resolution.kind === "approval" ? { approved: item.resolution.approved, message: item.resolution.message } : { value: item.resolution.value });
     try {
       const started = this.resumeStarter.startClaim({ sessionId, claim });
+      const renew = this.runtimeStorage.operations.renewResumeClaim;
+      let leaseLost = false;
+      const heartbeat = typeof renew === "function"
+        ? setInterval(() => {
+          void renew({
+            sessionId,
+            rootRunId: claim.rootRunId,
+            claimId: claim.claimId,
+            leaseMs: RESUME_LEASE_MS,
+          }).then((result) => {
+            if (!result.renewed) {
+              leaseLost = true;
+              return this.runtimeStorage.operations.rollbackResume({
+                sessionId,
+                rootRunId: claim.rootRunId,
+                claimId: claim.claimId,
+              });
+            }
+            return undefined;
+          }).catch(() => undefined);
+        }, Math.floor(RESUME_LEASE_MS / 3))
+        : null;
+      heartbeat?.unref?.();
       void started.promise.then((result) => {
+        if (leaseLost) {
+          callbacks?.onCompleted?.({ content: "resume lease lost", success: false });
+          return;
+        }
         if (result.suspended) {
           callbacks?.onSuspended?.(this.findLatestApprovalMeta(claim.rootRunId, sessionId)?.approvalId ?? "");
           return;
@@ -254,7 +289,9 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
       }).catch((error: unknown) => callbacks?.onCompleted?.({
         content: error instanceof Error ? error.message : String(error),
         success: false,
-      }));
+      })).finally(() => {
+        if (heartbeat) clearInterval(heartbeat);
+      });
     } catch (error) {
       for (const item of claim.resolutions) this.resolutionCache.delete(cacheKey(sessionId, item.toolCallId));
       await this.runtimeStorage.operations.rollbackResume({ sessionId, rootRunId: claim.rootRunId, claimId: claim.claimId });

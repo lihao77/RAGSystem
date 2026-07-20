@@ -430,14 +430,19 @@ function createExecutorHarness(options: {
 }
 
 describe("PostgresRuntimeStorage", () => {
-  it("keeps pending-interaction migrations continuous and adds resume claims in v2", () => {
+  it("keeps pending-interaction migrations continuous and adds leased resume claims", () => {
     expect(POSTGRES_PENDING_INTERACTION_MIGRATIONS.map((migration) => migration.version))
-      .toEqual([1, 2]);
+      .toEqual([1, 2, 3]);
     expect(POSTGRES_PENDING_INTERACTION_MIGRATIONS[1]).toMatchObject({
       version: 2,
       name: "pending_interaction_resume_claims",
     });
     expect(POSTGRES_PENDING_INTERACTION_MIGRATIONS[1]?.sql).toContain("resume_claim_id");
+    expect(POSTGRES_PENDING_INTERACTION_MIGRATIONS[2]).toMatchObject({
+      version: 3,
+      name: "pending_interaction_resume_claim_expiry",
+    });
+    expect(POSTGRES_PENDING_INTERACTION_MIGRATIONS[2]?.sql).toContain("resume_claim_expires_at");
   });
 
   it("starts a run atomically with tenant binding and a deterministic initial message", async () => {
@@ -459,6 +464,9 @@ describe("PostgresRuntimeStorage", () => {
     expect(result.initialUserMessage).toMatchObject({ id: "user-message-1", content: "question" });
     expect(harness.transactionCount).toBe(1);
     expect(harness.rootQueryCount).toBe(0);
+    expect(harness.transactionQueries.some(({ sql, params }) =>
+      sql.includes("pg_advisory_xact_lock")
+      && params[0] === `session-control:${harness.tenantId}:session-1`)).toBe(true);
     const sessionInsert = harness.transactionQueries.find(({ sql }) => sql.startsWith("INSERT INTO conversation_sessions"));
     const runInsert = harness.transactionQueries.find(({ sql }) => sql.includes("INSERT INTO saas_runs"));
     expect(sessionInsert?.params[1]).toBe(harness.tenantId);

@@ -45,6 +45,7 @@ export interface PendingInteractionRecord {
   request_payload: Record<string, unknown>;
   resolution_payload: Record<string, unknown> | null;
   resume_claim_id: string | null;
+  resume_claim_expires_at?: string | null;
   created_at: string;
   updated_at: string;
   responded_at: string | null;
@@ -402,8 +403,9 @@ export interface ConversationStoreTransaction {
   }): boolean;
   markPendingBatchResuming(sessionId: string, batchId: string): number;
   releasePendingBatch(sessionId: string, batchId: string): number;
-  claimPendingBatch(sessionId: string, batchId: string, claimId: string): number;
+  claimPendingBatch(sessionId: string, batchId: string, claimId: string, leaseMs?: number): number;
   releasePendingClaim(sessionId: string, rootRunId: string, claimId: string): number;
+  renewPendingClaim(sessionId: string, rootRunId: string, claimId: string, leaseMs?: number): number;
   finalizePendingInteractions(sessionId: string, rootRunId: string, status: "completed" | "failed" | "interrupted" | "suspended"): string[];
   nextSessionSeq(sessionId: string): number;
   appendOutbox(input: AppendOutboxInput): OutboxRow;

@@ -253,6 +253,20 @@ export interface RuntimeClaimResumeInput {
   sessionId: string;
   interactionId: string;
   claimId: string;
+  leaseMs?: number;
+}
+
+export interface RuntimeRenewResumeClaimInput { sessionId: string; rootRunId: string; claimId: string; leaseMs?: number }
+export interface RuntimeRenewResumeClaimResult { renewed: boolean; expiresAt: string | null }
+export interface RuntimeRecoverExpiredResumeClaimsInput {
+  sessionId: string;
+  /** Optional clock override used by deterministic maintenance tests. */
+  now?: string;
+}
+export interface RuntimeRecoverExpiredResumeClaimsResult {
+  recoveredClaimIds: string[];
+  recoveredBatchIds: string[];
+  suspendedRootRunIds: string[];
 }
 
 export type RuntimeClaimResumeResult =
@@ -308,8 +322,10 @@ export interface RuntimeAtomicOperations {
   recordInteraction(input: RuntimeRecordInteractionInput): Promise<RuntimeRecordInteractionResult>;
   resolveInteraction(input: RuntimeResolveInteractionInput): Promise<RuntimeResolveInteractionResult>;
   claimResume(input: RuntimeClaimResumeInput): Promise<RuntimeClaimResumeResult>;
+  renewResumeClaim(input: RuntimeRenewResumeClaimInput): Promise<RuntimeRenewResumeClaimResult>;
   rollbackResume(input: RuntimeRollbackResumeInput): Promise<RuntimeRollbackResumeResult>;
   interruptSession(input: RuntimeInterruptSessionInput): Promise<RuntimeInterruptSessionResult>;
+  recoverExpiredResumeClaims(input: RuntimeRecoverExpiredResumeClaimsInput): Promise<RuntimeRecoverExpiredResumeClaimsResult>;
   finalizeRun(input: RuntimeFinalizeRunInput): Promise<RuntimeFinalizeRunResult>;
 }
 

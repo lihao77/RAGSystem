@@ -17,6 +17,10 @@ import type {
   RuntimeRecordEnvelopeResult,
   RuntimeRecordInteractionInput,
   RuntimeRecordInteractionResult,
+  RuntimeRecoverExpiredResumeClaimsInput,
+  RuntimeRecoverExpiredResumeClaimsResult,
+  RuntimeRenewResumeClaimInput,
+  RuntimeRenewResumeClaimResult,
   RuntimeResolveInteractionInput,
   RuntimeResolveInteractionResult,
   RuntimeRollbackResumeInput,
@@ -57,6 +61,8 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       claimResume: (input) => this.claimResume(input),
       rollbackResume: (input) => this.rollbackResume(input),
       interruptSession: (input) => this.interruptSession(input),
+      renewResumeClaim: (input) => this.renewResumeClaim(input),
+      recoverExpiredResumeClaims: (input) => this.recoverExpiredResumeClaims(input),
       finalizeRun: (input) => this.finalizeRun(input),
     };
   }
@@ -236,7 +242,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           const terminal = rootRun.status !== "running";
           return { claimed: false, reason: terminal ? "terminal" : "root_not_suspended" };
         }
-        const claimed = tx.claimPendingBatch(input.sessionId, interaction.batch_id, claimId);
+        const claimed = tx.claimPendingBatch(input.sessionId, interaction.batch_id, claimId, resumeLeaseMs(input.leaseMs));
         if (claimed !== batch.length) {
           throw new Error(`resume batch claim was partial: ${interaction.batch_id}`);
         }
@@ -288,7 +294,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
     return this.serial.run(() => this.store.runInTransaction((tx) => {
       assertTenantSession(tx, this.tenantId, input.sessionId);
       const activeRuns = tx.listRuns(input.sessionId, 1000).items
-        .filter((run) => run.status === "running" || run.status === "suspended")
+        .filter((run) => run.status === "suspended")
         .sort((left, right) => left.run_id.localeCompare(right.run_id));
       const rootRunIds = new Set(activeRuns.filter((run) => run.parent_run_id === null).map((run) => run.run_id));
       for (const pending of tx.listPendingInteractions({
@@ -301,6 +307,8 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       const records: RuntimeRecordEnvelopeResult[] = [];
       let cancelledInteractions = 0;
       for (const rootRunId of [...rootRunIds].sort()) {
+        const root = tx.getRun(input.sessionId, rootRunId);
+        if (root && root.status !== "suspended") continue;
         cancelledInteractions += tx.listPendingInteractions({
           sessionId: input.sessionId,
           rootRunId,
@@ -317,6 +325,63 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         if (run.parent_run_id === null) records.push(recordEnvelope(tx, input.buildRunEndedRecord(interrupted)));
       }
       return { interruptedRuns, cancelledInteractions, records };
+    }));
+  }
+
+  private renewResumeClaim(input: RuntimeRenewResumeClaimInput): Promise<RuntimeRenewResumeClaimResult> {
+    return this.serial.run(() => this.store.runInTransaction((tx) => {
+      assertTenantSession(tx, this.tenantId, input.sessionId);
+      const renewed = tx.renewPendingClaim(input.sessionId, input.rootRunId, input.claimId, resumeLeaseMs(input.leaseMs));
+      const record = tx.listPendingInteractions({ sessionId: input.sessionId, rootRunId: input.rootRunId })
+        .find((item) => item.resume_claim_id === input.claimId && item.status === "resuming");
+      return { renewed: renewed > 0, expiresAt: record?.resume_claim_expires_at ?? null };
+    }));
+  }
+
+  private recoverExpiredResumeClaims(input: RuntimeRecoverExpiredResumeClaimsInput): Promise<RuntimeRecoverExpiredResumeClaimsResult> {
+    return this.serial.run(() => this.store.runInTransaction((tx) => {
+      assertTenantSession(tx, this.tenantId, input.sessionId);
+      const nowMs = Date.parse(input.now ?? new Date().toISOString());
+      if (!Number.isFinite(nowMs)) throw new Error("resume claim now must be a valid timestamp");
+      const candidates = tx.listPendingInteractions({ sessionId: input.sessionId, statuses: ["resuming"] })
+        .filter((item) => item.resume_claim_id && item.resume_claim_expires_at && Date.parse(item.resume_claim_expires_at) <= nowMs);
+      const groups = new Map<string, Array<{ rootRunId: string; batchId: string; claimId: string; interactionId: string }>>();
+      for (const item of candidates) {
+        const key = `${item.root_run_id}:${item.batch_id}:${item.resume_claim_id}`;
+        const group = groups.get(key) ?? [];
+        group.push({ rootRunId: item.root_run_id, batchId: item.batch_id, claimId: item.resume_claim_id!, interactionId: item.interaction_id });
+        groups.set(key, group);
+      }
+      const recoveredClaimIds = new Set<string>();
+      const recoveredBatchIds = new Set<string>();
+      const suspendedRootRunIds = new Set<string>();
+      for (const group of [...groups.values()].sort((left, right) => left[0]!.rootRunId.localeCompare(right[0]!.rootRunId) || left[0]!.batchId.localeCompare(right[0]!.batchId))) {
+        const root = tx.getRun(input.sessionId, group[0]!.rootRunId);
+        if (!root) continue;
+        if (root.status !== "running") {
+          if (root.status === "completed" || root.status === "failed" || root.status === "interrupted" || root.status === "suspended") {
+            tx.finalizePendingInteractions(input.sessionId, group[0]!.rootRunId, root.status);
+            recoveredClaimIds.add(group[0]!.claimId);
+            recoveredBatchIds.add(group[0]!.batchId);
+          }
+          continue;
+        }
+        const released = tx.releasePendingClaim(input.sessionId, group[0]!.rootRunId, group[0]!.claimId);
+        if (released !== group.length) throw new Error(`resume claim recovery was partial: ${group[0]!.claimId}`);
+        recoveredClaimIds.add(group[0]!.claimId);
+        recoveredBatchIds.add(group[0]!.batchId);
+        suspendedRootRunIds.add(group[0]!.rootRunId);
+      }
+      for (const rootRunId of [...suspendedRootRunIds].sort()) {
+        if (!tx.updateRunStatus(rootRunId, input.sessionId, "suspended", null)) {
+          throw new Error(`resume root run recovery failed: ${rootRunId}`);
+        }
+      }
+      return {
+        recoveredClaimIds: [...recoveredClaimIds].sort(),
+        recoveredBatchIds: [...recoveredBatchIds].sort(),
+        suspendedRootRunIds: [...suspendedRootRunIds].sort(),
+      };
     }));
   }
 
@@ -665,6 +730,14 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function resumeLeaseMs(value: number | undefined): number {
+  const leaseMs = value ?? 120_000;
+  if (!Number.isFinite(leaseMs) || leaseMs < 1 || leaseMs > 86_400_000) {
+    throw new Error("resume leaseMs must be between 1 and 86400000 milliseconds");
+  }
+  return Math.trunc(leaseMs);
 }
 
 function stringField(value: unknown): string | null {
