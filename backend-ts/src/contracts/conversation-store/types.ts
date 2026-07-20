@@ -370,6 +370,7 @@ export interface ConversationStoreTransaction {
     child_agent_id: string | null;
   };
   getRun(sessionId: string, runId: string): RunInfo | null;
+  listRuns(sessionId: string, limit?: number): { items: RunInfo[]; total: number };
   getRunStepByEventId(eventId: string): {
     id: number;
     run_id: string;

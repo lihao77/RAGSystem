@@ -1,30 +1,34 @@
-import type { AsyncConversationRepository, AsyncPendingInteractionStore, AsyncRunStore } from "../../../../contracts/storage/async-persistence-ports.js";
-import type { TenantId } from "../../../../identity/types.js";
+import type { RuntimeStorage } from "../../../../contracts/storage/runtime-storage.js";
 import type { SuspendedSessionControlPort } from "../../../../contracts/runtime/runtime-async-ports.js";
-
-export interface InterruptedSuspendedRun {
-  runId: string;
-  parentRunId: string | null;
-}
 
 export type AsyncSuspendedSessionControl = SuspendedSessionControlPort;
 
-/** Tenant-bound cancellation boundary for durable executions without a live process handle. */
+/** Compatibility adapter over the shared atomic RuntimeStorage session interruption. */
 export class SaaSSessionControlApplication implements AsyncSuspendedSessionControl {
-  constructor(
-    private readonly tenantId: TenantId,
-    private readonly conversations: Pick<AsyncConversationRepository, "getSession">,
-    private readonly runs: Pick<AsyncRunStore, "interruptSuspendedRuns">,
-    private readonly pending: Pick<AsyncPendingInteractionStore, "cancelPendingInteractions">,
-  ) {}
+  constructor(private readonly storage: RuntimeStorage) {}
 
-  async interruptSuspendedSession(sessionId: string): Promise<InterruptedSuspendedRun[]> {
-    const session = await this.conversations.getSession(sessionId);
-    if (session?.tenant_id !== this.tenantId) return [];
-
-    const interrupted = await this.runs.interruptSuspendedRuns(this.tenantId, sessionId);
-    if (interrupted.length === 0) return [];
-    await this.pending.cancelPendingInteractions(sessionId);
-    return interrupted.map((item) => ({ runId: item.run_id, parentRunId: item.parent_run_id }));
+  async interruptSuspendedSession(sessionId: string): Promise<Array<{ runId: string; parentRunId: string | null }>> {
+    const result = await this.storage.operations.interruptSession({
+      sessionId,
+      buildRunEndedRecord: (run) => ({
+        outbox: {
+          sessionId,
+          runId: run.runId,
+          eventId: `${run.runId}:session-stop:run_ended`,
+          eventType: "client.run_ended",
+          aggregateType: "run",
+          aggregateId: run.runId,
+          payload: {
+            client_event: {
+              type: "run_ended",
+              session_id: sessionId,
+              run_id: run.runId,
+              payload: { status: "interrupted" },
+            },
+          },
+        },
+      }),
+    });
+    return result.interruptedRuns;
   }
 }

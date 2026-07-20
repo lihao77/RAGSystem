@@ -289,6 +289,17 @@ export interface RuntimeRollbackResumeResult {
   rolledBack: boolean;
 }
 
+export interface RuntimeInterruptSessionInput {
+  sessionId: string;
+  buildRunEndedRecord(run: { runId: string; parentRunId: string | null }): RuntimeRecordEnvelopeInput;
+}
+
+export interface RuntimeInterruptSessionResult {
+  interruptedRuns: Array<{ runId: string; parentRunId: string | null }>;
+  cancelledInteractions: number;
+  records: RuntimeRecordEnvelopeResult[];
+}
+
 export interface RuntimeAtomicOperations {
   startRun(input: RuntimeStartRunInput): Promise<RuntimeStartRunResult>;
   persistMessage(input: RuntimePersistMessageInput): Promise<RuntimePersistMessageResult>;
@@ -298,6 +309,7 @@ export interface RuntimeAtomicOperations {
   resolveInteraction(input: RuntimeResolveInteractionInput): Promise<RuntimeResolveInteractionResult>;
   claimResume(input: RuntimeClaimResumeInput): Promise<RuntimeClaimResumeResult>;
   rollbackResume(input: RuntimeRollbackResumeInput): Promise<RuntimeRollbackResumeResult>;
+  interruptSession(input: RuntimeInterruptSessionInput): Promise<RuntimeInterruptSessionResult>;
   finalizeRun(input: RuntimeFinalizeRunInput): Promise<RuntimeFinalizeRunResult>;
 }
 

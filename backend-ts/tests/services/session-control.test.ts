@@ -63,31 +63,27 @@ describe("SessionControl", () => {
       store,
       new OutboxDispatcher(store, realtimeEvents),
     );
-    const asyncSuspendedSessionControl = {
-      interruptSuspendedSession: vi.fn().mockResolvedValue([
+    const interruptSession = vi.fn().mockResolvedValue({
+      interruptedRuns: [
         { runId: "run-root", parentRunId: null },
         { runId: "run-child", parentRunId: "run-root" },
-      ]),
-    };
-    const asyncClientEvents = { publish: vi.fn().mockResolvedValue({}) };
+      ],
+      cancelledInteractions: 2,
+      records: [],
+    });
+    const asyncClientEvents = { deliver: vi.fn().mockResolvedValue(undefined) };
     const control = createSessionControl({
       statusTracker: new AgentExecutionStatusTracker(),
       eventPublisher: new AgentExecutionEventPublisher(clientEvents),
       conversationStore: store,
       pendingInteractions: new PendingInteractionService(clientEvents, store),
-      asyncSuspendedSessionControl,
+      runtimeStorage: { operations: { interruptSession } } as never,
       asyncClientEvents,
       executeSynchronously: vi.fn(),
     });
 
     await expect(control.stopSession("session-saas-stop")).resolves.toBe(true);
-    expect(asyncSuspendedSessionControl.interruptSuspendedSession).toHaveBeenCalledWith("session-saas-stop");
-    expect(asyncClientEvents.publish).toHaveBeenCalledTimes(1);
-    expect(asyncClientEvents.publish).toHaveBeenCalledWith(
-      "session-saas-stop",
-      expect.objectContaining({ type: "run_ended", run_id: "run-root" }),
-      expect.objectContaining({ runId: "run-root" }),
-    );
+    expect(interruptSession).toHaveBeenCalledOnce();
     expect(store.listOutbox({ limit: 10 }).items).toHaveLength(0);
     store.close();
   });

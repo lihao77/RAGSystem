@@ -9,6 +9,8 @@ import type {
   RuntimeFinalizeRunInput,
   RuntimeFinalizeRunResult,
   RuntimeInteractionResolution,
+  RuntimeInterruptSessionInput,
+  RuntimeInterruptSessionResult,
   RuntimePersistMessageInput,
   RuntimePersistMessageResult,
   RuntimeOutboxStorage,
@@ -142,6 +144,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       resolveInteraction: (input) => this.resolveInteraction(input),
       claimResume: (input) => this.claimResume(input),
       rollbackResume: (input) => this.rollbackResume(input),
+      interruptSession: (input) => this.interruptSession(input),
       finalizeRun: (input) => this.finalizeRun(input),
     };
   }
@@ -237,6 +240,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
     };
     return this.executor.transaction(async (transactionExecutor) => {
       await assertTenantSession(transactionExecutor, this.tenantId, expected.sessionId);
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${expected.sessionId}`);
       await lockAdvisoryKey(transactionExecutor, `interaction:${this.tenantId}:${expected.interactionId}`);
       await lockAdvisoryKey(
         transactionExecutor,
@@ -275,6 +279,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
   private async resolveInteraction(input: RuntimeResolveInteractionInput): Promise<RuntimeResolveInteractionResult> {
     return this.executor.transaction(async (transactionExecutor) => {
       await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
       await lockAdvisoryKey(transactionExecutor, `interaction:${this.tenantId}:${input.interactionId}`);
       const tx = createTransactionFacade(this.tenantId, transactionExecutor);
       const current = await tx.pendingInteractions.getPendingInteraction(input.sessionId, input.interactionId);
@@ -348,6 +353,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
     if (!claimId) throw new Error("resume claimId must not be empty");
     return this.executor.transaction(async (transactionExecutor): Promise<RuntimeClaimResumeResult> => {
       await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
       const tx = createTransactionFacade(this.tenantId, transactionExecutor);
       const session = await tx.conversation.getSession(input.sessionId);
       if (!session) return { claimed: false, reason: "not_found" };
@@ -415,6 +421,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
   private async rollbackResume(input: RuntimeRollbackResumeInput): Promise<RuntimeRollbackResumeResult> {
     return this.executor.transaction(async (transactionExecutor) => {
       await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
       await lockAdvisoryKey(
         transactionExecutor,
         `interaction-root:${this.tenantId}:${input.sessionId}:${input.rootRunId}`,
@@ -446,6 +453,61 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
     });
   }
 
+  private async interruptSession(input: RuntimeInterruptSessionInput): Promise<RuntimeInterruptSessionResult> {
+    return this.executor.transaction(async (transactionExecutor) => {
+      await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
+      const tx = createTransactionFacade(this.tenantId, transactionExecutor);
+      const runIds = new Set<string>();
+      const activeRuns = await transactionExecutor.query<{ run_id: string; parent_run_id: string | null }>(
+        `SELECT run_id, parent_run_id FROM saas_runs
+         WHERE tenant_id=$1 AND session_id=$2 AND status IN ('running','suspended')
+         ORDER BY run_id`,
+        [this.tenantId, input.sessionId],
+      );
+      for (const row of activeRuns.rows) if (row.parent_run_id === null) runIds.add(String(row.run_id));
+      const activePending = await tx.pendingInteractions.listPendingInteractions({
+        sessionId: input.sessionId,
+        statuses: ["waiting", "suspended", "resolved", "resuming"],
+      });
+      for (const pending of activePending) runIds.add(pending.root_run_id);
+
+      const interruptedRuns: RuntimeInterruptSessionResult["interruptedRuns"] = [];
+      const records: RuntimeRecordEnvelopeResult[] = [];
+      let cancelledInteractions = 0;
+      for (const rootRunId of [...runIds].sort()) {
+        await lockAdvisoryKey(
+          transactionExecutor,
+          `interaction-root:${this.tenantId}:${input.sessionId}:${rootRunId}`,
+        );
+        const rootRun = await lockTenantRun(transactionExecutor, this.tenantId, rootRunId);
+        const rootPending = activePending.filter((pending) => pending.root_run_id === rootRunId);
+        cancelledInteractions += rootPending.length;
+        await tx.pendingInteractions.finalizePendingInteractions(input.sessionId, rootRunId, "interrupted");
+        if (rootRun && (rootRun.session_id !== input.sessionId || rootRun.parent_run_id !== null)) {
+          throw new Error(`pending interaction root is invalid while interrupting session: ${rootRunId}`);
+        }
+      }
+      for (const row of activeRuns.rows) {
+        const runId = String(row.run_id);
+        const parentRunId = row.parent_run_id === null ? null : String(row.parent_run_id);
+        const run = await lockTenantRun(transactionExecutor, this.tenantId, runId);
+        if (!run || run.session_id !== input.sessionId || (run.status !== "running" && run.status !== "suspended")) continue;
+        if (!await tx.runs.updateRunStatus(runId, input.sessionId, "interrupted", null)) {
+          throw new Error(`run not found while interrupting session: ${runId}`);
+        }
+        const interrupted = { runId, parentRunId };
+        interruptedRuns.push(interrupted);
+        if (parentRunId !== null) continue;
+        const normalized = normalizeRecord(input.buildRunEndedRecord(interrupted));
+        assertRecordScope(normalized, input.sessionId, runId);
+        await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${normalized.outbox.eventId}`);
+        records.push(await recordEnvelope(tx, transactionExecutor, this.tenantId, normalized));
+      }
+      return { interruptedRuns, cancelledInteractions, records };
+    });
+  }
+
   private async finalizeRun(input: RuntimeFinalizeRunInput): Promise<RuntimeFinalizeRunResult> {
     assertTerminalMessageRule(input);
     if (input.finalMessage) {
@@ -453,6 +515,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
     }
     return this.executor.transaction(async (transactionExecutor) => {
       await assertTenantSession(transactionExecutor, this.tenantId, input.sessionId);
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.sessionId}`);
       if (input.interactionRootRunId && input.interactionRootRunId !== input.runId) {
         throw new Error(`root interaction finalization requires the root run: ${input.runId}`);
       }

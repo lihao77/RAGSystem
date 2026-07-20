@@ -9,6 +9,8 @@ import type {
   RuntimeFinalizeRunInput,
   RuntimeFinalizeRunResult,
   RuntimeInteractionResolution,
+  RuntimeInterruptSessionInput,
+  RuntimeInterruptSessionResult,
   RuntimePersistMessageInput,
   RuntimePersistMessageResult,
   RuntimeRecordEnvelopeInput,
@@ -54,6 +56,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       resolveInteraction: (input) => this.resolveInteraction(input),
       claimResume: (input) => this.claimResume(input),
       rollbackResume: (input) => this.rollbackResume(input),
+      interruptSession: (input) => this.interruptSession(input),
       finalizeRun: (input) => this.finalizeRun(input),
     };
   }
@@ -278,6 +281,42 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         throw new Error(`resume root run rollback failed: ${input.rootRunId}`);
       }
       return { rolledBack: true };
+    }));
+  }
+
+  private interruptSession(input: RuntimeInterruptSessionInput): Promise<RuntimeInterruptSessionResult> {
+    return this.serial.run(() => this.store.runInTransaction((tx) => {
+      assertTenantSession(tx, this.tenantId, input.sessionId);
+      const activeRuns = tx.listRuns(input.sessionId, 1000).items
+        .filter((run) => run.status === "running" || run.status === "suspended")
+        .sort((left, right) => left.run_id.localeCompare(right.run_id));
+      const rootRunIds = new Set(activeRuns.filter((run) => run.parent_run_id === null).map((run) => run.run_id));
+      for (const pending of tx.listPendingInteractions({
+        sessionId: input.sessionId,
+        statuses: ["waiting", "suspended", "resolved", "resuming"],
+      })) {
+        rootRunIds.add(pending.root_run_id);
+      }
+      const interruptedRuns: RuntimeInterruptSessionResult["interruptedRuns"] = [];
+      const records: RuntimeRecordEnvelopeResult[] = [];
+      let cancelledInteractions = 0;
+      for (const rootRunId of [...rootRunIds].sort()) {
+        cancelledInteractions += tx.listPendingInteractions({
+          sessionId: input.sessionId,
+          rootRunId,
+          statuses: ["waiting", "suspended", "resolved", "resuming"],
+        }).length;
+        tx.finalizePendingInteractions(input.sessionId, rootRunId, "interrupted");
+      }
+      for (const run of activeRuns) {
+        if (!tx.updateRunStatus(run.run_id, input.sessionId, "interrupted", null)) {
+          throw new Error(`run not found while interrupting session: ${run.run_id}`);
+        }
+        const interrupted = { runId: run.run_id, parentRunId: run.parent_run_id };
+        interruptedRuns.push(interrupted);
+        if (run.parent_run_id === null) records.push(recordEnvelope(tx, input.buildRunEndedRecord(interrupted)));
+      }
+      return { interruptedRuns, cancelledInteractions, records };
     }));
   }
 

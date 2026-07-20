@@ -110,6 +110,7 @@ export function createCoreRuntimeContainer<TMemoryRepository extends MemoryRepos
     ),
     ...(dependencies.hooks ? { hooks: dependencies.hooks } : {}),
     ...(dependencies.asyncClientEvents ? { asyncClientEvents: dependencies.asyncClientEvents } : {}),
+    ...(dependencies.runtimeStorage ? { runtimeStorage: dependencies.runtimeStorage } : {}),
     ...(dependencies.asyncSuspendedSessionControl ? { asyncSuspendedSessionControl: dependencies.asyncSuspendedSessionControl } : {}),
   });
   const resumeExecutor = createResumeExecutor({

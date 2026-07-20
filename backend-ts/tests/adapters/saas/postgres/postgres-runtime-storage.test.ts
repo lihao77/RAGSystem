@@ -164,6 +164,8 @@ function createExecutorHarness(options: {
         const requestedRunId = String(params[1]);
         const additional = options.additionalRuns?.[requestedRunId];
         rows = additional ? [additional] : runState?.run_id === requestedRunId ? [runState] : [];
+      } else if (sql.includes("SELECT run_id, parent_run_id FROM saas_runs")) {
+        rows = runState ? [{ run_id: runState.run_id, parent_run_id: runState.parent_run_id ?? null }] : [];
       } else if (sql.includes("SELECT run_id FROM saas_runs")) {
         rows = runState ? [{ run_id: "run-1" }] : [];
       } else if (sql.includes("INSERT INTO saas_runs")) {
@@ -606,6 +608,36 @@ describe("PostgresRuntimeStorage", () => {
       expect([...harness.interactions.values()].map((item) => item.status)).toEqual(testCase.expected);
       expect(result.readyResumeInteractionIds).toEqual(testCase.ready);
     }
+  });
+
+  it("interrupts active root trees and pending interactions in one transaction", async () => {
+    const harness = createExecutorHarness({
+      runStatus: "suspended",
+      runPatch: { agent_name: "agent-1" },
+    });
+    harness.interactions.set("stop-interaction", pendingRecord("stop-interaction", "resolved", "stop-batch"));
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+
+    const result = await storage.operations.interruptSession({
+      sessionId: "session-1",
+      buildRunEndedRecord: (run) => ({
+        outbox: {
+          sessionId: "session-1",
+          runId: run.runId,
+          eventId: `${run.runId}:session-stop:run_ended`,
+          eventType: "client.run_ended",
+          aggregateType: "run",
+          aggregateId: run.runId,
+          payload: { client_event: { type: "run_ended", session_id: "session-1", run_id: run.runId, payload: { status: "interrupted" } } },
+        },
+      }),
+    });
+
+    expect(result.interruptedRuns).toEqual([{ runId: "run-1", parentRunId: null }]);
+    expect(result.cancelledInteractions).toBe(1);
+    expect(result.records).toHaveLength(1);
+    expect(harness.runState?.status).toBe("interrupted");
+    expect(harness.interactions.get("stop-interaction")?.status).toBe("cancelled");
   });
 
   it("rejects interaction finalization for a child run", async () => {

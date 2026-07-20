@@ -290,7 +290,21 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
     if (!sid) return [];
     return this.listPendingApprovalMeta(rootRunId, sid);
   }
-  cancelSession(sessionId: string, reason = "interaction cancelled", _options: { persist?: boolean } = {}): void { for (const [id, waiter] of this.liveWaiters) if (waiter.sessionId === sessionId) { this.liveWaiters.delete(id); waiter.abort?.(); waiter.reject(new Error(reason)); } }
+  cancelSession(sessionId: string, reason = "interaction cancelled", _options: { persist?: boolean } = {}): void {
+    for (const [id, waiter] of this.liveWaiters) {
+      if (waiter.sessionId !== sessionId) continue;
+      this.liveWaiters.delete(id);
+      waiter.abort?.();
+      waiter.reject(new Error(reason));
+    }
+    for (const [id, meta] of this.pendingMeta) {
+      if (meta.sessionId === sessionId) this.pendingMeta.delete(id);
+    }
+    const prefix = `${sessionId}:`;
+    for (const key of this.resolutionCache.keys()) if (key.startsWith(prefix)) this.resolutionCache.delete(key);
+    for (const key of this.deferredResume.keys()) if (key.startsWith(prefix)) this.deferredResume.delete(key);
+    for (const key of this.deferredCallbacks.keys()) if (key.startsWith(prefix)) this.deferredCallbacks.delete(key);
+  }
   isUserInputPending(sessionId: string, inputId: string): boolean { const w = this.liveWaiters.get(inputId); return Boolean(w && w.sessionId === sessionId && w.meta.kind === "user_input"); }
   isApprovalPending(sessionId: string, approvalId: string): boolean { const w = this.liveWaiters.get(approvalId); return Boolean(w && w.sessionId === sessionId && w.meta.kind === "approval"); }
   private buildMeta(id: string, kind: InteractionKind, input: PendingApprovalRequest | PendingUserInputRequest): ApprovalMeta {

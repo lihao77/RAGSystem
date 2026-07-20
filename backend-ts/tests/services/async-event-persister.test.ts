@@ -88,6 +88,7 @@ function createHarness(readyResumeInteractionIds: string[] = []) {
       rollbackResume: async () => {
         throw new Error("persister must not roll back resumes");
       },
+      interruptSession: async () => ({ interruptedRuns: [], cancelledInteractions: 0, records: [] }),
       finalizeRun: async (input) => {
         lifecycle.push("finalize");
         finalizes.push(input);

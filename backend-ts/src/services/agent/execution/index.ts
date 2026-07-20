@@ -26,7 +26,9 @@ import type { PendingInteractionPort } from "../../../contracts/runtime/pending-
 import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService } from "../../runtime/delegation-pending-service.js";
 import type { ConversationStore } from "../../../contracts/conversation-store/index.js";
-import type { DurableExecutionClientEventPort, ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
+import type { ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
+import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
+import type { AsyncDurableClientEventPublisher } from "../../runtime/event-outbox/async-client-event-publisher.js";
 import type { IFileIndexStore } from "../../../contracts/file-index-store/index.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
@@ -113,7 +115,8 @@ export interface AgentExecutionServiceParams {
  logger?: AgentExecutionLogger | null | undefined;
  /** backend 压缩服务（slash /compact + run 内 round.before 共用）；A3 压缩外移。 */
   compressionService?: AgentCompressionService;
-  asyncClientEvents?: DurableExecutionClientEventPort;
+  asyncClientEvents?: Pick<AsyncDurableClientEventPublisher, "publish" | "deliver">;
+  runtimeStorage?: RuntimeStorage;
   asyncSuspendedSessionControl?: SuspendedSessionControlPort;
 }
 
@@ -189,6 +192,7 @@ export function createAgentExecutionService(
     eventPublisher,
     conversationStore: params.conversationStore,
     pendingInteractions: params.pendingInteractions,
+    ...(params.runtimeStorage ? { runtimeStorage: params.runtimeStorage } : {}),
     ...(params.asyncSuspendedSessionControl ? { asyncSuspendedSessionControl: params.asyncSuspendedSessionControl } : {}),
     ...(params.asyncClientEvents ? { asyncClientEvents: params.asyncClientEvents } : {}),
     executeSynchronously: launchers.executeSynchronously,

@@ -40,7 +40,6 @@ import { AsyncKernelEventPersister } from "./services/agent/sdk/async-event-pers
 import { AsyncOutboxDispatcher } from "./services/runtime/event-outbox/async-dispatcher.js";
 import { AsyncDurableClientEventPublisher } from "./services/runtime/event-outbox/async-client-event-publisher.js";
 import type { SaaSControlRuntimeHandle } from "./adapters/saas/composition/saas-control-runtime.js";
-import { SaaSSessionControlApplication } from "./adapters/saas/application/execution/saas-session-control-application.js";
 import { SaaSDaemonState } from "./adapters/saas/composition/saas-daemon-state.js";
 import { createPostgresExecutionStorage } from "./adapters/saas/postgres/postgres-execution-storage.js";
 
@@ -181,12 +180,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               asyncAnalytics: options.saasConversationRuntime!.analytics,
               asyncProviderContinuations: options.saasConversationRuntime!.providerContinuations,
               knowledgeQueryFactory: ({ tenantId, baseKnowledge }) => options.saasConversationRuntime!.createKnowledgeQuery(tenantId, baseKnowledge),
-              asyncSuspendedSessionControlFactory: (tenantId) => new SaaSSessionControlApplication(
-                tenantId,
-                options.saasConversationRuntime!.conversation,
-                options.saasConversationRuntime!.runs,
-                options.saasConversationRuntime!.pendingInteractions,
-              ),
               asyncClientEventsFactory: (_tenantId: import("./identity/types.js").TenantId, realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }, runtimeStorage: import("./contracts/storage/runtime-storage.js").RuntimeStorage) => new AsyncDurableClientEventPublisher(
                 runtimeStorage,
                 new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents as ConstructorParameters<typeof AsyncOutboxDispatcher>[1]),
@@ -210,12 +203,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
             asyncAnalytics: options.saasConversationRuntime!.analytics,
             asyncProviderContinuations: options.saasConversationRuntime!.providerContinuations,
             knowledgeQueryFactory: ({ tenantId, baseKnowledge }) => options.saasConversationRuntime!.createKnowledgeQuery(tenantId, baseKnowledge),
-            asyncSuspendedSessionControlFactory: (tenantId) => new SaaSSessionControlApplication(
-              tenantId,
-              options.saasConversationRuntime!.conversation,
-              options.saasConversationRuntime!.runs,
-              options.saasConversationRuntime!.pendingInteractions,
-            ),
             asyncClientEventsFactory: (_tenantId: import("./identity/types.js").TenantId, realtimeEvents: { publish(sessionId: string, event: import("./contracts/events.js").Envelope): void }, runtimeStorage: import("./contracts/storage/runtime-storage.js").RuntimeStorage) => new AsyncDurableClientEventPublisher(
               runtimeStorage,
               new AsyncOutboxDispatcher(options.saasConversationRuntime!.outbox, realtimeEvents as ConstructorParameters<typeof AsyncOutboxDispatcher>[1]),
