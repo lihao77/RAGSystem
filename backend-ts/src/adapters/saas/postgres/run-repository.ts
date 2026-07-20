@@ -66,7 +66,18 @@ export class PostgresRunRepository implements AsyncRunStore {
 
   async addRunStep(input: AddRunStepInput & { tenantId: string }): Promise<RunStepRecord> {
     return this.executor.transaction(async (tx) => {
-      const next = await tx.query<{ next_order: number | string }>("SELECT COALESCE(MAX(step_order),0)+1 AS next_order FROM saas_run_steps WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3 FOR UPDATE", [input.tenantId, input.sessionId, input.runId]);
+      const params = [input.tenantId, input.sessionId, input.runId] as const;
+      const lockedRun = await tx.query<{ run_id: string }>(
+        "SELECT run_id FROM saas_runs WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3 FOR UPDATE",
+        params,
+      );
+      if (!lockedRun.rows[0]) {
+        throw new Error(`run not found: ${input.runId}`);
+      }
+      const next = await tx.query<{ next_order: number | string }>(
+        "SELECT COALESCE(MAX(step_order),0)+1 AS next_order FROM saas_run_steps WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3",
+        params,
+      );
       const order = Number(next.rows[0]?.next_order ?? 1);
       const inserted = await tx.query<{ id: number | string }>(`INSERT INTO saas_run_steps (tenant_id, run_id, session_id, message_id, step_order, step_type, payload) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb) RETURNING id`, [input.tenantId, input.runId, input.sessionId, input.messageId ?? null, order, input.stepType, JSON.stringify(input.payload)]);
       return { id: Number(inserted.rows[0]?.id), run_id: input.runId, step_order: order, step_type: input.stepType };

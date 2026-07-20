@@ -25,6 +25,7 @@ describe("PostgresRunRepository tenant isolation", () => {
     const query = async (sql: string, params: unknown[] = []) => {
       calls.push({ sql, params });
       if (sql.includes("COUNT(*)")) return { rows: [{ count: "1" }], rowCount: 1 };
+      if (sql.includes("FROM saas_runs") && sql.includes("FOR UPDATE")) return { rows: [{ run_id: "r1" }], rowCount: 1 };
       if (sql.includes("MAX(step_order)")) return { rows: [{ next_order: 1 }], rowCount: 1 };
       if (sql.includes("INSERT INTO saas_run_steps")) return { rows: [{ id: 1 }], rowCount: 1 };
       if (sql.startsWith("SELECT id, run_id")) return { rows: [{ id: 1, run_id: "r1", session_id: "s1", message_id: null, step_order: 1, step_type: "event", payload: {}, created_at: "2026-01-01T00:00:00Z" }], rowCount: 1 };
@@ -48,5 +49,71 @@ describe("PostgresRunRepository tenant isolation", () => {
     expect(calls.filter((call) => /saas_runs|saas_run_steps/.test(call.sql)).every((call) =>
       call.sql.includes("tenant_id") && call.params.includes("tenant-a"))).toBe(true);
     expect(calls.some((call) => call.sql.includes("status='running'") && call.params[0] === "tenant-a")).toBe(true);
+  });
+
+  it("serializes step ordering by locking the tenant-scoped run before reading MAX(step_order)", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+    const query = async (sql: string, params: readonly unknown[] = []) => {
+      calls.push({ sql, params });
+      if (sql.includes("FROM saas_runs")) return { rows: [{ run_id: "run-1" }], rowCount: 1 };
+      if (sql.includes("MAX(step_order)")) return { rows: [{ next_order: "4" }], rowCount: 1 };
+      if (sql.includes("INSERT INTO saas_run_steps")) return { rows: [{ id: "9" }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    };
+    const executor = {
+      query,
+      transaction: async <T>(operation: (tx: { query: typeof query }) => Promise<T>) => operation({ query }),
+    };
+    const repo = new PostgresRunRepository(executor as never);
+
+    await expect(repo.addRunStep({
+      tenantId: "tenant-a",
+      sessionId: "session-1",
+      runId: "run-1",
+      stepType: "protocol.envelope.v1",
+      payload: { type: "run_started" },
+    })).resolves.toEqual({
+      id: 9,
+      run_id: "run-1",
+      step_order: 4,
+      step_type: "protocol.envelope.v1",
+    });
+
+    expect(calls).toHaveLength(3);
+    expect(calls[0]).toEqual({
+      sql: "SELECT run_id FROM saas_runs WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3 FOR UPDATE",
+      params: ["tenant-a", "session-1", "run-1"],
+    });
+    expect(calls[1]?.sql).toContain("MAX(step_order)");
+    expect(calls[1]?.sql).not.toContain("FOR UPDATE");
+    expect(calls[1]?.params).toEqual(["tenant-a", "session-1", "run-1"]);
+    expect(calls[2]?.sql).toContain("INSERT INTO saas_run_steps");
+    expect(calls[2]?.params.slice(0, 3)).toEqual(["tenant-a", "run-1", "session-1"]);
+  });
+
+  it("rejects a step for a missing tenant-scoped run before allocating an order", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+    const query = async (sql: string, params: readonly unknown[] = []) => {
+      calls.push({ sql, params });
+      return { rows: [], rowCount: 0 };
+    };
+    const executor = {
+      query,
+      transaction: async <T>(operation: (tx: { query: typeof query }) => Promise<T>) => operation({ query }),
+    };
+    const repo = new PostgresRunRepository(executor as never);
+
+    await expect(repo.addRunStep({
+      tenantId: "tenant-a",
+      sessionId: "session-1",
+      runId: "missing-run",
+      stepType: "event",
+      payload: {},
+    })).rejects.toThrow("run not found: missing-run");
+
+    expect(calls).toEqual([{
+      sql: "SELECT run_id FROM saas_runs WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3 FOR UPDATE",
+      params: ["tenant-a", "session-1", "missing-run"],
+    }]);
   });
 });
