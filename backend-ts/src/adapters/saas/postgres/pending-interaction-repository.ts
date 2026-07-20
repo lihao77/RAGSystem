@@ -7,7 +7,7 @@ import type { PostgresMemoryExecutor } from "./memory-repository.js";
 
 const columns = `interaction_id, session_id, run_id, root_run_id, tool_call_id,
   batch_id, kind, status, request_payload, resolution_payload, created_at, updated_at,
-  responded_at, consumed_at`;
+  responded_at, consumed_at, resume_claim_id`;
 
 function iso(value: unknown): string {
   return new Date(String(value)).toISOString();
@@ -39,6 +39,7 @@ function interaction(row: Record<string, unknown>): PendingInteractionRecord {
     updated_at: iso(row.updated_at),
     responded_at: nullableIso(row.responded_at),
     consumed_at: nullableIso(row.consumed_at),
+    resume_claim_id: row.resume_claim_id == null ? null : String(row.resume_claim_id),
   };
 }
 
@@ -60,6 +61,8 @@ export interface AsyncPendingInteractionStore {
   }): Promise<boolean>;
   markPendingBatchResuming(sessionId: string, batchId: string): Promise<number>;
   releasePendingBatch(sessionId: string, batchId: string): Promise<number>;
+  claimPendingBatch(sessionId: string, batchId: string, claimId: string): Promise<number>;
+  releasePendingClaim(sessionId: string, rootRunId: string, claimId: string): Promise<number>;
   suspendPendingInteractions(sessionId: string, rootRunId: string): Promise<number>;
   consumePendingResolution(sessionId: string, toolCallId: string): Promise<PendingInteractionRecord | null>;
   cancelPendingInteractions(sessionId: string): Promise<number>;
@@ -140,6 +143,7 @@ export class PostgresPendingInteractionRepository implements AsyncPendingInterac
           resolution_payload=CASE WHEN $3::boolean THEN $2::jsonb ELSE resolution_payload END,
           responded_at=CASE WHEN $1='resolved' THEN CURRENT_TIMESTAMP ELSE responded_at END,
           consumed_at=CASE WHEN $1='consumed' THEN CURRENT_TIMESTAMP ELSE consumed_at END,
+          resume_claim_id=CASE WHEN $1='resuming' THEN resume_claim_id ELSE NULL END,
           updated_at=CURRENT_TIMESTAMP
       WHERE session_id=$4 AND interaction_id=$5${fromClause}`, params);
     return Number(result.rowCount ?? 0) > 0;
@@ -159,8 +163,33 @@ export class PostgresPendingInteractionRepository implements AsyncPendingInterac
 
   async releasePendingBatch(sessionId: string, batchId: string): Promise<number> {
     const result = await this.executor.query(`UPDATE pending_interactions
-      SET status='resolved', updated_at=CURRENT_TIMESTAMP
+      SET status='resolved', resume_claim_id=NULL, updated_at=CURRENT_TIMESTAMP
       WHERE session_id=$1 AND batch_id=$2 AND status='resuming'`, [sessionId, batchId]);
+    return Number(result.rowCount ?? 0);
+  }
+
+  async claimPendingBatch(sessionId: string, batchId: string, claimId: string): Promise<number> {
+    const result = await this.executor.query(`UPDATE pending_interactions AS candidate
+      SET status='resuming', resume_claim_id=$3, updated_at=CURRENT_TIMESTAMP
+      WHERE candidate.session_id=$1 AND candidate.batch_id=$2 AND candidate.status='resolved'
+        AND NOT EXISTS (
+          SELECT 1 FROM pending_interactions AS unresolved
+          WHERE unresolved.session_id=$1 AND unresolved.batch_id=$2
+            AND unresolved.status IN ('waiting','suspended')
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM pending_interactions AS claimed
+          WHERE claimed.session_id=$1 AND claimed.batch_id=$2
+            AND claimed.status='resuming'
+        )`, [sessionId, batchId, claimId]);
+    return Number(result.rowCount ?? 0);
+  }
+
+  async releasePendingClaim(sessionId: string, rootRunId: string, claimId: string): Promise<number> {
+    const result = await this.executor.query(`UPDATE pending_interactions
+      SET status='resolved', resume_claim_id=NULL, updated_at=CURRENT_TIMESTAMP
+      WHERE session_id=$1 AND root_run_id=$2 AND resume_claim_id=$3 AND status='resuming'`,
+    [sessionId, rootRunId, claimId]);
     return Number(result.rowCount ?? 0);
   }
 
@@ -179,7 +208,8 @@ export class PostgresPendingInteractionRepository implements AsyncPendingInterac
       const row = found.rows[0];
       if (!row) return null;
       const updated = await tx.query(`UPDATE pending_interactions
-        SET status='consumed', consumed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+        SET status='consumed', resume_claim_id=NULL,
+            consumed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
         WHERE session_id=$1 AND interaction_id=$2 AND status IN ('resolved','resuming')`,
       [sessionId, String(row.interaction_id)]);
       return Number(updated.rowCount ?? 0) > 0 ? interaction(row) : null;
@@ -188,7 +218,7 @@ export class PostgresPendingInteractionRepository implements AsyncPendingInterac
 
   async cancelPendingInteractions(sessionId: string): Promise<number> {
     const result = await this.executor.query(`UPDATE pending_interactions
-      SET status='cancelled', updated_at=CURRENT_TIMESTAMP
+      SET status='cancelled', resume_claim_id=NULL, updated_at=CURRENT_TIMESTAMP
       WHERE session_id=$1 AND status IN ('waiting','suspended','resolved','resuming')`, [sessionId]);
     return Number(result.rowCount ?? 0);
   }

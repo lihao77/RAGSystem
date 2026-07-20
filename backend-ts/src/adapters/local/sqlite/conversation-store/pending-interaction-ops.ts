@@ -14,7 +14,7 @@ interface PendingInteractionRow extends Omit<PendingInteractionRecord, "request_
 
 const SELECT_COLUMNS = `interaction_id, session_id, run_id, root_run_id, tool_call_id,
   batch_id, kind, status, request_payload, resolution_payload, created_at, updated_at,
-  responded_at, consumed_at`;
+  responded_at, consumed_at, resume_claim_id`;
 
 export class PendingInteractionOps implements IPendingInteractionStore {
   constructor(private readonly db: ConversationDb) {}
@@ -85,6 +85,7 @@ export class PendingInteractionOps implements IPendingInteractionStore {
       input.resolution === undefined ? null : stringifyJson(input.resolution ?? {}),
       input.status,
       input.status,
+      input.status,
       input.sessionId,
       input.interactionId,
       ...(input.from ?? []),
@@ -95,6 +96,7 @@ export class PendingInteractionOps implements IPendingInteractionStore {
           resolution_payload=COALESCE(?, resolution_payload),
           responded_at=CASE WHEN ?='resolved' THEN CURRENT_TIMESTAMP ELSE responded_at END,
           consumed_at=CASE WHEN ?='consumed' THEN CURRENT_TIMESTAMP ELSE consumed_at END,
+          resume_claim_id=CASE WHEN ?='resuming' THEN resume_claim_id ELSE NULL END,
           updated_at=CURRENT_TIMESTAMP
       WHERE session_id=? AND interaction_id=?${fromClause}
     `).run(...params);
@@ -117,9 +119,40 @@ export class PendingInteractionOps implements IPendingInteractionStore {
 
   releasePendingBatch(sessionId: string, batchId: string): number {
     const result = this.db.prepare(`
-      UPDATE pending_interactions SET status='resolved', updated_at=CURRENT_TIMESTAMP
+      UPDATE pending_interactions
+      SET status='resolved', resume_claim_id=NULL, updated_at=CURRENT_TIMESTAMP
       WHERE session_id=? AND batch_id=? AND status='resuming'
     `).run(sessionId, batchId);
+    return Number(result.changes);
+  }
+
+  claimPendingBatch(sessionId: string, batchId: string, claimId: string): number {
+    const result = this.db.prepare(`
+      UPDATE pending_interactions
+      SET status='resuming', resume_claim_id=?, updated_at=CURRENT_TIMESTAMP
+      WHERE session_id=? AND batch_id=? AND status='resolved'
+        AND NOT EXISTS (
+          SELECT 1 FROM pending_interactions AS unresolved
+          WHERE unresolved.session_id=?
+            AND unresolved.batch_id=?
+            AND unresolved.status IN ('waiting', 'suspended')
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM pending_interactions AS claimed
+          WHERE claimed.session_id=?
+            AND claimed.batch_id=?
+            AND claimed.status='resuming'
+        )
+    `).run(claimId, sessionId, batchId, sessionId, batchId, sessionId, batchId);
+    return Number(result.changes);
+  }
+
+  releasePendingClaim(sessionId: string, rootRunId: string, claimId: string): number {
+    const result = this.db.prepare(`
+      UPDATE pending_interactions
+      SET status='resolved', resume_claim_id=NULL, updated_at=CURRENT_TIMESTAMP
+      WHERE session_id=? AND root_run_id=? AND resume_claim_id=? AND status='resuming'
+    `).run(sessionId, rootRunId, claimId);
     return Number(result.changes);
   }
 
@@ -149,7 +182,8 @@ export class PendingInteractionOps implements IPendingInteractionStore {
 
   cancelPendingInteractions(sessionId: string): number {
     const result = this.db.prepare(`
-      UPDATE pending_interactions SET status='cancelled', updated_at=CURRENT_TIMESTAMP
+      UPDATE pending_interactions
+      SET status='cancelled', resume_claim_id=NULL, updated_at=CURRENT_TIMESTAMP
       WHERE session_id=? AND status IN ('waiting', 'suspended', 'resolved', 'resuming')
     `).run(sessionId);
     return Number(result.changes);

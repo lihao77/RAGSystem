@@ -32,4 +32,14 @@ export const POSTGRES_PENDING_INTERACTION_MIGRATIONS: PostgresPendingInteraction
     CREATE INDEX IF NOT EXISTS pending_interactions_tool_idx
       ON pending_interactions(session_id, tool_call_id, status);
   `,
+}, {
+  version: 2,
+  name: "pending_interaction_resume_claims",
+  sql: `
+    ALTER TABLE pending_interactions
+      ADD COLUMN IF NOT EXISTS resume_claim_id TEXT;
+    CREATE INDEX IF NOT EXISTS pending_interactions_resume_claim_idx
+      ON pending_interactions(session_id, root_run_id, resume_claim_id)
+      WHERE resume_claim_id IS NOT NULL;
+  `,
 }];

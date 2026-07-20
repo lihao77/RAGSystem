@@ -3,12 +3,21 @@ import { isDeepStrictEqual } from "node:util";
 import type { ConversationStore, ConversationStoreTransaction } from "../../contracts/conversation-store/index.js";
 import type {
   RuntimeAtomicOperations,
+  RuntimeClaimResumeInput,
+  RuntimeClaimResumeResult,
   RuntimeFinalizeRunInput,
   RuntimeFinalizeRunResult,
+  RuntimeInteractionResolution,
   RuntimePersistMessageInput,
   RuntimePersistMessageResult,
   RuntimeRecordEnvelopeInput,
   RuntimeRecordEnvelopeResult,
+  RuntimeRecordInteractionInput,
+  RuntimeRecordInteractionResult,
+  RuntimeResolveInteractionInput,
+  RuntimeResolveInteractionResult,
+  RuntimeRollbackResumeInput,
+  RuntimeRollbackResumeResult,
   RuntimeStartRunInput,
   RuntimeStartRunResult,
   RuntimeStorage,
@@ -40,6 +49,10 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       startRun: (input) => this.startRun(input),
       persistMessage: (input) => this.persistMessage(input),
       recordEnvelope: (input) => this.recordEnvelope(input),
+      recordInteraction: (input) => this.recordInteraction(input),
+      resolveInteraction: (input) => this.resolveInteraction(input),
+      claimResume: (input) => this.claimResume(input),
+      rollbackResume: (input) => this.rollbackResume(input),
       finalizeRun: (input) => this.finalizeRun(input),
     };
   }
@@ -110,6 +123,160 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         return { message, deletedProviderContinuations, providerContinuation };
       });
     });
+  }
+
+  private recordInteraction(input: RuntimeRecordInteractionInput): Promise<RuntimeRecordInteractionResult> {
+    return this.serial.run(() => {
+      const rootCallId = input.rootCallId.trim();
+      if (!rootCallId) throw new Error("interaction requires a rootCallId");
+      assertRecordScope(input.record, input.interaction.sessionId, input.interaction.runId);
+      assertInteractionEnvelope(input.record, input.interaction, "required");
+      const expected = {
+        ...input.interaction,
+        requestPayload: { ...input.interaction.requestPayload, rootCallId },
+      };
+      return this.store.runInTransaction((tx) => {
+        assertTenantSession(tx, this.tenantId, expected.sessionId);
+        assertRunBelongsToRoot(tx, expected.sessionId, expected.runId, expected.rootRunId);
+        assertInteractionBatchRoot(tx.listPendingInteractions({
+          sessionId: expected.sessionId,
+          batchId: expected.batchId,
+        }), expected.rootRunId);
+        const existing = tx.getPendingInteraction(expected.sessionId, expected.interactionId);
+        const interaction = existing ?? tx.createPendingInteraction(expected);
+        assertInteractionIdentity(interaction, expected);
+        return { interaction, record: recordEnvelope(tx, input.record) };
+      });
+    });
+  }
+
+  private resolveInteraction(input: RuntimeResolveInteractionInput): Promise<RuntimeResolveInteractionResult> {
+    return this.serial.run(() => this.store.runInTransaction((tx) => {
+      assertTenantSession(tx, this.tenantId, input.sessionId);
+      const current = tx.getPendingInteraction(input.sessionId, input.interactionId);
+      if (!current) throw new Error(`pending interaction not found: ${input.interactionId}`);
+      if (current.kind !== input.resolution.kind) {
+        throw new Error(`pending interaction kind conflict: ${input.interactionId}`);
+      }
+      if (current.status === "cancelled") {
+        throw new Error(`pending interaction is cancelled: ${input.interactionId}`);
+      }
+      assertRecordScope(input.record, input.sessionId, current.run_id);
+      assertInteractionEnvelope(input.record, toCreatePendingInput(current), "responded");
+      const resolution = resolutionPayload(input.resolution);
+      if (current.resolution_payload && !isDeepStrictEqual(current.resolution_payload, resolution)) {
+        throw new Error(`pending interaction resolution conflict: ${input.interactionId}`);
+      }
+      const previousStatus = current.status;
+      let changed = false;
+      if (current.status === "waiting" || current.status === "suspended") {
+        changed = tx.updatePendingInteractionStatus({
+          sessionId: input.sessionId,
+          interactionId: input.interactionId,
+          from: [current.status],
+          status: "resolved",
+          resolution,
+        });
+        if (!changed) throw new Error(`pending interaction resolution race: ${input.interactionId}`);
+      } else if (!current.resolution_payload) {
+        throw new Error(`pending interaction resolution missing: ${input.interactionId}`);
+      }
+      const interaction = tx.getPendingInteraction(input.sessionId, input.interactionId);
+      if (!interaction) throw new Error(`pending interaction disappeared: ${input.interactionId}`);
+      const batch = tx.listPendingInteractions({
+        sessionId: input.sessionId,
+        batchId: current.batch_id,
+      });
+      assertInteractionBatchRoot(batch, current.root_run_id);
+      const batchReady = tx.listPendingInteractions({
+        sessionId: input.sessionId,
+        batchId: current.batch_id,
+        statuses: ["waiting", "suspended"],
+      }).length === 0;
+      const rootRun = tx.getRun(input.sessionId, current.root_run_id);
+      if (!rootRun) throw new Error(`interaction root run not found: ${current.root_run_id}`);
+      return {
+        interaction,
+        previousStatus,
+        changed,
+        batchReady,
+        rootRunStatus: rootRun.status,
+        record: recordEnvelope(tx, input.record),
+      };
+    }));
+  }
+
+  private claimResume(input: RuntimeClaimResumeInput): Promise<RuntimeClaimResumeResult> {
+    return this.serial.run(() => {
+      const claimId = input.claimId.trim();
+      if (!claimId) throw new Error("resume claimId must not be empty");
+      return this.store.runInTransaction((tx): RuntimeClaimResumeResult => {
+        const session = assertTenantSession(tx, this.tenantId, input.sessionId);
+        const interaction = tx.getPendingInteraction(input.sessionId, input.interactionId);
+        if (!interaction) return { claimed: false, reason: "not_found" };
+        const batch = tx.listPendingInteractions({ sessionId: input.sessionId, batchId: interaction.batch_id });
+        assertInteractionBatchRoot(batch, interaction.root_run_id);
+        if (batch.some((item) => item.status === "waiting" || item.status === "suspended")) {
+          return { claimed: false, reason: "batch_incomplete" };
+        }
+        if (batch.some((item) => item.status === "resuming" || item.resume_claim_id)) {
+          return { claimed: false, reason: "already_claimed" };
+        }
+        if (batch.length === 0 || batch.some((item) => item.status !== "resolved")) {
+          return { claimed: false, reason: "terminal" };
+        }
+        const rootRun = tx.getRun(input.sessionId, interaction.root_run_id);
+        if (!rootRun) return { claimed: false, reason: "not_found" };
+        if (rootRun.status !== "suspended") {
+          const terminal = rootRun.status !== "running";
+          return { claimed: false, reason: terminal ? "terminal" : "root_not_suspended" };
+        }
+        const claimed = tx.claimPendingBatch(input.sessionId, interaction.batch_id, claimId);
+        if (claimed !== batch.length) {
+          throw new Error(`resume batch claim was partial: ${interaction.batch_id}`);
+        }
+        if (!tx.updateRunStatus(rootRun.run_id, input.sessionId, "running", null)) {
+          throw new Error(`resume root run update failed: ${rootRun.run_id}`);
+        }
+        const request = interaction.request_payload;
+        if (!rootRun.agent_name) throw new Error(`resume root run has no agent: ${rootRun.run_id}`);
+        return {
+          claimed: true,
+          claimId,
+          batchId: interaction.batch_id,
+          rootRunId: rootRun.run_id,
+          rootCallId: stringField(request.rootCallId) ?? `call_${rootRun.run_id}`,
+          agentName: rootRun.agent_name,
+          task: stringField(request.task) ?? rootRun.task_summary ?? "",
+          requestId: stringField(request.requestId) ?? rootRun.request_id,
+          executionKind: stringField(request.executionKind) ?? rootRun.entrypoint ?? "agent_stream",
+          userId: rootRun.user_id,
+          sessionMetadata: session.metadata,
+          resolutions: batch.map((item) => ({
+            interactionId: item.interaction_id,
+            toolCallId: item.tool_call_id,
+            resolution: interactionResolution(item),
+          })),
+        };
+      });
+    });
+  }
+
+  private rollbackResume(input: RuntimeRollbackResumeInput): Promise<RuntimeRollbackResumeResult> {
+    return this.serial.run(() => this.store.runInTransaction((tx) => {
+      assertTenantSession(tx, this.tenantId, input.sessionId);
+      const claimed = tx.listPendingInteractions({ sessionId: input.sessionId, rootRunId: input.rootRunId })
+        .filter((item) => item.status === "resuming" && item.resume_claim_id === input.claimId);
+      if (claimed.length === 0) return { rolledBack: false };
+      const rootRun = tx.getRun(input.sessionId, input.rootRunId);
+      if (!rootRun || rootRun.status !== "running") return { rolledBack: false };
+      const released = tx.releasePendingClaim(input.sessionId, input.rootRunId, input.claimId);
+      if (released !== claimed.length) throw new Error(`resume claim rollback was partial: ${input.claimId}`);
+      if (!tx.updateRunStatus(input.rootRunId, input.sessionId, "suspended", null)) {
+        throw new Error(`resume root run rollback failed: ${input.rootRunId}`);
+      }
+      return { rolledBack: true };
+    }));
   }
 
   private finalizeRun(input: RuntimeFinalizeRunInput): Promise<RuntimeFinalizeRunResult> {
@@ -332,6 +499,129 @@ function toCreatedRun(
     parent_call_id: run.parent_call_id,
     child_agent_id: run.child_agent_id,
   };
+}
+
+function assertTenantSession(
+  tx: ConversationStoreTransaction,
+  tenantId: TenantId,
+  sessionId: string,
+) {
+  const session = tx.getSession(sessionId);
+  if (!session) throw new Error(`session not found: ${sessionId}`);
+  if (session.tenant_id !== tenantId) throw new Error(`session belongs to another tenant: ${sessionId}`);
+  return session;
+}
+
+function assertRunBelongsToRoot(
+  tx: ConversationStoreTransaction,
+  sessionId: string,
+  runId: string,
+  rootRunId: string,
+): void {
+  let run = tx.getRun(sessionId, runId);
+  if (!run) throw new Error(`interaction run not found: ${runId}`);
+  const visited = new Set<string>();
+  while (run.run_id !== rootRunId) {
+    if (!run.parent_run_id || visited.has(run.run_id)) {
+      throw new Error(`interaction run is outside root tree: ${runId} -> ${rootRunId}`);
+    }
+    visited.add(run.run_id);
+    run = tx.getRun(sessionId, run.parent_run_id);
+    if (!run) throw new Error(`interaction parent run not found: ${runId}`);
+  }
+  if (run.parent_run_id !== null) throw new Error(`interaction root run is not a root: ${rootRunId}`);
+}
+
+function assertInteractionIdentity(
+  existing: import("../../contracts/conversation-store/index.js").PendingInteractionRecord,
+  input: import("../../contracts/conversation-store/index.js").CreatePendingInteractionInput,
+): void {
+  const conflicts = existing.session_id !== input.sessionId
+    || existing.run_id !== input.runId
+    || existing.root_run_id !== input.rootRunId
+    || existing.tool_call_id !== input.toolCallId
+    || existing.batch_id !== input.batchId
+    || existing.kind !== input.kind
+    || !isDeepStrictEqual(existing.request_payload, input.requestPayload);
+  if (conflicts) throw new Error(`pending interaction identity conflict: ${input.interactionId}`);
+}
+
+function assertInteractionEnvelope(
+  record: RuntimeRecordEnvelopeInput,
+  interaction: import("../../contracts/conversation-store/index.js").CreatePendingInteractionInput,
+  phase: "required" | "responded",
+): void {
+  const expectedEventId = `${interaction.interactionId}:${phase}`;
+  const outer = asRecord(record.outbox.payload);
+  const event = asRecord(outer.client_event);
+  const payload = asRecord(event.payload);
+  if (record.outbox.eventId !== expectedEventId
+    || record.outbox.eventType !== "client.interaction"
+    || event.type !== "interaction"
+    || event.session_id !== interaction.sessionId
+    || event.run_id !== interaction.runId
+    || event.call_id !== interaction.interactionId
+    || payload.kind !== interaction.kind
+    || payload.phase !== phase) {
+    throw new Error(`interaction ${phase} envelope scope conflict: ${interaction.interactionId}`);
+  }
+}
+
+function toCreatePendingInput(
+  record: import("../../contracts/conversation-store/index.js").PendingInteractionRecord,
+): import("../../contracts/conversation-store/index.js").CreatePendingInteractionInput {
+  return {
+    interactionId: record.interaction_id,
+    sessionId: record.session_id,
+    runId: record.run_id,
+    rootRunId: record.root_run_id,
+    toolCallId: record.tool_call_id,
+    batchId: record.batch_id,
+    kind: record.kind,
+    requestPayload: record.request_payload,
+  };
+}
+
+function resolutionPayload(resolution: RuntimeInteractionResolution): Record<string, unknown> {
+  return resolution.kind === "approval"
+    ? { approved: resolution.approved, message: resolution.message }
+    : { value: resolution.value };
+}
+
+function interactionResolution(
+  record: import("../../contracts/conversation-store/index.js").PendingInteractionRecord,
+): RuntimeInteractionResolution {
+  const payload = record.resolution_payload;
+  if (!payload) throw new Error(`pending interaction resolution missing: ${record.interaction_id}`);
+  if (record.kind === "user_input") {
+    if (typeof payload.value !== "string") {
+      throw new Error(`pending user input resolution is invalid: ${record.interaction_id}`);
+    }
+    return { kind: "user_input", value: payload.value };
+  }
+  if (typeof payload.approved !== "boolean" || typeof payload.message !== "string") {
+    throw new Error(`pending approval resolution is invalid: ${record.interaction_id}`);
+  }
+  return { kind: "approval", approved: payload.approved, message: payload.message };
+}
+
+function assertInteractionBatchRoot(
+  batch: readonly import("../../contracts/conversation-store/index.js").PendingInteractionRecord[],
+  rootRunId: string,
+): void {
+  if (batch.some((item) => item.root_run_id !== rootRunId)) {
+    throw new Error(`pending interaction batch spans multiple root runs: ${batch[0]?.batch_id ?? "unknown"}`);
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function stringField(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
 }
 
 function sameJson(left: unknown, right: unknown): boolean {

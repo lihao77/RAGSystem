@@ -18,6 +18,7 @@ function pendingRecord(overrides: Partial<PendingInteractionRecord> = {}): Pendi
     status: "suspended",
     request_payload: {},
     resolution_payload: null,
+    resume_claim_id: null,
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",
     responded_at: null,

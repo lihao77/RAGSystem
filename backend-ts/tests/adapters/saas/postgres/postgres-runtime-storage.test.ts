@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { PostgresRuntimeStorage } from "../../../../src/adapters/saas/postgres/postgres-runtime-storage.js";
+import { POSTGRES_PENDING_INTERACTION_MIGRATIONS } from "../../../../src/adapters/saas/postgres/pending-interaction-schema.js";
 import type {
   PostgresMemoryExecutor,
   PostgresQueryResult,
@@ -28,6 +29,54 @@ function persistMessageInput(messageId: string) {
   };
 }
 
+function interactionInput(interactionId: string, toolCallId: string, batchId = "batch-1") {
+  return {
+    interactionId,
+    sessionId: "session-1",
+    runId: "run-1",
+    rootRunId: "run-1",
+    toolCallId,
+    batchId,
+    kind: "approval" as const,
+    requestPayload: {
+      task: "approve tools",
+      requestId: "request-1",
+      executionKind: "agent_stream",
+    },
+  };
+}
+
+function interactionRecord(
+  interaction: ReturnType<typeof interactionInput>,
+  phase: "required" | "responded",
+) {
+  const eventId = `${interaction.interactionId}:${phase}`;
+  const event = {
+    type: "interaction",
+    session_id: interaction.sessionId,
+    run_id: interaction.runId,
+    call_id: interaction.interactionId,
+    payload: { kind: interaction.kind, phase },
+  };
+  return {
+    step: {
+      sessionId: interaction.sessionId,
+      runId: interaction.runId,
+      stepType: "protocol.envelope.v1",
+      payload: event,
+    },
+    outbox: {
+      eventId,
+      sessionId: interaction.sessionId,
+      runId: interaction.runId,
+      eventType: "client.interaction",
+      aggregateType: "run",
+      aggregateId: interaction.runId,
+      payload: { client_event: event },
+    },
+  };
+}
+
 function createExecutorHarness(options: {
   sessionExists?: boolean;
   sessionTenantId?: string;
@@ -35,12 +84,14 @@ function createExecutorHarness(options: {
   runStatus?: string;
   runPatch?: Record<string, unknown>;
   failProviderContinuation?: boolean;
+  failOutboxEventId?: string;
 } = {}) {
   const tenantId = createTenantId("tnt_runtime_storage");
   const transactionQueries: Array<{ sql: string; params: readonly unknown[] }> = [];
   const messages = new Map<string, Record<string, unknown>>();
   const eventSteps = new Map<string, Record<string, unknown>>();
   const eventOutboxes = new Map<string, Record<string, unknown>>();
+  const interactions = new Map<string, Record<string, unknown>>();
   const providerContinuations = new Map<string, Record<string, unknown>>();
   let rootQueryCount = 0;
   let transactionCount = 0;
@@ -78,6 +129,16 @@ function createExecutorHarness(options: {
         rows = [{ tenant_id: tenantId }];
       } else if (sql.includes("SELECT tenant_id FROM conversation_sessions")) {
         rows = sessionExists ? [{ tenant_id: options.sessionTenantId ?? tenantId }] : [];
+      } else if (sql.startsWith("SELECT * FROM conversation_sessions")) {
+        rows = sessionExists ? [{
+          session_id: "session-1",
+          tenant_id: options.sessionTenantId ?? tenantId,
+          user_id: "user-1",
+          permission_mode: null,
+          metadata: { source: "contract-test" },
+          created_at: NOW,
+          updated_at: NOW,
+        }] : [];
       } else if (sql.includes("FROM saas_runs WHERE tenant_id=$1 AND run_id=$2 FOR UPDATE")) {
         rows = runState ? [runState] : [];
       } else if (sql.includes("SELECT run_id FROM saas_runs")) {
@@ -151,6 +212,7 @@ function createExecutorHarness(options: {
       } else if (sql.includes("INSERT INTO session_event_seq")) {
         rows = [{ seq: 9 }];
       } else if (sql.includes("INSERT INTO event_outbox")) {
+        if (String(params[0]) === options.failOutboxEventId) throw new Error("outbox failure");
         const inserted = {
           id: 41,
           event_id: String(params[0]),
@@ -172,6 +234,109 @@ function createExecutorHarness(options: {
         };
         eventOutboxes.set(inserted.event_id, inserted);
         rows = [inserted];
+      } else if (sql.includes("INSERT INTO pending_interactions")) {
+        const interactionId = String(params[0]);
+        if (!interactions.has(interactionId)) {
+          interactions.set(interactionId, {
+            interaction_id: interactionId,
+            session_id: String(params[1]),
+            run_id: String(params[2]),
+            root_run_id: String(params[3]),
+            tool_call_id: String(params[4]),
+            batch_id: String(params[5]),
+            kind: String(params[6]),
+            status: "waiting",
+            request_payload: JSON.parse(String(params[7])) as Record<string, unknown>,
+            resolution_payload: null,
+            created_at: NOW,
+            updated_at: NOW,
+            responded_at: null,
+            consumed_at: null,
+            resume_claim_id: null,
+          });
+        }
+      } else if (sql.includes("FROM pending_interactions WHERE session_id=$1 AND interaction_id=$2")) {
+        const found = interactions.get(String(params[1]));
+        rows = found?.session_id === params[0] ? [found] : [];
+        rowCount = rows.length;
+      } else if (sql.includes("FROM pending_interactions WHERE") && sql.includes("ORDER BY created_at")) {
+        rows = [...interactions.values()].filter((interaction) => {
+          if (interaction.session_id !== params[0]) return false;
+          let nextParam = 1;
+          if (sql.includes("root_run_id=$2")) {
+            if (interaction.root_run_id !== params[nextParam++]) return false;
+          }
+          if (sql.includes(`batch_id=$${nextParam + 1}`)) {
+            if (interaction.batch_id !== params[nextParam++]) return false;
+          }
+          const statuses = params.find((value) => Array.isArray(value)) as string[] | undefined;
+          return !statuses || statuses.includes(String(interaction.status));
+        });
+        rowCount = rows.length;
+      } else if (sql.includes("resolution_payload=CASE")) {
+        const found = interactions.get(String(params[4]));
+        const allowed = !Array.isArray(params[5]) || (params[5] as string[]).includes(String(found?.status));
+        if (found && found.session_id === params[3] && allowed) {
+          interactions.set(String(params[4]), {
+            ...found,
+            status: String(params[0]),
+            resolution_payload: params[2] ? JSON.parse(String(params[1])) as Record<string, unknown> : found.resolution_payload,
+            responded_at: params[0] === "resolved" ? NOW : found.responded_at,
+            resume_claim_id: params[0] === "resuming" ? found.resume_claim_id : null,
+            updated_at: NOW,
+          });
+          rowCount = 1;
+        } else {
+          rowCount = 0;
+        }
+      } else if (sql.includes("UPDATE pending_interactions AS candidate") && sql.includes("resume_claim_id=$3")) {
+        const batch = [...interactions.values()].filter((interaction) => (
+          interaction.session_id === params[0] && interaction.batch_id === params[1]
+        ));
+        if (batch.every((interaction) => interaction.status === "resolved" && !interaction.resume_claim_id)) {
+          for (const interaction of batch) {
+            interactions.set(String(interaction.interaction_id), {
+              ...interaction,
+              status: "resuming",
+              resume_claim_id: String(params[2]),
+              updated_at: NOW,
+            });
+          }
+          rowCount = batch.length;
+        } else {
+          rowCount = 0;
+        }
+      } else if (sql.includes("UPDATE pending_interactions") && sql.includes("resume_claim_id=$3")
+        && sql.includes("root_run_id=$2")) {
+        const claimed = [...interactions.values()].filter((interaction) => (
+          interaction.session_id === params[0]
+          && interaction.root_run_id === params[1]
+          && interaction.resume_claim_id === params[2]
+          && interaction.status === "resuming"
+        ));
+        for (const interaction of claimed) {
+          interactions.set(String(interaction.interaction_id), {
+            ...interaction,
+            status: "resolved",
+            resume_claim_id: null,
+            updated_at: NOW,
+          });
+        }
+        rowCount = claimed.length;
+      } else if (sql.includes("UPDATE pending_interactions") && sql.includes("SET status='suspended'")) {
+        const waiting = [...interactions.values()].filter((interaction) => (
+          interaction.session_id === params[0]
+          && interaction.root_run_id === params[1]
+          && interaction.status === "waiting"
+        ));
+        for (const interaction of waiting) {
+          interactions.set(String(interaction.interaction_id), {
+            ...interaction,
+            status: "suspended",
+            updated_at: NOW,
+          });
+        }
+        rowCount = waiting.length;
       } else if (sql.startsWith("DELETE FROM provider_continuations")) {
         const matching = [...providerContinuations.entries()].filter(([, record]) => (
           record.session_id === params[1] && record.thread_key === params[2]
@@ -201,6 +366,10 @@ function createExecutorHarness(options: {
       transactionCount += 1;
       const messageSnapshot = new Map(messages);
       const continuationSnapshot = new Map(providerContinuations);
+      const stepSnapshot = new Map(eventSteps);
+      const outboxSnapshot = new Map(eventOutboxes);
+      const interactionSnapshot = new Map(interactions);
+      const runSnapshot = runState ? { ...runState } : null;
       try {
         return await operation(transactionExecutor);
       } catch (error) {
@@ -208,6 +377,13 @@ function createExecutorHarness(options: {
         for (const [key, value] of messageSnapshot) messages.set(key, value);
         providerContinuations.clear();
         for (const [key, value] of continuationSnapshot) providerContinuations.set(key, value);
+        eventSteps.clear();
+        for (const [key, value] of stepSnapshot) eventSteps.set(key, value);
+        eventOutboxes.clear();
+        for (const [key, value] of outboxSnapshot) eventOutboxes.set(key, value);
+        interactions.clear();
+        for (const [key, value] of interactionSnapshot) interactions.set(key, value);
+        runState = runSnapshot;
         throw error;
       }
     },
@@ -220,13 +396,25 @@ function createExecutorHarness(options: {
     messages,
     eventSteps,
     eventOutboxes,
+    interactions,
     providerContinuations,
+    get runState() { return runState; },
     get rootQueryCount() { return rootQueryCount; },
     get transactionCount() { return transactionCount; },
   };
 }
 
 describe("PostgresRuntimeStorage", () => {
+  it("keeps pending-interaction migrations continuous and adds resume claims in v2", () => {
+    expect(POSTGRES_PENDING_INTERACTION_MIGRATIONS.map((migration) => migration.version))
+      .toEqual([1, 2]);
+    expect(POSTGRES_PENDING_INTERACTION_MIGRATIONS[1]).toMatchObject({
+      version: 2,
+      name: "pending_interaction_resume_claims",
+    });
+    expect(POSTGRES_PENDING_INTERACTION_MIGRATIONS[1]?.sql).toContain("resume_claim_id");
+  });
+
   it("starts a run atomically with tenant binding and a deterministic initial message", async () => {
     const harness = createExecutorHarness({ sessionExists: false, runExists: false });
     const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
@@ -406,6 +594,10 @@ describe("PostgresRuntimeStorage", () => {
 
     expect(storage.operations.startRun).toBeTypeOf("function");
     expect(storage.operations.recordEnvelope).toBeTypeOf("function");
+    expect(storage.operations.recordInteraction).toBeTypeOf("function");
+    expect(storage.operations.resolveInteraction).toBeTypeOf("function");
+    expect(storage.operations.claimResume).toBeTypeOf("function");
+    expect(storage.operations.rollbackResume).toBeTypeOf("function");
     await expect(storage.operations.finalizeRun({
       runId: "run-1",
       sessionId: "session-1",
@@ -609,5 +801,196 @@ describe("PostgresRuntimeStorage", () => {
 
     expect(harness.messages.has("message-rollback")).toBe(false);
     expect(harness.providerContinuations.has("message-rollback")).toBe(false);
+  });
+
+  it("records and resolves a batch idempotently, allows one resume claim, and rolls it back by token", async () => {
+    const harness = createExecutorHarness({
+      runStatus: "suspended",
+      runPatch: {
+        agent_name: "agent-1",
+        task_summary: "approve tools",
+        request_id: "request-1",
+        user_id: "user-1",
+        entrypoint: "agent_stream",
+      },
+    });
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+    const firstInteraction = interactionInput("interaction-1", "tool-1");
+    const secondInteraction = interactionInput("interaction-2", "tool-2");
+
+    const firstRecord = await storage.operations.recordInteraction({
+      interaction: firstInteraction,
+      rootCallId: "root-call-1",
+      record: interactionRecord(firstInteraction, "required"),
+    });
+    const replayedRecord = await storage.operations.recordInteraction({
+      interaction: firstInteraction,
+      rootCallId: "root-call-1",
+      record: interactionRecord(firstInteraction, "required"),
+    });
+    await storage.operations.recordInteraction({
+      interaction: secondInteraction,
+      rootCallId: "root-call-1",
+      record: interactionRecord(secondInteraction, "required"),
+    });
+
+    expect(replayedRecord).toEqual(firstRecord);
+    expect(harness.interactions).toHaveLength(2);
+    expect([...harness.eventOutboxes.keys()].filter((eventId) => eventId.endsWith(":required")))
+      .toHaveLength(2);
+
+    const firstResolution = {
+      sessionId: "session-1",
+      interactionId: "interaction-1",
+      resolution: { kind: "approval" as const, approved: true, message: "allow one" },
+      record: interactionRecord(firstInteraction, "responded"),
+    };
+    const resolvedFirst = await storage.operations.resolveInteraction(firstResolution);
+    const replayedFirst = await storage.operations.resolveInteraction(firstResolution);
+    await expect(storage.operations.claimResume({
+      sessionId: "session-1",
+      interactionId: "interaction-1",
+      claimId: "claim-too-early",
+    })).resolves.toEqual({ claimed: false, reason: "batch_incomplete" });
+    const resolvedSecond = await storage.operations.resolveInteraction({
+      sessionId: "session-1",
+      interactionId: "interaction-2",
+      resolution: { kind: "approval", approved: false, message: "deny two" },
+      record: interactionRecord(secondInteraction, "responded"),
+    });
+
+    expect(resolvedFirst).toMatchObject({ changed: true, batchReady: false, rootRunStatus: "suspended" });
+    expect(replayedFirst).toMatchObject({ changed: false, batchReady: false, rootRunStatus: "suspended" });
+    expect(resolvedSecond).toMatchObject({ changed: true, batchReady: true, rootRunStatus: "suspended" });
+    expect([...harness.eventOutboxes.keys()].filter((eventId) => eventId.endsWith(":responded")))
+      .toHaveLength(2);
+    await expect(storage.operations.resolveInteraction({
+      ...firstResolution,
+      resolution: { kind: "approval", approved: false, message: "conflict" },
+    })).rejects.toThrow("resolution conflict");
+
+    const claimed = await storage.operations.claimResume({
+      sessionId: "session-1",
+      interactionId: "interaction-1",
+      claimId: "claim-1",
+    });
+    await expect(storage.operations.claimResume({
+      sessionId: "session-1",
+      interactionId: "interaction-2",
+      claimId: "claim-2",
+    })).resolves.toEqual({ claimed: false, reason: "already_claimed" });
+    expect(claimed).toMatchObject({
+      claimed: true,
+      claimId: "claim-1",
+      batchId: "batch-1",
+      rootRunId: "run-1",
+      rootCallId: "root-call-1",
+      agentName: "agent-1",
+      task: "approve tools",
+      requestId: "request-1",
+      executionKind: "agent_stream",
+      userId: "user-1",
+      sessionMetadata: { source: "contract-test" },
+      resolutions: expect.arrayContaining([
+        expect.objectContaining({ interactionId: "interaction-1", toolCallId: "tool-1" }),
+        expect.objectContaining({ interactionId: "interaction-2", toolCallId: "tool-2" }),
+      ]),
+    });
+
+    await expect(storage.operations.rollbackResume({
+      sessionId: "session-1",
+      rootRunId: "run-1",
+      claimId: "stale-claim",
+    })).resolves.toEqual({ rolledBack: false });
+    expect(harness.runState?.status).toBe("running");
+    await expect(storage.operations.rollbackResume({
+      sessionId: "session-1",
+      rootRunId: "run-1",
+      claimId: "claim-1",
+    })).resolves.toEqual({ rolledBack: true });
+    expect(harness.runState?.status).toBe("suspended");
+    expect([...harness.interactions.values()].map((interaction) => [
+      interaction.status,
+      interaction.resume_claim_id,
+    ])).toEqual([
+      ["resolved", null],
+      ["resolved", null],
+    ]);
+  });
+
+  it("rolls back pending, step, and outbox writes when interaction recording fails", async () => {
+    const interaction = interactionInput("interaction-rollback", "tool-rollback");
+    const harness = createExecutorHarness({ failOutboxEventId: "interaction-rollback:required" });
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+
+    await expect(storage.operations.recordInteraction({
+      interaction,
+      rootCallId: "root-call-1",
+      record: interactionRecord(interaction, "required"),
+    })).rejects.toThrow("outbox failure");
+
+    expect(harness.interactions).toHaveLength(0);
+    expect(harness.eventSteps).toHaveLength(0);
+    expect(harness.eventOutboxes).toHaveLength(0);
+  });
+
+  it("rejects a pending batch that mixes root runs", async () => {
+    const harness = createExecutorHarness();
+    harness.interactions.set("foreign-root-interaction", {
+      interaction_id: "foreign-root-interaction",
+      session_id: "session-1",
+      run_id: "run-foreign",
+      root_run_id: "root-foreign",
+      tool_call_id: "tool-foreign",
+      batch_id: "batch-mixed",
+      kind: "approval",
+      status: "waiting",
+      request_payload: { rootCallId: "root-call-foreign" },
+      resolution_payload: null,
+      created_at: NOW,
+      updated_at: NOW,
+      responded_at: null,
+      consumed_at: null,
+      resume_claim_id: null,
+    });
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+    const interaction = interactionInput("interaction-local", "tool-local", "batch-mixed");
+
+    await expect(storage.operations.recordInteraction({
+      interaction,
+      rootCallId: "root-call-1",
+      record: interactionRecord(interaction, "required"),
+    })).rejects.toThrow("batch spans multiple root runs");
+
+    expect(harness.interactions.has("interaction-local")).toBe(false);
+    harness.interactions.set("interaction-local", {
+      interaction_id: "interaction-local",
+      session_id: "session-1",
+      run_id: "run-1",
+      root_run_id: "run-1",
+      tool_call_id: "tool-local",
+      batch_id: "batch-mixed",
+      kind: "approval",
+      status: "waiting",
+      request_payload: { ...interaction.requestPayload, rootCallId: "root-call-1" },
+      resolution_payload: null,
+      created_at: NOW,
+      updated_at: NOW,
+      responded_at: null,
+      consumed_at: null,
+      resume_claim_id: null,
+    });
+    await expect(storage.operations.resolveInteraction({
+      sessionId: "session-1",
+      interactionId: "interaction-local",
+      resolution: { kind: "approval", approved: true, message: "must reject" },
+      record: interactionRecord(interaction, "responded"),
+    })).rejects.toThrow("batch spans multiple root runs");
+    expect(harness.interactions.get("interaction-local")?.status).toBe("waiting");
+    await expect(storage.operations.claimResume({
+      sessionId: "session-1",
+      interactionId: "interaction-local",
+      claimId: "claim-mixed",
+    })).rejects.toThrow("batch spans multiple root runs");
   });
 });

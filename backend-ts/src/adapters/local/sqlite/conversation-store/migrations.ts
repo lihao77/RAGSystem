@@ -291,6 +291,18 @@ export const MIGRATIONS: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 17,
+    name: "pending_interaction_resume_claims",
+    up: (db) => {
+      addColumnIfMissing(db, "pending_interactions", "resume_claim_id", "TEXT");
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_pending_interactions_resume_claim
+          ON pending_interactions(session_id, root_run_id, resume_claim_id)
+          WHERE resume_claim_id IS NOT NULL;
+      `);
+    },
+  },
 ];
 
 function addColumnIfMissing(db: MigrationDatabase, table: string, column: string, declaration: string): void {

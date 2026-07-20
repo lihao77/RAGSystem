@@ -196,11 +196,86 @@ export interface RuntimePersistMessageResult {
   providerContinuation: ProviderContinuationRecord | null;
 }
 
+export type RuntimeInteractionResolution =
+  | { kind: "approval"; approved: boolean; message: string }
+  | { kind: "user_input"; value: string };
+
+export interface RuntimeRecordInteractionInput {
+  interaction: CreatePendingInteractionInput;
+  rootCallId: string;
+  record: RuntimeRecordEnvelopeInput;
+}
+
+export interface RuntimeRecordInteractionResult {
+  interaction: PendingInteractionRecord;
+  record: RuntimeRecordEnvelopeResult;
+}
+
+export interface RuntimeResolveInteractionInput {
+  sessionId: string;
+  interactionId: string;
+  resolution: RuntimeInteractionResolution;
+  record: RuntimeRecordEnvelopeInput;
+}
+
+export interface RuntimeResolveInteractionResult {
+  interaction: PendingInteractionRecord;
+  previousStatus: PendingInteractionStatus;
+  changed: boolean;
+  batchReady: boolean;
+  rootRunStatus: string;
+  record: RuntimeRecordEnvelopeResult;
+}
+
+export interface RuntimeClaimResumeInput {
+  sessionId: string;
+  interactionId: string;
+  claimId: string;
+}
+
+export type RuntimeClaimResumeResult =
+  | {
+      claimed: false;
+      reason: "not_found" | "batch_incomplete" | "root_not_suspended" | "already_claimed" | "terminal";
+    }
+  | {
+      claimed: true;
+      claimId: string;
+      batchId: string;
+      rootRunId: string;
+      rootCallId: string;
+      agentName: string;
+      task: string;
+      requestId: string | null;
+      executionKind: string;
+      userId: string | null;
+      sessionMetadata: Record<string, unknown>;
+      resolutions: Array<{
+        interactionId: string;
+        toolCallId: string;
+        resolution: RuntimeInteractionResolution;
+      }>;
+    };
+
+export interface RuntimeRollbackResumeInput {
+  sessionId: string;
+  rootRunId: string;
+  claimId: string;
+}
+
+export interface RuntimeRollbackResumeResult {
+  rolledBack: boolean;
+}
+
 export interface RuntimeAtomicOperations {
   startRun(input: RuntimeStartRunInput): Promise<RuntimeStartRunResult>;
   persistMessage(input: RuntimePersistMessageInput): Promise<RuntimePersistMessageResult>;
   /** `outbox.eventId` is the shared idempotency key for the outbox row and optional run step. */
   recordEnvelope(input: RuntimeRecordEnvelopeInput): Promise<RuntimeRecordEnvelopeResult>;
+  recordInteraction(input: RuntimeRecordInteractionInput): Promise<RuntimeRecordInteractionResult>;
+  resolveInteraction(input: RuntimeResolveInteractionInput): Promise<RuntimeResolveInteractionResult>;
+  claimResume(input: RuntimeClaimResumeInput): Promise<RuntimeClaimResumeResult>;
+  rollbackResume(input: RuntimeRollbackResumeInput): Promise<RuntimeRollbackResumeResult>;
   finalizeRun(input: RuntimeFinalizeRunInput): Promise<RuntimeFinalizeRunResult>;
 }
 

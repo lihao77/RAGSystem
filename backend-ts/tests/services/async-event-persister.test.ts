@@ -76,6 +76,18 @@ function createHarness() {
       recordEnvelope: async () => {
         throw new Error("persister terminal flow must use finalizeRun");
       },
+      recordInteraction: async () => {
+        throw new Error("persister must not record interactions");
+      },
+      resolveInteraction: async () => {
+        throw new Error("persister must not resolve interactions");
+      },
+      claimResume: async () => {
+        throw new Error("persister must not claim resumes");
+      },
+      rollbackResume: async () => {
+        throw new Error("persister must not roll back resumes");
+      },
       finalizeRun: async (input) => {
         lifecycle.push("finalize");
         finalizes.push(input);

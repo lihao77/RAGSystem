@@ -44,6 +44,7 @@ export interface PendingInteractionRecord {
   status: PendingInteractionStatus;
   request_payload: Record<string, unknown>;
   resolution_payload: Record<string, unknown> | null;
+  resume_claim_id: string | null;
   created_at: string;
   updated_at: string;
   responded_at: string | null;
@@ -383,8 +384,25 @@ export interface ConversationStoreTransaction {
   updateRunStepsMessageId(sessionId: string, runId: string, messageId: string): number;
   updateRunStatus(runId: string, sessionId: string, status: string, finalMessageId?: string | null): boolean;
   suspendPendingInteractions(sessionId: string, rootRunId: string): number;
+  createPendingInteraction(input: CreatePendingInteractionInput): PendingInteractionRecord;
+  getPendingInteraction(sessionId: string, interactionId: string): PendingInteractionRecord | null;
+  listPendingInteractions(input: {
+    sessionId: string;
+    rootRunId?: string | null;
+    batchId?: string | null;
+    statuses?: PendingInteractionStatus[];
+  }): PendingInteractionRecord[];
+  updatePendingInteractionStatus(input: {
+    sessionId: string;
+    interactionId: string;
+    from?: PendingInteractionStatus[];
+    status: PendingInteractionStatus;
+    resolution?: Record<string, unknown> | null;
+  }): boolean;
   markPendingBatchResuming(sessionId: string, batchId: string): number;
   releasePendingBatch(sessionId: string, batchId: string): number;
+  claimPendingBatch(sessionId: string, batchId: string, claimId: string): number;
+  releasePendingClaim(sessionId: string, rootRunId: string, claimId: string): number;
   nextSessionSeq(sessionId: string): number;
   appendOutbox(input: AppendOutboxInput): OutboxRow;
   /** 读最近消息（对齐 IMessageStore.getRecentMessages：纯 SELECT 不开新事务，事务内读消除 TOCTOU）。 */

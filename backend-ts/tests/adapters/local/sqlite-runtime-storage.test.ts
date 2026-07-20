@@ -49,6 +49,74 @@ function persistMessageInput(messageId: string) {
   };
 }
 
+function interactionInput(interactionId: string, toolCallId: string, batchId = "batch-1") {
+  return {
+    interactionId,
+    sessionId: "session-1",
+    runId: "run-1",
+    rootRunId: "run-1",
+    toolCallId,
+    batchId,
+    kind: "approval" as const,
+    requestPayload: {
+      task: "approve tools",
+      requestId: "request-1",
+      executionKind: "agent_stream",
+    },
+  };
+}
+
+function interactionRecord(
+  interaction: ReturnType<typeof interactionInput>,
+  phase: "required" | "responded",
+) {
+  const eventId = `${interaction.interactionId}:${phase}`;
+  const event = {
+    type: "interaction",
+    session_id: interaction.sessionId,
+    run_id: interaction.runId,
+    call_id: interaction.interactionId,
+    payload: { kind: interaction.kind, phase },
+  };
+  return {
+    step: {
+      sessionId: interaction.sessionId,
+      runId: interaction.runId,
+      stepType: "protocol.envelope.v1",
+      payload: event,
+    },
+    outbox: {
+      eventId,
+      sessionId: interaction.sessionId,
+      runId: interaction.runId,
+      eventType: "client.interaction",
+      aggregateType: "run",
+      aggregateId: interaction.runId,
+      payload: { client_event: event },
+    },
+  };
+}
+
+async function startInteractionRun(storage: SqliteRuntimeStorage) {
+  return storage.operations.startRun({
+    session: {
+      sessionId: "session-1",
+      userId: "user-1",
+      metadata: { source: "contract-test" },
+    },
+    run: {
+      runId: "run-1",
+      sessionId: "session-1",
+      status: "running",
+      agentName: "agent-1",
+      taskSummary: "approve tools",
+      requestId: "request-1",
+      userId: "user-1",
+      entrypoint: "agent_stream",
+    },
+  });
+}
+
 describe("SqliteRuntimeStorage", () => {
   it("exposes only tenant identity and fixed atomic operations", () => {
     const { storage } = createHarness();
@@ -58,6 +126,10 @@ describe("SqliteRuntimeStorage", () => {
       startRun: expect.any(Function),
       persistMessage: expect.any(Function),
       recordEnvelope: expect.any(Function),
+      recordInteraction: expect.any(Function),
+      resolveInteraction: expect.any(Function),
+      claimResume: expect.any(Function),
+      rollbackResume: expect.any(Function),
       finalizeRun: expect.any(Function),
     });
     expect(storage).not.toHaveProperty("conversation");
@@ -667,5 +739,180 @@ describe("SqliteRuntimeStorage", () => {
       .map((step) => step.step_order)).toEqual(Array.from({ length: 20 }, (_, index) => index + 1));
     expect(store.listOutboxForReplay({ sessionId: "session-1", limit: 100 })
       .map((row) => row.session_seq)).toEqual(Array.from({ length: 20 }, (_, index) => index + 1));
+  });
+
+  it("records and resolves a batch idempotently, allows one resume claim, and rolls it back by token", async () => {
+    const { store, storage } = createHarness();
+    await startInteractionRun(storage);
+    const firstInteraction = interactionInput("interaction-1", "tool-1");
+    const secondInteraction = interactionInput("interaction-2", "tool-2");
+
+    const firstRecord = await storage.operations.recordInteraction({
+      interaction: firstInteraction,
+      rootCallId: "root-call-1",
+      record: interactionRecord(firstInteraction, "required"),
+    });
+    const replayedRecord = await storage.operations.recordInteraction({
+      interaction: firstInteraction,
+      rootCallId: "root-call-1",
+      record: interactionRecord(firstInteraction, "required"),
+    });
+    await storage.operations.recordInteraction({
+      interaction: secondInteraction,
+      rootCallId: "root-call-1",
+      record: interactionRecord(secondInteraction, "required"),
+    });
+
+    expect(replayedRecord).toEqual(firstRecord);
+    expect(store.listPendingInteractions({ sessionId: "session-1", batchId: "batch-1" }))
+      .toHaveLength(2);
+    expect(store.listOutboxForReplay({ sessionId: "session-1" })
+      .filter((row) => row.event_id.endsWith(":required"))).toHaveLength(2);
+
+    await storage.operations.finalizeRun({
+      runId: "run-1",
+      sessionId: "session-1",
+      status: "suspended",
+      suspendRootRunId: "run-1",
+    });
+    const firstResolution = {
+      sessionId: "session-1",
+      interactionId: "interaction-1",
+      resolution: { kind: "approval" as const, approved: true, message: "allow one" },
+      record: interactionRecord(firstInteraction, "responded"),
+    };
+    const resolvedFirst = await storage.operations.resolveInteraction(firstResolution);
+    const replayedFirst = await storage.operations.resolveInteraction(firstResolution);
+    await expect(storage.operations.claimResume({
+      sessionId: "session-1",
+      interactionId: "interaction-1",
+      claimId: "claim-too-early",
+    })).resolves.toEqual({ claimed: false, reason: "batch_incomplete" });
+    const resolvedSecond = await storage.operations.resolveInteraction({
+      sessionId: "session-1",
+      interactionId: "interaction-2",
+      resolution: { kind: "approval", approved: false, message: "deny two" },
+      record: interactionRecord(secondInteraction, "responded"),
+    });
+
+    expect(resolvedFirst).toMatchObject({ changed: true, batchReady: false, rootRunStatus: "suspended" });
+    expect(replayedFirst).toMatchObject({ changed: false, batchReady: false, rootRunStatus: "suspended" });
+    expect(resolvedSecond).toMatchObject({ changed: true, batchReady: true, rootRunStatus: "suspended" });
+    expect(store.listOutboxForReplay({ sessionId: "session-1" })
+      .filter((row) => row.event_id.endsWith(":responded"))).toHaveLength(2);
+    await expect(storage.operations.resolveInteraction({
+      ...firstResolution,
+      resolution: { kind: "approval", approved: false, message: "conflict" },
+    })).rejects.toThrow("resolution conflict");
+
+    const claims = await Promise.all([
+      storage.operations.claimResume({
+        sessionId: "session-1",
+        interactionId: "interaction-1",
+        claimId: "claim-1",
+      }),
+      storage.operations.claimResume({
+        sessionId: "session-1",
+        interactionId: "interaction-2",
+        claimId: "claim-2",
+      }),
+    ]);
+    expect(claims.filter((result) => result.claimed)).toHaveLength(1);
+    expect(claims.filter((result) => !result.claimed)).toEqual([
+      { claimed: false, reason: "already_claimed" },
+    ]);
+    const claimed = claims.find((result) => result.claimed);
+    expect(claimed).toMatchObject({
+      claimed: true,
+      batchId: "batch-1",
+      rootRunId: "run-1",
+      rootCallId: "root-call-1",
+      agentName: "agent-1",
+      task: "approve tools",
+      requestId: "request-1",
+      executionKind: "agent_stream",
+      userId: "user-1",
+      sessionMetadata: { source: "contract-test" },
+      resolutions: expect.arrayContaining([
+        expect.objectContaining({ interactionId: "interaction-1", toolCallId: "tool-1" }),
+        expect.objectContaining({ interactionId: "interaction-2", toolCallId: "tool-2" }),
+      ]),
+    });
+
+    await expect(storage.operations.rollbackResume({
+      sessionId: "session-1",
+      rootRunId: "run-1",
+      claimId: "wrong-claim",
+    })).resolves.toEqual({ rolledBack: false });
+    expect(store.getRun("session-1", "run-1")?.status).toBe("running");
+    await expect(storage.operations.rollbackResume({
+      sessionId: "session-1",
+      rootRunId: "run-1",
+      claimId: claimed?.claimed ? claimed.claimId : "",
+    })).resolves.toEqual({ rolledBack: true });
+    expect(store.getRun("session-1", "run-1")?.status).toBe("suspended");
+    expect(store.listPendingInteractions({ sessionId: "session-1", batchId: "batch-1" })
+      .map((interaction) => [interaction.status, interaction.resume_claim_id])).toEqual([
+      ["resolved", null],
+      ["resolved", null],
+    ]);
+  });
+
+  it("rolls back a new pending interaction when its stable event conflicts", async () => {
+    const { store, storage } = createHarness();
+    await startInteractionRun(storage);
+    const interaction = interactionInput("interaction-conflict", "tool-conflict");
+    const record = interactionRecord(interaction, "required");
+    await storage.operations.recordEnvelope({
+      outbox: { ...record.outbox, payload: { client_event: { type: "conflicting" } } },
+    });
+
+    await expect(storage.operations.recordInteraction({
+      interaction,
+      rootCallId: "root-call-1",
+      record,
+    })).rejects.toThrow("outbox eventId conflict");
+
+    expect(store.getPendingInteraction("session-1", "interaction-conflict")).toBeNull();
+    expect(store.listRunSteps({ sessionId: "session-1", runId: "run-1" })).toEqual([]);
+    expect(store.listOutboxForReplay({ sessionId: "session-1" }))
+      .toEqual([expect.objectContaining({ event_id: "interaction-conflict:required" })]);
+  });
+
+  it("rejects a pending batch that mixes root runs", async () => {
+    const { store, storage } = createHarness();
+    await startInteractionRun(storage);
+    store.createPendingInteraction({
+      interactionId: "foreign-root-interaction",
+      sessionId: "session-1",
+      runId: "run-1",
+      rootRunId: "root-foreign",
+      toolCallId: "tool-foreign",
+      batchId: "batch-mixed",
+      kind: "approval",
+      requestPayload: { rootCallId: "root-call-foreign" },
+    });
+    const interaction = interactionInput("interaction-local", "tool-local", "batch-mixed");
+
+    await expect(storage.operations.recordInteraction({
+      interaction,
+      rootCallId: "root-call-1",
+      record: interactionRecord(interaction, "required"),
+    })).rejects.toThrow("batch spans multiple root runs");
+
+    expect(store.getPendingInteraction("session-1", "interaction-local")).toBeNull();
+    store.createPendingInteraction(interaction);
+    await expect(storage.operations.resolveInteraction({
+      sessionId: "session-1",
+      interactionId: "interaction-local",
+      resolution: { kind: "approval", approved: true, message: "must reject" },
+      record: interactionRecord(interaction, "responded"),
+    })).rejects.toThrow("batch spans multiple root runs");
+    expect(store.getPendingInteraction("session-1", "interaction-local")?.status).toBe("waiting");
+    await expect(storage.operations.claimResume({
+      sessionId: "session-1",
+      interactionId: "interaction-local",
+      claimId: "claim-mixed",
+    })).rejects.toThrow("batch spans multiple root runs");
   });
 });
