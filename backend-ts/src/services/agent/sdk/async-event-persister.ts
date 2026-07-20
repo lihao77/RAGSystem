@@ -132,6 +132,8 @@ export class AsyncKernelEventPersister {
     error: unknown = null,
   ): Promise<{ readyResumeInteractionIds: string[] }> {
     const persistedFinal = this.buildFinalMessage(status, finalMessage);
+    const rootRunId = this.ctx.rootRunId ?? this.ctx.runId;
+    const isRootRun = this.ctx.runId === rootRunId && this.ctx.parentRunId == null;
     await this.clientEvents.flush(this.ctx.sessionId);
     const result = await this.storage.operations.finalizeRun({
       runId: this.ctx.runId,
@@ -139,7 +141,7 @@ export class AsyncKernelEventPersister {
       status,
       finalMessage: persistedFinal,
       ...(persistedFinal ? { attachStepsToFinalMessage: true } : {}),
-      ...(!this.ctx.childAgentId ? { interactionRootRunId: this.ctx.rootRunId ?? this.ctx.runId } : {}),
+      ...(isRootRun ? { interactionRootRunId: rootRunId } : {}),
       ...(status === "completed" || status === "interrupted"
         ? { deleteProviderContinuationThreadKey: this.ctx.threadKey }
         : {}),

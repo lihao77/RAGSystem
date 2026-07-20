@@ -101,7 +101,10 @@ export class SaaSSessionApplication {
     }
     const archivedEnvelopes = steps
       .filter((step) => step.step_type === EXECUTION_ENVELOPE_STEP_TYPE)
-      .map((step) => EnvelopeSchema.parse(step.payload) as Envelope);
+      .map((step) => ({
+        eventId: step.event_id ?? null,
+        envelope: EnvelopeSchema.parse(step.payload) as Envelope,
+      }));
     const durableEnvelopes = this.outbox && rootRunId
       ? await this.collectRunTreeOutboxEnvelopes(input.sessionId, runIds, limit + offset)
       : [];
@@ -116,7 +119,11 @@ export class SaaSSessionApplication {
     };
   }
 
-  private async collectRunTreeOutboxEnvelopes(sessionId: string, runIds: string[], limit: number): Promise<Envelope[]> {
+  private async collectRunTreeOutboxEnvelopes(
+    sessionId: string,
+    runIds: string[],
+    limit: number,
+  ): Promise<StoredExecutionEnvelope[]> {
     if (!this.outbox) return [];
     const rows = await this.outbox.listOutboxForReplay({
       tenantId: this.tenantId,
@@ -126,8 +133,8 @@ export class SaaSSessionApplication {
     });
     const projector = new EnvelopeProjector();
     return rows
-      .map((row) => projector.toEnvelope(row))
-      .filter((event) => EXECUTION_ENVELOPE_TYPES.has(event.type));
+      .map((row) => ({ eventId: row.event_id, envelope: projector.toEnvelope(row) }))
+      .filter(({ envelope }) => EXECUTION_ENVELOPE_TYPES.has(envelope.type));
   }
   async updateUserMessage(input: { sessionId: string; messageId: string; content: string }): Promise<boolean> { if (!(await this.getSession(input.sessionId))) return false; return this.repository.updateMessage({ sessionId: input.sessionId, messageId: input.messageId, content: input.content, roleFilter: "user" }); }
   async rollbackMessages(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<number> {
@@ -182,16 +189,41 @@ const EXECUTION_ENVELOPE_TYPES = new Set<Envelope["type"]>([
   "tool_result",
 ]);
 
-function mergeExecutionEnvelopes(archived: Envelope[], durable: Envelope[]): Envelope[] {
-  const merged: Envelope[] = [];
-  const seen = new Set<string>();
-  for (const event of [...archived, ...durable]) {
-    const key = typeof event.message_id === "string"
-      ? event.message_id
-      : JSON.stringify([event.type, event.run_id ?? null, event.call_id ?? null, event.agent_id ?? null, event.payload ?? null]);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(event);
-  }
-  return merged;
+interface StoredExecutionEnvelope {
+  eventId: string | null;
+  envelope: Envelope;
+}
+
+function mergeExecutionEnvelopes(
+  archived: StoredExecutionEnvelope[],
+  durable: StoredExecutionEnvelope[],
+): Envelope[] {
+  const merged: StoredExecutionEnvelope[] = [];
+  const indexByEventId = new Map<string, number>();
+  const fallbackKeys = new Map<string, number>();
+  const append = (record: StoredExecutionEnvelope, authoritative: boolean): void => {
+    const eventId = record.eventId?.trim() || null;
+    const fallbackKey = executionEnvelopeFallbackKey(record.envelope);
+    const existingIndex = eventId
+      ? (indexByEventId.get(eventId) ?? fallbackKeys.get(fallbackKey))
+      : fallbackKeys.get(fallbackKey);
+    if (existingIndex !== undefined) {
+      // The outbox projection is authoritative: it carries persisted message_id/seq.
+      if (authoritative) merged[existingIndex] = record;
+      if (eventId) indexByEventId.set(eventId, existingIndex);
+      return;
+    }
+    const index = merged.length;
+    merged.push(record);
+    if (eventId) indexByEventId.set(eventId, index);
+    else fallbackKeys.set(fallbackKey, index);
+  };
+  archived.forEach((record) => append(record, false));
+  durable.forEach((record) => append(record, true));
+  return merged.map(({ envelope }) => envelope);
+}
+
+function executionEnvelopeFallbackKey(event: Envelope): string {
+  const { message_id: _messageId, seq: _seq, ...rest } = event as Envelope & { message_id?: unknown; seq?: unknown };
+  return JSON.stringify([rest.type, rest.run_id ?? null, rest.call_id ?? null, rest.agent_id ?? null, rest.payload ?? null]);
 }

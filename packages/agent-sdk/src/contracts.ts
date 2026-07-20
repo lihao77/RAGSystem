@@ -202,6 +202,10 @@ export interface ToolProvider {
 export interface ToolExecContext {
   sessionId: string | null;
   runId: string | null;
+  /** Root invocation call id shared by the execution tree for durable interactions. */
+  rootCallId?: string | null;
+  /** Current run's invocation call id; root run equals rootCallId. */
+  currentCallId?: string | null;
   /** 当前 run 所属执行树的根 run id。 */
   rootRunId?: string | null;
   /** 当前 run 的父 run id；root run 为 null。 */

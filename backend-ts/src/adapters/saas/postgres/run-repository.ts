@@ -135,8 +135,19 @@ export class PostgresRunRepository implements AsyncRunStore {
     if (input.messageId) add("message_id = ?", input.messageId);
     if (input.sessionId) add("session_id = ?", input.sessionId);
     params.push(Math.max(1, Math.min(1000, Math.trunc(input.limit ?? 500))));
-    const result = await this.executor.query<Record<string, unknown>>(`SELECT id, run_id, session_id, message_id, step_order, step_type, payload, created_at FROM saas_run_steps WHERE ${clauses.join(" AND ")} ORDER BY step_order ASC LIMIT $${params.length}`, params);
-    return result.rows.map((row) => ({ id: Number(row.id), run_id: String(row.run_id), session_id: String(row.session_id), message_id: textOrNull(row.message_id), step_order: Number(row.step_order), step_type: String(row.step_type), payload: typeof row.payload === "string" ? JSON.parse(row.payload) as Record<string, unknown> : (row.payload as Record<string, unknown> ?? {}), created_at: new Date(String(row.created_at)).toISOString(), resource_refs: [] }));
+    const result = await this.executor.query<Record<string, unknown>>(`SELECT id, run_id, session_id, message_id, event_id, step_order, step_type, payload, created_at FROM saas_run_steps WHERE ${clauses.join(" AND ")} ORDER BY step_order ASC LIMIT $${params.length}`, params);
+    return result.rows.map((row) => ({
+      id: Number(row.id),
+      run_id: String(row.run_id),
+      ...(textOrNull(row.event_id) ? { event_id: textOrNull(row.event_id) } : {}),
+      session_id: String(row.session_id),
+      message_id: textOrNull(row.message_id),
+      step_order: Number(row.step_order),
+      step_type: String(row.step_type),
+      payload: typeof row.payload === "string" ? JSON.parse(row.payload) as Record<string, unknown> : (row.payload as Record<string, unknown> ?? {}),
+      created_at: new Date(String(row.created_at)).toISOString(),
+      resource_refs: [],
+    }));
   }
 
   async getTenantRun(tenantId: string, runId: string): Promise<RunInfo | null> {

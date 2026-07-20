@@ -103,6 +103,7 @@ function createExecutorHarness(options: {
   runExists?: boolean;
   runStatus?: string;
   runPatch?: Record<string, unknown>;
+  additionalRuns?: Record<string, Record<string, unknown>>;
   failProviderContinuation?: boolean;
   failOutboxEventId?: string;
 } = {}) {
@@ -160,7 +161,9 @@ function createExecutorHarness(options: {
           updated_at: NOW,
         }] : [];
       } else if (sql.includes("FROM saas_runs WHERE tenant_id=$1 AND run_id=$2 FOR UPDATE")) {
-        rows = runState ? [runState] : [];
+        const requestedRunId = String(params[1]);
+        const additional = options.additionalRuns?.[requestedRunId];
+        rows = additional ? [additional] : runState?.run_id === requestedRunId ? [runState] : [];
       } else if (sql.includes("SELECT run_id FROM saas_runs")) {
         rows = runState ? [{ run_id: "run-1" }] : [];
       } else if (sql.includes("INSERT INTO saas_runs")) {
@@ -995,6 +998,62 @@ describe("PostgresRuntimeStorage", () => {
       ["resolved", null],
       ["resolved", null],
     ]);
+  });
+
+  it("keeps a grandchild interaction on the durable root lineage", async () => {
+    const childRun = {
+      run_id: "child-run", session_id: "session-1", tenant_id: createTenantId("tnt_runtime_storage"),
+      entrypoint: "call_agent", status: "running", task_summary: "child", request_id: "request-1",
+      user_id: "user-1", agent_name: "child-agent", thread_key: "child:one",
+      parent_run_id: "run-1", parent_call_id: "tool-child", child_agent_id: "child-1",
+      final_message_id: null, created_at: NOW, updated_at: NOW,
+    };
+    const grandchildRun = {
+      ...childRun,
+      run_id: "grandchild-run",
+      agent_name: "grandchild-agent",
+      thread_key: "child:two",
+      parent_run_id: "child-run",
+      parent_call_id: "tool-grandchild",
+      child_agent_id: "child-2",
+    };
+    const harness = createExecutorHarness({
+      runPatch: {
+        agent_name: "root-agent", task_summary: "root task", request_id: "request-1",
+        user_id: "user-1", entrypoint: "agent_stream",
+      },
+      additionalRuns: { "child-run": childRun, "grandchild-run": grandchildRun },
+    });
+    const storage = new PostgresRuntimeStorage(harness.tenantId, harness.rootExecutor);
+    const interaction = {
+      ...interactionInput("grandchild-interaction", "grandchild-tool", "grandchild-batch"),
+      runId: "grandchild-run",
+      rootRunId: "run-1",
+    };
+
+    await storage.operations.recordInteraction({
+      interaction,
+      rootCallId: "root-call-0",
+      record: interactionRecord({ ...interaction, runId: "grandchild-run" }, "required"),
+    });
+    await storage.operations.finalizeRun({ runId: "run-1", sessionId: "session-1", status: "suspended", interactionRootRunId: "run-1" });
+    await storage.operations.resolveInteraction({
+      sessionId: "session-1",
+      interactionId: "grandchild-interaction",
+      resolution: { kind: "approval", approved: true, message: "ok" },
+      buildRecord: () => interactionRecord({ ...interaction, runId: "grandchild-run" }, "responded"),
+    });
+    const claim = await storage.operations.claimResume({
+      sessionId: "session-1",
+      interactionId: "grandchild-interaction",
+      claimId: "grandchild-claim",
+    });
+
+    expect(claim).toMatchObject({ claimed: true, rootRunId: "run-1", rootCallId: "root-call-0" });
+    expect(harness.interactions.get("grandchild-interaction")).toMatchObject({
+      run_id: "grandchild-run",
+      root_run_id: "run-1",
+    });
   });
 
   it("rolls back pending, step, and outbox writes when interaction recording fails", async () => {

@@ -858,6 +858,42 @@ describe("SqliteRuntimeStorage", () => {
     ]);
   });
 
+  it("keeps a grandchild interaction on the durable root lineage", async () => {
+    const { store, storage } = createHarness();
+    await startInteractionRun(storage);
+    await storage.operations.startRun({
+      session: { sessionId: "session-1", userId: "user-1" },
+      run: { runId: "child-run", sessionId: "session-1", status: "running", parentRunId: "run-1", parentCallId: "call-child" },
+    });
+    await storage.operations.startRun({
+      session: { sessionId: "session-1", userId: "user-1" },
+      run: { runId: "grandchild-run", sessionId: "session-1", status: "running", parentRunId: "child-run", parentCallId: "call-grandchild" },
+    });
+    const interaction = {
+      ...interactionInput("grandchild-interaction", "grandchild-tool", "grandchild-batch"),
+      runId: "grandchild-run",
+      rootRunId: "run-1",
+    };
+    await storage.operations.recordInteraction({
+      interaction,
+      rootCallId: "root-call-0",
+      record: interactionRecord({ ...interaction, runId: "grandchild-run" }, "required"),
+    });
+
+    await storage.operations.finalizeRun({ runId: "run-1", sessionId: "session-1", status: "suspended", interactionRootRunId: "run-1" });
+    const resolved = await storage.operations.resolveInteraction({
+      sessionId: "session-1",
+      interactionId: "grandchild-interaction",
+      resolution: { kind: "approval", approved: true, message: "ok" },
+      buildRecord: () => interactionRecord({ ...interaction, runId: "grandchild-run" }, "responded"),
+    });
+    const claim = await storage.operations.claimResume({ sessionId: "session-1", interactionId: "grandchild-interaction", claimId: "grandchild-claim" });
+
+    expect(resolved.rootRunStatus).toBe("suspended");
+    expect(claim).toMatchObject({ claimed: true, rootRunId: "run-1", rootCallId: "root-call-0" });
+    expect(store.getPendingInteraction("session-1", "grandchild-interaction")?.root_run_id).toBe("run-1");
+  });
+
   it("finalizes the root pending-interaction matrix atomically", async () => {
     const cases = [
       { status: "suspended" as const, expected: ["suspended", "consumed", "resolved", "resolved"], ready: ["resolved-1"] },

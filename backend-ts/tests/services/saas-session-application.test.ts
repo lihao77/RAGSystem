@@ -155,7 +155,13 @@ describe("SaaSSessionApplication", () => {
           { run_id: "child-run", parent_run_id: "root-run", created_at: "2026-01-01T00:00:01.000Z" },
         ],
       }),
-      listRunSteps: vi.fn().mockResolvedValue([]),
+      listRunSteps: vi.fn(async ({ runId }: { runId: string }) => runId === "root-run"
+        ? [{
+            event_id: "event-1",
+            step_type: "protocol.envelope.v1",
+            payload: { ...executionEnvelope("root-run"), type: "agent_started" },
+          }]
+        : []),
     };
     const outbox = {
       listOutboxForReplay: vi.fn().mockResolvedValue([

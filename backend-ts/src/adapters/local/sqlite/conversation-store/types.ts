@@ -39,6 +39,7 @@ export interface SessionListRow extends SessionRow {
 export interface RunStepRow {
   id: number;
   run_id: string;
+  event_id?: string | null;
   session_id: string;
   message_id: string | null;
   step_order: number;

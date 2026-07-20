@@ -13,6 +13,47 @@ import { OutboxDispatcher } from "../../src/services/runtime/event-outbox/dispat
 import { LOCAL_TENANT_ID } from "../../src/services/identity/index.js";
 
 describe("AgentDelegationService", () => {
+  it("keeps grandchild durable and wire call lineage distinct", async () => {
+    const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
+    store.createSession(LOCAL_TENANT_ID, "lineage-session", null);
+    const workerAgent = minimalAgent("worker_agent");
+    const parentAgent = minimalAgent("parent_agent");
+    parentAgent.delegation.enabled_agents = ["worker_agent"];
+    const service = new AgentDelegationService(store, runtimeCoreStub(workerAgent));
+    const seenInputs: Array<Record<string, unknown>> = [];
+    service.setRunEngine(() => ({
+      async executeRun(input: Record<string, unknown>) {
+        seenInputs.push(input);
+        return { content: "done", success: true };
+      },
+    } as unknown as AgentRunEngine));
+
+    await service.callAgent({
+      agent: parentAgent,
+      teamName: null,
+      input: { agentName: "worker_agent", task: "grandchild", callId: "tool-grandchild" },
+    }, toolContext({
+      sessionId: "lineage-session",
+      runId: "child-run",
+      rootRunId: "root-run",
+      rootCallId: "root-call-0",
+      currentCallId: "agent-call-1",
+      parentCallId: "root-call-0",
+      toolCallId: "tool-grandchild",
+    }));
+
+    expect(seenInputs).toHaveLength(1);
+    expect(seenInputs[0]).toMatchObject({
+      parentRunId: "child-run",
+      parentCallId: "tool-grandchild",
+      lineageParentCallId: "agent-call-1",
+      rootRunId: "root-run",
+      interactionRootCallId: "root-call-0",
+    });
+    expect(seenInputs[0]?.rootCallId).toMatch(/^call_/);
+    store.close();
+  });
+
   it("call_agent 重执行时续原 suspended child run", async () => {
     const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
     const realtimeEvents = new RealtimeEventHub();
@@ -82,6 +123,8 @@ describe("AgentDelegationService", () => {
       sessionId: "resume-session",
       runId: "parent-run",
       rootRunId: "parent-run",
+      rootCallId: "root-call",
+      currentCallId: "root-call",
       toolCallId: "tool-call-resume",
       executionKind: "daemon.cron",
       currentAgentName: "orchestrator_agent",
@@ -102,7 +145,11 @@ describe("AgentDelegationService", () => {
       runId: "child-run",
       threadKey: "child:child-resume",
       parentRunId: "parent-run",
+      parentCallId: "tool-call-resume",
+      lineageParentCallId: "root-call",
+      rootRunId: "parent-run",
       rootCallId: "agent-call-original",
+      interactionRootCallId: "root-call",
       executionKind: "daemon.cron",
     });
     expect(store.listChildAgents({ sessionId: "resume-session" }).total).toBe(1);

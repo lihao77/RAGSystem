@@ -74,6 +74,10 @@ export interface SdkExecuteRunInput {
   modelName: string;
   task: string;
   threadKey: string;
+  /** Durable root lineage inherited unchanged by child and grandchild runs. */
+  rootRunId?: string;
+  interactionRootCallId?: string;
+  lineageParentCallId?: string | null;
   parentCallId?: string | null;
   childAgentId?: string | null;
   /** 父 run id（child delegation run 用；root run 不传 → null）。createRun 落 runs.parent_run_id。 */
@@ -129,7 +133,8 @@ export async function executeRunWithSdk(
     ...(input.selectedLlm !== undefined ? { selectedLlm: input.selectedLlm } : {}),
   });
   const localConversation = deps.storage.kind === "local" ? deps.storage.conversation : null;
-  const rootRunId = localConversation ? resolveRootRunId(localConversation, input) : input.parentRunId ?? input.runId;
+  const rootRunId = input.rootRunId ?? input.parentRunId ?? input.runId;
+  const isRootRun = input.runId === rootRunId && input.parentRunId == null;
   // session metadata 端口：委托真实 ConversationStore，让 memory 源能读到 team/workspace_root，
   // 解析出 team/agent/workspace scope（否则只 session scope 存活，其余静默丢弃）。
   const sessionMetadata = await resolveSessionMetadataPort(
@@ -163,11 +168,13 @@ export async function executeRunWithSdk(
     sessionId: input.sessionId,
     runId: input.runId,
     rootRunId,
+    rootCallId: input.interactionRootCallId ?? input.rootCallId,
+    currentCallId: input.rootCallId,
     parentRunId: input.parentRunId ?? null,
     runParentCallId: input.parentCallId ?? null,
     taskId: input.taskId,
     requestId: input.requestId,
-    parentCallId: input.parentCallId ?? input.rootCallId,
+    parentCallId: input.lineageParentCallId ?? input.parentCallId ?? input.rootCallId,
     toolCallId: null,
     round: null,
     order: null,
@@ -341,8 +348,8 @@ export async function executeRunWithSdk(
     agentId: input.agent.agent_name,
     agentDisplayName: input.agent.display_name || input.agent.agent_name,
   };
-  if (input.parentCallId !== undefined && input.parentCallId !== null) {
-    wireCtx.parentCallId = input.parentCallId;
+  if (input.lineageParentCallId !== undefined && input.lineageParentCallId !== null) {
+    wireCtx.parentCallId = input.lineageParentCallId;
   }
 
   // KernelEvent 落库（B1：从 SDK Dispatcher 迁回 backend）：createRun + 增量事件落库 + 终态合一全在此。
@@ -413,7 +420,7 @@ export async function executeRunWithSdk(
     await consumeEvents.catch(() => undefined);
     if (error instanceof RecoverableInterrupt) {
       const finalized = await persister.finalize("suspended", null, error);
-      if (input.runId === rootRunId) {
+      if (isRootRun) {
         await deps.pendingInteractions.onRootFinalized(
           input.sessionId,
           rootRunId,
@@ -443,7 +450,7 @@ export async function executeRunWithSdk(
     const interrupted = input.signal.aborted;
     // 终态合一落库：failed/interrupted 更新 run 状态；interrupted 补悬空 tool observation。
     const finalized = await persister.finalize(interrupted ? "interrupted" : "failed", null, error);
-    if (input.runId === rootRunId) {
+    if (isRootRun) {
       await deps.pendingInteractions.onRootFinalized(
         input.sessionId,
         rootRunId,
@@ -460,7 +467,7 @@ export async function executeRunWithSdk(
 
   // completed：终态合一落库（最终 assistant message + Envelope 关联 + updateRunStatus）。
   const finalized = await persister.finalize("completed", { content: result.content });
-  if (input.runId === rootRunId) {
+  if (isRootRun) {
     await deps.pendingInteractions.onRootFinalized(
       input.sessionId,
       rootRunId,
@@ -528,20 +535,4 @@ function toHostToolExecutionResult(toolName: string, resolution: DelegationResol
     artifacts: [],
     llmHint: null,
   };
-}
-
-
-
-/** 沿 runs.parent_run_id 解析当前 run 所属执行树的根 run。 */
-function resolveRootRunId(store: ConversationStore, input: SdkExecuteRunInput): string {
-  let rootRunId = input.runId;
-  let parentRunId = input.parentRunId ?? null;
-  const visited = new Set<string>();
-  while (parentRunId && !visited.has(parentRunId)) {
-    visited.add(parentRunId);
-    rootRunId = parentRunId;
-    const parent = store.getRun(input.sessionId, parentRunId);
-    parentRunId = parent?.parent_run_id ?? null;
-  }
-  return rootRunId;
 }

@@ -187,6 +187,7 @@ export class AgentRunEngine {
       modelName: input.modelName,
       ...(input.selectedLlm ? { selectedLlm: input.selectedLlm } : {}),
       threadKey: "root",
+      rootRunId: runId,
       parentRunId: null,
       childAgentId: null,
       ...(input.userId !== undefined ? { userId: input.userId } : {}),
@@ -321,6 +322,12 @@ export class AgentRunEngine {
     // run 自己的归属：root run threadKey="root"、parent=null；child run threadKey="child:<id>"、
     // parent_run_id/child_agent_id 指向父。执行链路据此统一落库，无 root/child 分支。
     threadKey: string;
+    /** Entire execution tree root; descendants inherit this unchanged. */
+    rootRunId?: string;
+    /** Root invocation call id used by durable interaction records. */
+    interactionRootCallId?: string;
+    /** Direct parent agent call for execution-tree wire lineage. */
+    lineageParentCallId?: string | null;
     parentRunId?: string | null;
     parentCallId?: string | null | undefined;
     childAgentId?: string | null;
@@ -396,6 +403,9 @@ export class AgentRunEngine {
         {
           sessionId: input.sessionId,
           runId: input.runId,
+          rootRunId: input.rootRunId ?? input.runId,
+          interactionRootCallId: input.interactionRootCallId ?? input.rootCallId,
+          lineageParentCallId: input.lineageParentCallId ?? null,
           taskId: input.taskId,
           requestId: input.requestId,
           rootCallId: input.rootCallId,

@@ -12,7 +12,7 @@ import type {
 } from "../../../../contracts/conversation-store/index.js";
 import type { RunRow, RunStepRow } from "./types.js";
 
-const RUN_STEP_SELECT_COLUMNS = "id, run_id, session_id, message_id, step_order, step_type, payload, created_at";
+const RUN_STEP_SELECT_COLUMNS = "id, run_id, session_id, message_id, event_id, step_order, step_type, payload, created_at";
 
 interface IdempotentRunStepRow {
   id: number;

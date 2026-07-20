@@ -114,7 +114,7 @@ export class AgentDelegationService implements DelegationPort {
         parentRunId,
         parentAgentName: parentAgent.agent_name,
         parentCallId,
-        rootParentCallId: normalizeString(ctx.parentCallId),
+      rootParentCallId: normalizeString(ctx.currentCallId) ?? normalizeString(ctx.parentCallId) ?? normalizeString(ctx.rootCallId),
         agentCallId,
         agentName: targetAgentName,
         childDisplayName,
@@ -130,8 +130,11 @@ export class AgentDelegationService implements DelegationPort {
       task: buildDelegatedTask(task, input.contextHint),
       requestId: normalizeString(ctx.requestId),
       parentRunId,
-      parentCallId: agentCallId,
-      rootParentCallId: normalizeString(ctx.parentCallId),
+      rootRunId: normalizeString(ctx.rootRunId) ?? parentRunId,
+      rootCallId: agentCallId,
+      runParentCallId: parentCallId,
+      lineageParentCallId: normalizeString(ctx.currentCallId) ?? normalizeString(ctx.parentCallId),
+      interactionRootCallId: normalizeString(ctx.rootCallId) ?? parentCallId,
       round: ctx.round ?? null,
       childAgent: child,
       resumeRunId: resumedRun?.run_id ?? null,
@@ -148,7 +151,7 @@ export class AgentDelegationService implements DelegationPort {
       parentRunId,
       parentAgentName: parentAgent.agent_name,
       parentCallId,
-      rootParentCallId: normalizeString(ctx.parentCallId),
+      rootParentCallId: normalizeString(ctx.currentCallId) ?? normalizeString(ctx.parentCallId) ?? normalizeString(ctx.rootCallId),
       agentCallId,
       agentName: targetAgentName,
       childDisplayName,
@@ -197,7 +200,7 @@ export class AgentDelegationService implements DelegationPort {
       parentRunId: normalizeString(ctx.runId),
       parentAgentName: parentAgent.agent_name,
       parentCallId,
-      rootParentCallId: normalizeString(ctx.parentCallId),
+      rootParentCallId: normalizeString(ctx.currentCallId) ?? normalizeString(ctx.parentCallId) ?? normalizeString(ctx.rootCallId),
       agentCallId,
       agentName: child.agent_name,
       childDisplayName,
@@ -212,8 +215,11 @@ export class AgentDelegationService implements DelegationPort {
       task: message,
       requestId: normalizeString(ctx.requestId),
       parentRunId: normalizeString(ctx.runId),
-      parentCallId: agentCallId,
-      rootParentCallId: normalizeString(ctx.parentCallId),
+      rootRunId: normalizeString(ctx.rootRunId) ?? normalizeString(ctx.runId),
+      rootCallId: agentCallId,
+      runParentCallId: parentCallId,
+      lineageParentCallId: normalizeString(ctx.currentCallId) ?? normalizeString(ctx.parentCallId),
+      interactionRootCallId: normalizeString(ctx.rootCallId) ?? parentCallId ?? agentCallId,
       round: ctx.round ?? null,
       childAgent: child,
       resumeRunId: null,
@@ -230,7 +236,7 @@ export class AgentDelegationService implements DelegationPort {
       parentRunId: normalizeString(ctx.runId),
       parentAgentName: parentAgent.agent_name,
       parentCallId,
-      rootParentCallId: normalizeString(ctx.parentCallId),
+      rootParentCallId: normalizeString(ctx.currentCallId) ?? normalizeString(ctx.parentCallId) ?? normalizeString(ctx.rootCallId),
       agentCallId,
       agentName: child.agent_name,
       childDisplayName,
@@ -298,8 +304,11 @@ export class AgentDelegationService implements DelegationPort {
     task: string;
     requestId: string | null;
     parentRunId: string | null;
-    parentCallId: string | null;
-    rootParentCallId: string | null;
+    rootRunId: string | null;
+    rootCallId: string;
+    runParentCallId: string | null;
+    lineageParentCallId: string | null;
+    interactionRootCallId: string;
     round: number | null;
     childAgent: ChildAgentInfo;
     resumeRunId: string | null;
@@ -389,8 +398,10 @@ export class AgentDelegationService implements DelegationPort {
       sessionId: input.sessionId,
       runId: childRunId,
       taskId: randomUUID(),
-      rootCallId: input.parentCallId ?? `call_${childRunId}`,
-      parentCallId: input.rootParentCallId,
+      rootCallId: input.rootCallId,
+      interactionRootCallId: input.interactionRootCallId,
+      parentCallId: input.runParentCallId,
+      lineageParentCallId: input.lineageParentCallId,
       requestId: input.requestId ?? "",
       task: input.task,
       startedAt: new Date(),
@@ -399,6 +410,7 @@ export class AgentDelegationService implements DelegationPort {
       provider: resolved.provider,
       modelName: resolved.modelName,
       threadKey: input.childAgent.thread_key,
+      rootRunId: input.rootRunId ?? input.parentRunId ?? childRunId,
       parentRunId: input.parentRunId,
       childAgentId: input.childAgent.child_agent_id,
       executionKind: input.executionKind,
